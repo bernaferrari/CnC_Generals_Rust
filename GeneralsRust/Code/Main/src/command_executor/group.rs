@@ -67,12 +67,12 @@ impl<'a> CommandExecutor<'a> {
                     self.game_logic.is_special_power_ready_for(id, power_type)
                         || o.special_power_cooldowns.contains_key(power_type)
                 }
-                CommandType::Sell { .. } | CommandType::ToggleOvercharge => {
-                    o.is_kind_of(crate::game_logic::KindOf::Structure)
-                }
-                CommandType::HackInternet => {
-                    o.can_move() || o.template_name.to_ascii_lowercase().contains("hacker")
-                }
+                CommandType::Sell { .. } => o.is_kind_of(crate::game_logic::KindOf::Structure),
+                CommandType::ToggleOvercharge => o.thing.template.supports_overcharge(),
+                // C++ exposes this command through the object's
+                // HackInternetAIUpdate interface.  A mobile unit or a
+                // Hacker-looking basename must not acquire income authority.
+                CommandType::HackInternet => o.thing.template.hack_internet_ai_update.is_some(),
                 CommandType::GetRepaired { .. } | CommandType::GetHealed { .. } => o.can_move(),
                 CommandType::CreateFormation => o.can_move(),
                 _ => {

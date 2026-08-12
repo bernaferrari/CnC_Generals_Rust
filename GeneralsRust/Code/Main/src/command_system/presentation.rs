@@ -56,6 +56,11 @@ pub struct PresentationTargetHint {
     pub provides_aircraft_repair: bool,
     /// Wave 235: heal pad / medical residual.
     pub provides_heal: bool,
+    /// C++ ActionManager rejects a service destination contained by another
+    /// object. Freeze that fact with the same source tags; an older context
+    /// defaults false rather than assuming the destination is usable.
+    #[serde(default)]
+    pub can_provide_service: bool,
     /// Exact source-authored DockUpdate family frozen from the target.  It is
     /// not derived from `KindOf`, containment, or template spelling.
     #[serde(default)]
@@ -110,6 +115,11 @@ pub struct PresentationSelectedUnitHint {
     pub is_worker: bool,
     pub can_attack: bool,
     pub can_move: bool,
+    /// C++ service actions require a source that is not contained. This is
+    /// intentionally distinct from generic movement, which can be retained
+    /// by a container/rider presentation record.
+    #[serde(default)]
+    pub can_request_service: bool,
     pub can_capture: bool,
     pub template_name: String,
     /// Wave 235: dozer/worker repair residual.
@@ -118,6 +128,11 @@ pub struct PresentationSelectedUnitHint {
     pub is_damaged: bool,
     pub is_vehicle: bool,
     pub is_aircraft: bool,
+    /// C++ `Object::isAboveTerrain`, frozen from the same presentation frame
+    /// as an aircraft repair click. Older serialized contexts default false
+    /// so they cannot fabricate an airfield landing request.
+    #[serde(default)]
+    pub is_above_terrain: bool,
     pub is_infantry: bool,
     /// C++ Object INI `TransportSlotCount`, frozen for normal Enter.  A
     /// missing/zero value must not board a capacity-checked transport.

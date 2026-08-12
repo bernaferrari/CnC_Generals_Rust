@@ -533,7 +533,7 @@ impl GameLogic {
     ) {
         use crate::game_logic::host_hacker_income::{
             internet_center_floating_text_scatter, should_display_hacker_floating_cash,
-            HostHackerFloatingText, HACKER_CASH_PING_AUDIO, HACKER_XP_PER_CASH_UPDATE,
+            HostHackerFloatingText, HACKER_CASH_PING_AUDIO,
         };
 
         if ev.amount == 0 {
@@ -553,9 +553,12 @@ impl GameLogic {
         if let Some(pid) = owner_player_id {
             if let Some(player) = self.get_player_mut(pid) {
                 player.credit_supplies(deposited);
-                // residual XP
-                let _ = HACKER_XP_PER_CASH_UPDATE;
             }
+        }
+        // C++ awards XP to the hacker, not to a fixed retail template.  The
+        // shadow event carries its exact parsed `XpPerCashUpdate` value.
+        if let Some(hacker) = self.objects.get_mut(&ev.id) {
+            hacker.gain_experience(ev.xp_per_cash_update);
         }
         let is_local = owner_player_id
             .map(|pid| self.is_local_player(pid))
@@ -603,9 +606,7 @@ impl GameLogic {
 
     pub(in super::super) fn update_hacker_income(&mut self) {
         use crate::game_logic::host_hacker_income::{
-            cash_amount_for_level, cash_interval_frames, is_hacker_template,
-            is_internet_center_template, is_legal_hacker_income_source, HACKER_CASH_PING_AUDIO,
-            HACKER_XP_PER_CASH_UPDATE,
+            is_legal_hacker_income_source, HACKER_CASH_PING_AUDIO,
         };
 
         let frame = self.frame;
@@ -618,8 +619,13 @@ impl GameLogic {
                 if !obj.is_alive() {
                     return None;
                 }
-                let is_ic = obj.is_kind_of(KindOf::FSInternetCenter)
-                    || is_internet_center_template(&obj.template_name);
+                let is_ic = obj.thing.template.contain_module.kind
+                    == crate::game_logic::ContainModuleKind::InternetHack
+                    && obj.thing.template.contain_module.admission
+                        == crate::game_logic::ContainAdmission::MoneyHackerOnly
+                    && obj.is_constructed()
+                    && !obj.status.under_construction
+                    && !obj.status.sold;
                 if is_ic {
                     Some(*id)
                 } else {
@@ -636,7 +642,9 @@ impl GameLogic {
             owner_player_id: Option<u32>,
             pos: Vec3,
             level: crate::game_logic::VeterancyLevel,
+            metadata: crate::game_logic::HackInternetAIUpdateMetadata,
             in_ic: bool,
+            contained: bool,
             alive: bool,
             neutral: bool,
             disabled_hacked: bool,
@@ -653,13 +661,20 @@ impl GameLogic {
             .objects
             .iter()
             .filter_map(|(id, obj)| {
-                if !is_hacker_template(&obj.template_name) {
-                    return None;
-                }
+                let metadata = obj.thing.template.hack_internet_ai_update?;
                 let container = obj.container_id();
-                let in_ic = container
-                    .map(|cid| internet_centers.contains(&cid))
-                    .unwrap_or(false);
+                // `InternetHackContain::onContaining` is an exact normal
+                // Enter relationship: the source must still be an actual
+                // passenger of a parsed InternetHackContain controlled by
+                // the same player.  A stale `contained_by` link must not
+                // manufacture auto-hacking income.
+                let in_ic = container.is_some_and(|cid| {
+                    self.objects.get(&cid).is_some_and(|target| {
+                        internet_centers.contains(&cid)
+                            && target.contained_units().contains(id)
+                            && self.normal_enter_controller_matches(obj, target)
+                    })
+                });
                 let (c_stealthed, c_detected, c_team, c_owner_player_id, c_radius) = container
                     .and_then(|cid| self.objects.get(&cid))
                     .map(|c| {
@@ -678,7 +693,13 @@ impl GameLogic {
                     owner_player_id: obj.owner_player_id,
                     pos: obj.get_position(),
                     level: obj.experience.level,
+                    metadata,
                     in_ic,
+                    contained: container.is_some_and(|cid| {
+                        self.objects
+                            .get(&cid)
+                            .is_some_and(|target| target.contained_units().contains(id))
+                    }),
                     alive: obj.is_alive(),
                     neutral: obj.team == Team::Neutral,
                     disabled_hacked: obj.status.disabled_hacked,
@@ -713,7 +734,11 @@ impl GameLogic {
             // Internet Center residual: auto-start hacking when contained.
             if h.in_ic && is_legal_hacker_income_source(h.alive, h.neutral, h.disabled_hacked) {
                 self.hacker_income
-                    .ensure_internet_center_hacking(h.id, frame);
+                    .ensure_internet_center_hacking(
+                        h.id,
+                        frame,
+                        h.metadata.cash_update_delay_frames(true),
+                    );
             }
             // If no longer in IC and never field-started, keep active only if
             // still marked hacking (field residual). Leaving IC mid-hack continues
@@ -725,8 +750,8 @@ impl GameLogic {
                 // C++: DISABLED_HACKED skips deposit but stays in HACK_INTERNET state.
                 continue;
             }
-            let amount = cash_amount_for_level(h.level);
-            let interval = cash_interval_frames(h.in_ic);
+            let amount = h.metadata.cash_amount_for_level(h.level);
+            let interval = h.metadata.cash_update_delay_frames(h.contained);
             let deposited = self
                 .hacker_income
                 .try_deposit(h.id, frame, amount, interval, h.in_ic);
@@ -741,7 +766,7 @@ impl GameLogic {
             }
             // Residual XpPerCashUpdate.
             if let Some(obj) = self.objects.get_mut(&h.id) {
-                obj.gain_experience(HACKER_XP_PER_CASH_UPDATE);
+                obj.gain_experience(h.metadata.xp_per_cash_update);
             }
             // STEALTHED local display gate residual (owner + containedBy).
             let owner_local = owner_player_id
@@ -795,16 +820,14 @@ impl GameLogic {
     /// Residual field command: start HackInternet for selected hacker unit(s).
     /// Fail-closed: not full unpack animation / pack-on-interrupt state machine.
     pub fn start_hacker_internet_hack(&mut self, hacker_id: ObjectId) -> bool {
-        use crate::game_logic::host_hacker_income::{
-            is_hacker_template, is_legal_hacker_income_source,
-        };
+        use crate::game_logic::host_hacker_income::is_legal_hacker_income_source;
         let frame = self.frame;
         let Some(obj) = self.objects.get(&hacker_id) else {
             return false;
         };
-        if !is_hacker_template(&obj.template_name) {
+        let Some(metadata) = obj.thing.template.hack_internet_ai_update else {
             return false;
-        }
+        };
         if !is_legal_hacker_income_source(
             obj.is_alive(),
             obj.team == Team::Neutral,
@@ -812,7 +835,11 @@ impl GameLogic {
         ) {
             return false;
         }
-        self.hacker_income.start_hacking(hacker_id, frame);
+        self.hacker_income.start_hacking(
+            hacker_id,
+            frame,
+            metadata.cash_update_delay_frames(false),
+        );
         true
     }
 

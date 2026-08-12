@@ -527,8 +527,6 @@ pub const AMERICA_POWER_RODS_EXTEND_FRAMES: u32 = 18;
 
 /// China Nuclear Reactor EnergyProduction residual.
 pub const CHINA_POWER_ENERGY_PRODUCTION: i32 = 10;
-/// China EnergyBonus residual (overcharge bonus field).
-pub const CHINA_POWER_ENERGY_BONUS: i32 = 5;
 /// China BuildCost residual.
 pub const CHINA_POWER_BUILD_COST: u32 = 1000;
 /// China BuildTime residual (seconds).
@@ -539,8 +537,6 @@ pub const CHINA_POWER_MAX_HEALTH: f32 = 1500.0;
 pub const CHINA_POWER_RODS_EXTEND_MS: u32 = 1;
 /// China RodsExtendTime 1ms → 1 frame (ceil).
 pub const CHINA_POWER_RODS_EXTEND_FRAMES: u32 = 1;
-/// China OverchargeBehavior HealthPercentToDrainPerSecond residual (= 3%).
-pub const CHINA_OVERCHARGE_DRAIN_PERCENT_PER_SEC: f32 = 0.03;
 
 /// Effective residual energy production (base + bonus when upgraded/overcharged).
 pub fn power_plant_effective_energy(base: i32, bonus: i32, upgraded: bool) -> i32 {
@@ -573,13 +569,11 @@ pub fn honesty_power_plant_residual_pack_wave83() -> bool {
         && AMERICA_POWER_RODS_EXTEND_FRAMES
             == structure_economy_ms_to_frames(AMERICA_POWER_RODS_EXTEND_MS)
         && CHINA_POWER_ENERGY_PRODUCTION == 10
-        && CHINA_POWER_ENERGY_BONUS == 5
         && CHINA_POWER_BUILD_COST == 1000
         && (CHINA_POWER_BUILD_TIME_SEC - 10.0).abs() < 0.01
         && (CHINA_POWER_MAX_HEALTH - 1500.0).abs() < 0.01
         && CHINA_POWER_RODS_EXTEND_FRAMES
             == structure_economy_ms_to_frames(CHINA_POWER_RODS_EXTEND_MS)
-        && (CHINA_OVERCHARGE_DRAIN_PERCENT_PER_SEC - 0.03).abs() < 0.0001
         && power_plant_effective_energy(5, 5, false) == 5
         && power_plant_effective_energy(5, 5, true) == 10
         && power_plant_effective_energy(10, 5, true) == 15

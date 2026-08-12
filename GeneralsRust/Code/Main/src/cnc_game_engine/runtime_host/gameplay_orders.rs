@@ -824,7 +824,8 @@ impl CnCGameEngine {
                         || s.eq_ignore_ascii_case("false")
                         || s.eq_ignore_ascii_case("no"))
                 });
-            // Prefer power plant selection only when auto_target opted in.
+            // Presentation carries the parsed OverchargeBehavior capability;
+            // never auto-pick an arbitrary power-plant name/KindOf.
             if self.selected_objects.is_empty() && allow_auto_target {
                 // Wave 220: team via presentation-first local_team_for_ui.
                 let team = Some(self.local_team_for_ui());
@@ -836,19 +837,7 @@ impl CnCGameEngine {
                                     .filter(|o| {
                                         o.team == team
                                             && !o.destroyed
-                                            && (o.template_name.to_ascii_lowercase().contains("power")
-                                                || o.building_type
-                                                    == Some(
-                                                        crate::presentation_frame::PresentationBuildingType::PowerPlant,
-                                                    )
-                                                || crate::presentation_frame::PresentationFrame::object_has_kind(
-                                                    o,
-                                                    crate::game_logic::KindOf::PowerPlant,
-                                                )
-                                                || crate::presentation_frame::PresentationFrame::object_has_kind(
-                                                    o,
-                                                    crate::game_logic::KindOf::FSPower,
-                                                ))
+                                            && o.can_toggle_overcharge
                                     })
                                     .map(|o| o.id)
                                     .next()

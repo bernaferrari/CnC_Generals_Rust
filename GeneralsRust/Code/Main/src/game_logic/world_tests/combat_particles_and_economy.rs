@@ -2949,6 +2949,7 @@ fn retail_harvesters_parse_and_accept_gather_through_live_command_authority() {
                 provides_vehicle_repair: false,
                 provides_aircraft_repair: false,
                 provides_heal: false,
+                can_provide_service: true,
                 dock_kind: crate::game_logic::DockKind::None,
                 dock_controller_is_local: false,
                 stored_supplies: 0,
@@ -2968,6 +2969,7 @@ fn retail_harvesters_parse_and_accept_gather_through_live_command_authority() {
                 is_worker: false,
                 can_attack: false,
                 can_move: collector.is_mobile,
+                can_request_service: true,
                 can_capture: false,
                 template_name: object_name.to_string(),
                 can_repair: false,
@@ -2975,6 +2977,7 @@ fn retail_harvesters_parse_and_accept_gather_through_live_command_authority() {
                 is_vehicle: true,
                 is_aircraft: collector.object_type
                     == crate::presentation_frame::PresentationObjectType::Aircraft,
+                is_above_terrain: false,
                 is_infantry: false,
                 transport_slot_count: 0,
                 stored_supplies: 0,

@@ -257,6 +257,7 @@ fn sync_from_host_copies_entity_production_queue_items_residual() {
                 template_name: "UnitA".into(),
                 progress: 0.25,
                 total_time: 10.0,
+                construction_frames: 0,
                 cost: Resources {
                     supplies: 300,
                     power: 0,
@@ -269,6 +270,7 @@ fn sync_from_host_copies_entity_production_queue_items_residual() {
                 template_name: "UnitB".into(),
                 progress: 0.0,
                 total_time: 12.0,
+                construction_frames: 0,
                 cost: Resources {
                     supplies: 400,
                     power: 0,
@@ -749,6 +751,7 @@ fn sync_from_host_copies_entity_building_residual() {
             template_name: "AmericaInfantryRanger".into(),
             progress: 0.35,
             total_time: 10.0,
+            construction_frames: 0,
             cost: Resources {
                 supplies: 225,
                 power: 0,
@@ -811,6 +814,7 @@ fn writeback_production_and_rally_to_host() {
             template_name: "USACrusaderTank".into(),
             progress: 0.1,
             total_time: 10.0,
+            construction_frames: 0,
             cost: Resources {
                 supplies: 900,
                 power: 0,
@@ -881,6 +885,7 @@ fn production_authority_sole_ticks_queue_progress() {
             template_name: "Ranger".into(),
             progress: 0.0,
             total_time: 10.0,
+            construction_frames: 0,
             cost_supplies: 100,
             is_upgrade: false,
             quantity_total: 1,
@@ -2227,6 +2232,7 @@ fn host_production_log_drives_set_production_queue_channel() {
             template_name: "ProdRanger".into(),
             progress: 0.0,
             total_time: 10.0,
+            construction_frames: 0,
             cost: Resources {
                 supplies: 150,
                 power: 0,
@@ -2329,6 +2335,7 @@ fn production_authority_writeback_is_queue_last_writer() {
             template_name: "ProdAuthRanger".into(),
             progress: 2.0,
             total_time: 10.0,
+            construction_frames: 0,
             cost: Resources {
                 supplies: 150,
                 power: 0,
@@ -2344,6 +2351,7 @@ fn production_authority_writeback_is_queue_last_writer() {
         template_name: "ProdAuthRanger".into(),
         progress: 2.0,
         total_time: 10.0,
+        construction_frames: 0,
         cost_supplies: 150,
         is_upgrade: false,
         quantity_total: 1,
@@ -7032,6 +7040,7 @@ fn production_progress_log_drives_set_production_queue() {
             template_name: "Ranger".into(),
             progress: 3.5,
             total_time: 10.0,
+            construction_frames: 0,
             cost_supplies: 150,
             is_upgrade: false,
             quantity_total: 1,
@@ -11952,6 +11961,7 @@ fn cancel_production_refund_economy_authority_writeback() {
                 template_name: "EconUnit".into(),
                 progress: 0.0,
                 total_time: 10.0,
+                construction_frames: 0,
                 cost: Resources {
                     supplies: 250,
                     power: 0,

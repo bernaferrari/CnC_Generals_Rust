@@ -47,6 +47,10 @@ impl GameLogic {
                 .retain(|_, ability| ability.target_id() != event.id);
 
             self.cancel_all_production(event.id);
+            // Damage authority / an old snapshot can enqueue a death without
+            // passing through mark_object_for_destruction.  Keep the one
+            // typed EjectPilotDie onDie path live before removing the object.
+            self.maybe_apply_eject_pilot_die(event.id);
 
             // C++ Object::onDie RECONSTRUCTING residual (lost rebuild → hole).
             let handled_recon = self.handle_reconstructing_death(event.id);
@@ -333,135 +337,6 @@ impl GameLogic {
                     {
                         let _ =
                             self.apply_demo_suicide_bomb_death_at(event.id, obj.team, death_pos);
-                    }
-                }
-
-                // USA EjectPilotDie residual: spawn AmericaInfantryPilot on vehicle death.
-                // Air path: isSignificantlyAboveTerrain → OCL_EjectPilotViaParachute residual.
-                // Ground path: OCL_EjectPilotOnGround residual.
-                // VeterancyLevels = ALL -REGULAR residual: Rookie does not eject.
-                // DeathTypes = ALL -CRUSHED -SPLATTED; ExemptStatus = HIJACKED residual.
-                // Wave 754: skip if death-start mark_object already applied onDie residual.
-                if !obj.eject_pilot_die_applied {
-                    use crate::game_logic::host_usa_pilot::{
-                        air_eject_spawn_height, can_eject_pilot_on_death,
-                        is_eject_pilot_eligible_template, meets_eject_pilot_death_types_gate,
-                        meets_eject_pilot_exempt_status_gate, meets_eject_pilot_veterancy_gate,
-                        uses_air_eject_ocl, EJECT_PILOT_TEMPLATE, PILOT_EJECT_AUDIO,
-                    };
-                    let is_vehicle =
-                        obj.is_kind_of(KindOf::Vehicle) || obj.object_type == ObjectType::Vehicle;
-                    let is_aircraft =
-                        obj.is_kind_of(KindOf::Aircraft) || obj.object_type == ObjectType::Aircraft;
-                    let under_construction =
-                        obj.status.under_construction || obj.construction_percent + 0.001 < 1.0;
-                    let eligible_template = is_eject_pilot_eligible_template(&obj.template_name);
-                    let vet_gate = meets_eject_pilot_veterancy_gate(obj.experience.level);
-                    let death_types_gate =
-                        meets_eject_pilot_death_types_gate(obj.status.death_type);
-                    let exempt_status_gate =
-                        meets_eject_pilot_exempt_status_gate(obj.status.hijacked);
-                    // Honesty: record REGULAR-gate blocks when all other gates pass.
-                    if eligible_template
-                        && !obj.is_unmanned()
-                        && !under_construction
-                        && is_vehicle
-                        && !is_aircraft
-                        && death_types_gate
-                        && exempt_status_gate
-                        && !vet_gate
-                    {
-                        self.usa_pilot.record_eject_veterancy_block();
-                    }
-                    // Honesty: DeathTypes / ExemptStatus blocks when other gates pass.
-                    if eligible_template
-                        && !obj.is_unmanned()
-                        && !under_construction
-                        && is_vehicle
-                        && !is_aircraft
-                        && vet_gate
-                        && exempt_status_gate
-                        && !death_types_gate
-                    {
-                        self.usa_pilot.record_eject_death_type_block();
-                    }
-                    if eligible_template
-                        && !obj.is_unmanned()
-                        && !under_construction
-                        && is_vehicle
-                        && !is_aircraft
-                        && vet_gate
-                        && death_types_gate
-                        && !exempt_status_gate
-                    {
-                        self.usa_pilot.record_eject_hijacked_block();
-                    }
-                    if can_eject_pilot_on_death(
-                        eligible_template,
-                        obj.is_unmanned(),
-                        under_construction,
-                        is_vehicle,
-                        is_aircraft,
-                        vet_gate,
-                        death_types_gate,
-                        exempt_status_gate,
-                    ) {
-                        let pilot_team = obj.team;
-                        let air_path = uses_air_eject_ocl(death_pos.y, obj.status.airborne_target);
-                        // Ensure pilot template exists for residual spawn.
-                        if !self.templates.contains_key(EJECT_PILOT_TEMPLATE) {
-                            let mut pilot_tpl =
-                                crate::game_logic::ThingTemplate::new(EJECT_PILOT_TEMPLATE);
-                            pilot_tpl
-                                .add_kind_of(KindOf::Infantry)
-                                .add_kind_of(KindOf::Selectable)
-                                .set_health(100.0);
-                            self.templates
-                                .insert(EJECT_PILOT_TEMPLATE.to_string(), pilot_tpl);
-                        }
-                        // Offset slightly so pilot is not buried under death debris residual.
-                        // Air OCL residual: keep elevated y (PutInContainer AmericaParachute).
-                        let spawn_pos = if air_path {
-                            Vec3::new(
-                                death_pos.x + 2.0,
-                                air_eject_spawn_height(death_pos.y),
-                                death_pos.z + 2.0,
-                            )
-                        } else {
-                            death_pos + Vec3::new(2.0, 0.0, 2.0)
-                        };
-                        if let Some(pilot_id) =
-                            self.create_object(EJECT_PILOT_TEMPLATE, pilot_team, spawn_pos)
-                        {
-                            self.usa_pilot.record_ejection();
-                            if air_path {
-                                self.usa_pilot.record_air_ejection();
-                            }
-                            // OCL InvulnerableTime residual (2000ms → 60 frames).
-                            let until = crate::game_logic::host_usa_pilot::eject_pilot_invulnerable_until_frame(
-                                self.frame,
-                            );
-                            if let Some(pilot) = self.objects.get_mut(&pilot_id) {
-                                pilot.apply_eject_invulnerable(until);
-                                if air_path {
-                                    let raw_y = pilot.get_position().y;
-                                    pilot.apply_eject_parachuting();
-                                    // Low-altitude open fudge residual honesty.
-                                    if crate::game_logic::host_usa_pilot::parachute_start_height_was_fudged(
-                                        raw_y, 0.0,
-                                    ) {
-                                        self.usa_pilot.record_parachute_open_fudge();
-                                    }
-                                }
-                            }
-                            self.usa_pilot.record_invulnerable_grant();
-                            self.queue_audio_event(
-                                AudioEventRequest::new(PILOT_EJECT_AUDIO)
-                                    .with_position(spawn_pos)
-                                    .with_priority(170),
-                            );
-                            let _ = pilot_id;
-                        }
                     }
                 }
 

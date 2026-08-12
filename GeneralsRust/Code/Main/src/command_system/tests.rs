@@ -241,6 +241,152 @@ fn right_click_repair_pad_issues_get_repaired() {
 }
 
 #[test]
+fn right_click_service_uses_authored_kindof_not_service_shaped_names() {
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+
+    let mut system = CommandSystem::new();
+    let mut game_logic = GameLogic::new();
+
+    let mut vehicle_template = ThingTemplate::new("RetailGroundVehicle");
+    vehicle_template
+        .add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(250.0);
+    let mut vehicle = Object::new(vehicle_template, ObjectId(40), Team::USA);
+    vehicle.health.current = 100.0;
+    game_logic.add_object(vehicle);
+
+    let mut infantry_template = ThingTemplate::new("RetailInfantry");
+    infantry_template
+        .add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(100.0);
+    let mut infantry = Object::new(infantry_template, ObjectId(41), Team::USA);
+    infantry.health.current = 50.0;
+    game_logic.add_object(infantry);
+
+    // These names intentionally deny every legacy string heuristic.  The
+    // parsed-equivalent KindOf is the only service authority.
+    let mut repair_pad_template = ThingTemplate::new("SourceTaggedGroundService");
+    repair_pad_template
+        .add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::RepairPad)
+        .set_health(1_000.0);
+    game_logic.add_object(Object::new(repair_pad_template, ObjectId(42), Team::USA));
+    let mut heal_pad_template = ThingTemplate::new("SourceTaggedMedicalService");
+    heal_pad_template
+        .add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::HealPad)
+        .set_health(1_000.0);
+    game_logic.add_object(Object::new(heal_pad_template, ObjectId(43), Team::USA));
+
+    // These names would previously fabricate a BuildingType/provider even
+    // though the retail KindOf source says nothing about a service role.
+    let mut fake_repair_template = ThingTemplate::new("RepairHospitalAirfieldWithoutTag");
+    fake_repair_template
+        .add_kind_of(KindOf::Structure)
+        .set_health(1_000.0);
+    game_logic.add_object(Object::new(fake_repair_template, ObjectId(44), Team::USA));
+    let mut fake_heal_template = ThingTemplate::new("HospitalMedicWithoutTag");
+    fake_heal_template
+        .add_kind_of(KindOf::Structure)
+        .set_health(1_000.0);
+    game_logic.add_object(Object::new(fake_heal_template, ObjectId(45), Team::USA));
+
+    let context_for = |target_object| MouseCommandContext {
+        world_position: Vec3::ZERO,
+        target_object: Some(target_object),
+        target_presentation: None,
+        selected_presentation: Vec::new(),
+        presentation_box_select_units: Vec::new(),
+        presentation_select_similar_units: Vec::new(),
+        screen_position: Vec2::ZERO,
+        viewport_size: None,
+        world_min: None,
+        world_max: None,
+        mouse_button: MouseButton::Right,
+        modifier_keys: ModifierKeys::default(),
+        is_drag: false,
+        drag_start: None,
+        drag_end: None,
+        drag_start_world: None,
+        drag_end_world: None,
+    };
+
+    let repair = system
+        .process_mouse_input(
+            &context_for(ObjectId(42)),
+            &[ObjectId(40)],
+            0,
+            Some(&game_logic),
+        )
+        .expect("RMB command at authored repair pad");
+    assert!(matches!(
+        repair.command_type,
+        CommandType::GetRepaired { .. }
+    ));
+    let reject_repair = system
+        .process_mouse_input(
+            &context_for(ObjectId(44)),
+            &[ObjectId(40)],
+            0,
+            Some(&game_logic),
+        )
+        .expect("RMB command at untagged name-only target");
+    assert!(matches!(
+        reject_repair.command_type,
+        CommandType::MoveTo { .. }
+    ));
+
+    let heal = system
+        .process_mouse_input(
+            &context_for(ObjectId(43)),
+            &[ObjectId(41)],
+            0,
+            Some(&game_logic),
+        )
+        .expect("RMB command at authored heal pad");
+    assert!(matches!(heal.command_type, CommandType::GetHealed { .. }));
+    let reject_heal = system
+        .process_mouse_input(
+            &context_for(ObjectId(45)),
+            &[ObjectId(41)],
+            0,
+            Some(&game_logic),
+        )
+        .expect("RMB command at untagged medical-looking target");
+    assert!(matches!(
+        reject_heal.command_type,
+        CommandType::MoveTo { .. }
+    ));
+}
+
+#[test]
+fn construct_and_structure_repair_require_authored_dozer_kindof() {
+    use crate::command_system::CommandableObject;
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+
+    let mut name_only = ThingTemplate::new("DozerWorkerConstructionNamedOnly");
+    name_only.add_kind_of(KindOf::Vehicle).set_health(100.0);
+    let name_only = Object::new(name_only, ObjectId(50), Team::USA);
+    assert!(
+        !CommandableObject::can_construct(&name_only) && !CommandableObject::can_repair(&name_only),
+        "name-only worker/dozer spelling must not grant C++ DOZER authority"
+    );
+
+    let mut authored = ThingTemplate::new("SourceTaggedBuilder");
+    authored
+        .add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Dozer)
+        .set_health(100.0);
+    let authored = Object::new(authored, ObjectId(51), Team::USA);
+    assert!(
+        CommandableObject::can_construct(&authored) && CommandableObject::can_repair(&authored),
+        "an arbitrary basename with authored DOZER must retain C++ authority"
+    );
+}
+
+#[test]
 fn drag_selection_prefers_world_drag_bounds_when_provided() {
     use crate::game_logic::{KindOf, Player, Team, ThingTemplate};
 
@@ -1090,6 +1236,7 @@ fn queue_upgrade_refuses_when_production_queue_full_residual() {
                 template_name: format!("Filler{i}"),
                 progress: 0.0,
                 total_time: 10.0,
+                construction_frames: 0,
                 cost: Resources {
                     supplies: 0,
                     power: 0,

@@ -71,12 +71,12 @@ impl CommandableObject for Object {
     }
 
     fn provides_repair(&self) -> bool {
-        // The source unit decides which of these two exact destinations is
-        // legal (ground vehicle -> REPAIR_PAD, aircraft -> FS_AIRFIELD).
-        // This broad provider probe deliberately only reports retained tags;
-        // executor validation performs the source-type pairing.
+        // This legacy no-source-argument probe means the ground-vehicle
+        // Repair target only.  Aircraft repair deliberately stays out of it:
+        // `ActionManager::canGetRepairedAt` pairs an aircraft exclusively
+        // with `KINDOF_FS_AIRFIELD`, and the command/executor paths make that
+        // source-aware check directly.
         self.is_kind_of(crate::game_logic::KindOf::RepairPad)
-            || self.is_kind_of(crate::game_logic::KindOf::FSAirfield)
     }
 
     fn provides_healing(&self) -> bool {

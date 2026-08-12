@@ -478,6 +478,7 @@ impl GameWorldShadow {
         let mut n = 0usize;
         let mut updates: Vec<(EntityId, Vec<EntityProductionItem>)> = Vec::new();
         let mut exit_updates: Vec<(EntityId, f32)> = Vec::new();
+        let mut queue_exit_runtime_updates: Vec<(EntityId, u32, u32)> = Vec::new();
         // Snapshot host ids for power lookup without double-borrow.
         let host_ids: Vec<(u32, EntityId)> = self
             .host_to_entity
@@ -491,22 +492,41 @@ impl GameWorldShadow {
             if !ent.production_queue_items.is_empty() && !ent.production_paused {
                 let mut items = ent.production_queue_items.clone();
                 if let Some(head) = items.first_mut() {
-                    if head.progress + 1e-6 < head.total_time.max(0.0) {
-                        let pf = self
-                            .production_power_factor_by_host
-                            .get(&hid)
-                            .copied()
-                            .unwrap_or(1.0)
-                            .max(0.01);
-                        head.progress = (head.progress + dt * pf).min(head.total_time.max(0.0));
+                    let pf = self
+                        .production_power_factor_by_host
+                        .get(&hid)
+                        .copied()
+                        .unwrap_or(1.0)
+                        .max(0.01);
+                    if !head.is_complete_at_power(pf) {
+                        // C++ ProductionUpdate::update increments an integer
+                        // frame counter once per logic update, then compares
+                        // against the current calcTimeToBuild threshold.  Do
+                        // not reintroduce float seconds authority in the
+                        // GameWorld sole-tick path.
+                        head.advance_one_construction_frame(pf);
                         n += 1;
                         updates.push((eid, items));
                     }
                 }
             }
-            // Wave 464: sole-tick factory exit delay (C++ QueueProductionExitUpdate residual).
-            // Host under production sole-tick only try_complete; exit delay advances here.
-            if ent.exit_delay_remaining > 0.0 && dt > 0.0 {
+            // C++ QueueProductionExitUpdate::update owns an integer logic
+            // countdown.  A remaining InitialBurst keeps the interface free
+            // and resets delay to zero; otherwise decrement exactly once per
+            // GameWorld logic update.  Float-only state is retained solely for
+            // old snapshots / unparsed legacy producers.
+            if ent.queue_exit_state_initialized {
+                let next_frames =
+                    if ent.exit_burst_remaining > 0 || ent.exit_delay_remaining_frames == 0 {
+                        0
+                    } else {
+                        ent.exit_delay_remaining_frames.saturating_sub(1)
+                    };
+                if next_frames != ent.exit_delay_remaining_frames {
+                    queue_exit_runtime_updates.push((eid, next_frames, ent.exit_burst_remaining));
+                    n += 1;
+                }
+            } else if ent.exit_delay_remaining > 0.0 && dt > 0.0 {
                 let next = (ent.exit_delay_remaining - dt).max(0.0);
                 if (next - ent.exit_delay_remaining).abs() > 1e-9 {
                     exit_updates.push((eid, next));
@@ -523,6 +543,15 @@ impl GameWorldShadow {
                 target: eid,
                 exit_delay_remaining,
             });
+        }
+        for (eid, exit_delay_remaining_frames, exit_burst_remaining) in queue_exit_runtime_updates {
+            self.world
+                .queue_mutation(WorldMutation::SetProductionExitRuntime {
+                    target: eid,
+                    exit_delay_remaining_frames,
+                    exit_burst_remaining,
+                    queue_exit_state_initialized: true,
+                });
         }
         if n > 0 {
             let _ = self.world.apply_pending_mutations();

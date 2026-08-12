@@ -424,6 +424,7 @@ fn presentation_feeds_victory_and_construction() {
             template_name: "Ranger".into(),
             progress: 0.25,
             total_time: 20.0,
+            construction_frames: 0,
             cost: Resources {
                 supplies: 100,
                 power: 0,
@@ -725,6 +726,7 @@ fn presentation_feeds_control_bar_veterancy_and_production() {
             template_name: "Ranger".into(),
             progress: 0.55,
             total_time: 10.0,
+            construction_frames: 0,
             cost: crate::game_logic::Resources {
                 supplies: 200,
                 power: 0,

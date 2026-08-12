@@ -65,7 +65,10 @@ fn same_faction_slots_keep_owner_authority_through_shadow_and_presentation() {
     assert_eq!(mine_host.owner_player_id, Some(0));
     assert_eq!(theirs_host.owner_player_id, Some(1));
     assert_eq!(logic.player_relationship(0, 1), Relationship::Enemies);
-    assert_eq!(logic.object_relationship(mine_host, theirs_host), Relationship::Enemies);
+    assert_eq!(
+        logic.object_relationship(mine_host, theirs_host),
+        Relationship::Enemies
+    );
 
     // The host selection and direct-order gates must reject a same-faction
     // opponent even if a stale client attempts to provide its ObjectId.
@@ -74,7 +77,10 @@ fn same_faction_slots_keep_owner_authority_through_shadow_and_presentation() {
         logic.get_player(0).expect("local player").selected_objects,
         vec![mine]
     );
-    logic.get_player_mut(0).expect("local player").selected_objects = vec![theirs];
+    logic
+        .get_player_mut(0)
+        .expect("local player")
+        .selected_objects = vec![theirs];
     logic.command_move(0, Vec3::new(100.0, 0.0, 0.0));
     assert!(
         logic
@@ -85,7 +91,10 @@ fn same_faction_slots_keep_owner_authority_through_shadow_and_presentation() {
             .is_none(),
         "player 0 must not move player 1's same-faction unit"
     );
-    logic.get_player_mut(0).expect("local player").selected_objects = vec![mine];
+    logic
+        .get_player_mut(0)
+        .expect("local player")
+        .selected_objects = vec![mine];
     logic.command_move(0, Vec3::new(100.0, 0.0, 0.0));
     assert!(
         logic
@@ -102,7 +111,11 @@ fn same_faction_slots_keep_owner_authority_through_shadow_and_presentation() {
     let mine_entity = shadow.entity_for_host(mine).expect("mine entity");
     let theirs_entity = shadow.entity_for_host(theirs).expect("opponent entity");
     assert_ne!(
-        shadow.world().entity(mine_entity).expect("mine entity").owner,
+        shadow
+            .world()
+            .entity(mine_entity)
+            .expect("mine entity")
+            .owner,
         shadow
             .world()
             .entity(theirs_entity)
@@ -112,7 +125,11 @@ fn same_faction_slots_keep_owner_authority_through_shadow_and_presentation() {
     );
 
     let frame = PresentationFrame::build_from_logic(&logic, 0);
-    let mine_frame = frame.objects.iter().find(|o| o.id == mine).expect("mine frame");
+    let mine_frame = frame
+        .objects
+        .iter()
+        .find(|o| o.id == mine)
+        .expect("mine frame");
     let theirs_frame = frame
         .objects
         .iter()
@@ -332,6 +349,7 @@ fn sync_from_host_copies_entity_production_queue_items_residual() {
                 template_name: "UnitA".into(),
                 progress: 0.25,
                 total_time: 10.0,
+                construction_frames: 0,
                 cost: Resources {
                     supplies: 300,
                     power: 0,
@@ -344,6 +362,7 @@ fn sync_from_host_copies_entity_production_queue_items_residual() {
                 template_name: "UnitB".into(),
                 progress: 0.0,
                 total_time: 12.0,
+                construction_frames: 0,
                 cost: Resources {
                     supplies: 400,
                     power: 0,
@@ -829,6 +848,7 @@ fn sync_from_host_copies_entity_building_residual() {
             template_name: "AmericaInfantryRanger".into(),
             progress: 0.35,
             total_time: 10.0,
+            construction_frames: 0,
             cost: Resources {
                 supplies: 225,
                 power: 0,
@@ -891,6 +911,7 @@ fn writeback_production_and_rally_to_host() {
             template_name: "USACrusaderTank".into(),
             progress: 0.1,
             total_time: 10.0,
+            construction_frames: 0,
             cost: Resources {
                 supplies: 900,
                 power: 0,
@@ -961,6 +982,7 @@ fn production_authority_sole_ticks_queue_progress() {
             template_name: "Ranger".into(),
             progress: 0.0,
             total_time: 10.0,
+            construction_frames: 0,
             cost_supplies: 100,
             is_upgrade: false,
             quantity_total: 1,
@@ -1036,6 +1058,7 @@ fn completed_production_waits_for_open_door_before_entity_first_spawn() {
             template_name: "DoorGateRanger".to_string(),
             progress: 1.0,
             total_time: 1.0,
+            construction_frames: 0,
             cost: Resources {
                 supplies: 100,
                 power: 0,
@@ -1074,6 +1097,229 @@ fn completed_production_waits_for_open_door_before_entity_first_spawn() {
     shadow.writeback_production_to_host(&mut logic);
     assert_eq!(shadow.world().world().entity_count(), before + 1);
     assert_eq!(host_production_ready_log::drain().len(), 1);
+
+    match prev_shadow {
+        Some(value) => std::env::set_var("GENERALS_GAMEWORLD_SHADOW", value),
+        None => std::env::remove_var("GENERALS_GAMEWORLD_SHADOW"),
+    }
+    match prev_production {
+        Some(value) => std::env::set_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", value),
+        None => std::env::remove_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY"),
+    }
+}
+
+#[test]
+fn completed_quantity_batch_emits_every_entity_first_unit_after_open_door() {
+    let _env_guard = authority_env_lock();
+    let prev_shadow = std::env::var("GENERALS_GAMEWORLD_SHADOW").ok();
+    let prev_production = std::env::var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY").ok();
+    std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+    std::env::set_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", "1");
+    let _coupled = ShadowCoupleGuard::enter();
+
+    use crate::game_logic::host_production_ready_log;
+    use crate::game_logic::{
+        BuildingData, BuildingType, KindOf, ProductionExitMetadata, ProductionExitStyle,
+        ProductionItem, ProductionKind, Resources,
+    };
+
+    host_production_ready_log::clear();
+    let mut logic = GameLogic::new();
+    let cfg = golden_skirmish_config("DoorBatchProduction");
+    apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+    ensure_template(&mut logic, "DoorBatchRanger", 100.0);
+    let mut producer = ThingTemplate::new("DoorBatchBarracks");
+    producer.set_health(500.0);
+    producer.add_kind_of(KindOf::Structure);
+    producer.add_kind_of(KindOf::FSBarracks);
+    // This is specifically DefaultProductionExitUpdate semantics: C++ has no
+    // Queue delay/burst busy state, so a completed QuantityModifier batch can
+    // reserve every member in one terminal update.
+    producer.production_exit_metadata = Some(ProductionExitMetadata {
+        style: ProductionExitStyle::Default,
+        unit_create_point: [0.0, 0.0, 0.0],
+        natural_rally_point: [0.0, 0.0, 0.0],
+        exit_delay_frames: 0,
+        allow_airborne_creation: false,
+        initial_burst: 0,
+        use_spawn_rally_point: false,
+    });
+    logic
+        .templates
+        .insert("DoorBatchBarracks".to_string(), producer);
+    let producer_id = logic
+        .create_object(
+            "DoorBatchBarracks",
+            Team::USA,
+            glam::Vec3::new(8.0, 0.0, 8.0),
+        )
+        .expect("producer");
+    let hold_open_until = logic.get_frame().saturating_add(100);
+    {
+        let producer = logic.host_object_mut(producer_id).expect("producer object");
+        let mut building = BuildingData::new(BuildingType::Barracks);
+        building.production_queue.push(ProductionItem {
+            template_name: "DoorBatchRanger".to_string(),
+            progress: 1.0,
+            total_time: 1.0,
+            construction_frames: 0,
+            cost: Resources {
+                supplies: 100,
+                power: 0,
+            },
+            quantity_total: 2,
+            quantity_produced: 0,
+            kind: ProductionKind::Unit,
+        });
+        // C++ QuantityModifier loop is only reached after an exit is available.
+        producer.production_door_phase = 2;
+        producer.production_door_phase_end_frame = hold_open_until;
+        producer.building_data = Some(building);
+    }
+
+    let mut shadow = GameWorldShadow::new(64);
+    shadow.sync_from_host(&logic);
+    let before = shadow.world().world().entity_count();
+    shadow.writeback_production_to_host(&mut logic);
+    let ready = host_production_ready_log::drain();
+    assert_eq!(
+        ready.len(),
+        2,
+        "one terminal QuantityModifier update must record every ready unit"
+    );
+    assert!(
+        ready.iter().all(|event| {
+            event.producer == producer_id
+                && event.template_name == "DoorBatchRanger"
+                && !event.is_upgrade
+                && event.gw_entity_raw.is_some()
+        }),
+        "every batch member must have an entity-first bind: {ready:?}"
+    );
+    assert_eq!(
+        shadow.world().world().entity_count(),
+        before + 2,
+        "one open-door terminal update must create both shadow entities"
+    );
+
+    host_production_ready_log::clear();
+    match prev_shadow {
+        Some(value) => std::env::set_var("GENERALS_GAMEWORLD_SHADOW", value),
+        None => std::env::remove_var("GENERALS_GAMEWORLD_SHADOW"),
+    }
+    match prev_production {
+        Some(value) => std::env::set_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", value),
+        None => std::env::remove_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY"),
+    }
+}
+
+#[test]
+fn queue_exit_sole_tick_releases_one_then_waits_exact_nine_frames() {
+    let _env_guard = authority_env_lock();
+    let prev_shadow = std::env::var("GENERALS_GAMEWORLD_SHADOW").ok();
+    let prev_production = std::env::var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY").ok();
+    std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+    std::env::set_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", "1");
+    let _coupled = ShadowCoupleGuard::enter();
+
+    use crate::game_logic::host_production_progress_log;
+    use crate::game_logic::host_production_ready_log;
+    use crate::game_logic::{
+        BuildingData, BuildingType, KindOf, ProductionExitMetadata, ProductionExitStyle,
+        ProductionItem, ProductionKind, Resources,
+    };
+
+    host_production_progress_log::clear();
+    host_production_ready_log::clear();
+    let mut logic = GameLogic::new();
+    let cfg = golden_skirmish_config("QueueSoleTickProduction");
+    apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+    ensure_template(&mut logic, "QueueSoleRanger", 100.0);
+    let mut producer = ThingTemplate::new("QueueSoleProducer");
+    producer
+        .set_health(500.0)
+        .add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::FSBarracks);
+    producer.production_exit_metadata = Some(ProductionExitMetadata {
+        style: ProductionExitStyle::Queue,
+        unit_create_point: [0.0, -25.0, 0.0],
+        natural_rally_point: [36.0, -25.0, 0.0],
+        exit_delay_frames: 9,
+        allow_airborne_creation: false,
+        initial_burst: 0,
+        use_spawn_rally_point: false,
+    });
+    logic
+        .templates
+        .insert("QueueSoleProducer".to_string(), producer);
+    let producer_id = logic
+        .create_object("QueueSoleProducer", Team::China, glam::Vec3::ZERO)
+        .expect("producer");
+    let hold_open_until = logic.get_frame().saturating_add(100);
+    {
+        let producer = logic.host_object_mut(producer_id).expect("producer object");
+        let mut building = BuildingData::new(BuildingType::Barracks);
+        building.production_queue.push(ProductionItem {
+            template_name: "QueueSoleRanger".to_string(),
+            progress: 1.0,
+            total_time: 1.0,
+            construction_frames: 30,
+            cost: Resources {
+                supplies: 100,
+                power: 0,
+            },
+            quantity_total: 2,
+            quantity_produced: 0,
+            kind: ProductionKind::Unit,
+        });
+        producer.production_door_phase = 2;
+        producer.production_door_phase_end_frame = hold_open_until;
+        producer.building_data = Some(building);
+    }
+
+    let mut shadow = GameWorldShadow::new(64);
+    shadow.sync_from_host(&logic);
+    shadow.writeback_production_to_host(&mut logic);
+    let initial_ready = host_production_ready_log::drain();
+    assert_eq!(
+        initial_ready.len(),
+        1,
+        "fresh Queue InitialBurst=0 must admit only the first completed member"
+    );
+
+    // Model the real host-side successful exit/bind, then carry that exact
+    // per-Object counter through the sole-tick progress event.
+    let runtime = {
+        let producer = logic.host_object_mut(producer_id).expect("producer object");
+        let exit = producer.thing.template.production_exit_metadata;
+        let building = producer.building_data.as_mut().expect("building");
+        building.record_successful_production_exit(exit.as_ref());
+        building.production_exit_runtime_state()
+    };
+    host_production_progress_log::record_exit_runtime_only(
+        producer_id,
+        runtime.delay_frames as f32 / 30.0,
+        runtime,
+    );
+    let events = host_production_progress_log::drain();
+    assert_eq!(shadow.apply_host_production_progress_events(&events), 1);
+
+    for _ in 0..8 {
+        shadow.tick_production_queues(1.0 / 30.0);
+    }
+    shadow.writeback_production_to_host(&mut logic);
+    assert!(
+        host_production_ready_log::drain().is_empty(),
+        "Queue delay must still hold the second member after eight logic frames"
+    );
+
+    shadow.tick_production_queues(1.0 / 30.0);
+    shadow.writeback_production_to_host(&mut logic);
+    assert_eq!(
+        host_production_ready_log::drain().len(),
+        1,
+        "the ninth Queue update reopens the exit for exactly one member"
+    );
 
     match prev_shadow {
         Some(value) => std::env::set_var("GENERALS_GAMEWORLD_SHADOW", value),

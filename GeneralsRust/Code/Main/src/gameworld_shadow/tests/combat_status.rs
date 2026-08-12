@@ -1077,6 +1077,7 @@ fn host_production_log_drives_set_production_queue_channel() {
             template_name: "ProdRanger".into(),
             progress: 0.0,
             total_time: 10.0,
+            construction_frames: 0,
             cost: Resources {
                 supplies: 150,
                 power: 0,
@@ -1179,6 +1180,7 @@ fn production_authority_writeback_is_queue_last_writer() {
             template_name: "ProdAuthRanger".into(),
             progress: 2.0,
             total_time: 10.0,
+            construction_frames: 0,
             cost: Resources {
                 supplies: 150,
                 power: 0,
@@ -1194,6 +1196,7 @@ fn production_authority_writeback_is_queue_last_writer() {
         template_name: "ProdAuthRanger".into(),
         progress: 2.0,
         total_time: 10.0,
+        construction_frames: 0,
         cost_supplies: 150,
         is_upgrade: false,
         quantity_total: 1,

@@ -1193,9 +1193,11 @@ impl GameLogic {
         (hits, any_destroyed)
     }
 
-    /// Residual Sentry Drone auto-fire: gun-equipped Sentry acquires nearest enemy
-    /// in weapon range and deals damage without a manual AttackObject order.
-    /// Fail-closed: not full DeployStyleAIUpdate pack/unpack / LOS matrix.
+    /// Residual Sentry Drone auto-fire: a gun-equipped Sentry acquires the
+    /// nearest enemy in weapon range without a manual AttackObject order.
+    /// The acquired victim remains a normal pending attack while the exact
+    /// parsed DeployStyleAIUpdate module unpacks; only ReadyToAttack may deal
+    /// damage. Fail-closed: no guessed turret alignment/manual animation/LOS.
     pub(in super::super) fn try_sentry_drone_residual_fire(&mut self, sentry_id: ObjectId) {
         use crate::game_logic::host_sentry_drone::{
             is_legal_sentry_auto_fire_target, SENTRY_GUN_AUDIO,
@@ -1206,7 +1208,21 @@ impl GameLogic {
         let Some(attacker) = self.objects.get(&sentry_id) else {
             return;
         };
-        if !attacker.is_alive() || attacker.weapon.is_none() || !attacker.can_attack() {
+        // The name-based residual identifies the Sentry's separate gun-upgrade
+        // feature, but DeployStyle weapon authority itself comes solely from
+        // the parsed Behavior module. A Sentry-shaped test/mod template
+        // without `TurretsFunctionOnlyWhenDeployed = Yes` must not get this
+        // deploy-only auto-fire behavior by basename fallback.
+        let deploy_only_turret = attacker
+            .get_template()
+            .deploy_style_metadata
+            .as_ref()
+            .is_some_and(|metadata| metadata.turrets_function_only_when_deployed);
+        if !deploy_only_turret
+            || !attacker.is_alive()
+            || attacker.weapon.is_none()
+            || !attacker.can_attack()
+        {
             return;
         }
         let Some(weapon) = attacker.weapon.as_ref() else {
@@ -1270,6 +1286,23 @@ impl GameLogic {
             return;
         };
 
+        // Keep an acquired target while the unpack timer runs. The regular
+        // combat path owns subsequent target validity checks, so a destroyed
+        // target is cleared through stop_attack_decision_aware before it can
+        // become a stale post-deploy shot.
+        if let Some(attacker) = self.objects.get_mut(&sentry_id) {
+            attacker.set_target(Some(target_id));
+            attacker.set_ai_state(AIState::Attacking);
+            attacker.set_status_attacking(true);
+            if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
+                crate::game_logic::host_ai_decision_log::record_attack(sentry_id, target_id);
+                crate::game_logic::host_ai_decision_log::record_set_state(sentry_id, 2);
+            }
+        }
+        if !self.ensure_deploy_style_ready_to_fire(sentry_id) {
+            return;
+        }
+
         let weapon_snap = self.objects.get(&sentry_id).and_then(|a| a.weapon.clone());
         let (destroyed, kill_xp) = self.residual_auto_fire_apply_damage(
             sentry_id,
@@ -1305,13 +1338,6 @@ impl GameLogic {
                     next_count,
                 );
                 attacker.fire_intent_count = next_count;
-            }
-            attacker.set_target(Some(target_id));
-            attacker.set_ai_state(AIState::Attacking);
-            attacker.set_status_attacking(true);
-            if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
-                crate::game_logic::host_ai_decision_log::record_attack(sentry_id, target_id);
-                crate::game_logic::host_ai_decision_log::record_set_state(sentry_id, 2);
             }
             // STEALTH_NOT_WHILE_ATTACKING residual.
             if attacker.stealth_breaks_on_attack && attacker.status.stealthed {

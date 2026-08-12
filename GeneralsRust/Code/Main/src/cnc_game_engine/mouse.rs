@@ -1560,6 +1560,7 @@ impl CnCGameEngine {
             if o.destroyed
                 || o.health_current <= 0.0
                 || o.sold
+                || o.under_construction
                 || o.masked
                 || o.disabled
                 || o.unselectable
@@ -1592,18 +1593,17 @@ impl CnCGameEngine {
             let is_vehicle = crate::presentation_frame::PresentationFrame::object_has_kind(
                 o,
                 crate::game_logic::KindOf::Vehicle,
-            ) || o.object_type
-                == crate::presentation_frame::PresentationObjectType::Vehicle;
+            );
             let is_aircraft = crate::presentation_frame::PresentationFrame::object_has_kind(
                 o,
                 crate::game_logic::KindOf::Aircraft,
-            ) || o.object_type
-                == crate::presentation_frame::PresentationObjectType::Aircraft;
+            );
             let is_infantry = crate::presentation_frame::PresentationFrame::object_has_kind(
                 o,
                 crate::game_logic::KindOf::Infantry,
-            ) || o.object_type
-                == crate::presentation_frame::PresentationObjectType::Infantry;
+            );
+            let is_above_terrain = o.airborne_target
+                || (o.ground_height_from_terrain && o.position.y > o.ground_height + 0.01);
             out.push(crate::command_system::PresentationSelectedUnitHint {
                 id,
                 is_alive: true,
@@ -1611,12 +1611,14 @@ impl CnCGameEngine {
                 is_worker,
                 can_attack,
                 can_move,
+                can_request_service: o.contained_by.is_none(),
                 can_capture,
                 template_name: o.template_name.clone(),
                 can_repair,
                 is_damaged,
                 is_vehicle,
                 is_aircraft,
+                is_above_terrain,
                 is_infantry,
                 transport_slot_count: o.transport_slot_count,
                 stored_supplies: o.stored_supplies,
@@ -1674,11 +1676,10 @@ impl CnCGameEngine {
                 o,
                 crate::game_logic::KindOf::FSAirfield,
             );
-        let provides_vehicle_repair =
-            crate::presentation_frame::PresentationFrame::object_has_kind(
-                o,
-                crate::game_logic::KindOf::RepairPad,
-            );
+        let provides_vehicle_repair = crate::presentation_frame::PresentationFrame::object_has_kind(
+            o,
+            crate::game_logic::KindOf::RepairPad,
+        );
         // C++ treats a non-stealthed occupant as a GarrisonContain gate, but
         // checks friendly contained occupants separately for every target.
         // Freeze both, including stale references which must fail closed.
@@ -1732,6 +1733,7 @@ impl CnCGameEngine {
             provides_vehicle_repair,
             provides_aircraft_repair,
             provides_heal,
+            can_provide_service: o.contained_by.is_none(),
             dock_kind: o.dock_kind,
             dock_controller_is_local: frame.is_owned_by_local(o),
             stored_supplies: o.stored_supplies,

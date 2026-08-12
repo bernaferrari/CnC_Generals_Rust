@@ -920,7 +920,16 @@ impl GameLogic {
             // Already extending.
             return false;
         }
-        let frames = rods_extend_frames_for_template(&obj.template_name);
+        // Parsed `PowerPlantUpdate::RodsExtendTime` owns this value whenever
+        // this object crossed the Object INI metadata boundary.  Keep the
+        // older residual helper only for hand-authored templates used by
+        // unrelated existing PowerPlantUpgrade paths.
+        let frames = obj
+            .thing
+            .template
+            .power_plant_update
+            .map(|metadata| metadata.rods_extend_time_frames)
+            .unwrap_or_else(|| rods_extend_frames_for_template(&obj.template_name));
         if let Some(bit) = model_condition_bit_name_index("POWER_PLANT_UPGRADING") {
             obj.model_condition_bits |= 1u128 << bit;
         }
@@ -931,6 +940,25 @@ impl GameLogic {
         obj.power_plant_rods_done_frame = self.frame.saturating_add(frames.max(1));
         obj.power_plant_rods_extended = true;
         self.special_power_completion_log.record_rods_start();
+        true
+    }
+
+    /// C++ `PowerPlantUpdate::extendRods(false)` — retract immediately and
+    /// clear both animation conditions.  Overcharge calls this only when the
+    /// parsed object actually exposes the PowerPlantUpdate interface.
+    pub fn retract_power_plant_rods(&mut self, object_id: ObjectId) -> bool {
+        use crate::game_logic::host_enum_table_residual::model_condition_bit_name_index;
+        let Some(obj) = self.objects.get_mut(&object_id) else {
+            return false;
+        };
+        if let Some(bit) = model_condition_bit_name_index("POWER_PLANT_UPGRADING") {
+            obj.model_condition_bits &= !(1u128 << bit);
+        }
+        if let Some(bit) = model_condition_bit_name_index("POWER_PLANT_UPGRADED") {
+            obj.model_condition_bits &= !(1u128 << bit);
+        }
+        obj.power_plant_rods_extended = false;
+        obj.power_plant_rods_done_frame = 0;
         true
     }
 

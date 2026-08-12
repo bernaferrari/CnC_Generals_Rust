@@ -638,6 +638,11 @@ pub struct RenderableObject {
     pub moving_backwards: bool,
     /// Host Object::overcharge_enabled residual.
     pub overcharge_enabled: bool,
+    /// Frozen typed OverchargeBehavior authority.  The command strip uses
+    /// this snapshot fact only for presentation; CommandExecutor repeats the
+    /// metadata validation on the live ThingTemplate.
+    #[serde(default)]
+    pub can_toggle_overcharge: bool,
     /// Wave 519: C++ shockwave airborne residual.
     pub shock_was_airborne: bool,
     /// Wave 519: C++ shock allow bounce residual.
@@ -725,6 +730,12 @@ impl RenderableObject {
             // slot; input separately checks the frozen authored roster.
             return Some(usize::MAX);
         }
+        // InternetHackContain is physically a structure but C++ consumes its
+        // authored `Slots` through transport-slot accounting, not the
+        // building garrison counter.
+        if self.contain_module_kind == crate::game_logic::ContainModuleKind::InternetHack {
+            return (self.max_transport > 0).then_some(self.max_transport);
+        }
         if self.is_tunnel_network
             || self.is_structure
             || self.max_garrison > 0
@@ -794,7 +805,8 @@ impl RenderableObject {
         match self.contain_module_kind {
             ContainModuleKind::Transport
             | ContainModuleKind::RiderChange
-            | ContainModuleKind::RailedTransport => true,
+            | ContainModuleKind::RailedTransport
+            | ContainModuleKind::InternetHack => true,
             ContainModuleKind::Garrison => false,
             ContainModuleKind::None => {
                 self.is_helix_transport
@@ -815,6 +827,9 @@ impl RenderableObject {
     pub fn normal_enter_uses_transport_slots(&self) -> bool {
         use crate::game_logic::ContainModuleKind;
 
+        if self.contain_module_kind == ContainModuleKind::InternetHack {
+            return true;
+        }
         if self.is_tunnel_network
             || self.is_structure
             || self.max_garrison > 0

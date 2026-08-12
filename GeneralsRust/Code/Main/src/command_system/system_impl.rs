@@ -1194,11 +1194,20 @@ impl CommandSystem {
         }
         // Get healed at heal pad
         // Wave 1099: sold residual fail-closed on heal pad.
-        if hint.provides_heal && !hint.sold && hint.is_friendly_of_local {
+        if hint.can_provide_service
+            && hint.provides_heal
+            && !hint.sold
+            && !hint.under_construction
+            && hint.is_friendly_of_local
+        {
             let any_injured_infantry = if !selected_presentation.is_empty() {
-                selected_presentation
-                    .iter()
-                    .any(|u| u.is_alive && u.is_damaged && u.is_infantry && u.can_move)
+                selected_presentation.iter().any(|u| {
+                    u.is_alive
+                        && u.is_damaged
+                        && u.is_infantry
+                        && u.can_move
+                        && u.can_request_service
+                })
             } else {
                 false
             };
@@ -1206,10 +1215,14 @@ impl CommandSystem {
                 return Some(CommandType::GetHealed { target_id });
             }
         }
-        // Get repaired at repair pad / war factory / airfield
+        // C++ ActionManager pairs ground vehicles with REPAIR_PAD and
+        // above-terrain VEHICLE+AIRCRAFT units with FS_AIRFIELD. Keep the
+        // full pairing in frozen physical input; executor repeats it.
         // Wave 1099: sold residual fail-closed on repair pad.
         if hint.is_friendly_of_local
             && !hint.sold
+            && !hint.under_construction
+            && hint.can_provide_service
             && (hint.provides_vehicle_repair || hint.provides_aircraft_repair)
         {
             let any_damaged_serviceable = if !selected_presentation.is_empty() {
@@ -1217,8 +1230,12 @@ impl CommandSystem {
                     u.is_alive
                         && u.is_damaged
                         && u.can_move
-                        && ((u.is_vehicle && hint.provides_vehicle_repair)
-                            || (u.is_aircraft && hint.provides_aircraft_repair))
+                        && u.can_request_service
+                        && ((u.is_vehicle && !u.is_aircraft && hint.provides_vehicle_repair)
+                            || (u.is_vehicle
+                                && u.is_aircraft
+                                && u.is_above_terrain
+                                && hint.provides_aircraft_repair))
                 })
             } else {
                 false
@@ -1490,6 +1507,7 @@ impl CommandSystem {
         if !game_logic.unit_is_alive(target_id)
             || game_logic.unit_under_construction(target_id)
             || game_logic.unit_is_sold(target_id)
+            || game_logic.unit_is_contained(target_id)
         {
             return false;
         }
@@ -1505,6 +1523,7 @@ impl CommandSystem {
                 || !game_logic.unit_is_alive(unit_id)
                 || !game_logic.unit_can_move(unit_id)
                 || game_logic.unit_under_construction(unit_id)
+                || game_logic.unit_is_contained(unit_id)
                 || !game_logic.unit_needs_service(unit_id)
             {
                 continue;

@@ -238,10 +238,12 @@ impl Object {
         // C++ HighlanderBody::attemptDamage residual.
         let mut _highlander_clamped = false;
         if self.highlander_body && !battle_bus_start_second {
+            // C++ HighlanderBody.cpp compares exactly against
+            // DAMAGE_UNRESISTABLE.  DAMAGE_PENALTY is still ordinary damage
+            // here, so it must leave the one-HP Highlander floor intact.
             let unres = matches!(
                 damage_type,
                 crate::game_logic::combat::DamageType::Unresistable
-                    | crate::game_logic::combat::DamageType::Penalty
             );
             let (clamped, did) = crate::game_logic::host_highlander_body::highlander_clamp_damage(
                 self.health.current,

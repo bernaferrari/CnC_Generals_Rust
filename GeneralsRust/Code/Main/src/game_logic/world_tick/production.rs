@@ -28,10 +28,7 @@ impl GameLogic {
             .map(|obj| {
                 (
                     obj.get_position(),
-                    object_owner_player_ids
-                        .get(&obj.id)
-                        .copied()
-                        .flatten(),
+                    object_owner_player_ids.get(&obj.id).copied().flatten(),
                     obj.target,
                 )
             })
@@ -53,10 +50,7 @@ impl GameLogic {
             if let Some(obj) = self.objects.get_mut(&id) {
                 if obj.status.under_construction {
                     let build_pos = obj.get_position();
-                    let build_owner_player_id = object_owner_player_ids
-                        .get(&id)
-                        .copied()
-                        .flatten();
+                    let build_owner_player_id = object_owner_player_ids.get(&id).copied().flatten();
                     // Exclusive dock: only dozers targeting this building contribute.
                     // Nearby idle dozers do not ghost-progress (no max(1)).
                     let nearby_dozers = dozer_info
@@ -420,16 +414,21 @@ impl GameLogic {
         // Wave 614: under sole-tick, GameWorld writeback records ready producers;
         // host only try_completes those IDs (GW decides readiness).
         let sole = crate::gameworld_shadow::gameworld_production_sole_tick_enabled();
-        // Wave 735: keep full ready events (template + GW spawn pose/rally), not
-        // producer IDs alone — host sole-tick applies GW pose authority on spawn.
+        // Wave 735: keep every ready event (template + GW spawn pose/rally),
+        // not just a producer ID.  A C++ QuantityModifier batch can produce
+        // multiple units from the same completed head in this update.
         let ready_by_producer: std::collections::HashMap<
             ObjectId,
-            crate::game_logic::host_production_ready_log::HostProductionReadyEvent,
+            Vec<crate::game_logic::host_production_ready_log::HostProductionReadyEvent>,
         > = if sole {
-            crate::game_logic::host_production_ready_log::drain()
-                .into_iter()
-                .map(|ev| (ev.producer, ev))
-                .collect()
+            let mut events_by_producer = std::collections::HashMap::new();
+            for event in crate::game_logic::host_production_ready_log::drain() {
+                events_by_producer
+                    .entry(event.producer)
+                    .or_insert_with(Vec::new)
+                    .push(event);
+            }
+            events_by_producer
         } else {
             std::collections::HashMap::new()
         };
@@ -445,6 +444,10 @@ impl GameLogic {
             if obj.is_disabled() {
                 continue;
             }
+            let mut start_door_cycle = false;
+            // The C++ exit interface belongs to the Object's authored behavior
+            // module, never to its producer basename.
+            let exit_metadata = obj.thing.template.production_exit_metadata;
             if let Some(building) = obj.building_data.as_mut() {
                 let pf = object_owner_player_ids
                     .get(&id)
@@ -452,44 +455,91 @@ impl GameLogic {
                     .flatten()
                     .and_then(|player_id| player_power_factor.get(&player_id).copied())
                     .unwrap_or(1.0);
-                // C++ ProductionUpdate: when NumDoorAnimations > 0, hold complete
-                // until the door is WAITING_OPEN. Start the cycle when the head is ready.
+                // C++ ProductionUpdate checks an exit door only for completed
+                // unit entries; upgrades complete independently of the door.
                 let doors = crate::game_logic::host_production_buildable_command_residual::producer_num_door_animations(
                     &obj.template_name,
                 );
-                let head_ready = building
-                    .production_queue
-                    .first()
-                    .is_some_and(|item| item.progress >= item.total_time);
-                if head_ready
-                    && !crate::game_logic::host_production_buildable_command_residual::production_door_allows_spawn(
-                        doors,
-                        obj.production_door_phase,
-                    )
-                {
-                    if obj.production_door_phase == 0 {
-                        obj.start_production_door_cycle(self.frame);
-                    }
-                    continue;
-                }
                 // Under PRODUCTION_AUTHORITY, GameWorld ticks queue progress;
                 // host only exits delay + completes when writeback already finished the head.
                 let completed_prod = if sole {
                     // Wave 464/614: GameWorld sole-ticks progress + exit delay and
                     // records ready producers on writeback; host try_completes only
                     // ready IDs (Wave 713: empty ready log ⇒ no host scan).
+                    // Limit a QuantityModifier release to matching entity-first
+                    // ready events so stale/missing events cannot make the host
+                    // create an unbound unit.
                     if ready_producers.contains(&id) {
-                        building.try_complete_production()
+                        let ready_count = ready_by_producer
+                            .get(&id)
+                            .and_then(|events| {
+                                building.production_queue.first().map(|head| {
+                                    events
+                                        .iter()
+                                        .filter(|event| {
+                                            event.is_upgrade == head.is_upgrade()
+                                                && event
+                                                    .template_name
+                                                    .eq_ignore_ascii_case(&head.template_name)
+                                        })
+                                        .count()
+                                        .min(u32::MAX as usize)
+                                        as u32
+                                })
+                            })
+                            .unwrap_or(0);
+                        (ready_count > 0)
+                            .then(|| {
+                                building.try_complete_production_at_power_with_exit_metadata(
+                                    pf,
+                                    exit_metadata.as_ref(),
+                                    Some(ready_count),
+                                )
+                            })
+                            .flatten()
                     } else {
                         None
                     }
                 } else {
-                    building.update_production(dt, pf)
+                    // `ProductionUpdate::update` increments the integer frame
+                    // counter before it handles the completed unit's exit
+                    // interface.  Splitting the residual here prevents a unit
+                    // becoming ready on this terminal frame from bypassing a
+                    // closed factory door.
+                    building.tick_production_exit(exit_metadata.as_ref(), dt);
+                    building.advance_production_progress(dt, pf);
+                    let head_ready = building.production_head_complete_at_power(pf);
+                    let head_is_unit = building
+                        .production_queue
+                        .first()
+                        .is_some_and(|item| !item.is_upgrade());
+                    let head_exit_available =
+                        building.production_head_exit_available(exit_metadata.as_ref());
+                    if head_ready
+                        && head_is_unit
+                        && head_exit_available
+                        && !crate::game_logic::host_production_buildable_command_residual::production_door_allows_spawn(
+                            doors,
+                            obj.production_door_phase,
+                        )
+                    {
+                        if obj.production_door_phase == 0 {
+                            start_door_cycle = true;
+                        }
+                        None
+                    } else {
+                        building.try_complete_production_at_power_with_exit_metadata(
+                            pf,
+                            exit_metadata.as_ref(),
+                            None,
+                        )
+                    }
                 };
                 // GameWorld production residual: snapshot queue progress each tick
                 // unless sole-tick owns progress (Wave 477) — then enqueue/complete logs
                 // + writeback carry structure; GW advances progress/exit delay.
-                if !building.production_queue.is_empty()
+                let completed_this_tick = completed_prod.is_some();
+                if (!building.production_queue.is_empty() || completed_this_tick)
                     && !crate::gameworld_shadow::gameworld_production_sole_tick_enabled()
                 {
                     let items: Vec<crate::game_logic::host_production_progress_log::HostProductionQueueItem> =
@@ -502,6 +552,7 @@ impl GameLogic {
                                     template_name: it.template_name.clone(),
                                     progress: it.progress,
                                     total_time: it.total_time,
+                                    construction_frames: it.construction_frames,
                                     cost_supplies: it.cost.supplies,
                                     is_upgrade: it.is_upgrade(),
                                     quantity_total: it.quantity_total.max(1),
@@ -509,10 +560,11 @@ impl GameLogic {
                                 }
                             })
                             .collect();
-                    crate::game_logic::host_production_progress_log::record(
+                    crate::game_logic::host_production_progress_log::record_with_exit_state(
                         id,
                         items,
                         building.exit_delay_remaining,
+                        building.production_exit_runtime_state(),
                         pf,
                     );
                 } else if crate::gameworld_shadow::gameworld_production_sole_tick_enabled() {
@@ -522,64 +574,100 @@ impl GameLogic {
                         id, pf,
                     );
                 }
-                if let Some((completed, kind)) = completed_prod {
-                    match kind {
+                // End the `BuildingData` field read before using producer
+                // geometry below; the object owns both fields.
+                let completion_rally = building.rally_point;
+                if let Some(completed) = completed_prod {
+                    let completed_template = completed.template_name;
+                    match completed.kind {
                         ProductionKind::Upgrade => {
-                            upgrade_completions.push((obj.team, completed, id));
+                            // C++ upgrades do not enter the unit exit batch loop.
+                            upgrade_completions.push((obj.team, completed_template, id));
                         }
                         ProductionKind::Unit => {
-                            let mut rally = building.rally_point;
-                            // Spawn slightly offset from the building facing to reduce clumping.
-                            let forward = obj.thing.get_direction_vector();
-                            let base =
-                                obj.get_position() + forward * obj.selection_radius.max(10.0);
-                            // Deterministic jitter based on template bytes (simple FNV-1a).
-                            let mut hash: u32 = 0x811c9dc5;
-                            for &b in completed.as_bytes() {
-                                hash ^= b as u32;
-                                hash = hash.wrapping_mul(0x01000193);
-                            }
-                            let angle = (hash as f32) * 0.001;
-                            let radius = 3.0 + (hash as f32 % 5.0);
-                            let jitter = Vec3::new(angle.cos(), 0.0, angle.sin()) * radius;
-                            let mut spawn_pos = base + jitter;
-                            // C++ UnitCreatePoint residual sample for China barracks family.
-                            let pname = obj.template_name.to_ascii_lowercase();
-                            if pname.contains("chinabarracks")
-                                || (pname.contains("barracks") && pname.contains("china"))
-                            {
-                                spawn_pos = crate::game_logic::host_production_buildable_command_residual::transform_model_exit_offset(
-                                    obj.get_position(),
-                                    forward,
-                                    crate::game_logic::host_production_buildable_command_residual::CHINA_BARRACKS_UNIT_CREATE_MODEL,
-                                );
-                            }
-                            // Wave 735: under sole-tick, GameWorld ready-log pose/rally
-                            // and template are authoritative for the completion spawn.
-                            // Wave 736: queue GW pre-spawned entity bind for host ObjectId.
-                            let mut completed_name = completed;
-                            if sole {
-                                if let Some(ev) = ready_by_producer.get(&id) {
-                                    if !ev.template_name.is_empty() {
-                                        completed_name = ev.template_name.clone();
+                            // C++ ProductionUpdate loops every remaining unit in
+                            // a completed QuantityModifier entry while its exit
+                            // remains available.  The sole-tick batch is capped
+                            // above by matching entity-first ready events.
+                            for completion_index in 0..completed.quantity {
+                                let mut rally = completion_rally;
+                                // Spawn slightly offset from the building facing to reduce clumping.
+                                let forward = obj.thing.get_direction_vector();
+                                let base =
+                                    obj.get_position() + forward * obj.selection_radius.max(10.0);
+                                // Deterministic jitter based on template bytes (simple FNV-1a).
+                                let mut hash: u32 = 0x811c9dc5;
+                                for &b in completed_template.as_bytes() {
+                                    hash ^= b as u32;
+                                    hash = hash.wrapping_mul(0x01000193);
+                                }
+                                let angle = (hash as f32) * 0.001;
+                                let radius = 3.0 + (hash as f32 % 5.0);
+                                let jitter = Vec3::new(angle.cos(), 0.0, angle.sin()) * radius;
+                                let mut spawn_pos = base + jitter;
+                                if let Some(exit) = exit_metadata {
+                                    spawn_pos = crate::game_logic::host_production_buildable_command_residual::transform_model_exit_offset(
+                                        obj.get_position(),
+                                        forward,
+                                        (
+                                            exit.unit_create_point[0],
+                                            exit.unit_create_point[1],
+                                            exit.unit_create_point[2],
+                                        ),
+                                    );
+                                }
+                                // Wave 735: under sole-tick, GameWorld ready-log pose/rally
+                                // and template are authoritative for the completion spawn.
+                                // Wave 736: queue each GW pre-spawned entity bind in
+                                // the same order as its unit completion.
+                                let mut completed_name = completed_template.clone();
+                                if sole {
+                                    let event = ready_by_producer.get(&id).and_then(|events| {
+                                        events
+                                            .iter()
+                                            .filter(|event| {
+                                                !event.is_upgrade
+                                                    && event
+                                                        .template_name
+                                                        .eq_ignore_ascii_case(&completed_template)
+                                            })
+                                            .nth(completion_index as usize)
+                                    });
+                                    let Some(event) = event else {
+                                        // The batch completion was capped by this exact
+                                        // filtered set, but retain a fail-closed guard if
+                                        // a future producer changes it mid-collection.
+                                        continue;
+                                    };
+                                    if !event.template_name.is_empty() {
+                                        completed_name = event.template_name.clone();
                                     }
-                                    if let Some(p) = ev.spawn_pos {
+                                    if let Some(p) = event.spawn_pos {
                                         spawn_pos = Vec3::new(p[0], p[1], p[2]);
                                     }
-                                    if let Some(r) = ev.rally {
+                                    if let Some(r) = event.rally {
                                         rally = Some(Vec3::new(r[0], r[1], r[2]));
                                     }
-                                    if let Some(raw) = ev.gw_entity_raw {
+                                    if let Some(raw) = event.gw_entity_raw {
                                         crate::game_logic::host_production_ready_log::push_pending_bind(
                                             raw,
                                         );
                                     }
                                 }
+                                unit_completions.push((
+                                    obj.team,
+                                    completed_name,
+                                    spawn_pos,
+                                    rally,
+                                    id,
+                                ));
                             }
-                            unit_completions.push((obj.team, completed_name, spawn_pos, rally, id));
                         }
                     }
                 }
+            }
+            if start_door_cycle {
+                obj.start_production_door_cycle(self.frame);
             }
         }
 
@@ -619,13 +707,10 @@ impl GameLogic {
                         .get(player_id)
                         .is_some_and(|player| player.team == team)
                 });
-            // Door + construction-complete flash residual on producer.
-            if let Some(prod) = self.objects.get_mut(&producer_id) {
-                let now = self.frame.max(1);
-                prod.set_construction_complete_condition_at(now);
-                prod.start_production_door_cycle(self.frame);
-                self.production_door_cycles = self.production_door_cycles.saturating_add(1);
-            }
+            // `ProductionUpdate::update` handles PRODUCTION_UPGRADE directly:
+            // unlike a unit it does not reserve an exit, open a factory door,
+            // or set MODELCONDITION_CONSTRUCTION_COMPLETE.  Keep the producer
+            // ID below solely for the authoritative research completion event.
             // Wave 483: refresh GW producer queue after host pop (sole-tick skips
             // per-frame progress log; Complete path snapshots host queue).
             crate::game_logic::host_production_log::record_complete(
@@ -746,12 +831,7 @@ impl GameLogic {
         spawn_pos: Vec3,
     ) -> Option<ObjectId> {
         let team = self.players.get(&owner_player_id)?.team;
-        self.host_spawn_production_unit_with_owner(
-            template,
-            team,
-            Some(owner_player_id),
-            spawn_pos,
-        )
+        self.host_spawn_production_unit_with_owner(template, team, Some(owner_player_id), spawn_pos)
     }
 
     fn host_spawn_production_unit_with_owner(
@@ -928,6 +1008,10 @@ impl GameLogic {
             let new_id = ev.unit;
             let producer_id = ev.producer;
             let template = ev.template;
+            let producer_exit_metadata = self
+                .objects
+                .get(&producer_id)
+                .and_then(|producer| producer.thing.template.production_exit_metadata);
             let mut spawn_pos = Vec3::new(ev.spawn_pos[0], ev.spawn_pos[1], ev.spawn_pos[2]);
             let rally = ev.rally.map(|r| Vec3::new(r[0], r[1], r[2]));
             // Wave 739: under production sole-tick, GameWorld ready-log pose is
@@ -951,20 +1035,35 @@ impl GameLogic {
             if let Some(prod) = self.objects.get_mut(&producer_id) {
                 let now = self.frame.max(1);
                 prod.set_construction_complete_condition_at(now);
-                prod.start_production_door_cycle(self.frame);
-                self.production_door_cycles = self.production_door_cycles.saturating_add(1);
-                // C++ QueueProductionExitUpdate ExitDelay residual after release.
+                let door_count = crate::game_logic::host_production_buildable_command_residual::producer_num_door_animations(
+                    &prod.template_name,
+                );
+                if door_count > 0 && prod.production_door_phase == 2 {
+                    // C++ ProductionUpdate's `m_doorWaitOpenFrame = now` keeps
+                    // an already-open reserved exit available for every member
+                    // of the terminal QuantityModifier batch.  Do not restart
+                    // the door-opening animation after a successful exit.
+                    prod.production_door_phase_end_frame = now.saturating_add(30);
+                    prod.record_host_production_door();
+                } else if door_count > 0 {
+                    // A detached/scripted completion may not have passed the
+                    // normal door gate; retain the existing safe fallback.
+                    prod.start_production_door_cycle(self.frame);
+                    self.production_door_cycles = self.production_door_cycles.saturating_add(1);
+                }
+                // C++ QueueProductionExitUpdate mutates its own per-Object
+                // delay/burst state after each successful exit.  This is not
+                // a China/Barracks-name delay table.
                 if let Some(building) = prod.building_data.as_mut() {
-                    let delay = crate::game_logic::host_dock_contain_exit_heal_residual::queue_exit_delay_seconds_for_template(
-                        &prod.template_name,
-                    );
-                    building.arm_exit_delay(delay);
-                    // Wave 480: under sole-tick, progress log is power-only —
-                    // publish exit arm so GW QueueProductionExitUpdate advances.
+                    building.record_successful_production_exit(producer_exit_metadata.as_ref());
+                    // Under sole-tick, progress is shadow-owned.  Publish the
+                    // exact state transition so the next GameWorld update
+                    // decrements the same integer C++ counter.
                     if crate::gameworld_shadow::gameworld_production_sole_tick_enabled() {
-                        crate::game_logic::host_production_progress_log::record_exit_delay_only(
+                        crate::game_logic::host_production_progress_log::record_exit_runtime_only(
                             producer_id,
-                            delay,
+                            building.exit_delay_remaining,
+                            building.production_exit_runtime_state(),
                         );
                     }
                 }
@@ -995,23 +1094,20 @@ impl GameLogic {
                     }
                 }
             }
-            // C++ QueueProductionExitUpdate exit path residual:
-            // natural rally first; custom rally appended; else double natural
-            // so Red Guards do not stack on the door.
+            // C++ Queue/DefaultProductionExitUpdate route from the frozen
+            // module points.  Queue repeats its natural point when no custom
+            // rally exists; Default does not invent that second waypoint.
             let (natural, forward) = if let Some(prod) = self.objects.get(&producer_id) {
                 let f = prod.thing.get_direction_vector();
-                let natural = crate::game_logic::host_production_buildable_command_residual::transform_model_exit_offset(
-                    prod.get_position(),
-                    f,
-                    crate::game_logic::host_production_buildable_command_residual::CHINA_BARRACKS_NATURAL_RALLY_MODEL,
-                );
-                // Generic residual: if producer is not China barracks family, fall back
-                // to forward * selection_radius natural.
-                let p_name = prod.template_name.to_ascii_lowercase();
-                let natural = if p_name.contains("chinabarracks")
-                    || (p_name.contains("barracks") && p_name.contains("china"))
-                {
-                    natural
+                let natural = if let Some(exit) = producer_exit_metadata {
+                    let point = exit.natural_rally_point_with_path_offset(
+                        crate::game_logic::host_ai_path_combat_residual_wave105::PATHFIND_CELL_SIZE_F,
+                    );
+                    crate::game_logic::host_production_buildable_command_residual::transform_model_exit_offset(
+                        prod.get_position(),
+                        f,
+                        (point[0], point[1], point[2]),
+                    )
                 } else {
                     prod.get_position() + f * prod.selection_radius.max(10.0)
                 };
@@ -1022,8 +1118,13 @@ impl GameLogic {
             self.path_approach_with_state(new_id, natural, AIState::Moving);
             if let Some(rally_point) = rally {
                 let _ = self.append_unit_waypoint(new_id, rally_point);
-            } else {
-                // Double natural residual (C++ exitPath.push_back(tmp) twice).
+            } else if producer_exit_metadata.is_some_and(|exit| exit.is_queue()) {
+                // QueueProductionExitUpdate pushes its natural rally twice
+                // when no player rally is present, exactly at the same point.
+                let _ = self.append_unit_waypoint(new_id, natural);
+            } else if producer_exit_metadata.is_none() {
+                // Retain the legacy unparsed residual without letting it
+                // substitute for a source-authored Default interface.
                 let doubled = natural + forward.normalize_or_zero() * 5.0;
                 let _ = self.append_unit_waypoint(new_id, doubled);
             }

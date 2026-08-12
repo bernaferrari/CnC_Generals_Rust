@@ -518,6 +518,7 @@ fn production_progress_log_drives_set_production_queue() {
             template_name: "Ranger".into(),
             progress: 3.5,
             total_time: 10.0,
+            construction_frames: 0,
             cost_supplies: 150,
             is_upgrade: false,
             quantity_total: 1,

@@ -428,6 +428,14 @@ impl Object {
         if self.is_tunnel_network_style_container() {
             return self.is_kind_of(KindOf::Structure);
         }
+        // `InternetHackContain` is a real structure-side transport
+        // interface.  Its exact admission/controller checks remain in the
+        // normal Enter authority path; a generic structure cannot borrow it.
+        if self.thing.template.contain_module.kind
+            == crate::game_logic::ContainModuleKind::InternetHack
+        {
+            return self.max_transport > 0;
+        }
         // `RailedTransportContain` is not a generic vehicle transport in
         // retail (the AutoFerry, for example, is KINDOF_TRANSPORT).  Its
         // explicit Slots field is nevertheless a real containment interface
@@ -563,7 +571,8 @@ impl Object {
         match self.thing.template.contain_module.kind {
             ContainModuleKind::Transport
             | ContainModuleKind::RiderChange
-            | ContainModuleKind::RailedTransport => true,
+            | ContainModuleKind::RailedTransport
+            | ContainModuleKind::InternetHack => true,
             ContainModuleKind::Garrison => false,
             ContainModuleKind::None => {
                 self.is_helix_transport
@@ -591,6 +600,9 @@ impl Object {
         // with CHECK_CAPACITY=false.
         if self.thing.template.contain_module.kind == ContainModuleKind::RiderChange {
             return false;
+        }
+        if self.thing.template.contain_module.kind == ContainModuleKind::InternetHack {
+            return true;
         }
         if self.is_tunnel_network_style_container()
             || self.is_kind_of(KindOf::Structure)
@@ -644,6 +656,16 @@ impl Object {
     }
 
     pub fn has_capacity_for(&self, count: usize) -> bool {
+        // InternetHackContain is a structure, but its authored `Slots` are
+        // transport slots rather than GarrisonContain bodies.  Its normal
+        // Enter authority already computes weighted slot availability; this
+        // arrival-side guard must not reinterpret it as `max_garrison`.
+        if self.thing.template.contain_module.kind
+            == crate::game_logic::ContainModuleKind::InternetHack
+        {
+            let cap = self.transport_capacity();
+            return cap > 0 && self.contained_units().len().saturating_add(count) <= cap;
+        }
         if let Some(building) = &self.building_data {
             if building.max_garrison == 0 {
                 return false;
@@ -1103,6 +1125,11 @@ impl Object {
     /// Contain module or an explicit specialized host transport installation;
     /// never from an object's visual footprint.
     pub fn transport_capacity(&self) -> usize {
+        if self.thing.template.contain_module.kind
+            == crate::game_logic::ContainModuleKind::InternetHack
+        {
+            return self.max_transport;
+        }
         if self.is_kind_of(KindOf::Structure) {
             return 0;
         }

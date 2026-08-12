@@ -48,6 +48,10 @@ pub enum ContainModuleKind {
     RiderChange = 2,
     RailedTransport = 3,
     Garrison = 4,
+    /// C++ `InternetHackContain`.  This is a structure-side transport
+    /// interface with exact controller and `TransportSlotCount` accounting;
+    /// it is deliberately separate from a generic garrison.
+    InternetHack = 5,
 }
 
 impl Default for ContainModuleKind {
@@ -81,6 +85,11 @@ pub enum ContainAdmission {
     InfantryOnly = 2,
     /// `AllowInsideKindOf = INFANTRY VEHICLE` or an equivalent aircraft ban.
     InfantryOrVehicle = 3,
+    /// Exact `InternetHackContain::AllowInsideKindOf = MONEY_HACKER`.
+    /// Keep this separate from Infantry: Black Lotus and arbitrary infantry
+    /// cannot enter an Internet Center merely because they share that broad
+    /// class.
+    MoneyHackerOnly = 4,
 }
 
 impl Default for ContainAdmission {
@@ -194,6 +203,38 @@ pub struct ContainModuleMetadata {
     /// Active model-condition bit corresponding to `ScuttleStatus`.
     #[serde(default)]
     pub rider_change_scuttle_status_mask: u128,
+}
+
+/// Exact `OverchargeBehaviorModuleData` retained from one Object INI behavior
+/// declaration.  Presence is the authority contract: a power-plant KindOf or
+/// a template spelling never fabricates this module.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct OverchargeBehaviorMetadata {
+    /// C++ `HealthPercentToDrainPerSecond`, already converted from its INI
+    /// percentage representation (for example `3%` becomes `0.03`).
+    pub health_percent_to_drain_per_second: f32,
+    /// C++ `NotAllowedWhenHealthBelowPercent`, likewise a real fraction.
+    pub not_allowed_when_health_below_percent: f32,
+}
+
+impl Default for OverchargeBehaviorMetadata {
+    fn default() -> Self {
+        // `OverchargeBehaviorModuleData` initializes both fields to zero.
+        Self {
+            health_percent_to_drain_per_second: 0.0,
+            not_allowed_when_health_below_percent: 0.0,
+        }
+    }
+}
+
+/// The narrow `PowerPlantUpdate` data consumed by Overcharge's rod animation
+/// hook.  This stays separate from `OverchargeBehavior`: C++ toggles power
+/// without requiring a PowerPlantUpdate interface, but only that separate
+/// interface owns the POWER_PLANT_UPGRADING/UPGRADED model conditions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PowerPlantUpdateMetadata {
+    /// C++ `RodsExtendTime`, parsed to logic frames.
+    pub rods_extend_time_frames: u32,
 }
 
 const fn default_allow_inside() -> bool {
@@ -372,6 +413,339 @@ impl Default for DeployStyleMetadata {
     }
 }
 
+/// The two production-exit interfaces carried by the bounded live producer
+/// path.  This is deliberately not inferred from a building kind or basename:
+/// C++ `Object::getObjectExitInterface` exposes an interface only when an
+/// Object INI behavior authors one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ProductionExitStyle {
+    /// `QueueProductionExitUpdate`: a successful exit arms a delay, while the
+    /// authored initial burst can keep the interface immediately available.
+    Queue,
+    /// `DefaultProductionExitUpdate`: every completed batch member can use
+    /// `DOOR_1` in the same ProductionUpdate.
+    Default,
+}
+
+/// Exact immutable module data from either one
+/// `QueueProductionExitUpdate` or `DefaultProductionExitUpdate` declaration.
+///
+/// The corresponding mutable Queue counters live on `BuildingData`, just as
+/// the C++ update module owns `m_currentDelay` and `m_currentBurstCount` per
+/// Object instance rather than per ThingTemplate.  `None` on
+/// [`ThingTemplate`] remains distinct from a module with all-default fields.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct ProductionExitMetadata {
+    /// Which source ExitInterface owns the production exit.
+    pub style: ProductionExitStyle,
+    /// C++ `m_unitCreatePoint`, in model-space X/Y/Z coordinates.
+    pub unit_create_point: [f32; 3],
+    /// C++ `m_naturalRallyPoint`, in model-space X/Y/Z coordinates.
+    pub natural_rally_point: [f32; 3],
+    /// C++ Queue `m_exitDelayData`, parsed to 30 Hz logic frames.  Default
+    /// exit modules have no delay data and retain zero here.
+    pub exit_delay_frames: u32,
+    /// C++ Queue `m_allowAirborneCreationData`.  It is retained for snapshot
+    /// parity; the bounded ground producer path does not invent airborne
+    /// velocity/layer physics from this bit.
+    pub allow_airborne_creation: bool,
+    /// C++ Queue `m_initialBurst`.  The runtime counter is initialized once
+    /// per producer Object from this template value.
+    pub initial_burst: u32,
+    /// C++ Default `m_useSpawnRallyPoint`.  This is retained for the separate
+    /// spawn/parachute path; ordinary unit production always follows its
+    /// authored natural/custom exit route.
+    pub use_spawn_rally_point: bool,
+}
+
+impl ProductionExitMetadata {
+    #[inline]
+    pub const fn is_queue(self) -> bool {
+        matches!(self.style, ProductionExitStyle::Queue)
+    }
+
+    #[inline]
+    pub const fn is_default(self) -> bool {
+        matches!(self.style, ProductionExitStyle::Default)
+    }
+
+    /// `getNaturalRallyPoint(offset = TRUE)` adds two pathfinding cells along
+    /// the authored model-space rally vector before the producer transform.
+    /// A zero authored vector remains zero rather than acquiring an arbitrary
+    /// direction.
+    #[inline]
+    pub fn natural_rally_point_with_path_offset(self, pathfind_cell_size: f32) -> [f32; 3] {
+        let [x, y, z] = self.natural_rally_point;
+        let length = (x * x + y * y + z * z).sqrt();
+        if !length.is_finite() || length <= f32::EPSILON || !pathfind_cell_size.is_finite() {
+            return [x, y, z];
+        }
+        let distance = 2.0 * pathfind_cell_size;
+        [
+            x + x / length * distance,
+            y + y / length * distance,
+            z + z / length * distance,
+        ]
+    }
+}
+
+/// The narrow `VeterancyCrateCollide` data slice that makes an infantry
+/// object a USA Pilot re-crew source.
+///
+/// This is intentionally not a generic crate/experience implementation.
+/// C++ `VeterancyCrateCollide` is used for many unrelated crate effects; the
+/// host retains only an explicitly authored `IsPilot = Yes` module and the
+/// companion `VeterancyGainCreate::StartingLevel` needed by the live pilot
+/// path.  Missing or unrepresentable fields do not authorize re-crew.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct VeterancyCrateCollideMetadata {
+    /// Exact authored `IsPilot = Yes` marker.  This stays explicit instead of
+    /// inferring pilot behavior from a template basename.
+    pub is_pilot: bool,
+    /// The compact host can faithfully service the retail `RequiredKindOf =
+    /// VEHICLE` pilot criterion only when it was explicitly parsed.
+    pub required_kind_of_vehicle: bool,
+    /// The compact host can faithfully service the retail `ForbiddenKindOf =
+    /// DOZER` pilot criterion only when it was explicitly parsed.
+    pub forbidden_kind_of_dozer: bool,
+    /// C++ `m_rangeOfEffect`.  Re-crew is a collide/Enter action only when
+    /// this is exactly zero; `None` records an absent or malformed source
+    /// field and fails closed.
+    pub effect_range: Option<f32>,
+    /// C++ `AddsOwnerVeterancy`.  The live path only carries the pilot's
+    /// veterancy into the vehicle when this authored field is true.
+    pub adds_owner_veterancy: bool,
+    /// The `StartingLevel` from the one companion `VeterancyGainCreate`
+    /// module.  It is retained only under parsed `IsPilot`, not as a generic
+    /// free-veterancy fallback.
+    pub starting_level: Option<VeterancyLevel>,
+}
+
+impl VeterancyCrateCollideMetadata {
+    /// Whether this exact behavior is representable by the bounded physical
+    /// USA Pilot re-crew path.  Do not broaden this to other crate masks:
+    /// unknown/missing source fields must never grant an Enter action.
+    #[inline]
+    pub fn supports_pilot_recrew(&self) -> bool {
+        self.is_pilot
+            && self.required_kind_of_vehicle
+            && self.forbidden_kind_of_dozer
+            && self.effect_range == Some(0.0)
+            && self.adds_owner_veterancy
+    }
+
+    /// `VeterancyGainCreate` is a separate C++ module, but the starting level
+    /// is only applied by this host path when an explicit pilot module was
+    /// parsed from the same template.
+    #[inline]
+    pub fn pilot_starting_level(&self) -> Option<VeterancyLevel> {
+        self.is_pilot.then_some(self.starting_level).flatten()
+    }
+}
+
+/// The two retail ObjectCreationLists used by `EjectPilotDie`.
+///
+/// C++ retains pointers to arbitrary OCLs.  The compact live bridge only
+/// implements these two fully understood retail lists; an absent value is
+/// therefore intentionally a no-spawn result, whether the source pointer was
+/// null or named an unsupported list.  The enclosing metadata still records
+/// the EjectPilotDie *interface* for the separate Hijacker path.
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum EjectPilotCreationList {
+    OnGround = 0,
+    ViaParachute = 1,
+}
+
+/// Exact subset of C++ `DieMuxData::m_deathTypes` represented by active
+/// retail `EjectPilotDie` behaviors.  Unsupported masks never authorize a
+/// host death spawn.
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum EjectPilotDeathTypes {
+    All = 0,
+    AllExceptCrushedAndSplatted = 1,
+    Unsupported = 255,
+}
+
+/// Exact subset of C++ `DieMuxData::m_veterancyLevels` represented by active
+/// retail `EjectPilotDie` behaviors.  `Regular` is Rust's `Rookie` rank.
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum EjectPilotVeterancyLevels {
+    All = 0,
+    AllExceptRegular = 1,
+    Unsupported = 255,
+}
+
+/// Exact `DieMuxData::m_exemptStatus` cases retained for EjectPilotDie.
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum EjectPilotExemptStatus {
+    None = 0,
+    Hijacked = 1,
+    Unsupported = 255,
+}
+
+/// Exact `DieMuxData::m_requiredStatus` cases retained for EjectPilotDie.
+/// No retail EjectPilotDie block authors a required status; an unfamiliar
+/// requirement must not be guessed by the compact death path.
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum EjectPilotRequiredStatus {
+    None = 0,
+    Unsupported = 255,
+}
+
+/// Typed C++ `EjectPilotDieModuleData` retained from one Object INI Behavior.
+///
+/// The presence of this value is the source-backed
+/// `getEjectPilotDieInterface()` fact used by
+/// `ConvertToHijackedVehicleCrateCollide`.  Death spawning is intentionally
+/// stricter: it requires a representable DieMux filter and an exact OCL for
+/// the selected ground/air branch.  That separation preserves C++'s interface
+/// predicate without inventing an OCL action for unknown data.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EjectPilotDieMetadata {
+    /// C++ `m_oclOnGround`; `None` retains a null or unsupported OCL pointer.
+    pub ground_creation_list: Option<EjectPilotCreationList>,
+    /// C++ `m_oclInAir`; `None` retains a null or unsupported OCL pointer.
+    pub air_creation_list: Option<EjectPilotCreationList>,
+    /// C++ `m_invulnerableTime`, in source milliseconds.  It defaults to
+    /// zero and is retained even though the retail ejection OCL owns the
+    /// actual spawned pilot's InvulnerableTime.
+    pub invulnerable_time_ms: Option<u32>,
+    pub death_types: EjectPilotDeathTypes,
+    pub veterancy_levels: EjectPilotVeterancyLevels,
+    pub exempt_status: EjectPilotExemptStatus,
+    pub required_status: EjectPilotRequiredStatus,
+}
+
+impl Default for EjectPilotDieMetadata {
+    fn default() -> Self {
+        // Exact EjectPilotDieModuleData / DieMuxData constructor defaults.
+        Self {
+            ground_creation_list: None,
+            air_creation_list: None,
+            invulnerable_time_ms: Some(0),
+            death_types: EjectPilotDeathTypes::All,
+            veterancy_levels: EjectPilotVeterancyLevels::All,
+            exempt_status: EjectPilotExemptStatus::None,
+            required_status: EjectPilotRequiredStatus::None,
+        }
+    }
+}
+
+impl EjectPilotDieMetadata {
+    /// `getEjectPilotDieInterface()` is exposed solely by module presence in
+    /// C++; OCL availability and DieMux applicability are not part of that
+    /// query.  A parsed metadata value therefore always carries the interface.
+    #[inline]
+    pub const fn has_eject_pilot_die_interface(&self) -> bool {
+        true
+    }
+
+    /// Return the exact OCL selected by C++ `EjectPilotDie::onDie` for the
+    /// already-evaluated `isSignificantlyAboveTerrain` result.
+    #[inline]
+    pub const fn creation_list_for_air_path(
+        &self,
+        significantly_above_terrain: bool,
+    ) -> Option<EjectPilotCreationList> {
+        if significantly_above_terrain {
+            self.air_creation_list
+        } else {
+            self.ground_creation_list
+        }
+    }
+
+    /// Evaluate the supported portion of C++ `DieMuxData::isDieApplicable`.
+    /// Unknown filters and malformed duration input stay fail-closed for the
+    /// physical spawn, while the separate interface predicate remains valid.
+    #[inline]
+    pub fn allows_supported_death(
+        &self,
+        death_is_crushed_or_splatted: bool,
+        veterancy_is_regular: bool,
+        is_hijacked: bool,
+    ) -> bool {
+        self.invulnerable_time_ms.is_some()
+            && matches!(self.required_status, EjectPilotRequiredStatus::None)
+            && match self.death_types {
+                EjectPilotDeathTypes::All => true,
+                EjectPilotDeathTypes::AllExceptCrushedAndSplatted => !death_is_crushed_or_splatted,
+                EjectPilotDeathTypes::Unsupported => false,
+            }
+            && match self.veterancy_levels {
+                EjectPilotVeterancyLevels::All => true,
+                EjectPilotVeterancyLevels::AllExceptRegular => !veterancy_is_regular,
+                EjectPilotVeterancyLevels::Unsupported => false,
+            }
+            && match self.exempt_status {
+                EjectPilotExemptStatus::None => true,
+                EjectPilotExemptStatus::Hijacked => !is_hijacked,
+                EjectPilotExemptStatus::Unsupported => false,
+            }
+    }
+}
+
+/// Exact `HackInternetAIUpdateModuleData` fields retained from Object INI.
+///
+/// The host uses this only for the currently implemented cash scheduler.  It
+/// retains `PackTime`, `UnpackTime`, and variation as source data, but does
+/// not fabricate the unported packing/model-condition state machine.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct HackInternetAIUpdateMetadata {
+    /// C++ `m_unpackTime`, converted by `INI::parseDurationUnsignedInt`.
+    pub unpack_time_frames: u32,
+    /// C++ `m_packTime`, converted by `INI::parseDurationUnsignedInt`.
+    pub pack_time_frames: u32,
+    /// C++ `m_cashUpdateDelay`, in logic frames.
+    pub cash_update_delay_frames: u32,
+    /// C++ `m_cashUpdateDelayFast`, in logic frames while contained.
+    pub cash_update_delay_fast_frames: u32,
+    pub regular_cash_amount: u32,
+    pub veteran_cash_amount: u32,
+    pub elite_cash_amount: u32,
+    pub heroic_cash_amount: u32,
+    pub xp_per_cash_update: f32,
+    pub pack_unpack_variation_factor: f32,
+}
+
+impl HackInternetAIUpdateMetadata {
+    /// C++ `HackInternetState::update` falls through to lower tiers when a
+    /// higher authored amount is zero, finally yielding one credit.  That
+    /// fallback applies to every successfully parsed `HackInternetAIUpdate`,
+    /// including an all-zero module.  Absent or malformed modules are `None`
+    /// on `ThingTemplate` and fail closed at their callers.
+    #[inline]
+    pub const fn cash_amount_for_level(&self, level: VeterancyLevel) -> u32 {
+        let amount = match level {
+            VeterancyLevel::Heroic if self.heroic_cash_amount != 0 => self.heroic_cash_amount,
+            VeterancyLevel::Heroic | VeterancyLevel::Elite if self.elite_cash_amount != 0 => {
+                self.elite_cash_amount
+            }
+            VeterancyLevel::Heroic | VeterancyLevel::Elite | VeterancyLevel::Veteran
+                if self.veteran_cash_amount != 0 =>
+            {
+                self.veteran_cash_amount
+            }
+            _ if self.regular_cash_amount != 0 => self.regular_cash_amount,
+            _ => 1,
+        };
+        amount
+    }
+
+    #[inline]
+    pub const fn cash_update_delay_frames(&self, contained: bool) -> u32 {
+        if contained {
+            self.cash_update_delay_fast_frames
+        } else {
+            self.cash_update_delay_frames
+        }
+    }
+}
+
 /// Exact capture special carried by an Object INI `SpecialAbility` module.
 ///
 /// This remains separate from `KindOf::Infantry` and template spelling: C++
@@ -497,6 +871,41 @@ pub struct ThingTemplate {
     /// `CAN_ATTACK` KindOf never creates deploy authority.
     #[serde(default)]
     pub deploy_style_metadata: Option<DeployStyleMetadata>,
+    /// Exact `QueueProductionExitUpdate` or `DefaultProductionExitUpdate`
+    /// module.  Missing data never grants a named producer a synthetic Queue
+    /// delay, authored exit point, or batch-release policy.
+    #[serde(default)]
+    pub production_exit_metadata: Option<ProductionExitMetadata>,
+    /// Exact `VeterancyCrateCollide IsPilot` data.  This remains absent for a
+    /// pilot-named template unless its Object INI authors and parses the
+    /// corresponding behavior module.
+    #[serde(default)]
+    pub veterancy_crate_collide: Option<VeterancyCrateCollideMetadata>,
+    /// Exact `EjectPilotDie` module data.  Presence records the C++ die
+    /// interface for Hijacker behavior; active death spawning separately
+    /// rejects unrepresentable filters or OCLs.
+    #[serde(default)]
+    pub eject_pilot_die: Option<EjectPilotDieMetadata>,
+    /// Exact `HackInternetAIUpdate` module data.  This remains absent when a
+    /// source unit is merely named like a hacker; active command and income
+    /// authority require this typed behavior.
+    #[serde(default)]
+    pub hack_internet_ai_update: Option<HackInternetAIUpdateMetadata>,
+    /// C++ Object INI `EnergyBonus`.  `None` is its constructor default of
+    /// zero; a valid OverchargeBehavior therefore remains player-toggleable
+    /// with no power delta.  The parser rejects a malformed *present* field
+    /// before exposing the behavior as authority.
+    #[serde(default)]
+    pub energy_bonus: Option<i32>,
+    /// Exact `OverchargeBehavior` data.  A missing or malformed behavior
+    /// never receives a player-facing toggle merely because it is a China
+    /// plant or has a PowerPlant KindOf.
+    #[serde(default)]
+    pub overcharge_behavior: Option<OverchargeBehaviorMetadata>,
+    /// Exact `PowerPlantUpdate` data for visual rod state.  Its absence does
+    /// not prevent an otherwise valid OverchargeBehavior from adding power.
+    #[serde(default)]
+    pub power_plant_update: Option<PowerPlantUpdateMetadata>,
     /// C++ Object INI `TransportSlotCount`: how much capacity this source
     /// consumes when boarding a normal transport.  `None` is intentionally
     /// unproven and fails closed in a player Enter command.
@@ -598,6 +1007,13 @@ impl ThingTemplate {
             contain_module: ContainModuleMetadata::default(),
             parking_place: None,
             deploy_style_metadata: None,
+            production_exit_metadata: None,
+            veterancy_crate_collide: None,
+            eject_pilot_die: None,
+            hack_internet_ai_update: None,
+            energy_bonus: None,
+            overcharge_behavior: None,
+            power_plant_update: None,
             transport_slot_count: None,
             capturable: false,
             immune_to_capture: false,
@@ -631,6 +1047,16 @@ impl ThingTemplate {
             self.asset_scale = scale;
         }
         self
+    }
+
+    /// Whether this template crossed the typed authority boundary for an
+    /// Overcharge command.  The behavior alone is authoritative: C++ permits
+    /// an authored module when ThingTemplate::EnergyBonus retains its default
+    /// zero.  The parser rejects malformed present bonus fields before this
+    /// can return true.
+    #[inline]
+    pub fn supports_overcharge(&self) -> bool {
+        self.overcharge_behavior.is_some()
     }
 
     /// Attach host primary weapon stats (damage/range/reload) to this template.

@@ -19,6 +19,111 @@ fn group_move_destinations_spreads_multi_unit() {
 }
 
 #[test]
+fn service_executor_revalidates_authored_kindof_matrix_not_building_names() {
+    use super::CommandExecutor;
+    use crate::command_system::CommandResult;
+    use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
+    use glam::Vec3;
+
+    let mut logic = GameLogic::new();
+    let mut ground = ThingTemplate::new("GroundSource");
+    ground.add_kind_of(KindOf::Vehicle).set_health(200.0);
+    let mut aircraft = ThingTemplate::new("AirSource");
+    // Retail aircraft satisfy ActionManager's initial VEHICLE gate too.
+    aircraft
+        .add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Aircraft)
+        .set_health(200.0);
+    let mut infantry = ThingTemplate::new("InfantrySource");
+    infantry.add_kind_of(KindOf::Infantry).set_health(100.0);
+    let mut repair_pad = ThingTemplate::new("SourceTaggedGroundDestination");
+    repair_pad
+        .add_kind_of(KindOf::RepairPad)
+        .set_health(1_000.0);
+    let mut airfield = ThingTemplate::new("SourceTaggedAirDestination");
+    airfield.add_kind_of(KindOf::FSAirfield).set_health(1_000.0);
+    let mut heal_pad = ThingTemplate::new("SourceTaggedInfantryDestination");
+    heal_pad.add_kind_of(KindOf::HealPad).set_health(1_000.0);
+    // This triggers the old BuildingType/name fallback but has no source tag.
+    let mut name_only = ThingTemplate::new("RepairHospitalAirfieldWithoutTag");
+    name_only.add_kind_of(KindOf::Structure).set_health(1_000.0);
+
+    for template in [
+        ground, aircraft, infantry, repair_pad, airfield, heal_pad, name_only,
+    ] {
+        logic.templates.insert(template.name.clone(), template);
+    }
+
+    let ground_ok = logic
+        .create_object("GroundSource", Team::USA, Vec3::new(5.0, 0.0, 0.0))
+        .expect("ground source");
+    let ground_reject = logic
+        .create_object("GroundSource", Team::USA, Vec3::new(6.0, 0.0, 0.0))
+        .expect("ground reject source");
+    let aircraft_ok = logic
+        .create_object("AirSource", Team::USA, Vec3::new(7.0, 10.0, 0.0))
+        .expect("air source");
+    let infantry_ok = logic
+        .create_object("InfantrySource", Team::USA, Vec3::new(8.0, 0.0, 0.0))
+        .expect("infantry source");
+    let repair_target = logic
+        .create_object("SourceTaggedGroundDestination", Team::USA, Vec3::ZERO)
+        .expect("repair target");
+    let airfield_target = logic
+        .create_object(
+            "SourceTaggedAirDestination",
+            Team::USA,
+            Vec3::new(20.0, 0.0, 0.0),
+        )
+        .expect("airfield target");
+    let heal_target = logic
+        .create_object(
+            "SourceTaggedInfantryDestination",
+            Team::USA,
+            Vec3::new(30.0, 0.0, 0.0),
+        )
+        .expect("heal target");
+    let name_only_target = logic
+        .create_object(
+            "RepairHospitalAirfieldWithoutTag",
+            Team::USA,
+            Vec3::new(40.0, 0.0, 0.0),
+        )
+        .expect("name-only target");
+
+    for id in [ground_ok, ground_reject, aircraft_ok, infantry_ok] {
+        logic.host_object_mut(id).expect("source").health.current = 10.0;
+    }
+    logic
+        .host_object_mut(aircraft_ok)
+        .expect("aircraft")
+        .status
+        .airborne_target = true;
+
+    let mut executor = CommandExecutor::new(&mut logic, 0);
+    assert_eq!(
+        executor.execute_get_repaired(&[ground_ok], repair_target),
+        CommandResult::Success,
+        "ground vehicle requires and accepts authored REPAIR_PAD"
+    );
+    assert_eq!(
+        executor.execute_get_repaired(&[ground_reject], name_only_target),
+        CommandResult::InvalidCommand,
+        "Repair/Hospital/Airfield spelling without REPAIR_PAD must fail authority"
+    );
+    assert_eq!(
+        executor.execute_get_repaired(&[aircraft_ok], airfield_target),
+        CommandResult::Success,
+        "airborne VEHICLE+AIRCRAFT requires and accepts authored FS_AIRFIELD"
+    );
+    assert_eq!(
+        executor.execute_get_healed(&[infantry_ok], heal_target),
+        CommandResult::Success,
+        "infantry requires and accepts authored HEAL_PAD"
+    );
+}
+
+#[test]
 fn group_move_destinations_preserves_relative_offset() {
     use super::CommandExecutor;
     use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
@@ -2136,11 +2241,7 @@ fn deploy_command_uses_authored_metadata_and_pack_unpack_timing() {
         .create_object_for_player("ArbitraryDeployStyleVehicle", 0, Vec3::ZERO)
         .expect("source-backed DeployStyle unit");
     let no_behavior = logic
-        .create_object_for_player(
-            "PlainVehicleWithoutBehavior",
-            0,
-            Vec3::new(50.0, 0.0, 0.0),
-        )
+        .create_object_for_player("PlainVehicleWithoutBehavior", 0, Vec3::new(50.0, 0.0, 0.0))
         .expect("ordinary vehicle");
 
     // Full player command -> executor -> authoritative GameLogic transition.
@@ -2155,7 +2256,10 @@ fn deploy_command_uses_authored_metadata_and_pack_unpack_timing() {
     }
     let first = logic.host_object(deployable).expect("deploying unit");
     assert!(
-        first.deploy_style.as_ref().is_some_and(|style| style.is_busy()),
+        first
+            .deploy_style
+            .as_ref()
+            .is_some_and(|style| style.is_busy()),
         "the command starts an authored unpack timer rather than immediately setting deployed"
     );
     assert!(!first.is_deployed());
@@ -2213,7 +2317,11 @@ fn deploy_command_uses_authored_metadata_and_pack_unpack_timing() {
         CommandResult::InvalidCommand
     );
     drop(executor);
-    assert!(logic.host_object(no_behavior).unwrap().deploy_style.is_none());
+    assert!(logic
+        .host_object(no_behavior)
+        .unwrap()
+        .deploy_style
+        .is_none());
 }
 
 #[test]
@@ -2371,16 +2479,14 @@ fn dock_uses_controlling_player_for_centers_and_relationship_for_warehouses() {
         .insert("DockOwnerCollector".to_string(), collector);
 
     let mut center = ThingTemplate::new("DockOwnerCenter");
-    center
-        .add_kind_of(KindOf::Structure)
-        .set_health(1_000.0);
+    center.add_kind_of(KindOf::Structure).set_health(1_000.0);
     center.dock_kind = DockKind::SupplyCenter;
-    logic.templates.insert("DockOwnerCenter".to_string(), center);
+    logic
+        .templates
+        .insert("DockOwnerCenter".to_string(), center);
 
     let mut warehouse = ThingTemplate::new("DockOwnerWarehouse");
-    warehouse
-        .add_kind_of(KindOf::Structure)
-        .set_health(1_000.0);
+    warehouse.add_kind_of(KindOf::Structure).set_health(1_000.0);
     warehouse.dock_kind = DockKind::SupplyWarehouse;
     logic
         .templates
@@ -2396,7 +2502,9 @@ fn dock_uses_controlling_player_for_centers_and_relationship_for_warehouses() {
         .create_object("DockOwnerWarehouse", Team::USA, Vec3::new(60.0, 0.0, 0.0))
         .expect("warehouse");
     {
-        let collector = logic.host_object_mut(collector_id).expect("collector object");
+        let collector = logic
+            .host_object_mut(collector_id)
+            .expect("collector object");
         collector.owner_player_id = Some(0);
         collector.stored_resources.supplies = 1;
     }
@@ -2416,14 +2524,8 @@ fn dock_uses_controlling_player_for_centers_and_relationship_for_warehouses() {
         assert_eq!(exec.can_issue_dock(collector_id, warehouse_id), None);
     }
 
-    logic
-        .get_player_mut(0)
-        .expect("slot 0")
-        .alliance_team = 7;
-    logic
-        .get_player_mut(1)
-        .expect("slot 1")
-        .alliance_team = 7;
+    logic.get_player_mut(0).expect("slot 0").alliance_team = 7;
+    logic.get_player_mut(1).expect("slot 1").alliance_team = 7;
     let exec = CommandExecutor::new(&mut logic, 0);
     assert_eq!(
         exec.can_issue_dock(collector_id, warehouse_id),
@@ -2441,9 +2543,7 @@ fn dock_uses_controlling_player_for_centers_and_relationship_for_warehouses() {
 fn return_to_base_prefers_exact_owner_producer_and_only_allows_explicitly_allied_fallback() {
     use super::CommandExecutor;
     use crate::command_system::CommandResult;
-    use crate::game_logic::{
-        GameLogic, KindOf, ParkingPlaceMetadata, Player, Team, ThingTemplate,
-    };
+    use crate::game_logic::{GameLogic, KindOf, ParkingPlaceMetadata, Player, Team, ThingTemplate};
     use glam::Vec3;
 
     let mut logic = GameLogic::new();
@@ -2505,7 +2605,9 @@ fn return_to_base_prefers_exact_owner_producer_and_only_allows_explicitly_allied
             CommandResult::Success
         );
     }
-    let producer_jet_object = logic.host_object(producer_jet).expect("parked producer jet");
+    let producer_jet_object = logic
+        .host_object(producer_jet)
+        .expect("parked producer jet");
     assert_eq!(producer_jet_object.contained_by, Some(owner_airfield));
     assert_eq!(producer_jet_object.producer_id, Some(owner_airfield));
     assert_eq!(producer_jet_object.airfield_parking_space_index, Some(0));
@@ -2532,7 +2634,9 @@ fn return_to_base_prefers_exact_owner_producer_and_only_allows_explicitly_allied
             CommandResult::InvalidCommand
         );
     }
-    let rejected = logic.host_object(rejected_jet).expect("rejected jet object");
+    let rejected = logic
+        .host_object(rejected_jet)
+        .expect("rejected jet object");
     assert_eq!(rejected.contained_by, None);
     assert_eq!(rejected.producer_id, None);
     assert_eq!(rejected.airfield_parking_space_index, None);
@@ -2540,14 +2644,8 @@ fn return_to_base_prefers_exact_owner_producer_and_only_allows_explicitly_allied
 
     // Once the two separate player slots are explicitly allied, C++
     // ALLOW_ALLIES fallback may choose the actual ParkingPlaceBehavior.
-    logic
-        .get_player_mut(0)
-        .expect("slot 0")
-        .alliance_team = 17;
-    logic
-        .get_player_mut(1)
-        .expect("slot 1")
-        .alliance_team = 17;
+    logic.get_player_mut(0).expect("slot 0").alliance_team = 17;
+    logic.get_player_mut(1).expect("slot 1").alliance_team = 17;
     let allied_fallback_jet = logic
         .create_object_for_player("RTBOwnerJet", 0, Vec3::ZERO)
         .expect("allied fallback jet");
@@ -2581,6 +2679,122 @@ fn return_to_base_prefers_exact_owner_producer_and_only_allows_explicitly_allied
     let allied_again = logic
         .host_object(allied_fallback_jet)
         .expect("persisted allied fallback reservation");
-    assert_eq!(allied_again.producer_id, Some(same_faction_other_player_airfield));
+    assert_eq!(
+        allied_again.producer_id,
+        Some(same_faction_other_player_airfield)
+    );
     assert_eq!(allied_again.airfield_parking_space_index, Some(0));
+}
+
+#[test]
+fn railed_transport_command_fails_closed_without_pathprefix_runtime() {
+    use super::CommandExecutor;
+    use crate::assets::IniParser;
+    use crate::command_system::CommandResult;
+    use crate::game_logic::{
+        AIState, ContainModuleKind, DockKind, GameLogic, KindOf, Team, ThingTemplate,
+    };
+    use glam::Vec3;
+
+    // This is deliberately an arbitrary identity rather than a train/ferry
+    // name.  Its only authority comes from the same retail behavior modules
+    // as AutoFerry: contain, railed AI with PathPrefixName, and railed dock.
+    let mut parser = IniParser::new();
+    parser
+        .parse_ini_content(
+            r#"
+Object ArbitraryWaterCarrier
+  Type = Vehicle
+  Model = ArbitraryWaterCarrierModel
+  KindOf = SELECTABLE TRANSPORT
+  Behavior = RailedTransportContain ModuleTag_03
+    Slots = 2
+    AllowInsideKindOf = INFANTRY VEHICLE BOAT
+  End
+  Behavior = RailedTransportAIUpdate ModuleTag_05
+    PathPrefixName = Ferry
+  End
+  Behavior = RailedTransportDockUpdate ModuleTag_06
+    NumberApproachPositions = 9
+    PullInsideDuration = 4500
+    PushOutsideDuration = 4500
+    ToleranceDistance = 400.0
+  End
+End
+"#,
+            "retail_railed_transport_executor_probe.ini",
+        )
+        .expect("parse retail-shaped railed transport");
+    let definition = parser
+        .get_definition("ArbitraryWaterCarrier")
+        .expect("railed transport definition");
+    assert!(definition.behavior_modules.iter().any(|module| {
+        module
+            .class_name
+            .eq_ignore_ascii_case("RailedTransportAIUpdate")
+            && module.attribute("PathPrefixName") == Some("Ferry")
+    }));
+
+    let carrier_template =
+        GameLogic::build_template_from_object_definition("ArbitraryWaterCarrier", definition, None);
+    assert_eq!(carrier_template.dock_kind, DockKind::RailedTransport);
+    assert_eq!(
+        carrier_template.contain_module.kind,
+        ContainModuleKind::RailedTransport
+    );
+    assert_eq!(carrier_template.contain_module.slots, Some(2));
+
+    let mut logic = GameLogic::new();
+    logic
+        .templates
+        .insert(carrier_template.name.clone(), carrier_template);
+    let mut rider_template = ThingTemplate::new("RetailRailedPassenger");
+    rider_template
+        .add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(100.0);
+    logic
+        .templates
+        .insert(rider_template.name.clone(), rider_template);
+
+    let carrier = logic
+        .create_object("ArbitraryWaterCarrier", Team::USA, Vec3::ZERO)
+        .expect("railed transport object");
+    let rider = logic
+        .create_object("RetailRailedPassenger", Team::USA, Vec3::new(1.0, 0.0, 0.0))
+        .expect("passenger");
+    let original_path = vec![Vec3::new(40.0, 0.0, 20.0), Vec3::new(80.0, 0.0, 25.0)];
+    let original_target = Some(Vec3::new(80.0, 0.0, 25.0));
+    {
+        let ferry = logic.host_object_mut(carrier).expect("carrier");
+        assert!(ferry.add_occupant(rider));
+        ferry.movement.path = original_path.clone();
+        ferry.movement.target_position = original_target;
+        ferry.movement.current_path_index = 1;
+        ferry.set_ai_state(AIState::Idle);
+    }
+    {
+        let passenger = logic.host_object_mut(rider).expect("passenger");
+        passenger.set_contained_by(Some(carrier));
+        passenger.set_ai_state(AIState::Docked);
+    }
+
+    let result = {
+        let mut executor = CommandExecutor::new(&mut logic, 0);
+        executor.execute_railed_transport(&[carrier])
+    };
+    assert_eq!(result, CommandResult::InvalidCommand);
+
+    // Until Main retains the parsed PathPrefixName, map waypoint pairs, and
+    // transit/dock runtime, ExecuteRailedTransport must not masquerade as
+    // either Evacuate or a generic Move command.
+    let ferry = logic.host_object(carrier).expect("carrier after rejection");
+    assert_eq!(ferry.contained_units(), vec![rider]);
+    assert_eq!(ferry.movement.path, original_path);
+    assert_eq!(ferry.movement.target_position, original_target);
+    assert_eq!(ferry.movement.current_path_index, 1);
+    assert_eq!(ferry.ai_state, AIState::Idle);
+    let passenger = logic.host_object(rider).expect("passenger after rejection");
+    assert_eq!(passenger.contained_by, Some(carrier));
+    assert_eq!(passenger.ai_state, AIState::Docked);
 }

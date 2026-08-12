@@ -47,7 +47,12 @@ impl GameLogic {
                 .and_then(|player_id| self.players.get(&player_id))
                 .filter(|player| player.team == source_team)
                 .into_iter()
-                .flat_map(|player| player.unlocked_sciences.iter().map(|science| science.as_str()))
+                .flat_map(|player| {
+                    player
+                        .unlocked_sciences
+                        .iter()
+                        .map(|science| science.as_str())
+                })
                 .collect();
             ParadropScienceTier::highest_from_sciences(sciences).ranger_count()
         };
@@ -252,7 +257,12 @@ impl GameLogic {
                 .and_then(|player_id| self.players.get(&player_id))
                 .filter(|player| player.team == source_team)
                 .into_iter()
-                .flat_map(|player| player.unlocked_sciences.iter().map(|science| science.as_str()))
+                .flat_map(|player| {
+                    player
+                        .unlocked_sciences
+                        .iter()
+                        .map(|science| science.as_str())
+                })
                 .collect();
             AmbushScienceTier::highest_from_sciences(sciences).rebel_count()
         };
@@ -901,6 +911,16 @@ impl GameLogic {
     #[inline]
     pub fn unit_is_alive(&self, id: ObjectId) -> bool {
         self.objects.get(&id).is_some_and(|o| o.is_alive())
+    }
+
+    /// C++ ActionManager service actions reject either endpoint while it is
+    /// contained by another object. Keep this as an authority probe instead
+    /// of inferring containment from movement or a template role.
+    #[inline]
+    pub fn unit_is_contained(&self, id: ObjectId) -> bool {
+        self.objects
+            .get(&id)
+            .is_some_and(|o| o.contained_by.is_some())
     }
 
     /// Wave 244: worker probe without exposing `&Object`.

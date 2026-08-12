@@ -5,7 +5,8 @@
 use super::super::*;
 
 impl GameLogic {
-    /// C++ PhysicsUpdate infantry→unmanned vehicle pilot residual.
+    /// C++ PhysicsUpdate collision handoff into `VeterancyCrateCollide`
+    /// `IsPilot` re-crew.
     ///
     /// Returns true when the pair was handled (vehicle recrewed, infantry destroyed).
     pub fn try_infantry_unmanned_reclaim(
@@ -13,27 +14,26 @@ impl GameLogic {
         infantry_id: ObjectId,
         vehicle_id: ObjectId,
     ) -> bool {
-        let (inf_team, inf_level, is_inf) = match self.objects.get(&infantry_id) {
+        let (inf_team, inf_owner_player_id, inf_level, is_pilot) = match self.objects.get(&infantry_id) {
             Some(inf) => (
                 inf.team,
+                inf.owner_player_id,
                 inf.experience.level,
-                inf.is_kind_of(KindOf::Infantry) && inf.is_alive(),
+                inf.is_alive()
+                    && inf
+                        .thing
+                        .template
+                        .veterancy_crate_collide
+                        .as_ref()
+                        .is_some_and(|metadata| metadata.supports_pilot_recrew()),
             ),
             None => return false,
         };
-        if !is_inf {
-            return false;
-        }
-        let is_unmanned = self
-            .objects
-            .get(&vehicle_id)
-            .map(|v| v.is_alive() && v.status.disabled_unmanned)
-            .unwrap_or(false);
-        if !is_unmanned {
+        if !is_pilot || !self.can_execute_pilot_recrew(infantry_id, vehicle_id) {
             return false;
         }
         if let Some(veh) = self.objects.get_mut(&vehicle_id) {
-            let _ = veh.apply_pilot_recrew(inf_team, inf_level);
+            let _ = veh.apply_pilot_recrew(inf_team, inf_owner_player_id, inf_level);
         }
         self.destroy_object(infantry_id);
         // C++ destroyObject is immediate for collision reclaim residual path.

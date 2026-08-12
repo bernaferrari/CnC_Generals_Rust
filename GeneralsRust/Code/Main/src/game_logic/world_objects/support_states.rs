@@ -879,32 +879,22 @@ impl GameLogic {
                         // interaction point, or the mover has stopped; that
                         // preserves obstacle recovery without restarting the
                         // route before movement can consume its next node.
-                        let has_valid_active_approach_path = self
-                            .objects
-                            .get(&object_id)
-                            .is_some_and(|obj| {
+                        let has_valid_active_approach_path =
+                            self.objects.get(&object_id).is_some_and(|obj| {
                                 obj.status.moving
                                     && obj.movement.current_path_index < obj.movement.path.len()
-                                    && obj
-                                        .movement
-                                        .path
-                                        .last()
-                                        .is_some_and(|endpoint| {
-                                            endpoint.distance(repair_target_pos)
-                                                <= INTERACT_RANGE
-                                        })
+                                    && obj.movement.path.last().is_some_and(|endpoint| {
+                                        endpoint.distance(repair_target_pos) <= INTERACT_RANGE
+                                    })
                             });
                         if can_move && !has_valid_active_approach_path {
-                            let approach = crate::game_logic::host_repair::support_approach_position(
-                                position,
-                                repair_target_pos,
-                                repair_target_selection_radius,
-                            );
-                            self.path_approach_with_state(
-                                object_id,
-                                approach,
-                                AIState::Repairing,
-                            );
+                            let approach =
+                                crate::game_logic::host_repair::support_approach_position(
+                                    position,
+                                    repair_target_pos,
+                                    repair_target_selection_radius,
+                                );
+                            self.path_approach_with_state(object_id, approach, AIState::Repairing);
                         }
                         // Never heal remotely. This also keeps a valid route
                         // in flight instead of falling through to the repair
@@ -1031,6 +1021,7 @@ impl GameLogic {
                         support_target_alive,
                         support_target_under_construction,
                         support_target_sold,
+                        support_target_contained,
                         support_target_is_repair_pad,
                         support_target_is_heal_pad,
                         support_target_is_airfield,
@@ -1041,6 +1032,7 @@ impl GameLogic {
                             target.is_alive(),
                             target.status.under_construction,
                             target.status.sold,
+                            target.contained_by.is_some(),
                             target.is_kind_of(KindOf::RepairPad),
                             target.is_kind_of(KindOf::HealPad),
                             target.is_kind_of(KindOf::FSAirfield),
@@ -1056,6 +1048,7 @@ impl GameLogic {
                     if !support_target_alive
                         || support_target_under_construction
                         || support_target_sold
+                        || support_target_contained
                         // C++ `canGetRepairedAt` / `canGetHealedAt` uses the
                         // controlling players' relationship, not a faction
                         // comparison. Repeat that authority check after the
@@ -1073,20 +1066,34 @@ impl GameLogic {
                     let source_can_use_support = self
                         .objects
                         .get(&object_id)
-                        .map(|obj| match state {
-                            AIState::SeekingRepair => {
-                                if obj.is_kind_of(KindOf::Aircraft) {
-                                    support_target_is_airfield
-                                } else if obj.is_kind_of(KindOf::Vehicle) {
-                                    support_target_is_repair_pad
-                                } else {
-                                    false
+                        .map(|obj| {
+                            if obj.contained_by.is_some() {
+                                return false;
+                            }
+                            let is_aircraft = obj.is_kind_of(KindOf::Aircraft);
+                            let is_vehicle = obj.is_kind_of(KindOf::Vehicle);
+                            // C++ ActionManager::canGetRepairedAt accepts an
+                            // aircraft only while it is above terrain.  Keep
+                            // this mutable-state revalidation identical to
+                            // command acceptance so landing cannot turn a
+                            // pre-existing service order into a free repair.
+                            let is_above_terrain = obj.status.airborne_target
+                                || (obj.ground_height_from_terrain
+                                    && obj.get_position().y > obj.ground_height + 0.01);
+                            match state {
+                                AIState::SeekingRepair => {
+                                    is_vehicle
+                                        && if is_aircraft {
+                                            support_target_is_airfield && is_above_terrain
+                                        } else {
+                                            support_target_is_repair_pad
+                                        }
                                 }
+                                AIState::SeekingHealing => {
+                                    obj.is_kind_of(KindOf::Infantry) && support_target_is_heal_pad
+                                }
+                                _ => false,
                             }
-                            AIState::SeekingHealing => {
-                                obj.is_kind_of(KindOf::Infantry) && support_target_is_heal_pad
-                            }
-                            _ => false,
                         })
                         .unwrap_or(false);
                     if !source_can_use_support {
@@ -1102,27 +1109,21 @@ impl GameLogic {
                         // restarting it every frame. Re-path only after the
                         // endpoint ceased to be a viable interaction point or
                         // the mover stopped, retaining obstacle recovery.
-                        let has_valid_active_approach_path = self
-                            .objects
-                            .get(&object_id)
-                            .is_some_and(|obj| {
+                        let has_valid_active_approach_path =
+                            self.objects.get(&object_id).is_some_and(|obj| {
                                 obj.status.moving
                                     && obj.movement.current_path_index < obj.movement.path.len()
-                                    && obj
-                                        .movement
-                                        .path
-                                        .last()
-                                        .is_some_and(|endpoint| {
-                                            endpoint.distance(support_target_pos)
-                                                <= INTERACT_RANGE
-                                        })
+                                    && obj.movement.path.last().is_some_and(|endpoint| {
+                                        endpoint.distance(support_target_pos) <= INTERACT_RANGE
+                                    })
                             });
                         if can_move && !has_valid_active_approach_path {
-                            let approach = crate::game_logic::host_repair::support_approach_position(
-                                position,
-                                support_target_pos,
-                                support_target_selection_radius,
-                            );
+                            let approach =
+                                crate::game_logic::host_repair::support_approach_position(
+                                    position,
+                                    support_target_pos,
+                                    support_target_selection_radius,
+                                );
                             self.path_approach_with_state(object_id, approach, state.clone());
                         }
                         // An out-of-range source is never permitted to apply
@@ -1185,14 +1186,15 @@ impl GameLogic {
                     };
 
                     // USA Pilot residual: Enter unmanned vehicle → recrew (not transport load).
-                    // Retail VeterancyCrateCollide IsPilot path residual.
+                    // Retail VeterancyCrateCollide IsPilot path residual.  The
+                    // same parsed authority predicate is repeated here at
+                    // arrival so an Enter accepted before an owner/flight
+                    // transition cannot re-crew a changed target.
                     {
                         let pilot_snapshot = self.objects.get(&object_id).map(|o| {
                             (
-                                crate::game_logic::host_usa_pilot::is_pilot_template(
-                                    &o.template_name,
-                                ),
                                 o.team,
+                                o.owner_player_id,
                                 o.experience.level,
                                 o.get_position(),
                                 o.selection_radius,
@@ -1200,51 +1202,21 @@ impl GameLogic {
                             )
                         });
                         let vehicle_snapshot = self.objects.get(&container_id).map(|v| {
-                            (
-                                v.get_position(),
-                                v.selection_radius,
-                                v.is_alive(),
-                                v.is_kind_of(KindOf::Vehicle),
-                                v.is_kind_of(KindOf::Aircraft) || v.status.airborne_target,
-                                v.is_unmanned(),
-                                v.status.under_construction,
-                                v.is_worker()
-                                    || v.template_name.to_ascii_lowercase().contains("dozer"),
-                            )
+                            (v.get_position(), v.selection_radius)
                         });
                         if let (
                             Some((
-                                is_pilot,
                                 pilot_team,
+                                pilot_owner_player_id,
                                 pilot_level,
                                 pilot_pos,
                                 pilot_radius,
                                 pilot_can_move,
                             )),
-                            Some((
-                                vehicle_pos,
-                                vehicle_radius,
-                                v_alive,
-                                v_vehicle,
-                                v_air,
-                                v_unmanned,
-                                v_under_construction,
-                                v_dozer,
-                            )),
+                            Some((vehicle_pos, vehicle_radius)),
                         ) = (pilot_snapshot, vehicle_snapshot)
                         {
-                            let recrewable =
-                                crate::game_logic::host_usa_pilot::is_recrewable_unmanned_vehicle(
-                                    v_alive,
-                                    v_vehicle,
-                                    v_air,
-                                    v_unmanned,
-                                    v_under_construction,
-                                    v_dozer,
-                                );
-                            if crate::game_logic::host_usa_pilot::should_recrew_on_enter(
-                                is_pilot, recrewable,
-                            ) {
+                            if self.can_execute_pilot_recrew(object_id, container_id) {
                                 let enter_range = pilot_radius + vehicle_radius + 4.0;
                                 if pilot_can_move && pilot_pos.distance(vehicle_pos) > enter_range {
                                     self.path_approach_with_state(
@@ -1257,7 +1229,13 @@ impl GameLogic {
                                 let transferred = self
                                     .objects
                                     .get_mut(&container_id)
-                                    .map(|v| v.apply_pilot_recrew(pilot_team, pilot_level))
+                                    .map(|v| {
+                                        v.apply_pilot_recrew(
+                                            pilot_team,
+                                            pilot_owner_player_id,
+                                            pilot_level,
+                                        )
+                                    })
                                     .unwrap_or(false);
                                 self.usa_pilot.record_recrew(transferred);
                                 self.queue_audio_event(

@@ -12,6 +12,9 @@ pub struct HackerIncomeEvent {
     pub owner_player_id: Option<u32>,
     pub pos: Vec3,
     pub amount: u32,
+    /// Exact `HackInternetAIUpdate::XpPerCashUpdate` captured by the sole
+    /// GameWorld scheduler.  It must not collapse to the old retail `1`.
+    pub xp_per_cash_update: f32,
     pub next_deposit_frame: u32,
     pub in_internet_center: bool,
     pub stealthed: bool,

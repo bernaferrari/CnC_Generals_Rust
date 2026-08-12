@@ -37,6 +37,7 @@ pub(super) fn ensure_test_dozer_template(game_logic: &mut GameLogic) {
         .add_kind_of(KindOf::Vehicle)
         .add_kind_of(KindOf::Selectable)
         .add_kind_of(KindOf::Worker)
+        .add_kind_of(KindOf::Dozer)
         .set_health(300.0)
         .set_cost(1000, 0);
     game_logic

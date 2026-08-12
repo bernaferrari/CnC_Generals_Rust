@@ -661,6 +661,7 @@ impl GameWorldShadow {
                                         template_name: p.template_name.clone(),
                                         progress: p.progress,
                                         total_time: p.total_time,
+                                        construction_frames: p.construction_frames,
                                         cost_supplies: p.cost.supplies,
                                         is_upgrade: p.is_upgrade(),
                                         quantity_total: p.quantity_total.max(1),
@@ -678,6 +679,14 @@ impl GameWorldShadow {
                                 e.production_template.clear();
                             }
                         }
+                        // QueueProductionExitUpdate owns these per-object
+                        // counters even after the head is gone.  Mirror the
+                        // exact state separately from (and without stomping)
+                        // sole-tick queue progress.
+                        e.exit_delay_remaining = bd.exit_delay_remaining;
+                        e.exit_delay_remaining_frames = bd.exit_delay_remaining_frames;
+                        e.exit_burst_remaining = bd.exit_burst_remaining;
+                        e.queue_exit_state_initialized = bd.queue_exit_state_initialized;
                         // Queue progress can be shadow-owned during a coupled
                         // sole-tick, but C++ ProductionUpdate remains the sole
                         // owner of the factory-door state.  Do not leave the
@@ -698,6 +707,10 @@ impl GameWorldShadow {
                         e.production_template.clear();
                         e.production_queue_items.clear();
                         e.production_paused = false;
+                        e.exit_delay_remaining = 0.0;
+                        e.exit_delay_remaining_frames = 0;
+                        e.exit_burst_remaining = 0;
+                        e.queue_exit_state_initialized = false;
                         e.rally_point = None;
                         e.garrison_count = 0;
                         e.max_garrison = 0;
@@ -1862,6 +1875,7 @@ impl GameWorldShadow {
                                     template_name: p.template_name.clone(),
                                     progress: p.progress,
                                     total_time: p.total_time,
+                                    construction_frames: p.construction_frames,
                                     cost_supplies: p.cost.supplies,
                                     is_upgrade: p.is_upgrade(),
                                     quantity_total: p.quantity_total.max(1),
@@ -1879,6 +1893,10 @@ impl GameWorldShadow {
                             e.production_template.clear();
                         }
                     }
+                    e.exit_delay_remaining = bd.exit_delay_remaining;
+                    e.exit_delay_remaining_frames = bd.exit_delay_remaining_frames;
+                    e.exit_burst_remaining = bd.exit_burst_remaining;
+                    e.queue_exit_state_initialized = bd.queue_exit_state_initialized;
                     // See the primary host sync above.  The lightweight flag
                     // refresh also has to mirror host-owned door animation
                     // state even while GameWorld owns queue progress.
@@ -1895,6 +1913,10 @@ impl GameWorldShadow {
                     e.production_template.clear();
                     e.production_queue_items.clear();
                     e.production_paused = false;
+                    e.exit_delay_remaining = 0.0;
+                    e.exit_delay_remaining_frames = 0;
+                    e.exit_burst_remaining = 0;
+                    e.queue_exit_state_initialized = false;
                     e.rally_point = None;
                     e.garrison_count = 0;
                     e.max_garrison = 0;
@@ -2120,36 +2142,58 @@ impl GameWorldShadow {
                     }
                 }
                 {
-                    use crate::game_logic::is_hacker_template;
-                    let name = obj.template_name.as_str();
-                    let is_hk =
-                        is_hacker_template(name) || name.to_ascii_lowercase().contains("hacker");
-                    if is_hk {
-                        e.hacker_unit = true;
-                        e.hacker_hacking = logic.hacker_income.is_hacking(oid);
-                        e.hacker_next_deposit_frame =
-                            logic.hacker_income.peek_next_deposit(oid).unwrap_or(0);
-                        // Contained in IC residual: host contained_by.
+                    let metadata = obj.thing.template.hack_internet_ai_update;
+                    if let Some(metadata) = metadata {
+                        // `InternetHackContain::onContaining` starts the AI
+                        // command.  A faction-building KindOf or an
+                        // InternetCenter-looking basename is not enough.
                         let in_ic = obj
                             .contained_by
-                            .map(|cid| {
-                                logic
-                                    .objects
-                                    .get(&cid)
-                                    .map(|c| {
-                                        let n = c.template_name.as_str();
-                                        crate::game_logic::is_internet_center_template(n)
-                                            || n.to_ascii_lowercase().contains("internetcenter")
-                                    })
-                                    .unwrap_or(false)
-                            })
-                            .unwrap_or(false);
+                            .and_then(|cid| logic.objects.get(&cid))
+                            .is_some_and(|container| {
+                                container.is_alive()
+                                    && container.is_constructed()
+                                    && !container.status.under_construction
+                                    && !container.status.sold
+                                    && container.thing.template.contain_module.kind
+                                        == crate::game_logic::ContainModuleKind::InternetHack
+                                    && container.thing.template.contain_module.admission
+                                        == crate::game_logic::ContainAdmission::MoneyHackerOnly
+                                    && container.contained_units().contains(&oid)
+                                    && logic.normal_enter_controller_matches(obj, container)
+                            });
+                        e.hacker_unit = true;
+                        // During a coupled tick the GameWorld is the income
+                        // scheduler.  Preserve its first contained schedule
+                        // across host remirrors until the first writeback
+                        // records the authoritative active state.
+                        e.hacker_hacking = logic.hacker_income.is_hacking(oid) || in_ic;
+                        if let Some(next) = logic.hacker_income.peek_next_deposit(oid) {
+                            e.hacker_next_deposit_frame = next;
+                        } else if !e.hacker_hacking {
+                            e.hacker_next_deposit_frame = 0;
+                        }
                         e.hacker_in_internet_center = in_ic;
+                        e.hacker_cash_update_delay_frames = metadata.cash_update_delay_frames;
+                        e.hacker_cash_update_delay_fast_frames =
+                            metadata.cash_update_delay_fast_frames;
+                        e.hacker_regular_cash_amount = metadata.regular_cash_amount;
+                        e.hacker_veteran_cash_amount = metadata.veteran_cash_amount;
+                        e.hacker_elite_cash_amount = metadata.elite_cash_amount;
+                        e.hacker_heroic_cash_amount = metadata.heroic_cash_amount;
+                        e.hacker_xp_per_cash_update = metadata.xp_per_cash_update;
                     } else {
                         e.hacker_unit = false;
                         e.hacker_hacking = false;
                         e.hacker_in_internet_center = false;
                         e.hacker_next_deposit_frame = 0;
+                        e.hacker_cash_update_delay_frames = 0;
+                        e.hacker_cash_update_delay_fast_frames = 0;
+                        e.hacker_regular_cash_amount = 0;
+                        e.hacker_veteran_cash_amount = 0;
+                        e.hacker_elite_cash_amount = 0;
+                        e.hacker_heroic_cash_amount = 0;
+                        e.hacker_xp_per_cash_update = 0.0;
                     }
                 }
                 e.turret_angle_deg = obj.turret_angle_deg;

@@ -15,6 +15,11 @@ pub struct EntityProductionItem {
     pub template_name: String,
     pub progress: f32,
     pub total_time: f32,
+    /// C++ ProductionEntry::m_framesUnderConstruction.  Production advances
+    /// once per logic update, not by repeatedly accumulating a floating-point
+    /// duration.  Keep this in the GameWorld mirror so sole-tick authority
+    /// cannot disagree with the host queue after save/writeback.
+    pub construction_frames: u32,
     pub cost_supplies: u32,
     /// Host PRODUCTION_UPGRADE residual.
     pub is_upgrade: bool,
@@ -22,6 +27,105 @@ pub struct EntityProductionItem {
     pub quantity_total: u32,
     /// C++ ProductionEntry::m_productionQuantityProduced residual (Wave 463).
     pub quantity_produced: u32,
+}
+
+/// C++ `LOGICFRAMES_PER_SECOND`, used by `ProductionUpdate::update` and both
+/// `ThingTemplate::calcTimeToBuild` / `UpgradeTemplate::calcTimeToBuild`.
+pub const PRODUCTION_LOGIC_FRAMES_PER_SECOND: f32 = 30.0;
+
+/// C++ `ProductionUpdate` recomputes this integer threshold on every update.
+///
+/// Units use `ThingTemplate::calcTimeToBuild`, which divides the integer base
+/// frame count by the current low-power penalty rate and truncates.  Upgrades
+/// use `UpgradeTemplate::calcTimeToBuild`, whose retail implementation ignores
+/// power.  A zero authored duration remains immediately complete; positive
+/// sub-frame durations use one update so the queue cannot divide by zero.
+pub fn production_total_logic_frames(total_time: f32, is_upgrade: bool, power_factor: f32) -> u32 {
+    if !total_time.is_finite() || total_time <= 0.0 {
+        return 0;
+    }
+
+    // C++ assigns the product into an Int before applying the later modifiers.
+    let base_frames = (total_time * PRODUCTION_LOGIC_FRAMES_PER_SECOND)
+        .trunc()
+        .clamp(1.0, u32::MAX as f32) as u32;
+    if is_upgrade {
+        return base_frames;
+    }
+
+    // ThingTemplate::calcTimeToBuild clamps the penalty rate to at least .01
+    // and C++ `Int /= Real` truncates the resulting threshold.
+    let rate = power_factor.clamp(0.01, 1.0);
+    ((base_frames as f32 / rate)
+        .trunc()
+        .clamp(1.0, u32::MAX as f32)) as u32
+}
+
+/// Recover an integer counter from old float-only snapshots exactly once.
+/// New queue entries have both zero progress and zero construction frames, so
+/// this cannot turn a newly queued item into a partially complete one.
+pub fn production_frames_from_legacy_progress(
+    progress: f32,
+    total_time: f32,
+    total_frames: u32,
+) -> u32 {
+    if total_frames == 0 || !progress.is_finite() || !total_time.is_finite() || total_time <= 0.0 {
+        return 0;
+    }
+    if progress >= total_time {
+        return total_frames;
+    }
+    ((progress.max(0.0) / total_time).clamp(0.0, 1.0) * total_frames as f32).floor() as u32
+}
+
+/// Presentation/UI seconds retained for compatibility with existing queue
+/// consumers.  Authority always uses the integer counter and threshold above.
+pub fn production_progress_from_logic_frames(
+    construction_frames: u32,
+    total_frames: u32,
+    total_time: f32,
+) -> f32 {
+    if !total_time.is_finite() || total_time <= 0.0 || total_frames == 0 {
+        return total_time.max(0.0);
+    }
+    total_time * (construction_frames.min(total_frames) as f32 / total_frames as f32)
+}
+
+impl EntityProductionItem {
+    pub fn total_construction_frames(&self, power_factor: f32) -> u32 {
+        production_total_logic_frames(self.total_time, self.is_upgrade, power_factor)
+    }
+
+    pub fn migrate_legacy_construction_frames(&mut self, power_factor: f32) {
+        if self.construction_frames == 0 && self.progress > 0.0 {
+            self.construction_frames = production_frames_from_legacy_progress(
+                self.progress,
+                self.total_time,
+                self.total_construction_frames(power_factor),
+            );
+        }
+    }
+
+    pub fn advance_one_construction_frame(&mut self, power_factor: f32) {
+        self.migrate_legacy_construction_frames(power_factor);
+        let total_frames = self.total_construction_frames(power_factor);
+        if total_frames == 0 {
+            self.progress = self.total_time.max(0.0);
+            return;
+        }
+        self.construction_frames = self.construction_frames.saturating_add(1);
+        self.progress = production_progress_from_logic_frames(
+            self.construction_frames,
+            total_frames,
+            self.total_time,
+        );
+    }
+
+    pub fn is_complete_at_power(&mut self, power_factor: f32) -> bool {
+        self.migrate_legacy_construction_frames(power_factor);
+        let total_frames = self.total_construction_frames(power_factor);
+        total_frames == 0 || self.construction_frames >= total_frames
+    }
 }
 
 /// Identifier assigned to entities/things in the world.
@@ -368,6 +472,14 @@ pub struct Entity {
     pub production_paused: bool,
     /// Host BuildingData::exit_delay_remaining residual (seconds).
     pub exit_delay_remaining: f32,
+    /// Source-backed QueueProductionExitUpdate::m_currentDelay (logic frames).
+    /// The seconds field above is only a presentation/legacy compatibility
+    /// mirror once this state has been initialized.
+    pub exit_delay_remaining_frames: u32,
+    /// Source-backed QueueProductionExitUpdate::m_currentBurstCount.
+    pub exit_burst_remaining: u32,
+    /// Whether the frame/burst values are authoritative parsed Queue state.
+    pub queue_exit_state_initialized: bool,
     /// Host Object::production_door_phase residual.
     pub production_door_phase: u8,
     /// Host Object::production_door_phase_end_frame residual.
@@ -1159,6 +1271,16 @@ pub struct Entity {
     pub hacker_hacking: bool,
     pub hacker_in_internet_center: bool,
     pub hacker_next_deposit_frame: u32,
+    /// Exact parsed `HackInternetAIUpdate` cash schedule/data mirrored from
+    /// Main.  Zeros remain authored C++ defaults; they never fall back to a
+    /// retail Hacker template constant in the GameWorld sole-tick path.
+    pub hacker_cash_update_delay_frames: u32,
+    pub hacker_cash_update_delay_fast_frames: u32,
+    pub hacker_regular_cash_amount: u32,
+    pub hacker_veteran_cash_amount: u32,
+    pub hacker_elite_cash_amount: u32,
+    pub hacker_heroic_cash_amount: u32,
+    pub hacker_xp_per_cash_update: f32,
     /// Host hijacker residual `next_detection_scan_frame`.
     pub next_detection_scan_frame: u32,
     /// Host Object::stealth_allowed_frame residual.
@@ -1512,6 +1634,9 @@ impl EntityStore {
             production_queue_items: Vec::new(),
             production_paused: false,
             exit_delay_remaining: 0.0,
+            exit_delay_remaining_frames: 0,
+            exit_burst_remaining: 0,
+            queue_exit_state_initialized: false,
             production_door_phase: 0,
             production_door_phase_end_frame: 0,
             production_door_hold_open: false,
@@ -2093,6 +2218,13 @@ impl EntityStore {
             hacker_hacking: false,
             hacker_in_internet_center: false,
             hacker_next_deposit_frame: 0,
+            hacker_cash_update_delay_frames: 0,
+            hacker_cash_update_delay_fast_frames: 0,
+            hacker_regular_cash_amount: 0,
+            hacker_veteran_cash_amount: 0,
+            hacker_elite_cash_amount: 0,
+            hacker_heroic_cash_amount: 0,
+            hacker_xp_per_cash_update: 0.0,
             next_detection_scan_frame: 0,
             turret_angle_deg: 0.0,
             turret_pitch_deg: 0.0,

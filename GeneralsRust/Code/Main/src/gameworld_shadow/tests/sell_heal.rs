@@ -285,6 +285,7 @@ fn cancel_production_refund_economy_authority_writeback() {
                 template_name: "EconUnit".into(),
                 progress: 0.0,
                 total_time: 10.0,
+                construction_frames: 0,
                 cost: Resources {
                     supplies: 250,
                     power: 0,

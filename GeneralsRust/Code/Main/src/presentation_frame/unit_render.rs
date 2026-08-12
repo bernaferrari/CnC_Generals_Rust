@@ -749,20 +749,17 @@ impl UnitRenderInput {
                 bits |= 1u128 << arm_b;
             }
         }
-        // Wave 519: exploded flail/bounce, power-plant upgrading, jet afterburner residual bits.
+        // Wave 519: exploded flail/bounce and jet-afterburner residual bits.
         {
             use crate::game_logic::host_enum_table_residual::{
                 exploded_bouncing_model_bit, exploded_flailing_model_bit, jetafterburner_model_bit,
-                power_plant_upgraded_model_bit, power_plant_upgrading_model_bit,
                 splatted_model_bit,
             };
             let flail_b = exploded_flailing_model_bit();
             let bounce_b = exploded_bouncing_model_bit();
             let splat_b = splatted_model_bit();
-            let ppu_b = power_plant_upgrading_model_bit();
-            let ppd_b = power_plant_upgraded_model_bit();
             let jet_ab = jetafterburner_model_bit();
-            for b in [flail_b, bounce_b, splat_b, ppu_b, jet_ab] {
+            for b in [flail_b, bounce_b, splat_b, jet_ab] {
                 bits &= !(1u128 << b);
             }
             // Shockwave: airborne => flailing; bounce allowed mid-air => bouncing; grounded after airborne => splatted residual.
@@ -777,17 +774,11 @@ impl UnitRenderInput {
                     bits |= 1u128 << flail_b;
                 }
             }
-            // Power plant rods: upgrading until done_frame, then upgraded (overcharge path may also set upgraded).
-            if self.power_plant_rods_done_frame > 0
-                && self.logic_frame < self.power_plant_rods_done_frame
-                && !self.power_plant_rods_extended
-            {
-                bits |= 1u128 << ppu_b;
-                bits &= !(1u128 << ppd_b);
-            } else if self.power_plant_rods_extended {
-                bits |= 1u128 << ppd_b;
-                bits &= !(1u128 << ppu_b);
-            }
+            // `model_condition_bits` already contains the authoritative
+            // PowerPlantUpdate state.  In particular, m_extended becomes
+            // true at the start of C++ extension, so rebuilding these flags
+            // from `power_plant_rods_extended` would incorrectly skip the
+            // POWER_PLANT_UPGRADING phase.
             if self.jet_slow_death_active {
                 bits |= 1u128 << jet_ab;
             }
@@ -917,10 +908,10 @@ impl UnitRenderInput {
                 bits &= !(1u128 << snow_b);
             }
         }
-        // Wave 510: captured / loaded transport / power-plant overcharge residual bits.
+        // Wave 510: captured / loaded transport residual bits.
         {
             use crate::game_logic::host_enum_table_residual::{
-                captured_model_bit, loaded_model_bit, power_plant_upgraded_model_bit,
+                captured_model_bit, loaded_model_bit,
             };
             let cap_b = captured_model_bit();
             if self.captured {
@@ -935,12 +926,10 @@ impl UnitRenderInput {
             } else {
                 bits &= !(1u128 << load_b);
             }
-            let pp_b = power_plant_upgraded_model_bit();
-            if self.overcharge_enabled {
-                bits |= 1u128 << pp_b;
-            } else {
-                bits &= !(1u128 << pp_b);
-            }
+            // `PowerPlantUpdate::extendRods` owns POWER_PLANT_UPGRADING and
+            // POWER_PLANT_UPGRADED.  Those exact bits are already frozen in
+            // `model_condition_bits`; do not infer them merely from an active
+            // OverchargeBehavior (which C++ permits without that interface).
         }
         // Wave 511: burned/aflame death pose + special cheering + carrying residual.
         {

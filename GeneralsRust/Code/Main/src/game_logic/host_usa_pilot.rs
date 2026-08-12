@@ -7,12 +7,11 @@
 //!   veterancy (retail `VeterancyCrateCollide` IsPilot + AddsOwnerVeterancy),
 //!   consume pilot.
 //! - Pilots spawn residual at least VETERAN (VeterancyGainCreate StartingLevel).
-//! - **EjectPilotDie residual**: eligible USA ground vehicles (Humvee / Tomahawk /
-//!   Crusader / Paladin / Avenger / Microwave + general variants) spawn
-//!   `AmericaInfantryPilot` on death via OCL_EjectPilotOnGround residual path.
-//!   Fail-closed: unmanned vehicles do not eject (no pilot left).
-//! - **VeterancyLevels residual**: retail `VeterancyLevels = ALL -REGULAR`
-//!   ("only vet+ gives pilot"). Rookie / LEVEL_REGULAR vehicles do **not** eject.
+//! - **EjectPilotDie residual**: an Object INI-parsed EjectPilotDie module
+//!   chooses its authored ground/air OCL on death.  A vehicle/template name
+//!   is never authorization; missing or unsupported OCL data does not spawn.
+//! - **VeterancyLevels residual**: the parsed DieMux mask controls whether a
+//!   Rookie / LEVEL_REGULAR source ejects; the retail mask is ALL -REGULAR.
 //! - **InvulnerableTime residual**: OCL_EjectPilotOnGround `InvulnerableTime = 2000`
 //!   ms → **60 frames**. Post-eject pilot residual blocks damage (host of C++
 //!   `goInvulnerable` / undetected-defector relationship shield).
@@ -48,9 +47,10 @@
 //!   logic attach + presentation sway about PARA_COG. Fail-closed: not full
 //!   W3D pristine bone extract / DeliverPayload cargo plane path.
 //!
-//! - **EjectPilotDie DieMux residual**: retail `DeathTypes = ALL -CRUSHED
-//!   -SPLATTED` + `ExemptStatus = HIJACKED`. Crushed/splatted deaths and
-//!   hijacked vehicles do **not** eject.
+//! - **EjectPilotDie DieMux residual**: parsed `DeathTypes`,
+//!   `VeterancyLevels`, `ExemptStatus`, and `RequiredStatus` control the live
+//!   death branch.  Unsupported masks fail closed only for spawning; parsed
+//!   module presence still exposes C++'s Hijacker interface.
 //! - **PilotFindVehicle CollideModule residual**: `VeterancyCrateCollide`
 //!   wouldLikeToCollideWith host gates — RequiredKindOf VEHICLE /
 //!   ForbiddenKindOf DOZER, not significantly above terrain, not airborne
@@ -662,112 +662,6 @@ pub fn pilot_default_veterancy() -> VeterancyLevel {
     VeterancyLevel::Veteran
 }
 
-/// Whether template is a residual USA vehicle with EjectPilotDie module.
-///
-/// Retail AmericaVehicle.ini / general variants: Humvee, Tomahawk, Crusader,
-/// Paladin, Avenger, Microwave. Fail-closed name residual (not full DieMux).
-pub fn is_eject_pilot_eligible_template(template_name: &str) -> bool {
-    let n = template_name.to_ascii_lowercase();
-    if n.is_empty() {
-        return false;
-    }
-    // Exclude drones / hulks / weapons / infantry pilots themselves.
-    if n.contains("drone")
-        || n.contains("weapon")
-        || n.contains("projectile")
-        || n.contains("missile")
-        || n.contains("debris")
-        || n.contains("hulk")
-        || n.contains("dead")
-        || n.starts_with("upgrade")
-        || n.contains("infantry")
-        || n.contains("pilot")
-        || n.contains("dozer")
-        || n.contains("sentry")
-        || n.contains("chinook")
-        || n.contains("comanche")
-        || n.contains("raptor")
-        || n.contains("stealthfighter")
-        || n.contains("aurora")
-        || n.contains("jet")
-        || n.contains("helicopter")
-    {
-        return false;
-    }
-    // Explicit residual test / shorthand names.
-    if n == "testejectvehicle"
-        || n == "testejectpilotvehicle"
-        || n == "goldenhumvee"
-        || n == "usa_humvee"
-        || n == "usa_crusader"
-        || n == "usa_paladin"
-        || n == "usa_tomahawk"
-        || n == "usa_avenger"
-        || n == "usa_microwave"
-    {
-        return true;
-    }
-    n.contains("humvee")
-        || n.contains("tomahawk")
-        || n.contains("tankcrusader")
-        || n.contains("tankpaladin")
-        || n.contains("tankavenger")
-        || n.contains("tankmicrowave")
-        || (n.contains("crusader") && n.contains("tank"))
-        || (n.contains("paladin") && n.contains("tank"))
-        || (n.contains("avenger") && n.contains("tank"))
-        || (n.contains("microwave") && (n.contains("tank") || n.contains("vehicle")))
-}
-
-/// Retail `VeterancyLevels = ALL -REGULAR` residual gate.
-///
-/// C++ DieMuxData::isDieApplicable → getVeterancyLevelFlag(m_veterancyLevels, level).
-/// LEVEL_REGULAR / Rookie is excluded; Veteran / Elite / Heroic eject.
-pub fn meets_eject_pilot_veterancy_gate(level: VeterancyLevel) -> bool {
-    !matches!(level, VeterancyLevel::Rookie)
-}
-
-/// Retail `DeathTypes = ALL -CRUSHED -SPLATTED` residual gate.
-///
-/// C++ DieMuxData::isDieApplicable → getDamageTypeFlag(m_deathTypes, deathType).
-/// DEATH_CRUSHED / DEATH_SPLATTED do not eject (crushed under tank / splat).
-pub fn meets_eject_pilot_death_types_gate(death_type: HostDeathType) -> bool {
-    !matches!(death_type, HostDeathType::Crushed | HostDeathType::Splatted)
-}
-
-/// Retail `ExemptStatus = HIJACKED` residual gate.
-///
-/// C++ DieMuxData::isDieApplicable → if object has HIJACKED status bits, skip.
-/// Hijacked vehicles do not eject a pilot (driver already replaced).
-pub fn meets_eject_pilot_exempt_status_gate(is_hijacked: bool) -> bool {
-    !is_hijacked
-}
-
-/// Whether residual EjectPilotDie should fire on death.
-///
-/// Fail-closed: eligible template, not unmanned, not under construction,
-/// vehicle kind residual (not structure / aircraft), VeterancyLevels ALL -REGULAR,
-/// DeathTypes ALL -CRUSHED -SPLATTED, ExemptStatus HIJACKED.
-pub fn can_eject_pilot_on_death(
-    is_eligible_template: bool,
-    is_unmanned: bool,
-    under_construction: bool,
-    is_vehicle: bool,
-    is_aircraft: bool,
-    meets_veterancy_gate: bool,
-    meets_death_types_gate: bool,
-    meets_exempt_status_gate: bool,
-) -> bool {
-    is_eligible_template
-        && !is_unmanned
-        && !under_construction
-        && is_vehicle
-        && !is_aircraft
-        && meets_veterancy_gate
-        && meets_death_types_gate
-        && meets_exempt_status_gate
-}
-
 /// Whether PilotFindVehicleUpdate residual may auto-scan this pilot.
 ///
 /// C++: AI-only (`PLAYER_HUMAN` → UPDATE_SLEEP_FOREVER); idle AI only.
@@ -951,14 +845,6 @@ pub fn is_auto_find_healing_template(template_name: &str) -> bool {
 /// Host: height_above_terrain > -(3*3)*Gravity (576 with Gravity=-64).
 pub fn is_significantly_above_terrain(height_above_terrain: f32) -> bool {
     height_above_terrain > significantly_above_terrain_threshold()
-}
-
-/// Whether EjectPilotDie should use air OCL (OCL_EjectPilotViaParachute residual).
-///
-/// C++: `isSignificantlyAboveTerrain() ? m_oclInAir : m_oclOnGround`.
-/// Host also accepts `airborne_target` residual flag.
-pub fn uses_air_eject_ocl(height_above_terrain: f32, airborne_target: bool) -> bool {
-    airborne_target || is_significantly_above_terrain(height_above_terrain)
 }
 
 /// Residual air-eject spawn height (keep elevated; floor at threshold+1).
@@ -1466,8 +1352,6 @@ pub fn honesty_usa_pilot_ejection_residual_ok() -> bool {
         && EJECT_DEATH_TYPES.contains("-SPLATTED")
         && EJECT_EXEMPT_STATUS == "HIJACKED"
         && EJECT_VETERANCY_LEVELS.contains("-REGULAR")
-        && is_eject_pilot_eligible_template("AmericaVehicleHumvee")
-        && !is_eject_pilot_eligible_template("AmericaInfantryPilot")
 }
 
 /// Wave 61 residual honesty: AmericaParachute residual matrix.
@@ -1582,69 +1466,42 @@ mod tests {
     }
 
     #[test]
-    fn eject_pilot_template_matrix() {
-        assert!(is_eject_pilot_eligible_template("AmericaVehicleHumvee"));
-        assert!(is_eject_pilot_eligible_template("AmericaVehicleTomahawk"));
-        assert!(is_eject_pilot_eligible_template("AmericaTankCrusader"));
-        assert!(is_eject_pilot_eligible_template("AmericaTankPaladin"));
-        assert!(is_eject_pilot_eligible_template("AmericaTankAvenger"));
-        assert!(is_eject_pilot_eligible_template("AmericaTankMicrowave"));
-        assert!(is_eject_pilot_eligible_template("SupW_AmericaTankCrusader"));
-        assert!(is_eject_pilot_eligible_template("Lazr_AmericaTankPaladin"));
-        assert!(is_eject_pilot_eligible_template(
-            "AirF_AmericaVehicleHumvee"
-        ));
-        assert!(is_eject_pilot_eligible_template("TestEjectVehicle"));
-        assert!(!is_eject_pilot_eligible_template("AmericaVehicleDozer"));
-        assert!(!is_eject_pilot_eligible_template(
-            "AmericaVehicleScoutDrone"
-        ));
-        assert!(!is_eject_pilot_eligible_template("AmericaInfantryPilot"));
-        assert!(!is_eject_pilot_eligible_template("AmericaJetRaptor"));
-        assert!(!is_eject_pilot_eligible_template("TestTank"));
-        assert!(!is_eject_pilot_eligible_template("GLATankScorpion"));
-    }
+    fn typed_eject_pilot_die_metadata_keeps_interface_separate_from_spawn_gates() {
+        use crate::game_logic::{
+            EjectPilotCreationList, EjectPilotDeathTypes, EjectPilotDieMetadata,
+            EjectPilotExemptStatus, EjectPilotRequiredStatus, EjectPilotVeterancyLevels,
+        };
 
-    #[test]
-    fn eject_on_death_gate() {
-        // eligible, not unmanned, not construction, vehicle, not aircraft,
-        // vet gate, death types ok, not hijacked
-        assert!(can_eject_pilot_on_death(
-            true, false, false, true, false, true, true, true
-        ));
-        assert!(!can_eject_pilot_on_death(
-            true, true, false, true, false, true, true, true
-        )); // unmanned
-        assert!(!can_eject_pilot_on_death(
-            true, false, true, true, false, true, true, true
-        )); // construction
-        assert!(!can_eject_pilot_on_death(
-            false, false, false, true, false, true, true, true
-        )); // ineligible
-        assert!(!can_eject_pilot_on_death(
-            true, false, false, false, false, true, true, true
-        )); // not vehicle
-        assert!(!can_eject_pilot_on_death(
-            true, false, false, true, true, true, true, true
-        )); // aircraft
-        assert!(!can_eject_pilot_on_death(
-            true, false, false, true, false, false, true, true
-        )); // REGULAR / Rookie blocked
-        assert!(!can_eject_pilot_on_death(
-            true, false, false, true, false, true, false, true
-        )); // DeathTypes CRUSHED/SPLATTED
-        assert!(!can_eject_pilot_on_death(
-            true, false, false, true, false, true, true, false
-        )); // ExemptStatus HIJACKED
-    }
+        let metadata = EjectPilotDieMetadata {
+            ground_creation_list: Some(EjectPilotCreationList::OnGround),
+            air_creation_list: Some(EjectPilotCreationList::ViaParachute),
+            invulnerable_time_ms: Some(0),
+            death_types: EjectPilotDeathTypes::AllExceptCrushedAndSplatted,
+            veterancy_levels: EjectPilotVeterancyLevels::AllExceptRegular,
+            exempt_status: EjectPilotExemptStatus::Hijacked,
+            required_status: EjectPilotRequiredStatus::None,
+        };
+        assert!(metadata.has_eject_pilot_die_interface());
+        assert_eq!(
+            metadata.creation_list_for_air_path(false),
+            Some(EjectPilotCreationList::OnGround)
+        );
+        assert_eq!(
+            metadata.creation_list_for_air_path(true),
+            Some(EjectPilotCreationList::ViaParachute)
+        );
+        assert!(metadata.allows_supported_death(false, false, false));
+        assert!(!metadata.allows_supported_death(true, false, false));
+        assert!(!metadata.allows_supported_death(false, true, false));
+        assert!(!metadata.allows_supported_death(false, false, true));
 
-    #[test]
-    fn eject_death_types_and_exempt_status_gates() {
-        assert!(meets_eject_pilot_death_types_gate(HostDeathType::Normal));
-        assert!(!meets_eject_pilot_death_types_gate(HostDeathType::Crushed));
-        assert!(!meets_eject_pilot_death_types_gate(HostDeathType::Splatted));
-        assert!(meets_eject_pilot_exempt_status_gate(false));
-        assert!(!meets_eject_pilot_exempt_status_gate(true));
+        // No vehicle/aircraft/template-name input exists in this predicate:
+        // C++ EjectPilotDie belongs to the authored module, not its owner
+        // object's classification.
+        let default_data = EjectPilotDieMetadata::default();
+        assert!(default_data.has_eject_pilot_die_interface());
+        assert_eq!(default_data.invulnerable_time_ms, Some(0));
+        assert_eq!(default_data.creation_list_for_air_path(false), None);
     }
 
     #[test]
@@ -1692,14 +1549,6 @@ mod tests {
         assert!(!is_pilot_find_vehicle_collide_target(
             true, true, true, false
         ));
-    }
-
-    #[test]
-    fn eject_veterancy_levels_all_minus_regular() {
-        assert!(!meets_eject_pilot_veterancy_gate(VeterancyLevel::Rookie));
-        assert!(meets_eject_pilot_veterancy_gate(VeterancyLevel::Veteran));
-        assert!(meets_eject_pilot_veterancy_gate(VeterancyLevel::Elite));
-        assert!(meets_eject_pilot_veterancy_gate(VeterancyLevel::Heroic));
     }
 
     #[test]
@@ -1806,9 +1655,6 @@ mod tests {
         assert!(!is_significantly_above_terrain(0.0));
         assert!(!is_significantly_above_terrain(thr));
         assert!(is_significantly_above_terrain(thr + 1.0));
-        assert!(uses_air_eject_ocl(thr + 1.0, false));
-        assert!(uses_air_eject_ocl(0.0, true)); // airborne_target residual
-        assert!(!uses_air_eject_ocl(0.0, false));
         assert!((air_eject_spawn_height(0.0) - (thr + 1.0)).abs() < 0.001);
         assert!((air_eject_spawn_height(700.0) - 700.0).abs() < 0.001);
 

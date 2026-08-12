@@ -794,6 +794,7 @@ fn production_queue_freezes_from_building_data() {
             template_name: "Ranger".into(),
             progress: 0.4,
             total_time: 10.0,
+            construction_frames: 0,
             cost: Resources {
                 supplies: 150,
                 power: 0,

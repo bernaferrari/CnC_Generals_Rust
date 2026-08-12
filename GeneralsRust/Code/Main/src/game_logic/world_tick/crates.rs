@@ -35,24 +35,24 @@ impl GameLogic {
     /// Moves a script-visible name from `from_id` to `to_id` via host name field
     /// + NamedObjectTracker when available.
 
-    /// C++ targetCanEject residual: vehicle has EjectPilotDie interface.
+    /// C++ `targetCanEject`: a target exposes any `EjectPilotDie` interface.
     ///
-    /// Host residual: eligible eject-pilot template + vehicle kind.
+    /// Vehicle/hijack eligibility remains owned by the surrounding Hijacker
+    /// flow.  This final predicate must not infer the interface from a USA
+    /// vehicle basename, and OCL/death-filter support is deliberately not
+    /// consulted: C++ asks only `getEjectPilotDieInterface()` here.
     pub fn vehicle_supports_hijacker_ride(&self, vehicle_id: ObjectId) -> bool {
-        use crate::game_logic::host_usa_pilot::is_eject_pilot_eligible_template;
         let Some(v) = self.objects.get(&vehicle_id) else {
             return false;
         };
         if !v.is_alive() || v.status.destroyed {
             return false;
         }
-        if v.is_kind_of(KindOf::Aircraft) || v.object_type == ObjectType::Aircraft {
-            return false;
-        }
-        if !(v.is_kind_of(KindOf::Vehicle) || v.object_type == ObjectType::Vehicle) {
-            return false;
-        }
-        is_eject_pilot_eligible_template(&v.template_name)
+        v.thing
+            .template
+            .eject_pilot_die
+            .as_ref()
+            .is_some_and(|metadata| metadata.has_eject_pilot_die_interface())
     }
 
     /// C++ HijackerUpdate airborne exit residual: ThingFactory newObject
@@ -274,7 +274,44 @@ impl GameLogic {
             .filter(|(_, o)| o.deploy_style.is_some())
             .map(|(id, _)| *id)
             .collect();
-        for id in ids {
+
+        // Auto-acquisition retains a normal attack target during DEPLOY so it
+        // can resume when ReadyToAttack.  If that victim disappears while the
+        // unit is AI_BUSY, clear the pending attack here rather than allowing a
+        // stale ObjectId to survive until some unrelated future fire pass.
+        // Restrict this to actual attack states so capture/repair/etc. targets
+        // remain outside DeployStyle's combat authority.
+        let stale_pending_attacks: Vec<ObjectId> = ids
+            .iter()
+            .copied()
+            .filter(|id| {
+                let Some(obj) = self.objects.get(id) else {
+                    return false;
+                };
+                if obj.ai_state != AIState::Attacking
+                    || !obj
+                        .deploy_style
+                        .as_ref()
+                        .is_some_and(|deploy| deploy.is_busy())
+                {
+                    return false;
+                }
+                let Some(target_id) = obj.target else {
+                    return false;
+                };
+                !self
+                    .objects
+                    .get(&target_id)
+                    .is_some_and(|target| target.is_alive())
+            })
+            .collect();
+        for id in stale_pending_attacks {
+            self.stop_attack_decision_aware(id);
+        }
+
+        // Complete a timer before evaluating this frame's attack request,
+        // matching DeployStyleAIUpdate::update's frame-boundary order.
+        for &id in &ids {
             let Some(obj) = self.objects.get_mut(&id) else {
                 continue;
             };
@@ -289,10 +326,68 @@ impl GameLogic {
                 obj.set_deployed(false);
             }
         }
+
+        // C++ evaluates its pending attack independently of weapon reload:
+        // an in-range current victim starts DEPLOY even when the shot itself
+        // will not become ready until later.  This keeps player and mood
+        // attacks approaching while distant, but starts the authored timer as
+        // soon as their selected weapon is actually in range.
+        let in_range_pending_attacks: Vec<ObjectId> = ids
+            .iter()
+            .copied()
+            .filter(|id| {
+                let Some(obj) = self.objects.get(id) else {
+                    return false;
+                };
+                if obj.get_template().deploy_style_metadata.is_none()
+                    || !matches!(obj.ai_state, AIState::Attacking | AIState::AttackingGround)
+                {
+                    return false;
+                }
+                let Some(slot) = obj.selected_weapon_slot() else {
+                    return false;
+                };
+                match (obj.target, obj.target_location) {
+                    (Some(target_id), _) => self.objects.get(&target_id).is_some_and(|target| {
+                        target.is_alive() && obj.is_within_attack_range_for_slot(slot, target)
+                    }),
+                    (None, Some(target_location)) => {
+                        obj.is_within_attack_range_pos_for_slot(slot, target_location)
+                    }
+                    (None, None) => false,
+                }
+            })
+            .collect();
+        for id in in_range_pending_attacks {
+            let started = {
+                let Some(obj) = self.objects.get_mut(&id) else {
+                    continue;
+                };
+                let Some(deploy) = obj.deploy_style.as_mut() else {
+                    continue;
+                };
+                if deploy.begin_deploy(frame) {
+                    obj.stop_moving();
+                    obj.set_status_moving(false);
+                    true
+                } else {
+                    false
+                }
+            };
+            if started {
+                self.deploy_style_reg.record_deploy();
+            }
+        }
     }
 
-    /// Ensure DeployStyle unit is unpacking/unpacked before fire residual.
-    /// Returns false if fire should be deferred this frame.
+    /// Ensure a source-authored DeployStyle unit is unpacking/unpacked before
+    /// fire. Callers must establish a live, in-range attack target before
+    /// invoking this; `DeployStyleAIUpdate::update` only enters `DEPLOY` at
+    /// that point, not merely because an attack order exists.
+    ///
+    /// Returns false while the exact parsed `DeployStyleAIUpdate` module is
+    /// packing or unpacking. A metadata/runtime mismatch is fail-closed rather
+    /// than granting an unverified weapon bypass.
     pub fn ensure_deploy_style_ready_to_fire(&mut self, id: ObjectId) -> bool {
         let frame = self.frame;
         let mut started = false;
@@ -301,20 +396,47 @@ impl GameLogic {
             let Some(obj) = self.objects.get_mut(&id) else {
                 return true;
             };
-            let Some(ds) = obj.deploy_style.as_mut() else {
-                return true;
-            };
-            if ds.is_ready_to_attack() {
-                true
-            } else {
-                if ds.begin_deploy(frame) {
-                    started = true;
-                    obj.stop_moving();
-                    obj.set_status_moving(false);
-                } else {
+            // A unit without the parsed module is not a DeployStyle unit. Do
+            // not infer this from template names or KindOf flags.
+            if obj.get_template().deploy_style_metadata.is_none() {
+                // A stale runtime block without source metadata is also an
+                // invalid restore. It must not become an implicit name-based
+                // deploy policy or a free fire permission.
+                if obj.deploy_style.is_some() {
                     blocked = true;
+                    obj.set_status_firing_weapon(false);
+                    false
+                } else {
+                    true
                 }
-                false
+            } else {
+                let ready = if let Some(ds) = obj.deploy_style.as_mut() {
+                    if ds.is_ready_to_attack() {
+                        true
+                    } else {
+                        if ds.begin_deploy(frame) {
+                            started = true;
+                            obj.stop_moving();
+                            obj.set_status_moving(false);
+                        } else {
+                            blocked = true;
+                        }
+                        false
+                    }
+                } else {
+                    // Object construction/save restore must install the live
+                    // state from the metadata. Missing it may not let a
+                    // deploy-only turret fire while packed.
+                    blocked = true;
+                    false
+                };
+                if !ready {
+                    // Nested AttackStateMachine may have entered its fire
+                    // state already. C++ DeployStyle marks it AI_BUSY, so no
+                    // actual firing condition may remain set during the timer.
+                    obj.set_status_firing_weapon(false);
+                }
+                ready
             }
         };
         if started {

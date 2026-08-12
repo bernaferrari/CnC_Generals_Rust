@@ -231,6 +231,7 @@ mod tests {
                 template_name: "EagerPcChild".into(),
                 progress: 0.25,
                 total_time: 10.0,
+                construction_frames: 0,
                 cost_supplies: 100,
                 is_upgrade: false,
                 quantity_total: 1,

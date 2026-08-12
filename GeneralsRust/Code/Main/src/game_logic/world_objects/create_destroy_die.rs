@@ -187,10 +187,7 @@ impl GameLogic {
         position: Vec3,
     ) -> Option<ObjectId> {
         if owner_player_id.is_some_and(|player_id| {
-            self.players
-                .get(&player_id)
-                .map(|player| player.team)
-                != Some(team)
+            self.players.get(&player_id).map(|player| player.team) != Some(team)
         }) {
             return None;
         }
@@ -949,12 +946,19 @@ impl GameLogic {
                 object.weapon = Some(burton_sniper_weapon());
             }
 
-            // Host residual: USA Pilot starts VETERAN (VeterancyGainCreate StartingLevel).
-            // Fail-closed: not full EjectPilotDie parachute OCL / PilotFindVehicle AI scan.
-            if crate::game_logic::host_usa_pilot::is_pilot_template(template_name) {
-                use crate::game_logic::host_usa_pilot::pilot_default_veterancy;
+            // `VeterancyGainCreate StartingLevel` for an explicitly parsed
+            // `VeterancyCrateCollide IsPilot` source.  A pilot-shaped
+            // basename alone must not grant veterancy: retail data owns this
+            // behavior, while ejection/parachute naming remains a separate
+            // residual path.
+            if let Some(target) = object
+                .thing
+                .template
+                .veterancy_crate_collide
+                .as_ref()
+                .and_then(|metadata| metadata.pilot_starting_level())
+            {
                 use crate::game_logic::VeterancyLevel;
-                let target = pilot_default_veterancy();
                 if object.experience.level != target {
                     let prev = object.experience.level;
                     object.experience.level = target;
@@ -1233,10 +1237,7 @@ impl GameLogic {
         position: Vec3,
     ) -> Option<ObjectId> {
         if owner_player_id.is_some_and(|player_id| {
-            self.players
-                .get(&player_id)
-                .map(|player| player.team)
-                != Some(team)
+            self.players.get(&player_id).map(|player| player.team) != Some(team)
         }) {
             return None;
         }
@@ -1263,7 +1264,9 @@ impl GameLogic {
         }
         // C++ MaxSimultaneousOfType=DeterminedBySuperweaponRestriction residual.
         let superweapon_ok = owner_player_id
-            .map(|player_id| self.can_start_superweapon_building_for_player(player_id, template_name))
+            .map(|player_id| {
+                self.can_start_superweapon_building_for_player(player_id, template_name)
+            })
             .unwrap_or_else(|| self.can_start_superweapon_building(team, template_name));
         if !superweapon_ok {
             log::debug!(
@@ -1466,97 +1469,227 @@ impl GameLogic {
         true
     }
 
+    /// Return the subset of a selected EjectPilot OCL that this live host can
+    /// reproduce without substituting a name-shaped effect.
+    ///
+    /// `EjectPilotDie` owns only the typed ground/air OCL selection.  In
+    /// particular, its own `InvulnerableTime` field is not consumed by the
+    /// C++ `onDie`; `GenericObjectCreationNugget::InvulnerableTime` on the
+    /// selected OCL is the source of the spawned pilot's protection.  Keep
+    /// that distinction here so a module default of zero never becomes a
+    /// fabricated 2000 ms grant.
+    fn parsed_eject_pilot_ocl_plan(
+        creation_list: crate::game_logic::EjectPilotCreationList,
+    ) -> Option<(bool, u32)> {
+        use crate::game_logic::host_usa_pilot::EJECT_PILOT_TEMPLATE;
+        use gamelogic::object_creation_list::{
+            DebrisDisposition, GenericObjectCreationNugget, ObjectCreationNugget,
+        };
+
+        // These are the only two OCL identities the typed parser admits.  The
+        // enum is deliberately not a free-form INI name, so this lookup cannot
+        // make an arbitrary creation list act like EjectPilotDie.
+        let (ocl_name, parachute_ocl, expected_container, min_force, max_force) =
+            match creation_list {
+                crate::game_logic::EjectPilotCreationList::OnGround => {
+                    ("OCL_EjectPilotOnGround", false, "", 2.0, 3.0)
+                }
+                crate::game_logic::EjectPilotCreationList::ViaParachute => (
+                    "OCL_EjectPilotViaParachute",
+                    true,
+                    "AmericaParachute",
+                    10.0,
+                    12.0,
+                ),
+            };
+        let ocl =
+            gamelogic::helpers::TheObjectCreationListStore::lookup_object_creation_list(ocl_name)?;
+        let [nugget] = ocl.nuggets() else {
+            return None;
+        };
+        let generic = nugget
+            .as_any()
+            .downcast_ref::<GenericObjectCreationNugget>()?;
+
+        // The existing ejection/parachute host represents precisely the two
+        // retail OCL shapes below.  Refuse a changed/mixed OCL rather than
+        // silently issuing only its familiar-looking pilot portion.
+        let supported_shape = generic.name_are_objects
+            && generic.debris_to_generate == 1
+            && generic.names.len() == 1
+            && generic.names[0].eq_ignore_ascii_case(EJECT_PILOT_TEMPLATE)
+            && generic.ignore_primary_obstacle
+            && generic.inherit_veterancy
+            && generic.disposition == DebrisDisposition::new(DebrisDisposition::RANDOM_FORCE)
+            && generic.min_mag == min_force
+            && generic.max_mag == max_force
+            // `parse_angle_real` stores the authored degree literals in the
+            // engine's radians representation.
+            && generic.min_pitch == 50.0_f32.to_radians()
+            && generic.max_pitch == 60.0_f32.to_radians()
+            && generic.spin_rate == 0.0
+            && generic.requires_live_player
+            && generic
+                .put_in_container
+                .eq_ignore_ascii_case(expected_container)
+            && !generic.contain_inside_source_object
+            && !generic.skip_if_significantly_airborne
+            && !generic.dies_on_bad_land
+            && !generic.spread_formation
+            && !generic.fade_in
+            && !generic.fade_out;
+        supported_shape.then_some((parachute_ocl, generic.invulnerable_time))
+    }
+
     /// Wave 754: C++ EjectPilotDie::onDie residual at death start (mark_object),
     /// not only final process_destroy remove. SlowDeath defers remove and must
     /// not suppress pilot spawn / honesty residual.
     pub(crate) fn maybe_apply_eject_pilot_die(&mut self, id: ObjectId) {
         use crate::game_logic::host_usa_pilot::{
-            air_eject_spawn_height, can_eject_pilot_on_death, is_eject_pilot_eligible_template,
-            meets_eject_pilot_death_types_gate, meets_eject_pilot_exempt_status_gate,
-            meets_eject_pilot_veterancy_gate, uses_air_eject_ocl, EJECT_PILOT_TEMPLATE,
-            PILOT_EJECT_AUDIO,
+            air_eject_spawn_height, is_significantly_above_terrain, HostDeathType,
+            EJECT_PILOT_TEMPLATE, PILOT_EJECT_AUDIO,
         };
-        let Some(obj) = self.objects.get(&id) else {
-            return;
+        use crate::game_logic::{
+            EjectPilotCreationList, EjectPilotDeathTypes, EjectPilotExemptStatus,
+            EjectPilotVeterancyLevels, VeterancyLevel,
         };
-        if obj.eject_pilot_die_applied {
-            return;
+
+        let (
+            metadata,
+            pilot_team,
+            pilot_owner_player_id,
+            death_pos,
+            veterancy,
+            death_type,
+            is_hijacked,
+        ) = {
+            let Some(obj) = self.objects.get(&id) else {
+                return;
+            };
+            if obj.eject_pilot_die_applied {
+                return;
+            }
+            let Some(metadata) = obj.thing.template.eject_pilot_die else {
+                // Module presence, not an object basename, is the C++ die
+                // authority.  A name-shaped vehicle with no parsed module is
+                // intentionally inert here.
+                return;
+            };
+            (
+                metadata,
+                obj.team,
+                obj.owner_player_id,
+                obj.get_position(),
+                obj.experience.level,
+                obj.status.death_type,
+                obj.status.hijacked,
+            )
+        };
+
+        // C++ invokes a DieModule once per death.  The host may visit this
+        // object again while SlowDeath unwinds, so record the attempt before
+        // any supported filter/OCL can decline it.
+        if let Some(obj) = self.objects.get_mut(&id) {
+            obj.eject_pilot_die_applied = true;
         }
-        let is_vehicle = obj.is_kind_of(KindOf::Vehicle) || obj.object_type == ObjectType::Vehicle;
-        let is_aircraft =
-            obj.is_kind_of(KindOf::Aircraft) || obj.object_type == ObjectType::Aircraft;
-        let under_construction =
-            obj.status.under_construction || obj.construction_percent + 0.001 < 1.0;
-        let eligible_template = is_eject_pilot_eligible_template(&obj.template_name);
-        let vet_gate = meets_eject_pilot_veterancy_gate(obj.experience.level);
-        let death_types_gate = meets_eject_pilot_death_types_gate(obj.status.death_type);
-        let exempt_status_gate = meets_eject_pilot_exempt_status_gate(obj.status.hijacked);
-        if eligible_template
-            && !obj.is_unmanned()
-            && !under_construction
-            && is_vehicle
-            && !is_aircraft
-            && death_types_gate
+
+        let death_is_crushed_or_splatted =
+            matches!(death_type, HostDeathType::Crushed | HostDeathType::Splatted);
+        let veterancy_is_regular = matches!(veterancy, VeterancyLevel::Rookie);
+        let death_types_gate = match metadata.death_types {
+            EjectPilotDeathTypes::All => true,
+            EjectPilotDeathTypes::AllExceptCrushedAndSplatted => !death_is_crushed_or_splatted,
+            EjectPilotDeathTypes::Unsupported => false,
+        };
+        let veterancy_gate = match metadata.veterancy_levels {
+            EjectPilotVeterancyLevels::All => true,
+            EjectPilotVeterancyLevels::AllExceptRegular => !veterancy_is_regular,
+            EjectPilotVeterancyLevels::Unsupported => false,
+        };
+        let exempt_status_gate = match metadata.exempt_status {
+            EjectPilotExemptStatus::None => true,
+            EjectPilotExemptStatus::Hijacked => !is_hijacked,
+            EjectPilotExemptStatus::Unsupported => false,
+        };
+
+        // Preserve the existing observability counters, but now only when the
+        // corresponding parsed DieMux clause actually owns the block.
+        if matches!(
+            metadata.veterancy_levels,
+            EjectPilotVeterancyLevels::AllExceptRegular
+        ) && death_types_gate
             && exempt_status_gate
-            && !vet_gate
+            && !veterancy_gate
         {
             self.usa_pilot.record_eject_veterancy_block();
         }
-        if eligible_template
-            && !obj.is_unmanned()
-            && !under_construction
-            && is_vehicle
-            && !is_aircraft
-            && vet_gate
+        if matches!(
+            metadata.death_types,
+            EjectPilotDeathTypes::AllExceptCrushedAndSplatted
+        ) && veterancy_gate
             && exempt_status_gate
             && !death_types_gate
         {
             self.usa_pilot.record_eject_death_type_block();
         }
-        if eligible_template
-            && !obj.is_unmanned()
-            && !under_construction
-            && is_vehicle
-            && !is_aircraft
-            && vet_gate
+        if matches!(metadata.exempt_status, EjectPilotExemptStatus::Hijacked)
+            && veterancy_gate
             && death_types_gate
             && !exempt_status_gate
         {
             self.usa_pilot.record_eject_hijacked_block();
         }
-        if !can_eject_pilot_on_death(
-            eligible_template,
-            obj.is_unmanned(),
-            under_construction,
-            is_vehicle,
-            is_aircraft,
-            vet_gate,
-            death_types_gate,
-            exempt_status_gate,
+
+        if !metadata.allows_supported_death(
+            death_is_crushed_or_splatted,
+            veterancy_is_regular,
+            is_hijacked,
         ) {
             return;
         }
-        let pilot_team = obj.team;
-        let death_pos = obj.get_position();
-        let air_path = uses_air_eject_ocl(death_pos.y, obj.status.airborne_target);
-        let veterancy = obj.experience.level;
-        // Mark applied before spawn so recursive destroy cannot double-fire.
-        if let Some(o) = self.objects.get_mut(&id) {
-            o.eject_pilot_die_applied = true;
-        }
+
+        // C++ `EjectPilotDie::onDie` selects the OCL solely from
+        // `Object::isSignificantlyAboveTerrain()`.  `airborne_target` is not
+        // an alternate authorization route.
+        let terrain_y = self.terrain_height_at(death_pos).unwrap_or(0.0);
+        let significantly_above_terrain = is_significantly_above_terrain(death_pos.y - terrain_y);
+        let Some(creation_list) = metadata.creation_list_for_air_path(significantly_above_terrain)
+        else {
+            // A null/unsupported selected OCL is C++'s no-op `ejectPilot`.
+            return;
+        };
+        let Some((parachute_ocl, invulnerable_frames)) =
+            Self::parsed_eject_pilot_ocl_plan(creation_list)
+        else {
+            return;
+        };
+
+        // `RequiresLivePlayer = Yes` is part of both retail OCLs.  C++ rejects
+        // a missing source controller as well as a defeated one; do not let a
+        // team-only fallback create a useful pilot for an ownerless wreck.
+        let Some(pilot_owner_player_id) = pilot_owner_player_id.filter(|player_id| {
+            self.players
+                .get(player_id)
+                .is_some_and(|player| player.is_alive && player.team == pilot_team)
+        }) else {
+            return;
+        };
         if !self.templates.contains_key(EJECT_PILOT_TEMPLATE) {
-            let mut pilot_tpl = crate::game_logic::ThingTemplate::new(EJECT_PILOT_TEMPLATE);
-            pilot_tpl
-                .add_kind_of(KindOf::Infantry)
-                .add_kind_of(KindOf::Selectable)
-                .add_kind_of(KindOf::Attackable)
-                .set_health(100.0);
+            // OCL_EjectPilot* names this exact retail object.  Do not inject
+            // a synthetic pilot when the authored template cannot be loaded:
+            // missing Object INI data must not turn a source name into a live
+            // ejection action.
+            let Some(pilot_tpl) = Self::build_template_from_asset_definition(EJECT_PILOT_TEMPLATE)
+            else {
+                return;
+            };
             self.templates
                 .insert(EJECT_PILOT_TEMPLATE.to_string(), pilot_tpl);
         }
         // Offset slightly so pilot is not buried under death debris residual.
-        // Air OCL residual: keep elevated y (PutInContainer AmericaParachute).
-        let spawn_pos = if air_path {
+        // The chosen OCL (not vehicle kind/name) controls whether the live
+        // host applies the existing AmericaParachute residual.
+        let spawn_pos = if parachute_ocl {
             glam::Vec3::new(
                 death_pos.x + 2.0,
                 air_eject_spawn_height(death_pos.y),
@@ -1565,16 +1698,18 @@ impl GameLogic {
         } else {
             death_pos + glam::Vec3::new(2.0, 0.0, 2.0)
         };
-        if let Some(pilot_id) = self.create_object(EJECT_PILOT_TEMPLATE, pilot_team, spawn_pos) {
+        if let Some(pilot_id) =
+            self.create_object_for_player(EJECT_PILOT_TEMPLATE, pilot_owner_player_id, spawn_pos)
+        {
             self.usa_pilot.record_ejection();
-            if air_path {
+            if parachute_ocl {
                 self.usa_pilot.record_air_ejection();
             }
-            let until =
-                crate::game_logic::host_usa_pilot::eject_pilot_invulnerable_until_frame(self.frame);
             if let Some(pilot) = self.objects.get_mut(&pilot_id) {
-                pilot.apply_eject_invulnerable(until);
-                if air_path {
+                if invulnerable_frames > 0 {
+                    pilot.apply_eject_invulnerable(self.frame.saturating_add(invulnerable_frames));
+                }
+                if parachute_ocl {
                     let raw_y = pilot.get_position().y;
                     pilot.apply_eject_parachuting();
                     if crate::game_logic::host_usa_pilot::parachute_start_height_was_fudged(
@@ -1583,10 +1718,12 @@ impl GameLogic {
                         self.usa_pilot.record_parachute_open_fudge();
                     }
                 }
-                // Transfer vehicle veterancy residual (except Rookie gate already applied).
+                // OCL_EjectPilot* has `InheritsVeterancy = Yes`.
                 pilot.experience.level = veterancy;
             }
-            self.usa_pilot.record_invulnerable_grant();
+            if invulnerable_frames > 0 {
+                self.usa_pilot.record_invulnerable_grant();
+            }
             self.queue_audio_event(
                 AudioEventRequest::new(PILOT_EJECT_AUDIO)
                     .with_position(spawn_pos)

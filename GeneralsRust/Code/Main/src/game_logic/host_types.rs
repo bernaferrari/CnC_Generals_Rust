@@ -164,6 +164,13 @@ pub enum KindOf {
     /// authored capability for infantry; a medical-looking template without
     /// this source tag must not become a service destination.
     HealPad,
+    /// C++ `KINDOF_MONEY_HACKER`.  `InternetHackContain` admits this exact
+    /// source category; a template name containing "hacker" must never
+    /// fabricate either the Hacker command or Internet Center access.
+    ///
+    /// This is gameplay-only metadata.  It intentionally has no presentation
+    /// bit assignment because that packed 32-bit order is already full.
+    MoneyHacker,
 }
 
 /// Object status flags
@@ -349,6 +356,13 @@ pub struct ObjectStatus {
     /// Host killpilot sets team Neutral; this preserves PartitionFilterPlayer residual.
     #[serde(default)]
     pub unmanned_owner_team: Option<Team>,
+    /// Exact controlling-player provenance captured with `DISABLED_UNMANNED`.
+    /// A kill-pilot transition normally makes the vehicle Neutral and clears
+    /// `Object::owner_player_id`; retaining this separately lets the pilot
+    /// `VeterancyCrateCollide IsPilot` path require the same C++ controlling
+    /// player rather than treating a shared faction as one owner.
+    #[serde(default)]
+    pub unmanned_owner_player_id: Option<u32>,
     /// Residual death type for DieMux DeathTypes filters (EjectPilotDie etc).
     /// Default Normal (combat residual). Set to Crushed/Splatted for crush deaths.
     #[serde(default)]

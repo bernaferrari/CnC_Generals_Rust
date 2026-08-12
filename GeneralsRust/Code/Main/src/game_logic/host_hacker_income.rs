@@ -1,13 +1,14 @@
 //! Host China Hacker / Internet Center residual cash (HackInternetAIUpdate).
 //!
-//! Residual slice (playability):
-//! - Living `*Hacker*` units generate cash while residual-hacking.
-//! - Internet Center residual: hackers contained in `FSInternetCenter` /
-//!   `*InternetCenter*` auto-start hacking and use CashUpdateDelayFast.
-//! - Field residual: explicit `start_hacking` (HackInternet command residual).
-//! - RegularCashAmount residual **5**, CashUpdateDelay **2000 ms → 60 frames**,
-//!   CashUpdateDelayFast **1800 ms → 54 frames** (inside Internet Center).
-//! - Veterancy residual: Regular/Veteran/Elite/Heroic = 5/6/8/10.
+//! Active authority slice:
+//! - Only living objects with parsed `HackInternetAIUpdate` metadata generate
+//!   cash while hacking; a Hacker-like template name has no authority.
+//! - A parsed `InternetHackContain` with exact `MONEY_HACKER` admission
+//!   auto-starts an actual contained, same-controller passenger.
+//! - Field hacking begins only through the typed `HackInternet` command path.
+//! - Cash delays, per-veterancy amounts, and XP come from the source module;
+//!   the retail 5/6/8/10 and 60/54-frame values remain compatibility constants
+//!   for older isolated tests, not live fallback authority.
 //!
 //! Residual floating cash text (HackInternetAIUpdate):
 //! - Host `+$N` at unit pos + Z **20**, green RGBA (0,255,0,255), key `GUI:AddCash`.
@@ -18,7 +19,7 @@
 //! - Not full Unpack/Pack state machine / variation factor / model conditions
 //! - Not full InGameUI GPU draw / Unicode GameText localization
 //! - Not full DISABLED_HACKED microwave interrupt resume matrix beyond skip-while-disabled
-//! - XpPerCashUpdate residual applied as +1 XP when experience tracker present
+//! - `XpPerCashUpdate` is applied from parsed module metadata
 //! - Network deferred
 
 use super::ObjectId;
@@ -244,6 +245,16 @@ pub struct HostHackerIncomeRegistry {
 }
 
 impl HostHackerIncomeRegistry {
+    /// C++ `HackInternetState` decrements its timer while it is positive and
+    /// executes the cash update on the following logic update.  This means a
+    /// zero authored delay is still next-update, never same-update income.
+    #[inline]
+    fn next_cash_update_after(current_frame: u32, delay_frames: u32) -> u32 {
+        current_frame
+            .saturating_add(delay_frames)
+            .saturating_add(1)
+    }
+
     pub fn new() -> Self {
         Self::default()
     }
@@ -268,14 +279,22 @@ impl HostHackerIncomeRegistry {
         self.active_hackers.contains(&hacker_id)
     }
 
-    /// Explicit field HackInternet residual start.
-    /// Schedules first cash after field interval (C++ HackInternetState::onEnter).
-    pub fn start_hacking(&mut self, hacker_id: ObjectId, current_frame: u32) {
+    /// Start a typed `HackInternetAIUpdate` cash schedule.
+    ///
+    /// The caller supplies the exact parsed module delay.  This registry does
+    /// not substitute the old China-Hacker constants when source metadata is
+    /// absent.  A parsed zero delay is meaningful and fires next update.
+    pub fn start_hacking(
+        &mut self,
+        hacker_id: ObjectId,
+        current_frame: u32,
+        initial_delay_frames: u32,
+    ) {
         self.active_hackers.insert(hacker_id);
         self.field_starts = self.field_starts.saturating_add(1);
         self.next_deposit_frame.insert(
             hacker_id,
-            current_frame.saturating_add(HACKER_CASH_INTERVAL_FRAMES.max(1)),
+            Self::next_cash_update_after(current_frame, initial_delay_frames),
         );
     }
 
@@ -285,16 +304,19 @@ impl HostHackerIncomeRegistry {
         &mut self,
         hacker_id: ObjectId,
         current_frame: u32,
+        initial_delay_frames: u32,
     ) -> bool {
         if self.active_hackers.contains(&hacker_id) {
             return false;
         }
         self.active_hackers.insert(hacker_id);
         self.internet_center_auto_starts = self.internet_center_auto_starts.saturating_add(1);
-        // Inside IC: no pack/unpack residual; first cash after fast delay.
+        // The containment caller supplies the exact parsed fast delay.  The
+        // full C++ unpack/pack state machine remains unported; no name-based
+        // retail timing is used here.
         self.next_deposit_frame.insert(
             hacker_id,
-            current_frame.saturating_add(HACKER_CASH_INTERVAL_FAST_FRAMES.max(1)),
+            Self::next_cash_update_after(current_frame, initial_delay_frames),
         );
         true
     }
@@ -321,13 +343,13 @@ impl HostHackerIncomeRegistry {
         let next = *self
             .next_deposit_frame
             .entry(hacker_id)
-            .or_insert_with(|| current_frame.saturating_add(interval_frames.max(1)));
+            .or_insert_with(|| Self::next_cash_update_after(current_frame, interval_frames));
         if current_frame < next {
             return 0;
         }
         self.next_deposit_frame.insert(
             hacker_id,
-            current_frame.saturating_add(interval_frames.max(1)),
+            Self::next_cash_update_after(current_frame, interval_frames),
         );
         self.deposits = self.deposits.saturating_add(1);
         self.cash_total = self.cash_total.saturating_add(amount);
@@ -575,7 +597,7 @@ mod tests {
     fn field_hacking_deposits_on_interval() {
         let mut reg = HostHackerIncomeRegistry::new();
         let id = ObjectId(1);
-        reg.start_hacking(id, 0);
+        reg.start_hacking(id, 0, HACKER_CASH_INTERVAL_FRAMES);
         assert!(reg.is_hacking(id));
         assert_eq!(
             reg.try_deposit(
@@ -595,12 +617,32 @@ mod tests {
                 HACKER_CASH_INTERVAL_FRAMES,
                 false
             ),
+            0
+        );
+        assert_eq!(
+            reg.try_deposit(
+                id,
+                61,
+                HACKER_CASH_REGULAR,
+                HACKER_CASH_INTERVAL_FRAMES,
+                false
+            ),
             5
         );
         assert_eq!(
             reg.try_deposit(
                 id,
-                120,
+                121,
+                HACKER_CASH_REGULAR,
+                HACKER_CASH_INTERVAL_FRAMES,
+                false
+            ),
+            0
+        );
+        assert_eq!(
+            reg.try_deposit(
+                id,
+                122,
                 HACKER_CASH_REGULAR,
                 HACKER_CASH_INTERVAL_FRAMES,
                 false
@@ -617,8 +659,16 @@ mod tests {
     fn internet_center_auto_start_uses_fast_interval() {
         let mut reg = HostHackerIncomeRegistry::new();
         let id = ObjectId(2);
-        assert!(reg.ensure_internet_center_hacking(id, 0));
-        assert!(!reg.ensure_internet_center_hacking(id, 0)); // already active
+        assert!(reg.ensure_internet_center_hacking(
+            id,
+            0,
+            HACKER_CASH_INTERVAL_FAST_FRAMES
+        ));
+        assert!(!reg.ensure_internet_center_hacking(
+            id,
+            0,
+            HACKER_CASH_INTERVAL_FAST_FRAMES
+        )); // already active
         assert_eq!(
             reg.try_deposit(
                 id,
@@ -627,10 +677,31 @@ mod tests {
                 HACKER_CASH_INTERVAL_FAST_FRAMES,
                 true
             ),
+            0
+        );
+        assert_eq!(
+            reg.try_deposit(
+                id,
+                55,
+                HACKER_CASH_REGULAR,
+                HACKER_CASH_INTERVAL_FAST_FRAMES,
+                true
+            ),
             5
         );
         assert!(reg.honesty_internet_center_ok());
         assert_eq!(reg.internet_center_deposits(), 1);
+    }
+
+    #[test]
+    fn zero_authored_delay_waits_until_next_logic_update() {
+        let mut reg = HostHackerIncomeRegistry::new();
+        let id = ObjectId(3);
+        reg.start_hacking(id, 40, 0);
+        assert_eq!(reg.peek_next_deposit(id), Some(41));
+        assert_eq!(reg.try_deposit(id, 40, 1, 0, false), 0);
+        assert_eq!(reg.try_deposit(id, 41, 1, 0, false), 1);
+        assert_eq!(reg.peek_next_deposit(id), Some(42));
     }
 
     #[test]

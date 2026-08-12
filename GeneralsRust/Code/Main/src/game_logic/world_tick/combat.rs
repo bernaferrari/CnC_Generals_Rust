@@ -205,11 +205,6 @@ impl GameLogic {
             let overcharge = attacker.overcharge_enabled;
             drop(attacker);
 
-            // C++ DeployStyleAIUpdate: must unpack before fire when in attack range.
-            if !self.ensure_deploy_style_ready_to_fire(attacker_id) {
-                continue;
-            }
-
             let mut fired_slot: Option<u8> = None;
 
             // Standard object-to-object attack.
@@ -241,11 +236,9 @@ impl GameLogic {
                         } else {
                             attacker.team != target.team
                         };
-                        let stealthed_hidden =
-                            target.is_effectively_stealthed() && is_enemy;
+                        let stealthed_hidden = target.is_effectively_stealthed() && is_enemy;
                         // InvulnerableTime residual: enemies treat as ALLIES (skip auto fire).
-                        let invuln_hidden =
-                            target.is_eject_invulnerable() && is_enemy;
+                        let invuln_hidden = target.is_eject_invulnerable() && is_enemy;
                         let enemy_or_forced = attacker.force_attack || is_enemy;
                         let slot = if enemy_or_forced && !stealthed_hidden && !invuln_hidden {
                             attacker.select_combat_weapon_slot(target, current_time)
@@ -264,6 +257,15 @@ impl GameLogic {
                 }
 
                 if let Some(slot) = selected_slot {
+                    // C++ DeployStyleAIUpdate::update only enters DEPLOY once
+                    // its current victim is within the current weapon's attack
+                    // range.  Do this after slot/range selection, rather than
+                    // before it, so an out-of-range attack can keep its target
+                    // and approach path instead of packing in place.
+                    if !self.ensure_deploy_style_ready_to_fire(attacker_id) {
+                        continue;
+                    }
+
                     // C++ isAttackViewBlockedByObstacle residual: do not fire through
                     // buildings; chase instead (falls through to OOR chase when we
                     // clear selected fire by treating as out-of-LOS).
@@ -2591,6 +2593,12 @@ impl GameLogic {
                     let Some(ground_slot) = ground_slot else {
                         continue;
                     };
+                    // Match DeployStyleAIUpdate's in-range victim-position
+                    // path: force-fire may begin unpacking only after its
+                    // selected weapon can actually reach the location.
+                    if !self.ensure_deploy_style_ready_to_fire(attacker_id) {
+                        continue;
+                    }
                     let aim_ok = if let Some(attacker) = self.objects.get_mut(&attacker_id) {
                         attacker.set_ai_state(AIState::AttackingGround);
                         if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {

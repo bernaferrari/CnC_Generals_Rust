@@ -244,8 +244,6 @@ impl GameLogic {
         owner_team: Team,
         until_frame: u32,
     ) -> (u32, u32) {
-        use crate::game_logic::host_hacker_income::is_internet_center_template;
-
         // 1) All team internet centers: SpyVision disabled until frame.
         let center_ids: Vec<ObjectId> = self
             .objects
@@ -253,8 +251,10 @@ impl GameLogic {
             .filter(|(_, o)| {
                 o.is_alive()
                     && o.team == owner_team
-                    && (o.is_kind_of(KindOf::FSInternetCenter)
-                        || is_internet_center_template(&o.template_name))
+                    // C++ `disableInternetCenterSpyVision` queries the exact
+                    // `KINDOF_FS_INTERNET_CENTER`; an InternetHackContain
+                    // alone is not that sabotage target.
+                    && o.is_kind_of(KindOf::FSInternetCenter)
             })
             .map(|(id, _)| *id)
             .collect();
