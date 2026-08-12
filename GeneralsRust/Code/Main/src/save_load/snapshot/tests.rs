@@ -1560,3 +1560,74 @@ fn popup_and_host_write_common_sav_chunks_and_restore_authority() {
         .expect("authoritative pose");
     assert!((pose[0] - 12.0).abs() < 0.01 && (pose[2] - 8.0).abs() < 0.01);
 }
+
+/// Direct Common Xfer is positional: pre-HDB world version 2 objects end at
+/// `ObjectType`, so the current reader must not consume the following world
+/// fields as an HDB option discriminator.  This deliberately uses the direct
+/// Xfer route rather than bincode, whose v2->v3 mirror has separate coverage.
+#[test]
+fn direct_xfer_v2_object_snapshot_omits_hacker_disable_tail_and_keeps_alignment() {
+    use super::xfer_helpers::{default_object_snapshot, default_player_snapshot};
+    use crate::game_logic::{HackerDisableChannelPhase, HackerDisableChannelState};
+    use crate::save_load::{Xfer, XferLoad, XferSave};
+    use std::io::Cursor;
+
+    let object_id = ObjectId(91);
+    let mut pre_hdb_world = WorldSnapshot::default();
+    pre_hdb_world.version = 2;
+    pre_hdb_world.frame_number = 4_321;
+    pre_hdb_world.random_seed = 0x1BAD_B002;
+
+    let mut object = default_object_snapshot();
+    object.id = object_id;
+    object.template_name = "PreHdbDirectXferObject".to_string();
+    object.hacker_disable_channel = Some(HackerDisableChannelState::new(
+        ObjectId(92),
+        HackerDisableChannelPhase::Preparing,
+        1_500,
+    ));
+    pre_hdb_world.objects.insert(object_id, object);
+
+    // A non-empty record after the object map ensures the loader has to stay
+    // aligned through subsequent world fields, not merely reach EOF.
+    let mut player = default_player_snapshot();
+    player.id = 17;
+    player.name = "PostObjectAlignment".to_string();
+    pre_hdb_world.players.push(player);
+
+    let mut bytes = Cursor::new(Vec::new());
+    {
+        let mut writer = XferSave::new(&mut bytes);
+        pre_hdb_world
+            .xfer(&mut writer)
+            .expect("write exact pre-HDB direct-Xfer world");
+        let mut trailing_sentinel = 0xC0DE_CAFEu32;
+        writer
+            .xfer_u32(&mut trailing_sentinel)
+            .expect("write trailing sentinel");
+    }
+
+    let mut restored = WorldSnapshot::default();
+    let mut trailing_sentinel = 0u32;
+    {
+        let mut reader = XferLoad::new(Cursor::new(bytes.into_inner()));
+        restored
+            .xfer(&mut reader)
+            .expect("read exact pre-HDB direct-Xfer world");
+        reader
+            .xfer_u32(&mut trailing_sentinel)
+            .expect("read aligned trailing sentinel");
+    }
+
+    assert_eq!(restored.version, 2);
+    assert_eq!(restored.frame_number, 4_321);
+    assert_eq!(restored.random_seed, 0x1BAD_B002);
+    assert_eq!(restored.players[0].name, "PostObjectAlignment");
+    assert!(restored
+        .objects
+        .get(&object_id)
+        .expect("restored v2 object")
+        .hacker_disable_channel
+        .is_none());
+    assert_eq!(trailing_sentinel, 0xC0DE_CAFE);
+}

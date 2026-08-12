@@ -222,9 +222,14 @@ fn ranger_residual_rifle_and_flashbang_splash() {
 /// boundary rather than the old name-based instant effect.
 #[test]
 fn hacker_disable_building_uses_typed_persistent_channel_and_packs_on_relation_loss() {
-    use crate::game_logic::{HackerDisableBuildingMetadata, HackerDisableChannelPhase};
+    use crate::game_logic::{HackerDisableBuildingMetadata, HackerDisableChannelPhase, Player};
 
     let mut game_logic = GameLogic::new();
+    // Commands must carry the exact controlling player; keeping both players
+    // non-local isolates target visibility from this source-owned authority
+    // regression.
+    game_logic.add_player(Player::new(0, Team::USA, "USA", false));
+    game_logic.add_player(Player::new(1, Team::GLA, "GLA", false));
     ensure_test_structure_template(&mut game_logic);
 
     let mut hacker_tpl = crate::game_logic::ThingTemplate::new("TypedHackerDisableSource");
@@ -256,14 +261,10 @@ fn hacker_disable_building_uses_typed_persistent_channel_and_packs_on_relation_l
         .insert("TypedHackerDisableSource".to_string(), hacker_tpl);
 
     let hacker_id = game_logic
-        .create_object(
-            "TypedHackerDisableSource",
-            Team::USA,
-            Vec3::new(200.0, 0.0, 0.0),
-        )
+        .create_object_for_player("TypedHackerDisableSource", 0, Vec3::new(200.0, 0.0, 0.0))
         .expect("typed hacker");
     let target_id = game_logic
-        .create_object("TestBuilding", Team::GLA, Vec3::ZERO)
+        .create_object_for_player("TestBuilding", 1, Vec3::ZERO)
         .expect("enemy building");
     let initial_health = game_logic
         .host_object(target_id)
@@ -382,9 +383,13 @@ fn hacker_disable_building_uses_typed_persistent_channel_and_packs_on_relation_l
     // Changing the exact ownership relationship cancels the effect only
     // through authored PackTime; it does not run a final hidden trigger.
     game_logic
-        .host_object_mut(target_id)
-        .expect("target")
-        .set_team(Team::USA);
+        .get_player_mut(0)
+        .expect("source player")
+        .alliance_team = 7;
+    game_logic
+        .get_player_mut(1)
+        .expect("target player")
+        .alliance_team = 7;
     game_logic.update_ai(&[hacker_id, target_id], 1.0 / 30.0);
     assert_eq!(
         game_logic
@@ -413,7 +418,11 @@ fn hacker_disable_building_uses_typed_persistent_channel_and_packs_on_relation_l
 /// command executor and the generic support-state branch.
 #[test]
 fn hacker_disable_building_rejects_hacker_basename_without_typed_metadata() {
+    use crate::game_logic::Player;
+
     let mut game_logic = GameLogic::new();
+    game_logic.add_player(Player::new(0, Team::USA, "USA", false));
+    game_logic.add_player(Player::new(1, Team::GLA, "GLA", false));
     ensure_test_structure_template(&mut game_logic);
     let mut lookalike = crate::game_logic::ThingTemplate::new("ChinaInfantryHacker");
     lookalike
@@ -425,10 +434,10 @@ fn hacker_disable_building_rejects_hacker_basename_without_typed_metadata() {
         .templates
         .insert("ChinaInfantryHacker".to_string(), lookalike);
     let hacker_id = game_logic
-        .create_object("ChinaInfantryHacker", Team::USA, Vec3::new(10.0, 0.0, 0.0))
+        .create_object_for_player("ChinaInfantryHacker", 0, Vec3::new(10.0, 0.0, 0.0))
         .expect("lookalike");
     let target_id = game_logic
-        .create_object("TestBuilding", Team::GLA, Vec3::ZERO)
+        .create_object_for_player("TestBuilding", 1, Vec3::ZERO)
         .expect("target");
 
     game_logic.queue_command(crate::command_system::GameCommand {

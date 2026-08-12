@@ -594,6 +594,7 @@ fn supply_center_placement_rejects_too_close_to_supplies_residual() {
     let mut sc = ThingTemplate::new("AmericaSupplyCenter");
     sc.add_kind_of(KindOf::Structure)
         .add_kind_of(KindOf::SupplyCenter)
+        .add_kind_of(KindOf::CannotBuildNearSupplies)
         .set_health(2000.0);
     logic.templates.insert("AmericaSupplyCenter".into(), sc);
     // CC for prereq residual.

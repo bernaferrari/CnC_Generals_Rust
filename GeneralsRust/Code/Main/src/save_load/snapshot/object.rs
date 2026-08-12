@@ -348,9 +348,17 @@ pub struct ResourceSnapshot {
     pub is_infinite: bool,
 }
 
-// Implement XferData for various snapshot types
-impl XferData for ObjectSnapshot {
-    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+impl ObjectSnapshot {
+    /// Transfer the positional object record for a known outer world-schema
+    /// version.  Marker labels are deliberately no-ops in Common Xfer, so an
+    /// appended field cannot discover an older stream at the object tail.
+    /// The enclosing `WorldSnapshot` reads its version before its object map
+    /// and supplies the only safe compatibility boundary here.
+    pub(super) fn xfer_for_world_version(
+        &mut self,
+        xfer: &mut dyn Xfer,
+        world_version: u32,
+    ) -> SaveLoadResult<()> {
         xfer.xfer_marker_label("ObjectSnapshot")?;
 
         xfer.xfer_marker_label("Id")?;
@@ -406,18 +414,33 @@ impl XferData for ObjectSnapshot {
         xfer.xfer_marker_label("ObjectType")?;
         self.object_type.xfer(xfer)?;
 
-        xfer.xfer_marker_label("HackerDisableChannel")?;
-        xfer_option(
-            xfer,
-            &mut self.hacker_disable_channel,
-            HackerDisableChannelState::new(
-                ObjectId(0),
-                HackerDisableChannelPhase::Unpacking,
-                0,
-            ),
-        )?;
+        if world_version >= WORLD_SNAPSHOT_BINCODE_VERSION {
+            xfer.xfer_marker_label("HackerDisableChannel")?;
+            xfer_option(
+                xfer,
+                &mut self.hacker_disable_channel,
+                HackerDisableChannelState::new(
+                    ObjectId(0),
+                    HackerDisableChannelPhase::Unpacking,
+                    0,
+                ),
+            )?;
+        } else if xfer.get_mode() == XferMode::Load {
+            // v1/v2 direct-Xfer records ended at ObjectType.  Do not let a
+            // pre-seeded default accidentally manufacture a live channel.
+            self.hacker_disable_channel = None;
+        }
 
         Ok(())
+    }
+}
+
+// Implement XferData for callers that serialize a standalone current object
+// record.  WorldSnapshot uses the version-aware method above for historical
+// direct-Xfer streams.
+impl XferData for ObjectSnapshot {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        self.xfer_for_world_version(xfer, WORLD_SNAPSHOT_BINCODE_VERSION)
     }
 }
 

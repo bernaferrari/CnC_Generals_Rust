@@ -1371,15 +1371,29 @@ impl PresentationFrame {
                     );
                     push(&mut cmds, "Command_CIAIntelligence", true);
                 }
-                // Named superweapon / intel residual buttons.
-                if n.contains("particlecannon") {
-                    push(&mut cmds, "Command_ParticleCannon", true);
-                }
-                if n.contains("nuclear") && n.contains("missile") {
-                    push(&mut cmds, "Command_NuclearMissile", true);
-                }
-                if n.contains("scudstorm") || n.contains("scud_storm") {
-                    push(&mut cmds, "Command_ScudStorm", true);
+                // Structure superweapon buttons come from the exact parsed
+                // SpecialPowerTemplate frozen into this frame.  A structure
+                // basename is not authority: a name-spoof without an actual
+                // SpecialPowerModule must not expose a fire button.
+                match ro
+                    .special_power_ready_template_name
+                    .as_deref()
+                    .and_then(crate::command_system::special_power_type_from_template_name)
+                {
+                    Some(
+                        crate::command_system::SpecialPowerType::ParticleCannon
+                        | crate::command_system::SpecialPowerType::SuperweaponParticleCannon
+                        | crate::command_system::SpecialPowerType::LaserCannon,
+                    ) => push(&mut cmds, "Command_ParticleCannon", true),
+                    Some(
+                        crate::command_system::SpecialPowerType::NuclearMissile
+                        | crate::command_system::SpecialPowerType::NukeNeutronMissile
+                        | crate::command_system::SpecialPowerType::SuperweaponNeutronMissile,
+                    ) => push(&mut cmds, "Command_NuclearMissile", true),
+                    Some(crate::command_system::SpecialPowerType::ScudStorm) => {
+                        push(&mut cmds, "Command_ScudStorm", true)
+                    }
+                    _ => {}
                 }
                 if n.contains("spysat") || (n.contains("satellite") && n.contains("uplink")) {
                     push(&mut cmds, "Command_SpySatelliteScan", true);

@@ -1115,16 +1115,22 @@ impl GameLogic {
             return;
         }
         // Non-shared structure SWs: startPowerRecharge only (not express ready-now).
+        // C++ `SpecialPowerModule::onSpecialPowerCreation` starts the authored
+        // reload *before* applying StartsPaused.  Skipping a paused module here
+        // would incorrectly leave it immediately ready until an upgrade peeled
+        // the pause count, and would lose its exact parsed ReloadTime.
         if let Some(obj) = self.objects.get_mut(&structure_id) {
-            for module in modules.iter().filter(|module| {
-                !module.shared_n_sync
-                    && !module.starts_paused
-                    && !module.scripted_special_power_only
-            }) {
+            for module in modules
+                .iter()
+                .filter(|module| !module.shared_n_sync && !module.scripted_special_power_only)
+            {
                 let Some(power) = module.command_power.as_ref() else {
                     continue;
                 };
                 obj.start_power_recharge_with_frames(power, module.reload_time_frames);
+                if module.starts_paused {
+                    obj.pause_special_power_countdown(power, true);
+                }
             }
         }
         let _ = self
