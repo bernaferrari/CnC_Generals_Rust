@@ -1479,7 +1479,7 @@ fn run_executable_smoke_once(
                 21 => {
                     // Manual windowed acceptance observation. All useful work
                     // happens in the status-poll section above; this arm must
-                    // remain free of `write_control` calls other than the
+                    // remain free of control-file writes other than the
                     // timeout cleanup outside the state machine.
                 }
 
@@ -3592,7 +3592,7 @@ pub fn format_executable_smoke_report(r: &ExecutableSmokeResult) -> String {
         r.interactive_gameplay,
     );
     format!(
-        "executable_smoke status={} host_ok={} playable_claim={} window_visible={} wnd_widget_tree_nav={} live_frame_ok={} ingame={} gameplay={} retail_sit_through_missing={} host_vertical_slice={} presentation_fallback={} started={} menu={} shell_wnd={} main_menu_skirmish_wnd={} map_select_wnd={} slot_config_wnd={} rules_wnd={} ingame={} gameplay_cmd={} construct_cmd={} train_cmd={} upgrade_cmd={} save_cmd={} load_cmd={} stop_cmd={} sell_cmd={} guard_cmd={} attack_move_cmd={} combat_damage={} scatter_cmd={} patrol_cmd={} deploy_cmd={} cheer_cmd={} formation_cmd={} capture_cmd={} return_supplies_cmd={} evacuate_cmd={} repair_cmd={} return_to_base_cmd={} attitude_cmd={} rally_cmd={} switch_weapons_cmd={} view_cc_cmd={} clear_mines_cmd={} beacon_cmd={} hack_cmd={} cleanup_cmd={} combat_drop_cmd={} overcharge_cmd={} special_power_cmd={} remove_beacon_cmd={} demo_cmd={} view_radar_cmd={} force_attack_cmd={} force_attack_object_cmd={} select_all_cmd={} control_group_cmd={} waypoint_cmd={} box_select_cmd={} presentation_frame_ok={} gw_pres_ents_ok={} max_gw_pres_ents={} gw_overlay_stamp_ok={} gw_appended={} gw_rebuilt_ok={} gw_rebuilt={} max_gw_overlay_stamp={} max_render_items={} render_items_stable={} max_render_alive={} presentation_live_fallback_ok={} select_similar_cmd={} select_on_screen_cmd={} select_structures_cmd={} select_aircraft_cmd={} select_idle_cmd={} camera_reset_cmd={} camera_zoom_cmd={} pause_cmd={} cancel_production_cmd={} diplomacy_cmd={} live_frame_ok={} window_visible={} wnd_widget_tree_nav={} auto_attack_cmd={} options_cmd={} request_capture_cmd={} skirmish_start_wnd={} skirmish_menu={} skirmish_start_click={} frames={} map={} exit={:?} new_game={} detail={}",
+        "executable_smoke status={} host_ok={} playable_claim={} window_visible={} wnd_widget_tree_nav={} live_frame_ok={} ingame={} gameplay={} retail_sit_through_missing={} host_vertical_slice={} presentation_fallback={} started={} menu={} shell_wnd={} main_menu_skirmish_wnd={} map_select_wnd={} slot_config_wnd={} rules_wnd={} ingame={} gameplay_cmd={} construct_cmd={} train_cmd={} upgrade_cmd={} save_cmd={} load_cmd={} stop_cmd={} sell_cmd={} guard_cmd={} attack_move_cmd={} combat_damage={} scatter_cmd={} patrol_cmd={} deploy_cmd={} cheer_cmd={} formation_cmd={} capture_cmd={} return_supplies_cmd={} physical_build_and_produce={} physical_gather_resources={} physical_save_load_continue={} evacuate_cmd={} repair_cmd={} return_to_base_cmd={} attitude_cmd={} rally_cmd={} switch_weapons_cmd={} view_cc_cmd={} clear_mines_cmd={} beacon_cmd={} hack_cmd={} cleanup_cmd={} combat_drop_cmd={} overcharge_cmd={} special_power_cmd={} remove_beacon_cmd={} demo_cmd={} view_radar_cmd={} force_attack_cmd={} force_attack_object_cmd={} select_all_cmd={} control_group_cmd={} waypoint_cmd={} box_select_cmd={} presentation_frame_ok={} gw_pres_ents_ok={} max_gw_pres_ents={} gw_overlay_stamp_ok={} gw_appended={} gw_rebuilt_ok={} gw_rebuilt={} max_gw_overlay_stamp={} max_render_items={} render_items_stable={} max_render_alive={} presentation_live_fallback_ok={} select_similar_cmd={} select_on_screen_cmd={} select_structures_cmd={} select_aircraft_cmd={} select_idle_cmd={} camera_reset_cmd={} camera_zoom_cmd={} pause_cmd={} cancel_production_cmd={} diplomacy_cmd={} live_frame_ok={} window_visible={} wnd_widget_tree_nav={} auto_attack_cmd={} options_cmd={} request_capture_cmd={} skirmish_start_wnd={} skirmish_menu={} skirmish_start_click={} frames={} map={} exit={:?} new_game={} detail={}",
         r.status,
         r.executable_host_ok,
         r.playable_claim,
@@ -3630,6 +3630,9 @@ pub fn format_executable_smoke_report(r: &ExecutableSmokeResult) -> String {
         r.formation_cmd_ok,
         r.capture_cmd_ok,
         r.return_supplies_cmd_ok,
+        r.physical_build_and_produce,
+        r.physical_gather_resources,
+        r.physical_save_load_continue,
         r.evacuate_cmd_ok,
         r.repair_cmd_ok,
         r.return_to_base_cmd_ok,
@@ -3943,6 +3946,24 @@ mod tests {
     }
 
     #[test]
+    fn parses_physical_operational_evidence_without_host_command_fallback() {
+        let path = std::env::temp_dir().join(format!(
+            "generals_smoke_physical_workflows_{}.txt",
+            std::process::id()
+        ));
+        std::fs::write(
+            &path,
+            "state=InGame\nphysical_build_and_produce=yes\nphysical_gather_resources=1\nphysical_save_load_continue=on\n",
+        )
+        .unwrap();
+        let snap = parse_status(&path).expect("snap");
+        let _ = std::fs::remove_file(&path);
+        assert!(snap.physical_build_and_produce);
+        assert!(snap.physical_gather_resources);
+        assert!(snap.physical_save_load_continue);
+    }
+
+    #[test]
     fn windowed_launch_is_not_headless_runtime_host() {
         let src = include_str!("executable_smoke.rs");
         assert!(src.contains("ExecutableSmokeLaunch::Windowed => \"-runtime_host=windowed\""));
@@ -3953,21 +3974,24 @@ mod tests {
             .expect("launch match");
         assert!(launch.contains("Windowed => \"-runtime_host=windowed\""));
         assert!(!include_str!("bin/windowed_acceptance_gate.rs").contains("-runtime_host=headless"));
-        assert!(
-            src.contains("phase = 20"),
-            "windowed must wait in a physical interactive phase"
-        );
-        let windowed_arm = src
-            .split("if launch == ExecutableSmokeLaunch::Windowed")
+        let observer = src
+            .split("pub fn run_windowed_acceptance_smoke")
             .nth(1)
-            .expect("windowed branch");
+            .and_then(|s| s.split("fn run_executable_smoke_with_launch_and_driver").next())
+            .expect("windowed observer entrypoint");
         assert!(
-            !windowed_arm
-                .split("} else {")
-                .next()
-                .unwrap_or("")
-                .contains("open_skirmish_menu"),
-            "windowed phase 0 must not script open_skirmish_menu"
+            observer.contains("SmokeDriver::ManualObserver"),
+            "windowed acceptance must be a manual observer"
+        );
+        assert!(src.contains("phase = 21"));
+        let manual_phase = src
+            .split("21 => {")
+            .nth(1)
+            .and_then(|s| s.split("20 => {").next())
+            .expect("manual observer phase");
+        assert!(
+            !manual_phase.contains("write_control"),
+            "manual observer must not manufacture input through the control file"
         );
     }
 

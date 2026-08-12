@@ -657,6 +657,13 @@ pub struct Object {
     /// Secondary weapon slot (C++ WeaponSet SECONDARY). Optional residual bind.
     pub secondary_weapon: Option<Weapon>,
 
+    /// Tertiary weapon slot (C++ WeaponSet TERTIARY).
+    ///
+    /// A missing value is intentionally distinct from PRIMARY: callers must
+    /// never turn an unavailable/manual tertiary command into a primary shot.
+    #[serde(default)]
+    pub tertiary_weapon: Option<Weapon>,
+
     /// Current target
     pub target: Option<ObjectId>,
 

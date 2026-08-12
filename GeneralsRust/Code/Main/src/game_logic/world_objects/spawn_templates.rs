@@ -276,6 +276,13 @@ impl GameLogic {
             template.set_secondary_weapon_name(wname);
         }
 
+        // Tertiary weapon name from Object INI (Weapon = TERTIARY Foo).
+        // Keep the declaration distinct from SECONDARY; condition-gated slots
+        // are enabled by the relevant gameplay upgrade path at object creation.
+        if let Some(wname) = definition.tertiary_weapon.as_deref() {
+            template.set_tertiary_weapon_name(wname);
+        }
+
         // SET_NORMAL Locomotor name from Object INI when present; else known host map.
         // Fail-closed residual: single primary locomotor only (not multi-set / surface matrix).
         if let Some(raw) = Self::object_definition_attr(definition, "locomotor") {

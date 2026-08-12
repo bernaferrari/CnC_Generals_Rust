@@ -112,12 +112,15 @@ pub use control_bar_print_positions::*;
 pub(crate) use host_command_bridge::acquire_host_control_bar_bridge_test_guard;
 pub use host_command_bridge::{
     clear_host_control_bar_requests, host_control_bar_bridge_enabled,
-    set_host_control_bar_bridge_enabled, take_host_control_bar_requests, HostControlBarRequest,
+    set_host_control_bar_bridge_enabled, take_host_control_bar_published_requests,
+    take_host_control_bar_requests, with_host_control_bar_input_provenance,
+    HostControlBarInputProvenance, HostControlBarPublishedRequest, HostControlBarRequest,
     HostControlBarTarget,
 };
 pub(crate) use host_command_bridge::{
-    host_request_from_button, host_request_from_button_with_weapon_slot,
-    publish_host_control_bar_request, publish_host_production_pause, publish_host_queue_cancel,
+    host_control_bar_input_provenance_for_current_dispatch, host_request_from_button,
+    host_request_from_button_with_weapon_slot, publish_host_control_bar_request,
+    publish_host_production_pause, publish_host_queue_cancel,
 };
 pub use multi_select::*;
 pub use observer::*;

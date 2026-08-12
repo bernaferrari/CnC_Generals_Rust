@@ -9,7 +9,7 @@
 
 use super::*;
 use game_client::gui::control_bar::{
-    take_host_control_bar_requests, HostControlBarRequest, HostControlBarTarget,
+    take_host_control_bar_published_requests, HostControlBarRequest, HostControlBarTarget,
     QueueProductionType,
 };
 use gamelogic::commands::CommandType as LegacyCommandType;
@@ -26,7 +26,7 @@ impl CnCGameEngine {
     /// stale UI context, an enemy id, or a legacy object id from being treated
     /// as an authority command merely because it reached this queue.
     pub(crate) fn host_tick_control_bar_bridge(&mut self) {
-        let requests = take_host_control_bar_requests();
+        let requests = take_host_control_bar_published_requests();
         if requests.is_empty() {
             return;
         }
@@ -58,12 +58,19 @@ impl CnCGameEngine {
             return;
         }
 
-        for request in requests {
-            self.host_apply_control_bar_request(request);
+        for published in requests {
+            self.host_apply_control_bar_request(
+                published.request,
+                published.input_provenance.is_physical_window_mouse_input(),
+            );
         }
     }
 
-    fn host_apply_control_bar_request(&mut self, request: HostControlBarRequest) {
+    fn host_apply_control_bar_request(
+        &mut self,
+        request: HostControlBarRequest,
+        physical_os_input: bool,
+    ) {
         match request {
             HostControlBarRequest::Production {
                 template_name,
@@ -83,6 +90,9 @@ impl CnCGameEngine {
                 self.queue_unit_production_from_ui(
                     &template_name,
                     self.host_control_bar_production_quantity(),
+                );
+                self.interactive_playability.note_control_bar_production(
+                    self.host_control_bar_evidence_eligible(physical_os_input),
                 );
             }
             HostControlBarRequest::Upgrade {
@@ -149,6 +159,7 @@ impl CnCGameEngine {
                 &selected_object_ids,
                 player_id,
                 target,
+                physical_os_input,
             ),
             HostControlBarRequest::QueueCancel {
                 player_id,
@@ -356,6 +367,7 @@ impl CnCGameEngine {
         selected_object_ids: &[u32],
         player_id: u32,
         target: HostControlBarTarget,
+        physical_os_input: bool,
     ) {
         let selected = self.host_control_bar_local_selection(player_id, selected_object_ids);
         if selected.is_empty() {
@@ -364,6 +376,7 @@ impl CnCGameEngine {
             );
             return;
         }
+        let selected_has_dozer = selected.iter().any(|id| self.ui_object_is_dozer(*id));
         self.host_set_selection(player_id, selected);
 
         match target {
@@ -372,7 +385,16 @@ impl CnCGameEngine {
                     self.host_reject_control_bar_request("dozer construction has no template name");
                     return;
                 }
+                if !selected_has_dozer {
+                    self.host_reject_control_bar_request(
+                        "dozer construction requires a local live dozer or worker",
+                    );
+                    return;
+                }
                 self.begin_structure_placement_from_ui(&template_name);
+                self.interactive_playability.note_control_bar_construct_arm(
+                    self.host_control_bar_evidence_eligible(physical_os_input),
+                );
             }
             HostControlBarTarget::SpecialPower {
                 special_power_name,
@@ -504,6 +526,23 @@ impl CnCGameEngine {
             );
             false
         }
+    }
+
+    /// Physical Control Bar evidence is meaningful only in the same offline,
+    /// visible session this bridge is allowed to mutate.  A host control file,
+    /// direct helper call, headless process, or multiplayer/replay request
+    /// cannot promote the acceptance latch.
+    fn host_control_bar_evidence_eligible(&self, physical_os_input: bool) -> bool {
+        physical_os_input
+            && !self.runtime_host_headless
+            && matches!(self.current_state, GameState::InGame)
+            && matches!(
+                self.host_match_game_mode,
+                Some(
+                    crate::game_logic::GameMode::SinglePlayer
+                        | crate::game_logic::GameMode::Skirmish
+                )
+            )
     }
 
     fn host_control_bar_production_quantity(&self) -> u32 {

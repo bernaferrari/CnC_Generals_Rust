@@ -351,6 +351,15 @@ pub(super) struct InteractivePlayabilityEvidence {
     /// alone is intentionally insufficient: this proves a player can command a
     /// unit, not merely move the pointer over the HUD.
     pub(crate) gameplay_order: bool,
+    /// A physical Control Bar `DozerConstruct` button was accepted for a live
+    /// local dozer/worker in a visible offline match.  This is deliberately
+    /// distinct from `CommandSourceType::FromUser`: injected WND input also
+    /// uses that legacy source type and must not satisfy this proof.
+    pub(crate) physical_control_bar_construct_armed: bool,
+    /// A physical Control Bar production request was accepted after the above
+    /// construct arm in the same session.  This is the narrow build-and-
+    /// produce acceptance condition, not a broad runtime-host command flag.
+    pub(crate) physical_build_and_produce: bool,
 }
 
 impl InteractivePlayabilityEvidence {
@@ -392,6 +401,34 @@ impl InteractivePlayabilityEvidence {
         if windowed && self.match_started_from_menu_wnd && had_selection {
             self.gameplay_order = true;
         }
+    }
+
+    /// Record an already-validated physical DozerConstruct arm.
+    ///
+    /// Callers must prove the input was a real OS mouse event and that the
+    /// selected source is a local live dozer/worker before reaching this
+    /// method.  Keeping those authority checks outside this sticky evidence
+    /// type avoids teaching it to infer gameplay state from UI labels.
+    pub(super) fn note_control_bar_construct_arm(&mut self, physical: bool) {
+        if physical {
+            self.physical_control_bar_construct_armed = true;
+        }
+    }
+
+    /// Record an already-validated physical production queue request.
+    ///
+    /// Ordering is intentional: a physical production request before a valid
+    /// physical construct arm cannot satisfy the build-and-produce condition.
+    pub(super) fn note_control_bar_production(&mut self, physical: bool) {
+        if physical && self.physical_control_bar_construct_armed {
+            self.physical_build_and_produce = true;
+        }
+    }
+
+    /// Whether this session has completed the physical Control Bar
+    /// build-and-produce proof.
+    pub(super) fn build_and_produce_complete(self) -> bool {
+        self.physical_build_and_produce
     }
 
     /// The WND-navigation component of the retail claim requires the complete

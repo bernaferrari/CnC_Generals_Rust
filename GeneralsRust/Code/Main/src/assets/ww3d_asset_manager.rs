@@ -222,6 +222,15 @@ impl WW3DAssetManager {
         if child.owner.is_some() {
             parent.owner = child.owner;
         }
+        if child.primary_weapon.is_some() {
+            parent.primary_weapon = child.primary_weapon;
+        }
+        if child.secondary_weapon.is_some() {
+            parent.secondary_weapon = child.secondary_weapon;
+        }
+        if child.tertiary_weapon.is_some() {
+            parent.tertiary_weapon = child.tertiary_weapon;
+        }
 
         for (slot, texture) in child.textures {
             parent.textures.insert(slot, texture);

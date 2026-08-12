@@ -249,7 +249,8 @@ impl CnCGameEngine {
             let _ = game_client::gui::reveal_main_menu_first_input_like_cpp();
         }
         // Real WM process_mouse_event residual (Used / NotUsed) — never forged.
-        let wnd_used_raw = self.dispatch_os_mouse_to_window_manager(button, pressed, x, y);
+        let wnd_used_raw =
+            self.dispatch_os_mouse_to_window_manager(button, pressed, x, y, origin);
         #[cfg(feature = "game_client")]
         let live_hit = game_client::gui::note_os_wnd_widget_tree_hit(x, y);
         #[cfg(not(feature = "game_client"))]

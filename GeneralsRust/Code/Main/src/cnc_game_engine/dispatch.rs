@@ -524,6 +524,9 @@ impl CnCGameEngine {
             // RMB order. Not drive_os_wnd_* and not direct note_* from host cmds.
             wnd_widget_tree_nav: self.interactive_playability.wnd_menu_to_match_complete(),
             interactive_gameplay: self.interactive_playability.gameplay_complete(),
+            physical_build_and_produce: self
+                .interactive_playability
+                .build_and_produce_complete(),
             pending_capture: self.runtime_host_pending_capture,
             render_alive_objects: self.render_pipeline.debug_last_alive_objects() as u32,
             render_fow_filtered: self.render_pipeline.debug_last_fow_filtered() as u32,

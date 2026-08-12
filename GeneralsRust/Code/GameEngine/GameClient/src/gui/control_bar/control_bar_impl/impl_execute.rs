@@ -552,16 +552,11 @@ mod host_bridge_execution_tests {
         // Deliberately do not register a GameLogic CommandButton.  The live
         // CommandButton definition must carry WeaponSlot itself so the host
         // bridge remains valid while Main owns the simulation.
-        let definition = IniCommandButton {
-            name: "Command_TestTertiaryWeapon".to_string(),
-            command: "FIRE_WEAPON".to_string(),
-            weapon_slot: WeaponSlotType::Tertiary,
-            options: CommandButtonOptions {
-                need_target_pos: true,
-                ..CommandButtonOptions::default()
-            },
-            ..IniCommandButton::default()
-        };
+        let mut definition = IniCommandButton::default();
+        definition.name = "Command_TestTertiaryWeapon".to_string();
+        definition.command = "FIRE_WEAPON".to_string();
+        definition.weapon_slot = WeaponSlotType::Tertiary;
+        definition.options_bits = CommandOption::NeedTargetPos as u32;
         let button = ControlBar::command_from_definition(&definition);
         assert_eq!(button.weapon_slot, WeaponSlotType::Tertiary);
         assert_eq!(button.weapon_slot_number(), 2);
