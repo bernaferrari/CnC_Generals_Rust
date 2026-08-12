@@ -50,7 +50,7 @@ impl SnapshotBuilder {
             combat_tracker: self.snapshot_combat_tracker(game_logic)?,
             experience_tracker: self.snapshot_experience_tracker(game_logic)?,
             pathfinding_cache: self.snapshot_pathfinding_cache(game_logic)?,
-            ai_players: Vec::new(),
+            ai_players: self.snapshot_ai_players(game_logic)?,
             global_ai_state: self.snapshot_global_ai_state(game_logic)?,
             special_power_strikes: self.snapshot_special_power_strikes(game_logic)?,
             combat_particles: self.snapshot_combat_particles(game_logic)?,
@@ -92,6 +92,7 @@ impl SnapshotBuilder {
         self.restore_combat_tracker(&snapshot.combat_tracker, game_logic)?;
         self.restore_experience_tracker(&snapshot.experience_tracker, game_logic)?;
         self.restore_global_ai_state(&snapshot.global_ai_state, game_logic)?;
+        self.restore_ai_players(&snapshot.ai_players, game_logic)?;
         self.restore_special_power_strikes(&snapshot.special_power_strikes, game_logic)?;
         self.restore_combat_particles(&snapshot.combat_particles, game_logic)?;
         self.restore_host_upgrades(&snapshot.host_upgrades, game_logic)?;
@@ -742,6 +743,13 @@ impl SnapshotBuilder {
                 ai_build_speed_bonus: 1.0 / difficulty.get_build_delay_modifier(),
             },
         })
+    }
+
+    /// Capture the host skirmish-AI rows that own offline build/attack
+    /// decisions.  This intentionally excludes transient pathfinder caches;
+    /// those are rebuilt from the restored objects and terrain.
+    fn snapshot_ai_players(&self, game_logic: &GameLogic) -> SaveLoadResult<Vec<AIPlayerSnapshot>> {
+        Ok(game_logic.snapshot_host_ai_players_for_save())
     }
 
     /// Capture pending/completed host superweapon strikes so mid-flight loads

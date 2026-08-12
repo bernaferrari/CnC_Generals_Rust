@@ -16,9 +16,25 @@ pub struct AIPlayerSnapshot {
     pub difficulty: String,
     pub personality: String,
     pub current_strategy: String,
+    /// Host AI registration is separate from a player's team slot.  Preserve
+    /// it so a manually-paused skirmish AI stays paused after a load.
+    #[serde(default = "default_ai_player_active")]
+    pub is_active: bool,
+    /// The host AI rebuild/defence anchor.  Older saves had no per-AI rows, so
+    /// this remains optional for backwards-compatible empty snapshots.
+    #[serde(default)]
+    pub base_center: Option<glam::Vec3>,
+    #[serde(default)]
+    pub base_radius: f32,
+    #[serde(default)]
+    pub activity_count: u64,
     pub strategic_state: AIStrategicStateSnapshot,
     pub tactical_state: AITacticalStateSnapshot,
     pub economic_state: AIEconomicStateSnapshot,
+}
+
+fn default_ai_player_active() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -303,6 +319,14 @@ impl XferData for AIPlayerSnapshot {
         self.personality.xfer(xfer)?;
         xfer.xfer_marker_label("CurrentStrategy")?;
         self.current_strategy.xfer(xfer)?;
+        xfer.xfer_marker_label("IsActive")?;
+        xfer.xfer_bool(&mut self.is_active)?;
+        xfer.xfer_marker_label("BaseCenter")?;
+        xfer_option(xfer, &mut self.base_center, glam::Vec3::ZERO)?;
+        xfer.xfer_marker_label("BaseRadius")?;
+        xfer.xfer_f32(&mut self.base_radius)?;
+        xfer.xfer_marker_label("ActivityCount")?;
+        xfer.xfer_u64(&mut self.activity_count)?;
         xfer.xfer_marker_label("StrategicState")?;
         self.strategic_state.xfer(xfer)?;
         xfer.xfer_marker_label("TacticalState")?;

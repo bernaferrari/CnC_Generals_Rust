@@ -1,6 +1,7 @@
 //! Snapshot save/load residual tests.
 
 use super::*;
+use crate::ai::AIDifficulty;
 use crate::game_logic::{
     AIState, Experience, GameLogic, HostStrikePhase, HostSuperweaponKind, KindOf, Object, ObjectId,
     Player, Team, ThingTemplate, VeterancyLevel, Weapon,
@@ -53,6 +54,51 @@ fn snapshot_restore_rebuilds_state_and_object_id_counter() {
         .create_object("TestTank", Team::USA, Vec3::ZERO)
         .expect("failed to create post-restore object");
     assert_eq!(next_id.0, object_id.0 + 1);
+}
+
+#[test]
+fn snapshot_restore_preserves_registered_host_ai_configuration() {
+    let mut source = GameLogic::new();
+    source.add_player(Player::new(0, Team::USA, "Human", true));
+    source.add_player(Player::new(1, Team::China, "Computer", false));
+    source.add_ai_opponent(1, Team::China, AIDifficulty::Hard);
+    source.set_ai_active(1, false);
+    source.relocate_host_ai_base(1, Vec3::new(47.0, 0.0, -31.0));
+
+    let builder = SnapshotBuilder::new();
+    let snapshot = builder
+        .create_world_snapshot(&source)
+        .expect("snapshot creation failed");
+    let saved_ai = snapshot
+        .ai_players
+        .iter()
+        .find(|ai| ai.player_id == 1)
+        .expect("registered host AI must be serialized");
+    assert_eq!(saved_ai.difficulty, "Hard");
+    assert!(!saved_ai.is_active);
+    assert_eq!(saved_ai.base_center, Some(Vec3::new(47.0, 0.0, -31.0)));
+
+    let mut restored = GameLogic::new();
+    builder
+        .restore_from_snapshot(&snapshot, &mut restored)
+        .expect("snapshot restore failed");
+    assert_eq!(restored.host_ai_difficulty(1), Some(AIDifficulty::Hard));
+    assert!(!restored.is_host_ai_active(1));
+
+    let restored_snapshot = builder
+        .create_world_snapshot(&restored)
+        .expect("re-snapshot restored host AI");
+    let restored_ai = restored_snapshot
+        .ai_players
+        .iter()
+        .find(|ai| ai.player_id == 1)
+        .expect("restored host AI must remain registered");
+    assert_eq!(restored_ai.base_center, saved_ai.base_center);
+    assert_eq!(restored_ai.current_strategy, saved_ai.current_strategy);
+    assert_eq!(
+        restored_ai.strategic_state.current_phase,
+        saved_ai.strategic_state.current_phase
+    );
 }
 
 #[test]

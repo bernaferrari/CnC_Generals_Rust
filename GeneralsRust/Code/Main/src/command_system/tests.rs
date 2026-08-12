@@ -1417,3 +1417,95 @@ fn unit_ability_button_name_map_residual() {
         Some(CommandType::StealCashHack { .. })
     ));
 }
+
+#[test]
+fn retail_special_power_names_map_without_fuzzy_asset_or_id_fallbacks() {
+    use crate::command_system::{special_power_type_from_template_name, SpecialPowerType as Power};
+
+    let cases = [
+        ("AirF_SuperweaponA10ThunderboltMissileStrike", Power::AirForceAirstrike),
+        ("AirF_SuperweaponCarpetBomb", Power::AirForceCarpetBomb),
+        ("AirF_SuperweaponSpectreGunship", Power::AirForceSpectreGunship),
+        ("Demo_SpecialAbilityDemoKellTimedCharges", Power::DemoKellTimedCharges),
+        ("Demo_SpecialAbilityDemoRebelTimedCharges", Power::DemoRebelTimedCharges),
+        ("Demo_SpecialAbilityKellRemoteCharges", Power::DemoKellRemoteCharges),
+        ("Early_SuperweaponChinaCarpetBomb", Power::EarlyChinaCarpetBomb),
+        ("Early_SuperweaponEmergencyRepair", Power::EarlyEmergencyRepair),
+        ("Early_SuperweaponFrenzy", Power::EarlyFrenzy),
+        ("Early_SuperweaponLeafletDrop", Power::EarlyLeafletDrop),
+        ("Infa_SuperweaponInfantryParadrop", Power::InfantryParadrop),
+        ("Lazr_LaserCannon", Power::LaserCannon),
+        ("Lazr_SpecialAbilityLaserGuidedHowitzer", Power::LaserGuidedHowitzer),
+        ("Nuke_SpecialAbilityHelixNukeBomb", Power::HelixNukeBomb),
+        ("Nuke_SuperweaponChinaCarpetBomb", Power::NukeChinaCarpetBomb),
+        ("Nuke_SuperweaponNeutronMissile", Power::NukeNeutronMissile),
+        ("Nuke_SuperweaponNukeDrop", Power::NukeDrop),
+        ("Slth_SuperweaponGPSScrambler", Power::StealthGpsScrambler),
+        ("SpecialAbilityAmbulanceCleanupArea", Power::CleanupArea),
+        ("SpecialAbilityBlackLotusCaptureBuilding", Power::BlackLotusCaptureBuilding),
+        ("SpecialAbilityBlackLotusDisableVehicleHack", Power::BlackLotusDisableVehicle),
+        ("SpecialAbilityBlackLotusStealCashHack", Power::BlackLotusStealCash),
+        ("SpecialAbilityColonelBurtonRemoteCharges", Power::BurtonRemoteCharges),
+        ("SpecialAbilityColonelBurtonTimedCharges", Power::BurtonTimedCharges),
+        ("SpecialAbilityDisguiseAsVehicle", Power::DisguiseAsVehiclePower),
+        ("SpecialAbilityHackerDisableBuilding", Power::HackerDisableBuilding),
+        ("SpecialAbilityHelixNapalmBomb", Power::HelixNapalmBomb),
+        ("SpecialAbilityMicrowaveDisableBuilding", Power::MicrowaveDisableBuilding),
+        ("SpecialAbilityMissileDefenderLaserGuidedMissiles", Power::MissileDefenderLaserGuided),
+        ("SpecialAbilityRangerCaptureBuilding", Power::RangerCaptureBuilding),
+        ("SpecialAbilityRebelCaptureBuilding", Power::RebelCaptureBuilding),
+        ("SpecialAbilityRedGuardCaptureBuilding", Power::RedGuardCaptureBuilding),
+        ("SpecialAbilityTankHunterTNTAttack", Power::TankHunterTnt),
+        ("SpecialPowerBattleshipBombardment", Power::BattleshipBombardment),
+        ("SpecialPowerCommunicationsDownload", Power::CommunicationsDownload),
+        ("SpecialPowerRadarVanScan", Power::RadarScan),
+        ("SpecialPowerSpyDrone", Power::SpyDrone),
+        ("SpecialPowerSpySatellite", Power::SpySatellite),
+        ("SuperweaponA10ThunderboltMissileStrike", Power::Airstrike),
+        ("SuperweaponAnthraxBomb", Power::AnthraxBomb),
+        ("SuperweaponArtilleryBarrage", Power::Artillery),
+        ("SuperweaponCarpetBomb", Power::CarpetBomb),
+        ("SuperweaponCashHack", Power::CashHack),
+        ("SuperweaponCIAIntelligence", Power::CiaIntelligence),
+        ("SuperweaponClusterMines", Power::ClusterMines),
+        ("SuperweaponCrateDrop", Power::CrateDrop),
+        ("SuperweaponDaisyCutter", Power::DaisyCutter),
+        ("SuperweaponEmergencyRepair", Power::EmergencyRepair),
+        ("SuperweaponEMPPulse", Power::EmpPulse),
+        ("SuperweaponFrenzy", Power::Frenzy),
+        ("SuperweaponGPSScrambler", Power::GpsScrambler),
+        ("SuperweaponLaunchBaikonurRocket", Power::BaikonurRocket),
+        ("SuperweaponLeafletDrop", Power::LeafletDrop),
+        ("SuperweaponNapalmStrike", Power::NapalmStrike),
+        ("SuperweaponNeutronMissile", Power::NuclearMissile),
+        ("SuperweaponParadropAmerica", Power::Paradrop),
+        ("SuperweaponParticleUplinkCannon", Power::ParticleCannon),
+        ("SuperweaponRebelAmbush", Power::Ambush),
+        ("SuperweaponScudStorm", Power::ScudStorm),
+        ("SuperweaponSneakAttack", Power::SneakAttack),
+        ("SuperweaponSpectreGunship", Power::SpectreGunship),
+        ("SuperweaponTerrorCell", Power::TerrorCell),
+        ("SupW_CruiseMissile", Power::CruiseMissile),
+        ("SupW_SuperweaponNeutronMissile", Power::SuperweaponNeutronMissile),
+        ("Tank_SuperweaponTankParadrop", Power::TankParadrop),
+    ];
+
+    for (name, expected) in cases {
+        assert_eq!(
+            special_power_type_from_template_name(name),
+            Some(expected),
+            "retail CommandButton special power {name} must retain its exact identity"
+        );
+    }
+
+    assert_eq!(
+        special_power_type_from_template_name("SuperweaponCarpetBomb_FA"),
+        None,
+        "condition/faction suffixes must not silently resolve to a different retail power"
+    );
+    assert_eq!(
+        special_power_type_from_template_name("SpecialAbilityBoobyTrap"),
+        None,
+        "Booby Trap is an object-target ability, not a nearby superweapon"
+    );
+}

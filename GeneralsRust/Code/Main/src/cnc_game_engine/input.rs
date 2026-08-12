@@ -186,11 +186,7 @@ impl CnCGameEngine {
                 // playability evidence. Injected control-file clicks use
                 // MouseInputOrigin::Injected and must not set those flags.
                 let pressed = matches!(state, ElementState::Pressed);
-                self.handle_mouse_button_input(
-                    *button,
-                    pressed,
-                    MouseInputOrigin::Physical,
-                );
+                self.handle_mouse_button_input(*button, pressed, MouseInputOrigin::Physical);
                 true
             }
             WindowEvent::CursorMoved { position, .. } => {
@@ -279,7 +275,8 @@ impl CnCGameEngine {
         if pressed && matches!(button, MouseButton::Left) && self.current_state == GameState::Menu {
             // Physical OS mouse only. Injected control-file clicks must not
             // latch wnd_widget_tree_nav / playable_claim.
-            let physical = matches!(origin, MouseInputOrigin::Physical) && !self.runtime_host_headless;
+            let physical =
+                matches!(origin, MouseInputOrigin::Physical) && !self.runtime_host_headless;
             self.interactive_playability
                 .note_menu_wnd_click(physical, wnd_used, hit_wnd_widget);
             #[cfg(feature = "game_client")]
@@ -1029,6 +1026,16 @@ impl CnCGameEngine {
         }
         // C++ parity: radar/audio/client/message/network/cd updates happen each frame.
         self.update_runtime_subsystems(dt);
+        // A Control Bar click belongs to the world visible when the click was
+        // made.  Drain it before a same-frame PopupSaveLoad request can swap
+        // the authoritative world underneath it.
+        #[cfg(feature = "game_client")]
+        self.host_tick_control_bar_bridge();
+        // PopupSaveLoad owns the retail WND sequence, but Main owns the only
+        // Rust snapshot world.  Drain requests after input/UI callbacks have
+        // unwound, before the frame's state-specific work observes a load.
+        #[cfg(feature = "game_client")]
+        self.host_tick_popup_save_load_bridge();
         if matches!(self.current_state, GameState::Menu) && self.menu_world_frames_rendered < 5 {
             debug!(
                 "update_internal: Menu state, update_runtime_subsystems done, entering state match"

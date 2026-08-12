@@ -698,6 +698,7 @@ impl CnCGameEngine {
                 PendingMapCommand::CombatDrop => ("CombatDrop", CursorIcon::Move),
                 PendingMapCommand::PlaceBeacon => ("PlaceBeacon", CursorIcon::Cell),
                 PendingMapCommand::SpecialPower(_) => ("Target", CursorIcon::Crosshair),
+                PendingMapCommand::Weapon(_) => ("Target", CursorIcon::Crosshair),
                 PendingMapCommand::UnitAbility(_) => ("Target", CursorIcon::Crosshair),
             };
         }

@@ -475,6 +475,13 @@ impl ControlBar {
         source: CommandSourceType,
         context: &ControlBarContext,
     ) -> Result<(), Box<dyn std::error::Error>> {
+        // Main owns the authoritative Rust simulation.  When it has explicitly
+        // enabled the bridge, do not also route this click through the legacy
+        // GameLogic globals: that would make one HUD action mutate two worlds.
+        if self.publish_host_command_if_enabled(button, source, context) {
+            return Ok(());
+        }
+
         if Self::command_needs_target(button.options) {
             self.enter_targeting_mode(button, context)?;
             return Ok(());

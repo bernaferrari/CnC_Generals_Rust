@@ -169,6 +169,23 @@ impl SaveFileManager {
         filename: &str,
         game_logic: &mut GameLogic,
     ) -> SaveLoadResult<SaveGameInfo> {
+        let (world_snapshot, save_info) = self.load_game_snapshot(filename)?;
+        self.restore_game_snapshot(&world_snapshot, game_logic)?;
+
+        log::info!("Game loaded successfully from save slot: {}", filename);
+        Ok(save_info)
+    }
+
+    /// Decode a save without mutating a live `GameLogic` instance.
+    ///
+    /// The runtime host uses this to load the saved map into a staging world
+    /// before it restores the snapshot.  Keeping the decode separate from the
+    /// restore means a bad/missing map or corrupted snapshot cannot partially
+    /// overwrite the currently playable match.
+    pub fn load_game_snapshot(
+        &self,
+        filename: &str,
+    ) -> SaveLoadResult<(WorldSnapshot, SaveGameInfo)> {
         let mut save_path = self.get_save_path(filename);
 
         if !save_path.exists() {
@@ -181,15 +198,20 @@ impl SaveFileManager {
             }
         }
 
-        // Load from file
-        let (world_snapshot, save_info) = self.load_from_file(&save_path)?;
+        self.load_from_file(&save_path)
+    }
 
-        // Restore game state
+    /// Restore a previously decoded snapshot into the supplied world.
+    ///
+    /// Callers that need transactional map identity handling should restore
+    /// into a fresh staging world and install it only after this succeeds.
+    pub fn restore_game_snapshot(
+        &self,
+        world_snapshot: &WorldSnapshot,
+        game_logic: &mut GameLogic,
+    ) -> SaveLoadResult<()> {
         let snapshot_builder = SnapshotBuilder::new();
-        snapshot_builder.restore_from_snapshot(&world_snapshot, game_logic)?;
-
-        log::info!("Game loaded successfully from: {}", save_path.display());
-        Ok(save_info)
+        snapshot_builder.restore_from_snapshot(world_snapshot, game_logic)
     }
 
     /// Quick save to slot 0

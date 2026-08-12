@@ -167,6 +167,9 @@ impl GameLogic {
             ObjectLifecycleOp::CancelProduction { id, template_name } => {
                 ObjectLifecycleResult::Bool(self.cancel_production(id, template_name))
             }
+            ObjectLifecycleOp::CancelProductionAtIndex { id, queue_index } => {
+                ObjectLifecycleResult::Bool(self.cancel_production_at_index(id, queue_index))
+            }
         }
     }
 

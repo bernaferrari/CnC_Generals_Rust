@@ -2,6 +2,165 @@
 use super::*;
 
 impl CnCGameEngine {
+    /// Publish Main's real Rust snapshot inventory to the retail
+    /// `PopupSaveLoad.wnd` callback.
+    ///
+    /// The popup itself stays responsible for its WND/listbox/confirmation
+    /// sequence.  Main is the sole owner of the live `GameLogic` snapshot, so
+    /// it must be the source of rows as well as the consumer of a confirmed
+    /// Save/Load request.  In particular, an empty Main inventory is not a
+    /// reason to fall back to Common's separate `TheGameState` persistence.
+    #[cfg(feature = "game_client")]
+    fn host_publish_popup_save_load_inventory(&mut self) {
+        use game_client::gui::callbacks::{
+            publish_host_popup_save_load_entries, PopupSaveLoadEntry,
+        };
+
+        let entries = match self.save_file_manager.list_saves() {
+            Ok(saves) => saves
+                .into_iter()
+                .map(|save| {
+                    let description = if save.save_info.description.trim().is_empty() {
+                        save.save_info.display_name
+                    } else {
+                        save.save_info.description
+                    };
+                    PopupSaveLoadEntry {
+                        filename: save.filename,
+                        description,
+                    }
+                })
+                .collect(),
+            Err(err) => {
+                // Fail closed: Common may happen to share the directory, but
+                // it is not the authority capable of restoring Main's world.
+                warn!("Unable to list Main save games for PopupSaveLoad: {err}");
+                Vec::new()
+            }
+        };
+        publish_host_popup_save_load_entries(entries);
+    }
+
+    /// Select a collision-free Main slot for a human-facing `New Save Game`
+    /// confirmation.  The retail WND owns the description but its pseudo-row
+    /// has no filename; C++ `TheGameState` historically allocated that part.
+    #[cfg(feature = "game_client")]
+    fn next_popup_save_slot(&self) -> String {
+        for index in 1..=crate::save_load::MAX_SAVE_SLOTS {
+            let slot = format!("save_{index:02}");
+            if !self.save_file_manager.save_exists(&slot) {
+                return slot;
+            }
+        }
+
+        // SaveFileManager enforces the retail save-limit after the atomic
+        // write.  A timestamp avoids silently overwriting a save whose row the
+        // player did not select.
+        let seconds = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        format!("save_{seconds}")
+    }
+
+    /// Complete confirmed retail PopupSaveLoad actions against Main's one
+    /// snapshot authority.  It runs after UI callbacks have unwound, which
+    /// avoids retaining a WindowManager/RefCell borrow across serialization or
+    /// world teardown.
+    #[cfg(feature = "game_client")]
+    pub(crate) fn host_tick_popup_save_load_bridge(&mut self) {
+        use game_client::gui::callbacks::{
+            take_host_popup_save_load_requests, PopupSaveLoadRequest,
+        };
+
+        if !self.popup_save_load_bridge_initialized {
+            self.host_publish_popup_save_load_inventory();
+            self.popup_save_load_bridge_initialized = true;
+        }
+
+        for request in take_host_popup_save_load_requests() {
+            match request {
+                PopupSaveLoadRequest::Save {
+                    filename,
+                    description,
+                    save_file_type,
+                } => {
+                    // A selected existing row carries its exact filename.  A
+                    // `New Save Game` pseudo-row deliberately carries none,
+                    // so use a runtime-provided acceptance slot if present or
+                    // allocate one without overwriting an unselected row.
+                    let slot = if filename.trim().is_empty() {
+                        self.pending_popup_save_slot
+                            .take()
+                            .filter(|slot| !slot.trim().is_empty())
+                            .unwrap_or_else(|| self.next_popup_save_slot())
+                    } else {
+                        filename.trim().to_string()
+                    };
+                    let display_name = self
+                        .pending_popup_save_display_name
+                        .take()
+                        .filter(|name| !name.trim().is_empty())
+                        .unwrap_or_else(|| {
+                            if description.trim().is_empty() {
+                                format!("Save {slot}")
+                            } else {
+                                description.clone()
+                            }
+                        });
+                    let description = if description.trim().is_empty() {
+                        display_name.clone()
+                    } else {
+                        description
+                    };
+                    let save_type = match save_file_type {
+                        ::game_engine::SaveFileType::Normal => SaveFileType::Normal,
+                        ::game_engine::SaveFileType::Mission => SaveFileType::Mission,
+                    };
+                    let save_info =
+                        self.build_save_info(&slot, &display_name, &description, save_type);
+
+                    match self.host_save_game_authority(&slot, &save_info) {
+                        Ok(()) => {
+                            self.runtime_host_last_gameplay_cmd =
+                                format!("save_ok:wnd_popup:{slot}");
+                            self.host_publish_popup_save_load_inventory();
+                        }
+                        Err(err) => {
+                            warn!("PopupSaveLoad save failed for '{slot}': {err}");
+                            self.runtime_host_last_gameplay_cmd =
+                                format!("save_fail:wnd_popup:{slot}:{err}");
+                        }
+                    }
+                }
+                PopupSaveLoadRequest::Load { filename } => {
+                    let slot = filename.trim();
+                    if slot.is_empty() {
+                        self.runtime_host_last_gameplay_cmd = "load_fail_wnd_no_slot".into();
+                        continue;
+                    }
+                    self.set_runtime_host_ui_screen_override(None);
+                    match self.load_game_from_ui(slot) {
+                        Ok(()) => {
+                            if !matches!(self.current_state, GameState::InGame | GameState::Paused)
+                            {
+                                self.request_state_change(GameState::InGame);
+                            }
+                            self.runtime_host_last_gameplay_cmd =
+                                format!("load_ok:wnd_popup:{slot}");
+                            self.host_publish_popup_save_load_inventory();
+                        }
+                        Err(err) => {
+                            warn!("PopupSaveLoad load failed for '{slot}': {err}");
+                            self.runtime_host_last_gameplay_cmd =
+                                format!("load_fail:wnd_popup:{slot}:{err}");
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     pub(super) fn runtime_host_cmd_save_game(&mut self, args: &HashMap<String, String>) {
         if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
             self.runtime_host_last_gameplay_cmd = "save_fail_not_ingame".into();
@@ -49,9 +208,9 @@ impl CnCGameEngine {
     /// Windowed sit-through step 8: Pause/QuitMenu → PopupSaveLoad.wnd Save.
     ///
     /// Does **not** fake a pass when the WND gadget/layout is missing. Headless
-    /// smoke keeps `quicksave`; this command is the live Pause Save/Load path.
-    /// Writes through `SaveFileManager` into the shared `UserData/Save` folder
-    /// (same directory Popup / Common TheGameState uses).
+    /// smoke keeps `quicksave`; this command drives the live Pause Save/Load
+    /// controls through their real confirmation path.  The confirmed callback
+    /// is then drained by Main's popup bridge into `SaveFileManager`.
     pub(super) fn runtime_host_cmd_pause_save(&mut self, args: &HashMap<String, String>) {
         if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
             self.runtime_host_last_gameplay_cmd = "save_fail_not_ingame".into();
@@ -73,30 +232,36 @@ impl CnCGameEngine {
         #[cfg(feature = "game_client")]
         {
             use game_client::gui::callbacks::{
-                drive_os_wnd_popup_save_load_save_like_cpp,
+                drive_os_wnd_popup_save_load_save_and_confirm_like_cpp,
                 drive_os_wnd_quit_menu_save_load_like_cpp, ensure_live_popup_save_load_layout,
                 ensure_live_quit_menu_layout,
             };
-            // Pause → QuitMenu.wnd:ButtonSaveLoad → PopupSaveLoad.wnd:ButtonSave.
-            // Live widgets only — residual gadget latches are not used.
+            // Publish Main's actual snapshots before PopupSaveLoad initializes;
+            // an installed but empty inventory intentionally contains only its
+            // retail New Save pseudo-row.
+            self.host_publish_popup_save_load_inventory();
+            self.popup_save_load_bridge_initialized = true;
+            self.pending_popup_save_slot = Some(slot.clone());
+            self.pending_popup_save_display_name = Some(display.clone());
+
+            // Pause → QuitMenu.wnd:ButtonSaveLoad → PopupSaveLoad.wnd:ButtonSave
+            // → SaveDesc/Overwrite confirmation.  All steps are live WND
+            // dispatch; no direct save is allowed below.
             let quit_layout = ensure_live_quit_menu_layout();
             let quit_save_load = quit_layout && drive_os_wnd_quit_menu_save_load_like_cpp();
             let bind = ensure_live_popup_save_load_layout();
-            let save_btn = drive_os_wnd_popup_save_load_save_like_cpp();
-            wnd_ok = quit_save_load && bind && save_btn;
+            let save_confirm = drive_os_wnd_popup_save_load_save_and_confirm_like_cpp();
+            wnd_ok = quit_save_load && bind && save_confirm;
         }
         if !wnd_ok {
-            // Layout / gadget missing — fail-closed (do not host-quicksave instead).
+            self.pending_popup_save_slot = None;
+            self.pending_popup_save_display_name = None;
+            // Layout, gadget, or confirmation rejected — fail closed rather
+            // than treating a ButtonSave click as a completed snapshot.
             self.runtime_host_last_gameplay_cmd = "save_fail_wnd_missing".into();
             return;
         }
-        self.save_game_from_ui(&slot, &display);
-        let exists = self.save_file_manager.save_exists(&slot);
-        self.runtime_host_last_gameplay_cmd = if exists {
-            format!("save_ok:wnd_popup:{slot}")
-        } else {
-            format!("save_fail:wnd_popup:{slot}")
-        };
+        self.runtime_host_last_gameplay_cmd = format!("save_pending_wnd_popup:{slot}");
     }
 
     /// Windowed sit-through step 8: Pause/QuitMenu → PopupSaveLoad.wnd Load.
@@ -109,46 +274,34 @@ impl CnCGameEngine {
         if matches!(self.current_state, GameState::InGame) {
             self.toggle_pause();
         }
+        if !self.save_file_manager.save_exists(&slot) {
+            self.runtime_host_last_gameplay_cmd = format!("load_fail_wnd_no_slot:{slot}");
+            return;
+        }
         let mut wnd_ok = false;
         #[cfg(feature = "game_client")]
         {
             use game_client::gui::callbacks::{
-                drive_os_wnd_popup_save_load_load_like_cpp,
+                drive_os_wnd_popup_save_load_load_named_and_confirm_like_cpp,
                 drive_os_wnd_quit_menu_save_load_like_cpp, ensure_live_popup_save_load_layout,
-                ensure_live_quit_menu_layout, prepare_live_popup_save_load_for_click,
+                ensure_live_quit_menu_layout,
             };
+            self.host_publish_popup_save_load_inventory();
+            self.popup_save_load_bridge_initialized = true;
             // Live PopupSaveLoad.wnd children only — do not rebind SaveLoad.wnd.
             let quit_layout = ensure_live_quit_menu_layout();
             let quit_save_load = quit_layout && drive_os_wnd_quit_menu_save_load_like_cpp();
             let bind = ensure_live_popup_save_load_layout();
-            let prepared = prepare_live_popup_save_load_for_click();
-            let load_btn = drive_os_wnd_popup_save_load_load_like_cpp();
-            // After pause_save the popup is already up, so a second QuitMenu
-            // SaveLoad click often misses (covered / already modal). Prepare
-            // unhides the live gadgets — that is enough WND evidence.
-            wnd_ok = prepared || (quit_save_load && bind && load_btn);
+            let load_confirm = drive_os_wnd_popup_save_load_load_named_and_confirm_like_cpp(&slot);
+            // A named selection, real Load click, and real confirmation are
+            // mandatory.  Preparing a layout is deliberately not success.
+            wnd_ok = quit_save_load && bind && load_confirm;
         }
         if !wnd_ok {
             self.runtime_host_last_gameplay_cmd = "load_fail_wnd_missing".into();
             return;
         }
-        if !self.save_file_manager.save_exists(&slot) {
-            self.runtime_host_last_gameplay_cmd = format!("load_fail_wnd_no_slot:{slot}");
-            return;
-        }
-        self.set_runtime_host_ui_screen_override(None);
-        match self.load_game_from_ui(&slot) {
-            Ok(()) => {
-                if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
-                    self.request_state_change(GameState::InGame);
-                }
-                self.runtime_host_last_gameplay_cmd = format!("load_ok:wnd_popup:{slot}");
-            }
-            Err(err) => {
-                warn!("pause_load failed: {err}");
-                self.runtime_host_last_gameplay_cmd = format!("load_fail:wnd_popup:{slot}:{err}");
-            }
-        }
+        self.runtime_host_last_gameplay_cmd = format!("load_pending_wnd_popup:{slot}");
     }
 
     pub(super) fn runtime_host_cmd_load_game(&mut self, args: &HashMap<String, String>) {
@@ -636,14 +789,14 @@ impl CnCGameEngine {
                         // Presentation freeze can show a barracks as done while
                         // host/GW is still building. Fail-closed so smoke retries
                         // (train_fail_no_ready_barracks) instead of enqueue-fail.
-                        self.runtime_host_last_gameplay_cmd =
-                            "train_fail_no_ready_barracks".into();
+                        self.runtime_host_last_gameplay_cmd = "train_fail_no_ready_barracks".into();
                         return;
                     }
                 }
-                let host_ready = self.game_logic.host_object(pid).is_some_and(|o| {
-                    o.is_constructed() && o.building_data.is_some()
-                });
+                let host_ready = self
+                    .game_logic
+                    .host_object(pid)
+                    .is_some_and(|o| o.is_constructed() && o.building_data.is_some());
                 if !host_ready {
                     self.runtime_host_last_gameplay_cmd = "train_fail_no_ready_barracks".into();
                     return;
@@ -727,8 +880,10 @@ impl CnCGameEngine {
                     self.runtime_host_last_gameplay_cmd = format!("train_ok:{}:{}", pid.0, name);
                 } else {
                     let can = self.game_logic.can_make_unit(pid, &last_fail);
-                    self.runtime_host_last_gameplay_cmd =
-                        format!("train_fail_enqueue:{}:prod={}:can={}", last_fail, pid.0, can);
+                    self.runtime_host_last_gameplay_cmd = format!(
+                        "train_fail_enqueue:{}:prod={}:can={}",
+                        last_fail, pid.0, can
+                    );
                 }
             } else if template.to_ascii_lowercase().contains("ranger")
                 || template.to_ascii_lowercase().contains("infantry")
@@ -767,10 +922,14 @@ impl CnCGameEngine {
             })
             .cloned()
             .or_else(|| {
-                self.game_logic.templates.keys().find(|k| {
-                    let n = k.to_ascii_lowercase();
-                    n.contains("infantry") && (n.contains("america") || n.contains("usa"))
-                }).cloned()
+                self.game_logic
+                    .templates
+                    .keys()
+                    .find(|k| {
+                        let n = k.to_ascii_lowercase();
+                        n.contains("infantry") && (n.contains("america") || n.contains("usa"))
+                    })
+                    .cloned()
             })
     }
 

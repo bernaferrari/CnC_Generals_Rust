@@ -943,6 +943,37 @@ impl GameLogic {
         self.ai_manager.total_activity_count()
     }
 
+    /// Snapshot the bounded host-AI registration and decision state that is
+    /// safe to restore after a map/object load.  Transient commands and target
+    /// pointers intentionally remain outside this surface.
+    pub fn snapshot_host_ai_players_for_save(&self) -> Vec<crate::save_load::AIPlayerSnapshot> {
+        self.ai_manager.snapshot_players_for_save()
+    }
+
+    /// Restore host-AI players after `PlayerSnapshot` and `ObjectSnapshot`
+    /// have rebuilt their owning ids.  Invalid defensive-unit references are
+    /// dropped rather than becoming stale post-load orders.
+    pub fn restore_host_ai_players_from_save(
+        &mut self,
+        snapshots: &[crate::save_load::AIPlayerSnapshot],
+    ) {
+        let player_teams = self
+            .players
+            .iter()
+            .map(|(&player_id, player)| (player_id, player.team))
+            .collect();
+        self.ai_manager
+            .restore_players_from_save(snapshots, &player_teams);
+
+        let valid_object_ids: std::collections::HashSet<ObjectId> =
+            self.objects.keys().copied().collect();
+        for ai_player in self.ai_manager.ai_players.values_mut() {
+            ai_player
+                .defensive_units
+                .retain(|id| valid_object_ids.contains(id));
+        }
+    }
+
     /// Number of registered host AI players.
     pub fn host_ai_player_count(&self) -> usize {
         self.ai_manager.ai_players.len()

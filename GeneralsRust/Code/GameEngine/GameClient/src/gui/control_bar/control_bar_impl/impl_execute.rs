@@ -1,6 +1,44 @@
 // Split from `gui/control_bar/control_bar.rs` dump. Included by `control_bar_impl/mod.rs`.
 
 impl ControlBar {
+    /// Send a real Control Bar command to Main's authoritative world when that
+    /// world owns this UI.  The legacy queue remains untouched in this mode;
+    /// it is intentionally still used when the bridge is disabled.
+    fn publish_host_command_if_enabled(
+        &self,
+        button: &CommandButton,
+        source: CommandSourceType,
+        context: &ControlBarContext,
+    ) -> bool {
+        if !super::host_control_bar_bridge_enabled() {
+            return false;
+        }
+
+        let special_power_id = if button.special_power.is_empty() {
+            None
+        } else {
+            self.resolve_logic_button(button).and_then(|logic_button| {
+                logic_button
+                    .get_special_power_template()
+                    .map(|template| template.get_id())
+            })
+        };
+        let weapon_slot = if button.command_type == CommandType::FireWeapon {
+            Some(button.weapon_slot_number())
+        } else {
+            None
+        };
+        let request = super::host_request_from_button_with_weapon_slot(
+            button,
+            context,
+            source,
+            special_power_id,
+            weapon_slot,
+            Self::command_needs_target(button.options),
+        );
+        super::publish_host_control_bar_request(request)
+    }
+
     fn command_needs_target(options: u32) -> bool {
         let mut mask = CommandOption::NeedTargetEnemyObject as u32
             | CommandOption::NeedTargetNeutralObject as u32
@@ -49,9 +87,7 @@ impl ControlBar {
         }
 
         let pending_payload = if button.command_type == CommandType::FireWeapon {
-            self.resolve_logic_button(button)
-                .map(|logic_button| logic_button.get_weapon_slot() as u32)
-                .unwrap_or(source_id)
+            button.weapon_slot_number()
         } else {
             source_id
         };
@@ -354,6 +390,18 @@ impl ControlBar {
             return Ok(false);
         };
 
+        // The host must cancel its own queue, not a legacy producer module.
+        if super::publish_host_queue_cancel(
+            context,
+            producer_id,
+            entry.production_id,
+            entry.production_type,
+            entry.upgrade_name.clone(),
+            queue_index,
+        ) {
+            return Ok(true);
+        }
+
         // Dual-world residual when producer modules are bound.
         if OBJECT_REGISTRY.get_object(producer_id).is_some() {
             Self::cancel_production_by_id(producer_id, entry.production_id);
@@ -382,6 +430,13 @@ impl ControlBar {
         let Some(&producer_id) = context.selected_objects.first() else {
             return Ok(());
         };
+
+        // A host bridge is a single-authority boundary.  Do not update the
+        // legacy module or its compatibility pause queue after publishing.
+        if super::publish_host_production_pause(context, producer_id, paused) {
+            self.portrait_state.production_paused = paused;
+            return Ok(());
+        }
 
         // Dual-world residual: live production modules when registry is bound.
         if OBJECT_REGISTRY.get_object(producer_id).is_some() {
@@ -452,5 +507,81 @@ impl ControlBar {
                 }
             }
         });
+    }
+}
+
+#[cfg(test)]
+mod host_bridge_execution_tests {
+    use super::*;
+
+    #[test]
+    fn enabled_host_bridge_intercepts_real_control_bar_execution() {
+        let _guard = crate::gui::control_bar::acquire_host_control_bar_bridge_test_guard();
+        crate::gui::control_bar::set_host_control_bar_bridge_enabled(true);
+
+        let mut button = CommandButton::default();
+        button.command_name = "Command_ConstructAmericaTank".to_string();
+        button.command_type = CommandType::QueueUnitCreate;
+        button.object = "AmericaTankCrusader".to_string();
+        let context = ControlBarContext {
+            player_id: 3,
+            selected_objects: vec![17],
+            ..ControlBarContext::default()
+        };
+
+        ControlBar::new()
+            .execute_command(&button, CommandSourceType::FromUser, &context)
+            .expect("host bridge request");
+
+        assert!(matches!(
+            crate::gui::control_bar::take_host_control_bar_requests().as_slice(),
+            [crate::gui::control_bar::HostControlBarRequest::Production {
+                template_name,
+                producer_ids,
+                player_id: 3,
+                ..
+            }] if template_name == "AmericaTankCrusader" && producer_ids == &[17]
+        ));
+    }
+
+    #[test]
+    fn parsed_ini_weapon_slot_reaches_host_fire_weapon_without_logic_button() {
+        let _guard = crate::gui::control_bar::acquire_host_control_bar_bridge_test_guard();
+        crate::gui::control_bar::set_host_control_bar_bridge_enabled(true);
+
+        // Deliberately do not register a GameLogic CommandButton.  The live
+        // CommandButton definition must carry WeaponSlot itself so the host
+        // bridge remains valid while Main owns the simulation.
+        let definition = IniCommandButton {
+            name: "Command_TestTertiaryWeapon".to_string(),
+            command: "FIRE_WEAPON".to_string(),
+            weapon_slot: WeaponSlotType::Tertiary,
+            options: CommandButtonOptions {
+                need_target_pos: true,
+                ..CommandButtonOptions::default()
+            },
+            ..IniCommandButton::default()
+        };
+        let button = ControlBar::command_from_definition(&definition);
+        assert_eq!(button.weapon_slot, WeaponSlotType::Tertiary);
+        assert_eq!(button.weapon_slot_number(), 2);
+
+        let context = ControlBarContext {
+            player_id: 3,
+            selected_objects: vec![17],
+            ..ControlBarContext::default()
+        };
+        ControlBar::new()
+            .execute_command(&button, CommandSourceType::FromUser, &context)
+            .expect("host bridge request from parsed command button");
+
+        assert!(matches!(
+            crate::gui::control_bar::take_host_control_bar_requests().as_slice(),
+            [crate::gui::control_bar::HostControlBarRequest::ArmTarget {
+                command_type: CommandType::FireWeapon,
+                weapon_slot: Some(2),
+                ..
+            }]
+        ));
     }
 }

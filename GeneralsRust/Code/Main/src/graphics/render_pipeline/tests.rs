@@ -87,8 +87,8 @@ fn material_pass_classifies_partial_opacity_as_transparent() {
 }
 
 #[test]
-fn missing_model_debug_cubes_default_on_and_can_opt_out() {
-    assert!(RenderPipeline::missing_model_debug_cubes_enabled_from(
+fn missing_model_debug_cubes_are_opt_in_only() {
+    assert!(!RenderPipeline::missing_model_debug_cubes_enabled_from(
         None
     ));
     assert!(!RenderPipeline::missing_model_debug_cubes_enabled_from(
@@ -102,6 +102,9 @@ fn missing_model_debug_cubes_default_on_and_can_opt_out() {
     ));
     assert!(RenderPipeline::missing_model_debug_cubes_enabled_from(
         Some(std::ffi::OsStr::new("TRUE"))
+    ));
+    assert!(RenderPipeline::missing_model_debug_cubes_enabled_from(
+        Some(std::ffi::OsStr::new("on"))
     ));
 }
 

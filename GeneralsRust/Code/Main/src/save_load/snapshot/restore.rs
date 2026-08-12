@@ -715,7 +715,23 @@ impl SnapshotBuilder {
         Ok(())
     }
 
-    // AI player restoration is disabled until `Code/Main` AI state is wired into save/load.
+    /// Restore the serialized host skirmish-AI rows after players/objects are
+    /// available.  Empty rows are an older-save compatibility case: retain the
+    /// existing global-AI fallback instead of manufacturing per-player state.
+    pub(super) fn restore_ai_players(
+        &self,
+        ai_players_snapshot: &[AIPlayerSnapshot],
+        game_logic: &mut GameLogic,
+    ) -> SaveLoadResult<()> {
+        if !ai_players_snapshot.is_empty() {
+            game_logic.restore_host_ai_players_from_save(ai_players_snapshot);
+        }
+        Ok(())
+    }
+
+    // Historical full-AI restore sketch retained below for the unported
+    // strategic/tactical planner objects.  The live host manager now restores
+    // its bounded registered-player state above.
     // fn restore_ai_players(
     //     &self,
     //     ai_players_snapshot: &[AIPlayerSnapshot],

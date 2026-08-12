@@ -1,0 +1,780 @@
+//! Typed commands emitted by the live Control Bar for the authoritative host.
+//!
+//! The standalone GameClient historically feeds its commands into GameLogic's
+//! global command queue.  The Rust executable has its own authoritative world,
+//! so doing that there would make a HUD click look accepted while changing a
+//! different simulation.  This small bridge is deliberately opt-in: normal
+//! GameClient users retain the legacy queue path, while the host drains these
+//! typed requests and applies them to its own world.
+
+use std::collections::VecDeque;
+use std::sync::{Mutex, OnceLock};
+
+use gamelogic::commands::CommandType;
+
+use super::{CommandButton, CommandSourceType, ControlBarContext, QueueProductionType};
+
+/// A target mode armed by a command-button click.
+///
+/// The outer [`HostControlBarRequest::ArmTarget`] retains the button command
+/// name, legacy command type, options, selected IDs, player and source.  This
+/// enum adds the target-specific identity needed by the Rust host without
+/// relying on legacy GameLogic globals.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HostControlBarTarget {
+    /// A dozer is waiting for the player to place a named building template.
+    DozerConstruct {
+        /// INI object/template name, e.g. `AmericaPowerPlant`.
+        template_name: String,
+    },
+    /// A named special power is waiting for an object or map target.
+    SpecialPower {
+        /// INI special-power identity, retained even when no numeric ID exists.
+        special_power_name: String,
+        /// Legacy special-power ID when the GameLogic command-button bridge has it.
+        special_power_id: Option<u32>,
+    },
+    /// A non-building, non-special command that needs a target.
+    Generic,
+}
+
+/// A gameplay request issued by a Control Bar interaction.
+///
+/// Names are preserved alongside the legacy [`CommandType`] so the Main host
+/// can map directly to its typed Rust command system instead of guessing from
+/// numeric ThingTemplate/upgrade IDs.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HostControlBarRequest {
+    /// Queue a unit or structure template at every selected producer.
+    Production {
+        command_name: String,
+        template_name: String,
+        producer_ids: Vec<u32>,
+        player_id: u32,
+        source: CommandSourceType,
+    },
+    /// Queue a named upgrade at the selected producer(s).
+    Upgrade {
+        command_name: String,
+        upgrade_name: String,
+        selected_object_ids: Vec<u32>,
+        player_id: u32,
+        source: CommandSourceType,
+    },
+    /// Execute a non-targeted named command, preserving its legacy identity.
+    DirectCommand {
+        command_name: String,
+        command_type: CommandType,
+        options: u32,
+        /// Fire-weapon slot (primary/secondary/tertiary) when the command is
+        /// a legacy FIRE_WEAPON button.
+        weapon_slot: Option<u32>,
+        /// The raw CommandButton `Object=` identity when one was supplied.
+        ///
+        /// Only `QueueUnitCreate` treats this as a production template.  Other
+        /// commands use it for selection, display, or special-power payloads.
+        object_name: Option<String>,
+        /// Required-upgrade metadata carried by the button, when any.
+        upgrade_name: Option<String>,
+        selected_object_ids: Vec<u32>,
+        player_id: u32,
+        source: CommandSourceType,
+        /// Names supplied by a PurchaseScience-style command, if any.
+        science_names: Vec<String>,
+        /// Exact special-power identity for immediate/non-target powers.
+        special_power_name: Option<String>,
+        /// Legacy special-power ID when the GameLogic button bridge has it.
+        special_power_id: Option<u32>,
+    },
+    /// Arm a placement/targeting interaction for the host input layer.
+    ArmTarget {
+        command_name: String,
+        command_type: CommandType,
+        options: u32,
+        /// Fire-weapon slot (primary/secondary/tertiary) when this target arm
+        /// came from a legacy FIRE_WEAPON button.
+        weapon_slot: Option<u32>,
+        /// Raw CommandButton `Object=` identity, including a
+        /// SPECIAL_POWER_CONSTRUCT payload such as SneakAttack's spawn unit.
+        object_name: Option<String>,
+        /// Required-upgrade metadata carried by the button, when any.
+        upgrade_name: Option<String>,
+        selected_object_ids: Vec<u32>,
+        player_id: u32,
+        source: CommandSourceType,
+        /// The first selected object, matching the C++ pending-command source.
+        source_object_id: Option<u32>,
+        target: HostControlBarTarget,
+    },
+    /// Cancel the displayed production entry from a selected producer.
+    QueueCancel {
+        player_id: u32,
+        selected_object_ids: Vec<u32>,
+        producer_id: u32,
+        production_id: u32,
+        production_type: QueueProductionType,
+        upgrade_name: String,
+        queue_index: usize,
+    },
+    /// Pause or resume production for one selected producer.
+    ProductionPause {
+        player_id: u32,
+        selected_object_ids: Vec<u32>,
+        producer_id: u32,
+        paused: bool,
+    },
+}
+
+#[derive(Default)]
+struct HostControlBarBridgeState {
+    enabled: bool,
+    requests: VecDeque<HostControlBarRequest>,
+}
+
+fn host_control_bar_bridge_state() -> &'static Mutex<HostControlBarBridgeState> {
+    static STATE: OnceLock<Mutex<HostControlBarBridgeState>> = OnceLock::new();
+    STATE.get_or_init(|| Mutex::new(HostControlBarBridgeState::default()))
+}
+
+/// Enable or disable authoritative-host delivery for Control Bar interactions.
+///
+/// It is disabled by default so isolated GameClient/GameLogic builds retain
+/// their original command-queue behavior.  Changing modes clears pending work:
+/// neither a typed request nor a legacy pause residual generated for a prior
+/// owner can be replayed into a new one.
+pub fn set_host_control_bar_bridge_enabled(enabled: bool) {
+    let changed = {
+        let mut state = host_control_bar_bridge_state()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if state.enabled != enabled {
+            state.enabled = enabled;
+            state.requests.clear();
+            true
+        } else {
+            false
+        }
+    };
+    if changed {
+        // This queue predates the typed bridge and is consumed by Main's old
+        // compatibility drain.  Flush it after releasing the bridge mutex so
+        // no old-mode pause can cross the single-authority boundary.
+        super::control_bar::clear_host_production_pause_requests();
+    }
+}
+
+/// Whether live Control Bar actions are being sent to the authoritative host.
+pub fn host_control_bar_bridge_enabled() -> bool {
+    host_control_bar_bridge_state()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .enabled
+}
+
+/// Drain every typed request emitted since the previous host tick.
+pub fn take_host_control_bar_requests() -> Vec<HostControlBarRequest> {
+    let mut state = host_control_bar_bridge_state()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    state.requests.drain(..).collect()
+}
+
+/// Discard typed requests that have not yet been consumed by the host.
+pub fn clear_host_control_bar_requests() {
+    host_control_bar_bridge_state()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .requests
+        .clear();
+}
+
+/// Build a host request from the exact data attached to a Control Bar button.
+///
+/// This is crate-visible so the live Control Bar can enrich special-power
+/// targeting with the legacy template ID when available, while tests can
+/// verify classification without initializing global GameLogic state.
+pub(crate) fn host_request_from_button(
+    button: &CommandButton,
+    context: &ControlBarContext,
+    source: CommandSourceType,
+    special_power_id: Option<u32>,
+    command_needs_target: bool,
+) -> HostControlBarRequest {
+    host_request_from_button_with_weapon_slot(
+        button,
+        context,
+        source,
+        special_power_id,
+        None,
+        command_needs_target,
+    )
+}
+
+/// As [`host_request_from_button`], with a resolved FIRE_WEAPON slot.
+pub(crate) fn host_request_from_button_with_weapon_slot(
+    button: &CommandButton,
+    context: &ControlBarContext,
+    source: CommandSourceType,
+    special_power_id: Option<u32>,
+    weapon_slot: Option<u32>,
+    command_needs_target: bool,
+) -> HostControlBarRequest {
+    // Retail SPECIAL_POWER_CONSTRUCT buttons (notably SneakAttack) encode a
+    // special power plus an Object= payload but omit NEED_TARGET_* options.
+    // They still enter map-target mode in C++; keep that semantic explicit
+    // instead of mistaking the object for unit production or an instant cast.
+    let is_special_power_construct = !button.special_power.is_empty() && !button.object.is_empty();
+    if command_needs_target || is_special_power_construct {
+        let target =
+            if button.command_type == CommandType::DozerConstruct && !button.object.is_empty() {
+                HostControlBarTarget::DozerConstruct {
+                    template_name: button.object.clone(),
+                }
+            } else if !button.special_power.is_empty() {
+                HostControlBarTarget::SpecialPower {
+                    special_power_name: button.special_power.clone(),
+                    special_power_id,
+                }
+            } else {
+                HostControlBarTarget::Generic
+            };
+
+        return HostControlBarRequest::ArmTarget {
+            command_name: button.command_name.clone(),
+            command_type: button.command_type,
+            options: button.options,
+            weapon_slot,
+            object_name: (!button.object.is_empty()).then(|| button.object.clone()),
+            upgrade_name: (!button.upgrade.is_empty()).then(|| button.upgrade.clone()),
+            selected_object_ids: context.selected_objects.clone(),
+            player_id: context.player_id,
+            source,
+            source_object_id: context.selected_objects.first().copied(),
+            target,
+        };
+    }
+
+    // An Upgrade= field also expresses a prerequisite on ordinary buttons
+    // (FireWeapon, switch weapon, etc.).  C++ queues an upgrade only for the
+    // actual QueueUpgrade command, so metadata must stay with the command.
+    if button.command_type == CommandType::QueueUpgrade && !button.upgrade.is_empty() {
+        return HostControlBarRequest::Upgrade {
+            command_name: button.command_name.clone(),
+            upgrade_name: button.upgrade.clone(),
+            selected_object_ids: context.selected_objects.clone(),
+            player_id: context.player_id,
+            source,
+        };
+    }
+
+    // These buttons can carry Object= as metadata, not as a unit to queue:
+    // e.g. PurchaseSciencePaladin, SelectAllUnitsOfType, and
+    // SpecialPowerConstruct/SneakAttack.  Preserve the object in the direct
+    // request; only C++ MSG_QUEUE_UNIT_CREATE semantics are production.
+    if !button.special_power.is_empty() || button.command_type == CommandType::PurchaseScience {
+        return direct_host_request(button, context, source, special_power_id, weapon_slot);
+    }
+
+    if button.command_type == CommandType::QueueUnitCreate && !button.object.is_empty() {
+        return HostControlBarRequest::Production {
+            command_name: button.command_name.clone(),
+            template_name: button.object.clone(),
+            producer_ids: context.selected_objects.clone(),
+            player_id: context.player_id,
+            source,
+        };
+    }
+
+    direct_host_request(button, context, source, special_power_id, weapon_slot)
+}
+
+fn direct_host_request(
+    button: &CommandButton,
+    context: &ControlBarContext,
+    source: CommandSourceType,
+    special_power_id: Option<u32>,
+    weapon_slot: Option<u32>,
+) -> HostControlBarRequest {
+    HostControlBarRequest::DirectCommand {
+        command_name: button.command_name.clone(),
+        command_type: button.command_type,
+        options: button.options,
+        weapon_slot,
+        object_name: (!button.object.is_empty()).then(|| button.object.clone()),
+        upgrade_name: (!button.upgrade.is_empty()).then(|| button.upgrade.clone()),
+        selected_object_ids: context.selected_objects.clone(),
+        player_id: context.player_id,
+        source,
+        science_names: button.sciences.clone(),
+        special_power_name: (!button.special_power.is_empty())
+            .then(|| button.special_power.clone()),
+        special_power_id: if button.special_power.is_empty() {
+            None
+        } else {
+            special_power_id
+        },
+    }
+}
+
+/// Publish a request only while the host bridge owns Control Bar authority.
+///
+/// Returning `false` lets normal GameClient callers fall through to the
+/// original GameLogic/message-stream behavior unchanged.
+pub(crate) fn publish_host_control_bar_request(request: HostControlBarRequest) -> bool {
+    let mut state = host_control_bar_bridge_state()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if !state.enabled {
+        return false;
+    }
+
+    state.requests.push_back(request);
+    true
+}
+
+/// Publish a host-only queue cancellation before any legacy side effects run.
+pub(crate) fn publish_host_queue_cancel(
+    context: &ControlBarContext,
+    producer_id: u32,
+    production_id: u32,
+    production_type: QueueProductionType,
+    upgrade_name: String,
+    queue_index: usize,
+) -> bool {
+    publish_host_control_bar_request(HostControlBarRequest::QueueCancel {
+        player_id: context.player_id,
+        selected_object_ids: context.selected_objects.clone(),
+        producer_id,
+        production_id,
+        production_type,
+        upgrade_name,
+        queue_index,
+    })
+}
+
+/// Publish a host-only production-pause change before legacy module updates.
+pub(crate) fn publish_host_production_pause(
+    context: &ControlBarContext,
+    producer_id: u32,
+    paused: bool,
+) -> bool {
+    publish_host_control_bar_request(HostControlBarRequest::ProductionPause {
+        player_id: context.player_id,
+        selected_object_ids: context.selected_objects.clone(),
+        producer_id,
+        paused,
+    })
+}
+
+#[cfg(test)]
+static HOST_CONTROL_BAR_BRIDGE_TEST_LOCK: Mutex<()> = Mutex::new(());
+
+/// Serialize unit tests that alter the process-global host bridge state.
+#[cfg(test)]
+pub(crate) struct HostControlBarBridgeTestGuard {
+    _lock: std::sync::MutexGuard<'static, ()>,
+}
+
+#[cfg(test)]
+pub(crate) fn acquire_host_control_bar_bridge_test_guard() -> HostControlBarBridgeTestGuard {
+    let lock = HOST_CONTROL_BAR_BRIDGE_TEST_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    clear_host_control_bar_requests();
+    set_host_control_bar_bridge_enabled(false);
+    HostControlBarBridgeTestGuard { _lock: lock }
+}
+
+#[cfg(test)]
+impl Drop for HostControlBarBridgeTestGuard {
+    fn drop(&mut self) {
+        clear_host_control_bar_requests();
+        set_host_control_bar_bridge_enabled(false);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn acquire() -> HostControlBarBridgeTestGuard {
+        acquire_host_control_bar_bridge_test_guard()
+    }
+
+    fn context() -> ControlBarContext {
+        ControlBarContext {
+            player_id: 7,
+            selected_objects: vec![41, 42],
+            ..ControlBarContext::default()
+        }
+    }
+
+    #[test]
+    fn bridge_is_opt_in_and_drains_typed_production_requests() {
+        let _guard = acquire();
+        let mut button = CommandButton::default();
+        button.command_name = "Command_ConstructAmericaTank".to_string();
+        button.command_type = CommandType::QueueUnitCreate;
+        button.object = "AmericaTankCrusader".to_string();
+
+        let request = host_request_from_button(
+            &button,
+            &context(),
+            CommandSourceType::FromUser,
+            None,
+            false,
+        );
+        assert!(
+            !publish_host_control_bar_request(request.clone()),
+            "disabled bridge must leave standalone GameClient on its legacy path"
+        );
+        assert!(take_host_control_bar_requests().is_empty());
+
+        set_host_control_bar_bridge_enabled(true);
+        assert!(publish_host_control_bar_request(request));
+        assert_eq!(
+            take_host_control_bar_requests(),
+            vec![HostControlBarRequest::Production {
+                command_name: "Command_ConstructAmericaTank".to_string(),
+                template_name: "AmericaTankCrusader".to_string(),
+                producer_ids: vec![41, 42],
+                player_id: 7,
+                source: CommandSourceType::FromUser,
+            }]
+        );
+    }
+
+    #[test]
+    fn bridge_mode_change_discards_stale_legacy_pause_requests() {
+        let _guard = acquire();
+        super::super::control_bar::queue_host_production_pause(41, true);
+        set_host_control_bar_bridge_enabled(true);
+        assert!(
+            super::super::control_bar::take_host_production_pause_requests().is_empty(),
+            "a pause from the legacy owner must not reach a newly enabled host bridge"
+        );
+    }
+
+    #[test]
+    fn target_upgrade_direct_cancel_and_pause_keep_host_meaning() {
+        let _guard = acquire();
+        set_host_control_bar_bridge_enabled(true);
+
+        let mut dozer = CommandButton::default();
+        dozer.command_name = "Command_ConstructAmericaPowerPlant".to_string();
+        dozer.command_type = CommandType::DozerConstruct;
+        dozer.object = "AmericaPowerPlant".to_string();
+        dozer.options = 0x20;
+        let arm =
+            host_request_from_button(&dozer, &context(), CommandSourceType::FromUser, None, true);
+        assert!(publish_host_control_bar_request(arm));
+
+        let mut upgrade = CommandButton::default();
+        upgrade.command_name = "Command_UpgradeCompositeArmor".to_string();
+        upgrade.command_type = CommandType::QueueUpgrade;
+        upgrade.upgrade = "Upgrade_AmericaCompositeArmor".to_string();
+        assert!(publish_host_control_bar_request(host_request_from_button(
+            &upgrade,
+            &context(),
+            CommandSourceType::FromUser,
+            None,
+            false,
+        )));
+
+        let mut direct = CommandButton::default();
+        direct.command_name = "Command_Sell".to_string();
+        direct.command_type = CommandType::Sell;
+        assert!(publish_host_control_bar_request(host_request_from_button(
+            &direct,
+            &context(),
+            CommandSourceType::FromUser,
+            None,
+            false,
+        )));
+        assert!(publish_host_queue_cancel(
+            &context(),
+            41,
+            99,
+            QueueProductionType::Upgrade,
+            "Upgrade_AmericaCompositeArmor".to_string(),
+            0,
+        ));
+        assert!(publish_host_production_pause(&context(), 41, true));
+
+        let requests = take_host_control_bar_requests();
+        assert!(matches!(
+            &requests[0],
+            HostControlBarRequest::ArmTarget {
+                command_name,
+                source_object_id: Some(41),
+                target: HostControlBarTarget::DozerConstruct { template_name },
+                ..
+            } if command_name == "Command_ConstructAmericaPowerPlant"
+                && template_name == "AmericaPowerPlant"
+        ));
+        assert!(matches!(
+            &requests[1],
+            HostControlBarRequest::Upgrade { upgrade_name, .. }
+                if upgrade_name == "Upgrade_AmericaCompositeArmor"
+        ));
+        assert!(matches!(
+            &requests[2],
+            HostControlBarRequest::DirectCommand {
+                command_name,
+                command_type: CommandType::Sell,
+                ..
+            } if command_name == "Command_Sell"
+        ));
+        assert!(matches!(
+            &requests[3],
+            HostControlBarRequest::QueueCancel {
+                producer_id: 41,
+                production_id: 99,
+                production_type: QueueProductionType::Upgrade,
+                ..
+            }
+        ));
+        assert!(matches!(
+            &requests[4],
+            HostControlBarRequest::ProductionPause {
+                producer_id: 41,
+                paused: true,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn purchase_science_with_object_display_field_is_never_production() {
+        let _guard = acquire();
+        let mut button = CommandButton::default();
+        button.command_name = "Command_PurchaseSciencePaladin".to_string();
+        button.command_type = CommandType::PurchaseScience;
+        // Retail CommandButton definitions overload Object= for this kind of
+        // science cameo.  It must not become a production template request.
+        button.object = "AmericaTankPaladin".to_string();
+        button.sciences = vec!["SCIENCE_PaladinTank".to_string()];
+
+        let request = host_request_from_button(
+            &button,
+            &context(),
+            CommandSourceType::FromUser,
+            None,
+            false,
+        );
+        assert!(matches!(
+            request,
+            HostControlBarRequest::DirectCommand {
+                command_name,
+                command_type: CommandType::PurchaseScience,
+                object_name: Some(object_name),
+                science_names,
+                ..
+            } if command_name == "Command_PurchaseSciencePaladin"
+                && object_name == "AmericaTankPaladin"
+                && science_names == ["SCIENCE_PaladinTank"]
+        ));
+    }
+
+    #[test]
+    fn object_bearing_non_production_commands_keep_their_real_semantics() {
+        let _guard = acquire();
+
+        let mut select_all = CommandButton::default();
+        select_all.command_name = "Command_SelectAllPaladins".to_string();
+        select_all.command_type = CommandType::MetaSelectMatchingUnits;
+        select_all.object = "AmericaTankPaladin".to_string();
+        let request = host_request_from_button(
+            &select_all,
+            &context(),
+            CommandSourceType::FromUser,
+            None,
+            false,
+        );
+        assert!(matches!(
+            request,
+            HostControlBarRequest::DirectCommand {
+                command_type: CommandType::MetaSelectMatchingUnits,
+                object_name: Some(object_name),
+                ..
+            } if object_name == "AmericaTankPaladin"
+        ));
+
+        let mut sneak_attack = CommandButton::default();
+        sneak_attack.command_name = "Command_SneakAttack".to_string();
+        sneak_attack.command_type = CommandType::DoSpecialPower;
+        sneak_attack.object = "GLAInfantryRebel".to_string();
+        sneak_attack.special_power = "SuperweaponSneakAttack".to_string();
+        let request = host_request_from_button(
+            &sneak_attack,
+            &context(),
+            CommandSourceType::FromUser,
+            Some(99),
+            false,
+        );
+        assert!(matches!(
+            request,
+            HostControlBarRequest::ArmTarget {
+                object_name: Some(object_name),
+                target: HostControlBarTarget::SpecialPower {
+                    special_power_name,
+                    special_power_id: Some(99),
+                },
+                ..
+            } if object_name == "GLAInfantryRebel"
+                && special_power_name == "SuperweaponSneakAttack"
+        ));
+    }
+
+    #[test]
+    fn required_upgrade_metadata_does_not_turn_an_action_into_queue_upgrade() {
+        let _guard = acquire();
+
+        let mut fire_weapon = CommandButton::default();
+        fire_weapon.command_name = "Command_ComancheFireRocketPods".to_string();
+        fire_weapon.command_type = CommandType::FireWeapon;
+        fire_weapon.upgrade = "Upgrade_AmericaComancheRocketPods".to_string();
+        fire_weapon.options = 0x01;
+        let armed = host_request_from_button(
+            &fire_weapon,
+            &context(),
+            CommandSourceType::FromUser,
+            None,
+            true,
+        );
+        assert!(matches!(
+            armed,
+            HostControlBarRequest::ArmTarget {
+                command_type: CommandType::FireWeapon,
+                upgrade_name: Some(upgrade_name),
+                ..
+            } if upgrade_name == "Upgrade_AmericaComancheRocketPods"
+        ));
+
+        let mut switch_weapon = CommandButton::default();
+        switch_weapon.command_name = "Command_AmericaRangerSwitchToFlagBangGrenades".to_string();
+        switch_weapon.command_type = CommandType::SwitchWeapons;
+        switch_weapon.upgrade = "Upgrade_AmericaRangerFlashBangGrenades".to_string();
+        let direct = host_request_from_button(
+            &switch_weapon,
+            &context(),
+            CommandSourceType::FromUser,
+            None,
+            false,
+        );
+        assert!(matches!(
+            direct,
+            HostControlBarRequest::DirectCommand {
+                command_type: CommandType::SwitchWeapons,
+                upgrade_name: Some(upgrade_name),
+                ..
+            } if upgrade_name == "Upgrade_AmericaRangerFlashBangGrenades"
+        ));
+    }
+
+    #[test]
+    fn fire_weapon_slot_is_preserved_for_target_and_direct_requests() {
+        let _guard = acquire();
+        let mut fire_weapon = CommandButton::default();
+        fire_weapon.command_name = "Command_ComancheFireTertiaryWeapon".to_string();
+        fire_weapon.command_type = CommandType::FireWeapon;
+
+        let armed = host_request_from_button_with_weapon_slot(
+            &fire_weapon,
+            &context(),
+            CommandSourceType::FromUser,
+            None,
+            Some(2),
+            true,
+        );
+        assert!(matches!(
+            armed,
+            HostControlBarRequest::ArmTarget {
+                command_type: CommandType::FireWeapon,
+                weapon_slot: Some(2),
+                target: HostControlBarTarget::Generic,
+                ..
+            }
+        ));
+
+        let direct = host_request_from_button_with_weapon_slot(
+            &fire_weapon,
+            &context(),
+            CommandSourceType::FromUser,
+            None,
+            Some(1),
+            false,
+        );
+        assert!(matches!(
+            direct,
+            HostControlBarRequest::DirectCommand {
+                command_type: CommandType::FireWeapon,
+                weapon_slot: Some(1),
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn special_and_generic_target_arms_preserve_identity_and_options() {
+        let _guard = acquire();
+
+        let mut special = CommandButton::default();
+        special.command_name = "Command_A10Strike".to_string();
+        special.command_type = CommandType::SpecialPower;
+        special.special_power = "SuperweaponA10ThunderboltMissileStrike".to_string();
+        special.options = 0x21;
+        let special_request = host_request_from_button(
+            &special,
+            &context(),
+            CommandSourceType::FromUser,
+            Some(123),
+            true,
+        );
+        assert!(matches!(
+            special_request,
+            HostControlBarRequest::ArmTarget {
+                options: 0x21,
+                target: HostControlBarTarget::SpecialPower {
+                    special_power_name,
+                    special_power_id: Some(123),
+                },
+                ..
+            } if special_power_name == "SuperweaponA10ThunderboltMissileStrike"
+        ));
+
+        let immediate_special = host_request_from_button(
+            &special,
+            &context(),
+            CommandSourceType::FromUser,
+            Some(123),
+            false,
+        );
+        assert!(matches!(
+            immediate_special,
+            HostControlBarRequest::DirectCommand {
+                options: 0x21,
+                special_power_name: Some(special_power_name),
+                special_power_id: Some(123),
+                ..
+            } if special_power_name == "SuperweaponA10ThunderboltMissileStrike"
+        ));
+
+        let mut generic = CommandButton::default();
+        generic.command_name = "Command_AttackMove".to_string();
+        generic.command_type = CommandType::DoAttackMoveTo;
+        generic.options = 0x1020;
+        let generic_request =
+            host_request_from_button(&generic, &context(), CommandSourceType::FromAI, None, true);
+        assert!(matches!(
+            generic_request,
+            HostControlBarRequest::ArmTarget {
+                command_type: CommandType::DoAttackMoveTo,
+                options: 0x1020,
+                source: CommandSourceType::FromAI,
+                target: HostControlBarTarget::Generic,
+                ..
+            }
+        ));
+    }
+}

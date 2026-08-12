@@ -562,12 +562,7 @@ impl CnCGameEngine {
     /// `construct_ok` only if a local under-construction structure exists after
     /// DozerConstruct — the previous residual reported ok on a queued command
     /// that never created a building.
-    fn construct_result_after_place(
-        &self,
-        template: &str,
-        p: glam::Vec3,
-        force: bool,
-    ) -> String {
+    fn construct_result_after_place(&self, template: &str, p: glam::Vec3, force: bool) -> String {
         let team = self.local_team_for_ui();
         let uc = self
             .game_logic

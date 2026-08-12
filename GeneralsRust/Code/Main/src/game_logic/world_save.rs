@@ -1649,6 +1649,12 @@ impl GameLogic {
         report_progress(0.26, "Preparing map data");
         log::info!("Loading map: {}", map_name);
         let load_started = Instant::now();
+        // A failed decode must never leave the previous map marked playable.
+        // `load_map_with_progress` mutates the world incrementally, so the
+        // successful tail below is the only place allowed to set this back to
+        // true. This matters especially for a selected-map → default-map
+        // fallback: if both attempts fail, callers must see that no map loaded.
+        self.map_loaded = false;
         self.map_name = map_name.to_string();
         self.pathfinding_height_samples = None;
         self.runtime_terrain_texture_classes.clear();
@@ -2155,14 +2161,27 @@ impl GameLogic {
         self.load_map_with_progress(map_name, |_progress, _phase| {})
     }
 
-    /// Wave 922: load map or fall back to a default map name; returns loaded identity.
+    /// Load a requested map, then an explicit fallback, returning the identity
+    /// that actually loaded. `None` means neither attempt produced a playable
+    /// map; it is deliberately not an alias for the fallback name.
     #[inline]
-    pub fn load_map_or_fallback(&mut self, map_name: &str, fallback: &str) -> String {
-        if self.load_map(map_name) {
-            map_name.to_string()
-        } else {
-            let _ = self.load_map(fallback);
-            fallback.to_string()
+    pub fn load_map_or_fallback(&mut self, map_name: &str, fallback: &str) -> Option<String> {
+        if self.load_map(map_name) && self.map_loaded {
+            return Some(self.map_name.clone());
         }
+
+        // Do not pretend a second attempt occurred when the requested identity
+        // already was the fallback. More importantly, never report a fallback
+        // name unless that attempt really reached the successful load tail.
+        if map_name != fallback && self.load_map(fallback) && self.map_loaded {
+            return Some(self.map_name.clone());
+        }
+
+        // No world is available. Clear the transient identity set at the start
+        // of either failed attempt so UI/save/render callers cannot describe an
+        // unloaded map as the active match.
+        self.map_name.clear();
+        self.map_loaded = false;
+        None
     }
 }

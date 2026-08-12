@@ -273,6 +273,61 @@ impl GameLogic {
         false
     }
 
+    /// Cancel exactly one displayed production-queue slot and refund its owner.
+    ///
+    /// C++ ControlBar cancellation is positional: duplicate templates can be
+    /// queued more than once, and clicking the second icon must leave the first
+    /// one intact.  `cancel_production` remains the name-based API used by
+    /// older callers; the authoritative HUD bridge uses this index-preserving
+    /// variant.
+    pub fn cancel_production_at_index(&mut self, producer_id: ObjectId, queue_index: usize) -> bool {
+        let Some(team) = self.objects.get(&producer_id).map(|producer| producer.team) else {
+            return false;
+        };
+        if !self.players.values().any(|player| player.team == team) {
+            return false;
+        }
+
+        let mut cancelled = None;
+        if let Some(producer) = self.objects.get_mut(&producer_id) {
+            if let Some(building) = producer.building_data.as_mut() {
+                cancelled = building.cancel_production(queue_index);
+            }
+        }
+
+        let Some(item) = cancelled else {
+            return false;
+        };
+
+        if let Some(player) = self.get_player_mut_by_team(team) {
+            // Economy authority: mirror the name-based cancellation path.
+            player.apply_supply_gain(item.cost.supplies);
+            player.power_available -= item.cost.power;
+            crate::game_logic::host_economy_log::record(
+                player.id,
+                player.effective_supplies(),
+                player.power_available,
+            );
+        }
+        crate::game_logic::host_production_log::record_cancel(producer_id, item.template_name);
+
+        // The final cancellation releases the factory door immediately just as
+        // the name-based path does; otherwise stale exit-delay state can keep a
+        // completed producer visually occupied.
+        if let Some(producer) = self.objects.get_mut(&producer_id) {
+            if let Some(building) = producer.building_data.as_mut() {
+                if building.production_queue.is_empty() && building.exit_delay_remaining > 0.0 {
+                    building.exit_delay_remaining = 0.0;
+                    crate::game_logic::host_production_progress_log::record_exit_delay_only(
+                        producer_id,
+                        0.0,
+                    );
+                }
+            }
+        }
+        true
+    }
+
     /// Wave 985: host production pause residual (ControlBar empty dual-world queue).
     pub fn set_production_paused(&mut self, producer_id: ObjectId, paused: bool) -> bool {
         let Some(producer) = self.objects.get_mut(&producer_id) else {

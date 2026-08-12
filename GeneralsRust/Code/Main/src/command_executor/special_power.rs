@@ -20,6 +20,26 @@ use glam::Vec3;
 use log::{debug, warn};
 use std::collections::{HashMap, HashSet};
 
+/// Translate the public command slot into the host object's indexed weapon set.
+///
+/// The host object currently carries PRIMARY and SECONDARY weapon storage only.
+/// Keep the conversion explicit so an unrepresented TERTIARY/AntiAir request can
+/// never silently fall through to PRIMARY (the old `Object::weapon_slot` helper
+/// intentionally has a primary fallback for some read-only combat callers).
+fn host_weapon_slot_index(weapon_slot: &WeaponSlot) -> Option<u8> {
+    match weapon_slot {
+        WeaponSlot::Primary => Some(0),
+        WeaponSlot::Secondary => Some(1),
+        // Preserve the C++ ordinal for validation. `unit_command_select_weapon_slot`
+        // rejects it until the host has real tertiary storage.
+        WeaponSlot::Tertiary => Some(2),
+        // This is a target capability, not an Object weapon-set ordinal.
+        WeaponSlot::AntiAir => None,
+        // Do not truncate an arbitrary command value into a different slot.
+        WeaponSlot::Slot(slot) => u8::try_from(*slot).ok(),
+    }
+}
+
 impl<'a> CommandExecutor<'a> {
     /// C++ AIGroup::groupOverrideSpecialPowerDestination residual.
     pub(crate) fn execute_override_special_power_destination(
@@ -597,34 +617,55 @@ impl<'a> CommandExecutor<'a> {
         weapon_slot: &WeaponSlot,
         target: &WeaponTarget,
     ) -> CommandResult {
-        // Wave 233: weapon fire last-writes via GameLogic unit_command_fire_weapon.
+        let Some(slot) = host_weapon_slot_index(weapon_slot) else {
+            warn!(
+                "Rejecting unindexed weapon command {:?}: it has no host weapon-set slot",
+                weapon_slot
+            );
+            return CommandResult::InvalidCommand;
+        };
+
+        // C++ GUI_COMMAND_FIRE_WEAPON locks the requested weapon slot temporarily
+        // before it issues the attack. Do this through GameLogic so a requested
+        // secondary/tertiary action cannot accidentally fire the unit's primary.
+        let mut any = false;
         for &unit_id in units {
-            match target {
+            if !self
+                .game_logic
+                .unit_command_select_weapon_slot(unit_id, slot)
+            {
+                warn!(
+                    "Unit {} cannot use requested weapon slot {:?}",
+                    unit_id.0, weapon_slot
+                );
+                continue;
+            }
+
+            let fired = match target {
                 WeaponTarget::Object(target_id) => {
-                    if self
-                        .game_logic
+                    self.game_logic
                         .unit_command_fire_weapon(unit_id, Some(*target_id), None)
-                    {
-                        debug!(
-                            "Unit {} firing weapon {:?} at {:?}",
-                            unit_id.0, weapon_slot, target
-                        );
-                    }
                 }
                 WeaponTarget::Location(pos) => {
-                    if self
-                        .game_logic
+                    self.game_logic
                         .unit_command_fire_weapon(unit_id, None, Some(*pos))
-                    {
-                        debug!(
-                            "Unit {} firing weapon {:?} at {:?}",
-                            unit_id.0, weapon_slot, target
-                        );
-                    }
                 }
+            };
+
+            if fired {
+                any = true;
+                debug!(
+                    "Unit {} firing weapon {:?} at {:?}",
+                    unit_id.0, weapon_slot, target
+                );
             }
         }
-        CommandResult::Success
+
+        if any {
+            CommandResult::Success
+        } else {
+            CommandResult::InvalidCommand
+        }
     }
 
     /// GLA Bomb Truck residual: SpecialAbilityDisguiseAsVehicle.
