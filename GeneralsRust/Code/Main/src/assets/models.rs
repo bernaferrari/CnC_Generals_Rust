@@ -315,6 +315,30 @@ impl W3dAnimation {
     }
 }
 
+/// Split the qualified raw-animation name C++ hands to
+/// `WW3DAssetManager::Get_HAnim`.
+///
+/// The C++ fallback takes the substring after the *first* dot and appends
+/// `.w3d`; the portion before that dot remains the exact hierarchy identity.
+/// Do not accept a path here: Draw `Animation` is an HAnim identity, not an
+/// archive filename escape hatch.
+fn split_w3d_draw_animation_identity(identity: &str) -> Option<(&str, &str)> {
+    let identity = identity.trim();
+    let (hierarchy, animation) = identity.split_once('.')?;
+    let hierarchy = hierarchy.trim();
+    let animation = animation.trim();
+    if hierarchy.is_empty()
+        || animation.is_empty()
+        || hierarchy.eq_ignore_ascii_case("none")
+        || animation.eq_ignore_ascii_case("none")
+        || hierarchy.contains(['/', '\\'])
+        || animation.contains(['/', '\\'])
+    {
+        return None;
+    }
+    Some((hierarchy, animation))
+}
+
 /// A frozen `W3DModelDraw` animation selection carried from collection through
 /// the final GPU palette upload.
 ///
@@ -803,6 +827,24 @@ impl W3DModel {
         animation_index: Option<usize>,
         animation_frame: f32,
     ) -> Option<(Mat4, bool)> {
+        let binding = animation_index.map(W3dAnimationBinding::local);
+        self.mesh_local_transform_and_visibility_for_binding(
+            mesh_index,
+            binding.as_ref(),
+            animation_frame,
+        )
+    }
+
+    /// As [`Self::mesh_local_transform_and_visibility_for_animation`], but
+    /// retains the frozen local-or-companion HAnim selection all the way to
+    /// the HLOD child. An absent binding is a bind-pose request; an invalid
+    /// binding is *not* a request for local clip zero.
+    pub fn mesh_local_transform_and_visibility_for_binding(
+        &self,
+        mesh_index: usize,
+        animation_binding: Option<&W3dAnimationBinding>,
+        animation_frame: f32,
+    ) -> Option<(Mat4, bool)> {
         let mesh = self.meshes.get(mesh_index)?;
 
         if self.hlod_parse_failed {
@@ -814,20 +856,16 @@ impl W3DModel {
 
         let bone_index = self.rigid_hlod_bone_index_for_mesh(mesh_index)?;
         let hierarchy = self.hierarchy.as_ref()?;
-        let (source_transform, visible) = if let Some(animation_index) = animation_index {
-            let animation = self.animations.get(animation_index)?;
+        let (source_transform, visible) = if let Some(animation_binding) = animation_binding {
             // An HTree can only apply a motion authored for its exact source
             // hierarchy.  Do not reinterpret a same-named clip from a
             // different hierarchy as visibility for this HLOD child.
-            if animation.hierarchy_name.trim().is_empty()
-                || !animation
-                    .hierarchy_name
-                    .eq_ignore_ascii_case(hierarchy.name.as_str())
-            {
+            if !self.animation_binding_is_compatible(animation_binding) {
                 return None;
             }
+            let animation = animation_binding.animation(self)?;
             let source_transform = self
-                .sample_animation(animation_index, animation_frame)
+                .sample_animation_binding(animation_binding, animation_frame)
                 .and_then(|transforms| transforms.get(bone_index).copied())?;
             let visible = animation.visibility_for_pivot(bone_index, animation_frame)?;
             (source_transform, visible)
@@ -959,27 +997,66 @@ impl W3DModel {
     /// those two source records separately.  This is an exact qualified-record
     /// comparison, not a basename/suffix heuristic.
     pub fn find_animation_index_for_draw_identity(&self, identity: &str) -> Option<usize> {
-        let identity = identity.trim();
-        if identity.is_empty() || identity.eq_ignore_ascii_case("none") {
-            return None;
+        self.animations
+            .iter()
+            .position(|animation| animation.matches_draw_identity(identity))
+    }
+
+    /// Resolve an exact Draw identity only when this geometry file itself
+    /// carries a compatible raw HAnim. The caller may then try C++'s companion
+    /// `Animation.w3d` rule; it must never substitute a local clip by ordinal.
+    pub fn local_animation_binding_for_draw_identity(
+        &self,
+        identity: &str,
+    ) -> Option<W3dAnimationBinding> {
+        let binding = W3dAnimationBinding::local(self.find_animation_index_for_draw_identity(identity)?);
+        self.animation_binding_is_compatible(&binding)
+            .then_some(binding)
+    }
+
+    /// Return whether a frozen Draw HAnim can be sampled against this model's
+    /// actual hierarchy. Companion clips remain separate assets, but C++ binds
+    /// them to the named HTree only; a matching clip name alone is insufficient.
+    pub fn animation_binding_is_compatible(&self, binding: &W3dAnimationBinding) -> bool {
+        let Some(hierarchy) = self.hierarchy.as_ref() else {
+            return false;
+        };
+        let Some(animation) = binding.animation(self) else {
+            return false;
+        };
+        if animation.hierarchy_name.trim().is_empty()
+            || animation.name.trim().is_empty()
+            || !animation
+                .hierarchy_name
+                .eq_ignore_ascii_case(hierarchy.name.as_str())
+        {
+            return false;
         }
 
-        self.animations.iter().position(|animation| {
-            if animation.name.eq_ignore_ascii_case(identity) {
-                return true;
+        match binding {
+            W3dAnimationBinding::Local { .. } => true,
+            W3dAnimationBinding::Companion { identity, .. } => {
+                animation.matches_draw_identity(identity)
             }
-            if animation.hierarchy_name.trim().is_empty() || animation.name.trim().is_empty() {
-                return false;
-            }
-            let canonical = format!("{}.{}", animation.hierarchy_name, animation.name);
-            canonical.eq_ignore_ascii_case(identity)
-        })
+        }
     }
 
     /// Get animation metadata: (num_frames, frame_rate) for the given animation.
     pub fn animation_metadata(&self, anim_index: usize) -> Option<(u32, u32)> {
         let anim = self.animations.get(anim_index)?;
         Some((anim.num_frames, anim.frame_rate))
+    }
+
+    /// Metadata for one exact frozen animation binding. An incompatible
+    /// companion is treated as unavailable so callers stay in bind pose.
+    pub fn animation_binding_metadata(
+        &self,
+        binding: &W3dAnimationBinding,
+    ) -> Option<(u32, u32)> {
+        self.animation_binding_is_compatible(binding)
+            .then(|| binding.animation(self))
+            .flatten()
+            .map(|animation| (animation.num_frames, animation.frame_rate))
     }
 
     /// Sample an animation at the given frame, producing per-bone global transforms.
@@ -991,6 +1068,28 @@ impl W3DModel {
     /// between adjacent keyframes.
     pub fn sample_animation(&self, anim_index: usize, frame: f32) -> Option<Vec<[f32; 16]>> {
         let anim = self.animations.get(anim_index)?;
+        self.sample_animation_data(anim, frame)
+    }
+
+    /// Sample a selected local or exact companion HAnim. This performs the
+    /// hierarchy validation at the final palette boundary too, so an invalid
+    /// companion cannot turn into a local animation-zero pose downstream.
+    pub fn sample_animation_binding(
+        &self,
+        binding: &W3dAnimationBinding,
+        frame: f32,
+    ) -> Option<Vec<[f32; 16]>> {
+        if !self.animation_binding_is_compatible(binding) {
+            return None;
+        }
+        self.sample_animation_data(binding.animation(self)?, frame)
+    }
+
+    fn sample_animation_data(
+        &self,
+        anim: &W3dAnimation,
+        frame: f32,
+    ) -> Option<Vec<[f32; 16]>> {
         let hierarchy = self.hierarchy.as_ref()?;
 
         let mut local_transforms: Vec<[f32; 16]> =
