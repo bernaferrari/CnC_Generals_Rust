@@ -100,6 +100,10 @@ impl GameLogic {
         self.attack_aim_at_target_exit(unit_id);
         self.attack_fire_weapon_exit(unit_id);
         if let Some(u) = self.objects.get_mut(&unit_id) {
+            // C++ AIAttackState::onExit releases only temporary locks.  This
+            // includes an interrupted explicit TERTIARY attack, while a UI
+            // weapon toggle's permanent lock remains authoritative.
+            u.release_weapon_lock(WeaponLockType::LockedTemporarily);
             u.set_status_attacking(false);
             u.status.is_aiming_weapon = false;
             u.status.is_firing_weapon = false;

@@ -194,6 +194,7 @@ impl<'a> CommandExecutor<'a> {
                 .unit_command_stop_moving_order_target(unit_id, Some(target_id));
             if self.path_to_goal_with_state(unit_id, target_pos, AIState::Gathering) {
                 any = true;
+                self.accepted_gather_carrier_ids.push(unit_id);
             }
         }
         if any {

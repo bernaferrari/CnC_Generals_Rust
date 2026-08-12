@@ -39,6 +39,10 @@ pub struct CommandExecutor<'a> {
     /// Track command execution metrics
     commands_executed: usize,
     commands_failed: usize,
+    /// Exact subset accepted by the most recent Gather command. This is kept
+    /// separate from generic command success so Main can bind physical mouse
+    /// provenance only to carriers whose path assignment actually succeeded.
+    accepted_gather_carrier_ids: Vec<ObjectId>,
 }
 
 mod abilities;
@@ -67,7 +71,14 @@ impl<'a> CommandExecutor<'a> {
             current_player_id: player_id,
             commands_executed: 0,
             commands_failed: 0,
+            accepted_gather_carrier_ids: Vec::new(),
         }
+    }
+
+    /// Consume only the carrier IDs accepted by the current Gather execution.
+    /// Non-Gather commands and rejected Gather commands return an empty vector.
+    pub(crate) fn take_accepted_gather_carrier_ids(&mut self) -> Vec<ObjectId> {
+        std::mem::take(&mut self.accepted_gather_carrier_ids)
     }
 
     fn player_team(&self, player_id: u32) -> Team {
@@ -79,6 +90,7 @@ impl<'a> CommandExecutor<'a> {
 
     /// Execute a game command and return result
     pub fn execute_command(&mut self, command: GameCommand) -> Result<CommandResult, String> {
+        self.accepted_gather_carrier_ids.clear();
         debug!(
             "Executing command {:?} for player {}",
             command.command_type, command.player_id

@@ -360,6 +360,11 @@ pub(super) struct InteractivePlayabilityEvidence {
     /// construct arm in the same session.  This is the narrow build-and-
     /// produce acceptance condition, not a broad runtime-host command flag.
     pub(crate) physical_build_and_produce: bool,
+    /// A carrier selected by a confirmed physical Gather order subsequently
+    /// deposited a positive carried-supply amount for the local player in a
+    /// visible offline match. Passive income and untracked carriers cannot
+    /// advance this proof.
+    pub(crate) physical_gather_resources: bool,
     /// An explicit PopupSaveLoad save confirmation completed through Main's
     /// snapshot authority after a real physical WND mouse event in a visible
     /// offline match.
@@ -437,6 +442,24 @@ impl InteractivePlayabilityEvidence {
     /// build-and-produce proof.
     pub(super) fn build_and_produce_complete(self) -> bool {
         self.physical_build_and_produce
+    }
+
+    /// Record an already-validated physical supply drop-off.
+    ///
+    /// The caller must have matched the drop-off to a carrier from an accepted
+    /// physical Gather command, verified a positive carried-supply amount, and
+    /// verified the visible offline/local-player conditions. Keeping that
+    /// gameplay authority outside this sticky evidence type prevents passive or
+    /// runtime-host income from being inferred as physical input.
+    pub(super) fn note_physical_gather_resources(&mut self, physical: bool) {
+        if physical {
+            self.physical_gather_resources = true;
+        }
+    }
+
+    /// Whether this session has completed the physical Gather → drop-off proof.
+    pub(super) fn gather_resources_complete(self) -> bool {
+        self.physical_gather_resources
     }
 
     /// Record a Main-authority save success that already passed the physical
@@ -674,6 +697,10 @@ pub struct CnCGameEngine {
     pub(crate) is_windowed: bool,
     pub(crate) rmb_scroll_anchor: Option<(f32, f32)>,
     pub(crate) is_rmb_scrolling: bool,
+    /// Evidence-only provenance for the active RMB gesture. A gather proof
+    /// requires the press and release to both be real OS mouse input; injected
+    /// press/release pairs still execute normal gameplay but cannot qualify.
+    pub(crate) rmb_scroll_started_physically: bool,
     pub(crate) is_mmb_rotating: bool,
     pub(crate) mmb_anchor: Option<(f32, f32)>,
 
@@ -746,6 +773,10 @@ pub struct CnCGameEngine {
     /// Real-person, windowed input evidence for the retail playable claim.
     /// Deliberately separate from `runtime_host_last_gameplay_cmd`.
     pub(crate) interactive_playability: InteractivePlayabilityEvidence,
+    /// Carrier IDs admitted only from a successful physical right-click Gather
+    /// command for the local player. `ReturningResources` drop-off events are
+    /// matched against this set before they may latch physical evidence.
+    pub(crate) physical_gather_carrier_ids: HashSet<ObjectId>,
     /// Cumulative HP damage applied this match (host_damage_log residual).
     pub(crate) match_damage_applied: f32,
     /// Cumulative destroy events from damage this match.

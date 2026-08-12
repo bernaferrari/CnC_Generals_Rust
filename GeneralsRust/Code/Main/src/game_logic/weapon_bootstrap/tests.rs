@@ -1032,6 +1032,11 @@ fn reload_type_seed_return_to_base() {
         seed_reload_type_for("GLAInfantryTerrorist"),
         HostReloadType::Manual
     );
+    assert_eq!(
+        seed_reload_type_for("ComancheRocketPodWeapon"),
+        HostReloadType::Auto,
+        "retail ComancheRocketPodWeapon declares AutoReloadsClip = Yes"
+    );
 }
 
 #[test]

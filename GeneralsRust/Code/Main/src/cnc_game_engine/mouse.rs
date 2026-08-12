@@ -1,6 +1,47 @@
 #![allow(unused_imports, unused_variables, dead_code, non_snake_case)]
-use super::*;
 use super::input::MouseInputOrigin;
+use super::*;
+
+/// Physical input metadata held only across the synchronous right-click command
+/// execution boundary. `issued_at` is part of the command's own immutable
+/// fingerprint, so an unrelated queued/AI Gather event cannot be mistaken for
+/// this physical input edge.
+#[derive(Debug, Clone)]
+struct PhysicalGatherAttempt {
+    command_id: u32,
+    issued_at: SystemTime,
+    player_id: u32,
+    target_id: ObjectId,
+}
+
+impl PhysicalGatherAttempt {
+    fn from_right_click_command(
+        command: &crate::command_system::GameCommand,
+        origin: MouseInputOrigin,
+        physical_rmb_gesture: bool,
+    ) -> Option<Self> {
+        if !matches!(origin, MouseInputOrigin::Physical) || !physical_rmb_gesture {
+            return None;
+        }
+        let crate::command_system::CommandType::Gather { target_id } = &command.command_type else {
+            return None;
+        };
+        Some(Self {
+            command_id: command.command_id,
+            issued_at: command.timestamp.clone(),
+            player_id: command.player_id,
+            target_id: *target_id,
+        })
+    }
+
+    fn matches(&self, event: &crate::game_logic::AcceptedGatherCommand) -> bool {
+        self.command_id == event.command_id
+            && self.issued_at == event.issued_at
+            && self.player_id == event.player_id
+            && self.target_id == event.target_id
+    }
+}
+
 impl CnCGameEngine {
     pub(super) fn handle_left_click(&mut self) {
         self.is_dragging = true;
@@ -260,7 +301,14 @@ impl CnCGameEngine {
         self.play_sound_effect(SoundType::Select);
     }
 
-    pub(super) fn handle_right_click(&mut self) {
+    /// Issue a context-sensitive RMB command. Physical gather evidence is
+    /// threaded through this exact command path, but only becomes tracked after
+    /// GameLogic reports the Gather command actually accepted its carrier IDs.
+    pub(super) fn handle_right_click(
+        &mut self,
+        origin: MouseInputOrigin,
+        physical_rmb_gesture: bool,
+    ) {
         let mouse_pos = self.mouse_world_position;
 
         // Prefer live player selection; fall back to engine selection residual.
@@ -333,7 +381,7 @@ impl CnCGameEngine {
                     };
                 }
             }
-            self.host_queue_and_process_command(command);
+            self.host_queue_and_process_right_click_command(command, origin, physical_rmb_gesture);
             return;
         }
 
@@ -344,6 +392,82 @@ impl CnCGameEngine {
             self.host_command_move(self.current_player_id, mouse_pos);
         }
         self.play_sound_effect(SoundType::Command);
+    }
+
+    /// Run the normal synchronous command authority path, then bind a physical
+    /// Gather attempt to its executor-confirmed carrier subset. Injected,
+    /// runtime-host, and AI commands have no physical attempt and are consumed
+    /// without ever entering `physical_gather_carrier_ids`.
+    fn host_queue_and_process_right_click_command(
+        &mut self,
+        command: crate::command_system::GameCommand,
+        origin: MouseInputOrigin,
+        physical_rmb_gesture: bool,
+    ) {
+        let physical_attempt =
+            PhysicalGatherAttempt::from_right_click_command(&command, origin, physical_rmb_gesture);
+        self.host_queue_and_process_command(command);
+
+        // `host_queue_and_process_command` is synchronous. Always consume the
+        // transient events, even for nonphysical clicks, so background/AI
+        // Gather traffic cannot accumulate or be matched by a later input.
+        let accepted_gathers = self.host_game_logic_mut().take_accepted_gather_commands();
+        let Some(attempt) = physical_attempt else {
+            return;
+        };
+        if !self.host_physical_gather_evidence_eligible()
+            || attempt.player_id != self.local_player_id_for_ui()
+        {
+            return;
+        }
+
+        for event in accepted_gathers {
+            if attempt.matches(&event) {
+                // `execute_gather` emitted only workers selected by this
+                // command whose local-team Gather path was accepted.
+                self.physical_gather_carrier_ids.extend(event.carrier_ids);
+            }
+        }
+    }
+
+    /// Consume economy events only from the real ReturningResources deposit
+    /// branch. A resource-total delta, passive income, scripted income, or an
+    /// untracked/remote carrier is deliberately insufficient.
+    pub(super) fn host_drain_physical_gather_dropoffs(&mut self) {
+        // Clear any non-input Gather acceptances that arose during simulation;
+        // a physical RMB path consumes its own event synchronously above.
+        let _ = self.host_game_logic_mut().take_accepted_gather_commands();
+        let dropoffs = self.host_game_logic_mut().take_supply_dropoff_events();
+        if dropoffs.is_empty() || !self.host_physical_gather_evidence_eligible() {
+            return;
+        }
+
+        let local_player_id = self.local_player_id_for_ui();
+        for dropoff in dropoffs {
+            let is_tracked_local_deposit = dropoff.carried_amount > 0
+                && dropoff.player_id == local_player_id
+                && self
+                    .physical_gather_carrier_ids
+                    .contains(&dropoff.carrier_id);
+            self.interactive_playability
+                .note_physical_gather_resources(is_tracked_local_deposit);
+        }
+    }
+
+    /// A physical Gather proof is valid only in a visible, non-headless,
+    /// offline match. This intentionally does not infer input provenance from
+    /// `CommandSourceType::FromUser` or a runtime-host command name.
+    fn host_physical_gather_evidence_eligible(&self) -> bool {
+        !self.runtime_host_headless
+            && self.runtime_host_window_visible()
+            && matches!(self.current_state, GameState::InGame)
+            && matches!(
+                self.host_match_game_mode,
+                Some(
+                    crate::game_logic::GameMode::SinglePlayer
+                        | crate::game_logic::GameMode::Skirmish
+                )
+            )
     }
 
     pub(super) fn handle_mouse_wheel(&mut self, delta: &winit::event::MouseScrollDelta) {

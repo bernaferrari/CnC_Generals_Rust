@@ -98,6 +98,28 @@ impl Object {
         }
     }
 
+    /// Whether the shot just reached an auto-reload clip boundary.
+    ///
+    /// Retail `Weapon::fireWeapon` returns `true` when an auto-reloading
+    /// clip was exhausted and immediately reloaded; callers use that edge to
+    /// release a temporary WeaponSet lock.  The host represents that pending
+    /// reload as an empty `ammo` counter until the next ready fire, so keep
+    /// the equivalent test centralized here.  Manual and return-to-base
+    /// clips intentionally do not report this edge.
+    pub fn auto_reloaded_clip_after_firing(weapon: &Weapon, weapon_name: Option<&str>) -> bool {
+        use crate::game_logic::weapon_bootstrap::{
+            host_reload_type_for_weapon_name, HostReloadType,
+        };
+
+        if weapon.clip_size == 0 || weapon.ammo != Some(0) {
+            return false;
+        }
+        let reload_type = weapon_name
+            .map(host_reload_type_for_weapon_name)
+            .unwrap_or(HostReloadType::Auto);
+        reload_type == HostReloadType::Auto
+    }
+
     pub fn rearm_weapon_full(weapon: &mut Weapon) {
         if weapon.clip_size > 0 {
             weapon.ammo = Some(weapon.clip_size);

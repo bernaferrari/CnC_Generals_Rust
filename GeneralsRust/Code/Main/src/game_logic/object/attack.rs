@@ -192,18 +192,20 @@ impl Object {
             .map(crate::game_logic::weapon_bootstrap::host_historic_bonus_for_weapon_name)
             .unwrap_or_default();
 
-        let (weapon_speed, weapon_splash, weapon_homing) = match self.weapon_slot_mut(slot) {
-            Some(weapon) => {
-                Self::consume_ammo_on_fire_named(weapon, current_time, name);
-                (
-                    weapon.projectile_speed,
-                    weapon.splash_radius,
-                    // AA residual: air-only weapons home on the live target.
-                    weapon.can_target_air && !weapon.can_target_ground,
-                )
-            }
-            None => return false,
-        };
+        let (weapon_speed, weapon_splash, weapon_homing, auto_reloaded_clip) =
+            match self.weapon_slot_mut(slot) {
+                Some(weapon) => {
+                    Self::consume_ammo_on_fire_named(weapon, current_time, name);
+                    (
+                        weapon.projectile_speed,
+                        weapon.splash_radius,
+                        // AA residual: air-only weapons home on the live target.
+                        weapon.can_target_air && !weapon.can_target_ground,
+                        Self::auto_reloaded_clip_after_firing(weapon, name),
+                    )
+                }
+                None => return false,
+            };
         let shooter_id = self.id;
         let shooter_pos = self.get_position();
         self.target = Some(target_id);
@@ -286,6 +288,16 @@ impl Object {
         // C++ --m_maxShotCount residual.
         self.consume_max_shot_count();
         self.refresh_weapon_fire_status(current_time);
+        // C++ Object::fireCurrentWeapon releases a temporary lock only when
+        // the *locked* weapon completed an auto-reloading clip.  A temporary
+        // third-slot command must not be unlocked by a primary fallback shot
+        // while that third slot is still reloading.
+        if auto_reloaded_clip
+            && self.weapon_lock_type == WeaponLockType::LockedTemporarily
+            && self.weapon_lock_slot == slot
+        {
+            self.release_weapon_lock(WeaponLockType::LockedTemporarily);
+        }
         {
             let frame = crate::game_logic::host_historic_bonus::logic_frame();
             self.stamp_fire_sound_loop_after_shot(frame, fire_weapon_name.as_deref());
@@ -485,6 +497,10 @@ impl Object {
     }
 
     pub fn stop_attack(&mut self) {
+        // C++ WeaponSet::releaseWeaponLock: any non-special player order and
+        // an exited attack state release a temporary special-weapon lock.
+        // Permanent user locks remain intact.
+        self.release_weapon_lock(WeaponLockType::LockedTemporarily);
         self.target = None;
         self.target_location = None;
         self.record_host_target_location();

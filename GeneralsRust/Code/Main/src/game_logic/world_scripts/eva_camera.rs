@@ -965,9 +965,40 @@ impl GameLogic {
         command: crate::command_system::GameCommand,
     ) {
         let command_type = command.command_type.clone();
+        let accepted_gather_metadata = match &command.command_type {
+            crate::command_system::CommandType::Gather { target_id } => Some((
+                command.command_id,
+                command.timestamp.clone(),
+                command.player_id,
+                *target_id,
+            )),
+            _ => None,
+        };
         let mut executor = crate::command_executor::CommandExecutor::new(self, command.player_id);
+        let result = executor.execute_command(command);
+        let accepted_carrier_ids = executor.take_accepted_gather_carrier_ids();
+        drop(executor);
 
-        match executor.execute_command(command) {
+        // The command executor, rather than input/UI code, decides which
+        // selected workers actually accepted the Gather order.  Preserve that
+        // precise carrier subset as a typed event; Main later supplies the
+        // physical mouse provenance only for a matching right-click command.
+        if matches!(
+            result.as_ref(),
+            Ok(crate::command_system::CommandResult::Success)
+        ) {
+            if let Some((command_id, issued_at, player_id, target_id)) = accepted_gather_metadata {
+                self.record_accepted_gather_command(crate::game_logic::AcceptedGatherCommand {
+                    command_id,
+                    issued_at,
+                    player_id,
+                    target_id,
+                    carrier_ids: accepted_carrier_ids,
+                });
+            }
+        }
+
+        match result {
             Ok(crate::command_system::CommandResult::Success) => {}
             Ok(result) => {
                 log::debug!(

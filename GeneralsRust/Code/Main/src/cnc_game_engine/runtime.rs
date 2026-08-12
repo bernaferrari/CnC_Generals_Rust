@@ -72,6 +72,10 @@ pub(super) struct RuntimeHostSnapshot {
     /// Physical Control Bar DozerConstruct arm followed by a physical, valid
     /// production queue request in this visible offline session.
     pub(super) physical_build_and_produce: bool,
+    /// A tracked carrier from a physical right-click Gather order deposited
+    /// positive carried supplies for the local player in a visible offline
+    /// match. This is not inferred from generic resource totals.
+    pub(super) physical_gather_resources: bool,
     /// Physical confirmed PopupSaveLoad save followed by a physical confirmed
     /// load which both succeeded through Main's snapshot authority.
     pub(super) physical_save_load_continue: bool,
@@ -272,6 +276,7 @@ impl RuntimeHostBridge {
             wnd_widget_tree_nav: false,
             interactive_gameplay: false,
             physical_build_and_produce: false,
+            physical_gather_resources: false,
             physical_save_load_continue: false,
             pending_capture: false,
             render_alive_objects: 0,
@@ -404,6 +409,10 @@ impl RuntimeHostBridge {
         payload.push_str(&format!(
             "physical_build_and_produce={}\n",
             snapshot.physical_build_and_produce
+        ));
+        payload.push_str(&format!(
+            "physical_gather_resources={}\n",
+            snapshot.physical_gather_resources
         ));
         payload.push_str(&format!(
             "physical_save_load_continue={}\n",

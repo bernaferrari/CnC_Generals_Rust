@@ -77,6 +77,23 @@ impl BuildListInfo {
         self.next_build_list.as_deref_mut()
     }
 
+    /// Visit this entry and every following linked build-list entry in the
+    /// original list order.
+    ///
+    /// This deliberately uses a scoped callback instead of exposing a mutable
+    /// iterator: a linked node cannot safely yield `&mut self` while retaining
+    /// a mutable borrow of its `next` field for the iterator's next step.
+    pub fn for_each_mut(&mut self, mut visit: impl FnMut(&mut BuildListInfo)) {
+        self.visit_chain_mut(&mut visit);
+    }
+
+    fn visit_chain_mut(&mut self, visit: &mut impl FnMut(&mut BuildListInfo)) {
+        visit(self);
+        if let Some(next) = self.next_build_list.as_deref_mut() {
+            next.visit_chain_mut(visit);
+        }
+    }
+
     pub fn set_next_build_list(&mut self, next: Option<BuildListInfo>) {
         self.next_build_list = next.map(Box::new);
     }
@@ -382,4 +399,42 @@ impl Snapshot for BuildListInfo {
     }
 
     fn load_post_process(&mut self) {}
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn iter_mut_visits_and_mutates_the_entire_linked_list_in_order() {
+        let mut third = BuildListInfo::new();
+        third.set_building_name(AsciiString::from("third"));
+
+        let mut second = BuildListInfo::new();
+        second.set_building_name(AsciiString::from("second"));
+        second.set_next_build_list(Some(third));
+
+        let mut first = BuildListInfo::new();
+        first.set_building_name(AsciiString::from("first"));
+        first.set_next_build_list(Some(second));
+
+        let mut names = Vec::new();
+        let mut index = 0;
+        first.for_each_mut(|entry| {
+            names.push(entry.get_building_name().as_str().to_owned());
+            entry.set_angle(index as Real);
+            index += 1;
+        });
+
+        assert_eq!(names, ["first", "second", "third"]);
+        assert_eq!(first.get_angle(), 0.0);
+        assert_eq!(first.get_next().map(BuildListInfo::get_angle), Some(1.0));
+        assert_eq!(
+            first
+                .get_next()
+                .and_then(BuildListInfo::get_next)
+                .map(BuildListInfo::get_angle),
+            Some(2.0)
+        );
+    }
 }

@@ -1348,6 +1348,7 @@ impl CnCGameEngine {
         self.selection_start = None;
         self.rmb_scroll_anchor = None;
         self.is_rmb_scrolling = false;
+        self.rmb_scroll_started_physically = false;
 
         for sink in &self.sound_effects {
             sink.stop();

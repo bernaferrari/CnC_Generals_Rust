@@ -81,6 +81,22 @@ pub struct GPULight {
     flags: [u32; 4],           // active, cast_shadows, shadow_quality, padding
 }
 
+impl Default for GPULight {
+    fn default() -> Self {
+        // A zero-intensity, inactive shader record is the defined padding
+        // value.  Using `Default` keeps this WGPU upload entirely safe rather
+        // than relying on an implicit all-zero bit-pattern contract.
+        Self {
+            position: [0.0; 4],
+            direction: [0.0; 4],
+            color_intensity: [0.0; 4],
+            radius_falloff: [0.0; 4],
+            flicker_pulse: [0.0; 4],
+            flags: [0; 4],
+        }
+    }
+}
+
 impl From<&LightSource> for GPULight {
     fn from(light: &LightSource) -> Self {
         let light_type_value = match light.light_type {
@@ -585,7 +601,7 @@ impl DynamicLighting {
             .collect();
 
         // Pad to maximum size
-        gpu_lights.resize(MAX_DYNAMIC_LIGHTS, unsafe { std::mem::zeroed() });
+        gpu_lights.resize(MAX_DYNAMIC_LIGHTS, GPULight::default());
 
         // Update light buffer
         self.queue
@@ -888,6 +904,17 @@ impl DynamicLighting {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn gpu_light_padding_default_is_an_inactive_zero_intensity_record() {
+        let light = GPULight::default();
+        assert_eq!(light.position, [0.0; 4]);
+        assert_eq!(light.direction, [0.0; 4]);
+        assert_eq!(light.color_intensity, [0.0; 4]);
+        assert_eq!(light.radius_falloff, [0.0; 4]);
+        assert_eq!(light.flicker_pulse, [0.0; 4]);
+        assert_eq!(light.flags, [0; 4]);
+    }
 
     #[test]
     fn collect_shadow_casting_light_ids_is_sorted_and_filtered() {

@@ -74,6 +74,8 @@ pub const COMANCHE_AT_DELAY_FRAMES: u32 = 15;
 pub const COMANCHE_AT_CLIP_SIZE: u32 = 4;
 /// Retail ClipReloadTime 15000ms → 450 frames honesty residual.
 pub const COMANCHE_AT_CLIP_RELOAD_FRAMES: u32 = 450;
+/// Retail ClipReloadTime 15000ms in seconds.
+pub const COMANCHE_AT_CLIP_RELOAD_SECS: f32 = 15.0;
 /// Residual fire audio.
 pub const COMANCHE_AT_FIRE_AUDIO: &str = "ComancheAntiTankMissileWeapon";
 
@@ -98,6 +100,8 @@ pub const ROCKET_POD_CLIP_SIZE: u32 = 20;
 pub const ROCKET_POD_CLIP_RELOAD_MS: u32 = 30_000;
 /// ClipReloadTime 30000ms → 900 frames @ 30 FPS.
 pub const ROCKET_POD_CLIP_RELOAD_FRAMES: u32 = 900;
+/// Retail ClipReloadTime 30000ms in seconds.
+pub const ROCKET_POD_CLIP_RELOAD_SECS: f32 = 30.0;
 /// Retail ScatterTargetScalar residual (replaces ScatterRadius for table scale).
 pub const ROCKET_POD_SCATTER_TARGET_SCALAR: f32 = 50.0;
 /// Retail ScatterRadius residual (0; table drives offsets).
@@ -280,8 +284,8 @@ pub fn comanche_antitank_weapon() -> Weapon {
         reload_time: delay_frames_to_reload_secs(COMANCHE_AT_DELAY_FRAMES),
         last_fire_time: 0.0,
         ammo: Some(COMANCHE_AT_CLIP_SIZE),
-        clip_size: 0,
-        clip_reload_time: 0.0,
+        clip_size: COMANCHE_AT_CLIP_SIZE,
+        clip_reload_time: COMANCHE_AT_CLIP_RELOAD_SECS,
         can_target_air: false,
         can_target_ground: true,
         projectile_speed: 99999.0,
@@ -299,8 +303,8 @@ pub fn comanche_rocket_pod_weapon() -> Weapon {
         reload_time: delay_frames_to_reload_secs(ROCKET_POD_DELAY_FRAMES),
         last_fire_time: 0.0,
         ammo: Some(ROCKET_POD_CLIP_SIZE),
-        clip_size: 0,
-        clip_reload_time: 0.0,
+        clip_size: ROCKET_POD_CLIP_SIZE,
+        clip_reload_time: ROCKET_POD_CLIP_RELOAD_SECS,
         can_target_air: false,
         can_target_ground: true,
         projectile_speed: 99999.0,
@@ -462,11 +466,15 @@ mod tests {
         let at = comanche_antitank_weapon();
         assert!((at.damage - 50.0).abs() < 0.01);
         assert_eq!(at.ammo, Some(4));
+        assert_eq!(at.clip_size, COMANCHE_AT_CLIP_SIZE);
+        assert!((at.clip_reload_time - COMANCHE_AT_CLIP_RELOAD_SECS).abs() < f32::EPSILON);
         assert!(!at.can_target_air);
 
         let pods = comanche_rocket_pod_weapon();
         assert!((pods.damage - 30.0).abs() < 0.01);
         assert_eq!(pods.ammo, Some(20));
+        assert_eq!(pods.clip_size, ROCKET_POD_CLIP_SIZE);
+        assert!((pods.clip_reload_time - ROCKET_POD_CLIP_RELOAD_SECS).abs() < f32::EPSILON);
     }
 
     #[test]

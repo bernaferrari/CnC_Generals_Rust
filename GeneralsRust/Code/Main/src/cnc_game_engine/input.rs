@@ -325,8 +325,12 @@ impl CnCGameEngine {
                     // significantly (C++ LookAtXlat.cpp).
                     self.rmb_scroll_anchor = Some(self.mouse_position);
                     self.is_rmb_scrolling = true;
+                    self.rmb_scroll_started_physically =
+                        matches!(origin, MouseInputOrigin::Physical);
                 }
                 (MouseButton::Right, false) => {
+                    let physical_rmb_gesture = matches!(origin, MouseInputOrigin::Physical)
+                        && self.rmb_scroll_started_physically;
                     if self.is_rmb_scrolling {
                         const DRAG_THRESHOLD_SQ: f32 = 9.0; // 3px squared
                         if let Some(anchor) = self.rmb_scroll_anchor {
@@ -341,7 +345,7 @@ impl CnCGameEngine {
                                     self.interactive_playability.match_started_from_menu_wnd,
                                     self.runtime_host_headless
                                 );
-                                self.handle_right_click();
+                                self.handle_right_click(origin, physical_rmb_gesture);
                                 self.interactive_playability.note_gameplay_order(
                                     matches!(origin, MouseInputOrigin::Physical)
                                         && !self.runtime_host_headless,
@@ -356,6 +360,7 @@ impl CnCGameEngine {
                     }
                     self.rmb_scroll_anchor = None;
                     self.is_rmb_scrolling = false;
+                    self.rmb_scroll_started_physically = false;
                 }
                 (MouseButton::Middle, true) => {
                     self.is_mmb_rotating = true;

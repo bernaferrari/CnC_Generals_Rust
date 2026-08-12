@@ -3101,12 +3101,25 @@ impl GameLogic {
                     .get(&attacker_id)
                     .and_then(|attacker| attacker.weapon_name_for_slot(slot).map(str::to_owned));
                 if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                    if let Some(weapon) = attacker.weapon_slot_mut(slot) {
+                    let auto_reloaded_clip = if let Some(weapon) = attacker.weapon_slot_mut(slot) {
                         Object::consume_ammo_on_fire_named(
                             weapon,
                             current_time,
                             fire_wname.as_deref(),
                         );
+                        Object::auto_reloaded_clip_after_firing(weapon, fire_wname.as_deref())
+                    } else {
+                        false
+                    };
+                    // Match Object::fireCurrentWeapon: only the actual
+                    // temporarily locked slot can end that lock by finishing
+                    // an auto-reloading clip.  Do not let an unrelated
+                    // PRIMARY/SECONDARY fallback discharge a TERTIARY lock.
+                    if auto_reloaded_clip
+                        && attacker.weapon_lock_type == WeaponLockType::LockedTemporarily
+                        && attacker.weapon_lock_slot == slot
+                    {
+                        attacker.release_weapon_lock(WeaponLockType::LockedTemporarily);
                     }
                     if let Some(tid) = attacker.target {
                         attacker.record_shot_at_target(tid);

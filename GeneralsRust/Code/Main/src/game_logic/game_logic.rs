@@ -70,7 +70,7 @@ pub(self) use std::collections::{HashMap, HashSet, VecDeque};
 pub(self) use std::path::{Path, PathBuf};
 pub(self) use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 pub(self) use std::sync::{Arc, Mutex, OnceLock, RwLock};
-pub(self) use std::time::{Duration, Instant};
+pub(self) use std::time::{Duration, Instant, SystemTime};
 pub(self) use ww3d_engine::FrameTiming;
 
 pub(self) const SCRIPT_BROADCAST_DURATION: f32 = 6.0;
@@ -2060,6 +2060,12 @@ pub struct GameLogic {
 
     /// Command queue for UI-generated commands
     pub command_queue: VecDeque<crate::command_system::GameCommand>,
+    /// Narrow command-acceptance observation edge used to bind an actual
+    /// physical right-click Gather input to the executor-confirmed carriers.
+    accepted_gather_commands: VecDeque<AcceptedGatherCommand>,
+    /// Narrow economy observation edge emitted only by ReturningResources
+    /// after crediting carried supplies to a concrete player.
+    supply_dropoff_events: VecDeque<SupplyDropoffEvent>,
     pending_special_abilities: HashMap<ObjectId, PendingSpecialAbility>,
 
     /// Currently selected objects (used by UI)
@@ -2959,9 +2965,77 @@ pub(self) struct DestructionEvent {
     killer: Option<Team>,
 }
 
+/// An authoritative Gather command that the command executor accepted.
+///
+/// This is intentionally a narrow simulation event rather than an input
+/// claim: Main attaches physical mouse provenance only while matching the
+/// exact command fingerprint after it has succeeded.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AcceptedGatherCommand {
+    pub(crate) command_id: u32,
+    pub(crate) issued_at: SystemTime,
+    pub(crate) player_id: u32,
+    pub(crate) target_id: ObjectId,
+    /// Only carriers whose Gather path assignment succeeded.
+    pub(crate) carrier_ids: Vec<ObjectId>,
+}
+
+/// A real carried-supply deposit performed by `AIState::ReturningResources`.
+///
+/// It does not represent passive income, resource-total deltas, or an order
+/// request.  Consumers can therefore match the carrier and credited player
+/// directly without inferring an economy source.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct SupplyDropoffEvent {
+    pub(crate) carrier_id: ObjectId,
+    pub(crate) player_id: u32,
+    pub(crate) carried_amount: u32,
+}
+
 impl Default for GameLogic {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl GameLogic {
+    const MAX_PENDING_GATHER_EVENTS: usize = 64;
+    const MAX_PENDING_SUPPLY_DROPOFF_EVENTS: usize = 128;
+
+    /// Record the exact carrier subset accepted by `CommandExecutor::execute_gather`.
+    /// The bounded queue is an observation edge only; it never affects command
+    /// execution or resource simulation.
+    fn record_accepted_gather_command(&mut self, event: AcceptedGatherCommand) {
+        if event.carrier_ids.is_empty() {
+            return;
+        }
+        if self.accepted_gather_commands.len() >= Self::MAX_PENDING_GATHER_EVENTS {
+            self.accepted_gather_commands.pop_front();
+        }
+        self.accepted_gather_commands.push_back(event);
+    }
+
+    /// Consume Gather acceptances observed since the previous Main input edge.
+    pub(crate) fn take_accepted_gather_commands(&mut self) -> Vec<AcceptedGatherCommand> {
+        self.accepted_gather_commands.drain(..).collect()
+    }
+
+    /// Record a positive carried-resource deposit after the owning player's
+    /// `credit_supplies` call has succeeded.
+    fn record_supply_dropoff_event(&mut self, event: SupplyDropoffEvent) {
+        if event.carried_amount == 0 {
+            return;
+        }
+        if self.supply_dropoff_events.len() >= Self::MAX_PENDING_SUPPLY_DROPOFF_EVENTS {
+            self.supply_dropoff_events.pop_front();
+        }
+        self.supply_dropoff_events.push_back(event);
+    }
+
+    /// Consume real ReturningResources deposits for host-side presentation and
+    /// physical-input evidence.  No economy totals are synthesized here.
+    pub(crate) fn take_supply_dropoff_events(&mut self) -> Vec<SupplyDropoffEvent> {
+        self.supply_dropoff_events.drain(..).collect()
     }
 }
 
@@ -4050,6 +4124,8 @@ impl GameLogic {
             mission_script_counter: 0,
             queued_audio_events: Vec::new(),
             command_queue: VecDeque::new(),
+            accepted_gather_commands: VecDeque::new(),
+            supply_dropoff_events: VecDeque::new(),
             pending_special_abilities: HashMap::new(),
             selected_objects: Vec::new(),
             partition_manager: PartitionManager::new(),
@@ -4222,6 +4298,8 @@ impl GameLogic {
         self.next_formation_id = 1;
         self.frame = 0;
         self.objects_to_destroy.clear();
+        self.accepted_gather_commands.clear();
+        self.supply_dropoff_events.clear();
         self.combat_particles.clear();
         self.special_power_strikes.clear();
         self.host_paradrops.clear();

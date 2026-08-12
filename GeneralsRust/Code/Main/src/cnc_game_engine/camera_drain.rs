@@ -473,6 +473,10 @@ impl CnCGameEngine {
             // Wave 584: host logic tick residual via helper.
             self.host_update_logic_frame(dt, headless_step_budget);
         }
+        // Consume typed Gather/drop-off observation events immediately after
+        // the authoritative logic step. The evidence helper rejects passive,
+        // untracked, injected, remote, hidden, and non-offline paths.
+        self.host_drain_physical_gather_dropoffs();
         // Wave 682/925: post-logic host→GameWorld residual batch under coupled shadow tick.
         // Single authority boundary replaces N eager_apply_* dual-borrows.
         if couple_shadow {

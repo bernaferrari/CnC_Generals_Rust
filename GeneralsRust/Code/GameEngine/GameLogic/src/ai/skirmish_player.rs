@@ -1296,9 +1296,7 @@ impl AISkirmishPlayer {
             return;
         };
 
-        let mut cur_ptr: *mut BuildListInfo = list as *mut BuildListInfo;
-        while !cur_ptr.is_null() {
-            let cur = unsafe { &mut *cur_ptr };
+        list.for_each_mut(|cur| {
             if Self::is_expansion_entry(cur) {
                 let mut pos = *cur.get_location();
                 let dx = pos.x - base_center.x;
@@ -1313,12 +1311,7 @@ impl AISkirmishPlayer {
                     cur.set_location(pos);
                 }
             }
-
-            cur_ptr = cur
-                .get_next_mut()
-                .map(|next| next as *mut BuildListInfo)
-                .unwrap_or(std::ptr::null_mut());
-        }
+        });
 
         // Expansion ring has been applied to all entries. Do NOT call
         // self.apply_expansion_ring() again — the original C++ adjustBuildList
@@ -1411,9 +1404,7 @@ impl AISkirmishPlayer {
 
         let mut build_pos = Coord3D::origin();
         let mut found_in_build_list = false;
-        let mut cur_ptr: *mut BuildListInfo = list as *mut BuildListInfo;
-        while !cur_ptr.is_null() {
-            let cur = unsafe { &mut *cur_ptr };
+        list.for_each_mut(|cur| {
             let template_name = cur.get_template_name();
             if let Some(template) = TheThingFactory::find_template(template_name.as_str()) {
                 if template.is_kind_of(KindOf::CommandCenter) {
@@ -1422,11 +1413,7 @@ impl AISkirmishPlayer {
                     cur.set_initially_built(true);
                 }
             }
-            cur_ptr = cur
-                .get_next_mut()
-                .map(|next| next as *mut BuildListInfo)
-                .unwrap_or(std::ptr::null_mut());
-        }
+        });
 
         if !found_in_build_list {
             return;
@@ -1484,9 +1471,7 @@ impl AISkirmishPlayer {
             return;
         }
 
-        let mut cur_ptr: *mut BuildListInfo = list as *mut BuildListInfo;
-        while !cur_ptr.is_null() {
-            let cur = unsafe { &mut *cur_ptr };
+        list.for_each_mut(|cur| {
             let mut cur_pos = *cur.get_location();
             cur_pos.x -= build_pos.x;
             cur_pos.y -= build_pos.y;
@@ -1496,12 +1481,7 @@ impl AISkirmishPlayer {
             cur_pos.y = new_y + start_pos.y;
             cur.set_location(cur_pos);
             cur.set_angle(cur.get_angle());
-
-            cur_ptr = cur
-                .get_next_mut()
-                .map(|next| next as *mut BuildListInfo)
-                .unwrap_or(std::ptr::null_mut());
-        }
+        });
 
         self.apply_expansion_ring(list);
     }
