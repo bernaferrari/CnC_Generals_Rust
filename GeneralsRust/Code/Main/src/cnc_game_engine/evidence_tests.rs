@@ -492,8 +492,8 @@ fn configured_skirmish_start_restamps_mode_after_map_clear_before_physical_evide
         .find("host_apply_skirmish_config_authority(config)")
         .expect("configured Skirmish authority branch");
     let map_load = body
-        .find("host_load_map_or_default(&map_name)")
-        .expect("normal map-load authority");
+        .find("let Some(loaded_map_name) = self.host_load_map_or_default(&map_name)")
+        .expect("successful map-load authority guard");
     let successful_mode_stamp = body[map_load..]
         .find("self.host_match_game_mode = Some(mode);")
         .map(|offset| map_load + offset)

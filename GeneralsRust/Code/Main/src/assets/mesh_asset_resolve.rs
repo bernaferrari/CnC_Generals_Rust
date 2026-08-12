@@ -306,25 +306,30 @@ pub fn canonical_model_key(model_name: &str) -> String {
         .to_string()
 }
 
-/// Alias map so host template names match shipped W3D basenames.
+/// Exact compatibility aliases for historical Rust template names.
+///
+/// Each alias below is the *same object's* retail `DefaultConditionState`
+/// `Model`, taken from the Object INIs. This is deliberately not a visual
+/// fallback table: a missing model must stay missing instead of borrowing a
+/// different unit's chassis, faction, damage, construction, or snow mesh.
 pub fn remap_model_key_alias(model_key: &str) -> String {
     let key = canonical_model_key(model_key);
     let lower = key.to_ascii_lowercase();
     match lower.as_str() {
-        // units.rs historically used "airanger"; setup_templates uses "airanger_s".
-        // Shipped ZH mesh is AIRanger_S.W3D.
-        "airanger" => "airanger_s".to_string(),
-        "usa_infantry_ranger" | "usa_ranger" => "airanger_s".to_string(),
-        "americainfantryranger" => "airanger_s".to_string(),
-        // Missile Defender — retail AIMissleTm.W3D (engine typo "Missle").
-        "usa_missiledefender" | "americainfantrymissiledefender" => "aimissletm".to_string(),
-        // Pathfinder / Colonel Burton retail basenames.
-        "usa_pathfinder" | "americainfantrypathfinder" => "aipthfindr".to_string(),
-        "usa_colonelburton" | "americainfantrycolonelburton" => "aihero01".to_string(),
-        // Common vehicle template aliases → host model keys.
-        "usa_crusadertank" | "americatankcrusader" => "avcrusader".to_string(),
-        "usa_paladintank" | "americatankpaladin" => "avcrusader".to_string(),
-        "usa_raptor" | "americajetraptor" => "avraptorag".to_string(),
+        // AmericaInfantry.ini.
+        "airanger" | "usa_infantry_ranger" | "usa_ranger" | "americainfantryranger" => {
+            "airngr_skn".to_string()
+        }
+        "usa_missiledefender" | "americainfantrymissiledefender" => "nithnt_skn".to_string(),
+        "usa_pathfinder" | "americainfantrypathfinder" => "aipfdr_skn".to_string(),
+        "usa_colonelburton" | "americainfantrycolonelburton" => "aihero_skn".to_string(),
+        // AmericaVehicle.ini / AmericaAir.ini.
+        "usa_humvee" | "americavehiclehumvee" => "avhummer".to_string(),
+        "usa_dozer" | "americavehicledozer" => "avconstdoz_a".to_string(),
+        "usa_tomahawk" | "americavehicletomahawk" => "avtomahawk".to_string(),
+        "usa_crusader" | "usa_crusadertank" | "americatankcrusader" => "avleopard".to_string(),
+        "usa_paladin" | "usa_paladintank" | "americatankpaladin" => "avpaladin".to_string(),
+        "usa_raptor" | "americajetraptor" => "avraptor".to_string(),
         "usa_comanche" | "americavehiclecomanche" => "avcomanche".to_string(),
         "usa_chinook" | "americavehiclechinook" => "avchinook".to_string(),
         "usa_sentrydrone" | "americavehiclesentrydrone" => "avsentry".to_string(),
@@ -333,22 +338,38 @@ pub fn remap_model_key_alias(model_key: &str) -> String {
         "usa_aurora" | "americajetaurora" => "avaurora".to_string(),
         "usa_spectregunship" | "americajetspectregunship" => "avsgunship".to_string(),
         "usa_patriot" | "americapatriotbattery" => "abpatriot".to_string(),
-        // China aliases (host uses both units.rs and game_logic names).
-        "china_redguard" | "chinainfantryredguard" => "cirifle".to_string(),
+        // ChinaInfantry.ini / ChinaVehicle.ini / ChinaAir.ini.
+        "china_soldier" | "china_redguard" | "chinainfantryredguard" => "nicnsc_skn".to_string(),
+        "china_dozer" | "chinavehicledozer" => "nvconstdoz_a".to_string(),
         "china_battlemastertank" | "chinatankbattlemaster" => "nvbtmstr".to_string(),
+        "china_battletank" => "nvbtmstr".to_string(),
+        "china_dragontank" | "chinatankdragon" => "nvdragon".to_string(),
+        "china_gattlingtank" | "chinatankgattling" => "nvgatttank".to_string(),
+        "china_tankhunter" | "chinainfantrytankhunter" => "nimsst_skn".to_string(),
         "china_overlordtank" | "chinatankoverlord" => "nvovrlrd".to_string(),
         "china_infernocannon" | "chinavehicleinfernocannon" => "nvinferno".to_string(),
-        "china_mig" | "chinajetmig" => "nvmign".to_string(),
+        "china_mig" | "chinajetmig" => "nvmig".to_string(),
         "china_helix" | "chinavehiclehelix" => "nvhelix".to_string(),
-        // GLA aliases.
-        "gla_scorpiontank" | "glavehiclescorpion" => "gvscorpion".to_string(),
+        "china_nukecannon" | "chinavehiclenukelauncher" => "nvnukecn".to_string(),
+        "china_troopcrawler" | "chinavehicletroopcrawler" => "nvtcrawler".to_string(),
+        "china_listeningoutpost" | "chinavehiclelisteningoutpost" => "nvloutpost".to_string(),
+        "china_ecmtank" | "chinatankecm" => "nvbanshee".to_string(),
+        // GLAInfantry.ini / GLAVehicle.ini.
+        "gla_soldier" | "glainfantryrebel" => "uirgrd_skn".to_string(),
+        "gla_worker" | "glainfantryworker" => "uiwrkr_skn".to_string(),
+        "gla_technical" | "glavehicletechnical" => "uvtechtrck".to_string(),
+        "gla_scorpion" | "gla_scorpiontank" | "glatankscorpion" | "glavehiclescorpion" => {
+            "uvlitetank".to_string()
+        }
+        "gla_rpgtrooper" | "glainfantryrpgtrooper" => "uitunf_skn".to_string(),
+        "gla_maraudertank" | "glatankmarauder" => "uvmarauder".to_string(),
         "gla_scudlauncher" | "glavehiclescudlauncher" => "uvscudlchr".to_string(),
-        "gla_bombtruck" | "glavehiclebombtruck" => "uvbombtruck".to_string(),
-        "gla_quadcannon" | "glavehiclequadcannon" => "uvquadcannon".to_string(),
-        "gla_rocketbuggy" | "glavehiclerocketbuggy" => "uvbuggy".to_string(),
-        "gla_battlebus" | "glavehiclebattlebus" => "uvbattlebus".to_string(),
+        "gla_bombtruck" | "glavehiclebombtruck" => "uvbmbtruk".to_string(),
+        "gla_quadcannon" | "glavehiclequadcannon" => "uvquadcann".to_string(),
+        "gla_rocketbuggy" | "glavehiclerocketbuggy" => "uvrockbug".to_string(),
+        "gla_battlebus" | "glavehiclebattlebus" => "uvbattbus".to_string(),
         "gla_stingersite" | "glastingersite" => "ubstingers".to_string(),
-        "gla_jarmenkell" | "glainfantryjarmenkell" => "gijarmen".to_string(),
+        "gla_jarmenkell" | "glainfantryjarmenkell" => "uihero_skn".to_string(),
         // USA structures — FactionBuilding.ini Model + host buildings.rs set_model.
         "usa_commandcenter" | "americacommandcenter" => "abbtcmdhq".to_string(),
         "usa_powerplant" | "americapowerplant" => "abpwrplant".to_string(),
@@ -378,14 +399,10 @@ pub fn remap_model_key_alias(model_key: &str) -> String {
         "treepine" => "ptpine01".to_string(),
         "rocks1" => "pmrocks01".to_string(),
         "rocks2" => "pmrocks02".to_string(),
-        other => {
-            // Preserve original casing when no alias; archive open is case-insensitive.
-            if other == lower {
-                key
-            } else {
-                key
-            }
-        }
+        // Preserve a concrete requested model exactly. It may be a valid
+        // ConditionState model that is not represented by a legacy template
+        // alias above.
+        _ => key,
     }
 }
 
