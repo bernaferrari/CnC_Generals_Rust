@@ -22,6 +22,21 @@ impl Object {
             .find(|slot| self.weapon_slot(*slot).is_some())
     }
 
+    /// The concrete slot currently selected for an attack.
+    ///
+    /// A weapon lock is authoritative over the displayed active slot.  This
+    /// returns `None` instead of falling back when a restored or otherwise
+    /// invalid slot is requested, so an explicit TERTIARY command can never
+    /// silently discharge PRIMARY.
+    pub fn selected_weapon_slot(&self) -> Option<u8> {
+        let slot = if self.weapon_lock_type != WeaponLockType::NotLocked {
+            self.weapon_lock_slot
+        } else {
+            self.active_weapon_slot
+        };
+        self.weapon_slot(slot).map(|_| slot)
+    }
+
     /// C++ WeaponSet model-condition residual for PREATTACK/FIRING/BETWEEN/RELOADING A/B/C.
     ///
     /// Maps `weapon_fire_status` + active slot onto ModelConditionFlags bits

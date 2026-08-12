@@ -207,6 +207,9 @@ pub fn cpp_construction_percent_to_host_fraction(pct: i32) -> f32 {
 pub struct FactoryCommandSet {
     pub command_set_name: &'static str,
     pub object_template: &'static str,
+    /// Exact `Object =` template identity for each fallback UNIT_BUILD slot.
+    /// This compatibility data intentionally stores targets directly rather
+    /// than reconstructing them from CommandButton naming conventions.
     pub slots: &'static [(u8, &'static str)],
 }
 
@@ -214,11 +217,11 @@ pub const AMERICA_BARRACKS_COMMAND_SET: FactoryCommandSet = FactoryCommandSet {
     command_set_name: "AmericaBarracksCommandSet",
     object_template: "AmericaBarracks",
     slots: &[
-        (1, "Command_ConstructAmericaInfantryRanger"),
-        (2, "Command_ConstructAmericaInfantryMissileDefender"),
-        (3, "Command_ConstructAmericaInfantryColonelBurton"),
-        (4, "Command_ConstructAmericaInfantryPathfinder"),
-        (6, "Command_ConstructAmericaInfantryBiohazardTech"),
+        (1, "AmericaInfantryRanger"),
+        (2, "AmericaInfantryMissileDefender"),
+        (3, "AmericaInfantryColonelBurton"),
+        (4, "AmericaInfantryPathfinder"),
+        (6, "AmericaInfantryBiohazardTech"),
     ],
 };
 
@@ -226,10 +229,10 @@ pub const CHINA_BARRACKS_COMMAND_SET: FactoryCommandSet = FactoryCommandSet {
     command_set_name: "ChinaBarracksCommandSet",
     object_template: "ChinaBarracks",
     slots: &[
-        (1, "Command_ConstructChinaInfantryRedguard"),
-        (2, "Command_ConstructChinaInfantryTankHunter"),
-        (3, "Command_ConstructChinaInfantryHacker"),
-        (4, "Command_ConstructChinaInfantryBlackLotus"),
+        (1, "ChinaInfantryRedguard"),
+        (2, "ChinaInfantryTankHunter"),
+        (3, "ChinaInfantryHacker"),
+        (4, "ChinaInfantryBlackLotus"),
     ],
 };
 
@@ -237,14 +240,14 @@ pub const AMERICA_WAR_FACTORY_COMMAND_SET: FactoryCommandSet = FactoryCommandSet
     command_set_name: "AmericaWarFactoryCommandSet",
     object_template: "AmericaWarFactory",
     slots: &[
-        (1, "Command_ConstructAmericaTankCrusader"),
-        (2, "Command_ConstructAmericaVehicleTomahawk"),
-        (3, "Command_ConstructAmericaVehicleHumvee"),
-        (4, "Command_ConstructAmericaVehicleMedic"),
-        (5, "Command_ConstructAmericaVehiclePaladin"),
-        (6, "Command_ConstructAmericaVehicleSentryDrone"),
-        (7, "Command_ConstructAmericaVehicleAvenger"),
-        (8, "Command_ConstructAmericaVehicleMicrowave"),
+        (1, "AmericaTankCrusader"),
+        (2, "AmericaVehicleTomahawk"),
+        (3, "AmericaVehicleHumvee"),
+        (4, "AmericaVehicleMedic"),
+        (5, "AmericaVehiclePaladin"),
+        (6, "AmericaVehicleSentryDrone"),
+        (7, "AmericaVehicleAvenger"),
+        (8, "AmericaVehicleMicrowave"),
     ],
 };
 
@@ -252,10 +255,10 @@ pub const AMERICA_AIRFIELD_COMMAND_SET: FactoryCommandSet = FactoryCommandSet {
     command_set_name: "AmericaAirfieldCommandSet",
     object_template: "AmericaAirfield",
     slots: &[
-        (1, "Command_ConstructAmericaJetRaptor"),
-        (2, "Command_ConstructAmericaVehicleComanche"),
-        (3, "Command_ConstructAmericaJetAurora"),
-        (4, "Command_ConstructAmericaJetStealthFighter"),
+        (1, "AmericaJetRaptor"),
+        (2, "AmericaVehicleComanche"),
+        (3, "AmericaJetAurora"),
+        (4, "AmericaJetStealthFighter"),
     ],
 };
 
@@ -263,38 +266,35 @@ pub const CHINA_WAR_FACTORY_COMMAND_SET: FactoryCommandSet = FactoryCommandSet {
     command_set_name: "ChinaWarFactoryCommandSet",
     object_template: "ChinaWarFactory",
     slots: &[
-        (1, "Command_ConstructChinaTankBattleMaster"),
-        (2, "Command_ConstructChinaTankOverlord"),
-        (3, "Command_ConstructChinaVehicleTroopCrawler"),
-        (4, "Command_ConstructChinaVehicleListeningOutpost"),
-        (5, "Command_ConstructChinaTankGattling"),
-        (7, "Command_ConstructChinaTankDragon"),
-        (9, "Command_ConstructChinaVehicleInfernoCannon"),
-        (10, "Command_ConstructChinaVehicleNukeLauncher"),
-        (11, "Command_ConstructChinaTankECM"),
+        (1, "ChinaTankBattleMaster"),
+        (2, "ChinaTankOverlord"),
+        (3, "ChinaVehicleTroopCrawler"),
+        (4, "ChinaVehicleListeningOutpost"),
+        (5, "ChinaTankGattling"),
+        (7, "ChinaTankDragon"),
+        (9, "ChinaVehicleInfernoCannon"),
+        (10, "ChinaVehicleNukeLauncher"),
+        (11, "ChinaTankECM"),
     ],
 };
 
 pub const CHINA_AIRFIELD_COMMAND_SET: FactoryCommandSet = FactoryCommandSet {
     command_set_name: "ChinaAirfieldCommandSet",
     object_template: "ChinaAirfield",
-    slots: &[
-        (1, "Command_ConstructChinaJetMIG"),
-        (3, "Command_ConstructChinaVehicleHelix"),
-    ],
+    slots: &[(1, "ChinaJetMIG"), (3, "ChinaVehicleHelix")],
 };
 
 pub const GLA_BARRACKS_COMMAND_SET: FactoryCommandSet = FactoryCommandSet {
     command_set_name: "GLABarracksCommandSet",
     object_template: "GLABarracks",
     slots: &[
-        (1, "Command_ConstructGLAInfantryRebel"),
-        (2, "Command_ConstructGLAInfantryRPGTrooper"),
-        (3, "Command_ConstructGLAInfantryTerrorist"),
-        (4, "Command_ConstructGLAInfantryAngryMob"),
-        (5, "Command_ConstructGLAInfantryHijacker"),
-        (6, "Command_ConstructGLAInfantryJarmenKell"),
-        (7, "Command_ConstructGLAInfantrySaboteur"),
+        (1, "GLAInfantryRebel"),
+        (2, "GLAInfantryRPGTrooper"),
+        (3, "GLAInfantryTerrorist"),
+        (4, "GLAInfantryAngryMob"),
+        (5, "GLAInfantryHijacker"),
+        (6, "GLAInfantryJarmenKell"),
+        (7, "GLAInfantrySaboteur"),
     ],
 };
 
@@ -302,17 +302,17 @@ pub const GLA_ARMS_DEALER_COMMAND_SET: FactoryCommandSet = FactoryCommandSet {
     command_set_name: "GLAArmsDealerCommandSet",
     object_template: "GLAArmsDealer",
     slots: &[
-        (1, "Command_ConstructGLATankScorpion"),
-        (2, "Command_ConstructGLAVehicleTechnical"),
-        (3, "Command_ConstructGLAVehicleRadarVan"),
-        (4, "Command_ConstructGLAVehicleQuadCannon"),
-        (5, "Command_ConstructGLAVehicleToxinTruck"),
-        (6, "Command_ConstructGLAVehicleRocketBuggy"),
-        (7, "Command_ConstructGLATankMarauder"),
-        (8, "Command_ConstructGLAVehicleBombTruck"),
-        (9, "Command_ConstructGLAVehicleScudLauncher"),
-        (11, "Command_ConstructGLAVehicleCombatBike"),
-        (12, "Command_ConstructGLAVehicleBattleBus"),
+        (1, "GLATankScorpion"),
+        (2, "GLAVehicleTechnical"),
+        (3, "GLAVehicleRadarVan"),
+        (4, "GLAVehicleQuadCannon"),
+        (5, "GLAVehicleToxinTruck"),
+        (6, "GLAVehicleRocketBuggy"),
+        (7, "GLATankMarauder"),
+        (8, "GLAVehicleBombTruck"),
+        (9, "GLAVehicleScudLauncher"),
+        (11, "GLAVehicleCombatBike"),
+        (12, "GLAVehicleBattleBus"),
     ],
 };
 
@@ -327,24 +327,6 @@ pub const FACTORY_COMMAND_SET_PACKS: &[FactoryCommandSet] = &[
     GLA_BARRACKS_COMMAND_SET,
     GLA_ARMS_DEALER_COMMAND_SET,
 ];
-
-/// ThingTemplate named by a `Command_Construct*` button.
-pub fn construct_button_thing_template(button: &str) -> Option<&str> {
-    const PREFIXES: &[&str] = &[
-        "Command_Construct",
-        "AirF_Command_Construct",
-        "SupW_Command_Construct",
-        "Lazr_Command_Construct",
-    ];
-    for prefix in PREFIXES {
-        if let Some(rest) = button.strip_prefix(prefix) {
-            if !rest.is_empty() {
-                return Some(rest);
-            }
-        }
-    }
-    None
-}
 
 /// Look up the retail factory CommandSet for a producer template.
 pub fn factory_command_set_for_producer(
@@ -362,9 +344,10 @@ pub fn factory_command_set_for_producer(
 /// `None` = no retail CommandSet for this producer (KindOf / test fallback).
 pub fn command_set_allows_unit(producer_template: &str, unit_template: &str) -> Option<bool> {
     let pack = factory_command_set_for_producer(producer_template)?;
-    let allowed = pack.slots.iter().any(|(_, button)| {
-        construct_button_thing_template(button).is_some_and(|thing| thing == unit_template)
-    });
+    let allowed = pack
+        .slots
+        .iter()
+        .any(|(_, producible)| *producible == unit_template);
     Some(allowed)
 }
 

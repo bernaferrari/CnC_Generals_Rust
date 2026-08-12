@@ -517,7 +517,14 @@ impl GameLogic {
         let Some(source) = self.objects.get(&unit_id) else {
             return CanAttackResult::NotPossible;
         };
-        if source.weapon.is_none() && source.secondary_weapon.is_none() {
+        // TERTIARY is manual-only unless it is the currently selected/locked
+        // concrete slot.  Do not let a Comanche-style pod weapon become an
+        // autonomous fallback simply because it exists on the object.
+        let tertiary_explicit = source.selected_weapon_slot() == Some(2);
+        if source.weapon.is_none()
+            && source.secondary_weapon.is_none()
+            && !(tertiary_explicit && source.tertiary_weapon.is_some())
+        {
             return CanAttackResult::InvalidShot;
         }
 
@@ -546,11 +553,35 @@ impl GameLogic {
             }
             let primary_ok = source.weapon.as_ref().is_some_and(kind_ok);
             let secondary_ok = source.secondary_weapon.as_ref().is_some_and(kind_ok);
-            if !primary_ok && !secondary_ok {
+            let tertiary_ok = source.tertiary_weapon.as_ref().is_some_and(kind_ok);
+            let has_legal_weapon = if tertiary_explicit {
+                tertiary_ok
+            } else {
+                primary_ok || secondary_ok
+            };
+            if !has_legal_weapon {
                 return CanAttackResult::InvalidShot;
             }
             v.get_position()
         } else if let Some(p) = pos {
+            let can_target_ground = |w: &crate::game_logic::Weapon| w.can_target_ground;
+            let primary_ok = source.weapon.as_ref().is_some_and(can_target_ground);
+            let secondary_ok = source
+                .secondary_weapon
+                .as_ref()
+                .is_some_and(can_target_ground);
+            let tertiary_ok = source
+                .tertiary_weapon
+                .as_ref()
+                .is_some_and(can_target_ground);
+            let has_legal_weapon = if tertiary_explicit {
+                tertiary_ok
+            } else {
+                primary_ok || secondary_ok
+            };
+            if !has_legal_weapon {
+                return CanAttackResult::InvalidShot;
+            }
             p
         } else {
             return CanAttackResult::NotPossible;
@@ -558,9 +589,21 @@ impl GameLogic {
 
         let within = if let Some(vid) = victim_id {
             let v = self.objects.get(&vid).unwrap();
-            source.is_within_attack_range(v)
+            if tertiary_explicit {
+                source.is_within_attack_range_for_slot(2, v)
+            } else {
+                [0u8, 1u8]
+                    .into_iter()
+                    .any(|slot| source.is_within_attack_range_for_slot(slot, v))
+            }
         } else {
-            source.is_within_attack_range_pos(target_pos)
+            if tertiary_explicit {
+                source.is_within_attack_range_pos_for_slot(2, target_pos)
+            } else {
+                [0u8, 1u8]
+                    .into_iter()
+                    .any(|slot| source.is_within_attack_range_pos_for_slot(slot, target_pos))
+            }
         };
 
         // Contact / invalid pitch residual not expanded — range gate only.

@@ -2369,6 +2369,49 @@ fn private_attack_object_enters_attack_state_machine() {
 }
 
 #[test]
+fn nested_attack_machine_fires_an_explicit_tertiary_slot() {
+    use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
+    use glam::Vec3;
+
+    let mut logic = GameLogic::new();
+    let mut attacker_template = ThingTemplate::new("TertiaryOnlyAttacker");
+    attacker_template.add_kind_of(KindOf::Infantry);
+    let attacker_id = ObjectId(1711);
+    logic.objects.insert(attacker_id, {
+        let mut object = Object::new(attacker_template, attacker_id, Team::USA);
+        object.set_position(Vec3::ZERO);
+        object.set_orientation(0.0);
+        object.tertiary_weapon = Some(Weapon {
+            damage: 73.0,
+            range: 100.0,
+            reload_time: 1.0,
+            last_fire_time: -10.0,
+            projectile_speed: 200.0,
+            ..Weapon::default()
+        });
+        object.set_active_weapon_slot(2);
+        object
+    });
+
+    let mut victim_template = ThingTemplate::new("TertiaryOnlyVictim");
+    victim_template.add_kind_of(KindOf::Infantry);
+    let victim_id = ObjectId(1712);
+    logic.objects.insert(victim_id, {
+        let mut object = Object::new(victim_template, victim_id, Team::GLA);
+        object.set_position(Vec3::new(20.0, 0.0, 0.0));
+        object
+    });
+
+    assert!(logic.private_attack_object(attacker_id, victim_id, -1));
+    logic.tick_nested_attack_machines(&[attacker_id], 10.0, 1);
+    logic.tick_nested_attack_machines(&[attacker_id], 10.1, 2);
+
+    let attacker = logic.host_object(attacker_id).expect("attacker");
+    assert_eq!(attacker.last_fire_slot, 2);
+    assert_eq!(attacker.last_fire_damage, 73.0);
+}
+
+#[test]
 fn turret_sm_aim_to_fire_when_aligned() {
     use crate::game_logic::object::TurretSubState;
     use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};

@@ -218,15 +218,10 @@ pub fn parsed_unit_build_authorization(
         return ParsedUnitBuildAuthorization::Rejected;
     }
 
-    enum ProducerCommandSet {
-        NoCommandSet,
-        Name(String),
-    }
-
     // Do not use `TheThingFactory::find_template` here: that convenience API
     // may initialize a fallback factory on a miss.  Production authorization
     // must only read the currently loaded, exact retail template identity.
-    let producer_command_set = {
+    let command_set_name = {
         let Ok(factory_guard) = game_engine::common::thing::get_thing_factory() else {
             return ParsedUnitBuildAuthorization::Unavailable;
         };
@@ -244,15 +239,9 @@ pub fn parsed_unit_build_authorization(
         };
         let name = producer.get_command_set_string().as_str();
         if name.is_empty() {
-            ProducerCommandSet::NoCommandSet
-        } else {
-            ProducerCommandSet::Name(name.to_string())
+            return ParsedUnitBuildAuthorization::Rejected;
         }
-    };
-
-    let command_set_name = match producer_command_set {
-        ProducerCommandSet::NoCommandSet => return ParsedUnitBuildAuthorization::Rejected,
-        ProducerCommandSet::Name(name) => name,
+        name.to_string()
     };
 
     let Some(bridge) = get_control_bar_bridge() else {

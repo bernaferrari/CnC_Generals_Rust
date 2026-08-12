@@ -857,11 +857,22 @@ impl GameLogic {
         let Some(unit) = self.objects.get_mut(&id) else {
             return false;
         };
+        if !unit.is_alive() {
+            return false;
+        }
+
+        // A new player order replaces a nested AI attack machine in retail.
+        // Without clearing these ownership bits, update_combat correctly
+        // defers to the nested machine, which can leave a manual TERTIARY
+        // command behind an old auto-acquired target state.
+        unit.set_status_aiming_weapon(false);
+        unit.set_status_firing_weapon(false);
+        unit.attack_substate = AttackSubState::AimAtTarget;
+
         if let Some(tid) = target_object {
             unit.set_target(Some(tid));
-            unit.set_ai_state(AIState::Attacking);
         } else if let Some(pos) = target_location {
-            unit.target_location = Some(pos);
+            unit.set_target_location(Some(pos));
             unit.set_ai_state(AIState::AttackingGround);
         } else {
             return false;
@@ -1206,6 +1217,31 @@ mod tests {
         let object = logic.host_object(id).expect("object");
         assert_eq!(object.weapon_slot(0).map(|weapon| weapon.damage), Some(1.0));
         assert!(object.weapon_slot(2).is_none());
+    }
+
+    #[test]
+    fn player_tertiary_fire_order_replaces_an_existing_nested_attack() {
+        let (mut logic, id) = three_slot_logic();
+        let target_id = logic
+            .create_object("ThreeSlotTest", Team::GLA, glam::Vec3::new(20.0, 0.0, 0.0))
+            .expect("target");
+        {
+            let object = logic.host_object_mut(id).expect("object");
+            object.status.is_aiming_weapon = true;
+            object.status.is_firing_weapon = true;
+            object.attack_substate = AttackSubState::FireWeapon;
+        }
+
+        assert!(logic.unit_command_select_weapon_slot(id, 2));
+        assert!(logic.unit_command_fire_weapon(id, Some(target_id), None));
+
+        let object = logic.host_object(id).expect("object");
+        assert_eq!(object.target, Some(target_id));
+        assert_eq!(object.weapon_lock_type, WeaponLockType::LockedTemporarily);
+        assert_eq!(object.weapon_lock_slot, 2);
+        assert!(!object.status.is_aiming_weapon);
+        assert!(!object.status.is_firing_weapon);
+        assert_eq!(object.attack_substate, AttackSubState::AimAtTarget);
     }
 
     #[test]
