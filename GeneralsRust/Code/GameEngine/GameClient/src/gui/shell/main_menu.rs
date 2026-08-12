@@ -40,7 +40,11 @@ use crate::gui::challenge_generals::{
 };
 use crate::gui::header_template::get_header_template_manager;
 use crate::gui::menu_flags::get_dont_show_main_menu;
-use crate::gui::shell::{get_shell, show_shell_map_if_available, try_with_shell_mut};
+use crate::gui::shell::{
+    get_shell, queue_shell_operation, queue_shell_pop, queue_shell_push,
+    queue_shell_reverse_animate_window, queue_shell_shutdown_complete, show_shell_map_if_available,
+    try_with_shell_mut, with_shell_ref,
+};
 use crate::gui::window_manager::{
     with_window_manager, with_window_manager_ref, WindowLayout as ManagerWindowLayout,
 };
@@ -675,15 +679,11 @@ impl MainMenu {
         }
 
         if !state.start_game {
-            // TheShell->reverseAnimatewindow() - matches C++ line 686
-            // Nested during Shell::push (layout shutdown while shell RefCell is held):
-            // use try_with_shell_mut so we never panic on RefCell re-borrow.
+            // TheShell->reverseAnimatewindow() - matches C++ line 686.  This
+            // callback runs inside Shell::push, so queue it at that lifecycle
+            // boundary rather than taking a second mutable shell borrow.
             log::debug!("Reversing window animation");
-            if try_with_shell_mut(|shell| shell.reverse_animate_window()).is_none() {
-                log::debug!(
-                    "MainMenuShutdown: reverse_animate_window skipped (shell already borrowed)"
-                );
-            }
+            queue_shell_reverse_animate_window();
         }
 
         log::info!("MainMenuShutdown: Shutdown complete");
@@ -989,7 +989,7 @@ impl MainMenu {
                     self.transition_reverse(group);
                 }
                 PendingMainMenuAction::ShowOptionsLayout => {
-                    let _ = try_with_shell_mut(|shell| {
+                    queue_shell_operation(|shell| {
                         if let Some(layout) = shell.get_options_layout(true) {
                             if let Err(err) = layout.run_init(None) {
                                 log::warn!("Options layout init failed: {}", err);
@@ -1003,7 +1003,7 @@ impl MainMenu {
                     TheScriptEngine::signal_ui_interact(hook);
                 }
                 PendingMainMenuAction::ReverseAnimateWindow => {
-                    let _ = try_with_shell_mut(|shell| shell.reverse_animate_window());
+                    queue_shell_reverse_animate_window();
                 }
                 PendingMainMenuAction::StartPatchCheck => self.start_patch_check(),
                 PendingMainMenuAction::StartDownloadingPatches => {
@@ -1048,11 +1048,7 @@ impl MainMenu {
         TheScriptEngine::signal_ui_interact(
             THE_SHELL_HOOK_NAMES[SHELL_SCRIPT_HOOK_MAIN_MENU_EXIT_SELECTED as usize],
         );
-        match try_with_shell_mut(|shell| shell.pop()) {
-            Some(Err(err)) => log::warn!("Main menu quit pop failed: {}", err),
-            None => log::debug!("Main menu quit pop skipped: shell already borrowed"),
-            Some(Ok(())) => {}
-        }
+        queue_shell_pop();
         if let Some(engine) = get_game_engine() {
             engine.lock().set_quitting(true);
         }
@@ -1906,14 +1902,8 @@ impl MainMenu {
     }
 
     fn complete_shell_shutdown(&self) -> MainMenuResult<()> {
-        match try_with_shell_mut(|shell| shell.shutdown_complete(None, false)) {
-            Some(Ok(())) => Ok(()),
-            Some(Err(err)) => Err(MainMenuError::ShutdownFailed(err.to_string())),
-            None => {
-                log::debug!("complete_shell_shutdown skipped: shell already borrowed");
-                Ok(())
-            }
-        }
+        queue_shell_shutdown_complete(false);
+        Ok(())
     }
 
     /// Reverse side for difficulty menu
@@ -1977,7 +1967,7 @@ impl MainMenu {
         );
         let _ = prefs.write();
 
-        let _ = try_with_shell_mut(|shell| {
+        queue_shell_operation(|shell| {
             let _ = shell.reset();
             let _ = shell.show_shell(true);
         });
@@ -2559,11 +2549,7 @@ pub fn drain_deferred_shell_pushes() {
         .map(|mut q| std::mem::take(&mut *q))
         .unwrap_or_default();
     for screen in screens {
-        match try_with_shell_mut(|shell| shell.push(screen.as_str(), false)) {
-            Some(Err(err)) => log::warn!("deferred shell push failed for {screen}: {err}"),
-            None => log::debug!("deferred shell push skipped for {screen} (shell borrowed)"),
-            Some(Ok(())) => log::info!("deferred shell push ok: {screen}"),
-        }
+        queue_shell_push(screen, false);
     }
 }
 
@@ -2849,15 +2835,10 @@ pub fn drive_os_wnd_open_challenge_menu_like_cpp() -> bool {
     }
     let _ = dispatch_os_click_named_window("MainMenu.wnd:ButtonMedium");
     tick_main_menu_transitions(4);
-    let on_challenge = try_with_shell_mut(|shell| {
+    let on_challenge = with_shell_ref(|shell| {
         shell
-            .top()
-            .map(|layout| {
-                layout
-                    .get_filename()
-                    .to_ascii_lowercase()
-                    .contains("challenge")
-            })
+            .top_filename()
+            .map(|layout| layout.to_ascii_lowercase().contains("challenge"))
             .unwrap_or(false)
     })
     .unwrap_or(false);
@@ -3561,8 +3542,8 @@ mod main_menu_shell_borrow_residual_tests {
     fn main_menu_shutdown_nested_shell_borrow_residual() {
         let src = include_str!("main_menu.rs");
         assert!(
-            src.contains("try_with_shell_mut(|shell| shell.reverse_animate_window())"),
-            "MainMenuShutdown must not call get_shell() while Shell::push holds RefCell"
+            src.contains("queue_shell_reverse_animate_window();"),
+            "MainMenuShutdown must queue reverse animation while Shell::push owns the borrow"
         );
     }
 

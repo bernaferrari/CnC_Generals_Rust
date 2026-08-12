@@ -20,6 +20,7 @@
 //! - Not network repair replication (network deferred)
 
 use crate::game_logic::buildings::BuildingType;
+use glam::Vec3;
 
 /// Logic frames per second residual.
 pub const REPAIR_LOGIC_FPS: f32 = 30.0;
@@ -36,6 +37,33 @@ pub const HOST_HEAL_RATE_HP_PER_SEC: f32 = 25.0;
 
 /// Interact range residual for dozer/pad repair (world units).
 pub const HOST_REPAIR_INTERACT_RANGE: f32 = 14.0;
+
+/// C++ `DozerAIUpdate::findGoodBuildOrRepairPosition` seed for a support
+/// order.  A dozer does not path to a structure's centre: it starts from the
+/// closest side of the target, biased by half the target's major radius, then
+/// asks the pathfinder for a viable nearby point.  The host has no authored
+/// dock-bone matrix yet, so `selection_radius` is its geometry proxy.
+///
+/// This is intentionally a *goal seed*, not an authorization range. The
+/// compact host support state has a centre-distance interaction limit, so the
+/// seed may not exceed that limit: otherwise a completed route could never
+/// start the support action. Callers must still use
+/// [`HOST_REPAIR_INTERACT_RANGE`] for the actual support tick.
+#[inline]
+pub fn support_approach_position(
+    source_position: Vec3,
+    target_position: Vec3,
+    target_selection_radius: f32,
+) -> Vec3 {
+    let offset = source_position - target_position;
+    let direction = offset.normalize_or_zero();
+    if direction.length_squared() <= f32::EPSILON {
+        return target_position;
+    }
+    let side_offset = (target_selection_radius.max(0.0) * 0.5)
+        .min(HOST_REPAIR_INTERACT_RANGE);
+    target_position + direction * side_offset
+}
 
 /// Retail DozerAIUpdate / WorkerAIUpdate RepairHealthPercentPerSecond residual (= 2%).
 pub const DOZER_REPAIR_HEALTH_PERCENT_PER_SEC: f32 = 0.02;
@@ -176,6 +204,26 @@ mod tests {
         assert!(!is_structure_repairer(true, false, "TestDozer"));
         assert!(HOST_REPAIR_RATE_HP_PER_SEC > 0.0);
         assert!(HOST_REPAIR_INTERACT_RANGE > 0.0);
+    }
+
+    #[test]
+    fn support_approach_is_biased_toward_the_source_side_of_the_target() {
+        let target = Vec3::ZERO;
+        let source = Vec3::new(60.0, 0.0, 0.0);
+        assert_eq!(
+            support_approach_position(source, target, 24.0),
+            Vec3::new(12.0, 0.0, 0.0)
+        );
+        assert_eq!(
+            support_approach_position(target, target, 24.0),
+            target,
+            "zero-length direction must not manufacture a side"
+        );
+        assert_eq!(
+            support_approach_position(source, target, 60.0),
+            Vec3::new(HOST_REPAIR_INTERACT_RANGE, 0.0, 0.0),
+            "the approach seed must remain within the live support range"
+        );
     }
 
     #[test]

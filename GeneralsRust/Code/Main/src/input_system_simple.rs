@@ -76,10 +76,12 @@ impl SimpleInputProcessor {
     }
 
     fn presentation_is_attackable(o: &crate::presentation_frame::RenderableObject) -> bool {
-        // Wave 1093: attackable residual fail-closed on sold/masked.
+        // Mirror C++ WeaponSet victim legality before turning an RMB click into
+        // an attack command.  Authority still checks this independently.
         !o.destroyed
             && !o.sold
             && !o.masked
+            && !o.unattackable
             && PresentationFrame::object_has_kind(o, KindOf::Attackable)
     }
 
@@ -229,11 +231,10 @@ impl SimpleInputProcessor {
         let mut logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
 
         // Wave 953: presentation-only select-all (no live get_objects dual-read).
-        let player_team = self.presentation_local_team(&logic);
         let mut all_units = Vec::new();
         if let Some(frame) = self.presentation_frame.as_ref() {
             for o in &frame.objects {
-                if o.team == player_team && Self::presentation_is_selectable(o) {
+                if frame.is_owned_by_local(o) && Self::presentation_is_selectable(o) {
                     all_units.push(o.id);
                 }
             }
@@ -291,12 +292,11 @@ impl SimpleInputProcessor {
         let mut logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
 
         // Wave 953: presentation-only unit cycle (no live get_objects dual-read).
-        let player_team = self.presentation_local_team(&logic);
         let mut all_units: Vec<ObjectId> = if let Some(frame) = self.presentation_frame.as_ref() {
             frame
                 .objects
                 .iter()
-                .filter(|o| o.team == player_team && Self::presentation_is_selectable(o))
+                .filter(|o| frame.is_owned_by_local(o) && Self::presentation_is_selectable(o))
                 .map(|o| o.id)
                 .collect()
         } else {
@@ -385,7 +385,7 @@ impl SimpleInputProcessor {
         if let Some(frame) = self.presentation_frame.as_ref() {
             for id in stored {
                 if let Some(o) = frame.objects.iter().find(|o| o.id == id) {
-                    if Self::presentation_is_selectable(o) {
+                    if frame.is_owned_by_local(o) && Self::presentation_is_selectable(o) {
                         selection.push(id);
                     }
                 }
@@ -434,12 +434,16 @@ impl SimpleInputProcessor {
         let clicked_object = self.find_object_at_position(world_pos, &logic);
 
         if let Some(object_id) = clicked_object {
-            let player_team = self.presentation_local_team(&logic);
             let friendly_selectable = self
                 .presentation_frame
                 .as_ref()
-                .and_then(|frame| frame.objects.iter().find(|o| o.id == object_id))
-                .map(|o| o.team == player_team && Self::presentation_is_selectable(o))
+                .and_then(|frame| {
+                    frame
+                        .objects
+                        .iter()
+                        .find(|o| o.id == object_id)
+                        .map(|o| frame.is_owned_by_local(o) && Self::presentation_is_selectable(o))
+                })
                 .unwrap_or(false);
             if friendly_selectable && logic.host_object(object_id).is_some() {
                 if shift_held {
@@ -494,14 +498,17 @@ impl SimpleInputProcessor {
 
         // Wave 953: attack target classify presentation-only.
         let target_object = self.find_object_at_position(world_pos, &logic);
-        let player_team = self.presentation_local_team(&logic);
-
         if let Some(target_id) = target_object {
             let attackable_enemy = self
                 .presentation_frame
                 .as_ref()
-                .and_then(|frame| frame.objects.iter().find(|o| o.id == target_id))
-                .map(|o| o.team != player_team && Self::presentation_is_attackable(o))
+                .and_then(|frame| {
+                    frame
+                        .objects
+                        .iter()
+                        .find(|o| o.id == target_id)
+                        .map(|o| frame.is_enemy_of_local(o) && Self::presentation_is_attackable(o))
+                })
                 .unwrap_or(false);
             if attackable_enemy && logic.host_object(target_id).is_some() {
                 logic.command_attack(self.local_player_id, target_id);
@@ -539,14 +546,13 @@ impl SimpleInputProcessor {
         // Presentation-only: no live GameLogic dual-read residual.
         // Wave 1096: sold/masked + non-local FOW Clear-only (matches UnitControl pick).
         let frame = self.presentation_frame.as_ref()?;
-        let local_team = frame.local_team();
         let mut closest_object = None;
         let mut closest_distance = SELECTION_RADIUS;
         for o in &frame.objects {
             if o.destroyed || o.sold || o.masked {
                 continue;
             }
-            let is_local = o.team == local_team;
+            let is_local = frame.is_owned_by_local(o);
             if !is_local && o.fow_visibility.visibility_alpha < 0.95 {
                 continue;
             }

@@ -3,6 +3,69 @@
 use super::super::*;
 use super::helpers::*;
 
+#[test]
+fn control_bar_queue_slot_cancel_releases_player_upgrade_state() {
+    use crate::game_logic::{
+        buildings::{BuildingData, BuildingType},
+        Player, Resources, ThingTemplate,
+    };
+
+    const UPGRADE: &str = "Upgrade_AmericaSupplyLines";
+    let cost = Resources {
+        supplies: 800,
+        power: 0,
+    };
+
+    let mut logic = GameLogic::new();
+    let mut player = Player::new(0, Team::USA, "USA", true);
+    player.resources.supplies = 5_000;
+    logic.add_player(player);
+
+    let mut producer_template = ThingTemplate::new("TestBarracks");
+    producer_template
+        .add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(1_000.0);
+    logic
+        .templates
+        .insert("TestBarracks".to_string(), producer_template);
+    let producer = logic
+        .create_object("TestBarracks", Team::USA, Vec3::ZERO)
+        .expect("producer");
+    let building = logic.host_object_mut(producer).expect("producer object");
+    building.building_data = Some(BuildingData::new(BuildingType::Barracks));
+
+    // Queue research through the coupled player + producer state that the
+    // ControlBar's build-queue icon later cancels by slot.
+    assert!(logic
+        .get_player_mut(0)
+        .expect("player")
+        .queue_upgrade(UPGRADE, &cost));
+    assert!(logic
+        .host_object_mut(producer)
+        .and_then(|object| object.building_data.as_mut())
+        .expect("building data")
+        .add_upgrade_to_queue(UPGRADE.to_string(), 30.0, cost.clone()));
+    assert_eq!(
+        logic.get_player(0).expect("player").effective_supplies(),
+        4_200
+    );
+
+    // This is the Main authority endpoint used by HostControlBarRequest::QueueCancel.
+    assert!(logic.cancel_production_at_index(producer, 0));
+
+    let player = logic.get_player(0).expect("player after cancellation");
+    assert!(
+        !player.has_queued_upgrade(UPGRADE),
+        "C++ cancelUpgrade clears the player's IN_PRODUCTION state"
+    );
+    assert_eq!(player.effective_supplies(), 5_000, "research cost refunded");
+    assert!(logic
+        .host_object(producer)
+        .and_then(|object| object.building_data.as_ref())
+        .is_some_and(|building| building.production_queue.is_empty()));
+}
+
 // -----------------------------------------------------------------------
 // China Overlord / Helix / Emperor portable gattling + propaganda residual
 // Fail-closed: not full OverlordContain portable-structure spawn / W3D draw.
@@ -986,6 +1049,13 @@ fn deploy_style_sentry_must_unpack_before_fire_and_pack_before_move() {
         .add_kind_of(KindOf::Selectable)
         .add_kind_of(KindOf::Attackable)
         .set_health(300.0);
+    // The source behavior, rather than the retail template identity, grants
+    // DeployStyle authority.  Keep this fixture deliberately name-agnostic.
+    tpl.deploy_style_metadata = Some(crate::game_logic::DeployStyleMetadata {
+        pack_time_frames: 30,
+        unpack_time_frames: 30,
+        ..Default::default()
+    });
     game_logic
         .templates
         .insert("AmericaVehicleSentryDrone".into(), tpl);

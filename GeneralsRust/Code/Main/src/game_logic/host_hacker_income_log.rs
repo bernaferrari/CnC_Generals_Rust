@@ -8,6 +8,8 @@ use std::cell::RefCell;
 pub struct HackerIncomeEvent {
     pub id: ObjectId,
     pub team: Team,
+    /// Authoritative host player that owns this hacker.
+    pub owner_player_id: Option<u32>,
     pub pos: Vec3,
     pub amount: u32,
     pub next_deposit_frame: u32,

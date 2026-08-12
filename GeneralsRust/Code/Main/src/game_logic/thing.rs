@@ -3,6 +3,449 @@ use glam::{Mat4, Vec3};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
+/// Exact family of C++ `DockUpdateInterface` exposed by an Object INI.
+///
+/// This is deliberately separate from `KindOf`: a SupplyCenter, a supply
+/// warehouse, and a railed transport all accept `MSG_DOCK`, but their legality
+/// and execution are different.  `None` is the backwards-compatible snapshot
+/// default for templates created before module metadata was retained.
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DockKind {
+    None = 0,
+    SupplyCenter = 1,
+    SupplyWarehouse = 2,
+    RailedTransport = 3,
+}
+
+impl Default for DockKind {
+    fn default() -> Self {
+        Self::None
+    }
+}
+
+impl DockKind {
+    #[inline]
+    pub const fn from_ordinal(value: u8) -> Self {
+        match value {
+            1 => Self::SupplyCenter,
+            2 => Self::SupplyWarehouse,
+            3 => Self::RailedTransport,
+            _ => Self::None,
+        }
+    }
+}
+
+/// Concrete containment behavior retained from an Object INI `Behavior`
+/// declaration.  C++ `ActionManager::canEnterObject` asks the target for a
+/// real `ContainModuleInterface`; being a VEHICLE is not itself evidence of a
+/// container.
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ContainModuleKind {
+    None = 0,
+    Transport = 1,
+    RiderChange = 2,
+    RailedTransport = 3,
+    Garrison = 4,
+}
+
+impl Default for ContainModuleKind {
+    fn default() -> Self {
+        Self::None
+    }
+}
+
+impl ContainModuleKind {
+    #[inline]
+    pub const fn is_mobile_container(self) -> bool {
+        matches!(
+            self,
+            Self::Transport | Self::RiderChange | Self::RailedTransport
+        )
+    }
+}
+
+/// The subset of C++ `AllowInsideKindOf`/`ForbidInsideKindOf` that the active
+/// Rust object model can represent without guessing.  An unrepresentable mask
+/// is deliberately `Unsupported`, which prevents the physical Enter path from
+/// advertising or accepting a container it cannot validate faithfully.
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ContainAdmission {
+    /// No retained source module / a mask the host cannot represent.
+    Unsupported = 0,
+    /// C++ default: every mobile kind is admitted.
+    AnyMobile = 1,
+    /// `AllowInsideKindOf = INFANTRY`.
+    InfantryOnly = 2,
+    /// `AllowInsideKindOf = INFANTRY VEHICLE` or an equivalent aircraft ban.
+    InfantryOrVehicle = 3,
+}
+
+impl Default for ContainAdmission {
+    fn default() -> Self {
+        // Older snapshots must not turn an arbitrary vehicle into a transport.
+        Self::Unsupported
+    }
+}
+
+/// Frozen, exact Object INI containment data used by normal Enter.  This is
+/// intentionally separate from the specialized host transport flags: those
+/// flags retain explicit implemented behavior, while this metadata makes newly
+/// parsed retail containers usable without a template-name heuristic.
+/// One authored `RiderN` record from `RiderChangeContain`.
+///
+/// C++ stores these as independent template/model-condition/weapon-set/status/
+/// command-set/locomotor values and asks `ThingTemplate::isEquivalentTo` at
+/// admission time.  The active host has no source-side reskin/build-variation
+/// equivalence graph, so `template_matches` deliberately retains only the
+/// exact, case-insensitive Object INI identity.  A variant without that exact
+/// identity stays rejected instead of being accepted by a name heuristic.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RiderChangeRiderMetadata {
+    /// C++ Rider1..Rider8 ordinal.
+    pub slot: u8,
+    /// Authored rider ThingTemplate identity.
+    pub template_name: String,
+    /// Authored ModelCondition flag, retained even when the host cannot apply
+    /// the record physically.
+    pub model_condition: String,
+    /// Authored WeaponSet flag.  The active Combat Cycle bridge consumes the
+    /// selected rider *slot*, never this template spelling.
+    pub weapon_set: String,
+    /// Authored ObjectStatus bit name.
+    pub object_status: String,
+    /// C++ Object::m_commandSetStringOverride while this rider is contained.
+    pub command_set: String,
+    /// C++ RiderChangeContain-selected locomotor set token.
+    pub locomotor_set: String,
+    /// Exact primary locomotor selected from the corresponding source
+    /// `Locomotor = SET_* ...` row, when Main can represent that row.  The
+    /// full row remains on ObjectDefinition; unsupported sets retain `None`.
+    #[serde(default)]
+    pub active_locomotor_name: Option<String>,
+    /// Every exact source locomotor in the selected SET_* row, in authored
+    /// order.  C++ chooses one by surface; Main admits the row only when its
+    /// represented members share one safe active behavior profile.
+    #[serde(default)]
+    pub active_locomotor_names: Vec<String>,
+    /// Union of the represented members' source surface masks.
+    #[serde(default)]
+    pub active_locomotor_surfaces: u32,
+    /// Active model-condition representation, zero only when unsupported.
+    #[serde(default)]
+    pub model_condition_mask: u128,
+    /// Active ObjectStatus representation, zero only when unsupported.
+    #[serde(default)]
+    pub object_status_mask: u64,
+    /// True only when every effect needed by the bounded physical Combat Cycle
+    /// transaction is represented.  Parsed-but-unsupported records remain in
+    /// the template for save/presentation fidelity but cannot authorize RMB.
+    #[serde(default)]
+    pub physical_enter_supported: bool,
+}
+
+impl RiderChangeRiderMetadata {
+    #[inline]
+    pub fn template_matches(&self, template_name: &str) -> bool {
+        !self.template_name.is_empty()
+            && self
+                .template_name
+                .eq_ignore_ascii_case(template_name.trim())
+    }
+}
+
+/// Frozen, exact Object INI containment data used by normal Enter.  This is
+/// intentionally separate from the specialized host transport flags: those
+/// flags retain explicit implemented behavior, while this metadata makes newly
+/// parsed retail containers usable without a template-name heuristic.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ContainModuleMetadata {
+    #[serde(default)]
+    pub kind: ContainModuleKind,
+    /// `Slots` for Transport/RiderChange/RailedTransport, or `ContainMax` for
+    /// GarrisonContain. `Some(0)` is an authored zero-capacity module and must
+    /// remain distinct from no contain module.
+    #[serde(default)]
+    pub slots: Option<usize>,
+    #[serde(default)]
+    pub admission: ContainAdmission,
+    /// C++ OpenContain defaults are all true; retain authored overrides.
+    #[serde(default = "default_allow_inside")]
+    pub allow_allies_inside: bool,
+    #[serde(default = "default_allow_inside")]
+    pub allow_enemies_inside: bool,
+    #[serde(default = "default_allow_inside")]
+    pub allow_neutral_inside: bool,
+    /// Exact authored Rider1..Rider8 table.  Empty is distinct from an empty
+    /// `RiderChangeContain`: the latter must remain fail-closed for physical
+    /// Enter because C++ has no generic rider fallback.
+    #[serde(default)]
+    pub rider_change_riders: Vec<RiderChangeRiderMetadata>,
+    /// C++ `ScuttleDelay`, already converted with `parseDurationUnsignedInt`
+    /// semantics to logic frames.  `None` means the module was not parsed;
+    /// `Some(0)` is the C++ default and destroys on the next update.
+    #[serde(default)]
+    pub rider_change_scuttle_delay_frames: Option<u32>,
+    /// C++ `ScuttleStatus` raw ModelCondition token (default TOPPLED).
+    #[serde(default)]
+    pub rider_change_scuttle_status: String,
+    /// Active model-condition bit corresponding to `ScuttleStatus`.
+    #[serde(default)]
+    pub rider_change_scuttle_status_mask: u128,
+}
+
+const fn default_allow_inside() -> bool {
+    true
+}
+
+impl Default for ContainModuleMetadata {
+    fn default() -> Self {
+        Self {
+            kind: ContainModuleKind::None,
+            slots: None,
+            admission: ContainAdmission::Unsupported,
+            allow_allies_inside: true,
+            allow_enemies_inside: true,
+            allow_neutral_inside: true,
+            rider_change_riders: Vec::new(),
+            rider_change_scuttle_delay_frames: None,
+            rider_change_scuttle_status: String::new(),
+            rider_change_scuttle_status_mask: 0,
+        }
+    }
+}
+
+impl ContainModuleMetadata {
+    /// The bounded live implementation models the retail one-seat Combat
+    /// Cycle transaction only.  A malformed/custom multi-seat RiderChange
+    /// module is retained but is not advertised as ordinary Enter.
+    #[inline]
+    pub fn has_supported_rider_change_roster(&self) -> bool {
+        let supported = self
+            .rider_change_riders
+            .iter()
+            .any(|rider| rider.physical_enter_supported && rider.active_locomotor_name.is_some());
+        self.kind == ContainModuleKind::RiderChange
+            && self.slots == Some(1)
+            && self.admission != ContainAdmission::Unsupported
+            && self.rider_change_scuttle_delay_frames.is_some()
+            && self.rider_change_scuttle_status_mask != 0
+            && supported
+            // C++'s first equivalent entry would make duplicate authored
+            // identities declaration-order sensitive.  The bounded host has
+            // no safe way to validate a custom duplicate effect matrix, so
+            // retain it but do not make the container physically enterable.
+            // Check every retained row, not just the physical subset: an
+            // unsupported earlier/later duplicate still changes C++'s
+            // declaration-order selection and cannot be ignored safely.
+            && self.rider_change_riders.iter().enumerate().all(|(index, rider)| {
+                self.rider_change_riders
+                    .iter()
+                    .skip(index + 1)
+                    .all(|other| !rider.template_name.eq_ignore_ascii_case(&other.template_name))
+            })
+    }
+
+    #[inline]
+    pub fn supported_rider_change_rider_for_template(
+        &self,
+        template_name: &str,
+    ) -> Option<&RiderChangeRiderMetadata> {
+        self.rider_change_riders.iter().find(|rider| {
+            rider.physical_enter_supported
+                && rider.active_locomotor_name.is_some()
+                && rider.template_matches(template_name)
+        })
+    }
+}
+
+/// Exact `ParkingPlaceBehavior` module data retained from an Object INI.
+///
+/// C++ keeps one runtime `ParkingPlaceInfo` for every `NumRows × NumCols`
+/// entry, with its own reservation and exit-door state.  The Main host keeps
+/// that mutable reservation state separately on `GameLogic`; this immutable
+/// record is only the authored shape and flight/healing parameters needed to
+/// create and validate those spaces.  `None` on [`ThingTemplate`] means no
+/// `ParkingPlaceBehavior` was authored — an `FSAirfield` KindOf alone is not
+/// enough to admit an aircraft.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ParkingPlaceMetadata {
+    /// C++ `ParkingPlaceBehaviorModuleData::m_numRows`.
+    pub num_rows: i32,
+    /// C++ `ParkingPlaceBehaviorModuleData::m_numCols`.
+    pub num_cols: i32,
+    /// C++ `ParkingPlaceBehaviorModuleData::m_approachHeight`.
+    pub approach_height: f32,
+    /// C++ `ParkingPlaceBehaviorModuleData::m_landingDeckHeightOffset`.
+    pub landing_deck_height_offset: f32,
+    /// C++ `ParkingPlaceBehaviorModuleData::m_hasRunways`.
+    pub has_runways: bool,
+    /// C++ `ParkingPlaceBehaviorModuleData::m_parkInHangars`.
+    pub park_in_hangars: bool,
+    /// C++ `ParkingPlaceBehaviorModuleData::m_healAmount`.
+    pub heal_amount_per_second: f32,
+}
+
+impl ParkingPlaceMetadata {
+    /// Number of real reservation records created by C++ `buildInfo`.
+    ///
+    /// A malformed negative count, multiplication overflow, or non-finite
+    /// physical parameter cannot be represented faithfully by the bounded
+    /// Main path, so callers fail closed instead of inventing a generic
+    /// airfield capacity.
+    #[inline]
+    pub fn capacity(&self) -> Option<usize> {
+        if !self.is_well_formed() {
+            return None;
+        }
+        let rows = usize::try_from(self.num_rows).ok()?;
+        let cols = usize::try_from(self.num_cols).ok()?;
+        rows.checked_mul(cols)
+    }
+
+    /// C++ creates one runway for each column only when `HasRunways` is set.
+    #[inline]
+    pub fn runway_count(&self) -> Option<usize> {
+        if !self.is_well_formed() {
+            return None;
+        }
+        if self.has_runways {
+            usize::try_from(self.num_cols).ok()
+        } else {
+            Some(0)
+        }
+    }
+
+    #[inline]
+    pub fn is_well_formed(&self) -> bool {
+        self.num_rows >= 0
+            && self.num_cols >= 0
+            && self.approach_height.is_finite()
+            && self.landing_deck_height_offset.is_finite()
+            && self.heal_amount_per_second.is_finite()
+    }
+}
+
+/// Exact `DeployStyleAIUpdateModuleData` retained from one Object INI
+/// `Behavior = DeployStyleAIUpdate` declaration.
+///
+/// C++ parses `PackTime` and `UnpackTime` with
+/// `INI::parseDurationUnsignedInt`, so these values are logic frames rather
+/// than source milliseconds.  Keeping the post-parser representation matches
+/// the C++ module data that is serialized with an Object.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DeployStyleMetadata {
+    /// C++ `m_packTime`, in 30 Hz logic frames.
+    pub pack_time_frames: u32,
+    /// C++ `m_unpackTime`, in 30 Hz logic frames.
+    pub unpack_time_frames: u32,
+    /// C++ `m_resetTurretBeforePacking`.  Retained for snapshot parity; no
+    /// guessed turret reset is performed by the bounded host state machine.
+    pub reset_turret_before_packing: bool,
+    /// C++ `m_turretsFunctionOnlyWhenDeployed`.  Retained separately from
+    /// generic weapon availability so a missing per-turret mapping cannot
+    /// silently disable a unit's non-turret weapon.
+    pub turrets_function_only_when_deployed: bool,
+    /// C++ `m_turretsMustCenterBeforePacking`.  The host has no faithful
+    /// per-weapon turret/animation binding here, so this is retained without
+    /// manufacturing a guessed recenter duration.
+    pub turrets_must_center_before_packing: bool,
+    /// C++ `m_manualDeployAnimations`.  The logic state is retained, but the
+    /// renderer must not fabricate a manual animation-frame scrub from this
+    /// boolean alone.
+    pub manual_deploy_animations: bool,
+}
+
+impl Default for DeployStyleMetadata {
+    fn default() -> Self {
+        // Matches DeployStyleAIUpdateModuleData's constructor defaults.
+        Self {
+            pack_time_frames: 0,
+            unpack_time_frames: 0,
+            reset_turret_before_packing: false,
+            turrets_function_only_when_deployed: false,
+            turrets_must_center_before_packing: false,
+            manual_deploy_animations: false,
+        }
+    }
+}
+
+/// Exact capture special carried by an Object INI `SpecialAbility` module.
+///
+/// This remains separate from `KindOf::Infantry` and template spelling: C++
+/// `ActionManager::canCaptureBuilding` asks whether the source owns one of
+/// these SpecialPower modules and whether that module is ready.
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CapturePowerKind {
+    None = 0,
+    Ranger = 1,
+    RedGuard = 2,
+    Rebel = 3,
+    BlackLotus = 4,
+}
+
+impl Default for CapturePowerKind {
+    fn default() -> Self {
+        Self::None
+    }
+}
+
+impl CapturePowerKind {
+    #[inline]
+    pub const fn from_ordinal(value: u8) -> Self {
+        match value {
+            1 => Self::Ranger,
+            2 => Self::RedGuard,
+            3 => Self::Rebel,
+            4 => Self::BlackLotus,
+            _ => Self::None,
+        }
+    }
+
+    /// Resolve only the four retail capture SpecialPower templates.  The
+    /// normalized key tolerates Object INI case/separator differences without
+    /// widening acceptance to a name heuristic.
+    pub fn from_special_power_template(name: &str) -> Self {
+        let key: String = name
+            .chars()
+            .filter(|character| character.is_ascii_alphanumeric())
+            .map(|character| character.to_ascii_lowercase())
+            .collect();
+        match key.as_str() {
+            "specialabilityrangercapturebuilding" => Self::Ranger,
+            "specialabilityredguardcapturebuilding" => Self::RedGuard,
+            "specialabilityrebelcapturebuilding" => Self::Rebel,
+            "specialabilityblacklotuscapturebuilding" => Self::BlackLotus,
+            _ => Self::None,
+        }
+    }
+
+    pub const fn special_power_type(self) -> Option<crate::command_system::SpecialPowerType> {
+        use crate::command_system::SpecialPowerType;
+        match self {
+            Self::Ranger => Some(SpecialPowerType::RangerCaptureBuilding),
+            Self::RedGuard => Some(SpecialPowerType::RedGuardCaptureBuilding),
+            Self::Rebel => Some(SpecialPowerType::RebelCaptureBuilding),
+            Self::BlackLotus => Some(SpecialPowerType::BlackLotusCaptureBuilding),
+            Self::None => None,
+        }
+    }
+
+    pub const fn from_special_power_type(power: &crate::command_system::SpecialPowerType) -> Self {
+        use crate::command_system::SpecialPowerType;
+        match power {
+            SpecialPowerType::RangerCaptureBuilding => Self::Ranger,
+            SpecialPowerType::RedGuardCaptureBuilding => Self::RedGuard,
+            SpecialPowerType::RebelCaptureBuilding => Self::Rebel,
+            SpecialPowerType::BlackLotusCaptureBuilding => Self::BlackLotus,
+            _ => Self::None,
+        }
+    }
+}
+
 /// Thing Template - shared configuration data for Things
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ThingTemplate {
@@ -14,8 +457,90 @@ pub struct ThingTemplate {
     pub sight_range: f32,
     pub build_cost: Resources,
     pub build_time: f32,
+    /// C++ `ThingTemplate::m_refundValue` from Object INI `RefundValue`.
+    /// A zero value means "use BuildCost × GlobalData::SellPercentage";
+    /// a non-zero value is an exact sale refund.
+    #[serde(default)]
+    pub refund_value: u16,
     pub model_name: Option<String>,
     pub texture_name: Option<String>,
+    /// C++ `ThingTemplate::m_assetScale` from Object INI `Scale`.
+    #[serde(default = "default_asset_scale")]
+    pub asset_scale: f32,
+    /// Authored DockUpdate family.  Never infer this from a template name.
+    #[serde(default)]
+    pub dock_kind: DockKind,
+    /// `SupplyWarehouseDockUpdate::StartingBoxes`, when authored.  `Some(0)`
+    /// is meaningful and must remain distinct from no warehouse module.
+    #[serde(default)]
+    pub dock_starting_boxes: Option<u32>,
+    /// `SupplyWarehouseDockUpdate::DeleteWhenEmpty`.  It only applies to a
+    /// warehouse dock; ordinary resource objects retain their own lifecycle.
+    #[serde(default)]
+    pub dock_delete_when_empty: bool,
+    /// `RailedTransportContain::Slots`, when that exact contain module is
+    /// present.  A railed dock with no contain module never gains synthetic
+    /// transport capacity.
+    #[serde(default)]
+    pub railed_transport_slots: Option<usize>,
+    /// Exact source containment behavior and capacity, parsed from the Object
+    /// INI module rather than inferred from VEHICLE, dimensions, or a name.
+    #[serde(default)]
+    pub contain_module: ContainModuleMetadata,
+    /// Exact `ParkingPlaceBehavior` data.  This remains absent when the
+    /// source object has no such behavior, even if its KindOf is
+    /// `FSAirfield`; physical aircraft landing then fails closed.
+    #[serde(default)]
+    pub parking_place: Option<ParkingPlaceMetadata>,
+    /// Exact `DeployStyleAIUpdate` behavior.  It remains absent unless the
+    /// source object actually declares that Behavior; a vehicle name or
+    /// `CAN_ATTACK` KindOf never creates deploy authority.
+    #[serde(default)]
+    pub deploy_style_metadata: Option<DeployStyleMetadata>,
+    /// C++ Object INI `TransportSlotCount`: how much capacity this source
+    /// consumes when boarding a normal transport.  `None` is intentionally
+    /// unproven and fails closed in a player Enter command.
+    #[serde(default)]
+    pub transport_slot_count: Option<usize>,
+    /// C++ `KINDOF_CAPTURABLE`, retained outside the packed KindOf bank so
+    /// capture authorization is data-driven rather than inferred from a
+    /// faction/building name.
+    #[serde(default)]
+    pub capturable: bool,
+    /// C++ `KINDOF_IMMUNE_TO_CAPTURE`, likewise independent of targetability
+    /// and ordinary structure classification.
+    #[serde(default)]
+    pub immune_to_capture: bool,
+    /// Exact `GarrisonContain` module capacity.  `None` means this target is
+    /// not garrisonable for the C++ capture legality check; `Some(0)` remains
+    /// distinct and intentionally fail-closed.
+    #[serde(default)]
+    pub garrison_contain_max: Option<usize>,
+    /// Exact `SpecialAbility` capture module on this source, if any.
+    #[serde(default)]
+    pub capture_power: CapturePowerKind,
+    /// `SpecialAbility::StartsPaused` for the authored capture power.
+    #[serde(default)]
+    pub capture_starts_paused: bool,
+    /// `UnpauseSpecialPowerUpgrade::TriggeredBy` for that same capture power.
+    #[serde(default)]
+    pub capture_upgrade_trigger: Option<String>,
+    /// `SpecialAbilityUpdate::StartAbilityRange`.  The authority state uses
+    /// this rather than a hero/template-name range fallback.
+    #[serde(default)]
+    pub capture_start_ability_range: Option<f32>,
+    /// `SpecialAbilityUpdate::UnpackTime` (milliseconds).  Capture cannot
+    /// begin preparation until this authored animation phase has elapsed.
+    #[serde(default)]
+    pub capture_unpack_time_ms: Option<u32>,
+    /// `SpecialAbilityUpdate::PreparationTime` (milliseconds).  This is the
+    /// live channel duration after unpacking, not a click-time delay.
+    #[serde(default)]
+    pub capture_preparation_time_ms: Option<u32>,
+    /// `SpecialAbilityUpdate::PackTime` (milliseconds).  C++ keeps the
+    /// ability active through this post-trigger phase before returning idle.
+    #[serde(default)]
+    pub capture_pack_time_ms: Option<u32>,
     pub special_power_cooldown: f32,
     /// C++ parity: XP awarded to the killer when this object is destroyed.
     /// In C++ this is per-veterancy-level; here we store the Rookie-level
@@ -62,8 +587,28 @@ impl ThingTemplate {
             sight_range: 150.0,
             build_cost: Resources::default(),
             build_time: 1.0,
+            refund_value: 0,
             model_name: None,
             texture_name: None,
+            asset_scale: default_asset_scale(),
+            dock_kind: DockKind::None,
+            dock_starting_boxes: None,
+            dock_delete_when_empty: false,
+            railed_transport_slots: None,
+            contain_module: ContainModuleMetadata::default(),
+            parking_place: None,
+            deploy_style_metadata: None,
+            transport_slot_count: None,
+            capturable: false,
+            immune_to_capture: false,
+            garrison_contain_max: None,
+            capture_power: CapturePowerKind::None,
+            capture_starts_paused: false,
+            capture_upgrade_trigger: None,
+            capture_start_ability_range: None,
+            capture_unpack_time_ms: None,
+            capture_preparation_time_ms: None,
+            capture_pack_time_ms: None,
             special_power_cooldown: 10.0,
             experience_value: 0.0,
             veterancy_xp_thresholds: [60.0, 150.0, 300.0],
@@ -76,6 +621,16 @@ impl ThingTemplate {
             locomotor_name: None,
             create_crate_data: Vec::new(),
         }
+    }
+
+    /// Preserve a drawable authored C++ asset scale. Retail Object INIs use
+    /// positive finite values; malformed values retain the default instead of
+    /// entering a WGPU transform as NaN or infinity.
+    pub fn set_asset_scale(&mut self, scale: f32) -> &mut Self {
+        if scale.is_finite() && scale > 0.0 {
+            self.asset_scale = scale;
+        }
+        self
     }
 
     /// Attach host primary weapon stats (damage/range/reload) to this template.
@@ -287,8 +842,11 @@ impl ThingTemplate {
             },
             can_target_air: wt.anti_mask.contains(WeaponAntiMask::AIRBORNE_VEHICLE)
                 || wt.anti_mask.contains(WeaponAntiMask::AIRBORNE_INFANTRY),
-            can_target_ground: wt.anti_mask.contains(WeaponAntiMask::GROUND)
-                || !wt.anti_mask.contains(WeaponAntiMask::AIRBORNE_VEHICLE),
+            // C++ WeaponTemplate defaults to AntiGround and accepts a ground
+            // victim only when that actual anti-mask bit is set.  Treating an
+            // arbitrary non-air mask (for example AntiProjectile) as ground
+            // let point-defense-only weapons attack ordinary units.
+            can_target_ground: wt.anti_mask.contains(WeaponAntiMask::GROUND),
             projectile_speed,
             pre_attack_delay,
             splash_radius: wt.primary_damage_radius.max(0.0),
@@ -333,6 +891,10 @@ impl ThingTemplate {
             format!("{}.w3d", model_name)
         }
     }
+}
+
+fn default_asset_scale() -> f32 {
+    1.0
 }
 
 #[cfg(test)]

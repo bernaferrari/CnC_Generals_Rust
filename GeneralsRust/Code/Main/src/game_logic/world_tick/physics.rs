@@ -694,11 +694,14 @@ impl GameLogic {
         let Some(slot) = slot else {
             // Not ready this frame — still pick a legal slot that can target
             // (ammo/reload residual may clear next frame).
-            let primary_legal = u.weapon.as_ref().is_some_and(|w| u.can_target_with(v, w));
+            let primary_legal = u
+                .weapon
+                .as_ref()
+                .is_some_and(|weapon| u.can_target_with_slot(v, weapon, Some(0)));
             let secondary_legal = u
                 .secondary_weapon
                 .as_ref()
-                .is_some_and(|w| u.can_target_with(v, w));
+                .is_some_and(|weapon| u.can_target_with_slot(v, weapon, Some(1)));
             if !primary_legal && !secondary_legal {
                 return false;
             }

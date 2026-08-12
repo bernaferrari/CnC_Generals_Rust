@@ -76,6 +76,16 @@ pub struct Projectile {
     pub target_id: Option<ObjectId>,
     pub speed: f32,
     pub lifetime: f32,
+    /// Parsed Object INI behavior governing lifetime. `None` means the
+    /// ProjectileObject was unresolved or does not expose a supported behavior;
+    /// that intentionally has no invented generic timeout.
+    pub projectile_lifecycle: Option<crate::game_logic::weapon_bootstrap::HostProjectileLifecycle>,
+    /// C++ `MissileAIUpdate::KILL_SELF` entry frame after a followed target
+    /// disappears. Kept host-side because GameWorld flight residual only owns
+    /// pose/lifetime and has no detonation data.
+    pub missile_kill_self_started_frame: Option<u32>,
+    /// Parsed lifetime/fuel duration for presentation and the GameWorld flight
+    /// mirror. Zero means unlimited or unresolved; it is not a generic expiry.
     pub max_lifetime: f32,
     pub is_homing: bool,
     pub explosion_radius: f32,
@@ -89,6 +99,12 @@ pub struct Projectile {
     pub detonation_ocl_name: String,
     /// C++ Weapon.ini ProjectileExhaust residual PSys name (in-flight trail).
     pub exhaust_name: String,
+    /// Firing object's ownership frozen at launch.  A projectile can outlive
+    /// its firing object, while its detonation OCL must still create objects
+    /// for the original team.
+    pub source_team: crate::game_logic::Team,
+    /// Firing object's veterancy frozen at launch for OCL `InheritsVeterancy`.
+    pub source_veterancy: crate::game_logic::VeterancyLevel,
     /// C++ SecondaryDamage residual (outer splash ring amount).
     pub secondary_damage: f32,
     /// C++ SecondaryDamageRadius residual.
@@ -138,7 +154,9 @@ impl Projectile {
             target_id,
             speed,
             lifetime: 0.0,
-            max_lifetime: 10.0,
+            projectile_lifecycle: None,
+            missile_kill_self_started_frame: None,
+            max_lifetime: 0.0,
             is_homing: false,
             explosion_radius: 0.0,
             death_type: crate::game_logic::host_usa_pilot::HostDeathType::Normal,
@@ -146,6 +164,8 @@ impl Projectile {
             detonation_fx_name: String::new(),
             detonation_ocl_name: String::new(),
             exhaust_name: String::new(),
+            source_team: crate::game_logic::Team::Neutral,
+            source_veterancy: crate::game_logic::VeterancyLevel::Rookie,
             secondary_damage: 0.0,
             secondary_damage_radius: 0.0,
             shock_wave_amount: 0.0,
@@ -163,17 +183,108 @@ impl Projectile {
         }
     }
 
-    pub fn update(&mut self, dt: f32) -> bool {
-        self.lifetime += dt;
+    /// Attach exact parsed Object INI lifetime behavior at launch.
+    pub fn set_projectile_lifecycle(
+        &mut self,
+        lifecycle: Option<crate::game_logic::weapon_bootstrap::HostProjectileLifecycle>,
+    ) {
+        self.projectile_lifecycle = lifecycle;
+        self.missile_kill_self_started_frame = None;
+        self.max_lifetime = lifecycle
+            .map(crate::game_logic::weapon_bootstrap::HostProjectileLifecycle::lifetime_seconds)
+            .unwrap_or(0.0);
+    }
 
-        if self.lifetime >= self.max_lifetime {
-            return false; // Projectile expired
+    /// Whether an authored MissileAIUpdate has entered C++ `KILL_SELF`.
+    ///
+    /// Do not infer this from lifetime alone: unresolved or other projectile
+    /// behaviors deliberately remain in normal flight.  The GameWorld bridge
+    /// uses this narrowly typed predicate to suspend only coupled pose
+    /// integration while the host retains the projectile for contrail delay.
+    pub(crate) fn is_missile_kill_self_holding(&self) -> bool {
+        matches!(
+            self.projectile_lifecycle,
+            Some(crate::game_logic::weapon_bootstrap::HostProjectileLifecycle::Missile { .. })
+        ) && self.missile_kill_self_started_frame.is_some()
+    }
+
+    fn elapsed_logic_frames(&self) -> u32 {
+        // Host combat is ordinarily stepped at exactly 30 Hz. Round the
+        // observer duration back to frames so GameWorld's sole flight step can
+        // write the same age back before host impact behavior resolves.
+        (self.lifetime.max(0.0) * 30.0).round() as u32
+    }
+
+    fn lifecycle_step(&mut self, target_is_live: bool) -> ProjectileStep {
+        use crate::game_logic::weapon_bootstrap::HostProjectileLifecycle;
+
+        let Some(lifecycle) = self.projectile_lifecycle else {
+            return ProjectileStep::Alive;
+        };
+        let frame = self.elapsed_logic_frames();
+        match lifecycle {
+            HostProjectileLifecycle::DumbProjectile {
+                max_lifespan_frames,
+            } if frame >= max_lifespan_frames => ProjectileStep::Detonate,
+            HostProjectileLifecycle::Missile {
+                try_to_follow_target,
+                fuel_lifetime_frames,
+                detonate_on_no_fuel,
+                kill_self_delay_frames,
+            } => {
+                if let Some(kill_started) = self.missile_kill_self_started_frame {
+                    return if frame >= kill_started.saturating_add(kill_self_delay_frames) {
+                        ProjectileStep::Remove
+                    } else {
+                        ProjectileStep::Hold
+                    };
+                }
+
+                // MissileAIUpdate::doAttackState checks fuel before its
+                // tracked-target-gone transition.  A missile which loses its
+                // target on precisely its authored no-fuel frame therefore
+                // still detonates when DetonateOnNoFuel is set.  `detonate()`
+                // then enters KILL_SELF so its contrail can catch up before
+                // the projectile object is destroyed.
+                if fuel_lifetime_frames > 0 && frame >= fuel_lifetime_frames && detonate_on_no_fuel
+                {
+                    self.missile_kill_self_started_frame = Some(frame);
+                    return ProjectileStep::DetonateAndHold;
+                }
+
+                // C++ MissileAIUpdate only invokes airborneTargetGone for a
+                // missile which was launched at an object *and* was authored
+                // to follow it. That transition is a delayed silent destroy,
+                // even when DetonateOnNoFuel is true.
+                if try_to_follow_target && self.target_id.is_some() && !target_is_live {
+                    self.missile_kill_self_started_frame = Some(frame);
+                    return ProjectileStep::Hold;
+                }
+
+                // `FuelLifetime = 0` means infinity. With fuel exhausted but
+                // no DetonateOnNoFuel, C++ stops acceleration/turning and
+                // discards exhaust; it does not fabricate a detonation or
+                // remove the missile here.
+                ProjectileStep::Alive
+            }
+            _ => ProjectileStep::Alive,
+        }
+    }
+
+    pub fn update(&mut self, dt: f32, target_is_live: bool) -> ProjectileStep {
+        if dt.is_finite() && dt > 0.0 {
+            self.lifetime += dt;
+        }
+
+        let lifecycle_step = self.lifecycle_step(target_is_live);
+        if lifecycle_step != ProjectileStep::Alive {
+            return lifecycle_step;
         }
 
         // Instant residual: already at target (speed 0 / laser).
         if self.speed <= 0.0 {
             self.position = self.target_position;
-            return true;
+            return ProjectileStep::Alive;
         }
 
         // Homing residual: keep velocity aimed at last known target_position.
@@ -185,13 +296,28 @@ impl Projectile {
         // Update position
         self.position += self.velocity * dt;
 
-        true
+        ProjectileStep::Alive
     }
 
     /// True when C++ weapon speed is instant-hit residual (laser / hitscan).
     pub fn is_instant_speed(speed: f32) -> bool {
         speed <= 0.0 || speed >= 999_999.0
     }
+}
+
+/// Result of one host projectile behavior step.  `Detonate` is deliberately
+/// distinct from `Remove`: C++ DumbProjectile expiry and missile no-fuel
+/// detonation must execute the weapon's authored impact path, whereas followed
+/// target loss enters MissileAIUpdate's quiet delayed self-destroy state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ProjectileStep {
+    Alive,
+    Hold,
+    /// Missile `detonate()` emitted its authored impact, then entered
+    /// `KILL_SELF`; retain it for the parsed contrail delay.
+    DetonateAndHold,
+    Detonate,
+    Remove,
 }
 
 /// Projectile hit information
@@ -255,6 +381,29 @@ pub struct ProjectileImpactFx {
     pub target_id: Option<ObjectId>,
     pub detonation_fx_name: String,
     pub detonation_ocl_name: String,
+    /// Frozen launch ownership used by the host OCL bridge when the shooter
+    /// was destroyed before the projectile detonated.
+    pub source_team: crate::game_logic::Team,
+    pub source_veterancy: crate::game_logic::VeterancyLevel,
+    /// Current projectile transform peels needed by generic OCL dispositions.
+    pub source_orientation: f32,
+    pub source_velocity: Vec3,
+}
+
+/// C++ `Weapon::fireWeaponTemplate` fire-time authored effects.  `FireFX` and
+/// `FireOCL` run when the shot is accepted, before the projectile needs a live
+/// target, so they are kept separately from projectile impact events.
+#[derive(Debug, Clone)]
+pub struct WeaponFireOcl {
+    pub origin: Vec3,
+    pub shooter_id: ObjectId,
+    pub source_team: crate::game_logic::Team,
+    pub source_veterancy: crate::game_logic::VeterancyLevel,
+    pub source_orientation: f32,
+    pub source_velocity: Vec3,
+    /// C++ Weapon.ini `FireFX` selected for the source's frozen veterancy.
+    pub fire_fx_name: String,
+    pub fire_ocl_name: String,
 }
 
 /// Combat system manager
@@ -264,6 +413,8 @@ pub struct CombatSystem {
     next_projectile_id: ObjectId,
     /// Impacts carrying ProjectileDetonationFX residual (drained by GameLogic).
     impact_fx: Vec<ProjectileImpactFx>,
+    /// Parsed fire-time FX/OCL references accepted with queued projectile shots.
+    fire_ocl: Vec<WeaponFireOcl>,
 }
 
 /// Global projectile spawn queue. Objects call this when firing, and the
@@ -272,10 +423,27 @@ static PENDING_PROJECTILES: std::sync::Mutex<Vec<PendingProjectile>> =
     std::sync::Mutex::new(Vec::new());
 
 /// Data needed to spawn a projectile (enqueued by Object::fire_at).
+///
+/// C++ executes `FireOCL` synchronously while the firing object still exists.
+/// The host queues projectile creation for the combat phase, so retain the
+/// source transform/team at acceptance time instead of sampling a potentially
+/// deleted or re-owned object while draining that queue.
+#[derive(Debug, Clone, Copy)]
+pub struct ProjectileLaunchContext {
+    pub source_team: crate::game_logic::Team,
+    pub source_veterancy: crate::game_logic::VeterancyLevel,
+    pub source_orientation: f32,
+    pub source_velocity: Vec3,
+}
+
+/// Data needed to spawn a projectile (enqueued by Object::fire_at).
 #[derive(Debug, Clone)]
 pub struct PendingProjectile {
     pub shooter_id: ObjectId,
     pub shooter_pos: Vec3,
+    /// Frozen firing state used by FireOCL. Older synthetic/test callers may
+    /// omit it; drain then uses a live source only when one is available.
+    pub source_context: Option<ProjectileLaunchContext>,
     pub target_id: Option<ObjectId>,
     /// Target position for position-based attacks. For object-based attacks
     /// (target_id = Some), the drain function resolves the position from the
@@ -293,6 +461,15 @@ pub struct PendingProjectile {
     pub death_type: crate::game_logic::host_usa_pilot::HostDeathType,
     /// C++ Weapon.ini ProjectileObject residual template name (empty = hitscan/no mesh).
     pub projectile_object_name: String,
+    /// Parsed Object INI behavior frozen at fire acceptance.  This keeps
+    /// deferred/shadow projectile materialization from re-reading or guessing
+    /// the projectile template later.
+    pub projectile_lifecycle: Option<crate::game_logic::weapon_bootstrap::HostProjectileLifecycle>,
+    /// C++ Weapon.ini FireFX residual (played at the source when the shot is
+    /// accepted, before projectile flight).
+    pub fire_fx_name: String,
+    /// C++ Weapon.ini FireOCL residual (executed at the source object at fire).
+    pub fire_ocl_name: String,
     /// C++ Weapon.ini ProjectileDetonationFX residual (empty = no impact FX name).
     pub detonation_fx_name: String,
     /// C++ Weapon.ini ProjectileDetonationOCL residual (empty = no impact OCL name).
@@ -334,7 +511,8 @@ pub struct PendingProjectile {
 }
 
 /// Queue a projectile for spawning. Called from Object::fire_at().
-pub fn queue_projectile(pending: PendingProjectile) {
+pub fn queue_projectile(mut pending: PendingProjectile) {
+    stamp_pending_projectile_lifecycle(&mut pending);
     // Defer only when a live shadow session will drain host_fire_spawn_log.
     // Host-only (shadow off) must enqueue immediately or combat never spawns shots.
     // Wave 682: under coupled tick, host_fire_spawn_log is drained immediately
@@ -349,9 +527,32 @@ pub fn queue_projectile(pending: PendingProjectile) {
 }
 
 /// Unconditional enqueue for shadow fire-spawn apply (bypasses authority gate).
-pub fn queue_projectile_direct(pending: PendingProjectile) {
+pub fn queue_projectile_direct(mut pending: PendingProjectile) {
+    stamp_pending_projectile_lifecycle(&mut pending);
     if let Ok(mut queue) = PENDING_PROJECTILES.lock() {
         queue.push(pending);
+    }
+}
+
+/// Freeze the exact parsed Object INI lifecycle on the queue record.  A caller
+/// can supply a pre-resolved lifecycle (for a copied shadow event); otherwise
+/// only the parsed `ProjectileObject` is consulted.  Unknown objects stay
+/// `None`, which intentionally means no synthesized timeout/detonation.
+fn stamp_pending_projectile_lifecycle(pending: &mut PendingProjectile) {
+    if pending.projectile_lifecycle.is_none() {
+        pending.projectile_lifecycle =
+            crate::game_logic::weapon_bootstrap::host_projectile_lifecycle_for_object_name(
+                &pending.projectile_object_name,
+            );
+    }
+    if let Some(lifecycle) = pending.projectile_lifecycle {
+        // Parsed MissileAIUpdate semantics supersede the old broad weapon
+        // target-mask heuristic. Dumb projectile paths are not homing in this
+        // lightweight bridge unless a future parsed flight-path adjustment
+        // explicitly supports it.
+        pending.is_homing = lifecycle.follows_target()
+            && pending.target_id.is_some()
+            && !Projectile::is_instant_speed(pending.speed);
     }
 }
 
@@ -379,6 +580,54 @@ pub fn drain_pending_projectiles(combat: &mut CombatSystem, objects: &HashMap<Ob
     };
 
     for p in pending {
+        // Queue acceptance normally froze this field. Retain the parsed-only
+        // fallback for legacy shadow records created before that bridge; an
+        // absent/unresolved Object INI still remains `None`.
+        let projectile_lifecycle = p.projectile_lifecycle.or_else(|| {
+            crate::game_logic::weapon_bootstrap::host_projectile_lifecycle_for_object_name(
+                &p.projectile_object_name,
+            )
+        });
+        // C++ Weapon::fireWeaponTemplate executes FireOCL at the source when
+        // the weapon fires, independent of whether a later projectile target
+        // can still be resolved.  Freeze the source state at launch because
+        // the source may die before the host drains this queue.
+        let source_context = p.source_context.or_else(|| {
+            objects
+                .get(&p.shooter_id)
+                .map(|source| ProjectileLaunchContext {
+                    source_team: source.team,
+                    source_veterancy: source.experience.level,
+                    source_orientation: source.get_orientation(),
+                    source_velocity: source.movement.velocity,
+                })
+        });
+        let source_context = source_context.unwrap_or(ProjectileLaunchContext {
+            source_team: crate::game_logic::Team::Neutral,
+            source_veterancy: crate::game_logic::VeterancyLevel::Rookie,
+            source_orientation: 0.0,
+            source_velocity: Vec3::ZERO,
+        });
+        let has_fire_fx = !p.fire_fx_name.trim().is_empty()
+            && !p.fire_fx_name.trim().eq_ignore_ascii_case("None");
+        let has_fire_ocl = !p.fire_ocl_name.trim().is_empty()
+            && !p.fire_ocl_name.trim().eq_ignore_ascii_case("None");
+        // C++ `Weapon::fireWeaponTemplate` handles FireFX and FireOCL at
+        // acceptance independently.  In particular, a target that vanishes
+        // before this deferred host queue drains must not erase its muzzle FX.
+        if has_fire_fx || has_fire_ocl {
+            combat.fire_ocl.push(WeaponFireOcl {
+                origin: p.shooter_pos,
+                shooter_id: p.shooter_id,
+                source_team: source_context.source_team,
+                source_veterancy: source_context.source_veterancy,
+                source_orientation: source_context.source_orientation,
+                source_velocity: source_context.source_velocity,
+                fire_fx_name: p.fire_fx_name.clone(),
+                fire_ocl_name: p.fire_ocl_name.clone(),
+            });
+        }
+
         let actual_target_pos = p
             .target_id
             .and_then(|tid| objects.get(&tid))
@@ -392,6 +641,20 @@ pub fn drain_pending_projectiles(combat: &mut CombatSystem, objects: &HashMap<Ob
         // C++ Weapon.ini ScatterRadius residual: offset aim point and clear
         // direct target lock when scatter > 0 (miss / near-miss residual).
         let mut fire_target_id = p.target_id;
+        // MissileAIUpdate only retains a goal Object when TryToFollowTarget is
+        // authored. A coordinate-flight missile must detonate at its frozen
+        // launch point even if the original object disappears later.
+        if matches!(
+            projectile_lifecycle,
+            Some(
+                crate::game_logic::weapon_bootstrap::HostProjectileLifecycle::Missile {
+                    try_to_follow_target: false,
+                    ..
+                }
+            )
+        ) {
+            fire_target_id = None;
+        }
         if p.scatter_radius > 0.0 {
             let seed = p.shooter_id.0.wrapping_mul(0x9E37_79B9).wrapping_add(
                 p.target_id
@@ -445,7 +708,9 @@ pub fn drain_pending_projectiles(combat: &mut CombatSystem, objects: &HashMap<Ob
             p.shooter_id,
             fire_target_id,
             flight_speed,
-            p.is_homing,
+            projectile_lifecycle
+                .map(crate::game_logic::weapon_bootstrap::HostProjectileLifecycle::follows_target)
+                .unwrap_or(p.is_homing),
         );
         if let Some(proj) = combat.projectile_mut(pid) {
             proj.damage_type = p.damage_type;
@@ -454,6 +719,8 @@ pub fn drain_pending_projectiles(combat: &mut CombatSystem, objects: &HashMap<Ob
             proj.detonation_fx_name = p.detonation_fx_name.clone();
             proj.detonation_ocl_name = p.detonation_ocl_name.clone();
             proj.exhaust_name = p.exhaust_name.clone();
+            proj.source_team = source_context.source_team;
+            proj.source_veterancy = source_context.source_veterancy;
             proj.secondary_damage = p.secondary_damage;
             proj.secondary_damage_radius = p.secondary_damage_radius;
             proj.shock_wave_amount = p.shock_wave_amount;
@@ -467,6 +734,7 @@ pub fn drain_pending_projectiles(combat: &mut CombatSystem, objects: &HashMap<Ob
             proj.historic_bonus_weapon = p.historic_bonus_weapon.clone();
             proj.die_on_detonate = p.die_on_detonate;
             proj.projectile_collides = p.projectile_collides;
+            proj.set_projectile_lifecycle(projectile_lifecycle);
         }
     }
 }
@@ -483,6 +751,7 @@ impl CombatSystem {
             projectiles: HashMap::new(),
             next_projectile_id: ObjectId(100000), // Start high to avoid conflicts with objects
             impact_fx: Vec::new(),
+            fire_ocl: Vec::new(),
         }
     }
 
@@ -494,6 +763,11 @@ impl CombatSystem {
     /// Drain ProjectileDetonationFX residual events produced by the last update.
     pub fn take_impact_fx(&mut self) -> Vec<ProjectileImpactFx> {
         std::mem::take(&mut self.impact_fx)
+    }
+
+    /// Drain FireOCL events emitted while pending shots were materialized.
+    pub fn take_fire_ocl(&mut self) -> Vec<WeaponFireOcl> {
+        std::mem::take(&mut self.fire_ocl)
     }
 
     pub fn projectile_count(&self) -> usize {
@@ -564,7 +838,6 @@ impl CombatSystem {
             projectile.velocity = Vec3::ZERO;
             projectile.position = target_pos;
             projectile.target_position = target_pos;
-            projectile.max_lifetime = 0.05; // expire quickly after hit check
         } else {
             let spd = if speed > 0.0 { speed } else { 200.0 };
             let dir = (target_pos - shooter_pos).normalize_or_zero();
@@ -622,7 +895,8 @@ impl CombatSystem {
         self.update_projectiles_with_countermeasures(dt, objects, None, 0)
     }
 
-    /// Flight integrate only (lifetime + pose). Hit detection is separate.
+    /// Flight integrate only (lifetime + pose). Hit/detonation behavior is
+    /// separate, so this helper cannot silently discard a parsed expiry.
     pub fn integrate_projectiles_only(&mut self, dt: f32) -> usize {
         let dt = if dt.is_finite() && dt > 0.0 {
             dt
@@ -631,19 +905,15 @@ impl CombatSystem {
         };
         let ids: Vec<ObjectId> = self.projectiles.keys().copied().collect();
         let mut stepped = 0usize;
-        let mut remove = Vec::new();
         for id in ids {
             let Some(p) = self.projectiles.get_mut(&id) else {
                 continue;
             };
-            if !p.update(dt) {
-                remove.push(id);
-            } else {
+            // This pose-only caller has no target-status input. Defer parsed
+            // target-loss and detonation behavior to the complete combat pass.
+            if p.update(dt, true) == ProjectileStep::Alive {
                 stepped += 1;
             }
-        }
-        for id in remove {
-            self.projectiles.remove(&id);
         }
         stepped
     }
@@ -682,6 +952,10 @@ impl CombatSystem {
 
         for proj_id in projectile_ids {
             if let Some(projectile) = self.projectiles.get_mut(&proj_id) {
+                let target_is_live = projectile
+                    .target_id
+                    .map(|target_id| objects.get(&target_id).is_some_and(Object::is_alive))
+                    .unwrap_or(true);
                 // Homing residual: refresh aim point from live target before step.
                 if projectile.is_homing {
                     if let Some(tid) = projectile.target_id {
@@ -692,11 +966,72 @@ impl CombatSystem {
                         }
                     }
                 }
-                let still_alive = projectile.update(dt);
-
-                if !still_alive {
-                    projectiles_to_remove.push(proj_id);
-                    continue;
+                match projectile.update(dt, target_is_live) {
+                    ProjectileStep::Alive => {}
+                    ProjectileStep::Hold => {
+                        // C++ MissileAIUpdate::KILL_SELF holds for the parsed
+                        // contrail delay, with no impact FX/OCL or damage.
+                        continue;
+                    }
+                    ProjectileStep::Remove => {
+                        projectiles_to_remove.push(proj_id);
+                        continue;
+                    }
+                    step @ (ProjectileStep::Detonate | ProjectileStep::DetonateAndHold) => {
+                        // C++ DumbProjectileBehavior lifespan and
+                        // MissileAIUpdate DetonateOnNoFuel both call the
+                        // detonation weapon at the projectile's current pose.
+                        // A zero-radius weapon has no guessed direct victim.
+                        let impact = projectile.position;
+                        Self::maybe_record_historic_bonus(projectile, impact, objects);
+                        if projectile.explosion_radius > 0.0 {
+                            damage_events.push(DamageEvent::Area {
+                                position: impact,
+                                damage: projectile.damage,
+                                damage_type: projectile.damage_type,
+                                death_type: if projectile.die_on_detonate {
+                                    crate::game_logic::host_usa_pilot::HostDeathType::Detonated
+                                } else {
+                                    projectile.death_type
+                                },
+                                radius: projectile.explosion_radius,
+                                shooter_id: projectile.shooter_id,
+                                secondary_damage: projectile.secondary_damage,
+                                secondary_radius: projectile.secondary_damage_radius,
+                                shock_wave_amount: projectile.shock_wave_amount,
+                                shock_wave_radius: projectile.shock_wave_radius,
+                                shock_wave_taper_off: projectile.shock_wave_taper_off,
+                                radius_damage_affects: projectile.radius_damage_affects,
+                                shooter_team: projectile.source_team,
+                                shooter_template: objects
+                                    .get(&projectile.shooter_id)
+                                    .map(|o| o.template_name.clone())
+                                    .unwrap_or_default(),
+                            });
+                        }
+                        if !projectile.detonation_fx_name.is_empty()
+                            || !projectile.detonation_ocl_name.is_empty()
+                        {
+                            self.impact_fx.push(ProjectileImpactFx {
+                                position: impact,
+                                shooter_id: projectile.shooter_id,
+                                target_id: None,
+                                detonation_fx_name: projectile.detonation_fx_name.clone(),
+                                detonation_ocl_name: projectile.detonation_ocl_name.clone(),
+                                source_team: projectile.source_team,
+                                source_veterancy: projectile.source_veterancy,
+                                source_orientation: projectile
+                                    .velocity
+                                    .z
+                                    .atan2(projectile.velocity.x),
+                                source_velocity: projectile.velocity,
+                            });
+                        }
+                        if step == ProjectileStep::Detonate {
+                            projectiles_to_remove.push(proj_id);
+                        }
+                        continue;
+                    }
                 }
 
                 // Intervening structure residual: ballistic shells impact the first
@@ -794,6 +1129,10 @@ impl CombatSystem {
                             target_id: Some(sid),
                             detonation_fx_name: projectile.detonation_fx_name.clone(),
                             detonation_ocl_name: projectile.detonation_ocl_name.clone(),
+                            source_team: projectile.source_team,
+                            source_veterancy: projectile.source_veterancy,
+                            source_orientation: projectile.velocity.z.atan2(projectile.velocity.x),
+                            source_velocity: projectile.velocity,
                         });
                     }
                     projectiles_to_remove.push(proj_id);
@@ -857,6 +1196,13 @@ impl CombatSystem {
                                     target_id: Some(target_id),
                                     detonation_fx_name: projectile.detonation_fx_name.clone(),
                                     detonation_ocl_name: projectile.detonation_ocl_name.clone(),
+                                    source_team: projectile.source_team,
+                                    source_veterancy: projectile.source_veterancy,
+                                    source_orientation: projectile
+                                        .velocity
+                                        .z
+                                        .atan2(projectile.velocity.x),
+                                    source_velocity: projectile.velocity,
                                 });
                             }
                             projectiles_to_remove.push(proj_id);
@@ -905,6 +1251,13 @@ impl CombatSystem {
                                 target_id: None,
                                 detonation_fx_name: projectile.detonation_fx_name.clone(),
                                 detonation_ocl_name: projectile.detonation_ocl_name.clone(),
+                                source_team: projectile.source_team,
+                                source_veterancy: projectile.source_veterancy,
+                                source_orientation: projectile
+                                    .velocity
+                                    .z
+                                    .atan2(projectile.velocity.x),
+                                source_velocity: projectile.velocity,
                             });
                         }
                         projectiles_to_remove.push(proj_id);
@@ -1080,9 +1433,16 @@ impl CombatSystem {
             }
         }
 
-        // Remove expired/hit projectiles
+        // Remove expired/hit projectiles.  Under coupled GameWorld flight
+        // authority, publish an explicit inactive residual here: a later
+        // active-only snapshot cannot otherwise tell the shadow that a host
+        // KILL_SELF delay (or ordinary impact) has actually completed.
         for proj_id in &projectiles_to_remove {
-            self.projectiles.remove(proj_id);
+            if self.projectiles.remove(proj_id).is_some()
+                && crate::gameworld_shadow::gameworld_projectile_authority_live()
+            {
+                crate::game_logic::host_projectile_log::record_retired(proj_id.0);
+            }
         }
 
         projectiles_to_remove
@@ -1174,6 +1534,234 @@ mod tests {
         obj.set_position(pos);
         obj.selection_radius = radius;
         obj
+    }
+
+    /// A long coordinate flight keeps lifecycle tests away from ordinary
+    /// target/ground collision, so the assertion exercises the parsed Object
+    /// behavior which owns the C++ timeout result.
+    fn lifecycle_test_pending_projectile(
+        projectile_object_name: &str,
+        target_id: Option<ObjectId>,
+        target_pos: Vec3,
+    ) -> PendingProjectile {
+        PendingProjectile {
+            shooter_id: ObjectId(9_001),
+            shooter_pos: Vec3::ZERO,
+            source_context: Some(ProjectileLaunchContext {
+                source_team: Team::China,
+                source_veterancy: crate::game_logic::VeterancyLevel::Rookie,
+                source_orientation: 0.0,
+                source_velocity: Vec3::ZERO,
+            }),
+            target_id,
+            target_pos: Some(target_pos),
+            damage: 25.0,
+            speed: 1.0,
+            splash_radius: 8.0,
+            is_homing: false,
+            damage_type: DamageType::Explosive,
+            death_type: crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+            projectile_object_name: projectile_object_name.into(),
+            projectile_lifecycle: None,
+            fire_fx_name: String::new(),
+            fire_ocl_name: String::new(),
+            detonation_fx_name: "FX_AuthoredLifecycleImpact".into(),
+            detonation_ocl_name: String::new(),
+            exhaust_name: String::new(),
+            secondary_damage: 0.0,
+            secondary_damage_radius: 0.0,
+            shock_wave_amount: 0.0,
+            shock_wave_radius: 0.0,
+            shock_wave_taper_off: 0.0,
+            radius_damage_affects:
+                crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_ENEMIES
+                    | crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_NEUTRALS,
+            projectile_collides: 0,
+            scatter_radius: 0.0,
+            min_weapon_speed: 0.0,
+            scale_weapon_speed: false,
+            attack_range: 0.0,
+            min_attack_range: 0.0,
+            historic_weapon_key: String::new(),
+            historic_bonus_time_frames: 0,
+            historic_bonus_count: 0,
+            historic_bonus_radius: 0.0,
+            historic_bonus_weapon: String::new(),
+            die_on_detonate: false,
+        }
+    }
+
+    #[test]
+    fn retail_dumb_projectile_expiry_detonates_through_pending_host_path() {
+        clear_pending_projectile_queue_for_test();
+        let mut combat = CombatSystem::new();
+        let mut objects = HashMap::new();
+        queue_projectile_direct(lifecycle_test_pending_projectile(
+            "RangerFlashBangGrenade",
+            None,
+            Vec3::new(10_000.0, 0.0, 0.0),
+        ));
+        drain_pending_projectiles(&mut combat, &objects);
+
+        let projectile = combat
+            .projectiles_snapshot()
+            .into_iter()
+            .next()
+            .expect("parsed DumbProjectile must materialize");
+        assert_eq!(
+            projectile.projectile_lifecycle,
+            Some(
+                crate::game_logic::weapon_bootstrap::HostProjectileLifecycle::DumbProjectile {
+                    max_lifespan_frames: 300,
+                }
+            )
+        );
+
+        for _ in 0..299 {
+            let _ = combat.update_projectiles(1.0 / 30.0, &mut objects);
+            assert_eq!(combat.projectile_count(), 1);
+            assert!(combat.take_impact_fx().is_empty());
+        }
+        let _ = combat.update_projectiles(1.0 / 30.0, &mut objects);
+        assert_eq!(combat.projectile_count(), 0);
+        let impacts = combat.take_impact_fx();
+        assert_eq!(impacts.len(), 1);
+        assert_eq!(impacts[0].detonation_fx_name, "FX_AuthoredLifecycleImpact");
+        assert!(
+            impacts[0].position.x < 20.0,
+            "expiry must detonate at its in-flight pose rather than the distant target"
+        );
+    }
+
+    #[test]
+    fn retail_missile_fuel_detonation_and_target_loss_use_distinct_authored_paths() {
+        clear_pending_projectile_queue_for_test();
+
+        // DragonTankFlameProjectile has FuelLifetime=350ms and
+        // DetonateOnNoFuel=Yes in retail WeaponObjects.ini. C++ rounds that
+        // duration up to 11 logic frames and invokes its detonation weapon.
+        let mut fuel_combat = CombatSystem::new();
+        let mut fuel_objects = HashMap::new();
+        queue_projectile_direct(lifecycle_test_pending_projectile(
+            "DragonTankFlameProjectile",
+            None,
+            Vec3::new(10_000.0, 0.0, 0.0),
+        ));
+        drain_pending_projectiles(&mut fuel_combat, &fuel_objects);
+        for _ in 0..10 {
+            let _ = fuel_combat.update_projectiles(1.0 / 30.0, &mut fuel_objects);
+            assert_eq!(fuel_combat.projectile_count(), 1);
+            assert!(fuel_combat.take_impact_fx().is_empty());
+        }
+        let _ = fuel_combat.update_projectiles(1.0 / 30.0, &mut fuel_objects);
+        assert_eq!(
+            fuel_combat.projectile_count(),
+            1,
+            "C++ MissileAIUpdate keeps the detonated object for KillSelfDelay"
+        );
+        assert_eq!(fuel_combat.take_impact_fx().len(), 1);
+        for _ in 0..2 {
+            let _ = fuel_combat.update_projectiles(1.0 / 30.0, &mut fuel_objects);
+            assert_eq!(fuel_combat.projectile_count(), 1);
+            assert!(fuel_combat.take_impact_fx().is_empty());
+        }
+        let _ = fuel_combat.update_projectiles(1.0 / 30.0, &mut fuel_objects);
+        assert_eq!(fuel_combat.projectile_count(), 0);
+
+        // PatriotMissile follows an object and has DetonateOnNoFuel=No. Its
+        // C++ airborneTargetGone transition instead enters KILL_SELF for the
+        // parsed three-frame delay, producing neither a guessed explosion nor
+        // impact FX when that target vanishes.
+        let target = ObjectId(9_002);
+        let mut target_loss_combat = CombatSystem::new();
+        let mut target_loss_objects = HashMap::new();
+        target_loss_objects.insert(
+            target,
+            make_obj(
+                "LifecycleTarget",
+                target,
+                Team::GLA,
+                Vec3::new(10_000.0, 0.0, 0.0),
+                &[KindOf::Aircraft, KindOf::Attackable],
+                5.0,
+            ),
+        );
+        queue_projectile_direct(lifecycle_test_pending_projectile(
+            "PatriotMissile",
+            Some(target),
+            Vec3::new(10_000.0, 0.0, 0.0),
+        ));
+        drain_pending_projectiles(&mut target_loss_combat, &target_loss_objects);
+        let projectile = target_loss_combat
+            .projectiles_snapshot()
+            .into_iter()
+            .next()
+            .expect("parsed MissileAIUpdate must materialize");
+        assert!(projectile.is_homing);
+        target_loss_objects.remove(&target);
+        for _ in 0..3 {
+            let _ = target_loss_combat.update_projectiles(1.0 / 30.0, &mut target_loss_objects);
+            assert_eq!(target_loss_combat.projectile_count(), 1);
+            assert!(target_loss_combat.take_impact_fx().is_empty());
+        }
+        let _ = target_loss_combat.update_projectiles(1.0 / 30.0, &mut target_loss_objects);
+        assert_eq!(target_loss_combat.projectile_count(), 0);
+        assert!(target_loss_combat.take_impact_fx().is_empty());
+    }
+
+    #[test]
+    fn coupled_missile_kill_self_removal_publishes_inactive_shadow_residual() {
+        let _authority_guard = crate::gameworld_shadow::authority_env_lock();
+        let prior_shadow = std::env::var("GENERALS_GAMEWORLD_SHADOW").ok();
+        let prior_projectile = std::env::var("GENERALS_GAMEWORLD_PROJECTILE_AUTHORITY").ok();
+        std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+        std::env::set_var("GENERALS_GAMEWORLD_PROJECTILE_AUTHORITY", "1");
+        crate::game_logic::host_projectile_log::clear();
+
+        let mut combat = CombatSystem::new();
+        let id = combat.fire_projectile(
+            Vec3::ZERO,
+            Vec3::new(1_000.0, 0.0, 0.0),
+            &Weapon::default(),
+            ObjectId(17),
+            None,
+            100.0,
+        );
+        let projectile = combat.projectile_mut(id).expect("projectile");
+        projectile.set_projectile_lifecycle(Some(
+            crate::game_logic::weapon_bootstrap::HostProjectileLifecycle::Missile {
+                try_to_follow_target: false,
+                fuel_lifetime_frames: 0,
+                detonate_on_no_fuel: false,
+                kill_self_delay_frames: 3,
+            },
+        ));
+        projectile.missile_kill_self_started_frame = Some(0);
+        projectile.lifetime = 3.0 / 30.0;
+
+        {
+            let _couple = crate::gameworld_shadow::ShadowCoupleGuard::enter();
+            let mut objects = HashMap::new();
+            let removed =
+                combat.update_projectiles_with_countermeasures(0.0, &mut objects, None, 0);
+            assert_eq!(removed, vec![id]);
+        }
+        let events = crate::game_logic::host_projectile_log::drain();
+        assert!(
+            events
+                .iter()
+                .any(|event| event.host_id == id.0 && !event.active),
+            "actual KILL_SELF completion must retire its GameWorld flight residual: {events:?}"
+        );
+
+        match prior_shadow {
+            Some(value) => std::env::set_var("GENERALS_GAMEWORLD_SHADOW", value),
+            None => std::env::remove_var("GENERALS_GAMEWORLD_SHADOW"),
+        }
+        match prior_projectile {
+            Some(value) => std::env::set_var("GENERALS_GAMEWORLD_PROJECTILE_AUTHORITY", value),
+            None => std::env::remove_var("GENERALS_GAMEWORLD_PROJECTILE_AUTHORITY"),
+        }
     }
 
     #[test]
@@ -1588,12 +2176,18 @@ mod tests {
     }
 
     #[test]
-    fn pending_projectile_carries_exhaust_name() {
+    fn pending_projectile_preserves_exhaust_and_frozen_fire_effect_context() {
         let mut combat = CombatSystem::new();
         let objects = HashMap::new();
         queue_projectile(PendingProjectile {
             shooter_id: ObjectId(1),
             shooter_pos: Vec3::ZERO,
+            source_context: Some(ProjectileLaunchContext {
+                source_team: Team::China,
+                source_veterancy: crate::game_logic::VeterancyLevel::Heroic,
+                source_orientation: std::f32::consts::FRAC_PI_2,
+                source_velocity: Vec3::new(12.0, 0.0, -4.0),
+            }),
             target_id: Some(ObjectId(2)),
             target_pos: Some(Vec3::new(10.0, 0.0, 0.0)),
             damage: 10.0,
@@ -1603,6 +2197,9 @@ mod tests {
             damage_type: DamageType::Explosive,
             death_type: crate::game_logic::host_usa_pilot::HostDeathType::Normal,
             projectile_object_name: "GenericTankShell".into(),
+            projectile_lifecycle: None,
+            fire_fx_name: "FX_HeroicGenericTankGunNoTracer".into(),
+            fire_ocl_name: "OCL_FireFieldSmall".into(),
             detonation_fx_name: String::new(),
             detonation_ocl_name: String::new(),
             exhaust_name: "MissileExhaust".into(),
@@ -1631,6 +2228,26 @@ mod tests {
         let snaps: Vec<_> = combat.projectiles_snapshot();
         assert_eq!(snaps.len(), 1);
         assert_eq!(snaps[0].exhaust_name, "MissileExhaust");
+        assert_eq!(snaps[0].source_team, Team::China);
+        assert_eq!(
+            snaps[0].source_veterancy,
+            crate::game_logic::VeterancyLevel::Heroic
+        );
+
+        // There is intentionally no source object in `objects`: the queued
+        // FireOCL must retain the fire-time transform rather than sampling a
+        // deleted/re-owned object during the later combat drain.
+        let fire_ocls = combat.take_fire_ocl();
+        assert_eq!(fire_ocls.len(), 1);
+        assert_eq!(fire_ocls[0].fire_fx_name, "FX_HeroicGenericTankGunNoTracer");
+        assert_eq!(fire_ocls[0].fire_ocl_name, "OCL_FireFieldSmall");
+        assert_eq!(fire_ocls[0].source_team, Team::China);
+        assert_eq!(
+            fire_ocls[0].source_veterancy,
+            crate::game_logic::VeterancyLevel::Heroic
+        );
+        assert!((fire_ocls[0].source_orientation - std::f32::consts::FRAC_PI_2).abs() < 1e-6);
+        assert_eq!(fire_ocls[0].source_velocity, Vec3::new(12.0, 0.0, -4.0));
     }
 
     #[test]
@@ -1919,6 +2536,7 @@ mod tests {
         queue_projectile(PendingProjectile {
             shooter_id: atk,
             shooter_pos: Vec3::ZERO,
+            source_context: None,
             target_id: Some(tgt),
             target_pos: Some(Vec3::new(50.0, 0.0, 0.0)),
             damage: 10.0,
@@ -1928,6 +2546,9 @@ mod tests {
             damage_type: DamageType::Bullet,
             death_type: crate::game_logic::host_usa_pilot::HostDeathType::Normal,
             projectile_object_name: String::new(),
+            projectile_lifecycle: None,
+            fire_fx_name: String::new(),
+            fire_ocl_name: String::new(),
             detonation_fx_name: String::new(),
             detonation_ocl_name: String::new(),
             exhaust_name: String::new(),
@@ -1984,6 +2605,7 @@ mod tests {
         queue_projectile(PendingProjectile {
             shooter_id: atk,
             shooter_pos: Vec3::ZERO,
+            source_context: None,
             target_id: Some(tgt),
             target_pos: Some(Vec3::new(50.0, 0.0, 0.0)),
             damage: 50.0,
@@ -1993,6 +2615,9 @@ mod tests {
             damage_type: DamageType::Explosive,
             death_type: crate::game_logic::host_usa_pilot::HostDeathType::Normal,
             projectile_object_name: String::new(),
+            projectile_lifecycle: None,
+            fire_fx_name: String::new(),
+            fire_ocl_name: String::new(),
             detonation_fx_name: String::new(),
             detonation_ocl_name: String::new(),
             exhaust_name: String::new(),
@@ -2031,6 +2656,7 @@ mod tests {
         queue_projectile(PendingProjectile {
             shooter_id: atk,
             shooter_pos: Vec3::ZERO,
+            source_context: None,
             target_id: None,
             target_pos: Some(Vec3::new(375.0, 0.0, 0.0)),
             damage: 50.0,
@@ -2040,6 +2666,9 @@ mod tests {
             damage_type: DamageType::Explosive,
             death_type: crate::game_logic::host_usa_pilot::HostDeathType::Normal,
             projectile_object_name: String::new(),
+            projectile_lifecycle: None,
+            fire_fx_name: String::new(),
+            fire_ocl_name: String::new(),
             detonation_fx_name: String::new(),
             detonation_ocl_name: String::new(),
             exhaust_name: String::new(),

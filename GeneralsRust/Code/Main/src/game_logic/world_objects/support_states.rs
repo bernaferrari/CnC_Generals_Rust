@@ -3,12 +3,645 @@
 #![allow(unused_imports, non_snake_case)]
 use super::super::*;
 
+#[derive(Clone)]
+struct RiderChangeEnterPlan {
+    rider: crate::game_logic::RiderChangeRiderMetadata,
+    /// Resolved before the first eject mutation.  A missing/changed host
+    /// locomotor cannot therefore strand both riders after an old rider was
+    /// removed from the bike.
+    active_locomotor_name: String,
+    /// The complete, surface-safe SET_NORMAL projection.  Do not reduce this
+    /// to the old three-field `Movement` bridge: C++ chooseLocomotorSet also
+    /// changes braking, damage movement, surface capability, and physics
+    /// options.
+    active_locomotor: crate::game_logic::locomotor_bootstrap::HostUniformLocomotorSetBinding,
+    previous_rider: Option<ObjectId>,
+    container_position: glam::Vec3,
+    /// C++ `wasSelected` is an in-game/local selection fact.  Keep the
+    /// owning local player so the object bit and the player's selection list
+    /// move together after a successful board.
+    incoming_selection_player: Option<u32>,
+    incoming_was_selected: bool,
+    incoming_veterancy: VeterancyLevel,
+}
+
+/// Clear exactly the RiderChange state currently represented by the active
+/// host.  C++ additionally clears `DOOR_1_CLOSING` while removing a rider;
+/// keep that flag out of the next rider's model state even if an interrupted
+/// generic transport animation left it behind.
+fn clear_rider_change_runtime_state(
+    container: &mut Object,
+    authored_rider: Option<&crate::game_logic::RiderChangeRiderMetadata>,
+) {
+    let authored_model_mask = authored_rider
+        .map(|rider| rider.model_condition_mask)
+        .unwrap_or(0);
+    let authored_status_mask = authored_rider
+        .map(|rider| rider.object_status_mask)
+        .unwrap_or(0);
+    let door_closing_mask =
+        crate::game_logic::host_enum_table_residual::model_condition_bit_name_index(
+            "DOOR_1_CLOSING",
+        )
+        .filter(|bit| *bit < 128)
+        .map(|bit| 1u128 << bit)
+        .unwrap_or(0);
+
+    container.model_condition_bits &=
+        !(container.rider_change_model_condition_mask | authored_model_mask | door_closing_mask);
+    container.object_status_bits &=
+        !(container.rider_change_object_status_mask | authored_status_mask);
+    container.rider_change_active_slot = None;
+    container.rider_change_model_condition_mask = 0;
+    container.rider_change_object_status_mask = 0;
+    container.rider_change_weapon_set = None;
+    container.rider_change_locomotor_set = None;
+    container.rider_change_locomotor_name = None;
+    // C++ clears the active WeaponSet before the replacement's set is chosen.
+    // The bounded Combat Cycle bridge is the live representation of that set.
+    container.combat_cycle_rider = 0;
+    container.weapon = None;
+    container.secondary_weapon = None;
+    container.record_host_weapon_stats();
+    container.record_host_model_condition();
+}
+
+/// Apply every Locomotor.ini field for which the live host Object has an
+/// authoritative representation.  This is deliberately one helper so an
+/// atomic RiderChange replacement cannot accidentally update its nominal
+/// speed while leaving the old rider's braking, damage, or surface state.
+fn apply_rider_change_locomotor_binding(
+    container: &mut Object,
+    binding: &crate::game_logic::locomotor_bootstrap::HostLocomotorBinding,
+) {
+    container.movement.max_speed = binding.movement.max_speed;
+    container.movement.max_speed_damaged = binding.max_speed_damaged;
+    container.movement.acceleration = binding.movement.acceleration;
+    container.movement.acceleration_damaged = binding.acceleration_damaged;
+    container.movement.turn_rate = binding.movement.turn_rate;
+    container.movement.turn_rate_damaged = binding.turn_rate_damaged;
+    container.braking = binding.braking;
+    container.min_speed = binding.min_speed;
+    container.min_turn_speed = binding.min_turn_speed;
+    container.loco_behavior_z = binding.behavior_z;
+    container.loco_appearance = binding.appearance;
+    container.loco_extra_2d_friction = binding.extra_2d_friction;
+    container.loco_apply_2d_friction_airborne = binding.apply_2d_friction_when_airborne;
+    container.can_move_backward = binding.can_move_backward;
+    container.downhill_only = binding.downhill_only;
+    container.max_lift = binding.max_lift;
+    container.max_lift_damaged = binding.max_lift_damaged;
+    container.speed_limit_z = binding.speed_limit_z;
+    container.loco_preferred_height = binding.preferred_height;
+    container.loco_preferred_height_damping = binding.preferred_height_damping;
+    container.circling_radius = binding.circling_radius;
+    container.turn_pivot_offset = binding.turn_pivot_offset;
+    container.stick_to_ground = binding.stick_to_ground;
+    container.locomotor_surfaces = binding.locomotor_surfaces;
+    container.set_locomotor_physics_options();
+    container.record_host_locomotor();
+    container.record_host_movement();
+}
+
 impl GameLogic {
+    /// End an interrupted C++ capture SpecialAbilityUpdate.  An order may be
+    /// cancelled while approaching, unpacking, or preparing; in all cases the
+    /// source must not retain a stale channel or `IS_USING_ABILITY` bit.
+    fn abort_capture_channel(&mut self, object_id: ObjectId) {
+        if let Some(object) = self.objects.get_mut(&object_id) {
+            object.stop_moving();
+            object.capture_channel = None;
+            object.set_status_using_ability(false);
+            object.set_target(None);
+        }
+    }
+
+    /// Complete C++ capture packing.  Ownership changes at the end of
+    /// preparation, but the source remains busy until PackTime has elapsed.
+    fn finish_capture_channel(&mut self, object_id: ObjectId) {
+        if let Some(object) = self.objects.get_mut(&object_id) {
+            object.stop_moving();
+            object.capture_channel = None;
+            object.set_status_using_ability(false);
+            object.set_target(None);
+        }
+    }
+
+    /// Validate every mutable participant in the RiderChange replacement
+    /// before taking the first item out of the old containment list.  The
+    /// simulation is single-threaded, so once this returns `Some` the
+    /// following transaction has no fallible lookup or capacity operation.
+    fn rider_change_enter_plan(
+        &self,
+        rider_id: ObjectId,
+        container_id: ObjectId,
+    ) -> Option<RiderChangeEnterPlan> {
+        if !self.can_unit_enter_normal_target(rider_id, container_id) {
+            return None;
+        }
+        let rider = self.objects.get(&rider_id)?;
+        let container = self.objects.get(&container_id)?;
+        if !container.supports_authored_rider_change_normal_enter() {
+            // A parsed roster is the sole admission/effect capability.  Do
+            // not use a Combat Bike basename or legacy transport flag here:
+            // those are old bootstrap state, not RiderChange authority.
+            return None;
+        }
+        // RiderChangeContain is a one-rider mobile module.  The transaction
+        // below writes the mobile occupant list directly after preflight; a
+        // malformed structure carrying the same Behavior would otherwise
+        // have a different authoritative list (`BuildingData`) and could
+        // lose the rider.  Reject it before the first mutation.
+        if container.building_data.is_some() {
+            return None;
+        }
+        let rider_metadata = container
+            .authored_rider_change_rider_for_template(&rider.template_name)?
+            .clone();
+        // Parse-time metadata can outlive a LocomotorStore reload or an old
+        // snapshot.  Re-resolve the complete exact authored SET_NORMAL row
+        // before any eject mutation; no generic template/default locomotor
+        // (nor a single arbitrarily chosen surface member) is a valid
+        // substitute for this RiderN locomotor set.
+        let active_locomotor_name = rider_metadata.active_locomotor_name.clone()?;
+        if !rider_metadata
+            .locomotor_set
+            .eq_ignore_ascii_case("SET_NORMAL")
+            || rider_metadata.active_locomotor_names.is_empty()
+            || rider_metadata.active_locomotor_surfaces == 0
+        {
+            return None;
+        }
+        let active_locomotor =
+            crate::game_logic::locomotor_bootstrap::resolve_uniform_host_locomotor_set(
+                &rider_metadata.active_locomotor_names,
+            )?;
+        if !active_locomotor
+            .representative_name
+            .eq_ignore_ascii_case(&active_locomotor_name)
+            || active_locomotor.locomotor_surfaces != rider_metadata.active_locomotor_surfaces
+        {
+            // Do not let stale parsed metadata turn a changed/ambiguous
+            // Locomotor store into a partial replacement transaction.
+            return None;
+        }
+        let occupants = container.contained_units();
+        if occupants.len() > 1 {
+            // The source C++ module has one active rider.  A malformed/stale
+            // host roster cannot be safely reduced by guessing which unit to
+            // evict, so reject before touching either side.
+            return None;
+        }
+        let incoming_selection_player = rider
+            .owner_player_id
+            .filter(|player_id| rider.selected && self.is_local_player(*player_id));
+        if occupants.first().copied() == Some(rider_id) {
+            // A stale duplicate Enter is harmless only when the relationship
+            // is already internally consistent; the caller repairs the rider
+            // state below without adding it a second time.
+            return (rider.contained_by == Some(container_id)).then_some(RiderChangeEnterPlan {
+                rider: rider_metadata,
+                active_locomotor_name,
+                active_locomotor,
+                previous_rider: Some(rider_id),
+                container_position: container.get_position(),
+                incoming_selection_player,
+                incoming_was_selected: incoming_selection_player.is_some(),
+                incoming_veterancy: rider.experience.level,
+            });
+        }
+        if rider.contained_by.is_some() {
+            // `execute_enter` removes an old container before pathing.  If a
+            // stale link survives that stage, do not let this transaction make
+            // a unit belong to two containers.
+            return None;
+        }
+        let previous_rider = occupants.first().copied();
+        if let Some(previous_rider_id) = previous_rider {
+            let previous = self.objects.get(&previous_rider_id)?;
+            if previous_rider_id == rider_id
+                || !previous.is_alive()
+                || previous.contained_by != Some(container_id)
+                || container
+                    .authored_rider_change_rider_for_template(&previous.template_name)
+                    .is_none()
+            {
+                return None;
+            }
+        }
+        if incoming_selection_player.is_some() && !container.selected && !container.is_selectable()
+        {
+            // Selection transfer is a modeled C++ side effect.  Do not drop a
+            // selected rider into an unselectable custom container and pretend
+            // the transfer succeeded.
+            return None;
+        }
+        Some(RiderChangeEnterPlan {
+            rider: rider_metadata,
+            active_locomotor_name,
+            active_locomotor,
+            previous_rider,
+            container_position: container.get_position(),
+            incoming_selection_player,
+            incoming_was_selected: incoming_selection_player.is_some(),
+            incoming_veterancy: rider.experience.level,
+        })
+    }
+
+    /// Complete the C++ `RiderChangeContain::onContaining` replacement at the
+    /// arrival boundary.  This intentionally bypasses generic
+    /// `Object::add_occupant`: C++ ignores capacity, ejects the prior rider,
+    /// and boards the new rider as one ordered transaction.
+    pub(in super::super) fn rider_change_enter_at_arrival(
+        &mut self,
+        rider_id: ObjectId,
+        container_id: ObjectId,
+    ) -> bool {
+        let Some(plan) = self.rider_change_enter_plan(rider_id, container_id) else {
+            return false;
+        };
+
+        // Idempotent duplicate: retain the valid existing relation but repair
+        // the arrival state without disturbing veterancy or rider effects.
+        if plan.previous_rider == Some(rider_id) {
+            if let Some(rider) = self.objects.get_mut(&rider_id) {
+                rider.stop_moving();
+                rider.set_target(Some(container_id));
+                rider.set_contained_by(Some(container_id));
+                rider.set_position(plan.container_position);
+                rider.set_ai_state(AIState::Docked);
+                rider.set_status_moving(false);
+                rider.set_status_attacking(false);
+            }
+            return true;
+        }
+
+        // Phase 1: eject the old rider.  All IDs/list membership were checked
+        // above, so the remove cannot fail after any state has changed.
+        if let Some(previous_rider_id) = plan.previous_rider {
+            let (previous_metadata, bike_veterancy, previous_has_controller) = {
+                let container = self
+                    .objects
+                    .get(&container_id)
+                    .expect("RiderChange preflight container disappeared");
+                let previous = self
+                    .objects
+                    .get(&previous_rider_id)
+                    .expect("RiderChange preflight rider disappeared");
+                (
+                    container
+                        .authored_rider_change_rider_for_template(&previous.template_name)
+                        .expect("RiderChange preflight roster disappeared")
+                        .clone(),
+                    container.experience.level,
+                    previous.owner_player_id.is_some(),
+                )
+            };
+            let removed = self
+                .objects
+                .get_mut(&container_id)
+                .expect("RiderChange preflight container disappeared")
+                .remove_occupant(previous_rider_id);
+            debug_assert!(removed, "RiderChange preflight must make eject infallible");
+            if !removed {
+                return false;
+            }
+            if let Some(previous) = self.objects.get_mut(&previous_rider_id) {
+                previous.stop_moving();
+                // C++ delegates the exact exit-door/path placement to
+                // TransportContain::aiEvacuateInstantly.  That authored
+                // exit-path matrix is not represented by this bounded host;
+                // keep the ejected rider at the container origin instead of
+                // fabricating a pseudo-random offset.
+                previous.set_position(plan.container_position);
+                previous.set_contained_by(None);
+                previous.set_target(None);
+                previous.set_ai_state(AIState::Idle);
+                previous.set_status_moving(false);
+                previous.set_status_attacking(false);
+                previous.deselect();
+                if previous_has_controller {
+                    previous.set_rider_change_veterancy_level(bike_veterancy);
+                }
+            }
+            if let Some(container) = self.objects.get_mut(&container_id) {
+                clear_rider_change_runtime_state(container, Some(&previous_metadata));
+                if previous_has_controller {
+                    container.set_rider_change_veterancy_level(VeterancyLevel::Rookie);
+                }
+            }
+        } else if let Some(container) = self.objects.get_mut(&container_id) {
+            // An initial-payload Combat Cycle can have a visible legacy rider
+            // without a tracked Object.  Clear only its existing host bridge
+            // before applying the explicitly parsed replacement.
+            clear_rider_change_runtime_state(container, None);
+        }
+
+        // Phase 2: apply the exact parsed RiderN state and publish the sole
+        // contained body.  There are no capacity checks or fallible template
+        // lookups after the preflight.
+        {
+            let container = self
+                .objects
+                .get_mut(&container_id)
+                .expect("RiderChange preflight container disappeared");
+            container.model_condition_bits |= plan.rider.model_condition_mask;
+            container.object_status_bits |= plan.rider.object_status_mask;
+            container.rider_change_active_slot = Some(plan.rider.slot);
+            container.rider_change_model_condition_mask = plan.rider.model_condition_mask;
+            container.rider_change_object_status_mask = plan.rider.object_status_mask;
+            container.rider_change_weapon_set = Some(plan.rider.weapon_set.clone());
+            container.rider_change_locomotor_set = Some(plan.rider.locomotor_set.clone());
+            container.rider_change_locomotor_name = Some(plan.active_locomotor_name.clone());
+            container.set_command_set_override(Some(plan.rider.command_set.clone()));
+            if container.status.stealthed {
+                container.set_status_detected(true);
+            }
+            container.occupants.push(rider_id);
+            container.record_host_model_condition();
+            apply_rider_change_locomotor_binding(container, &plan.active_locomotor.binding);
+        }
+        {
+            let rider = self
+                .objects
+                .get_mut(&rider_id)
+                .expect("RiderChange preflight incoming rider disappeared");
+            rider.stop_moving();
+            rider.set_status_attacking(false);
+            rider.target_location = None;
+            rider.set_status_force_attack(false);
+            rider.set_target(Some(container_id));
+            rider.set_contained_by(Some(container_id));
+            rider.set_position(plan.container_position);
+            rider.set_ai_state(AIState::Docked);
+            rider.set_status_moving(false);
+            rider.set_rider_change_veterancy_level(VeterancyLevel::Rookie);
+            rider.deselect();
+        }
+
+        // This is a visual/weapon mirror only.  It receives the parsed RiderN
+        // ordinal, never the incoming rider's template spelling; the generic
+        // `refresh_combat_cycle_rider_weapon` is intentionally not called.
+        let switched = self.apply_combat_cycle_rider(
+            container_id,
+            crate::game_logic::host_combat_cycle::CombatCycleRider::from_u8(plan.rider.slot),
+        );
+        debug_assert!(
+            switched,
+            "RiderChange preflight must make weapon bridge infallible"
+        );
+        if let Some(container) = self.objects.get_mut(&container_id) {
+            container.set_rider_change_veterancy_level(plan.incoming_veterancy);
+            if plan.incoming_was_selected && !container.selected {
+                container.select();
+            }
+        }
+        if let Some(player_id) = plan.incoming_selection_player {
+            // C++ sends MSG_CREATE_SELECTED_GROUP(false, bike) before
+            // TransportContain automatically deselects the rider.  Mirror
+            // both the per-object bits above and the authoritative local
+            // selection roster, preserving every unrelated selected unit.
+            if let Some(player) = self.players.get_mut(&player_id) {
+                player.selected_objects.retain(|id| *id != rider_id);
+                if !player.selected_objects.contains(&container_id) {
+                    player.selected_objects.push(container_id);
+                }
+            }
+        }
+        self.record_combat_cycle_residual_load();
+        true
+    }
+
+    /// C++ `RiderChangeContain::onRemoving` for an ordinary player Exit (or
+    /// moving a rider to a different container).  This is deliberately
+    /// separate from replacement above: only ordinary removal starts the
+    /// delayed scuttle and transfers selected state back to the rider.
+    pub(in super::super) fn rider_change_remove_occupant(
+        &mut self,
+        container_id: ObjectId,
+        rider_id: ObjectId,
+    ) -> bool {
+        let Some((
+            rider_metadata,
+            position,
+            bike_veterancy,
+            rider_has_controller,
+            was_moving,
+            transfer_selection,
+        )) = self.objects.get(&container_id).and_then(|container| {
+            if !container.supports_authored_rider_change_normal_enter()
+                || container.contained_units() != vec![rider_id]
+            {
+                return None;
+            }
+            let rider = self.objects.get(&rider_id)?;
+            if rider.contained_by != Some(container_id) || !rider.is_alive() {
+                return None;
+            }
+            let rider_metadata = container
+                .authored_rider_change_rider_for_template(&rider.template_name)?
+                .clone();
+            let transfer_selection = container.selected
+                && container
+                    .owner_player_id
+                    .is_some_and(|player_id| self.is_local_player(player_id));
+            Some((
+                rider_metadata,
+                container.get_position(),
+                container.experience.level,
+                rider.owner_player_id.is_some(),
+                container.status.moving,
+                transfer_selection,
+            ))
+        })
+        else {
+            return false;
+        };
+
+        let removed = self
+            .objects
+            .get_mut(&container_id)
+            .expect("RiderChange preflight container disappeared")
+            .remove_occupant(rider_id);
+        debug_assert!(removed, "RiderChange preflight must make exit infallible");
+        if !removed {
+            return false;
+        }
+
+        if let Some(rider) = self.objects.get_mut(&rider_id) {
+            rider.stop_moving();
+            rider.set_position(position);
+            rider.set_contained_by(None);
+            rider.set_target(None);
+            rider.set_ai_state(AIState::Idle);
+            rider.set_status_moving(false);
+            rider.set_status_attacking(false);
+            if rider_has_controller {
+                rider.set_rider_change_veterancy_level(bike_veterancy);
+            }
+        }
+        if let Some(container) = self.objects.get_mut(&container_id) {
+            clear_rider_change_runtime_state(container, Some(&rider_metadata));
+            if rider_has_controller {
+                container.set_rider_change_veterancy_level(VeterancyLevel::Rookie);
+            }
+            container.rider_change_scuttled_on_frame = self.frame.max(1);
+            container.set_status_unselectable(true);
+            container.model_condition_bits |= container
+                .thing
+                .template
+                .contain_module
+                .rider_change_scuttle_status_mask;
+            if !was_moving {
+                let _ = container.apply_status_bits_upgrade_masks(&["IMMOBILE"], &[]);
+            }
+            container.record_host_model_condition();
+            if transfer_selection {
+                container.deselect();
+            }
+        }
+        if transfer_selection {
+            if let Some(rider) = self.objects.get_mut(&rider_id) {
+                rider.select();
+            }
+            if let Some(player_id) = self
+                .objects
+                .get(&container_id)
+                .and_then(|container| container.owner_player_id)
+            {
+                if let Some(player) = self.players.get_mut(&player_id) {
+                    player.selected_objects.retain(|id| *id != container_id);
+                    if !player.selected_objects.contains(&rider_id) {
+                        player.selected_objects.push(rider_id);
+                    }
+                }
+            }
+        }
+        true
+    }
+
+    /// C++ `GarrisonContain::removeAllContained(TRUE)` on a capture trigger.
+    /// It exposes and ejects occupants; it does not kill them and it does not
+    /// defect the garrisonable structure in that same ability use.
+    fn evacuate_garrison_for_capture(&mut self, structure_id: ObjectId) {
+        let Some((position, occupants)) = self
+            .objects
+            .get(&structure_id)
+            .map(|structure| (structure.get_position(), structure.contained_units()))
+        else {
+            return;
+        };
+
+        if let Some(structure) = self.objects.get_mut(&structure_id) {
+            for occupant_id in &occupants {
+                let _ = structure.remove_occupant(*occupant_id);
+            }
+        }
+
+        for occupant_id in occupants {
+            let expose_stealth = self
+                .objects
+                .get(&occupant_id)
+                .is_some_and(|occupant| occupant.status.stealthed);
+            let _ = self.unit_command_exit_drop(occupant_id, position);
+            if expose_stealth {
+                if let Some(occupant) = self.objects.get_mut(&occupant_id) {
+                    occupant.set_status_detected(true);
+                }
+            }
+        }
+    }
+
+    /// C++ `SpecialAbilityUpdate::startPreparation` for a capture power.
+    /// Crucially, the real SpecialPower timer starts here—not when the player
+    /// clicks a distant target. `consume_special_power_charge_for` supplies
+    /// the existing per-ability timer and paused/disabled readiness gates.
+    fn start_capture_preparation(
+        &mut self,
+        object_id: ObjectId,
+        target_id: ObjectId,
+        power: crate::game_logic::CapturePowerKind,
+        preparation_time_ms: u32,
+    ) -> bool {
+        let Some(power_type) = power.special_power_type() else {
+            return false;
+        };
+        let Some(source_team) = self.objects.get(&object_id).map(|object| object.team) else {
+            return false;
+        };
+
+        // C++ checks/detonates a hostile trap when preparation begins, before
+        // it marks the SpecialPower as triggered or begins its progress bar.
+        let trap_position = self
+            .objects
+            .get(&target_id)
+            .map(|target| target.get_position());
+        let planter_is_ally = self
+            .booby_trap
+            .plant(target_id)
+            .map(|plant| plant.planter_team == source_team)
+            .unwrap_or(false);
+        if let Some(trap_position) = trap_position {
+            let target_is_trapped = self.booby_trap.is_booby_trapped(target_id)
+                || self
+                    .objects
+                    .get(&target_id)
+                    .map(|target| target.status.booby_trapped)
+                    .unwrap_or(false);
+            if !planter_is_ally && target_is_trapped {
+                let _ = self.detonate_booby_trap_at(
+                    target_id,
+                    trap_position,
+                    Some(object_id),
+                    true,
+                    false,
+                );
+            }
+        }
+
+        if !self.can_unit_capture_building(object_id, target_id, false)
+            || !self.consume_special_power_charge_for(object_id, &power_type)
+        {
+            return false;
+        }
+
+        // C++ starts victim warning/infiltration exactly as the preparation
+        // timer begins, giving the defender time to react before ownership
+        // changes at trigger time.
+        self.try_eva_building_being_stolen(target_id);
+        self.try_infiltration_event(target_id);
+
+        let Some(object) = self.objects.get_mut(&object_id) else {
+            return false;
+        };
+        if !object.is_alive() {
+            return false;
+        }
+        // `consume_special_power_charge` preserves an older generic Idle
+        // side-effect; restore the capture machine after the authoritative
+        // timer was accepted.
+        object.set_ai_state(AIState::Capturing);
+        object.capture_channel = Some(crate::game_logic::CaptureChannelState::new(
+            crate::game_logic::CaptureChannelPhase::Preparing,
+            preparation_time_ms,
+        ));
+        object.set_status_using_ability(true);
+        true
+    }
+
     pub(in super::super) fn update_support_states(&mut self, object_ids: &[ObjectId], dt: f32) {
         const GUARD_MIN_RADIUS: f32 = 80.0;
         const INTERACT_RANGE: f32 = crate::game_logic::host_repair::HOST_REPAIR_INTERACT_RANGE;
         const CAPTURE_RANGE_PADDING: f32 = 4.0;
         const SPECIAL_ABILITY_RANGE_PADDING: f32 = 4.0;
+        // Authored capture durations are integral milliseconds, but the host
+        // channel stores the running remainder as `f32` seconds.  A sequence
+        // such as 20.0 - 19.9 - 0.1 can otherwise leave one floating-point
+        // ulp and defer the C++ frame-boundary trigger by another logic tick.
+        // This is far below one authored millisecond (and one 30 Hz logic
+        // frame), so it only removes representation residue—not gameplay
+        // time.
+        const CAPTURE_CHANNEL_COMPLETE_EPSILON: f32 = 0.000_1;
         // Host residual flat HP/sec (not C++ percent-of-max / TimeForFullHeal matrix).
         const REPAIR_RATE: f32 = crate::game_logic::host_repair::HOST_REPAIR_RATE_HP_PER_SEC;
         const HEAL_RATE: f32 = crate::game_logic::host_repair::HOST_HEAL_RATE_HP_PER_SEC;
@@ -18,6 +651,7 @@ impl GameLogic {
                 Some(obj) => (
                     obj.ai_state.clone(),
                     obj.team,
+                    obj.owner_player_id,
                     obj.get_position(),
                     obj.target,
                     obj.guard_position,
@@ -37,6 +671,7 @@ impl GameLogic {
             let (
                 ai_state,
                 team,
+                owner_player_id,
                 position,
                 target_id,
                 guard_position,
@@ -83,6 +718,21 @@ impl GameLogic {
                             if !cand.is_alive() || !cand.is_targetable_by_enemy_of(team) {
                                 continue;
                             }
+                            // AIGuard.cpp performs this before it assigns a
+                            // goal object.  Visibility alone is not enough:
+                            // a ground-only guard must keep scanning past an
+                            // aircraft and an anti-air guard past a tank.
+                            if !matches!(
+                                self.get_able_to_attack_specific_object(
+                                    object_id,
+                                    *cand_id,
+                                    AbleToAttackType::NewTarget,
+                                    false,
+                                ),
+                                CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving
+                            ) {
+                                continue;
+                            }
                             if flying_only
                                 && !(cand.is_kind_of(KindOf::Aircraft)
                                     || cand.object_type == ObjectType::Aircraft)
@@ -110,8 +760,7 @@ impl GameLogic {
                                         AIState::GuardingArea,
                                     );
                                 }
-                            } else {
-                                self.engage_target_decision_aware(object_id, enemy_id);
+                            } else if self.engage_target_decision_aware(object_id, enemy_id) {
                                 continue;
                             }
                         }
@@ -148,15 +797,17 @@ impl GameLogic {
                     let radius = guard_radius.max(GUARD_MIN_RADIUS);
                     if can_attack {
                         if let Some((enemy_id, _)) =
-                            crate::ai_decisions::AIDecisionSystem::find_nearest_enemy(
+                            crate::ai_decisions::AIDecisionSystem::find_nearest_enemy_for_attacker(
                                 self,
+                                object_id,
                                 guard_anchor,
                                 team,
                                 radius,
                             )
                         {
-                            self.engage_target_decision_aware(object_id, enemy_id);
-                            continue;
+                            if self.engage_target_decision_aware(object_id, enemy_id) {
+                                continue;
+                            }
                         }
                     }
 
@@ -179,7 +830,7 @@ impl GameLogic {
                     let actor_can_repair = self
                         .objects
                         .get(&object_id)
-                        .map(|obj| obj.can_repair())
+                        .map(|obj| obj.can_repair() && obj.contained_by.is_none())
                         .unwrap_or(false);
                     if !actor_can_repair {
                         if let Some(obj) = self.objects.get_mut(&object_id) {
@@ -191,14 +842,14 @@ impl GameLogic {
 
                     let Some((
                         repair_target_pos,
-                        repair_target_team,
+                        repair_target_selection_radius,
                         repair_target_alive,
                         repair_target_is_structure,
                         repair_target_under_construction,
                     )) = self.objects.get(&repair_target_id).map(|target| {
                         (
                             target.get_position(),
-                            target.team,
+                            target.selection_radius,
                             target.is_alive(),
                             target.is_kind_of(KindOf::Structure),
                             target.status.under_construction,
@@ -214,7 +865,7 @@ impl GameLogic {
                     if !repair_target_alive
                         || !repair_target_is_structure
                         || repair_target_under_construction
-                        || (repair_target_team != team && repair_target_team != Team::Neutral)
+                        || !self.repair_relationship_is_not_enemy(object_id, repair_target_id)
                     {
                         if let Some(obj) = self.objects.get_mut(&object_id) {
                             obj.set_target(None);
@@ -222,12 +873,42 @@ impl GameLogic {
                         continue;
                     }
 
-                    if can_move && position.distance(repair_target_pos) > INTERACT_RANGE {
-                        self.path_approach_with_state(
-                            object_id,
-                            repair_target_pos,
-                            AIState::Repairing,
-                        );
+                    if position.distance(repair_target_pos) > INTERACT_RANGE {
+                        // Do not replace a live A* route every support tick.
+                        // Re-path only if its endpoint is no longer a viable
+                        // interaction point, or the mover has stopped; that
+                        // preserves obstacle recovery without restarting the
+                        // route before movement can consume its next node.
+                        let has_valid_active_approach_path = self
+                            .objects
+                            .get(&object_id)
+                            .is_some_and(|obj| {
+                                obj.status.moving
+                                    && obj.movement.current_path_index < obj.movement.path.len()
+                                    && obj
+                                        .movement
+                                        .path
+                                        .last()
+                                        .is_some_and(|endpoint| {
+                                            endpoint.distance(repair_target_pos)
+                                                <= INTERACT_RANGE
+                                        })
+                            });
+                        if can_move && !has_valid_active_approach_path {
+                            let approach = crate::game_logic::host_repair::support_approach_position(
+                                position,
+                                repair_target_pos,
+                                repair_target_selection_radius,
+                            );
+                            self.path_approach_with_state(
+                                object_id,
+                                approach,
+                                AIState::Repairing,
+                            );
+                        }
+                        // Never heal remotely. This also keeps a valid route
+                        // in flight instead of falling through to the repair
+                        // effect while still out of range.
                         continue;
                     }
 
@@ -346,23 +1027,23 @@ impl GameLogic {
 
                     let Some((
                         support_target_pos,
-                        support_target_team,
+                        support_target_selection_radius,
                         support_target_alive,
                         support_target_under_construction,
-                        support_building_type,
-                        support_template_name,
+                        support_target_sold,
+                        support_target_is_repair_pad,
+                        support_target_is_heal_pad,
+                        support_target_is_airfield,
                     )) = self.objects.get(&support_target_id).map(|target| {
                         (
                             target.get_position(),
-                            target.team,
+                            target.selection_radius,
                             target.is_alive(),
                             target.status.under_construction,
-                            target
-                                .building_data
-                                .as_ref()
-                                .map(|b| b.building_type)
-                                .unwrap_or(BuildingType::CommandCenter),
-                            target.template_name.clone(),
+                            target.status.sold,
+                            target.is_kind_of(KindOf::RepairPad),
+                            target.is_kind_of(KindOf::HealPad),
+                            target.is_kind_of(KindOf::FSAirfield),
                         )
                     })
                     else {
@@ -374,7 +1055,13 @@ impl GameLogic {
 
                     if !support_target_alive
                         || support_target_under_construction
-                        || support_target_team != team
+                        || support_target_sold
+                        // C++ `canGetRepairedAt` / `canGetHealedAt` uses the
+                        // controlling players' relationship, not a faction
+                        // comparison. Repeat that authority check after the
+                        // order has begun: capture, diplomacy, or a stale
+                        // owner record cannot keep servicing an enemy unit.
+                        || !self.service_relationship_is_allies(object_id, support_target_id)
                     {
                         if let Some(obj) = self.objects.get_mut(&object_id) {
                             obj.set_target(None);
@@ -389,26 +1076,15 @@ impl GameLogic {
                         .map(|obj| match state {
                             AIState::SeekingRepair => {
                                 if obj.is_kind_of(KindOf::Aircraft) {
-                                    crate::game_logic::host_repair::building_provides_aircraft_repair(
-                                        support_building_type,
-                                    )
+                                    support_target_is_airfield
                                 } else if obj.is_kind_of(KindOf::Vehicle) {
-                                    // RepairPad (USA) + WarFactory (China RepairDock residual).
-                                    crate::game_logic::host_repair::building_provides_vehicle_repair(
-                                        support_building_type,
-                                    )
+                                    support_target_is_repair_pad
                                 } else {
                                     false
                                 }
                             }
                             AIState::SeekingHealing => {
-                                let name = support_template_name.to_ascii_lowercase();
-                                let is_heal_pad = support_building_type
-                                    == BuildingType::HealPad
-                                    || name.contains("hospital")
-                                    || name.contains("heal")
-                                    || name.contains("medic");
-                                obj.is_kind_of(KindOf::Infantry) && is_heal_pad
+                                obj.is_kind_of(KindOf::Infantry) && support_target_is_heal_pad
                             }
                             _ => false,
                         })
@@ -421,8 +1097,37 @@ impl GameLogic {
                         continue;
                     }
 
-                    if can_move && position.distance(support_target_pos) > INTERACT_RANGE {
-                        self.path_approach_with_state(object_id, support_target_pos, state.clone());
+                    if position.distance(support_target_pos) > INTERACT_RANGE {
+                        // Keep a moving, target-valid A* path rather than
+                        // restarting it every frame. Re-path only after the
+                        // endpoint ceased to be a viable interaction point or
+                        // the mover stopped, retaining obstacle recovery.
+                        let has_valid_active_approach_path = self
+                            .objects
+                            .get(&object_id)
+                            .is_some_and(|obj| {
+                                obj.status.moving
+                                    && obj.movement.current_path_index < obj.movement.path.len()
+                                    && obj
+                                        .movement
+                                        .path
+                                        .last()
+                                        .is_some_and(|endpoint| {
+                                            endpoint.distance(support_target_pos)
+                                                <= INTERACT_RANGE
+                                        })
+                            });
+                        if can_move && !has_valid_active_approach_path {
+                            let approach = crate::game_logic::host_repair::support_approach_position(
+                                position,
+                                support_target_pos,
+                                support_target_selection_radius,
+                            );
+                            self.path_approach_with_state(object_id, approach, state.clone());
+                        }
+                        // An out-of-range source is never permitted to apply
+                        // the repair/heal effect, including after a failed
+                        // route allocation.
                         continue;
                     }
 
@@ -573,6 +1278,24 @@ impl GameLogic {
                         }
                     }
 
+                    // Normal `MSG_ENTER` was already accepted by the command
+                    // executor, but the target can change while the unit walks
+                    // toward it.  Revalidate through the same centralized
+                    // ContainModule/owner/capacity authority at arrival.  Dock
+                    // deliberately stays on its separate state machine below.
+                    let normal_enter = state == AIState::Entering;
+                    if normal_enter && !self.can_unit_enter_normal_target(object_id, container_id) {
+                        if let Some(obj) = self.objects.get_mut(&object_id) {
+                            obj.stop_moving();
+                            obj.set_target(None);
+                        }
+                        continue;
+                    }
+                    let normal_enter_has_space = normal_enter
+                        && self
+                            .normal_enter_available_capacity_for(object_id, container_id)
+                            .is_some_and(|available| available > 0);
+
                     let Some((
                         container_pos,
                         container_radius,
@@ -612,7 +1335,11 @@ impl GameLogic {
                             container.is_alive(),
                             container.status.under_construction,
                             container.can_contain(),
-                            container.has_capacity_for(1),
+                            if normal_enter {
+                                normal_enter_has_space
+                            } else {
+                                container.has_capacity_for(1)
+                            },
                             container.contained_units().contains(&object_id),
                             container.contained_units().len(),
                         )
@@ -625,10 +1352,11 @@ impl GameLogic {
                         continue;
                     };
 
-                    // Residual garrison / Overlord BattleBunker / Battle Bus:
-                    // infantry/heroes only (C++ AllowInsideKindOf = INFANTRY).
-                    // Combat Chinook allows INFANTRY + VEHICLE (not AIRCRAFT).
-                    // Tunnel Network: C++ allows all units except aircraft.
+                    // Dock's legacy per-role restrictions stay isolated from
+                    // normal Enter.  Normal Enter was just checked by the
+                    // typed `ContainModule` authority above (including
+                    // RiderChange fail-closed), so it must not fall back to a
+                    // host-specialized name/flag rule here.
                     let unit_can_garrison_structure = self
                         .objects
                         .get(&object_id)
@@ -639,7 +1367,7 @@ impl GameLogic {
                         .get(&object_id)
                         .map(|o| o.is_kind_of(KindOf::Aircraft))
                         .unwrap_or(false);
-                    if container_is_tunnel_network {
+                    if !normal_enter && container_is_tunnel_network {
                         // TunnelContain residual: reject aircraft only.
                         if unit_is_aircraft {
                             if let Some(obj) = self.objects.get_mut(&object_id) {
@@ -648,13 +1376,14 @@ impl GameLogic {
                             }
                             continue;
                         }
-                    } else if (container_is_structure
-                        || container_is_overlord_bunker
-                        || container_is_battle_bus
-                        || container_is_technical
-                        || container_is_combat_cycle
-                        || container_is_listening_outpost
-                        || container_is_troop_crawler)
+                    } else if !normal_enter
+                        && (container_is_structure
+                            || container_is_overlord_bunker
+                            || container_is_battle_bus
+                            || container_is_technical
+                            || container_is_combat_cycle
+                            || container_is_listening_outpost
+                            || container_is_troop_crawler)
                         && !unit_can_garrison_structure
                     {
                         if let Some(obj) = self.objects.get_mut(&object_id) {
@@ -664,7 +1393,7 @@ impl GameLogic {
                         continue;
                     }
                     // Combat Chinook ForbidInsideKindOf = AIRCRAFT HUGE_VEHICLE residual.
-                    if container_is_combat_chinook && unit_is_aircraft {
+                    if !normal_enter && container_is_combat_chinook && unit_is_aircraft {
                         if let Some(obj) = self.objects.get_mut(&object_id) {
                             obj.stop_moving();
                             obj.set_target(None);
@@ -689,7 +1418,8 @@ impl GameLogic {
                         continue;
                     }
 
-                    if container_team != team
+                    if !normal_enter
+                        && container_team != team
                         && container_team != Team::Neutral
                         && (container_is_faction_structure || container_occupant_count > 0)
                     {
@@ -707,6 +1437,26 @@ impl GameLogic {
                         && position.distance(container_pos) > enter_range
                     {
                         self.path_approach_with_state(object_id, container_pos, state);
+                        continue;
+                    }
+
+                    // RiderChangeContain is an atomic replacement, never a
+                    // generic one-slot `add_occupant`.  Keep every parsed
+                    // RiderChange target on this authoritative branch so an
+                    // unsupported/custom roster cannot fall through to the
+                    // legacy Combat Cycle template-name refresh below.
+                    let is_rider_change_target = normal_enter
+                        && self.objects.get(&container_id).is_some_and(|container| {
+                            container.thing.template.contain_module.kind
+                                == crate::game_logic::ContainModuleKind::RiderChange
+                        });
+                    if is_rider_change_target {
+                        if !self.rider_change_enter_at_arrival(object_id, container_id) {
+                            if let Some(obj) = self.objects.get_mut(&object_id) {
+                                obj.stop_moving();
+                                obj.set_target(None);
+                            }
+                        }
                         continue;
                     }
 
@@ -835,82 +1585,113 @@ impl GameLogic {
                 }
                 AIState::Capturing => {
                     let Some(capture_target_id) = target_id else {
-                        self.clear_target_decision_aware(object_id);
+                        self.abort_capture_channel(object_id);
                         continue;
                     };
 
-                    let (can_capture_buildings, is_lotus_captor) = self
+                    let (
+                        capture_power,
+                        capture_start_range,
+                        capture_unpack_time_ms,
+                        capture_preparation_time_ms,
+                        capture_pack_time_ms,
+                        capture_channel,
+                    ) = self
                         .objects
                         .get(&object_id)
                         .map(|obj| {
-                            let is_lotus =
-                                crate::game_logic::host_hero_abilities::is_black_lotus_template(
-                                    &obj.template_name,
-                                );
-                            let can =
-                                crate::game_logic::host_hero_abilities::can_capture_without_upgrade(
-                                    obj.is_hero(),
-                                    is_lotus,
-                                ) || (obj.is_kind_of(KindOf::Infantry)
-                                    && self.team_has_completed_capture_upgrade(obj.team));
-                            (can, is_lotus || obj.is_hero())
+                            (
+                                obj.thing.template.capture_power,
+                                obj.thing.template.capture_start_ability_range,
+                                obj.thing.template.capture_unpack_time_ms,
+                                obj.thing.template.capture_preparation_time_ms,
+                                obj.thing.template.capture_pack_time_ms,
+                                obj.capture_channel,
+                            )
                         })
-                        .unwrap_or((false, false));
-                    if !can_capture_buildings {
-                        if let Some(obj) = self.objects.get_mut(&object_id) {
-                            obj.stop_moving();
-                            obj.set_target(None);
-                        }
+                        .unwrap_or((
+                            crate::game_logic::CapturePowerKind::None,
+                            None,
+                            None,
+                            None,
+                            None,
+                            None,
+                        ));
+                    let Some(power_type) = capture_power.special_power_type() else {
+                        self.abort_capture_channel(object_id);
                         continue;
+                    };
+
+                    // Once C++ `startPacking` has run, the target may already
+                    // have defected or vanished.  Packing is deliberately
+                    // independent of capture legality and completes before
+                    // this source becomes idle again.
+                    if let Some(channel) = capture_channel {
+                        if channel.phase == crate::game_logic::CaptureChannelPhase::Packing {
+                            let remaining = (channel.remaining_seconds - dt.max(0.0)).max(0.0);
+                            if remaining > CAPTURE_CHANNEL_COMPLETE_EPSILON {
+                                if let Some(object) = self.objects.get_mut(&object_id) {
+                                    object.capture_channel =
+                                        Some(crate::game_logic::CaptureChannelState {
+                                            phase: crate::game_logic::CaptureChannelPhase::Packing,
+                                            remaining_seconds: remaining,
+                                        });
+                                }
+                            } else {
+                                self.finish_capture_channel(object_id);
+                            }
+                            continue;
+                        }
                     }
 
-                    let Some((
-                        target_position,
-                        target_radius,
-                        target_team,
-                        target_alive,
-                        target_is_structure,
-                        target_under_construction,
-                    )) = self.objects.get(&capture_target_id).map(|target| {
-                        (
-                            target.get_position(),
-                            target.selection_radius,
-                            target.team,
-                            target.is_alive(),
-                            target.is_kind_of(KindOf::Structure),
-                            target.status.under_construction,
-                        )
-                    })
+                    let Some((target_position, target_radius, target_team)) =
+                        self.objects.get(&capture_target_id).map(|target| {
+                            (target.get_position(), target.selection_radius, target.team)
+                        })
                     else {
-                        if let Some(obj) = self.objects.get_mut(&object_id) {
-                            obj.set_target(None);
-                        }
+                        self.abort_capture_channel(object_id);
                         continue;
                     };
 
-                    if !target_alive || !target_is_structure || target_under_construction {
-                        if let Some(obj) = self.objects.get_mut(&object_id) {
-                            obj.set_target(None);
-                        }
+                    // All timing fields come from the same exact
+                    // SpecialAbilityUpdate module.  A partial/unsupported
+                    // parse must not invent a zero-duration capture ability.
+                    let Some(authored_range) = capture_start_range else {
+                        self.abort_capture_channel(object_id);
                         continue;
-                    }
-
-                    if target_team == team {
-                        if let Some(obj) = self.objects.get_mut(&object_id) {
-                            obj.set_target(None);
-                            obj.stop_moving();
-                        }
-                        continue;
-                    }
-
-                    // Black Lotus / hero residual: StartAbilityRange 150.
-                    // Infantry residual: selection radii + small pad.
-                    let capture_range = if is_lotus_captor {
-                        crate::game_logic::host_hero_abilities::BLACK_LOTUS_START_ABILITY_RANGE
-                    } else {
-                        selection_radius + target_radius + CAPTURE_RANGE_PADDING
                     };
-                    if can_move && position.distance(target_position) > capture_range {
+                    let Some(unpack_time_ms) = capture_unpack_time_ms else {
+                        self.abort_capture_channel(object_id);
+                        continue;
+                    };
+                    let Some(preparation_time_ms) = capture_preparation_time_ms else {
+                        self.abort_capture_channel(object_id);
+                        continue;
+                    };
+                    let Some(pack_time_ms) = capture_pack_time_ms else {
+                        self.abort_capture_channel(object_id);
+                        continue;
+                    };
+
+                    // C++ checks the target at issue/start-preparation and
+                    // continues to abort if an ally/dead/immune/garrisoned
+                    // target is no longer legal.  Do not re-demand readiness:
+                    // the timer begins only below in start_capture_preparation.
+                    if !self.can_unit_capture_building(object_id, capture_target_id, false) {
+                        self.abort_capture_channel(object_id);
+                        continue;
+                    }
+
+                    // C++ SpecialAbilityUpdate owns `StartAbilityRange`.
+                    // The host's point-position movement retains selection
+                    // radii as the collision approach envelope; a missing
+                    // exact module is fail-closed rather than using a hero or
+                    // infantry template-name fallback.
+                    let capture_range = authored_range + selection_radius + target_radius;
+                    if capture_channel.is_none()
+                        && can_move
+                        && position.distance(target_position) > capture_range
+                    {
                         if self.assign_unit_path(object_id, target_position, &[]) {
                             if let Some(obj) = self.objects.get_mut(&object_id) {
                                 if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled(
@@ -934,85 +1715,197 @@ impl GameLogic {
                         continue;
                     }
 
-                    let did_capture = if self
-                        .objects
-                        .get(&capture_target_id)
-                        .map(|target| {
-                            target.is_alive()
-                                && target.is_kind_of(KindOf::Structure)
-                                && !target.status.under_construction
-                                && target.team != team
-                        })
-                        .unwrap_or(false)
-                    {
-                        // BoobyTrap residual: enemy capture detonate (allies skip).
-                        // C++ SpecialAbilityUpdate / checkAndDetonateBoobyTrap(captor).
-                        let trap_pos = self
-                            .objects
-                            .get(&capture_target_id)
-                            .map(|t| t.get_position())
-                            .unwrap_or(target_position);
-                        let planter_ally = self
-                            .booby_trap
-                            .plant(capture_target_id)
-                            .map(|p| p.planter_team == team)
-                            .unwrap_or(false);
-                        if !planter_ally
-                            && (self.booby_trap.is_booby_trapped(capture_target_id)
-                                || self
-                                    .objects
-                                    .get(&capture_target_id)
-                                    .map(|t| t.status.booby_trapped)
-                                    .unwrap_or(false))
-                        {
-                            let _ = self.detonate_booby_trap_at(
-                                capture_target_id,
-                                trap_pos,
-                                Some(object_id),
-                                true,
-                                false,
-                            );
-                        }
-                        // Structure may have been destroyed by trap — re-check.
-                        if !self
-                            .objects
-                            .get(&capture_target_id)
-                            .map(|t| t.is_alive())
-                            .unwrap_or(false)
-                        {
-                            false
-                        } else {
-                            // C++ capture prep residual: warn local victim + infiltration.
-                            self.try_eva_building_being_stolen(capture_target_id);
-                            self.try_infiltration_event(capture_target_id);
-                            self.cancel_all_production(capture_target_id);
-                            if let Some(target) = self.objects.get_mut(&capture_target_id) {
-                                target.set_team(team);
-                                target.health.heal(target.max_health);
-                                // C++ defect(..., 1) one-frame flash residual.
-                                target.flash_as_selected();
-                                true
-                            } else {
-                                false
+                    // C++ initializes `STATE_UNPACKED` immediately when
+                    // UnpackTime is zero; otherwise the first logical tick
+                    // after entering range consumes the unpack timer.
+                    let mut preparation_complete = false;
+                    match capture_channel {
+                        None => {
+                            if unpack_time_ms > 0 {
+                                if let Some(object) = self.objects.get_mut(&object_id) {
+                                    object.capture_channel =
+                                        Some(crate::game_logic::CaptureChannelState::new(
+                                            crate::game_logic::CaptureChannelPhase::Unpacking,
+                                            unpack_time_ms,
+                                        ));
+                                }
+                                continue;
                             }
+                            if !self.start_capture_preparation(
+                                object_id,
+                                capture_target_id,
+                                capture_power,
+                                preparation_time_ms,
+                            ) {
+                                self.abort_capture_channel(object_id);
+                                continue;
+                            }
+                            preparation_complete = preparation_time_ms == 0;
                         }
-                    } else {
-                        false
-                    };
+                        Some(channel)
+                            if channel.phase
+                                == crate::game_logic::CaptureChannelPhase::Unpacking =>
+                        {
+                            let remaining = (channel.remaining_seconds - dt.max(0.0)).max(0.0);
+                            if remaining > CAPTURE_CHANNEL_COMPLETE_EPSILON {
+                                if let Some(object) = self.objects.get_mut(&object_id) {
+                                    object.capture_channel =
+                                        Some(crate::game_logic::CaptureChannelState {
+                                            phase:
+                                                crate::game_logic::CaptureChannelPhase::Unpacking,
+                                            remaining_seconds: remaining,
+                                        });
+                                }
+                                continue;
+                            }
+                            if !self.start_capture_preparation(
+                                object_id,
+                                capture_target_id,
+                                capture_power,
+                                preparation_time_ms,
+                            ) {
+                                self.abort_capture_channel(object_id);
+                                continue;
+                            }
+                            preparation_complete = preparation_time_ms == 0;
+                        }
+                        Some(channel)
+                            if channel.phase
+                                == crate::game_logic::CaptureChannelPhase::Preparing =>
+                        {
+                            let remaining = (channel.remaining_seconds - dt.max(0.0)).max(0.0);
+                            if remaining > CAPTURE_CHANNEL_COMPLETE_EPSILON {
+                                // C++ `continuePreparation` restarts infantry
+                                // capture ReloadTime every preparation frame.
+                                // Black Lotus instead resets its zero timer at
+                                // the successful trigger below.
+                                if capture_power != crate::game_logic::CapturePowerKind::BlackLotus
+                                {
+                                    if let Some(object) = self.objects.get_mut(&object_id) {
+                                        object.start_power_recharge(&power_type);
+                                    }
+                                }
+                                if let Some(object) = self.objects.get_mut(&object_id) {
+                                    object.capture_channel =
+                                        Some(crate::game_logic::CaptureChannelState {
+                                            phase:
+                                                crate::game_logic::CaptureChannelPhase::Preparing,
+                                            remaining_seconds: remaining,
+                                        });
+                                }
+                                continue;
+                            }
+                            preparation_complete = true;
+                        }
+                        Some(_) => unreachable!("Packing is handled before capture legality"),
+                    }
 
-                    if let Some(obj) = self.objects.get_mut(&object_id) {
-                        obj.stop_moving();
-                        obj.set_target(None);
+                    if !preparation_complete {
+                        continue;
+                    }
+
+                    // C++ checks an enemy trap again at trigger; one planted
+                    // during the visible preparation bar can still interrupt
+                    // the actual defection.
+                    let planter_ally = self
+                        .booby_trap
+                        .plant(capture_target_id)
+                        .map(|plant| plant.planter_team == team)
+                        .unwrap_or(false);
+                    let target_is_trapped = self.booby_trap.is_booby_trapped(capture_target_id)
+                        || self
+                            .objects
+                            .get(&capture_target_id)
+                            .map(|target| target.status.booby_trapped)
+                            .unwrap_or(false);
+                    if !planter_ally && target_is_trapped {
+                        let _ = self.detonate_booby_trap_at(
+                            capture_target_id,
+                            target_position,
+                            Some(object_id),
+                            true,
+                            false,
+                        );
+                    }
+
+                    let did_capture =
+                        if self.can_unit_capture_building(object_id, capture_target_id, false) {
+                            let target_is_garrisonable =
+                                self.objects.get(&capture_target_id).is_some_and(|target| {
+                                    target.thing.template.garrison_contain_max.is_some()
+                                });
+                            if target_is_garrisonable {
+                                // C++ `removeAllContained(TRUE); break;`: clearing
+                                // a garrison is a successful ability trigger but
+                                // never defects that structure on the same use.
+                                self.evacuate_garrison_for_capture(capture_target_id);
+                                false
+                            } else {
+                                self.cancel_all_production(capture_target_id);
+                                let transferred = match owner_player_id {
+                                    Some(player_id) => {
+                                        self.transfer_object_to_player(capture_target_id, player_id)
+                                    }
+                                    None => {
+                                        if let Some(target) =
+                                            self.objects.get_mut(&capture_target_id)
+                                        {
+                                            target.set_team(team);
+                                            true
+                                        } else {
+                                            false
+                                        }
+                                    }
+                                };
+                                if transferred {
+                                    self.objects
+                                        .get_mut(&capture_target_id)
+                                        .map(|target| {
+                                            target.health.heal(target.max_health);
+                                            // C++ defect(..., 1) one-frame flash residual.
+                                            target.flash_as_selected();
+                                            true
+                                        })
+                                        .unwrap_or(false)
+                                } else {
+                                    false
+                                }
+                            }
+                        } else {
+                            false
+                        };
+
+                    // `endPreparation` clears this status before C++ starts
+                    // PackTime. The source remains in the capture machine so
+                    // a completed capture is not reported as immediately idle.
+                    if let Some(object) = self.objects.get_mut(&object_id) {
+                        if object.is_alive() {
+                            object.stop_moving();
+                            object.set_status_using_ability(false);
+                            object.capture_channel =
+                                Some(crate::game_logic::CaptureChannelState::new(
+                                    crate::game_logic::CaptureChannelPhase::Packing,
+                                    pack_time_ms,
+                                ));
+                            object.set_ai_state(AIState::Capturing);
+                        }
+                    }
+                    if pack_time_ms == 0 {
+                        self.finish_capture_channel(object_id);
                     }
 
                     if did_capture {
                         // C++ Object::onCapture residual (kick/idle/AI-sell/deselect).
                         self.on_capture_object_residual(capture_target_id, target_team, team);
                         // C++ getAcademyStats()->recordBuildingCapture() residual.
-                        if let Some(p) = self.get_player_mut_by_team(team) {
+                        let player = match owner_player_id {
+                            Some(player_id) => self.get_player_mut(player_id),
+                            None => self.get_player_mut_by_team(team),
+                        };
+                        if let Some(p) = player {
                             p.record_building_capture();
                         }
-                        if is_lotus_captor {
+                        if capture_power == crate::game_logic::CapturePowerKind::BlackLotus {
                             self.hero_abilities.record_building_capture();
                             self.queue_audio_event(
                                 AudioEventRequest::new(
@@ -1022,6 +1915,14 @@ impl GameLogic {
                                 .with_position(position)
                                 .with_priority(160),
                             );
+                        }
+                        if capture_power == crate::game_logic::CapturePowerKind::BlackLotus {
+                            if let Some(object) = self.objects.get_mut(&object_id) {
+                                // C++ triggerAbilityEffect restarts only the
+                                // Black Lotus capture timer here; infantry
+                                // capture repeatedly reset it during prep.
+                                object.start_power_recharge(&power_type);
+                            }
                         }
                         // C++ EVA_BuildingStolen when victim was local before defect.
                         // (team already flipped — use BeingStolen honesty or explicit
@@ -1303,7 +2204,17 @@ impl GameLogic {
                             let donor_snap = self.objects.get(&object_id).cloned();
                             if let Some(target) = self.objects.get_mut(&special_target_id) {
                                 target.apply_hijacked_from(donor_snap.as_ref());
-                                target.set_team(team);
+                            }
+                            match owner_player_id {
+                                Some(player_id) => {
+                                    let _ = self
+                                        .transfer_object_to_player(special_target_id, player_id);
+                                }
+                                None => {
+                                    if let Some(target) = self.objects.get_mut(&special_target_id) {
+                                        target.set_team(team);
+                                    }
+                                }
                             }
                             // C++ transferObjectName residual.
                             let _ = self.transfer_script_object_name(object_id, special_target_id);
@@ -1742,7 +2653,17 @@ impl GameLogic {
                             let donor_snap = self.objects.get(&object_id).cloned();
                             if let Some(target) = self.objects.get_mut(&special_target_id) {
                                 target.apply_convert_to_car_bomb_from(donor_snap.as_ref());
-                                target.set_team(team);
+                            }
+                            match owner_player_id {
+                                Some(player_id) => {
+                                    let _ = self
+                                        .transfer_object_to_player(special_target_id, player_id);
+                                }
+                                None => {
+                                    if let Some(target) = self.objects.get_mut(&special_target_id) {
+                                        target.set_team(team);
+                                    }
+                                }
                             }
                             // C++ transferObjectName residual (script named object).
                             let _ = self.transfer_script_object_name(object_id, special_target_id);
@@ -1956,11 +2877,26 @@ impl GameLogic {
                     };
 
                     // Extract source state before any mutations.
-                    let (source_alive, source_pos) = self
+                    let (
+                        source_alive,
+                        source_pos,
+                        source_supplies,
+                        source_is_warehouse,
+                        delete_when_empty,
+                    ) = self
                         .objects
                         .get(&source_id)
-                        .map(|s| (s.is_alive(), s.get_position()))
-                        .unwrap_or((false, position));
+                        .map(|s| {
+                            (
+                                s.is_alive(),
+                                s.get_position(),
+                                s.stored_resources.supplies,
+                                s.thing.template.dock_kind
+                                    == crate::game_logic::DockKind::SupplyWarehouse,
+                                s.thing.template.dock_delete_when_empty,
+                            )
+                        })
+                        .unwrap_or((false, position, 0, false, false));
 
                     if !source_alive {
                         // C++ supply truck residual: find another warehouse when pile empties.
@@ -1983,43 +2919,65 @@ impl GameLogic {
                         continue;
                     }
 
-                    // In range — gather resources.
-                    // C++ parity (SupplyWarehouseDockUpdate): gathering depletes
-                    // the supply source.  The source is destroyed when empty.
+                    // In range — gather resources.  The host tracks cash
+                    // value rather than C++ individual boxes, but a warehouse
+                    // still cannot grant more than its authored stock.  This
+                    // avoids turning an empty `SupplyWarehouseDockUpdate`
+                    // into an infinite source.
                     let gather_amount = (GATHER_RATE * dt) as u32;
+                    // Keep the legacy generic-resource path intact.  The
+                    // precise stock gate is required specifically for the
+                    // newly-authored SupplyWarehouseDockUpdate target.
+                    let taken = if source_is_warehouse {
+                        gather_amount.min(source_supplies)
+                    } else {
+                        gather_amount
+                    };
+                    if source_is_warehouse && taken == 0 {
+                        // C++ returns FALSE from SupplyWarehouseDockUpdate
+                        // when its boxes are exhausted; it does not credit the
+                        // docker.  Stop this explicit dock order rather than
+                        // inventing more supply or treating it as Enter.
+                        self.stop_attack_decision_aware(object_id);
+                        self.set_ai_state_decision_aware(object_id, AIState::Idle);
+                        continue;
+                    }
                     let is_full = self
                         .objects
                         .get(&object_id)
                         .map(|o| o.stored_resources.supplies)
                         .unwrap_or(0)
-                        + gather_amount
+                        + taken
                         >= MAX_CARRY;
 
                     if let Some(obj) = self.objects.get_mut(&object_id) {
                         obj.set_stored_supplies(
                             obj.stored_resources
                                 .supplies
-                                .saturating_add(gather_amount)
+                                .saturating_add(taken)
                                 .min(MAX_CARRY),
                         );
                     }
 
                     // Deplete the supply source.
                     if let Some(source) = self.objects.get_mut(&source_id) {
-                        let taken = gather_amount.min(source.stored_resources.supplies);
                         source.set_stored_supplies(
                             source.stored_resources.supplies.saturating_sub(taken),
                         );
-                        if source.stored_resources.supplies == 0 {
+                        if source.stored_resources.supplies == 0
+                            && (!source_is_warehouse || delete_when_empty)
+                        {
                             Self::mark_object_destroyed_authority_aware(source, None);
                             self.mark_object_for_destruction(source_id, None);
                         }
                     }
 
                     if is_full {
-                        // Full — head to nearest supply center.
+                        // Full — `SupplyTruckAIUpdate::m_preferredDock` wins
+                        // over ResourceManager's nearest-center search when
+                        // AI assigned this collector to a specific depot.
                         let refinery_dest = self
-                            .find_nearest_supply_center(team, position)
+                            .preferred_supply_center_or_nearest(object_id, team, position)
                             .and_then(|rid| self.objects.get(&rid).map(|r| r.get_position()));
                         if let Some(dest) = refinery_dest {
                             self.path_approach_with_state(
@@ -2033,7 +2991,7 @@ impl GameLogic {
                 AIState::ReturningResources => {
                     // Deposit resources when close to a supply center.
                     let (refinery_id, refinery_pos) = self
-                        .find_nearest_supply_center(team, position)
+                        .preferred_supply_center_or_nearest(object_id, team, position)
                         .and_then(|rid| {
                             self.objects
                                 .get(&rid)
@@ -2255,6 +3213,37 @@ impl GameLogic {
                 }
                 _ => {}
             }
+        }
+
+        // C++ RiderChangeContain::update: after an ordinary rider exit, the
+        // bike remains as an unselectable toppled shell for ScuttleDelay, then
+        // dies with DEATH_TOPPLED.  Replacement keeps m_containing=true and
+        // therefore never reaches this list.
+        let scuttles_due: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter_map(|(&id, object)| {
+                let delay = object
+                    .thing
+                    .template
+                    .contain_module
+                    .rider_change_scuttle_delay_frames?;
+                let started = object.rider_change_scuttled_on_frame;
+                (object.thing.template.contain_module.kind
+                    == crate::game_logic::ContainModuleKind::RiderChange
+                    && started != 0
+                    && !object.status.destroyed
+                    && self.frame >= started.saturating_add(delay))
+                .then_some(id)
+            })
+            .collect();
+        for object_id in scuttles_due {
+            if let Some(object) = self.objects.get_mut(&object_id) {
+                object.status.death_type =
+                    crate::game_logic::host_usa_pilot::HostDeathType::Toppled;
+            }
+            self.mark_destroyed_authority_aware(object_id, None);
+            self.mark_object_for_destruction(object_id, None);
         }
     }
 }

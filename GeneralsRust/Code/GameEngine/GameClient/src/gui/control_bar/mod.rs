@@ -113,14 +113,16 @@ pub(crate) use host_command_bridge::acquire_host_control_bar_bridge_test_guard;
 pub use host_command_bridge::{
     clear_host_control_bar_requests, host_control_bar_bridge_enabled,
     set_host_control_bar_bridge_enabled, take_host_control_bar_published_requests,
-    take_host_control_bar_requests, with_host_control_bar_input_provenance,
-    HostControlBarInputProvenance, HostControlBarPublishedRequest, HostControlBarRequest,
-    HostControlBarTarget,
+    take_host_control_bar_requests, take_host_minimap_interactions,
+    with_host_control_bar_input_provenance, HostControlBarInputProvenance,
+    HostControlBarPublishedRequest, HostControlBarRequest, HostControlBarTarget,
+    HostMinimapInteraction, HostMinimapMouseButton,
 };
 pub(crate) use host_command_bridge::{
     host_control_bar_input_provenance_for_current_dispatch, host_request_from_button,
     host_request_from_button_with_weapon_slot, publish_host_control_bar_request,
-    publish_host_production_pause, publish_host_queue_cancel,
+    publish_host_minimap_interaction, publish_host_production_pause, publish_host_queue_cancel,
+    HostMinimapInteractionRequest,
 };
 pub use multi_select::*;
 pub use observer::*;
@@ -250,7 +252,12 @@ pub struct CommandButton {
     pub cursor_name: String,
     pub invalid_cursor_name: String,
     pub unit_specific_sound: AudioEventRTS,
-    pub max_shorable_instances: i32,
+    /// Exact `MaxShotsToFire =` value parsed from the command button INI.
+    ///
+    /// This is weapon-order data, not a UI inventory limit: it must survive
+    /// the host Control Bar bridge so buttons such as the MiG's one-missile
+    /// salvo do not silently become unlimited attacks.
+    pub max_shots_to_fire: i32,
     /// The exact `WeaponSlot =` parsed from the INI command button.
     ///
     /// This belongs to the live UI definition rather than the legacy
@@ -306,7 +313,7 @@ impl Default for CommandButton {
             cursor_name: String::new(),
             invalid_cursor_name: String::new(),
             unit_specific_sound: AudioEventRTS::default(),
-            max_shorable_instances: 1,
+            max_shots_to_fire: i32::MAX,
             weapon_slot: WeaponSlotType::Primary,
             options: CommandOption::None as u32,
             sciences: Vec::new(),

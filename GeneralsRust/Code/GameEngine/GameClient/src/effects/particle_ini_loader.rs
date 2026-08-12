@@ -5,10 +5,11 @@
 
 use nalgebra::{Point3, Vector3};
 use std::collections::HashMap;
+use std::path::Path;
 use std::sync::Arc;
 
 use super::particle_manager::*;
-use game_engine::common::ini::{INIError, INI};
+use game_engine::common::ini::{INIError, INILoadType, INI};
 
 /// Particle system INI field parser
 pub struct ParticleSystemINIParser {
@@ -51,17 +52,16 @@ impl ParticleSystemINIParser {
         ini: &mut INI,
         manager: &mut ParticleSystemManager,
     ) -> Result<(), INIError> {
-        // Get the particle system name
+        // The current line is `ParticleSystem <name>`.  `get_current_token`
+        // returns the block keyword, not the authored template identity.
         let name = ini
-            .get_current_token()
+            .get_next_value_token()
             .ok_or(INIError::UnexpectedEndOfFile)?;
 
         // Find existing template or create new one (matches C++ behavior)
-        let template = if let Some(existing) = manager.find_template(&name) {
-            existing
-        } else {
-            manager.new_template(name.clone())
-        };
+        if manager.find_template(&name).is_none() {
+            manager.new_template(name.clone());
+        }
 
         // Parse all fields for this particle system into a mutable info struct
         let mut info = ParticleSystemInfo::default();
@@ -76,6 +76,58 @@ impl ParticleSystemINIParser {
         }
 
         Ok(())
+    }
+
+    /// Load C++ `ParticleSystem.ini` directly into the GameClient manager.
+    ///
+    /// The common INI loader also has a `ParticleSystem` block parser for its
+    /// gameplay-side compatibility registry.  Replacing that process-global
+    /// parser would make the two registries interfere with each other, so this
+    /// walks the same virtual/BIG-backed source privately instead.  Each block
+    /// is still parsed by the full GameClient field parser below.
+    pub fn load_particle_system_definitions<P: AsRef<Path>>(
+        &self,
+        path: P,
+        manager: &mut ParticleSystemManager,
+    ) -> Result<usize, INIError> {
+        let mut ini = INI::new();
+        ini.with_file_source(path, INILoadType::Overwrite, |ini| {
+            self.parse_particle_system_source(ini, manager)
+        })
+    }
+
+    fn parse_particle_system_source(
+        &self,
+        ini: &mut INI,
+        manager: &mut ParticleSystemManager,
+    ) -> Result<usize, INIError> {
+        let mut definitions = 0usize;
+
+        loop {
+            ini.read_line()?;
+            if ini.is_end_of_file() {
+                break;
+            }
+
+            let Some(block) = ini.get_first_token() else {
+                continue;
+            };
+            // `INI::read_line` strips semicolon comments, but C++ content and
+            // mods may also contain standalone C++-style comment lines.  They
+            // are not particle definitions and must not abort the independent
+            // manager parser before a later valid retail block.
+            if block.starts_with("//") {
+                continue;
+            }
+            if !block.eq_ignore_ascii_case("ParticleSystem") {
+                return Err(INIError::UnknownToken);
+            }
+
+            self.parse_particle_system_definition(ini, manager)?;
+            definitions += 1;
+        }
+
+        Ok(definitions)
     }
 
     /// Parse INI fields into a ParticleSystemInfo (matches C++ ParticleSystemTemplate::m_fieldParseTable)
@@ -365,6 +417,7 @@ impl ParticleSystemINIParser {
                     info.emission_volume_type = self.parse_emission_volume_type(&value)?;
                     // Initialize volume based on type
                     info.emission_volume = match info.emission_volume_type {
+                        EmissionVolumeType::Invalid => EmissionVolume::Point,
                         EmissionVolumeType::Point => EmissionVolume::Point,
                         EmissionVolumeType::Line => EmissionVolume::Line {
                             start: Point3::origin(),
@@ -505,21 +558,39 @@ impl ParticleSystemINIParser {
 
     fn parse_coord3d(&self, value: &str) -> Result<Vector3<f32>, INIError> {
         let parts: Vec<&str> = value.split_whitespace().collect();
-        if parts.len() != 3 {
-            return Err(INIError::InvalidValue);
+        let uses_labels = parts.iter().any(|part| part.contains(':'));
+        if !uses_labels {
+            if parts.len() != 3 {
+                return Err(INIError::InvalidValue);
+            }
+            return Ok(Vector3::new(
+                self.parse_float(parts[0])?,
+                self.parse_float(parts[1])?,
+                self.parse_float(parts[2])?,
+            ));
         }
 
-        let x = parts[0]
-            .parse::<f32>()
-            .map_err(|_| INIError::InvalidValue)?;
-        let y = parts[1]
-            .parse::<f32>()
-            .map_err(|_| INIError::InvalidValue)?;
-        let z = parts[2]
-            .parse::<f32>()
-            .map_err(|_| INIError::InvalidValue)?;
+        let mut x = None;
+        let mut y = None;
+        let mut z = None;
+        for part in parts {
+            let Some((axis, raw_value)) = part.split_once(':') else {
+                return Err(INIError::InvalidValue);
+            };
+            let component = self.parse_float(raw_value)?;
+            match axis.to_ascii_uppercase().as_str() {
+                "X" if x.replace(component).is_none() => {}
+                "Y" if y.replace(component).is_none() => {}
+                "Z" if z.replace(component).is_none() => {}
+                _ => return Err(INIError::InvalidValue),
+            }
+        }
 
-        Ok(Vector3::new(x, y, z))
+        Ok(Vector3::new(
+            x.ok_or(INIError::InvalidValue)?,
+            y.ok_or(INIError::InvalidValue)?,
+            z.ok_or(INIError::InvalidValue)?,
+        ))
     }
 
     fn parse_random_variable(&self, value: &str) -> Result<GameClientRandomVariable, INIError> {
@@ -558,59 +629,102 @@ impl ParticleSystemINIParser {
 
     fn parse_rgb_color_keyframe(&self, value: &str) -> Result<RGBColorKeyframe, INIError> {
         let parts: Vec<&str> = value.split_whitespace().collect();
-        if parts.len() != 4 {
-            return Err(INIError::InvalidValue);
-        }
-
-        let r = self.parse_float(parts[0])? / 255.0; // Convert from 0-255 to 0-1
-        let g = self.parse_float(parts[1])? / 255.0;
-        let b = self.parse_float(parts[2])? / 255.0;
-        let frame = self.parse_uint(parts[3])?;
+        let uses_labels = parts.iter().any(|part| part.contains(':'));
+        let (r, g, b, frame) = if uses_labels {
+            let mut r = None;
+            let mut g = None;
+            let mut b = None;
+            let mut frame = None;
+            for part in parts {
+                if let Some((channel, raw_value)) = part.split_once(':') {
+                    let component = self.parse_float(raw_value)?;
+                    match channel.to_ascii_uppercase().as_str() {
+                        "R" if r.replace(component).is_none() => {}
+                        "G" if g.replace(component).is_none() => {}
+                        "B" if b.replace(component).is_none() => {}
+                        _ => return Err(INIError::InvalidValue),
+                    }
+                } else if frame.replace(self.parse_uint(part)?).is_some() {
+                    return Err(INIError::InvalidValue);
+                }
+            }
+            (
+                r.ok_or(INIError::InvalidValue)?,
+                g.ok_or(INIError::InvalidValue)?,
+                b.ok_or(INIError::InvalidValue)?,
+                frame.ok_or(INIError::InvalidValue)?,
+            )
+        } else {
+            if parts.len() != 4 {
+                return Err(INIError::InvalidValue);
+            }
+            (
+                self.parse_float(parts[0])?,
+                self.parse_float(parts[1])?,
+                self.parse_float(parts[2])?,
+                self.parse_uint(parts[3])?,
+            )
+        };
 
         Ok(RGBColorKeyframe {
-            color: [r, g, b],
+            color: [r / 255.0, g / 255.0, b / 255.0],
             frame,
         })
     }
 
     fn parse_shader_type(&self, value: &str) -> Result<ParticleShaderType, INIError> {
+        if value.trim().eq_ignore_ascii_case("NONE") {
+            return Ok(ParticleShaderType::Invalid);
+        }
         self.shader_type_names
-            .get(value)
+            .get(&value.trim().to_ascii_uppercase())
             .copied()
             .ok_or(INIError::InvalidValue)
     }
 
     fn parse_particle_type(&self, value: &str) -> Result<ParticleType, INIError> {
+        if value.trim().eq_ignore_ascii_case("NONE") {
+            return Ok(ParticleType::Invalid);
+        }
         self.particle_type_names
-            .get(value)
+            .get(&value.trim().to_ascii_uppercase())
             .copied()
             .ok_or(INIError::InvalidValue)
     }
 
     fn parse_emission_velocity_type(&self, value: &str) -> Result<EmissionVelocityType, INIError> {
+        if value.trim().eq_ignore_ascii_case("NONE") {
+            return Ok(EmissionVelocityType::Invalid);
+        }
         self.emission_velocity_names
-            .get(value)
+            .get(&value.trim().to_ascii_uppercase())
             .copied()
             .ok_or(INIError::InvalidValue)
     }
 
     fn parse_emission_volume_type(&self, value: &str) -> Result<EmissionVolumeType, INIError> {
+        if value.trim().eq_ignore_ascii_case("NONE") {
+            return Ok(EmissionVolumeType::Invalid);
+        }
         self.emission_volume_names
-            .get(value)
+            .get(&value.trim().to_ascii_uppercase())
             .copied()
             .ok_or(INIError::InvalidValue)
     }
 
     fn parse_priority(&self, value: &str) -> Result<ParticlePriorityType, INIError> {
         self.priority_names
-            .get(value)
+            .get(&value.trim().to_ascii_uppercase())
             .copied()
             .ok_or(INIError::InvalidValue)
     }
 
     fn parse_wind_motion(&self, value: &str) -> Result<WindMotion, INIError> {
+        if value.trim().eq_ignore_ascii_case("NONE") {
+            return Ok(WindMotion::Invalid);
+        }
         self.wind_motion_names
-            .get(value)
+            .get(&value.trim().to_ascii_uppercase())
             .copied()
             .ok_or(INIError::InvalidValue)
     }
@@ -714,17 +828,18 @@ impl ParticleSystemINIParser {
 
     fn init_wind_motion_names(&mut self) {
         self.wind_motion_names
-            .insert("Unused".to_string(), WindMotion::NotUsed);
+            .insert("UNUSED".to_string(), WindMotion::NotUsed);
         self.wind_motion_names
-            .insert("PingPong".to_string(), WindMotion::PingPong);
+            .insert("PINGPONG".to_string(), WindMotion::PingPong);
         self.wind_motion_names
-            .insert("Circular".to_string(), WindMotion::Circular);
+            .insert("CIRCULAR".to_string(), WindMotion::Circular);
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
 
     #[test]
     fn test_parser_creation() {
@@ -769,5 +884,101 @@ mod tests {
             parser.parse_priority("CRITICAL").unwrap(),
             ParticlePriorityType::Critical
         );
+    }
+
+    #[test]
+    fn retail_blocks_keep_their_authored_name_and_labeled_values() {
+        let source = r#"
+ParticleSystem RetailLabeledParticle
+  Priority = WEAPON_EXPLOSION
+  IsOneShot = No
+  Shader = ALPHA
+  Type = PARTICLE
+  ParticleName = EXSmokNew1.tga
+  Lifetime = 60.00 60.00
+  Color1 = R:255 G:127 B:0 5
+  DriftVelocity = X:1.25 Y:-2.5 Z:3.75
+  VelocityType = NONE
+  VolumeType = NONE
+  WindMotion = Unused
+End
+
+ParticleSystem RetailSecondParticle
+  Priority = CRITICAL
+  Shader = ADDITIVE
+  Type = PARTICLE
+  ParticleName = EXLnzFlar2.tga
+  VelocityType = OUTWARD
+  VelOutward = 1.0 2.0
+  VolumeType = SPHERE
+  VolSphereRadius = 4.0
+End
+"#;
+
+        let parser = ParticleSystemINIParser::default();
+        let mut manager = ParticleSystemManager::new();
+        let mut ini = INI::new();
+        let count = ini
+            .with_inline_source(source, |ini| {
+                parser.parse_particle_system_source(ini, &mut manager)
+            })
+            .expect("retail-shaped particle source parses");
+
+        assert_eq!(count, 2);
+        let first = manager
+            .find_template("RetailLabeledParticle")
+            .expect("first exact template identity");
+        let info = first.info();
+        assert_eq!(info.particle_type_name, "EXSmokNew1.tga");
+        assert_eq!(info.color_keys[0].color, [1.0, 127.0 / 255.0, 0.0]);
+        assert_eq!(info.color_keys[0].frame, 5);
+        assert_eq!(info.drift_velocity, Vector3::new(1.25, -2.5, 3.75));
+        assert_eq!(info.emission_velocity_type, EmissionVelocityType::Invalid);
+        assert_eq!(info.emission_volume_type, EmissionVolumeType::Invalid);
+        assert_eq!(info.wind_motion, WindMotion::NotUsed);
+
+        let second = manager
+            .find_template("RetailSecondParticle")
+            .expect("second exact template identity");
+        assert_eq!(
+            second.info().emission_volume_type,
+            EmissionVolumeType::Sphere
+        );
+    }
+
+    #[test]
+    fn installed_retail_particle_system_ini_loads_all_authored_templates() {
+        let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let Some(repository_root) = manifest.ancestors().nth(4) else {
+            return;
+        };
+        let source = repository_root
+            .join("windows_game")
+            .join("extracted_big_files")
+            .join("INIZH")
+            .join("Data")
+            .join("INI")
+            .join("ParticleSystem.ini");
+        if !source.is_file() {
+            // Source-only CI checkouts legitimately do not have the licensed
+            // retail extraction.  Runtime still loads through the BIG-backed
+            // virtual filesystem when an install is present.
+            return;
+        }
+
+        let parser = ParticleSystemINIParser::default();
+        let mut manager = ParticleSystemManager::new();
+        let count = parser
+            .load_particle_system_definitions(&source, &mut manager)
+            .expect("installed retail ParticleSystem.ini must parse");
+
+        assert_eq!(count, 1_087);
+        assert!(manager.find_template("TsingMaTrailSmoke").is_some());
+        assert!(manager.find_template("Explosion").is_some());
+        let drawable = manager
+            .find_template("CarCrushGlassDebris")
+            .expect("retail NONE shader/drawable template");
+        assert_eq!(drawable.info().shader_type, ParticleShaderType::Invalid);
+        assert_eq!(drawable.info().particle_type, ParticleType::Drawable);
     }
 }

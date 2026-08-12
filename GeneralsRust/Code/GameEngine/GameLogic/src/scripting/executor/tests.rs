@@ -4,7 +4,10 @@
     use crate::common::LocomotorSetType;
     use crate::modules::AIUpdateInterface;
     use crate::object_manager::ObjectCreationFlags;
-    use crate::scripting::engine::{ScriptEngine, SequentialScript};
+    use crate::scripting::engine::{
+        initialize_script_engine, with_script_engine_mut, ScriptActionHandler, ScriptEngine,
+        SequentialScript,
+    };
     use std::sync::Mutex;
 
     #[derive(Debug)]
@@ -21,6 +24,107 @@
             >,
         >,
         locomotors: Arc<Mutex<Vec<LocomotorSetType>>>,
+    }
+
+    struct ReentrantWorldActionHandler {
+        calls: Arc<Mutex<Vec<String>>>,
+    }
+
+    impl ReentrantWorldActionHandler {
+        fn record(&self, call: impl Into<String>) {
+            self.calls.lock().unwrap().push(call.into());
+            let reentered = with_script_engine_mut(|engine| {
+                engine.increment_counter("WorldHandlerImmediateReentry")
+            });
+            assert!(
+                matches!(reentered, Some(Ok(()))),
+                "a host/UI callback must be able to re-enter the active ScriptEngine immediately"
+            );
+        }
+    }
+
+    impl ScriptActionHandler for ReentrantWorldActionHandler {
+        fn display_text(&self, text: &str) -> GameLogicResult<()> {
+            self.record(format!("text:{text}"));
+            Ok(())
+        }
+
+        fn movie_play_fullscreen(&self, filename: &str) -> GameLogicResult<()> {
+            self.record(format!("movie:{filename}"));
+            Ok(())
+        }
+
+        fn music_set_track(
+            &self,
+            name: &str,
+            fade_out: bool,
+            fade_in: bool,
+        ) -> GameLogicResult<()> {
+            self.record(format!("music:{name}:{fade_out}:{fade_in}"));
+            Ok(())
+        }
+
+        fn zoom_camera(
+            &self,
+            zoom: f32,
+            seconds: f32,
+            ease_in_seconds: f32,
+            ease_out_seconds: f32,
+        ) -> GameLogicResult<()> {
+            self.record(format!("zoom:{zoom}:{seconds}:{ease_in_seconds}:{ease_out_seconds}"));
+            Ok(())
+        }
+
+        fn set_radar_forced(&self, forced: bool) -> GameLogicResult<()> {
+            self.record(format!("radar:{forced}"));
+            Ok(())
+        }
+
+        fn add_named_timer(
+            &self,
+            name: &str,
+            text: &str,
+            countdown: bool,
+        ) -> GameLogicResult<()> {
+            self.record(format!("timer:{name}:{text}:{countdown}"));
+            Ok(())
+        }
+
+        fn freeze_time(&self) -> GameLogicResult<()> {
+            self.record("freeze");
+            Ok(())
+        }
+
+        fn unfreeze_time(&self) -> GameLogicResult<()> {
+            self.record("unfreeze");
+            Ok(())
+        }
+
+        fn set_visual_speed_multiplier(&self, multiplier: i32) -> GameLogicResult<()> {
+            self.record(format!("speed:{multiplier}"));
+            Ok(())
+        }
+
+        fn set_weather_visible(&self, visible: bool) -> GameLogicResult<()> {
+            self.record(format!("weather:{visible}"));
+            Ok(())
+        }
+
+        fn hide_object_superweapon_display_by_script(
+            &self,
+            object_id: ObjectID,
+        ) -> GameLogicResult<()> {
+            self.record(format!("hide-superweapon:{object_id}"));
+            Ok(())
+        }
+
+        fn show_object_superweapon_display_by_script(
+            &self,
+            object_id: ObjectID,
+        ) -> GameLogicResult<()> {
+            self.record(format!("show-superweapon:{object_id}"));
+            Ok(())
+        }
     }
 
     impl AIUpdateInterface for RecordingAi {
@@ -1375,6 +1479,817 @@
         );
     }
 
+    #[test]
+    fn active_script_counter_and_victory_reenter_without_relocking_the_global_engine() {
+        let _test_lock = crate::test_sync::lock();
+        initialize_script_engine().expect("script engine should initialize");
+
+        let prior_input = TheGameLogic::is_input_enabled();
+        let prior_victory = TheVictoryConditions::is_local_allied_victory();
+        TheGameLogic::set_input_enabled(true);
+
+        let completed = with_script_engine_mut(|engine| {
+            // `with_script_engine_mut` holds the global engine lock and
+            // installs the active scoped engine.  The two calls below must
+            // use that active engine immediately; re-locking the global
+            // handle here would self-deadlock during a normal script update.
+            engine
+                .set_counter("ActiveExecutorCounterReentry", 3)
+                .expect("counter should be allocated");
+
+            let mut counter = Condition::new(ConditionType::Counter);
+            counter
+                .add_parameter(Parameter::with_string(
+                    ParameterType::Counter,
+                    "ActiveExecutorCounterReentry".to_string(),
+                ))
+                .expect("counter parameter");
+            counter
+                .add_parameter(Parameter::with_int(
+                    ParameterType::Comparison,
+                    ComparisonType::Equal as i32,
+                ))
+                .expect("comparison parameter");
+            counter
+                .add_parameter(Parameter::with_int(ParameterType::Int, 3))
+                .expect("value parameter");
+
+            let mut evaluator =
+                ScriptConditionEvaluator::new(Arc::new(RwLock::new(ScriptContext::new())));
+            assert_eq!(
+                evaluator.evaluate_condition(&mut counter).unwrap(),
+                ScriptConditionResult::True
+            );
+
+            let victory = ScriptAction::new(ScriptActionType::Victory);
+            let mut dispatcher =
+                ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+            assert_eq!(
+                dispatcher.execute_action(&victory).unwrap(),
+                ScriptActionResult::Success
+            );
+            assert!(engine.is_game_ending());
+        });
+
+        assert_eq!(completed, Some(()));
+        assert!(
+            !TheGameLogic::is_input_enabled(),
+            "C++ Victory disables local input before starting the end-game timer"
+        );
+
+        TheGameLogic::set_input_enabled(prior_input);
+        TheVictoryConditions::set_local_allied_victory(prior_victory);
+    }
+
+    #[test]
+    fn active_world_actions_clone_the_handler_before_host_callback_reentry() {
+        let _test_lock = crate::test_sync::lock();
+        initialize_script_engine().expect("script engine should initialize");
+
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let previous_handler = {
+            let global = get_script_engine();
+            let mut global = global.write().expect("script engine global lock");
+            let engine = global
+                .as_mut()
+                .expect("script engine should initialize");
+            let previous = engine.action_handler();
+            engine.set_action_handler(Some(Arc::new(ReentrantWorldActionHandler {
+                calls: Arc::clone(&calls),
+            })));
+            previous
+        };
+
+        let completed = with_script_engine_mut(|engine| {
+            engine
+                .set_counter("WorldHandlerImmediateReentry", 0)
+                .expect("reentry counter");
+            let mut dispatcher =
+                ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+
+            let mut fullscreen_movie = ScriptAction::new(ScriptActionType::MoviePlayFullscreen);
+            fullscreen_movie
+                .add_parameter(Parameter::with_string(
+                    ParameterType::Movie,
+                    "campaign_intro.bik".to_string(),
+                ))
+                .expect("movie parameter");
+            assert_eq!(
+                dispatcher
+                    .execute_action(&fullscreen_movie)
+                    .expect("movie action"),
+                ScriptActionResult::Success
+            );
+
+            assert_eq!(
+                dispatcher
+                    .execute_action(&ScriptAction::new(ScriptActionType::RadarForceEnable))
+                    .expect("radar action"),
+                ScriptActionResult::Success
+            );
+
+            let mut timer = ScriptAction::new(ScriptActionType::DisplayCountdownTimer);
+            timer
+                .add_parameter(Parameter::with_string(
+                    ParameterType::Counter,
+                    "CampaignTimer".to_string(),
+                ))
+                .expect("timer name parameter");
+            timer
+                .add_parameter(Parameter::with_string(
+                    ParameterType::LocalizedText,
+                    "GUI:Countdown".to_string(),
+                ))
+                .expect("timer text parameter");
+            assert_eq!(
+                dispatcher.execute_action(&timer).expect("timer action"),
+                ScriptActionResult::Success
+            );
+
+            assert_eq!(
+                dispatcher
+                    .execute_action(&ScriptAction::new(ScriptActionType::FreezeTime))
+                    .expect("freeze action"),
+                ScriptActionResult::Success
+            );
+            assert_eq!(
+                dispatcher
+                    .execute_action(&ScriptAction::new(ScriptActionType::UnfreezeTime))
+                    .expect("unfreeze action"),
+                ScriptActionResult::Success
+            );
+
+            let mut visual_speed = ScriptAction::new(ScriptActionType::SetVisualSpeedMultiplier);
+            visual_speed
+                .add_parameter(Parameter::with_int(ParameterType::Int, 2))
+                .expect("visual speed parameter");
+            assert_eq!(
+                dispatcher
+                    .execute_action(&visual_speed)
+                    .expect("visual speed action"),
+                ScriptActionResult::Success
+            );
+
+            let mut weather = ScriptAction::new(ScriptActionType::ShowWeather);
+            weather
+                .add_parameter(Parameter::with_int(ParameterType::Boolean, 0))
+                .expect("weather parameter");
+            assert_eq!(
+                dispatcher.execute_action(&weather).expect("weather action"),
+                ScriptActionResult::Success
+            );
+
+            assert_eq!(
+                engine
+                    .get_counter("WorldHandlerImmediateReentry")
+                    .expect("reentry counter should remain allocated")
+                    .value,
+                7,
+                "each host callback re-enters before its script action returns"
+            );
+        });
+
+        {
+            let global = get_script_engine();
+            let mut global = global.write().expect("script engine global lock");
+            global
+                .as_mut()
+                .expect("script engine should initialize")
+                .set_action_handler(previous_handler);
+        }
+
+        assert_eq!(completed, Some(()));
+        assert_eq!(
+            *calls.lock().unwrap(),
+            vec![
+                "movie:campaign_intro.bik",
+                "radar:true",
+                "timer:CampaignTimer:GUI:Countdown:true",
+                "freeze",
+                "unfreeze",
+                "speed:2",
+                "weather:false",
+            ]
+        );
+    }
+
+    #[test]
+    fn active_player_display_actions_clone_handler_before_reentry() {
+        let _test_lock = crate::test_sync::lock();
+        initialize_script_engine().expect("script engine should initialize");
+
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let previous_handler = {
+            let global = get_script_engine();
+            let mut global = global.write().expect("script engine global lock");
+            let engine = global
+                .as_mut()
+                .expect("script engine should initialize");
+            let previous = engine.action_handler();
+            engine.set_action_handler(Some(Arc::new(ReentrantWorldActionHandler {
+                calls: Arc::clone(&calls),
+            })));
+            previous
+        };
+
+        let completed = with_script_engine_mut(|engine| {
+            engine
+                .set_counter("WorldHandlerImmediateReentry", 0)
+                .expect("reentry counter");
+            let mut dispatcher =
+                ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+
+            let mut display = ScriptAction::new(ScriptActionType::DisplayText);
+            display
+                .add_parameter(Parameter::with_string(
+                    ParameterType::LocalizedText,
+                    "GUI:CampaignMessage".to_string(),
+                ))
+                .expect("display text parameter");
+            assert_eq!(
+                dispatcher.execute_action(&display).expect("display action"),
+                ScriptActionResult::Success
+            );
+
+            let mut music = ScriptAction::new(ScriptActionType::MusicSetTrack);
+            music
+                .add_parameter(Parameter::with_string(
+                    ParameterType::Music,
+                    "CampaignCombat".to_string(),
+                ))
+                .expect("music parameter");
+            music
+                .add_parameter(Parameter::with_int(ParameterType::Boolean, 1))
+                .expect("fade out parameter");
+            music
+                .add_parameter(Parameter::with_int(ParameterType::Boolean, 0))
+                .expect("fade in parameter");
+            assert_eq!(
+                dispatcher.execute_action(&music).expect("music action"),
+                ScriptActionResult::Success
+            );
+
+            assert_eq!(engine.get_current_track_name(), "CampaignCombat");
+            assert_eq!(
+                engine
+                    .get_counter("WorldHandlerImmediateReentry")
+                    .expect("reentry counter should remain allocated")
+                    .value,
+                2,
+                "each callback re-enters before its script action returns"
+            );
+        });
+
+        {
+            let global = get_script_engine();
+            let mut global = global.write().expect("script engine global lock");
+            global
+                .as_mut()
+                .expect("script engine should initialize")
+                .set_action_handler(previous_handler);
+        }
+
+        assert_eq!(completed, Some(()));
+        assert_eq!(
+            *calls.lock().unwrap(),
+            vec![
+                "text:GUI:CampaignMessage",
+                "music:CampaignCombat:true:false",
+            ]
+        );
+    }
+
+    #[test]
+    fn active_camera_actions_snapshot_handler_and_mutate_fade_without_relocking() {
+        let _test_lock = crate::test_sync::lock();
+        initialize_script_engine().expect("script engine should initialize");
+
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let previous_handler = {
+            let global = get_script_engine();
+            let mut global = global.write().expect("script engine global lock");
+            let engine = global
+                .as_mut()
+                .expect("script engine should initialize");
+            let previous = engine.action_handler();
+            engine.set_action_handler(Some(Arc::new(ReentrantWorldActionHandler {
+                calls: Arc::clone(&calls),
+            })));
+            previous
+        };
+
+        let completed = with_script_engine_mut(|engine| {
+            engine
+                .set_counter("WorldHandlerImmediateReentry", 0)
+                .expect("reentry counter");
+            let mut dispatcher =
+                ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+
+            let mut zoom = ScriptAction::new(ScriptActionType::ZoomCamera);
+            for value in [25.0, 1.5, 0.25, 0.5] {
+                zoom.add_parameter(Parameter::with_real(ParameterType::Real, value))
+                    .expect("zoom parameter");
+            }
+            assert_eq!(
+                dispatcher.execute_action(&zoom).expect("zoom action"),
+                ScriptActionResult::Success
+            );
+
+            let mut fade = ScriptAction::new(ScriptActionType::CameraFadeAdd);
+            for value in [0.2, 0.8] {
+                fade.add_parameter(Parameter::with_real(ParameterType::Real, value))
+                    .expect("fade level parameter");
+            }
+            for value in [0, 3, 2] {
+                fade.add_parameter(Parameter::with_int(ParameterType::Int, value))
+                    .expect("fade frame parameter");
+            }
+            assert_eq!(
+                dispatcher.execute_action(&fade).expect("fade action"),
+                ScriptActionResult::Success
+            );
+            assert_eq!(engine.get_fade(), TFade::Add);
+            assert!(
+                (engine.get_fade_value() - 0.8).abs() < f32::EPSILON,
+                "C++ advances a zero-increase fade immediately into its hold value"
+            );
+            assert_eq!(
+                engine
+                    .get_counter("WorldHandlerImmediateReentry")
+                    .expect("reentry counter should remain allocated")
+                    .value,
+                1,
+                "the host camera callback must re-enter before its action returns"
+            );
+        });
+
+        {
+            let global = get_script_engine();
+            let mut global = global.write().expect("script engine global lock");
+            global
+                .as_mut()
+                .expect("script engine should initialize")
+                .set_action_handler(previous_handler);
+        }
+
+        assert_eq!(completed, Some(()));
+        assert_eq!(
+            *calls.lock().unwrap(),
+            vec!["zoom:25:1.5:0.25:0.5"]
+        );
+    }
+
+    #[test]
+    fn active_attack_priority_and_object_list_actions_mutate_the_live_engine() {
+        let _test_lock = crate::test_sync::lock();
+        initialize_script_engine().expect("script engine should initialize");
+
+        let completed = with_script_engine_mut(|engine| {
+            let mut dispatcher =
+                ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+
+            let priority_set_name = "ActiveCampaignPrioritySet";
+            let mut default_priority = ScriptAction::new(ScriptActionType::SetDefaultAttackPriority);
+            default_priority
+                .add_parameter(Parameter::with_string(
+                    ParameterType::AttackPrioritySet,
+                    priority_set_name.to_string(),
+                ))
+                .expect("priority set parameter");
+            default_priority
+                .add_parameter(Parameter::with_int(ParameterType::Int, 17))
+                .expect("priority parameter");
+            assert_eq!(
+                dispatcher
+                    .execute_action(&default_priority)
+                    .expect("default-priority action"),
+                ScriptActionResult::Success
+            );
+            let info = engine
+                .get_attack_info(priority_set_name)
+                .expect("C++ setDefaultAttackPriority creates its set");
+            assert_eq!(info.get_name(), priority_set_name);
+            assert_eq!(info.default_priority, 17);
+
+            let list_name = "ActiveCampaignObjectList";
+            let object_type = "CampaignTestObject";
+            let mut add_to_list = ScriptAction::new(ScriptActionType::ObjectlistAddobjecttype);
+            add_to_list
+                .add_parameter(Parameter::with_string(
+                    ParameterType::ObjectTypeList,
+                    list_name.to_string(),
+                ))
+                .expect("list parameter");
+            add_to_list
+                .add_parameter(Parameter::with_string(
+                    ParameterType::ObjectType,
+                    object_type.to_string(),
+                ))
+                .expect("object type parameter");
+            assert_eq!(
+                dispatcher.execute_action(&add_to_list).expect("add-list action"),
+                ScriptActionResult::Success
+            );
+            assert!(
+                engine
+                    .get_object_types(list_name)
+                    .expect("list must be created")
+                    .is_in_set(&AsciiString::from(object_type))
+            );
+
+            let mut remove_from_list =
+                ScriptAction::new(ScriptActionType::ObjectlistRemoveobjecttype);
+            remove_from_list
+                .add_parameter(Parameter::with_string(
+                    ParameterType::ObjectTypeList,
+                    list_name.to_string(),
+                ))
+                .expect("list parameter");
+            remove_from_list
+                .add_parameter(Parameter::with_string(
+                    ParameterType::ObjectType,
+                    object_type.to_string(),
+                ))
+                .expect("object type parameter");
+            assert_eq!(
+                dispatcher
+                    .execute_action(&remove_from_list)
+                    .expect("remove-list action"),
+                ScriptActionResult::Success
+            );
+            assert!(
+                !engine
+                    .get_object_types(list_name)
+                    .expect("list remains allocated after removal")
+                    .is_in_set(&AsciiString::from(object_type))
+            );
+
+            let mut allow_bonuses = ScriptAction::new(ScriptActionType::ObjectAllowBonuses);
+            allow_bonuses
+                .add_parameter(Parameter::with_int(ParameterType::Boolean, 0))
+                .expect("difficulty-bonus parameter");
+            assert_eq!(
+                dispatcher
+                    .execute_action(&allow_bonuses)
+                    .expect("difficulty-bonus action"),
+                ScriptActionResult::Success
+            );
+            assert!(!engine.get_objects_should_receive_difficulty_bonus());
+
+            let mut choose_normal =
+                ScriptAction::new(ScriptActionType::ChooseVictimAlwaysUsesNormal);
+            choose_normal
+                .add_parameter(Parameter::with_int(ParameterType::Boolean, 1))
+                .expect("choose-victim parameter");
+            assert_eq!(
+                dispatcher
+                    .execute_action(&choose_normal)
+                    .expect("choose-victim action"),
+                ScriptActionResult::Success
+            );
+            assert!(engine.get_choose_victim_always_uses_normal());
+        });
+
+        assert_eq!(completed, Some(()));
+    }
+
+    #[test]
+    fn active_skirmish_prerequisite_condition_reads_the_live_object_type_list() {
+        let _test_lock = crate::test_sync::lock();
+        initialize_script_engine().expect("script engine should initialize");
+
+        player_list().write().unwrap().clear();
+        let player = Arc::new(RwLock::new(crate::player::Player::new(0)));
+        player
+            .write()
+            .unwrap()
+            .set_display_name("ActiveSkirmishPrerequisitePlayer");
+        player_list().write().unwrap().add_player(player);
+
+        let completed = with_script_engine_mut(|engine| {
+            // C++ objectTypesFromParam first resolves an ObjectTypes list by
+            // exact name, then asks that list whether the player can build
+            // any member.  An empty registered list therefore fails closed
+            // while proving that this lookup works from the active engine.
+            let list_name = "ActiveSkirmishEmptyPrerequisiteList";
+            engine.set_object_types(
+                list_name.to_string(),
+                crate::object::object_types::ObjectTypes::with_list_name(AsciiString::from(
+                    list_name,
+                )),
+            );
+
+            let mut condition = Condition::new(ConditionType::SkirmishPlayerHasPrerequisiteToBuild);
+            condition
+                .add_parameter(Parameter::with_string(
+                    ParameterType::Side,
+                    "ActiveSkirmishPrerequisitePlayer".to_string(),
+                ))
+                .expect("player parameter");
+            condition
+                .add_parameter(Parameter::with_string(
+                    ParameterType::ObjectType,
+                    list_name.to_string(),
+                ))
+                .expect("object type list parameter");
+
+            let mut evaluator =
+                ScriptConditionEvaluator::new(Arc::new(RwLock::new(ScriptContext::new())));
+            assert_eq!(
+                evaluator.evaluate_condition(&mut condition).unwrap(),
+                ScriptConditionResult::False,
+                "an empty C++ ObjectTypes list has no template the player can build"
+            );
+        });
+
+        player_list().write().unwrap().clear();
+        assert_eq!(completed, Some(()));
+    }
+
+    #[test]
+    fn active_named_actions_do_not_relock_the_engine_or_hold_host_callbacks() {
+        let _test_lock = crate::test_sync::lock();
+        initialize_script_engine().expect("script engine should initialize");
+
+        const OBJECT_ID: ObjectID = 86_220;
+        const OBJECT_NAME: &str = "ActiveNamedActionObject";
+        get_named_object_tracker()
+            .register_named_object(OBJECT_NAME.to_string(), OBJECT_ID)
+            .expect("named object registration");
+        let mut named_object = crate::object::Object::new_test(OBJECT_ID, 100.0);
+        named_object.set_name(AsciiString::from(OBJECT_NAME));
+
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let previous_handler = {
+            let global = get_script_engine();
+            let mut global = global.write().expect("script engine global lock");
+            let engine = global
+                .as_mut()
+                .expect("script engine should initialize");
+            let previous = engine.action_handler();
+            engine.set_action_handler(Some(Arc::new(ReentrantWorldActionHandler {
+                calls: Arc::clone(&calls),
+            })));
+            previous
+        };
+
+        let completed = with_script_engine_mut(|engine| {
+            engine
+                .set_counter("WorldHandlerImmediateReentry", 0)
+                .expect("reentry counter");
+
+            let mut script_to_run = Script::new();
+            script_to_run.script_name = "ActiveNamedSequentialTarget".to_string();
+            let mut list = ScriptList::new();
+            list.append_script(Box::new(script_to_run));
+            engine
+                .set_script_list_for_player(0, Some(Box::new(list)))
+                .expect("sequential target script list");
+
+            let mut dispatcher =
+                ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+
+            for action_type in [
+                ScriptActionType::NamedHideSpecialPowerDisplay,
+                ScriptActionType::NamedShowSpecialPowerDisplay,
+            ] {
+                let mut action = ScriptAction::new(action_type);
+                action
+                    .add_parameter(Parameter::with_string(
+                        ParameterType::Unit,
+                        OBJECT_NAME.to_string(),
+                    ))
+                    .expect("named display object parameter");
+                assert_eq!(
+                    dispatcher.execute_action(&action).expect("named display action"),
+                    ScriptActionResult::Success
+                );
+            }
+
+            let mut topple = ScriptAction::new(ScriptActionType::NamedSetToppleDirection);
+            topple
+                .add_parameter(Parameter::with_string(
+                    ParameterType::Unit,
+                    OBJECT_NAME.to_string(),
+                ))
+                .expect("topple object parameter");
+            topple
+                .add_parameter(Parameter::with_coord(
+                    ParameterType::Coord3D,
+                    crate::scripting::core::Coord3D::new(3.0, 4.0, 0.0),
+                ))
+                .expect("topple direction parameter");
+            assert_eq!(
+                dispatcher.execute_action(&topple).expect("topple action"),
+                ScriptActionResult::Success
+            );
+            let mut adjusted = Coord3D::new(0.0, 0.0, 0.0);
+            engine.adjust_topple_direction(&named_object, &mut adjusted);
+            assert!((adjusted.x - 0.6).abs() < f32::EPSILON);
+            assert!((adjusted.y - 0.8).abs() < f32::EPSILON);
+            assert_eq!(adjusted.z, 0.0);
+
+            let mut start = ScriptAction::new(ScriptActionType::UnitExecuteSequentialScript);
+            start
+                .add_parameter(Parameter::with_string(
+                    ParameterType::Unit,
+                    OBJECT_NAME.to_string(),
+                ))
+                .expect("sequential object parameter");
+            start
+                .add_parameter(Parameter::with_string(
+                    ParameterType::Script,
+                    "ActiveNamedSequentialTarget".to_string(),
+                ))
+                .expect("sequential target parameter");
+            assert_eq!(
+                dispatcher.execute_action(&start).expect("start sequential action"),
+                ScriptActionResult::Success
+            );
+            assert!(engine.has_active_sequential_script_for_object(OBJECT_ID));
+
+            let mut stop = ScriptAction::new(ScriptActionType::UnitStopSequentialScript);
+            stop.add_parameter(Parameter::with_string(
+                ParameterType::Unit,
+                OBJECT_NAME.to_string(),
+            ))
+            .expect("stop sequential object parameter");
+            assert_eq!(
+                dispatcher.execute_action(&stop).expect("stop sequential action"),
+                ScriptActionResult::Success
+            );
+            assert!(!engine.has_active_sequential_script_for_object(OBJECT_ID));
+
+            assert_eq!(
+                engine
+                    .get_counter("WorldHandlerImmediateReentry")
+                    .expect("reentry counter remains allocated")
+                    .value,
+                2,
+                "both host display callbacks re-enter before their script action returns"
+            );
+        });
+
+        {
+            let global = get_script_engine();
+            let mut global = global.write().expect("script engine global lock");
+            global
+                .as_mut()
+                .expect("script engine should initialize")
+                .set_action_handler(previous_handler);
+        }
+        get_named_object_tracker()
+            .unregister_object(OBJECT_ID)
+            .expect("named object cleanup");
+
+        assert_eq!(completed, Some(()));
+        assert_eq!(
+            *calls.lock().unwrap(),
+            vec![
+                format!("hide-superweapon:{OBJECT_ID}"),
+                format!("show-superweapon:{OBJECT_ID}"),
+            ]
+        );
+    }
+
+    #[test]
+    fn active_team_sequential_actions_keep_cxx_lookup_idle_append_order() {
+        let _test_lock = crate::test_sync::lock();
+        initialize_script_engine().expect("script engine should initialize");
+
+        const TEAM_NAME: &str = "ActiveTeamSequentialActions";
+        get_team_factory().lock().unwrap().reset();
+        {
+            let mut factory = get_team_factory().lock().unwrap();
+            factory.init_team(AsciiString::from(TEAM_NAME), AsciiString::default(), false, None);
+            factory
+                .create_team(TEAM_NAME)
+                .expect("team should be created");
+        }
+
+        let completed = with_script_engine_mut(|engine| {
+            let mut script_to_run = Script::new();
+            script_to_run.script_name = "ActiveTeamSequentialTarget".to_string();
+            let mut list = ScriptList::new();
+            list.append_script(Box::new(script_to_run));
+            engine
+                .set_script_list_for_player(0, Some(Box::new(list)))
+                .expect("sequential target script list");
+
+            let mut dispatcher =
+                ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+            let mut start = ScriptAction::new(ScriptActionType::TeamExecuteSequentialScript);
+            start
+                .add_parameter(Parameter::with_string(
+                    ParameterType::Team,
+                    TEAM_NAME.to_string(),
+                ))
+                .expect("team parameter");
+            start
+                .add_parameter(Parameter::with_string(
+                    ParameterType::Script,
+                    "ActiveTeamSequentialTarget".to_string(),
+                ))
+                .expect("target script parameter");
+            assert_eq!(
+                dispatcher.execute_action(&start).expect("start sequential action"),
+                ScriptActionResult::Success
+            );
+            assert!(engine.has_active_sequential_script_for_team(TEAM_NAME));
+
+            let mut stop = ScriptAction::new(ScriptActionType::TeamStopSequentialScript);
+            stop.add_parameter(Parameter::with_string(
+                ParameterType::Team,
+                TEAM_NAME.to_string(),
+            ))
+            .expect("team parameter");
+            assert_eq!(
+                dispatcher.execute_action(&stop).expect("stop sequential action"),
+                ScriptActionResult::Success
+            );
+            assert!(!engine.has_active_sequential_script_for_team(TEAM_NAME));
+        });
+
+        get_team_factory().lock().unwrap().reset();
+        assert_eq!(completed, Some(()));
+    }
+
+    #[test]
+    fn active_script_special_power_and_upgrade_events_are_immediate_and_one_shot_like_cpp() {
+        let _test_lock = crate::test_sync::lock();
+        initialize_script_engine().expect("script engine should initialize");
+
+        player_list().write().unwrap().clear();
+        let player = Arc::new(RwLock::new(crate::player::Player::new(0)));
+        player
+            .write()
+            .unwrap()
+            .set_display_name("ActiveExecutorEventPlayer");
+        player_list().write().unwrap().add_player(player);
+
+        let completed = with_script_engine_mut(|engine| {
+            engine.notify_of_triggered_special_power(
+                0,
+                "ActiveExecutorSpecialPower",
+                INVALID_ID,
+            );
+
+            let mut special_power = Condition::new(ConditionType::PlayerTriggeredSpecialPower);
+            special_power
+                .add_parameter(Parameter::with_string(
+                    ParameterType::Side,
+                    "ActiveExecutorEventPlayer".to_string(),
+                ))
+                .expect("player parameter");
+            special_power
+                .add_parameter(Parameter::with_string(
+                    ParameterType::SpecialPower,
+                    "ActiveExecutorSpecialPower".to_string(),
+                ))
+                .expect("special-power parameter");
+
+            let mut evaluator =
+                ScriptConditionEvaluator::new(Arc::new(RwLock::new(ScriptContext::new())));
+            assert_eq!(
+                evaluator.evaluate_condition(&mut special_power).unwrap(),
+                ScriptConditionResult::True
+            );
+            assert_eq!(
+                evaluator.evaluate_condition(&mut special_power).unwrap(),
+                ScriptConditionResult::False,
+                "C++ removes the matched special-power event"
+            );
+
+            engine.notify_of_completed_upgrade(0, "ActiveExecutorUpgrade", INVALID_ID);
+            let mut upgrade = Condition::new(ConditionType::PlayerBuiltUpgrade);
+            upgrade
+                .add_parameter(Parameter::with_string(
+                    ParameterType::Side,
+                    "ActiveExecutorEventPlayer".to_string(),
+                ))
+                .expect("player parameter");
+            upgrade
+                .add_parameter(Parameter::with_string(
+                    ParameterType::Upgrade,
+                    "ActiveExecutorUpgrade".to_string(),
+                ))
+                .expect("upgrade parameter");
+
+            assert_eq!(
+                evaluator.evaluate_condition(&mut upgrade).unwrap(),
+                ScriptConditionResult::True
+            );
+            assert_eq!(
+                evaluator.evaluate_condition(&mut upgrade).unwrap(),
+                ScriptConditionResult::False,
+                "C++ PLAYER_BUILT_UPGRADE is an edge-triggered ScriptEngine event"
+            );
+        });
+
+        assert_eq!(completed, Some(()));
+        player_list().write().unwrap().clear();
+    }
+
     /// Records CommandButtonHuntUpdate::setCommandButton calls without running the full hunt update.
     struct RecordingHuntModule {
         recorded: Arc<Mutex<Vec<String>>>,
@@ -1526,6 +2441,56 @@
 
         get_object_manager().write().unwrap().reset();
         get_team_factory().lock().unwrap().reset();
+    }
+
+    #[test]
+    fn active_team_build_actions_fail_closed_without_a_prototype_controller() {
+        let _test_lock = crate::test_sync::lock();
+        initialize_script_engine().expect("script engine should initialize");
+
+        const TEAM_NAME: &str = "UnownedActiveBuildTeam";
+        get_team_factory().lock().unwrap().reset();
+        get_team_factory().lock().unwrap().init_team(
+            AsciiString::from(TEAM_NAME),
+            AsciiString::default(),
+            false,
+            None,
+        );
+
+        let completed = with_script_engine_mut(|_| {
+            let mut dispatcher =
+                ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+
+            let mut build = ScriptAction::new(ScriptActionType::BuildTeam);
+            build
+                .add_parameter(Parameter::with_string(
+                    ParameterType::Team,
+                    TEAM_NAME.to_string(),
+                ))
+                .expect("team parameter");
+            assert_eq!(
+                dispatcher.execute_action(&build).expect("build action"),
+                ScriptActionResult::Success
+            );
+
+            let mut recruit = ScriptAction::new(ScriptActionType::RecruitTeam);
+            recruit
+                .add_parameter(Parameter::with_string(
+                    ParameterType::Team,
+                    TEAM_NAME.to_string(),
+                ))
+                .expect("team parameter");
+            recruit
+                .add_parameter(Parameter::with_real(ParameterType::Real, 120.0))
+                .expect("recruit radius parameter");
+            assert_eq!(
+                dispatcher.execute_action(&recruit).expect("recruit action"),
+                ScriptActionResult::Success
+            );
+        });
+
+        get_team_factory().lock().unwrap().reset();
+        assert_eq!(completed, Some(()));
     }
 
     #[test]

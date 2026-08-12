@@ -1283,6 +1283,7 @@ impl GameLogic {
         &mut self,
         mission_id: u32,
         source_id: ObjectId,
+        source_owner_player_id: Option<u32>,
         from: glam::Vec3,
         aim: glam::Vec3,
         projectile_name: &str,
@@ -1318,7 +1319,7 @@ impl GameLogic {
         } else {
             start.y -= 5.0;
         }
-        let pid = self.create_object(name, team, start)?;
+        let pid = self.create_object_for_owner_or_team(name, team, source_owner_player_id, start)?;
         let speed = AURORA_BOMB_LOCO_SPEED / 30.0;
         let min_speed = AURORA_BOMB_LOCO_MIN_SPEED / 30.0;
         let to_aim = aim - start;
@@ -1470,9 +1471,18 @@ impl GameLogic {
         use crate::game_logic::host_aurora_bomb::AURORA_BOMB_LAUNCH_AUDIO;
 
         let frame = self.frame;
-        let id = self
-            .aurora_bombs
-            .queue(kind, source_object, source_team, target_position, frame);
+        let source_owner_player_id = self
+            .objects
+            .get(&source_object)
+            .and_then(|object| self.player_owner_for_host_object(object));
+        let id = self.aurora_bombs.queue_for_owner(
+            kind,
+            source_object,
+            source_team,
+            source_owner_player_id,
+            target_position,
+            frame,
+        );
 
         // C++ AuroraBomb SpecialObject residual (guided drop under aircraft).
         let from = self
@@ -1483,6 +1493,7 @@ impl GameLogic {
         let _ = self.spawn_aurora_bomb_projectile(
             id,
             source_object,
+            source_owner_player_id,
             from,
             target_position,
             kind.projectile_object_name(),
@@ -1516,6 +1527,7 @@ impl GameLogic {
         kind: crate::game_logic::host_aurora_bomb::HostAuroraBombKind,
         source_object: ObjectId,
         source_team: Team,
+        source_owner_player_id: Option<u32>,
         position: Vec3,
     ) -> Option<ObjectId> {
         use crate::game_logic::host_fuel_air_gas_slow_death::FUEL_AIR_GAS_MAX_HEALTH;
@@ -1530,7 +1542,12 @@ impl GameLogic {
             self.templates.insert(gas_name.to_string(), t);
         }
         let place = Vec3::new(position.x, position.y.max(0.0) + 20.0, position.z);
-        let gid = self.create_object(gas_name, source_team, place)?;
+        let gid = self.create_object_for_owner_or_team(
+            gas_name,
+            source_team,
+            source_owner_player_id,
+            place,
+        )?;
         if let Some(o) = self.objects.get_mut(&gid) {
             o.producer_id = Some(source_object);
             o.health.maximum = FUEL_AIR_GAS_MAX_HEALTH;
@@ -1588,6 +1605,7 @@ impl GameLogic {
                     plan.kind,
                     plan.source_object,
                     plan.source_team,
+                    plan.source_owner_player_id,
                     plan.target_position,
                 );
                 // Impact cue residual (bomb shell break / ignite path).

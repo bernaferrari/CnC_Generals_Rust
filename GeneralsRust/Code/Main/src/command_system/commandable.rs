@@ -41,16 +41,13 @@ impl CommandableObject for Object {
     }
 
     fn can_construct(&self) -> bool {
-        self.can_move()
-            && (self.is_kind_of(crate::game_logic::KindOf::Worker)
-                || self.template_name.contains("Dozer")
-                || self.template_name.contains("Worker")
-                || self.template_name.contains("Harvester")
-                || self.template_name.contains("Collector"))
+        // C++ ActionManager / DozerAI routes construction through
+        // KINDOF_DOZER.  A worker/harvester spelling is not authority.
+        self.can_move() && self.is_kind_of(crate::game_logic::KindOf::Dozer)
     }
 
     fn can_repair(&self) -> bool {
-        self.can_construct() // Dozers can repair
+        self.can_move() && self.is_kind_of(crate::game_logic::KindOf::Dozer)
     }
 
     fn can_contain(&self) -> bool {
@@ -70,37 +67,20 @@ impl CommandableObject for Object {
     }
 
     fn is_medical_facility(&self) -> bool {
-        self.building_data
-            .as_ref()
-            .map(|b| b.building_type == BuildingType::HealPad)
-            .unwrap_or_else(|| {
-                let lower = self.template_name.to_ascii_lowercase();
-                lower.contains("hospital") || lower.contains("heal") || lower.contains("medic")
-            })
+        self.is_kind_of(crate::game_logic::KindOf::HealPad)
     }
 
     fn provides_repair(&self) -> bool {
-        self.building_data
-            .as_ref()
-            .map(|b| {
-                matches!(
-                    b.building_type,
-                    // RepairPad + Airfield + WarFactory (China RepairDock residual).
-                    BuildingType::RepairPad | BuildingType::Airfield | BuildingType::WarFactory
-                )
-            })
-            .unwrap_or_else(|| {
-                matches!(self.object_type, crate::game_logic::ObjectType::Building)
-                    && (self.template_name.contains("Repair")
-                        || self.template_name.contains("Service")
-                        || self.template_name.contains("Airfield")
-                        || self.template_name.contains("WarFactory")
-                        || self.template_name.contains("War Factory"))
-            })
+        // The source unit decides which of these two exact destinations is
+        // legal (ground vehicle -> REPAIR_PAD, aircraft -> FS_AIRFIELD).
+        // This broad provider probe deliberately only reports retained tags;
+        // executor validation performs the source-type pairing.
+        self.is_kind_of(crate::game_logic::KindOf::RepairPad)
+            || self.is_kind_of(crate::game_logic::KindOf::FSAirfield)
     }
 
     fn provides_healing(&self) -> bool {
-        self.is_medical_facility()
+        self.is_kind_of(crate::game_logic::KindOf::HealPad)
     }
 
     fn has_capacity_for(&self, _other: &Object) -> bool {

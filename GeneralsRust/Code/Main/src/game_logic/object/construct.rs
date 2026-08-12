@@ -5,6 +5,17 @@ impl Object {
         let max_health = template.max_health;
         let position = Vec3::ZERO; // Default position
         let template_name = template.name.clone();
+        // A normal player Enter requires a real Contain module.  Capture its
+        // authored capacity before the template moves into `Thing`; do not
+        // synthesize slots from the vehicle's footprint or selection radius.
+        // Keep the older railed field as a snapshot compatibility bridge.
+        let authored_transport_slots = if template.contain_module.kind.is_mobile_container() {
+            template.contain_module.slots
+        } else {
+            None
+        }
+        .or(template.railed_transport_slots)
+        .unwrap_or(0);
 
         // Determine object type from template
         let object_type = if template.is_kind_of(KindOf::Infantry) {
@@ -29,12 +40,31 @@ impl Object {
             _ => 10.0,
         };
 
-        let building_data = if object_type == ObjectType::Building {
+        let mut building_data = if object_type == ObjectType::Building {
             let building_type = BuildingType::from_template_name(&template_name);
             Some(BuildingData::new(building_type))
         } else {
             None
         };
+
+        // `GarrisonContain::ContainMax` is an authored containment interface,
+        // not a building-name category.  It is also used by C++ capture
+        // legality to reject non-stealthed occupants, so preserve it before
+        // the template moves into `Thing`.
+        let authored_garrison_capacity = if matches!(
+            template.contain_module.kind,
+            crate::game_logic::ContainModuleKind::Garrison
+        ) {
+            template.contain_module.slots
+        } else {
+            None
+        }
+        .or(template.garrison_contain_max);
+        if let (Some(building), Some(contain_max)) =
+            (building_data.as_mut(), authored_garrison_capacity)
+        {
+            building.max_garrison = contain_max;
+        }
 
         let special_power_cooldown = template.special_power_cooldown;
 
@@ -61,6 +91,7 @@ impl Object {
             thing: Thing::new(template),
             id,
             team,
+            owner_player_id: None,
             name: String::new(),
             status: ObjectStatus::default(),
             object_status_bits: 0,
@@ -79,6 +110,8 @@ impl Object {
             rebuild_worker_id: None,
             rebuild_reconstructing_id: None,
             producer_id: None,
+            preferred_dock_id: None,
+            supply_center_spawn_behavior_fired: false,
             highlander_body: false,
             upgrade_die: None,
             construction_complete_clear_frame: 0,
@@ -352,6 +385,8 @@ impl Object {
             scorpion_missile_fuel_expires_frame: None,
             scorpion_missile_slot: 0,
             airfield_rearm_ready_frame: None,
+            return_to_base_requested: false,
+            airfield_parking_space_index: None,
             frenzy_invisible_marker: false,
             ambush_fade_in: false,
             gps_scrambler_marker: false,
@@ -467,6 +502,7 @@ impl Object {
             secondary_weapon: None,
             tertiary_weapon: None,
             target: None,
+            capture_channel: None,
             construction_percent: 1.0, // Fully constructed by default
             building_data,
             stored_resources: Resources::default(),
@@ -499,7 +535,7 @@ impl Object {
             ground_height_from_terrain: false,
             team_color: team.get_color(),
             occupants: Vec::new(),
-            max_transport: 0,
+            max_transport: authored_transport_slots,
             overlord_bunker_capacity: None,
             passengers_allowed_to_fire: false,
             armed_riders_upgrade_weapon_set: false,
@@ -522,6 +558,13 @@ impl Object {
             is_technical_transport: false,
             is_combat_cycle_transport: false,
             combat_cycle_rider: 0,
+            rider_change_active_slot: None,
+            rider_change_model_condition_mask: 0,
+            rider_change_object_status_mask: 0,
+            rider_change_weapon_set: None,
+            rider_change_locomotor_set: None,
+            rider_change_locomotor_name: None,
+            rider_change_scuttled_on_frame: 0,
             is_tunnel_network: false,
             is_combat_chinook_transport: false,
             contained_by: None,
@@ -682,6 +725,7 @@ impl Object {
             thing: Thing::new(template),
             id,
             team,
+            owner_player_id: None,
             name: String::new(),
             status: ObjectStatus::default(),
             object_status_bits: 0,
@@ -700,6 +744,8 @@ impl Object {
             rebuild_worker_id: None,
             rebuild_reconstructing_id: None,
             producer_id: None,
+            preferred_dock_id: None,
+            supply_center_spawn_behavior_fired: false,
             highlander_body: false,
             upgrade_die: None,
             construction_complete_clear_frame: 0,
@@ -973,6 +1019,8 @@ impl Object {
             scorpion_missile_fuel_expires_frame: None,
             scorpion_missile_slot: 0,
             airfield_rearm_ready_frame: None,
+            return_to_base_requested: false,
+            airfield_parking_space_index: None,
             frenzy_invisible_marker: false,
             ambush_fade_in: false,
             gps_scrambler_marker: false,
@@ -1088,6 +1136,7 @@ impl Object {
             secondary_weapon: None,
             tertiary_weapon: None,
             target: None,
+            capture_channel: None,
             construction_percent: 1.0,
             building_data: None,
             stored_resources: Resources::default(),
@@ -1143,6 +1192,13 @@ impl Object {
             is_technical_transport: false,
             is_combat_cycle_transport: false,
             combat_cycle_rider: 0,
+            rider_change_active_slot: None,
+            rider_change_model_condition_mask: 0,
+            rider_change_object_status_mask: 0,
+            rider_change_weapon_set: None,
+            rider_change_locomotor_set: None,
+            rider_change_locomotor_name: None,
+            rider_change_scuttled_on_frame: 0,
             is_tunnel_network: false,
             is_combat_chinook_transport: false,
             contained_by: None,

@@ -146,19 +146,18 @@ pub fn simulate_w3d_main_menu_init_honesty() -> bool {
 
     #[cfg(feature = "game_client")]
     {
-        use game_client::gui::{get_shell, with_window_manager_ref};
+        use game_client::gui::{with_shell_ref, with_window_manager_ref};
         // After push, WM should hold materialised windows (layout init path ran).
         let wm_count = with_window_manager_ref(|wm| wm.window_count());
         if wm_count == 0 {
             return false;
         }
-        let mut shell = get_shell();
-        if shell.get_screen_count() == 0 {
+        let screen_count = with_shell_ref(|shell| shell.get_screen_count()).unwrap_or(0);
+        if screen_count == 0 {
             return false;
         }
-        let top = shell
-            .top()
-            .map(|l| l.get_filename().to_string())
+        let top = with_shell_ref(|shell| shell.top_filename().map(str::to_owned))
+            .flatten()
             .unwrap_or_default()
             .replace('\\', "/")
             .to_ascii_lowercase();

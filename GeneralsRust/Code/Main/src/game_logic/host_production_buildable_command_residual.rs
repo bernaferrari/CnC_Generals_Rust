@@ -262,6 +262,12 @@ pub const AMERICA_AIRFIELD_COMMAND_SET: FactoryCommandSet = FactoryCommandSet {
     ],
 };
 
+pub const AMERICA_SUPPLY_CENTER_COMMAND_SET: FactoryCommandSet = FactoryCommandSet {
+    command_set_name: "AmericaSupplyCenterCommandSet",
+    object_template: "AmericaSupplyCenter",
+    slots: &[(1, "AmericaVehicleChinook")],
+};
+
 pub const CHINA_WAR_FACTORY_COMMAND_SET: FactoryCommandSet = FactoryCommandSet {
     command_set_name: "ChinaWarFactoryCommandSet",
     object_template: "ChinaWarFactory",
@@ -282,6 +288,12 @@ pub const CHINA_AIRFIELD_COMMAND_SET: FactoryCommandSet = FactoryCommandSet {
     command_set_name: "ChinaAirfieldCommandSet",
     object_template: "ChinaAirfield",
     slots: &[(1, "ChinaJetMIG"), (3, "ChinaVehicleHelix")],
+};
+
+pub const CHINA_SUPPLY_CENTER_COMMAND_SET: FactoryCommandSet = FactoryCommandSet {
+    command_set_name: "ChinaSupplyCenterCommandSet",
+    object_template: "ChinaSupplyCenter",
+    slots: &[(1, "ChinaVehicleSupplyTruck")],
 };
 
 pub const GLA_BARRACKS_COMMAND_SET: FactoryCommandSet = FactoryCommandSet {
@@ -316,16 +328,25 @@ pub const GLA_ARMS_DEALER_COMMAND_SET: FactoryCommandSet = FactoryCommandSet {
     ],
 };
 
+pub const GLA_SUPPLY_STASH_COMMAND_SET: FactoryCommandSet = FactoryCommandSet {
+    command_set_name: "GLASupplyStashCommandSet",
+    object_template: "GLASupplyStash",
+    slots: &[(1, "GLAInfantryWorker")],
+};
+
 /// Factory CommandSets used by host `can_make_unit`.
 pub const FACTORY_COMMAND_SET_PACKS: &[FactoryCommandSet] = &[
     AMERICA_BARRACKS_COMMAND_SET,
     CHINA_BARRACKS_COMMAND_SET,
     AMERICA_WAR_FACTORY_COMMAND_SET,
     AMERICA_AIRFIELD_COMMAND_SET,
+    AMERICA_SUPPLY_CENTER_COMMAND_SET,
     CHINA_WAR_FACTORY_COMMAND_SET,
     CHINA_AIRFIELD_COMMAND_SET,
+    CHINA_SUPPLY_CENTER_COMMAND_SET,
     GLA_BARRACKS_COMMAND_SET,
     GLA_ARMS_DEALER_COMMAND_SET,
+    GLA_SUPPLY_STASH_COMMAND_SET,
 ];
 
 /// Look up the retail factory CommandSet for a producer template.

@@ -17,10 +17,10 @@ impl ScriptEvaluator {
         let player_name = player_param.get_string();
         log::debug!("Evaluating PlayerAllDestroyed for player: {}", player_name);
 
-        let Ok(list) = player_list().read() else {
-            return Ok(true);
-        };
-        let Some(player_arc) = list.find_player_by_name(player_name) else {
+        // C++ evaluateAllDestroyed resolves a Script `SIDE` through
+        // playerFromParam, so campaign tokens and cached player masks must not
+        // be mistaken for literal display names.
+        let Some(player_arc) = self.resolve_player_from_param(player_param) else {
             return Ok(true);
         };
         let Ok(player_guard) = player_arc.read() else {
@@ -47,10 +47,9 @@ impl ScriptEvaluator {
             player_name
         );
 
-        let Ok(list) = player_list().read() else {
-            return Ok(true);
-        };
-        let Some(player_arc) = list.find_player_by_name(player_name) else {
+        // Preserve C++ ScriptConditions::playerFromParam semantics for the
+        // corresponding elimination condition.
+        let Some(player_arc) = self.resolve_player_from_param(player_param) else {
             return Ok(true);
         };
         let Ok(player_guard) = player_arc.read() else {

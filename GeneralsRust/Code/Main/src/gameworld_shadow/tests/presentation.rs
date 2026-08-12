@@ -849,9 +849,9 @@ fn residual_acquire_query_source() {
         let src = crate::command_executor::COMMAND_EXECUTOR_SRC;
         assert!(
             src.contains("fn find_nearest_garrison_target")
-                && src.contains("is_friendly_airfield")
+                && src.contains("request_return_to_base")
                 && src.contains("DOZER_MINE_CLEAR_SCAN_RANGE"),
-            "command_executor missing residual nearest markers"
+            "command_executor missing residual nearest/authoritative-return markers"
         );
         let picks = src.matches("pick_nearest_residual_target").count();
         assert!(

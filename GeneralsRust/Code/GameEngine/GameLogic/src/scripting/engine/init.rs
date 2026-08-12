@@ -121,6 +121,7 @@ impl ScriptEngine {
                 shown_mp_local_defeat_window: false,
 
                 sequential_scripts: Vec::new(),
+                next_sequential_runtime_token: 1,
 
                 side_script_lists: vec![None; Self::MAX_PLAYER_COUNT],
 
@@ -1019,8 +1020,8 @@ impl ScriptEngine {
         })
     }
 
-    pub fn set_object_count(&mut self, player_index: i32, type_name: &str, count: i32) {
-        let inner = self.inner.get_mut();
+    pub fn set_object_count(&self, player_index: i32, type_name: &str, count: i32) {
+        let mut inner = self.lock_inner_mut();
         inner
             .object_counts
             .insert((player_index, type_name.to_string()), count);
@@ -1032,28 +1033,28 @@ impl ScriptEngine {
     }
 
     /// Register or replace a named ObjectTypes list.
-    pub fn set_object_types(&mut self, name: String, types: ObjectTypes) {
-        let inner = self.inner.get_mut();
+    pub fn set_object_types(&self, name: String, types: ObjectTypes) {
+        let mut inner = self.lock_inner_mut();
         inner.object_types.insert(name, types);
     }
 
-    fn ensure_attack_priority_defaults(&mut self) {
-        let inner = self.inner.get_mut();
+    /// Mutate one attack-priority set without letting a `RefCell` borrow cross
+    /// template/factory lookup or AI dispatch.  C++ keeps the set in the
+    /// ScriptEngine, but its script actions may re-enter immediately.
+    fn with_attack_info_mut<R>(
+        &self,
+        name: &str,
+        add_if_missing: bool,
+        f: impl FnOnce(&mut AttackPriorityInfo) -> R,
+    ) -> Option<R> {
+        let mut inner = self.lock_inner_mut();
         if inner.attack_priority_info.is_empty() {
             inner.attack_priority_info.push(AttackPriorityInfo::new());
         }
         if inner.num_attack_info == 0 {
             inner.num_attack_info = 1;
         }
-    }
 
-    fn find_attack_info_mut(
-        &mut self,
-        name: &str,
-        add_if_missing: bool,
-    ) -> Option<&mut AttackPriorityInfo> {
-        self.ensure_attack_priority_defaults();
-        let inner = self.inner.get_mut();
         let existing_index = (1..inner.num_attack_info).find(|&i| {
             inner
                 .attack_priority_info
@@ -1062,7 +1063,7 @@ impl ScriptEngine {
                 .unwrap_or(false)
         });
         if let Some(index) = existing_index {
-            return inner.attack_priority_info.get_mut(index);
+            return inner.attack_priority_info.get_mut(index).map(f);
         }
 
         if add_if_missing && inner.num_attack_info < MAX_ATTACK_PRIORITIES {
@@ -1075,7 +1076,7 @@ impl ScriptEngine {
                 inner.attack_priority_info[index] = info;
             }
             inner.num_attack_info += 1;
-            return inner.attack_priority_info.get_mut(index);
+            return inner.attack_priority_info.get_mut(index).map(f);
         }
 
         None
@@ -1098,8 +1099,8 @@ impl ScriptEngine {
         })
     }
 
-    pub fn set_object_attack_priority_set(&mut self, object_id: ObjectID, set_name: &str) {
-        let inner = self.inner.get_mut();
+    pub fn set_object_attack_priority_set(&self, object_id: ObjectID, set_name: &str) {
+        let mut inner = self.lock_inner_mut();
         if object_id == INVALID_ID {
             return;
         }
@@ -1114,8 +1115,8 @@ impl ScriptEngine {
             .insert(object_id, set_name.to_string());
     }
 
-    pub fn clear_object_attack_priority_set(&mut self, object_id: ObjectID) {
-        let inner = self.inner.get_mut();
+    pub fn clear_object_attack_priority_set(&self, object_id: ObjectID) {
+        let mut inner = self.lock_inner_mut();
         inner.object_attack_priority_sets.remove(&object_id);
     }
 
@@ -1134,39 +1135,45 @@ impl ScriptEngine {
     }
 
     pub fn set_priority_thing(
-        &mut self,
+        &self,
         set_name: &str,
         type_or_list: &str,
         priority: i32,
     ) -> bool {
-        let object_types = self.get_object_types(type_or_list);
-        let Some(info) = self.find_attack_info_mut(set_name, true) else {
-            return false;
-        };
-
-        if let Some(list) = object_types {
+        if let Some(list) = self.get_object_types(type_or_list) {
             for type_name in list.iter() {
-                if let Some(template) = TheThingFactory::find_template(type_name.as_str()) {
-                    info.set_priority(template.get_name().as_str(), priority);
-                } else {
+                let Some(template) = TheThingFactory::find_template(type_name.as_str()) else {
+                    return false;
+                };
+                let template_name = template.get_name().to_string();
+                if self
+                    .with_attack_info_mut(set_name, true, |info| {
+                        info.set_priority(&template_name, priority);
+                    })
+                    .is_none()
+                {
                     return false;
                 }
             }
             return true;
         }
 
-        if let Some(template) = TheThingFactory::find_template(type_or_list) {
-            info.set_priority(template.get_name().as_str(), priority);
-            return true;
-        }
-
-        false
-    }
-
-    pub fn set_priority_kind(&mut self, set_name: &str, kind: KindOf, priority: i32) -> bool {
-        let Some(info) = self.find_attack_info_mut(set_name, true) else {
+        let Some(template) = TheThingFactory::find_template(type_or_list) else {
             return false;
         };
+        let template_name = template.get_name().to_string();
+        self.with_attack_info_mut(set_name, true, |info| {
+            info.set_priority(&template_name, priority);
+        })
+        .is_some()
+    }
+
+    pub fn set_priority_kind(&self, set_name: &str, kind: KindOf, priority: i32) -> bool {
+        // C++ allocates the set before iterating all templates, including when
+        // no template ultimately matches the requested KindOf mask.
+        if self.with_attack_info_mut(set_name, true, |_| ()).is_none() {
+            return false;
+        }
 
         let Ok(factory_guard) = get_thing_factory() else {
             return false;
@@ -1175,23 +1182,35 @@ impl ScriptEngine {
             return false;
         };
 
+        let mut matching_template_names = Vec::new();
         let mut current = factory.first_template().cloned();
         while let Some(template) = current {
             if Self::template_matches_kind(&template, kind) {
-                info.set_priority(template.get_name().as_str(), priority);
+                matching_template_names.push(template.get_name().to_string());
             }
             current = template.get_next_template().as_ref().cloned();
+        }
+
+        drop(factory_guard);
+        for template_name in matching_template_names {
+            if self
+                .with_attack_info_mut(set_name, true, |info| {
+                    info.set_priority(&template_name, priority);
+                })
+                .is_none()
+            {
+                return false;
+            }
         }
 
         true
     }
 
-    pub fn set_priority_default(&mut self, set_name: &str, priority: i32) -> bool {
-        let Some(info) = self.find_attack_info_mut(set_name, true) else {
-            return false;
-        };
-        info.default_priority = priority;
-        true
+    pub fn set_priority_default(&self, set_name: &str, priority: i32) -> bool {
+        self.with_attack_info_mut(set_name, true, |info| {
+            info.default_priority = priority;
+        })
+        .is_some()
     }
 
     /// Initialize action and condition templates
@@ -1365,6 +1384,7 @@ impl ScriptEngine {
             inner.shown_mp_local_defeat_window = false;
 
             inner.sequential_scripts.clear();
+            inner.next_sequential_runtime_token = 1;
         }
         self.clear_script_lists();
         let inner = self.inner.get_mut();

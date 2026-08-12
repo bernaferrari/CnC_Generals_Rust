@@ -4,15 +4,61 @@
 use super::super::*;
 
 impl GameLogic {
-    pub(in super::super) fn update_player_resources(&mut self, dt: f32) {
-        // Calculate power and resource generation for each player
-        for (_, player) in self.players.iter_mut() {
-            let (power_produced, power_consumed) =
-                super::super::buildings::BuildingBehavior::calculate_power_for_team(
-                    player.team,
-                    &self.objects,
-                );
+    /// Resolve the player controlling an object without collapsing two active
+    /// players that happen to use the same faction.  A legacy team-only object
+    /// may retain the old behavior only when that faction has one unambiguous
+    /// active player; an explicit but stale owner fails closed instead.
+    pub(in super::super) fn player_owner_for_host_object(&self, object: &Object) -> Option<u32> {
+        match object.owner_player_id {
+            Some(player_id) => self
+                .players
+                .get(&player_id)
+                .filter(|player| player.is_alive && player.team == object.team)
+                .map(|player| player.id),
+            None => self.unique_player_id_for_team(object.team),
+        }
+    }
 
+    /// Resolve owner provenance transported by a deferred event.  Unlike the
+    /// old `player_id_for_team` lookup this never chooses the first matching
+    /// faction slot.
+    pub(in super::super) fn player_owner_for_event(
+        &self,
+        owner_player_id: Option<u32>,
+        team: Team,
+    ) -> Option<u32> {
+        match owner_player_id {
+            Some(player_id) => self
+                .players
+                .get(&player_id)
+                .filter(|player| player.is_alive && player.team == team)
+                .map(|player| player.id),
+            None => self.unique_player_id_for_team(team),
+        }
+    }
+
+    pub(in super::super) fn update_player_resources(&mut self, dt: f32) {
+        // Calculate power and resource generation for each player.  `Team` is
+        // only a faction identity: two USA players must not share a power grid
+        // or supply-center income.
+        let player_ids: Vec<u32> = self.players.keys().copied().collect();
+        for player_id in player_ids {
+            let (power_produced, power_consumed, supply_centers) = self
+                .objects
+                .values()
+                .filter(|object| self.player_owner_for_host_object(object) == Some(player_id))
+                .filter(|object| object.is_constructed() && object.is_alive())
+                .fold((0_i32, 0_i32, 0_u32), |(produced, consumed, centers), object| {
+                    (
+                        produced.saturating_add(object.power_provided),
+                        consumed.saturating_add(object.power_consumed.abs()),
+                        centers.saturating_add(u32::from(object.is_kind_of(KindOf::SupplyCenter))),
+                    )
+                });
+
+            let Some(player) = self.players.get_mut(&player_id) else {
+                continue;
+            };
             let mut income_per_second = 0.0f32;
 
             // Base passive income -- every player earns a small trickle so they are
@@ -21,17 +67,9 @@ impl GameLogic {
             // provide a simplified equivalent so the economy always moves forward.
             income_per_second += 5.0; // $5/sec base passive income
 
-            // Calculate from buildings
-            for (_, obj) in self.objects.iter() {
-                if obj.team == player.team && obj.is_constructed() && obj.is_alive() {
-                    // Supply centers generate resources
-                    if obj.is_kind_of(KindOf::SupplyCenter) {
-                        // $25/sec per supply center approximates a single supply
-                        // truck's delivery rate (full Chinook ~= $600 / 25s).
-                        income_per_second += 25.0;
-                    }
-                }
-            }
+            // $25/sec per owned supply center approximates a single supply
+            // truck's delivery rate (full Chinook ~= $600 / 25s).
+            income_per_second += supply_centers as f32 * 25.0;
 
             player.power_available = power_produced - power_consumed;
             player.power_produced = power_produced;
@@ -108,6 +146,7 @@ impl GameLogic {
             return;
         }
         let frame = self.frame;
+        let owner_player_id = self.player_owner_for_event(ev.owner_player_id, ev.team);
         let (deposited, audio) = match ev.kind {
             AutoDepositKind::BlackMarket => {
                 // GW already advanced next_deposit_frame; keep registry schedule in lockstep.
@@ -117,9 +156,11 @@ impl GameLogic {
                 (d, BLACK_MARKET_DEPOSIT_AUDIO)
             }
             AutoDepositKind::OilDerrick => {
-                let has_supply_lines = self.players.values().any(|p| {
-                    p.team == ev.team && p.has_unlocked_upgrade(UPGRADE_AMERICA_SUPPLY_LINES)
-                });
+                let has_supply_lines = owner_player_id
+                    .and_then(|player_id| self.players.get(&player_id))
+                    .is_some_and(|player| {
+                        player.has_unlocked_upgrade(UPGRADE_AMERICA_SUPPLY_LINES)
+                    });
                 let (amount, boost) = oil_derrick_deposit_amount(has_supply_lines);
                 self.oil_derricks
                     .set_next_deposit(ev.id, ev.next_deposit_frame);
@@ -136,20 +177,17 @@ impl GameLogic {
         if deposited == 0 {
             return;
         }
-        if let Some(pid) = self.player_id_for_team(ev.team) {
+        if let Some(pid) = owner_player_id {
             if let Some(player) = self.get_player_mut(pid) {
                 player.credit_supplies(deposited);
             }
         }
-        let player_color = self
-            .players
-            .values()
-            .find(|p| p.team == ev.team)
-            .map(|p| p.color_rgb)
+        let player_color = owner_player_id
+            .and_then(|player_id| self.players.get(&player_id))
+            .map(|player| player.color_rgb)
             .unwrap_or((200, 200, 200));
-        let is_local = self
-            .player_id_for_team(ev.team)
-            .map(|pid| self.is_local_player(pid))
+        let is_local = owner_player_id
+            .map(|player_id| self.is_local_player(player_id))
             .unwrap_or(false);
         let show = should_display_stealthed_floating_cash(ev.stealthed, ev.detected, is_local);
         let mut float_pos = ev.pos;
@@ -202,7 +240,7 @@ impl GameLogic {
         use crate::game_logic::host_oil_derrick::HostAutoDepositFloatingText;
 
         let frame = self.frame;
-        let markets: Vec<(ObjectId, Team, Vec3, bool, bool)> = self
+        let markets: Vec<(ObjectId, Team, Option<u32>, Vec3, bool, bool)> = self
             .objects
             .iter()
             .filter_map(|(id, obj)| {
@@ -227,6 +265,7 @@ impl GameLogic {
                 Some((
                     *id,
                     obj.team,
+                    obj.owner_player_id,
                     obj.get_position(),
                     obj.status.stealthed,
                     obj.status.detected,
@@ -236,7 +275,7 @@ impl GameLogic {
 
         // Forget destroyed markets so re-builds reschedule cleanly.
         let live: std::collections::HashSet<ObjectId> =
-            markets.iter().map(|(id, _, _, _, _)| *id).collect();
+            markets.iter().map(|(id, _, _, _, _, _)| *id).collect();
         let stale: Vec<ObjectId> = self
             .black_markets
             .next_deposit_keys()
@@ -247,25 +286,25 @@ impl GameLogic {
             self.black_markets.forget(id);
         }
 
-        for (market_id, team, pos, stealthed, detected) in markets {
+        for (market_id, team, object_owner, pos, stealthed, detected) in markets {
             let deposited =
                 self.black_markets
                     .try_deposit(market_id, frame, BLACK_MARKET_DEPOSIT_AMOUNT);
             if deposited == 0 {
                 continue;
             }
-            let player_color = self
-                .players
-                .values()
-                .find(|p| p.team == team)
-                .map(|p| p.color_rgb)
+            let owner_player_id = self.player_owner_for_event(object_owner, team);
+            let player_color = owner_player_id
+                .and_then(|player_id| self.players.get(&player_id))
+                .map(|player| player.color_rgb)
                 .unwrap_or((200, 200, 200));
-            let is_local = self
-                .player_id_for_team(team)
-                .map(|pid| self.is_local_player(pid))
+            let is_local = owner_player_id
+                .map(|player_id| self.is_local_player(player_id))
                 .unwrap_or(false);
-            if let Some(player) = self.get_player_mut_by_team(team) {
-                player.credit_supplies(deposited);
+            if let Some(player_id) = owner_player_id {
+                if let Some(player) = self.get_player_mut(player_id) {
+                    player.credit_supplies(deposited);
+                }
             }
             // AutoDeposit floating text residual + STEALTHED local display gate.
             // Structure geometry scatter residual (±0.3 major/minor radius).
@@ -325,7 +364,7 @@ impl GameLogic {
 
         let frame = self.frame;
         // Collect all oil derricks (including neutral — need for stale cleanup / capture detect).
-        let derricks: Vec<(ObjectId, Team, Vec3, bool, bool, bool, bool)> = self
+        let derricks: Vec<(ObjectId, Team, Option<u32>, Vec3, bool, bool, bool, bool)> = self
             .objects
             .iter()
             .filter_map(|(id, obj)| {
@@ -337,6 +376,7 @@ impl GameLogic {
                 Some((
                     *id,
                     obj.team,
+                    obj.owner_player_id,
                     obj.get_position(),
                     alive,
                     constructed,
@@ -347,7 +387,10 @@ impl GameLogic {
             .collect();
 
         let live: std::collections::HashSet<ObjectId> =
-            derricks.iter().map(|(id, _, _, _, _, _, _)| *id).collect();
+            derricks
+                .iter()
+                .map(|(id, _, _, _, _, _, _, _)| *id)
+                .collect();
         let stale: Vec<ObjectId> = self
             .oil_derricks
             .next_deposit_keys()
@@ -358,26 +401,23 @@ impl GameLogic {
             self.oil_derricks.forget(id);
         }
 
-        for (derrick_id, team, pos, alive, constructed, stealthed, detected) in derricks {
+        for (derrick_id, team, object_owner, pos, alive, constructed, stealthed, detected) in derricks {
             let is_neutral = team == Team::Neutral;
             if !is_legal_oil_derrick_income_source(alive, constructed, is_neutral) {
                 continue;
             }
 
-            let player_color = self
-                .players
-                .values()
-                .find(|p| p.team == team)
-                .map(|p| p.color_rgb)
+            let owner_player_id = self.player_owner_for_event(object_owner, team);
+            let player_color = owner_player_id
+                .and_then(|player_id| self.players.get(&player_id))
+                .map(|player| player.color_rgb)
                 .unwrap_or((200, 200, 200));
-            let is_local = self
-                .player_id_for_team(team)
-                .map(|pid| self.is_local_player(pid))
+            let is_local = owner_player_id
+                .map(|player_id| self.is_local_player(player_id))
                 .unwrap_or(false);
-            let has_supply_lines = self
-                .players
-                .values()
-                .any(|p| p.team == team && p.has_unlocked_upgrade(UPGRADE_AMERICA_SUPPLY_LINES));
+            let has_supply_lines = owner_player_id
+                .and_then(|player_id| self.players.get(&player_id))
+                .is_some_and(|player| player.has_unlocked_upgrade(UPGRADE_AMERICA_SUPPLY_LINES));
             use crate::game_logic::host_oil_derrick::should_display_stealthed_floating_cash;
             let show_float = should_display_stealthed_floating_cash(stealthed, detected, is_local);
 
@@ -388,8 +428,10 @@ impl GameLogic {
             if bonus > 0 {
                 self.oil_derricks
                     .reschedule_after_capture(derrick_id, frame);
-                if let Some(player) = self.get_player_mut_by_team(team) {
-                    player.credit_supplies(bonus);
+                if let Some(player_id) = owner_player_id {
+                    if let Some(player) = self.get_player_mut(player_id) {
+                        player.credit_supplies(bonus);
+                    }
                 }
                 // Capture bonus floating text is not STEALTH-gated in C++ (award path).
                 // Structure geometry scatter residual still applies (KINDOF_STRUCTURE).
@@ -436,8 +478,10 @@ impl GameLogic {
                 self.supply_lines_bonus_cash_total =
                     self.supply_lines_bonus_cash_total.saturating_add(boost);
             }
-            if let Some(player) = self.get_player_mut_by_team(team) {
-                player.credit_supplies(deposited);
+            if let Some(player_id) = owner_player_id {
+                if let Some(player) = self.get_player_mut(player_id) {
+                    player.credit_supplies(deposited);
+                }
             }
             if show_float {
                 use crate::game_logic::host_oil_derrick::{
@@ -505,15 +549,15 @@ impl GameLogic {
         if deposited == 0 {
             return;
         }
-        if let Some(pid) = self.player_id_for_team(ev.team) {
+        let owner_player_id = self.player_owner_for_event(ev.owner_player_id, ev.team);
+        if let Some(pid) = owner_player_id {
             if let Some(player) = self.get_player_mut(pid) {
                 player.credit_supplies(deposited);
                 // residual XP
                 let _ = HACKER_XP_PER_CASH_UPDATE;
             }
         }
-        let is_local = self
-            .player_id_for_team(ev.team)
+        let is_local = owner_player_id
             .map(|pid| self.is_local_player(pid))
             .unwrap_or(false);
         let show = should_display_hacker_floating_cash(
@@ -589,6 +633,7 @@ impl GameLogic {
         struct HackerSnap {
             id: ObjectId,
             team: Team,
+            owner_player_id: Option<u32>,
             pos: Vec3,
             level: crate::game_logic::VeterancyLevel,
             in_ic: bool,
@@ -601,6 +646,7 @@ impl GameLogic {
             container_stealthed: bool,
             container_detected: bool,
             container_team: Team,
+            container_owner_player_id: Option<u32>,
             container_radius: f32,
         }
         let hackers: Vec<HackerSnap> = self
@@ -614,20 +660,22 @@ impl GameLogic {
                 let in_ic = container
                     .map(|cid| internet_centers.contains(&cid))
                     .unwrap_or(false);
-                let (c_stealthed, c_detected, c_team, c_radius) = container
+                let (c_stealthed, c_detected, c_team, c_owner_player_id, c_radius) = container
                     .and_then(|cid| self.objects.get(&cid))
                     .map(|c| {
                         (
                             c.status.stealthed,
                             c.status.detected,
                             c.team,
+                            c.owner_player_id,
                             c.thing.geometry.radius,
                         )
                     })
-                    .unwrap_or((false, false, Team::Neutral, 0.0));
+                    .unwrap_or((false, false, Team::Neutral, None, 0.0));
                 Some(HackerSnap {
                     id: *id,
                     team: obj.team,
+                    owner_player_id: obj.owner_player_id,
                     pos: obj.get_position(),
                     level: obj.experience.level,
                     in_ic,
@@ -640,6 +688,7 @@ impl GameLogic {
                     container_stealthed: c_stealthed,
                     container_detected: c_detected,
                     container_team: c_team,
+                    container_owner_player_id: c_owner_player_id,
                     container_radius: c_radius,
                 })
             })
@@ -684,20 +733,22 @@ impl GameLogic {
             if deposited == 0 {
                 continue;
             }
-            if let Some(player) = self.get_player_mut_by_team(h.team) {
-                player.credit_supplies(deposited);
+            let owner_player_id = self.player_owner_for_event(h.owner_player_id, h.team);
+            if let Some(player_id) = owner_player_id {
+                if let Some(player) = self.get_player_mut(player_id) {
+                    player.credit_supplies(deposited);
+                }
             }
             // Residual XpPerCashUpdate.
             if let Some(obj) = self.objects.get_mut(&h.id) {
                 obj.gain_experience(HACKER_XP_PER_CASH_UPDATE);
             }
             // STEALTHED local display gate residual (owner + containedBy).
-            let owner_local = self
-                .player_id_for_team(h.team)
+            let owner_local = owner_player_id
                 .map(|pid| self.is_local_player(pid))
                 .unwrap_or(false);
             let container_local = self
-                .player_id_for_team(h.container_team)
+                .player_owner_for_event(h.container_owner_player_id, h.container_team)
                 .map(|pid| self.is_local_player(pid))
                 .unwrap_or(false);
             use crate::game_logic::host_hacker_income::{
@@ -790,7 +841,7 @@ impl GameLogic {
         };
 
         let frame = self.frame;
-        let zones: Vec<(ObjectId, Team, Vec3)> = self
+        let zones: Vec<(ObjectId, Team, Option<u32>, Vec3)> = self
             .objects
             .iter()
             .filter_map(|(id, obj)| {
@@ -805,13 +856,13 @@ impl GameLogic {
                 ) {
                     return None;
                 }
-                Some((*id, obj.team, obj.get_position()))
+                Some((*id, obj.team, obj.owner_player_id, obj.get_position()))
             })
             .collect();
 
         // Forget destroyed zones so re-builds reschedule cleanly.
         let live: std::collections::HashSet<ObjectId> =
-            zones.iter().map(|(id, _, _)| *id).collect();
+            zones.iter().map(|(id, _, _, _)| *id).collect();
         let stale: Vec<ObjectId> = self
             .supply_drop_zones
             .next_drop_keys()
@@ -823,7 +874,7 @@ impl GameLogic {
             self.host_deliver_payloads.cancel_for_source(id);
         }
 
-        for (zone_id, team, pos) in zones {
+        for (zone_id, team, object_owner, pos) in zones {
             if !self.supply_drop_zones.try_start_flight(zone_id, frame) {
                 continue;
             }
@@ -836,10 +887,11 @@ impl GameLogic {
                 SUPPLY_DROP_PAYLOAD_RESIDUAL_TEMPLATE.to_string()
             };
 
-            let mission_id = self.host_deliver_payloads.queue(
+            let mission_id = self.host_deliver_payloads.queue_for_owner(
                 HostDeliverPayloadKind::SupplyDropZoneCrate,
                 zone_id,
                 team,
+                self.player_owner_for_event(object_owner, team),
                 pos,
                 frame,
                 payload_template,

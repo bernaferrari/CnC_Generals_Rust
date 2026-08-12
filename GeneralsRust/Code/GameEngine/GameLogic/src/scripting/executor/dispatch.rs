@@ -8,13 +8,8 @@ use super::*;
 impl ScriptActionDispatcher {
     pub(crate) fn resolve_player_name_token(&self, raw: &str) -> String {
         match raw {
-            THE_PLAYER | THIS_PLAYER => get_script_engine()
-                .read()
-                .ok()
-                .and_then(|g| {
-                    g.as_ref()
-                        .and_then(|e| e.get_current_player_name().map(|s| s.to_string()))
-                })
+            THE_PLAYER | THIS_PLAYER => with_script_engine_ref(|engine| engine.get_current_player_name())
+                .flatten()
                 .unwrap_or_else(|| raw.to_string()),
             LOCAL_PLAYER => player_list()
                 .read()
@@ -32,22 +27,16 @@ impl ScriptActionDispatcher {
 
     pub(crate) fn resolve_team_name_token(&self, raw: &str) -> String {
         match raw {
-            THIS_TEAM => get_script_engine()
-                .read()
-                .ok()
-                .and_then(|g| {
-                    g.as_ref().and_then(|e| {
-                        e.get_condition_team_name()
-                            .or_else(|| e.get_calling_team_name())
-                            .map(|s| s.to_string())
-                    })
-                })
+            THIS_TEAM => with_script_engine_ref(|engine| {
+                engine
+                    .get_condition_team_name()
+                    .or_else(|| engine.get_calling_team_name())
+            })
+            .flatten()
                 .unwrap_or_else(|| raw.to_string()),
             TEAM_THE_PLAYER => {
-                let current_player = get_script_engine().read().ok().and_then(|g| {
-                    g.as_ref()
-                        .and_then(|e| e.get_current_player_name().map(|s| s.to_string()))
-                });
+                let current_player =
+                    with_script_engine_ref(|engine| engine.get_current_player_name()).flatten();
                 let Some(player_name) = current_player else {
                     return raw.to_string();
                 };
@@ -849,10 +838,8 @@ impl ScriptActionDispatcher {
     where
         F: FnOnce(&mut crate::ai::integration::IntegratedAiPlayer),
     {
-        let current_player = get_script_engine().read().ok().and_then(|g| {
-            g.as_ref()
-                .and_then(|e| e.get_current_player_name().map(|s| s.to_string()))
-        });
+        let current_player =
+            with_script_engine_ref(|engine| engine.get_current_player_name()).flatten();
         let Some(player_name) = current_player else {
             log::warn!("Skirmish action: current player not available");
             return;
@@ -905,10 +892,8 @@ impl ScriptActionDispatcher {
     }
 
     pub(crate) fn get_skirmish_enemy_player(&self) -> Option<Arc<RwLock<crate::player::Player>>> {
-        let current_player_name = get_script_engine().read().ok().and_then(|g| {
-            g.as_ref()
-                .and_then(|e| e.get_current_player_name().map(|s| s.to_string()))
-        })?;
+        let current_player_name =
+            with_script_engine_ref(|engine| engine.get_current_player_name()).flatten()?;
 
         let list = player_list().read().ok()?;
         let current_player = list.find_player_by_name(&current_player_name)?;
@@ -1124,12 +1109,10 @@ impl ScriptActionDispatcher {
             return types;
         }
 
-        if let Ok(engine_guard) = get_script_engine().read() {
-            if let Some(engine) = engine_guard.as_ref() {
-                if let Some(found) = engine.get_object_types(type_or_list_name) {
-                    return found;
-                }
-            }
+        if let Some(Some(found)) =
+            with_script_engine_ref(|engine| engine.get_object_types(type_or_list_name))
+        {
+            return found;
         }
 
         types.add_object_type(AsciiString::from(type_or_list_name));

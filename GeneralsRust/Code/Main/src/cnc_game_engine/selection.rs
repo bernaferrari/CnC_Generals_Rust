@@ -1302,9 +1302,7 @@ impl CnCGameEngine {
         let Some(center) = frame.centroid_of_ids(&selected) else {
             return;
         };
-        let clamped = self.clamp_to_world_bounds(center);
-        self.camera_target.x = clamped.x;
-        self.camera_target.z = clamped.z;
+        self.host_center_camera_on(center);
         let msg = "Centered on selection";
         self.game_hud.push_info_message(msg);
         self.ui_manager.game_hud_mut().push_info_message(msg);

@@ -2191,10 +2191,7 @@ fn no_input_combo_child_retargets_mouse_hit_to_combo_parent_like_cpp() {
 fn create_slider_thumb_child_is_enabled_dragable_not_no_input() {
     let mut manager = WindowManager::new();
     let slider = manager.create_window(None, 0, 0, 120, 20).unwrap();
-    slider
-        .borrow_mut()
-        .instance_data_mut()
-        .style |= GWS_HORZ_SLIDER;
+    slider.borrow_mut().instance_data_mut().style |= GWS_HORZ_SLIDER;
     slider
         .borrow_mut()
         .set_status_exact(WindowStatus::ENABLED | WindowStatus::ACTIVE);

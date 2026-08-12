@@ -346,19 +346,20 @@ impl ScriptActionDispatcher {
             return Ok(ScriptActionResult::Success);
         }
 
-        if let Ok(mut engine_lock) = get_script_engine().write() {
-            if let Some(engine) = engine_lock.as_mut() {
-                let resolved_name = engine
-                    .get_attack_info(&priority_set)
-                    .map(|info| info.get_name().to_string())
-                    .unwrap_or_default();
-                if resolved_name.is_empty() {
-                    engine.clear_object_attack_priority_set(object_id);
-                } else {
-                    engine.set_object_attack_priority_set(object_id, resolved_name.as_str());
-                }
+        let resolved_name = with_script_engine_ref(|engine| {
+            engine
+                .get_attack_info(&priority_set)
+                .map(|info| info.get_name().to_string())
+                .unwrap_or_default()
+        })
+        .unwrap_or_default();
+        let _ = with_script_engine_mut(|engine| {
+            if resolved_name.is_empty() {
+                engine.clear_object_attack_priority_set(object_id);
+            } else {
+                engine.set_object_attack_priority_set(object_id, resolved_name.as_str());
             }
-        }
+        });
         Ok(ScriptActionResult::Success)
     }
 
@@ -745,18 +746,16 @@ impl ScriptActionDispatcher {
 
         let tracker = get_named_object_tracker();
         if let Ok(Some(object_id)) = tracker.get_object_id(&unit_name) {
-            if let Ok(engine_guard) = get_script_engine().read() {
-                if let Some(ref script_engine) = *engine_guard {
-                    if let Some(handler) = script_engine.action_handler() {
-                        if let Err(err) =
-                            handler.hide_object_superweapon_display_by_script(object_id)
-                        {
-                            log::warn!(
-                                "Script action handler hide_object_superweapon_display_by_script failed: {}",
-                                err
-                            );
-                        }
-                    }
+            // Copy the host callback out of the active engine before calling
+            // it.  The callback may immediately re-enter script execution.
+            let handler =
+                with_script_engine_ref(|script_engine| script_engine.action_handler()).flatten();
+            if let Some(handler) = handler {
+                if let Err(err) = handler.hide_object_superweapon_display_by_script(object_id) {
+                    log::warn!(
+                        "Script action handler hide_object_superweapon_display_by_script failed: {}",
+                        err
+                    );
                 }
             }
         }
@@ -773,18 +772,16 @@ impl ScriptActionDispatcher {
 
         let tracker = get_named_object_tracker();
         if let Ok(Some(object_id)) = tracker.get_object_id(&unit_name) {
-            if let Ok(engine_guard) = get_script_engine().read() {
-                if let Some(ref script_engine) = *engine_guard {
-                    if let Some(handler) = script_engine.action_handler() {
-                        if let Err(err) =
-                            handler.show_object_superweapon_display_by_script(object_id)
-                        {
-                            log::warn!(
-                                "Script action handler show_object_superweapon_display_by_script failed: {}",
-                                err
-                            );
-                        }
-                    }
+            // Copy the host callback out of the active engine before calling
+            // it.  The callback may immediately re-enter script execution.
+            let handler =
+                with_script_engine_ref(|script_engine| script_engine.action_handler()).flatten();
+            if let Some(handler) = handler {
+                if let Err(err) = handler.show_object_superweapon_display_by_script(object_id) {
+                    log::warn!(
+                        "Script action handler show_object_superweapon_display_by_script failed: {}",
+                        err
+                    );
                 }
             }
         }
@@ -1353,11 +1350,9 @@ impl ScriptActionDispatcher {
         let unit_name = self.get_string_param(action, 0)?;
         let dir = self.get_coord_param(action, 1)?;
         let direction = crate::common::Coord3D::new(dir.x, dir.y, dir.z);
-        if let Ok(mut engine_guard) = get_script_engine().write() {
-            if let Some(engine) = engine_guard.as_mut() {
-                engine.set_topple_direction(&unit_name, Some(direction));
-            }
-        }
+        let _ = with_script_engine_mut(|engine| {
+            engine.set_topple_direction(&unit_name, Some(direction));
+        });
         log::debug!("Setting topple direction for '{}'", unit_name);
         Ok(ScriptActionResult::Success)
     }
@@ -1704,22 +1699,17 @@ impl ScriptActionDispatcher {
             return Ok(ScriptActionResult::Success);
         };
 
-        let script_engine_lock = get_script_engine();
-        let Ok(mut engine_guard) = script_engine_lock.write() else {
-            return Ok(ScriptActionResult::Success);
-        };
-        let Some(engine) = engine_guard.as_mut() else {
-            return Ok(ScriptActionResult::Success);
-        };
-        let Some(script) = engine.find_script_clone_by_name(&script_name) else {
-            return Ok(ScriptActionResult::Success);
-        };
+        let _ = with_script_engine_mut(|engine| {
+            let Some(script) = engine.find_script_clone_by_name(&script_name) else {
+                return;
+            };
 
-        let mut seq_script = crate::scripting::engine::SequentialScript::new();
-        seq_script.object_id = object_id;
-        seq_script.script_to_execute_sequentially = Some(Box::new(script));
-        seq_script.times_to_loop = 0;
-        engine.append_sequential_script(seq_script);
+            let mut seq_script = crate::scripting::engine::SequentialScript::new();
+            seq_script.object_id = object_id;
+            seq_script.script_to_execute_sequentially = Some(Box::new(script));
+            seq_script.times_to_loop = 0;
+            engine.append_sequential_script(seq_script);
+        });
 
         Ok(ScriptActionResult::Success)
     }
@@ -1743,22 +1733,17 @@ impl ScriptActionDispatcher {
             return Ok(ScriptActionResult::Success);
         };
 
-        let script_engine_lock = get_script_engine();
-        let Ok(mut engine_guard) = script_engine_lock.write() else {
-            return Ok(ScriptActionResult::Success);
-        };
-        let Some(engine) = engine_guard.as_mut() else {
-            return Ok(ScriptActionResult::Success);
-        };
-        let Some(script) = engine.find_script_clone_by_name(&script_name) else {
-            return Ok(ScriptActionResult::Success);
-        };
+        let _ = with_script_engine_mut(|engine| {
+            let Some(script) = engine.find_script_clone_by_name(&script_name) else {
+                return;
+            };
 
-        let mut seq_script = crate::scripting::engine::SequentialScript::new();
-        seq_script.object_id = object_id;
-        seq_script.script_to_execute_sequentially = Some(Box::new(script));
-        seq_script.times_to_loop = loop_val;
-        engine.append_sequential_script(seq_script);
+            let mut seq_script = crate::scripting::engine::SequentialScript::new();
+            seq_script.object_id = object_id;
+            seq_script.script_to_execute_sequentially = Some(Box::new(script));
+            seq_script.times_to_loop = loop_val;
+            engine.append_sequential_script(seq_script);
+        });
 
         Ok(ScriptActionResult::Success)
     }
@@ -1775,12 +1760,9 @@ impl ScriptActionDispatcher {
             return Ok(ScriptActionResult::Success);
         };
 
-        let script_engine_lock = get_script_engine();
-        if let Ok(mut engine_guard) = script_engine_lock.write() {
-            if let Some(engine) = engine_guard.as_mut() {
-                engine.remove_all_sequential_scripts_for_object(object_id);
-            }
-        }
+        let _ = with_script_engine_mut(|engine| {
+            engine.remove_all_sequential_scripts_for_object(object_id);
+        });
 
         Ok(ScriptActionResult::Success)
     }

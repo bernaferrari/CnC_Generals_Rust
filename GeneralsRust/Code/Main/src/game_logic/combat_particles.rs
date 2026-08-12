@@ -11,7 +11,7 @@
 use super::{ObjectId, Team};
 use glam::Vec3;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// Kind of combat feedback particle system (host registry).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -80,6 +80,12 @@ pub struct CombatParticleSystemEntry {
 pub struct CombatParticleRegistry {
     next_id: u32,
     systems: HashMap<u32, CombatParticleSystemEntry>,
+    /// Client particle-system ids created by this registry in the current run.
+    ///
+    /// This is deliberately not part of a snapshot. A saved client id is only a
+    /// historical handle and must never be destroyed by a newly restored host
+    /// registry; live projectile exhausts rebind on their next update.
+    client_system_ids: HashSet<u32>,
     /// Destruction notifications for PresentationFrame events this frame.
     destroyed_this_frame: Vec<(ObjectId, Team)>,
     /// Particle ids spawned this frame (presentation event drain).
@@ -91,12 +97,16 @@ impl CombatParticleRegistry {
         Self {
             next_id: 1,
             systems: HashMap::new(),
+            client_system_ids: HashSet::new(),
             destroyed_this_frame: Vec::new(),
             spawned_this_frame: Vec::new(),
         }
     }
 
     pub fn clear(&mut self) {
+        for client_system_id in self.client_system_ids.drain() {
+            mirror_destroy_client_system(client_system_id);
+        }
         self.systems.clear();
         self.destroyed_this_frame.clear();
         self.spawned_this_frame.clear();
@@ -111,8 +121,8 @@ impl CombatParticleRegistry {
     /// Replace registry contents from a save/load snapshot.
     ///
     /// Frame-local drains (`destroyed_this_frame` / `spawned_this_frame`) are
-    /// cleared. Client mirror ids are preserved as stored (may be stale after
-    /// load — presentation rebinds residual, not full GPU particle parity).
+    /// cleared. Client mirror ids are preserved as stored (they are not treated
+    /// as owned after load, so a live projectile exhaust safely rebinds).
     pub fn restore_from_snapshot(
         &mut self,
         next_id: u32,
@@ -186,11 +196,35 @@ impl CombatParticleRegistry {
         source: Option<ObjectId>,
         target: Option<ObjectId>,
     ) -> u32 {
+        self.spawn_with_template(
+            kind,
+            kind.template_name().to_string(),
+            position,
+            frame,
+            source,
+            target,
+        )
+    }
+
+    /// Spawn with an exact particle-system template rather than the generic
+    /// kind preset. `ProjectileExhaust` needs this because Weapon.ini names a
+    /// ParticleSystem template directly; it is not an FXList entry.
+    fn spawn_with_template(
+        &mut self,
+        kind: CombatParticleKind,
+        template_name: String,
+        position: Vec3,
+        frame: u32,
+        source: Option<ObjectId>,
+        target: Option<ObjectId>,
+    ) -> u32 {
         let id = self.next_id;
         self.next_id = self.next_id.saturating_add(1).max(1);
 
-        let template_name = kind.template_name().to_string();
         let client_system_id = mirror_spawn_to_client_manager(&template_name, position);
+        if let Some(client_system_id) = client_system_id {
+            self.client_system_ids.insert(client_system_id);
+        }
 
         let entry = CombatParticleSystemEntry {
             id,
@@ -455,8 +489,11 @@ impl CombatParticleRegistry {
 
     /// C++ ProjectileExhaust residual: in-flight trail particle at projectile pos.
     ///
-    /// Stamps retail exhaust template name when non-empty. Fail-closed vs full
-    /// client ParticleSystem attach-to-drawable matrix.
+    /// C++ `WeaponTemplate::fireProjectile` passes one template to the
+    /// projectile, and `MissileAIUpdate::doIgnitionState` creates one attached
+    /// particle system. Keep the same one-system-per-projectile lifetime here;
+    /// the host projectile has no client drawable to attach to, so its world
+    /// position is synchronized instead.
     pub fn spawn_projectile_exhaust(
         &mut self,
         position: Vec3,
@@ -465,27 +502,225 @@ impl CombatParticleRegistry {
         projectile_id: Option<ObjectId>,
         exhaust_name: &str,
     ) -> Option<u32> {
-        if exhaust_name.is_empty() {
-            return None;
+        let exhaust_name = usable_particle_template_name(exhaust_name)?;
+        if let Some(projectile_id) = projectile_id {
+            return Some(self.upsert_projectile_exhaust(
+                position,
+                frame,
+                shooter,
+                projectile_id,
+                exhaust_name,
+            ));
         }
-        let id = self.spawn(
+
+        let id = self.spawn_with_template(
             CombatParticleKind::ProjectileExhaust,
+            exhaust_name.to_string(),
             position,
             frame,
             Some(shooter),
-            projectile_id,
+            None,
         );
-        if let Some(e) = self.systems.get_mut(&id) {
-            e.template_name = exhaust_name.to_string();
-            e.fx_list_name = exhaust_name.to_string();
-        }
         Some(id)
     }
 
-    pub fn deactivate(&mut self, id: u32) {
-        if let Some(entry) = self.systems.get_mut(&id) {
-            entry.active = false;
+    /// Synchronize named projectile exhausts to the current projectile set.
+    ///
+    /// The C++ missile owns a single attached particle system from ignition to
+    /// detonation. The old host residual spawned a new system each logic frame,
+    /// leaving every old trail alive. This updates the one live entry and tears
+    /// it down as soon as its projectile is absent from the combat snapshot.
+    pub fn sync_projectile_exhausts(
+        &mut self,
+        frame: u32,
+        projectiles: &[(ObjectId, ObjectId, Vec3, String)],
+    ) {
+        let live_projectiles: HashSet<ObjectId> = projectiles
+            .iter()
+            .map(|(projectile_id, _, _, _)| *projectile_id)
+            .collect();
+
+        for (projectile_id, shooter, position, exhaust_name) in projectiles {
+            if let Some(exhaust_name) = usable_particle_template_name(exhaust_name) {
+                self.upsert_projectile_exhaust(
+                    *position,
+                    frame,
+                    *shooter,
+                    *projectile_id,
+                    exhaust_name,
+                );
+            } else {
+                self.deactivate_projectile_exhausts_for(*projectile_id);
+            }
         }
+
+        let stale_ids: Vec<u32> = self
+            .systems
+            .values()
+            .filter(|entry| {
+                entry.active
+                    && entry.kind == CombatParticleKind::ProjectileExhaust
+                    && entry
+                        .target_object
+                        .is_some_and(|projectile_id| !live_projectiles.contains(&projectile_id))
+            })
+            .map(|entry| entry.id)
+            .collect();
+        for id in stale_ids {
+            self.deactivate(id);
+        }
+    }
+
+    fn upsert_projectile_exhaust(
+        &mut self,
+        position: Vec3,
+        frame: u32,
+        shooter: ObjectId,
+        projectile_id: ObjectId,
+        exhaust_name: &str,
+    ) -> u32 {
+        let mut matching: Vec<(u32, u32)> = self
+            .systems
+            .values()
+            .filter(|entry| {
+                entry.active
+                    && entry.kind == CombatParticleKind::ProjectileExhaust
+                    && entry.target_object == Some(projectile_id)
+            })
+            .map(|entry| (entry.spawned_frame, entry.id))
+            .collect();
+        matching.sort_unstable();
+
+        let existing_id = matching.pop().map(|(_, id)| id);
+        for (_, duplicate_id) in matching {
+            self.deactivate(duplicate_id);
+        }
+
+        let Some(existing_id) = existing_id else {
+            return self.spawn_projectile_exhaust_entry(
+                position,
+                frame,
+                shooter,
+                projectile_id,
+                exhaust_name,
+            );
+        };
+
+        let template_matches = self
+            .systems
+            .get(&existing_id)
+            .is_some_and(|entry| entry.template_name == exhaust_name);
+        if !template_matches {
+            self.deactivate(existing_id);
+            return self.spawn_projectile_exhaust_entry(
+                position,
+                frame,
+                shooter,
+                projectile_id,
+                exhaust_name,
+            );
+        }
+
+        let current_client_id = self
+            .systems
+            .get(&existing_id)
+            .and_then(|entry| entry.client_system_id);
+        if let Some(client_system_id) = current_client_id
+            .filter(|client_system_id| self.client_system_ids.contains(client_system_id))
+        {
+            mirror_update_client_system_position(client_system_id, position);
+        } else {
+            // Snapshot ids are not safe to destroy or update. Recreate exactly
+            // this template and mark only the new id as host-owned.
+            if let Some(client_system_id) = current_client_id {
+                self.client_system_ids.remove(&client_system_id);
+            }
+            let client_system_id = mirror_spawn_to_client_manager(exhaust_name, position);
+            if let Some(client_system_id) = client_system_id {
+                self.client_system_ids.insert(client_system_id);
+            }
+            if let Some(entry) = self.systems.get_mut(&existing_id) {
+                entry.client_system_id = client_system_id;
+            }
+        }
+
+        if let Some(entry) = self.systems.get_mut(&existing_id) {
+            entry.position = position;
+            entry.source_object = Some(shooter);
+            // `ProjectileExhaust` is a ParticleSystem name, not an FXList name.
+            entry.fx_list_name.clear();
+        }
+        existing_id
+    }
+
+    fn spawn_projectile_exhaust_entry(
+        &mut self,
+        position: Vec3,
+        frame: u32,
+        shooter: ObjectId,
+        projectile_id: ObjectId,
+        exhaust_name: &str,
+    ) -> u32 {
+        self.spawn_with_template(
+            CombatParticleKind::ProjectileExhaust,
+            exhaust_name.to_string(),
+            position,
+            frame,
+            Some(shooter),
+            Some(projectile_id),
+        )
+    }
+
+    fn deactivate_projectile_exhausts_for(&mut self, projectile_id: ObjectId) {
+        let ids: Vec<u32> = self
+            .systems
+            .values()
+            .filter(|entry| {
+                entry.active
+                    && entry.kind == CombatParticleKind::ProjectileExhaust
+                    && entry.target_object == Some(projectile_id)
+            })
+            .map(|entry| entry.id)
+            .collect();
+        for id in ids {
+            self.deactivate(id);
+        }
+    }
+
+    pub fn deactivate(&mut self, id: u32) {
+        let client_system_id = match self.systems.get_mut(&id) {
+            Some(entry) if entry.active => {
+                entry.active = false;
+                entry.client_system_id.take()
+            }
+            _ => None,
+        };
+        if let Some(client_system_id) = client_system_id {
+            if self.client_system_ids.remove(&client_system_id) {
+                mirror_destroy_client_system(client_system_id);
+            }
+        }
+    }
+}
+
+/// C++ `INI::parseParticleSystemTemplate` treats `None` as a null template.
+/// Keep that sentinel out of the runtime registry rather than inventing a
+/// system named `None`.
+fn usable_particle_template_name(name: &str) -> Option<&str> {
+    let name = name.trim();
+    (!name.is_empty() && !name.eq_ignore_ascii_case("none")).then_some(name)
+}
+
+fn mirror_update_client_system_position(system_id: u32, position: Vec3) {
+    let position = gamelogic::common::Coord3D::new(position.x, position.y, position.z);
+    if let Some(manager) = gamelogic::helpers::TheParticleSystemManager::get() {
+        manager.set_particle_system_position(system_id, &position);
+    }
+}
+
+fn mirror_destroy_client_system(system_id: u32) {
+    if let Some(manager) = gamelogic::helpers::TheParticleSystemManager::get() {
+        manager.destroy_particle_system(system_id);
     }
 }
 
@@ -497,8 +732,13 @@ pub(crate) fn mirror_spawn_to_client_manager(template_name: &str, position: Vec3
     {
         use game_client::effects::{
             get_particle_system_manager_mut, initialize_particle_system_manager,
-            ParticleSystemManager,
+            register_particle_system_manager_bridge, ParticleSystemManager,
         };
+
+        // Position/destroy updates go through GameLogic's C++-shaped bridge.
+        // Register it here too because combat can begin before full GameClient
+        // initialization in a host-driven match startup.
+        register_particle_system_manager_bridge();
 
         // Ensure global manager exists (idempotent for tests/host).
         if let Ok(guard) = get_particle_system_manager_mut() {
@@ -722,5 +962,80 @@ mod tests {
         let impact = reg.systems.get(&ids[1]).expect("impact");
         assert_eq!(impact.fx_list_name, "FX_Detonate");
         assert_eq!(impact.ocl_list_name, "OCL_PoisonFieldMedium");
+    }
+
+    #[test]
+    fn projectile_exhaust_reuses_one_named_system_and_stops_with_projectile() {
+        let mut reg = CombatParticleRegistry::new();
+        let projectile = ObjectId(700);
+        let shooter = ObjectId(42);
+        let first_position = Vec3::new(4.0, 2.0, 8.0);
+
+        reg.sync_projectile_exhausts(
+            10,
+            &[(
+                projectile,
+                shooter,
+                first_position,
+                "TowMissileExhaust".to_string(),
+            )],
+        );
+        let exhaust = reg
+            .systems_of_kind(CombatParticleKind::ProjectileExhaust)
+            .pop()
+            .expect("one live projectile exhaust");
+        let exhaust_id = exhaust.id;
+        assert_eq!(exhaust.template_name, "TowMissileExhaust");
+        assert!(exhaust.fx_list_name.is_empty());
+        assert_eq!(reg.spawned_this_frame(), &[exhaust_id]);
+
+        let moved_position = Vec3::new(12.0, 3.0, 20.0);
+        reg.clear_frame_events();
+        reg.sync_projectile_exhausts(
+            11,
+            &[(
+                projectile,
+                shooter,
+                moved_position,
+                "TowMissileExhaust".to_string(),
+            )],
+        );
+        let exhausts = reg.systems_of_kind(CombatParticleKind::ProjectileExhaust);
+        assert_eq!(
+            exhausts.len(),
+            1,
+            "one C++-style attached exhaust per missile"
+        );
+        assert_eq!(
+            exhausts[0].id, exhaust_id,
+            "trail keeps its identity while flying"
+        );
+        assert_eq!(exhausts[0].position, moved_position);
+        assert_eq!(
+            reg.spawned_this_frame(),
+            &[] as &[u32],
+            "a position update must not create another particle system"
+        );
+
+        let no_projectiles: [(ObjectId, ObjectId, Vec3, String); 0] = [];
+        reg.sync_projectile_exhausts(12, &no_projectiles);
+        assert!(
+            !reg.get(exhaust_id).expect("retained history entry").active,
+            "trail is destroyed when the projectile impacts or expires"
+        );
+        assert!(reg
+            .systems_of_kind(CombatParticleKind::ProjectileExhaust)
+            .is_empty());
+
+        reg.sync_projectile_exhausts(
+            13,
+            &[(ObjectId(701), shooter, Vec3::ZERO, "None".to_string())],
+        );
+        assert_eq!(
+            reg.systems_of_kind(CombatParticleKind::ProjectileExhaust)
+                .len(),
+            0,
+            "the C++ ParticleSystem `None` sentinel must not become a live trail"
+        );
     }
 }

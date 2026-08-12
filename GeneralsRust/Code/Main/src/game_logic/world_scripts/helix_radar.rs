@@ -226,7 +226,15 @@ impl GameLogic {
                 glam::Vec3::new(p.x, p.y + 8.0, p.z)
             })
             .unwrap_or(glam::Vec3::ZERO);
-        let bid = self.create_object(BOOBY_TRAP_OBJECT, team, pos)?;
+        let owner_player_id = {
+            let planter = self.objects.get(&planter_id)?;
+            if planter.owner_player_id.is_some() {
+                Some(self.player_owner_for_host_object(planter)?)
+            } else {
+                None
+            }
+        };
+        let bid = self.create_object_for_owner_or_team(BOOBY_TRAP_OBJECT, team, owner_player_id, pos)?;
         if let Some(o) = self.objects.get_mut(&bid) {
             o.booby_trap_special = true;
             o.booby_trap_attached_to = Some(structure_id);
@@ -512,6 +520,14 @@ impl GameLogic {
             .get(&source_id)
             .map(|o| o.team)
             .unwrap_or(Team::Neutral);
+        let source_owner_player_id = {
+            let source = self.objects.get(&source_id)?;
+            if source.owner_player_id.is_some() {
+                Some(self.player_owner_for_host_object(source)?)
+            } else {
+                None
+            }
+        };
         // Drop slightly below the Helix so freefall residual is visible.
         let mut start = from;
         if start.y < aim.y + 20.0 {
@@ -523,7 +539,7 @@ impl GameLogic {
         if horiz > 1.0 {
             start += dir_xz * (8.0 / horiz).min(1.0);
         }
-        let pid = self.create_object(tpl_name, team, start)?;
+        let pid = self.create_object_for_owner_or_team(tpl_name, team, source_owner_player_id, start)?;
         if let Some(o) = self.objects.get_mut(&pid) {
             o.helix_napalm_bomb_projectile = true;
             o.producer_id = Some(source_id);
@@ -867,6 +883,50 @@ impl GameLogic {
         stolen
     }
 
+    /// Exact-player variant used by live ability activations.  The older
+    /// team-shaped API above remains for legacy/map callers that genuinely do
+    /// not carry a PlayerId; a concrete caster must never debit or credit the
+    /// first same-faction player instead.
+    fn steal_cash_between_players(
+        &mut self,
+        from_player_id: u32,
+        to_player_id: u32,
+        amount: u32,
+    ) -> u32 {
+        if amount == 0 || from_player_id == to_player_id {
+            return 0;
+        }
+        let available = match self.players.get(&from_player_id) {
+            Some(player) if player.is_alive && player.team != Team::Neutral => {
+                player.resources.supplies
+            }
+            _ => return 0,
+        };
+        if !self
+            .players
+            .get(&to_player_id)
+            .is_some_and(|player| player.is_alive && player.team != Team::Neutral)
+        {
+            return 0;
+        }
+        let stolen = amount.min(available);
+        if stolen == 0 {
+            return 0;
+        }
+        if let Some(source) = self.get_player_mut(from_player_id) {
+            source.apply_supply_spend_unchecked(stolen);
+            crate::game_logic::host_economy_log::record(
+                source.id,
+                source.resources.supplies,
+                source.power_available,
+            );
+        }
+        if let Some(destination) = self.get_player_mut(to_player_id) {
+            destination.credit_supplies(stolen);
+        }
+        stolen
+    }
+
     // -----------------------------------------------------------------------
     // RadarScan / RadarVanScan FOW temporary-reveal residual
     // Fail-closed: not full OCL RadarVanPing / DynamicShroudClearingRangeUpdate.
@@ -1082,10 +1142,28 @@ impl GameLogic {
             SUPERWEAPON_CRATE_DROP_MONEY, SUPERWEAPON_CRATE_DROP_SPACING,
         };
 
-        let team = caster_id
-            .and_then(|cid| self.objects.get(&cid).map(|o| o.team))
-            .or_else(|| self.players.get(&player_id).map(|p| p.team))
-            .unwrap_or(Team::Neutral);
+        let (team, owner_player_id) = match caster_id.and_then(|caster| self.objects.get(&caster)) {
+            Some(caster) => {
+                let owner_player_id = if caster.owner_player_id.is_some() {
+                    let Some(owner_player_id) = self.player_owner_for_host_object(caster) else {
+                        return 0;
+                    };
+                    Some(owner_player_id)
+                } else {
+                    self.players
+                        .get(&player_id)
+                        .filter(|player| player.is_alive && player.team == caster.team)
+                        .map(|player| player.id)
+                };
+                (caster.team, owner_player_id)
+            }
+            None => self
+                .players
+                .get(&player_id)
+                .filter(|player| player.is_alive)
+                .map(|player| (player.team, Some(player.id)))
+                .unwrap_or((Team::Neutral, None)),
+        };
 
         let tpl_name = "200DollarCrate";
         if !self.templates.contains_key(tpl_name) {
@@ -1102,7 +1180,12 @@ impl GameLogic {
         for i in 0..n {
             let offset = (i as f32 - (n as f32 - 1.0) * 0.5) * SUPERWEAPON_CRATE_DROP_SPACING;
             let pos = Vec3::new(location.x + offset, location.y + 40.0, location.z);
-            if let Some(id) = self.create_object(tpl_name, team, pos) {
+            if let Some(id) = self.create_object_for_owner_or_team(
+                tpl_name,
+                team,
+                owner_player_id,
+                pos,
+            ) {
                 self.host_money_crates
                     .register(id, SUPERWEAPON_CRATE_DROP_MONEY, false, 0);
                 self.host_money_crates.arm_default_deletion(
@@ -1138,38 +1221,65 @@ impl GameLogic {
             cash_hack_money_from_sciences, CASH_HACK_ACTIVATE_AUDIO,
         };
 
-        let caster_team = caster_id
-            .and_then(|cid| self.objects.get(&cid).map(|o| o.team))
-            .or_else(|| self.players.get(&player_id).map(|p| p.team))
-            .unwrap_or(Team::Neutral);
-
-        let sciences: Vec<String> = self
+        let requested_owner_player_id = self
             .players
             .get(&player_id)
+            .filter(|player| player.is_alive && player.team != Team::Neutral)
+            .map(|player| player.id);
+        // The live caster's ownership is authoritative.  An ownerless legacy
+        // caster can still use the explicit command player (or a uniquely
+        // resolved team owner), but a stale concrete owner fails closed.
+        let caster_owner_player_id = match caster_id.and_then(|id| self.objects.get(&id)) {
+            Some(caster) if !caster.is_alive() => None,
+            Some(caster) if caster.owner_player_id.is_some() => {
+                self.player_owner_for_host_object(caster)
+            }
+            Some(caster) => requested_owner_player_id
+                .filter(|requested| {
+                    self.players
+                        .get(requested)
+                        .is_some_and(|player| player.team == caster.team)
+                })
+                .or_else(|| self.player_owner_for_event(None, caster.team)),
+            None => requested_owner_player_id,
+        };
+
+        let sciences: Vec<String> = caster_owner_player_id
+            .and_then(|owner_player_id| self.players.get(&owner_player_id))
             .map(|p| p.unlocked_sciences.iter().cloned().collect())
             .unwrap_or_default();
         let amount = cash_hack_money_from_sciences(sciences.iter().map(|s| s.as_str()));
 
-        let mut victim_team: Option<Team> = None;
+        let mut victim_player_id: Option<u32> = None;
         let mut victim_cash: u32 = 0;
-        for p in self.players.values() {
-            if p.team == caster_team || p.team == Team::Neutral {
+        for (&candidate_player_id, candidate) in &self.players {
+            let Some(caster_owner_player_id) = caster_owner_player_id else {
+                break;
+            };
+            if candidate.team == Team::Neutral
+                || !candidate.is_alive
+                || !matches!(
+                    self.player_relationship(caster_owner_player_id, candidate_player_id),
+                    gamelogic::common::Relationship::Enemies
+                )
+            {
                 continue;
             }
-            let cash = p.resources.supplies;
-            if victim_team.is_none() || cash > victim_cash {
+            let cash = candidate.resources.supplies;
+            if victim_player_id.is_none() || cash > victim_cash {
                 victim_cash = cash;
-                victim_team = Some(p.team);
+                victim_player_id = Some(candidate_player_id);
             }
         }
 
-        let stolen = if let Some(from_team) = victim_team {
-            self.steal_cash_from_team(from_team, caster_team, amount)
-        } else {
-            0
+        let stolen = match (caster_owner_player_id, victim_player_id) {
+            (Some(to_player_id), Some(from_player_id)) => {
+                self.steal_cash_between_players(from_player_id, to_player_id, amount)
+            }
+            _ => 0,
         };
         if stolen > 0 {
-            if let Some(p) = self.get_player_mut_by_team(caster_team) {
+            if let Some(p) = caster_owner_player_id.and_then(|id| self.get_player_mut(id)) {
                 p.add_money_earned(stolen);
             }
             self.hero_abilities.record_cash_steal(stolen);
@@ -1319,7 +1429,30 @@ impl GameLogic {
             self.templates.insert(SPY_DRONE_TEMPLATE.into(), tpl);
         }
 
-        let spawned_id = self.create_object(SPY_DRONE_TEMPLATE, team, location);
+        let owner_player_id = match caster_id.and_then(|caster| self.objects.get(&caster)) {
+            Some(caster) if caster.owner_player_id.is_some() => {
+                let Some(owner_player_id) = self.player_owner_for_host_object(caster) else {
+                    return false;
+                };
+                Some(owner_player_id)
+            }
+            Some(caster) => self
+                .players
+                .get(&player_id)
+                .filter(|player| player.is_alive && player.team == caster.team)
+                .map(|player| player.id),
+            None => self
+                .players
+                .get(&player_id)
+                .filter(|player| player.is_alive && player.team == team)
+                .map(|player| player.id),
+        };
+        let spawned_id = self.create_object_for_owner_or_team(
+            SPY_DRONE_TEMPLATE,
+            team,
+            owner_player_id,
+            location,
+        );
         let spawn_ok = spawned_id.is_some();
         if let Some(id) = spawned_id {
             if let Some(obj) = self.host_object_mut(id) {
@@ -1475,6 +1608,14 @@ impl GameLogic {
             let o = self.objects.get(&aircraft_id)?;
             (o.team, o.get_position())
         };
+        let owner_player_id = {
+            let aircraft = self.objects.get(&aircraft_id)?;
+            if aircraft.owner_player_id.is_some() {
+                Some(self.player_owner_for_host_object(aircraft)?)
+            } else {
+                None
+            }
+        };
         // Volley arc residual: spread flares ± half VolleyArcAngle around aircraft.
         use crate::game_logic::host_countermeasures::VOLLEY_SIZE;
         let t = if VOLLEY_SIZE > 1 {
@@ -1490,7 +1631,12 @@ impl GameLogic {
             origin.y.max(0.0) + 8.0,
             origin.z + angle.sin() * dist,
         );
-        let fid = self.create_object(FLARE_TEMPLATE_NAME, team, place)?;
+        let fid = self.create_object_for_owner_or_team(
+            FLARE_TEMPLATE_NAME,
+            team,
+            owner_player_id,
+            place,
+        )?;
         let expires = self.frame.saturating_add(FLARE_LIFETIME_FRAMES.max(1));
         if let Some(o) = self.objects.get_mut(&fid) {
             o.countermeasure_flare = true;

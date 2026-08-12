@@ -123,17 +123,23 @@ impl PresentationFrame {
                 }
                 bits
             };
-            let model_key = crate::assets::resolve_presentation_model_key_for_conditions(
+            let fallback_draw_models =
+                (!base_model_key.trim().is_empty()).then(|| crate::assets::AuthoredDrawModel {
+                    module_index: 0,
+                    model_key: base_model_key.clone(),
+                });
+            let draw_models = crate::assets::resolve_presentation_draw_models_for_conditions(
                 &obj.template_name,
-                &base_model_key,
+                fallback_draw_models.as_slice(),
                 model_condition_bits,
             );
+            let model_key = draw_models.first().map(|model| model.model_key.clone());
             // Wave 75: freeze mesh scale residual (common combat = 1.0; CINE/weapon peels).
             let mesh_scale =
                 crate::assets::mesh_asset_resolve::mesh_scale_from_template(obj.get_template());
             let fow_visibility = if fow_shell_bypass {
                 ObjectVisibility::FULLY_VISIBLE
-            } else if local_team != Team::Neutral && obj.team == local_team {
+            } else if obj.owner_player_id == Some(local_player_id) {
                 // Always see own force (structures + builders + army).
                 ObjectVisibility::FULLY_VISIBLE
             } else {
@@ -147,6 +153,7 @@ impl PresentationFrame {
                 id: obj.id,
                 template_name: obj.template_name.clone(),
                 team: obj.team,
+                owner_player_id: obj.owner_player_id,
                 team_color: {
                     // Wave 503: C++ enemies see disguise player color; allies see true colors.
                     if obj.status.disguised && obj.team != local_team {
@@ -233,11 +240,12 @@ impl PresentationFrame {
                     .unwrap_or(false),
                 rally_point: obj.building_data.as_ref().and_then(|b| b.rally_point),
                 guard_position: obj.guard_position,
-                garrisoned_units: obj
-                    .building_data
-                    .as_ref()
-                    .map(|b| b.garrisoned_units.iter().copied().take(32).collect())
-                    .unwrap_or_default(),
+                // Freeze every containment roster, not only structure
+                // garrisons.  TransportContain capacity is weighted by each
+                // rider's authored TransportSlotCount, so physical RMB input
+                // must be able to resolve mobile occupants without a live
+                // GameLogic read.
+                garrisoned_units: obj.contained_units().into_iter().take(32).collect(),
                 max_garrison: obj
                     .building_data
                     .as_ref()
@@ -246,6 +254,17 @@ impl PresentationFrame {
                 power_provided: obj.power_provided,
                 power_consumed: obj.power_consumed,
                 stored_supplies: obj.stored_resources.supplies,
+                dock_kind: obj.thing.template.dock_kind,
+                capturable: obj.thing.template.capturable,
+                immune_to_capture: obj.thing.template.immune_to_capture,
+                capture_garrisonable: obj.thing.template.garrison_contain_max.is_some(),
+                capture_power: obj.thing.template.capture_power,
+                capture_power_ready: obj
+                    .thing
+                    .template
+                    .capture_power
+                    .special_power_type()
+                    .is_some_and(|power| logic.is_special_power_ready_for(obj.id, &power)),
                 health_current: auth_health,
                 health_max: obj.health.maximum,
                 selected: obj.selected || obj.status.selected,
@@ -307,6 +326,7 @@ impl PresentationFrame {
                 disabled_paralyzed: obj.status.disabled_paralyzed,
                 weapons_jammed: obj.status.weapons_jammed,
                 masked: obj.status.masked,
+                unattackable: obj.is_kind_of(KindOf::Unattackable),
                 ignoring_stealth: obj.status.ignoring_stealth,
                 repulsor: obj.status.repulsor,
                 stealthed: obj.status.stealthed,
@@ -453,6 +473,32 @@ impl PresentationFrame {
                 is_combat_chinook_transport: obj.is_combat_chinook_transport,
                 max_transport: obj.max_transport,
                 overlord_bunker_capacity: obj.overlord_bunker_capacity.unwrap_or(usize::MAX),
+                contain_module_present: obj.thing.template.contain_module.kind
+                    != crate::game_logic::ContainModuleKind::None,
+                contain_module_kind: obj.thing.template.contain_module.kind,
+                contain_admission: obj.normal_enter_admission(),
+                rider_change_allowed_templates: obj
+                    .thing
+                    .template
+                    .contain_module
+                    .rider_change_riders
+                    .iter()
+                    .filter(|rider| rider.physical_enter_supported)
+                    .map(|rider| rider.template_name.clone())
+                    .collect(),
+                contain_allow_allies_inside: obj.thing.template.contain_module.allow_allies_inside,
+                contain_allow_enemies_inside: obj
+                    .thing
+                    .template
+                    .contain_module
+                    .allow_enemies_inside,
+                contain_allow_neutral_inside: obj
+                    .thing
+                    .template
+                    .contain_module
+                    .allow_neutral_inside,
+                transport_slot_count: obj.transport_slot_count(),
+                is_faction_structure: obj.is_faction_structure(),
                 passengers_allowed_to_fire: obj.passengers_allowed_to_fire,
                 display_name: obj.name.clone(),
                 demo_suicided_detonating: obj.demo_suicided_detonating,
@@ -549,6 +595,7 @@ impl PresentationFrame {
                     .as_ref()
                     .map(|b| PresentationBuildingType::from_host(b.building_type)),
                 model_key,
+                draw_models,
                 mesh_scale,
                 selection_radius: obj.selection_radius.max(5.0),
                 engine_bridged: false,
@@ -575,6 +622,7 @@ impl PresentationFrame {
                 id,
                 name: p.name.clone(),
                 team: p.team,
+                alliance_team: p.alliance_team,
                 is_alive: p.is_alive,
                 is_local: p.is_local,
                 is_ai: logic.ai_manager_contains_player(id),

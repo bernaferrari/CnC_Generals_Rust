@@ -10,6 +10,9 @@ use std::cell::RefCell;
 pub struct HostOwnerEvent {
     pub object: ObjectId,
     pub team: Team,
+    /// Exact controlling player when the transfer came through a player-aware
+    /// host path. `None` preserves legacy team-only transfer semantics.
+    pub owner_player_id: Option<u32>,
 }
 
 thread_local! {
@@ -18,8 +21,16 @@ thread_local! {
 }
 
 pub fn record(object: ObjectId, team: Team) {
+    record_with_owner(object, team, None);
+}
+
+pub fn record_with_owner(object: ObjectId, team: Team, owner_player_id: Option<u32>) {
     LOG.with(|log| {
-        log.borrow_mut().push(HostOwnerEvent { object, team });
+        log.borrow_mut().push(HostOwnerEvent {
+            object,
+            team,
+            owner_player_id,
+        });
     });
 }
 

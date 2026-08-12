@@ -6,9 +6,9 @@ use super::super::*;
 impl GameLogic {
     /// Select objects for a player
     pub fn select_objects(&mut self, player_id: u32, object_ids: Vec<ObjectId>) {
-        let Some(player_team) = self.players.get(&player_id).map(|p| p.team) else {
+        if self.players.get(&player_id).is_none() {
             return;
-        };
+        }
         let is_local = self
             .players
             .get(&player_id)
@@ -32,7 +32,7 @@ impl GameLogic {
         let mut voice_template = None;
         for &object_id in &object_ids {
             if let Some(obj) = self.objects.get_mut(&object_id) {
-                if obj.team == player_team && obj.is_selectable() {
+                if obj.owner_player_id == Some(player_id) && obj.is_selectable() {
                     obj.select();
                     // C++ Drawable::flashAsSelected residual on select / create-team.
                     obj.flash_as_selected();
@@ -72,7 +72,16 @@ impl GameLogic {
     /// Issue move command to selected objects (with pathfinding)
     pub fn command_move(&mut self, player_id: u32, target_position: Vec3) {
         if let Some(player) = self.players.get(&player_id) {
-            let selected = player.selected_objects.clone();
+            let selected: Vec<ObjectId> = player
+                .selected_objects
+                .iter()
+                .copied()
+                .filter(|object_id| {
+                    self.objects
+                        .get(object_id)
+                        .is_some_and(|obj| obj.owner_player_id == Some(player_id))
+                })
+                .collect();
             for &object_id in &selected {
                 let is_mobile = self
                     .objects
@@ -260,10 +269,14 @@ impl GameLogic {
             ProductionAuthorityOp::SpawnUnit {
                 template,
                 team,
+                owner_player_id,
                 spawn_pos,
-            } => ProductionAuthorityResult::Spawned(
-                self.host_spawn_production_unit(&template, team, spawn_pos),
-            ),
+            } => ProductionAuthorityResult::Spawned(match owner_player_id {
+                Some(player_id) => {
+                    self.host_spawn_production_unit_for_player(&template, player_id, spawn_pos)
+                }
+                None => self.host_spawn_production_unit(&template, team, spawn_pos),
+            }),
             ProductionAuthorityOp::ApplySpawnReadyCompletions => {
                 self.host_apply_production_spawn_ready_completions();
                 ProductionAuthorityResult::Unit
@@ -856,12 +869,14 @@ impl GameLogic {
                 id,
                 team,
                 team_color,
+                owner_player_id,
             } => {
                 let Some(obj) = self.host_objects_mut().get_mut(&id) else {
                     return false;
                 };
                 obj.team = team;
                 obj.team_color = team_color;
+                obj.owner_player_id = owner_player_id;
                 true
             }
             HostWritebackOp::SpecialPower {
@@ -1348,10 +1363,7 @@ impl GameLogic {
 
     /// C++ construction percent (0–100, −1 complete, −50 sell). Converts at the GW 0–1 boundary.
     pub fn host_authoritative_construction_cpp(&self, id: ObjectId) -> Option<(i32, bool)> {
-        let selling = self
-            .host_object(id)
-            .map(|o| o.status.sold)
-            .unwrap_or(false);
+        let selling = self.host_object(id).map(|o| o.status.sold).unwrap_or(false);
         self.host_authoritative_construction(id).map(|(frac, uc)| {
             (
                 crate::game_logic::host_production_buildable_command_residual::host_fraction_to_cpp_construction_percent(
@@ -1433,22 +1445,40 @@ impl GameLogic {
     /// Issue attack command to selected objects
     pub fn command_attack(&mut self, player_id: u32, target_id: ObjectId) {
         if let Some(player) = self.players.get(&player_id) {
-            let Some(target_team) = self.objects.get(&target_id).map(|target| target.team) else {
-                return;
-            };
-            if target_team == player.team {
+            if self.objects.get(&target_id).is_none() {
                 return;
             }
 
-            let selected = player.selected_objects.clone();
+            let selected: Vec<ObjectId> = player
+                .selected_objects
+                .iter()
+                .copied()
+                .filter(|object_id| {
+                    self.objects
+                        .get(object_id)
+                        .is_some_and(|obj| obj.owner_player_id == Some(player_id))
+                })
+                .collect();
+            let mut accepted_attackers = Vec::new();
             for &object_id in &selected {
-                let can = self
-                    .objects
-                    .get(&object_id)
-                    .is_some_and(|obj| obj.can_attack() && obj.team != target_team);
-                if !can {
+                // This is the default host-authority route used by actual
+                // WND/right-click orders.  It must not bypass the same C++
+                // WeaponSet legality used by the typed command executor:
+                // MASKED/UNATTACKABLE, stealth, relationship, concrete
+                // Weapon.ini Anti* mask, and range all apply before we stamp
+                // a target or issue a movement path.
+                if !matches!(
+                    self.get_able_to_attack_specific_object(
+                        object_id,
+                        target_id,
+                        AbleToAttackType::NewTarget,
+                        true,
+                    ),
+                    CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving
+                ) {
                     continue;
                 }
+                accepted_attackers.push(object_id);
 
                 // Host attack channel (default production path — host ObjectIds only).
                 if let Some(obj_mut) = self.objects.get_mut(&object_id) {
@@ -1520,7 +1550,7 @@ impl GameLogic {
                 .map(|p| p.is_local)
                 .unwrap_or(false);
             if local {
-                if let Some(&oid) = selected.first() {
+                if let Some(&oid) = accepted_attackers.first() {
                     if let Some(obj) = self.objects.get(&oid) {
                         let event = format!("{}VoiceAttack", obj.template_name);
                         let pos = obj.get_position();
@@ -1540,7 +1570,7 @@ impl GameLogic {
             log::trace!(
                 "{} commanded {} units to attack object {}",
                 player_id,
-                selected.len(),
+                accepted_attackers.len(),
                 target_id
             );
         }

@@ -1,6 +1,113 @@
 #![allow(unused_imports, unused_variables, dead_code, non_snake_case)]
 use super::*;
 impl CnCGameEngine {
+    /// Apply the CommandMap CREATE/SELECT/ADD/VIEW_TEAM action for a physical
+    /// number-row key.  The caller deliberately resolves the group from the
+    /// physical key rather than its layout-dependent logical character.
+    pub(super) fn handle_control_group_hotkey(&mut self, group_num: u8) {
+        let ctrl_down = self.keys_pressed.contains(&Key::Named(NamedKey::Control));
+        let shift_down = self.keys_pressed.contains(&Key::Named(NamedKey::Shift));
+        let alt_down = self.keys_pressed.contains(&Key::Named(NamedKey::Alt));
+
+        if ctrl_down {
+            // CREATE_TEAM residual: assign control group.
+            if self.selected_objects.is_empty() {
+                self.control_groups.remove(&group_num);
+                info!("Cleared control group {}", group_num);
+            } else {
+                self.control_groups
+                    .insert(group_num, self.selected_objects.clone());
+                info!(
+                    "Assigned {} units to control group {}",
+                    self.selected_objects.len(),
+                    group_num
+                );
+            }
+        } else if shift_down {
+            // ADD_TEAM residual: merge current selection into group.
+            if self.selected_objects.is_empty() {
+                return;
+            }
+            let entry = self.control_groups.entry(group_num).or_default();
+            for id in &self.selected_objects {
+                if !entry.contains(id) {
+                    entry.push(*id);
+                }
+            }
+            info!(
+                "Added selection to control group {} (now {} units)",
+                group_num,
+                entry.len()
+            );
+        } else if alt_down {
+            // VIEW_TEAM residual: center camera on group without changing selection.
+            let stored = self
+                .control_groups
+                .get(&group_num)
+                .cloned()
+                .unwrap_or_default();
+            if stored.is_empty() {
+                info!("Control group {} is empty (view)", group_num);
+                return;
+            }
+            // Presentation-only poses for InGame control-group camera jump.
+            let center = self
+                .last_presentation_frame
+                .as_ref()
+                .and_then(|frame| frame.centroid_of_ids(&stored));
+            if let Some(center) = center {
+                // Wave 577: host camera jump via helper.
+                let clamped = self.host_center_camera_and_request_focus(center);
+                info!("VIEW_TEAM{} camera jump to {:?}", group_num, clamped);
+            }
+        } else {
+            // SELECT_TEAM residual: select control group.
+            let stored = self
+                .control_groups
+                .get(&group_num)
+                .cloned()
+                .unwrap_or_default();
+            if stored.is_empty() {
+                info!("Control group {} is empty", group_num);
+                return;
+            }
+
+            // Presentation-only: InGame always has last_presentation_frame.
+            let (selection, double_tap_center) = {
+                let Some(frame) = self.last_presentation_frame.as_ref() else {
+                    return;
+                };
+                let team = frame.local_team();
+                let selection = frame.filter_alive_selectable_ids(&stored, team);
+                let center = frame.centroid_of_ids(&selection);
+                (selection, center)
+            };
+
+            // Wave 583: selection residual via host_set_selection.
+            self.host_set_selection(self.current_player_id, selection.clone());
+            self.play_sound_effect(SoundType::Select);
+
+            // Double-tap residual: second press of same group within 500ms centers camera.
+            let now = Instant::now();
+            let double_tap = matches!(
+                self.last_control_group_select,
+                Some((g, t)) if g == group_num && now.duration_since(t).as_millis() < 500
+            );
+            self.last_control_group_select = Some((group_num, now));
+            if double_tap {
+                if let Some(center) = double_tap_center {
+                    let clamped = self.clamp_to_world_bounds(center);
+                    self.camera_target.x = clamped.x;
+                    self.camera_target.z = clamped.z;
+                    info!(
+                        "Control group {} double-tap camera jump to {:?}",
+                        group_num, clamped
+                    );
+                }
+            }
+        }
+    }
+
     pub(super) fn handle_key_press(&mut self, key: &Key) {
         if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
             match key {
@@ -46,112 +153,6 @@ impl CnCGameEngine {
                 // Retail CommandMap VIEW_LAST_RADAR_EVENT KEY_SPACE residual.
                 // Pause remains on P.
                 self.issue_named_command_from_ui("Command_ViewLastRadarEvent");
-            }
-            Key::Character(digit)
-                if digit.len() == 1 && digit.chars().all(|c| c.is_ascii_digit()) =>
-            {
-                let group_num = digit.chars().next().unwrap().to_digit(10).unwrap() as u8;
-                let ctrl_down = self.keys_pressed.contains(&Key::Named(NamedKey::Control));
-                let shift_down = self.keys_pressed.contains(&Key::Named(NamedKey::Shift));
-                let alt_down = self.keys_pressed.contains(&Key::Named(NamedKey::Alt));
-
-                if ctrl_down {
-                    // CREATE_TEAM residual: assign control group.
-                    if self.selected_objects.is_empty() {
-                        self.control_groups.remove(&group_num);
-                        info!("Cleared control group {}", group_num);
-                    } else {
-                        self.control_groups
-                            .insert(group_num, self.selected_objects.clone());
-                        info!(
-                            "Assigned {} units to control group {}",
-                            self.selected_objects.len(),
-                            group_num
-                        );
-                    }
-                } else if shift_down {
-                    // ADD_TEAM residual: merge current selection into group.
-                    if self.selected_objects.is_empty() {
-                        return;
-                    }
-                    let entry = self.control_groups.entry(group_num).or_default();
-                    for id in &self.selected_objects {
-                        if !entry.contains(id) {
-                            entry.push(*id);
-                        }
-                    }
-                    info!(
-                        "Added selection to control group {} (now {} units)",
-                        group_num,
-                        entry.len()
-                    );
-                } else if alt_down {
-                    // VIEW_TEAM residual: center camera on group without changing selection.
-                    let stored = self
-                        .control_groups
-                        .get(&group_num)
-                        .cloned()
-                        .unwrap_or_default();
-                    if stored.is_empty() {
-                        info!("Control group {} is empty (view)", group_num);
-                        return;
-                    }
-                    // Presentation-only poses for InGame control-group camera jump.
-                    let center = self
-                        .last_presentation_frame
-                        .as_ref()
-                        .and_then(|frame| frame.centroid_of_ids(&stored));
-                    if let Some(center) = center {
-                        // Wave 577: host camera jump via helper.
-                        let clamped = self.host_center_camera_and_request_focus(center);
-                        info!("VIEW_TEAM{} camera jump to {:?}", group_num, clamped);
-                    }
-                } else {
-                    // SELECT_TEAM residual: select control group.
-                    let stored = self
-                        .control_groups
-                        .get(&group_num)
-                        .cloned()
-                        .unwrap_or_default();
-                    if stored.is_empty() {
-                        info!("Control group {} is empty", group_num);
-                        return;
-                    }
-
-                    // Presentation-only: InGame always has last_presentation_frame.
-                    let (selection, double_tap_center) = {
-                        let Some(frame) = self.last_presentation_frame.as_ref() else {
-                            return;
-                        };
-                        let team = frame.local_team();
-                        let selection = frame.filter_alive_selectable_ids(&stored, team);
-                        let center = frame.centroid_of_ids(&selection);
-                        (selection, center)
-                    };
-
-                    // Wave 583: selection residual via host_set_selection.
-                    self.host_set_selection(self.current_player_id, selection.clone());
-                    self.play_sound_effect(SoundType::Select);
-
-                    // Double-tap residual: second press of same group within 500ms centers camera.
-                    let now = Instant::now();
-                    let double_tap = matches!(
-                        self.last_control_group_select,
-                        Some((g, t)) if g == group_num && now.duration_since(t).as_millis() < 500
-                    );
-                    self.last_control_group_select = Some((group_num, now));
-                    if double_tap {
-                        if let Some(center) = double_tap_center {
-                            let clamped = self.clamp_to_world_bounds(center);
-                            self.camera_target.x = clamped.x;
-                            self.camera_target.z = clamped.z;
-                            info!(
-                                "Control group {} double-tap camera jump to {:?}",
-                                group_num, clamped
-                            );
-                        }
-                    }
-                }
             }
             Key::Character(c)
                 if c.eq_ignore_ascii_case("a")
@@ -971,8 +972,26 @@ impl CnCGameEngine {
                             self.ui_manager.game_hud_mut().push_info_message(msg);
                             info!("Escape cancelled pending map command residual");
                         } else {
-                            info!("Escape pressed in InGame state - pausing");
-                            self.request_state_change(GameState::Paused);
+                            // Retail CommandMap `OPTIONS` routes Escape to
+                            // MSG_META_OPTIONS -> ToggleQuitMenu(), which
+                            // creates Menus/QuitMenu.wnd.  Keep Main's host
+                            // simulation pause synchronized with that live
+                            // WND instead of replacing it with PauseMenu.
+                            #[cfg(feature = "game_client")]
+                            if self.host_toggle_retail_quit_menu() {
+                                info!("Escape opened/toggled the retail QuitMenu WND");
+                            } else {
+                                // Fail closed only when the WND could not be
+                                // materialised; the old pause surface remains
+                                // a usable fallback for a damaged install.
+                                info!("Escape QuitMenu WND unavailable - using pause fallback");
+                                self.request_state_change(GameState::Paused);
+                            }
+                            #[cfg(not(feature = "game_client"))]
+                            {
+                                info!("Escape pressed in InGame state - pausing");
+                                self.request_state_change(GameState::Paused);
+                            }
                         }
                     }
                     GameState::Paused => {
@@ -1243,6 +1262,11 @@ impl CnCGameEngine {
             clamped,
             self.ui_script_default_camera_max_height(),
         );
+        self.apply_camera_orbit_transform();
+        if matches!(self.current_state, GameState::InGame | GameState::Paused) {
+            self.update_mouse_world_position();
+            self.sync_context_mouse_cursor();
+        }
         info!("CAMERA_RESET residual -> {:?}", clamped);
     }
 }

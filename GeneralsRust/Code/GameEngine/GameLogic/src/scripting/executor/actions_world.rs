@@ -239,17 +239,12 @@ impl ScriptActionDispatcher {
     ) -> Result<ScriptActionResult, ScriptError> {
         let movie_name = self.get_string_param(action, 0)?;
         log::info!("Playing fullscreen movie '{}'", movie_name);
-        if let Ok(engine_guard) = get_script_engine().read() {
-            if let Some(ref script_engine) = *engine_guard {
-                if let Some(handler) = script_engine.action_handler() {
-                    if let Err(err) = handler.movie_play_fullscreen(&movie_name) {
-                        log::warn!(
-                            "Script action handler movie_play_fullscreen failed: {}",
-                            err
-                        );
-                    }
-                    return Ok(ScriptActionResult::Success);
-                }
+        if let Some(handler) = current_script_action_handler() {
+            if let Err(err) = handler.movie_play_fullscreen(&movie_name) {
+                log::warn!(
+                    "Script action handler movie_play_fullscreen failed: {}",
+                    err
+                );
             }
         }
         Ok(ScriptActionResult::Success)
@@ -261,13 +256,9 @@ impl ScriptActionDispatcher {
     ) -> Result<ScriptActionResult, ScriptError> {
         let movie_name = self.get_string_param(action, 0)?;
         log::debug!("Playing radar movie '{}'", movie_name);
-        if let Ok(engine_guard) = get_script_engine().read() {
-            if let Some(ref script_engine) = *engine_guard {
-                if let Some(handler) = script_engine.action_handler() {
-                    if let Err(err) = handler.movie_play_radar(&movie_name) {
-                        log::warn!("Script action handler movie_play_radar failed: {}", err);
-                    }
-                }
+        if let Some(handler) = current_script_action_handler() {
+            if let Err(err) = handler.movie_play_radar(&movie_name) {
+                log::warn!("Script action handler movie_play_radar failed: {}", err);
             }
         }
         Ok(ScriptActionResult::Success)
@@ -295,15 +286,11 @@ impl ScriptActionDispatcher {
             let radar_pos = to_radar_coord(&position);
             radar.create_event(&radar_pos, radar_event, 4.0);
         }
-        if let Ok(engine_guard) = get_script_engine().read() {
-            if let Some(ref script_engine) = *engine_guard {
-                if let Some(handler) = script_engine.action_handler() {
-                    if let Err(err) =
-                        handler.create_radar_event(position.x, position.y, position.z, event_type)
-                    {
-                        log::warn!("Script action handler create_radar_event failed: {}", err);
-                    }
-                }
+        if let Some(handler) = current_script_action_handler() {
+            if let Err(err) =
+                handler.create_radar_event(position.x, position.y, position.z, event_type)
+            {
+                log::warn!("Script action handler create_radar_event failed: {}", err);
             }
         }
         Ok(ScriptActionResult::Success)
@@ -314,16 +301,12 @@ impl ScriptActionDispatcher {
         if let Ok(mut radar) = get_radar_system().write() {
             radar.force_on(true);
         }
-        if let Ok(engine_guard) = get_script_engine().read() {
-            if let Some(ref script_engine) = *engine_guard {
-                if let Some(handler) = script_engine.action_handler() {
-                    if let Err(err) = handler.set_radar_forced(true) {
-                        log::warn!(
-                            "Script action handler set_radar_forced(true) failed: {}",
-                            err
-                        );
-                    }
-                }
+        if let Some(handler) = current_script_action_handler() {
+            if let Err(err) = handler.set_radar_forced(true) {
+                log::warn!(
+                    "Script action handler set_radar_forced(true) failed: {}",
+                    err
+                );
             }
         }
         Ok(ScriptActionResult::Success)
@@ -334,16 +317,12 @@ impl ScriptActionDispatcher {
         if let Ok(mut radar) = get_radar_system().write() {
             radar.force_on(false);
         }
-        if let Ok(engine_guard) = get_script_engine().read() {
-            if let Some(ref script_engine) = *engine_guard {
-                if let Some(handler) = script_engine.action_handler() {
-                    if let Err(err) = handler.set_radar_forced(false) {
-                        log::warn!(
-                            "Script action handler set_radar_forced(false) failed: {}",
-                            err
-                        );
-                    }
-                }
+        if let Some(handler) = current_script_action_handler() {
+            if let Err(err) = handler.set_radar_forced(false) {
+                log::warn!(
+                    "Script action handler set_radar_forced(false) failed: {}",
+                    err
+                );
             }
         }
         Ok(ScriptActionResult::Success)
@@ -510,12 +489,10 @@ impl ScriptActionDispatcher {
             player_name
         );
 
-        if let Ok(mut engine_guard) = get_script_engine().write() {
-            if let Some(ref mut engine) = *engine_guard {
-                engine.create_named_map_reveal(&reveal_name, &waypoint, radius, &player_name);
-                engine.do_named_map_reveal(&reveal_name);
-            }
-        }
+        let _ = with_script_engine_mut(|engine| {
+            engine.create_named_map_reveal(&reveal_name, &waypoint, radius, &player_name);
+            engine.do_named_map_reveal(&reveal_name);
+        });
         Ok(ScriptActionResult::Success)
     }
 
@@ -526,12 +503,10 @@ impl ScriptActionDispatcher {
         let reveal_name = self.get_string_param(action, 0)?;
         log::debug!("Undoing permanent reveal '{}'", reveal_name);
 
-        if let Ok(mut engine_guard) = get_script_engine().write() {
-            if let Some(ref mut engine) = *engine_guard {
-                engine.undo_named_map_reveal(&reveal_name);
-                engine.remove_named_map_reveal(&reveal_name);
-            }
-        }
+        let _ = with_script_engine_mut(|engine| {
+            engine.undo_named_map_reveal(&reveal_name);
+            engine.remove_named_map_reveal(&reveal_name);
+        });
         Ok(ScriptActionResult::Success)
     }
 
@@ -609,18 +584,12 @@ impl ScriptActionDispatcher {
                     let radar_pos = to_radar_coord(&pos);
                     radar.create_event(&radar_pos, radar_event, 4.0);
                 }
-                if let Ok(engine_guard) = get_script_engine().read() {
-                    if let Some(ref script_engine) = *engine_guard {
-                        if let Some(handler) = script_engine.action_handler() {
-                            if let Err(err) =
-                                handler.create_radar_event(pos.x, pos.y, pos.z, event_type)
-                            {
-                                log::warn!(
-                                    "Script action handler create_radar_event failed: {}",
-                                    err
-                                );
-                            }
-                        }
+                if let Some(handler) = current_script_action_handler() {
+                    if let Err(err) = handler.create_radar_event(pos.x, pos.y, pos.z, event_type) {
+                        log::warn!(
+                            "Script action handler create_radar_event failed: {}",
+                            err
+                        );
                     }
                 }
             }
@@ -632,12 +601,8 @@ impl ScriptActionDispatcher {
         log::debug!("Disabling border shroud");
         if let Some(global) = crate::helpers::TheGlobalData::get() {
             let level = global.get_clear_alpha();
-            if let Ok(engine_guard) = get_script_engine().read() {
-                if let Some(ref engine) = *engine_guard {
-                    if let Some(handler) = engine.action_handler() {
-                        let _ = handler.set_border_shroud_level(level);
-                    }
-                }
+            if let Some(handler) = current_script_action_handler() {
+                let _ = handler.set_border_shroud_level(level);
             }
         }
         Ok(ScriptActionResult::Success)
@@ -647,12 +612,8 @@ impl ScriptActionDispatcher {
         log::debug!("Enabling border shroud");
         if let Some(global) = crate::helpers::TheGlobalData::get() {
             let level = global.get_shroud_alpha();
-            if let Ok(engine_guard) = get_script_engine().read() {
-                if let Some(ref engine) = *engine_guard {
-                    if let Some(handler) = engine.action_handler() {
-                        let _ = handler.set_border_shroud_level(level);
-                    }
-                }
+            if let Some(handler) = current_script_action_handler() {
+                let _ = handler.set_border_shroud_level(level);
             }
         }
         Ok(ScriptActionResult::Success)
@@ -666,16 +627,12 @@ impl ScriptActionDispatcher {
         let gby = self.get_real_param(action, 1)?;
         log::debug!("Resizing view guardband to ({}, {})", gbx, gby);
 
-        if let Ok(engine_guard) = get_script_engine().read() {
-            if let Some(ref script_engine) = *engine_guard {
-                if let Some(handler) = script_engine.action_handler() {
-                    if let Err(err) = handler.resize_view_guardband(gbx, gby) {
-                        log::warn!(
-                            "Script action handler resize_view_guardband failed: {}",
-                            err
-                        );
-                    }
-                }
+        if let Some(handler) = current_script_action_handler() {
+            if let Err(err) = handler.resize_view_guardband(gbx, gby) {
+                log::warn!(
+                    "Script action handler resize_view_guardband failed: {}",
+                    err
+                );
             }
         }
 
@@ -699,13 +656,9 @@ impl ScriptActionDispatcher {
             count += 1;
         }
 
-        if let Ok(engine_guard) = get_script_engine().read() {
-            if let Some(ref script_engine) = *engine_guard {
-                if let Some(handler) = script_engine.action_handler() {
-                    if let Err(err) = handler.cameo_flash(&cameo_name, count) {
-                        log::warn!("Script action handler cameo_flash failed: {}", err);
-                    }
-                }
+        if let Some(handler) = current_script_action_handler() {
+            if let Err(err) = handler.cameo_flash(&cameo_name, count) {
+                log::warn!("Script action handler cameo_flash failed: {}", err);
             }
         }
 
@@ -724,13 +677,9 @@ impl ScriptActionDispatcher {
             timer_text
         );
 
-        if let Ok(engine_guard) = get_script_engine().read() {
-            if let Some(ref script_engine) = *engine_guard {
-                if let Some(handler) = script_engine.action_handler() {
-                    if let Err(err) = handler.add_named_timer(&timer_name, &timer_text, true) {
-                        log::warn!("Script action handler add_named_timer failed: {}", err);
-                    }
-                }
+        if let Some(handler) = current_script_action_handler() {
+            if let Err(err) = handler.add_named_timer(&timer_name, &timer_text, true) {
+                log::warn!("Script action handler add_named_timer failed: {}", err);
             }
         }
 
@@ -744,13 +693,9 @@ impl ScriptActionDispatcher {
         let timer_name = self.get_string_param(action, 0)?;
         log::debug!("Hiding countdown timer '{}'", timer_name);
 
-        if let Ok(engine_guard) = get_script_engine().read() {
-            if let Some(ref script_engine) = *engine_guard {
-                if let Some(handler) = script_engine.action_handler() {
-                    if let Err(err) = handler.remove_named_timer(&timer_name) {
-                        log::warn!("Script action handler remove_named_timer failed: {}", err);
-                    }
-                }
+        if let Some(handler) = current_script_action_handler() {
+            if let Err(err) = handler.remove_named_timer(&timer_name) {
+                log::warn!("Script action handler remove_named_timer failed: {}", err);
             }
         }
 
@@ -760,16 +705,12 @@ impl ScriptActionDispatcher {
     pub(crate) fn do_enable_countdown_timer_display(&mut self) -> Result<ScriptActionResult, ScriptError> {
         log::debug!("Enabling countdown timer display");
 
-        if let Ok(engine_guard) = get_script_engine().read() {
-            if let Some(ref script_engine) = *engine_guard {
-                if let Some(handler) = script_engine.action_handler() {
-                    if let Err(err) = handler.show_named_timer_display(true) {
-                        log::warn!(
-                            "Script action handler show_named_timer_display(true) failed: {}",
-                            err
-                        );
-                    }
-                }
+        if let Some(handler) = current_script_action_handler() {
+            if let Err(err) = handler.show_named_timer_display(true) {
+                log::warn!(
+                    "Script action handler show_named_timer_display(true) failed: {}",
+                    err
+                );
             }
         }
 
@@ -779,16 +720,12 @@ impl ScriptActionDispatcher {
     pub(crate) fn do_disable_countdown_timer_display(&mut self) -> Result<ScriptActionResult, ScriptError> {
         log::debug!("Disabling countdown timer display");
 
-        if let Ok(engine_guard) = get_script_engine().read() {
-            if let Some(ref script_engine) = *engine_guard {
-                if let Some(handler) = script_engine.action_handler() {
-                    if let Err(err) = handler.show_named_timer_display(false) {
-                        log::warn!(
-                            "Script action handler show_named_timer_display(false) failed: {}",
-                            err
-                        );
-                    }
-                }
+        if let Some(handler) = current_script_action_handler() {
+            if let Err(err) = handler.show_named_timer_display(false) {
+                log::warn!(
+                    "Script action handler show_named_timer_display(false) failed: {}",
+                    err
+                );
             }
         }
 
@@ -807,13 +744,9 @@ impl ScriptActionDispatcher {
             counter_text
         );
 
-        if let Ok(engine_guard) = get_script_engine().read() {
-            if let Some(ref script_engine) = *engine_guard {
-                if let Some(handler) = script_engine.action_handler() {
-                    if let Err(err) = handler.add_named_timer(&counter_name, &counter_text, false) {
-                        log::warn!("Script action handler add_named_timer failed: {}", err);
-                    }
-                }
+        if let Some(handler) = current_script_action_handler() {
+            if let Err(err) = handler.add_named_timer(&counter_name, &counter_text, false) {
+                log::warn!("Script action handler add_named_timer failed: {}", err);
             }
         }
 
@@ -827,13 +760,9 @@ impl ScriptActionDispatcher {
         let counter_name = self.get_string_param(action, 0)?;
         log::debug!("Hiding counter '{}'", counter_name);
 
-        if let Ok(engine_guard) = get_script_engine().read() {
-            if let Some(ref script_engine) = *engine_guard {
-                if let Some(handler) = script_engine.action_handler() {
-                    if let Err(err) = handler.remove_named_timer(&counter_name) {
-                        log::warn!("Script action handler remove_named_timer failed: {}", err);
-                    }
-                }
+        if let Some(handler) = current_script_action_handler() {
+            if let Err(err) = handler.remove_named_timer(&counter_name) {
+                log::warn!("Script action handler remove_named_timer failed: {}", err);
             }
         }
 
@@ -843,16 +772,12 @@ impl ScriptActionDispatcher {
     pub(crate) fn do_disable_special_power_display(&mut self) -> Result<ScriptActionResult, ScriptError> {
         log::debug!("Disabling special power display");
 
-        if let Ok(engine_guard) = get_script_engine().read() {
-            if let Some(ref script_engine) = *engine_guard {
-                if let Some(handler) = script_engine.action_handler() {
-                    if let Err(err) = handler.set_superweapon_display_enabled_by_script(false) {
-                        log::warn!(
-                            "Script action handler set_superweapon_display_enabled_by_script(false) failed: {}",
-                            err
-                        );
-                    }
-                }
+        if let Some(handler) = current_script_action_handler() {
+            if let Err(err) = handler.set_superweapon_display_enabled_by_script(false) {
+                log::warn!(
+                    "Script action handler set_superweapon_display_enabled_by_script(false) failed: {}",
+                    err
+                );
             }
         }
 
@@ -862,16 +787,12 @@ impl ScriptActionDispatcher {
     pub(crate) fn do_enable_special_power_display(&mut self) -> Result<ScriptActionResult, ScriptError> {
         log::debug!("Enabling special power display");
 
-        if let Ok(engine_guard) = get_script_engine().read() {
-            if let Some(ref script_engine) = *engine_guard {
-                if let Some(handler) = script_engine.action_handler() {
-                    if let Err(err) = handler.set_superweapon_display_enabled_by_script(true) {
-                        log::warn!(
-                            "Script action handler set_superweapon_display_enabled_by_script(true) failed: {}",
-                            err
-                        );
-                    }
-                }
+        if let Some(handler) = current_script_action_handler() {
+            if let Err(err) = handler.set_superweapon_display_enabled_by_script(true) {
+                log::warn!(
+                    "Script action handler set_superweapon_display_enabled_by_script(true) failed: {}",
+                    err
+                );
             }
         }
 
@@ -900,16 +821,12 @@ impl ScriptActionDispatcher {
         );
 
         // C++: TheInGameUI->popupMessage(message, x, y, width, pause, FALSE)
-        if let Ok(engine_guard) = get_script_engine().read() {
-            if let Some(ref script_engine) = *engine_guard {
-                if let Some(handler) = script_engine.action_handler() {
-                    if let Err(err) =
-                        handler.popup_message(&message, x_percent, y_percent, width, pause, false)
-                    {
-                        log::warn!("Script action handler popup_message failed: {}", err);
-                        let _ = handler.display_text(&message);
-                    }
-                }
+        if let Some(handler) = current_script_action_handler() {
+            if let Err(err) =
+                handler.popup_message(&message, x_percent, y_percent, width, pause, false)
+            {
+                log::warn!("Script action handler popup_message failed: {}", err);
+                let _ = handler.display_text(&message);
             }
         }
 
@@ -1009,20 +926,16 @@ impl ScriptActionDispatcher {
         }
 
         if center_in_view {
-            if let Ok(engine_guard) = get_script_engine().read() {
-                if let Some(ref script_engine) = *engine_guard {
-                    if let Some(handler) = script_engine.action_handler() {
-                        let _ = handler.move_camera_to(
-                            selected_pos.x,
-                            selected_pos.y,
-                            selected_pos.z,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                        );
-                    }
-                }
+            if let Some(handler) = current_script_action_handler() {
+                let _ = handler.move_camera_to(
+                    selected_pos.x,
+                    selected_pos.y,
+                    selected_pos.z,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                );
             }
         }
 
@@ -1035,14 +948,10 @@ impl ScriptActionDispatcher {
 
     pub(crate) fn do_freeze_time(&mut self) -> Result<ScriptActionResult, ScriptError> {
         log::debug!("Freezing time");
-        if let Ok(mut engine_guard) = get_script_engine().write() {
-            if let Some(ref mut script_engine) = *engine_guard {
-                script_engine.do_freeze_time();
-                if let Some(handler) = script_engine.action_handler() {
-                    if let Err(err) = handler.freeze_time() {
-                        log::warn!("Script action handler freeze_time failed: {}", err);
-                    }
-                }
+        let _ = with_script_engine_mut(|script_engine| script_engine.do_freeze_time());
+        if let Some(handler) = current_script_action_handler() {
+            if let Err(err) = handler.freeze_time() {
+                log::warn!("Script action handler freeze_time failed: {}", err);
             }
         }
         Ok(ScriptActionResult::Success)
@@ -1050,14 +959,10 @@ impl ScriptActionDispatcher {
 
     pub(crate) fn do_unfreeze_time(&mut self) -> Result<ScriptActionResult, ScriptError> {
         log::debug!("Unfreezing time");
-        if let Ok(mut engine_guard) = get_script_engine().write() {
-            if let Some(ref mut script_engine) = *engine_guard {
-                script_engine.do_unfreeze_time();
-                if let Some(handler) = script_engine.action_handler() {
-                    if let Err(err) = handler.unfreeze_time() {
-                        log::warn!("Script action handler unfreeze_time failed: {}", err);
-                    }
-                }
+        let _ = with_script_engine_mut(|script_engine| script_engine.do_unfreeze_time());
+        if let Some(handler) = current_script_action_handler() {
+            if let Err(err) = handler.unfreeze_time() {
+                log::warn!("Script action handler unfreeze_time failed: {}", err);
             }
         }
         Ok(ScriptActionResult::Success)
@@ -1069,16 +974,12 @@ impl ScriptActionDispatcher {
     ) -> Result<ScriptActionResult, ScriptError> {
         let multiplier = self.get_int_param(action, 0)?;
         log::debug!("Setting visual speed multiplier to {}", multiplier);
-        if let Ok(engine_guard) = get_script_engine().read() {
-            if let Some(ref script_engine) = *engine_guard {
-                if let Some(handler) = script_engine.action_handler() {
-                    if let Err(err) = handler.set_visual_speed_multiplier(multiplier) {
-                        log::warn!(
-                            "Script action handler set_visual_speed_multiplier failed: {}",
-                            err
-                        );
-                    }
-                }
+        if let Some(handler) = current_script_action_handler() {
+            if let Err(err) = handler.set_visual_speed_multiplier(multiplier) {
+                log::warn!(
+                    "Script action handler set_visual_speed_multiplier failed: {}",
+                    err
+                );
             }
         }
         Ok(ScriptActionResult::Success)
@@ -1090,13 +991,9 @@ impl ScriptActionDispatcher {
     ) -> Result<ScriptActionResult, ScriptError> {
         let fps = self.get_int_param(action, 0)?;
         log::debug!("Setting FPS limit to {}", fps);
-        if let Ok(engine_guard) = get_script_engine().read() {
-            if let Some(ref script_engine) = *engine_guard {
-                if let Some(handler) = script_engine.action_handler() {
-                    if let Err(err) = handler.set_fps_limit(fps) {
-                        log::warn!("Script action handler set_fps_limit failed: {}", err);
-                    }
-                }
+        if let Some(handler) = current_script_action_handler() {
+            if let Err(err) = handler.set_fps_limit(fps) {
+                log::warn!("Script action handler set_fps_limit failed: {}", err);
             }
         }
         Ok(ScriptActionResult::Success)
@@ -1124,17 +1021,15 @@ impl ScriptActionDispatcher {
             randomness
         );
 
-        if let Ok(mut engine_guard) = get_script_engine().write() {
-            if let Some(ref mut script_engine) = *engine_guard {
-                script_engine.set_breeze_info(
-                    direction,
-                    intensity,
-                    lean,
-                    breeze_period,
-                    randomness,
-                );
-            }
-        }
+        let _ = with_script_engine_mut(|script_engine| {
+            script_engine.set_breeze_info(
+                direction,
+                intensity,
+                lean,
+                breeze_period,
+                randomness,
+            );
+        });
 
         Ok(ScriptActionResult::Success)
     }
@@ -1215,13 +1110,9 @@ impl ScriptActionDispatcher {
         let show_weather = self.get_bool_param_optional(action, 0).unwrap_or(true);
         log::debug!("Setting weather visibility to {}", show_weather);
 
-        if let Ok(engine_guard) = get_script_engine().read() {
-            if let Some(ref script_engine) = *engine_guard {
-                if let Some(handler) = script_engine.action_handler() {
-                    if let Err(err) = handler.set_weather_visible(show_weather) {
-                        log::warn!("Script action handler set_weather_visible failed: {}", err);
-                    }
-                }
+        if let Some(handler) = current_script_action_handler() {
+            if let Err(err) = handler.set_weather_visible(show_weather) {
+                log::warn!("Script action handler set_weather_visible failed: {}", err);
             }
         }
 

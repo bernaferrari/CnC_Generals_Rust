@@ -376,6 +376,7 @@ impl Particle {
     /// - Multiply: Near-white (product of RGB > 0.95) is invisible
     pub fn is_invisible(&self, shader_type: ParticleShaderType) -> bool {
         match shader_type {
+            ParticleShaderType::Invalid => true,
             ParticleShaderType::Additive => {
                 // If color is black, particle is invisible for additive blending (C++ lines 468-476)
                 // Check that we're not transitioning to another color
@@ -1001,13 +1002,9 @@ fn xfer_particle_shader_type(
     value: &mut ParticleShaderType,
 ) -> Result<(), String> {
     let mut raw = *value as u32;
-    xfer_cpp_enum(
-        xfer,
-        &mut raw,
-        |v| (1..=4).contains(&v),
-        ParticleShaderType::Alpha as u32,
-    )?;
+    xfer_cpp_enum(xfer, &mut raw, |v| v <= 4, ParticleShaderType::Alpha as u32)?;
     *value = match raw {
+        0 => ParticleShaderType::Invalid,
         1 => ParticleShaderType::Additive,
         2 => ParticleShaderType::Alpha,
         3 => ParticleShaderType::AlphaTest,
@@ -1019,13 +1016,9 @@ fn xfer_particle_shader_type(
 
 fn xfer_particle_type(xfer: &mut dyn Xfer, value: &mut ParticleType) -> Result<(), String> {
     let mut raw = *value as u32;
-    xfer_cpp_enum(
-        xfer,
-        &mut raw,
-        |v| (1..=5).contains(&v),
-        ParticleType::Particle as u32,
-    )?;
+    xfer_cpp_enum(xfer, &mut raw, |v| v <= 5, ParticleType::Particle as u32)?;
     *value = match raw {
+        0 => ParticleType::Invalid,
         1 => ParticleType::Particle,
         2 => ParticleType::Drawable,
         3 => ParticleType::Streak,
@@ -1060,10 +1053,11 @@ fn xfer_emission_velocity_type(
     xfer_cpp_enum(
         xfer,
         &mut raw,
-        |v| (1..=5).contains(&v),
+        |v| v <= 5,
         EmissionVelocityType::Spherical as u32,
     )?;
     *value = match raw {
+        0 => EmissionVelocityType::Invalid,
         1 => EmissionVelocityType::Ortho,
         2 => EmissionVelocityType::Spherical,
         3 => EmissionVelocityType::Hemispherical,
@@ -1079,13 +1073,9 @@ fn xfer_emission_volume_type(
     value: &mut EmissionVolumeType,
 ) -> Result<(), String> {
     let mut raw = *value as u32;
-    xfer_cpp_enum(
-        xfer,
-        &mut raw,
-        |v| (1..=5).contains(&v),
-        EmissionVolumeType::Point as u32,
-    )?;
+    xfer_cpp_enum(xfer, &mut raw, |v| v <= 5, EmissionVolumeType::Point as u32)?;
     *value = match raw {
+        0 => EmissionVolumeType::Invalid,
         1 => EmissionVolumeType::Point,
         2 => EmissionVolumeType::Line,
         3 => EmissionVolumeType::Box,
@@ -1098,13 +1088,9 @@ fn xfer_emission_volume_type(
 
 fn xfer_wind_motion(xfer: &mut dyn Xfer, value: &mut WindMotion) -> Result<(), String> {
     let mut raw = *value as u32;
-    xfer_cpp_enum(
-        xfer,
-        &mut raw,
-        |v| (1..=3).contains(&v),
-        WindMotion::NotUsed as u32,
-    )?;
+    xfer_cpp_enum(xfer, &mut raw, |v| v <= 3, WindMotion::NotUsed as u32)?;
     *value = match raw {
+        0 => WindMotion::Invalid,
         1 => WindMotion::NotUsed,
         2 => WindMotion::PingPong,
         3 => WindMotion::Circular,
@@ -1119,6 +1105,7 @@ fn xfer_emission_velocity(
     velocity: &mut EmissionVelocity,
 ) -> Result<(), String> {
     match velocity_type {
+        EmissionVelocityType::Invalid => {}
         EmissionVelocityType::Ortho => {
             let (mut x, mut y, mut z) = match *velocity {
                 EmissionVelocity::Ortho { x, y, z } => (x, y, z),
@@ -1183,6 +1170,11 @@ fn xfer_emission_volume(
     volume: &mut EmissionVolume,
 ) -> Result<(), String> {
     match volume_type {
+        // C++ stores no union payload for INVALID_VOLUME.  Keep the Rust
+        // storage benign while the separate enum still preserves that state.
+        EmissionVolumeType::Invalid => {
+            *volume = EmissionVolume::Point;
+        }
         EmissionVolumeType::Point => {
             *volume = EmissionVolume::Point;
         }
@@ -1867,7 +1859,7 @@ impl ParticleSystem {
 
                 // Do wind motion if enabled (applied directly to position, not as force)
                 // C++ handles this in Particle::doWindMotion, called from Particle::update
-                if wind_motion != WindMotion::NotUsed {
+                if matches!(wind_motion, WindMotion::PingPong | WindMotion::Circular) {
                     particle.do_wind_motion(wind_angle, system_pos);
                 }
 
@@ -2148,6 +2140,7 @@ impl ParticleSystem {
                 let other_speed_val = other_speed.sample();
 
                 match info.emission_volume_type {
+                    EmissionVolumeType::Invalid => Vector3::zeros(),
                     EmissionVolumeType::Cylinder => {
                         let dx = position.x - self.position.x;
                         let dy = position.y - self.position.y;
@@ -2243,6 +2236,9 @@ impl ParticleSystem {
         let mut rng = thread_rng();
 
         match info.wind_motion {
+            WindMotion::Invalid | WindMotion::NotUsed => {
+                // No wind motion.
+            }
             WindMotion::PingPong => {
                 self.wind_angle = rng
                     .gen_range(info.wind_motion_start_angle_min..=info.wind_motion_start_angle_max);
@@ -2254,9 +2250,6 @@ impl ParticleSystem {
                 self.wind_angle_change =
                     rng.gen_range(info.wind_angle_change_min..=info.wind_angle_change_max);
             }
-            WindMotion::NotUsed => {
-                // No wind motion
-            }
         }
     }
 
@@ -2266,6 +2259,9 @@ impl ParticleSystem {
         let mut rng = thread_rng();
 
         match info.wind_motion {
+            WindMotion::Invalid | WindMotion::NotUsed => {
+                // No wind motion.
+            }
             WindMotion::PingPong => {
                 let start_angle = self.wind_motion_start_angle;
                 let end_angle = self.wind_motion_end_angle;
@@ -2314,9 +2310,6 @@ impl ParticleSystem {
                 while self.wind_angle > 2.0 * std::f32::consts::PI {
                     self.wind_angle -= 2.0 * std::f32::consts::PI;
                 }
-            }
-            WindMotion::NotUsed => {
-                // No wind motion
             }
         }
     }

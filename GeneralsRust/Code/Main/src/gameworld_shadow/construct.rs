@@ -205,7 +205,7 @@ impl GameWorldShadow {
             // Prefer host facing on sync (pose channel). Zero was a residual wipe that
             // forced apply_host_positions to re-queue every entity each tick.
             let transform = Transform::new([pos.x, pos.y, pos.z], obj.get_orientation());
-            let owner = self.owner_for_host_object(logic, obj.team);
+            let owner = self.owner_for_host_object(logic, obj);
             let health = obj.health.current.max(0.0);
 
             if let Some(&eid) = self.host_to_entity.get(&oid.0) {
@@ -298,6 +298,18 @@ impl GameWorldShadow {
                     e.disabled_paralyzed = obj.status.disabled_paralyzed;
                     e.weapons_jammed = obj.status.weapons_jammed;
                     e.masked = obj.status.masked;
+                    e.unattackable = obj.is_kind_of(crate::game_logic::KindOf::Unattackable);
+                    e.dock_kind = obj.thing.template.dock_kind as u8;
+                    e.capturable = obj.thing.template.capturable;
+                    e.immune_to_capture = obj.thing.template.immune_to_capture;
+                    e.capture_garrisonable = obj.thing.template.garrison_contain_max.is_some();
+                    e.capture_power = obj.thing.template.capture_power as u8;
+                    e.capture_power_ready = obj
+                        .thing
+                        .template
+                        .capture_power
+                        .special_power_type()
+                        .is_some_and(|power| logic.is_special_power_ready_for(oid, &power));
                     e.disguised = obj.status.disguised;
                     e.disabled_subdued = obj.status.disabled_subdued;
                     e.subdual_damage = obj.subdual_damage;
@@ -1741,6 +1753,18 @@ impl GameWorldShadow {
                 e.disabled_paralyzed = obj.status.disabled_paralyzed;
                 e.weapons_jammed = obj.status.weapons_jammed;
                 e.masked = obj.status.masked;
+                e.unattackable = obj.is_kind_of(crate::game_logic::KindOf::Unattackable);
+                e.dock_kind = obj.thing.template.dock_kind as u8;
+                e.capturable = obj.thing.template.capturable;
+                e.immune_to_capture = obj.thing.template.immune_to_capture;
+                e.capture_garrisonable = obj.thing.template.garrison_contain_max.is_some();
+                e.capture_power = obj.thing.template.capture_power as u8;
+                e.capture_power_ready = obj
+                    .thing
+                    .template
+                    .capture_power
+                    .special_power_type()
+                    .is_some_and(|power| logic.is_special_power_ready_for(oid, &power));
                 e.disguised = obj.status.disguised;
                 e.disabled_subdued = obj.status.disabled_subdued;
                 e.subdual_damage = obj.subdual_damage;
@@ -2496,18 +2520,26 @@ impl GameWorldShadow {
         None
     }
 
-    pub(super) fn owner_for_host_object(&self, logic: &GameLogic, team: Team) -> Option<PlayerId> {
-        let mut ids: Vec<u32> = logic.get_players().keys().copied().collect();
-        ids.sort_unstable();
-        for hid in ids {
-            if let Some(p) = logic.get_player(hid) {
-                if p.team == team {
-                    return self.host_player_to_gw.get(&hid).copied();
-                }
-            }
-        }
-        // No matching host player for this team: leave unowned (do not
-        // silently attach the first skirmish player).
-        None
+    /// Reverse-map a GameWorld owner to its host player identity.
+    pub(super) fn host_player_for_gw_owner(&self, owner: Option<PlayerId>) -> Option<u32> {
+        let owner = owner?;
+        self.host_player_to_gw
+            .iter()
+            .find_map(|(&host_player_id, &gw_player_id)| {
+                (gw_player_id == owner).then_some(host_player_id)
+            })
+    }
+
+    /// Resolve a host object through its explicit controlling player. Objects
+    /// without a player remain neutral in GameWorld; choosing the first player
+    /// with the same faction breaks USA-vs-USA skirmishes.
+    pub(super) fn owner_for_host_object(
+        &self,
+        _logic: &GameLogic,
+        object: &crate::game_logic::Object,
+    ) -> Option<PlayerId> {
+        object
+            .owner_player_id
+            .and_then(|player_id| self.host_player_to_gw.get(&player_id).copied())
     }
 }

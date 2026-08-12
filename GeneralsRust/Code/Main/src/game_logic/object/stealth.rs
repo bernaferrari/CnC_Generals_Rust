@@ -276,7 +276,15 @@ impl Object {
     /// C++ WeaponSet::getCanAttackObject stealth gate residual + disguise
     /// relationship residual (disguised units appear as disguise team).
     pub fn is_targetable_by_enemy_of(&self, attacker_team: Team) -> bool {
-        if !self.is_alive() || !self.is_attackable() {
+        // C++ WeaponSet applies these two unconditional victim overrides
+        // before visibility, relationship, or target acquisition.  Keeping
+        // them in this shared query closes the AI/retaliation/area-attack
+        // paths that do not enter an explicit player command first.
+        if !self.is_alive()
+            || !self.is_attackable()
+            || self.is_kind_of(KindOf::Unattackable)
+            || self.status.masked
+        {
             return false;
         }
         // Disguise residual: auto-target uses apparent team (allies of disguise skip).
@@ -302,6 +310,13 @@ impl Object {
 
     /// Slot-aware can_target (LeechRange uses per-slot active residual).
     pub fn can_target_with_slot(&self, target: &Object, weapon: &Weapon, slot: Option<u8>) -> bool {
+        // This helper is used by live acquisition and combat state paths, not
+        // merely a range query.  Keep C++ WeaponSet's unconditional target
+        // overrides here as well as at the command boundary so a masked or
+        // UNATTACKABLE object cannot slip through an AI/ground-acquire path.
+        if target.is_kind_of(KindOf::Unattackable) || target.status.masked {
+            return false;
+        }
         // C++ WeaponSet: stealthed + undetected cannot be attacked
         // (including force-fire against pure stealth; disguise exception not residual).
         // OBJECT_STATUS_IGNORING_STEALTH residual bypasses this gate.
@@ -312,15 +327,12 @@ impl Object {
             return false;
         }
 
+        let target_anti_mask = target.weapon_target_anti_mask();
+        if !self.weapon_allows_target_anti_mask(weapon, slot, target_anti_mask) {
+            return false;
+        }
+
         let target_is_air = target.is_kind_of(KindOf::Aircraft) || target.status.airborne_target;
-
-        if target_is_air && !weapon.can_target_air {
-            return false;
-        }
-
-        if !target_is_air && !weapon.can_target_ground {
-            return false;
-        }
         // C++ DAMAGE_DISARM estimate residual: only mines/demo/booby are valid.
         {
             let wname = slot.and_then(|weapon_slot| self.weapon_name_for_slot(weapon_slot));

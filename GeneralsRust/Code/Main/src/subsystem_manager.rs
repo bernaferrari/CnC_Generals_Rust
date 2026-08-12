@@ -468,6 +468,80 @@ impl AudioManagerSubsystem {
         self.queued_events.drain(..).collect()
     }
 
+    /// Move gameplay and presentation events through the one live audio queue.
+    ///
+    /// Both the fixed-delta and frame-timing subsystem updates must execute
+    /// this exact ordering.  The normal executable path uses
+    /// `update_with_timing`, so leaving the drain only in `update` made real
+    /// build/train/gather/combat/UI events accumulate without ever reaching
+    /// the SoundEffectsTable/backend.
+    fn drain_and_dispatch_queued_audio(&mut self) {
+        // Drain gameplay audio events (weapon fire, unit death) from the
+        // common dispatch before presentation/UI events, matching the old
+        // `update` order.
+        for event in self.gameplay_dispatch.drain_events() {
+            let mut req = crate::game_logic::AudioEventRequest::new(&event.event_name);
+            if let Some((x, y, z)) = event.position {
+                req = req.with_position(glam::Vec3::new(x, y, z));
+            }
+            self.queue_event(req);
+        }
+
+        // Apply high-level toggles/events that don't require archive lookups yet.
+        // Wave 528: presentation FireSound loop stop is stop-only (no replay).
+        for event in self.drain_events() {
+            match event.event_type.as_str() {
+                "MusicDisable" => {
+                    self._music_on = false;
+                    if let Some(audio_manager) = &mut self.audio_manager {
+                        audio_manager.pause_audio(crate::assets::AudioAffect::Music);
+                    }
+                }
+                "MusicEnable" => {
+                    self._music_on = true;
+                    if let Some(audio_manager) = &mut self.audio_manager {
+                        audio_manager.resume_audio(crate::assets::AudioAffect::Music);
+                    }
+                }
+                "WeaponFireLoopStop" => {
+                    if let Some(id) = event.object_id {
+                        self.looping_object_audio.remove(&id.0);
+                        log::trace!("presentation FireSound loop stop residual object={}", id.0);
+                    }
+                }
+                _ => {
+                    if !self._sounds_on {
+                        continue;
+                    }
+
+                    // Track looping FireSound residual from presentation.
+                    if event.is_looping {
+                        if let Some(id) = event.object_id {
+                            self.looping_object_audio.insert(id.0);
+                        }
+                    }
+
+                    let Some(table) = self.sound_effects_table.as_ref() else {
+                        continue;
+                    };
+
+                    let Some(sound_path) = table.resolve_sound_path(event.event_type.as_str())
+                    else {
+                        continue;
+                    };
+
+                    if let Ok(handle) = tokio::runtime::Handle::try_current() {
+                        tokio::task::block_in_place(|| {
+                            let _ = handle.block_on(crate::assets::manager::play_cnc_sound_effect(
+                                &sound_path,
+                            ));
+                        });
+                    }
+                }
+            }
+        }
+    }
+
     /// C++ parity: after returning from iconic/minimized mode, pulse audio volume to wake backend.
     pub fn wake_after_iconic_return(&mut self) {
         let Some(audio_manager) = self.audio_manager.as_mut() else {
@@ -554,68 +628,7 @@ impl SubsystemInterface for AudioManagerSubsystem {
     }
 
     fn update(&mut self, _dt: f32) -> Result<()> {
-        // Drain gameplay audio events (weapon fire, unit death) from the dispatch.
-        for event in self.gameplay_dispatch.drain_events() {
-            let mut req = crate::game_logic::AudioEventRequest::new(&event.event_name);
-            if let Some((x, y, z)) = event.position {
-                req = req.with_position(glam::Vec3::new(x, y, z));
-            }
-            self.queue_event(req);
-        }
-
-        // Apply high-level toggles/events that don't require archive lookups yet.
-        // Wave 528: presentation FireSound loop stop is stop-only (no replay).
-        for event in self.drain_events() {
-            match event.event_type.as_str() {
-                "MusicDisable" => {
-                    self._music_on = false;
-                    if let Some(audio_manager) = &mut self.audio_manager {
-                        audio_manager.pause_audio(crate::assets::AudioAffect::Music);
-                    }
-                }
-                "MusicEnable" => {
-                    self._music_on = true;
-                    if let Some(audio_manager) = &mut self.audio_manager {
-                        audio_manager.resume_audio(crate::assets::AudioAffect::Music);
-                    }
-                }
-                "WeaponFireLoopStop" => {
-                    if let Some(id) = event.object_id {
-                        self.looping_object_audio.remove(&id.0);
-                        log::trace!("presentation FireSound loop stop residual object={}", id.0);
-                    }
-                }
-                _ => {
-                    if !self._sounds_on {
-                        continue;
-                    }
-
-                    // Track looping FireSound residual from presentation.
-                    if event.is_looping {
-                        if let Some(id) = event.object_id {
-                            self.looping_object_audio.insert(id.0);
-                        }
-                    }
-
-                    let Some(table) = self.sound_effects_table.as_ref() else {
-                        continue;
-                    };
-
-                    let Some(sound_path) = table.resolve_sound_path(event.event_type.as_str())
-                    else {
-                        continue;
-                    };
-
-                    if let Ok(handle) = tokio::runtime::Handle::try_current() {
-                        tokio::task::block_in_place(|| {
-                            let _ = handle.block_on(crate::assets::manager::play_cnc_sound_effect(
-                                &sound_path,
-                            ));
-                        });
-                    }
-                }
-            }
-        }
+        self.drain_and_dispatch_queued_audio();
 
         if let Some(audio_manager) = &mut self.audio_manager {
             audio_manager.update();
@@ -624,6 +637,11 @@ impl SubsystemInterface for AudioManagerSubsystem {
     }
 
     fn update_with_timing(&mut self, timing: &FrameTiming) -> Result<()> {
+        // `CnCGameEngine::update_runtime_subsystems` normally takes this
+        // timing-aware path, so it must drain the same queue before advancing
+        // the backend clock.  Do not call `update()` here: that would advance
+        // the backend twice with incompatible timing sources.
+        self.drain_and_dispatch_queued_audio();
         if let Some(audio_manager) = &mut self.audio_manager {
             audio_manager.update_with_time(timing.delta_seconds(), timing.total_seconds());
         }
@@ -714,8 +732,8 @@ impl GameClientSubsystem {
         use game_client::core::script_action_handler::apply_pending_script_display_state;
         use game_client::eva::update_eva_system;
         use game_client::gui::{
-            get_display_string_manager, get_shell, window_video_manager::with_window_video_manager,
-            with_window_manager,
+            get_display_string_manager, window_video_manager::with_window_video_manager,
+            with_shell_mut, with_window_manager,
         };
         use game_client::system::SubsystemInterface as GameClientSubsystemInterface;
         use game_client::video_player::{get_video_player, VideoPlayerInterface as _};
@@ -738,8 +756,8 @@ impl GameClientSubsystem {
 
         apply_pending_script_display_state();
 
-        let mut shell = get_shell();
-        if let Err(err) = GameClientSubsystemInterface::update(&mut *shell) {
+        if let Some(Err(err)) = with_shell_mut(|shell| GameClientSubsystemInterface::update(shell))
+        {
             warn!("Shell update failed: {}", err);
         }
     }
@@ -1385,14 +1403,14 @@ impl<T: 'static> SubsystemHandle<T> {
     }
 
     pub fn get_mut<'a>(&self, manager: &'a mut SubsystemManager) -> Option<&'a mut T> {
-        if self.index >= manager.subsystems.len() {
-            return None;
-        }
-        let slot_ptr: *mut dyn SubsystemStorage = manager.subsystems[self.index].as_mut();
-        unsafe {
-            let slot = &mut *slot_ptr;
-            slot.as_any_mut().downcast_mut::<T>()
-        }
+        // The index is immutable for the lifetime of a handle, and `get_mut`
+        // already gives this call the manager's sole mutable borrow.  The old
+        // raw-pointer round trip added no capability, but weakened that
+        // guarantee and made a future re-entrant caller unsafe by default.
+        manager
+            .subsystems
+            .get_mut(self.index)
+            .and_then(|slot| slot.as_any_mut().downcast_mut::<T>())
     }
 }
 
@@ -1911,10 +1929,45 @@ pub fn shutdown_subsystem_manager() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use game_engine::common::audio::GameplayAudioDispatch;
     use game_engine::common::ini::{
         ini_control_bar_scheme::get_control_bar_scheme_manager,
         ini_shell_menu_scheme::get_shell_menu_scheme_manager,
     };
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn audio_timing_update_drains_gameplay_and_presentation_event_queues() {
+        let mut audio = AudioManagerSubsystem::new();
+        audio.queue_event(crate::game_logic::AudioEventRequest::new("UnitCommand"));
+        GameplayAudioDispatch::play_positional_sound(
+            audio.gameplay_dispatch.as_ref(),
+            "AmericaTankFire",
+            10.0,
+            0.0,
+            20.0,
+        );
+
+        let timing = FrameTiming {
+            frame_number: 1,
+            delta_time: Duration::from_millis(16),
+            total_time: Duration::from_millis(16),
+            fps: 60.0,
+            frame_start: Instant::now(),
+            sync_time: 16,
+            previous_sync_time: 0,
+        };
+        audio.update_with_timing(&timing).unwrap();
+
+        assert!(
+            audio.queued_events.is_empty(),
+            "timing-driven updates must drain presentation/UI audio requests"
+        );
+        assert!(
+            audio.gameplay_dispatch.drain_events().is_empty(),
+            "timing-driven updates must drain gameplay weapon/death/EVA audio requests"
+        );
+    }
 
     #[test]
     fn test_subsystem_initialization_order_includes_bootstrap_milestones() {

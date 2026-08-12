@@ -332,11 +332,14 @@ impl UnitControlSystem {
 
     /// Snapshot residual: attackable when alive + Attackable kind.
     pub fn presentation_is_attackable(o: &RenderableObject) -> bool {
-        // Wave 1093: presentation attackable residual fail-closed on sold/masked
-        // (pick + enemy-priority bands must not target sold or masked objects).
+        // Keep the presentation pick path aligned with WeaponSet's first legality
+        // checks.  `UNATTACKABLE` objects exist in the snapshot because they can
+        // still have lifetime/vision behavior, but C++ never offers them as a
+        // weapon victim (WeaponSet::getAbleToAttackSpecificObject).
         !o.destroyed
             && !o.sold
             && !o.masked
+            && !o.unattackable
             && PresentationFrame::object_has_kind(o, KindOf::Attackable)
     }
 
@@ -361,7 +364,7 @@ impl UnitControlSystem {
                 }
                 // Wave 1094: non-local FOW residual fail-closed (Clear only),
                 // matching dual collect_selectable shroud_status>=2 peel.
-                let is_local = player_team.is_some_and(|t| o.team == t);
+                let is_local = player_team.is_some() && frame.is_owned_by_local(o);
                 if !is_local && o.fow_visibility.visibility_alpha < 0.95 {
                     return None;
                 }
@@ -374,15 +377,15 @@ impl UnitControlSystem {
                 let attackable = Self::presentation_is_attackable(o);
                 let priority = if prioritize_enemy_targets {
                     match player_team {
-                        Some(team) if o.team != team && attackable => Some(0),
-                        Some(team) if o.team == team && selectable => Some(1),
+                        Some(_) if frame.is_enemy_of_local(o) && attackable => Some(0),
+                        Some(_) if frame.is_owned_by_local(o) && selectable => Some(1),
                         _ if attackable => Some(2),
                         _ if selectable => Some(3),
                         _ => None,
                     }
                 } else {
                     match player_team {
-                        Some(team) if o.team == team && selectable => Some(0),
+                        Some(_) if frame.is_owned_by_local(o) && selectable => Some(0),
                         Some(_) => None,
                         None if selectable => Some(0),
                         None => None,
@@ -423,7 +426,7 @@ impl UnitControlSystem {
                 continue;
             }
             // Wave 1094: non-local FOW residual fail-closed (Clear only).
-            if o.team != self.local_player_team && o.fow_visibility.visibility_alpha < 0.95 {
+            if !frame.is_owned_by_local(o) && o.fow_visibility.visibility_alpha < 0.95 {
                 continue;
             }
             let object_position = o.position;
@@ -501,7 +504,7 @@ impl UnitControlSystem {
                     .objects
                     .iter()
                     .find(|o| o.id == result.object_id)
-                    .map(|o| o.team == self.local_player_team)
+                    .map(|o| frame.is_owned_by_local(o))
                     .unwrap_or(false)
             } else {
                 // Wave 951: fail-closed without presentation freeze.
@@ -564,9 +567,7 @@ impl UnitControlSystem {
                     .objects
                     .iter()
                     .find(|o| o.id == result.object_id)
-                    .map(|o| {
-                        o.team != self.local_player_team && Self::presentation_is_attackable(o)
-                    })
+                    .map(|o| frame.is_enemy_of_local(o) && Self::presentation_is_attackable(o))
                     .unwrap_or(false)
             } else {
                 // Wave 951: fail-closed without presentation freeze.
@@ -626,7 +627,7 @@ impl UnitControlSystem {
             // Wave 949: box selection is presentation-only (no live GameLogic dual-read).
             if let Some(frame) = self.presentation_frame.as_ref() {
                 for o in &frame.objects {
-                    if o.team == self.local_player_team && Self::presentation_is_selectable(o) {
+                    if frame.is_owned_by_local(o) && Self::presentation_is_selectable(o) {
                         let pos = o.position;
                         if pos.x >= min_x && pos.x <= max_x && pos.z >= min_z && pos.z <= max_z {
                             if PresentationFrame::object_has_kind(o, KindOf::Structure)
@@ -703,7 +704,7 @@ impl UnitControlSystem {
         if let Some(frame) = self.presentation_frame.as_ref() {
             let ok = frame.objects.iter().any(|o| {
                 o.id == object_id
-                    && o.team == self.local_player_team
+                    && frame.is_owned_by_local(o)
                     && Self::presentation_is_selectable(o)
             });
             if !ok {
@@ -726,7 +727,7 @@ impl UnitControlSystem {
         if let Some(frame) = self.presentation_frame.as_ref() {
             let ok = frame.objects.iter().any(|o| {
                 o.id == object_id
-                    && o.team == self.local_player_team
+                    && frame.is_owned_by_local(o)
                     && Self::presentation_is_selectable(o)
             });
             if !ok {
@@ -776,7 +777,7 @@ impl UnitControlSystem {
         let template_name = clicked.template_name.clone();
         self.selected_objects.clear();
         for o in &frame.objects {
-            if o.team == self.local_player_team
+            if frame.is_owned_by_local(o)
                 && Self::presentation_is_selectable(o)
                 && o.template_name == template_name
             {
@@ -910,7 +911,7 @@ impl UnitControlSystem {
         self.selected_objects.clear();
         if let Some(frame) = self.presentation_frame.as_ref() {
             for o in &frame.objects {
-                if o.team == self.local_player_team && Self::presentation_is_selectable(o) {
+                if frame.is_owned_by_local(o) && Self::presentation_is_selectable(o) {
                     self.selected_objects.push(o.id);
                 }
             }
@@ -1306,6 +1307,21 @@ mod tests {
         let frame = PresentationFrame::build_from_logic(&logic, 0);
         let o = frame.objects.iter().find(|x| x.id == id).unwrap();
         assert!(UnitControlSystem::presentation_is_attackable(o));
+    }
+
+    #[test]
+    fn presentation_attackable_rejects_unattackable_weaponset_victims() {
+        let (mut logic, id) = logic_with_selectable_unit();
+        logic
+            .host_object_mut(id)
+            .expect("live object")
+            .thing
+            .template
+            .add_kind_of(KindOf::Unattackable);
+        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        let object = frame.objects.iter().find(|object| object.id == id).unwrap();
+        assert!(object.unattackable);
+        assert!(!UnitControlSystem::presentation_is_attackable(object));
     }
 
     #[test]

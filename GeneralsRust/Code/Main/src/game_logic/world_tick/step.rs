@@ -137,6 +137,10 @@ impl GameLogic {
     /// Line 3799: m_frame++                            [increment]
     /// ```
     pub(in super::super) fn update_simulation(&mut self, dt: f32) {
+        // Presentation spawn/destruction events are logic-frame scoped. Keep
+        // active particle systems themselves, but never replay old spawn events
+        // forever on later presentation frames.
+        self.combat_particles.clear_frame_events();
         // HashMap starts the tick as a GameWorld view (HP/pose/target/fat fields).
         self.sync_authoritative_view_from_gameworld();
         // Pathfinding dynamic obstacles rebuild once per host logic frame.
@@ -732,6 +736,9 @@ impl GameLogic {
             crate::game_logic::combat::drain_pending_projectiles(&mut self.combat_system, objects);
             crate::game_logic::host_historic_bonus::set_logic_frame(self.frame);
         }
+        // C++ Weapon::fireWeaponTemplate runs FireOCL at shot acceptance,
+        // independently of whether the projectile later finds a target.
+        self.execute_pending_weapon_fire_ocls();
         // Countermeasures residual: mark aircraft upgrade flags for combat pass.
         // CombatSystem cannot see player upgrades; diversion is applied after
         // update_projectiles via a dedicated pre-damage filter is not available,
@@ -775,46 +782,27 @@ impl GameLogic {
             // hit SFX is fail-closed via presentation audio events when present.
             let _ = projectile_hits;
         }
-        // C++ Weapon.ini ProjectileDetonationFX residual at real impact
-        // (not fire-time). Fail-closed vs full FXList doFXPos / OCL spawn.
-        let impact_fx = self.combat_system.take_impact_fx();
-        for impact in impact_fx {
-            if impact.detonation_fx_name.is_empty() {
-                continue;
-            }
-            let _ = self.combat_particles.spawn_weapon_fire_fx_named_ocl(
-                impact.position,
-                Some(impact.position),
-                self.frame,
-                impact.shooter_id,
-                impact.target_id,
-                "",
-                &impact.detonation_fx_name,
-                "",
-                &impact.detonation_ocl_name,
-            );
-        }
-        // C++ ProjectileExhaust residual: stamp in-flight trail PSys names on host
-        // combat particles (position follows projectile snapshot). Fail-closed vs
-        // full client attach-to-drawable exhaust matrix.
+        // C++ Weapon.ini ProjectileDetonationFX/OCL residual at real impact
+        // (not fire-time), for either host or GameWorld flight ownership.
+        self.flush_projectile_impact_fx();
+        // C++ Weapon.ini ProjectileExhaust: one attached system is created at
+        // missile ignition and follows that projectile until it detonates. The
+        // host has no client projectile drawable, so synchronize one named
+        // world-space system per live projectile instead of spawning a new trail
+        // every logic frame.
         {
             let frame = self.frame;
-            let exhausts: Vec<_> = self
+            let mut exhausts: Vec<_> = self
                 .combat_system
                 .projectiles_snapshot()
                 .into_iter()
-                .filter(|p| !p.exhaust_name.is_empty())
-                .map(|p| (p.position, p.shooter_id, p.id, p.exhaust_name.clone()))
+                .map(|p| (p.id, p.shooter_id, p.position, p.exhaust_name.clone()))
                 .collect();
-            for (pos, shooter, pid, name) in exhausts {
-                let _ = self.combat_particles.spawn_projectile_exhaust(
-                    pos,
-                    frame,
-                    shooter,
-                    Some(pid),
-                    &name,
-                );
-            }
+            // HashMap-backed projectile storage has no stable iteration order;
+            // stable creation order keeps host particle identities deterministic.
+            exhausts.sort_by_key(|(projectile_id, _, _, _)| *projectile_id);
+            self.combat_particles
+                .sync_projectile_exhausts(frame, &exhausts);
             // C++ ProjectileStreamUpdate residual: track projectile positions for stream draw.
             for p in self.combat_system.projectiles_snapshot() {
                 let sname = if p.exhaust_name.is_empty() {

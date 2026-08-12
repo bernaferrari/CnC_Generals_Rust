@@ -552,21 +552,43 @@ mod host_bridge_execution_tests {
     }
 
     #[test]
-    fn parsed_ini_weapon_slot_reaches_host_fire_weapon_without_logic_button() {
+    fn parsed_retail_mig_fire_weapon_keeps_max_shots_and_options_without_logic_button() {
         let _guard = crate::gui::control_bar::acquire_host_control_bar_bridge_test_guard();
         crate::gui::control_bar::set_host_control_bar_bridge_enabled(true);
 
-        // Deliberately do not register a GameLogic CommandButton.  The live
-        // CommandButton definition must carry WeaponSlot itself so the host
-        // bridge remains valid while Main owns the simulation.
-        let mut definition = IniCommandButton::default();
-        definition.name = "Command_TestTertiaryWeapon".to_string();
-        definition.command = "FIRE_WEAPON".to_string();
-        definition.weapon_slot = WeaponSlotType::Tertiary;
-        definition.options_bits = CommandOption::NeedTargetPos as u32;
+        const RETAIL_MIG_BUTTON: &str = "Command_ChinaJetMIGFireNapalmMissile";
+        // Parse the actual retail CommandButton.ini block, rather than hand
+        // constructing equivalent fields.  The host path must be driven by
+        // the loaded button data, not by a MiG-specific bridge rule.
+        const RETAIL_COMMAND_BUTTONS: &str = include_str!(
+            "../../../../../../../../windows_game/extracted_big_files_v2/INIZH/Data/INI/CommandButton.ini"
+        );
+        let header = format!("CommandButton {RETAIL_MIG_BUTTON}");
+        let tail = &RETAIL_COMMAND_BUTTONS[RETAIL_COMMAND_BUTTONS
+            .find(&header)
+            .expect("retail MiG command button must be present")..];
+        let end = tail
+            .find("\nEnd")
+            .expect("retail MiG command button must end");
+        let retail_block = &tail[..end + "\nEnd".len()];
+        let mut ini = game_engine::common::ini::INI::new();
+        let definition = ini
+            .with_inline_source(retail_block, |ini| {
+                ini.read_line()?;
+                IniCommandButton::parse_from_ini(ini, RETAIL_MIG_BUTTON.to_string())
+            })
+            .expect("parse retail MiG command button");
         let button = ControlBar::command_from_definition(&definition);
-        assert_eq!(button.weapon_slot, WeaponSlotType::Tertiary);
-        assert_eq!(button.weapon_slot_number(), 2);
+        assert_eq!(button.command_name, RETAIL_MIG_BUTTON);
+        assert_eq!(button.weapon_slot, WeaponSlotType::Primary);
+        assert_eq!(button.weapon_slot_number(), 0);
+        assert_eq!(button.max_shots_to_fire, 1);
+        assert_eq!(
+            button.options,
+            CommandOption::OkForMultiSelect as u32
+                | CommandOption::NeedTargetEnemyObject as u32
+                | CommandOption::NeedTargetNeutralObject as u32
+        );
 
         let context = ControlBarContext {
             player_id: 3,
@@ -580,10 +602,14 @@ mod host_bridge_execution_tests {
         assert!(matches!(
             crate::gui::control_bar::take_host_control_bar_requests().as_slice(),
             [crate::gui::control_bar::HostControlBarRequest::ArmTarget {
+                command_name,
                 command_type: CommandType::FireWeapon,
-                weapon_slot: Some(2),
+                options,
+                weapon_slot: Some(0),
+                max_shots_to_fire: Some(1),
                 ..
-            }]
+            }] if command_name == RETAIL_MIG_BUTTON
+                && *options == button.options
         ));
     }
 

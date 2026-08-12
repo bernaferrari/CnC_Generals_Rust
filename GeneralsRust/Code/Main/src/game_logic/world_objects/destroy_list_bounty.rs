@@ -164,7 +164,28 @@ impl GameLogic {
                         eject_origin.y,
                     );
 
-                if chute_airborne {
+                // `RiderChangeContain::onRemoving` destroys its hidden rider
+                // when the bike is effectively dead; it must not fall through
+                // OpenContain's ordinary eject-to-world behavior.  Queue the
+                // contained body for the existing destruction authority after
+                // clearing its containment link, so no snapshot frame can
+                // retain an orphan rider inside a removed bike.
+                let rider_change_payload = obj.thing.template.contain_module.kind
+                    == crate::game_logic::ContainModuleKind::RiderChange;
+
+                if rider_change_payload {
+                    for contained_id in obj.contained_units() {
+                        if let Some(unit) = self.objects.get_mut(&contained_id) {
+                            unit.set_contained_by(None);
+                            unit.set_target(None);
+                            unit.stop_moving();
+                            unit.set_status_moving(false);
+                            unit.set_status_attacking(false);
+                            unit.status.destroyed = true;
+                        }
+                        self.mark_object_for_destruction(contained_id, event.killer);
+                    }
+                } else if chute_airborne {
                     let riders = obj.contained_units();
                     for rid in riders {
                         let _ = self.apply_rider_free_fall_damage(rid, eject_origin);
@@ -511,18 +532,25 @@ impl GameLogic {
         // no bounty for under-construction, non-enemy, or same-controller kills.
         let under_construction = destroyed_object.status.under_construction;
         let build_cost = destroyed_object.thing.template.build_cost.supplies;
+        let victim_owner_player_id = self.player_owner_for_host_object(destroyed_object);
 
         let mut bounty_awarded = 0_u32;
         let mut bounty_killer_id = ObjectId(0);
         let mut bounty_float_pos = victim_pos;
         let mut used_last_damage_source = false;
         if let Some(team) = killer {
+            // `killer` is still a legacy team event, but BodyModule gives us
+            // the actual attacking object.  Carry that object's player owner
+            // through scoring instead of selecting the first same-faction
+            // player slot.
+            let mut killer_owner_player_id = None;
             // Prefer C++ BodyModule last_damage_source residual for killer ObjectId.
             if let Some(src) = destroyed_object.last_damage_source {
                 if let Some(src_obj) = self.objects.get(&src) {
                     if src_obj.team == team {
                         bounty_killer_id = src;
                         bounty_float_pos = src_obj.get_position();
+                        killer_owner_player_id = self.player_owner_for_host_object(src_obj);
                         used_last_damage_source = true;
                     }
                 } else {
@@ -549,7 +577,19 @@ impl GameLogic {
                     bounty_float_pos = kpos;
                 }
             }
-            if let Some(player_id) = self.player_id_for_team(team) {
+            let enemy_kill = match (killer_owner_player_id, victim_owner_player_id) {
+                (Some(killer_player_id), Some(victim_player_id)) => {
+                    self.player_relationship(killer_player_id, victim_player_id)
+                        == gamelogic::common::Relationship::Enemies
+                }
+                // A genuinely unowned victim has no player relationship.
+                // Preserve the legacy faction gate for map/old-save objects
+                // without assigning it a player.
+                _ => {
+                    team != victim_team && team != Team::Neutral && victim_team != Team::Neutral
+                }
+            };
+            if let Some(player_id) = killer_owner_player_id {
                 if let Some(player) = self.players.get_mut(&player_id) {
                     if destroyed_is_structure {
                         player.record_structure_destroyed();
@@ -558,9 +598,6 @@ impl GameLogic {
                     }
 
                     // Cash bounty residual: award ceil(cost * percent) on enemy kill.
-                    let enemy_kill = team != victim_team
-                        && team != Team::Neutral
-                        && victim_team != Team::Neutral;
                     if enemy_kill && !under_construction && player.cash_bounty_percent > 0.0 {
                         bounty_awarded = player.do_bounty_for_kill(build_cost);
                     }
@@ -609,7 +646,7 @@ impl GameLogic {
             );
         }
 
-        if let Some(player_id) = self.player_id_for_team(destroyed_object.team) {
+        if let Some(player_id) = victim_owner_player_id {
             if let Some(player) = self.players.get_mut(&player_id) {
                 if destroyed_is_structure {
                     player.record_structure_lost();

@@ -10,7 +10,7 @@
 
 use crate::assets::archive::ArchiveFileSystem;
 use crate::assets::ini_parser::{
-    AuthoredConditionModelSelection, IniParser, ObjectDefinition,
+    AuthoredConditionModelSelection, AuthoredDrawModel, IniParser, ObjectDefinition,
 };
 use anyhow::Result;
 use log::{debug, info, warn};
@@ -216,14 +216,36 @@ impl WW3DAssetManager {
         if !child.draw_modules.is_empty() {
             parent.draw_modules = child.draw_modules;
         }
+        // Behavior module tags are the C++ INI override identity.  A child
+        // with the same tag replaces that one parent module in place; a new
+        // tag appends in source order.  Merging only raw field names would
+        // cross-contaminate unrelated modules such as DockUpdate and Contain.
+        for child_module in child.behavior_modules {
+            if let Some(child_tag) = child_module.module_tag.as_deref() {
+                if let Some(index) = parent.behavior_modules.iter().position(|parent_module| {
+                    parent_module
+                        .module_tag
+                        .as_deref()
+                        .is_some_and(|parent_tag| parent_tag.eq_ignore_ascii_case(child_tag))
+                }) {
+                    parent.behavior_modules[index] = child_module;
+                    continue;
+                }
+            }
+            parent.behavior_modules.push(child_module);
+        }
         if child.armor_type.is_some() {
             parent.armor_type = child.armor_type;
         }
         if child.hit_points.is_some() {
             parent.hit_points = child.hit_points;
         }
-        if (child.scale - 1.0).abs() > f32::EPSILON {
+        // An explicit child `Scale = 1.0` must reset a parent's non-default
+        // asset scale.  Comparing only the numeric value loses C++ INI
+        // provenance for ChildObject/ObjectReskin inheritance.
+        if child.scale_was_specified {
             parent.scale = child.scale;
+            parent.scale_was_specified = true;
         }
         if child.owner.is_some() {
             parent.owner = child.owner;
@@ -236,6 +258,22 @@ impl WW3DAssetManager {
         }
         if child.tertiary_weapon.is_some() {
             parent.tertiary_weapon = child.tertiary_weapon;
+        }
+
+        // A ChildObject/ObjectReskin overrides the parent set it names, but
+        // every row authored by the child stays in source order.  In
+        // particular, a custom child with duplicate SET_NORMAL declarations
+        // remains visibly ambiguous to RiderChangeContain rather than being
+        // collapsed to the final declaration by the old compatibility map.
+        if !child.locomotor_sets.is_empty() {
+            parent.locomotor_sets.retain(|parent_set| {
+                !child.locomotor_sets.iter().any(|child_set| {
+                    child_set
+                        .set_name
+                        .eq_ignore_ascii_case(&parent_set.set_name)
+                })
+            });
+            parent.locomotor_sets.extend(child.locomotor_sets);
         }
 
         for (slot, texture) in child.textures {
@@ -293,6 +331,21 @@ impl WW3DAssetManager {
     ) -> Option<AuthoredConditionModelSelection> {
         self.resolve_object_definition(object_name, None)
             .map(|definition| definition.select_primary_model_for_conditions(condition_bits))
+    }
+
+    /// Select all exact W3D models contributed by source-authored Draw modules.
+    ///
+    /// `None` means the Object has no retained selectable Draw state (or is
+    /// absent from the catalogue), so callers may keep an independent template
+    /// model. `Some(vec![])` instead means source state exists but no module is
+    /// safely drawable for this condition bank; callers must fail closed.
+    pub fn select_draw_models_for_object_conditions(
+        &self,
+        object_name: &str,
+        condition_bits: u128,
+    ) -> Option<Vec<AuthoredDrawModel>> {
+        self.resolve_object_definition(object_name, None)
+            .and_then(|definition| definition.select_draw_models_for_conditions(condition_bits))
     }
 
     /// Get the full object definition
@@ -392,7 +445,6 @@ impl WW3DAssetManager {
         self.normalized_name_lookup
             .entry(Self::normalize_object_key(name))
             .or_insert_with(|| name.to_string());
-
     }
 
     fn get_texture_for_object_with_model(
@@ -417,7 +469,6 @@ impl WW3DAssetManager {
     fn normalize_object_key(name: &str) -> String {
         name.trim().to_ascii_lowercase()
     }
-
 }
 
 #[cfg(test)]
@@ -493,5 +544,79 @@ mod tests {
         assert!(manager
             .get_object_definition("AlphaUnit")
             .is_some_and(|definition| definition.display_name.is_empty()));
+    }
+
+    #[test]
+    fn explicit_child_scale_one_resets_inherited_asset_scale() {
+        let mut parent = ObjectDefinition::new("ScaledParent".to_string());
+        parent.scale = 0.66;
+        parent.scale_was_specified = true;
+
+        let mut child = ObjectDefinition::new("ResetChild".to_string());
+        child.parent_name = Some("ScaledParent".to_string());
+        child.scale = 1.0;
+        child.scale_was_specified = true;
+
+        let resolved = WW3DAssetManager::merge_definition_inheritance(parent, child);
+        assert_eq!(resolved.scale, 1.0);
+        assert!(resolved.scale_was_specified);
+    }
+
+    #[test]
+    fn inherited_draw_state_table_survives_child_and_reskin_resolution() {
+        let source = r#"
+Object BaseConditionUnit
+  Draw = W3DModelDraw ModuleTag_01
+    DefaultConditionState
+      Model = BaseModel
+    End
+    ConditionState = DAMAGED
+      Model = BaseModelDamaged
+    End
+  End
+End
+
+ChildObject PlainChild BaseConditionUnit
+  DisplayName = INHERITS_DRAW_DATA
+End
+
+ObjectReskin ReskinnedChild BaseConditionUnit
+  Draw = W3DModelDraw ModuleTag_01
+    DefaultConditionState
+      Model = ReskinModel
+    End
+  End
+End
+"#;
+        let mut parser = IniParser::new();
+        parser
+            .parse_ini_content(source, "draw_inheritance.ini")
+            .expect("parse source definitions");
+        let base = parser
+            .get_definition("BaseConditionUnit")
+            .expect("base")
+            .clone();
+        let plain_child = parser
+            .get_definition("PlainChild")
+            .expect("plain child")
+            .clone();
+        let reskin_child = parser
+            .get_definition("ReskinnedChild")
+            .expect("reskin child")
+            .clone();
+
+        let inherited = WW3DAssetManager::merge_definition_inheritance(base.clone(), plain_child);
+        assert_eq!(
+            inherited.select_primary_model_for_conditions(0),
+            AuthoredConditionModelSelection::Model("BaseModel".to_string()),
+            "a child without Draw must retain its parent's source state table"
+        );
+
+        let reskinned = WW3DAssetManager::merge_definition_inheritance(base, reskin_child);
+        assert_eq!(
+            reskinned.select_primary_model_for_conditions(0),
+            AuthoredConditionModelSelection::Model("ReskinModel".to_string()),
+            "a reskin Draw table replaces rather than hybrid-merges the parent table"
+        );
     }
 }

@@ -761,7 +761,7 @@ pub fn parse_locomotor_template_definition(
                 })?
             }
             "Surfaces" => {
-                for part in value.split('|') {
+                for part in value.split(|ch: char| ch == '|' || ch.is_ascii_whitespace()) {
                     match part.trim().to_uppercase().as_str() {
                         "GROUND" => template
                             .surfaces

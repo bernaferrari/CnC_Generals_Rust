@@ -234,6 +234,25 @@ pub struct Entity {
     pub weapons_jammed: bool,
     /// Host Object::status.masked residual.
     pub masked: bool,
+    /// C++ KINDOF_UNATTACKABLE carried separately from the compact 32-bit
+    /// presentation KindOf bank.  It is an unconditional WeaponSet victim
+    /// override, so the GameWorld-primary presentation/input path must retain
+    /// it even though the legacy bank has no spare bit.
+    pub unattackable: bool,
+    /// Main host `DockKind` ordinal.  This is a compact presentation/shadow
+    /// channel because the engine crate cannot depend on the Main host enum.
+    pub dock_kind: u8,
+    /// Main host C++ `KINDOF_CAPTURABLE` semantic, outside the legacy compact
+    /// KindOf bank so the engine crate remains independent of host enums.
+    pub capturable: bool,
+    /// Main host C++ `KINDOF_IMMUNE_TO_CAPTURE` semantic.
+    pub immune_to_capture: bool,
+    /// Exact host `GarrisonContain` presence for capture legality.
+    pub capture_garrisonable: bool,
+    /// Main host CapturePowerKind ordinal (0 = none).
+    pub capture_power: u8,
+    /// Snapshot/authority readiness for that exact capture power.
+    pub capture_power_ready: bool,
     /// Host Object::status.disguised residual.
     pub disguised: bool,
     /// Host Object::status.disabled_subdued residual.
@@ -1422,6 +1441,13 @@ impl EntityStore {
             disabled_paralyzed: false,
             weapons_jammed: false,
             masked: false,
+            unattackable: false,
+            dock_kind: 0,
+            capturable: false,
+            immune_to_capture: false,
+            capture_garrisonable: false,
+            capture_power: 0,
+            capture_power_ready: false,
             disguised: false,
             disabled_subdued: false,
             subdual_damage: 0.0,

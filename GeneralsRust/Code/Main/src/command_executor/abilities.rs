@@ -239,25 +239,23 @@ impl<'a> CommandExecutor<'a> {
         units: &[ObjectId],
         target_id: ObjectId,
     ) -> CommandResult {
-        use crate::game_logic::host_hero_abilities::{
-            can_capture_without_upgrade, is_black_lotus_template,
+        self.execute_capture_building_for_power(units, target_id, None)
+    }
+
+    /// Capture authority used both by the ordinary RMB action and an explicit
+    /// capture SpecialPower command.  The optional kind prevents a caller
+    /// from asking a Ranger command button to silently fire a different
+    /// capture module on the same selection.
+    pub(super) fn execute_capture_building_for_power(
+        &mut self,
+        units: &[ObjectId],
+        target_id: ObjectId,
+        required_power: Option<crate::game_logic::CapturePowerKind>,
+    ) -> CommandResult {
+        let building_pos = match self.game_logic.host_object(target_id) {
+            Some(building) => building.get_position(),
+            None => return CommandResult::InvalidTarget,
         };
-
-        let (building_pos, is_structure, is_alive, is_under_construction, target_team) =
-            match self.game_logic.host_object(target_id) {
-                Some(building) => (
-                    building.get_position(),
-                    building.is_kind_of(KindOf::Structure),
-                    building.is_alive(),
-                    building.status.under_construction,
-                    building.team,
-                ),
-                None => return CommandResult::InvalidTarget,
-            };
-
-        if !is_structure || !is_alive || is_under_construction {
-            return CommandResult::InvalidTarget;
-        }
 
         let mut any = false;
         for &unit_id in units {
@@ -265,34 +263,51 @@ impl<'a> CommandExecutor<'a> {
                 continue;
             }
 
-            let can_capture = self
+            let Some(power) = self
                 .game_logic
                 .host_object(unit_id)
-                .map(|unit| {
-                    let is_lotus = is_black_lotus_template(&unit.template_name);
-                    // Black Lotus / heroes capture without infantry Capture research.
-                    // Regular infantry require completed CaptureBuilding upgrade.
-                    let capture_ability = can_capture_without_upgrade(unit.is_hero(), is_lotus)
-                        || (unit.is_kind_of(KindOf::Infantry)
-                            && self
-                                .game_logic
-                                .team_has_completed_capture_upgrade(unit.team));
-                    unit.is_alive()
-                        && unit.can_move()
-                        && unit.team != target_team
-                        && capture_ability
-                })
-                .unwrap_or(false);
-            if !can_capture {
+                .and_then(|unit| unit.thing.template.capture_power.special_power_type())
+            else {
+                continue;
+            };
+            if required_power.is_some_and(|required| {
+                crate::game_logic::CapturePowerKind::from_special_power_type(&power) != required
+            }) || !self
+                .game_logic
+                .can_unit_capture_building(unit_id, target_id, true)
+            {
                 continue;
             }
 
-            // Wave 233: stop-moving + order-target via GameLogic authority API.
-            let _ = self
+            // C++ `initiateIntentToDoSpecialPower` records a capture intent
+            // and approaches the target, but does not begin ReloadTime until
+            // `SpecialAbilityUpdate::startPreparation` in StartAbilityRange.
+            if !self
                 .game_logic
-                .unit_command_stop_moving_order_target(unit_id, Some(target_id));
-            if self.path_to_goal_with_state(unit_id, building_pos, AIState::Capturing) {
+                .unit_command_begin_capture(unit_id, target_id)
+            {
+                continue;
+            }
+            // `assign_unit_path` quite correctly returns false when the
+            // source is already at the target's center.  That is an accepted
+            // C++ capture order, not a path failure: keep its target and
+            // explicitly enter Capturing so the state machine can apply the
+            // authored StartAbilityRange on the next logic tick.
+            let already_at_target = self
+                .game_logic
+                .host_object(unit_id)
+                .is_some_and(|unit| unit.get_position().distance(building_pos) <= 0.1);
+            if self.path_to_goal_with_state(unit_id, building_pos, AIState::Capturing)
+                || already_at_target
+            {
                 any = true;
+            } else {
+                let _ = self
+                    .game_logic
+                    .unit_command_stop_moving_order_target(unit_id, None);
+                let _ = self
+                    .game_logic
+                    .unit_command_set_ai_state(unit_id, AIState::Idle);
             }
         }
         if any {

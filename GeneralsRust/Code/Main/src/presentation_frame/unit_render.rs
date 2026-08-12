@@ -9,7 +9,12 @@ use super::*;
 pub struct UnitRenderInput {
     pub id: ObjectId,
     pub template_name: String,
+    /// Primary model retained for backwards-compatible callers. The WGPU mesh
+    /// pass renders every entry in `draw_models`, not just this first key.
     pub model_key: String,
+    /// Exact selected models for all source-authored W3D Draw modules. Source
+    /// order and module identity are preserved; equal basenames are not merged.
+    pub draw_models: Vec<crate::assets::AuthoredDrawModel>,
     /// Mesh scale residual frozen from presentation (default 1.0).
     pub mesh_scale: f32,
     pub team: Team,
@@ -166,13 +171,28 @@ impl UnitRenderInput {
     pub fn from_renderable(ro: &RenderableObject) -> Self {
         // `None` is an intentional fail-closed result from the retained
         // Object INI ConditionState table (for example `Model = None` or an
-        // unsupported source token).  Do not turn it back into a bare
-        // template name here; that would render a pristine proxy instead.
-        let model_key = ro.model_key.clone().unwrap_or_default();
+        // unsupported source token). Do not turn it back into a bare template
+        // name here; that would render a pristine proxy instead. Older saved
+        // presentation frames only carry `model_key`, so synthesize one module
+        // for that back-compatible representation.
+        let mut draw_models = ro.draw_models.clone();
+        if draw_models.is_empty() {
+            if let Some(model_key) = ro.model_key.as_deref().filter(|key| !key.trim().is_empty()) {
+                draw_models.push(crate::assets::AuthoredDrawModel {
+                    module_index: 0,
+                    model_key: model_key.to_string(),
+                });
+            }
+        }
+        let model_key = draw_models
+            .first()
+            .map(|model| model.model_key.clone())
+            .unwrap_or_default();
         Self {
             id: ro.id,
             template_name: ro.template_name.clone(),
             model_key,
+            draw_models,
             mesh_scale: if ro.mesh_scale > 0.0 {
                 ro.mesh_scale
             } else {
@@ -258,6 +278,43 @@ impl UnitRenderInput {
             engine_bridged: ro.engine_bridged,
             fow_visibility: ro.fow_visibility,
         }
+    }
+
+    /// Construct the main mesh-pass input after the frame-level environment
+    /// channels have been frozen.  Keeping selection inside this constructor
+    /// makes selected Draw models opaque to presentation queries; they only
+    /// replace them for an actual disguise.
+    pub fn from_renderable_with_environment(
+        ro: &RenderableObject,
+        world_is_snow: bool,
+        world_is_night: bool,
+        logic_frame: u32,
+    ) -> Self {
+        let mut input = Self::from_renderable(ro);
+        input.world_is_snow = world_is_snow;
+        input.world_is_night = world_is_night;
+        input.logic_frame = logic_frame;
+        input.resolve_draw_models_for_frozen_conditions();
+        input
+    }
+
+    /// Apply the retained Object INI Draw-state selector after every frozen
+    /// presentation condition has been stamped. This is deliberately before
+    /// the query-layer disguise override: an actual disguise owns its Object
+    /// identity, while ordinary inputs keep opaque exact W3D module keys for
+    /// the renderer.
+    pub(crate) fn resolve_draw_models_for_frozen_conditions(&mut self) {
+        let fallback_draw_models = self.draw_models.clone();
+        self.draw_models = crate::assets::resolve_presentation_draw_models_for_conditions(
+            &self.template_name,
+            &fallback_draw_models,
+            self.model_condition_bits_with_combat_flags(),
+        );
+        self.model_key = self
+            .draw_models
+            .first()
+            .map(|model| model.model_key.clone())
+            .unwrap_or_default();
     }
 
     /// World matrix for the unit mesh pass (translation + Y rotation + mesh scale).

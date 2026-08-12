@@ -3,6 +3,34 @@
 #![allow(unused_imports, non_snake_case)]
 use super::super::*;
 
+/// Return every exact source locomotor from one named Object INI set.  The
+/// source parser preserves outer declaration order, so duplicate SET_NORMAL
+/// rows deliberately remain ambiguous rather than silently becoming the row
+/// a lossy attribute map happened to retain.
+fn unambiguous_locomotors_for_set(
+    definition: &crate::assets::ObjectDefinition,
+    set_name: &str,
+) -> Option<Vec<String>> {
+    let mut matching = definition
+        .locomotor_sets
+        .iter()
+        .filter(|row| row.set_name.eq_ignore_ascii_case(set_name));
+    let row = matching.next()?;
+    if matching.next().is_some() {
+        return None;
+    }
+    (!row.locomotor_names.is_empty())
+        .then(|| row.locomotor_names.clone())
+}
+
+#[inline]
+fn definition_has_rider_change_contain(definition: &crate::assets::ObjectDefinition) -> bool {
+    definition
+        .behavior_modules
+        .iter()
+        .any(|module| module.class_name.eq_ignore_ascii_case("RiderChangeContain"))
+}
+
 impl GameLogic {
     /// C++ parity: veterancy-level XP multiplier. In C++ each template
     /// defines per-level ExperienceValue; we approximate by scaling the
@@ -130,7 +158,11 @@ impl GameLogic {
         ))
     }
 
-    pub(in super::super) fn build_template_from_object_definition(
+    // Internal callers outside `game_logic` use this only to build a parsed
+    // Object INI fixture before exercising the frozen input/authority seam.
+    // Keeping the parser-to-template boundary crate-visible avoids a second,
+    // hand-built RiderChange test representation.
+    pub(crate) fn build_template_from_object_definition(
         template_name: &str,
         definition: &ObjectDefinition,
         texture_hint: Option<&str>,
@@ -161,6 +193,21 @@ impl GameLogic {
             }
         }
 
+        // C++ Drawable initializes instance scale from
+        // ThingTemplate::getAssetScale().  Preserve the authored Object INI
+        // value on the host template so snapshots and rendering never need a
+        // template-name scale fallback.
+        template.set_asset_scale(definition.scale);
+        let rider_change_normal_locomotors =
+            unambiguous_locomotors_for_set(definition, "SET_NORMAL");
+        Self::apply_authored_dock_and_contain_modules(
+            &mut template,
+            definition,
+            rider_change_normal_locomotors.as_deref(),
+        );
+        Self::apply_authored_parking_place_metadata(&mut template, definition);
+        Self::apply_authored_deploy_style_metadata(&mut template, definition);
+
         let primary_texture = texture_hint.or_else(|| definition.get_primary_texture());
         if let Some(texture_name) = primary_texture {
             let texture_name = texture_name.trim();
@@ -187,27 +234,35 @@ impl GameLogic {
             || has_kind("resource")
             || has_kind("harvestable")
             || kind_compact.contains("supplysource");
-        let is_dozer = has_kind("dozer");
-        let is_harvester = has_kind("harvester");
-        let is_structure = kind_of.contains("structure")
-            || kind_of.contains("immobile")
-            || (Self::should_spawn_fallback_template(template_name) && !is_resource);
+        // An authored Object INI is authoritative for object classification.
+        // `should_spawn_fallback_template` is only a policy for unresolved map
+        // objects; applying its broad name filter here turned movable retail
+        // objects such as ChinaVehicleSupplyTruck into static structures just
+        // because their names contain "supply".
+        let is_structure = has_kind("structure") || has_kind("immobile");
+
+        // Capture is not a generic structure/infantry feature.  Preserve the
+        // exact KindOf and Behavior-module inputs that C++ ActionManager uses
+        // so physical RMB classification and authority never need a template
+        // name fallback.
+        Self::apply_authored_capture_metadata(&mut template, &kind_of, definition);
 
         if is_resource {
             template
                 .add_kind_of(KindOf::Resource)
                 .add_kind_of(KindOf::Harvestable);
         }
-        if is_dozer {
-            template.add_kind_of(KindOf::Dozer);
-        }
-        if is_harvester {
-            template.add_kind_of(KindOf::Harvester);
-        }
+        Self::apply_authored_semantic_kind_bits(&mut template, &kind_of);
         if is_structure {
             template
                 .add_kind_of(KindOf::Structure)
                 .add_kind_of(KindOf::Attackable);
+        }
+        // The dock module, not a spelling convention, identifies a drop-off
+        // building.  This also lets preferred-dock selection recognize retail
+        // faction variants whose template name is not a host bootstrap name.
+        if template.dock_kind == crate::game_logic::DockKind::SupplyCenter {
+            template.add_kind_of(KindOf::SupplyCenter);
         }
         if kind_of.contains("selectable") || is_structure {
             template.add_kind_of(KindOf::Selectable);
@@ -271,6 +326,18 @@ impl GameLogic {
             template.build_cost.supplies = cost;
         }
 
+        // C++ ThingTemplate parses `RefundValue` as an unsigned short.  Zero
+        // is not missing data: it explicitly retains the normal
+        // BuildCost × SellPercentage refund calculation.
+        if let Some(refund_value) = Self::object_definition_attr(definition, "refundvalue") {
+            template.refund_value = refund_value.trim().parse::<u16>().unwrap_or_else(|_| {
+                panic!(
+                    "Object INI RefundValue for '{}' must be an unsigned short (0..=65535), got {:?}",
+                    template_name, refund_value
+                )
+            });
+        }
+
         // C++ Object INI BuildTime is expressed in logic seconds.  Preserve
         // the authored value instead of letting catalogue-seeded units use
         // ThingTemplate's one-second constructor default.
@@ -311,8 +378,18 @@ impl GameLogic {
         }
 
         // SET_NORMAL Locomotor name from Object INI when present; else known host map.
-        // Fail-closed residual: single primary locomotor only (not multi-set / surface matrix).
-        if let Some(raw) = Self::object_definition_attr(definition, "locomotor") {
+        // A RiderChange container needs the unambiguous source SET_NORMAL
+        // primary that was validated with its roster above.  It must never
+        // inherit the last raw outer Locomotor row (normally SET_SLUGGISH on
+        // a Combat Bike) merely because the legacy attributes map is lossy.
+        if definition_has_rider_change_contain(definition) {
+            if let Some(lname) = rider_change_normal_locomotors
+                .as_deref()
+                .and_then(|names| names.first())
+            {
+                template.set_locomotor_name(lname);
+            }
+        } else if let Some(raw) = Self::object_definition_attr(definition, "locomotor") {
             // Formats: "SET_NORMAL BasicHumanLocomotor" or "SET_NORMAL A B" (take first).
             let mut parts = raw.split_whitespace();
             let first = parts.next().unwrap_or("");
@@ -361,14 +438,720 @@ impl GameLogic {
         template
     }
 
+    /// Apply the gameplay-relevant Object INI KindOf capabilities which are
+    /// safe to enrich on an existing hand-authored host template.  Starter
+    /// templates retain their bespoke Rust behavior, but they must not erase
+    /// exact C++ targetability, collector, or projectile identity from the
+    /// retail definition that describes that same object.
+    fn apply_authored_semantic_kind_bits(template: &mut ThingTemplate, kind_of: &str) {
+        let has_kind = |token: &str| {
+            kind_of
+                .split(|character: char| {
+                    character.is_ascii_whitespace() || matches!(character, ',' | '|')
+                })
+                .any(|candidate| candidate.eq_ignore_ascii_case(token))
+        };
+
+        if has_kind("dozer") {
+            template.add_kind_of(KindOf::Dozer);
+        }
+        if has_kind("harvester") {
+            template.add_kind_of(KindOf::Harvester);
+        }
+        // ActionManager uses these exact authored KindOf bits for service
+        // target validation.  Do not collapse them into BuildingType or
+        // a template-name convention: retail barracks/war factories happen
+        // to carry the tags, but a similarly named arbitrary object does not.
+        if has_kind("repair_pad") {
+            template.add_kind_of(KindOf::RepairPad);
+        }
+        if has_kind("heal_pad") {
+            template.add_kind_of(KindOf::HealPad);
+        }
+        if has_kind("unattackable") {
+            template.add_kind_of(KindOf::Unattackable);
+        }
+        // Preserve the authored C++ WeaponSet victim categories.  They are
+        // gameplay-only and let parsed AntiProjectile/AntiMine/etc. weapons
+        // make the same target decision as retail rather than being collapsed
+        // into broad host air/ground booleans.
+        if has_kind("mine") {
+            template.add_kind_of(KindOf::Mine);
+        }
+        if has_kind("demotrap") {
+            template.add_kind_of(KindOf::DemoTrap);
+        }
+        if has_kind("small_missile") {
+            template.add_kind_of(KindOf::SmallMissile);
+        }
+        if has_kind("ballistic_missile") {
+            template.add_kind_of(KindOf::BallisticMissile);
+        }
+        // C++ treats every small/ballistic missile as a projectile too.  The
+        // more-specific categories above win in WeaponSet victim-mask
+        // selection, while ordinary PROJECTILE objects keep their own
+        // AntiProjectile route.
+        if has_kind("projectile") || has_kind("small_missile") || has_kind("ballistic_missile") {
+            template.add_kind_of(KindOf::Projectile);
+        }
+        if has_kind("parachute") {
+            template.add_kind_of(KindOf::Parachute);
+        }
+        if has_kind("disguiser") {
+            template.add_kind_of(KindOf::Disguiser);
+        }
+    }
+
+    /// Preserve the exact DockUpdate and normal-containment slice that the
+    /// physical RMB path needs from Object INI Behavior declarations.  C++
+    /// `ActionManager::canEnterObject` asks for a `ContainModuleInterface`,
+    /// so a Vehicle KindOf or a template basename must never fabricate one.
+    fn apply_authored_dock_and_contain_modules(
+        template: &mut ThingTemplate,
+        definition: &ObjectDefinition,
+        rider_change_normal_locomotors: Option<&[String]>,
+    ) {
+        use crate::game_logic::{
+            ContainAdmission, ContainModuleKind, ContainModuleMetadata, DockKind,
+            RiderChangeRiderMetadata,
+        };
+
+        fn parse_bool(value: &str) -> Option<bool> {
+            match value.trim().to_ascii_lowercase().as_str() {
+                "yes" | "true" | "1" => Some(true),
+                "no" | "false" | "0" => Some(false),
+                _ => None,
+            }
+        }
+
+        /// Decode only the mobile-kind masks represented by the live Rust
+        /// object model.  A mask that needs a missing kind is fail-closed;
+        /// this is preferable to accepting a tank in an infantry-only cabin.
+        fn parse_admission(module: &crate::assets::BehaviorModuleDefinition) -> ContainAdmission {
+            let mut allowed = [true, true, true]; // infantry, vehicle, aircraft
+            if let Some(raw) = module.attribute("AllowInsideKindOf") {
+                allowed = [false, false, false];
+                for token in raw
+                    .split(|ch: char| ch.is_ascii_whitespace() || matches!(ch, ',' | '|'))
+                    .filter(|token| !token.is_empty())
+                {
+                    match token.to_ascii_uppercase().as_str() {
+                        "INFANTRY" => allowed[0] = true,
+                        "VEHICLE" => allowed[1] = true,
+                        "AIRCRAFT" => allowed[2] = true,
+                        // Rust has no portable-structure source path and
+                        // normal Enter independently rejects structures.
+                        "PORTABLE_STRUCTURE" | "STRUCTURE" => {}
+                        "ALL" => allowed = [true, true, true],
+                        _ => return ContainAdmission::Unsupported,
+                    }
+                }
+            }
+            if let Some(raw) = module.attribute("ForbidInsideKindOf") {
+                for token in raw
+                    .split(|ch: char| ch.is_ascii_whitespace() || matches!(ch, ',' | '|'))
+                    .filter(|token| !token.is_empty())
+                {
+                    match token.to_ascii_uppercase().as_str() {
+                        "INFANTRY" => allowed[0] = false,
+                        "VEHICLE" => allowed[1] = false,
+                        "AIRCRAFT" => allowed[2] = false,
+                        // These kinds are already rejected by normal Enter.
+                        "PORTABLE_STRUCTURE" | "STRUCTURE" => {}
+                        _ => return ContainAdmission::Unsupported,
+                    }
+                }
+            }
+
+            match allowed {
+                [true, true, true] => ContainAdmission::AnyMobile,
+                [true, false, false] => ContainAdmission::InfantryOnly,
+                [true, true, false] => ContainAdmission::InfantryOrVehicle,
+                _ => ContainAdmission::Unsupported,
+            }
+        }
+
+        fn parse_slots(
+            module: &crate::assets::BehaviorModuleDefinition,
+            name: &str,
+        ) -> Option<usize> {
+            module
+                .attribute(name)
+                .and_then(|value| value.trim().parse::<i64>().ok())
+                .and_then(|value| usize::try_from(value).ok())
+        }
+
+        /// C++ `INI::parseDurationUnsignedInt`: scan the unsigned numeric
+        /// prefix as milliseconds, then round up to 30 Hz logic frames.  Do
+        /// not adopt Rust duration suffix semantics: C++ treats `1s` as one
+        /// millisecond because `sscanf("%u")` stops at the suffix.
+        fn parse_duration_frames(value: &str) -> Option<u32> {
+            let digits: String = value
+                .trim_start()
+                .bytes()
+                .take_while(u8::is_ascii_digit)
+                .map(char::from)
+                .collect();
+            let milliseconds = digits.parse::<u64>().ok()?;
+            let frames = milliseconds.checked_mul(30)?.checked_add(999)? / 1_000;
+            u32::try_from(frames).ok()
+        }
+
+        /// Retain every representable C++ RiderChange token.  This parser
+        /// intentionally does *not* infer rider class from its template name:
+        /// the slot is only live when the authored template identity and its
+        /// complete record are available.
+        fn parse_rider_change(
+            module: &crate::assets::BehaviorModuleDefinition,
+            rider_change_normal_locomotors: Option<&[String]>,
+        ) -> (Vec<RiderChangeRiderMetadata>, Option<u32>, String, u128) {
+            let mut riders = Vec::new();
+            // C++ chooses a SET_NORMAL member by terrain surface.  The host
+            // keeps one active movement profile, so accept the full authored
+            // row only when every distinct-surface member resolves and has
+            // identical represented behavior.  A partial/ambiguous set is
+            // retained below but never becomes a physical Enter capability.
+            let normal_locomotor_binding = rider_change_normal_locomotors
+                .and_then(crate::game_logic::locomotor_bootstrap::resolve_uniform_host_locomotor_set);
+            for slot in 1u8..=8 {
+                let key = format!("Rider{slot}");
+                let Some(raw) = module.attribute(&key) else {
+                    continue;
+                };
+                let fields: Vec<&str> = raw.split_whitespace().collect();
+                // C++ parseRiderInfo consumes exactly six positional fields.
+                // A malformed/custom line must not silently shift a command
+                // set or locomotor token into another semantic slot.
+                if fields.len() != 6 || fields.iter().any(|field| field.is_empty()) {
+                    continue;
+                }
+                let model_condition = fields[1].to_string();
+                let object_status = fields[3].to_string();
+                let model_condition_mask =
+                    crate::game_logic::host_enum_table_residual::model_condition_bit_name_index(
+                        &model_condition,
+                    )
+                    .filter(|bit| *bit < 128)
+                    .map(|bit| 1u128 << bit)
+                    .unwrap_or(0);
+                let object_status_mask =
+                    crate::game_logic::host_enum_table_residual::object_status_bit_name_index(
+                        &object_status,
+                    )
+                    .filter(|bit| *bit < 64)
+                    .map(|bit| 1u64 << bit)
+                    .unwrap_or(0);
+                let weapon_set = fields[2].to_string();
+                let command_set = fields[4].to_string();
+                let locomotor_set = fields[5].to_string();
+                // The active bounded bridge can apply the retail Combat Cycle
+                // weapon table only by its authored RiderN index.  Do not
+                // accept arbitrary WeaponSet spellings or an unimplemented
+                // eighth weapon slot as if they had a host weapon mapping.
+                let expected_weapon_set = format!("WEAPON_RIDER{slot}");
+                let expected_model_condition = format!("RIDER{slot}");
+                let expected_object_status = format!("STATUS_RIDER{slot}");
+                let (
+                    active_locomotor_name,
+                    active_locomotor_names,
+                    active_locomotor_surfaces,
+                ) = if locomotor_set.eq_ignore_ascii_case("SET_NORMAL") {
+                    normal_locomotor_binding
+                        .as_ref()
+                        .map(|binding| {
+                            (
+                                Some(binding.representative_name.clone()),
+                                binding.locomotor_names.clone(),
+                                binding.locomotor_surfaces,
+                            )
+                        })
+                        .unwrap_or((None, Vec::new(), 0))
+                } else {
+                    (None, Vec::new(), 0)
+                };
+                let physical_enter_supported = slot <= 7
+                    && model_condition_mask != 0
+                    && object_status_mask != 0
+                    && model_condition.eq_ignore_ascii_case(&expected_model_condition)
+                    && weapon_set.eq_ignore_ascii_case(&expected_weapon_set)
+                    && object_status.eq_ignore_ascii_case(&expected_object_status)
+                    && !command_set.is_empty()
+                    // Retail's Terrorist row uses `SET_SLUGGISH`, which
+                    // selects a separate multi-surface locomotor table.  The
+                    // active Rust ThingTemplate retains one resolved
+                    // locomotor, not that table, so admitting it would leave
+                    // the bike on the previous/default movement behavior.
+                    // Keep the exact record for presentation/diagnostics but
+                    // fail this row closed until all set-specific locomotors
+                    // are representable.  `SET_NORMAL` is the only set the
+                    // live movement path can apply without approximation.
+                    && locomotor_set.eq_ignore_ascii_case("SET_NORMAL")
+                    && normal_locomotor_binding.is_some();
+                riders.push(RiderChangeRiderMetadata {
+                    slot,
+                    template_name: fields[0].to_string(),
+                    model_condition,
+                    weapon_set,
+                    object_status,
+                    command_set,
+                    locomotor_set,
+                    active_locomotor_name,
+                    active_locomotor_names,
+                    active_locomotor_surfaces,
+                    model_condition_mask,
+                    object_status_mask,
+                    physical_enter_supported,
+                });
+            }
+
+            let scuttle_delay_frames = match module.attribute("ScuttleDelay") {
+                Some(value) => parse_duration_frames(value),
+                // C++ RiderChangeContain defaults to zero frames.
+                None => Some(0),
+            };
+            let scuttle_status = module
+                .attribute("ScuttleStatus")
+                .unwrap_or("TOPPLED")
+                .trim()
+                .to_string();
+            let scuttle_status_mask =
+                crate::game_logic::host_enum_table_residual::model_condition_bit_name_index(
+                    &scuttle_status,
+                )
+                .filter(|bit| *bit < 128)
+                .map(|bit| 1u128 << bit)
+                .unwrap_or(0);
+            (
+                riders,
+                scuttle_delay_frames,
+                scuttle_status,
+                scuttle_status_mask,
+            )
+        }
+
+        let mut dock_kind = DockKind::None;
+        template.dock_starting_boxes = None;
+        template.dock_delete_when_empty = false;
+        template.railed_transport_slots = None;
+        template.contain_module = ContainModuleMetadata::default();
+        template.transport_slot_count =
+            Self::object_definition_attr(definition, "transportslotcount")
+                .and_then(|value| value.trim().parse::<i64>().ok())
+                .and_then(|value| usize::try_from(value).ok());
+        let mut parsed_contain: Option<ContainModuleMetadata> = None;
+        for module in &definition.behavior_modules {
+            let candidate = if module
+                .class_name
+                .eq_ignore_ascii_case("SupplyCenterDockUpdate")
+            {
+                Some(DockKind::SupplyCenter)
+            } else if module
+                .class_name
+                .eq_ignore_ascii_case("SupplyWarehouseDockUpdate")
+            {
+                Some(DockKind::SupplyWarehouse)
+            } else if module
+                .class_name
+                .eq_ignore_ascii_case("RailedTransportDockUpdate")
+            {
+                Some(DockKind::RailedTransport)
+            } else {
+                None
+            };
+
+            if let Some(candidate) = candidate {
+                // Multiple different dock interfaces would be ambiguous in
+                // this compact host mapping.  Retail objects use one; reject
+                // malformed/custom combinations rather than guessing priority.
+                if dock_kind != DockKind::None && dock_kind != candidate {
+                    template.dock_kind = DockKind::None;
+                    template.dock_starting_boxes = None;
+                    return;
+                }
+                dock_kind = candidate;
+                if candidate == DockKind::SupplyWarehouse {
+                    template.dock_starting_boxes = module
+                        .attribute("StartingBoxes")
+                        .and_then(|value| value.trim().parse::<i64>().ok())
+                        .and_then(|value| u32::try_from(value).ok());
+                    template.dock_delete_when_empty =
+                        module.attribute("DeleteWhenEmpty").is_some_and(|value| {
+                            matches!(
+                                value.trim().to_ascii_lowercase().as_str(),
+                                "yes" | "true" | "1"
+                            )
+                        });
+                }
+            }
+
+            let kind_and_slots = if module.class_name.eq_ignore_ascii_case("TransportContain")
+                || module.class_name.eq_ignore_ascii_case("HelixContain")
+            {
+                Some((ContainModuleKind::Transport, parse_slots(module, "Slots")))
+            } else if module.class_name.eq_ignore_ascii_case("RiderChangeContain") {
+                Some((ContainModuleKind::RiderChange, parse_slots(module, "Slots")))
+            } else if module
+                .class_name
+                .eq_ignore_ascii_case("RailedTransportContain")
+            {
+                let slots = parse_slots(module, "Slots");
+                template.railed_transport_slots = slots;
+                Some((ContainModuleKind::RailedTransport, slots))
+            } else if module.class_name.eq_ignore_ascii_case("GarrisonContain") {
+                Some((
+                    ContainModuleKind::Garrison,
+                    parse_slots(module, "ContainMax"),
+                ))
+            } else {
+                None
+            };
+
+            if let Some((kind, slots)) = kind_and_slots {
+                let (
+                    rider_change_riders,
+                    rider_change_scuttle_delay_frames,
+                    rider_change_scuttle_status,
+                    rider_change_scuttle_status_mask,
+                ) = if kind == ContainModuleKind::RiderChange {
+                    parse_rider_change(module, rider_change_normal_locomotors)
+                } else {
+                    (Vec::new(), None, String::new(), 0)
+                };
+                let candidate = ContainModuleMetadata {
+                    kind,
+                    slots,
+                    admission: parse_admission(module),
+                    allow_allies_inside: module
+                        .attribute("AllowAlliesInside")
+                        .and_then(parse_bool)
+                        .unwrap_or(true),
+                    allow_enemies_inside: module
+                        .attribute("AllowEnemiesInside")
+                        .and_then(parse_bool)
+                        .unwrap_or(true),
+                    allow_neutral_inside: module
+                        .attribute("AllowNeutralInside")
+                        .and_then(parse_bool)
+                        .unwrap_or(true),
+                    rider_change_riders,
+                    rider_change_scuttle_delay_frames,
+                    rider_change_scuttle_status,
+                    rider_change_scuttle_status_mask,
+                };
+                // Retail gives an object one active normal contain interface.
+                // A malformed/custom stack is not safely representable here;
+                // reject it rather than guessing declaration precedence.
+                if parsed_contain.is_some() {
+                    template.contain_module = ContainModuleMetadata::default();
+                    template.railed_transport_slots = None;
+                    return;
+                }
+                parsed_contain = Some(candidate);
+            }
+        }
+        template.dock_kind = dock_kind;
+        if let Some(contain) = parsed_contain {
+            template.contain_module = contain;
+        }
+    }
+
+    /// Retain the source-authored `ParkingPlaceBehaviorModuleData` needed by
+    /// the host aircraft return/landing path.  A faction-building KindOf or
+    /// an airfield-like template name never fabricates this behavior: without
+    /// it Main has no C++ parking reservation contract to honor.
+    fn apply_authored_parking_place_metadata(
+        template: &mut ThingTemplate,
+        definition: &ObjectDefinition,
+    ) {
+        use crate::game_logic::ParkingPlaceMetadata;
+
+        fn parse_bool(value: &str) -> Option<bool> {
+            match value.trim().to_ascii_lowercase().as_str() {
+                "yes" | "true" | "1" => Some(true),
+                "no" | "false" | "0" => Some(false),
+                _ => None,
+            }
+        }
+
+        // `getPP` and ActionManager walk behavior modules in declaration
+        // order and use the first ParkingPlace interface.  Preserve that
+        // source order instead of merging malformed multiple modules into a
+        // synthetic capacity.
+        let Some(module) = definition.behavior_modules.iter().find(|module| {
+            module
+                .class_name
+                .eq_ignore_ascii_case("ParkingPlaceBehavior")
+        }) else {
+            template.parking_place = None;
+            return;
+        };
+
+        let parse = || -> Option<ParkingPlaceMetadata> {
+            // These are C++ module-data constructor defaults, not a retail
+            // airfield fallback.  An explicitly malformed field invalidates
+            // the whole behavior so player-facing landing fails closed.
+            let num_rows = match module.attribute("NumRows") {
+                Some(value) => value.trim().parse::<i32>().ok()?,
+                None => 0,
+            };
+            let num_cols = match module.attribute("NumCols") {
+                Some(value) => value.trim().parse::<i32>().ok()?,
+                None => 0,
+            };
+            let approach_height = match module.attribute("ApproachHeight") {
+                Some(value) => value.trim().parse::<f32>().ok()?,
+                None => 0.0,
+            };
+            let landing_deck_height_offset = match module.attribute("LandingDeckHeightOffset") {
+                Some(value) => value.trim().parse::<f32>().ok()?,
+                None => 0.0,
+            };
+            let has_runways = match module.attribute("HasRunways") {
+                Some(value) => parse_bool(value)?,
+                None => false,
+            };
+            let park_in_hangars = match module.attribute("ParkInHangars") {
+                Some(value) => parse_bool(value)?,
+                None => false,
+            };
+            let heal_amount_per_second = match module.attribute("HealAmountPerSecond") {
+                Some(value) => value.trim().parse::<f32>().ok()?,
+                None => 0.0,
+            };
+
+            let metadata = ParkingPlaceMetadata {
+                num_rows,
+                num_cols,
+                approach_height,
+                landing_deck_height_offset,
+                has_runways,
+                park_in_hangars,
+                heal_amount_per_second,
+            };
+            metadata.is_well_formed().then_some(metadata)
+        };
+
+        template.parking_place = parse();
+    }
+
+    /// Retain one exact C++ `DeployStyleAIUpdateModuleData` record from the
+    /// Object INI.  A vehicle kind, command-set name, or template basename is
+    /// never treated as deploy behavior: commands only acquire deploy
+    /// authority when this concrete Behavior is present and well-formed.
+    fn apply_authored_deploy_style_metadata(
+        template: &mut ThingTemplate,
+        definition: &ObjectDefinition,
+    ) {
+        use crate::game_logic::DeployStyleMetadata;
+
+        fn parse_bool(value: &str) -> Option<bool> {
+            match value.trim().to_ascii_lowercase().as_str() {
+                "yes" | "true" | "1" => Some(true),
+                "no" | "false" | "0" => Some(false),
+                _ => None,
+            }
+        }
+
+        /// C++ `INI::scanUnsignedInt` consumes an unsigned numeric token and
+        /// `parseDurationUnsignedInt` converts milliseconds to 30 Hz frames
+        /// with ceil.  Reject malformed or overflowing custom values rather
+        /// than clamping them into a different state-machine duration.
+        fn parse_duration_frames(value: &str) -> Option<u32> {
+            let digits: String = value
+                .trim_start()
+                .bytes()
+                .take_while(u8::is_ascii_digit)
+                .map(char::from)
+                .collect();
+            let milliseconds = digits.parse::<u64>().ok()?;
+            let frames = milliseconds.checked_mul(30)?.checked_add(999)? / 1_000;
+            u32::try_from(frames).ok()
+        }
+
+        let mut deploy_modules = definition.behavior_modules.iter().filter(|module| {
+            module
+                .class_name
+                .eq_ignore_ascii_case("DeployStyleAIUpdate")
+        });
+        let Some(module) = deploy_modules.next() else {
+            template.deploy_style_metadata = None;
+            return;
+        };
+
+        // `Object::getAI` exposes one active AI update.  A malformed/custom
+        // object declaring two DeployStyle modules has no unambiguous compact
+        // representation, so retain neither as player-facing authority.
+        if deploy_modules.next().is_some() {
+            template.deploy_style_metadata = None;
+            return;
+        }
+
+        let parse = || -> Option<DeployStyleMetadata> {
+            Some(DeployStyleMetadata {
+                // These defaults are from DeployStyleAIUpdateModuleData's
+                // constructor.  `0` stays distinct from an absent Behavior.
+                pack_time_frames: match module.attribute("PackTime") {
+                    Some(value) => parse_duration_frames(value)?,
+                    None => 0,
+                },
+                unpack_time_frames: match module.attribute("UnpackTime") {
+                    Some(value) => parse_duration_frames(value)?,
+                    None => 0,
+                },
+                reset_turret_before_packing: match module.attribute("ResetTurretBeforePacking") {
+                    Some(value) => parse_bool(value)?,
+                    None => false,
+                },
+                turrets_function_only_when_deployed: match module
+                    .attribute("TurretsFunctionOnlyWhenDeployed")
+                {
+                    Some(value) => parse_bool(value)?,
+                    None => false,
+                },
+                turrets_must_center_before_packing: match module
+                    .attribute("TurretsMustCenterBeforePacking")
+                {
+                    Some(value) => parse_bool(value)?,
+                    None => false,
+                },
+                manual_deploy_animations: match module.attribute("ManualDeployAnimations") {
+                    Some(value) => parse_bool(value)?,
+                    None => false,
+                },
+            })
+        };
+
+        template.deploy_style_metadata = parse();
+    }
+
+    /// Retain the small exact data slice consumed by C++
+    /// `ActionManager::canCaptureBuilding`: source capture SpecialPower,
+    /// target CAPTURABLE/IMMUNE_TO_CAPTURE flags, and GarrisonContain state.
+    ///
+    /// The parser keeps fields per Behavior block, so a `SpecialPowerTemplate`
+    /// from an unrelated module cannot accidentally enable capture.
+    fn apply_authored_capture_metadata(
+        template: &mut ThingTemplate,
+        kind_of: &str,
+        definition: &ObjectDefinition,
+    ) {
+        use crate::game_logic::CapturePowerKind;
+
+        let has_kind = |token: &str| {
+            kind_of
+                .split(|character: char| {
+                    character.is_ascii_whitespace() || matches!(character, ',' | '|')
+                })
+                .any(|candidate| candidate.eq_ignore_ascii_case(token))
+        };
+
+        template.capturable = has_kind("capturable");
+        template.immune_to_capture = has_kind("immune_to_capture");
+        template.garrison_contain_max = definition
+            .behavior_modules
+            .iter()
+            .find(|module| module.class_name.eq_ignore_ascii_case("GarrisonContain"))
+            .and_then(|module| module.attribute("ContainMax"))
+            .and_then(|value| value.trim().parse::<i64>().ok())
+            .and_then(|value| usize::try_from(value).ok());
+
+        // Only `SpecialAbility` grants the SpecialPower interface queried by
+        // C++; a stray `SpecialAbilityUpdate` must not invent one.  Multiple
+        // distinct capture powers on one object are malformed for this compact
+        // host mapping, so reject rather than choose by module declaration.
+        let mut power = CapturePowerKind::None;
+        for module in &definition.behavior_modules {
+            if !module.class_name.eq_ignore_ascii_case("SpecialAbility") {
+                continue;
+            }
+            let candidate = module
+                .attribute("SpecialPowerTemplate")
+                .map(CapturePowerKind::from_special_power_template)
+                .unwrap_or(CapturePowerKind::None);
+            if candidate == CapturePowerKind::None {
+                continue;
+            }
+            if power != CapturePowerKind::None && power != candidate {
+                template.capture_power = CapturePowerKind::None;
+                template.capture_starts_paused = false;
+                template.capture_upgrade_trigger = None;
+                template.capture_start_ability_range = None;
+                template.capture_unpack_time_ms = None;
+                template.capture_preparation_time_ms = None;
+                template.capture_pack_time_ms = None;
+                return;
+            }
+            power = candidate;
+        }
+
+        template.capture_power = power;
+        template.capture_starts_paused = false;
+        template.capture_upgrade_trigger = None;
+        template.capture_start_ability_range = None;
+        template.capture_unpack_time_ms = None;
+        template.capture_preparation_time_ms = None;
+        template.capture_pack_time_ms = None;
+        if power == CapturePowerKind::None {
+            return;
+        }
+
+        for module in &definition.behavior_modules {
+            let module_power = module
+                .attribute("SpecialPowerTemplate")
+                .map(CapturePowerKind::from_special_power_template)
+                .unwrap_or(CapturePowerKind::None);
+            if module_power != power {
+                continue;
+            }
+            if module.class_name.eq_ignore_ascii_case("SpecialAbility") {
+                template.capture_starts_paused =
+                    module.attribute("StartsPaused").is_some_and(|value| {
+                        matches!(
+                            value.trim().to_ascii_lowercase().as_str(),
+                            "yes" | "true" | "1"
+                        )
+                    });
+            } else if module
+                .class_name
+                .eq_ignore_ascii_case("SpecialAbilityUpdate")
+            {
+                template.capture_start_ability_range = module
+                    .attribute("StartAbilityRange")
+                    .and_then(|value| value.trim().parse::<f32>().ok())
+                    .filter(|value| value.is_finite() && *value >= 0.0);
+                template.capture_unpack_time_ms = module
+                    .attribute("UnpackTime")
+                    .and_then(|value| value.trim().parse::<i64>().ok())
+                    .and_then(|value| u32::try_from(value).ok());
+                template.capture_preparation_time_ms = module
+                    .attribute("PreparationTime")
+                    .and_then(|value| value.trim().parse::<i64>().ok())
+                    .and_then(|value| u32::try_from(value).ok());
+                template.capture_pack_time_ms = module
+                    .attribute("PackTime")
+                    .and_then(|value| value.trim().parse::<i64>().ok())
+                    .and_then(|value| u32::try_from(value).ok());
+            } else if module
+                .class_name
+                .eq_ignore_ascii_case("UnpauseSpecialPowerUpgrade")
+            {
+                template.capture_upgrade_trigger = module
+                    .attribute("TriggeredBy")
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(str::to_string);
+            }
+        }
+    }
+
     /// Seed templates for retail Object INI entries that the hand-authored
     /// bootstrap does not already cover.
     ///
-    /// The starter templates intentionally win: they contain host behavior
-    /// that has not yet been represented by generic Object INI fields.  The
-    /// additions use only the exact object identity and authored attributes;
-    /// they do not imply that an unavailable mesh or an unsupported behavior
-    /// module has been ported.
+    /// Starter templates retain their host behavior that generic Object INI
+    /// fields do not yet represent.  Their authored Drawable `Scale` is still
+    /// refreshed from retail data; additions use only exact object identity
+    /// and authored attributes and do not imply an unavailable mesh or an
+    /// unsupported behavior module has been ported.
     pub(in super::super) fn seed_asset_definition_templates(&mut self) -> usize {
         let Some(manager_arc) = get_asset_manager() else {
             return 0;
@@ -426,11 +1209,45 @@ impl GameLogic {
         let mut inserted = 0usize;
         for (name, definition) in definitions {
             let name = name.trim();
-            if name.is_empty()
-                || self.templates.contains_key(name)
+            if name.is_empty() {
+                continue;
+            }
+
+            // Hand-authored starter templates still own their unported host
+            // behavior, but Object INI remains authoritative for the Drawable
+            // asset scale.  Without this narrow enrichment every curated
+            // starter silently retained 1.0 even when the retail object said
+            // `Scale = ...`.
+            if let Some(template) = self.templates.get_mut(name) {
+                if let Some(kind_of) = Self::object_definition_attr(&definition, "kindof") {
+                    Self::apply_authored_semantic_kind_bits(template, &kind_of);
+                    Self::apply_authored_capture_metadata(template, &kind_of, &definition);
+                }
+                let rider_change_normal_locomotors =
+                    unambiguous_locomotors_for_set(&definition, "SET_NORMAL");
+                Self::apply_authored_dock_and_contain_modules(
+                    template,
+                    &definition,
+                    rider_change_normal_locomotors.as_deref(),
+                );
+                if definition_has_rider_change_contain(&definition) {
+                    if let Some(locomotor) = rider_change_normal_locomotors
+                        .as_deref()
+                        .and_then(|names| names.first())
+                    {
+                        template.set_locomotor_name(locomotor);
+                    }
+                }
+                Self::apply_authored_parking_place_metadata(template, &definition);
+                if definition.scale_was_specified {
+                    template.set_asset_scale(definition.scale);
+                }
+                continue;
+            }
+
+            if Self::should_skip_map_object_template(name)
                 // Cinematics/effect anchors have dedicated execution paths;
                 // a global template seed must not make them map-spawnable.
-                || Self::should_skip_map_object_template(name)
                 // The host does not yet have SoundAmbient behavior.  Retain
                 // the lazy path's existing exclusion instead of adding
                 // invisible, silent proxy objects.
@@ -686,6 +1503,22 @@ impl GameLogic {
             .values()
             .find(|player| player.team == team)
             .map(|player| player.id)
+    }
+
+    /// Return a player only when a faction has exactly one active host owner.
+    /// This preserves legacy team-only spawns for simple worlds without
+    /// silently assigning them to the first of two same-faction players.
+    pub fn unique_player_id_for_team(&self, team: Team) -> Option<u32> {
+        if team == Team::Neutral {
+            return None;
+        }
+        let mut player_ids = self
+            .players
+            .values()
+            .filter(|player| player.is_alive && player.team == team)
+            .map(|player| player.id);
+        let first = player_ids.next()?;
+        player_ids.next().is_none().then_some(first)
     }
 
     /// Feed Main-crate object positions and sight ranges into the
@@ -1007,6 +1840,11 @@ impl GameLogic {
         // USA Aircraft
         let mut usa_raptor = ThingTemplate::new("USA_Raptor");
         usa_raptor
+            // Retail `AmericaJetRaptor` declares both VEHICLE and AIRCRAFT.
+            // `WeaponSet::getVictimAntiMask` classifies an airborne aircraft
+            // through VEHICLE, so retaining only the presentation-facing
+            // Aircraft bit makes it incorrectly untargetable.
+            .add_kind_of(KindOf::Vehicle)
             .add_kind_of(KindOf::Aircraft)
             .add_kind_of(KindOf::Selectable)
             .add_kind_of(KindOf::Attackable)
@@ -1206,6 +2044,8 @@ impl GameLogic {
         // China Aircraft
         let mut china_mig = ThingTemplate::new("China_MiG");
         china_mig
+            // Retail `ChinaJetMIG`: VEHICLE AIRCRAFT.
+            .add_kind_of(KindOf::Vehicle)
             .add_kind_of(KindOf::Aircraft)
             .add_kind_of(KindOf::Selectable)
             .add_kind_of(KindOf::Attackable)
@@ -1217,6 +2057,8 @@ impl GameLogic {
 
         let mut china_helix = ThingTemplate::new("China_Helix");
         china_helix
+            // Retail `ChinaVehicleHelix`: VEHICLE AIRCRAFT.
+            .add_kind_of(KindOf::Vehicle)
             .add_kind_of(KindOf::Aircraft)
             .add_kind_of(KindOf::Selectable)
             .add_kind_of(KindOf::Attackable)
@@ -1539,6 +2381,402 @@ mod tests {
     use super::*;
 
     #[test]
+    fn retail_service_and_dozer_kindof_tags_survive_object_ini_parsing() {
+        use std::path::Path;
+
+        // Parse the actual retail definitions rather than a name-shaped
+        // fixture.  C++ ActionManager distinguishes these exact KindOf tags:
+        // AmericaBarracks is a HEAL_PAD, AmericaWarFactory a REPAIR_PAD,
+        // AmericaAirfield an FS_AIRFIELD, and the construction unit a DOZER.
+        let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .ancestors()
+            .nth(3)
+            .expect("Main crate must remain three levels below repository root");
+        let faction_buildings = std::fs::read_to_string(
+            repo_root.join(
+                "windows_game/extracted_big_files_v2/INIZH/Data/INI/Object/FactionBuilding.ini",
+            ),
+        )
+        .expect("retail FactionBuilding.ini");
+        let america_vehicles = std::fs::read_to_string(
+            repo_root.join(
+                "windows_game/extracted_big_files_v2/INIZH/Data/INI/Object/AmericaVehicle.ini",
+            ),
+        )
+        .expect("retail AmericaVehicle.ini");
+
+        let mut parser = crate::assets::IniParser::new();
+        parser
+            .parse_ini_content(&faction_buildings, "FactionBuilding.ini")
+            .expect("parse retail faction structures");
+        parser
+            .parse_ini_content(&america_vehicles, "AmericaVehicle.ini")
+            .expect("parse retail USA vehicles");
+
+        let parsed = |name| {
+            GameLogic::build_template_from_object_definition(
+                name,
+                parser
+                    .get_definition(name)
+                    .unwrap_or_else(|| panic!("missing retail Object {name}")),
+                None,
+            )
+        };
+        assert!(parsed("AmericaAirfield").is_kind_of(KindOf::FSAirfield));
+        assert!(parsed("AmericaBarracks").is_kind_of(KindOf::HealPad));
+        assert!(parsed("AmericaWarFactory").is_kind_of(KindOf::RepairPad));
+        assert!(parsed("AmericaVehicleDozer").is_kind_of(KindOf::Dozer));
+    }
+
+    #[test]
+    fn parsed_parking_place_behavior_keeps_authored_shape_without_name_fallback() {
+        let mut parser = crate::assets::IniParser::new();
+        parser
+            .parse_ini_content(
+                r#"
+Object ArbitraryParkingIdentity
+  Type = Structure
+  Model = ArbitraryParkingModel
+  KindOf = STRUCTURE SELECTABLE FS_AIRFIELD
+  Behavior = ParkingPlaceBehavior ModuleTag_Parking
+    NumRows = 3
+    NumCols = 2
+    ApproachHeight = 72.5
+    LandingDeckHeightOffset = 4.25
+    HasRunways = Yes
+    ParkInHangars = Yes
+    HealAmountPerSecond = 7.5
+  End
+End
+Object AirfieldNamedButNoParkingBehavior
+  Type = Structure
+  Model = NoParkingModel
+  KindOf = STRUCTURE SELECTABLE FS_AIRFIELD
+End
+"#,
+                "parking_place_metadata_probe.ini",
+            )
+            .expect("parse parking place metadata probe");
+
+        let parsed = GameLogic::build_template_from_object_definition(
+            "ArbitraryParkingIdentity",
+            parser
+                .get_definition("ArbitraryParkingIdentity")
+                .expect("parking definition"),
+            None,
+        );
+        let metadata = parsed.parking_place.expect("authored parking metadata");
+        assert_eq!(metadata.num_rows, 3);
+        assert_eq!(metadata.num_cols, 2);
+        assert_eq!(metadata.capacity(), Some(6));
+        assert_eq!(metadata.runway_count(), Some(2));
+        assert!((metadata.approach_height - 72.5).abs() < f32::EPSILON);
+        assert!((metadata.landing_deck_height_offset - 4.25).abs() < f32::EPSILON);
+        assert!(metadata.has_runways);
+        assert!(metadata.park_in_hangars);
+        assert!((metadata.heal_amount_per_second - 7.5).abs() < f32::EPSILON);
+
+        let no_behavior = GameLogic::build_template_from_object_definition(
+            "AirfieldNamedButNoParkingBehavior",
+            parser
+                .get_definition("AirfieldNamedButNoParkingBehavior")
+                .expect("no-behavior definition"),
+            None,
+        );
+        assert!(no_behavior.is_kind_of(KindOf::FSAirfield));
+        assert!(
+            no_behavior.parking_place.is_none(),
+            "FSAirfield/name alone must not fabricate ParkingPlaceBehavior"
+        );
+    }
+
+    #[test]
+    fn retail_deploy_style_modules_preserve_authored_timings_and_flags() {
+        // These are the source-authored DeployStyle blocks for the retail
+        // Sentry Drone and Nuke Launcher.  Sentry's nested Turret is
+        // intentional: its following fields prove module attribution remains
+        // intact through a nested `End`.
+        let mut parser = crate::assets::IniParser::new();
+        parser
+            .parse_ini_content(
+                r#"
+Object AmericaVehicleSentryDrone
+  Type = Vehicle
+  KindOf = SELECTABLE CAN_ATTACK VEHICLE
+  Behavior = DeployStyleAIUpdate ModuleTag_04
+    Turret
+      TurretTurnRate = 180
+    End
+    PackTime = 1000
+    UnpackTime = 1000
+    TurretsFunctionOnlyWhenDeployed = Yes
+    TurretsMustCenterBeforePacking = Yes
+  End
+End
+Object ChinaVehicleNukeLauncher
+  Type = Vehicle
+  KindOf = SELECTABLE CAN_ATTACK VEHICLE
+  Behavior = DeployStyleAIUpdate ModuleTag_04
+    Turret
+      TurretTurnRate = 80
+    End
+    PackTime = 3333
+    UnpackTime = 3333
+    ResetTurretBeforePacking = No
+    TurretsFunctionOnlyWhenDeployed = Yes
+    TurretsMustCenterBeforePacking = Yes
+    ManualDeployAnimations = Yes
+  End
+End
+Object VehicleWithoutDeployStyle
+  Type = Vehicle
+  KindOf = SELECTABLE CAN_ATTACK VEHICLE
+End
+"#,
+                "retail_deploy_style_probe.ini",
+            )
+            .expect("parse retail DeployStyle probes");
+
+        let sentry = GameLogic::build_template_from_object_definition(
+            "AmericaVehicleSentryDrone",
+            parser
+                .get_definition("AmericaVehicleSentryDrone")
+                .expect("sentry definition"),
+            None,
+        );
+        let sentry_data = sentry
+            .deploy_style_metadata
+            .as_ref()
+            .expect("sentry authored DeployStyle");
+        assert_eq!(sentry_data.pack_time_frames, 30);
+        assert_eq!(sentry_data.unpack_time_frames, 30);
+        assert!(!sentry_data.reset_turret_before_packing);
+        assert!(sentry_data.turrets_function_only_when_deployed);
+        assert!(sentry_data.turrets_must_center_before_packing);
+        assert!(!sentry_data.manual_deploy_animations);
+
+        let nuke = GameLogic::build_template_from_object_definition(
+            "ChinaVehicleNukeLauncher",
+            parser
+                .get_definition("ChinaVehicleNukeLauncher")
+                .expect("nuke definition"),
+            None,
+        );
+        let nuke_data = nuke
+            .deploy_style_metadata
+            .as_ref()
+            .expect("nuke authored DeployStyle");
+        assert_eq!(nuke_data.pack_time_frames, 100);
+        assert_eq!(nuke_data.unpack_time_frames, 100);
+        assert!(!nuke_data.reset_turret_before_packing);
+        assert!(nuke_data.turrets_function_only_when_deployed);
+        assert!(nuke_data.turrets_must_center_before_packing);
+        assert!(nuke_data.manual_deploy_animations);
+
+        let ordinary = GameLogic::build_template_from_object_definition(
+            "VehicleWithoutDeployStyle",
+            parser
+                .get_definition("VehicleWithoutDeployStyle")
+                .expect("ordinary vehicle definition"),
+            None,
+        );
+        assert!(ordinary.is_kind_of(KindOf::Vehicle));
+        assert!(
+            ordinary.deploy_style_metadata.is_none(),
+            "VEHICLE KindOf/name must not synthesize DeployStyle authority"
+        );
+    }
+
+    #[test]
+    fn retail_refund_value_keeps_zero_fallback_and_exact_override() {
+        let mut parser = crate::assets::IniParser::new();
+        parser
+            .parse_ini_content(
+                r#"
+Object RetailFallbackRefund
+  Type = Structure
+  Model = RetailFallbackRefundModel
+  KindOf = STRUCTURE SELECTABLE
+  BuildCost = 1000
+  RefundValue = 0
+End
+Object GLASupplyStash
+  Type = Structure
+  Model = UBSupply
+  KindOf = STRUCTURE SELECTABLE
+  BuildCost = 1500
+  RefundValue = 650
+End
+"#,
+                "retail_refund_value_probe.ini",
+            )
+            .expect("parse refund value probe");
+
+        let fallback = GameLogic::build_template_from_object_definition(
+            "RetailFallbackRefund",
+            parser
+                .get_definition("RetailFallbackRefund")
+                .expect("fallback definition"),
+            None,
+        );
+        assert_eq!(
+            fallback.refund_value, 0,
+            "zero retains SellPercentage fallback"
+        );
+
+        // Retail GLA Supply Stash uses the exact override rather than the
+        // 1500 BuildCost × SellPercentage route.
+        let stash = GameLogic::build_template_from_object_definition(
+            "GLASupplyStash",
+            parser
+                .get_definition("GLASupplyStash")
+                .expect("GLA Supply Stash definition"),
+            None,
+        );
+        assert_eq!(stash.build_cost.supplies, 1_500);
+        assert_eq!(stash.refund_value, 650);
+    }
+
+    #[test]
+    fn parsed_dock_modules_define_dock_family_without_template_name_matching() {
+        let mut parser = crate::assets::IniParser::new();
+        parser
+            .parse_ini_content(
+                r#"
+Object ArbitraryWarehouseIdentity
+  Type = Structure
+  Model = ArbitraryWarehouseModel
+  KindOf = STRUCTURE SELECTABLE SUPPLY_SOURCE
+  Behavior = SupplyWarehouseDockUpdate ModuleTag_06
+    StartingBoxes = 400
+  End
+End
+Object ArbitraryFerryIdentity
+  Type = Structure
+  Model = ArbitraryFerryModel
+  KindOf = SELECTABLE TRANSPORT
+  Behavior = RailedTransportContain ModuleTag_03
+    Slots = 10
+  End
+  Behavior = RailedTransportDockUpdate ModuleTag_06
+    NumberApproachPositions = 9
+  End
+End
+"#,
+                "dock_metadata_probe.ini",
+            )
+            .expect("parse dock metadata probe");
+
+        let warehouse = GameLogic::build_template_from_object_definition(
+            "ArbitraryWarehouseIdentity",
+            parser
+                .get_definition("ArbitraryWarehouseIdentity")
+                .expect("warehouse definition"),
+            None,
+        );
+        assert_eq!(warehouse.dock_kind, DockKind::SupplyWarehouse);
+        assert_eq!(warehouse.dock_starting_boxes, Some(400));
+
+        let ferry = GameLogic::build_template_from_object_definition(
+            "ArbitraryFerryIdentity",
+            parser
+                .get_definition("ArbitraryFerryIdentity")
+                .expect("ferry definition"),
+            None,
+        );
+        assert_eq!(ferry.dock_kind, DockKind::RailedTransport);
+        assert_eq!(ferry.railed_transport_slots, Some(10));
+        assert!(
+            !ferry.is_kind_of(KindOf::Vehicle),
+            "the test proves RailedTransportContain is not inferred from VEHICLE"
+        );
+    }
+
+    #[test]
+    fn parsed_capture_modules_keep_power_target_and_garrison_semantics() {
+        let mut parser = crate::assets::IniParser::new();
+        parser
+            .parse_ini_content(
+                r#"
+Object ArbitraryCaptureSourceIdentity
+  Type = Infantry
+  Model = ArbitraryCaptureSourceModel
+  KindOf = INFANTRY SELECTABLE
+  Behavior = SpecialAbility ModuleTag_Capture
+    SpecialPowerTemplate = SpecialAbilityRebelCaptureBuilding
+    StartsPaused = Yes
+  End
+  Behavior = SpecialAbilityUpdate ModuleTag_CaptureUpdate
+    SpecialPowerTemplate = SpecialAbilityRebelCaptureBuilding
+    StartAbilityRange = 5.0
+    UnpackTime = 3000
+    PreparationTime = 20000
+    PackTime = 2000
+  End
+  Behavior = UnpauseSpecialPowerUpgrade ModuleTag_CaptureUpgrade
+    SpecialPowerTemplate = SpecialAbilityRebelCaptureBuilding
+    TriggeredBy = Upgrade_InfantryCaptureBuilding
+  End
+End
+Object ArbitraryCaptureTargetIdentity
+  Type = Structure
+  Model = ArbitraryCaptureTargetModel
+  KindOf = STRUCTURE SELECTABLE CAPTURABLE
+  Behavior = GarrisonContain ModuleTag_Garrison
+    ContainMax = 5
+  End
+End
+Object ArbitraryImmuneTargetIdentity
+  Type = Structure
+  Model = ArbitraryImmuneTargetModel
+  KindOf = STRUCTURE SELECTABLE IMMUNE_TO_CAPTURE
+End
+"#,
+                "capture_metadata_probe.ini",
+            )
+            .expect("parse capture metadata probe");
+
+        let source = GameLogic::build_template_from_object_definition(
+            "ArbitraryCaptureSourceIdentity",
+            parser
+                .get_definition("ArbitraryCaptureSourceIdentity")
+                .expect("capture source definition"),
+            None,
+        );
+        assert_eq!(source.capture_power, CapturePowerKind::Rebel);
+        assert!(source.capture_starts_paused);
+        assert_eq!(
+            source.capture_upgrade_trigger.as_deref(),
+            Some("Upgrade_InfantryCaptureBuilding")
+        );
+        assert_eq!(source.capture_start_ability_range, Some(5.0));
+        assert_eq!(source.capture_unpack_time_ms, Some(3_000));
+        assert_eq!(source.capture_preparation_time_ms, Some(20_000));
+        assert_eq!(source.capture_pack_time_ms, Some(2_000));
+
+        let target = GameLogic::build_template_from_object_definition(
+            "ArbitraryCaptureTargetIdentity",
+            parser
+                .get_definition("ArbitraryCaptureTargetIdentity")
+                .expect("capture target definition"),
+            None,
+        );
+        assert!(target.capturable);
+        assert!(!target.immune_to_capture);
+        assert_eq!(target.garrison_contain_max, Some(5));
+
+        let immune = GameLogic::build_template_from_object_definition(
+            "ArbitraryImmuneTargetIdentity",
+            parser
+                .get_definition("ArbitraryImmuneTargetIdentity")
+                .expect("immune target definition"),
+            None,
+        );
+        assert!(!immune.capturable);
+        assert!(immune.immune_to_capture);
+    }
+
+    #[test]
     fn exact_retail_catalogue_seed_preserves_data_and_never_overwrites_curated_templates() {
         let mut logic = GameLogic::new();
         let mut curated = ThingTemplate::new("AmericaTankCrusader");
@@ -1551,6 +2789,8 @@ mod tests {
         retail_unit.object_type = "Vehicle".to_string();
         retail_unit.hit_points = Some(480);
         retail_unit.model_name = Some("AVCrusader".to_string());
+        retail_unit.scale = 0.9;
+        retail_unit.scale_was_specified = true;
         retail_unit.attributes.insert(
             "KindOf".to_string(),
             "VEHICLE SELECTABLE CAN_ATTACK".to_string(),
@@ -1563,6 +2803,8 @@ mod tests {
         retail_new.object_type = "Vehicle".to_string();
         retail_new.hit_points = Some(600);
         retail_new.model_name = Some("AVPaladin".to_string());
+        retail_new.scale = 0.66;
+        retail_new.scale_was_specified = true;
         retail_new.primary_weapon = Some("PaladinTankGun".to_string());
         retail_new.secondary_weapon = Some("PaladinPointDefenseLaser".to_string());
         retail_new.attributes.insert(
@@ -1594,6 +2836,7 @@ mod tests {
             curated_after.model_name.as_deref(),
             Some("CuratedExactModel")
         );
+        assert!((curated_after.asset_scale - 0.9).abs() < f32::EPSILON);
 
         let added = logic
             .templates
@@ -1602,6 +2845,7 @@ mod tests {
         assert_eq!(added.max_health, 600.0);
         assert_eq!(added.build_cost.supplies, 1100);
         assert_eq!(added.model_name.as_deref(), Some("AVPaladin"));
+        assert!((added.asset_scale - 0.66).abs() < f32::EPSILON);
         assert_eq!(added.primary_weapon_name.as_deref(), Some("PaladinTankGun"));
         assert_eq!(
             added.secondary_weapon_name.as_deref(),
@@ -1683,6 +2927,18 @@ mod tests {
                 Some(expected_model),
                 "{template_name} must keep its own retail visual identity"
             );
+        }
+
+        // C++ WeaponSet classifies airborne targets through their gameplay
+        // KindOf, not their Drawable model.  These curated starters must
+        // therefore retain the authored VEHICLE bit as well as AIRCRAFT.
+        for template_name in ["USA_Raptor", "China_MiG", "China_Helix"] {
+            let template = logic
+                .templates
+                .get(template_name)
+                .unwrap_or_else(|| panic!("missing curated aircraft {template_name}"));
+            assert!(template.is_kind_of(KindOf::Vehicle));
+            assert!(template.is_kind_of(KindOf::Aircraft));
         }
     }
 }

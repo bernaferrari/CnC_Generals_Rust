@@ -230,6 +230,7 @@ fn projectiles_step_inside_game_logic_update() {
     crate::game_logic::combat::queue_projectile(crate::game_logic::combat::PendingProjectile {
         shooter_id: shooter,
         shooter_pos: glam::Vec3::ZERO,
+        source_context: None,
         target_id: Some(target),
         target_pos: Some(glam::Vec3::new(5.0, 0.0, 0.0)),
         damage: 25.0,
@@ -239,6 +240,9 @@ fn projectiles_step_inside_game_logic_update() {
         damage_type: crate::game_logic::combat::DamageType::Bullet,
         death_type: crate::game_logic::host_usa_pilot::HostDeathType::Normal,
         projectile_object_name: String::new(),
+        projectile_lifecycle: None,
+        fire_fx_name: String::new(),
+        fire_ocl_name: String::new(),
         detonation_fx_name: String::new(),
         detonation_ocl_name: String::new(),
         exhaust_name: String::new(),

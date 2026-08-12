@@ -176,6 +176,12 @@ pub enum CommandType {
     },
     DoWeapon {
         weapon_slot: WeaponSlot,
+        /// Exact C++ `CommandButton::getMaxShotsToFire()` payload.
+        ///
+        /// Older saved host commands lacked this field, where the safe legacy
+        /// meaning is an unlimited order.
+        #[serde(default = "default_weapon_max_shots_cmd")]
+        max_shots_to_fire: i32,
         target: WeaponTarget,
     },
 

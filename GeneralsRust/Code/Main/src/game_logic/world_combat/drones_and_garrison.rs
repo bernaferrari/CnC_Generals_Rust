@@ -965,7 +965,21 @@ impl GameLogic {
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return;
         };
-        let Some(supplies) = starting_supplies_for_template(&obj.template_name) else {
+        // Retail `SupplyWarehouseDockUpdate::StartingBoxes` is authoritative.
+        // Retain the legacy bootstrap table only for hand-authored templates
+        // that have no parsed Behavior metadata; it never grants Dock ability.
+        let supplies = if obj.thing.template.dock_kind
+            == crate::game_logic::DockKind::SupplyWarehouse
+        {
+            obj.thing.template.dock_starting_boxes.map(|boxes| {
+                boxes.saturating_mul(
+                    crate::game_logic::host_structure_economy_residual::VALUE_PER_SUPPLY_BOX as u32,
+                )
+            })
+        } else {
+            starting_supplies_for_template(&obj.template_name)
+        };
+        let Some(supplies) = supplies else {
             return;
         };
         // Only seed if empty (map may already set amount).
@@ -979,12 +993,18 @@ impl GameLogic {
     /// C++ SupplyCenterCreate::onBuildComplete residual honesty counter.
     pub(in super::super) fn on_supply_center_build_complete(&mut self, object_id: ObjectId) {
         use crate::game_logic::host_upgrades::is_supply_center_template;
-        let Some(obj) = self.objects.get(&object_id) else {
-            return;
-        };
-        if obj.is_kind_of(KindOf::SupplyCenter) || is_supply_center_template(&obj.template_name) {
+        let is_supply_center = self.objects.get(&object_id).is_some_and(|obj| {
+            obj.is_kind_of(KindOf::SupplyCenter)
+                || obj.is_kind_of(KindOf::FSSupplyCenter)
+                || is_supply_center_template(&obj.template_name)
+        });
+        if is_supply_center {
             self.supply_create_center_registers =
                 self.supply_create_center_registers.saturating_add(1);
+            // C++ SupplyCenter/Stash SpawnBehavior ModuleTag_12 only becomes
+            // eligible after UNDER_CONSTRUCTION clears.  It creates the free
+            // starter collector outside the paid ProductionUpdate queue.
+            let _ = self.spawn_supply_center_one_shot_collector(object_id);
         }
     }
 
@@ -1043,33 +1063,18 @@ impl GameLogic {
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return;
         };
+        if obj.thing.template.capture_starts_paused {
+            if let Some(power) = obj.thing.template.capture_power.special_power_type() {
+                obj.pause_special_power_countdown(&power, true);
+            }
+        }
         let name = obj.template_name.to_ascii_lowercase();
-        let candidates = [
-            P::RangerCaptureBuilding,
-            P::RedGuardCaptureBuilding,
-            P::RebelCaptureBuilding,
-            P::RadarScan,
-            P::HelixNapalmBomb,
-        ];
+        let candidates = [P::RadarScan, P::HelixNapalmBomb];
         for power in candidates {
             if !power_starts_paused(&power) {
                 continue;
             }
             let relevant = match power {
-                P::RangerCaptureBuilding => {
-                    name.contains("ranger")
-                        || name.contains("redguard")
-                        || name.contains("rebel")
-                        || name.contains("colonelburton")
-                        || name.contains("jarmen")
-                        || name.contains("pathfinder")
-                }
-                P::RedGuardCaptureBuilding => {
-                    name.contains("redguard") || name.contains("minigunner")
-                }
-                P::RebelCaptureBuilding => {
-                    name.contains("rebel") || name.contains("hijacker") || name.contains("saboteur")
-                }
                 P::RadarScan => name.contains("radarvan") || name.contains("radar_van"),
                 P::HelixNapalmBomb => name.contains("helix"),
                 _ => false,

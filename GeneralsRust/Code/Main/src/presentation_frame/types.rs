@@ -208,6 +208,9 @@ pub struct RenderableObject {
     pub id: ObjectId,
     pub template_name: String,
     pub team: Team,
+    /// Controlling host player; distinct from faction for same-faction slots.
+    #[serde(default)]
+    pub owner_player_id: Option<u32>,
     /// Team tint for presentation-only draw (RGBA 0..1), mirrors Object::team_color.
     pub team_color: [f32; 4],
     pub position: Vec3,
@@ -296,6 +299,27 @@ pub struct RenderableObject {
     pub power_consumed: i32,
     /// Host Object::stored_resources.supplies residual (supply center / drop zone).
     pub stored_supplies: u32,
+    /// Exact Object INI DockUpdate family, carried separately from KindOf so
+    /// physical RMB classification never derives dockability from a name.
+    #[serde(default)]
+    pub dock_kind: DockKind,
+    /// Exact C++ `KINDOF_CAPTURABLE` semantic, carried outside the compact
+    /// KindOf bank for physical CaptureBuilding classification.
+    #[serde(default)]
+    pub capturable: bool,
+    /// Exact C++ `KINDOF_IMMUNE_TO_CAPTURE` semantic.
+    #[serde(default)]
+    pub immune_to_capture: bool,
+    /// Exact `GarrisonContain` presence.  This must remain distinct from an
+    /// ordinary Enter/transport capacity for capture legality.
+    #[serde(default)]
+    pub capture_garrisonable: bool,
+    /// Exact source capture SpecialPower module, if one is authored.
+    #[serde(default)]
+    pub capture_power: crate::game_logic::CapturePowerKind,
+    /// Snapshot-time SpecialPower readiness for that same exact module.
+    #[serde(default)]
+    pub capture_power_ready: bool,
     pub health_current: f32,
     pub health_max: f32,
     pub selected: bool,
@@ -382,6 +406,11 @@ pub struct RenderableObject {
     pub weapons_jammed: bool,
     /// Host ObjectStatus::masked residual.
     pub masked: bool,
+    /// C++ KINDOF_UNATTACKABLE victim override.  This deliberately lives
+    /// outside the compact 32-bit KindOf mirror so the existing bit layout
+    /// remains snapshot-compatible while weapon-target picking stays exact.
+    #[serde(default)]
+    pub unattackable: bool,
     /// Host ObjectStatus::ignoring_stealth residual.
     pub ignoring_stealth: bool,
     /// Host ObjectStatus::repulsor residual.
@@ -552,6 +581,40 @@ pub struct RenderableObject {
     pub is_combat_chinook_transport: bool,
     pub max_transport: usize,
     pub overlord_bunker_capacity: usize,
+    /// Exact parsed normal ContainModule presence.  This prevents a generic
+    /// vehicle with a stale capacity field from becoming a player transport.
+    #[serde(default)]
+    pub contain_module_present: bool,
+    /// Concrete parsed containment implementation.  RiderChange is retained
+    /// separately so frozen RMB input can fail closed until its authored
+    /// Rider1..Rider8 replacement transaction is represented.
+    #[serde(default)]
+    pub contain_module_kind: crate::game_logic::ContainModuleKind,
+    /// Frozen `AllowInsideKindOf`/`ForbidInsideKindOf` result for physical
+    /// RMB Enter. Unsupported metadata is deliberately fail-closed.
+    #[serde(default)]
+    pub contain_admission: crate::game_logic::ContainAdmission,
+    /// The only RiderChange data frozen into the physical-input frame: exact
+    /// supported rider template identities.  Visual/status/weapon metadata
+    /// stays on the authoritative ThingTemplate; RMB needs only a bounded
+    /// membership decision and repeats it in GameLogic at arrival.
+    #[serde(default)]
+    pub rider_change_allowed_templates: Vec<String>,
+    /// C++ OpenContain relationship gates retained from the same module.
+    #[serde(default = "default_presentation_allow_inside")]
+    pub contain_allow_allies_inside: bool,
+    #[serde(default = "default_presentation_allow_inside")]
+    pub contain_allow_enemies_inside: bool,
+    #[serde(default = "default_presentation_allow_inside")]
+    pub contain_allow_neutral_inside: bool,
+    /// C++ `TransportSlotCount` frozen for source validation in the physical
+    /// input path. Zero/missing metadata rejects normal Enter.
+    #[serde(default)]
+    pub transport_slot_count: usize,
+    /// C++ faction-structure distinction used by normal Enter's non-owner
+    /// gate.  This is not inferred from a presentation template spelling.
+    #[serde(default)]
+    pub is_faction_structure: bool,
     pub passengers_allowed_to_fire: bool,
     pub display_name: String,
     pub demo_suicided_detonating: bool,
@@ -612,6 +675,12 @@ pub struct RenderableObject {
     /// W3D / mesh resolve key (template model name). Snapshot-owned so the unit
     /// mesh pass does not re-read live ThingTemplate during GPU collect.
     pub model_key: Option<String>,
+    /// Exact source-authored W3D models selected from every active Object INI
+    /// Draw module, in declaration order.  The primary `model_key` above is
+    /// retained for snapshot compatibility and UI/prewarm callers; rendering
+    /// submits this whole list without deduplicating same-name modules.
+    #[serde(default)]
+    pub draw_models: Vec<crate::assets::AuthoredDrawModel>,
     /// Mesh scale residual (Object INI Scale; common combat units retail **1.0**).
     /// Snapshot-owned so the unit mesh pass does not re-read live template Scale.
     /// Fail-closed: not full draw-scale bone / animation scale matrix.
@@ -633,4 +702,186 @@ pub struct RenderableObject {
     pub ground_height: f32,
     /// True when `ground_height` came from terrain sample (not default-0).
     pub ground_height_from_terrain: bool,
+}
+
+const fn default_presentation_allow_inside() -> bool {
+    true
+}
+
+impl RenderableObject {
+    /// Frozen capacity for a normal player `MSG_ENTER` order.
+    ///
+    /// This deliberately uses only containment state that reached the
+    /// presentation frame.  In particular, it does not turn every vehicle
+    /// into a transport from its footprint or template spelling: C++ asks the
+    /// target's ContainModule whether it can accept the selected object.
+    pub fn normal_enter_capacity(&self) -> Option<usize> {
+        if !self.supports_normal_enter() {
+            return None;
+        }
+        if self.contain_module_kind == crate::game_logic::ContainModuleKind::RiderChange {
+            // C++ RiderChangeContain ignores normal capacity while replacing
+            // the previous rider.  This sentinel is not a free transport
+            // slot; input separately checks the frozen authored roster.
+            return Some(usize::MAX);
+        }
+        if self.is_tunnel_network
+            || self.is_structure
+            || self.max_garrison > 0
+            || self.contain_module_kind == crate::game_logic::ContainModuleKind::Garrison
+        {
+            return (self.max_garrison > 0).then_some(self.max_garrison);
+        }
+
+        // `usize::MAX` is the host-frame sentinel for a non-Overlord object;
+        // a positive non-sentinel value is the BattleBunker redirect capacity.
+        if self.overlord_bunker_capacity != usize::MAX && self.overlord_bunker_capacity > 0 {
+            return Some(self.overlord_bunker_capacity);
+        }
+
+        (self.max_transport > 0).then_some(self.max_transport)
+    }
+
+    /// Whether this frozen target has enough actual ContainModule/typed-role
+    /// data to offer a normal player Enter command.
+    pub fn supports_normal_enter(&self) -> bool {
+        if self.contain_module_kind == crate::game_logic::ContainModuleKind::RiderChange {
+            return self.contain_admission != crate::game_logic::ContainAdmission::Unsupported
+                && !self.rider_change_allowed_templates.is_empty();
+        }
+        if self.is_combat_cycle_transport {
+            return false;
+        }
+        if self.contain_module_present {
+            return self.contain_admission != crate::game_logic::ContainAdmission::Unsupported;
+        }
+        self.is_tunnel_network
+            || (self.overlord_bunker_capacity != usize::MAX && self.overlord_bunker_capacity > 0)
+            || self.is_humvee_transport
+            || self.is_listening_outpost_transport
+            || self.is_troop_crawler_transport
+            || self.is_battle_bus_transport
+            || self.is_technical_transport
+            || self.is_combat_cycle_transport
+            || self.is_combat_chinook_transport
+            || self.is_helix_transport
+    }
+
+    /// Frozen passenger count for a normal player `MSG_ENTER` order.
+    pub fn normal_enter_occupant_count(&self) -> usize {
+        if self.is_tunnel_network || self.is_structure || self.max_garrison > 0 {
+            self.garrisoned_units
+                .len()
+                .max(self.occupant_count as usize)
+        } else {
+            (self.occupant_count as usize).max(self.garrisoned_units.len())
+        }
+    }
+
+    /// C++ `TransportContain::isValidContainerFor` demands the exact same
+    /// controlling player.  GarrisonContain and TunnelContain deliberately
+    /// keep their different relationship/body-count behavior.
+    #[inline]
+    pub fn normal_enter_requires_exact_controller(&self) -> bool {
+        use crate::game_logic::ContainModuleKind;
+
+        if self.is_tunnel_network {
+            return false;
+        }
+        if self.overlord_bunker_capacity != usize::MAX && self.overlord_bunker_capacity > 0 {
+            return true;
+        }
+        match self.contain_module_kind {
+            ContainModuleKind::Transport
+            | ContainModuleKind::RiderChange
+            | ContainModuleKind::RailedTransport => true,
+            ContainModuleKind::Garrison => false,
+            ContainModuleKind::None => {
+                self.is_helix_transport
+                    || self.is_battle_bus_transport
+                    || self.is_technical_transport
+                    || self.is_humvee_transport
+                    || self.is_troop_crawler_transport
+                    || self.is_combat_chinook_transport
+                    || self.is_listening_outpost_transport
+            }
+        }
+    }
+
+    /// Whether frozen capacity is measured in authored passenger slots rather
+    /// than bodies.  RiderChange intentionally returns false because it is
+    /// never advertised as normal Enter before its roster transaction exists.
+    #[inline]
+    pub fn normal_enter_uses_transport_slots(&self) -> bool {
+        use crate::game_logic::ContainModuleKind;
+
+        if self.is_tunnel_network
+            || self.is_structure
+            || self.max_garrison > 0
+            || self.contain_module_kind == ContainModuleKind::Garrison
+        {
+            return false;
+        }
+        matches!(
+            self.contain_module_kind,
+            ContainModuleKind::Transport | ContainModuleKind::RailedTransport
+        ) || (self.overlord_bunker_capacity != usize::MAX && self.overlord_bunker_capacity > 0)
+            || self.is_helix_transport
+            || self.is_battle_bus_transport
+            || self.is_technical_transport
+            || self.is_humvee_transport
+            || self.is_troop_crawler_transport
+            || self.is_combat_chinook_transport
+            || self.is_listening_outpost_transport
+    }
+
+    /// C++ `AllowInsideKindOf = INFANTRY` role as represented by the active
+    /// host containment implementations.  TunnelContain is the deliberate
+    /// exception: it accepts non-aircraft units from the shared tunnel pool.
+    pub fn normal_enter_requires_infantry(&self) -> bool {
+        if self.contain_module_present {
+            return self.contain_admission == crate::game_logic::ContainAdmission::InfantryOnly;
+        }
+        if self.is_tunnel_network {
+            return false;
+        }
+
+        self.is_structure
+            || (self.overlord_bunker_capacity != usize::MAX && self.overlord_bunker_capacity > 0)
+            || self.is_humvee_transport
+            || self.is_listening_outpost_transport
+            || self.is_troop_crawler_transport
+            || self.is_battle_bus_transport
+            || self.is_technical_transport
+            || self.is_combat_cycle_transport
+    }
+
+    /// C++ `TunnelContain` and `CombatChinookContain` reject aircraft.
+    pub fn normal_enter_forbids_aircraft(&self) -> bool {
+        if self.contain_module_present {
+            return matches!(
+                self.contain_admission,
+                crate::game_logic::ContainAdmission::InfantryOnly
+                    | crate::game_logic::ContainAdmission::InfantryOrVehicle
+            );
+        }
+        self.is_tunnel_network || self.is_combat_chinook_transport || self.is_helix_transport
+    }
+
+    /// C++ OpenContain allows relationships independently of the global
+    /// non-owner-empty rule.  The frame resolves the relationship from its
+    /// frozen player provenance before calling this method.
+    pub fn normal_enter_allows_relationship(
+        &self,
+        relationship: gamelogic::common::Relationship,
+    ) -> bool {
+        if !self.contain_module_present {
+            return true;
+        }
+        match relationship {
+            gamelogic::common::Relationship::Allies => self.contain_allow_allies_inside,
+            gamelogic::common::Relationship::Enemies => self.contain_allow_enemies_inside,
+            gamelogic::common::Relationship::Neutral => self.contain_allow_neutral_inside,
+        }
+    }
 }

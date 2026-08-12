@@ -42,6 +42,167 @@ impl PhysicalGatherAttempt {
     }
 }
 
+// C++ `W3DView::deviceToWorld` equivalent for the active Main camera.  Input
+// must be projected through the same view/projection pair used by WGPU rather
+// than treating the window as a linear minimap.
+const PICK_RAY_EPSILON: f32 = 1.0e-5;
+const PICK_TERRAIN_STEPS: usize = 96;
+const PICK_TERRAIN_BISECTION_STEPS: usize = 12;
+
+fn unproject_mouse_ray(
+    view_matrix: Mat4,
+    projection_matrix: Mat4,
+    mouse_position: (f32, f32),
+    viewport_width: f32,
+    viewport_height: f32,
+) -> Option<(Vec3, Vec3)> {
+    let width = viewport_width.max(1.0);
+    let height = viewport_height.max(1.0);
+    let ndc_x = (mouse_position.0 / width).clamp(0.0, 1.0) * 2.0 - 1.0;
+    let ndc_y = 1.0 - (mouse_position.1 / height).clamp(0.0, 1.0) * 2.0;
+    let inverse = (projection_matrix * view_matrix).inverse();
+    if !inverse.is_finite() {
+        return None;
+    }
+
+    // Main's WGPU projection uses depth [0, 1], matching the selection-overlay
+    // unprojection path.  Retain the signed perspective divide; using abs(w)
+    // can mirror a point behind the camera into the playable world.
+    let near_homogeneous = inverse * glam::Vec4::new(ndc_x, ndc_y, 0.0, 1.0);
+    let far_homogeneous = inverse * glam::Vec4::new(ndc_x, ndc_y, 1.0, 1.0);
+    if near_homogeneous.w.abs() <= PICK_RAY_EPSILON || far_homogeneous.w.abs() <= PICK_RAY_EPSILON {
+        return None;
+    }
+    let near = near_homogeneous.truncate() / near_homogeneous.w;
+    let far = far_homogeneous.truncate() / far_homogeneous.w;
+    (near.is_finite() && far.is_finite() && (far - near).length_squared() > PICK_RAY_EPSILON)
+        .then_some((near, far))
+}
+
+/// Parameter interval in which a finite ray segment lies over the playable XZ
+/// rectangle.  This prevents a terrain edge from being sampled for arbitrary
+/// off-map screen rays.
+fn ray_interval_in_world_xz(
+    near: Vec3,
+    far: Vec3,
+    world_min: Vec3,
+    world_max: Vec3,
+) -> Option<(f32, f32)> {
+    let direction = far - near;
+    let mut enter = 0.0_f32;
+    let mut exit = 1.0_f32;
+    for (origin, delta, min, max) in [
+        (near.x, direction.x, world_min.x, world_max.x),
+        (near.z, direction.z, world_min.z, world_max.z),
+    ] {
+        if delta.abs() <= PICK_RAY_EPSILON {
+            if origin < min || origin > max {
+                return None;
+            }
+            continue;
+        }
+        let a = (min - origin) / delta;
+        let b = (max - origin) / delta;
+        enter = enter.max(a.min(b));
+        exit = exit.min(a.max(b));
+        if enter > exit {
+            return None;
+        }
+    }
+    (exit >= 0.0 && enter <= 1.0).then_some((enter.clamp(0.0, 1.0), exit.clamp(0.0, 1.0)))
+}
+
+fn frozen_terrain_height(
+    world_env: Option<&crate::presentation_frame::PresentationWorldEnv>,
+    point: Vec3,
+) -> f32 {
+    world_env
+        .and_then(|env| {
+            env.sample_gameplay_terrain_height(point.x, point.z)
+                .or_else(|| env.sample_height(point.x, point.z))
+        })
+        .unwrap_or(0.0)
+}
+
+/// Intersect the active camera ray with the frozen gameplay terrain.  The
+/// height surface is sampled only from the presentation frame, preserving the
+/// one-frame input/render boundary and avoiding a second mutable GameLogic read.
+fn raycast_frozen_terrain(
+    near: Vec3,
+    far: Vec3,
+    world_min: Vec3,
+    world_max: Vec3,
+    world_env: Option<&crate::presentation_frame::PresentationWorldEnv>,
+) -> Option<Vec3> {
+    let (start_t, end_t) = ray_interval_in_world_xz(near, far, world_min, world_max)?;
+    let mut previous_t = start_t;
+    let direction = far - near;
+    let surface_delta = |t: f32| {
+        let point = near + direction * t;
+        point.y - frozen_terrain_height(world_env, point)
+    };
+    let mut previous_delta = surface_delta(previous_t);
+    if !previous_delta.is_finite() {
+        return None;
+    }
+
+    // A normal RTS camera starts above terrain.  March the bounded ray to find
+    // the first downward surface crossing, then refine it.  This works for the
+    // full frozen heightmap and degrades safely to its coarse snapshot/plane.
+    for step in 1..=PICK_TERRAIN_STEPS {
+        let t = start_t + (end_t - start_t) * step as f32 / PICK_TERRAIN_STEPS as f32;
+        let delta = surface_delta(t);
+        if !delta.is_finite() {
+            return None;
+        }
+        if previous_delta >= 0.0 && delta <= 0.0 {
+            let mut low = previous_t;
+            let mut high = t;
+            for _ in 0..PICK_TERRAIN_BISECTION_STEPS {
+                let middle = (low + high) * 0.5;
+                if surface_delta(middle) >= 0.0 {
+                    low = middle;
+                } else {
+                    high = middle;
+                }
+            }
+            let point = near + direction * ((low + high) * 0.5);
+            let ground = frozen_terrain_height(world_env, point);
+            return ground
+                .is_finite()
+                .then_some(Vec3::new(point.x, ground, point.z));
+        }
+        previous_t = t;
+        previous_delta = delta;
+    }
+    None
+}
+
+/// Camera-ray fallback when no frozen terrain snapshot exists yet (boot/load),
+/// or an unusually shallow ray leaves the map before it reaches the terrain.
+/// It is still camera-relative, never the old whole-map screen interpolation.
+fn raycast_ground_plane_clamped(
+    near: Vec3,
+    far: Vec3,
+    world_min: Vec3,
+    world_max: Vec3,
+    world_env: Option<&crate::presentation_frame::PresentationWorldEnv>,
+) -> Option<Vec3> {
+    let direction = far - near;
+    if direction.y.abs() <= PICK_RAY_EPSILON {
+        return None;
+    }
+    let t = -near.y / direction.y;
+    if !t.is_finite() || t < 0.0 {
+        return None;
+    }
+    let point = near + direction * t;
+    let x = point.x.clamp(world_min.x, world_max.x);
+    let z = point.z.clamp(world_min.z, world_max.z);
+    let ground = frozen_terrain_height(world_env, Vec3::new(x, 0.0, z));
+    ground.is_finite().then_some(Vec3::new(x, ground, z))
+}
+
 impl CnCGameEngine {
     pub(super) fn handle_left_click(&mut self) {
         self.is_dragging = true;
@@ -90,10 +251,9 @@ impl CnCGameEngine {
                     // Select this object
                     // Wave 1104: belt-and-suspenders local selectable check (pick peels FOW first).
                     let selectable = self.last_presentation_frame.as_ref().is_some_and(|frame| {
-                        let local = frame.local_team();
                         frame.objects.iter().any(|o| {
                             o.id == object_id
-                                && o.team == local
+                                && frame.is_owned_by_local(o)
                                 && crate::unit_control::UnitControlSystem::presentation_is_selectable(
                                     o,
                                 )
@@ -128,8 +288,6 @@ impl CnCGameEngine {
         let Some(frame) = self.last_presentation_frame.as_ref() else {
             return;
         };
-        let player_team = frame.local_team();
-
         // Only toggle friendly selectable units (enemy click under Shift still replaces? retail
         // keeps multi-select among friendlies; enemy under Shift is ignored for add).
         let is_friendly_selectable = frame
@@ -137,7 +295,7 @@ impl CnCGameEngine {
             .iter()
             .find(|o| o.id == object_id)
             .map(|o| {
-                o.team == player_team
+                frame.is_owned_by_local(o)
                     && !o.destroyed
                     && crate::unit_control::UnitControlSystem::presentation_is_selectable(o)
             })
@@ -229,17 +387,28 @@ impl CnCGameEngine {
 
     pub(super) fn handle_left_release(&mut self) {
         self.is_dragging = false;
-        self.selection_start_screen = None;
+        let selection_start_screen = self.selection_start_screen.take();
 
         let Some(start) = self.selection_start.take() else {
             return;
         };
 
         let end = self.mouse_world_position;
+        let selection_end_screen = glam::Vec2::new(self.mouse_position.0, self.mouse_position.1);
+        let drag_distance_screen = selection_start_screen
+            .map(|start_screen| {
+                glam::Vec2::new(
+                    selection_end_screen.x - start_screen.0,
+                    selection_end_screen.y - start_screen.1,
+                )
+                .length()
+            })
+            .unwrap_or_default();
 
-        // If the mouse didn't move enough, the click selection was already handled on mouse-down.
-        let drag_distance = Vec2::new(end.x - start.x, end.z - start.z).length();
-        if drag_distance < 5.0 {
+        // C++ starts an area selection from a pixel delta and dispatches an
+        // IRegion2D on release.  Terrain-ray distance changes with camera
+        // pitch and must not decide whether a mouse drag was a click.
+        if drag_distance_screen <= 2.0 {
             // Wall residual: short click places a single segment.
             if let Some(template) = self.pending_structure_placement.clone() {
                 if Self::is_wall_structure_template(&template) {
@@ -270,11 +439,6 @@ impl CnCGameEngine {
             }
         }
 
-        let min_x = start.x.min(end.x);
-        let max_x = start.x.max(end.x);
-        let min_z = start.z.min(end.z);
-        let max_z = start.z.max(end.z);
-
         let shift_down = self.keys_pressed.contains(&Key::Named(NamedKey::Shift));
 
         let mut selection: Vec<ObjectId> = if shift_down {
@@ -288,8 +452,19 @@ impl CnCGameEngine {
             return;
         };
         let player_team = frame.local_team();
-        let boxed: Vec<ObjectId> =
-            frame.box_select_unit_ids(player_team, min_x, max_x, min_z, max_z);
+        let window_size = self.window.inner_size();
+        let boxed: Vec<ObjectId> = selection_start_screen
+            .map(|start_screen| {
+                frame.box_select_unit_ids_in_screen_rect(
+                    player_team,
+                    self.view_matrix,
+                    self.projection_matrix,
+                    glam::Vec2::new(start_screen.0, start_screen.1),
+                    selection_end_screen,
+                    glam::Vec2::new(window_size.width as f32, window_size.height as f32),
+                )
+            })
+            .unwrap_or_default();
         for id in boxed {
             if !selection.contains(&id) {
                 selection.push(id);
@@ -500,11 +675,20 @@ impl CnCGameEngine {
 
         if (new_zoom - self.camera_zoom).abs() > 0.001 {
             self.camera_zoom = new_zoom;
+            // `W3DView::setZoom` immediately rebuilds the camera transform.
+            self.apply_camera_orbit_transform();
+            if matches!(self.current_state, GameState::InGame | GameState::Paused) {
+                self.update_mouse_world_position();
+                self.sync_context_mouse_cursor();
+            }
             debug!("Camera zoom changed to {:.2}", self.camera_zoom);
         }
     }
 
     pub(super) fn update_camera(&mut self, dt: f32) {
+        let initial_zoom = self.camera_zoom;
+        let initial_pitch = self.camera_pitch_radians;
+        let initial_yaw = self.camera_yaw_radians;
         // Retail KP4/KP6 rotate and KP8/KP2 zoom hold residual.
         const ROTATE_RAD_PER_SEC: f32 = 1.2;
         const ZOOM_PER_SEC: f32 = 0.85;
@@ -743,8 +927,26 @@ impl CnCGameEngine {
             camera_changed = true;
         }
 
+        // Numpad/Middle rotation and scripted/wheel zoom all modify the same
+        // W3D camera transform.  Previously only pan/shake paths set this
+        // flag, leaving a visually stale view (and consequently stale picks).
+        camera_changed |= (self.camera_zoom - initial_zoom).abs() > f32::EPSILON
+            || (self.camera_pitch_radians - initial_pitch).abs() > f32::EPSILON
+            || (self.camera_yaw_radians - initial_yaw).abs() > f32::EPSILON;
+
+        // Several C++ camera entry points (minimap, selection hotkeys, and
+        // scripted camera requests) update the target or zoom outside this
+        // input routine.  Rebuild their W3D pose on the next frame as well;
+        // otherwise the simulation state and the view/ray used for orders
+        // disagree until the player happens to pan.
+        camera_changed |= self.camera_transform_needs_rebuild();
+
         if camera_changed {
             self.apply_camera_orbit_transform();
+            if matches!(self.current_state, GameState::InGame | GameState::Paused) {
+                self.update_mouse_world_position();
+                self.sync_context_mouse_cursor();
+            }
         }
     }
 
@@ -820,7 +1022,7 @@ impl CnCGameEngine {
                 PendingMapCommand::AttackMove => ("AttackMove", CursorIcon::Crosshair),
                 PendingMapCommand::Guard(_) => ("Move", CursorIcon::AllScroll),
                 PendingMapCommand::SetRallyPoint => ("SetRallyPoint", CursorIcon::Cell),
-                PendingMapCommand::CombatDrop => ("CombatDrop", CursorIcon::Move),
+                PendingMapCommand::CombatDrop(_) => ("CombatDrop", CursorIcon::Move),
                 PendingMapCommand::PlaceBeacon => ("PlaceBeacon", CursorIcon::Cell),
                 PendingMapCommand::SpecialPower(_) => ("Target", CursorIcon::Crosshair),
                 PendingMapCommand::Weapon(_) => ("Target", CursorIcon::Crosshair),
@@ -850,11 +1052,6 @@ impl CnCGameEngine {
         if !has_selection {
             // Hover friendly selectable → Select residual.
             if let Some(id) = hover {
-                let player_team = if let Some(frame) = self.last_presentation_frame.as_ref() {
-                    frame.local_team()
-                } else {
-                    self.local_team_for_ui()
-                };
                 let friendly = if let Some(frame) = self.last_presentation_frame.as_ref() {
                     frame
                         .objects
@@ -863,7 +1060,7 @@ impl CnCGameEngine {
                         .map(|o| {
                             // Wave 1098: cursor Select residual uses full presentation
                             // selectable legality (sold/unselectable/masked/disabled).
-                            o.team == player_team
+                            frame.is_owned_by_local(o)
                                 && crate::unit_control::UnitControlSystem::presentation_is_selectable(
                                     o,
                                 )
@@ -1304,19 +1501,40 @@ impl CnCGameEngine {
     }
 
     pub(super) fn update_mouse_world_position(&mut self) {
-        // Convert screen coordinates to world coordinates using current world bounds.
-        // Prefer presentation world_env when installed (no live dual-read for click map).
-        // Boot/loading without a frame still uses host GameLogic bounds.
+        // C++ maps device coordinates through the active W3D camera.  The former
+        // whole-map linear interpolation only happened to work while the camera
+        // was centered and made ordinary selection/orders drift after panning,
+        // rotation, or zoom.
+        // A script/minimap/hotkey can change the orbit between normal camera
+        // ticks and an OS mouse event.  Pick from the pose that will actually
+        // be rendered, rather than the previous frame's matrix.
+        if self.camera_transform_needs_rebuild() {
+            self.apply_camera_orbit_transform();
+        }
         let size = self.window.inner_size();
-        let normalized_x = (self.mouse_position.0 / size.width.max(1) as f32).clamp(0.0, 1.0);
-        let normalized_y = (self.mouse_position.1 / size.height.max(1) as f32).clamp(0.0, 1.0);
-
         let (world_min, world_max) = self.presentation_world_bounds();
-        let world_width = (world_max.x - world_min.x).max(1.0);
-        let world_height = (world_max.z - world_min.z).max(1.0);
-        let world_x = world_min.x + normalized_x * world_width;
-        let world_z = world_min.z + normalized_y * world_height;
-        self.mouse_world_position = Vec3::new(world_x, 0.0, world_z);
+        let picked = {
+            let world_env = self
+                .render_pipeline
+                .presentation_frame()
+                .or(self.last_presentation_frame.as_ref())
+                .map(|frame| &frame.world_env);
+            unproject_mouse_ray(
+                self.view_matrix,
+                self.projection_matrix,
+                self.mouse_position,
+                size.width.max(1) as f32,
+                size.height.max(1) as f32,
+            )
+            .and_then(|(near, far)| {
+                raycast_frozen_terrain(near, far, world_min, world_max, world_env).or_else(|| {
+                    raycast_ground_plane_clamped(near, far, world_min, world_max, world_env)
+                })
+            })
+        };
+        if let Some(position) = picked {
+            self.mouse_world_position = position;
+        }
     }
 
     /// Presentation-only world pick. Returns `None` when no snapshot is installed
@@ -1348,13 +1566,13 @@ impl CnCGameEngine {
             {
                 continue;
             }
-            let n = o.template_name.to_ascii_lowercase();
-            let is_worker =
-                crate::presentation_frame::PresentationFrame::presentation_is_worker_like(o)
-                    || n.contains("dozer")
-                    || n.contains("worker")
-                    || n.contains("supplytruck")
-                    || n.contains("supply_truck");
+            // C++ construction/structure repair authority is `KINDOF_DOZER`.
+            // Preserve it in the frozen input instead of classifying a unit
+            // by its UI name (a harvester/worker is not necessarily a dozer).
+            let is_worker = crate::presentation_frame::PresentationFrame::object_has_kind(
+                o,
+                crate::game_logic::KindOf::Dozer,
+            );
             // Gather authorization is an authored capability, not a template
             // naming convention.  C++ marks Chinooks, Supply Trucks, and GLA
             // Workers with KINDOF_HARVESTER.
@@ -1365,24 +1583,11 @@ impl CnCGameEngine {
                 );
             let can_attack = o.has_weapon;
             let can_move = o.is_mobile;
-            let is_lotus =
-                crate::game_logic::host_hero_abilities::is_black_lotus_template(&o.template_name);
-            let is_hero = crate::presentation_frame::PresentationFrame::object_has_kind(
-                o,
-                crate::game_logic::KindOf::Hero,
-            ) || n.contains("colonel")
-                || n.contains("jarmen")
-                || n.contains("lotus");
-            let can_capture = n.contains("ranger")
-                || n.contains("rebel")
-                || n.contains("redguard")
-                || crate::game_logic::host_hero_abilities::can_capture_without_upgrade(
-                    is_hero, is_lotus,
-                );
-            let can_repair = is_worker
-                || n.contains("dozer")
-                || n.contains("worker")
-                || n.contains("construction");
+            let capture_power = o.capture_power;
+            let capture_power_ready = o.capture_power_ready;
+            let can_capture =
+                capture_power != crate::game_logic::CapturePowerKind::None && capture_power_ready;
+            let can_repair = is_worker;
             let is_damaged = o.health_max > 0.0 && o.health_current + 0.01 < o.health_max;
             let is_vehicle = crate::presentation_frame::PresentationFrame::object_has_kind(
                 o,
@@ -1413,6 +1618,11 @@ impl CnCGameEngine {
                 is_vehicle,
                 is_aircraft,
                 is_infantry,
+                transport_slot_count: o.transport_slot_count,
+                stored_supplies: o.stored_supplies,
+                is_controlled_by_local: frame.is_owned_by_local(o),
+                capture_power,
+                capture_power_ready,
             });
         }
         out
@@ -1430,11 +1640,10 @@ impl CnCGameEngine {
                 && !x.destroyed
                 && !x.sold
                 && !x.masked
-                && (x.team == frame.local_team() || x.fow_visibility.visibility_alpha >= 0.95)
+                && (frame.is_owned_by_local(x) || x.fow_visibility.visibility_alpha >= 0.95)
         })?;
-        let local = frame.local_team();
         let is_neutral = o.team == crate::game_logic::Team::Neutral;
-        let is_enemy = o.team != local && !is_neutral;
+        let is_enemy = frame.is_enemy_of_local(o);
         let is_structure = o.object_type
             == crate::presentation_frame::PresentationObjectType::Building
             || crate::presentation_frame::PresentationFrame::object_has_kind(
@@ -1448,26 +1657,54 @@ impl CnCGameEngine {
             o,
             crate::game_logic::KindOf::Resource,
         ) || o.template_name.to_ascii_lowercase().contains("supply");
-        let n = o.template_name.to_ascii_lowercase();
-        let can_be_entered = n.contains("transport")
-            || n.contains("chinook")
-            || n.contains("bunker")
-            || n.contains("garrison")
-            || n.contains("overlord");
+        let enter_available_capacity = frame
+            .normal_enter_available_capacity_for_local(o)
+            .unwrap_or(0);
+        let can_be_entered = enter_available_capacity > 0;
         let is_damaged = o.health_max > 0.0 && o.health_current + 0.01 < o.health_max;
-        let is_friendly = o.team == local && !is_neutral;
-        let provides_heal = n.contains("healpad")
-            || n.contains("heal_pad")
-            || n.contains("hospital")
-            || n.contains("ambulance");
+        let is_friendly = !is_neutral && frame.is_allied_with_local(o);
+        // Freeze exact Object INI KindOf service tags.  The executor repeats
+        // these pairings against live authority when consuming the command.
+        let provides_heal = crate::presentation_frame::PresentationFrame::object_has_kind(
+            o,
+            crate::game_logic::KindOf::HealPad,
+        );
         let provides_aircraft_repair =
-            n.contains("airfield") || n.contains("helipad") || n.contains("airstrip");
-        let provides_vehicle_repair = n.contains("repair")
-            || n.contains("warfactory")
-            || n.contains("war_factory")
-            || n.contains("armsdealer")
-            || n.contains("propaganda")
-            || provides_aircraft_repair;
+            crate::presentation_frame::PresentationFrame::object_has_kind(
+                o,
+                crate::game_logic::KindOf::FSAirfield,
+            );
+        let provides_vehicle_repair =
+            crate::presentation_frame::PresentationFrame::object_has_kind(
+                o,
+                crate::game_logic::KindOf::RepairPad,
+            );
+        // C++ treats a non-stealthed occupant as a GarrisonContain gate, but
+        // checks friendly contained occupants separately for every target.
+        // Freeze both, including stale references which must fail closed.
+        let (capture_nonstealthed_garrison_count, capture_friendly_garrison_count) = o
+            .garrisoned_units
+            .iter()
+            .fold((0u16, 0u16), |counts, occupant_id| {
+                let Some(occupant) = frame
+                    .objects
+                    .iter()
+                    .find(|candidate| candidate.id == *occupant_id)
+                else {
+                    return (
+                        counts.0.saturating_add(o.capture_garrisonable as u16),
+                        counts.1.saturating_add(1),
+                    );
+                };
+                (
+                    counts
+                        .0
+                        .saturating_add((o.capture_garrisonable && !occupant.stealthed) as u16),
+                    counts
+                        .1
+                        .saturating_add(frame.is_allied_with_local(occupant) as u16),
+                )
+            });
         Some(crate::command_system::PresentationTargetHint {
             id,
             // Wave 1098: is_alive residual excludes sold/masked.
@@ -1481,11 +1718,29 @@ impl CnCGameEngine {
             is_neutral,
             template_name: o.template_name.clone(),
             can_be_entered,
+            enter_available_capacity,
+            enter_uses_transport_slots: o.normal_enter_uses_transport_slots(),
+            enter_requires_infantry: o.normal_enter_requires_infantry(),
+            enter_forbids_aircraft: o.normal_enter_forbids_aircraft(),
+            enter_disabled_subdued: o.disabled_subdued,
+            enter_is_rider_change: o.contain_module_kind
+                == crate::game_logic::ContainModuleKind::RiderChange,
+            rider_change_allowed_templates: o.rider_change_allowed_templates.clone(),
             is_damaged,
             is_friendly_of_local: is_friendly,
-            provides_vehicle_repair: is_structure && provides_vehicle_repair,
-            provides_aircraft_repair: is_structure && provides_aircraft_repair,
-            provides_heal: is_structure && provides_heal,
+            // ActionManager keys service on KindOf, not ObjectType::Building.
+            provides_vehicle_repair,
+            provides_aircraft_repair,
+            provides_heal,
+            dock_kind: o.dock_kind,
+            dock_controller_is_local: frame.is_owned_by_local(o),
+            stored_supplies: o.stored_supplies,
+            capturable: o.capturable,
+            immune_to_capture: o.immune_to_capture,
+            capture_garrisonable: o.capture_garrisonable,
+            capture_nonstealthed_garrison_count,
+            capture_friendly_garrison_count,
+            capture_target_effectively_stealthed: o.effectively_stealthed,
         })
     }
 
@@ -1609,5 +1864,44 @@ impl CnCGameEngine {
             "UI overlay rendered for {} selected units",
             self.selected_objects.len()
         );
+    }
+}
+
+#[cfg(test)]
+mod camera_pick_tests {
+    use super::*;
+
+    #[test]
+    fn center_screen_pick_follows_the_render_camera_not_map_extents() {
+        let camera = Vec3::new(0.0, 120.0, 120.0);
+        let view = Mat4::look_at_rh(camera, Vec3::ZERO, Vec3::Y);
+        let projection = Mat4::perspective_rh(60.0_f32.to_radians(), 1.0, 1.0, 2_000.0);
+        let (near, far) = unproject_mouse_ray(view, projection, (500.0, 500.0), 1_000.0, 1_000.0)
+            .expect("a finite WGPU camera ray");
+
+        let hit = raycast_ground_plane_clamped(
+            near,
+            far,
+            Vec3::new(-1_000.0, 0.0, -1_000.0),
+            Vec3::new(1_000.0, 0.0, 1_000.0),
+            None,
+        )
+        .expect("center ray intersects the ground plane");
+
+        assert!(
+            hit.length() < 0.02,
+            "center-screen pick must land at the camera target, got {hit:?}"
+        );
+    }
+
+    #[test]
+    fn ray_interval_rejects_a_parallel_ray_outside_the_map() {
+        assert!(ray_interval_in_world_xz(
+            Vec3::new(20.0, 5.0, 0.0),
+            Vec3::new(20.0, -5.0, 0.0),
+            Vec3::new(-10.0, 0.0, -10.0),
+            Vec3::new(10.0, 0.0, 10.0),
+        )
+        .is_none());
     }
 }

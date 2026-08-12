@@ -1488,11 +1488,15 @@ impl GameLogic {
         use crate::game_logic::host_paradrop::{PARADROP_PARACHUTE_CONTAINER, PARADROP_TRANSPORT};
         use crate::game_logic::{KindOf, ThingTemplate};
 
-        let team = self
-            .objects
-            .get(&source_id)
-            .map(|o| o.team)
-            .unwrap_or(Team::Neutral);
+        let (team, source_owner_player_id) = {
+            let source = self.objects.get(&source_id)?;
+            let owner_player_id = if source.owner_player_id.is_some() {
+                Some(self.player_owner_for_host_object(source)?)
+            } else {
+                None
+            };
+            (source.team, owner_player_id)
+        };
         let source_pos = self
             .objects
             .get(&source_id)
@@ -1519,7 +1523,12 @@ impl GameLogic {
             self.templates
                 .insert(PARADROP_PARACHUTE_CONTAINER.to_string(), t);
         }
-        let tid = self.create_object(PARADROP_TRANSPORT, team, edge)?;
+        let tid = self.create_object_for_owner_or_team(
+            PARADROP_TRANSPORT,
+            team,
+            source_owner_player_id,
+            edge,
+        )?;
         if let Some(o) = self.objects.get_mut(&tid) {
             o.producer_id = Some(source_id);
             o.paradrop_transport_target = Some(target);
@@ -1541,7 +1550,7 @@ impl GameLogic {
             .filter(|(_, o)| o.paradrop_transport_target.is_some() && o.is_alive())
             .map(|(id, _)| *id)
             .collect();
-        let mut drops: Vec<(Team, Vec3, ObjectId)> = Vec::new();
+        let mut drops: Vec<(Team, Option<u32>, Vec3, ObjectId)> = Vec::new();
         for id in tids {
             let Some(o) = self.objects.get_mut(&id) else {
                 continue;
@@ -1566,15 +1575,21 @@ impl GameLogic {
             }
             if dist <= PARADROP_DELIVERY_DISTANCE {
                 let team = o.team;
+                let owner_player_id = o.owner_player_id;
                 let producer = o.producer_id.unwrap_or(id);
                 o.paradrop_transport_target = None;
-                drops.push((team, target, producer));
+                drops.push((team, owner_player_id, target, producer));
             }
         }
-        for (team, target, producer) in drops {
+        for (team, owner_player_id, target, producer) in drops {
             // Drop a residual parachute marker over the LZ (infantry still from host_paradrops).
             let drop_pos = Vec3::new(target.x, 100.0, target.z);
-            if let Some(pid) = self.create_object(PARADROP_PARACHUTE_CONTAINER, team, drop_pos) {
+            if let Some(pid) = self.create_object_for_owner_or_team(
+                PARADROP_PARACHUTE_CONTAINER,
+                team,
+                owner_player_id,
+                drop_pos,
+            ) {
                 if let Some(o) = self.objects.get_mut(&pid) {
                     o.producer_id = Some(producer);
                     o.paradrop_parachute = true;

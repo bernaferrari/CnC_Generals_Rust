@@ -36,9 +36,21 @@ impl GameLogic {
                 }
                 let priority = if has_selected_units {
                     match player_team {
-                        Some(team) if obj.team != team && obj.is_attackable() => Some(0),
+                        Some(team)
+                            if obj.team != team
+                                && obj.is_attackable()
+                                && !obj.is_kind_of(KindOf::Unattackable)
+                                && !obj.status.masked =>
+                        {
+                            Some(0)
+                        }
                         Some(team) if obj.team == team && obj.is_selectable() => Some(1),
-                        _ if obj.is_attackable() => Some(2),
+                        _ if obj.is_attackable()
+                            && !obj.is_kind_of(KindOf::Unattackable)
+                            && !obj.status.masked =>
+                        {
+                            Some(2)
+                        }
                         _ if obj.is_selectable() => Some(3),
                         _ => None,
                     }
@@ -137,6 +149,21 @@ impl GameLogic {
 
     /// Wave 230/232: attack target (records host attack log).
     pub fn unit_command_attack(&mut self, id: ObjectId, target_id: ObjectId) -> bool {
+        // This is the authority boundary for a player AttackObject order.
+        // Do not merely stamp `target`: C++ WeaponSet validates the concrete
+        // target relationship/status and every available Weapon.ini Anti*
+        // mask before an attack state is allowed to begin.
+        if !matches!(
+            self.get_able_to_attack_specific_object(
+                id,
+                target_id,
+                AbleToAttackType::NewTarget,
+                true,
+            ),
+            CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving
+        ) {
+            return false;
+        }
         let Some(unit) = self.objects.get_mut(&id) else {
             return false;
         };
@@ -152,6 +179,20 @@ impl GameLogic {
 
     /// Wave 230/232: force-attack target (records host attack log).
     pub fn unit_command_force_attack(&mut self, id: ObjectId, target_id: ObjectId) -> bool {
+        // C++ force attack still uses WeaponSet target legality: it changes
+        // relationship/force handling, not UNATTACKABLE, MASKED, contained,
+        // stealth, or exact Weapon.ini anti-mask rules.
+        if !matches!(
+            self.get_able_to_attack_specific_object(
+                id,
+                target_id,
+                AbleToAttackType::NewTargetForced,
+                true,
+            ),
+            CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving
+        ) {
+            return false;
+        }
         let Some(unit) = self.objects.get_mut(&id) else {
             return false;
         };
@@ -272,6 +313,17 @@ impl GameLogic {
 
     /// Wave 231: force-attack ground location.
     pub fn unit_command_attack_ground(&mut self, id: ObjectId, location: glam::Vec3) -> bool {
+        if !matches!(
+            self.get_able_to_use_weapon_against_target(
+                id,
+                None,
+                Some(location),
+                AbleToAttackType::NewTargetForced,
+            ),
+            CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving
+        ) {
+            return false;
+        }
         let Some(unit) = self.objects.get_mut(&id) else {
             return false;
         };
@@ -312,13 +364,32 @@ impl GameLogic {
             }
         }
         if let Some(unit) = self.objects.get_mut(&id) {
+            // C++ WorkerAIUpdate clears m_preferredDock as soon as a worker
+            // receives a dozer task, preventing a GLA worker from resuming
+            // its old supply route after construction.
+            unit.preferred_dock_id = None;
             unit.set_ai_state(AIState::Constructing);
             return true;
         }
         false
     }
 
-    /// Wave 231: additive selection mark on a selectable friendly unit.
+    /// Additive selection mark on a selectable unit controlled by this player.
+    pub fn unit_select_if_player(&mut self, id: ObjectId, player_id: u32) -> bool {
+        let Some(obj) = self.objects.get_mut(&id) else {
+            return false;
+        };
+        if obj.owner_player_id == Some(player_id) && obj.is_selectable() {
+            obj.select();
+            obj.flash_as_selected();
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Compatibility path for faction-only legacy callers. New player-command
+    /// paths must use `unit_select_if_player` so duplicate factions stay apart.
     pub fn unit_select_if_team(&mut self, id: ObjectId, player_team: Team) -> bool {
         let Some(obj) = self.objects.get_mut(&id) else {
             return false;
@@ -484,20 +555,16 @@ impl GameLogic {
         location: glam::Vec3,
         max_shots: i32,
     ) -> bool {
-        let can = self
-            .objects
-            .get(&id)
-            .map(|u| {
-                u.is_alive()
-                    && (u.can_attack() || u.weapon.is_some() || u.is_kind_of(KindOf::Structure))
-            })
-            .unwrap_or(false);
-        if !can {
-            // Still allow soft structure residual if alive.
-            let alive = self.objects.get(&id).map(|u| u.is_alive()).unwrap_or(false);
-            if !alive {
-                return false;
-            }
+        if !matches!(
+            self.get_able_to_use_weapon_against_target(
+                id,
+                None,
+                Some(location),
+                AbleToAttackType::NewTargetForced,
+            ),
+            CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving
+        ) {
+            return false;
         }
         let Some(unit) = self.objects.get_mut(&id) else {
             return false;
@@ -573,8 +640,82 @@ impl GameLogic {
         true
     }
 
+    /// Execute an explicit Deploy toggle for an object that owns an exact
+    /// `DeployStyleAIUpdate` module.  The command is authoritative here as
+    /// well as in the executor: stale UI input cannot turn an arbitrary
+    /// vehicle into a DeployStyle unit merely by sharing a familiar name.
+    ///
+    /// C++ reverses an in-progress deploy/undeploy when the opposing intent
+    /// arrives.  The compact host state's two directions preserve that timing
+    /// behavior; OBJECT_STATUS_DEPLOYED only changes when unpack finishes and
+    /// clears immediately when packing begins.
+    pub fn unit_command_toggle_deploy_style(&mut self, id: ObjectId) -> bool {
+        let frame = self.frame;
+        let mut deployed_direction = false;
+        let changed = {
+            let Some(unit) = self.objects.get_mut(&id) else {
+                return false;
+            };
+            if !unit.is_alive() || unit.get_template().deploy_style_metadata.is_none() {
+                return false;
+            }
+            let Some(style) = unit.deploy_style.as_mut() else {
+                // A template with metadata must have installed state during
+                // normal construction.  A malformed/legacy snapshot without
+                // it is not safe to silently reconstruct mid-command.
+                return false;
+            };
+
+            deployed_direction = matches!(
+                style.state,
+                crate::game_logic::host_deploy_style::HostDeployStyleState::ReadyToMove
+                    | crate::game_logic::host_deploy_style::HostDeployStyleState::Undeploying
+            );
+            let transitioned = if deployed_direction {
+                style.begin_deploy(frame)
+            } else {
+                style.begin_undeploy(frame)
+            };
+            if transitioned {
+                unit.stop_moving();
+                unit.set_status_moving(false);
+                unit.set_ai_state(AIState::Idle);
+                if !deployed_direction {
+                    // C++ DeployStyleAIUpdate::setMyState(UNDEPLOY) clears
+                    // OBJECT_STATUS_DEPLOYED before the pack timer elapses.
+                    unit.set_deployed(false);
+                }
+            }
+            transitioned
+        };
+
+        if !changed {
+            return false;
+        }
+        if deployed_direction {
+            self.deploy_style_reg.record_deploy();
+        } else {
+            self.deploy_style_reg.record_undeploy();
+        }
+        true
+    }
+
     /// Wave 232: attack nearest of team without force flag (attack-team residual).
     pub fn unit_command_attack_soft(&mut self, id: ObjectId, target_id: ObjectId) -> bool {
+        // AI/script acquisition is subject to the same real WeaponSet masks,
+        // with CMD_FROM_PLAYER false so C++ AI relationship behavior remains
+        // distinct from an explicit right-click.
+        if !matches!(
+            self.get_able_to_attack_specific_object(
+                id,
+                target_id,
+                AbleToAttackType::NewTarget,
+                false,
+            ),
+            CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving
+        ) {
+            return false;
+        }
         let Some(unit) = self.objects.get_mut(&id) else {
             return false;
         };
@@ -649,6 +790,24 @@ impl GameLogic {
         true
     }
 
+    /// Begin the C++ `SpecialAbilityUpdate` capture intent.  This records an
+    /// order and starts approach only; `markSpecialPowerTriggered` belongs to
+    /// the later preparation phase once the source reaches StartAbilityRange.
+    pub fn unit_command_begin_capture(&mut self, id: ObjectId, target: ObjectId) -> bool {
+        let Some(unit) = self.objects.get_mut(&id) else {
+            return false;
+        };
+        if !unit.is_alive() || !unit.can_move() {
+            return false;
+        }
+        unit.stop_moving();
+        unit.set_order_target(Some(target));
+        unit.capture_channel = None;
+        unit.set_status_using_ability(false);
+        unit.set_ai_state(AIState::Capturing);
+        true
+    }
+
     /// Wave 233: set AI attitude residual.
     pub fn unit_command_set_ai_attitude(
         &mut self,
@@ -692,8 +851,49 @@ impl GameLogic {
         let Some(unit) = self.objects.get_mut(&id) else {
             return false;
         };
+        // `privateDock(..., CMD_FROM_PLAYER)` stores this target in C++
+        // SupplyTruckAIUpdate/WorkerAIUpdate.  The next gather/return cycle
+        // must retain the selected center rather than choose the nearest one.
+        unit.preferred_dock_id = Some(supply_center);
         unit.set_order_target(Some(supply_center));
         unit.set_ai_state(AIState::ReturningResources);
+        true
+    }
+
+    /// C++ `SupplyTruckAIUpdate::privateDock` / `WorkerAIUpdate::privateDock`
+    /// against `SupplyWarehouseDockUpdate`: remember the chosen warehouse and
+    /// enter the collection loop.  This is intentionally not `Entering` — a
+    /// warehouse grants supply boxes and never becomes the unit's container.
+    pub fn unit_command_dock_at_supply_warehouse(
+        &mut self,
+        id: ObjectId,
+        warehouse: ObjectId,
+    ) -> bool {
+        let Some(unit) = self.objects.get_mut(&id) else {
+            return false;
+        };
+        unit.stop_attack();
+        unit.preferred_dock_id = Some(warehouse);
+        unit.set_order_target(Some(warehouse));
+        unit.set_ai_state(AIState::Gathering);
+        true
+    }
+
+    /// C++ `RailedTransportDockUpdate` dispatches through `AI_DOCK`, not the
+    /// generic Enter command.  The support-state loader may ultimately use
+    /// the shared containment storage, but the command and legality stay
+    /// distinct so normal transports do not accidentally qualify as docks.
+    pub fn unit_command_dock_at_railed_transport(
+        &mut self,
+        id: ObjectId,
+        transport: ObjectId,
+    ) -> bool {
+        let Some(unit) = self.objects.get_mut(&id) else {
+            return false;
+        };
+        unit.stop_attack();
+        unit.set_order_target(Some(transport));
+        unit.set_ai_state(AIState::Docking);
         true
     }
 
@@ -719,6 +919,19 @@ impl GameLogic {
         container_id: ObjectId,
         occupant_id: ObjectId,
     ) -> bool {
+        let is_rider_change = self
+            .objects
+            .get(&container_id)
+            .is_some_and(|container| {
+                container.thing.template.contain_module.kind
+                    == crate::game_logic::ContainModuleKind::RiderChange
+            });
+        if is_rider_change {
+            // RiderChangeContain removal owns selection/veterancy/scuttle
+            // ordering.  It must not be reduced to a bare Vec removal or the
+            // next normal Enter would leave the old rider/container corrupted.
+            return self.rider_change_remove_occupant(container_id, occupant_id);
+        }
         let Some(container) = self.objects.get_mut(&container_id) else {
             return false;
         };
@@ -853,6 +1066,7 @@ impl GameLogic {
         id: ObjectId,
         target_object: Option<ObjectId>,
         target_location: Option<glam::Vec3>,
+        max_shots_to_fire: i32,
     ) -> bool {
         let Some(unit) = self.objects.get_mut(&id) else {
             return false;
@@ -877,6 +1091,10 @@ impl GameLogic {
         } else {
             return false;
         }
+        // C++ MSG_DO_WEAPON[_AT_*] forwards CommandButton::MaxShotsToFire
+        // into AIUpdateInterface before the attack state starts.  Do not
+        // normalize a finite budget or NO_MAX_SHOTS_LIMIT at this boundary.
+        unit.set_max_shots_to_fire(max_shots_to_fire);
         true
     }
 
@@ -1233,7 +1451,7 @@ mod tests {
         }
 
         assert!(logic.unit_command_select_weapon_slot(id, 2));
-        assert!(logic.unit_command_fire_weapon(id, Some(target_id), None));
+        assert!(logic.unit_command_fire_weapon(id, Some(target_id), None, -1));
 
         let object = logic.host_object(id).expect("object");
         assert_eq!(object.target, Some(target_id));

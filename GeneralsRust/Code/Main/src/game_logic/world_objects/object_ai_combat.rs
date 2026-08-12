@@ -96,6 +96,12 @@ impl GameLogic {
                         super::super::combat::queue_projectile(super::super::combat::PendingProjectile {
                             shooter_id: object_id,
                             shooter_pos,
+                            source_context: Some(super::super::combat::ProjectileLaunchContext {
+                                source_team: attacker.team,
+                                source_veterancy: attacker.experience.level,
+                                source_orientation: attacker.get_orientation(),
+                                source_velocity: attacker.movement.velocity,
+                            }),
                             target_id: None,
                             target_pos: Some(target_loc),
                             damage: weapon_damage,
@@ -109,21 +115,45 @@ impl GameLogic {
                             damage_type: crate::game_logic::combat::DamageType::Bullet,
                             death_type: crate::game_logic::host_usa_pilot::HostDeathType::Normal,
                             projectile_object_name: String::new(),
+                            projectile_lifecycle: None,
+                            fire_fx_name: wname
+                                .map(|name| {
+                                    crate::game_logic::weapon_bootstrap::host_fire_fx_for_weapon_name_at_veterancy(
+                                        name,
+                                        attacker.experience.level,
+                                    )
+                                })
+                                .unwrap_or_default(),
+                            fire_ocl_name: wname
+                                .map(|name| {
+                                    crate::game_logic::weapon_bootstrap::host_fire_ocl_for_weapon_name_at_veterancy(
+                                        name,
+                                        attacker.experience.level,
+                                    )
+                                })
+                                .unwrap_or_default(),
                             detonation_fx_name: wname
-                                .map(
-                                    crate::game_logic::weapon_bootstrap::host_detonation_fx_for_weapon_name,
-                                )
+                                .map(|name| {
+                                    crate::game_logic::weapon_bootstrap::host_detonation_fx_for_weapon_name_at_veterancy(
+                                        name,
+                                        attacker.experience.level,
+                                    )
+                                })
                                 .unwrap_or_default(),
                             detonation_ocl_name: wname
-                                .map(
-                                    crate::game_logic::weapon_bootstrap::host_detonation_ocl_for_weapon_name,
-                                )
+                                .map(|name| {
+                                    crate::game_logic::weapon_bootstrap::host_detonation_ocl_for_weapon_name_at_veterancy(
+                                        name,
+                                        attacker.experience.level,
+                                    )
+                                })
                                 .unwrap_or_default(),
-                            exhaust_name: crate::game_logic::weapon_bootstrap::host_projectile_exhaust_for_unit_slot(
+                            exhaust_name: crate::game_logic::weapon_bootstrap::host_projectile_exhaust_for_unit_slot_at_veterancy(
                                 attacker.template_name.as_str(),
                                 attacker.thing.template.primary_weapon_name.as_deref(),
                                 attacker.thing.template.secondary_weapon_name.as_deref(),
                                 0,
+                                attacker.experience.level,
                             ),
             secondary_damage: 0.0,
             secondary_damage_radius: 0.0,
@@ -158,10 +188,15 @@ impl GameLogic {
 
     pub(in super::super) fn update_object_combat(&mut self, attacker_id: ObjectId, _dt: f32) {
         // Get attacker and target info
-        let (weapon_damage, target_id, attacker_team) = {
+        let (weapon_damage, target_id, attacker_team, attacker_owner_player_id) = {
             if let Some(attacker) = self.objects.get(&attacker_id) {
                 if let (Some(weapon), Some(target_id)) = (&attacker.weapon, attacker.target) {
-                    (weapon.damage, target_id, attacker.team)
+                    (
+                        weapon.damage,
+                        target_id,
+                        attacker.team,
+                        self.player_owner_for_host_object(attacker),
+                    )
                 } else {
                     return;
                 }
@@ -193,12 +228,7 @@ impl GameLogic {
         if destroyed {
             log::debug!("Object {} destroyed object {}", attacker_id, target_id);
             // C++ generals experience residual: skill points on kill → possible rank-up EVA.
-            if let Some(pid) = self
-                .players
-                .values()
-                .find(|p| p.team == attacker_team)
-                .map(|p| p.id)
-            {
+            if let Some(pid) = attacker_owner_player_id {
                 // Simple residual: 1 skill point per kill (not full GeneralsExperience table).
                 let _ = self.add_player_skill_points(pid, 1);
             }
@@ -238,12 +268,7 @@ impl GameLogic {
             let Some(building) = obj.building_data.as_ref() else {
                 continue;
             };
-            let Some(player_id) = self
-                .players
-                .values()
-                .find(|p| p.team == obj.team)
-                .map(|p| p.id)
-            else {
+            let Some(player_id) = self.player_owner_for_host_object(obj) else {
                 continue;
             };
             for item in &building.production_queue {
@@ -381,7 +406,9 @@ impl GameLogic {
         let ids: Vec<ObjectId> = self
             .objects
             .iter()
-            .filter(|(_, o)| o.is_alive() && o.team == team)
+            .filter(|(_, o)| {
+                o.is_alive() && super::weapon_upgrades::upgrade_targets_object(o, team)
+            })
             .map(|(id, _)| *id)
             .collect();
         let mut n = 0u32;
@@ -416,7 +443,9 @@ impl GameLogic {
         let ids: Vec<ObjectId> = self
             .objects
             .iter()
-            .filter(|(_, o)| o.is_alive() && o.team == team)
+            .filter(|(_, o)| {
+                o.is_alive() && super::weapon_upgrades::upgrade_targets_object(o, team)
+            })
             .filter(|(_, o)| should_enable_passengers_fire(upgrade_name, &o.template_name))
             .map(|(id, _)| *id)
             .collect();
@@ -448,7 +477,9 @@ impl GameLogic {
         let ids: Vec<ObjectId> = self
             .objects
             .iter()
-            .filter(|(_, o)| o.is_alive() && o.team == team)
+            .filter(|(_, o)| {
+                o.is_alive() && super::weapon_upgrades::upgrade_targets_object(o, team)
+            })
             .map(|(id, _)| *id)
             .collect();
         let mut touched = 0u32;
@@ -481,6 +512,10 @@ impl GameLogic {
     ) {
         use crate::game_logic::host_upgrades::HostUpgradeKind;
 
+        // All fan-out routines retain a `*_to_team` compatibility API, but a
+        // live completion belongs to this exact player.  Scope the owner for
+        // the synchronous dispatch so same-faction players do not inherit it.
+        let _owner_scope = super::weapon_upgrades::enter_upgrade_owner_scope(player_id);
         let kind = HostUpgradeKind::from_name(upgrade_name);
         let units_affected = match kind {
             HostUpgradeKind::FlashBangGrenade => {

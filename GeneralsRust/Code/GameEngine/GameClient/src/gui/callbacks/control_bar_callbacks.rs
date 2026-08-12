@@ -4,6 +4,10 @@
 //! the behavior of C++ ControlBarCallback.cpp.
 
 use crate::display::view::{with_tactical_view, Point3};
+use crate::gui::control_bar::{
+    host_control_bar_bridge_enabled, publish_host_minimap_interaction,
+    HostMinimapInteractionRequest, HostMinimapMouseButton,
+};
 use crate::gui::{
     hide_quit_menu, toggle_diplomacy, toggle_quit_menu, with_window_manager,
     with_window_manager_ref, AnimateWindowManager, AnimationType, GameWindow, WindowMessage,
@@ -515,6 +519,17 @@ impl LeftHUDCallbacks {
         data1: WindowMsgData,
         _data2: WindowMsgData,
     ) -> WindowMsgHandled {
+        // The executable owns the Rust simulation, not this standalone
+        // GameClient's legacy GameLogic globals.  Send real LeftHUD clicks to
+        // Main before consulting those globals, while leaving the standalone
+        // path below exactly intact when the bridge is disabled.
+        if host_control_bar_bridge_enabled()
+            && matches!(msg, WindowMessage::LeftDown | WindowMessage::RightDown)
+        {
+            self.publish_host_minimap_mouse_down(window, msg, data1);
+            return WindowMsgHandled::Handled;
+        }
+
         if !radar_allows_input() {
             return WindowMsgHandled::Handled;
         }
@@ -547,6 +562,42 @@ impl LeftHUDCallbacks {
         if local_pixel_to_radar(local_x, local_y, width, height).is_some() {
             refresh_radar_cursor(WindowMessage::MousePos);
         }
+    }
+
+    /// Publish a real `ControlBar.wnd:LeftHUD` click for Main's WGPU minimap.
+    ///
+    /// We only establish that the pointer belongs to this WND rectangle here.
+    /// World conversion and FOW remain at Main's authoritative presentation
+    /// boundary. `publish_host_minimap_interaction` captures the WND dispatch
+    /// provenance itself, so `FromUser`-style legacy state cannot forge an OS
+    /// physical click.
+    fn publish_host_minimap_mouse_down(
+        &self,
+        window: &GameWindow,
+        msg: WindowMessage,
+        data1: WindowMsgData,
+    ) {
+        let (mouse_x, mouse_y) = decode_mouse_pos(data1);
+        let (screen_x, screen_y) = window.get_screen_position();
+        let (width, height) = window.get_size();
+        let local_x = mouse_x - screen_x;
+        let local_y = mouse_y - screen_y;
+        if local_pixel_to_radar(local_x, local_y, width, height).is_none() {
+            return;
+        }
+
+        let button = match msg {
+            WindowMessage::LeftDown => HostMinimapMouseButton::Left,
+            WindowMessage::RightDown => HostMinimapMouseButton::Right,
+            _ => return,
+        };
+        let _ = publish_host_minimap_interaction(HostMinimapInteractionRequest {
+            screen_position: [mouse_x, mouse_y],
+            screen_top_left: [screen_x, screen_y],
+            screen_size: [width, height],
+            button,
+            alternate_mouse: is_alternate_mouse_enabled(),
+        });
     }
 
     fn handle_mouse_down(&self, window: &GameWindow, msg: WindowMessage, data1: WindowMsgData) {

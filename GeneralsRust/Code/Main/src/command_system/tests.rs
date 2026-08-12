@@ -3,6 +3,23 @@ use crate::game_logic::{GameLogic, Object, ObjectType};
 use game_engine::common::global_data::with_global_data_restored;
 
 #[test]
+fn legacy_weapon_command_without_shot_field_uses_cxx_no_max_default() {
+    let original = CommandType::DoWeapon {
+        weapon_slot: WeaponSlot::Primary,
+        max_shots_to_fire: i32::MAX,
+        target: WeaponTarget::Location(Vec3::ZERO),
+    };
+    let mut encoded = serde_json::to_value(&original).expect("serialize weapon command");
+    encoded["DoWeapon"]
+        .as_object_mut()
+        .expect("DoWeapon payload")
+        .remove("max_shots_to_fire");
+
+    let decoded: CommandType = serde_json::from_value(encoded).expect("deserialize legacy command");
+    assert_eq!(decoded, original);
+}
+
+#[test]
 fn test_command_creation() {
     let mut system = CommandSystem::new();
     let context = MouseCommandContext {
@@ -40,6 +57,33 @@ fn test_command_creation() {
     } else {
         panic!("Expected command to be created");
     }
+}
+
+#[test]
+fn boot_gather_classification_accepts_neutral_supply_for_local_harvester() {
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+
+    let system = CommandSystem::new();
+    let mut game_logic = GameLogic::new();
+
+    let mut harvester_template = ThingTemplate::new("RetailSupplyTruck");
+    harvester_template
+        .add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Harvester)
+        .set_health(100.0);
+    game_logic.add_object(Object::new(harvester_template, ObjectId(1), Team::USA));
+
+    let mut supply_template = ThingTemplate::new("RetailSupplyPile");
+    supply_template
+        .add_kind_of(KindOf::Resource)
+        .add_kind_of(KindOf::Harvestable)
+        .set_health(1.0);
+    game_logic.add_object(Object::new(supply_template, ObjectId(2), Team::Neutral));
+
+    assert!(
+        system.can_gather_from_target(&[ObjectId(1)], ObjectId(2), &game_logic),
+        "a player-owned HARVESTER must be able to target a neutral supply source"
+    );
 }
 
 #[test]
@@ -95,6 +139,7 @@ fn right_click_heal_pad_issues_get_healed() {
     let mut heal_pad_template = ThingTemplate::new("TestHealPad");
     heal_pad_template
         .add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::HealPad)
         .add_kind_of(KindOf::Selectable)
         .set_health(900.0);
     let heal_pad = Object::new(heal_pad_template, ObjectId(2), Team::USA);
@@ -155,6 +200,7 @@ fn right_click_repair_pad_issues_get_repaired() {
     let mut repair_pad_template = ThingTemplate::new("TestRepairPad");
     repair_pad_template
         .add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::RepairPad)
         .add_kind_of(KindOf::Selectable)
         .set_health(1000.0);
     let repair_pad = Object::new(repair_pad_template, ObjectId(11), Team::USA);
@@ -1423,41 +1469,110 @@ fn retail_special_power_names_map_without_fuzzy_asset_or_id_fallbacks() {
     use crate::command_system::{special_power_type_from_template_name, SpecialPowerType as Power};
 
     let cases = [
-        ("AirF_SuperweaponA10ThunderboltMissileStrike", Power::AirForceAirstrike),
+        (
+            "AirF_SuperweaponA10ThunderboltMissileStrike",
+            Power::AirForceAirstrike,
+        ),
         ("AirF_SuperweaponCarpetBomb", Power::AirForceCarpetBomb),
-        ("AirF_SuperweaponSpectreGunship", Power::AirForceSpectreGunship),
-        ("Demo_SpecialAbilityDemoKellTimedCharges", Power::DemoKellTimedCharges),
-        ("Demo_SpecialAbilityDemoRebelTimedCharges", Power::DemoRebelTimedCharges),
-        ("Demo_SpecialAbilityKellRemoteCharges", Power::DemoKellRemoteCharges),
-        ("Early_SuperweaponChinaCarpetBomb", Power::EarlyChinaCarpetBomb),
-        ("Early_SuperweaponEmergencyRepair", Power::EarlyEmergencyRepair),
+        (
+            "AirF_SuperweaponSpectreGunship",
+            Power::AirForceSpectreGunship,
+        ),
+        (
+            "Demo_SpecialAbilityDemoKellTimedCharges",
+            Power::DemoKellTimedCharges,
+        ),
+        (
+            "Demo_SpecialAbilityDemoRebelTimedCharges",
+            Power::DemoRebelTimedCharges,
+        ),
+        (
+            "Demo_SpecialAbilityKellRemoteCharges",
+            Power::DemoKellRemoteCharges,
+        ),
+        (
+            "Early_SuperweaponChinaCarpetBomb",
+            Power::EarlyChinaCarpetBomb,
+        ),
+        (
+            "Early_SuperweaponEmergencyRepair",
+            Power::EarlyEmergencyRepair,
+        ),
         ("Early_SuperweaponFrenzy", Power::EarlyFrenzy),
         ("Early_SuperweaponLeafletDrop", Power::EarlyLeafletDrop),
         ("Infa_SuperweaponInfantryParadrop", Power::InfantryParadrop),
         ("Lazr_LaserCannon", Power::LaserCannon),
-        ("Lazr_SpecialAbilityLaserGuidedHowitzer", Power::LaserGuidedHowitzer),
+        (
+            "Lazr_SpecialAbilityLaserGuidedHowitzer",
+            Power::LaserGuidedHowitzer,
+        ),
         ("Nuke_SpecialAbilityHelixNukeBomb", Power::HelixNukeBomb),
-        ("Nuke_SuperweaponChinaCarpetBomb", Power::NukeChinaCarpetBomb),
+        (
+            "Nuke_SuperweaponChinaCarpetBomb",
+            Power::NukeChinaCarpetBomb,
+        ),
         ("Nuke_SuperweaponNeutronMissile", Power::NukeNeutronMissile),
         ("Nuke_SuperweaponNukeDrop", Power::NukeDrop),
         ("Slth_SuperweaponGPSScrambler", Power::StealthGpsScrambler),
         ("SpecialAbilityAmbulanceCleanupArea", Power::CleanupArea),
-        ("SpecialAbilityBlackLotusCaptureBuilding", Power::BlackLotusCaptureBuilding),
-        ("SpecialAbilityBlackLotusDisableVehicleHack", Power::BlackLotusDisableVehicle),
-        ("SpecialAbilityBlackLotusStealCashHack", Power::BlackLotusStealCash),
-        ("SpecialAbilityColonelBurtonRemoteCharges", Power::BurtonRemoteCharges),
-        ("SpecialAbilityColonelBurtonTimedCharges", Power::BurtonTimedCharges),
-        ("SpecialAbilityDisguiseAsVehicle", Power::DisguiseAsVehiclePower),
-        ("SpecialAbilityHackerDisableBuilding", Power::HackerDisableBuilding),
+        (
+            "SpecialAbilityBlackLotusCaptureBuilding",
+            Power::BlackLotusCaptureBuilding,
+        ),
+        (
+            "SpecialAbilityBlackLotusDisableVehicleHack",
+            Power::BlackLotusDisableVehicle,
+        ),
+        (
+            "SpecialAbilityBlackLotusStealCashHack",
+            Power::BlackLotusStealCash,
+        ),
+        (
+            "SpecialAbilityColonelBurtonRemoteCharges",
+            Power::BurtonRemoteCharges,
+        ),
+        (
+            "SpecialAbilityColonelBurtonTimedCharges",
+            Power::BurtonTimedCharges,
+        ),
+        (
+            "SpecialAbilityDisguiseAsVehicle",
+            Power::DisguiseAsVehiclePower,
+        ),
+        (
+            "SpecialAbilityHackerDisableBuilding",
+            Power::HackerDisableBuilding,
+        ),
         ("SpecialAbilityHelixNapalmBomb", Power::HelixNapalmBomb),
-        ("SpecialAbilityMicrowaveDisableBuilding", Power::MicrowaveDisableBuilding),
-        ("SpecialAbilityMissileDefenderLaserGuidedMissiles", Power::MissileDefenderLaserGuided),
-        ("SpecialAbilityRangerCaptureBuilding", Power::RangerCaptureBuilding),
-        ("SpecialAbilityRebelCaptureBuilding", Power::RebelCaptureBuilding),
-        ("SpecialAbilityRedGuardCaptureBuilding", Power::RedGuardCaptureBuilding),
+        (
+            "SpecialAbilityMicrowaveDisableBuilding",
+            Power::MicrowaveDisableBuilding,
+        ),
+        (
+            "SpecialAbilityMissileDefenderLaserGuidedMissiles",
+            Power::MissileDefenderLaserGuided,
+        ),
+        (
+            "SpecialAbilityRangerCaptureBuilding",
+            Power::RangerCaptureBuilding,
+        ),
+        (
+            "SpecialAbilityRebelCaptureBuilding",
+            Power::RebelCaptureBuilding,
+        ),
+        (
+            "SpecialAbilityRedGuardCaptureBuilding",
+            Power::RedGuardCaptureBuilding,
+        ),
         ("SpecialAbilityTankHunterTNTAttack", Power::TankHunterTnt),
-        ("SpecialPowerBattleshipBombardment", Power::BattleshipBombardment),
-        ("SpecialPowerCommunicationsDownload", Power::CommunicationsDownload),
+        (
+            "SpecialPowerBattleshipBombardment",
+            Power::BattleshipBombardment,
+        ),
+        (
+            "SpecialPowerCommunicationsDownload",
+            Power::CommunicationsDownload,
+        ),
         ("SpecialPowerRadarVanScan", Power::RadarScan),
         ("SpecialPowerSpyDrone", Power::SpyDrone),
         ("SpecialPowerSpySatellite", Power::SpySatellite),
@@ -1486,7 +1601,10 @@ fn retail_special_power_names_map_without_fuzzy_asset_or_id_fallbacks() {
         ("SuperweaponSpectreGunship", Power::SpectreGunship),
         ("SuperweaponTerrorCell", Power::TerrorCell),
         ("SupW_CruiseMissile", Power::CruiseMissile),
-        ("SupW_SuperweaponNeutronMissile", Power::SuperweaponNeutronMissile),
+        (
+            "SupW_SuperweaponNeutronMissile",
+            Power::SuperweaponNeutronMissile,
+        ),
         ("Tank_SuperweaponTankParadrop", Power::TankParadrop),
     ];
 

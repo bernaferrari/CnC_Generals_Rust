@@ -213,16 +213,19 @@ impl GameLogic {
             &mut self.combat_system,
             &self.objects,
         );
+        self.execute_pending_weapon_fire_ocls();
     }
 
     /// Hit-only projectile pass after GameWorld flight integrate writeback.
     pub(crate) fn resolve_projectiles_hits_only(&mut self) -> Vec<ObjectId> {
         self.combat_system.refresh_homing_aims(&self.objects);
-        self.combat_system.update_projectiles_with_countermeasures(
+        let hits = self.combat_system.update_projectiles_with_countermeasures(
             0.0,
             &mut self.objects,
             Some(&mut self.countermeasures),
             self.frame,
-        )
+        );
+        self.flush_projectile_impact_fx();
+        hits
     }
 }

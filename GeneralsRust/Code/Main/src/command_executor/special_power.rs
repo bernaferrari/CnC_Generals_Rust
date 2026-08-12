@@ -185,6 +185,34 @@ impl<'a> CommandExecutor<'a> {
                 // Fall back: any ready member (capture/skills on multi infantry).
                 units.to_vec()
             };
+
+        // Capture is a unit SpecialAbility with its own target legality.  It
+        // must validate *before* spending charge; the former generic path
+        // consumed the timer and only then discovered an immune/garrisoned
+        // target.  `execute_capture_building_for_power` consumes only after a
+        // legal source successfully accepts its walk-to order.
+        let capture_power =
+            crate::game_logic::CapturePowerKind::from_special_power_type(power_type);
+        if capture_power != crate::game_logic::CapturePowerKind::None {
+            let PowerTarget::Object(target_id) = target else {
+                return CommandResult::InvalidTarget;
+            };
+            let any = casters.iter().copied().any(|unit_id| {
+                matches!(
+                    self.execute_capture_building_for_power(
+                        &[unit_id],
+                        *target_id,
+                        Some(capture_power),
+                    ),
+                    CommandResult::Success
+                )
+            });
+            return if any {
+                CommandResult::Success
+            } else {
+                CommandResult::InvalidCommand
+            };
+        }
         let mut any = false;
         for &unit_id in &casters {
             // SharedSyncedTimer residual: player-wide gate for superweapons.
@@ -232,22 +260,7 @@ impl<'a> CommandExecutor<'a> {
             // CIA Intelligence is no-target (SpyVision setUnitsVisionSpied residual).
             // Missile Defender laser guided needs an object target (lock secondary + attack).
             // Hero/unit disable & capture specials → existing walk-to residual command paths.
-            if matches!(
-                *power_type,
-                SpecialPowerType::RangerCaptureBuilding
-                    | SpecialPowerType::RedGuardCaptureBuilding
-                    | SpecialPowerType::RebelCaptureBuilding
-            ) {
-                let PowerTarget::Object(tid) = target else {
-                    continue;
-                };
-                if !matches!(
-                    self.execute_capture_building(&[unit_id], *tid),
-                    CommandResult::Success
-                ) {
-                    continue;
-                }
-            } else if *power_type == SpecialPowerType::DisguiseAsVehiclePower {
+            if *power_type == SpecialPowerType::DisguiseAsVehiclePower {
                 let PowerTarget::Object(tid) = target else {
                     continue;
                 };
@@ -285,16 +298,6 @@ impl<'a> CommandExecutor<'a> {
                 };
                 if !matches!(
                     self.execute_steal_cash_hack(&[unit_id], *tid),
-                    CommandResult::Success
-                ) {
-                    continue;
-                }
-            } else if *power_type == SpecialPowerType::BlackLotusCaptureBuilding {
-                let PowerTarget::Object(tid) = target else {
-                    continue;
-                };
-                if !matches!(
-                    self.execute_capture_building(&[unit_id], *tid),
                     CommandResult::Success
                 ) {
                     continue;
@@ -615,6 +618,7 @@ impl<'a> CommandExecutor<'a> {
         &mut self,
         units: &[ObjectId],
         weapon_slot: &WeaponSlot,
+        max_shots_to_fire: i32,
         target: &WeaponTarget,
     ) -> CommandResult {
         let Some(slot) = host_weapon_slot_index(weapon_slot) else {
@@ -642,14 +646,18 @@ impl<'a> CommandExecutor<'a> {
             }
 
             let fired = match target {
-                WeaponTarget::Object(target_id) => {
-                    self.game_logic
-                        .unit_command_fire_weapon(unit_id, Some(*target_id), None)
-                }
-                WeaponTarget::Location(pos) => {
-                    self.game_logic
-                        .unit_command_fire_weapon(unit_id, None, Some(*pos))
-                }
+                WeaponTarget::Object(target_id) => self.game_logic.unit_command_fire_weapon(
+                    unit_id,
+                    Some(*target_id),
+                    None,
+                    max_shots_to_fire,
+                ),
+                WeaponTarget::Location(pos) => self.game_logic.unit_command_fire_weapon(
+                    unit_id,
+                    None,
+                    Some(*pos),
+                    max_shots_to_fire,
+                ),
             };
 
             if fired {

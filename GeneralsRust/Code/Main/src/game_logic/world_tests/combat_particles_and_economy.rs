@@ -2046,6 +2046,13 @@ fn production_upgrade_researches_on_building_queue_residual() {
     let barracks_id = logic
         .create_object("TestBarracks", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
         .expect("barracks");
+    // Keep this research-timing fixture independent of the separate
+    // low-power production-speed residual.  The test below verifies the
+    // Upgrade.ini BuildTime value itself, so its lone barracks has no draw.
+    logic
+        .host_object_mut(barracks_id)
+        .expect("barracks object")
+        .power_consumed = 0;
 
     logic.queue_command(GameCommand {
         command_type: CommandType::QueueUpgrade {
@@ -2060,15 +2067,19 @@ fn production_upgrade_researches_on_building_queue_residual() {
     logic.process_commands();
 
     // PRODUCTION_UPGRADE residual sits on the producer queue.
-    let (kind, qty, progress) = logic
+    let (kind, qty, progress, total_time) = logic
         .host_object(barracks_id)
         .and_then(|o| o.building_data.as_ref())
         .and_then(|b| b.production_queue.first())
-        .map(|i| (i.kind, i.quantity_total, i.progress))
+        .map(|i| (i.kind, i.quantity_total, i.progress, i.total_time))
         .expect("upgrade queue entry");
     assert_eq!(kind, ProductionKind::Upgrade);
     assert_eq!(qty, 1);
     assert_eq!(progress, 0.0);
+    assert!(
+        (total_time - HostUpgradeKind::FlashBangGrenade.retail_build_time_secs()).abs() < 0.001,
+        "Upgrade.ini BuildTime must reach the producer queue, got {total_time}"
+    );
     assert!(
         logic
             .get_player(0)
@@ -2084,8 +2095,18 @@ fn production_upgrade_researches_on_building_queue_residual() {
         "not unlocked before research"
     );
 
-    // residual_research_frames = 1 → one logic update completes.
+    // A regular logic frame must not instant-complete a 30-second Upgrade.ini
+    // entry.  Advance the remaining research time explicitly afterwards.
     logic.update();
+
+    assert!(
+        !logic
+            .get_player(0)
+            .map(|p| p.has_unlocked_upgrade(UPGRADE_AMERICA_FLASHBANG))
+            .unwrap_or(true),
+        "FlashBang must remain queued after one 1/30s logic frame"
+    );
+    logic.update_with_dt(30.0);
 
     assert!(
         logic
@@ -2245,9 +2266,11 @@ fn capture_building_upgrade_queue_complete_unlocks_capture_ability() {
     );
     assert_eq!(captor.target, Some(building_id));
 
-    // Residual capture action: in-range Capturing completes ownership transfer
-    // on the next support-state update. Fail-closed: not C++ capture progress bar.
+    // C++ SpecialAbilityUpdate performs the authored unpack and preparation
+    // phases before it defects the target; click acceptance is not a capture.
     game_logic.update_ai(&[captor_id, building_id], 1.0 / 30.0);
+    game_logic.update_ai(&[captor_id, building_id], 3.0);
+    game_logic.update_ai(&[captor_id, building_id], 20.0);
 
     let building = game_logic
         .host_object(building_id)
@@ -2255,11 +2278,16 @@ fn capture_building_upgrade_queue_complete_unlocks_capture_ability() {
     assert_eq!(
         building.team,
         Team::USA,
-        "CaptureBuilding residual must transfer ownership after unlock + Capturing"
+        "CaptureBuilding must transfer ownership after its authored channel"
     );
     let captor = game_logic
         .host_object(captor_id)
         .expect("captor after capture complete");
+    assert_eq!(captor.ai_state, AIState::Capturing);
+    game_logic.update_ai(&[captor_id, building_id], 2.0);
+    let captor = game_logic
+        .host_object(captor_id)
+        .expect("captor after capture packing");
     assert_eq!(captor.ai_state, AIState::Idle);
     assert!(captor.target.is_none());
 }
@@ -2316,7 +2344,7 @@ fn capture_building_walk_into_range_transfers_ownership_after_upgrade() {
         );
     }
 
-    // Simulate walk + capture. Host residual is instant on range, not progress bar.
+    // Simulate walk + exact capture channel.
     let mut transferred = false;
     for _ in 0..900 {
         game_logic.update();
@@ -2332,16 +2360,17 @@ fn capture_building_walk_into_range_transfers_ownership_after_upgrade() {
 
     assert!(
         transferred,
-        "upgraded infantry must walk into range and transfer building ownership"
+        "upgraded infantry must walk into range and complete the capture channel"
     );
     let captor = game_logic
         .host_object(captor_id)
         .expect("captor after transfer");
-    assert_eq!(
-        captor.ai_state,
-        AIState::Idle,
-        "captor returns to Idle after residual capture complete"
-    );
+    assert_eq!(captor.ai_state, AIState::Capturing);
+    game_logic.update_ai(&[captor_id, building_id], 2.0);
+    let captor = game_logic
+        .host_object(captor_id)
+        .expect("captor after capture packing");
+    assert_eq!(captor.ai_state, AIState::Idle);
     assert!(captor.target.is_none());
 }
 
@@ -2800,6 +2829,10 @@ fn retail_harvesters_parse_and_accept_gather_through_live_command_authority() {
             !template.is_kind_of(KindOf::Resource) && !template.is_kind_of(KindOf::Harvestable),
             "{object_name} is a collector, not a harvestable supply source"
         );
+        assert!(
+            !template.is_kind_of(KindOf::Structure),
+            "{object_name} must retain its authored movable classification rather than a name-based fallback structure"
+        );
 
         let mut game_logic = GameLogic::new();
         ensure_test_player_for_team(&mut game_logic, team);
@@ -2819,6 +2852,20 @@ fn retail_harvesters_parse_and_accept_gather_through_live_command_authority() {
         let collector_id = game_logic
             .create_object(object_name, team, Vec3::ZERO)
             .unwrap_or_else(|| panic!("spawn retail collector {object_name}"));
+        let collector_object = game_logic
+            .host_object(collector_id)
+            .expect("spawned retail collector must be live");
+        assert!(
+            collector_object.is_resource_collector()
+                && collector_object.can_move()
+                && collector_object.team == team,
+            "{object_name} must be a live, movable local HARVESTER before Gather authority"
+        );
+        assert_eq!(
+            game_logic.player_team(player_id),
+            Some(team),
+            "{object_name} Gather must use its real local player/team"
+        );
         let target_id = game_logic
             .create_object(
                 "RetailGatherSupply",
@@ -2826,6 +2873,40 @@ fn retail_harvesters_parse_and_accept_gather_through_live_command_authority() {
                 Vec3::new(20.0, 0.0, 0.0),
             )
             .expect("spawn gather supply");
+
+        // A ground supply truck must use the same path authority as a normal
+        // Gather order.  Keep this explicit: aircraft bypass the ground grid,
+        // so China would otherwise leave a hidden path regression untested.
+        let start_cell = game_logic.pathfinding_system.grid.world_to_grid(Vec3::ZERO);
+        let supply_cell = game_logic
+            .pathfinding_system
+            .grid
+            .world_to_grid(Vec3::new(20.0, 0.0, 0.0));
+        let direct_ground_path = game_logic.pathfinding_system.find_path_ex(
+            Vec3::ZERO,
+            Vec3::new(20.0, 0.0, 0.0),
+            &game_logic.objects,
+            false,
+        );
+        assert!(
+            direct_ground_path.is_some(),
+            "{object_name} ground grid path absent: origin={:?} size={}x{} start={start_cell:?} blocked={} static={} goal={supply_cell:?} blocked={} static={}",
+            game_logic.pathfinding_system.grid.origin(),
+            game_logic.pathfinding_system.grid.width(),
+            game_logic.pathfinding_system.grid.height(),
+            game_logic.pathfinding_system.grid.is_blocked(start_cell),
+            game_logic.pathfinding_system.grid.is_static_blocked(start_cell),
+            game_logic.pathfinding_system.grid.is_blocked(supply_cell),
+            game_logic.pathfinding_system.grid.is_static_blocked(supply_cell),
+        );
+        assert!(
+            game_logic.assign_unit_path_for_test(collector_id, Vec3::new(20.0, 0.0, 0.0), &[]),
+            "{object_name} must have a valid authoritative path to the supply source"
+        );
+        assert!(
+            game_logic.unit_command_stop(collector_id),
+            "path probe must leave {object_name} ready for the real Gather order"
+        );
 
         // The visible game path freezes capability into the presentation frame
         // before classifying the right click.  Prove the parsed capability
@@ -2856,11 +2937,27 @@ fn retail_harvesters_parse_and_accept_gather_through_live_command_authority() {
                 is_neutral: true,
                 template_name: "RetailGatherSupply".to_string(),
                 can_be_entered: false,
+                enter_available_capacity: 0,
+                enter_uses_transport_slots: false,
+                enter_requires_infantry: false,
+                enter_forbids_aircraft: false,
+                enter_disabled_subdued: false,
+                enter_is_rider_change: false,
+                rider_change_allowed_templates: Vec::new(),
                 is_damaged: false,
                 is_friendly_of_local: false,
                 provides_vehicle_repair: false,
                 provides_aircraft_repair: false,
                 provides_heal: false,
+                dock_kind: crate::game_logic::DockKind::None,
+                dock_controller_is_local: false,
+                stored_supplies: 0,
+                capturable: false,
+                immune_to_capture: false,
+                capture_garrisonable: false,
+                capture_nonstealthed_garrison_count: 0,
+                capture_friendly_garrison_count: 0,
+                capture_target_effectively_stealthed: false,
             }),
             selected_presentation: vec![PresentationSelectedUnitHint {
                 id: collector_id,
@@ -2879,6 +2976,11 @@ fn retail_harvesters_parse_and_accept_gather_through_live_command_authority() {
                 is_aircraft: collector.object_type
                     == crate::presentation_frame::PresentationObjectType::Aircraft,
                 is_infantry: false,
+                transport_slot_count: 0,
+                stored_supplies: 0,
+                is_controlled_by_local: true,
+                capture_power: crate::game_logic::CapturePowerKind::None,
+                capture_power_ready: false,
             }],
             presentation_box_select_units: Vec::new(),
             presentation_select_similar_units: Vec::new(),
@@ -2900,7 +3002,7 @@ fn retail_harvesters_parse_and_accept_gather_through_live_command_authority() {
             .process_mouse_input(&context, &[collector_id], player_id, Some(&game_logic))
             .expect("presentation-frozen RMB must produce a command");
         assert!(
-            matches!(command.command_type, CommandType::Gather { target_id: id } if id == target_id),
+            matches!(&command.command_type, CommandType::Gather { target_id: id } if *id == target_id),
             "{object_name} right click must classify as Gather"
         );
 
@@ -2910,7 +3012,17 @@ fn retail_harvesters_parse_and_accept_gather_through_live_command_authority() {
         game_logic.queue_command(command);
         game_logic.process_commands();
         let accepted = game_logic.take_accepted_gather_commands();
-        assert_eq!(accepted.len(), 1, "{object_name} Gather acceptance");
+        let collector_after = game_logic
+            .host_object(collector_id)
+            .expect("collector remains live after Gather command");
+        assert_eq!(
+            accepted.len(),
+            1,
+            "{object_name} Gather acceptance (state={:?}, path={:?}, target={:?})",
+            collector_after.ai_state,
+            collector_after.movement.path,
+            collector_after.target,
+        );
         assert_eq!(accepted[0].carrier_ids, vec![collector_id]);
         assert_eq!(accepted[0].player_id, player_id);
         assert_eq!(accepted[0].target_id, target_id);

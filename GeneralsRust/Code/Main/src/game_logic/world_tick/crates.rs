@@ -407,8 +407,9 @@ impl GameLogic {
                             let offset = Vec3::new(6.0, 0.0, 0.0);
                             unit.set_position(crawler_pos + offset);
                         }
-                        self.apply_engagement_decision_aware(mid, target_id);
-                        self.troop_crawler.record_healthy_redeploy();
+                        if self.apply_engagement_decision_aware(mid, target_id) {
+                            self.troop_crawler.record_healthy_redeploy();
+                        }
                     }
                     continue;
                 }
@@ -435,7 +436,7 @@ impl GameLogic {
                 // Outside + not wounded → keep attacking designated target.
                 if let Some(unit) = self.objects.get(&mid) {
                     if unit.target != Some(target_id) {
-                        self.apply_engagement_decision_aware(mid, target_id);
+                        let _ = self.apply_engagement_decision_aware(mid, target_id);
                     }
                 }
             }

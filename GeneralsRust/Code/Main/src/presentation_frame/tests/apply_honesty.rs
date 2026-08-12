@@ -1190,9 +1190,8 @@ fn presentation_frame_freezes_visible_scene_lines() {
     assert!((frame.scene_lines[0].start.0 - 1.0).abs() < f32::EPSILON);
     assert!((frame.scene_lines[0].end.0 - 4.0).abs() < f32::EPSILON);
 
-    let pack = crate::graphics::laser_segment_upload::LaserSegmentUpload::pack_from_presentation(
-        &frame,
-    );
+    let pack =
+        crate::graphics::laser_segment_upload::LaserSegmentUpload::pack_from_presentation(&frame);
     assert!(pack.honesty.has_geometry);
     assert!(pack.honesty.segments_packed >= 1);
 }

@@ -167,7 +167,6 @@ impl ScriptEvaluator {
             )
         })?;
 
-        let player_name = player_param.get_string();
         let science_name = science_param.get_string();
 
         let science = if let Some(science_store) = get_science_store() {
@@ -179,10 +178,10 @@ impl ScriptEvaluator {
             return Ok(false);
         }
 
-        let Ok(list) = player_list().read() else {
-            return Ok(false);
-        };
-        let Some(player_arc) = list.find_player_by_name(player_name) else {
+        // C++ goes through ScriptConditions::playerFromParam here.  Besides a
+        // literal side name, that accepts the serialized player mask and the
+        // legacy <Local Player>/<This Player> tokens used by campaign scripts.
+        let Some(player_arc) = self.resolve_player_from_param(player_param) else {
             return Ok(false);
         };
         let player_index = player_arc
@@ -193,14 +192,11 @@ impl ScriptEvaluator {
             return Ok(false);
         };
 
-        let mut engine = self.engine.write().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to acquire engine lock: {}", e))
-        })?;
-        let engine = engine.as_mut().ok_or_else(|| {
-            GameLogicError::Configuration("Script engine not initialized".to_string())
-        })?;
-
-        Ok(engine.is_science_acquired(player_index, science, true))
+        Ok(self
+            .with_evaluation_engine_mut(|engine| {
+                engine.is_science_acquired(player_index, science, true)
+            })
+            .unwrap_or(false))
     }
 
     fn evaluate_player_has_science_purchase_points_condition(
@@ -218,13 +214,11 @@ impl ScriptEvaluator {
             )
         })?;
 
-        let player_name = player_param.get_string();
         let points_needed = points_param.get_int();
 
-        let Ok(list) = player_list().read() else {
-            return Ok(false);
-        };
-        let Some(player_arc) = list.find_player_by_name(player_name) else {
+        // Match C++ ScriptConditions::playerFromParam rather than treating a
+        // legacy player token as a literal display name.
+        let Some(player_arc) = self.resolve_player_from_param(player_param) else {
             return Ok(false);
         };
         let Ok(player_guard) = player_arc.read() else {
@@ -249,7 +243,6 @@ impl ScriptEvaluator {
             )
         })?;
 
-        let player_name = player_param.get_string();
         let science_name = science_param.get_string();
 
         let science = if let Some(science_store) = get_science_store() {
@@ -261,10 +254,9 @@ impl ScriptEvaluator {
             return Ok(false);
         }
 
-        let Ok(list) = player_list().read() else {
-            return Ok(false);
-        };
-        let Some(player_arc) = list.find_player_by_name(player_name) else {
+        // C++ ScriptConditions::playerFromParam supports both exact player
+        // identities and legacy Side tokens/masks for this condition.
+        let Some(player_arc) = self.resolve_player_from_param(player_param) else {
             return Ok(false);
         };
         let Ok(player_guard) = player_arc.read() else {

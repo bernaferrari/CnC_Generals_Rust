@@ -15,8 +15,10 @@ impl ScriptActionDispatcher {
     pub(crate) fn do_victory(&mut self) -> Result<ScriptActionResult, ScriptError> {
         log::info!("VICTORY!");
 
-        let mut ctx = self.context.write().unwrap();
-        ctx.suppress_new_windows = false;
+        {
+            let mut ctx = self.context.write().unwrap();
+            ctx.suppress_new_windows = false;
+        }
 
         TheVictoryConditions::set_local_allied_victory(true);
         if let Ok(players) = player_list().read() {
@@ -26,11 +28,12 @@ impl ScriptActionDispatcher {
                 }
             }
         }
-        if let Ok(mut engine_guard) = get_script_engine().write() {
-            if let Some(engine) = engine_guard.as_mut() {
-                engine.start_end_game_timer();
-            }
-        }
+        // C++ `ScriptActions::doVictory` disables input before starting the
+        // win/lose timer.  Go through the scoped engine helper: this action
+        // is normally called from `ScriptEngine::update`, which already owns
+        // the global engine lock.
+        self.do_disable_input()?;
+        let _ = with_script_engine_mut(|engine| engine.start_end_game_timer());
 
         Ok(ScriptActionResult::Success)
     }
@@ -39,8 +42,10 @@ impl ScriptActionDispatcher {
     pub(crate) fn do_quick_victory(&mut self) -> Result<ScriptActionResult, ScriptError> {
         log::info!("QUICK VICTORY!");
 
-        let mut ctx = self.context.write().unwrap();
-        ctx.suppress_new_windows = false;
+        {
+            let mut ctx = self.context.write().unwrap();
+            ctx.suppress_new_windows = false;
+        }
 
         TheVictoryConditions::set_local_allied_victory(true);
         if let Ok(players) = player_list().read() {
@@ -50,11 +55,10 @@ impl ScriptActionDispatcher {
                 }
             }
         }
-        if let Ok(mut engine_guard) = get_script_engine().write() {
-            if let Some(engine) = engine_guard.as_mut() {
-                engine.start_quick_end_game_timer();
-            }
-        }
+        // C++ `doQuickVictory` also disables input, then sets a one-frame
+        // timer.  This must remain immediate when invoked by a live script.
+        self.do_disable_input()?;
+        let _ = with_script_engine_mut(|engine| engine.start_quick_end_game_timer());
 
         Ok(ScriptActionResult::Success)
     }
@@ -63,8 +67,10 @@ impl ScriptActionDispatcher {
     pub(crate) fn do_defeat(&mut self) -> Result<ScriptActionResult, ScriptError> {
         log::info!("DEFEAT!");
 
-        let mut ctx = self.context.write().unwrap();
-        ctx.suppress_new_windows = false;
+        {
+            let mut ctx = self.context.write().unwrap();
+            ctx.suppress_new_windows = false;
+        }
 
         TheVictoryConditions::set_local_allied_victory(false);
         if let Ok(players) = player_list().read() {
@@ -74,11 +80,8 @@ impl ScriptActionDispatcher {
                 }
             }
         }
-        if let Ok(mut engine_guard) = get_script_engine().write() {
-            if let Some(engine) = engine_guard.as_mut() {
-                engine.start_end_game_timer();
-            }
-        }
+        self.do_disable_input()?;
+        let _ = with_script_engine_mut(|engine| engine.start_end_game_timer());
 
         Ok(ScriptActionResult::Success)
     }
@@ -95,12 +98,10 @@ impl ScriptActionDispatcher {
                 }
             }
         }
-        if let Ok(mut engine_guard) = get_script_engine().write() {
-            if let Some(engine) = engine_guard.as_mut() {
-                engine.set_shown_mp_local_defeat_window(true);
-                engine.start_close_window_timer();
-            }
-        }
+        let _ = with_script_engine_mut(|engine| {
+            engine.set_shown_mp_local_defeat_window(true);
+            engine.start_close_window_timer();
+        });
 
         Ok(ScriptActionResult::Success)
     }

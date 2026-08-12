@@ -20,11 +20,15 @@ impl GameLogic {
     ) -> Option<u32> {
         use crate::game_logic::host_paradrop::{HostParadropKind, PARADROP_RESIDUAL_TEMPLATE};
         let kind = HostParadropKind::from_command_power(power)?;
-        let source_team = self
-            .objects
-            .get(&source_object)
-            .map(|o| o.team)
-            .unwrap_or(Team::Neutral);
+        let (source_team, source_owner_player_id) = {
+            let source = self.objects.get(&source_object)?;
+            let owner_player_id = if source.owner_player_id.is_some() {
+                Some(self.player_owner_for_host_object(source)?)
+            } else {
+                None
+            };
+            (source.team, owner_player_id)
+        };
         let frame = self.frame;
 
         // Prefer retail ranger template when loaded; otherwise residual TestInfantry.
@@ -39,18 +43,19 @@ impl GameLogic {
         // C++ SCIENCE_Paradrop1/2/3 residual payload size (5/10/20 Rangers).
         let unit_count = {
             use crate::game_logic::host_paradrop::ParadropScienceTier;
-            let sciences: Vec<&str> = self
-                .players
-                .values()
-                .filter(|p| p.team == source_team)
-                .flat_map(|p| p.unlocked_sciences.iter().map(|s| s.as_str()))
+            let sciences: Vec<&str> = source_owner_player_id
+                .and_then(|player_id| self.players.get(&player_id))
+                .filter(|player| player.team == source_team)
+                .into_iter()
+                .flat_map(|player| player.unlocked_sciences.iter().map(|science| science.as_str()))
                 .collect();
             ParadropScienceTier::highest_from_sciences(sciences).ranger_count()
         };
-        let id = self.host_paradrops.queue_with_unit_count(
+        let id = self.host_paradrops.queue_with_unit_count_for_owner(
             kind,
             source_object,
             source_team,
+            source_owner_player_id,
             target_position,
             frame,
             unit_template,
@@ -66,10 +71,11 @@ impl GameLogic {
         );
 
         // DeliverPayload cargo residual bookkeeping (AmericaJetCargoPlane honesty).
-        let _cargo_id = self.host_deliver_payloads.queue(
+        let _cargo_id = self.host_deliver_payloads.queue_for_owner(
             crate::game_logic::host_deliver_payload::HostDeliverPayloadKind::AmericaParadrop,
             source_object,
             source_team,
+            source_owner_player_id,
             target_position,
             frame,
             String::new(),
@@ -129,7 +135,12 @@ impl GameLogic {
 
             let mut spawned: Vec<ObjectId> = Vec::with_capacity(plan.spawn_positions.len());
             for pos in &plan.spawn_positions {
-                if let Some(id) = self.create_object(&template_name, plan.source_team, *pos) {
+                if let Some(id) = self.create_object_for_owner_or_team(
+                    &template_name,
+                    plan.source_team,
+                    plan.source_owner_player_id,
+                    *pos,
+                ) {
                     // C++ Paradrop PutInContainer AmericaParachute + ParachuteDirectly
                     // residual: elevated infantry freefall aiming at LZ.
                     if let Some(obj) = self.objects.get_mut(&id) {
@@ -214,11 +225,15 @@ impl GameLogic {
     ) -> Option<u32> {
         use crate::game_logic::host_ambush::{HostAmbushKind, AMBUSH_RESIDUAL_TEMPLATE};
         let kind = HostAmbushKind::from_command_power(power)?;
-        let source_team = self
-            .objects
-            .get(&source_object)
-            .map(|o| o.team)
-            .unwrap_or(Team::Neutral);
+        let (source_team, source_owner_player_id) = {
+            let source = self.objects.get(&source_object)?;
+            let owner_player_id = if source.owner_player_id.is_some() {
+                Some(self.player_owner_for_host_object(source)?)
+            } else {
+                None
+            };
+            (source.team, owner_player_id)
+        };
         let frame = self.frame;
 
         // Prefer retail rebel template when loaded; otherwise residual TestInfantry.
@@ -233,18 +248,19 @@ impl GameLogic {
         // C++ SCIENCE_RebelAmbush1/2/3 residual payload size (4/8/16 Rebels).
         let unit_count = {
             use crate::game_logic::host_ambush::AmbushScienceTier;
-            let sciences: Vec<&str> = self
-                .players
-                .values()
-                .filter(|p| p.team == source_team)
-                .flat_map(|p| p.unlocked_sciences.iter().map(|s| s.as_str()))
+            let sciences: Vec<&str> = source_owner_player_id
+                .and_then(|player_id| self.players.get(&player_id))
+                .filter(|player| player.team == source_team)
+                .into_iter()
+                .flat_map(|player| player.unlocked_sciences.iter().map(|science| science.as_str()))
                 .collect();
             AmbushScienceTier::highest_from_sciences(sciences).rebel_count()
         };
-        let id = self.host_ambushes.queue_with_unit_count(
+        let id = self.host_ambushes.queue_with_unit_count_for_owner(
             kind,
             source_object,
             source_team,
+            source_owner_player_id,
             target_position,
             frame,
             unit_template,
@@ -314,7 +330,12 @@ impl GameLogic {
 
             let mut spawned: Vec<ObjectId> = Vec::with_capacity(plan.spawn_positions.len());
             for pos in &plan.spawn_positions {
-                if let Some(id) = self.create_object(&template_name, plan.source_team, *pos) {
+                if let Some(id) = self.create_object_for_owner_or_team(
+                    &template_name,
+                    plan.source_team,
+                    plan.source_owner_player_id,
+                    *pos,
+                ) {
                     // C++ CreateObject FadeIn residual: STEALTHED until FadeTime.
                     if crate::game_logic::host_ambush::AMBUSH_FADE_IN {
                         if let Some(o) = self.objects.get_mut(&id) {
@@ -538,11 +559,15 @@ impl GameLogic {
             HostSneakAttackKind, SNEAK_ATTACK_RESIDUAL_TEMPLATE,
         };
         let kind = HostSneakAttackKind::from_command_power(power)?;
-        let source_team = self
-            .objects
-            .get(&source_object)
-            .map(|o| o.team)
-            .unwrap_or(Team::Neutral);
+        let (source_team, source_owner_player_id) = {
+            let source = self.objects.get(&source_object)?;
+            let owner_player_id = if source.owner_player_id.is_some() {
+                Some(self.player_owner_for_host_object(source)?)
+            } else {
+                None
+            };
+            (source.team, owner_player_id)
+        };
         let frame = self.frame;
 
         // Prefer retail tunnel template when loaded; otherwise residual TestSneakTunnel.
@@ -554,17 +579,23 @@ impl GameLogic {
             SNEAK_ATTACK_RESIDUAL_TEMPLATE.to_string()
         };
 
-        let id = self.host_sneak_attacks.queue(
+        let id = self.host_sneak_attacks.queue_for_owner(
             kind,
             source_object,
             source_team,
+            source_owner_player_id,
             target_position,
             frame,
             tunnel_template,
         );
 
         // C++ OCL_CreateSneakAttackTunnelStart residual (Start object, Lifetime 5000ms).
-        let _ = self.spawn_sneak_attack_tunnel_start(id, source_team, target_position);
+        let _ = self.spawn_sneak_attack_tunnel_start(
+            id,
+            source_team,
+            source_owner_player_id,
+            target_position,
+        );
 
         // C++ SuperweaponLaunched Sneak Attack EVA residual.
         self.try_eva_special_launched_misc(source_team, "sneak");
@@ -699,8 +730,12 @@ impl GameLogic {
                 self.mark_object_for_destruction(start_id, None);
             }
 
-            let tunnel_id =
-                self.create_object(&template_name, plan.source_team, plan.target_position);
+            let tunnel_id = self.create_object_for_owner_or_team(
+                &template_name,
+                plan.source_team,
+                plan.source_owner_player_id,
+                plan.target_position,
+            );
 
             // Shockwave damage is multi-pulse residual (applied above); tunnel spawn
             // only creates the structure + audio residual.
@@ -874,6 +909,27 @@ impl GameLogic {
         self.objects.get(&id).is_some_and(|o| o.is_worker())
     }
 
+    /// C++ construction/structure-repair authority is `KINDOF_DOZER`, not
+    /// the host's broader legacy worker presentation category.
+    #[inline]
+    pub fn unit_is_dozer(&self, id: ObjectId) -> bool {
+        self.objects
+            .get(&id)
+            .is_some_and(|o| o.is_kind_of(KindOf::Dozer))
+    }
+
+    /// C++ `Object::isAboveTerrain` gate used by aircraft repair requests.
+    /// `airborne_target` is the retained authoritative flight state; when it
+    /// is unavailable, accept only a sourced terrain sample showing a strictly
+    /// elevated position.  Missing terrain/state fails closed.
+    #[inline]
+    pub fn unit_is_above_terrain(&self, id: ObjectId) -> bool {
+        self.objects.get(&id).is_some_and(|o| {
+            o.status.airborne_target
+                || (o.ground_height_from_terrain && o.get_position().y > o.ground_height + 0.01)
+        })
+    }
+
     /// C++ `KINDOF_HARVESTER` probe used by the Gather authority path.
     /// Keep it distinct from the builder/worker probe above: a Dozer can
     /// construct or repair without being allowed to collect resources.
@@ -882,6 +938,27 @@ impl GameLogic {
         self.objects
             .get(&id)
             .is_some_and(|o| o.is_resource_collector())
+    }
+
+    /// Exact target DockUpdate family for command classification.  This is a
+    /// template field parsed from Object INI Behavior declarations, rather
+    /// than a name/containment heuristic.
+    #[inline]
+    pub fn unit_dock_kind(&self, id: ObjectId) -> DockKind {
+        self.objects
+            .get(&id)
+            .map(|o| o.thing.template.dock_kind)
+            .unwrap_or(DockKind::None)
+    }
+
+    /// Supply carried by a collector or remaining at a warehouse, exposed as
+    /// a value probe for boot-only RMB classification.
+    #[inline]
+    pub fn unit_stored_supplies(&self, id: ObjectId) -> u32 {
+        self.objects
+            .get(&id)
+            .map(|o| o.stored_resources.supplies)
+            .unwrap_or(0)
     }
 
     /// Wave 244: repair/dozer probe without exposing `&Object`.
@@ -963,16 +1040,9 @@ impl GameLogic {
     /// Wave 245: medical facility probe without exposing `&Object`.
     #[inline]
     pub fn unit_is_medical_facility(&self, id: ObjectId) -> bool {
-        self.objects.get(&id).is_some_and(|o| {
-            if o.building_data
-                .as_ref()
-                .is_some_and(|b| b.building_type == crate::game_logic::BuildingType::HealPad)
-            {
-                return true;
-            }
-            let lower = o.template_name.to_ascii_lowercase();
-            lower.contains("hospital") || lower.contains("healpad") || lower.contains("ambulance")
-        })
+        self.objects
+            .get(&id)
+            .is_some_and(|o| o.is_kind_of(KindOf::HealPad))
     }
 
     /// Wave 245: building type probe without exposing `&Object`.
@@ -1015,13 +1085,58 @@ impl GameLogic {
             .is_some_and(|o| !o.contained_units().is_empty())
     }
 
-    /// Wave 245: overlord bunker infantry-only residual without exposing `&Object`.
+    /// True only when the target has retained enough exact ContainModule data
+    /// (or an explicitly implemented host role) to validate normal player
+    /// Enter.  Missing/unsupported module masks fail closed.
+    #[inline]
+    pub fn unit_supports_normal_enter(&self, id: ObjectId) -> bool {
+        self.objects
+            .get(&id)
+            .is_some_and(|o| o.supports_normal_enter())
+    }
+
+    /// Enter-time `AllowInsideKindOf = INFANTRY` probe without exposing
+    /// `&Object`.  This reads parsed/typed contain metadata rather than a
+    /// vehicle footprint or template spelling.
     #[inline]
     pub fn unit_enter_infantry_only(&self, id: ObjectId) -> bool {
-        self.objects.get(&id).is_some_and(|o| {
-            o.is_kind_of(KindOf::Structure)
-                || (o.is_overlord_style_container() && o.overlord_bunker_slot_capacity() > 0)
-        })
+        self.objects
+            .get(&id)
+            .is_some_and(|o| o.normal_enter_requires_infantry())
+    }
+
+    /// Enter-time `ForbidInsideKindOf = AIRCRAFT` (or an equivalent retained
+    /// allow mask) probe without exposing `&Object`.
+    #[inline]
+    pub fn unit_enter_forbids_aircraft(&self, id: ObjectId) -> bool {
+        self.objects
+            .get(&id)
+            .is_some_and(|o| o.normal_enter_forbids_aircraft())
+    }
+
+    /// C++ `Object::getTransportSlotCount` raw authored value.
+    #[inline]
+    pub fn unit_transport_slot_count(&self, id: ObjectId) -> usize {
+        self.objects
+            .get(&id)
+            .map(|o| o.transport_slot_count())
+            .unwrap_or(0)
+    }
+
+    /// C++ OpenContain relationship admission for normal Enter.
+    #[inline]
+    pub fn unit_allows_normal_enter_from_team(&self, id: ObjectId, team: Team) -> bool {
+        self.objects
+            .get(&id)
+            .is_some_and(|o| o.allows_normal_enter_from_team(team))
+    }
+
+    /// C++ `DISABLED_SUBDUED` closes a container to normal Enter.
+    #[inline]
+    pub fn unit_is_subdued_disabled(&self, id: ObjectId) -> bool {
+        self.objects
+            .get(&id)
+            .is_some_and(|o| o.is_subdued_disabled())
     }
 
     /// Wave 245: selectable probe without exposing `&Object`.
@@ -1091,6 +1206,29 @@ impl GameLogic {
             .collect()
     }
 
+    /// Player-owned selectable ids in world XZ bounds.  This is the command
+    /// path counterpart to `select_objects`: faction alone is ambiguous in a
+    /// same-faction skirmish.
+    pub fn selectable_unit_ids_in_bounds_for_player(
+        &self,
+        player_id: u32,
+        min_x: f32,
+        max_x: f32,
+        min_z: f32,
+        max_z: f32,
+    ) -> Vec<ObjectId> {
+        self.objects
+            .iter()
+            .filter_map(|(&id, obj)| {
+                if obj.owner_player_id != Some(player_id) || !obj.is_selectable() {
+                    return None;
+                }
+                let p = obj.get_position();
+                (p.x >= min_x && p.x <= max_x && p.z >= min_z && p.z <= max_z).then_some(id)
+            })
+            .collect()
+    }
+
     /// Wave 245: selectable unit ids on a team matching a unit-id predicate.
     pub fn selectable_unit_ids_for_team_where(
         &self,
@@ -1109,6 +1247,22 @@ impl GameLogic {
             .collect()
     }
 
+    /// Exact-player variant used by live input selection. The team-based
+    /// probe remains for legacy/script callers that truly have no player id.
+    pub fn selectable_unit_ids_for_player_where(
+        &self,
+        player_id: u32,
+        mut predicate: impl FnMut(ObjectId) -> bool,
+    ) -> Vec<ObjectId> {
+        self.objects
+            .iter()
+            .filter_map(|(&id, obj)| {
+                (obj.owner_player_id == Some(player_id) && obj.is_selectable() && predicate(id))
+                    .then_some(id)
+            })
+            .collect()
+    }
+
     /// Wave 245: all unit ids on a team matching a unit-id predicate.
     pub fn unit_ids_for_team_where(
         &self,
@@ -1123,6 +1277,20 @@ impl GameLogic {
                 } else {
                     None
                 }
+            })
+            .collect()
+    }
+
+    /// Exact-player unit query for hotkey/cycle selection.
+    pub fn unit_ids_for_player_where(
+        &self,
+        player_id: u32,
+        mut predicate: impl FnMut(ObjectId) -> bool,
+    ) -> Vec<ObjectId> {
+        self.objects
+            .iter()
+            .filter_map(|(&id, obj)| {
+                (obj.owner_player_id == Some(player_id) && predicate(id)).then_some(id)
             })
             .collect()
     }

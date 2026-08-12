@@ -5,10 +5,10 @@
 //! Uses instanced rendering and GPU compute shaders for maximum performance.
 
 use bytemuck::{Pod, Zeroable};
-use image::GenericImageView;
+use image::{DynamicImage, GenericImageView};
 use nalgebra::{Matrix4, Point3, Vector3, Vector4};
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::collections::{HashMap, HashSet};
+use std::sync::{Arc, Mutex, OnceLock, RwLock};
 use wgpu::util::DeviceExt;
 
 use super::decals::DecalRenderItem;
@@ -16,8 +16,12 @@ use super::particle_manager::*;
 use super::particle_system::{Particle, ParticleSystem};
 use super::weather_complete::WeatherParticle;
 
-/// Maximum particles per batch for GPU rendering
-pub const MAX_PARTICLES_PER_BATCH: usize = 10000;
+/// C++ `W3DParticleSystemManager::MAX_POINTS_PER_GROUP`.
+///
+/// W3D builds and submits one point group per `ParticleSystem` in creation
+/// order, with this fixed per-system cap.  It is deliberately not a global
+/// renderer throughput limit: merging systems changes translucent blend order.
+pub const MAX_PARTICLES_PER_BATCH: usize = 512;
 
 /// Particle vertex data for GPU (matches C++ billboard rendering)
 #[repr(C)]
@@ -222,8 +226,11 @@ pub fn bake_particle_system_gpu_mesh(system: &ParticleSystem) -> Vec<ParticleVer
     let mut vertices = Vec::new();
     if matches!(
         info.particle_type,
-        ParticleType::Drawable | ParticleType::Smudge
+        ParticleType::Invalid | ParticleType::Drawable | ParticleType::Smudge
     ) {
+        return vertices;
+    }
+    if info.shader_type == ParticleShaderType::Invalid {
         return vertices;
     }
     for particle in system.particles() {
@@ -235,7 +242,7 @@ pub fn bake_particle_system_gpu_mesh(system: &ParticleSystem) -> Vec<ParticleVer
             ParticleType::VolumeParticle | ParticleType::Particle => {
                 vertices.push(particle_billboard_vertex(particle, system))
             }
-            ParticleType::Drawable | ParticleType::Smudge => {}
+            ParticleType::Invalid | ParticleType::Drawable | ParticleType::Smudge => {}
         }
     }
     vertices
@@ -298,9 +305,17 @@ pub struct ParticleRenderer {
     /// Texture atlas for particle textures
     texture_atlas: HashMap<String, wgpu::Texture>,
     texture_bind_groups: HashMap<String, wgpu::BindGroup>,
+    /// Texture names that were definitively absent or undecodable.  Keep a
+    /// fail-closed default texture, but do not re-query the archive every
+    /// frame for an authored asset that is not installed.
+    unavailable_textures: HashSet<String>,
 
-    /// Batches grouped by shader and texture
-    batches: HashMap<String, ParticleBatch>,
+    /// Current-frame particle submissions, one per live `ParticleSystem` in
+    /// the manager's creation order.  C++ `W3DParticleSystemManager::doParticles`
+    /// renders each system before advancing its list iterator; do not coalesce
+    /// equal texture/shader systems through a `HashMap`, because alpha and
+    /// additive composition are order-visible.
+    batches: Vec<ParticleBatch>,
 
     /// Default texture for particles without specific texture
     default_texture: wgpu::Texture,
@@ -313,14 +328,33 @@ pub struct ParticleRenderer {
     pub stats: ParticleRenderStats,
 }
 
-static PARTICLE_RENDERER: OnceLock<Arc<Mutex<ParticleRenderer>>> = OnceLock::new();
+/// The currently active WGPU owner for GameClient particle textures.
+///
+/// A standalone `Display` and Main's shared-frame WGPU renderer can be
+/// initialized in either order during shell/game transitions.  `OnceLock` is
+/// used only for the slot itself: retaining the first renderer forever makes
+/// later asset uploads land in a surface that is no longer presented.  The
+/// active owner is therefore replaceable, and readers clone its `Arc` before
+/// doing any potentially re-entrant GPU work.
+static PARTICLE_RENDERER: OnceLock<RwLock<Option<Arc<Mutex<ParticleRenderer>>>>> = OnceLock::new();
+
+fn particle_renderer_slot() -> &'static RwLock<Option<Arc<Mutex<ParticleRenderer>>>> {
+    PARTICLE_RENDERER.get_or_init(|| RwLock::new(None))
+}
 
 pub fn register_particle_renderer(renderer: Arc<Mutex<ParticleRenderer>>) {
-    let _ = PARTICLE_RENDERER.set(renderer);
+    if let Ok(mut slot) = particle_renderer_slot().write() {
+        *slot = Some(renderer);
+    }
 }
 
 pub fn with_particle_renderer<R>(f: impl FnOnce(&Arc<Mutex<ParticleRenderer>>) -> R) -> Option<R> {
-    PARTICLE_RENDERER.get().map(f)
+    let renderer = particle_renderer_slot()
+        .read()
+        .ok()?
+        .as_ref()
+        .map(Arc::clone)?;
+    Some(f(&renderer))
 }
 
 /// Particle rendering statistics
@@ -348,6 +382,26 @@ impl ParticleRenderer {
         device: Arc<wgpu::Device>,
         queue: Arc<wgpu::Queue>,
         surface_format: wgpu::TextureFormat,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
+        Self::new_with_depth_format(
+            device,
+            queue,
+            surface_format,
+            wgpu::TextureFormat::Depth32Float,
+        )
+    }
+
+    /// Create a particle renderer for an existing WGPU frame target.
+    ///
+    /// [`Self::new`] keeps the standalone GameClient display on its C++-matching
+    /// `Depth32Float` target. A host that owns a different WGPU frame lifecycle
+    /// must make particle pipelines agree with that target instead of assuming
+    /// the two depth attachments are interchangeable.
+    pub fn new_with_depth_format(
+        device: Arc<wgpu::Device>,
+        queue: Arc<wgpu::Queue>,
+        surface_format: wgpu::TextureFormat,
+        depth_format: wgpu::TextureFormat,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         // Create uniform buffer
         let uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
@@ -600,7 +654,7 @@ impl ParticleRenderer {
                 conservative: false,
             },
             depth_stencil: Some(wgpu::DepthStencilState {
-                format: wgpu::TextureFormat::Depth32Float,
+                format: depth_format,
                 depth_write_enabled: false, // Particles don't write depth
                 depth_compare: wgpu::CompareFunction::LessEqual,
                 stencil: wgpu::StencilState::default(),
@@ -636,7 +690,7 @@ impl ParticleRenderer {
                 ..Default::default()
             },
             depth_stencil: Some(wgpu::DepthStencilState {
-                format: wgpu::TextureFormat::Depth32Float,
+                format: depth_format,
                 depth_write_enabled: false,
                 depth_compare: wgpu::CompareFunction::LessEqual,
                 stencil: wgpu::StencilState::default(),
@@ -672,7 +726,7 @@ impl ParticleRenderer {
                 ..Default::default()
             },
             depth_stencil: Some(wgpu::DepthStencilState {
-                format: wgpu::TextureFormat::Depth32Float,
+                format: depth_format,
                 depth_write_enabled: true, // Alpha test writes depth
                 depth_compare: wgpu::CompareFunction::LessEqual,
                 stencil: wgpu::StencilState::default(),
@@ -715,7 +769,7 @@ impl ParticleRenderer {
                 ..Default::default()
             },
             depth_stencil: Some(wgpu::DepthStencilState {
-                format: wgpu::TextureFormat::Depth32Float,
+                format: depth_format,
                 depth_write_enabled: false,
                 depth_compare: wgpu::CompareFunction::LessEqual,
                 stencil: wgpu::StencilState::default(),
@@ -750,7 +804,7 @@ impl ParticleRenderer {
                 ..Default::default()
             },
             depth_stencil: Some(wgpu::DepthStencilState {
-                format: wgpu::TextureFormat::Depth32Float,
+                format: depth_format,
                 depth_write_enabled: false,
                 depth_compare: wgpu::CompareFunction::LessEqual,
                 stencil: wgpu::StencilState::default(),
@@ -762,7 +816,7 @@ impl ParticleRenderer {
         });
 
         // Create default white texture
-        let default_texture = Self::create_default_texture(&device);
+        let default_texture = Self::create_default_texture(&device, &queue);
         let default_bind_group =
             Self::create_texture_bind_group(&device, &texture_bind_group_layout, &default_texture);
 
@@ -782,8 +836,9 @@ impl ParticleRenderer {
 
             texture_atlas: HashMap::new(),
             texture_bind_groups: HashMap::new(),
+            unavailable_textures: HashSet::new(),
 
-            batches: HashMap::new(),
+            batches: Vec::new(),
 
             default_texture,
             default_bind_group,
@@ -810,18 +865,32 @@ impl ParticleRenderer {
         self.queue
             .write_buffer(&self.uniform_buffer, 0, bytemuck::cast_slice(&[*uniforms]));
 
-        // Clear batches
-        for batch in self.batches.values_mut() {
-            batch.clear();
-        }
+        // C++ uses one transient point group submission for each live system.
+        // Clearing the frame list preserves that order rather than retaining a
+        // cross-system texture bucket from an earlier frame.
+        self.batches.clear();
 
         // Collect particles into batches
         for system in systems {
             self.collect_system_particles(system, uniforms.camera_position);
         }
 
+        // C++ ParticleSystemManager preloads direct `ParticleName` textures.
+        // The Rust WGPU renderer owns its own texture atlas, so hydrate an
+        // authored texture the first time a live batch needs it.  This uses
+        // the normal BIG-backed image resolver rather than a guessed path.
+        let texture_names: Vec<String> = self
+            .batches
+            .iter()
+            .filter(|batch| !batch.vertices.is_empty())
+            .map(|batch| batch.texture_name.clone())
+            .collect();
+        for texture_name in texture_names {
+            self.ensure_authored_texture_loaded(&texture_name);
+        }
+
         // Update GPU buffers for batches
-        for batch in self.batches.values_mut() {
+        for batch in &mut self.batches {
             batch.update_buffer(&self.device);
         }
 
@@ -859,13 +928,14 @@ impl ParticleRenderer {
             let mut rendered_batches = 0usize;
 
             // Render each batch
-            for batch in self.batches.values() {
+            for batch in &self.batches {
                 if batch.vertices.is_empty() || batch.vertex_buffer.is_none() {
                     continue;
                 }
 
                 // Select pipeline based on shader type
                 match batch.shader_type {
+                    ParticleShaderType::Invalid => continue,
                     ParticleShaderType::Additive => {
                         render_pass.set_pipeline(&self.additive_pipeline);
                     }
@@ -1102,8 +1172,11 @@ impl ParticleRenderer {
         let info = template.info();
         if matches!(
             info.particle_type,
-            ParticleType::Drawable | ParticleType::Smudge
+            ParticleType::Invalid | ParticleType::Drawable | ParticleType::Smudge
         ) {
+            return;
+        }
+        if info.shader_type == ParticleShaderType::Invalid {
             return;
         }
 
@@ -1113,12 +1186,10 @@ impl ParticleRenderer {
             info.particle_type_name.clone()
         };
 
-        let batch_key = format!("{}_{:?}", texture_name, info.shader_type);
-
-        let batch = self
-            .batches
-            .entry(batch_key.clone())
-            .or_insert_with(|| ParticleBatch::new(info.shader_type, texture_name));
+        // `W3DParticleSystemManager::doParticles` renders every live system
+        // immediately in `m_allParticleSystemList` order.  Keep a separate
+        // submission even when adjacent systems share a texture/shader.
+        let mut batch = ParticleBatch::new(info.shader_type, texture_name);
 
         // Add particles from system to batch
         for particle in system.particles() {
@@ -1133,10 +1204,17 @@ impl ParticleRenderer {
                         continue;
                     }
                     ParticleType::Particle => batch.add_particle(particle, system),
-                    ParticleType::Drawable | ParticleType::Smudge => continue,
+                    ParticleType::Invalid | ParticleType::Drawable | ParticleType::Smudge => {
+                        continue
+                    }
                 }
                 self.stats.particles_rendered += 1;
             }
+        }
+
+        // C++ skips texture lookup and draw submission for an empty system.
+        if !batch.vertices.is_empty() {
+            self.batches.push(batch);
         }
     }
 
@@ -1151,6 +1229,17 @@ impl ParticleRenderer {
         }
 
         let image = image::load_from_memory(texture_data)?;
+        self.load_texture_image(name, &image)
+    }
+
+    /// Upload an already decoded texture.  The engine filesystem resolver
+    /// produces decoded TGA/DDS images for authored particle names, while the
+    /// asset pipeline uses [`Self::load_texture`] for raw loaded bytes.
+    fn load_texture_image(
+        &mut self,
+        name: &str,
+        image: &DynamicImage,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let rgba = image.to_rgba8();
         let (width, height) = image.dimensions();
 
@@ -1198,6 +1287,11 @@ impl ParticleRenderer {
         self.texture_atlas.insert(name.to_string(), texture);
         self.texture_bind_groups
             .insert(name.to_string(), bind_group);
+        // An archive may become available after an early presentation frame,
+        // or AssetManager may upload the same texture later.  A successful
+        // upload must reopen the exact-name path rather than preserve an old
+        // miss forever.
+        self.unavailable_textures.remove(name);
         self.stats.gpu_memory_used = self.stats.gpu_memory_used.saturating_add(
             (width as usize)
                 .saturating_mul(height as usize)
@@ -1207,8 +1301,45 @@ impl ParticleRenderer {
         Ok(())
     }
 
+    fn ensure_authored_texture_loaded(&mut self, name: &str) {
+        if name == "default"
+            || self.texture_bind_groups.contains_key(name)
+            || self.unavailable_textures.contains(name)
+        {
+            return;
+        }
+
+        match crate::display::image::load_image_from_engine_filesystem(name) {
+            Ok(image) => {
+                if let Err(error) = self.load_texture_image(name, &image) {
+                    log::warn!("failed to upload particle texture {name}: {error}");
+                    self.unavailable_textures.insert(name.to_string());
+                }
+            }
+            Err(error) => {
+                log::debug!("particle texture {name} is unavailable: {error}");
+                self.unavailable_textures.insert(name.to_string());
+            }
+        }
+    }
+
+    /// Preload exact `ParticleName` assets before the first live effect frame.
+    ///
+    /// This is the WGPU counterpart of C++
+    /// `ParticleSystemManager::preloadAssets` → `Display::preloadTextureAssets`.
+    /// It is also safe to call before a renderer is registered: the live draw
+    /// path repeats the same idempotent check if a texture was not preloaded.
+    pub fn preload_authored_textures(&mut self, names: &[String]) {
+        for name in names {
+            // The explicit C++ preload phase happens after asset initialization
+            // and is the right time to retry a one-off early lookup miss.
+            self.unavailable_textures.remove(name);
+            self.ensure_authored_texture_loaded(name);
+        }
+    }
+
     /// Create default white texture
-    fn create_default_texture(device: &wgpu::Device) -> wgpu::Texture {
+    fn create_default_texture(device: &wgpu::Device, queue: &wgpu::Queue) -> wgpu::Texture {
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Default Particle Texture"),
             size: wgpu::Extent3d {
@@ -1224,35 +1355,29 @@ impl ParticleRenderer {
             view_formats: &[],
         });
 
-        // Upload white pixel
-        let white_pixel = [255u8; 4];
-        device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None })
-            .copy_buffer_to_texture(
-                wgpu::TexelCopyBufferInfo {
-                    buffer: &device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                        label: Some("White Pixel Buffer"),
-                        contents: &white_pixel,
-                        usage: wgpu::BufferUsages::COPY_SRC,
-                    }),
-                    layout: wgpu::TexelCopyBufferLayout {
-                        offset: 0,
-                        bytes_per_row: Some(4),
-                        rows_per_image: Some(1),
-                    },
-                },
-                wgpu::TexelCopyTextureInfo {
-                    texture: &texture,
-                    mip_level: 0,
-                    origin: wgpu::Origin3d::ZERO,
-                    aspect: wgpu::TextureAspect::All,
-                },
-                wgpu::Extent3d {
-                    width: 1,
-                    height: 1,
-                    depth_or_array_layers: 1,
-                },
-            );
+        // Upload white pixel.  The old implementation encoded a copy but
+        // never submitted that encoder, leaving fallback particles with
+        // undefined GPU contents.  A queue write is immediate and matches the
+        // texture upload path used for actual authored particle images.
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            &[255, 255, 255, 255],
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(4),
+                rows_per_image: Some(1),
+            },
+            wgpu::Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
+        );
 
         texture
     }

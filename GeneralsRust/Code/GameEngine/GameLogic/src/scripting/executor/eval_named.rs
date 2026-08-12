@@ -879,16 +879,16 @@ impl ScriptConditionEvaluator {
         _condition: &Condition,
     ) -> Result<ScriptConditionResult, ScriptError> {
         log::debug!("Evaluating if camera movement finished");
-        if let Ok(engine_guard) = get_script_engine().read() {
-            if let Some(ref script_engine) = *engine_guard {
-                if let Some(handler) = script_engine.action_handler() {
-                    return Ok(if handler.is_camera_movement_finished() {
-                        ScriptConditionResult::True
-                    } else {
-                        ScriptConditionResult::False
-                    });
-                }
-            }
+        if let Some(Some(finished)) = with_script_engine_ref(|script_engine| {
+            script_engine
+                .action_handler()
+                .map(|handler| handler.is_camera_movement_finished())
+        }) {
+            return Ok(if finished {
+                ScriptConditionResult::True
+            } else {
+                ScriptConditionResult::False
+            });
         }
         Ok(ScriptConditionResult::True)
     }
@@ -1065,21 +1065,16 @@ impl ScriptConditionEvaluator {
         drop(player);
         drop(players);
 
-        let script_engine_lock = get_script_engine();
-        let Ok(mut engine_guard) = script_engine_lock.write() else {
-            return Ok(ScriptConditionResult::False);
-        };
-        let Some(engine) = engine_guard.as_mut() else {
-            return Ok(ScriptConditionResult::False);
-        };
+        let event_hit = with_script_engine_mut(|engine| {
+            engine.is_special_power_triggered(player_index, &power_name, true, INVALID_ID)
+        })
+        .unwrap_or(false);
 
-        Ok(
-            if engine.is_special_power_triggered(player_index, &power_name, true, INVALID_ID) {
-                ScriptConditionResult::True
-            } else {
-                ScriptConditionResult::False
-            },
-        )
+        Ok(if event_hit {
+            ScriptConditionResult::True
+        } else {
+            ScriptConditionResult::False
+        })
     }
 
     pub(crate) fn eval_player_completed_special_power(
@@ -1107,21 +1102,16 @@ impl ScriptConditionEvaluator {
         drop(player);
         drop(players);
 
-        let script_engine_lock = get_script_engine();
-        let Ok(mut engine_guard) = script_engine_lock.write() else {
-            return Ok(ScriptConditionResult::False);
-        };
-        let Some(engine) = engine_guard.as_mut() else {
-            return Ok(ScriptConditionResult::False);
-        };
+        let event_hit = with_script_engine_mut(|engine| {
+            engine.is_special_power_complete(player_index, &power_name, true, INVALID_ID)
+        })
+        .unwrap_or(false);
 
-        Ok(
-            if engine.is_special_power_complete(player_index, &power_name, true, INVALID_ID) {
-                ScriptConditionResult::True
-            } else {
-                ScriptConditionResult::False
-            },
-        )
+        Ok(if event_hit {
+            ScriptConditionResult::True
+        } else {
+            ScriptConditionResult::False
+        })
     }
 
     pub(crate) fn eval_player_midway_special_power(
@@ -1149,21 +1139,16 @@ impl ScriptConditionEvaluator {
         drop(player);
         drop(players);
 
-        let script_engine_lock = get_script_engine();
-        let Ok(mut engine_guard) = script_engine_lock.write() else {
-            return Ok(ScriptConditionResult::False);
-        };
-        let Some(engine) = engine_guard.as_mut() else {
-            return Ok(ScriptConditionResult::False);
-        };
+        let event_hit = with_script_engine_mut(|engine| {
+            engine.is_special_power_midway(player_index, &power_name, true, INVALID_ID)
+        })
+        .unwrap_or(false);
 
-        Ok(
-            if engine.is_special_power_midway(player_index, &power_name, true, INVALID_ID) {
-                ScriptConditionResult::True
-            } else {
-                ScriptConditionResult::False
-            },
-        )
+        Ok(if event_hit {
+            ScriptConditionResult::True
+        } else {
+            ScriptConditionResult::False
+        })
     }
 
     pub(crate) fn eval_player_triggered_special_power_from_named(
@@ -1201,21 +1186,16 @@ impl ScriptConditionEvaluator {
         drop(player);
         drop(players);
 
-        let script_engine_lock = get_script_engine();
-        let Ok(mut engine_guard) = script_engine_lock.write() else {
-            return Ok(ScriptConditionResult::False);
-        };
-        let Some(engine) = engine_guard.as_mut() else {
-            return Ok(ScriptConditionResult::False);
-        };
+        let event_hit = with_script_engine_mut(|engine| {
+            engine.is_special_power_triggered(player_index, &power_name, true, source_id)
+        })
+        .unwrap_or(false);
 
-        Ok(
-            if engine.is_special_power_triggered(player_index, &power_name, true, source_id) {
-                ScriptConditionResult::True
-            } else {
-                ScriptConditionResult::False
-            },
-        )
+        Ok(if event_hit {
+            ScriptConditionResult::True
+        } else {
+            ScriptConditionResult::False
+        })
     }
 
     pub(crate) fn eval_player_completed_special_power_from_named(
@@ -1253,21 +1233,16 @@ impl ScriptConditionEvaluator {
         drop(player);
         drop(players);
 
-        let script_engine_lock = get_script_engine();
-        let Ok(mut engine_guard) = script_engine_lock.write() else {
-            return Ok(ScriptConditionResult::False);
-        };
-        let Some(engine) = engine_guard.as_mut() else {
-            return Ok(ScriptConditionResult::False);
-        };
+        let event_hit = with_script_engine_mut(|engine| {
+            engine.is_special_power_complete(player_index, &power_name, true, source_id)
+        })
+        .unwrap_or(false);
 
-        Ok(
-            if engine.is_special_power_complete(player_index, &power_name, true, source_id) {
-                ScriptConditionResult::True
-            } else {
-                ScriptConditionResult::False
-            },
-        )
+        Ok(if event_hit {
+            ScriptConditionResult::True
+        } else {
+            ScriptConditionResult::False
+        })
     }
 
     pub(crate) fn eval_player_midway_special_power_from_named(
@@ -1305,21 +1280,16 @@ impl ScriptConditionEvaluator {
         drop(player);
         drop(players);
 
-        let script_engine_lock = get_script_engine();
-        let Ok(mut engine_guard) = script_engine_lock.write() else {
-            return Ok(ScriptConditionResult::False);
-        };
-        let Some(engine) = engine_guard.as_mut() else {
-            return Ok(ScriptConditionResult::False);
-        };
+        let event_hit = with_script_engine_mut(|engine| {
+            engine.is_special_power_midway(player_index, &power_name, true, source_id)
+        })
+        .unwrap_or(false);
 
-        Ok(
-            if engine.is_special_power_midway(player_index, &power_name, true, source_id) {
-                ScriptConditionResult::True
-            } else {
-                ScriptConditionResult::False
-            },
-        )
+        Ok(if event_hit {
+            ScriptConditionResult::True
+        } else {
+            ScriptConditionResult::False
+        })
     }
 
     // ============================================================================
@@ -1348,27 +1318,18 @@ impl ScriptConditionEvaluator {
             return Ok(ScriptConditionResult::False);
         };
         let player_index = player.get_player_index() as usize;
-        let player_has_upgrade = {
-            let mask = crate::upgrade::upgrade_mask_for_name(&upgrade_name);
-            let completed = player.get_completed_upgrade_mask();
-            completed.intersects(crate::common::UpgradeMaskType::from_bits_retain(
-                mask.to_bits(),
-            ))
-        };
         drop(player);
         drop(players);
 
-        let event_hit = if let Ok(mut engine_guard) = get_script_engine().write() {
-            if let Some(engine) = engine_guard.as_mut() {
-                engine.is_upgrade_complete(player_index, &upgrade_name, true, INVALID_ID)
-            } else {
-                false
-            }
-        } else {
-            false
-        };
+        // C++ `evaluateUpgradeFromUnitComplete` consumes only the matching
+        // ScriptEngine completion event.  A completed player upgrade by
+        // itself must not make this edge-triggered condition true forever.
+        let event_hit = with_script_engine_mut(|engine| {
+            engine.is_upgrade_complete(player_index, &upgrade_name, true, INVALID_ID)
+        })
+        .unwrap_or(false);
 
-        Ok(if event_hit || player_has_upgrade {
+        Ok(if event_hit {
             ScriptConditionResult::True
         } else {
             ScriptConditionResult::False
@@ -1407,27 +1368,15 @@ impl ScriptConditionEvaluator {
             return Ok(ScriptConditionResult::False);
         };
         let player_index = player.get_player_index() as usize;
-        let player_has_upgrade = {
-            let mask = crate::upgrade::upgrade_mask_for_name(&upgrade_name);
-            let completed = player.get_completed_upgrade_mask();
-            completed.intersects(crate::common::UpgradeMaskType::from_bits_retain(
-                mask.to_bits(),
-            ))
-        };
         drop(player);
         drop(players);
 
-        let event_hit = if let Ok(mut engine_guard) = get_script_engine().write() {
-            if let Some(engine) = engine_guard.as_mut() {
-                engine.is_upgrade_complete(player_index, &upgrade_name, true, source_id)
-            } else {
-                false
-            }
-        } else {
-            false
-        };
+        let event_hit = with_script_engine_mut(|engine| {
+            engine.is_upgrade_complete(player_index, &upgrade_name, true, source_id)
+        })
+        .unwrap_or(false);
 
-        Ok(if event_hit || player_has_upgrade {
+        Ok(if event_hit {
             ScriptConditionResult::True
         } else {
             ScriptConditionResult::False
@@ -1537,16 +1486,16 @@ impl ScriptConditionEvaluator {
     ) -> Result<ScriptConditionResult, ScriptError> {
         let name = self.get_condition_string_param(_condition, 0)?;
         log::debug!("Evaluating if video '{}' finished", name);
-        if let Ok(engine_guard) = get_script_engine().read() {
-            if let Some(ref script_engine) = *engine_guard {
-                if let Some(handler) = script_engine.action_handler() {
-                    return Ok(if handler.is_video_complete(&name, true) {
-                        ScriptConditionResult::True
-                    } else {
-                        ScriptConditionResult::False
-                    });
-                }
-            }
+        if let Some(Some(finished)) = with_script_engine_ref(|script_engine| {
+            script_engine
+                .action_handler()
+                .map(|handler| handler.is_video_complete(&name, true))
+        }) {
+            return Ok(if finished {
+                ScriptConditionResult::True
+            } else {
+                ScriptConditionResult::False
+            });
         }
         Ok(ScriptConditionResult::True)
     }
@@ -1557,16 +1506,16 @@ impl ScriptConditionEvaluator {
     ) -> Result<ScriptConditionResult, ScriptError> {
         let name = self.get_condition_string_param(_condition, 0)?;
         log::debug!("Evaluating if speech '{}' finished", name);
-        if let Ok(engine_guard) = get_script_engine().read() {
-            if let Some(ref script_engine) = *engine_guard {
-                if let Some(handler) = script_engine.action_handler() {
-                    return Ok(if handler.is_speech_complete(&name, true) {
-                        ScriptConditionResult::True
-                    } else {
-                        ScriptConditionResult::False
-                    });
-                }
-            }
+        if let Some(Some(finished)) = with_script_engine_ref(|script_engine| {
+            script_engine
+                .action_handler()
+                .map(|handler| handler.is_speech_complete(&name, true))
+        }) {
+            return Ok(if finished {
+                ScriptConditionResult::True
+            } else {
+                ScriptConditionResult::False
+            });
         }
         Ok(ScriptConditionResult::True)
     }
@@ -1577,16 +1526,16 @@ impl ScriptConditionEvaluator {
     ) -> Result<ScriptConditionResult, ScriptError> {
         let name = self.get_condition_string_param(_condition, 0)?;
         log::debug!("Evaluating if audio '{}' finished", name);
-        if let Ok(engine_guard) = get_script_engine().read() {
-            if let Some(ref script_engine) = *engine_guard {
-                if let Some(handler) = script_engine.action_handler() {
-                    return Ok(if handler.is_audio_complete(&name, true) {
-                        ScriptConditionResult::True
-                    } else {
-                        ScriptConditionResult::False
-                    });
-                }
-            }
+        if let Some(Some(finished)) = with_script_engine_ref(|script_engine| {
+            script_engine
+                .action_handler()
+                .map(|handler| handler.is_audio_complete(&name, true))
+        }) {
+            return Ok(if finished {
+                ScriptConditionResult::True
+            } else {
+                ScriptConditionResult::False
+            });
         }
         Ok(ScriptConditionResult::True)
     }
@@ -1602,16 +1551,16 @@ impl ScriptConditionEvaluator {
             track,
             param
         );
-        if let Ok(engine_guard) = get_script_engine().read() {
-            if let Some(ref script_engine) = *engine_guard {
-                if let Some(handler) = script_engine.action_handler() {
-                    return Ok(if handler.has_music_track_completed(&track, param) {
-                        ScriptConditionResult::True
-                    } else {
-                        ScriptConditionResult::False
-                    });
-                }
-            }
+        if let Some(Some(finished)) = with_script_engine_ref(|script_engine| {
+            script_engine
+                .action_handler()
+                .map(|handler| handler.has_music_track_completed(&track, param))
+        }) {
+            return Ok(if finished {
+                ScriptConditionResult::True
+            } else {
+                ScriptConditionResult::False
+            });
         }
         Ok(ScriptConditionResult::True)
     }

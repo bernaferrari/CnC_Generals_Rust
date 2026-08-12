@@ -1,4 +1,5 @@
 use super::*;
+use crate::scripting::executor::{ScriptActionDispatcher, ScriptActionResult, ScriptContext};
 
 fn always_true_condition() -> Box<OrCondition> {
     let mut condition = OrCondition::new();
@@ -41,6 +42,35 @@ fn subroutine(name: &str, action: Box<ScriptAction>) -> Script {
     script
 }
 
+#[derive(Debug)]
+struct IdleSequentialAi;
+
+impl crate::modules::AIUpdateInterface for IdleSequentialAi {
+    fn update(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        Ok(())
+    }
+
+    fn is_moving(&self) -> bool {
+        false
+    }
+
+    fn is_idle(&self) -> bool {
+        true
+    }
+
+    fn set_movement_target(&mut self, _target: &crate::common::Coord3D) -> Result<(), String> {
+        Ok(())
+    }
+}
+
+struct RegisteredSequentialObjectCleanup(u32);
+
+impl Drop for RegisteredSequentialObjectCleanup {
+    fn drop(&mut self) {
+        OBJECT_REGISTRY.unregister_object(self.0);
+    }
+}
+
 #[test]
 fn test_script_engine_creation() {
     let engine = ScriptEngine::new().unwrap();
@@ -81,12 +111,18 @@ fn test_flag_operations() {
 
 #[test]
 fn test_end_game_timer() {
-    let mut engine = ScriptEngine::new().unwrap();
+    let engine = ScriptEngine::new().unwrap();
     assert!(!engine.is_game_ending());
 
     engine.start_end_game_timer();
     assert!(engine.is_game_ending());
-    assert_eq!(engine.with_inner(|i| i.end_game_timer), 300);
+    assert_eq!(engine.with_inner(|i| i.end_game_timer), 120);
+
+    engine.start_quick_end_game_timer();
+    assert_eq!(engine.with_inner(|i| i.end_game_timer), 1);
+
+    engine.start_close_window_timer();
+    assert_eq!(engine.with_inner(|i| i.close_window_timer), 120);
 }
 
 #[test]
@@ -464,6 +500,111 @@ fn with_script_engine_mut_nested_from_global_runs_immediately() {
     assert_eq!(*order.lock().unwrap(), ["outer", "nested", "after"]);
 }
 
+/// Campaign scene-control actions run while `ScriptEngine::update` owns the
+/// global engine handle.  They must therefore mutate the lexically active
+/// engine, rather than trying to take that handle again.
+#[test]
+fn active_script_campaign_scene_actions_do_not_relock_the_global_engine() {
+    let _lock = crate::test_sync::lock();
+    initialize_script_engine().expect("script engine should initialize");
+
+    let completed = with_script_engine_mut(|engine| {
+        let mut dispatcher =
+            ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+
+        let reveal_name = "ActiveSceneControlReveal";
+        let mut reveal = ScriptAction::new(ScriptActionType::MapRevealPermanentlyAtWaypoint);
+        reveal
+            .add_parameter(Parameter::with_string(
+                ParameterType::Waypoint,
+                "MissingWaypointIsStillTracked".to_string(),
+            ))
+            .expect("waypoint parameter");
+        reveal
+            .add_parameter(Parameter::with_real(ParameterType::Real, 128.0))
+            .expect("radius parameter");
+        reveal
+            .add_parameter(Parameter::with_string(
+                ParameterType::Side,
+                "MissingPlayerIsStillTracked".to_string(),
+            ))
+            .expect("player parameter");
+        reveal
+            .add_parameter(Parameter::with_string(
+                ParameterType::Revealname,
+                reveal_name.to_string(),
+            ))
+            .expect("reveal-name parameter");
+        assert_eq!(
+            dispatcher.execute_action(&reveal).expect("reveal action"),
+            ScriptActionResult::Success
+        );
+        assert!(
+            engine.with_inner(|inner| inner
+                .named_reveals
+                .iter()
+                .any(|entry| entry.reveal_name == reveal_name)),
+            "C++ creates the named reveal before trying to reveal its waypoint"
+        );
+
+        let freeze = ScriptAction::new(ScriptActionType::FreezeTime);
+        assert_eq!(
+            dispatcher.execute_action(&freeze).expect("freeze action"),
+            ScriptActionResult::Success
+        );
+        assert!(engine.is_time_frozen_script());
+
+        let unfreeze = ScriptAction::new(ScriptActionType::UnfreezeTime);
+        assert_eq!(
+            dispatcher
+                .execute_action(&unfreeze)
+                .expect("unfreeze action"),
+            ScriptActionResult::Success
+        );
+        assert!(!engine.is_time_frozen_script());
+
+        let mut sway = ScriptAction::new(ScriptActionType::SetTreeSway);
+        for parameter in [
+            Parameter::with_real(ParameterType::Real, 0.5),
+            Parameter::with_real(ParameterType::Real, 0.25),
+            Parameter::with_real(ParameterType::Real, 0.1),
+            Parameter::with_int(ParameterType::Int, 40),
+            Parameter::with_real(ParameterType::Real, 0.75),
+        ] {
+            sway.add_parameter(parameter).expect("tree-sway parameter");
+        }
+        assert_eq!(
+            dispatcher.execute_action(&sway).expect("tree-sway action"),
+            ScriptActionResult::Success
+        );
+        let breeze = engine.get_breeze_info();
+        assert!((breeze.direction - 0.5).abs() < f32::EPSILON);
+        assert!((breeze.intensity - 0.25).abs() < f32::EPSILON);
+        assert_eq!(breeze.breeze_period, 40);
+
+        let mut undo_reveal =
+            ScriptAction::new(ScriptActionType::MapUndoRevealPermanentlyAtWaypoint);
+        undo_reveal
+            .add_parameter(Parameter::with_string(
+                ParameterType::Revealname,
+                reveal_name.to_string(),
+            ))
+            .expect("reveal-name parameter");
+        assert_eq!(
+            dispatcher
+                .execute_action(&undo_reveal)
+                .expect("undo reveal action"),
+            ScriptActionResult::Success
+        );
+        assert!(engine.with_inner(|inner| inner
+            .named_reveals
+            .iter()
+            .all(|entry| entry.reveal_name != reveal_name)));
+    });
+
+    assert_eq!(completed, Some(()));
+}
+
 #[test]
 fn call_subroutine_via_nested_with_script_engine_mut_sets_flag_immediately() {
     let _lock = crate::test_sync::lock();
@@ -577,6 +718,54 @@ fn nested_call_subroutine_reenters_immediately_through_scoped_tls() {
         result,
         Some((true, Some(true))),
         "C++ CALL_SUBROUTINE must execute its callee before the outer action returns"
+    );
+}
+
+#[test]
+fn sequential_script_dispatch_reenters_immediately_without_holding_inner_borrow() {
+    let _lock = crate::test_sync::lock();
+    let mut engine = ScriptEngine::new().unwrap();
+    let object_id = 0x51_5E_0001;
+    let object = Arc::new(RwLock::new(crate::object::Object::new_test(
+        object_id, 100.0,
+    )));
+    let ai: Arc<Mutex<dyn crate::modules::AIUpdateInterface>> =
+        Arc::new(Mutex::new(IdleSequentialAi));
+    object.write().unwrap().set_ai_update_interface(Some(ai));
+    OBJECT_REGISTRY.register_object(object_id, &object);
+    let _cleanup = RegisteredSequentialObjectCleanup(object_id);
+
+    let mut list = ScriptList::new();
+    list.append_script(Box::new(subroutine(
+        "SequentialImmediateSubroutine",
+        set_flag_action("sequential_nested_action_ran"),
+    )));
+    engine
+        .set_script_list_for_player(0, Some(Box::new(list)))
+        .unwrap();
+
+    let mut call = Script::new();
+    call.script_name = "SequentialCaller".to_string();
+    call.action = Some(call_subroutine_action("SequentialImmediateSubroutine"));
+
+    let mut sequence = SequentialScript::new();
+    sequence.object_id = object_id;
+    sequence.script_to_execute_sequentially = Some(Box::new(call));
+    engine.append_sequential_script(sequence);
+
+    engine
+        .with_active(|| engine.evaluate_and_progress_all_sequential_scripts())
+        .expect("sequential CALL_SUBROUTINE should execute immediately");
+
+    assert!(
+        engine
+            .get_flag("sequential_nested_action_ran")
+            .is_some_and(|flag| flag.value),
+        "the nested SET_FLAG must run before the sequential action returns"
+    );
+    assert!(
+        !engine.has_active_sequential_script_for_object(object_id),
+        "an idle one-action sequence must advance through completion in this frame"
     );
 }
 

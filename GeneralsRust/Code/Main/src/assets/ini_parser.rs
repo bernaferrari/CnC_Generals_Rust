@@ -75,10 +75,11 @@ impl DrawConditionStateDefinition {
     }
 }
 
-/// One `Draw = ...` module, kept in Object INI order.  The active WGPU path
-/// currently renders only the first model-bearing module, but retaining every
-/// module and its raw condition lists avoids reparsing source data when the
-/// multi-module bridge is completed.
+/// One `Draw = ...` module, kept in Object INI order.
+///
+/// Rendering consumes every selected W3D module separately.  Keeping raw
+/// condition lists and the source declaration order prevents secondary doors,
+/// cargo, and attachments from being collapsed into a guessed primary mesh.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DrawModuleDefinition {
     pub declaration: String,
@@ -96,7 +97,9 @@ impl DrawModuleDefinition {
     }
 
     fn has_selectable_condition_states(&self) -> bool {
-        self.condition_states.iter().any(|state| !state.is_transition)
+        self.condition_states
+            .iter()
+            .any(|state| !state.is_transition)
     }
 }
 
@@ -112,6 +115,56 @@ pub enum AuthoredConditionModelSelection {
     Model(String),
     Suppressed,
     Unresolved,
+}
+
+/// An exact W3D model selected from one source-authored `Draw` module.
+///
+/// The module index is retained rather than deriving identity from a W3D
+/// basename: retail Objects may intentionally submit the same model through
+/// separate modules with independent animation state.  The vector returned by
+/// [`ObjectDefinition::select_draw_models_for_conditions`] remains in Object
+/// INI declaration order and deliberately retains duplicate model names.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct AuthoredDrawModel {
+    /// Fixed-width snapshot identity for the source Draw module. This is not
+    /// a process-local `usize`, so saved presentation frames remain portable
+    /// across supported 32- and 64-bit Rust targets.
+    pub module_index: u32,
+    pub model_key: String,
+}
+
+/// One source-authored `Behavior = ...` module, retained with its own block
+/// fields instead of being collapsed into `ObjectDefinition::attributes`.
+///
+/// Retail Objects legitimately contain several modules with the same property
+/// names (`Slots`, `StartingBoxes`, and so on).  Keeping the module identity is
+/// necessary for gameplay code to distinguish a dock from an unrelated module
+/// without looking at an Object's basename.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BehaviorModuleDefinition {
+    pub class_name: String,
+    pub module_tag: Option<String>,
+    pub attributes: HashMap<String, String>,
+}
+
+impl BehaviorModuleDefinition {
+    fn parse(declaration: &str) -> Option<Self> {
+        let mut tokens = declaration.split_whitespace();
+        let class_name = tokens.next()?.to_string();
+        let module_tag = tokens.next().map(str::to_string);
+        Some(Self {
+            class_name,
+            module_tag,
+            attributes: HashMap::new(),
+        })
+    }
+
+    /// Case-insensitive field lookup, matching Object INI key handling.
+    pub fn attribute(&self, name: &str) -> Option<&str> {
+        self.attributes
+            .iter()
+            .find_map(|(key, value)| key.eq_ignore_ascii_case(name).then_some(value.as_str()))
+    }
 }
 
 /// Represents a drawable object definition from INI files
@@ -144,6 +197,11 @@ pub struct ObjectDefinition {
     /// ConditionState table which C++ W3DModelDraw selects at runtime.
     pub draw_modules: Vec<DrawModuleDefinition>,
 
+    /// Source-authored behavior modules in declaration order.  Unlike the
+    /// legacy raw attribute map, repeated fields stay associated with their
+    /// owning module.
+    pub behavior_modules: Vec<BehaviorModuleDefinition>,
+
     /// Armor type
     pub armor_type: Option<String>,
 
@@ -152,6 +210,12 @@ pub struct ObjectDefinition {
 
     /// Scale factor for the model
     pub scale: f32,
+
+    /// Whether this Object/ChildObject explicitly authored `Scale`.
+    ///
+    /// `Scale = 1.0` is meaningful: it can reset an inherited non-default
+    /// scale, so numeric defaulting alone cannot preserve C++ inheritance.
+    pub scale_was_specified: bool,
 
     /// Owner player (faction)
     pub owner: Option<String>,
@@ -172,8 +236,25 @@ pub struct ObjectDefinition {
     /// layer; this parser only preserves the source declaration.
     pub tertiary_weapon: Option<String>,
 
+    /// Source-authored outer `Locomotor = SET_* ...` rows, in declaration
+    /// order.  `attributes` intentionally remains a lossy compatibility map,
+    /// but repeating Locomotor is meaningful: RiderChangeContain chooses one
+    /// named set at runtime and must not inherit whatever row happened to be
+    /// parsed last.
+    pub locomotor_sets: Vec<LocomotorSetDefinition>,
+
     /// Other attributes from INI
     pub attributes: HashMap<String, String>,
+}
+
+/// One outer Object INI `Locomotor` declaration.  C++ can bind several
+/// surface locomotors to the same set; Main currently consumes at most the
+/// first representable primary, but preserving every token allows callers to
+/// reject a set they cannot execute rather than fabricate one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LocomotorSetDefinition {
+    pub set_name: String,
+    pub locomotor_names: Vec<String>,
 }
 
 impl ObjectDefinition {
@@ -188,13 +269,16 @@ impl ObjectDefinition {
             textures: HashMap::new(),
             draw_module: None,
             draw_modules: Vec::new(),
+            behavior_modules: Vec::new(),
             armor_type: None,
             hit_points: None,
             scale: 1.0,
+            scale_was_specified: false,
             owner: None,
             primary_weapon: None,
             secondary_weapon: None,
             tertiary_weapon: None,
+            locomotor_sets: Vec::new(),
             attributes: HashMap::new(),
         }
     }
@@ -226,7 +310,58 @@ impl ObjectDefinition {
             return AuthoredConditionModelSelection::NoAuthoredState;
         };
 
-        let Some(ignored_bits) = Self::condition_tokens_mask(&module.ignored_condition_tokens)
+        module.select_model_for_conditions(condition_bits)
+    }
+
+    /// Resolve every source-authored, model-bearing `Draw` module for the
+    /// frozen C++ ModelCondition bit bank.
+    ///
+    /// `None` means this Object has no retained selectable Draw state, so a
+    /// caller may use its separately authored template model.  `Some(vec![])`
+    /// is intentionally different: source Draw state exists but every module
+    /// was `Model = None` or could not be safely matched, so there is no valid
+    /// model to substitute.  Each exact model is emitted in source module
+    /// order; duplicate basenames are preserved because they represent
+    /// separate C++ Draw modules.
+    pub fn select_draw_models_for_conditions(
+        &self,
+        condition_bits: u128,
+    ) -> Option<Vec<AuthoredDrawModel>> {
+        let mut found_selectable_module = false;
+        let mut selected = Vec::new();
+
+        for (module_index, module) in self.draw_modules.iter().enumerate() {
+            if !module.has_selectable_condition_states() {
+                continue;
+            }
+            found_selectable_module = true;
+            let module_index = match u32::try_from(module_index) {
+                Ok(index) => index,
+                // An Object with more than u32::MAX Draw modules cannot be
+                // represented in a snapshot without truncation. It is not
+                // valid retail data; fail closed instead of wrapping/aliasing.
+                Err(_) => return Some(Vec::new()),
+            };
+            if let AuthoredConditionModelSelection::Model(model_key) =
+                module.select_model_for_conditions(condition_bits)
+            {
+                selected.push(AuthoredDrawModel {
+                    module_index,
+                    model_key,
+                });
+            }
+        }
+
+        found_selectable_module.then_some(selected)
+    }
+}
+
+impl DrawModuleDefinition {
+    /// Match this one source-authored Draw module using the C++
+    /// `SparseMatchFinder` ordering used by `W3DModelDraw`.
+    fn select_model_for_conditions(&self, condition_bits: u128) -> AuthoredConditionModelSelection {
+        let Some(ignored_bits) =
+            ObjectDefinition::condition_tokens_mask(&self.ignored_condition_tokens)
         else {
             return AuthoredConditionModelSelection::Unresolved;
         };
@@ -236,12 +371,13 @@ impl ObjectDefinition {
         let mut best_yes_match = 0u32;
         let mut best_yes_extraneous = u32::MAX;
 
-        for state in &module.condition_states {
+        for state in &self.condition_states {
             if state.is_transition {
                 continue;
             }
             for condition_tokens in state.condition_sets.iter().rev() {
-                let Some(yes_bits) = Self::condition_tokens_mask(condition_tokens) else {
+                let Some(yes_bits) = ObjectDefinition::condition_tokens_mask(condition_tokens)
+                else {
                     // C++ parses every condition token into the shared enum
                     // before it can reach SparseMatchFinder.  A token our
                     // port does not understand must not silently discard a
@@ -270,7 +406,9 @@ impl ObjectDefinition {
             None => AuthoredConditionModelSelection::Unresolved,
         }
     }
+}
 
+impl ObjectDefinition {
     fn condition_tokens_mask(tokens: &[String]) -> Option<u128> {
         let mut mask = 0u128;
         for token in tokens {
@@ -312,6 +450,12 @@ impl IniParser {
         // table without mistaking nested Behavior/Body `End`s for Object ends.
         let mut active_draw_module: Option<usize> = None;
         let mut active_condition_state: Option<usize> = None;
+        let mut active_behavior_module: Option<usize> = None;
+        // A Behavior block may contain nested data blocks such as `Turret`.
+        // Keep the owning module active until its own `End`; otherwise the
+        // fields after a nested block (for example DeployStyle's PackTime)
+        // leak out of the module and cannot be mapped to gameplay metadata.
+        let mut active_behavior_depth = 0usize;
         let mut object_count = 0;
         for (index, line) in lines.iter().enumerate() {
             let trimmed = line.trim();
@@ -346,6 +490,8 @@ impl IniParser {
                 current_object = Some(object);
                 active_draw_module = None;
                 active_condition_state = None;
+                active_behavior_module = None;
+                active_behavior_depth = 0;
                 trace!("Found object: {}", current_object.as_ref().unwrap().name);
                 continue;
             }
@@ -359,6 +505,8 @@ impl IniParser {
                     }
                     active_draw_module = None;
                     active_condition_state = None;
+                    active_behavior_module = None;
+                    active_behavior_depth = 0;
                 } else {
                     // Nested block terminator.  A condition-state block closes
                     // before its Draw module; other nested Object blocks do
@@ -366,12 +514,33 @@ impl IniParser {
                     if active_condition_state.take().is_none() {
                         active_draw_module = None;
                     }
+                    // Behavior blocks can themselves own nested blocks such
+                    // as `Turret`.  Only their outer terminator ends the
+                    // module attribution; an inner terminator must leave
+                    // later direct fields on the same source module.
+                    if active_behavior_module.is_some() {
+                        active_behavior_depth = active_behavior_depth.saturating_sub(1);
+                        if active_behavior_depth == 0 {
+                            active_behavior_module = None;
+                        }
+                    }
                 }
                 continue;
             }
 
             // Parse key = value pairs within an object
             if let Some(obj) = &mut current_object {
+                // Object INI nested module headers have no `=`.  The parser
+                // does not need their individual schema here, but it must
+                // count them so an `End` within a Behavior does not close the
+                // entire Behavior module early.
+                if active_behavior_module.is_some()
+                    && !trimmed.contains('=')
+                    && !Self::is_object_header(trimmed)
+                    && !trimmed.eq_ignore_ascii_case("End")
+                {
+                    active_behavior_depth = active_behavior_depth.saturating_add(1);
+                }
                 if let Some((condition_state_key, condition_state_value)) =
                     Self::parse_condition_state_declaration(trimmed)
                 {
@@ -385,9 +554,9 @@ impl IniParser {
                         active_condition_state = Self::start_draw_condition_state(
                             obj,
                             active_draw_module,
-                            DrawConditionStateDefinition::condition_state(
-                                Self::condition_tokens(condition_state_value),
-                            ),
+                            DrawConditionStateDefinition::condition_state(Self::condition_tokens(
+                                condition_state_value,
+                            )),
                         );
                     } else if condition_state_key.eq_ignore_ascii_case("AliasConditionState") {
                         Self::append_draw_condition_alias(
@@ -399,9 +568,9 @@ impl IniParser {
                         active_condition_state = Self::start_draw_condition_state(
                             obj,
                             active_draw_module,
-                            DrawConditionStateDefinition::transition_state(
-                                Self::condition_tokens(condition_state_value),
-                            ),
+                            DrawConditionStateDefinition::transition_state(Self::condition_tokens(
+                                condition_state_value,
+                            )),
                         );
                     }
                     continue;
@@ -423,6 +592,17 @@ impl IniParser {
                     // Parse specific fields
                     let lower_key = key.to_lowercase();
 
+                    // Preserve every field under the active Behavior module
+                    // before the generic object-level parser potentially
+                    // overwrites a repeated raw key.
+                    if lower_key != "behavior" {
+                        if let Some(module) = active_behavior_module
+                            .and_then(|index| obj.behavior_modules.get_mut(index))
+                        {
+                            module.attributes.insert(key.to_string(), value.to_string());
+                        }
+                    }
+
                     match lower_key.as_str() {
                         "type" => obj.object_type = value.to_string(),
                         "displayname" => obj.display_name = value.to_string(),
@@ -441,13 +621,32 @@ impl IniParser {
                                 .push(DrawModuleDefinition::new(value.to_string()));
                             active_draw_module = obj.draw_modules.len().checked_sub(1);
                             active_condition_state = None;
+                            active_behavior_module = None;
+                            active_behavior_depth = 0;
+                        }
+                        "behavior" => {
+                            active_draw_module = None;
+                            active_condition_state = None;
+                            if let Some(module) = BehaviorModuleDefinition::parse(value) {
+                                obj.behavior_modules.push(module);
+                                active_behavior_module = obj.behavior_modules.len().checked_sub(1);
+                                active_behavior_depth = usize::from(active_behavior_module.is_some());
+                            } else {
+                                active_behavior_module = None;
+                                active_behavior_depth = 0;
+                            }
+                            // Keep the legacy raw declaration available for
+                            // diagnostics.  Module-aware gameplay must use
+                            // `behavior_modules`, because this map is lossy.
+                            obj.attributes.insert(key.to_string(), value.to_string());
                         }
                         "drawmodule" => obj.draw_module = Some(value.to_string()),
                         "ignoreconditionstates" => {
-                            if let Some(draw_module) = active_draw_module
-                                .and_then(|index| obj.draw_modules.get_mut(index))
+                            if let Some(draw_module) =
+                                active_draw_module.and_then(|index| obj.draw_modules.get_mut(index))
                             {
-                                draw_module.ignored_condition_tokens = Self::condition_tokens(value);
+                                draw_module.ignored_condition_tokens =
+                                    Self::condition_tokens(value);
                             }
                             obj.attributes.insert(key.to_string(), value.to_string());
                         }
@@ -456,7 +655,10 @@ impl IniParser {
                             obj.hit_points = value.parse().ok();
                         }
                         "scale" => {
-                            obj.scale = value.parse().unwrap_or(1.0);
+                            if let Ok(scale) = value.trim().parse::<f32>() {
+                                obj.scale = scale;
+                                obj.scale_was_specified = true;
+                            }
                         }
                         "owner" => obj.owner = Some(value.to_string()),
                         // Object INI: Weapon = PRIMARY / SECONDARY / TERTIARY Name.
@@ -478,6 +680,22 @@ impl IniParser {
                                 }
                             }
                             // Keep raw attribute for diagnostics; last "Weapon =" wins in attributes map.
+                            obj.attributes.insert(key.to_string(), value.to_string());
+                        }
+                        "locomotor" => {
+                            let mut fields = value.split_whitespace();
+                            let Some(set_name) = fields.next() else {
+                                obj.attributes.insert(key.to_string(), value.to_string());
+                                continue;
+                            };
+                            let locomotor_names = fields.map(str::to_string).collect::<Vec<_>>();
+                            obj.locomotor_sets.push(LocomotorSetDefinition {
+                                set_name: set_name.to_string(),
+                                locomotor_names,
+                            });
+                            // Preserve the legacy last-row view for old
+                            // consumers, but all behavior-sensitive callers
+                            // must use `locomotor_sets` above.
                             obj.attributes.insert(key.to_string(), value.to_string());
                         }
                         // Texture references (various formats used in C&C)
@@ -653,7 +871,8 @@ impl IniParser {
         else {
             return;
         };
-        let Some(state) = active_condition_state.and_then(|index| module.condition_states.get_mut(index))
+        let Some(state) =
+            active_condition_state.and_then(|index| module.condition_states.get_mut(index))
         else {
             return;
         };
@@ -752,6 +971,89 @@ End
     }
 
     #[test]
+    fn behavior_modules_keep_dock_fields_with_their_own_module() {
+        let source = r#"
+Object RetailDockProbe
+  Behavior = SomeOtherUpdate ModuleTag_01
+    Slots = 99
+  End
+  Behavior = SupplyWarehouseDockUpdate ModuleTag_06
+    StartingBoxes = 400
+    NumberApproachPositions = 9
+  End
+End
+"#;
+        let mut parser = IniParser::new();
+        parser
+            .parse_ini_content(source, "retail_dock_probe.ini")
+            .expect("parse dock probe");
+        let definition = parser
+            .get_definition("RetailDockProbe")
+            .expect("dock probe definition");
+
+        assert_eq!(definition.behavior_modules.len(), 2);
+        assert_eq!(
+            definition.behavior_modules[0].attribute("Slots"),
+            Some("99"),
+            "a repeated field belongs to its preceding Behavior block"
+        );
+        let dock = &definition.behavior_modules[1];
+        assert_eq!(dock.class_name, "SupplyWarehouseDockUpdate");
+        assert_eq!(dock.module_tag.as_deref(), Some("ModuleTag_06"));
+        assert_eq!(dock.attribute("StartingBoxes"), Some("400"));
+        assert_eq!(dock.attribute("NumberApproachPositions"), Some("9"));
+        assert_eq!(dock.attribute("Slots"), None);
+    }
+
+    #[test]
+    fn behavior_module_keeps_deploy_style_fields_after_nested_turret() {
+        // Retail DeployStyleAIUpdate places its timing and policy fields
+        // *after* a nested Turret block.  They must remain attached to the
+        // same Behavior rather than being silently discarded at Turret::End.
+        let source = r#"
+Object DeployStyleProbe
+  Behavior = DeployStyleAIUpdate ModuleTag_04
+    Turret
+      TurretTurnRate = 80
+    End
+    PackTime = 3333
+    UnpackTime = 3333
+    ResetTurretBeforePacking = No
+    TurretsFunctionOnlyWhenDeployed = Yes
+    TurretsMustCenterBeforePacking = Yes
+    ManualDeployAnimations = Yes
+  End
+End
+"#;
+        let mut parser = IniParser::new();
+        parser
+            .parse_ini_content(source, "deploy_style_probe.ini")
+            .expect("parse deploy-style probe");
+        let definition = parser
+            .get_definition("DeployStyleProbe")
+            .expect("deploy-style definition");
+        let module = definition
+            .behavior_modules
+            .iter()
+            .find(|module| module.class_name.eq_ignore_ascii_case("DeployStyleAIUpdate"))
+            .expect("DeployStyleAIUpdate module");
+
+        assert_eq!(module.attribute("TurretTurnRate"), Some("80"));
+        assert_eq!(module.attribute("PackTime"), Some("3333"));
+        assert_eq!(module.attribute("UnpackTime"), Some("3333"));
+        assert_eq!(module.attribute("ResetTurretBeforePacking"), Some("No"));
+        assert_eq!(
+            module.attribute("TurretsFunctionOnlyWhenDeployed"),
+            Some("Yes")
+        );
+        assert_eq!(
+            module.attribute("TurretsMustCenterBeforePacking"),
+            Some("Yes")
+        );
+        assert_eq!(module.attribute("ManualDeployAnimations"), Some("Yes"));
+    }
+
+    #[test]
     fn test_parse_object_reskin_parent_header() {
         let ini_content = r#"
 Object BaseTree
@@ -808,12 +1110,12 @@ End
     }
 
     fn model_condition_bit(name: &str) -> u128 {
-        let index = crate::game_logic::host_enum_table_residual::model_condition_bit_name_index(
-            name,
-        )
-        .expect("known C++ ModelCondition flag");
+        let index =
+            crate::game_logic::host_enum_table_residual::model_condition_bit_name_index(name)
+                .expect("known C++ ModelCondition flag");
         let shift = u32::try_from(index).expect("condition bit fits u32");
-        1u128.checked_shl(shift)
+        1u128
+            .checked_shl(shift)
             .expect("condition bit fits retained u128 bank")
     }
 
@@ -888,6 +1190,92 @@ End
             definition.select_primary_model_for_conditions(model_condition_bit("RUBBLE")),
             AuthoredConditionModelSelection::Suppressed,
             "Model = NONE must not fall through to a guessed pristine model"
+        );
+    }
+
+    #[test]
+    fn object_scale_parses_decimal_with_retail_inline_comment() {
+        let source = r#"
+Object ScaledRetailObject
+  Scale = .66 ; cinematics use this exact Object INI form
+End
+"#;
+        let mut parser = IniParser::new();
+        parser
+            .parse_ini_content(source, "scaled_retail_object.ini")
+            .expect("parse object scale");
+        let definition = parser
+            .get_definition("ScaledRetailObject")
+            .expect("scaled definition");
+        assert!(definition.scale_was_specified);
+        assert!((definition.scale - 0.66).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn retained_draw_modules_select_each_non_suppressed_model_in_source_order() {
+        let ini_content = r#"
+Object MultiDrawProbe
+  Draw = W3DModelDraw ModuleTag_01
+    DefaultConditionState
+      Model = ProbeBody
+    End
+    ConditionState = DAMAGED
+      Model = ProbeBodyDamaged
+    End
+  End
+  Draw = W3DModelDraw ModuleTag_02
+    DefaultConditionState
+      Model = NONE
+    End
+  End
+  Draw = W3DModelDraw ModuleTag_03
+    DefaultConditionState
+      Model = ProbeDoor
+    End
+    ConditionState = DOOR_1_OPENING
+      Model = ProbeDoorOpening
+    End
+  End
+End
+"#;
+
+        let mut parser = IniParser::new();
+        parser
+            .parse_ini_content(ini_content, "multi_draw_probe.ini")
+            .expect("parse source Draw modules");
+        let definition = parser
+            .get_definition("MultiDrawProbe")
+            .expect("parsed object definition");
+
+        assert_eq!(
+            definition.select_draw_models_for_conditions(0),
+            Some(vec![
+                AuthoredDrawModel {
+                    module_index: 0,
+                    model_key: "ProbeBody".to_string(),
+                },
+                AuthoredDrawModel {
+                    module_index: 2,
+                    model_key: "ProbeDoor".to_string(),
+                },
+            ]),
+            "each selected W3D module must remain distinct and preserve source order"
+        );
+        assert_eq!(
+            definition.select_draw_models_for_conditions(
+                model_condition_bit("DAMAGED") | model_condition_bit("DOOR_1_OPENING"),
+            ),
+            Some(vec![
+                AuthoredDrawModel {
+                    module_index: 0,
+                    model_key: "ProbeBodyDamaged".to_string(),
+                },
+                AuthoredDrawModel {
+                    module_index: 2,
+                    model_key: "ProbeDoorOpening".to_string(),
+                },
+            ]),
+            "condition matching is independent for every authored Draw module"
         );
     }
 

@@ -327,6 +327,55 @@ fn door_gated_spawn_waits_for_waiting_open() {
 }
 
 #[test]
+fn completed_production_preserves_factory_identity_exit_facing_and_rally() {
+    let mut logic = GameLogic::new();
+    ensure_test_player_for_team(&mut logic, Team::USA);
+    ensure_test_barracks_template(&mut logic);
+    ensure_test_infantry_template(&mut logic);
+
+    let producer_id = logic
+        .create_object("TestBarracks", Team::USA, glam::Vec3::ZERO)
+        .expect("producer");
+    let exit_facing = 1.25;
+    let rally = glam::Vec3::new(48.0, 0.0, -36.0);
+    {
+        let producer = logic.host_object_mut(producer_id).expect("producer object");
+        producer.set_status_under_construction(false);
+        producer.construction_percent = 1.0;
+        producer.set_orientation(exit_facing);
+    }
+
+    assert!(logic.enqueue_production(producer_id, "TestInfantry".into()));
+    {
+        let producer = logic.host_object_mut(producer_id).expect("queued producer");
+        let building = producer.building_data.as_mut().expect("building data");
+        building.rally_point = Some(rally);
+        let head = building.production_queue.first_mut().expect("queued unit");
+        head.progress = head.total_time;
+    }
+
+    // This drives the accepted queue through completion, spawn, and the exit
+    // rally handoff; production runs after movement, so its initial facing is
+    // directly observable in this logic frame.
+    let _ = logic.update_with_dt(1.0 / 30.0);
+
+    let unit = logic
+        .host_objects()
+        .values()
+        .find(|object| object.template_name == "TestInfantry")
+        .expect("completed unit");
+    assert_eq!(unit.producer_id, Some(producer_id));
+    assert!(
+        (unit.get_orientation() - exit_facing).abs() < 1e-6,
+        "unit must inherit the producer exit facing"
+    );
+    assert!(unit.is_selectable(), "completed unit must be selectable");
+    assert_eq!(unit.ai_state, AIState::Moving);
+    assert_eq!(unit.movement.target_position, Some(rally));
+    assert_eq!(unit.movement.path.last().copied(), Some(rally));
+}
+
+#[test]
 fn assign_unit_path_fail_closed_and_retail_ai_names() {
     let skirmish = include_str!("../world_skirmish_tests.rs");
     assert!(

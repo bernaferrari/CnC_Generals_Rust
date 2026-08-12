@@ -29,7 +29,18 @@ impl CnCGameEngine {
                 .unwrap_or(true);
             if push_wnd {
                 self.show_shell_menu();
-                if let Err(err) = game_client::gui::get_shell().push(layout_file, false) {
+                let push_result = game_client::gui::with_shell_mut(|shell| {
+                    shell.push(layout_file, false)
+                })
+                .unwrap_or_else(|| {
+                    game_client::gui::queue_shell_operation(move |shell| {
+                        if let Err(error) = shell.push(layout_file, false) {
+                            warn!("Runtime host deferred shell screen {layout_file} failed: {error:?}");
+                        }
+                    });
+                    Ok(())
+                });
+                if let Err(err) = push_result {
                     warn!("Runtime host failed to push shell screen {layout_file}: {err:?}");
                 }
             } else {
@@ -45,14 +56,20 @@ impl CnCGameEngine {
         #[cfg(feature = "game_client")]
         {
             self.show_shell_menu();
-            let mut shell = game_client::gui::get_shell();
-            if let Some(layout) = shell.get_options_layout(true) {
+            let initialized = game_client::gui::with_shell_mut(|shell| {
+                let Some(layout) = shell.get_options_layout(true) else {
+                    return false;
+                };
                 if let Err(err) = layout.run_init(None) {
                     warn!("Runtime host failed to init shell options layout: {err:?}");
+                    return false;
                 }
                 layout.hide(false);
                 layout.bring_forward();
-            } else {
+                true
+            })
+            .unwrap_or(false);
+            if !initialized {
                 warn!("Runtime host failed to create shell options layout");
             }
         }
@@ -320,44 +337,45 @@ impl CnCGameEngine {
                 return;
             }
 
-            let mut shell = game_client::gui::get_shell();
             // C++ TheShell is initialized via SubsystemInterface before GAME_SHELL push.
             // Thread-local Shell starts uninitialized; push() fails without init.
-            if let Err(e) = game_client::system::SubsystemInterface::init(&mut *shell) {
-                warn!("Failed to init Shell before MainMenu push: {:?}", e);
-                error!("Shell subsystem failed to initialize — the main menu will not be visible.");
-                return;
-            }
-            shell.show_shell_map(true);
-            let result = if shell.get_screen_count() == 0 {
-                shell.push("Menus/MainMenu.wnd", false)
-            } else {
-                if let Some(top) = shell.top() {
+            let result = game_client::gui::with_shell_mut(|shell| {
+                if let Err(e) = game_client::system::SubsystemInterface::init(shell) {
+                    return Err(e);
+                }
+                shell.show_shell_map(true);
+                if shell.get_screen_count() == 0 {
+                    shell.push("Menus/MainMenu.wnd", false)?;
+                } else if let Some(top) = shell.top() {
                     top.hide(false);
                     top.bring_forward();
                 }
-                Ok(())
+                let screens = shell.get_screen_count();
+                if screens == 0 {
+                    return Err(Box::<dyn std::error::Error>::from(
+                        "Shell::push returned Ok but screen stack is empty",
+                    ));
+                }
+                shell.set_shell_active(true);
+                Ok(screens)
+            });
+            let screens = match result {
+                Some(Ok(screens)) => screens,
+                Some(Err(e)) => {
+                    warn!(
+                        "Failed to init or activate Shell before MainMenu push: {:?}",
+                        e
+                    );
+                    error!(
+                        "Shell subsystem failed to initialize — the main menu will not be visible."
+                    );
+                    return;
+                }
+                None => {
+                    warn!("Shell was re-entered while activating MainMenu; request skipped");
+                    return;
+                }
             };
-
-            if let Err(e) = result {
-                warn!("Failed to activate MainMenu.wnd through Shell: {:?}", e);
-                error!(
-                    "MainMenu.wnd could not be loaded — the main menu will not be visible.                      Ensure game assets (BIG archives or extracted Data/) are in the correct path.                      The game will continue without a main menu."
-                );
-                return;
-            }
-
-            // Only latch shell_menu_active when the stack actually holds a screen.
-            // C++ Shell::showShell sets m_isShellActive after a successful push path.
-            let screens = shell.get_screen_count();
-            if screens == 0 {
-                warn!(
-                    "Shell::push returned Ok but screen stack is empty — not activating shell menu"
-                );
-                return;
-            }
-
-            shell.set_shell_active(true);
             self.shell_menu_active = true;
             info!(
                 "Shell menu activated from Menus/MainMenu.wnd (screens={})",
@@ -373,7 +391,7 @@ impl CnCGameEngine {
                 return;
             }
 
-            if let Err(err) = game_client::gui::get_shell().hide_shell() {
+            if let Some(Err(err)) = game_client::gui::with_shell_mut(|shell| shell.hide_shell()) {
                 warn!("Failed to hide shell menu: {:?}", err);
             }
 

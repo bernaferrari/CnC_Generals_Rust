@@ -538,4 +538,27 @@ impl Object {
         self.apply_veterancy_bonuses(previous, level);
         true
     }
+
+    /// C++ `ExperienceTracker::setVeterancyLevel` used by
+    /// `RiderChangeContain`.  Unlike `set_min_veterancy_level`, rider swaps
+    /// may lower the bike back to Rookie before applying the new rider's rank,
+    /// so this assigns the exact level and resets XP to this template's level
+    /// threshold rather than carrying arbitrary source XP across templates.
+    pub(crate) fn set_rider_change_veterancy_level(&mut self, level: VeterancyLevel) {
+        let threshold = match level {
+            VeterancyLevel::Rookie => 0.0,
+            VeterancyLevel::Veteran => self.thing.template.veterancy_xp_thresholds[0],
+            VeterancyLevel::Elite => self.thing.template.veterancy_xp_thresholds[1],
+            VeterancyLevel::Heroic => self.thing.template.veterancy_xp_thresholds[2],
+        };
+        let previous = self.experience.level;
+        self.experience.level = level;
+        self.experience.current = threshold.max(0.0);
+        if previous != level {
+            self.apply_veterancy_bonuses(previous, level);
+        } else {
+            self.record_host_veterancy_level();
+            self.record_host_experience();
+        }
+    }
 }

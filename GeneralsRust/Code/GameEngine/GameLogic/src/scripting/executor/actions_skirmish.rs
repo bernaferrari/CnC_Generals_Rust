@@ -58,10 +58,8 @@ impl ScriptActionDispatcher {
                 None => return Ok(ScriptActionResult::Success),
             };
 
-        let current_player_name = get_script_engine().read().ok().and_then(|g| {
-            g.as_ref()
-                .and_then(|e| e.get_current_player_name().map(|s| s.to_string()))
-        });
+        let current_player_name =
+            with_script_engine_ref(|engine| engine.get_current_player_name()).flatten();
         if let Some(current_player_name) = current_player_name {
             if let Ok(list) = player_list().read() {
                 if let Some(player_arc) = list.find_player_by_name(&current_player_name) {

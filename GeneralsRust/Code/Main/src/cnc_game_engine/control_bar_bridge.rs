@@ -121,6 +121,7 @@ impl CnCGameEngine {
                 command_type,
                 options,
                 weapon_slot,
+                max_shots_to_fire: _,
                 object_name,
                 upgrade_name: _,
                 selected_object_ids,
@@ -143,8 +144,9 @@ impl CnCGameEngine {
             HostControlBarRequest::ArmTarget {
                 command_name,
                 command_type,
-                options: _,
+                options,
                 weapon_slot,
+                max_shots_to_fire,
                 object_name: _,
                 upgrade_name: _,
                 selected_object_ids,
@@ -155,7 +157,9 @@ impl CnCGameEngine {
             } => self.host_apply_control_bar_target(
                 &command_name,
                 command_type,
+                options,
                 weapon_slot,
+                max_shots_to_fire,
                 &selected_object_ids,
                 player_id,
                 target,
@@ -413,7 +417,9 @@ impl CnCGameEngine {
         &mut self,
         command_name: &str,
         command_type: LegacyCommandType,
+        options: u32,
         weapon_slot: Option<u32>,
+        max_shots_to_fire: Option<i32>,
         selected_object_ids: &[u32],
         player_id: u32,
         target: HostControlBarTarget,
@@ -425,6 +431,8 @@ impl CnCGameEngine {
                     command_type,
                     command_name,
                     weapon_slot,
+                    options,
+                    max_shots_to_fire,
                 ) {
                     Ok(action) => Some(action),
                     Err(reason) => {
@@ -495,8 +503,8 @@ impl CnCGameEngine {
                 self.arm_radius_cursor_for_pending(cursor);
             }
             HostControlBarTarget::Generic => match generic_action {
-                Some(HostControlBarGenericTargetAction::Weapon(weapon_slot)) => {
-                    self.pending_map_command = Some(PendingMapCommand::Weapon(weapon_slot));
+                Some(HostControlBarGenericTargetAction::Weapon(weapon)) => {
+                    self.pending_map_command = Some(PendingMapCommand::Weapon(weapon));
                     self.pending_structure_placement = None;
                     self.arm_radius_cursor_for_pending("OFFENSIVE_SPECIALPOWER");
                 }
@@ -521,8 +529,8 @@ impl CnCGameEngine {
                     self.pending_structure_placement = None;
                     self.arm_radius_cursor_for_pending("FRIENDLY_SPECIALPOWER");
                 }
-                Some(HostControlBarGenericTargetAction::CombatDrop) => {
-                    self.pending_map_command = Some(PendingMapCommand::CombatDrop);
+                Some(HostControlBarGenericTargetAction::CombatDrop(combat_drop)) => {
+                    self.pending_map_command = Some(PendingMapCommand::CombatDrop(combat_drop));
                     self.pending_structure_placement = None;
                     self.arm_radius_cursor_for_pending("COMBATDROP");
                 }
@@ -723,12 +731,12 @@ enum HostControlBarFirstSelectedObjectAction {
 /// A non-special target mode awaiting the next map/object click.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum HostControlBarGenericTargetAction {
-    Weapon(crate::command_system::WeaponSlot),
+    Weapon(PendingWeaponCommand),
     UnitAbility(PendingUnitAbility),
     AttackMove,
     Guard(crate::game_logic::GuardMode),
     SetRallyPoint,
-    CombatDrop,
+    CombatDrop(PendingCombatDropCommand),
     PlaceBeacon,
 }
 
@@ -852,6 +860,8 @@ fn host_control_bar_generic_target_action(
     command_type: LegacyCommandType,
     command_name: &str,
     weapon_slot: Option<u32>,
+    options: u32,
+    max_shots_to_fire: Option<i32>,
 ) -> Result<HostControlBarGenericTargetAction, &'static str> {
     if let Some(ability) = host_control_bar_target_unit_ability(command_type, command_name) {
         return Ok(HostControlBarGenericTargetAction::UnitAbility(ability));
@@ -862,7 +872,16 @@ fn host_control_bar_generic_target_action(
             let Some(slot) = host_control_bar_weapon_slot(weapon_slot) else {
                 return Err("FIRE_WEAPON button has no valid explicit slot");
             };
-            Ok(HostControlBarGenericTargetAction::Weapon(slot))
+            let Some(max_shots_to_fire) = max_shots_to_fire else {
+                return Err("FIRE_WEAPON button has no parsed MaxShotsToFire value");
+            };
+            Ok(HostControlBarGenericTargetAction::Weapon(
+                PendingWeaponCommand {
+                    weapon_slot: slot,
+                    max_shots_to_fire,
+                    options,
+                },
+            ))
         }
         LegacyCommandType::DoAttackMoveTo
             if host_control_bar_is_exact_retail_button(command_name, "Command_AttackMove") =>
@@ -895,7 +914,9 @@ fn host_control_bar_generic_target_action(
         LegacyCommandType::CombatDropAtLocation | LegacyCommandType::CombatDropAtObject
             if host_control_bar_is_exact_retail_button(command_name, "Command_CombatDrop") =>
         {
-            Ok(HostControlBarGenericTargetAction::CombatDrop)
+            Ok(HostControlBarGenericTargetAction::CombatDrop(
+                PendingCombatDropCommand { options },
+            ))
         }
         LegacyCommandType::PlaceBeacon | LegacyCommandType::MetaPlaceBeacon
             if host_control_bar_is_exact_retail_button(command_name, "Command_PlaceBeacon") =>
@@ -990,6 +1011,35 @@ mod tests {
         );
         assert_eq!(host_control_bar_weapon_slot(Some(3)), None);
         assert_eq!(host_control_bar_weapon_slot(None), None);
+    }
+
+    #[test]
+    fn fire_weapon_target_arm_retains_parsed_shot_limit_and_options() {
+        let options = 0x0000_0001 | 0x0000_0002 | 0x0000_0100;
+        assert_eq!(
+            host_control_bar_generic_target_action(
+                LegacyCommandType::DoAttackObject,
+                "Command_ChinaJetMIGFireNapalmMissile",
+                Some(0),
+                options,
+                Some(1),
+            ),
+            Ok(HostControlBarGenericTargetAction::Weapon(
+                PendingWeaponCommand {
+                    weapon_slot: crate::command_system::WeaponSlot::Primary,
+                    max_shots_to_fire: 1,
+                    options,
+                },
+            ))
+        );
+        assert!(host_control_bar_generic_target_action(
+            LegacyCommandType::DoAttackObject,
+            "Command_ChinaJetMIGFireNapalmMissile",
+            Some(0),
+            options,
+            None,
+        )
+        .is_err());
     }
 
     #[test]
@@ -1112,11 +1162,15 @@ mod tests {
             LegacyCommandType::Enter,
             "Command_Enter",
             None,
+            0,
+            None,
         )
         .is_err());
         assert!(host_control_bar_generic_target_action(
             LegacyCommandType::Enter,
             "Command-GLAInfantryHijack",
+            None,
+            0,
             None,
         )
         .is_err());
@@ -1135,6 +1189,8 @@ mod tests {
                 LegacyCommandType::DoAttackMoveTo,
                 "Command_AttackMove",
                 None,
+                0,
+                None,
             ),
             Ok(HostControlBarGenericTargetAction::AttackMove)
         ));
@@ -1142,6 +1198,8 @@ mod tests {
             host_control_bar_generic_target_action(
                 LegacyCommandType::DoGuardPosition,
                 "Command_GuardFlyingUnitsOnly",
+                None,
+                0,
                 None,
             ),
             Ok(HostControlBarGenericTargetAction::Guard(
@@ -1153,6 +1211,8 @@ mod tests {
                 LegacyCommandType::SetRallyPoint,
                 "Command_SetRallyPoint",
                 None,
+                0,
+                None,
             ),
             Ok(HostControlBarGenericTargetAction::SetRallyPoint)
         ));
@@ -1161,13 +1221,23 @@ mod tests {
                 LegacyCommandType::CombatDropAtLocation,
                 "Command_CombatDrop",
                 None,
+                // Exact parsed retail Command_CombatDrop options:
+                // enemy | neutral | ally | position | multi-select | context.
+                0x0000_0327,
+                None,
             ),
-            Ok(HostControlBarGenericTargetAction::CombatDrop)
+            Ok(HostControlBarGenericTargetAction::CombatDrop(
+                PendingCombatDropCommand {
+                    options: 0x0000_0327,
+                }
+            ))
         ));
         assert!(matches!(
             host_control_bar_generic_target_action(
                 LegacyCommandType::PlaceBeacon,
                 "Command_PlaceBeacon",
+                None,
+                0,
                 None,
             ),
             Ok(HostControlBarGenericTargetAction::PlaceBeacon)

@@ -61,12 +61,13 @@ impl CommandSystem {
     where
         F: FnMut(ObjectId) -> bool,
     {
-        // Wave 242/245: team + selectable ids via probes (no get_objects dual-read).
-        let Some(player_team) = game_logic.player_team(player_id) else {
+        // Exact player ownership rather than faction: two USA slots must not
+        // be selected together.
+        if !game_logic.player_exists(player_id) {
             return false;
-        };
+        }
 
-        let units = game_logic.selectable_unit_ids_for_team_where(player_team, |id| predicate(id));
+        let units = game_logic.selectable_unit_ids_for_player_where(player_id, |id| predicate(id));
 
         if units.is_empty() {
             return false;
@@ -393,21 +394,34 @@ impl CommandSystem {
                 }
             } else if let Some(gl) = game_logic {
                 // Wave 245: boot residual via ObjectId probes (no get_object dual-read).
-                if self.can_gather_from_target(selected_units, target_id, gl) {
-                    return CommandType::Gather { target_id };
+                if self.can_resume_construction(selected_units, target_id, gl) {
+                    return CommandType::ResumeConstruction { target_id };
                 }
-                if self.can_capture_building(selected_units, target_id, gl) {
-                    let prefer_capture = gl.unit_team(target_id) == Some(Team::Neutral)
-                        || !self.can_attack_target(selected_units, target_id, gl);
-                    if prefer_capture {
-                        return CommandType::CaptureBuilding { target_id };
-                    }
+                // C++ CommandXlat::translateMouseButton checks
+                // ACTIONTYPE_DOCK_AT (SELECTION_ALL) immediately after Resume
+                // Construction.  This must precede attack/capture as well as
+                // repair: an enemy railed transport is still a legal Dock
+                // target for a selected vehicle or infantry unit.
+                if self.can_dock_at_target(selected_units, target_id, gl) {
+                    return CommandType::Dock { target_id };
+                }
+                // A warehouse advertises the same supply-source KindOf used
+                // by generic Gather.  C++ exposes it through DockUpdate, so
+                // do not consume its exact dock target as a Gather command.
+                if gl.unit_dock_kind(target_id) != DockKind::SupplyWarehouse
+                    && self.can_gather_from_target(selected_units, target_id, gl)
+                {
+                    return CommandType::Gather { target_id };
                 }
                 if self.can_attack_target(selected_units, target_id, gl) {
                     return CommandType::AttackObject { target_id };
                 }
-                if self.can_resume_construction(selected_units, target_id, gl) {
-                    return CommandType::ResumeConstruction { target_id };
+                // C++ CommandXlat evaluates attack before its CaptureBuilding
+                // special-power action.  An enemy capturable structure with a
+                // legal weapon target must therefore attack; neutral/non-
+                // attackable capturable structures fall through here.
+                if self.can_capture_building(selected_units, target_id, gl) {
+                    return CommandType::CaptureBuilding { target_id };
                 }
                 if self.can_repair_target(selected_units, target_id, gl) {
                     return CommandType::Repair { target_id };
@@ -416,12 +430,7 @@ impl CommandSystem {
                     return CommandType::Enter { target_id };
                 }
                 if self.can_get_serviced_at_target(selected_units, target_id, gl) {
-                    let target_building_type = gl
-                        .unit_building_type(target_id)
-                        .unwrap_or(BuildingType::CommandCenter);
-                    if target_building_type == BuildingType::HealPad
-                        || gl.unit_is_medical_facility(target_id)
-                    {
+                    if gl.unit_is_kind_of(target_id, KindOf::HealPad) {
                         return CommandType::GetHealed { target_id };
                     } else {
                         return CommandType::GetRepaired { target_id };
@@ -469,8 +478,7 @@ impl CommandSystem {
             );
         };
 
-        // Wave 242: team via player_team probe (no &Player dual-read).
-        let Some(player_team) = game_logic.player_team(player_id) else {
+        if !game_logic.player_exists(player_id) {
             return self.create_command(
                 CommandType::CreateSelectedGroup {
                     create_new: !context.modifier_keys.shift,
@@ -480,7 +488,7 @@ impl CommandSystem {
                 player_id,
                 context.modifier_keys,
             );
-        };
+        }
 
         let drag_start = context.drag_start.unwrap_or(context.screen_position);
         let drag_end = context.drag_end.unwrap_or(context.screen_position);
@@ -499,9 +507,9 @@ impl CommandSystem {
         let min_z = drag_start_world.z.min(drag_end_world.z);
         let max_z = drag_start_world.z.max(drag_end_world.z);
 
-        // Wave 245: box-select via selectable_unit_ids_in_bounds (no get_objects dual-read).
-        let units =
-            game_logic.selectable_unit_ids_in_bounds(player_team, min_x, max_x, min_z, max_z);
+        // Exact-owner box selection. `Team` remains faction-only.
+        let units = game_logic
+            .selectable_unit_ids_in_bounds_for_player(player_id, min_x, max_x, min_z, max_z);
 
         self.create_command(
             CommandType::CreateSelectedGroup {
@@ -876,11 +884,10 @@ impl CommandSystem {
 
         // Find a constructor unit
         for &unit_id in units {
-            // Wave 243: constructor team + economy via probes (no &Object/&mut Player dual-read).
-            let Some(team) = game_logic.unit_team_if_can_construct(unit_id) else {
-                continue;
-            };
-            let Some(player_id) = game_logic.player_id_for_team(team) else {
+            // A producer/builder belongs to a player slot, not merely a
+            // faction. This prevents a second USA player paying for and
+            // owning a building created by the first USA player's dozer.
+            let Some((player_id, _team)) = game_logic.unit_owner_if_can_construct(unit_id) else {
                 continue;
             };
 
@@ -888,8 +895,11 @@ impl CommandSystem {
                 return CommandResult::InvalidCommand;
             }
 
-            let created =
-                game_logic.create_object_under_construction(template_name, team, location);
+            let created = game_logic.create_object_under_construction_for_player(
+                template_name,
+                player_id,
+                location,
+            );
             if created.is_none() {
                 game_logic.player_refund_supplies(player_id, build_cost.supplies);
                 return CommandResult::InvalidCommand;
@@ -934,12 +944,9 @@ impl CommandSystem {
             );
             return CommandResult::Success;
         }
-        let Some(player_team) = game_logic.player_team(player_id) else {
-            return CommandResult::InvalidCommand;
-        };
         let mut added = Vec::new();
         for &unit_id in units {
-            if game_logic.unit_select_if_team(unit_id, player_team) {
+            if game_logic.unit_select_if_player(unit_id, player_id) {
                 added.push(unit_id);
             }
         }
@@ -959,41 +966,10 @@ impl CommandSystem {
         target_id: ObjectId,
         game_logic: &GameLogic,
     ) -> bool {
-        use crate::game_logic::host_hero_abilities::{
-            can_capture_without_upgrade, is_black_lotus_template,
-        };
-        // Wave 245: target probes (no &Object dual-read).
-        if !game_logic.unit_is_kind_of(target_id, crate::game_logic::KindOf::Structure)
-            || !game_logic.unit_is_alive(target_id)
-            || game_logic.unit_under_construction(target_id)
-            || game_logic.unit_is_sold(target_id)
-        {
-            return false;
-        }
-        let Some(target_team) = game_logic.unit_team(target_id) else {
-            return false;
-        };
-        for &unit_id in units {
-            if !game_logic.unit_is_alive(unit_id) || !game_logic.unit_can_move(unit_id) {
-                continue;
-            }
-            let Some(unit_team) = game_logic.unit_team(unit_id) else {
-                continue;
-            };
-            if unit_team == target_team {
-                continue;
-            }
-            let template = game_logic.unit_template_name(unit_id).unwrap_or_default();
-            let is_lotus = is_black_lotus_template(&template);
-            let capture_ability =
-                can_capture_without_upgrade(game_logic.unit_is_hero(unit_id), is_lotus)
-                    || (game_logic.unit_is_kind_of(unit_id, crate::game_logic::KindOf::Infantry)
-                        && game_logic.team_has_completed_capture_upgrade(unit_team));
-            if capture_ability {
-                return true;
-            }
-        }
-        false
+        units
+            .iter()
+            .copied()
+            .any(|unit_id| game_logic.can_unit_capture_building(unit_id, target_id, true))
     }
 
     /// Validate if selected units can attack target
@@ -1007,14 +983,18 @@ impl CommandSystem {
         if game_logic.unit_is_dead(target_id) || !game_logic.unit_exists(target_id) {
             return false;
         }
-        let Some(target_team) = game_logic.unit_team(target_id) else {
-            return false;
-        };
         for &unit_id in units {
             if game_logic.unit_can_attack(unit_id)
-                && game_logic
-                    .unit_team(unit_id)
-                    .is_some_and(|t| t != target_team)
+                && matches!(
+                    game_logic.get_able_to_attack_specific_object(
+                        unit_id,
+                        target_id,
+                        crate::game_logic::AbleToAttackType::NewTarget,
+                        true,
+                    ),
+                    crate::game_logic::CanAttackResult::Possible
+                        | crate::game_logic::CanAttackResult::PossibleAfterMoving
+                )
             {
                 return true;
             }
@@ -1054,6 +1034,22 @@ impl CommandSystem {
                 })
             })
         };
+        // C++ construction/resume authority is exactly `KINDOF_DOZER`.  A
+        // `HARVESTER` is deliberately narrower and is used only by Gather;
+        // the host's old Worker/name compatibility class must not authorize
+        // a frozen physical RMB command.
+        let any_worker = || {
+            if !selected_presentation.is_empty() {
+                return selected_presentation
+                    .iter()
+                    .any(|u| u.is_alive && u.is_worker);
+            }
+            game_logic.is_some_and(|gl| {
+                units
+                    .iter()
+                    .any(|&unit_id| gl.unit_is_alive(unit_id) && gl.unit_is_dozer(unit_id))
+            })
+        };
         let any_attacker = || {
             if !selected_presentation.is_empty() {
                 return selected_presentation
@@ -1069,26 +1065,20 @@ impl CommandSystem {
         };
         let any_capturer = || {
             if !selected_presentation.is_empty() {
-                return selected_presentation
-                    .iter()
-                    .any(|u| u.is_alive && u.can_capture && u.can_move);
+                return selected_presentation.iter().any(|u| {
+                    u.is_alive
+                        && u.can_move
+                        && u.capture_power != CapturePowerKind::None
+                        && u.capture_power_ready
+                });
             }
-            // Wave 244: boot residual via unit probes (no get_object dual-read).
+            // Boot residual remains at the same centralized authority boundary
+            // as execution, including exact SpecialPower readiness.
             game_logic.is_some_and(|gl| {
-                units.iter().any(|&unit_id| {
-                    use crate::game_logic::host_hero_abilities::{
-                        can_capture_without_upgrade, is_black_lotus_template,
-                    };
-                    if !gl.unit_is_alive(unit_id) || !gl.unit_can_move(unit_id) {
-                        return false;
-                    }
-                    let template = gl.unit_template_name(unit_id).unwrap_or_default();
-                    let is_lotus = is_black_lotus_template(&template);
-                    let is_hero =
-                        gl.unit_is_hero(unit_id) || gl.unit_is_kind_of(unit_id, KindOf::Hero);
-                    gl.unit_is_kind_of(unit_id, KindOf::Infantry)
-                        || can_capture_without_upgrade(is_hero, is_lotus)
-                })
+                units
+                    .iter()
+                    .copied()
+                    .any(|unit_id| gl.can_unit_capture_building(unit_id, target_id, true))
             })
         };
         let any_repairer = || {
@@ -1105,25 +1095,6 @@ impl CommandSystem {
             })
         };
 
-        // Gather
-        // Wave 1099: sold residual fail-closed on gather target.
-        if hint.is_resource && !hint.sold && any_resource_collector() {
-            return Some(CommandType::Gather { target_id });
-        }
-        // Capture neutral structure
-        if hint.is_structure
-            && !hint.under_construction
-            && !hint.sold
-            && (hint.is_neutral || hint.team == Team::Neutral)
-            && any_capturer()
-        {
-            return Some(CommandType::CaptureBuilding { target_id });
-        }
-        // Attack enemy
-        // Wave 1098: sold residual fail-closed (presentation_target_hint also peels).
-        if hint.is_enemy_of_local && !hint.is_neutral && !hint.sold && any_attacker() {
-            return Some(CommandType::AttackObject { target_id });
-        }
         // Resume construction on unfinished ally structure
         if hint.is_structure
             && hint.under_construction
@@ -1132,6 +1103,84 @@ impl CommandSystem {
             && any_worker()
         {
             return Some(CommandType::ResumeConstruction { target_id });
+        }
+        // C++ CommandXlat::translateMouseButton 1721: ACTIONTYPE_DOCK_AT
+        // uses SELECTION_ALL and emits MSG_DOCK before repair.
+        if self.can_dock_at_target_from_presentation(units, selected_presentation, hint) {
+            return Some(CommandType::Dock { target_id });
+        }
+        // Gather
+        // Wave 1099: sold residual fail-closed on gather target.
+        if hint.dock_kind != DockKind::SupplyWarehouse
+            && hint.is_resource
+            && !hint.sold
+            && any_resource_collector()
+        {
+            return Some(CommandType::Gather { target_id });
+        }
+        // C++ `CommandXlat::translateMouseButton`: normal Enter is evaluated
+        // before attack.  A non-owner *empty*, non-faction garrison remains a
+        // valid C++ `canEnterObject(..., CHECK_CAPACITY)` target, so this must
+        // not be gated by the presentation's enemy tint.  The frozen
+        // capability already rejects occupied non-owner targets; executor
+        // authority repeats the same condition when it consumes the order.
+        // Wave 1099: sold residual fail-closed on enter target.
+        if hint.can_be_entered
+            && !hint.sold
+            && !hint.under_construction
+            && !hint.enter_disabled_subdued
+        {
+            let any_mobile = if !selected_presentation.is_empty() {
+                selected_presentation.iter().any(|u| {
+                    u.is_alive
+                        && u.can_move
+                        && u.transport_slot_count > 0
+                        && (!hint.enter_uses_transport_slots
+                            || u.transport_slot_count <= hint.enter_available_capacity)
+                        && (!hint.enter_requires_infantry || u.is_infantry)
+                        && (!hint.enter_forbids_aircraft || !u.is_aircraft)
+                        && (!hint.enter_is_rider_change
+                            || hint
+                                .rider_change_allowed_templates
+                                .iter()
+                                .any(|template| template.eq_ignore_ascii_case(&u.template_name)))
+                })
+            } else {
+                // Wave 244: boot residual via unit probes (no get_object dual-read).
+                game_logic.is_some_and(|gl| {
+                    units
+                        .iter()
+                        .copied()
+                        .any(|id| gl.can_unit_enter_normal_target(id, target_id))
+                })
+            };
+            if any_mobile {
+                return Some(CommandType::Enter { target_id });
+            }
+        }
+        // Attack enemy
+        // Wave 1098: sold residual fail-closed (presentation_target_hint also peels).
+        if hint.is_enemy_of_local && !hint.is_neutral && !hint.sold && any_attacker() {
+            return Some(CommandType::AttackObject { target_id });
+        }
+        // C++ CommandXlat tries ordinary attack before CaptureBuilding.  The
+        // frozen target carries the full non-packed capture semantic so this
+        // path never falls back to a faction/unit basename.
+        let capture_relation_allows =
+            hint.is_enemy_of_local || (hint.capturable && !hint.is_friendly_of_local);
+        let capture_garrison_clear = (!hint.capture_garrisonable
+            || hint.capture_nonstealthed_garrison_count == 0)
+            && hint.capture_friendly_garrison_count == 0;
+        if hint.is_structure
+            && !hint.under_construction
+            && !hint.sold
+            && !hint.immune_to_capture
+            && !hint.capture_target_effectively_stealthed
+            && capture_relation_allows
+            && capture_garrison_clear
+            && any_capturer()
+        {
+            return Some(CommandType::CaptureBuilding { target_id });
         }
         // Repair damaged ally structure
         if hint.is_structure
@@ -1142,26 +1191,6 @@ impl CommandSystem {
             && any_repairer()
         {
             return Some(CommandType::Repair { target_id });
-        }
-        // Enter friendly enterable
-        // Wave 1099: sold residual fail-closed on enter target.
-        if hint.can_be_entered && !hint.sold && !hint.is_enemy_of_local && !hint.under_construction
-        {
-            let any_mobile = if !selected_presentation.is_empty() {
-                selected_presentation
-                    .iter()
-                    .any(|u| u.is_alive && u.can_move)
-            } else {
-                // Wave 244: boot residual via unit probes (no get_object dual-read).
-                game_logic.is_some_and(|gl| {
-                    units
-                        .iter()
-                        .any(|&id| gl.unit_is_alive(id) && gl.unit_can_move(id))
-                })
-            };
-            if any_mobile {
-                return Some(CommandType::Enter { target_id });
-            }
         }
         // Get healed at heal pad
         // Wave 1099: sold residual fail-closed on heal pad.
@@ -1201,6 +1230,160 @@ impl CommandSystem {
         None
     }
 
+    /// Main boot classifier equivalent of C++ `ActionManager::canDockAt` for
+    /// the three dock families currently represented in the host.  This is
+    /// deliberately `SELECTION_ALL`: a mixed selection must not turn a dock
+    /// command into a partial order.
+    fn can_dock_at_target(
+        &self,
+        units: &[ObjectId],
+        target_id: ObjectId,
+        game_logic: &GameLogic,
+    ) -> bool {
+        if units.is_empty()
+            || !game_logic.unit_exists(target_id)
+            || !game_logic.unit_is_alive(target_id)
+            || game_logic.unit_under_construction(target_id)
+            || game_logic.unit_is_sold(target_id)
+        {
+            return false;
+        }
+
+        let Some(target) = game_logic.host_object(target_id) else {
+            return false;
+        };
+        let target_kind = target.thing.template.dock_kind;
+        // Do not use faction as player authority once even one live object
+        // carries owner provenance.  This mirrors the frozen-frame rule and
+        // keeps boot/input classification from visibly offering a Dock order
+        // which the executor must reject.
+        let legacy_ownerless_world = game_logic.uses_legacy_team_ownership_fallback();
+        let common_source = |unit_id: ObjectId| {
+            unit_id != target_id
+                && game_logic.unit_is_alive(unit_id)
+                && !game_logic.unit_under_construction(unit_id)
+                && game_logic.unit_can_move(unit_id)
+                && !game_logic.unit_is_kind_of(unit_id, KindOf::Structure)
+        };
+        let supply_center_controller_matches = |unit_id: ObjectId| {
+            let Some(unit) = game_logic.host_object(unit_id) else {
+                return false;
+            };
+            match (unit.owner_player_id, target.owner_player_id) {
+                (Some(unit_owner), Some(target_owner)) => unit_owner == target_owner,
+                (None, None) => {
+                    legacy_ownerless_world
+                        && unit.team == target.team
+                        && game_logic.unique_player_id_for_team(unit.team).is_some()
+                }
+                _ => false,
+            }
+        };
+        let warehouse_is_not_enemy = |unit_id: ObjectId| {
+            use gamelogic::common::Relationship;
+
+            let Some(unit) = game_logic.host_object(unit_id) else {
+                return false;
+            };
+            match (unit.owner_player_id, target.owner_player_id) {
+                (Some(_), Some(_)) => {
+                    game_logic.object_relationship(target, unit) != Relationship::Enemies
+                }
+                // An ownerless map warehouse/source is neutral to a
+                // player-owned collector; this is a relationship result, not
+                // a faction fallback.
+                (Some(_), None) | (None, Some(_)) => true,
+                (None, None) => {
+                    legacy_ownerless_world
+                        && (target.team == Team::Neutral
+                            || (unit.team == target.team
+                                && game_logic.unique_player_id_for_team(unit.team).is_some()))
+                }
+            }
+        };
+
+        match target_kind {
+            DockKind::SupplyCenter => units.iter().copied().all(|unit_id| {
+                common_source(unit_id)
+                    && game_logic.unit_is_resource_collector(unit_id)
+                    && game_logic.unit_stored_supplies(unit_id) > 0
+                    // C++ compares `getControllingPlayer()` pointers, not
+                    // faction or alliance identity.
+                    && supply_center_controller_matches(unit_id)
+            }),
+            DockKind::SupplyWarehouse => {
+                if game_logic.unit_stored_supplies(target_id) == 0 {
+                    return false;
+                }
+                units.iter().copied().all(|unit_id| {
+                    common_source(unit_id)
+                        && game_logic.unit_is_resource_collector(unit_id)
+                        // C++ permits a warehouse unless relationship is
+                        // ENEMIES.  Owner-aware objects use the exact player
+                        // relationship; legacy factions are a narrow fallback.
+                        && warehouse_is_not_enemy(unit_id)
+                })
+            }
+            DockKind::RailedTransport => units.iter().copied().all(|unit_id| {
+                common_source(unit_id)
+                    && (game_logic.unit_is_kind_of(unit_id, KindOf::Vehicle)
+                        || game_logic.unit_is_kind_of(unit_id, KindOf::Infantry))
+            }),
+            DockKind::None => false,
+        }
+    }
+
+    /// Presentation-only Dock classifier for physical RMB input.  Fields are
+    /// frozen by `PresentationFrame`; missing selected data fails closed rather
+    /// than reaching into live GameLogic while the renderer owns the snapshot.
+    fn can_dock_at_target_from_presentation(
+        &self,
+        units: &[ObjectId],
+        selected_presentation: &[PresentationSelectedUnitHint],
+        hint: &PresentationTargetHint,
+    ) -> bool {
+        if units.is_empty()
+            || selected_presentation.len() != units.len()
+            || !units
+                .iter()
+                .all(|id| selected_presentation.iter().any(|unit| unit.id == *id))
+            || hint.sold
+            || hint.under_construction
+        {
+            return false;
+        }
+
+        let common_source = |unit: &PresentationSelectedUnitHint| {
+            unit.id != hint.id && unit.is_alive && unit.can_move
+        };
+        match hint.dock_kind {
+            DockKind::SupplyCenter => {
+                // C++ SupplyCenterDockUpdate compares controlling players,
+                // not faction/alliance.  Both sides of this fact are frozen:
+                // old snapshots only grant it through PresentationFrame's
+                // wholly-ownerless, unambiguous legacy fallback.
+                hint.dock_controller_is_local
+                    && selected_presentation.iter().all(|unit| {
+                        common_source(unit)
+                            && unit.is_resource_collector
+                            && unit.stored_supplies > 0
+                            && unit.is_controlled_by_local
+                    })
+            }
+            DockKind::SupplyWarehouse => {
+                !hint.is_enemy_of_local
+                    && hint.stored_supplies > 0
+                    && selected_presentation
+                        .iter()
+                        .all(|unit| common_source(unit) && unit.is_resource_collector)
+            }
+            DockKind::RailedTransport => selected_presentation
+                .iter()
+                .all(|unit| common_source(unit) && (unit.is_vehicle || unit.is_infantry)),
+            DockKind::None => false,
+        }
+    }
+
     pub(super) fn can_gather_from_target(
         &self,
         units: &[ObjectId],
@@ -1211,16 +1394,15 @@ impl CommandSystem {
         if !game_logic.unit_is_alive(target_id) || !game_logic.unit_is_resource_target(target_id) {
             return false;
         }
-        let Some(target_team) = game_logic.unit_team(target_id) else {
-            return false;
-        };
         for &unit_id in units {
             if game_logic.unit_is_resource_collector(unit_id)
                 && game_logic.unit_is_alive(unit_id)
                 && game_logic.unit_can_move(unit_id)
-                && game_logic
-                    .unit_team(unit_id)
-                    .is_some_and(|t| t == target_team)
+                // Supply sources are normally neutral.  Ownership of the
+                // selected collector is enforced by the command executor;
+                // this presentation-less classifier must not reject that
+                // valid neutral target by comparing the two teams.
+                && game_logic.unit_team(unit_id).is_some_and(|team| team != Team::Neutral)
             {
                 return true;
             }
@@ -1274,14 +1456,9 @@ impl CommandSystem {
         {
             return false;
         }
-        let Some(target_team) = game_logic.unit_team(target_id) else {
-            return false;
-        };
         for &unit_id in units {
             if game_logic.unit_can_repair(unit_id)
-                && game_logic
-                    .unit_team(unit_id)
-                    .is_some_and(|t| t == target_team || target_team == Team::Neutral)
+                && game_logic.repair_relationship_is_not_enemy(unit_id, target_id)
             {
                 return true;
             }
@@ -1296,58 +1473,10 @@ impl CommandSystem {
         target_id: ObjectId,
         game_logic: &GameLogic,
     ) -> bool {
-        // Wave 245: target/unit probes (no &Object dual-read).
-        if !game_logic.unit_can_contain(target_id)
-            || !game_logic.unit_is_alive(target_id)
-            || game_logic.unit_under_construction(target_id)
-        {
-            return false;
-        }
-
-        let target_has_occupants = game_logic.unit_has_occupants(target_id);
-        let infantry_only = game_logic.unit_enter_infantry_only(target_id);
-        let Some(target_team) = game_logic.unit_team(target_id) else {
-            return false;
-        };
-
-        for &unit_id in units {
-            let Some(unit_team) = game_logic.unit_team(unit_id) else {
-                continue;
-            };
-
-            if unit_id == target_id
-                || !game_logic.unit_is_alive(unit_id)
-                || game_logic.unit_under_construction(unit_id)
-                || !game_logic.unit_can_move(unit_id)
-                || game_logic.unit_is_kind_of(unit_id, KindOf::Structure)
-            {
-                continue;
-            }
-
-            if infantry_only
-                && !game_logic.unit_is_kind_of(unit_id, KindOf::Infantry)
-                && !game_logic.unit_is_hero(unit_id)
-            {
-                continue;
-            }
-
-            let target_contains_unit = game_logic.unit_contains(target_id, unit_id);
-            let target_has_space = game_logic.unit_has_capacity_for(target_id, 1);
-            if !target_contains_unit && !target_has_space {
-                continue;
-            }
-
-            if target_team != unit_team
-                && target_team != Team::Neutral
-                && (game_logic.unit_is_faction_structure(target_id) || target_has_occupants)
-            {
-                continue;
-            }
-
-            return true;
-        }
-
-        false
+        units
+            .iter()
+            .copied()
+            .any(|unit_id| game_logic.can_unit_enter_normal_target(unit_id, target_id))
     }
 
     /// Validate if selected units can get services at target
@@ -1358,37 +1487,37 @@ impl CommandSystem {
         game_logic: &GameLogic,
     ) -> bool {
         // Wave 245: target/unit probes (no &Object dual-read).
-        if !game_logic.unit_is_alive(target_id) || game_logic.unit_under_construction(target_id) {
+        if !game_logic.unit_is_alive(target_id)
+            || game_logic.unit_under_construction(target_id)
+            || game_logic.unit_is_sold(target_id)
+        {
             return false;
         }
 
-        let target_building_type = game_logic
-            .unit_building_type(target_id)
-            .unwrap_or(BuildingType::CommandCenter);
-        let Some(target_team) = game_logic.unit_team(target_id) else {
-            return false;
-        };
+        // `ActionManager::canGetRepairedAt` / `canGetHealedAt` use authored
+        // KindOf bits, not a host BuildingType inferred from a basename.
+        let target_is_heal_pad = game_logic.unit_is_kind_of(target_id, KindOf::HealPad);
+        let target_is_repair_pad = game_logic.unit_is_kind_of(target_id, KindOf::RepairPad);
+        let target_is_fs_airfield = game_logic.unit_is_kind_of(target_id, KindOf::FSAirfield);
 
         for &unit_id in units {
-            if !game_logic
-                .unit_team(unit_id)
-                .is_some_and(|t| t == target_team)
+            if !game_logic.service_relationship_is_allies(unit_id, target_id)
                 || !game_logic.unit_is_alive(unit_id)
                 || !game_logic.unit_can_move(unit_id)
+                || game_logic.unit_under_construction(unit_id)
                 || !game_logic.unit_needs_service(unit_id)
             {
                 continue;
             }
 
-            let can_use_service = match target_building_type {
-                BuildingType::HealPad => game_logic.unit_is_kind_of(unit_id, KindOf::Infantry),
-                BuildingType::RepairPad | BuildingType::WarFactory => {
-                    game_logic.unit_is_kind_of(unit_id, KindOf::Vehicle)
-                        && !game_logic.unit_is_kind_of(unit_id, KindOf::Aircraft)
-                }
-                BuildingType::Airfield => game_logic.unit_is_kind_of(unit_id, KindOf::Aircraft),
-                _ => false,
-            };
+            let is_aircraft = game_logic.unit_is_kind_of(unit_id, KindOf::Aircraft);
+            let is_vehicle = game_logic.unit_is_kind_of(unit_id, KindOf::Vehicle);
+            let can_use_service = (target_is_heal_pad
+                && game_logic.unit_is_kind_of(unit_id, KindOf::Infantry))
+                || (is_vehicle
+                    && ((is_aircraft && target_is_fs_airfield)
+                        || (!is_aircraft && target_is_repair_pad))
+                    && (!is_aircraft || game_logic.unit_is_above_terrain(unit_id)));
 
             if can_use_service {
                 return true;

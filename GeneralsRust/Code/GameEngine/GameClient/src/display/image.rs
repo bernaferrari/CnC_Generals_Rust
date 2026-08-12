@@ -1000,6 +1000,29 @@ fn try_load_image_from_engine_filesystem(resource_name: &str) -> Option<DynamicI
     decode_image_from_bytes(resource_name, &bytes).ok()
 }
 
+/// Decode an authored texture through the same C++-style virtual filesystem
+/// search used by mapped UI images.
+///
+/// Particle systems name their textures directly in `ParticleSystem.ini`; they
+/// are not represented by `MappedImage` records.  Keeping this resolver here
+/// means those names get the same BIG/archive lookup, TGA/DDS fallback, and
+/// extracted-install support as the rest of the client instead of silently
+/// rendering as a white quad.
+pub fn load_image_from_engine_filesystem(filename: &str) -> Result<DynamicImage, GameImageError> {
+    if filename.trim().is_empty() {
+        return Err(GameImageError::ImageNotFound(filename.to_string()));
+    }
+
+    ensure_engine_filesystem_backends();
+    for candidate in candidate_texture_resource_names(filename) {
+        if let Some(decoded) = try_load_image_from_engine_filesystem(&candidate) {
+            return Ok(decoded);
+        }
+    }
+
+    Err(GameImageError::ImageNotFound(filename.to_string()))
+}
+
 fn decode_image_from_bytes(resource_name: &str, bytes: &[u8]) -> Result<DynamicImage, ImageError> {
     let extension = Path::new(resource_name)
         .extension()
@@ -1405,7 +1428,10 @@ mod tests {
         );
         assert!(ensure_client_mapped_image("MainMenuPulse"));
         assert!(
-            client.read().find_image_by_name("MainMenuBackdrop").is_some(),
+            client
+                .read()
+                .find_image_by_name("MainMenuBackdrop")
+                .is_some(),
             "MainMenuBackdrop must stay registered by name"
         );
 
@@ -1431,7 +1457,10 @@ mod tests {
         assert!(missing.get_image_data().is_none());
         client.write().add_image(missing);
         assert!(
-            client.read().find_image_by_name("StageEMissingFile").is_some(),
+            client
+                .read()
+                .find_image_by_name("StageEMissingFile")
+                .is_some(),
             "missing file still registers by name"
         );
 

@@ -62,29 +62,29 @@ impl ScriptEngine {
     /// Get counter by name (owned snapshot — never a borrow into `UnsafeCell`).
     pub fn get_counter(&self, name: &str) -> Option<TCounter> {
         self.with_inner(|inner| {
-        for counter in &inner.counters {
-            if let Some(counter) = counter {
-                if counter.name == name {
-                    return Some(counter.clone());
+            for counter in &inner.counters {
+                if let Some(counter) = counter {
+                    if counter.name == name {
+                        return Some(counter.clone());
+                    }
                 }
             }
-        }
-        None
-            })
+            None
+        })
     }
 
     /// Get flag by name (owned snapshot — never a borrow into `UnsafeCell`).
     pub fn get_flag(&self, name: &str) -> Option<TFlag> {
         self.with_inner(|inner| {
-        for flag in &inner.flags {
-            if let Some(flag) = flag {
-                if flag.name == name {
-                    return Some(flag.clone());
+            for flag in &inner.flags {
+                if let Some(flag) = flag {
+                    if flag.name == name {
+                        return Some(flag.clone());
+                    }
                 }
             }
-        }
-        None
-            })
+            None
+        })
     }
 
     /// Set counter value
@@ -212,66 +212,65 @@ impl ScriptEngine {
         Ok(())
     }
 
-    /// Start end game timer
-    pub fn start_end_game_timer(&mut self) {
-        let inner = self.inner.get_mut();
-        inner.end_game_timer = 300; // 5 seconds at 60fps
+    /// Start the normal win/lose timer.
+    ///
+    /// C++ `FRAMES_TO_SHOW_WIN_LOSE_MESSAGE` is 120 logic frames.  This is
+    /// interior state so script actions can start the timer while the active
+    /// engine is lexically scoped, without trying to lock the global engine
+    /// again.
+    pub fn start_end_game_timer(&self) {
+        let mut inner = self.lock_inner_mut();
+        inner.end_game_timer = 120;
         log::info!("End game timer started");
     }
 
-    /// Start quick end game timer
-    pub fn start_quick_end_game_timer(&mut self) {
-        let inner = self.inner.get_mut();
-        inner.end_game_timer = 60; // 1 second at 60fps
+    /// Start the one-frame quick-victory timer.
+    pub fn start_quick_end_game_timer(&self) {
+        let mut inner = self.lock_inner_mut();
+        inner.end_game_timer = 1;
         log::info!("Quick end game timer started");
     }
 
-    /// Start close window timer
-    pub fn start_close_window_timer(&mut self) {
-        let inner = self.inner.get_mut();
-        inner.close_window_timer = 180; // 3 seconds at 60fps
+    /// Start the local-defeat close-window timer.
+    pub fn start_close_window_timer(&self) {
+        let mut inner = self.lock_inner_mut();
+        inner.close_window_timer = 120;
         log::info!("Close window timer started");
     }
 
     /// Set whether the multiplayer local defeat window has been shown.
-    pub fn set_shown_mp_local_defeat_window(&mut self, shown: bool) {
-        let inner = self.inner.get_mut();
+    pub fn set_shown_mp_local_defeat_window(&self, shown: bool) {
+        let mut inner = self.lock_inner_mut();
         inner.shown_mp_local_defeat_window = shown;
     }
 
     /// Return whether the multiplayer local defeat window has been shown.
     pub fn has_shown_mp_local_defeat_window(&self) -> bool {
-        self.with_inner(|inner| {
-        inner.shown_mp_local_defeat_window
-            })
+        self.with_inner(|inner| inner.shown_mp_local_defeat_window)
     }
 
     /// Check if game is ending
     pub fn is_game_ending(&self) -> bool {
-        self.with_inner(|inner| {
-        inner.end_game_timer >= 0
-            })
+        self.with_inner(|inner| inner.end_game_timer >= 0)
     }
 
     /// Freeze time
-    pub fn do_freeze_time(&mut self) {
-        let inner = self.inner.get_mut();
+    pub fn do_freeze_time(&self) {
+        let mut inner = self.lock_inner_mut();
         inner.freeze_by_script = true;
         log::info!("Time frozen by script");
     }
 
     /// Unfreeze time
-    pub fn do_unfreeze_time(&mut self) {
-        let inner = self.inner.get_mut();
+    pub fn do_unfreeze_time(&self) {
+        let mut inner = self.lock_inner_mut();
         inner.freeze_by_script = false;
         log::info!("Time unfrozen by script");
     }
 
     /// Check if time is frozen by script
     pub fn is_time_frozen_script(&self) -> bool {
-        self.with_inner(|inner| {
-        inner.freeze_by_script
-            })
+        self.with_inner(|inner| inner.freeze_by_script)
     }
 
     /// Set debug freeze state.
@@ -282,9 +281,7 @@ impl ScriptEngine {
 
     /// Check if time is frozen by debug controls.
     pub fn is_time_frozen_debug(&self) -> bool {
-        self.with_inner(|inner| {
-        inner.freeze_by_debug
-            })
+        self.with_inner(|inner| inner.freeze_by_debug)
     }
 
     /// Check if time is frozen by any mechanism (script or debug).
@@ -294,9 +291,7 @@ impl ScriptEngine {
     ///        TheScriptEngine->isTimeFrozenDebug() ||
     ///        TheScriptEngine->isTimeFrozenScript();`
     pub fn is_time_frozen(&self) -> bool {
-        self.with_inner(|inner| {
-        inner.freeze_by_debug || inner.freeze_by_script
-            })
+        self.with_inner(|inner| inner.freeze_by_debug || inner.freeze_by_script)
     }
 
     /// Get breeze info (owned snapshot — never a borrow into `UnsafeCell`).
@@ -312,14 +307,14 @@ impl ScriptEngine {
 
     /// Mirrors C++ ScriptEngine::setSway.
     pub fn set_breeze_info(
-        &mut self,
+        &self,
         direction: f32,
         intensity: f32,
         lean: f32,
         breeze_period: i32,
         randomness: f32,
     ) {
-        let inner = self.inner.get_mut();
+        let mut inner = self.lock_inner_mut();
         inner.breeze_info.breeze_version = inner.breeze_info.breeze_version.wrapping_add(1);
         inner.breeze_info.direction = direction;
         inner.breeze_info.direction_vec[0] = direction.sin();
@@ -332,7 +327,7 @@ impl ScriptEngine {
 
     /// Mirrors C++ ScriptEngine::setFade.
     pub fn set_fade_parameters(
-        &mut self,
+        &self,
         fade: TFade,
         min_fade: f32,
         max_fade: f32,
@@ -340,7 +335,7 @@ impl ScriptEngine {
         fade_frames_hold: i32,
         fade_frames_decrease: i32,
     ) {
-        let inner = self.inner.get_mut();
+        let mut inner = self.lock_inner_mut();
         inner.fade = fade;
         inner.cur_fade_frame = 0;
         inner.min_fade = min_fade;
@@ -350,23 +345,21 @@ impl ScriptEngine {
         inner.fade_frames_decrease = fade_frames_decrease;
         inner.cur_fade_value = inner.min_fade;
 
-        if inner.fade_frames_increase == 0 {
+        let update_immediately = inner.fade_frames_increase == 0;
+        drop(inner);
+        if update_immediately {
             self.update_fades();
         }
     }
 
     /// Get fade type
     pub fn get_fade(&self) -> TFade {
-        self.with_inner(|inner| {
-        inner.fade
-            })
+        self.with_inner(|inner| inner.fade)
     }
 
     /// Get fade value
     pub fn get_fade_value(&self) -> f32 {
-        self.with_inner(|inner| {
-        inner.cur_fade_value
-            })
+        self.with_inner(|inner| inner.cur_fade_value)
     }
 
     /// Get current track name (owned snapshot — never a borrow into `UnsafeCell`).
@@ -375,8 +368,8 @@ impl ScriptEngine {
     }
 
     /// Set current track name
-    pub fn set_current_track_name(&mut self, name: String) {
-        let inner = self.inner.get_mut();
+    pub fn set_current_track_name(&self, name: String) {
+        let mut inner = self.lock_inner_mut();
         inner.current_track_name = name;
     }
 
@@ -386,42 +379,46 @@ impl ScriptEngine {
     }
 
     pub fn get_global_difficulty(&self) -> crate::player::GameDifficulty {
-        self.with_inner(|inner| {
-        inner.game_difficulty
-            })
+        self.with_inner(|inner| inner.game_difficulty)
     }
 
-    pub fn set_objects_should_receive_difficulty_bonus(&mut self, enable: bool) {
-        let inner = self.inner.get_mut();
-        inner.objects_should_receive_difficulty_bonus = enable;
-        // Wave 348: empty dual-world → flag only.
-        if dual_world_registry_unavailable() {
-            return;
-        }
-        for obj_id in OBJECT_REGISTRY.get_all_object_ids() {
-            let obj = match OBJECT_REGISTRY.get_object(obj_id) {
-                Some(v) => v,
-                None => continue,
-            };
-            let mut guard = match obj.write() {
-                Ok(v) => v,
-                Err(_) => continue,
-            };
-            if true {
-                guard.set_receiving_difficulty_bonus(enable);
+    pub fn set_objects_should_receive_difficulty_bonus(&self, enable: bool) {
+        // ScriptActions::doEnableOrDisableObjectDifficultyBonuses applies the
+        // value to every object first, then records the script-engine state.
+        // Keep the inner borrow out of that object walk so an update callback
+        // cannot conflict with immediate script re-entry.
+        if !dual_world_registry_unavailable() {
+            for obj_id in OBJECT_REGISTRY.get_all_object_ids() {
+                let obj = match OBJECT_REGISTRY.get_object(obj_id) {
+                    Some(v) => v,
+                    None => continue,
+                };
+                let mut guard = match obj.write() {
+                    Ok(v) => v,
+                    Err(_) => continue,
+                };
+                if true {
+                    guard.set_receiving_difficulty_bonus(enable);
+                }
             }
         }
+
+        let mut inner = self.lock_inner_mut();
+        inner.objects_should_receive_difficulty_bonus = enable;
     }
 
-    pub fn set_choose_victim_always_uses_normal(&mut self, enable: bool) {
-        let inner = self.inner.get_mut();
+    /// C++ `getObjectsShouldReceiveDifficultyBonus` counterpart.
+    pub fn get_objects_should_receive_difficulty_bonus(&self) -> bool {
+        self.with_inner(|inner| inner.objects_should_receive_difficulty_bonus)
+    }
+
+    pub fn set_choose_victim_always_uses_normal(&self, enable: bool) {
+        let mut inner = self.lock_inner_mut();
         inner.choose_victim_always_uses_normal = enable;
     }
 
     pub fn get_choose_victim_always_uses_normal(&self) -> bool {
-        self.with_inner(|inner| {
-        inner.choose_victim_always_uses_normal
-            })
+        self.with_inner(|inner| inner.choose_victim_always_uses_normal)
     }
 
     /// Mirrors C++ `ScriptEngine::setEnableVTune`.
@@ -454,46 +451,44 @@ impl ScriptEngine {
 
     /// Get action template (owned snapshot — never a borrow into `UnsafeCell`).
     pub fn get_action_template(&self, index: usize) -> Option<ActionTemplate> {
-        self.with_inner(|inner| {
-        inner.action_templates.get(index).cloned()
-            })
+        self.with_inner(|inner| inner.action_templates.get(index).cloned())
     }
 
     /// Get condition template (owned snapshot — never a borrow into `UnsafeCell`).
     pub fn get_condition_template(&self, index: usize) -> Option<ConditionTemplate> {
-        self.with_inner(|inner| {
-        inner.condition_templates.get(index).cloned()
-            })
+        self.with_inner(|inner| inner.condition_templates.get(index).cloned())
     }
 
     pub fn find_condition_type_by_name_key(&self, name_key: u32) -> Option<ConditionType> {
         self.with_inner(|inner| {
-        inner.condition_templates
-            .iter()
-            .enumerate()
-            .find_map(|(idx, template)| {
-                if template.base.internal_name_key == name_key {
-                    ConditionType::from_u32(idx as u32)
-                } else {
-                    None
-                }
-            })
-            })
+            inner
+                .condition_templates
+                .iter()
+                .enumerate()
+                .find_map(|(idx, template)| {
+                    if template.base.internal_name_key == name_key {
+                        ConditionType::from_u32(idx as u32)
+                    } else {
+                        None
+                    }
+                })
+        })
     }
 
     pub fn find_action_type_by_name_key(&self, name_key: u32) -> Option<ScriptActionType> {
         self.with_inner(|inner| {
-        inner.action_templates
-            .iter()
-            .enumerate()
-            .find_map(|(idx, template)| {
-                if template.base.internal_name_key == name_key {
-                    ScriptActionType::from_u32(idx as u32)
-                } else {
-                    None
-                }
-            })
-            })
+            inner
+                .action_templates
+                .iter()
+                .enumerate()
+                .find_map(|(idx, template)| {
+                    if template.base.internal_name_key == name_key {
+                        ScriptActionType::from_u32(idx as u32)
+                    } else {
+                        None
+                    }
+                })
+        })
     }
 
     /// Append sequential script
@@ -505,6 +500,10 @@ impl ScriptEngine {
         let target_team = script.team_to_exec_on.clone();
 
         let mut inner = self.lock_inner_mut();
+        // `SequentialScript` is cloned when it is appended in C++. Give this
+        // Rust node a fresh process-local identity rather than retaining the
+        // source node's reconciliation token.
+        script.runtime_token = Self::allocate_sequential_runtime_token(&mut inner);
         for existing in &mut inner.sequential_scripts {
             let object_match = target_object != INVALID_ID && existing.object_id == target_object;
             let team_match = target_team.is_some() && existing.team_to_exec_on == target_team;
@@ -531,9 +530,10 @@ impl ScriptEngine {
     }
 
     /// Remove all sequential scripts bound to a specific object.
-    pub fn remove_all_sequential_scripts_for_object(&mut self, object_id: ObjectID) {
-        let inner = self.inner.get_mut();
-        inner.sequential_scripts
+    pub fn remove_all_sequential_scripts_for_object(&self, object_id: ObjectID) {
+        let mut inner = self.lock_inner_mut();
+        inner
+            .sequential_scripts
             .retain(|script| script.object_id != object_id);
     }
 
@@ -543,25 +543,28 @@ impl ScriptEngine {
     /// the intended semantics: returns false if scripts are still active, true if none remain.
     pub fn has_active_sequential_script_for_object(&self, object_id: ObjectID) -> bool {
         self.with_inner(|inner| {
-        inner.sequential_scripts
-            .iter()
-            .any(|script| script.object_id == object_id)
-            })
+            inner
+                .sequential_scripts
+                .iter()
+                .any(|script| script.object_id == object_id)
+        })
     }
 
     /// Check if a specific team has any active sequential scripts running.
     pub fn has_active_sequential_script_for_team(&self, team_name: &str) -> bool {
         self.with_inner(|inner| {
-        inner.sequential_scripts
-            .iter()
-            .any(|script| script.team_to_exec_on.as_deref() == Some(team_name))
-            })
+            inner
+                .sequential_scripts
+                .iter()
+                .any(|script| script.team_to_exec_on.as_deref() == Some(team_name))
+        })
     }
 
     /// Remove all sequential scripts bound to a specific team.
-    pub fn remove_all_sequential_scripts_for_team(&mut self, team_name: &str) {
-        let inner = self.inner.get_mut();
-        inner.sequential_scripts
+    pub fn remove_all_sequential_scripts_for_team(&self, team_name: &str) {
+        let mut inner = self.lock_inner_mut();
+        inner
+            .sequential_scripts
             .retain(|script| script.team_to_exec_on.as_deref() != Some(team_name));
     }
 
@@ -596,12 +599,12 @@ impl ScriptEngine {
 
     /// Notify the script engine that a special power was triggered.
     pub fn notify_of_triggered_special_power(
-        &mut self,
+        &self,
         player_index: usize,
         power_name: &str,
         source_obj: ObjectId,
     ) {
-        let inner = self.inner.get_mut();
+        let mut inner = self.lock_inner_mut();
         if player_index >= Self::MAX_PLAYER_COUNT {
             log::warn!(
                 "notify_of_triggered_special_power: player index {} out of range",
@@ -614,12 +617,12 @@ impl ScriptEngine {
 
     /// Notify the script engine that a special power reached its midway trigger.
     pub fn notify_of_midway_special_power(
-        &mut self,
+        &self,
         player_index: usize,
         power_name: &str,
         source_obj: ObjectId,
     ) {
-        let inner = self.inner.get_mut();
+        let mut inner = self.lock_inner_mut();
         if player_index >= Self::MAX_PLAYER_COUNT {
             log::warn!(
                 "notify_of_midway_special_power: player index {} out of range",
@@ -632,12 +635,12 @@ impl ScriptEngine {
 
     /// Notify the script engine that a special power finished executing.
     pub fn notify_of_completed_special_power(
-        &mut self,
+        &self,
         player_index: usize,
         power_name: &str,
         source_obj: ObjectId,
     ) {
-        let inner = self.inner.get_mut();
+        let mut inner = self.lock_inner_mut();
         if player_index >= Self::MAX_PLAYER_COUNT {
             log::warn!(
                 "notify_of_completed_special_power: player index {} out of range",
@@ -650,12 +653,12 @@ impl ScriptEngine {
 
     /// Notify the script engine that an upgrade completed.
     pub fn notify_of_completed_upgrade(
-        &mut self,
+        &self,
         player_index: usize,
         upgrade_name: &str,
         source_obj: ObjectId,
     ) {
-        let inner = self.inner.get_mut();
+        let mut inner = self.lock_inner_mut();
         if player_index >= Self::MAX_PLAYER_COUNT {
             log::warn!(
                 "notify_of_completed_upgrade: player index {} out of range",
@@ -691,13 +694,13 @@ impl ScriptEngine {
     }
 
     pub fn is_special_power_triggered(
-        &mut self,
+        &self,
         player_index: usize,
         power_name: &str,
         remove_from_list: bool,
         source_obj: ObjectId,
     ) -> bool {
-        let inner = self.inner.get_mut();
+        let mut inner = self.lock_inner_mut();
         let Some(list) = inner.triggered_special_powers.get_mut(player_index) else {
             return false;
         };
@@ -705,13 +708,13 @@ impl ScriptEngine {
     }
 
     pub fn is_special_power_midway(
-        &mut self,
+        &self,
         player_index: usize,
         power_name: &str,
         remove_from_list: bool,
         source_obj: ObjectId,
     ) -> bool {
-        let inner = self.inner.get_mut();
+        let mut inner = self.lock_inner_mut();
         let Some(list) = inner.midway_special_powers.get_mut(player_index) else {
             return false;
         };
@@ -719,13 +722,13 @@ impl ScriptEngine {
     }
 
     pub fn is_special_power_complete(
-        &mut self,
+        &self,
         player_index: usize,
         power_name: &str,
         remove_from_list: bool,
         source_obj: ObjectId,
     ) -> bool {
-        let inner = self.inner.get_mut();
+        let mut inner = self.lock_inner_mut();
         let Some(list) = inner.finished_special_powers.get_mut(player_index) else {
             return false;
         };
@@ -733,13 +736,13 @@ impl ScriptEngine {
     }
 
     pub fn is_upgrade_complete(
-        &mut self,
+        &self,
         player_index: usize,
         upgrade_name: &str,
         remove_from_list: bool,
         source_obj: ObjectId,
     ) -> bool {
-        let inner = self.inner.get_mut();
+        let mut inner = self.lock_inner_mut();
         let Some(list) = inner.completed_upgrades.get_mut(player_index) else {
             return false;
         };
@@ -747,8 +750,8 @@ impl ScriptEngine {
     }
 
     /// Check if video is complete
-    pub fn is_video_complete(&mut self, video_name: &str, remove_from_list: bool) -> bool {
-        let inner = self.inner.get_mut();
+    pub fn is_video_complete(&self, video_name: &str, remove_from_list: bool) -> bool {
+        let mut inner = self.lock_inner_mut();
         if let Some(pos) = inner.completed_video.iter().position(|v| v == video_name) {
             if remove_from_list {
                 inner.completed_video.remove(pos);
@@ -793,13 +796,13 @@ impl ScriptEngine {
         completed
     }
 
-    pub fn is_speech_complete(&mut self, speech_name: &str, remove_from_list: bool) -> bool {
-        let inner = self.inner.get_mut();
+    pub fn is_speech_complete(&self, speech_name: &str, remove_from_list: bool) -> bool {
+        let mut inner = self.lock_inner_mut();
         Self::is_timed_audio_complete(&mut inner.testing_speech, speech_name, remove_from_list)
     }
 
-    pub fn is_audio_complete(&mut self, audio_name: &str, remove_from_list: bool) -> bool {
-        let inner = self.inner.get_mut();
+    pub fn is_audio_complete(&self, audio_name: &str, remove_from_list: bool) -> bool {
+        let mut inner = self.lock_inner_mut();
         Self::is_timed_audio_complete(&mut inner.testing_audio, audio_name, remove_from_list)
     }
 
@@ -812,13 +815,13 @@ impl ScriptEngine {
 
     /// Create named map reveal
     pub fn create_named_map_reveal(
-        &mut self,
+        &self,
         reveal_name: &str,
         waypoint_name: &str,
         radius: f32,
         player_name: &str,
     ) {
-        let inner = self.inner.get_mut();
+        let mut inner = self.lock_inner_mut();
         if inner
             .named_reveals
             .iter()
@@ -928,8 +931,8 @@ impl ScriptEngine {
     }
 
     /// Remove a named map reveal (matches C++ ScriptEngine::removeNamedMapReveal).
-    pub fn remove_named_map_reveal(&mut self, reveal_name: &str) {
-        let inner = self.inner.get_mut();
+    pub fn remove_named_map_reveal(&self, reveal_name: &str) {
+        let mut inner = self.lock_inner_mut();
         if let Some(index) = inner
             .named_reveals
             .iter()
@@ -942,11 +945,11 @@ impl ScriptEngine {
     /// Set or clear a named topple direction for scripted objects.
     /// Matches C++ ScriptEngine::setToppleDirection.
     pub fn set_topple_direction(
-        &mut self,
+        &self,
         object_name: &str,
         direction: Option<crate::common::Coord3D>,
     ) {
-        let inner = self.inner.get_mut();
+        let mut inner = self.lock_inner_mut();
         if object_name.is_empty() {
             return;
         }
@@ -980,26 +983,26 @@ impl ScriptEngine {
         direction: &mut crate::common::Coord3D,
     ) {
         self.with_inner(|inner| {
-        let name = object.get_name();
-        if name.is_empty() {
-            return;
-        }
-
-        for (entry_name, entry_direction) in &inner.topple_directions {
-            if entry_name == name.as_str() {
-                let mut new_dir = crate::common::Coord3D::new(
-                    entry_direction.x,
-                    entry_direction.y,
-                    entry_direction.z,
-                );
-                if new_dir.length_squared() > 0.0 {
-                    new_dir = new_dir.normalize();
-                }
-                *direction = new_dir;
+            let name = object.get_name();
+            if name.is_empty() {
                 return;
             }
-        }
-            })
+
+            for (entry_name, entry_direction) in &inner.topple_directions {
+                if entry_name == name.as_str() {
+                    let mut new_dir = crate::common::Coord3D::new(
+                        entry_direction.x,
+                        entry_direction.y,
+                        entry_direction.z,
+                    );
+                    if new_dir.length_squared() > 0.0 {
+                        new_dir = new_dir.normalize();
+                    }
+                    *direction = new_dir;
+                    return;
+                }
+            }
+        })
     }
 
     /// Get statistics string
@@ -1035,9 +1038,7 @@ impl ScriptEngine {
     }
 
     pub fn action_handler(&self) -> Option<Arc<dyn ScriptActionHandler>> {
-        self.with_inner(|inner| {
-        inner.action_handler.clone()
-            })
+        self.with_inner(|inner| inner.action_handler.clone())
     }
     pub fn notify_of_acquired_science(&mut self, player_index: usize, science: ScienceType) {
         let inner = self.inner.get_mut();
@@ -1049,12 +1050,12 @@ impl ScriptEngine {
 
     /// Check if a science was acquired by a player (optionally remove the entry).
     pub fn is_science_acquired(
-        &mut self,
+        &self,
         player_index: usize,
         science: ScienceType,
         remove: bool,
     ) -> bool {
-        let inner = self.inner.get_mut();
+        let mut inner = self.lock_inner_mut();
         let Some(list) = inner.acquired_sciences.get_mut(player_index) else {
             return false;
         };
@@ -1482,21 +1483,18 @@ impl ScriptEngine {
         false
     }
 
-    /// PARITY_NOTE: C++ FRAMES_TO_SHOW_WIN_LOSE_MESSAGE = 120
-    pub fn start_end_game_timer_cxx(&mut self) {
-        let inner = self.inner.get_mut();
-        inner.end_game_timer = 120;
+    /// Compatibility spelling for callers retained during the port.
+    pub fn start_end_game_timer_cxx(&self) {
+        self.start_end_game_timer();
     }
 
-    /// PARITY_NOTE: C++ FRAMES_TO_SHOW_WIN_LOSE_MESSAGE = 120
-    pub fn start_close_window_timer_cxx(&mut self) {
-        let inner = self.inner.get_mut();
-        inner.close_window_timer = 120;
+    /// Compatibility spelling for callers retained during the port.
+    pub fn start_close_window_timer_cxx(&self) {
+        self.start_close_window_timer();
     }
 
-    /// PARITY_NOTE: C++ startQuickEndGameTimer = 1 frame
-    pub fn start_quick_end_game_timer_cxx(&mut self) {
-        let inner = self.inner.get_mut();
-        inner.end_game_timer = 1;
+    /// Compatibility spelling for callers retained during the port.
+    pub fn start_quick_end_game_timer_cxx(&self) {
+        self.start_quick_end_game_timer();
     }
 }

@@ -634,7 +634,15 @@ impl GameLogic {
         use crate::game_logic::{KindOf, ThingTemplate};
 
         let plan = self.plan_ocl_special_power(power_template, caster_id, target_pos)?;
-        let team = self.objects.get(&caster_id)?.team;
+        let (team, source_owner_player_id) = {
+            let caster = self.objects.get(&caster_id)?;
+            let owner_player_id = if caster.owner_player_id.is_some() {
+                Some(self.player_owner_for_host_object(caster)?)
+            } else {
+                None
+            };
+            (caster.team, owner_player_id)
+        };
         let mode = ocl_execute_mode_for_template(power_template);
 
         if create_object_for_ocl(&plan.ocl_name).is_some()
@@ -651,7 +659,12 @@ impl GameLogic {
                             .set_health(100.0);
                         self.templates.insert(name.clone(), tpl);
                     }
-                    if let Some(id) = self.create_object(name, team, plan.target_coord) {
+                    if let Some(id) = self.create_object_for_owner_or_team(
+                        name,
+                        team,
+                        source_owner_player_id,
+                        plan.target_coord,
+                    ) {
                         if let Some(o) = self.objects.get_mut(&id) {
                             o.producer_id = Some(caster_id);
                         }
@@ -672,7 +685,12 @@ impl GameLogic {
                 .set_health(500.0);
             self.templates.insert(deliver.transport.clone(), tpl);
         }
-        let transport_id = self.create_object(&deliver.transport, team, plan.creation_coord)?;
+        let transport_id = self.create_object_for_owner_or_team(
+            &deliver.transport,
+            team,
+            source_owner_player_id,
+            plan.creation_coord,
+        )?;
         if let Some(t) = self.objects.get_mut(&transport_id) {
             t.producer_id = Some(caster_id);
             let p = t.get_position();
@@ -720,9 +738,12 @@ impl GameLogic {
                 DAISY_CUTTER_IMPACT_DELAY_FRAMES
             }
         };
-        let mission_id = self.host_deliver_payloads.queue_superweapon_ocl_bomb(
+        let mission_id = self
+            .host_deliver_payloads
+            .queue_superweapon_ocl_bomb_for_owner(
             caster_id,
             team,
+            source_owner_player_id,
             plan.target_coord,
             self.frame,
             deliver.payload.clone(),

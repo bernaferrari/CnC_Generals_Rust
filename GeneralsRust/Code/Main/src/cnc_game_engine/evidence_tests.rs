@@ -448,6 +448,32 @@ fn physical_gather_proof_requires_physical_accepted_order_and_real_dropoff() {
         "headless/hidden/network paths must fail closed"
     );
 
+    let executor = include_str!("../command_executor/leftover.rs");
+    let gather_start = executor
+        .find("fn execute_gather")
+        .expect("Gather executor authority");
+    let gather = &executor[gather_start..];
+    assert!(
+        gather.contains("unit.is_resource_collector()")
+            && !gather.contains("unit.is_worker()"),
+        "accepted Gather carriers must use semantic HARVESTER capability, not a builder/name heuristic"
+    );
+
+    let command_system = include_str!("../command_system/system_impl.rs");
+    assert!(
+        command_system.contains("u.is_alive && u.is_resource_collector")
+            && command_system.contains("unit_is_resource_collector(unit_id)"),
+        "presentation-frozen and boot command classification must agree on HARVESTER"
+    );
+
+    let template_parse = include_str!("../game_logic/world_objects/spawn_templates.rs");
+    assert!(
+        template_parse.contains("let is_harvester = has_kind(\"harvester\")")
+            && template_parse.contains("has_kind(\"harvestable\")")
+            && !template_parse.contains("kind_of.contains(\"harvest\")"),
+        "HARVESTER must not be conflated with HARVESTABLE or a Resource template"
+    );
+
     let deposit = include_str!("../game_logic/world_objects/support_states.rs");
     let returning = deposit
         .find("AIState::ReturningResources")
@@ -534,7 +560,10 @@ fn configured_skirmish_start_restamps_mode_after_map_clear_before_physical_evide
             include_str!("control_bar_bridge.rs"),
             "host_control_bar_evidence_eligible",
         ),
-        (include_str!("mouse.rs"), "host_physical_gather_evidence_eligible"),
+        (
+            include_str!("mouse.rs"),
+            "host_physical_gather_evidence_eligible",
+        ),
         (
             include_str!("runtime_host/gameplay.rs"),
             "host_popup_save_load_evidence_eligible",

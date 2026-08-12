@@ -6,6 +6,7 @@
 
 // Asset manager - coordinates all asset loading systems
 
+use crate::assets::ini_parser::{AuthoredConditionModelSelection, AuthoredDrawModel};
 use crate::assets::{
     archive::{ArchiveFileSystem, ArchiveStatistics},
     audio::AudioManager,
@@ -13,7 +14,6 @@ use crate::assets::{
     textures::{GPUTexture, RawTexture, TextureManager},
     ww3d_asset_manager::WW3DAssetManager,
 };
-use crate::assets::ini_parser::AuthoredConditionModelSelection;
 use crate::localization;
 use anyhow::{anyhow, Result};
 use log::{debug, error, info, warn};
@@ -834,6 +834,17 @@ impl AssetManager {
             .select_model_for_object_conditions(object_name, condition_bits)
     }
 
+    /// Select every exact model supplied by the Object's source-authored Draw
+    /// modules, preserving declaration order and repeated W3D names.
+    pub fn select_draw_models_for_object_conditions(
+        &self,
+        object_name: &str,
+        condition_bits: u128,
+    ) -> Option<Vec<AuthoredDrawModel>> {
+        self.ww3d_manager
+            .select_draw_models_for_object_conditions(object_name, condition_bits)
+    }
+
     /// Get full object definition from WW3D Asset Manager
     pub fn get_object_definition(
         &self,
@@ -868,9 +879,7 @@ impl AssetManager {
     /// GameLogic uses this at world initialization to seed exact template
     /// identities without holding the global asset-manager lock while it
     /// constructs gameplay state.
-    pub fn object_definitions_snapshot(
-        &self,
-    ) -> Vec<(String, crate::assets::ObjectDefinition)> {
+    pub fn object_definitions_snapshot(&self) -> Vec<(String, crate::assets::ObjectDefinition)> {
         self.ww3d_manager.object_definitions_snapshot()
     }
 
@@ -1494,6 +1503,41 @@ pub fn resolve_presentation_model_key_for_conditions(
         ) => None,
         Some(AuthoredConditionModelSelection::NoAuthoredState) | None => fallback(),
     }
+}
+
+/// Resolve all source-authored W3D Draw modules for a frozen presentation
+/// object. The returned vector is intentionally not deduplicated: two C++
+/// Draw modules may use the same basename but own separate animation state.
+///
+/// A fallback list is permitted only when no active catalogue can find a
+/// selectable Draw-state table for the exact Object identity. If the catalogue
+/// reports source state but no safely selected model, this returns an empty
+/// vector rather than borrowing a pristine or suffix-derived mesh.
+pub fn resolve_presentation_draw_models_for_conditions(
+    object_name: &str,
+    fallback_draw_models: &[AuthoredDrawModel],
+    condition_bits: u128,
+) -> Vec<AuthoredDrawModel> {
+    let fallback = || {
+        fallback_draw_models
+            .iter()
+            .filter(|model| !model.model_key.trim().is_empty())
+            .cloned()
+            .collect()
+    };
+
+    let Some(asset_manager) = get_asset_manager() else {
+        return fallback();
+    };
+    let Ok(asset_manager) = asset_manager.lock() else {
+        // The catalogue exists but cannot be queried reliably. Rendering a
+        // fallback could turn a damaged/construction state into pristine art.
+        return Vec::new();
+    };
+
+    asset_manager
+        .select_draw_models_for_object_conditions(object_name, condition_bits)
+        .unwrap_or_else(fallback)
 }
 
 /// Warm up optional caustic animation textures outside startup critical path.

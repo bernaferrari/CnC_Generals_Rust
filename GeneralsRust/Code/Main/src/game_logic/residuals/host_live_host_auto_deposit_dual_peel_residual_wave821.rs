@@ -138,6 +138,7 @@ mod tests {
             id: ObjectId(7),
             kind: AutoDepositKind::BlackMarket,
             team: Team::USA,
+            owner_player_id: None,
             pos: glam::Vec3::new(1.0, 2.0, 3.0),
             amount: 20,
             next_deposit_frame: 120,

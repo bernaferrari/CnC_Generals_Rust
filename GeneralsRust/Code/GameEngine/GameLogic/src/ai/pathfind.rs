@@ -13,7 +13,7 @@ use crate::object::*;
 use crate::path::SURFACE_GROUND;
 use crate::terrain::get_terrain_logic;
 use game_engine::common::system::{Snapshotable, Xfer};
-use slotmap::{DefaultKey, SlotMap};
+use slotmap::SlotMap;
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex, RwLock, Weak};
@@ -31,30 +31,9 @@ pub const PATH_MAX_PRIORITY: i32 = i32::MAX;
 /// Maximum wall pieces supported
 pub const MAX_WALL_PIECES: usize = 128;
 
-/// Index key for PathNode within the Path's SlotMap.
-/// Replaces all raw pointer usage with safe index references.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]
-pub struct PathNodeKey(slotmap::DefaultKey);
-
-impl From<slotmap::KeyData> for PathNodeKey {
-    fn from(data: slotmap::KeyData) -> Self {
-        PathNodeKey(slotmap::DefaultKey::from(data))
-    }
-}
-
-unsafe impl slotmap::Key for PathNodeKey {
-    fn null() -> Self {
-        PathNodeKey(slotmap::DefaultKey::null())
-    }
-
-    fn is_null(&self) -> bool {
-        self.0.is_null()
-    }
-
-    fn data(&self) -> slotmap::KeyData {
-        self.0.data()
-    }
-}
+// Index key for PathNode within the Path's SlotMap. `new_key_type!` supplies
+// SlotMap's unsafe key contract, so this module does not hand-roll it.
+slotmap::new_key_type! { pub struct PathNodeKey; }
 
 /// PathNodes are used to create a final Path to return from the pathfinder.
 /// All node ownership is managed through the Path's SlotMap.
@@ -65,6 +44,12 @@ pub struct PathNode {
     layer: PathfindLayerEnum,
     /// Previous node in the path (index into SlotMap)
     prev: Option<PathNodeKey>,
+    /// Next node in the path (index into SlotMap).
+    ///
+    /// C++ `PathNode` is a doubly linked list.  Keeping both directions is
+    /// important: path construction walks forward from the head, while Xfer
+    /// writes backward from the tail.
+    next: Option<PathNodeKey>,
     /// Next node in optimized path (index into SlotMap)
     next_opti: Option<PathNodeKey>,
     /// Distance to next optimized node
@@ -83,6 +68,7 @@ impl PathNode {
             pos: Coord3D::new(0.0, 0.0, 0.0),
             layer: PathfindLayerEnum::Invalid,
             prev: None,
+            next: None,
             next_opti: None,
             next_opti_dist_2d: 0.0,
             next_opti_dir_norm_2d: Coord2D::new(0.0, 0.0),
@@ -111,22 +97,13 @@ impl PathNode {
         self.layer = layer;
     }
 
-    /// Get next node in path. Follows the next_opti chain from head to tail,
-    /// looking for the node whose prev points to `self_key`.
+    /// Get next node in the raw path.
     pub fn get_next<'a>(
         &'a self,
-        self_key: PathNodeKey,
+        _self_key: PathNodeKey,
         nodes: &'a SlotMap<PathNodeKey, PathNode>,
     ) -> Option<&'a PathNode> {
-        // The "next" node in the path is the one whose `prev` == Some(self_key).
-        // We search by iterating from head. Since paths are short, this is fine.
-        // For optimization, we use next_opti chain when available.
-        for (_, node) in nodes.iter() {
-            if node.prev == Some(self_key) {
-                return Some(node);
-            }
-        }
-        None
+        self.next.and_then(|key| nodes.get(key))
     }
 
     /// Get next node in optimized path
@@ -228,9 +205,8 @@ pub struct ClosestPointOnPathInfo {
 
 /// Path class encapsulates a path returned by the pathfinder.
 /// All nodes are owned in a SlotMap; head/tail are index keys.
-/// The path is ordered head -> tail via the `prev` chain (each node's prev
-/// points to the node that was inserted before it, so iterating from head
-/// through prev gives the forward path order).
+/// The path is ordered head -> tail through `next`; `prev` is retained for
+/// reverse traversal during Xfer, exactly like C++ `PathNode`.
 pub struct Path {
     /// All nodes owned in a SlotMap
     nodes: SlotMap<PathNodeKey, PathNode>,
@@ -277,7 +253,6 @@ impl Path {
     }
 
     /// Iterate path from head to tail, calling `f` for each (key, node) pair.
-    /// Order: head first, then following the chain via prev links.
     fn for_each_node<F>(&self, mut f: F)
     where
         F: FnMut(PathNodeKey, &PathNode),
@@ -285,7 +260,7 @@ impl Path {
         let mut current = self.head;
         while let Some(key) = current {
             if let Some(node) = self.nodes.get(key) {
-                let next = node.prev; // prev of current points to the node inserted after it
+                let next = node.next;
                 f(key, node);
                 current = next;
             } else {
@@ -300,7 +275,7 @@ impl Path {
         let mut current = self.head;
         while let Some(key) = current {
             keys.push(key);
-            current = self.nodes.get(key).and_then(|n| n.prev);
+            current = self.nodes.get(key).and_then(|n| n.next);
         }
         keys
     }
@@ -349,8 +324,7 @@ impl Path {
         let new_key = self.nodes.insert(new_node);
 
         if let Some(old_head_key) = self.head {
-            // Old head's prev should point to the new node
-            // (prev means "the node that comes after me in head->tail order")
+            self.nodes[new_key].next = Some(old_head_key);
             self.nodes[old_head_key].prev = Some(new_key);
         } else {
             // This is the first node, so it's also the tail
@@ -382,6 +356,7 @@ impl Path {
 
         if let Some(tail_key) = self.tail {
             self.nodes[new_key].prev = Some(tail_key);
+            self.nodes[tail_key].next = Some(new_key);
             if self.is_optimized {
                 let new_pos = self.nodes.get(new_key).map(|n| n.pos);
                 if let Some(tail_node) = self.nodes.get_mut(tail_key) {
@@ -687,11 +662,14 @@ pub enum CellFlags {
 
 /// Pathfinding cell information (allocated on demand)
 pub struct PathfindCellInfo {
-    /// For A* open/closed lists
-    next_open: Option<*mut PathfindCellInfo>,
-    prev_open: Option<*mut PathfindCellInfo>,
-    /// Parent cell from pathfinder
-    path_parent: Option<*mut PathfindCellInfo>,
+    /// A* topology is represented by grid coordinates, not non-owning cell
+    /// addresses.  C++ used pointers here because its cells lived in a fixed
+    /// array; coordinates retain the same graph identity without dangling
+    /// pointer risk when the Rust grid is reset or rebuilt.
+    next_open: Option<ICoord2D>,
+    prev_open: Option<ICoord2D>,
+    /// Parent cell from pathfinder.
+    path_parent: Option<ICoord2D>,
     /// Cost estimates for A* search
     total_cost: u16,
     cost_so_far: u16,
@@ -836,10 +814,7 @@ impl Snapshotable for Path {
                     .map_err(|e| format!("Failed to xfer Path opt id: {:?}", e))?;
 
                 remaining -= 1;
-                // Walk backwards: current node's prev points to the next node in traversal order,
-                // so to go backwards from tail to head, we need to find who points to us.
-                // But actually prev means "the node after me in head->tail order", so
-                // from tail, tail.prev is the node before tail. This IS backwards traversal.
+                // C++ writes the doubly-linked list tail -> head.
                 current = node.prev;
             }
         } else {
@@ -880,11 +855,11 @@ impl Snapshotable for Path {
 
                 let new_key = self.nodes.insert(new_node);
 
-                // First node inserted becomes head, each subsequent node becomes new head
-                // (because save iterated tail->head, load prepends to rebuild head->tail)
+                // First node inserted is the tail.  Each subsequent node is
+                // prepended because C++ writes tail -> head.
                 if let Some(old_head_key) = self.head.take() {
-                    // New node becomes head, old head's prev points to new node
-                    self.nodes[new_key].prev = Some(old_head_key);
+                    self.nodes[new_key].next = Some(old_head_key);
+                    self.nodes[old_head_key].prev = Some(new_key);
                 } else {
                     // First node is also tail
                     self.tail = Some(new_key);
@@ -1775,4 +1750,94 @@ pub fn find_path(start: Coord3D, end: Coord3D, obj: Option<ObjectID>) -> Option<
     path.push(final_pos);
 
     Some(path)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use game_engine::common::system::xfer_load::XferLoad;
+    use game_engine::common::system::xfer_save::XferSave;
+    use std::io::Cursor;
+
+    fn points(path: &Path) -> Vec<Coord3D> {
+        path.ordered_keys()
+            .into_iter()
+            .map(|key| path.nodes.get(key).expect("ordered key is live").pos)
+            .collect()
+    }
+
+    #[test]
+    fn path_nodes_keep_cxx_head_to_tail_links() {
+        // C++ Path::prependNode then appendNode builds a doubly-linked chain
+        // traversable from m_path with PathNode::getNext().
+        let mut path = Path::new();
+        path.prepend_node(&Coord3D::new(0.0, 0.0, 0.0), PathfindLayerEnum::Ground);
+        path.append_node(&Coord3D::new(10.0, 0.0, 0.0), PathfindLayerEnum::Ground);
+        path.append_node(&Coord3D::new(20.0, 0.0, 0.0), PathfindLayerEnum::Ground);
+
+        let keys = path.ordered_keys();
+        assert_eq!(keys.len(), 3);
+        assert_eq!(points(&path)[2], Coord3D::new(20.0, 0.0, 0.0));
+        assert_eq!(path.nodes[keys[0]].next, Some(keys[1]));
+        assert_eq!(path.nodes[keys[1]].prev, Some(keys[0]));
+        assert_eq!(path.nodes[keys[1]].next, Some(keys[2]));
+        assert_eq!(path.nodes[keys[2]].prev, Some(keys[1]));
+    }
+
+    #[test]
+    fn path_closest_point_uses_later_live_path_segments() {
+        let mut path = Path::new();
+        path.prepend_node(&Coord3D::new(0.0, 0.0, 0.0), PathfindLayerEnum::Ground);
+        path.append_node(&Coord3D::new(10.0, 0.0, 0.0), PathfindLayerEnum::Ground);
+        path.append_node(&Coord3D::new(20.0, 0.0, 0.0), PathfindLayerEnum::Ground);
+
+        let closest = path.compute_point_on_path(&Coord3D::new(15.0, 5.0, 0.0));
+        assert!((closest.pos_on_path.x - 15.0).abs() < 0.001);
+        assert!(closest.pos_on_path.y.abs() < 0.001);
+    }
+
+    #[test]
+    fn path_xfer_round_trip_preserves_head_to_tail_order() {
+        let mut source = Path::new();
+        source.prepend_node(&Coord3D::new(0.0, 0.0, 0.0), PathfindLayerEnum::Ground);
+        source.append_node(&Coord3D::new(10.0, 0.0, 0.0), PathfindLayerEnum::Ground);
+        source.append_node(&Coord3D::new(20.0, 0.0, 0.0), PathfindLayerEnum::Ground);
+
+        let mut saved = Vec::new();
+        {
+            let cursor = Cursor::new(&mut saved);
+            let mut xfer = XferSave::new(cursor, 1);
+            Snapshotable::xfer(&mut source, &mut xfer).expect("save path");
+        }
+
+        let mut loaded = Path::new();
+        {
+            let cursor = Cursor::new(saved);
+            let mut xfer = XferLoad::new(cursor, 1);
+            Snapshotable::xfer(&mut loaded, &mut xfer).expect("load path");
+        }
+
+        assert_eq!(
+            points(&loaded),
+            vec![
+                Coord3D::new(0.0, 0.0, 0.0),
+                Coord3D::new(10.0, 0.0, 0.0),
+                Coord3D::new(20.0, 0.0, 0.0),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_star_path_keeps_every_waypoint_for_movement() {
+        let pathfinder = Pathfinder::new(5, 1, 10.0, Coord2D::new(0.0, 0.0));
+        let path = pathfinder
+            .find_path(&Coord3D::new(0.0, 0.0, 0.0), &Coord3D::new(40.0, 0.0, 0.0))
+            .expect("open ground has a path");
+
+        assert_eq!(points(&path).len(), 5);
+        assert_eq!(
+            points(&path).last().copied(),
+            Some(Coord3D::new(40.0, 0.0, 0.0))
+        );
+    }
 }

@@ -751,7 +751,7 @@ fn host_owner_log_feeds_transfer_owner_mutation() {
     assert_eq!(n, 1);
     let eid = shadow.entity_for_host(id).expect("map");
     let owner = shadow.world().entity(eid).unwrap().owner;
-    let expected = shadow.owner_for_host_object(&logic, Team::USA);
+    let expected = shadow.owner_for_host_object(&logic, logic.host_object(id).unwrap());
     assert_eq!(
         owner, expected,
         "TransferOwner should map host team to shadow player"

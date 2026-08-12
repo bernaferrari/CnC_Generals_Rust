@@ -47,10 +47,12 @@ impl GameMessageTranslator for MetaEventTranslator {
                 new_mod_state |= MOD_ALT;
             }
 
-            let shell_active = try_with_shell_mut(|shell| shell.is_shell_active()).unwrap_or(false);
-            let client_frame =
-                crate::core::game_client::with_live_game_client_mut(|client| client.get_frame())
-                    .unwrap_or(0);
+            let shell_active = with_shell_ref(|shell| shell.is_shell_active()).unwrap_or(false);
+            // Meta translation commonly runs from `GameClient::pump_message_stream`
+            // while that client is already mutably borrowed.  It only needs the
+            // current frame, so use the published scalar rather than re-entering
+            // the snapshot-only mutable client slot.
+            let client_frame = crate::core::game_client::live_game_client_frame().unwrap_or(0);
 
             let map_guard = get_meta_map().read().unwrap_or_else(|e| e.into_inner());
             for map in map_guard.iter() {

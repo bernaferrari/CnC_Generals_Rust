@@ -24,14 +24,12 @@ impl ScriptEvaluator {
             )
         })?;
 
-        if condition.custom_data != 0 {
-            if let Ok(engine_guard) = get_script_engine().read() {
-                if let Some(engine) = engine_guard.as_ref() {
-                    if engine.get_frame_object_count_changed() == condition.custom_frame {
-                        return Ok(condition.custom_data == 1);
-                    }
-                }
-            }
+        if condition.custom_data != 0
+            && self
+                .with_evaluation_engine_ref(|engine| engine.get_frame_object_count_changed())
+                .is_some_and(|frame| frame == condition.custom_frame)
+        {
+            return Ok(condition.custom_data == 1);
         }
 
         let Some(player_arc) = self.resolve_player_from_param(player_param) else {
@@ -59,10 +57,10 @@ impl ScriptEvaluator {
 
         let result = count != 0;
         condition.custom_data = if result { 1 } else { -1 };
-        if let Ok(engine_guard) = get_script_engine().read() {
-            if let Some(engine) = engine_guard.as_ref() {
-                condition.custom_frame = engine.get_frame_object_count_changed();
-            }
+        if let Some(frame) =
+            self.with_evaluation_engine_ref(|engine| engine.get_frame_object_count_changed())
+        {
+            condition.custom_frame = frame;
         }
         Ok(result)
     }
@@ -182,12 +180,9 @@ impl ScriptEvaluator {
         })?;
 
         let unit_name = unit_param.get_string();
-        let player_name = player_param.get_string();
-
-        let Ok(list) = player_list().read() else {
-            return Ok(false);
-        };
-        let Some(player_arc) = list.find_player_by_name(player_name) else {
+        // C++ evaluates visibility for the resolved Script `SIDE`, not only a
+        // literal player display name.
+        let Some(player_arc) = self.resolve_player_from_param(player_param) else {
             return Ok(false);
         };
         let player_index = player_arc.read().ok().map(|p| p.get_player_index());
@@ -242,12 +237,7 @@ impl ScriptEvaluator {
         })?;
 
         let team_name = self.resolve_team_name_token(team_param.get_string());
-        let player_name = player_param.get_string();
-
-        let Ok(list) = player_list().read() else {
-            return Ok(false);
-        };
-        let Some(player_arc) = list.find_player_by_name(player_name) else {
+        let Some(player_arc) = self.resolve_player_from_param(player_param) else {
             return Ok(false);
         };
         let player_index = player_arc.read().ok().map(|p| p.get_player_index());
@@ -323,20 +313,16 @@ impl ScriptEvaluator {
             comparison
         );
 
-        // Look up the player and get their credits
-        let current_credits = if let Ok(players) = player_list().read() {
-            if let Some(player_arc) = players.find_player_by_name(player_name) {
-                if let Ok(player) = player_arc.read() {
-                    player.get_money().get_money()
-                } else {
-                    0
-                }
-            } else {
-                0
-            }
-        } else {
-            0
+        // C++ returns false when playerFromParam cannot resolve the Side.  Do
+        // not manufacture a zero-credit player: equality with zero would turn
+        // a missing player into a successful script condition.
+        let Some(player_arc) = self.resolve_player_from_param(player_param) else {
+            return Ok(false);
         };
+        let Ok(player) = player_arc.read() else {
+            return Ok(false);
+        };
+        let current_credits = player.get_money().get_money();
 
         match comparison {
             0 => Ok(target_credits < current_credits),  // LessThan
@@ -363,17 +349,14 @@ impl ScriptEvaluator {
         let player_name = player_param.get_string();
         log::debug!("Evaluating PlayerHasPower for player: {}", player_name);
 
-        // Look up the player and check their power status
-        if let Ok(players) = player_list().read() {
-            if let Some(player_arc) = players.find_player_by_name(player_name) {
-                if let Ok(player) = player_arc.read() {
-                    // Player has power if production >= consumption (not low power)
-                    return Ok(!player.get_energy().is_low_power());
-                }
-            }
-        }
-        // If player doesn't exist, default to no power
-        Ok(false)
+        let Some(player_arc) = self.resolve_player_from_param(player_param) else {
+            return Ok(false);
+        };
+        let Ok(player) = player_arc.read() else {
+            return Ok(false);
+        };
+        // Player has power if production >= consumption (not low power).
+        Ok(!player.get_energy().is_low_power())
     }
 
     /// Evaluate player has no power condition
@@ -412,16 +395,16 @@ impl ScriptEvaluator {
             player_name
         );
 
-        let Ok(list) = player_list().read() else {
+        let Some(player_arc) = self.resolve_player_from_param(player_param) else {
             return Ok(false);
         };
-        let Some(player_arc) = list.find_player_by_name(player_name) else {
-            return Ok(false);
-        };
-        let player_id = player_arc
+        let Some(player_id) = player_arc
             .read()
             .ok()
-            .map(|p| p.get_player_index() as UnsignedInt);
+            .map(|p| p.get_player_index() as UnsignedInt)
+        else {
+            return Ok(false);
+        };
 
         let tracker = get_named_object_tracker();
         let Some(object_id) = tracker.get_object_id(unit_name).ok().flatten() else {
@@ -435,7 +418,7 @@ impl ScriptEvaluator {
             return Ok(false);
         };
 
-        Ok(player_id == obj_guard.get_controlling_player_id())
+        Ok(Some(player_id) == obj_guard.get_controlling_player_id())
     }
 
     fn evaluate_team_owned_by_player_condition(
@@ -461,20 +444,20 @@ impl ScriptEvaluator {
             player_name
         );
 
-        let Ok(list) = player_list().read() else {
+        let Some(player_arc) = self.resolve_player_from_param(player_param) else {
             return Ok(false);
         };
-        let Some(player_arc) = list.find_player_by_name(player_name) else {
-            return Ok(false);
-        };
-        let player_id = player_arc
+        let Some(player_id) = player_arc
             .read()
             .ok()
-            .map(|p| p.get_player_index() as UnsignedInt);
+            .map(|p| p.get_player_index() as UnsignedInt)
+        else {
+            return Ok(false);
+        };
 
         for team_arc in self.resolve_team_instances(&team_name) {
             if let Ok(team_guard) = team_arc.read() {
-                if team_guard.get_controlling_player_id() == player_id {
+                if team_guard.get_controlling_player_id() == Some(player_id) {
                     return Ok(true);
                 }
             }
@@ -505,10 +488,7 @@ impl ScriptEvaluator {
             player_name
         );
 
-        let Ok(list) = player_list().read() else {
-            return Ok(false);
-        };
-        let Some(player_arc) = list.find_player_by_name(player_name) else {
+        let Some(player_arc) = self.resolve_player_from_param(player_param) else {
             return Ok(false);
         };
         let Ok(player_guard) = player_arc.read() else {
@@ -543,10 +523,7 @@ impl ScriptEvaluator {
             player_name
         );
 
-        let Ok(list) = player_list().read() else {
-            return Ok(false);
-        };
-        let Some(player_arc) = list.find_player_by_name(player_name) else {
+        let Some(player_arc) = self.resolve_player_from_param(player_param) else {
             return Ok(false);
         };
         let Ok(player_guard) = player_arc.read() else {
@@ -584,10 +561,7 @@ impl ScriptEvaluator {
         let comparison = comparison_param.get_int() as u32;
         let percent = percent_param.get_int() as f64 / 100.0;
 
-        let Ok(list) = player_list().read() else {
-            return Ok(false);
-        };
-        let Some(player_arc) = list.find_player_by_name(player_name) else {
+        let Some(player_arc) = self.resolve_player_from_param(player_param) else {
             return Ok(false);
         };
         let Ok(player_guard) = player_arc.read() else {
@@ -633,10 +607,7 @@ impl ScriptEvaluator {
         let comparison = comparison_param.get_int() as u32;
         let desired_excess = value_param.get_int() as i64;
 
-        let Ok(list) = player_list().read() else {
-            return Ok(false);
-        };
-        let Some(player_arc) = list.find_player_by_name(player_name) else {
+        let Some(player_arc) = self.resolve_player_from_param(player_param) else {
             return Ok(false);
         };
         let Ok(player_guard) = player_arc.read() else {
@@ -673,14 +644,9 @@ impl ScriptEvaluator {
 
         let video_name = video_param.get_string();
 
-        let mut engine = self.engine.write().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to acquire engine lock: {}", e))
-        })?;
-        let engine = engine.as_mut().ok_or_else(|| {
-            GameLogicError::Configuration("Script engine not initialized".to_string())
-        })?;
-
-        Ok(engine.is_video_complete(video_name, true))
+        Ok(self
+            .with_evaluation_engine_mut(|engine| engine.is_video_complete(video_name, true))
+            .unwrap_or(false))
     }
 
     /// Evaluate has finished speech condition
@@ -695,13 +661,9 @@ impl ScriptEvaluator {
         })?;
 
         let speech_name = speech_param.get_string();
-        let mut engine = self.engine.write().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to acquire engine lock: {}", e))
-        })?;
-        let engine = engine.as_mut().ok_or_else(|| {
-            GameLogicError::Configuration("Script engine not initialized".to_string())
-        })?;
-        Ok(engine.is_speech_complete(speech_name, true))
+        Ok(self
+            .with_evaluation_engine_mut(|engine| engine.is_speech_complete(speech_name, true))
+            .unwrap_or(false))
     }
 
     /// Evaluate has finished audio condition
@@ -716,12 +678,8 @@ impl ScriptEvaluator {
         })?;
 
         let audio_name = audio_param.get_string();
-        let mut engine = self.engine.write().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to acquire engine lock: {}", e))
-        })?;
-        let engine = engine.as_mut().ok_or_else(|| {
-            GameLogicError::Configuration("Script engine not initialized".to_string())
-        })?;
-        Ok(engine.is_audio_complete(audio_name, true))
+        Ok(self
+            .with_evaluation_engine_mut(|engine| engine.is_audio_complete(audio_name, true))
+            .unwrap_or(false))
     }
 }

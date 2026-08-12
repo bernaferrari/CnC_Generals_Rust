@@ -50,10 +50,27 @@ impl Object {
         if self.team != team {
             self.team = team;
             self.team_color = team.get_color();
+            // A team-only transfer has no controlling-player provenance. Do
+            // not leave the prior player's identity attached to a captured or
+            // neutralized object.
+            self.owner_player_id = None;
             crate::game_logic::host_owner_log::record(self.id, team);
         } else {
             self.team = team;
             self.team_color = team.get_color();
+        }
+        self.record_host_identity();
+    }
+
+    /// Set faction presentation and exact controlling-player identity together.
+    /// This is used by capture/hijack paths where the actor is known.
+    pub fn set_team_and_owner(&mut self, team: Team, owner_player_id: Option<u32>) {
+        let changed = self.team != team || self.owner_player_id != owner_player_id;
+        self.team = team;
+        self.team_color = team.get_color();
+        self.owner_player_id = owner_player_id;
+        if changed {
+            crate::game_logic::host_owner_log::record_with_owner(self.id, team, owner_player_id);
         }
         self.record_host_identity();
     }

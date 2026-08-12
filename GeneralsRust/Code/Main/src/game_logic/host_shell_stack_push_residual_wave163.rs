@@ -126,65 +126,60 @@ pub fn simulate_shell_stack_push_honesty() -> bool {
     }
     #[cfg(feature = "game_client")]
     {
-        use game_client::gui::get_shell;
+        use game_client::gui::with_shell_mut;
         use game_client::system::SubsystemInterface;
 
-        let mut shell = get_shell();
-        if SubsystemInterface::init(&mut *shell).is_err() {
-            return false;
-        }
-        // Reset stack for deterministic residual (test isolation).
-        // pop_immediate destroys layout windows; tolerate destroy errors and
-        // continue until empty or a hard failure stops progress.
-        let mut guard = 0;
-        while shell.get_screen_count() > 0 && guard < 16 {
-            guard += 1;
-            let before = shell.get_screen_count();
-            if shell.pop_immediate().is_err() {
-                break;
+        with_shell_mut(|shell| {
+            if SubsystemInterface::init(shell).is_err() {
+                return false;
             }
-            if shell.get_screen_count() >= before {
-                break;
+            // Reset stack for deterministic residual (test isolation).
+            // pop_immediate destroys layout windows; tolerate destroy errors and
+            // continue until empty or a hard failure stops progress.
+            let mut guard = 0;
+            while shell.get_screen_count() > 0 && guard < 16 {
+                guard += 1;
+                let before = shell.get_screen_count();
+                if shell.pop_immediate().is_err() {
+                    break;
+                }
+                if shell.get_screen_count() >= before {
+                    break;
+                }
             }
-        }
-        // If stack still non-empty, reuse top when it is already MainMenu.
-        if shell.get_screen_count() != 0 {
-            let top = shell
-                .top()
-                .map(|l| l.get_filename().to_string())
-                .unwrap_or_default()
-                .replace('\\', "/")
-                .to_ascii_lowercase();
-            if top.contains("mainmenu.wnd") {
-                shell.set_shell_active(true);
-                return shell.is_shell_active() && shell.get_screen_count() > 0;
+            // If stack still non-empty, reuse top when it is already MainMenu.
+            if shell.get_screen_count() != 0 {
+                let top = shell
+                    .top_filename()
+                    .unwrap_or_default()
+                    .replace('\\', "/")
+                    .to_ascii_lowercase();
+                if top.contains("mainmenu.wnd") {
+                    shell.set_shell_active(true);
+                    return shell.is_shell_active() && shell.get_screen_count() > 0;
+                }
+                // Cannot safely clear — fail closed rather than double-push leak.
+                return false;
             }
-            // Cannot safely clear — fail closed rather than double-push leak.
-            return false;
-        }
-        if shell.push("Menus/MainMenu.wnd", false).is_err() {
-            return false;
-        }
-        if shell.get_screen_count() == 0 {
-            return false;
-        }
-        let top = shell
-            .top()
-            .map(|l| l.get_filename().to_string())
-            .unwrap_or_default();
-        if top.is_empty() {
-            return false;
-        }
-        // Accept path variants: Menus/MainMenu.wnd or absolute/resolved form.
-        let top_l = top.replace('\\', "/").to_ascii_lowercase();
-        if !top_l.contains("mainmenu.wnd") {
-            return false;
-        }
-        shell.set_shell_active(true);
-        if !shell.is_shell_active() {
-            return false;
-        }
-        true
+            if shell.push("Menus/MainMenu.wnd", false).is_err() {
+                return false;
+            }
+            if shell.get_screen_count() == 0 {
+                return false;
+            }
+            let top = shell.top_filename().unwrap_or_default();
+            if top.is_empty() {
+                return false;
+            }
+            // Accept path variants: Menus/MainMenu.wnd or absolute/resolved form.
+            let top_l = top.replace('\\', "/").to_ascii_lowercase();
+            if !top_l.contains("mainmenu.wnd") {
+                return false;
+            }
+            shell.set_shell_active(true);
+            shell.is_shell_active()
+        })
+        .unwrap_or(false)
     }
     #[cfg(not(feature = "game_client"))]
     {

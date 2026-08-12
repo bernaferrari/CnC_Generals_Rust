@@ -354,9 +354,10 @@ fn asset_template_catalogue_seed_keeps_curated_templates_and_uses_exact_retail_f
     added.model_name = Some("AVPaladin".to_string());
     added.primary_weapon = Some("PaladinTankGun".to_string());
     added.secondary_weapon = Some("PaladinPointDefenseLaser".to_string());
-    added
-        .attributes
-        .insert("KindOf".to_string(), "VEHICLE SELECTABLE CAN_ATTACK".to_string());
+    added.attributes.insert(
+        "KindOf".to_string(),
+        "VEHICLE SELECTABLE CAN_ATTACK".to_string(),
+    );
     added
         .attributes
         .insert("BuildCost".to_string(), "1100".to_string());
@@ -383,7 +384,10 @@ fn asset_template_catalogue_seed_keeps_curated_templates_and_uses_exact_retail_f
         .get("AmericaTankCrusader")
         .expect("curated template retained");
     assert_eq!(curated_after.max_health, 777.0);
-    assert_eq!(curated_after.model_name.as_deref(), Some("CuratedExactModel"));
+    assert_eq!(
+        curated_after.model_name.as_deref(),
+        Some("CuratedExactModel")
+    );
 
     let seeded = logic
         .templates
@@ -393,7 +397,10 @@ fn asset_template_catalogue_seed_keeps_curated_templates_and_uses_exact_retail_f
     assert_eq!(seeded.build_cost.supplies, 1100);
     assert_eq!(seeded.build_time, 12.5);
     assert_eq!(seeded.model_name.as_deref(), Some("AVPaladin"));
-    assert_eq!(seeded.primary_weapon_name.as_deref(), Some("PaladinTankGun"));
+    assert_eq!(
+        seeded.primary_weapon_name.as_deref(),
+        Some("PaladinTankGun")
+    );
     assert_eq!(
         seeded.secondary_weapon_name.as_deref(),
         Some("PaladinPointDefenseLaser")
@@ -678,12 +685,13 @@ fn docking_state_moves_unit_toward_transport_when_far() {
 fn enter_command_rejects_enemy_occupied_transport() {
     let mut game_logic = GameLogic::new();
     ensure_test_tank_template(&mut game_logic);
+    ensure_test_transport_template(&mut game_logic);
 
     let friendly_unit_id = game_logic
         .create_object("TestTank", Team::USA, Vec3::new(-10.0, 0.0, 0.0))
         .expect("friendly unit should be created");
     let enemy_transport_id = game_logic
-        .create_object("TestTank", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+        .create_object("TestTransport", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
         .expect("enemy transport should be created");
     let enemy_occupant_id = game_logic
         .create_object("TestTank", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
@@ -1110,9 +1118,10 @@ fn seeking_repair_state_clears_under_construction_destination() {
 fn evacuate_command_unloads_selected_transport_occupants() {
     let mut game_logic = GameLogic::new();
     ensure_test_tank_template(&mut game_logic);
+    ensure_test_transport_template(&mut game_logic);
 
     let transport_id = game_logic
-        .create_object("TestTank", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .create_object("TestTransport", Team::USA, Vec3::new(0.0, 0.0, 0.0))
         .expect("transport should be created");
     let unit_id = game_logic
         .create_object("TestTank", Team::USA, Vec3::new(1.0, 0.0, 0.0))
@@ -1168,7 +1177,6 @@ fn capture_command_does_not_instantly_flip_building_owner() {
     let building_id = game_logic
         .create_object("TestBuilding", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
         .expect("building should be created");
-
     game_logic.queue_command(crate::command_system::GameCommand {
         command_type: crate::command_system::CommandType::CaptureBuilding {
             target_id: building_id,
@@ -1210,6 +1218,13 @@ fn infantry_capture_requires_completed_capture_upgrade_when_player_exists() {
     let building_id = game_logic
         .create_object("TestBuilding", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
         .expect("building should be created");
+    game_logic
+        .host_object_mut(captor_id)
+        .expect("captor should exist")
+        .pause_special_power_countdown(
+            &crate::command_system::SpecialPowerType::RangerCaptureBuilding,
+            true,
+        );
 
     game_logic.queue_command(crate::command_system::GameCommand {
         command_type: crate::command_system::CommandType::CaptureBuilding {
@@ -1233,7 +1248,11 @@ fn infantry_capture_requires_completed_capture_upgrade_when_player_exists() {
         .get_player_mut(0)
         .expect("USA player should exist")
         .unlocked_sciences
-        .insert("Upgrade_AmericaRangerCaptureBuilding".to_string());
+        .insert("Upgrade_InfantryCaptureBuilding".to_string());
+    game_logic.apply_upgrade_to_object(captor_id, "Upgrade_InfantryCaptureBuilding");
+    // Retail capture powers reload for 15 seconds after `StartsPaused` is
+    // unpaused; advance the test authority clock before issuing the command.
+    let _ = game_logic.update_with_dt(15.1);
 
     game_logic.queue_command(crate::command_system::GameCommand {
         command_type: crate::command_system::CommandType::CaptureBuilding {
@@ -1255,7 +1274,7 @@ fn infantry_capture_requires_completed_capture_upgrade_when_player_exists() {
 }
 
 #[test]
-fn capturing_state_transfers_building_when_in_range() {
+fn capture_channel_uses_authored_ranger_unpack_prepare_and_pack_timing() {
     let mut game_logic = GameLogic::new();
     ensure_test_infantry_template(&mut game_logic);
     ensure_test_structure_template(&mut game_logic);
@@ -1275,7 +1294,54 @@ fn capturing_state_transfers_building_when_in_range() {
         captor.set_ai_state(AIState::Capturing);
     }
 
+    // C++ `SpecialAbilityUpdate` starts unpacking on arrival, but it does not
+    // mark the SpecialPower triggered—or transfer ownership—at click time.
     game_logic.update_ai(&[captor_id, building_id], 1.0 / 60.0);
+
+    let captor = game_logic
+        .host_object(captor_id)
+        .expect("captor after unpack start");
+    assert_eq!(
+        captor.capture_channel.map(|channel| channel.phase),
+        Some(CaptureChannelPhase::Unpacking)
+    );
+    assert!(
+        !captor
+            .special_power_cooldowns
+            .contains_key(&crate::command_system::SpecialPowerType::RangerCaptureBuilding),
+        "Ranger ReloadTime must not begin before preparation"
+    );
+    assert_eq!(
+        game_logic.host_object(building_id).expect("building").team,
+        Team::GLA,
+        "unpacking must not transfer ownership"
+    );
+
+    // Retail Ranger: UnpackTime=3000ms, PreparationTime=20000ms.
+    game_logic.update_ai(&[captor_id, building_id], 3.0);
+    let captor = game_logic.host_object(captor_id).expect("captor preparing");
+    assert_eq!(
+        captor.capture_channel.map(|channel| channel.phase),
+        Some(CaptureChannelPhase::Preparing)
+    );
+    assert!(captor.status.using_ability);
+    let ranger_reload = captor
+        .special_power_cooldowns
+        .get(&crate::command_system::SpecialPowerType::RangerCaptureBuilding)
+        .copied()
+        .unwrap_or_default();
+    assert!(
+        ranger_reload >= 14.9,
+        "Ranger preparation must start the real 15s reload, got {ranger_reload}"
+    );
+
+    game_logic.update_ai(&[captor_id, building_id], 19.9);
+    assert_eq!(
+        game_logic.host_object(building_id).expect("building").team,
+        Team::GLA,
+        "the target remains enemy until the entire preparation completes"
+    );
+    game_logic.update_ai(&[captor_id, building_id], 0.1);
 
     let building = game_logic
         .host_object(building_id)
@@ -1283,14 +1349,409 @@ fn capturing_state_transfers_building_when_in_range() {
     assert_eq!(
         building.team,
         Team::USA,
-        "capturing state should transfer structure to captor team once in range"
+        "capturing state should transfer structure only after preparation"
     );
 
     let captor = game_logic
         .host_object(captor_id)
         .expect("captor should exist");
+    assert_eq!(captor.ai_state, AIState::Capturing);
+    assert_eq!(
+        captor.capture_channel.map(|channel| channel.phase),
+        Some(CaptureChannelPhase::Packing),
+        "C++ keeps the unit busy through PackTime after the ownership transfer"
+    );
+    assert!(!captor.status.using_ability);
+
+    // Retail Ranger PackTime=2000ms.
+    game_logic.update_ai(&[captor_id, building_id], 2.0);
+    let captor = game_logic
+        .host_object(captor_id)
+        .expect("captor after packing");
     assert_eq!(captor.ai_state, AIState::Idle);
     assert!(captor.target.is_none());
+}
+
+#[test]
+fn black_lotus_capture_uses_its_zero_reload_at_preparation_not_ranger_timer() {
+    use crate::game_logic::{CapturePowerKind, ThingTemplate};
+
+    let mut game_logic = GameLogic::new();
+    ensure_test_structure_template(&mut game_logic);
+
+    let mut lotus = ThingTemplate::new("CaptureTimingBlackLotus");
+    lotus
+        .add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(100.0);
+    lotus.capture_power = CapturePowerKind::BlackLotus;
+    // Retail baseline Black Lotus uses a 150-unit start range and zero
+    // ReloadTime; the compact test deliberately has no unpack animation so
+    // the preparation boundary is unambiguous.
+    lotus.capture_start_ability_range = Some(150.0);
+    lotus.capture_unpack_time_ms = Some(0);
+    lotus.capture_preparation_time_ms = Some(6_000);
+    lotus.capture_pack_time_ms = Some(2_800);
+    game_logic
+        .templates
+        .insert("CaptureTimingBlackLotus".to_string(), lotus);
+
+    let lotus_id = game_logic
+        .create_object(
+            "CaptureTimingBlackLotus",
+            Team::China,
+            Vec3::new(3.0, 0.0, 0.0),
+        )
+        .expect("Black Lotus");
+    let building_id = game_logic
+        .create_object("TestBuilding", Team::GLA, Vec3::ZERO)
+        .expect("target building");
+    {
+        let lotus = game_logic
+            .host_object_mut(lotus_id)
+            .expect("Black Lotus object");
+        lotus.target = Some(building_id);
+        lotus.set_ai_state(AIState::Capturing);
+    }
+
+    game_logic.update_ai(&[lotus_id, building_id], 1.0 / 30.0);
+    let lotus = game_logic.host_object(lotus_id).expect("Lotus preparing");
+    assert_eq!(
+        lotus.capture_channel.map(|channel| channel.phase),
+        Some(CaptureChannelPhase::Preparing)
+    );
+    assert!(lotus.status.using_ability);
+    assert!(
+        !lotus
+            .special_power_cooldowns
+            .contains_key(&crate::command_system::SpecialPowerType::BlackLotusCaptureBuilding),
+        "Black Lotus ReloadTime is 0, never borrow Ranger's 15s timer"
+    );
+
+    game_logic.update_ai(&[lotus_id, building_id], 6.0);
+    assert_eq!(
+        game_logic
+            .host_object(building_id)
+            .expect("captured target")
+            .team,
+        Team::China
+    );
+    let lotus = game_logic.host_object(lotus_id).expect("Lotus packing");
+    assert_eq!(
+        lotus.capture_channel.map(|channel| channel.phase),
+        Some(CaptureChannelPhase::Packing)
+    );
+    assert!(!lotus
+        .special_power_cooldowns
+        .contains_key(&crate::command_system::SpecialPowerType::BlackLotusCaptureBuilding));
+}
+
+#[test]
+fn capture_authority_rejects_immune_and_nonstealthed_garrison_targets() {
+    let mut game_logic = GameLogic::new();
+    ensure_test_infantry_template(&mut game_logic);
+
+    let mut immune = ThingTemplate::new("CaptureAuthorityImmuneTarget");
+    immune
+        .add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(1_000.0);
+    immune.immune_to_capture = true;
+    game_logic
+        .templates
+        .insert("CaptureAuthorityImmuneTarget".to_string(), immune);
+
+    let mut garrison = ThingTemplate::new("CaptureAuthorityGarrisonTarget");
+    garrison
+        .add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(1_000.0);
+    // This is the dedicated `GarrisonContain` semantic consumed by the C++
+    // capture guard, not generic Enter capacity or a target-name convention.
+    garrison.garrison_contain_max = Some(5);
+    game_logic
+        .templates
+        .insert("CaptureAuthorityGarrisonTarget".to_string(), garrison);
+
+    let captor_id = game_logic
+        .create_object("TestInfantry", Team::USA, Vec3::new(-3.0, 0.0, 0.0))
+        .expect("captor");
+    let immune_id = game_logic
+        .create_object("CaptureAuthorityImmuneTarget", Team::GLA, Vec3::ZERO)
+        .expect("immune target");
+    assert!(
+        !game_logic.can_unit_capture_building(captor_id, immune_id, false),
+        "KINDOF_IMMUNE_TO_CAPTURE must reject before any relationship fallback"
+    );
+
+    let garrison_id = game_logic
+        .create_object(
+            "CaptureAuthorityGarrisonTarget",
+            Team::GLA,
+            Vec3::new(20.0, 0.0, 0.0),
+        )
+        .expect("garrison target");
+    let occupant_id = game_logic
+        .create_object("TestInfantry", Team::GLA, Vec3::new(20.0, 0.0, 0.0))
+        .expect("enemy garrison occupant");
+    assert!(
+        game_logic
+            .host_object_mut(garrison_id)
+            .expect("garrison target")
+            .add_occupant(occupant_id),
+        "authored GarrisonContain capacity must hold the occupant"
+    );
+    game_logic
+        .host_object_mut(occupant_id)
+        .expect("occupant")
+        .set_contained_by(Some(garrison_id));
+    assert!(
+        !game_logic.can_unit_capture_building(captor_id, garrison_id, false),
+        "a non-stealthed garrison occupant must block CaptureBuilding"
+    );
+
+    game_logic
+        .host_object_mut(occupant_id)
+        .expect("occupant")
+        .status
+        .stealthed = true;
+    assert!(
+        game_logic.can_unit_capture_building(captor_id, garrison_id, false),
+        "the garrison guard is distinct from the enemy-occupant relationship guard"
+    );
+}
+
+/// Exercise the actual offline physical RMB route: frozen presentation facts
+/// classify the click, then the resulting command crosses GameLogic authority
+/// into CommandExecutor.  Two same-faction player slots are deliberately
+/// allied here: C++ SupplyCenterDockUpdate still requires the exact
+/// controlling player, whereas a warehouse uses the ally relationship.
+#[test]
+fn physical_rmb_dock_uses_exact_controller_not_same_faction_friendliness() {
+    use crate::command_system::{
+        CommandSystem, CommandType, ModifierKeys, MouseButton, MouseCommandContext,
+        PresentationSelectedUnitHint, PresentationTargetHint,
+    };
+    use crate::game_logic::{DockKind, Player};
+    use crate::presentation_frame::PresentationFrame;
+
+    fn dock_context(
+        frame: &PresentationFrame,
+        collector_id: ObjectId,
+        target_id: ObjectId,
+    ) -> MouseCommandContext {
+        let collector = frame
+            .objects
+            .iter()
+            .find(|object| object.id == collector_id)
+            .expect("collector must be present in frozen frame");
+        let target = frame
+            .objects
+            .iter()
+            .find(|object| object.id == target_id)
+            .expect("dock target must be present in frozen frame");
+        MouseCommandContext {
+            world_position: target.position,
+            target_object: Some(target_id),
+            target_presentation: Some(PresentationTargetHint {
+                id: target_id,
+                is_alive: !target.destroyed && target.health_current > 0.0,
+                is_structure: PresentationFrame::object_has_kind(target, KindOf::Structure),
+                is_resource: false,
+                under_construction: target.under_construction,
+                sold: target.sold,
+                team: target.team,
+                is_enemy_of_local: frame.is_enemy_of_local(target),
+                is_neutral: target.team == Team::Neutral,
+                template_name: target.template_name.clone(),
+                can_be_entered: false,
+                enter_available_capacity: 0,
+                enter_uses_transport_slots: false,
+                enter_requires_infantry: false,
+                enter_forbids_aircraft: false,
+                enter_disabled_subdued: false,
+                enter_is_rider_change: false,
+                rider_change_allowed_templates: Vec::new(),
+                is_damaged: false,
+                is_friendly_of_local: frame.is_allied_with_local(target),
+                provides_vehicle_repair: false,
+                provides_aircraft_repair: false,
+                provides_heal: false,
+                dock_kind: target.dock_kind,
+                dock_controller_is_local: frame.is_owned_by_local(target),
+                stored_supplies: target.stored_supplies,
+                capturable: target.capturable,
+                immune_to_capture: target.immune_to_capture,
+                capture_garrisonable: target.capture_garrisonable,
+                capture_nonstealthed_garrison_count: 0,
+                capture_friendly_garrison_count: 0,
+                capture_target_effectively_stealthed: false,
+            }),
+            selected_presentation: vec![PresentationSelectedUnitHint {
+                id: collector_id,
+                is_alive: !collector.destroyed && collector.health_current > 0.0,
+                is_resource_collector: PresentationFrame::object_has_kind(
+                    collector,
+                    KindOf::Harvester,
+                ),
+                is_worker: false,
+                can_attack: false,
+                can_move: collector.is_mobile,
+                can_capture: false,
+                template_name: collector.template_name.clone(),
+                can_repair: false,
+                is_damaged: false,
+                is_vehicle: PresentationFrame::object_has_kind(collector, KindOf::Vehicle),
+                is_aircraft: false,
+                is_infantry: false,
+                transport_slot_count: collector.transport_slot_count,
+                stored_supplies: collector.stored_supplies,
+                is_controlled_by_local: frame.is_owned_by_local(collector),
+                capture_power: crate::game_logic::CapturePowerKind::None,
+                capture_power_ready: false,
+            }],
+            presentation_box_select_units: Vec::new(),
+            presentation_select_similar_units: Vec::new(),
+            screen_position: glam::Vec2::ZERO,
+            viewport_size: None,
+            world_min: None,
+            world_max: None,
+            mouse_button: MouseButton::Right,
+            modifier_keys: ModifierKeys::default(),
+            is_drag: false,
+            drag_start: None,
+            drag_end: None,
+            drag_start_world: None,
+            drag_end_world: None,
+        }
+    }
+
+    let mut game_logic = GameLogic::new();
+    let mut local = Player::new(0, Team::USA, "USA slot 0", true);
+    let mut allied_other = Player::new(1, Team::USA, "USA slot 1", false);
+    local.alliance_team = 7;
+    allied_other.alliance_team = 7;
+    game_logic.add_player(local);
+    game_logic.add_player(allied_other);
+
+    let mut collector = ThingTemplate::new("DockRmbCollector");
+    collector
+        .add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Harvester)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(100.0);
+    game_logic
+        .templates
+        .insert("DockRmbCollector".to_string(), collector);
+
+    let mut center = ThingTemplate::new("DockRmbSupplyCenter");
+    center
+        .add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(1_000.0);
+    center.dock_kind = DockKind::SupplyCenter;
+    game_logic
+        .templates
+        .insert("DockRmbSupplyCenter".to_string(), center);
+
+    let collector_id = game_logic
+        .create_object_for_player("DockRmbCollector", 0, Vec3::ZERO)
+        .expect("local collector");
+    let own_center_id = game_logic
+        .create_object_for_player("DockRmbSupplyCenter", 0, Vec3::ZERO)
+        .expect("own center");
+    let allied_center_id = game_logic
+        .create_object_for_player("DockRmbSupplyCenter", 1, Vec3::new(100.0, 0.0, 0.0))
+        .expect("allied other-player center");
+    game_logic
+        .host_object_mut(collector_id)
+        .expect("collector")
+        .stored_resources
+        .supplies = 1;
+
+    let frame = PresentationFrame::build_from_logic(&game_logic, 0);
+    let other_center = frame
+        .objects
+        .iter()
+        .find(|object| object.id == allied_center_id)
+        .expect("allied center in frame");
+    assert!(
+        frame.is_allied_with_local(other_center),
+        "regression requires a friendly same-faction but separately controlled center"
+    );
+    assert!(
+        !frame.is_owned_by_local(other_center),
+        "frozen frame must preserve controlling-player distinction"
+    );
+
+    let mut commands = CommandSystem::new();
+    let rejected = commands
+        .process_mouse_input(
+            &dock_context(&frame, collector_id, allied_center_id),
+            &[collector_id],
+            0,
+            None,
+        )
+        .expect("physical RMB always makes a contextual command");
+    assert!(
+        !matches!(rejected.command_type, CommandType::Dock { .. }),
+        "RMB must not visibly offer Dock into an allied other player's SupplyCenter"
+    );
+
+    // Boot/load input has no presentation freeze yet.  It must make the same
+    // owner-aware decision rather than reintroducing the old Team shortcut.
+    let mut boot_rejected_context = dock_context(&frame, collector_id, allied_center_id);
+    boot_rejected_context.target_presentation = None;
+    boot_rejected_context.selected_presentation.clear();
+    let boot_rejected = commands
+        .process_mouse_input(
+            &boot_rejected_context,
+            &[collector_id],
+            0,
+            Some(&game_logic),
+        )
+        .expect("boot RMB makes a contextual command");
+    assert!(
+        !matches!(boot_rejected.command_type, CommandType::Dock { .. }),
+        "boot classifier must also reject the allied other-player center"
+    );
+
+    let mut boot_accepted_context = dock_context(&frame, collector_id, own_center_id);
+    boot_accepted_context.target_presentation = None;
+    boot_accepted_context.selected_presentation.clear();
+    let boot_accepted = commands
+        .process_mouse_input(
+            &boot_accepted_context,
+            &[collector_id],
+            0,
+            Some(&game_logic),
+        )
+        .expect("boot own-center click creates a command");
+    assert!(matches!(
+        boot_accepted.command_type,
+        CommandType::Dock { target_id } if target_id == own_center_id
+    ));
+
+    let accepted = commands
+        .process_mouse_input(
+            &dock_context(&frame, collector_id, own_center_id),
+            &[collector_id],
+            0,
+            None,
+        )
+        .expect("own center click creates a command");
+    assert!(matches!(
+        accepted.command_type,
+        CommandType::Dock { target_id } if target_id == own_center_id
+    ));
+    game_logic.queue_command(accepted);
+    game_logic.process_commands();
+
+    let collector = game_logic
+        .host_object(collector_id)
+        .expect("collector after executor authority");
+    assert_eq!(collector.ai_state, AIState::ReturningResources);
+    assert_eq!(collector.preferred_dock_id, Some(own_center_id));
 }
 
 #[test]
@@ -1334,6 +1795,8 @@ fn capturing_structure_refunds_old_owner_queued_production() {
     }
 
     game_logic.update_ai(&[captor_id, barracks_id], 1.0 / 60.0);
+    game_logic.update_ai(&[captor_id, barracks_id], 3.0);
+    game_logic.update_ai(&[captor_id, barracks_id], 20.0);
 
     let barracks = game_logic
         .host_object(barracks_id)
@@ -1722,6 +2185,7 @@ fn dozer_structure_repair_residual_recovers_hp_over_time() {
 #[test]
 fn dozer_structure_repair_residual_walk_into_range_recovers_hp() {
     let mut game_logic = GameLogic::new();
+    ensure_test_player_for_team(&mut game_logic, Team::USA);
     ensure_test_dozer_template(&mut game_logic);
     ensure_test_structure_template(&mut game_logic);
 
@@ -1735,6 +2199,10 @@ fn dozer_structure_repair_residual_walk_into_range_recovers_hp() {
 
     {
         let structure = game_logic.host_object_mut(structure_id).expect("structure");
+        // This regression is about the selected dozer's Repair order.  Disable
+        // the independent BaseRegenerateUpdate fixture module so autonomous
+        // structure regeneration cannot masquerade as an in-range repair tick.
+        structure.base_regenerate = None;
         let _ = structure.take_damage(300.0);
     }
     let before = game_logic
@@ -1759,6 +2227,10 @@ fn dozer_structure_repair_residual_walk_into_range_recovers_hp() {
         let dozer = game_logic.host_object(dozer_id).expect("dozer");
         assert_eq!(dozer.ai_state, AIState::Repairing);
         assert_eq!(dozer.target, Some(structure_id));
+        assert!(
+            !dozer.movement.path.is_empty(),
+            "out-of-range repair must retain an A* approach path rather than bypass movement"
+        );
     }
     // Must not heal while still out of range on first short step.
     game_logic.update();
@@ -1782,13 +2254,23 @@ fn dozer_structure_repair_residual_walk_into_range_recovers_hp() {
             break;
         }
     }
+    let dozer_after_walk = game_logic.host_object(dozer_id).expect("dozer after walk");
     assert!(
         recovered,
-        "dozer must walk into repair range and restore structure HP"
+        "dozer must walk into repair range and restore structure HP; pos={:?}, state={:?}, target={:?}, moving={}, path_index={}, path_len={}, movement_target={:?}",
+        dozer_after_walk.get_position(),
+        dozer_after_walk.ai_state,
+        dozer_after_walk.target,
+        dozer_after_walk.status.moving,
+        dozer_after_walk.movement.current_path_index,
+        dozer_after_walk.movement.path.len(),
+        dozer_after_walk.movement.target_position,
     );
     assert!(
         game_logic.honesty_structure_repair_ok(),
-        "walk-in repair residual honesty"
+        "walk-in repair residual honesty (commands={}, heals={})",
+        game_logic.repair_residual_structure_commands(),
+        game_logic.repair_residual_structure_heals(),
     );
 
     // Repairing must not be clobbered to Idle mid-approach without finishing.
@@ -2474,6 +2956,205 @@ fn heal_pad_seeking_healing_residual_recovers_infantry_hp() {
         Some(v) => std::env::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", v),
         None => std::env::remove_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY"),
     }
+}
+
+/// C++ service pads use Player relationships rather than a faction enum.
+/// This is deliberately an end-to-end physical RMB test: the frozen input
+/// rejects a same-faction enemy pad, accepts a cross-faction allied pad, and
+/// the executor/support state repeat the owner-aware authority checks.
+#[test]
+fn physical_service_commands_use_player_relationship_and_revalidate_owner_changes() {
+    use crate::command_system::{
+        CommandSystem, ModifierKeys, MouseButton, MouseCommandContext,
+        PresentationSelectedUnitHint, PresentationTargetHint,
+    };
+
+    let mut game_logic = GameLogic::new();
+    let mut local = Player::new(0, Team::USA, "USA local", true);
+    local.alliance_team = 7;
+    let mut same_faction_enemy = Player::new(1, Team::USA, "USA enemy", false);
+    same_faction_enemy.alliance_team = 9;
+    let mut cross_faction_ally = Player::new(2, Team::China, "China ally", false);
+    cross_faction_ally.alliance_team = 7;
+    game_logic.add_player(local);
+    game_logic.add_player(same_faction_enemy);
+    game_logic.add_player(cross_faction_ally);
+
+    ensure_test_tank_template(&mut game_logic);
+    let mut service_pad = ThingTemplate::new("OwnerRelationServicePad");
+    service_pad
+        .add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(1_000.0)
+        .set_cost(500, -1);
+    game_logic
+        .templates
+        .insert("OwnerRelationServicePad".to_string(), service_pad);
+
+    let tank_id = game_logic
+        .create_object_for_player("TestTank", 0, Vec3::new(8.0, 0.0, 0.0))
+        .expect("local tank");
+    let same_faction_enemy_pad = game_logic
+        .create_object_for_player("OwnerRelationServicePad", 1, Vec3::ZERO)
+        .expect("same-faction enemy pad");
+    let cross_faction_ally_pad = game_logic
+        .create_object_for_player("OwnerRelationServicePad", 2, Vec3::ZERO)
+        .expect("cross-faction allied pad");
+    for pad_id in [same_faction_enemy_pad, cross_faction_ally_pad] {
+        game_logic
+            .host_object_mut(pad_id)
+            .expect("service pad")
+            .building_data = Some(BuildingData::new(BuildingType::RepairPad));
+    }
+    {
+        // Keep the service command test independent of a coupled GameWorld
+        // damage writeback: command authority observes this host HP directly.
+        let tank = game_logic.host_object_mut(tank_id).expect("tank");
+        tank.health.current = (tank.health.maximum - 80.0).max(1.0);
+    }
+
+    let selected_hint = || PresentationSelectedUnitHint {
+        id: tank_id,
+        is_alive: true,
+        is_resource_collector: false,
+        is_worker: false,
+        can_attack: false,
+        can_move: true,
+        can_capture: false,
+        template_name: "TestTank".to_string(),
+        can_repair: false,
+        is_damaged: true,
+        is_vehicle: true,
+        is_aircraft: false,
+        is_infantry: false,
+        transport_slot_count: 3,
+        stored_supplies: 0,
+        is_controlled_by_local: true,
+        capture_power: CapturePowerKind::None,
+        capture_power_ready: false,
+    };
+    let service_context =
+        |target_id, team, is_enemy_of_local, is_friendly_of_local| MouseCommandContext {
+            world_position: Vec3::ZERO,
+            target_object: Some(target_id),
+            target_presentation: Some(PresentationTargetHint {
+                id: target_id,
+                is_alive: true,
+                is_structure: true,
+                is_resource: false,
+                under_construction: false,
+                sold: false,
+                team,
+                is_enemy_of_local,
+                is_neutral: false,
+                template_name: "OwnerRelationServicePad".to_string(),
+                can_be_entered: false,
+                enter_available_capacity: 0,
+                enter_uses_transport_slots: false,
+                enter_requires_infantry: false,
+                enter_forbids_aircraft: false,
+                enter_disabled_subdued: false,
+                enter_is_rider_change: false,
+                rider_change_allowed_templates: Vec::new(),
+                is_damaged: false,
+                is_friendly_of_local,
+                provides_vehicle_repair: true,
+                provides_aircraft_repair: false,
+                provides_heal: false,
+                dock_kind: DockKind::None,
+                dock_controller_is_local: false,
+                stored_supplies: 0,
+                capturable: false,
+                immune_to_capture: false,
+                capture_garrisonable: false,
+                capture_nonstealthed_garrison_count: 0,
+                capture_friendly_garrison_count: 0,
+                capture_target_effectively_stealthed: false,
+            }),
+            selected_presentation: vec![selected_hint()],
+            presentation_box_select_units: Vec::new(),
+            presentation_select_similar_units: Vec::new(),
+            screen_position: Vec2::ZERO,
+            viewport_size: None,
+            world_min: None,
+            world_max: None,
+            mouse_button: MouseButton::Right,
+            modifier_keys: ModifierKeys::default(),
+            is_drag: false,
+            drag_start: None,
+            drag_end: None,
+            drag_start_world: None,
+            drag_end_world: None,
+        };
+
+    let mut command_system = CommandSystem::new();
+    let enemy_click = command_system
+        .process_mouse_input(
+            &service_context(same_faction_enemy_pad, Team::USA, true, false),
+            &[tank_id],
+            0,
+            Some(&game_logic),
+        )
+        .expect("physical right click command");
+    assert!(
+        matches!(
+            enemy_click.command_type,
+            crate::command_system::CommandType::MoveTo { .. }
+        ),
+        "same-faction enemy service pad must not classify as a friendly repair command"
+    );
+
+    // A stale/malicious service command cannot bypass the frozen RMB result.
+    game_logic.queue_command(crate::command_system::GameCommand {
+        command_type: crate::command_system::CommandType::GetRepaired {
+            target_id: same_faction_enemy_pad,
+        },
+        player_id: 0,
+        command_id: 1,
+        timestamp: std::time::SystemTime::now(),
+        selected_units: vec![tank_id],
+        modifier_keys: ModifierKeys::default(),
+    });
+    game_logic.process_commands();
+    let tank = game_logic
+        .host_object(tank_id)
+        .expect("tank after rejected command");
+    assert_ne!(tank.ai_state, AIState::SeekingRepair);
+    assert_ne!(tank.target, Some(same_faction_enemy_pad));
+
+    let ally_click = command_system
+        .process_mouse_input(
+            &service_context(cross_faction_ally_pad, Team::China, false, true),
+            &[tank_id],
+            0,
+            Some(&game_logic),
+        )
+        .expect("physical allied right click command");
+    assert!(
+        matches!(
+            ally_click.command_type,
+            crate::command_system::CommandType::GetRepaired { target_id }
+                if target_id == cross_faction_ally_pad
+        ),
+        "cross-faction allied repair pad must issue GetRepaired"
+    );
+    game_logic.queue_command(ally_click);
+    game_logic.process_commands();
+    let tank = game_logic
+        .host_object(tank_id)
+        .expect("tank after allied command");
+    assert_eq!(tank.ai_state, AIState::SeekingRepair);
+    assert_eq!(tank.target, Some(cross_faction_ally_pad));
+
+    // Revalidate while moving/docked: a captured or reassigned repair pad may
+    // no longer service this tank even if its original RMB was legal.
+    assert!(game_logic.transfer_object_to_player(cross_faction_ally_pad, 1));
+    game_logic.update_ai(&[tank_id, cross_faction_ally_pad], 1.0 / 30.0);
+    let tank = game_logic
+        .host_object(tank_id)
+        .expect("tank after owner change");
+    assert_ne!(tank.target, Some(cross_faction_ally_pad));
 }
 
 #[test]

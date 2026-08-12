@@ -226,15 +226,17 @@ impl Object {
         }
     }
 
-    /// Install C++ DeployStyleAIUpdate residual from template peels.
+    /// Install C++ DeployStyleAIUpdate from the exact Object INI module data
+    /// retained on this object's template.  A vehicle-looking template with
+    /// no authored DeployStyle behavior must remain an ordinary mobile unit.
     pub fn install_deploy_style_if_needed(&mut self) {
         if self.deploy_style.is_some() {
             return;
         }
-        if let Some(data) = crate::game_logic::host_deploy_style::HostDeployStyleData::for_template(
-            &self.template_name,
-        ) {
-            self.deploy_style = Some(data);
+        if let Some(metadata) = self.get_template().deploy_style_metadata.as_ref() {
+            self.deploy_style = Some(
+                crate::game_logic::host_deploy_style::HostDeployStyleData::from_metadata(metadata),
+            );
         }
     }
 

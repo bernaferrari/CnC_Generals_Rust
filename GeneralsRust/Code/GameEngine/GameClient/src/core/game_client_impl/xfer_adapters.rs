@@ -70,12 +70,18 @@ fn runtime_status_to_io(status: RuntimeXferStatus) -> io::Error {
     )
 }
 
-struct RuntimeCommonXferAdapter<'a> {
+/// Adapt the runtime save-game Xfer ABI to the older Common snapshot trait.
+///
+/// Several live GameClient systems still implement the Common `Snapshotable`
+/// contract. Keeping this adapter crate-visible prevents individual systems
+/// from inventing partial, incompatible serializers for the runtime chunk
+/// stream.
+pub(crate) struct RuntimeCommonXferAdapter<'a> {
     inner: &'a mut dyn RuntimeXfer,
 }
 
 impl<'a> RuntimeCommonXferAdapter<'a> {
-    fn new(inner: &'a mut dyn RuntimeXfer) -> Self {
+    pub(crate) fn new(inner: &'a mut dyn RuntimeXfer) -> Self {
         Self { inner }
     }
 }

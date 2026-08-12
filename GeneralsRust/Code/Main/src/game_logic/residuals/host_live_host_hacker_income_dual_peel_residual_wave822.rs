@@ -133,6 +133,7 @@ mod tests {
         record(HackerIncomeEvent {
             id: ObjectId(9),
             team: Team::China,
+            owner_player_id: None,
             pos: glam::Vec3::new(1.0, 2.0, 3.0),
             amount: 5,
             next_deposit_frame: 60,

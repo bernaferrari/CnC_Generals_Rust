@@ -994,6 +994,7 @@ pub enum WorldMutation {
         lifetime: f32,
         max_lifetime: f32,
         is_homing: bool,
+        flight_state: ProjectileFlightState,
         active: bool,
     },
     /// Host AICommand apply-order residual (decision buffer).
@@ -1187,6 +1188,20 @@ pub enum WorldMutation {
 /// Cross-object references use [`EntityId`] / [`PlayerId`], never long-lived borrows.
 /// `Arc` is not part of this API surface.
 
+/// Host `MissileAIUpdate` state that affects GameWorld-owned flight integration.
+///
+/// The host still owns authored detonation data and removal timing.  This enum
+/// deliberately carries only the one state that changes shadow pose behavior,
+/// rather than trying to mirror the whole Object AI state machine here.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ProjectileFlightState {
+    #[default]
+    InFlight,
+    /// C++ `MissileAIUpdate::KILL_SELF`: keep the residual alive for the
+    /// authored contrail delay, but do not continue its flight integration.
+    MissileKillSelfHold,
+}
+
 /// Host CombatSystem projectile residual (in-flight snapshot).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ProjectileFlightResidual {
@@ -1201,6 +1216,7 @@ pub struct ProjectileFlightResidual {
     pub lifetime: f32,
     pub max_lifetime: f32,
     pub is_homing: bool,
+    pub flight_state: ProjectileFlightState,
     pub active: bool,
 }
 
@@ -1293,17 +1309,27 @@ impl GameWorld {
                 remove.push(id);
                 continue;
             }
+            // Age continues while the host's parsed MissileAIUpdate stays in
+            // KILL_SELF, but C++ holds the object for its contrail rather than
+            // allowing any further locomotor/homing pose changes.
+            p.lifetime += dt;
+            if p.flight_state == ProjectileFlightState::MissileKillSelfHold {
+                stepped += 1;
+                continue;
+            }
             // Homing: refresh aim from live host object pose when available.
             if p.is_homing && p.target_host != 0 {
                 if let Some(tp) = host_pos(p.target_host) {
                     p.target_position = tp;
                 }
             }
-            p.lifetime += dt;
-            if p.lifetime >= p.max_lifetime {
-                remove.push(id);
-                continue;
-            }
+            // `max_lifetime` is only the host presentation/observer value.
+            // C++ expiry is owned by the projectile Object's parsed behavior:
+            // DumbProjectileBehavior must detonate, while MissileAIUpdate may
+            // quietly self-destroy after target loss. This generic GameWorld
+            // flight residual has neither the behavior tag nor the detonation
+            // weapon/FX payload, so removing here would erase a real host
+            // impact. Host combat resolves lifecycle after this pose writeback.
             if p.speed <= 0.0 {
                 p.position = p.target_position;
                 p.velocity = [0.0, 0.0, 0.0];
@@ -2358,6 +2384,7 @@ impl GameWorld {
                     lifetime,
                     max_lifetime,
                     is_homing,
+                    flight_state,
                     active,
                 } => {
                     if active {
@@ -2375,6 +2402,7 @@ impl GameWorld {
                                 lifetime,
                                 max_lifetime,
                                 is_homing,
+                                flight_state,
                                 active,
                             },
                         );
@@ -2872,5 +2900,57 @@ mod tests {
         assert!(gw.entity(id).is_none());
         let snap = gw.snapshot();
         assert_eq!(snap.entities.len(), 0);
+    }
+
+    #[test]
+    fn missile_kill_self_flight_holds_pose_but_keeps_aging_until_retired() {
+        let mut gw = GameWorld::new(1);
+        gw.queue_mutation(WorldMutation::SetProjectileFlight {
+            host_id: 77,
+            position: [10.0, 2.0, 3.0],
+            velocity: [90.0, 0.0, 0.0],
+            target_position: [100.0, 2.0, 3.0],
+            damage: 25.0,
+            shooter_host: 1,
+            target_host: 2,
+            speed: 90.0,
+            lifetime: 1.0,
+            max_lifetime: 0.0,
+            is_homing: true,
+            flight_state: ProjectileFlightState::MissileKillSelfHold,
+            active: true,
+        });
+        assert_eq!(gw.apply_pending_mutations(), 1);
+
+        assert_eq!(
+            gw.step_projectiles(1.0 / 30.0, |_| Some([900.0, 0.0, 0.0])),
+            1
+        );
+        let held = gw.projectile(77).expect("held residual");
+        assert_eq!(held.position, [10.0, 2.0, 3.0]);
+        assert_eq!(held.velocity, [90.0, 0.0, 0.0]);
+        assert_eq!(held.target_position, [100.0, 2.0, 3.0]);
+        assert!(
+            (held.lifetime - (1.0 + 1.0 / 30.0)).abs() < 1e-6,
+            "contrail delay must advance the authored lifetime"
+        );
+
+        gw.queue_mutation(WorldMutation::SetProjectileFlight {
+            host_id: 77,
+            position: [0.0, 0.0, 0.0],
+            velocity: [0.0, 0.0, 0.0],
+            target_position: [0.0, 0.0, 0.0],
+            damage: 0.0,
+            shooter_host: 0,
+            target_host: 0,
+            speed: 0.0,
+            lifetime: 0.0,
+            max_lifetime: 0.0,
+            is_homing: false,
+            flight_state: ProjectileFlightState::InFlight,
+            active: false,
+        });
+        assert_eq!(gw.apply_pending_mutations(), 1);
+        assert!(gw.projectile(77).is_none());
     }
 }

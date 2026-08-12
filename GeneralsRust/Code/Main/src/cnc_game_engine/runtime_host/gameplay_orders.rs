@@ -794,7 +794,9 @@ impl CnCGameEngine {
             if self.selected_objects.is_empty() {
                 self.runtime_host_last_gameplay_cmd = "combat_drop_fail_no_selection".into();
             } else {
-                self.pending_map_command = Some(PendingMapCommand::CombatDrop);
+                self.pending_map_command = Some(PendingMapCommand::CombatDrop(
+                    PendingCombatDropCommand::position_only(),
+                ));
                 self.commit_pending_map_command(glam::Vec3::new(x, y, z), None);
                 self.runtime_host_last_gameplay_cmd = format!("combat_drop_ok:{},{},{}", x, y, z);
             }

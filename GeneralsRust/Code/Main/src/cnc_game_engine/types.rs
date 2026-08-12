@@ -288,6 +288,63 @@ pub(crate) struct StartupNewGameDispatch {
     pub(crate) max_fps: Option<i32>,
 }
 
+/// Parsed `FIRE_WEAPON` data retained while the player chooses a target.
+///
+/// C++ keeps both fields on its pending CommandButton and selects the final
+/// message type from `ATTACK_OBJECTS_POSITION` at click time.  Retaining the
+/// raw option bits here prevents an object click from erasing that behavior.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct PendingWeaponCommand {
+    pub(super) weapon_slot: crate::command_system::WeaponSlot,
+    pub(super) max_shots_to_fire: i32,
+    pub(super) options: u32,
+}
+
+impl PendingWeaponCommand {
+    /// C++ `ATTACK_OBJECTS_POSITION`: an object validates the click, but the
+    /// weapon attacks the terrain location under that object rather than its
+    /// object ID.
+    pub(super) fn attacks_object_position(&self) -> bool {
+        const ATTACK_OBJECTS_POSITION: u32 = 0x0000_1000;
+        self.options & ATTACK_OBJECTS_POSITION != 0
+    }
+}
+
+/// Parsed `COMBATDROP` targeting data retained while the player chooses a
+/// target.
+///
+/// A retail Combat Drop button may accept both objects and map positions.
+/// C++ resolves that only at click time: an eligible object wins, otherwise a
+/// position click is used.  Keep the original bit field instead of reducing
+/// the command to one target kind while it is armed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct PendingCombatDropCommand {
+    pub(super) options: u32,
+}
+
+impl PendingCombatDropCommand {
+    const NEED_OBJECT_TARGET: u32 = 0x0000_0001 | 0x0000_0002 | 0x0000_0004;
+    const NEED_TARGET_POSITION: u32 = 0x0000_0020;
+
+    /// Non-ControlBar callers only have a location-valued host command, so
+    /// they retain the pre-existing location-only behavior rather than
+    /// claiming an unparsed object-target capability.
+    pub(super) const fn position_only() -> Self {
+        Self {
+            options: Self::NEED_TARGET_POSITION,
+        }
+    }
+
+    /// C++ `COMMAND_OPTION_NEED_OBJECT_TARGET`: enemy, neutral, or ally.
+    pub(super) fn accepts_object_target(&self) -> bool {
+        self.options & Self::NEED_OBJECT_TARGET != 0
+    }
+
+    pub(super) fn accepts_position_target(&self) -> bool {
+        self.options & Self::NEED_TARGET_POSITION != 0
+    }
+}
+
 /// Map-click command residual armed by ControlBar buttons.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum PendingMapCommand {
@@ -295,13 +352,14 @@ pub(super) enum PendingMapCommand {
     /// C++ GuardMode carried from the arming command button.
     Guard(crate::game_logic::GuardMode),
     SetRallyPoint,
-    /// Chinook combat drop residual awaiting map click.
-    CombatDrop,
+    /// Chinook combat drop residual retaining its parsed target options.
+    CombatDrop(PendingCombatDropCommand),
     /// Armed superweapon / special power residual awaiting map click.
     SpecialPower(crate::command_system::SpecialPowerType),
-    /// A `FIRE_WEAPON` CommandButton retains its exact selected weapon slot
-    /// until the player chooses an object or map position.
-    Weapon(crate::command_system::WeaponSlot),
+    /// A `FIRE_WEAPON` CommandButton retains its exact slot, shot limit, and
+    /// target-selection options until the player chooses an object or map
+    /// position.
+    Weapon(PendingWeaponCommand),
     /// Retail PLACE_BEACON residual awaiting map click.
     PlaceBeacon,
     /// Unit special-ability residual awaiting object/map click.
@@ -726,6 +784,10 @@ pub struct CnCGameEngine {
     pub(crate) chat_panel: crate::ui::ChatPanel,
     pub(crate) current_player_id: u32,
     pub(crate) game_paused: bool,
+    /// Main has adopted a live GameClient QuitMenu WND as the active offline
+    /// pause owner.  This is distinct from the legacy Rust PauseMenu state so
+    /// a real ButtonReturn can resume only the pause it created.
+    pub(crate) quit_menu_host_active: bool,
 
     // UI state
     pub(crate) show_debug_info: bool,

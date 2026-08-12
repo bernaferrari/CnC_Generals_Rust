@@ -659,7 +659,18 @@ impl CnCGameEngine {
                 self.center_camera_on(world_pos);
             }
             MinimapActionKind::RightClick => {
-                self.issue_minimap_move(world_pos);
+                // C++ LeftHUD handles an armed map-target command before its
+                // ordinary context-sensitive move/attack/gather order.  The
+                // typed Main bridge now makes this path live, so preserve the
+                // same ordering instead of silently turning a special power
+                // or attack-move click into an ordinary move.
+                if self.pending_map_command.is_some() {
+                    let location = self.clamp_to_world_bounds(world_pos);
+                    let target = self.find_object_at_position(location, true);
+                    self.commit_pending_map_command(location, target);
+                } else {
+                    self.issue_minimap_move(world_pos);
+                }
             }
         }
     }
@@ -707,20 +718,52 @@ impl CnCGameEngine {
             .camera_pitch_radians
             .clamp(5.0_f32.to_radians(), 85.0_f32.to_radians());
         self.camera_orbit_distance = self.camera_orbit_distance.max(1.0);
-
-        let horizontal = self.camera_orbit_distance * self.camera_pitch_radians.cos();
-        let offset = Vec3::new(
-            horizontal * self.camera_yaw_radians.sin(),
-            self.camera_orbit_distance * self.camera_pitch_radians.sin(),
-            horizontal * self.camera_yaw_radians.cos(),
-        );
+        let offset = self.camera_orbit_offset();
         self.camera_position = self.camera_target + offset + self.camera_shake_offset;
         self.view_matrix = Mat4::look_at_rh(self.camera_position, self.camera_target, Vec3::Y);
     }
 
+    /// C++ `W3DView::buildCameraTransform` offset in Main's X/Z-ground basis.
+    /// `camera_orbit_distance` is deliberately unzoomed; multiplying it here
+    /// makes wheel/key/script zoom affect the real WGPU camera exactly once.
+    fn camera_orbit_offset(&self) -> Vec3 {
+        let zoom = if self.camera_zoom.is_finite() {
+            self.camera_zoom.max(0.05)
+        } else {
+            1.0
+        };
+        let distance = if self.camera_orbit_distance.is_finite() {
+            self.camera_orbit_distance.max(1.0) * zoom
+        } else {
+            zoom
+        };
+        let pitch = self
+            .camera_pitch_radians
+            .clamp(5.0_f32.to_radians(), 85.0_f32.to_radians());
+        let horizontal = distance * pitch.cos();
+        Vec3::new(
+            horizontal * self.camera_yaw_radians.sin(),
+            distance * pitch.sin(),
+            horizontal * self.camera_yaw_radians.cos(),
+        )
+    }
+
+    /// Catch camera mutations that arrived outside `update_camera` (minimap,
+    /// selection hotkeys, script request drain).  They must not wait for an
+    /// unrelated pan or screen shake before changing the displayed view.
+    pub(super) fn camera_transform_needs_rebuild(&self) -> bool {
+        let expected = self.camera_target + self.camera_orbit_offset() + self.camera_shake_offset;
+        !expected.is_finite()
+            || !self.camera_position.is_finite()
+            || (self.camera_position - expected).length_squared() > 1.0e-6
+    }
+
     pub(super) fn sync_orbit_from_camera_transform(&mut self) {
         let offset = self.camera_position - self.camera_target;
-        self.camera_orbit_distance = offset.length().max(1.0);
+        // Inverse of `apply_camera_orbit_transform`: a supplied camera pose
+        // (startup/save/script) is already zoomed, while the stored orbit is
+        // the C++ camera-offset basis used by future `m_zoom` changes.
+        self.camera_orbit_distance = (offset.length() / self.camera_zoom.max(0.05)).max(1.0);
         let horizontal = Vec2::new(offset.x, offset.z).length();
         self.camera_pitch_radians = offset
             .y

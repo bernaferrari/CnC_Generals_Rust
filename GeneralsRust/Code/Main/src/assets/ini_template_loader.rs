@@ -43,13 +43,26 @@ pub struct IniTemplateLoadStats {
 /// End
 /// ```
 ///
-/// Returns a list of `(block_type, block_name, properties)` tuples.
-fn parse_ini_sections(content: &str) -> Vec<(String, String, HashMap<String, String>)> {
+/// An ordered sequence of INI assignments.
+///
+/// Most consumers only need C++'s usual last-assignment-wins behavior and can
+/// collapse this into a `HashMap`. Weapon veterancy fields are different:
+/// `VeterancyFireFX`, `VeterancyProjectileExhaust`, and their OCL/detonation
+/// equivalents may legitimately occur more than once in one block. Retaining
+/// source order is therefore necessary to reproduce `Weapon.cpp`'s parser.
+type OrderedIniProperties = Vec<(String, String)>;
+
+/// Parse a block of INI text without discarding repeated assignments.
+///
+/// Returns `(block_type, block_name, ordered_properties)` tuples. Keep this as
+/// the source parser; `parse_ini_sections` below is the compatibility view for
+/// callers that intentionally use last-assignment-wins properties.
+fn parse_ini_sections_ordered(content: &str) -> Vec<(String, String, OrderedIniProperties)> {
     let lines: Vec<&str> = content.lines().collect();
-    let mut sections: Vec<(String, String, HashMap<String, String>)> = Vec::new();
+    let mut sections: Vec<(String, String, OrderedIniProperties)> = Vec::new();
     let mut current_type: Option<String> = None;
     let mut current_name: Option<String> = None;
-    let mut current_props: HashMap<String, String> = HashMap::new();
+    let mut current_props: OrderedIniProperties = Vec::new();
     let mut depth: u32 = 0;
 
     for line in &lines {
@@ -127,7 +140,7 @@ fn parse_ini_sections(content: &str) -> Vec<(String, String, HashMap<String, Str
                 value = strip_inline_comment(&value).to_string();
 
                 if !key.is_empty() {
-                    current_props.insert(key, value);
+                    current_props.push((key, value));
                 }
             }
         }
@@ -141,6 +154,20 @@ fn parse_ini_sections(content: &str) -> Vec<(String, String, HashMap<String, Str
     }
 
     sections
+}
+
+/// Parse INI sections using the historical last-assignment-wins view.
+///
+/// Existing non-weapon loaders use this API. Weapon loading uses the ordered
+/// parser above so duplicate veterancy fields retain their C++ semantics.
+fn parse_ini_sections(content: &str) -> Vec<(String, String, HashMap<String, String>)> {
+    parse_ini_sections_ordered(content)
+        .into_iter()
+        .map(|(block_type, block_name, ordered)| {
+            let properties = ordered.into_iter().collect::<HashMap<_, _>>();
+            (block_type, block_name, properties)
+        })
+        .collect()
 }
 
 /// Check if a line is a top-level INI block header like "Weapon", "Upgrade", "Science".
@@ -592,11 +619,14 @@ pub fn register_weapons_from_ini_text(content: &str) -> usize {
         warn!("Cannot register weapons — WeaponStore init failed: {e}");
         return 0;
     }
-    let sections = parse_ini_sections(content);
+    // Weapon.cpp parses fields in source order. In particular, several
+    // `Veterancy*` fields are deliberately repeated in a single Weapon block,
+    // so do not pass this through the last-assignment-wins compatibility view.
+    let sections = parse_ini_sections_ordered(content);
     let mut count = 0usize;
     for (block_type, block_name, properties) in &sections {
         if block_type.eq_ignore_ascii_case("Weapon")
-            && register_weapon_template(block_name, properties)
+            && register_weapon_template_ordered(block_name, properties)
         {
             count += 1;
         }
@@ -622,8 +652,30 @@ fn parse_ini_bool(val: &str) -> Option<bool> {
     }
 }
 
-/// Register a weapon template parsed from INI into the GameLogic WeaponStore.
+/// Register a weapon template from the historical last-assignment-wins view.
+///
+/// This stays available for focused callers/tests. Real Weapon.ini loading uses
+/// `register_weapon_template_ordered` so repeated veterancy properties survive.
 fn register_weapon_template(name: &str, properties: &HashMap<String, String>) -> bool {
+    let ordered = properties
+        .iter()
+        .map(|(key, value)| (key.clone(), value.clone()))
+        .collect::<OrderedIniProperties>();
+    register_weapon_template_from_properties(name, properties, &ordered)
+}
+
+/// Register a Weapon block while preserving every assignment in source order.
+fn register_weapon_template_ordered(name: &str, ordered: &OrderedIniProperties) -> bool {
+    let properties = ordered.iter().cloned().collect::<HashMap<_, _>>();
+    register_weapon_template_from_properties(name, &properties, ordered)
+}
+
+/// Register a weapon template parsed from INI into the GameLogic WeaponStore.
+fn register_weapon_template_from_properties(
+    name: &str,
+    properties: &HashMap<String, String>,
+    ordered: &OrderedIniProperties,
+) -> bool {
     use gamelogic::WeaponTemplate;
 
     let template_name = name.to_string();
@@ -809,57 +861,63 @@ fn register_weapon_template(name: &str, properties: &HashMap<String, String>) ->
         }
     }
 
-    if let Some(val) = properties.get("AntiAirborneVehicle") {
-        if parse_ini_bool(val) == Some(true) {
-            template
-                .anti_mask
-                .insert(gamelogic::weapon::WeaponAntiMask::AIRBORNE_VEHICLE);
+    // C++ `INI::parseBitInInt32` obeys both Yes and No.  In particular,
+    // WeaponTemplate starts with AntiGround, so treating `AntiGround = No`
+    // as a no-op quietly lets dedicated AA/anti-missile weapons hit ground.
+    // Keep the exact per-bit result rather than inferring broad air/ground
+    // capability from a weapon name or projectile type.
+    let mut parse_anti_mask = |field: &str, bit: u32| {
+        let Some(value) = properties.get(field) else {
+            return;
+        };
+        match parse_ini_bool(value) {
+            Some(true) => template.anti_mask.insert(bit),
+            Some(false) => template.anti_mask.remove(bit),
+            None => log::warn!("Invalid boolean for Weapon `{name}` field `{field}`: {value}"),
         }
-    }
-
-    if let Some(val) = properties.get("AntiGround") {
-        if parse_ini_bool(val) == Some(true) {
-            template
-                .anti_mask
-                .insert(gamelogic::weapon::WeaponAntiMask::GROUND);
-        }
-    }
-
-    if let Some(val) = properties.get("AntiProjectile") {
-        if parse_ini_bool(val) == Some(true) {
-            template
-                .anti_mask
-                .insert(gamelogic::weapon::WeaponAntiMask::PROJECTILE);
-        }
-    }
-
-    if let Some(val) = properties.get("AntiSmallMissile") {
-        if parse_ini_bool(val) == Some(true) {
-            template
-                .anti_mask
-                .insert(gamelogic::weapon::WeaponAntiMask::SMALL_MISSILE);
-        }
-    }
-
-    if let Some(val) = properties.get("AntiMine") {
-        if parse_ini_bool(val) == Some(true) {
-            template
-                .anti_mask
-                .insert(gamelogic::weapon::WeaponAntiMask::MINE);
-        }
-    }
-
-    if let Some(val) = properties.get("AntiAirborneInfantry") {
-        if parse_ini_bool(val) == Some(true) {
-            template
-                .anti_mask
-                .insert(gamelogic::weapon::WeaponAntiMask::AIRBORNE_INFANTRY);
-        }
-    }
+    };
+    parse_anti_mask(
+        "AntiAirborneVehicle",
+        gamelogic::weapon::WeaponAntiMask::AIRBORNE_VEHICLE,
+    );
+    parse_anti_mask("AntiGround", gamelogic::weapon::WeaponAntiMask::GROUND);
+    parse_anti_mask(
+        "AntiProjectile",
+        gamelogic::weapon::WeaponAntiMask::PROJECTILE,
+    );
+    parse_anti_mask(
+        "AntiSmallMissile",
+        gamelogic::weapon::WeaponAntiMask::SMALL_MISSILE,
+    );
+    parse_anti_mask("AntiMine", gamelogic::weapon::WeaponAntiMask::MINE);
+    parse_anti_mask(
+        "AntiParachute",
+        gamelogic::weapon::WeaponAntiMask::PARACHUTE,
+    );
+    parse_anti_mask(
+        "AntiAirborneInfantry",
+        gamelogic::weapon::WeaponAntiMask::AIRBORNE_INFANTRY,
+    );
+    parse_anti_mask(
+        "AntiBallisticMissile",
+        gamelogic::weapon::WeaponAntiMask::BALLISTIC_MISSILE,
+    );
+    // Release the closure's exclusive template borrow before parsing the
+    // remainder of the Weapon.ini fields.
+    drop(parse_anti_mask);
 
     if let Some(val) = properties.get("ScaleWeaponSpeed") {
         if let Some(b) = parse_ini_bool(val) {
             template.is_scale_weapon_speed = b;
+        }
+    }
+
+    // C++ WeaponTemplateFieldParseTable: FireFX from an undetected stealth
+    // source is suppressed unless this exact authored flag is true. Keep it
+    // in the parsed template rather than reconstructing it from a weapon name.
+    if let Some(val) = properties.get("PlayFXWhenStealthed") {
+        if let Some(b) = parse_ini_bool(val) {
+            template.play_fx_when_stealthed = b;
         }
     }
 
@@ -906,6 +964,11 @@ fn register_weapon_template(name: &str, properties: &HashMap<String, String>) ->
         }
     }
 
+    // `Weapon.cpp` applies these fields in file order. Keep this separate from
+    // scalar-property parsing above because a HashMap has already discarded
+    // repeated `Veterancy…` assignments by this point.
+    apply_weapon_effect_references(&mut template, ordered);
+
     // Register the template into the GameLogic WeaponStore
     match gamelogic::with_weapon_store_mut(|store| {
         store.add_weapon_template(template);
@@ -917,6 +980,163 @@ fn register_weapon_template(name: &str, properties: &HashMap<String, String>) ->
         Err(e) => {
             warn!("Failed to register weapon '{}': {}", name, e);
             false
+        }
+    }
+}
+
+/// Parse the one identifier C++ `INI::getNextToken` consumes for a named
+/// Weapon.ini reference. `None` is a null pointer in the original engine, not
+/// a valid FX/OCL/particle template name.
+fn parse_weapon_reference_name(value: &str) -> Option<String> {
+    let name = value.split_whitespace().next()?.trim();
+    (!name.is_empty() && !name.eq_ignore_ascii_case("none")).then(|| name.to_string())
+}
+
+/// C++ `TheVeterancyNames` is exactly
+/// `REGULAR`, `VETERAN`, `ELITE`, `HEROIC` in that order. Do not silently map
+/// unknown names to Regular: that would turn malformed data into a visible
+/// wrong-level effect.
+fn parse_cpp_veterancy_index(value: &str) -> Option<usize> {
+    if value.eq_ignore_ascii_case("regular") {
+        Some(0)
+    } else if value.eq_ignore_ascii_case("veteran") {
+        Some(1)
+    } else if value.eq_ignore_ascii_case("elite") {
+        Some(2)
+    } else if value.eq_ignore_ascii_case("heroic") {
+        Some(3)
+    } else {
+        None
+    }
+}
+
+/// Parse `Veterancy<Field> = LEVEL TemplateName` without losing the second
+/// token. `Some((level, None))` is an intentional `None` override; `None`
+/// means the property was malformed and is ignored like an unresolved C++ INI
+/// field rather than being guessed.
+fn parse_veterancy_weapon_reference(value: &str) -> Option<(usize, Option<String>)> {
+    let mut tokens = value.split_whitespace();
+    let level = parse_cpp_veterancy_index(tokens.next()?)?;
+    let reference = tokens.next()?;
+    let reference = (!reference.eq_ignore_ascii_case("none")).then(|| reference.to_string());
+    Some((level, reference))
+}
+
+fn all_veterancy<T: Clone>(value: Option<T>) -> [Option<T>; 4] {
+    std::array::from_fn(|_| value.clone())
+}
+
+/// Apply C++ Weapon.cpp lines 173–182 exactly enough for the active Rust
+/// store:
+///
+/// - base fields populate Regular/Veteran/Elite/Heroic;
+/// - every repeated `Veterancy…` field subsequently overwrites one named slot;
+/// - `None` remains absent instead of becoming a fabricated template;
+/// - OCL and particle names are retained for deferred, real-store resolution.
+///
+/// FXList is a small name handle in GameLogic. Constructing that handle does
+/// not register a placeholder FX definition; GameClient resolves the exact
+/// parsed name when executing the effect.
+fn apply_weapon_effect_references(
+    template: &mut gamelogic::WeaponTemplate,
+    ordered: &OrderedIniProperties,
+) {
+    for (key, value) in ordered {
+        if key.eq_ignore_ascii_case("FireFX") {
+            let fx = parse_weapon_reference_name(value)
+                .map(|name| gamelogic::effects::FXList::new(&name));
+            template.fire_fx = all_veterancy(fx);
+            continue;
+        }
+
+        if key.eq_ignore_ascii_case("ProjectileDetonationFX") {
+            let fx = parse_weapon_reference_name(value)
+                .map(|name| gamelogic::effects::FXList::new(&name));
+            template.projectile_detonate_fx = all_veterancy(fx);
+            continue;
+        }
+
+        if key.eq_ignore_ascii_case("FireOCL") {
+            template.fire_ocl_names = all_veterancy(parse_weapon_reference_name(value));
+            // A new INI reference supersedes any programmatic cached handle.
+            template.fire_ocl = [None, None, None, None];
+            continue;
+        }
+
+        if key.eq_ignore_ascii_case("ProjectileDetonationOCL") {
+            template.projectile_detonation_ocl_names =
+                all_veterancy(parse_weapon_reference_name(value));
+            template.projectile_detonation_ocl = [None, None, None, None];
+            continue;
+        }
+
+        if key.eq_ignore_ascii_case("ProjectileExhaust") {
+            template.projectile_exhaust_names = all_veterancy(parse_weapon_reference_name(value));
+            template.projectile_exhaust = [None, None, None, None];
+            continue;
+        }
+
+        if key.eq_ignore_ascii_case("VeterancyFireFX") {
+            if let Some((level, name)) = parse_veterancy_weapon_reference(value) {
+                template.fire_fx[level] = name.map(|name| gamelogic::effects::FXList::new(&name));
+            } else {
+                warn!(
+                    "Ignoring malformed VeterancyFireFX for '{}': {}",
+                    template.name, value
+                );
+            }
+            continue;
+        }
+
+        if key.eq_ignore_ascii_case("VeterancyProjectileDetonationFX") {
+            if let Some((level, name)) = parse_veterancy_weapon_reference(value) {
+                template.projectile_detonate_fx[level] =
+                    name.map(|name| gamelogic::effects::FXList::new(&name));
+            } else {
+                warn!(
+                    "Ignoring malformed VeterancyProjectileDetonationFX for '{}': {}",
+                    template.name, value
+                );
+            }
+            continue;
+        }
+
+        if key.eq_ignore_ascii_case("VeterancyFireOCL") {
+            if let Some((level, name)) = parse_veterancy_weapon_reference(value) {
+                template.fire_ocl_names[level] = name;
+                template.fire_ocl[level] = None;
+            } else {
+                warn!(
+                    "Ignoring malformed VeterancyFireOCL for '{}': {}",
+                    template.name, value
+                );
+            }
+            continue;
+        }
+
+        if key.eq_ignore_ascii_case("VeterancyProjectileDetonationOCL") {
+            if let Some((level, name)) = parse_veterancy_weapon_reference(value) {
+                template.projectile_detonation_ocl_names[level] = name;
+                template.projectile_detonation_ocl[level] = None;
+            } else {
+                warn!(
+                    "Ignoring malformed VeterancyProjectileDetonationOCL for '{}': {}",
+                    template.name, value
+                );
+            }
+            continue;
+        }
+
+        if key.eq_ignore_ascii_case("VeterancyProjectileExhaust") {
+            if let Some((level, name)) = parse_veterancy_weapon_reference(value) {
+                template.projectile_exhaust_names[level] = name;
+                template.projectile_exhaust[level] = None;
+            } else {
+                warn!(
+                    "Ignoring malformed VeterancyProjectileExhaust for '{}': {}",
+                    template.name, value
+                );
+            }
         }
     }
 }
@@ -1154,6 +1374,168 @@ End
             sections[1].2.get("ProjectileTemplate").unwrap(),
             "AmericaVehicleHumveeBullet"
         );
+    }
+
+    #[test]
+    fn weapon_anti_mask_honors_no_and_every_cxx_target_category() {
+        let ini_content = r#"
+Weapon __RustExactWeaponAntiMask
+  AntiGround = No
+  AntiAirborneVehicle = Yes
+  AntiAirborneInfantry = Yes
+  AntiProjectile = Yes
+  AntiSmallMissile = Yes
+  AntiMine = Yes
+  AntiParachute = Yes
+  AntiBallisticMissile = Yes
+End
+"#;
+
+        assert_eq!(register_weapons_from_ini_text(ini_content), 1);
+        gamelogic::with_weapon_store(|store| {
+            use gamelogic::weapon::WeaponAntiMask;
+
+            let weapon = store
+                .find_weapon_template("__RustExactWeaponAntiMask")
+                .expect("registered exact-mask weapon");
+            let mask = weapon.get_anti_mask();
+            assert_eq!(mask & WeaponAntiMask::GROUND, 0);
+            for bit in [
+                WeaponAntiMask::AIRBORNE_VEHICLE,
+                WeaponAntiMask::AIRBORNE_INFANTRY,
+                WeaponAntiMask::PROJECTILE,
+                WeaponAntiMask::SMALL_MISSILE,
+                WeaponAntiMask::MINE,
+                WeaponAntiMask::PARACHUTE,
+                WeaponAntiMask::BALLISTIC_MISSILE,
+            ] {
+                assert_ne!(mask & bit, 0, "missing parsed anti-mask bit {bit:#x}");
+            }
+        })
+        .expect("weapon store available");
+    }
+
+    #[test]
+    fn weapon_effect_references_preserve_repeated_veterancy_lines_in_order() {
+        // Mirrors Weapon.cpp's `parseAllVetLevels*` then repeated
+        // `parsePerVetLevel*` handlers. A HashMap-only parser would keep only
+        // the final repeated assignment and lose the Veteran/Elite overrides.
+        let ini_content = r#"
+Weapon __RustOrderedVeterancyEffectWeapon
+  FireFX = FX_BaseFire
+  VeterancyFireFX = VETERAN FX_VeteranFire
+  VeterancyFireFX = ELITE None
+  VeterancyFireFX = HEROIC FX_HeroicFire
+  ProjectileDetonationFX = FX_BaseDetonate
+  VeterancyProjectileDetonationFX = VETERAN FX_VeteranDetonate
+  VeterancyProjectileDetonationFX = HEROIC FX_HeroicDetonate
+  FireOCL = OCL_BaseFire
+  VeterancyFireOCL = VETERAN OCL_VeteranFire
+  VeterancyFireOCL = ELITE None
+  VeterancyFireOCL = HEROIC OCL_HeroicFire
+  ProjectileDetonationOCL = OCL_BaseDetonate
+  VeterancyProjectileDetonationOCL = VETERAN OCL_VeteranDetonate
+  VeterancyProjectileDetonationOCL = ELITE None
+  ProjectileExhaust = Exhaust_Base
+  VeterancyProjectileExhaust = VETERAN Exhaust_Veteran
+  VeterancyProjectileExhaust = ELITE None
+  VeterancyProjectileExhaust = HEROIC Exhaust_Heroic
+  PlayFXWhenStealthed = Yes
+End
+"#;
+
+        let ordered = parse_ini_sections_ordered(ini_content);
+        assert_eq!(ordered.len(), 1);
+        assert_eq!(
+            ordered[0]
+                .2
+                .iter()
+                .filter(|(key, _)| key.eq_ignore_ascii_case("VeterancyFireFX"))
+                .count(),
+            3,
+            "repeated Weapon.ini properties must survive section parsing"
+        );
+
+        assert_eq!(register_weapons_from_ini_text(ini_content), 1);
+        gamelogic::with_weapon_store(|store| {
+            let weapon = store
+                .find_weapon_template("__RustOrderedVeterancyEffectWeapon")
+                .expect("ordered weapon registered");
+
+            assert_eq!(
+                weapon.fire_fx[0].as_ref().map(|fx| fx.name()),
+                Some("FX_BaseFire")
+            );
+            assert_eq!(
+                weapon.fire_fx[1].as_ref().map(|fx| fx.name()),
+                Some("FX_VeteranFire")
+            );
+            assert!(weapon.fire_fx[2].is_none(), "ELITE None is a null FXList");
+            assert_eq!(
+                weapon.fire_fx[3].as_ref().map(|fx| fx.name()),
+                Some("FX_HeroicFire")
+            );
+
+            assert_eq!(
+                weapon.projectile_detonate_fx[0]
+                    .as_ref()
+                    .map(|fx| fx.name()),
+                Some("FX_BaseDetonate")
+            );
+            assert_eq!(
+                weapon.projectile_detonate_fx[1]
+                    .as_ref()
+                    .map(|fx| fx.name()),
+                Some("FX_VeteranDetonate")
+            );
+            assert_eq!(
+                weapon.projectile_detonate_fx[2]
+                    .as_ref()
+                    .map(|fx| fx.name()),
+                Some("FX_BaseDetonate")
+            );
+            assert_eq!(
+                weapon.projectile_detonate_fx[3]
+                    .as_ref()
+                    .map(|fx| fx.name()),
+                Some("FX_HeroicDetonate")
+            );
+
+            use gamelogic::common::VeterancyLevel::{Elite, Heroic, Regular, Veteran};
+            assert_eq!(weapon.get_fire_ocl_name(Regular), Some("OCL_BaseFire"));
+            assert_eq!(weapon.get_fire_ocl_name(Veteran), Some("OCL_VeteranFire"));
+            assert_eq!(weapon.get_fire_ocl_name(Elite), None);
+            assert_eq!(weapon.get_fire_ocl_name(Heroic), Some("OCL_HeroicFire"));
+            assert_eq!(
+                weapon.get_projectile_detonation_ocl_name(Regular),
+                Some("OCL_BaseDetonate")
+            );
+            assert_eq!(
+                weapon.get_projectile_detonation_ocl_name(Veteran),
+                Some("OCL_VeteranDetonate")
+            );
+            assert_eq!(weapon.get_projectile_detonation_ocl_name(Elite), None);
+            assert_eq!(
+                weapon.get_projectile_detonation_ocl_name(Heroic),
+                Some("OCL_BaseDetonate")
+            );
+
+            assert_eq!(
+                weapon.get_projectile_exhaust_name(Regular),
+                Some("Exhaust_Base")
+            );
+            assert_eq!(
+                weapon.get_projectile_exhaust_name(Veteran),
+                Some("Exhaust_Veteran")
+            );
+            assert_eq!(weapon.get_projectile_exhaust_name(Elite), None);
+            assert_eq!(
+                weapon.get_projectile_exhaust_name(Heroic),
+                Some("Exhaust_Heroic")
+            );
+            assert!(weapon.play_fx_when_stealthed);
+        })
+        .expect("weapon store available");
     }
 
     #[test]

@@ -397,17 +397,26 @@ impl Object {
     }
 
     pub fn can_repair(&self) -> bool {
-        // Repair/build authority should be limited to worker/dozer-style units.
-        self.can_move() && self.is_worker()
+        // C++ ActionManager::canRepairObject: only KINDOF_DOZER can repair.
+        self.can_move() && self.is_kind_of(KindOf::Dozer)
     }
 
     pub fn can_construct(&self) -> bool {
-        // Construction should be limited to worker/dozer-style units.
-        self.can_move() && self.is_worker()
+        // C++ ActionManager::canResumeConstructionOf: only KINDOF_DOZER.
+        self.can_move() && self.is_kind_of(KindOf::Dozer)
     }
 
     pub fn can_contain(&self) -> bool {
         if !self.is_alive() {
+            return false;
+        }
+        // C++ RiderChangeContain refuses a new rider after onRemoving starts
+        // the delayed scuttle.  The object may still be alive for those
+        // frames, so ordinary alive/capacity checks alone are insufficient.
+        if self.thing.template.contain_module.kind
+            == crate::game_logic::ContainModuleKind::RiderChange
+            && self.rider_change_scuttled_on_frame != 0
+        {
             return false;
         }
         // China Overlord residual: only containable once BattleBunker residual
@@ -419,10 +428,37 @@ impl Object {
         if self.is_tunnel_network_style_container() {
             return self.is_kind_of(KindOf::Structure);
         }
-        // Transports: any vehicle may act as a container (host residual).
-        // Explicit max_transport=0 still allows footprint residual capacity.
-        if self.is_kind_of(KindOf::Vehicle) {
-            return true;
+        // `RailedTransportContain` is not a generic vehicle transport in
+        // retail (the AutoFerry, for example, is KINDOF_TRANSPORT).  Its
+        // explicit Slots field is nevertheless a real containment interface
+        // once the separate RailedTransportDockUpdate has accepted a dock.
+        if self.thing.template.dock_kind == crate::game_logic::DockKind::RailedTransport {
+            return self.thing.template.railed_transport_slots.is_some();
+        }
+        // C++ `canEnterObject` asks for a real ContainModuleInterface.  A
+        // vehicle's footprint or selection radius cannot fabricate one.  The
+        // parsed module path covers arbitrary retail TransportContain and
+        // RiderChangeContain objects; the explicit flags below cover the host
+        // implementations that retain their own specialized state.
+        if self
+            .thing
+            .template
+            .contain_module
+            .kind
+            .is_mobile_container()
+        {
+            return self.max_transport > 0;
+        }
+        if self.is_helix_transport
+            || self.is_battle_bus_transport
+            || self.is_technical_transport
+            || self.is_combat_cycle_transport
+            || self.is_humvee_transport
+            || self.is_troop_crawler_transport
+            || self.is_combat_chinook_transport
+            || self.is_listening_outpost_transport
+        {
+            return self.max_transport > 0;
         }
         // Structures: only garrisonable buildings with residual capacity > 0.
         // Fail-closed: faction producers / non-bunker structures reject Enter.
@@ -436,13 +472,186 @@ impl Object {
         false
     }
 
+    /// C++ `Object::getTransportSlotCount` subset.  The raw Object INI value
+    /// is zero by default in C++; missing metadata therefore must not let a
+    /// source unit enter a capacity-checked normal transport.
+    #[inline]
+    pub fn transport_slot_count(&self) -> usize {
+        self.thing.template.transport_slot_count.unwrap_or(0)
+    }
+
+    /// Frozen/typed `AllowInsideKindOf` decision for normal player Enter.
+    /// Specialized host transports are kept explicit rather than inferred from
+    /// their template spelling; parsed source data takes precedence whenever a
+    /// concrete module was retained.
+    pub fn normal_enter_admission(&self) -> crate::game_logic::ContainAdmission {
+        use crate::game_logic::{ContainAdmission, ContainModuleKind};
+
+        if self.is_tunnel_network_style_container() {
+            return ContainAdmission::InfantryOrVehicle;
+        }
+        if self.is_overlord_style_container() && self.overlord_bunker_slot_capacity() > 0 {
+            return ContainAdmission::InfantryOnly;
+        }
+        // `RiderChangeContain` is not an ordinary one-seat transport.  It is
+        // admitted only when the exact parsed roster and its bounded Combat
+        // Cycle transaction are available; an old name-based Combat Cycle
+        // marker alone remains deliberately fail-closed.
+        if self.thing.template.contain_module.kind == ContainModuleKind::RiderChange {
+            return if self.supports_authored_rider_change_normal_enter() {
+                self.thing.template.contain_module.admission
+            } else {
+                ContainAdmission::Unsupported
+            };
+        }
+        if self.is_combat_cycle_style_container() {
+            return ContainAdmission::Unsupported;
+        }
+        if self.thing.template.contain_module.kind != ContainModuleKind::None {
+            return self.thing.template.contain_module.admission;
+        }
+        if self.is_humvee_style_container()
+            || self.is_battle_bus_style_container()
+            || self.is_technical_style_container()
+            || self.is_combat_cycle_style_container()
+            || self.is_listening_outpost_style_container()
+            || self.is_troop_crawler_style_container()
+        {
+            return ContainAdmission::InfantryOnly;
+        }
+        if self.is_combat_chinook_style_container() || self.is_helix_transport {
+            return ContainAdmission::InfantryOrVehicle;
+        }
+        ContainAdmission::Unsupported
+    }
+
+    #[inline]
+    pub fn supports_normal_enter(&self) -> bool {
+        self.normal_enter_admission() != crate::game_logic::ContainAdmission::Unsupported
+    }
+
+    #[inline]
+    pub fn normal_enter_requires_infantry(&self) -> bool {
+        self.normal_enter_admission() == crate::game_logic::ContainAdmission::InfantryOnly
+    }
+
+    #[inline]
+    pub fn normal_enter_forbids_aircraft(&self) -> bool {
+        matches!(
+            self.normal_enter_admission(),
+            crate::game_logic::ContainAdmission::InfantryOnly
+                | crate::game_logic::ContainAdmission::InfantryOrVehicle
+        )
+    }
+
+    /// `TransportContain::isValidContainerFor` is stricter than
+    /// `OpenContain`: an ordinary transport, Helix, or railed transport only
+    /// accepts a rider controlled by the *same player*.  This is deliberately
+    /// not an alliance/faction test: two same-faction skirmish slots do not
+    /// share seats.  GarrisonContain and TunnelContain retain their separate
+    /// C++ rules.
+    #[inline]
+    pub fn normal_enter_requires_exact_controller(&self) -> bool {
+        use crate::game_logic::ContainModuleKind;
+
+        if self.is_tunnel_network_style_container() {
+            return false;
+        }
+        if self.is_overlord_style_container() && self.overlord_bunker_slot_capacity() > 0 {
+            return true;
+        }
+        match self.thing.template.contain_module.kind {
+            ContainModuleKind::Transport
+            | ContainModuleKind::RiderChange
+            | ContainModuleKind::RailedTransport => true,
+            ContainModuleKind::Garrison => false,
+            ContainModuleKind::None => {
+                self.is_helix_transport
+                    || self.is_battle_bus_transport
+                    || self.is_technical_transport
+                    || self.is_combat_cycle_transport
+                    || self.is_humvee_transport
+                    || self.is_troop_crawler_transport
+                    || self.is_combat_chinook_transport
+                    || self.is_listening_outpost_transport
+            }
+        }
+    }
+
+    /// Whether normal Enter capacity is measured in the rider's authored
+    /// `TransportSlotCount` rather than one contained body.  C++
+    /// TransportContain maintains `m_extraSlotsInUse`; GarrisonContain and
+    /// TunnelTracker instead count contained objects.
+    #[inline]
+    pub fn normal_enter_uses_transport_slots(&self) -> bool {
+        use crate::game_logic::ContainModuleKind;
+
+        // RiderChange replaces its sole payload atomically and explicitly
+        // ignores TransportContain capacity, matching C++ isValidContainerFor
+        // with CHECK_CAPACITY=false.
+        if self.thing.template.contain_module.kind == ContainModuleKind::RiderChange {
+            return false;
+        }
+        if self.is_tunnel_network_style_container()
+            || self.is_kind_of(KindOf::Structure)
+            || self.thing.template.contain_module.kind == ContainModuleKind::Garrison
+        {
+            return false;
+        }
+        matches!(
+            self.thing.template.contain_module.kind,
+            ContainModuleKind::Transport | ContainModuleKind::RailedTransport
+        ) || self.is_overlord_style_container()
+            || self.is_helix_transport
+            || self.is_battle_bus_transport
+            || self.is_technical_transport
+            || self.is_combat_cycle_transport
+            || self.is_humvee_transport
+            || self.is_troop_crawler_transport
+            || self.is_combat_chinook_transport
+            || self.is_listening_outpost_transport
+    }
+
+    /// C++ OpenContain relationship gates.  Without retained module metadata
+    /// the specialized host containers use C++'s all-true OpenContain defaults.
+    pub fn allows_normal_enter_from_team(&self, source_team: Team) -> bool {
+        let relationship = if source_team == self.team {
+            gamelogic::common::Relationship::Allies
+        } else if source_team == Team::Neutral || self.team == Team::Neutral {
+            gamelogic::common::Relationship::Neutral
+        } else {
+            gamelogic::common::Relationship::Enemies
+        };
+        self.allows_normal_enter_for_relationship(relationship)
+    }
+
+    /// C++ OpenContain relationship gate with ownership-aware relationship
+    /// resolution supplied by GameLogic.  Keep the old team-only method above
+    /// solely for genuinely legacy callers; normal Enter must call this form.
+    pub fn allows_normal_enter_for_relationship(
+        &self,
+        relationship: gamelogic::common::Relationship,
+    ) -> bool {
+        let metadata = &self.thing.template.contain_module;
+        if metadata.kind == crate::game_logic::ContainModuleKind::None {
+            return true;
+        }
+        match relationship {
+            gamelogic::common::Relationship::Allies => metadata.allow_allies_inside,
+            gamelogic::common::Relationship::Enemies => metadata.allow_enemies_inside,
+            gamelogic::common::Relationship::Neutral => metadata.allow_neutral_inside,
+        }
+    }
+
     pub fn has_capacity_for(&self, count: usize) -> bool {
         if let Some(building) = &self.building_data {
             if building.max_garrison == 0 {
                 return false;
             }
             building.garrisoned_units.len() + count <= building.max_garrison
-        } else if self.is_kind_of(KindOf::Vehicle) {
+        } else if self.is_kind_of(KindOf::Vehicle)
+            || self.thing.template.dock_kind == crate::game_logic::DockKind::RailedTransport
+        {
             let cap = self.transport_capacity();
             if cap == 0 {
                 return false;
@@ -760,6 +969,35 @@ impl Object {
         self.is_combat_cycle_transport
     }
 
+    /// True only for the parsed, bounded RiderChangeContain path.  The
+    /// specialized Combat Cycle residual is an *effect* implementation, not
+    /// admission evidence: the complete Object INI roster is sufficient here;
+    /// no template basename/legacy transport flag is used to enable Enter.
+    #[inline]
+    pub fn supports_authored_rider_change_normal_enter(&self) -> bool {
+        self.rider_change_scuttled_on_frame == 0
+            && self
+                .thing
+                .template
+                .contain_module
+                .has_supported_rider_change_roster()
+    }
+
+    /// Exact, case-insensitive authored RiderN identity lookup.  C++ also
+    /// accepts reskin/build-variation equivalence; that source relationship is
+    /// not retained in the active ThingTemplate graph, so those variants stay
+    /// fail-closed rather than being approximated from their name.
+    #[inline]
+    pub fn authored_rider_change_rider_for_template(
+        &self,
+        template_name: &str,
+    ) -> Option<&crate::game_logic::RiderChangeRiderMetadata> {
+        self.thing
+            .template
+            .contain_module
+            .supported_rider_change_rider_for_template(template_name)
+    }
+
     /// Install residual America Humvee transport:
     /// C++ TransportContain Slots=5, PassengersAllowedToFire=Yes,
     /// AllowInsideKindOf=INFANTRY.
@@ -861,25 +1099,49 @@ impl Object {
         self.is_listening_outpost_transport
     }
 
-    /// Residual transport capacity (vehicles). Overlord bunker residual wins,
-    /// then explicit `max_transport`, else footprint heuristic. Structures return 0.
+    /// Retained transport capacity.  Capacity comes only from an authored
+    /// Contain module or an explicit specialized host transport installation;
+    /// never from an object's visual footprint.
     pub fn transport_capacity(&self) -> usize {
         if self.is_kind_of(KindOf::Structure) {
             return 0;
         }
-        if !self.is_kind_of(KindOf::Vehicle) {
+        let is_railed_transport =
+            self.thing.template.dock_kind == crate::game_logic::DockKind::RailedTransport;
+        if !self.is_kind_of(KindOf::Vehicle)
+            && !self.is_kind_of(KindOf::Aircraft)
+            && !is_railed_transport
+        {
             return 0;
+        }
+        // Railed transports must use their authored `Slots`; they do not gain
+        // the generic vehicle footprint capacity when a custom object omitted
+        // RailedTransportContain.
+        if is_railed_transport {
+            return self.max_transport;
         }
         // Overlord BattleBunker residual: bunker slots only (0 without bunker).
         if let Some(cap) = self.overlord_bunker_capacity {
             return cap;
         }
-        if self.max_transport > 0 {
+        if self
+            .thing
+            .template
+            .contain_module
+            .kind
+            .is_mobile_container()
+            || self.is_helix_transport
+            || self.is_battle_bus_transport
+            || self.is_technical_transport
+            || self.is_combat_cycle_transport
+            || self.is_humvee_transport
+            || self.is_troop_crawler_transport
+            || self.is_combat_chinook_transport
+            || self.is_listening_outpost_transport
+        {
             return self.max_transport;
         }
-        // Transport heuristic based on footprint: larger selection radius holds more.
-        let base_cap = (self.selection_radius / 8.0).ceil() as usize + 2;
-        base_cap.clamp(2, 12)
+        0
     }
 
     /// Current transport occupant count (vehicles only; structures use garrison).

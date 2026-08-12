@@ -19,6 +19,9 @@ pub(super) fn ensure_test_tank_template(game_logic: &mut GameLogic) {
         .add_kind_of(KindOf::Attackable)
         .set_health(250.0)
         .set_cost(600, 0);
+    // Explicit C++ TransportSlotCount test fixture; tanks consume three
+    // passenger slots but are not containers themselves.
+    test_tank.transport_slot_count = Some(3);
     game_logic
         .templates
         .insert("TestTank".to_string(), test_tank);
@@ -53,6 +56,15 @@ pub(super) fn ensure_test_infantry_template(game_logic: &mut GameLogic) {
         .add_kind_of(KindOf::Attackable)
         .set_health(80.0)
         .set_cost(100, 0);
+    test_infantry.transport_slot_count = Some(1);
+    // Test fixtures model the explicit Object INI capture module rather than
+    // relying on the `TestInfantry` basename.  Individual tests can pause
+    // this power to exercise upgrade/readiness behavior.
+    test_infantry.capture_power = CapturePowerKind::Ranger;
+    test_infantry.capture_start_ability_range = Some(5.0);
+    test_infantry.capture_unpack_time_ms = Some(3_000);
+    test_infantry.capture_preparation_time_ms = Some(20_000);
+    test_infantry.capture_pack_time_ms = Some(2_000);
     game_logic
         .templates
         .insert("TestInfantry".to_string(), test_infantry);
@@ -65,6 +77,9 @@ pub(super) fn ensure_test_aircraft_template(game_logic: &mut GameLogic) {
 
     let mut test_aircraft = ThingTemplate::new("TestAircraft");
     test_aircraft
+        // Retail airframes carry VEHICLE as well as AIRCRAFT; C++
+        // canGetRepairedAt checks VEHICLE before the airfield branch.
+        .add_kind_of(KindOf::Vehicle)
         .add_kind_of(KindOf::Aircraft)
         .add_kind_of(KindOf::Selectable)
         .add_kind_of(KindOf::Attackable)
@@ -87,6 +102,7 @@ pub(super) fn ensure_test_structure_template(game_logic: &mut GameLogic) {
         .add_kind_of(KindOf::Attackable)
         .set_health(1200.0)
         .set_cost(500, -1);
+    test_building.capturable = true;
     game_logic
         .templates
         .insert("TestBuilding".to_string(), test_building);
@@ -123,6 +139,7 @@ pub(super) fn ensure_test_barracks_template(game_logic: &mut GameLogic) {
         .add_kind_of(KindOf::Attackable)
         .set_health(1000.0)
         .set_cost(600, -1);
+    barracks.capturable = true;
     game_logic
         .templates
         .insert("TestBarracks".to_string(), barracks);
@@ -140,6 +157,15 @@ pub(super) fn ensure_test_garrison_template(game_logic: &mut GameLogic) {
         .add_kind_of(KindOf::Attackable)
         .set_health(1000.0)
         .set_cost(0, 0);
+    garrison.contain_module = ContainModuleMetadata {
+        kind: ContainModuleKind::Garrison,
+        slots: Some(5),
+        admission: ContainAdmission::InfantryOnly,
+        allow_allies_inside: true,
+        allow_enemies_inside: true,
+        allow_neutral_inside: true,
+        ..ContainModuleMetadata::default()
+    };
     game_logic
         .templates
         .insert("TestBunker".to_string(), garrison);
@@ -162,6 +188,15 @@ pub(super) fn ensure_test_transport_template(game_logic: &mut GameLogic) {
         .add_kind_of(KindOf::Attackable)
         .set_health(300.0)
         .set_cost(800, 0);
+    transport.contain_module = ContainModuleMetadata {
+        kind: ContainModuleKind::Transport,
+        slots: Some(1),
+        admission: ContainAdmission::AnyMobile,
+        allow_allies_inside: true,
+        allow_enemies_inside: true,
+        allow_neutral_inside: true,
+        ..ContainModuleMetadata::default()
+    };
     game_logic
         .templates
         .insert("TestTransport".to_string(), transport);
@@ -439,6 +474,7 @@ pub(super) fn ensure_test_repair_pad_template(game_logic: &mut GameLogic) {
     let mut repair_pad = ThingTemplate::new("TestRepairPad");
     repair_pad
         .add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::RepairPad)
         .add_kind_of(KindOf::Selectable)
         .add_kind_of(KindOf::Attackable)
         .set_health(1000.0)
@@ -456,6 +492,7 @@ pub(super) fn ensure_test_heal_pad_template(game_logic: &mut GameLogic) {
     let mut heal_pad = ThingTemplate::new("TestHealPad");
     heal_pad
         .add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::HealPad)
         .add_kind_of(KindOf::Selectable)
         .add_kind_of(KindOf::Attackable)
         .set_health(900.0)
@@ -473,6 +510,7 @@ pub(super) fn ensure_test_airfield_template(game_logic: &mut GameLogic) {
     let mut airfield = ThingTemplate::new("TestAirfield");
     airfield
         .add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::FSAirfield)
         .add_kind_of(KindOf::Selectable)
         .add_kind_of(KindOf::Attackable)
         .set_health(1200.0)

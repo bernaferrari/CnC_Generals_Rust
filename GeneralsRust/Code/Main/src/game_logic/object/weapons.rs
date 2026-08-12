@@ -1,6 +1,100 @@
 use super::*;
 
 impl Object {
+    /// C++ `WeaponSet::getVictimAntiMask`, expressed against the host's
+    /// semantic KindOf set. Ordering is material: small and ballistic
+    /// missiles are also projectiles, but C++ chooses their more specific
+    /// target mask first.
+    pub fn weapon_target_anti_mask(&self) -> u32 {
+        use gamelogic::weapon::WeaponAntiMask;
+
+        if self.is_kind_of(KindOf::SmallMissile) {
+            WeaponAntiMask::SMALL_MISSILE
+        } else if self.is_kind_of(KindOf::BallisticMissile) {
+            WeaponAntiMask::BALLISTIC_MISSILE
+        } else if self.is_kind_of(KindOf::Projectile) {
+            WeaponAntiMask::PROJECTILE
+        } else if self.is_kind_of(KindOf::Mine)
+            || self.is_kind_of(KindOf::DemoTrap)
+            // Existing live mine objects predate semantic Object INI seeding;
+            // keep their concrete mine data in the same C++ category.
+            || self.is_disarmable_mine()
+        {
+            WeaponAntiMask::MINE | WeaponAntiMask::GROUND
+        } else if self.status.airborne_target {
+            if self.is_kind_of(KindOf::Vehicle) {
+                WeaponAntiMask::AIRBORNE_VEHICLE
+            } else if self.is_kind_of(KindOf::Infantry) {
+                WeaponAntiMask::AIRBORNE_INFANTRY
+            } else if self.is_kind_of(KindOf::Parachute) {
+                WeaponAntiMask::PARACHUTE
+            } else {
+                // C++ debug-asserts for a non-UNATTACKABLE airborne object
+                // without one of these categories, then fails closed.
+                0
+            }
+        } else {
+            WeaponAntiMask::GROUND
+        }
+    }
+
+    /// Whether a concrete host weapon slot can affect a C++ WeaponSet victim
+    /// anti-mask. Parsed Weapon.ini data is authoritative; hand-authored host
+    /// weapons retain their legacy air/ground booleans only when no exact
+    /// store template is available.
+    pub fn weapon_allows_target_anti_mask(
+        &self,
+        weapon: &Weapon,
+        slot: Option<u8>,
+        target_anti_mask: u32,
+    ) -> bool {
+        use gamelogic::weapon::{with_weapon_store, WeaponAntiMask};
+
+        if target_anti_mask == 0 {
+            return false;
+        }
+
+        // Target-mask lookup must use the exact authored WeaponSet entry.
+        // `secondary_weapon_name()` intentionally falls back to PRIMARY for
+        // several legacy readiness paths, but that fallback is not a second
+        // C++ WeaponSet declaration and must not make a hand-authored
+        // secondary inherit PRIMARY's AntiMask.
+        let authored_weapon_name = |slot| match slot {
+            0 => self.thing.template.primary_weapon_name.as_deref(),
+            1 => self.thing.template.secondary_weapon_name.as_deref(),
+            2 => self.thing.template.tertiary_weapon_name.as_deref(),
+            _ => None,
+        };
+
+        if let Some(template_mask) = slot.and_then(authored_weapon_name).and_then(|name| {
+            with_weapon_store(|store| {
+                store
+                    .find_weapon_template(name)
+                    .map(|template| template.get_anti_mask())
+            })
+            .ok()
+            .flatten()
+        }) {
+            return (template_mask & target_anti_mask) != 0;
+        }
+
+        // Compatibility path for deliberately hand-authored/test weapons
+        // that have no WeaponStore name. It never upgrades an unknown
+        // projectile/missile category into a ground target.
+        if (target_anti_mask & WeaponAntiMask::GROUND) != 0 {
+            weapon.can_target_ground
+        } else if (target_anti_mask
+            & (WeaponAntiMask::AIRBORNE_VEHICLE
+                | WeaponAntiMask::AIRBORNE_INFANTRY
+                | WeaponAntiMask::PARACHUTE))
+            != 0
+        {
+            weapon.can_target_air
+        } else {
+            false
+        }
+    }
+
     /// Resolve a concrete C++ WeaponSet slot to its source Weapon.ini name.
     ///
     /// This deliberately has no fallback for TERTIARY.  A missing third slot

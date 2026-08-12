@@ -580,12 +580,12 @@ pub fn init_fx_list_store() -> Result<(), Box<dyn std::error::Error>> {
     let mut ini = INI::new();
     let default_path = "Data/INI/Default/FXList.ini";
     let override_path = "Data/INI/FXList.ini";
-    if std::path::Path::new(default_path).exists() {
-        ini.load(default_path, INILoadType::Overwrite)?;
-    }
-    if std::path::Path::new(override_path).exists() {
-        ini.load(override_path, INILoadType::MultiFile)?;
-    }
+    // C++ `SubsystemInterfaceList::initSubsystem` loads both paths with
+    // `INI_LOAD_OVERWRITE`.  Do not probe the host filesystem first: retail
+    // INIs normally live in BIG archives and `INI::load` already resolves the
+    // engine virtual filesystem before failing closed.
+    ini.load(default_path, INILoadType::Overwrite)?;
+    ini.load(override_path, INILoadType::Overwrite)?;
     Ok(())
 }
 

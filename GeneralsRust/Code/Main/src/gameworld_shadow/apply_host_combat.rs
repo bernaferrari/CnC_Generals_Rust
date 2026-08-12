@@ -43,7 +43,16 @@ impl GameWorldShadow {
     ) -> usize {
         let mut n = 0usize;
         for ev in events {
-            let owner = self.owner_for_host_object(logic, ev.team);
+            // An event that carried exact provenance must retain that player
+            // even if the host object changes again before this batch drains.
+            // Team-only legacy events deliberately use the live object, whose
+            // `set_team` path clears player provenance.
+            let owner = match ev.owner_player_id {
+                Some(player_id) => self.host_player_to_gw.get(&player_id).copied(),
+                None => logic
+                    .host_object(ev.object)
+                    .and_then(|object| self.owner_for_host_object(logic, object)),
+            };
             if self.queue_transfer_owner_for_host(ev.object, owner) {
                 n += 1;
             }
@@ -392,6 +401,7 @@ impl GameWorldShadow {
                     lifetime: ev.lifetime,
                     max_lifetime: ev.max_lifetime,
                     is_homing: ev.is_homing,
+                    flight_state: ev.flight_state,
                     active: ev.active,
                 });
             n += 1;

@@ -21,14 +21,11 @@ impl ScriptEvaluator {
         let comparison = comparison_param.get_int() as u32;
         let target_value = value_param.get_int();
 
-        let engine = self.engine.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to acquire engine lock: {}", e))
-        })?;
-        let engine = engine.as_ref().ok_or_else(|| {
-            GameLogicError::Configuration("Script engine not initialized".to_string())
-        })?;
+        let counter = self
+            .with_evaluation_engine_ref(|engine| engine.get_counter(counter_name))
+            .flatten();
 
-        if let Some(counter) = engine.get_counter(counter_name) {
+        if let Some(counter) = counter {
             let current_value = counter.value;
             match comparison {
                 0 => Ok(current_value < target_value),  // LessThan
@@ -59,9 +56,7 @@ impl ScriptEvaluator {
         let flag_name = flag_param.get_string();
         let target_value = value_param.get_int() != 0;
 
-        // Prefer re-entrant global helper so nested CALL_SUBROUTINE paths don't
-        // deadlock on std::sync::RwLock when the engine write lock is held.
-        if let Some(result) = super::engine::with_script_engine_ref(|engine| {
+        if let Some(result) = self.with_evaluation_engine_ref(|engine| {
             if let Some(flag) = engine.get_flag(flag_name) {
                 flag.value == target_value
             } else {
@@ -71,18 +66,7 @@ impl ScriptEvaluator {
             return Ok(result);
         }
 
-        let engine = self.engine.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to acquire engine lock: {}", e))
-        })?;
-        let engine = engine.as_ref().ok_or_else(|| {
-            GameLogicError::Configuration("Script engine not initialized".to_string())
-        })?;
-
-        if let Some(flag) = engine.get_flag(flag_name) {
-            Ok(flag.value == target_value)
-        } else {
-            Ok(false) // Flag doesn't exist
-        }
+        Ok(false)
     }
 
     /// Evaluate timer expired condition
@@ -93,7 +77,7 @@ impl ScriptEvaluator {
 
         let counter_name = counter_param.get_string();
 
-        if let Some(result) = super::engine::with_script_engine_ref(|engine| {
+        if let Some(result) = self.with_evaluation_engine_ref(|engine| {
             if let Some(counter) = engine.get_counter(counter_name) {
                 counter.is_countdown_timer && counter.value < 1
             } else {
@@ -103,20 +87,6 @@ impl ScriptEvaluator {
             return Ok(result);
         }
 
-        let engine = self.engine.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to acquire engine lock: {}", e))
-        })?;
-        let engine = engine.as_ref().ok_or_else(|| {
-            GameLogicError::Configuration("Script engine not initialized".to_string())
-        })?;
-
-        if let Some(counter) = engine.get_counter(counter_name) {
-            if !counter.is_countdown_timer {
-                return Ok(false);
-            }
-            Ok(counter.value < 1)
-        } else {
-            Ok(false) // Timer doesn't exist
-        }
+        Ok(false)
     }
 }

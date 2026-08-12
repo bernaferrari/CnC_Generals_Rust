@@ -3,10 +3,10 @@
 use crate::game_text::GameText;
 use crate::gui::shell::replay_menu::ReplayMenu as ShellReplayMenu;
 use crate::gui::{
-    get_shell, message_box_ok, message_box_ok_cancel, message_box_yes_no,
-    show_shell_map_if_available, try_with_shell_mut, with_window_manager,
-    write_input_focus_response, Color as WindowColor, GameWindow, KeyModifiers, WindowLayout,
-    WindowMessage, WindowMsgData, WindowMsgHandled, GLM_DOUBLE_CLICKED,
+    message_box_ok, message_box_ok_cancel, message_box_yes_no, queue_shell_pop,
+    queue_shell_shutdown_complete, show_shell_map_if_available, with_shell_ref,
+    with_window_manager, write_input_focus_response, Color as WindowColor, GameWindow,
+    KeyModifiers, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled, GLM_DOUBLE_CLICKED,
 };
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::recorder::{init_recorder, with_recorder, with_recorder_mut};
@@ -335,7 +335,7 @@ pub fn replay_menu_shutdown(layout: &WindowLayout, user_data: Option<&dyn std::a
 
     if pop_immediate {
         layout.hide(true);
-        let _ = try_with_shell_mut(|shell| shell.shutdown_complete(None, false));
+        queue_shell_shutdown_complete(false);
         return;
     }
 
@@ -362,12 +362,12 @@ pub fn replay_menu_update(layout: &WindowLayout, _user_data: Option<&dyn std::an
     }
 
     if state.is_shutting_down
-        && try_with_shell_mut(|shell| shell.is_anim_finished()).unwrap_or(false)
+        && with_shell_ref(|shell| shell.is_anim_finished()).unwrap_or(false)
         && with_window_manager(|manager| manager.transitions_finished())
     {
         state.is_shutting_down = false;
         layout.hide(true);
-        let _ = try_with_shell_mut(|shell| shell.shutdown_complete(None, false));
+        queue_shell_shutdown_complete(false);
     }
 }
 
@@ -395,7 +395,7 @@ pub fn replay_menu_system(
             }
             if control_id == state.button_back_id {
                 drop(state);
-                let _ = try_with_shell_mut(|shell| shell.pop());
+                queue_shell_pop();
                 return WindowMsgHandled::Handled;
             }
             if control_id == state.button_delete_id {

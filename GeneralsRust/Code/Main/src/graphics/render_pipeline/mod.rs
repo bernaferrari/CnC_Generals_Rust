@@ -266,7 +266,9 @@ pub struct RenderPipeline {
     debug_last_missing_model_samples: Vec<String>,
     debug_warned_bad_mesh_transforms: HashSet<String>,
     model_cull_bounds_cache: HashMap<String, (Vec3, f32)>,
-    animation_states: HashMap<u32, ObjectAnimationState>,
+    /// Per-object, per-source-Draw-module animation state. Equal W3D names
+    /// must not collapse separate retail Draw modules into one timeline.
+    animation_states: HashMap<(u32, u32), ObjectAnimationState>,
     last_frame_time: f32,
     /// When set, collect_render_items prefers presentation-owned transforms/model keys.
     presentation_frame: Option<crate::presentation_frame::PresentationFrame>,
@@ -323,6 +325,11 @@ pub struct ForwardPass {
     laser_vertex_capacity: usize,
     laser_vertices_uploaded: u32,
     laser_draw_gpu: Option<crate::graphics::laser_draw::LaserDrawGpu>,
+    /// The active Main WGPU frame owns particle presentation.  Keeping this
+    /// renderer with the ForwardPass avoids GameClient::Display creating or
+    /// presenting a second surface.
+    #[cfg(feature = "game_client")]
+    particle_renderer: Option<Arc<Mutex<game_client::effects::ParticleRenderer>>>,
 }
 
 pub(super) enum RenderModelLoadResult {

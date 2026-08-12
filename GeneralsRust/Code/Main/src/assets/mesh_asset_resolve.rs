@@ -195,12 +195,17 @@ pub fn mesh_scale_for_unit(template_name: &str) -> f32 {
     DEFAULT_MESH_SCALE
 }
 
-/// Mesh scale residual from template (default 1.0 — Scale field not yet on ThingTemplate).
+/// Authored Object INI scale frozen on the live template.
 ///
-/// Prefer `template.name` residual table lookup; model_name does not carry Scale.
-/// Fail-closed: not full Object INI Scale / draw-scale bone parity.
+/// Templates constructed outside the Object INI path retain the C++ default
+/// `1.0`; live game objects no longer derive scale from a template-name table.
 pub fn mesh_scale_from_template(template: &ThingTemplate) -> f32 {
-    mesh_scale_for_unit(&template.name)
+    let scale = template.asset_scale;
+    if scale.is_finite() && scale > 0.0 {
+        scale
+    } else {
+        DEFAULT_MESH_SCALE
+    }
 }
 
 /// Honesty: mesh scale residual for common ZH combat units is retail 1.0, and

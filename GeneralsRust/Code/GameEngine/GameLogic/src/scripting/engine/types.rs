@@ -675,6 +675,14 @@ pub struct SequentialScript {
     pub frames_to_wait: i32,      // 0 = next instruction, >0 = countdown
     pub dont_advance_instruction: bool, // Set by instruction requesting wait
     pub next_script_in_sequence: Option<Box<SequentialScript>>,
+    /// Process-local identity for safe post-dispatch reconciliation.
+    ///
+    /// C++ keeps a stable `SequentialScript *` while an action runs. Rust must
+    /// not keep a borrow into `Vec<SequentialScript>` across that immediate
+    /// action, because the action can re-enter the engine. This token lets the
+    /// evaluator find the same logical node after it releases the borrow. It
+    /// is deliberately not serialized: save/load rebuilds runtime ownership.
+    runtime_token: u64,
 }
 
 impl SequentialScript {
@@ -688,6 +696,7 @@ impl SequentialScript {
             frames_to_wait: -1,
             dont_advance_instruction: false,
             next_script_in_sequence: None,
+            runtime_token: 0,
         }
     }
 }
@@ -873,6 +882,10 @@ pub struct ScriptEngineInner {
 
     // Sequential scripts
     sequential_scripts: Vec<SequentialScript>,
+    /// Next opaque identity for a live sequential-script node. Zero is
+    /// reserved for snapshots/direct test construction that has not yet been
+    /// admitted to the runtime list.
+    next_sequential_runtime_token: u64,
 
     // Script lists to execute (per player "side")
     side_script_lists: Vec<Option<Box<ScriptList>>>,
@@ -927,6 +940,35 @@ impl ScriptEngine {
         InnerMutGuard {
             inner: self.inner.borrow_mut(),
         }
+    }
+
+    /// Allocate an opaque identity for one live sequential-script node.
+    ///
+    /// This is intentionally separate from snapshot state: it exists only to
+    /// recover the same C++-style node after an immediate, re-entrant action
+    /// has run with all `RefCell` guards released.
+    fn allocate_sequential_runtime_token(inner: &mut ScriptEngineInner) -> u64 {
+        let token = inner.next_sequential_runtime_token;
+        inner.next_sequential_runtime_token = inner.next_sequential_runtime_token.wrapping_add(1);
+        if inner.next_sequential_runtime_token == 0 {
+            inner.next_sequential_runtime_token = 1;
+        }
+        token
+    }
+
+    fn ensure_sequential_runtime_token_at(
+        inner: &mut ScriptEngineInner,
+        index: usize,
+    ) -> Option<u64> {
+        let needs_token = inner
+            .sequential_scripts
+            .get(index)
+            .map(|script| script.runtime_token == 0)?;
+        if needs_token {
+            let token = Self::allocate_sequential_runtime_token(inner);
+            inner.sequential_scripts[index].runtime_token = token;
+        }
+        Some(inner.sequential_scripts[index].runtime_token)
     }
 }
 
@@ -1275,6 +1317,16 @@ pub fn with_active_script_engine_ref<R>(f: impl FnOnce(&ScriptEngine) -> R) -> O
             Some(f(engine))
         }
     })
+}
+
+/// Whether the current thread is evaluating a live `ScriptEngine` scope.
+///
+/// Callers that carry an alternate `ScriptEngineHandle` must distinguish an
+/// absent active scope from an active scope whose interior state cannot be
+/// borrowed at that instant.  The former may safely use their own handle; the
+/// latter must fail closed rather than re-locking the active global engine.
+pub fn is_script_engine_active() -> bool {
+    ACTIVE_SCRIPT_ENGINE.is_set()
 }
 
 /// Mutate the global ScriptEngine with re-entrant nesting support.

@@ -177,15 +177,11 @@ impl ScriptActionDispatcher {
         let text = self.get_string_param(action, 0)?;
 
         log::info!("Displaying text: {}", text);
-        if let Ok(engine_guard) = get_script_engine().read() {
-            if let Some(ref script_engine) = *engine_guard {
-                if let Some(handler) = script_engine.action_handler() {
-                    if let Err(err) = handler.display_text(&text) {
-                        log::warn!("Script action handler display_text failed: {}", err);
-                    }
-                    return Ok(ScriptActionResult::Success);
-                }
+        if let Some(handler) = current_script_action_handler() {
+            if let Err(err) = handler.display_text(&text) {
+                log::warn!("Script action handler display_text failed: {}", err);
             }
+            return Ok(ScriptActionResult::Success);
         }
 
         Ok(ScriptActionResult::Success)
@@ -208,20 +204,14 @@ impl ScriptActionDispatcher {
             font_type,
             duration_seconds
         );
-        if let Ok(engine_guard) = get_script_engine().read() {
-            if let Some(ref script_engine) = *engine_guard {
-                if let Some(handler) = script_engine.action_handler() {
-                    if let Err(err) =
-                        handler.display_cinematic_text(&text, &font_type, duration_seconds)
-                    {
-                        log::warn!(
-                            "Script action handler display_cinematic_text failed: {}",
-                            err
-                        );
-                    }
-                    return Ok(ScriptActionResult::Success);
-                }
+        if let Some(handler) = current_script_action_handler() {
+            if let Err(err) = handler.display_cinematic_text(&text, &font_type, duration_seconds) {
+                log::warn!(
+                    "Script action handler display_cinematic_text failed: {}",
+                    err
+                );
             }
+            return Ok(ScriptActionResult::Success);
         }
 
         Ok(ScriptActionResult::Success)
@@ -246,13 +236,9 @@ impl ScriptActionDispatcher {
             duration_ms
         );
 
-        if let Ok(engine_guard) = get_script_engine().read() {
-            if let Some(ref script_engine) = *engine_guard {
-                if let Some(handler) = script_engine.action_handler() {
-                    if let Err(err) = handler.military_caption(&briefing_text, duration_ms) {
-                        log::warn!("Script action handler military_caption failed: {}", err);
-                    }
-                }
+        if let Some(handler) = current_script_action_handler() {
+            if let Err(err) = handler.military_caption(&briefing_text, duration_ms) {
+                log::warn!("Script action handler military_caption failed: {}", err);
             }
         }
 
@@ -313,21 +299,17 @@ impl ScriptActionDispatcher {
             ease_out_seconds
         );
 
-        if let Ok(engine_guard) = get_script_engine().read() {
-            if let Some(ref script_engine) = *engine_guard {
-                if let Some(handler) = script_engine.action_handler() {
-                    if let Err(err) = handler.move_camera_to(
-                        target.x,
-                        target.y,
-                        target.z,
-                        duration_seconds,
-                        camera_stutter_seconds,
-                        ease_in_seconds,
-                        ease_out_seconds,
-                    ) {
-                        log::warn!("Script action handler move_camera_to failed: {}", err);
-                    }
-                }
+        if let Some(handler) = current_script_action_handler() {
+            if let Err(err) = handler.move_camera_to(
+                target.x,
+                target.y,
+                target.z,
+                duration_seconds,
+                camera_stutter_seconds,
+                ease_in_seconds,
+                ease_out_seconds,
+            ) {
+                log::warn!("Script action handler move_camera_to failed: {}", err);
             }
         }
 
@@ -377,13 +359,9 @@ impl ScriptActionDispatcher {
             return Ok(ScriptActionResult::Success);
         };
 
-        if let Ok(engine_guard) = get_script_engine().read() {
-            if let Some(ref script_engine) = *engine_guard {
-                if let Some(handler) = script_engine.action_handler() {
-                    if let Err(err) = handler.camera_follow_object(object_id, snap_to_unit) {
-                        log::warn!("Script action handler camera_follow_object failed: {}", err);
-                    }
-                }
+        if let Some(handler) = current_script_action_handler() {
+            if let Err(err) = handler.camera_follow_object(object_id, snap_to_unit) {
+                log::warn!("Script action handler camera_follow_object failed: {}", err);
             }
         }
 
@@ -394,13 +372,9 @@ impl ScriptActionDispatcher {
     pub(crate) fn do_stop_camera_follow(&mut self) -> Result<ScriptActionResult, ScriptError> {
         log::info!("Stopping camera follow");
 
-        if let Ok(engine_guard) = get_script_engine().read() {
-            if let Some(ref script_engine) = *engine_guard {
-                if let Some(handler) = script_engine.action_handler() {
-                    if let Err(err) = handler.stop_camera_follow() {
-                        log::warn!("Script action handler stop_camera_follow failed: {}", err);
-                    }
-                }
+        if let Some(handler) = current_script_action_handler() {
+            if let Err(err) = handler.stop_camera_follow() {
+                log::warn!("Script action handler stop_camera_follow failed: {}", err);
             }
         }
 
@@ -431,15 +405,9 @@ impl ScriptActionDispatcher {
             return Ok(ScriptActionResult::Success);
         };
 
-        if let Ok(engine_guard) = get_script_engine().read() {
-            if let Some(ref script_engine) = *engine_guard {
-                if let Some(handler) = script_engine.action_handler() {
-                    if let Err(err) =
-                        handler.reset_camera_to(target.x, target.y, target.z, duration_seconds)
-                    {
-                        log::warn!("Script action handler reset_camera_to failed: {}", err);
-                    }
-                }
+        if let Some(handler) = current_script_action_handler() {
+            if let Err(err) = handler.reset_camera_to(target.x, target.y, target.z, duration_seconds) {
+                log::warn!("Script action handler reset_camera_to failed: {}", err);
             }
         }
 
@@ -459,15 +427,11 @@ impl ScriptActionDispatcher {
         let sound_name = self.get_string_param(action, 0)?;
 
         log::info!("Playing sound effect: {}", sound_name);
-        if let Ok(engine_guard) = get_script_engine().read() {
-            if let Some(ref script_engine) = *engine_guard {
-                if let Some(handler) = script_engine.action_handler() {
-                    if let Err(err) = handler.play_sound_effect(&sound_name) {
-                        log::warn!("Script action handler play_sound_effect failed: {}", err);
-                    }
-                    return Ok(ScriptActionResult::Success);
-                }
+        if let Some(handler) = current_script_action_handler() {
+            if let Err(err) = handler.play_sound_effect(&sound_name) {
+                log::warn!("Script action handler play_sound_effect failed: {}", err);
             }
+            return Ok(ScriptActionResult::Success);
         }
 
         Ok(ScriptActionResult::Success)
@@ -501,15 +465,9 @@ impl ScriptActionDispatcher {
             return Ok(ScriptActionResult::Success);
         };
 
-        if let Ok(engine_guard) = get_script_engine().read() {
-            if let Some(ref script_engine) = *engine_guard {
-                if let Some(handler) = script_engine.action_handler() {
-                    if let Err(err) =
-                        handler.play_sound_effect_at(&sound_name, target.x, target.y, target.z)
-                    {
-                        log::warn!("Script action handler play_sound_effect_at failed: {}", err);
-                    }
-                }
+        if let Some(handler) = current_script_action_handler() {
+            if let Err(err) = handler.play_sound_effect_at(&sound_name, target.x, target.y, target.z) {
+                log::warn!("Script action handler play_sound_effect_at failed: {}", err);
             }
         }
 
@@ -526,13 +484,9 @@ impl ScriptActionDispatcher {
             allow_overlap
         );
 
-        if let Ok(engine_guard) = get_script_engine().read() {
-            if let Some(ref script_engine) = *engine_guard {
-                if let Some(handler) = script_engine.action_handler() {
-                    if let Err(err) = handler.speech_play(&speech_name, allow_overlap) {
-                        log::warn!("Script action handler speech_play failed: {}", err);
-                    }
-                }
+        if let Some(handler) = current_script_action_handler() {
+            if let Err(err) = handler.speech_play(&speech_name, allow_overlap) {
+                log::warn!("Script action handler speech_play failed: {}", err);
             }
         }
 
@@ -554,21 +508,13 @@ impl ScriptActionDispatcher {
             fade_in
         );
 
-        if let Ok(engine_guard) = get_script_engine().read() {
-            if let Some(ref script_engine) = *engine_guard {
-                if let Some(handler) = script_engine.action_handler() {
-                    if let Err(err) = handler.music_set_track(&track_name, fade_out, fade_in) {
-                        log::warn!("Script action handler music_set_track failed: {}", err);
-                    }
-                }
+        if let Some(handler) = current_script_action_handler() {
+            if let Err(err) = handler.music_set_track(&track_name, fade_out, fade_in) {
+                log::warn!("Script action handler music_set_track failed: {}", err);
             }
         }
 
-        if let Ok(mut engine_guard) = get_script_engine().write() {
-            if let Some(ref mut script_engine) = *engine_guard {
-                script_engine.set_current_track_name(track_name.clone());
-            }
-        }
+        let _ = with_script_engine_mut(|engine| engine.set_current_track_name(track_name.clone()));
 
         Ok(ScriptActionResult::Success)
     }
@@ -583,16 +529,12 @@ impl ScriptActionDispatcher {
             radar.hide(true);
         }
 
-        if let Ok(engine_guard) = get_script_engine().read() {
-            if let Some(ref script_engine) = *engine_guard {
-                if let Some(handler) = script_engine.action_handler() {
-                    if let Err(err) = handler.set_radar_enabled(false) {
-                        log::warn!(
-                            "Script action handler set_radar_enabled(false) failed: {}",
-                            err
-                        );
-                    }
-                }
+        if let Some(handler) = current_script_action_handler() {
+            if let Err(err) = handler.set_radar_enabled(false) {
+                log::warn!(
+                    "Script action handler set_radar_enabled(false) failed: {}",
+                    err
+                );
             }
         }
 
@@ -605,16 +547,12 @@ impl ScriptActionDispatcher {
             radar.hide(false);
         }
 
-        if let Ok(engine_guard) = get_script_engine().read() {
-            if let Some(ref script_engine) = *engine_guard {
-                if let Some(handler) = script_engine.action_handler() {
-                    if let Err(err) = handler.set_radar_enabled(true) {
-                        log::warn!(
-                            "Script action handler set_radar_enabled(true) failed: {}",
-                            err
-                        );
-                    }
-                }
+        if let Some(handler) = current_script_action_handler() {
+            if let Err(err) = handler.set_radar_enabled(true) {
+                log::warn!(
+                    "Script action handler set_radar_enabled(true) failed: {}",
+                    err
+                );
             }
         }
 

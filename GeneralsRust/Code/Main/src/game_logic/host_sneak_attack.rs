@@ -228,6 +228,9 @@ pub struct HostSneakAttackMission {
     pub kind: HostSneakAttackKind,
     pub source_object: ObjectId,
     pub source_team: super::Team,
+    /// Player identity captured before the delayed tunnel OCL runs.
+    #[serde(default)]
+    pub source_owner_player_id: Option<u32>,
     pub target_position: Vec3,
     pub activate_frame: u32,
     pub spawn_frame: u32,
@@ -251,6 +254,7 @@ pub struct HostSneakAttackSpawnPlan {
     pub kind: HostSneakAttackKind,
     pub source_object: ObjectId,
     pub source_team: super::Team,
+    pub source_owner_player_id: Option<u32>,
     pub target_position: Vec3,
     pub tunnel_template: String,
     pub shockwave_damage: f32,
@@ -279,6 +283,8 @@ pub struct PendingSneakShockwave {
     pub mission_id: u32,
     pub source_object: ObjectId,
     pub source_team: super::Team,
+    #[serde(default)]
+    pub source_owner_player_id: Option<u32>,
     pub target_position: Vec3,
     pub apply_frame: u32,
     pub damage: f32,
@@ -386,6 +392,30 @@ impl HostSneakAttackRegistry {
         activate_frame: u32,
         tunnel_template: impl Into<String>,
     ) -> u32 {
+        self.queue_for_owner(
+            kind,
+            source_object,
+            source_team,
+            None,
+            target_position,
+            activate_frame,
+            tunnel_template,
+        )
+    }
+
+    /// Queue with the source player's identity preserved through delayed
+    /// tunnel/start-object creation.  Team-only callers retain the wrapper
+    /// above for legacy data that has no player provenance.
+    pub fn queue_for_owner(
+        &mut self,
+        kind: HostSneakAttackKind,
+        source_object: ObjectId,
+        source_team: super::Team,
+        source_owner_player_id: Option<u32>,
+        target_position: Vec3,
+        activate_frame: u32,
+        tunnel_template: impl Into<String>,
+    ) -> u32 {
         let id = self.next_id;
         self.next_id = self.next_id.saturating_add(1).max(1);
         let spawn_frame = activate_frame.saturating_add(kind.spawn_delay_frames());
@@ -394,6 +424,7 @@ impl HostSneakAttackRegistry {
             kind,
             source_object,
             source_team,
+            source_owner_player_id,
             target_position,
             activate_frame,
             spawn_frame,
@@ -412,6 +443,7 @@ impl HostSneakAttackRegistry {
             id,
             source_object,
             source_team,
+            source_owner_player_id,
             target_position,
             activate_frame,
         );
@@ -424,6 +456,7 @@ impl HostSneakAttackRegistry {
         mission_id: u32,
         source_object: ObjectId,
         source_team: super::Team,
+        source_owner_player_id: Option<u32>,
         target_position: Vec3,
         activate_frame: u32,
     ) {
@@ -432,6 +465,7 @@ impl HostSneakAttackRegistry {
                 mission_id,
                 source_object,
                 source_team,
+                source_owner_player_id,
                 target_position,
                 apply_frame: activate_frame.saturating_add(pulse.initial_delay_frames),
                 damage: pulse.primary_damage,
@@ -486,6 +520,7 @@ impl HostSneakAttackRegistry {
                 kind: mission.kind,
                 source_object: mission.source_object,
                 source_team: mission.source_team,
+                source_owner_player_id: mission.source_owner_player_id,
                 target_position: mission.target_position,
                 tunnel_template: mission.tunnel_template.clone(),
                 shockwave_damage: mission.kind.shockwave_damage(),

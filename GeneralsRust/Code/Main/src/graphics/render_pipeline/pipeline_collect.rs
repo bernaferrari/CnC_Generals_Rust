@@ -103,15 +103,15 @@ impl RenderPipeline {
                 continue;
             }
             let object_id = u.id;
-            let mesh_scale =
-                crate::assets::mesh_asset_resolve::mesh_scale_for_unit(&u.template_name);
-            let world_matrix = gameplay_to_render_transform(u.world_matrix())
-                * Mat4::from_scale(Vec3::splat(mesh_scale.max(0.01)));
+            // `UnitRenderInput::world_matrix` already applies the frozen
+            // Object INI asset scale.  Applying it again here made every
+            // non-1.0 object scale quadratically in the live WGPU pass.
+            let world_matrix = gameplay_to_render_transform(u.world_matrix());
             // Presentation has already selected the exact source-authored
-            // ConditionState model.  Keep the frozen bit bank for animation
-            // selection, but never run a second suffix-based mesh selection
-            // here: doing so can turn an exact damaged/construction W3D key
-            // back into a guessed variant.
+            // models from every ConditionState Draw module. Keep the frozen bit bank for
+            // animation selection, but never run a second suffix-based mesh
+            // selection here: doing so can turn an exact damaged/construction
+            // W3D key back into a guessed variant.
             // Wave 501: deployed + radar dish bits included in stamp helper.
             // Wave 503: construction scaffold bits included in stamp helper.
             // Wave 504: GARRISONED bit included in stamp helper.
@@ -127,20 +127,32 @@ impl RenderPipeline {
             // Wave 515: RAISING_FLAG (surrendered) bit included in stamp helper.
             let model_bits = u.model_condition_bits_with_combat_flags();
             let _ = u.model_condition_bits; // residual source marker (bits via stamp helper)
-            let model_name_owned = u.model_key.clone();
             let template_name_owned = u.template_name.clone();
             let selection_radius = u.selection_radius;
-            let model_hint_owned = Some(model_name_owned.clone());
             let snapshot_fow = Some(u.fow_visibility);
             let selection_flash_intensity = u.selection_flash_intensity();
             // Wave 499: defector_flash folded into selection_flash_intensity(); poison via apply_poison_tint.
             let team_color = u.team_color;
+            // `UnitRenderInput::from_renderable` normalizes old snapshots to
+            // one module. Keep the same compatibility at this boundary for
+            // direct test/boot inputs which still provide only `model_key`.
+            let draw_models = if u.draw_models.is_empty() {
+                (!u.model_key.trim().is_empty())
+                    .then(|| crate::assets::AuthoredDrawModel {
+                        module_index: 0,
+                        model_key: u.model_key.clone(),
+                    })
+                    .into_iter()
+                    .collect::<Vec<_>>()
+            } else {
+                u.draw_models.clone()
+            };
 
             alive_objects += 1;
 
-            if model_name_owned.trim().is_empty() {
-                // Source selection deliberately suppressed this state.  It is
-                // not a missing template that may borrow a pristine cache.
+            if draw_models.is_empty() {
+                // Every source selection deliberately suppressed this object.
+                // It is not a missing template that may borrow pristine art.
                 model_missing += 1;
                 continue;
             }
@@ -166,290 +178,306 @@ impl RenderPipeline {
                 }
             };
 
-            let world_position = world_matrix.w_axis.truncate();
-            let model_name = model_name_owned.as_str();
-            let template_name_for_cull = template_name_owned.as_str();
-            let (cull_center, cull_radius) = self.resolve_object_world_cull_sphere(
-                graphics_system,
-                model_name,
-                template_name_for_cull,
-                selection_radius,
-                world_matrix,
-            );
-            if !world_sphere_in_expanded_frustum(
-                &frustum_planes,
-                cull_center,
-                cull_radius,
-                camera_position,
-            ) {
-                frustum_culled += 1;
-                continue;
-            }
+            for draw_model in draw_models {
+                let draw_module_index = draw_model.module_index;
+                let model_name_owned = draw_model.model_key;
+                if model_name_owned.trim().is_empty() {
+                    // An empty key cannot be an exact Draw submission.
+                    model_missing += 1;
+                    continue;
+                }
+                let world_position = world_matrix.w_axis.truncate();
+                let model_name = model_name_owned.as_str();
+                let template_name_for_cull = template_name_owned.as_str();
+                let model_hint_owned = Some(model_name_owned.clone());
+                let (cull_center, cull_radius) = self.resolve_object_world_cull_sphere(
+                    graphics_system,
+                    model_name,
+                    template_name_for_cull,
+                    selection_radius,
+                    world_matrix,
+                );
+                if !world_sphere_in_expanded_frustum(
+                    &frustum_planes,
+                    cull_center,
+                    cull_radius,
+                    camera_position,
+                ) {
+                    frustum_culled += 1;
+                    continue;
+                }
 
-            let model_hint = model_hint_owned.as_deref().or(Some(model_name));
+                let model_hint = model_hint_owned.as_deref().or(Some(model_name));
 
-            let model_load_started = Instant::now();
-            let render_model_load_result = Self::ensure_render_model_loaded(
-                graphics_system,
-                template_name_for_cull,
-                model_name,
-                allow_sync_model_loads,
-                deferred_model_load_budget,
-            );
-            render_model_load_elapsed += model_load_started.elapsed();
+                let model_load_started = Instant::now();
+                let render_model_load_result = Self::ensure_render_model_loaded(
+                    graphics_system,
+                    template_name_for_cull,
+                    model_name,
+                    allow_sync_model_loads,
+                    deferred_model_load_budget,
+                );
+                render_model_load_elapsed += model_load_started.elapsed();
 
-            let render_item_build_started = Instant::now();
-            match render_model_load_result {
-                RenderModelLoadResult::Ready(w3d_model) => {
-                    if w3d_model.meshes.is_empty() {
-                        self.debug_last_zero_mesh_models += 1;
-                        // Fall through to fallback cube below (same as Failed path)
-                    } else {
-                        let visibility = fow_visibility;
-
-                        let anim_frame = if !w3d_model.animations.is_empty()
-                            && w3d_model.hierarchy.is_some()
-                        {
-                            let obj_key = object_id.0;
-                            let want_index = animation_index_for_model_condition(
-                                model_bits,
-                                w3d_model.animations.len(),
-                            );
-                            let state = self.animation_states.entry(obj_key).or_insert_with(|| {
-                                let (num_frames, frame_rate) =
-                                    w3d_model.animation_metadata(want_index).unwrap_or((1, 30));
-                                ObjectAnimationState {
-                                    animation_index: want_index,
-                                    current_frame: 0.0,
-                                    frame_rate: frame_rate as f32,
-                                    num_frames,
-                                }
-                            });
-                            if state.animation_index != want_index {
-                                let (num_frames, frame_rate) =
-                                    w3d_model.animation_metadata(want_index).unwrap_or((1, 30));
-                                state.animation_index = want_index;
-                                state.current_frame = 0.0;
-                                state.frame_rate = frame_rate as f32;
-                                state.num_frames = num_frames;
-                            }
-                            if delta_time > 0.0 && delta_time < 1.0 {
-                                state.current_frame += delta_time * state.frame_rate;
-                                if state.num_frames > 1
-                                    && state.current_frame >= state.num_frames as f32
-                                {
-                                    state.current_frame %= (state.num_frames - 1) as f32;
-                                }
-                            }
-                            state.current_frame
+                let render_item_build_started = Instant::now();
+                match render_model_load_result {
+                    RenderModelLoadResult::Ready(w3d_model) => {
+                        if w3d_model.meshes.is_empty() {
+                            self.debug_last_zero_mesh_models += 1;
+                            // Fall through to fallback cube below (same as Failed path)
                         } else {
-                            0.0
-                        };
+                            let visibility = fow_visibility;
 
-                        for (mesh_idx, mesh) in w3d_model.meshes.iter().enumerate() {
-                            if !hlod_subobject_visible(&mesh.name, u.body_damage_state, u.destroyed)
+                            let anim_frame = if !w3d_model.animations.is_empty()
+                                && w3d_model.hierarchy.is_some()
                             {
-                                continue;
-                            }
-                            let mut material = mesh.material.clone();
+                                let obj_key = (object_id.0, draw_module_index);
+                                let want_index = animation_index_for_model_condition(
+                                    model_bits,
+                                    w3d_model.animations.len(),
+                                );
+                                let state =
+                                    self.animation_states.entry(obj_key).or_insert_with(|| {
+                                        let (num_frames, frame_rate) = w3d_model
+                                            .animation_metadata(want_index)
+                                            .unwrap_or((1, 30));
+                                        ObjectAnimationState {
+                                            animation_index: want_index,
+                                            current_frame: 0.0,
+                                            frame_rate: frame_rate as f32,
+                                            num_frames,
+                                        }
+                                    });
+                                if state.animation_index != want_index {
+                                    let (num_frames, frame_rate) =
+                                        w3d_model.animation_metadata(want_index).unwrap_or((1, 30));
+                                    state.animation_index = want_index;
+                                    state.current_frame = 0.0;
+                                    state.frame_rate = frame_rate as f32;
+                                    state.num_frames = num_frames;
+                                }
+                                if delta_time > 0.0 && delta_time < 1.0 {
+                                    state.current_frame += delta_time * state.frame_rate;
+                                    if state.num_frames > 1
+                                        && state.current_frame >= state.num_frames as f32
+                                    {
+                                        state.current_frame %= (state.num_frames - 1) as f32;
+                                    }
+                                }
+                                state.current_frame
+                            } else {
+                                0.0
+                            };
 
-                            if material.texture_name.is_none() {
-                                if let Some(asset_manager_arc) = crate::assets::get_asset_manager()
-                                {
-                                    if let Ok(asset_manager) = asset_manager_arc.lock() {
-                                        if let Some(obj_def) = asset_manager
-                                            .resolve_object_definition(
-                                                &template_name_owned,
-                                                // A W3D basename is not an Object INI identity:
-                                                // sharing it must never borrow a different
-                                                // faction/condition-state texture definition.
-                                                None,
-                                            )
-                                        {
-                                            if let Some(texture_from_ini) =
-                                                obj_def.get_primary_texture()
+                            for (mesh_idx, mesh) in w3d_model.meshes.iter().enumerate() {
+                                if !hlod_subobject_visible(
+                                    &mesh.name,
+                                    u.body_damage_state,
+                                    u.destroyed,
+                                ) {
+                                    continue;
+                                }
+                                let mut material = mesh.material.clone();
+
+                                if material.texture_name.is_none() {
+                                    if let Some(asset_manager_arc) =
+                                        crate::assets::get_asset_manager()
+                                    {
+                                        if let Ok(asset_manager) = asset_manager_arc.lock() {
+                                            if let Some(obj_def) = asset_manager
+                                                .resolve_object_definition(
+                                                    &template_name_owned,
+                                                    // A W3D basename is not an Object INI identity:
+                                                    // sharing it must never borrow a different
+                                                    // faction/condition-state texture definition.
+                                                    None,
+                                                )
                                             {
-                                                material.texture_name =
-                                                    Some(texture_from_ini.to_string());
-                                                trace!(
+                                                if let Some(texture_from_ini) =
+                                                    obj_def.get_primary_texture()
+                                                {
+                                                    material.texture_name =
+                                                        Some(texture_from_ini.to_string());
+                                                    trace!(
                                                     "WW3D material fallback: object {} ('{}') -> texture {}",
                                                     object_id,
                                                     template_name_owned,
                                                     texture_from_ini
                                                 );
-                                            } else if self
-                                                .missing_ini_objects
-                                                .insert(format!("{}::texture", template_name_owned))
-                                            {
-                                                debug!(
+                                                } else if self.missing_ini_objects.insert(format!(
+                                                    "{}::texture",
+                                                    template_name_owned
+                                                )) {
+                                                    debug!(
                                                     "WW3D assets: INI definition for '{}' defines no textures",
                                                     template_name_owned
                                                 );
-                                            }
-                                        } else if self
-                                            .missing_ini_objects
-                                            .insert(template_name_owned.clone())
-                                        {
-                                            debug!(
+                                                }
+                                            } else if self
+                                                .missing_ini_objects
+                                                .insert(template_name_owned.clone())
+                                            {
+                                                debug!(
                                                 "WW3D assets: no INI definition for '{}' (model hint: {:?})",
                                                 template_name_owned,
                                                 model_hint
                                             );
+                                            }
                                         }
                                     }
                                 }
-                            }
 
-                            // Mesh local transforms coming from WW3D hierarchy/HLOD data are in
-                            // source gameplay basis. If we axis-convert vertex payload at mesh build
-                            // time, local transforms must be converted into the same render basis.
-                            let mesh_local_transform = if mesh.vertices_in_render_space {
-                                mesh.transform
-                            } else {
-                                let axis = gameplay_to_render_axis_matrix();
-                                axis * mesh.transform * axis.inverse()
-                            };
-                            let mesh_local_transform = if transform_is_reasonable_for_mesh(
-                                mesh_local_transform,
-                            ) {
-                                mesh_local_transform
-                            } else {
-                                let key = format!(
-                                    "{}::{}::{}",
-                                    template_name_owned, model_name, mesh.name
-                                );
-                                if self.debug_warned_bad_mesh_transforms.insert(key.clone()) {
-                                    warn!(
+                                // Mesh local transforms coming from WW3D hierarchy/HLOD data are in
+                                // source gameplay basis. If we axis-convert vertex payload at mesh build
+                                // time, local transforms must be converted into the same render basis.
+                                let mesh_local_transform = if mesh.vertices_in_render_space {
+                                    mesh.transform
+                                } else {
+                                    let axis = gameplay_to_render_axis_matrix();
+                                    axis * mesh.transform * axis.inverse()
+                                };
+                                let mesh_local_transform = if transform_is_reasonable_for_mesh(
+                                    mesh_local_transform,
+                                ) {
+                                    mesh_local_transform
+                                } else {
+                                    let key = format!(
+                                        "{}::{}::{}",
+                                        template_name_owned, model_name, mesh.name
+                                    );
+                                    if self.debug_warned_bad_mesh_transforms.insert(key.clone()) {
+                                        warn!(
                                         "Invalid mesh local transform for '{}': template='{}' model='{}' mesh='{}'; using identity transform",
                                         key, template_name_owned, model_name, mesh.name
                                     );
-                                }
-                                Mat4::IDENTITY
-                            };
-                            let mut render_item = RenderItem::new(
+                                    }
+                                    Mat4::IDENTITY
+                                };
+                                let mut render_item = RenderItem::new(
+                                    object_id,
+                                    model_name.to_string(),
+                                    mesh_idx,
+                                    world_position,
+                                    world_matrix,
+                                    &material,
+                                    Self::render_pass_for_material(&material),
+                                );
+                                render_item.set_mesh_local_transform(mesh_local_transform);
+                                render_item.distance = world_position.distance(camera_position);
+                                render_item.set_fow_visibility(visibility);
+                                render_item.animation_frame = anim_frame;
+
+                                self.render_items.push(render_item);
+                            }
+
+                            trace!(
+                                "Object {} will render with FOW alpha={}, explored={}",
                                 object_id,
-                                model_name.to_string(),
-                                mesh_idx,
-                                world_position,
-                                world_matrix,
-                                &material,
-                                Self::render_pass_for_material(&material),
+                                visibility.visibility_alpha,
+                                visibility.is_explored
                             );
-                            render_item.set_mesh_local_transform(mesh_local_transform);
-                            render_item.distance = world_position.distance(camera_position);
-                            render_item.set_fow_visibility(visibility);
-                            render_item.animation_frame = anim_frame;
-
-                            self.render_items.push(render_item);
+                            render_item_build_elapsed += render_item_build_started.elapsed();
+                            continue; // Skip the fallback path
                         }
 
-                        trace!(
-                            "Object {} will render with FOW alpha={}, explored={}",
-                            object_id,
-                            visibility.visibility_alpha,
-                            visibility.is_explored
-                        );
-                        render_item_build_elapsed += render_item_build_started.elapsed();
-                        continue; // Skip the fallback path
-                    }
-
-                    if Self::missing_model_debug_cubes_enabled()
-                        && !real_w3d_name_resolved(model_name)
-                    {
-                        if let Some(fallback_model) =
-                            graphics_system.get_model_or_fallback("__fallback_cube__")
+                        if Self::missing_model_debug_cubes_enabled()
+                            && !real_w3d_name_resolved(model_name)
                         {
-                            if !fallback_model.meshes.is_empty() {
-                                let fallback_mesh = &fallback_model.meshes[0];
-                                let mut render_item = RenderItem::new(
-                                    object_id,
-                                    "__fallback_cube__".to_string(),
-                                    0,
-                                    world_position,
-                                    world_matrix,
-                                    &fallback_mesh.material,
-                                    RenderPass::ForwardOpaque,
-                                );
-                                render_item.distance = world_position.distance(camera_position);
-                                render_item.set_fow_visibility(fow_visibility);
-                                if selection_flash_intensity > 0.0 {
-                                    render_item.apply_selection_flash(
-                                        selection_flash_intensity,
-                                        team_color,
+                            if let Some(fallback_model) =
+                                graphics_system.get_model_or_fallback("__fallback_cube__")
+                            {
+                                if !fallback_model.meshes.is_empty() {
+                                    let fallback_mesh = &fallback_model.meshes[0];
+                                    let mut render_item = RenderItem::new(
+                                        object_id,
+                                        "__fallback_cube__".to_string(),
+                                        0,
+                                        world_position,
+                                        world_matrix,
+                                        &fallback_mesh.material,
+                                        RenderPass::ForwardOpaque,
                                     );
-                                }
-                                // Wave 499: presentation poison tint residual (no live GameLogic).
-                                if u.poison_tinted {
-                                    render_item.apply_poison_tint();
-                                }
+                                    render_item.distance = world_position.distance(camera_position);
+                                    render_item.set_fow_visibility(fow_visibility);
+                                    if selection_flash_intensity > 0.0 {
+                                        render_item.apply_selection_flash(
+                                            selection_flash_intensity,
+                                            team_color,
+                                        );
+                                    }
+                                    // Wave 499: presentation poison tint residual (no live GameLogic).
+                                    if u.poison_tinted {
+                                        render_item.apply_poison_tint();
+                                    }
 
-                                self.render_items.push(render_item);
+                                    self.render_items.push(render_item);
+                                }
                             }
                         }
                     }
-                }
-                RenderModelLoadResult::SkippedByBudget => {
-                    self.debug_last_model_budget_skips += 1;
-                    if self.debug_last_missing_model_samples.len() < 16 {
-                        self.debug_last_missing_model_samples
-                            .push(format!("{}:{} [budget]", template_name_owned, model_name));
+                    RenderModelLoadResult::SkippedByBudget => {
+                        self.debug_last_model_budget_skips += 1;
+                        if self.debug_last_missing_model_samples.len() < 16 {
+                            self.debug_last_missing_model_samples
+                                .push(format!("{}:{} [budget]", template_name_owned, model_name));
+                        }
+                        model_missing += 1;
                     }
-                    model_missing += 1;
-                }
-                RenderModelLoadResult::Failed => {
-                    if self.debug_last_missing_model_samples.len() < 16 {
-                        // Prefer presentation/live-resolved model hint (no re-read of Object).
-                        let explicit = model_hint_owned.as_deref().unwrap_or("");
-                        self.debug_last_missing_model_samples.push(format!(
-                            "{}:{} explicit_model={}",
-                            template_name_owned,
-                            model_name,
-                            if explicit.is_empty() {
-                                "<none>"
-                            } else {
-                                explicit
-                            }
-                        ));
-                    }
-                    model_missing += 1;
+                    RenderModelLoadResult::Failed => {
+                        if self.debug_last_missing_model_samples.len() < 16 {
+                            // Prefer presentation/live-resolved model hint (no re-read of Object).
+                            let explicit = model_hint_owned.as_deref().unwrap_or("");
+                            self.debug_last_missing_model_samples.push(format!(
+                                "{}:{} explicit_model={}",
+                                template_name_owned,
+                                model_name,
+                                if explicit.is_empty() {
+                                    "<none>"
+                                } else {
+                                    explicit
+                                }
+                            ));
+                        }
+                        model_missing += 1;
 
-                    if Self::missing_model_debug_cubes_enabled()
-                        && !real_w3d_name_resolved(model_name)
-                    {
-                        if let Some(fallback_model) =
-                            graphics_system.get_model_or_fallback("__fallback_cube__")
+                        if Self::missing_model_debug_cubes_enabled()
+                            && !real_w3d_name_resolved(model_name)
                         {
-                            if !fallback_model.meshes.is_empty() {
-                                let fallback_mesh = &fallback_model.meshes[0];
-                                let mut render_item = RenderItem::new(
-                                    object_id,
-                                    "__fallback_cube__".to_string(),
-                                    0,
-                                    world_position,
-                                    world_matrix,
-                                    &fallback_mesh.material,
-                                    RenderPass::ForwardOpaque,
-                                );
-                                render_item.distance = world_position.distance(camera_position);
-                                render_item.set_fow_visibility(fow_visibility);
-                                if selection_flash_intensity > 0.0 {
-                                    render_item.apply_selection_flash(
-                                        selection_flash_intensity,
-                                        team_color,
+                            if let Some(fallback_model) =
+                                graphics_system.get_model_or_fallback("__fallback_cube__")
+                            {
+                                if !fallback_model.meshes.is_empty() {
+                                    let fallback_mesh = &fallback_model.meshes[0];
+                                    let mut render_item = RenderItem::new(
+                                        object_id,
+                                        "__fallback_cube__".to_string(),
+                                        0,
+                                        world_position,
+                                        world_matrix,
+                                        &fallback_mesh.material,
+                                        RenderPass::ForwardOpaque,
                                     );
-                                }
-                                // Wave 499: presentation poison tint residual (no live GameLogic).
-                                if u.poison_tinted {
-                                    render_item.apply_poison_tint();
-                                }
+                                    render_item.distance = world_position.distance(camera_position);
+                                    render_item.set_fow_visibility(fow_visibility);
+                                    if selection_flash_intensity > 0.0 {
+                                        render_item.apply_selection_flash(
+                                            selection_flash_intensity,
+                                            team_color,
+                                        );
+                                    }
+                                    // Wave 499: presentation poison tint residual (no live GameLogic).
+                                    if u.poison_tinted {
+                                        render_item.apply_poison_tint();
+                                    }
 
-                                self.render_items.push(render_item);
+                                    self.render_items.push(render_item);
+                                }
                             }
                         }
                     }
                 }
+                render_item_build_elapsed += render_item_build_started.elapsed();
             }
-            render_item_build_elapsed += render_item_build_started.elapsed();
         }
 
         // Presentation projectile mesh residual: enqueue model_key instances without
@@ -671,7 +699,8 @@ impl RenderPipeline {
         deferred_model_load_budget: &mut usize,
     ) -> RenderModelLoadResult {
         use crate::assets::mesh_asset_resolve::{
-            canonical_model_key, resolve_mesh_for_model_key, MeshResolveResult, PLACEHOLDER_MODEL_KEY,
+            canonical_model_key, resolve_mesh_for_model_key, MeshResolveResult,
+            PLACEHOLDER_MODEL_KEY,
         };
 
         static STARTUP_MODEL_TRACE_COUNT: AtomicUsize = AtomicUsize::new(0);
@@ -961,7 +990,7 @@ impl RenderPipeline {
                         let anim_frame = if !w3d_model.animations.is_empty()
                             && w3d_model.hierarchy.is_some()
                         {
-                            let obj_key = object_id.0;
+                            let obj_key = (object_id.0, 0);
                             let want_index = animation_index_for_model_condition(
                                 model_bits,
                                 w3d_model.animations.len(),

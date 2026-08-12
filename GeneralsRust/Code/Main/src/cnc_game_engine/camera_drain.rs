@@ -461,13 +461,20 @@ impl CnCGameEngine {
                 || std::env::var_os("GENERALS_ALLOW_DUAL_TICK").is_none(),
         );
         let couple_shadow = self.gameworld_shadow.is_some();
-        if couple_shadow {
-            crate::gameworld_shadow::begin_shadow_coupled_tick();
-            // Wave 680: install live shadow for mid-frame host spawn → GW map.
-            if let Some(ref mut shadow) = self.gameworld_shadow {
-                crate::gameworld_shadow::install_active_shadow_for_coupled_tick(shadow);
-            }
-        }
+        // Keep both coupled-frame depth and the TLS shadow handle RAII-owned.
+        // This is intentionally lexical around host logic plus post-logic
+        // writeback: a panic cannot leave a raw shadow handle live into a later
+        // frame.  The handle is dropped before presentation, matching the
+        // existing authority boundary.
+        let coupled_tick_guard =
+            couple_shadow.then(crate::gameworld_shadow::CoupledTickGuard::enter);
+        let coupled_shadow_guard = if couple_shadow {
+            self.gameworld_shadow
+                .as_mut()
+                .map(crate::gameworld_shadow::install_coupled_shadow_guard)
+        } else {
+            None
+        };
         // Update game logic first
         for _ in 0..ff_steps {
             // Wave 584: host logic tick residual via helper.
@@ -533,6 +540,11 @@ impl CnCGameEngine {
 
         // Wave 597: GameWorld shadow session residual via host helper.
         self.host_run_gameworld_shadow_after_logic(couple_shadow);
+
+        // Keep active-shadow access available through host writeback, then
+        // release it before building the immutable presentation frame.
+        drop(coupled_shadow_guard);
+        drop(coupled_tick_guard);
 
         // Wave 589: presentation finalize residual via helper (build + audio + FX).
         self.host_finalize_presentation_after_logic();
@@ -1764,10 +1776,10 @@ impl CnCGameEngine {
         let _ = self
             .game_logic
             .apply_host_support_op(crate::game_logic::HostSupportOp::ProcessDestroyListIfNeeded);
-        if couple_shadow {
-            crate::gameworld_shadow::end_shadow_coupled_tick();
-        }
-        crate::gameworld_shadow::clear_active_shadow_for_coupled_tick();
+        // Coupled-frame depth and the active shadow handle are owned by the
+        // caller's RAII guards so unwinding cannot leak either into a later
+        // frame.  They remain live through this writeback boundary only.
+        let _ = couple_shadow;
     }
 
     /// Wave 589: post-logic presentation finalize residual.

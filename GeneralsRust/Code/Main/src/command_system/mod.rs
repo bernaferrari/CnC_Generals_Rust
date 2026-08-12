@@ -3,7 +3,7 @@
 // Restricted re-exports so impl submodules can `use super::*;`
 // without dumping the parent crate surface through `pub use`.
 pub(in crate::command_system) use crate::game_logic::{
-    AIState, BuildingType, GameLogic, KindOf, Object, ObjectId, Team,
+    AIState, BuildingType, CapturePowerKind, DockKind, GameLogic, KindOf, Object, ObjectId, Team,
 };
 pub(in crate::command_system) use glam::{Vec2, Vec3};
 pub(in crate::command_system) use serde::{Deserialize, Serialize};
