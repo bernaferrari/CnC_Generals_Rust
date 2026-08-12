@@ -492,6 +492,15 @@ impl Object {
             WeaponLockType::LockedTemporarily => {
                 if self.weapon_lock_type == WeaponLockType::LockedTemporarily {
                     self.weapon_lock_type = WeaponLockType::NotLocked;
+                    // `active_weapon_slot == 2` is the host's explicit-manual
+                    // marker for a manual-only tertiary weapon.  Once a C++
+                    // temporary lock has completed or been cancelled, retain
+                    // neither that marker nor the special attack selection:
+                    // the next ordinary chooser may consider only PRIMARY /
+                    // SECONDARY again.  Slot zero is deliberately used even
+                    // when absent; the chooser then falls through to an
+                    // existing SECONDARY rather than inventing TERTIARY.
+                    self.set_active_weapon_slot(0);
                 }
             }
             WeaponLockType::LockedPermanently => {

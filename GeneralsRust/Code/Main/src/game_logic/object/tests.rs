@@ -76,6 +76,10 @@ fn temporary_tertiary_lock_releases_after_its_auto_clip_reloads() {
         "the host keeps an auto-reloading clip empty until its reload window finishes"
     );
     assert_eq!(object.weapon_lock_type, WeaponLockType::NotLocked);
+    assert_eq!(
+        object.active_weapon_slot, 0,
+        "expired temporary tertiary selection must not turn into an automatic tertiary choice"
+    );
 }
 
 #[test]

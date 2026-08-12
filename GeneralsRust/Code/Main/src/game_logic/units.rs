@@ -62,7 +62,8 @@ pub fn create_unit_templates() -> HashMap<String, ThingTemplate> {
         .add_kind_of(KindOf::Attackable)
         .set_health(50.0)
         .set_cost(60, 0)
-        .set_model("githrpf") // GLA Infantry model
+        // GLAInfantryRebel → UIRGrd_SKN (retail W3DZH.big basename).
+        .set_model("uirgrd_skn")
         .set_primary_weapon_name(super::weapon_bootstrap::GLA_REBEL_PRIMARY_WEAPON)
         .set_locomotor_name(super::locomotor_bootstrap::BASIC_HUMAN_LOCOMOTOR);
     templates.insert("GLA_Soldier".to_string(), gla_soldier);
@@ -73,7 +74,8 @@ pub fn create_unit_templates() -> HashMap<String, ThingTemplate> {
         .add_kind_of(KindOf::Selectable)
         .set_health(40.0)
         .set_cost(200, 0)
-        .set_model("giworker"); // GLA Worker model
+        // GLAInfantryWorker → UIWRKR_SKN (retail W3DZH.big basename).
+        .set_model("uiwrkr_skn");
     templates.insert("GLA_Worker".to_string(), gla_worker);
 
     let mut gla_technical = ThingTemplate::new("GLA_Technical");
@@ -83,7 +85,8 @@ pub fn create_unit_templates() -> HashMap<String, ThingTemplate> {
         .add_kind_of(KindOf::Attackable)
         .set_health(200.0)
         .set_cost(400, 0)
-        .set_model("gvtchncl") // GLA Technical vehicle
+        // GLAVehicleTechnical → UVTechTrck (retail W3DZH.big basename).
+        .set_model("uvtechtrck")
         .set_primary_weapon_name(super::weapon_bootstrap::TECHNICAL_MACHINE_GUN)
         .set_locomotor_name(super::locomotor_bootstrap::TECHNICAL_LOCOMOTOR);
     templates.insert("GLA_Technical".to_string(), gla_technical);
@@ -95,7 +98,8 @@ pub fn create_unit_templates() -> HashMap<String, ThingTemplate> {
         .add_kind_of(KindOf::Attackable)
         .set_health(400.0)
         .set_cost(800, 0)
-        .set_model("gvscorpion") // GLA Scorpion tank
+        // GLATankScorpion → UVLiteTank (retail W3DZH.big basename).
+        .set_model("uvlitetank")
         .set_locomotor_name(super::locomotor_bootstrap::SCORPION_LOCOMOTOR)
         .set_primary_weapon_name(super::weapon_bootstrap::SCORPION_TANK_GUN);
     templates.insert("GLA_Scorpion".to_string(), gla_scorpion);
@@ -107,7 +111,8 @@ pub fn create_unit_templates() -> HashMap<String, ThingTemplate> {
         .add_kind_of(KindOf::Attackable)
         .set_health(60.0)
         .set_cost(100, 0)
-        .set_model("uirguard02")
+        // GLAInfantryTunnelDefender → UITunF_SKN, never the guard proxy.
+        .set_model("uitunf_skn")
         .set_primary_weapon_name(super::weapon_bootstrap::TUNNEL_DEFENDER_ROCKET_WEAPON)
         .set_locomotor_name(super::locomotor_bootstrap::BASIC_HUMAN_LOCOMOTOR);
     templates.insert("GLA_RPGTrooper".to_string(), gla_rpg);
@@ -119,7 +124,8 @@ pub fn create_unit_templates() -> HashMap<String, ThingTemplate> {
         .add_kind_of(KindOf::Attackable)
         .set_health(450.0)
         .set_cost(1400, 0)
-        .set_model("uvlitetank")
+        // GLATankMarauder → UVMarauder, never the Scorpion proxy.
+        .set_model("uvmarauder")
         .set_primary_weapon_name(super::weapon_bootstrap::MARAUDER_TANK_GUN)
         .set_locomotor_name(super::locomotor_bootstrap::SCORPION_LOCOMOTOR);
     templates.insert("GLA_MarauderTank".to_string(), gla_marauder);
@@ -132,7 +138,8 @@ pub fn create_unit_templates() -> HashMap<String, ThingTemplate> {
         .add_kind_of(KindOf::Attackable)
         .set_health(60.0)
         .set_cost(80, 0)
-        .set_model("airanger_s") // USA Ranger infantry (AIRanger_S.W3D)
+        // AmericaInfantryRanger → AIRngr_SKN (retail W3DZH.big basename).
+        .set_model("airngr_skn")
         .set_primary_weapon_name(super::weapon_bootstrap::RANGER_PRIMARY_WEAPON)
         .set_secondary_weapon_name(super::weapon_bootstrap::RANGER_SECONDARY_WEAPON)
         .set_locomotor_name(super::locomotor_bootstrap::BASIC_HUMAN_LOCOMOTOR);
@@ -144,7 +151,8 @@ pub fn create_unit_templates() -> HashMap<String, ThingTemplate> {
         .add_kind_of(KindOf::Selectable)
         .set_health(300.0)
         .set_cost(1000, 0)
-        .set_model("avdozer"); // USA Construction Dozer
+        // AmericaVehicleDozer → AVCONSTDOZ_A (retail W3DZH.big basename).
+        .set_model("avconstdoz_a");
     templates.insert("USA_Dozer".to_string(), usa_dozer);
 
     let mut usa_humvee = ThingTemplate::new("USA_Humvee");
@@ -167,7 +175,8 @@ pub fn create_unit_templates() -> HashMap<String, ThingTemplate> {
         .add_kind_of(KindOf::Attackable)
         .set_health(600.0)
         .set_cost(1200, 0)
-        .set_model("avcrusader") // USA Crusader tank
+        // AmericaTankCrusader → AVLeopard (retail W3DZH.big basename).
+        .set_model("avleopard")
         .set_primary_weapon_name(super::weapon_bootstrap::CRUSADER_TANK_GUN)
         .set_locomotor_name(super::locomotor_bootstrap::CRUSADER_LOCOMOTOR);
     templates.insert("USA_Crusader".to_string(), usa_crusader);
@@ -179,7 +188,8 @@ pub fn create_unit_templates() -> HashMap<String, ThingTemplate> {
         .add_kind_of(KindOf::Attackable)
         .set_health(700.0)
         .set_cost(1800, 0)
-        .set_model("avcrusader")
+        // AmericaTankPaladin → AVPaladin, never the Crusader proxy.
+        .set_model("avpaladin")
         .set_primary_weapon_name(super::weapon_bootstrap::PALADIN_TANK_GUN)
         .set_locomotor_name(super::locomotor_bootstrap::CRUSADER_LOCOMOTOR);
     templates.insert("USA_Paladin".to_string(), usa_paladin);
@@ -203,7 +213,8 @@ pub fn create_unit_templates() -> HashMap<String, ThingTemplate> {
         .add_kind_of(KindOf::Attackable)
         .set_health(55.0)
         .set_cost(75, 0)
-        .set_model("cirifle") // China Red Guard infantry
+        // ChinaInfantryRedguard → NICNSC_SKN (retail W3DZH.big basename).
+        .set_model("nicnsc_skn")
         .set_primary_weapon_name(super::weapon_bootstrap::REDGUARD_PRIMARY_WEAPON)
         .set_locomotor_name(super::locomotor_bootstrap::REDGUARD_LOCOMOTOR);
     templates.insert("China_Soldier".to_string(), china_soldier);
@@ -214,7 +225,8 @@ pub fn create_unit_templates() -> HashMap<String, ThingTemplate> {
         .add_kind_of(KindOf::Selectable)
         .set_health(350.0)
         .set_cost(1000, 0)
-        .set_model("cvdozer"); // China Construction Dozer
+        // ChinaVehicleDozer → NVCONSTDOZ_A (retail W3DZH.big basename).
+        .set_model("nvconstdoz_a");
     templates.insert("China_Dozer".to_string(), china_dozer);
 
     let mut china_battletank = ThingTemplate::new("China_BattleTank");
@@ -224,7 +236,8 @@ pub fn create_unit_templates() -> HashMap<String, ThingTemplate> {
         .add_kind_of(KindOf::Attackable)
         .set_health(500.0)
         .set_cost(1000, 0)
-        .set_model("cvbattlemaster") // China Battle Master tank
+        // ChinaTankBattleMaster → NVBtMstr (retail W3DZH.big basename).
+        .set_model("nvbtmstr")
         .set_primary_weapon_name(super::weapon_bootstrap::BATTLE_MASTER_TANK_GUN)
         .set_locomotor_name(super::locomotor_bootstrap::BATTLE_MASTER_LOCOMOTOR);
     templates.insert("China_BattleTank".to_string(), china_battletank);
@@ -236,7 +249,8 @@ pub fn create_unit_templates() -> HashMap<String, ThingTemplate> {
         .add_kind_of(KindOf::Attackable)
         .set_health(280.0)
         .set_cost(800, 0)
-        .set_model("cvdragon")
+        // ChinaTankDragon → NVDragon (retail W3DZH.big basename).
+        .set_model("nvdragon")
         .set_primary_weapon_name(super::weapon_bootstrap::DRAGON_TANK_FLAME_WEAPON);
     templates.insert("China_DragonTank".to_string(), china_dragon);
 
@@ -247,7 +261,8 @@ pub fn create_unit_templates() -> HashMap<String, ThingTemplate> {
         .add_kind_of(KindOf::Attackable)
         .set_health(240.0)
         .set_cost(800, 0)
-        .set_model("cvgattling")
+        // ChinaTankGattling → NVGattTank (retail W3DZH.big basename).
+        .set_model("nvgatttank")
         .set_primary_weapon_name(super::weapon_bootstrap::GATTLING_TANK_GUN)
         .set_secondary_weapon_name(super::weapon_bootstrap::GATTLING_TANK_GUN_AIR);
     templates.insert("China_GattlingTank".to_string(), china_gattling);
@@ -259,7 +274,8 @@ pub fn create_unit_templates() -> HashMap<String, ThingTemplate> {
         .add_kind_of(KindOf::Attackable)
         .set_health(100.0)
         .set_cost(110, 0)
-        .set_model("uirguard02")
+        // ChinaInfantryTankHunter → NIMSST_SKN, never the guard proxy.
+        .set_model("nimsst_skn")
         .set_primary_weapon_name(super::weapon_bootstrap::TANK_HUNTER_PRIMARY_WEAPON)
         .set_locomotor_name(super::locomotor_bootstrap::BASIC_HUMAN_LOCOMOTOR);
     templates.insert("China_TankHunter".to_string(), china_tank_hunter);

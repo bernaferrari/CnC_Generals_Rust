@@ -921,7 +921,8 @@ impl GameLogic {
             .add_kind_of(KindOf::Attackable)
             .set_health(60.0)
             .set_cost(80, 0)
-            .set_model("airanger_s") // USA Ranger infantry model
+            // AmericaInfantryRanger → AIRngr_SKN (W3DZH.big).
+            .set_model("airngr_skn")
             .set_primary_weapon_name(super::super::weapon_bootstrap::RANGER_PRIMARY_WEAPON)
             .set_secondary_weapon_name(super::super::weapon_bootstrap::RANGER_SECONDARY_WEAPON)
             .set_locomotor_name(super::super::locomotor_bootstrap::BASIC_HUMAN_LOCOMOTOR);
@@ -934,7 +935,8 @@ impl GameLogic {
             .add_kind_of(KindOf::Attackable)
             .set_health(100.0)
             .set_cost(300, 0)
-            .set_model("aimissletm") // USA Missile Defender
+            // AmericaInfantryMissileDefender → NITHNT_SKN (W3DZH.big).
+            .set_model("nithnt_skn")
             .set_primary_weapon_name(
                 super::super::weapon_bootstrap::MISSILE_DEFENDER_MISSILE_WEAPON,
             )
@@ -965,7 +967,8 @@ impl GameLogic {
             .add_kind_of(KindOf::Attackable)
             .set_health(400.0)
             .set_cost(1200, 0)
-            .set_model("avcrusader") // USA Crusader tank
+            // AmericaTankCrusader → AVLeopard (W3DZH.big).
+            .set_model("avleopard")
             .set_primary_weapon_name(super::super::weapon_bootstrap::CRUSADER_TANK_GUN)
             .set_locomotor_name(super::super::locomotor_bootstrap::CRUSADER_LOCOMOTOR);
         self.templates
@@ -978,7 +981,8 @@ impl GameLogic {
             .add_kind_of(KindOf::Attackable)
             .set_health(600.0)
             .set_cost(1800, 0)
-            .set_model("avcrusader") // USA Paladin tank (using Crusader model since avpaldin doesn't exist)
+            // AmericaTankPaladin → AVPaladin.  Do not draw the Crusader as a proxy.
+            .set_model("avpaladin")
             .set_primary_weapon_name(super::super::weapon_bootstrap::PALADIN_TANK_GUN)
             .set_locomotor_name(super::super::locomotor_bootstrap::CRUSADER_LOCOMOTOR);
         self.templates
@@ -992,7 +996,8 @@ impl GameLogic {
             .add_kind_of(KindOf::Attackable)
             .set_health(180.0)
             .set_cost(1000, 0)
-            .set_model("avraptorag") // USA F-22 Raptor
+            // AmericaJetRaptor → AVRaptor (W3DZH.big).
+            .set_model("avraptor")
             .set_primary_weapon_name(super::super::weapon_bootstrap::RAPTOR_JET_MISSILE_WEAPON);
         self.templates.insert("USA_Raptor".to_string(), usa_raptor);
 
@@ -1006,7 +1011,8 @@ impl GameLogic {
             .add_kind_of(KindOf::Attackable)
             .set_health(50.0)
             .set_cost(60, 0)
-            .set_model("uirebel") // GLA Rebel infantry model
+            // GLAInfantryRebel → UIRGrd_SKN (W3DZH.big).
+            .set_model("uirgrd_skn")
             .set_primary_weapon_name(super::super::weapon_bootstrap::GLA_REBEL_PRIMARY_WEAPON)
             .set_locomotor_name(super::super::locomotor_bootstrap::BASIC_HUMAN_LOCOMOTOR);
         self.templates
@@ -1019,7 +1025,8 @@ impl GameLogic {
             .add_kind_of(KindOf::Attackable)
             .set_health(60.0)
             .set_cost(100, 0)
-            .set_model("uirguard02") // GLA RPG Trooper (using guard model since uirpgtrp doesn't exist)
+            // GLAInfantryTunnelDefender → UITunF_SKN.  Do not draw a guard as a proxy.
+            .set_model("uitunf_skn")
             .set_primary_weapon_name(super::super::weapon_bootstrap::TUNNEL_DEFENDER_ROCKET_WEAPON)
             .set_locomotor_name(super::super::locomotor_bootstrap::BASIC_HUMAN_LOCOMOTOR);
         self.templates.insert("GLA_RPGTrooper".to_string(), gla_rpg);
@@ -1032,7 +1039,8 @@ impl GameLogic {
             .add_kind_of(KindOf::Attackable)
             .set_health(200.0)
             .set_cost(400, 0)
-            .set_model("uvtechvan_d1") // GLA Technical vehicle model
+            // GLAVehicleTechnical → UVTechTrck, not a damaged ConditionState mesh.
+            .set_model("uvtechtrck")
             .set_primary_weapon_name(super::super::weapon_bootstrap::TECHNICAL_MACHINE_GUN)
             .set_locomotor_name(super::super::locomotor_bootstrap::TECHNICAL_LOCOMOTOR);
         self.templates
@@ -1045,7 +1053,8 @@ impl GameLogic {
             .add_kind_of(KindOf::Attackable)
             .set_health(300.0)
             .set_cost(900, 0)
-            .set_model("uvscorpion") // GLA Scorpion tank
+            // GLATankScorpion → UVLiteTank (W3DZH.big).
+            .set_model("uvlitetank")
             .set_locomotor_name(super::super::locomotor_bootstrap::SCORPION_LOCOMOTOR)
             .set_primary_weapon_name(super::super::weapon_bootstrap::SCORPION_TANK_GUN);
         self.templates
@@ -1058,7 +1067,8 @@ impl GameLogic {
             .add_kind_of(KindOf::Attackable)
             .set_health(450.0)
             .set_cost(1400, 0)
-            .set_model("uvlitetank") // GLA Marauder tank (using lite tank model since uvmarudr doesn't exist)
+            // GLATankMarauder → UVMarauder.  Do not draw a Scorpion as a proxy.
+            .set_model("uvmarauder")
             .set_primary_weapon_name(super::super::weapon_bootstrap::MARAUDER_TANK_GUN)
             .set_locomotor_name(super::super::locomotor_bootstrap::SCORPION_LOCOMOTOR);
         self.templates
@@ -1071,6 +1081,12 @@ impl GameLogic {
                 let mut template = base.clone();
                 template.name = alias.to_string();
                 template.display_name = alias.to_string();
+                if alias == "GLAInfantryTerrorist" {
+                    // GLAInfantryTerrorist → UITRST_SKN.  The behavior
+                    // scaffold remains deliberately curated, but its visual
+                    // identity must not borrow the Rebel's mesh.
+                    template.set_model("uitrst_skn");
+                }
                 self.templates.insert(alias.to_string(), template);
             }
         }
@@ -1085,6 +1101,8 @@ impl GameLogic {
             let mut template = base;
             template.name = "GLAVehicleCombatBike".to_string();
             template.display_name = "GLAVehicleCombatBike".to_string();
+            // GLAVehicleCombatBike → UVComBike, not the Technical chassis.
+            template.set_model("uvcombike");
             self.templates
                 .insert("GLAVehicleCombatBike".to_string(), template);
         }
@@ -1099,7 +1117,8 @@ impl GameLogic {
             .add_kind_of(KindOf::Attackable)
             .set_health(55.0)
             .set_cost(70, 0)
-            .set_model("uirebel") // China Red Guard (using rebel model since ciredgrd doesn't exist)
+            // ChinaInfantryRedguard → NICNSC_SKN.  Do not draw a Rebel as a proxy.
+            .set_model("nicnsc_skn")
             .set_primary_weapon_name(super::super::weapon_bootstrap::REDGUARD_PRIMARY_WEAPON)
             .set_locomotor_name(super::super::locomotor_bootstrap::REDGUARD_LOCOMOTOR);
         self.templates
@@ -1112,7 +1131,8 @@ impl GameLogic {
             .add_kind_of(KindOf::Attackable)
             .set_health(100.0)
             .set_cost(110, 0)
-            .set_model("uirguard02") // China Tank Hunter (using guard model since citankht doesn't exist)
+            // ChinaInfantryTankHunter → NIMSST_SKN.  Do not draw a guard as a proxy.
+            .set_model("nimsst_skn")
             .set_primary_weapon_name(super::super::weapon_bootstrap::TANK_HUNTER_PRIMARY_WEAPON);
         self.templates
             .insert("China_TankHunter".to_string(), china_tank_hunter);
@@ -1125,7 +1145,8 @@ impl GameLogic {
             .add_kind_of(KindOf::Attackable)
             .set_health(360.0)
             .set_cost(1100, 0)
-            .set_model("uvscorpion") // China Battlemaster tank (using scorpion model since cvbtlmst doesn't exist)
+            // ChinaTankBattleMaster → NVBtMstr.  Do not draw a Scorpion as a proxy.
+            .set_model("nvbtmstr")
             .set_primary_weapon_name(super::super::weapon_bootstrap::BATTLE_MASTER_TANK_GUN)
             .set_locomotor_name(super::super::locomotor_bootstrap::BATTLE_MASTER_LOCOMOTOR);
         self.templates
@@ -1138,7 +1159,8 @@ impl GameLogic {
             .add_kind_of(KindOf::Attackable)
             .set_health(700.0)
             .set_cost(2000, 0)
-            .set_model("nvovrlrdt") // China Overlord tank (using correct nv pattern model)
+            // ChinaTankOverlord → NVOvrlrd (W3DZH.big).
+            .set_model("nvovrlrd")
             .set_primary_weapon_name(super::super::weapon_bootstrap::OVERLORD_TANK_GUN);
         self.templates
             .insert("China_OverlordTank".to_string(), china_overlord);
@@ -1151,6 +1173,7 @@ impl GameLogic {
             .add_kind_of(KindOf::Attackable)
             .set_health(200.0)
             .set_cost(900, 0)
+            // ChinaVehicleInfernoCannon → NVInferno (W3DZH.big).
             .set_model("nvinferno")
             .set_primary_weapon_name(super::super::weapon_bootstrap::INFERNO_CANNON_PRIMARY_WEAPON);
         self.templates
@@ -1172,7 +1195,8 @@ impl GameLogic {
             .add_kind_of(KindOf::Attackable)
             .set_health(160.0)
             .set_cost(900, 0)
-            .set_model("nvmign"); // China MiG (using correct nv pattern model)
+            // ChinaJetMIG → NVMIG (W3DZH.big).
+            .set_model("nvmig");
         self.templates.insert("China_MiG".to_string(), china_mig);
 
         let mut china_helix = ThingTemplate::new("China_Helix");
@@ -1182,7 +1206,8 @@ impl GameLogic {
             .add_kind_of(KindOf::Attackable)
             .set_health(220.0)
             .set_cost(1200, 0)
-            .set_model("avhummer"); // China Helix helicopter (using humvee model since cahelix doesn't exist)
+            // ChinaVehicleHelix → NVHELIX.  Do not draw a Humvee as a proxy.
+            .set_model("nvhelix");
         self.templates
             .insert("China_Helix".to_string(), china_helix);
 

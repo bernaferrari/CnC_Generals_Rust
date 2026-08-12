@@ -981,13 +981,14 @@ lazy_static::lazy_static! {
 // Campaign maps (MD_USA01) hang on frame-0 "SUB-Generate Random Number"
 // which CALL_SUBROUTINEs while the outer execute still holds the lock.
 //
-// TLS stores `*const ScriptEngine` only. Nested accessors mint `&ScriptEngine`,
-// never a second `&mut ScriptEngine`. Mutations go through `lock_inner_mut`
-// (`RefCell`). C++ `callSubroutine` → `executeScript` runs
-// immediately; we match that order rather than deferring nested work.
+// Scoped TLS carries a checked, lexical `&ScriptEngine` through nested script
+// execution.  This is intentionally not a raw pointer: `scoped_tls::set`
+// restores the prior value during normal return and unwinding, while nested
+// sets restore the outer engine.  C++ `callSubroutine` → `executeScript` runs
+// immediately; we retain that order rather than queueing work.
+scoped_tls::scoped_thread_local!(static ACTIVE_SCRIPT_ENGINE: ScriptEngine);
+
 thread_local! {
-    static ACTIVE_SCRIPT_ENGINE: Cell<*const ScriptEngine> =
-        const { Cell::new(std::ptr::null()) };
     /// Depth of nested CALL_SUBROUTINE / execute_subroutine_by_name on this thread.
     /// Campaign random-number scripts can re-enter; unbounded nesting hangs the host.
     static SUBROUTINE_CALL_DEPTH: Cell<u32> = const { Cell::new(0) };
@@ -1024,29 +1025,11 @@ impl Drop for SubroutineDepthGuard {
     }
 }
 
-/// RAII token that installs (and restores) the TLS active ScriptEngine pointer.
-pub struct ActiveScriptEngineGuard {
-    prev: *const ScriptEngine,
-}
-
-impl Drop for ActiveScriptEngineGuard {
-    fn drop(&mut self) {
-        ACTIVE_SCRIPT_ENGINE.with(|cell| cell.set(self.prev));
-    }
-}
-
 impl ScriptEngine {
-    /// Mark this engine as the active nested target for the current thread.
-    ///
-    /// Recursion-depth marker only: stores `*const ScriptEngine`. Nested
-    /// accessors never mint `&mut ScriptEngine` from this pointer.
-    pub fn enter_active(&self) -> ActiveScriptEngineGuard {
-        let ptr = self as *const ScriptEngine;
-        ACTIVE_SCRIPT_ENGINE.with(|cell| {
-            let prev = cell.get();
-            cell.set(ptr);
-            ActiveScriptEngineGuard { prev }
-        })
+    /// Run `f` with this engine installed as the current lexical nested target.
+    /// `scoped_tls` restores an outer active engine even if `f` panics.
+    fn with_active<R>(&self, f: impl FnOnce() -> R) -> R {
+        ACTIVE_SCRIPT_ENGINE.set(self, f)
     }
 }
 
@@ -1055,32 +1038,22 @@ impl ScriptEngine {
 /// Hands out `&ScriptEngine` only. Nested mutations use `lock_inner_mut`
 /// (no aliased `&mut ScriptEngine`). C++ `CALL_SUBROUTINE` runs immediately.
 pub fn with_active_script_engine_mut<R>(f: impl FnOnce(&ScriptEngine) -> R) -> Option<R> {
-    ACTIVE_SCRIPT_ENGINE.with(|cell| {
-        let ptr = cell.get();
-        if ptr.is_null() {
-            None
-        } else {
-            // SAFETY: pointer is set only for the duration of enter_active() on this thread.
-            // Shared `&ScriptEngine` only — never `&mut ScriptEngine`.
-            Some(f(unsafe { &*ptr }))
-        }
-    })
+    ACTIVE_SCRIPT_ENGINE
+        .is_set()
+        .then(|| ACTIVE_SCRIPT_ENGINE.with(f))
 }
 
 /// Run `f` against the currently executing ScriptEngine (shared view), if any.
 ///
 /// If an exclusive `lock_inner_mut` guard is live, skip (do not alias).
 pub fn with_active_script_engine_ref<R>(f: impl FnOnce(&ScriptEngine) -> R) -> Option<R> {
-    ACTIVE_SCRIPT_ENGINE.with(|cell| {
-        let ptr = cell.get();
-        if ptr.is_null() {
+    if !ACTIVE_SCRIPT_ENGINE.is_set() {
+        return None;
+    }
+    ACTIVE_SCRIPT_ENGINE.with(|engine| {
+        if engine.inner.try_borrow().is_err() {
             None
         } else {
-            // SAFETY: same provenance as with_active_script_engine_mut.
-            let engine = unsafe { &*ptr };
-            if engine.inner.try_borrow().is_err() {
-                return None;
-            }
             Some(f(engine))
         }
     })
@@ -1096,21 +1069,18 @@ pub fn with_active_script_engine_ref<R>(f: impl FnOnce(&ScriptEngine) -> R) -> O
 /// (C++ `ScriptEngine::callSubroutine` → `executeScript` order).
 pub fn with_script_engine_mut<R>(f: impl FnOnce(&ScriptEngine) -> R) -> Option<R> {
     // Manual branch so we do not consume `f` when the active path is empty.
-    let has_active = ACTIVE_SCRIPT_ENGINE.with(|cell| !cell.get().is_null());
-    if has_active {
+    if ACTIVE_SCRIPT_ENGINE.is_set() {
         return with_active_script_engine_mut(f);
     }
     let arc = get_script_engine();
     let guard = arc.write().ok()?;
     let engine = guard.as_ref()?;
-    let _active = engine.enter_active();
-    Some(f(engine))
+    Some(engine.with_active(|| f(engine)))
 }
 
 /// Read the global ScriptEngine with re-entrant nesting support.
 pub fn with_script_engine_ref<R>(f: impl FnOnce(&ScriptEngine) -> R) -> Option<R> {
-    let has_active = ACTIVE_SCRIPT_ENGINE.with(|cell| !cell.get().is_null());
-    if has_active {
+    if ACTIVE_SCRIPT_ENGINE.is_set() {
         return with_active_script_engine_ref(f);
     }
     let arc = get_script_engine();
