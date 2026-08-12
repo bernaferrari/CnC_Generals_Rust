@@ -4,7 +4,6 @@
 use super::super::*;
 
 impl GameLogic {
-
     pub fn technical_residual_weapon_upgrades(&self) -> u32 {
         self.technical_residual_weapon_upgrades
     }

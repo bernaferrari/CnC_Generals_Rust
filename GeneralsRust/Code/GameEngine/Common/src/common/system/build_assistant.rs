@@ -281,6 +281,23 @@ pub struct Object {
     pub id: ObjectID,
     pub position: Coord3D,
     pub orientation: f32,
+    /// C++ `Object::getCommandSetString()` when the host supplied one.
+    pub command_set: Option<String>,
+}
+
+/// C++ isPossibleToMakeUnit: CommandSet must contain a Construct* button for `want`.
+fn command_set_allows_construct(command_set: &str, want: &str) -> bool {
+    command_set
+        .split(|c: char| c.is_whitespace() || c == ',' || c == ';')
+        .filter(|tok| !tok.is_empty())
+        .any(|tok| {
+            tok.eq_ignore_ascii_case(want)
+                || tok
+                    .rsplit(|c| c == '_' || c == '/')
+                    .next()
+                    .is_some_and(|tail| tail.eq_ignore_ascii_case(want))
+                || tok.to_ascii_lowercase().contains(&want.to_ascii_lowercase())
+        })
 }
 
 /// Build Assistant - manages construction and building validation
@@ -370,6 +387,7 @@ impl BuildAssistant {
                     id,
                     position: *pos,
                     orientation: angle,
+                    command_set: None,
                 });
             }
             return None;
@@ -557,10 +575,18 @@ impl BuildAssistant {
     /// Check if it's possible to make a unit (ignoring money)
     pub fn is_possible_to_make_unit(
         &self,
-        _builder: &Object,
-        _what_to_build: &ThingTemplate,
+        builder: &Object,
+        what_to_build: &ThingTemplate,
     ) -> bool {
-        false
+        if builder.id == INVALID_ID || what_to_build.get_name().is_empty() {
+            return false;
+        }
+        // C++ scans the builder CommandSet for UNIT_BUILD / DOZER_CONSTRUCT.
+        if let Some(command_set) = builder.command_set.as_deref() {
+            let want = what_to_build.get_name().as_str();
+            return command_set_allows_construct(command_set, want);
+        }
+        true
     }
 
     /// Check if a unit can be made (including money check)
@@ -655,6 +681,7 @@ mod tests {
             id: 123,
             position: Coord3D::new(0.0, 0.0, 0.0),
             orientation: 0.0,
+            command_set: None,
         };
 
         assistant.sell_object(&object, 100);

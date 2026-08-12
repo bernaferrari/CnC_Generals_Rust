@@ -50,7 +50,6 @@ use crate::gui::window_script::{
     WindowLayoutDefinition,
 };
 
-use crate::gui::{MAX_DRAW_DATA, MAX_WINDOWS};
 use crate::game_text::GameText;
 use crate::gui::callbacks::menu_callbacks::MenuCallbacks;
 use crate::gui::callbacks::{
@@ -109,6 +108,7 @@ use crate::gui::callbacks::{
     wol_status_menu_update, wol_welcome_menu_init, wol_welcome_menu_input,
     wol_welcome_menu_shutdown, wol_welcome_menu_system, wol_welcome_menu_update,
 };
+use crate::gui::{MAX_DRAW_DATA, MAX_WINDOWS};
 
 use crate::gui::header_template::get_header_template_manager;
 use crate::gui::shell::main_menu::get_main_menu;
@@ -135,16 +135,18 @@ mod wnd_parse;
 
 pub use layout::{WindowLayout, WindowLayoutInfo};
 pub use reentry::{
-    dispatch_os_key_to_window_manager, dispatch_os_mouse_to_window_manager, queue_window_manager_op,
-    with_window_manager, with_window_manager_ref,
+    dispatch_os_key_to_window_manager, dispatch_os_mouse_to_window_manager, hide_window_rc,
+    queue_create_layout, queue_set_focus, queue_window_manager_op,
+    queue_window_manager_op_deferred, window_manager_try_borrow_free, with_window_manager,
+    with_window_manager_ref, ReentryFallback,
 };
 pub use types::{CaptureFlags, ModalWindow, TabDirection};
 
 pub(crate) use reentry::apply_w3d_main_menu_runtime_draw_overrides;
 pub(crate) use wnd_parse::{
-    apply_window_status_to_widget, apply_window_text, apply_window_tooltip, apply_window_widget_data,
-    create_widget_for_style, is_none_callback_name, map_window_message_to_main_menu,
-    resolve_window_script_path, style_for_window_type,
+    apply_window_status_to_widget, apply_window_text, apply_window_tooltip,
+    apply_window_widget_data, create_widget_for_style, is_none_callback_name,
+    map_window_message_to_main_menu, resolve_window_script_path, style_for_window_type,
 };
 
 /// Atomic counter for generating unique window IDs
@@ -155,7 +157,10 @@ pub(crate) fn generate_window_id() -> WindowId {
     NEXT_WINDOW_ID.fetch_add(1, Ordering::SeqCst)
 }
 
-pub(crate) fn with_arc_write<T, R>(lock: &Arc<std::sync::RwLock<T>>, f: impl FnOnce(&mut T) -> R) -> R {
+pub(crate) fn with_arc_write<T, R>(
+    lock: &Arc<std::sync::RwLock<T>>,
+    f: impl FnOnce(&mut T) -> R,
+) -> R {
     let mut guard = lock.write().unwrap_or_else(|e| e.into_inner());
     f(&mut *guard)
 }
@@ -206,7 +211,6 @@ pub struct WindowManager {
     // Timing for per-frame updates
     last_update: Instant,
 }
-
 
 impl WindowManager {
     /// Create a new WindowManager
@@ -379,7 +383,6 @@ impl WindowManager {
             Self::update_press_animation_recursive(&child, delta_time);
         }
     }
-
 }
 
 impl Default for WindowManager {
@@ -390,3 +393,22 @@ impl Default for WindowManager {
 
 #[cfg(test)]
 mod tests;
+
+/// Concatenated live sources for residual `include_str!` scans.
+pub const WINDOW_MANAGER_SRC: &str = concat!(
+    include_str!("mod.rs"),
+    include_str!("create_destroy.rs"),
+    include_str!("draw.rs"),
+    include_str!("focus_tab.rs"),
+    include_str!("gadgets.rs"),
+    include_str!("hierarchy.rs"),
+    include_str!("input.rs"),
+    include_str!("layout.rs"),
+    include_str!("layout_load.rs"),
+    include_str!("messages.rs"),
+    include_str!("modal.rs"),
+    include_str!("reentry.rs"),
+    include_str!("script_callbacks.rs"),
+    include_str!("types.rs"),
+    include_str!("wnd_parse.rs"),
+);

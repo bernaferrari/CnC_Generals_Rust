@@ -91,7 +91,7 @@ pub fn residual_presentation_env_seed_gameworld_last_action(
 }
 
 fn cnc_source() -> &'static str {
-    include_str!("../cnc_game_engine.rs")
+    crate::cnc_game_engine::ENGINE_SRC
 }
 
 pub fn honesty_presentation_env_seed_gameworld_method_names_residual_wave466() -> bool {
@@ -289,11 +289,7 @@ mod tests {
         t.add_kind_of(KindOf::Selectable);
         logic.templates.insert("EnvSeedRanger466".into(), t);
         let host_id = logic
-            .create_object(
-                "EnvSeedRanger466",
-                Team::USA,
-                Vec3::new(8.0, 0.0, 9.0),
-            )
+            .create_object("EnvSeedRanger466", Team::USA, Vec3::new(8.0, 0.0, 9.0))
             .expect("create host object");
 
         let mut shadow = GameWorldShadow::new(64);
@@ -340,7 +336,8 @@ mod tests {
             panic!("shadow freeze must keep host object");
         };
         assert!(
-            (host_obj.position.x - 10.0).abs() < 1e-3 && (host_obj.health_current - 90.0).abs() < 1e-3,
+            (host_obj.position.x - 10.0).abs() < 1e-3
+                && (host_obj.health_current - 90.0).abs() < 1e-3,
             "shadow freeze must overlay GameWorld pose/health: {:?}",
             host_obj.position
         );
@@ -372,8 +369,7 @@ mod tests {
         let mut shadow = GameWorldShadow::new(32);
         shadow.sync_from_host(&logic);
 
-        let via_helper =
-            seed_presentation_env_frame_from_host_and_shadow(&logic, 0, Some(&shadow));
+        let via_helper = seed_presentation_env_frame_from_host_and_shadow(&logic, 0, Some(&shadow));
         let via_shipped = PresentationFrame::build_for_engine(&logic, 0, Some(&shadow));
         assert_eq!(
             via_helper.objects.len(),

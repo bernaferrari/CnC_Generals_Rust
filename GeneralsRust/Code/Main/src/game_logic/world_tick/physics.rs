@@ -400,7 +400,11 @@ impl GameLogic {
     }
 
     /// C++ ToppleUpdate::onCollide residual — `crusher` may topple `prop`.
-    pub(in super::super) fn try_topple_on_collide(&mut self, crusher_id: ObjectId, prop_id: ObjectId) -> bool {
+    pub(in super::super) fn try_topple_on_collide(
+        &mut self,
+        crusher_id: ObjectId,
+        prop_id: ObjectId,
+    ) -> bool {
         let (level, cpos, speed) = {
             let Some(c) = self.objects.get(&crusher_id) else {
                 return false;

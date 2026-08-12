@@ -154,6 +154,79 @@ impl TerrainVisualImpl {
         Ok(())
     }
 
+    /// Extra-blend overlay: same terrain shader, alpha blend, no depth write.
+    /// C++ `HeightMap.cpp` second 3-way pass uses DEPTH_WRITE_DISABLE.
+    fn create_extra_blend_pipeline(&mut self, device: &wgpu::Device) -> TerrainResult<()> {
+        let (Some(camera_layout), Some(texture_layout)) = (
+            self.terrain_camera_bind_group_layout.as_ref(),
+            self.terrain_texture_bind_group_layout.as_ref(),
+        ) else {
+            return Err(TerrainError::GPUError(
+                "terrain bind group layouts must exist before extra-blend pipeline creation"
+                    .to_string(),
+            ));
+        };
+
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Terrain Extra Blend Shader"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("../../shaders/terrain.wgsl").into()),
+        });
+        let bind_group_layouts = [camera_layout.as_ref(), texture_layout.as_ref()];
+        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("Terrain Extra Blend Pipeline Layout"),
+            bind_group_layouts: &bind_group_layouts,
+            push_constant_ranges: &[],
+        });
+
+        self.extra_blend_pipeline = Some(device.create_render_pipeline(
+            &wgpu::RenderPipelineDescriptor {
+                label: Some("Terrain Extra Blend Pipeline"),
+                layout: Some(&pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &shader,
+                    entry_point: Some("vs_main"),
+                    buffers: &[TerrainVertex::desc()],
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &shader,
+                    entry_point: Some("fs_main"),
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: wgpu::TextureFormat::Bgra8UnormSrgb,
+                        blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                }),
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    strip_index_format: None,
+                    front_face: wgpu::FrontFace::Ccw,
+                    cull_mode: Some(wgpu::Face::Back),
+                    polygon_mode: wgpu::PolygonMode::Fill,
+                    unclipped_depth: false,
+                    conservative: false,
+                },
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: wgpu::TextureFormat::Depth32Float,
+                    depth_write_enabled: false,
+                    depth_compare: wgpu::CompareFunction::LessEqual,
+                    stencil: wgpu::StencilState::default(),
+                    bias: wgpu::DepthBiasState::default(),
+                }),
+                multisample: wgpu::MultisampleState {
+                    count: 1,
+                    mask: !0,
+                    alpha_to_coverage_enabled: false,
+                },
+                multiview: None,
+                cache: None,
+            },
+        ));
+
+        Ok(())
+    }
+
     fn create_skybox_background_pipeline(&mut self, device: &wgpu::Device) -> TerrainResult<()> {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Terrain Skybox Background Shader"),

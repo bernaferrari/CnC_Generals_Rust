@@ -44,11 +44,11 @@ fn residual_action_store(a: ResidualHostPostLogicShadowBoundaryAction) {
 }
 
 fn cnc_source() -> &'static str {
-    include_str!("../../cnc_game_engine.rs")
+    crate::cnc_game_engine::ENGINE_SRC
 }
 
 fn gw_source() -> &'static str {
-    include_str!("../../gameworld_shadow.rs")
+    crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC
 }
 
 fn code_window<'a>(src: &'a str, marker: &str, len: usize) -> &'a str {

@@ -221,7 +221,10 @@ pub(super) struct Waves72120 {
     pub challenge_nav_commands_wave120_ok: bool,
 }
 
-pub(super) fn evaluate(pres: &crate::presentation_frame::PresentationFrame, presentation_ok: bool) -> Waves72120 {
+pub(super) fn evaluate(
+    pres: &crate::presentation_frame::PresentationFrame,
+    presentation_ok: bool,
+) -> Waves72120 {
     Waves72120 {
         mesh_asset_residual_ok: honesty_mesh_asset_residual_ok(),
         rng_residual_pack_ok: honesty_rng_residual_pack_ok(),
@@ -231,11 +234,12 @@ pub(super) fn evaluate(pres: &crate::presentation_frame::PresentationFrame, pres
         paradrop_wave76_residual_ok: honesty_paradrop_residual_pack_wave76_ok(),
         graphics_wave76_residual_ok: honesty_graphics_residual_pack_wave76_ok(),
         spectre_orbit_decal_presentation_ok: honesty_spectre_orbit_decal_presentation_ok()
-        && presentation_ok
-        && pres.spectre_orbit_decal_presentation_residual_ok(),
+            && presentation_ok
+            && pres.spectre_orbit_decal_presentation_residual_ok(),
         special_power_wave77_residual_ok: honesty_special_power_residual_pack_wave77_ok(),
         fow_residual_pack_ok: honesty_fow_residual_pack_wave77(),
-        ground_height_presentation_ok: presentation_ok && pres.ground_height_presentation_residual_ok(),
+        ground_height_presentation_ok: presentation_ok
+            && pres.ground_height_presentation_residual_ok(),
         weapon_store_seed_residual_ok: honesty_weapon_store_host_seed_residual_wave77(),
         ai_skirmish_residual_ok: honesty_ai_skirmish_residual_pack_wave77(),
         special_power_wave78_residual_ok: honesty_special_power_residual_pack_wave78_ok(),
@@ -248,7 +252,8 @@ pub(super) fn evaluate(pres: &crate::presentation_frame::PresentationFrame, pres
         drawable_residual_fields_ok: honesty_drawable_residual_fields_wave79_ok(),
         unit_training_wave79_residual_ok: honesty_unit_training_residual_pack_wave79_ok(),
         upgrades_cost_time_application_ok: honesty_upgrades_cost_time_application_wave79_ok(),
-        command_button_wave80_residual_ok: honesty_command_button_superweapon_residual_pack_wave80(),
+        command_button_wave80_residual_ok: honesty_command_button_superweapon_residual_pack_wave80(
+        ),
         science_rank_wave80_residual_ok: honesty_science_rank_residual_pack_wave80(),
         superweapon_kindof_wave80_residual_ok: honesty_superweapon_kindof_residual_pack_wave80(),
         special_power_enum_wave80_residual_ok: honesty_special_power_enum_residual_pack_wave80(),
@@ -356,7 +361,8 @@ pub(super) fn evaluate(pres: &crate::presentation_frame::PresentationFrame, pres
         xfer_deepen_wave100_ok: honesty_xfer_residual_deepen_pack_wave100(),
         thing_factory_crosslink_wave100_ok: honesty_thing_factory_spawn_crosslink_wave100(),
         module_factory_deepen_wave101_ok: honesty_module_factory_residual_deepen_pack_wave101(),
-        thing_factory_create_wave101_ok: honesty_thing_factory_create_residual_deepen_pack_wave101(),
+        thing_factory_create_wave101_ok: honesty_thing_factory_create_residual_deepen_pack_wave101(
+        ),
         partition_register_wave101_ok: honesty_partition_register_residual_pack_wave101(),
         mf_crosslink_wave101_ok: honesty_thing_factory_module_partition_crosslink_wave101(),
         display_string_deepen_wave102_ok: honesty_display_string_residual_deepen_pack_wave102(),
@@ -367,7 +373,8 @@ pub(super) fn evaluate(pres: &crate::presentation_frame::PresentationFrame, pres
         weapon_deepen_wave103_ok: honesty_weapon_store_deepen_residual_wave103(),
         armor_expand_wave103_ok: honesty_armor_residual_expand_wave103(),
         locomotor_expand_wave103_ok: honesty_locomotor_residual_expand_wave103(),
-        special_power_deepen_wave103_ok: honesty_special_power_superweapon_residual_deepen_wave103(),
+        special_power_deepen_wave103_ok: honesty_special_power_superweapon_residual_deepen_wave103(
+        ),
         object_kindof_wave103_ok: honesty_object_kindof_residual_pack_wave103(),
         object_status_wave104_ok: honesty_object_status_state_machine_residual_wave104(),
         object_create_wave104_ok: honesty_object_create_order_residual_wave104(),
@@ -417,8 +424,10 @@ pub(super) fn evaluate(pres: &crate::presentation_frame::PresentationFrame, pres
         video_buffer_wave113_ok: honesty_video_buffer_residual_wave113(),
         audio_event_wave113_ok: honesty_audio_event_residual_wave113(),
         main_menu_skirmish_names_wave114_ok: honesty_main_menu_skirmish_names_residual_wave114(),
-        main_menu_skirmish_nav_steps_wave114_ok: honesty_main_menu_skirmish_nav_steps_residual_wave114(),
-        main_menu_skirmish_message_wave114_ok: honesty_main_menu_skirmish_message_residual_wave114(),
+        main_menu_skirmish_nav_steps_wave114_ok:
+            honesty_main_menu_skirmish_nav_steps_residual_wave114(),
+        main_menu_skirmish_message_wave114_ok: honesty_main_menu_skirmish_message_residual_wave114(
+        ),
         map_select_names_wave115_ok: honesty_skirmish_map_select_names_residual_wave115(),
         map_select_nav_steps_wave115_ok: honesty_skirmish_map_select_nav_steps_residual_wave115(),
         map_select_commands_wave115_ok: honesty_skirmish_map_select_commands_residual_wave115(),
@@ -430,10 +439,13 @@ pub(super) fn evaluate(pres: &crate::presentation_frame::PresentationFrame, pres
         rules_nav_commands_wave117_ok: honesty_skirmish_rules_nav_commands_residual_wave117(),
         main_menu_button_names_wave118_ok: honesty_main_menu_button_names_residual_wave118(),
         main_menu_push_targets_wave118_ok: honesty_main_menu_push_targets_residual_wave118(),
-        main_menu_button_nav_commands_wave118_ok: honesty_main_menu_button_nav_commands_residual_wave118(),
-        campaign_button_names_wave119_ok: honesty_main_menu_campaign_button_names_residual_wave119(),
+        main_menu_button_nav_commands_wave118_ok:
+            honesty_main_menu_button_nav_commands_residual_wave118(),
+        campaign_button_names_wave119_ok: honesty_main_menu_campaign_button_names_residual_wave119(
+        ),
         campaign_enums_wave119_ok: honesty_main_menu_campaign_enums_residual_wave119(),
-        campaign_nav_commands_wave119_ok: honesty_main_menu_campaign_nav_commands_residual_wave119(),
+        campaign_nav_commands_wave119_ok: honesty_main_menu_campaign_nav_commands_residual_wave119(
+        ),
         challenge_control_names_wave120_ok: honesty_challenge_menu_control_names_residual_wave120(),
         challenge_nav_commands_wave120_ok: honesty_challenge_menu_nav_commands_residual_wave120(),
     }

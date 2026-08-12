@@ -1,8 +1,9 @@
 //! Coupled-tick depth, live shadow pointer, and host spawn/destroy bind helpers.
 
+use super::*;
 use crate::game_logic::{GameLogic, ObjectId};
 use crate::gameworld_shadow::GameWorldShadow;
-use super::*;
+use gamelogic::world::WorldMutation;
 
 /// True only while the production engine couples host update → shadow_session.
 /// Host-only gates (golden/shell) never set this, so construction/production
@@ -46,35 +47,91 @@ pub fn shadow_coupled_tick_active() -> bool {
     SHADOW_COUPLED_TICK_DEPTH.with(|d| d.get() > 0)
 }
 
-// Wave 680: mid-frame host spawn → GameWorld map while a coupled shadow tick is live.
-// Engine installs the live shadow pointer around host logic; cleared before session.
-thread_local! {
-    static ACTIVE_SHADOW_PTR: std::cell::Cell<Option<std::ptr::NonNull<GameWorldShadow>>> =
-        std::cell::Cell::new(None);
+/// Generation-checked couple handle. Not a TLS `NonNull` stash: the engine
+/// owns `&mut GameWorldShadow` on the stack; this slot is only valid while
+/// `generation` matches the live couple. Access with a stale generation fails closed.
+#[derive(Clone, Copy)]
+struct CoupledShadowSlot {
+    generation: u64,
+    ptr: *mut GameWorldShadow,
 }
 
-/// Install the live `GameWorldShadow` for Wave 680 eager spawn mapping.
-///
-/// Caller must `clear_active_shadow_for_coupled_tick` before dropping/moving the
-/// shadow or re-entering `shadow_session_after_host_tick`.
+thread_local! {
+    static COUPLE_GENERATION: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    static COUPLED_SHADOW: std::cell::Cell<CoupledShadowSlot> = const {
+        std::cell::Cell::new(CoupledShadowSlot {
+            generation: 0,
+            ptr: std::ptr::null_mut(),
+        })
+    };
+}
+
+/// Guard that clears the generation slot on drop (panic-safe).
+pub struct CoupledShadowGuard {
+    generation: u64,
+}
+
+impl Drop for CoupledShadowGuard {
+    fn drop(&mut self) {
+        COUPLED_SHADOW.with(|c| {
+            let slot = c.get();
+            if slot.generation == self.generation {
+                c.set(CoupledShadowSlot {
+                    generation: 0,
+                    ptr: std::ptr::null_mut(),
+                });
+            }
+        });
+    }
+}
+
+/// Install the live `GameWorldShadow` for the whole coupled tick (including
+/// post-writeback complete/spawn). Keep the slot until `clear` / guard drop.
 #[inline]
 pub fn install_active_shadow_for_coupled_tick(shadow: &mut GameWorldShadow) {
-    ACTIVE_SHADOW_PTR.with(|c| {
-        // SAFETY: pointer is only used while `shadow` is exclusively borrowed by the
-        // engine for the coupled host tick; cleared before other mut uses.
-        c.set(Some(unsafe {
-            std::ptr::NonNull::new_unchecked(shadow as *mut GameWorldShadow)
-        }));
+    let generation = COUPLE_GENERATION.with(|g| {
+        let next = g.get().wrapping_add(1).max(1);
+        g.set(next);
+        next
+    });
+    COUPLED_SHADOW.with(|c| {
+        c.set(CoupledShadowSlot {
+            generation,
+            ptr: shadow as *mut GameWorldShadow,
+        });
     });
 }
 
-/// Clear Wave 680 active shadow pointer (nested-safe single slot).
+/// Same as `install_active_shadow_for_coupled_tick` but clears on Drop.
+pub fn install_coupled_shadow_guard(shadow: &mut GameWorldShadow) -> CoupledShadowGuard {
+    install_active_shadow_for_coupled_tick(shadow);
+    let generation = COUPLED_SHADOW.with(|c| c.get().generation);
+    CoupledShadowGuard { generation }
+}
+
+/// Clear the generation-checked couple slot (end of couple only).
 #[inline]
 pub fn clear_active_shadow_for_coupled_tick() {
-    ACTIVE_SHADOW_PTR.with(|c| c.set(None));
-    // Note: EARLY_DAMAGE_BATCH is consumed by shadow_session_after_host_tick
-    // (Wave 684). Do not clear here — engine clears the active shadow pointer
-    // before the session exclusive borrow.
+    COUPLED_SHADOW.with(|c| {
+        c.set(CoupledShadowSlot {
+            generation: 0,
+            ptr: std::ptr::null_mut(),
+        });
+    });
+}
+
+fn with_coupled_shadow_slot<R>(f: impl FnOnce(&mut GameWorldShadow) -> R) -> Option<R> {
+    COUPLED_SHADOW.with(|c| {
+        let slot = c.get();
+        if slot.generation == 0 || slot.ptr.is_null() {
+            return None;
+        }
+        // SAFETY: `install_active_shadow_for_coupled_tick` stores a pointer to the
+        // engine's exclusive `&mut GameWorldShadow` for this generation only.
+        // Stale generations are rejected above. Cleared on couple end / Drop.
+        let shadow = unsafe { &mut *slot.ptr };
+        Some(f(shadow))
+    })
 }
 
 /// Wave 680: if a coupled shadow tick is live, map this host spawn into GameWorld now.
@@ -131,12 +188,7 @@ pub fn spawn_rebuild_hole_entity_if_coupled(
     if !gameworld_construction_authority_enabled() {
         return None;
     }
-    ACTIVE_SHADOW_PTR.with(|c| {
-        let Some(ptr) = c.get() else {
-            return None;
-        };
-        // SAFETY: engine installs live shadow for coupled tick and clears before drop.
-        let shadow = unsafe { &mut *ptr.as_ptr() };
+    with_coupled_shadow_slot(|shadow| {
         use gamelogic::world::entities::EntityId;
         use gamelogic::world::WorldMutation;
         shadow.world.queue_mutation(WorldMutation::Spawn {
@@ -157,6 +209,7 @@ pub fn spawn_rebuild_hole_entity_if_coupled(
         }
         Some(raw)
     })
+    .flatten()
 }
 
 pub fn eager_map_host_spawn_if_coupled(
@@ -168,19 +221,15 @@ pub fn eager_map_host_spawn_if_coupled(
         let _ = take_next_host_spawn_bind_entity();
         return false;
     }
-    ACTIVE_SHADOW_PTR.with(|c| {
-        let Some(ptr) = c.get() else {
-            let _ = take_next_host_spawn_bind_entity();
-            return false;
-        };
-        // SAFETY: engine installs live shadow for coupled tick and clears before
-        // drop/session. `create_object` does not re-enter the engine shadow field.
-        let shadow = unsafe { &mut *ptr.as_ptr() };
-        // Wave 736: production entity-first bind (no second Spawn).
+    with_coupled_shadow_slot(|shadow| {
         if let Some(raw) = take_next_host_spawn_bind_entity() {
             return bind_host_to_existing_entity(shadow, event.id.0, raw);
         }
         shadow.apply_host_spawn_events(std::slice::from_ref(event), logic) > 0
+    })
+    .unwrap_or_else(|| {
+        let _ = take_next_host_spawn_bind_entity();
+        false
     })
 }
 
@@ -189,19 +238,173 @@ pub fn eager_map_host_spawn_if_coupled(
 ///
 /// Idempotent with end-of-tick `host_destroy_log` drain. Fail-closed when no
 /// active shadow pointer or host id is unmapped.
+/// Borrow the live coupled shadow immutably. Fail-closed when shadow is off.
+pub fn with_active_shadow<R>(f: impl FnOnce(&GameWorldShadow) -> R) -> Option<R> {
+    if !shadow_coupled_tick_active() || !gameworld_shadow_enabled() {
+        return None;
+    }
+    with_coupled_shadow_slot(|shadow| f(shadow))
+}
+
+/// Borrow the live coupled shadow mutably. Fail-closed when shadow is off.
+pub fn with_active_shadow_mut<R>(f: impl FnOnce(&mut GameWorldShadow) -> R) -> Option<R> {
+    if !shadow_coupled_tick_active() || !gameworld_shadow_enabled() {
+        return None;
+    }
+    with_coupled_shadow_slot(f)
+}
+
+/// Queue + apply a GameWorld mutation while the coupled session is live.
+/// This is the write path for HP/pose/cash/target (no silent host-only mutate).
+pub fn push_coupled_world_mutation(m: WorldMutation) -> bool {
+    with_active_shadow_mut(|shadow| {
+        shadow.world.queue_mutation(m);
+        shadow.world.apply_pending_mutations() > 0
+    })
+    .unwrap_or(false)
+}
+
+/// GameWorld HP for a mapped host id (coupled session only).
+/// True when this host id is mapped in the live coupled GameWorld.
+/// Unmapped host objects must keep host construction/production advancing
+/// (fail-open) or they stay under_construction forever.
+pub fn coupled_host_mapped(host: ObjectId) -> bool {
+    with_active_shadow(|shadow| shadow.entity_for_host(host).is_some()).unwrap_or(false)
+}
+
+pub fn coupled_entity_health(host: ObjectId) -> Option<f32> {
+    with_active_shadow(|shadow| {
+        let eid = shadow.entity_for_host(host)?;
+        shadow.world.entity(eid).map(|e| e.health)
+    })
+    .flatten()
+}
+
+/// GameWorld construction percent + UC bit for a mapped host id.
+/// Mid-frame HashMap `obj.construction_percent` / `obj.status.under_construction`
+/// can lag writeback; this is truth while coupled.
+#[cfg(test)]
+mod couple_handle_tests {
+    #[test]
+    fn active_shadow_ptr_token_is_gone() {
+        let impl_src = include_str!("couple.rs")
+            .split("#[cfg(test)]")
+            .next()
+            .unwrap_or("");
+        assert!(
+            !impl_src.contains("NonNull<GameWorldShadow>"),
+            "couple must not stash NonNull in TLS"
+        );
+        assert!(impl_src.contains("CoupledShadowSlot"));
+        assert!(impl_src.contains("with_coupled_shadow_slot"));
+    }
+}
+
+pub fn coupled_entity_construction(host: ObjectId) -> Option<(f32, bool)> {
+    with_active_shadow(|shadow| {
+        let eid = shadow.entity_for_host(host)?;
+        shadow
+            .world
+            .entity(eid)
+            .map(|e| (e.construction_percent, e.under_construction))
+    })
+    .flatten()
+}
+
+/// GameWorld pose for a mapped host id (coupled session only).
+pub fn coupled_entity_pose(host: ObjectId) -> Option<[f32; 3]> {
+    with_active_shadow(|shadow| {
+        let eid = shadow.entity_for_host(host)?;
+        shadow.world.entity(eid).map(|e| {
+            let p = e.transform.position;
+            [p.x, p.y, p.z]
+        })
+    })
+    .flatten()
+}
+
+/// GameWorld cash for a mapped host player (coupled session only).
+pub fn coupled_player_cash(host_player: u32) -> Option<u32> {
+    with_active_shadow(|shadow| {
+        let gw = shadow.host_player_to_gw.get(&host_player).copied()?;
+        shadow.world.player(gw).map(|p| p.supplies)
+    })
+    .flatten()
+}
+
+/// GameWorld attack target host id for a mapped unit (coupled session only).
+pub fn coupled_entity_target_host(host: ObjectId) -> Option<ObjectId> {
+    with_active_shadow(|shadow| {
+        let eid = shadow.entity_for_host(host)?;
+        let tid = shadow.world.entity(eid)?.attack_target?;
+        shadow.host_for_entity(tid)
+    })
+    .flatten()
+}
+
+/// Coupled fat-field snapshot so the host HashMap is a view, not a second store.
+#[derive(Clone, Debug)]
+pub struct CoupledFatView {
+    pub weapon_ammo: u32,
+    pub weapon_clip_size: u32,
+    pub attack_substate_ordinal: u8,
+    pub ai_state_ordinal: u8,
+    pub occupant_count: u16,
+    pub contained_by_host: u32,
+    pub garrisoned_host_ids: Vec<u32>,
+    pub move_target: Option<[f32; 3]>,
+    pub path_waypoints: Vec<[f32; 3]>,
+    pub path_index: u16,
+}
+
+/// GameWorld fat fields for a mapped host id (coupled session only).
+pub fn coupled_entity_fat_view(host: ObjectId) -> Option<CoupledFatView> {
+    with_active_shadow(|shadow| {
+        let eid = shadow.entity_for_host(host)?;
+        let e = shadow.world.entity(eid)?;
+        Some(CoupledFatView {
+            weapon_ammo: e.weapon_ammo,
+            weapon_clip_size: e.weapon_clip_size,
+            attack_substate_ordinal: e.attack_substate_ordinal,
+            ai_state_ordinal: e.ai_state_ordinal,
+            occupant_count: e.occupant_count,
+            contained_by_host: e.contained_by_host,
+            garrisoned_host_ids: e.garrisoned_host_ids.clone(),
+            move_target: e.move_target,
+            path_waypoints: e.path_waypoints.clone(),
+            path_index: e.path_index,
+        })
+    })
+    .flatten()
+}
+
+pub fn coupled_entity_weapon_ammo(host: ObjectId) -> Option<u32> {
+    coupled_entity_fat_view(host).map(|v| v.weapon_ammo)
+}
+
+pub fn coupled_entity_attack_substate(host: ObjectId) -> Option<u8> {
+    coupled_entity_fat_view(host).map(|v| v.attack_substate_ordinal)
+}
+
+pub fn coupled_entity_occupant_count(host: ObjectId) -> Option<u16> {
+    coupled_entity_fat_view(host).map(|v| v.occupant_count)
+}
+
+/// Mapped-entity dest. Returns `None` when unmapped **or** dest is cleared.
+/// Prefer [`coupled_entity_fat_view`] when you must distinguish those cases.
+pub fn coupled_entity_move_dest(host: ObjectId) -> Option<[f32; 3]> {
+    coupled_entity_fat_view(host).and_then(|v| v.move_target)
+}
+
 pub fn eager_unmap_host_destroy_if_coupled(host: ObjectId) -> bool {
     if !shadow_coupled_tick_active() || !gameworld_shadow_enabled() {
         return false;
     }
-    ACTIVE_SHADOW_PTR.with(|c| {
-        let Some(ptr) = c.get() else {
-            return false;
-        };
-        // SAFETY: same coupled-tick install contract as eager_map_host_spawn_if_coupled.
-        let shadow = unsafe { &mut *ptr.as_ptr() };
+    with_coupled_shadow_slot(|shadow| {
         let (queued, applied) = shadow.apply_host_destroy_events(&[
             crate::game_logic::host_destroy_log::HostDestroyEvent { id: host },
         ]);
         queued > 0 || applied > 0
     })
+    .unwrap_or(false)
 }

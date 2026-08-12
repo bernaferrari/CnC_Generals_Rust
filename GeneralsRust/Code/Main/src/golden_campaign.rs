@@ -102,6 +102,12 @@ pub struct GoldenCampaignResult {
     /// True when production SP path advanced with scripts + victory path.
     /// Does **not** claim full retail campaign playthrough.
     pub campaign_playable_claim: bool,
+    /// Honest offline sit-through: SinglePlayer start + map loaded + scripts tick
+    /// + host named units visible. Does **not** flip shell/golden/executable
+    /// `playable_claim`.
+    pub campaign_sit_through_ok: bool,
+    /// Host named units visible to script query after map load.
+    pub named_units_visible: bool,
     /// Wave 75 mesh asset residual honesty (common unit keys / scale / W3D search).
     /// Host-testable; does **not** claim campaign GPU mesh draw.
     pub mesh_asset_residual_ok: bool,
@@ -444,6 +450,11 @@ pub fn run_golden_campaign_ex(
             .unwrap_or(false)
     });
 
+    // Host scripts must see named map units (adapter — no OBJECT_REGISTRY fill).
+    logic.inject_host_named_unit_map_into_crate_tracker();
+    let named_units_visible = !logic.host_named_unit_id_map().is_empty()
+        || logic.host_objects().values().any(|o| !o.name.is_empty());
+
     let script_counter_before = logic.mission_script_counter;
     let frame_before = logic.get_frame();
     for _ in 0..frames {
@@ -546,6 +557,14 @@ pub fn run_golden_campaign_ex(
 
     let campaign_playable_claim = campaign_playable_claim && client_campaign_playthrough_ok;
 
+    // Honest sit-through: SP world + map + scripts tick + host named units visible.
+    let campaign_sit_through_ok = single_player
+        && campaign_started
+        && host_map_loaded
+        && scripts_tick_ok
+        && frames_advanced > 0
+        && named_units_visible;
+
     let status = if campaign_playable_claim {
         "success"
     } else if frames_advanced > 0 && campaign_started {
@@ -581,6 +600,8 @@ pub fn run_golden_campaign_ex(
         objectives_from_campaign,
         retail_campaign_map_loaded,
         campaign_playable_claim,
+        campaign_sit_through_ok,
+        named_units_visible,
         mesh_asset_residual_ok,
         mesh_scale_presentation_ok,
         script_engine_residual_ok,
@@ -593,9 +614,26 @@ pub fn run_golden_campaign_ex(
     }
 }
 
+/// First USA campaign / Training map identity for the offline sit-through path.
+pub const OFFLINE_USA_CAMPAIGN_MAP: &str = "MD_USA01";
+
+/// Documented SinglePlayer menu → first USA mission commands.
+///
+/// Production host: `open_single_player_menu` / `click_campaign_start` /
+/// `start_game_from_ui(SinglePlayer, USA, MD_USA01)`. Does not set
+/// `playable_claim`.
+pub fn campaign_start_from_ui_commands() -> &'static [&'static str] {
+    &[
+        "open_single_player_menu",
+        "click_single_player_menu|action=new",
+        "click_campaign_start|campaign=usa|difficulty=normal",
+        "start_game|mode=singleplayer|faction=USA|map=MD_USA01",
+    ]
+}
+
 pub fn format_campaign_report(r: &GoldenCampaignResult) -> String {
     format!(
-        "status={} campaign_started={} single_player={} frames_advanced={} scripts_tick={} script_counter={} campaign_scripts={} script_count={} scripts_installed_count={} host_map_loaded={} host_map={} campaign_map={} victory_rule={} victory_eval={} mission_done={} objectives_loaded={} objective_count={} objectives_from_campaign={} retail_campaign_map_loaded={} campaign_playable_claim={} mesh_asset={} mesh_scale={} script_engine={} client_playthrough={} usa_missions={} challenge_map={} challenge_campaigns={} challenge_generals={}",
+        "status={} campaign_started={} single_player={} frames_advanced={} scripts_tick={} script_counter={} campaign_scripts={} script_count={} scripts_installed_count={} host_map_loaded={} host_map={} campaign_map={} victory_rule={} victory_eval={} mission_done={} objectives_loaded={} objective_count={} objectives_from_campaign={} retail_campaign_map_loaded={} campaign_playable_claim={} campaign_sit_through_ok={} named_units_visible={} mesh_asset={} mesh_scale={} script_engine={} client_playthrough={} usa_missions={} challenge_map={} challenge_campaigns={} challenge_generals={}",
         r.status,
         r.campaign_started,
         r.single_player,
@@ -616,6 +654,8 @@ pub fn format_campaign_report(r: &GoldenCampaignResult) -> String {
         r.objectives_from_campaign,
         r.retail_campaign_map_loaded,
         r.campaign_playable_claim,
+        r.campaign_sit_through_ok,
+        r.named_units_visible,
         r.mesh_asset_residual_ok,
         r.mesh_scale_presentation_ok,
         r.script_engine_residual_ok,
@@ -696,8 +736,42 @@ mod tests {
             format_campaign_report(&result)
         );
         assert!(honesty_script_engine_table_capacity_residual_ok());
+        // Sit-through is independent of shell/golden/executable playable_claim.
+        // named_units_visible is required (not implied by host_map_loaded).
+        if result.host_map_loaded && result.scripts_tick_ok && result.named_units_visible {
+            assert!(
+                result.campaign_sit_through_ok,
+                "honest sit-through when SP map + scripts + named units: {}",
+                format_campaign_report(&result)
+            );
+        }
+        if result.host_map_loaded && result.scripts_tick_ok && !result.named_units_visible {
+            assert!(
+                !result.campaign_sit_through_ok,
+                "sit-through must not pass without named units: {}",
+                format_campaign_report(&result)
+            );
+        }
+        let host = include_str!("cnc_game_engine/runtime_host/campaign_menus.rs");
+        assert!(host.contains("fn runtime_host_cmd_open_single_player_menu"));
+        assert!(host.contains("fn runtime_host_cmd_click_campaign_start"));
+        assert!(
+            host.contains("self.start_game_from_ui(GameMode::SinglePlayer")
+                && host.contains("OFFLINE_USA_CAMPAIGN_MAP"),
+            "campaign sit-through must start first USA map via start_game_from_ui"
+        );
+        for cmd in campaign_start_from_ui_commands() {
+            let verb = cmd.split('|').next().unwrap_or(cmd);
+            assert!(
+                include_str!("cnc_game_engine/runtime_host/mod.rs")
+                    .contains(&format!("\"{verb}\"")),
+                "campaign sit-through command {verb} must be dispatched"
+            );
+        }
         let report = format_campaign_report(&result);
         assert!(report.contains("campaign_playable_claim=true"));
+        assert!(report.contains("campaign_sit_through_ok="));
+        assert!(report.contains("named_units_visible="));
         assert!(report.contains("retail_campaign_map_loaded="));
         assert!(report.contains("objectives_from_campaign="));
         assert!(report.contains("mesh_asset=true"));

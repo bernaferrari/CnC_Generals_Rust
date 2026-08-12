@@ -46,7 +46,7 @@ fn residual_action_store(a: ResidualHostPendingPatriotDualPeelAction) {
     RESIDUAL_ACTION.store(a as u8, Ordering::SeqCst);
 }
 fn sh_source() -> &'static str {
-    include_str!("../../gameworld_shadow.rs")
+    crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC
 }
 fn gl_source() -> &'static str {
     include_str!("../game_logic.rs")

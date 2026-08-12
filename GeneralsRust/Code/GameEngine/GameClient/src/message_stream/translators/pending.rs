@@ -13,7 +13,10 @@ pub(super) fn pending_command_accepts_position(options: u32) -> bool {
     options & (CMD_NEED_TARGET_POS | CMD_ATTACK_OBJECTS_POSITION) != 0
 }
 
-pub(super) fn relationship_to_target(local_player_id: i32, target_id: ObjectID) -> Option<Relationship> {
+pub(super) fn relationship_to_target(
+    local_player_id: i32,
+    target_id: ObjectID,
+) -> Option<Relationship> {
     if local_player_id < 0 {
         return None;
     }
@@ -96,7 +99,11 @@ pub(super) fn is_prisoner_target(target_id: ObjectID) -> bool {
         || target_guard.is_kind_of(KindOf::PowTruck)
 }
 
-pub(super) fn pending_command_target_allowed(options: u32, local_player_id: i32, target_id: ObjectID) -> bool {
+pub(super) fn pending_command_target_allowed(
+    options: u32,
+    local_player_id: i32,
+    target_id: ObjectID,
+) -> bool {
     let needs_enemy = options & CMD_NEED_TARGET_ENEMY_OBJECT != 0;
     let needs_neutral = options & CMD_NEED_TARGET_NEUTRAL_OBJECT != 0;
     let needs_ally = options & CMD_NEED_TARGET_ALLY_OBJECT != 0;
@@ -622,4 +629,3 @@ pub(super) fn selection_source_object_id(
 
     gamelogic::common::INVALID_ID
 }
-

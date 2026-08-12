@@ -91,7 +91,7 @@ pub fn residual_host_ui_presentation_drain_helper_last_action(
 }
 
 fn eng_source() -> &'static str {
-    include_str!("../../cnc_game_engine.rs")
+    crate::cnc_game_engine::ENGINE_SRC
 }
 
 fn last_sig_index(src: &str, sig: &str) -> Option<usize> {

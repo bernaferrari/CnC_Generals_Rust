@@ -1,8 +1,8 @@
 //! Post-logic contain residuals: capacity, hive, overlord, garrison/contain.
 
+use super::*;
 use crate::game_logic::GameLogic;
 use crate::gameworld_shadow::GameWorldShadow;
-use super::*;
 
 // Wave 695: post-logic contain-capacity / hive / overlord batch handoff.
 thread_local! {
@@ -29,7 +29,8 @@ pub fn take_early_contain_capacity_batch() -> Option<(
     EARLY_CONTAIN_CAPACITY_BATCH.with(|c| c.borrow_mut().take())
 }
 
-pub fn take_early_hive_batch() -> Option<(Vec<crate::game_logic::host_hive_log::HostHiveEvent>, bool)> {
+pub fn take_early_hive_batch(
+) -> Option<(Vec<crate::game_logic::host_hive_log::HostHiveEvent>, bool)> {
     EARLY_HIVE_BATCH.with(|c| c.borrow_mut().take())
 }
 

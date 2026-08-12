@@ -89,7 +89,7 @@ pub fn residual_presentation_emoticon_float_last_action() -> ResidualPresentatio
 }
 
 fn pf_source() -> &'static str {
-    include_str!("../../presentation_frame.rs")
+    crate::presentation_frame::PRESENTATION_FRAME_SRC
 }
 
 pub fn honesty_presentation_emoticon_float_method_names_residual_wave514() -> bool {

@@ -47,6 +47,7 @@ impl ScriptActionDispatcher {
                         z: obj_guard.get_position().z,
                     },
                     orientation: obj_guard.get_orientation(),
+                    command_set: None,
                 }
             } else {
                 continue;

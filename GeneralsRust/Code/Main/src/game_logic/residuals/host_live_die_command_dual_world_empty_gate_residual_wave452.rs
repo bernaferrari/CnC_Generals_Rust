@@ -139,7 +139,8 @@ pub fn honesty_die_command_dual_world_empty_gate_source() -> bool {
         include_str!("../../../../GameEngine/GameLogic/src/object/die/create_crate_die.rs");
     let rts = include_str!("../../../../GameEngine/GameLogic/src/commands/rts_command.rs");
     let ai = include_str!("../../../../GameEngine/GameLogic/src/ai/ai_update.rs");
-    let ocl = include_str!("../../../../GameEngine/GameLogic/src/upgrade/modules/object_creation.rs");
+    let ocl =
+        include_str!("../../../../GameEngine/GameLogic/src/upgrade/modules/object_creation.rs");
 
     honesty_one(create_die, "transfer_attackers", "return;")
         && honesty_one(dam, "enable_waveguides", "return;")

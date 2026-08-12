@@ -19,6 +19,7 @@ impl ScriptEngine {
     }
 
     fn seed_template_internal_names(&mut self) {
+        let inner = self.inner.get_mut();
         for idx in 0..(ScriptActionType::NumItems as u32) {
             let Some(action_type) = ScriptActionType::from_u32(idx) else {
                 continue;
@@ -26,7 +27,7 @@ impl ScriptEngine {
             if action_type == ScriptActionType::NumItems {
                 continue;
             }
-            if let Some(template) = self.action_templates.get_mut(idx as usize) {
+            if let Some(template) = inner.action_templates.get_mut(idx as usize) {
                 let internal_name = Self::enum_name_to_internal_name(&format!("{:?}", action_type));
                 template.base.internal_name = internal_name.clone();
                 template.base.internal_name_key = NameKeyGenerator::name_to_key(&internal_name);
@@ -43,7 +44,7 @@ impl ScriptEngine {
             if condition_type == ConditionType::NumItems {
                 continue;
             }
-            if let Some(template) = self.condition_templates.get_mut(idx as usize) {
+            if let Some(template) = inner.condition_templates.get_mut(idx as usize) {
                 let internal_name =
                     Self::enum_name_to_internal_name(&format!("{:?}", condition_type));
                 template.base.internal_name = internal_name.clone();
@@ -59,7 +60,7 @@ impl ScriptEngine {
 
     pub fn new() -> GameLogicResult<Self> {
         let mut engine = Self {
-            inner: UnsafeCell::new(ScriptEngineInner {
+            inner: std::cell::RefCell::new(ScriptEngineInner {
             action_templates: Vec::with_capacity(ScriptActionType::NumItems as usize),
             condition_templates: Vec::with_capacity(ConditionType::NumItems as usize),
 
@@ -126,17 +127,19 @@ impl ScriptEngine {
 
             action_handler: None,
             }),
-            mut_live: AtomicBool::new(false),
         };
 
-        if engine.counters[0].is_none() {
-            engine.counters[0] = Some(TCounter::new(String::new()));
-        }
-        if engine.flags[0].is_none() {
-            engine.flags[0] = Some(TFlag::new(String::new()));
-        }
-        if engine.attack_priority_info.is_empty() {
-            engine.attack_priority_info.push(AttackPriorityInfo::new());
+        {
+            let inner = engine.inner.get_mut();
+            if inner.counters[0].is_none() {
+                inner.counters[0] = Some(TCounter::new(String::new()));
+            }
+            if inner.flags[0].is_none() {
+                inner.flags[0] = Some(TFlag::new(String::new()));
+            }
+            if inner.attack_priority_info.is_empty() {
+                inner.attack_priority_info.push(AttackPriorityInfo::new());
+            }
         }
 
         engine.initialize_templates()?;
@@ -144,15 +147,23 @@ impl ScriptEngine {
     }
 
     pub fn get_frame_object_count_changed(&self) -> u32 {
-        self.frame_object_count_changed
+        self.with_inner(|inner| {
+        inner.frame_object_count_changed
+            })
     }
 
-    pub fn get_current_player_name(&self) -> Option<&str> {
-        self.current_player.as_deref()
+    /// Owned snapshot — never a borrow into `UnsafeCell`.
+    pub fn get_current_player_name(&self) -> Option<String> {
+        self.with_inner(|inner| {
+        inner.current_player.clone()
+            })
     }
 
-    pub fn get_calling_team_name(&self) -> Option<&str> {
-        self.calling_team.as_deref()
+    /// Owned snapshot — never a borrow into `UnsafeCell`.
+    pub fn get_calling_team_name(&self) -> Option<String> {
+        self.with_inner(|inner| {
+        inner.calling_team.clone()
+            })
     }
 
     /// C++ `ScriptEngine::friend_executeAction(action, pThisTeam)`.
@@ -225,8 +236,11 @@ impl ScriptEngine {
         inner.current_player = saved_player;
     }
 
-    pub fn get_condition_team_name(&self) -> Option<&str> {
-        self.condition_team.as_deref()
+    /// Owned snapshot — never a borrow into `UnsafeCell`.
+    pub fn get_condition_team_name(&self) -> Option<String> {
+        self.with_inner(|inner| {
+        inner.condition_team.clone()
+            })
     }
 
     /// Set temporary runtime context used by external script evaluation helpers.
@@ -237,20 +251,23 @@ impl ScriptEngine {
         current_player: Option<String>,
         condition_team: Option<String>,
     ) -> (Option<String>, Option<String>) {
-        let saved = (self.current_player.clone(), self.condition_team.clone());
-        self.current_player = current_player;
-        self.condition_team = condition_team;
+        let inner = self.inner.get_mut();
+        let saved = (inner.current_player.clone(), inner.condition_team.clone());
+        inner.current_player = current_player;
+        inner.condition_team = condition_team;
         saved
     }
 
     /// Restore runtime context previously returned by `set_external_eval_context`.
     pub fn restore_external_eval_context(&mut self, saved: (Option<String>, Option<String>)) {
-        self.current_player = saved.0;
-        self.condition_team = saved.1;
+        let inner = self.inner.get_mut();
+        inner.current_player = saved.0;
+        inner.condition_team = saved.1;
     }
 
     pub fn set_frame_object_count_changed(&mut self, frame: u32) {
-        self.frame_object_count_changed = frame;
+        let inner = self.inner.get_mut();
+        inner.frame_object_count_changed = frame;
     }
 
     /// Set the script list for a player index (side).
@@ -277,7 +294,8 @@ impl ScriptEngine {
     }
 
     pub fn clear_script_lists(&mut self) {
-        for slot in &mut self.side_script_lists {
+        let inner = self.inner.get_mut();
+        for slot in &mut inner.side_script_lists {
             *slot = None;
         }
     }
@@ -381,7 +399,8 @@ impl ScriptEngine {
 
     /// Find a subroutine script by name and return a clone for immediate execution.
     pub fn get_subroutine_clone_by_name(&self, name: &str) -> Option<Script> {
-        for slot in &self.side_script_lists {
+        self.with_inner(|inner| {
+        for slot in &inner.side_script_lists {
             let Some(list) = slot.as_deref() else {
                 continue;
             };
@@ -390,6 +409,7 @@ impl ScriptEngine {
             }
         }
         None
+            })
     }
 
     fn execute_named_subroutine_in_chain(
@@ -527,7 +547,8 @@ impl ScriptEngine {
 
     /// Find a script by name and return a clone (non-subroutine allowed).
     pub fn find_script_clone_by_name(&self, name: &str) -> Option<Script> {
-        for slot in &self.side_script_lists {
+        self.with_inner(|inner| {
+        for slot in &inner.side_script_lists {
             let Some(list) = slot.as_deref() else {
                 continue;
             };
@@ -536,36 +557,44 @@ impl ScriptEngine {
             }
         }
         None
+            })
     }
 
     pub fn get_object_count(&self, player_index: i32, type_name: &str) -> i32 {
-        self.object_counts
+        self.with_inner(|inner| {
+        inner.object_counts
             .get(&(player_index, type_name.to_string()))
             .copied()
             .unwrap_or(0)
+            })
     }
 
     pub fn set_object_count(&mut self, player_index: i32, type_name: &str, count: i32) {
-        self.object_counts
+        let inner = self.inner.get_mut();
+        inner.object_counts
             .insert((player_index, type_name.to_string()), count);
     }
 
     /// Get a named ObjectTypes list (matches C++ ScriptEngine::getObjectTypes).
     pub fn get_object_types(&self, name: &str) -> Option<ObjectTypes> {
-        self.object_types.get(name).cloned()
+        self.with_inner(|inner| {
+        inner.object_types.get(name).cloned()
+            })
     }
 
     /// Register or replace a named ObjectTypes list.
     pub fn set_object_types(&mut self, name: String, types: ObjectTypes) {
-        self.object_types.insert(name, types);
+        let inner = self.inner.get_mut();
+        inner.object_types.insert(name, types);
     }
 
     fn ensure_attack_priority_defaults(&mut self) {
-        if self.attack_priority_info.is_empty() {
-            self.attack_priority_info.push(AttackPriorityInfo::new());
+        let inner = self.inner.get_mut();
+        if inner.attack_priority_info.is_empty() {
+            inner.attack_priority_info.push(AttackPriorityInfo::new());
         }
-        if self.num_attack_info == 0 {
-            self.num_attack_info = 1;
+        if inner.num_attack_info == 0 {
+            inner.num_attack_info = 1;
         }
     }
 
@@ -575,68 +604,75 @@ impl ScriptEngine {
         add_if_missing: bool,
     ) -> Option<&mut AttackPriorityInfo> {
         self.ensure_attack_priority_defaults();
-        let existing_index = (1..self.num_attack_info).find(|&i| {
-            self.attack_priority_info
+        let inner = self.inner.get_mut();
+        let existing_index = (1..inner.num_attack_info).find(|&i| {
+            inner.attack_priority_info
                 .get(i)
                 .map(|info| info.name == name)
                 .unwrap_or(false)
         });
         if let Some(index) = existing_index {
-            return self.attack_priority_info.get_mut(index);
+            return inner.attack_priority_info.get_mut(index);
         }
 
-        if add_if_missing && self.num_attack_info < MAX_ATTACK_PRIORITIES {
+        if add_if_missing && inner.num_attack_info < MAX_ATTACK_PRIORITIES {
             let mut info = AttackPriorityInfo::new();
             info.name = name.to_string();
-            let index = self.num_attack_info;
-            if self.attack_priority_info.len() <= index {
-                self.attack_priority_info.push(info);
+            let index = inner.num_attack_info;
+            if inner.attack_priority_info.len() <= index {
+                inner.attack_priority_info.push(info);
             } else {
-                self.attack_priority_info[index] = info;
+                inner.attack_priority_info[index] = info;
             }
-            self.num_attack_info += 1;
-            return self.attack_priority_info.get_mut(index);
+            inner.num_attack_info += 1;
+            return inner.attack_priority_info.get_mut(index);
         }
 
         None
     }
 
-    pub fn get_attack_info(&self, name: &str) -> Option<&AttackPriorityInfo> {
-        if self.attack_priority_info.is_empty() {
+    /// Owned snapshot — never a borrow into `UnsafeCell`.
+    pub fn get_attack_info(&self, name: &str) -> Option<AttackPriorityInfo> {
+        self.with_inner(|inner| {
+        if inner.attack_priority_info.is_empty() {
             return None;
         }
-        for i in 1..self.num_attack_info {
-            if let Some(info) = self.attack_priority_info.get(i) {
+        for i in 1..inner.num_attack_info {
+            if let Some(info) = inner.attack_priority_info.get(i) {
                 if info.name == name {
-                    return Some(info);
+                    return Some(info.clone());
                 }
             }
         }
-        self.attack_priority_info.get(0)
+        inner.attack_priority_info.get(0).cloned()
+            })
     }
 
     pub fn set_object_attack_priority_set(&mut self, object_id: ObjectID, set_name: &str) {
+        let inner = self.inner.get_mut();
         if object_id == INVALID_ID {
             return;
         }
 
         if set_name.is_empty() {
-            self.object_attack_priority_sets.remove(&object_id);
+            inner.object_attack_priority_sets.remove(&object_id);
             return;
         }
 
-        self.object_attack_priority_sets
+        inner.object_attack_priority_sets
             .insert(object_id, set_name.to_string());
     }
 
     pub fn clear_object_attack_priority_set(&mut self, object_id: ObjectID) {
-        self.object_attack_priority_sets.remove(&object_id);
+        let inner = self.inner.get_mut();
+        inner.object_attack_priority_sets.remove(&object_id);
     }
 
-    pub fn get_object_attack_priority_set(&self, object_id: ObjectID) -> Option<&str> {
-        self.object_attack_priority_sets
-            .get(&object_id)
-            .map(|name| name.as_str())
+    /// Owned snapshot — never a borrow into `UnsafeCell`.
+    pub fn get_object_attack_priority_set(&self, object_id: ObjectID) -> Option<String> {
+        self.with_inner(|inner| {
+        inner.object_attack_priority_sets.get(&object_id).cloned()
+            })
     }
 
     fn template_matches_kind(template: &EngineThingTemplate, kind: KindOf) -> bool {
@@ -711,10 +747,11 @@ impl ScriptEngine {
 
     /// Initialize action and condition templates
     fn initialize_templates(&mut self) -> GameLogicResult<()> {
+        let inner = self.inner.get_mut();
         // Initialize action templates (this would normally be done from INI files)
-        self.action_templates
+        inner.action_templates
             .resize(ScriptActionType::NumItems as usize, ActionTemplate::new());
-        self.condition_templates
+        inner.condition_templates
             .resize(ConditionType::NumItems as usize, ConditionTemplate::new());
 
         self.seed_template_internal_names();
@@ -727,8 +764,9 @@ impl ScriptEngine {
 
     /// Set up basic templates for core actions and conditions
     fn setup_basic_templates(&mut self) -> GameLogicResult<()> {
+        let inner = self.inner.get_mut();
         // Victory action
-        if let Some(template) = self
+        if let Some(template) = inner
             .action_templates
             .get_mut(ScriptActionType::Victory as usize)
         {
@@ -738,7 +776,7 @@ impl ScriptEngine {
         }
 
         // Defeat action
-        if let Some(template) = self
+        if let Some(template) = inner
             .action_templates
             .get_mut(ScriptActionType::Defeat as usize)
         {
@@ -748,7 +786,7 @@ impl ScriptEngine {
         }
 
         // Set flag action
-        if let Some(template) = self
+        if let Some(template) = inner
             .action_templates
             .get_mut(ScriptActionType::SetFlag as usize)
         {
@@ -760,7 +798,7 @@ impl ScriptEngine {
         }
 
         // Set counter action
-        if let Some(template) = self
+        if let Some(template) = inner
             .action_templates
             .get_mut(ScriptActionType::SetCounter as usize)
         {
@@ -772,7 +810,7 @@ impl ScriptEngine {
         }
 
         // Player all destroyed condition
-        if let Some(template) = self
+        if let Some(template) = inner
             .condition_templates
             .get_mut(ConditionType::PlayerAllDestroyed as usize)
         {
@@ -784,7 +822,7 @@ impl ScriptEngine {
         }
 
         // Counter condition
-        if let Some(template) = self
+        if let Some(template) = inner
             .condition_templates
             .get_mut(ConditionType::Counter as usize)
         {
@@ -800,7 +838,7 @@ impl ScriptEngine {
         }
 
         // Flag condition
-        if let Some(template) = self
+        if let Some(template) = inner
             .condition_templates
             .get_mut(ConditionType::Flag as usize)
         {
@@ -816,79 +854,83 @@ impl ScriptEngine {
 
     /// Reset the script engine
     pub fn reset(&mut self) {
+        {
+        let inner = self.inner.get_mut();
         // Clear runtime state
-        self.counters.iter_mut().for_each(|c| *c = None);
-        self.num_counters = 1;
-        self.flags.iter_mut().for_each(|f| *f = None);
-        self.num_flags = 1;
-        self.attack_priority_info.clear();
-        self.num_attack_info = 1;
+        inner.counters.iter_mut().for_each(|c| *c = None);
+        inner.num_counters = 1;
+        inner.flags.iter_mut().for_each(|f| *f = None);
+        inner.num_flags = 1;
+        inner.attack_priority_info.clear();
+        inner.num_attack_info = 1;
 
-        self.end_game_timer = -1;
-        self.close_window_timer = -1;
-        self.calling_team = None;
-        self.calling_object = None;
-        self.condition_team = None;
-        self.condition_object = None;
-        self.first_update = true;
-        self.current_player = None;
-        self.skirmish_human_player = None;
-        self.current_track_name.clear();
+        inner.end_game_timer = -1;
+        inner.close_window_timer = -1;
+        inner.calling_team = None;
+        inner.calling_object = None;
+        inner.condition_team = None;
+        inner.condition_object = None;
+        inner.first_update = true;
+        inner.current_player = None;
+        inner.skirmish_human_player = None;
+        inner.current_track_name.clear();
 
-        self.fade = TFade::None;
-        self.cur_fade_value = 0.0;
-        self.cur_fade_frame = 0;
+        inner.fade = TFade::None;
+        inner.cur_fade_value = 0.0;
+        inner.cur_fade_frame = 0;
 
-        self.completed_video.clear();
-        self.testing_speech.clear();
-        self.testing_audio.clear();
-        self.ui_interactions.clear();
+        inner.completed_video.clear();
+        inner.testing_speech.clear();
+        inner.testing_audio.clear();
+        inner.ui_interactions.clear();
 
-        for powers in &mut self.triggered_special_powers {
+        for powers in &mut inner.triggered_special_powers {
             powers.clear();
         }
-        for powers in &mut self.midway_special_powers {
+        for powers in &mut inner.midway_special_powers {
             powers.clear();
         }
-        for powers in &mut self.finished_special_powers {
+        for powers in &mut inner.finished_special_powers {
             powers.clear();
         }
-        for upgrades in &mut self.completed_upgrades {
+        for upgrades in &mut inner.completed_upgrades {
             upgrades.clear();
         }
-        for sciences in &mut self.acquired_sciences {
+        for sciences in &mut inner.acquired_sciences {
             sciences.clear();
         }
 
-        self.topple_directions.clear();
-        self.named_reveals.clear();
-        self.object_types.clear();
-        self.object_attack_priority_sets.clear();
-        self.breeze_info = BreezeInfo::new();
-        self.game_difficulty = crate::player::GameDifficulty::Normal;
+        inner.topple_directions.clear();
+        inner.named_reveals.clear();
+        inner.object_types.clear();
+        inner.object_attack_priority_sets.clear();
+        inner.breeze_info = BreezeInfo::new();
+        inner.game_difficulty = crate::player::GameDifficulty::Normal;
 
-        self.freeze_by_script = false;
-        self.freeze_by_debug = false;
-        self.objects_should_receive_difficulty_bonus = true;
-        self.choose_victim_always_uses_normal = false;
-        self.shown_mp_local_defeat_window = false;
+        inner.freeze_by_script = false;
+        inner.freeze_by_debug = false;
+        inner.objects_should_receive_difficulty_bonus = true;
+        inner.choose_victim_always_uses_normal = false;
+        inner.shown_mp_local_defeat_window = false;
 
-        self.sequential_scripts.clear();
+        inner.sequential_scripts.clear();
+        }
         self.clear_script_lists();
+        let inner = self.inner.get_mut();
 
         #[cfg(feature = "script_profiling")]
         {
-            self.stats = ScriptStats::default();
+            inner.stats = ScriptStats::default();
         }
 
-        if self.counters[0].is_none() {
-            self.counters[0] = Some(TCounter::new(String::new()));
+        if inner.counters[0].is_none() {
+            inner.counters[0] = Some(TCounter::new(String::new()));
         }
-        if self.flags[0].is_none() {
-            self.flags[0] = Some(TFlag::new(String::new()));
+        if inner.flags[0].is_none() {
+            inner.flags[0] = Some(TFlag::new(String::new()));
         }
-        if self.attack_priority_info.is_empty() {
-            self.attack_priority_info.push(AttackPriorityInfo::new());
+        if inner.attack_priority_info.is_empty() {
+            inner.attack_priority_info.push(AttackPriorityInfo::new());
         }
     }
 }

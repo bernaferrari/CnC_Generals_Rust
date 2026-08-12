@@ -65,7 +65,7 @@ pub fn residual_host_train_try_names_golden_opt_in_last_action(
     ResidualHostTrainTryNamesGoldenOptInAction::from_u8(RESIDUAL_ACTION.load(Ordering::SeqCst))
 }
 fn eng_source() -> &'static str {
-    include_str!("../../cnc_game_engine.rs")
+    crate::cnc_game_engine::ENGINE_SRC
 }
 pub fn honesty_host_train_try_names_golden_opt_in_method_names_residual_wave724() -> bool {
     let names = LIVE_HOST_TRAIN_TRY_NAMES_GOLDEN_OPT_IN_METHOD_NAMES_WAVE724;

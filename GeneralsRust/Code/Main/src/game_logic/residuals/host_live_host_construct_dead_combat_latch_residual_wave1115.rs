@@ -50,16 +50,16 @@ fn residual_action_store(a: ResidualHostConstructDeadCombatLatchAction) {
 }
 
 fn dr_source() -> &'static str {
-    include_str!("../../../../GameEngine/GameClient/src/drawable/drawable.rs")
+    game_client::drawable::drawable::DRAWABLE_SRC
 }
 fn es_source() -> &'static str {
     include_str!("../../executable_smoke.rs")
 }
 fn cnc_source() -> &'static str {
-    include_str!("../../cnc_game_engine.rs")
+    crate::cnc_game_engine::ENGINE_SRC
 }
 fn pf_source() -> &'static str {
-    include_str!("../../presentation_frame.rs")
+    crate::presentation_frame::PRESENTATION_FRAME_SRC
 }
 
 pub fn honesty_host_construct_dead_combat_latch_method_names_residual_wave1115() -> bool {
@@ -68,22 +68,27 @@ pub fn honesty_host_construct_dead_combat_latch_method_names_residual_wave1115()
     let dr = dr_source();
     let pf = pf_source();
     let cnc = cnc_source();
-    let ok = crate::game_logic::host_wave_inflation::shipped_fn_contains(
-        dr,
-        "fn draw_construct_percent",
-        &[
-            "presentation_sold",
-            "ObjectStatusTypes::Sold",
-            "isEffectivelyDead check is commented out",
-        ],
-    ) && crate::game_logic::host_wave_inflation::shipped_fn_contains(
-        pf,
-        "pub fn first_enemy_attack_command_id",
-        &["first_enemy_attackable_id", "first_enemy_force_attack_id"],
-    ) && crate::game_logic::host_wave_inflation::shipped_fn_exists(pf, "first_enemy_attackable_id")
-        && crate::game_logic::host_wave_inflation::shipped_fn_exists(pf, "first_enemy_force_attack_id")
-        && crate::game_logic::host_wave_inflation::shipped_fn_exists(dr, "set_presentation_sold")
-        && cnc.contains("first_enemy_attack_command_id");
+    let ok =
+        crate::game_logic::host_wave_inflation::shipped_fn_contains(
+            dr,
+            "fn draw_construct_percent",
+            &[
+                "presentation_sold",
+                "ObjectStatusTypes::Sold",
+                "isEffectivelyDead check is commented out",
+            ],
+        ) && crate::game_logic::host_wave_inflation::shipped_fn_contains(
+            pf,
+            "pub fn first_enemy_attack_command_id",
+            &["first_enemy_attackable_id", "first_enemy_force_attack_id"],
+        ) && crate::game_logic::host_wave_inflation::shipped_fn_exists(
+            pf,
+            "first_enemy_attackable_id",
+        ) && crate::game_logic::host_wave_inflation::shipped_fn_exists(
+            pf,
+            "first_enemy_force_attack_id",
+        ) && crate::game_logic::host_wave_inflation::shipped_fn_exists(dr, "set_presentation_sold")
+            && cnc.contains("first_enemy_attack_command_id");
     residual_action_store(ResidualHostConstructDeadCombatLatchAction::MethodNames);
     RESIDUAL_OK.store(ok, Ordering::SeqCst);
     ok

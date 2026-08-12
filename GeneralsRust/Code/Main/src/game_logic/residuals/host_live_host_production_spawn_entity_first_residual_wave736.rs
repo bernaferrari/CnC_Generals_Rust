@@ -71,7 +71,7 @@ fn ready_source() -> &'static str {
     include_str!("../host_production_ready_log.rs")
 }
 fn shadow_source() -> &'static str {
-    include_str!("../../gameworld_shadow.rs")
+    crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC
 }
 pub fn honesty_host_production_spawn_entity_first_method_names_residual_wave736() -> bool {
     let names = LIVE_HOST_PRODUCTION_SPAWN_ENTITY_FIRST_METHOD_NAMES_WAVE736;

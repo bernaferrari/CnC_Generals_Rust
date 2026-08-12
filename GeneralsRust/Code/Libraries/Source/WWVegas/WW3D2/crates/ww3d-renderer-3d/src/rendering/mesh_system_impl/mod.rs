@@ -1,6 +1,6 @@
 //! Mesh Rendering System - Complete implementation matching C++ WW3D2
 //!
-//! Compiled module; `../mesh_system.rs` is the source-scan dump.
+//! Live `mesh_system` module via `#[path = "mesh_system_impl/mod.rs"]`.
 #![allow(
     unused_imports,
     unused_variables,
@@ -317,3 +317,18 @@ pub struct MeshClass {
     uv_offset_override: Option<[f32; 2]>,
 }
 
+
+/// Concatenated live sources for residual `include_str!` scans.
+pub const MESH_SYSTEM_SRC: &str = concat!(
+    include_str!("mod.rs"),
+    include_str!("helpers.rs"),
+    include_str!("model_collision.rs"),
+    include_str!("model.rs"),
+    include_str!("dx8.rs"),
+    include_str!("mesh.rs"),
+    include_str!("mesh_ops.rs"),
+    include_str!("static_sort.rs"),
+    include_str!("render_manager.rs"),
+    include_str!("materials.rs"),
+    include_str!("render_obj.rs"),
+);

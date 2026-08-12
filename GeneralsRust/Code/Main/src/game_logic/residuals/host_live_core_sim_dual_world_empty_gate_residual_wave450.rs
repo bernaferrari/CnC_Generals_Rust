@@ -132,7 +132,8 @@ fn honesty_one(src: &str, fn_name: &str, expected_return_snip: &str) -> bool {
 
 /// Source residual: core-sim empty dual-world short-circuits.
 pub fn honesty_core_sim_dual_world_empty_gate_source() -> bool {
-    let stealth = include_str!("../../../../GameEngine/GameLogic/src/system/stealth_integration.rs");
+    let stealth =
+        include_str!("../../../../GameEngine/GameLogic/src/system/stealth_integration.rs");
     let dmg = include_str!("../../../../GameEngine/GameLogic/src/weapon/damage_application.rs");
     let crate_die =
         include_str!("../../../../GameEngine/GameLogic/src/object/destroy/create_crate_die.rs");

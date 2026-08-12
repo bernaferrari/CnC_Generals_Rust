@@ -42,34 +42,33 @@ pub use host_mods_logs_b::*;
 mod host_mods_logs_c;
 pub use host_mods_logs_c::*;
 
-use host_mods_special_powers::host_baikonur_launch;
-use host_mods_structures::host_black_market;
 use host_mods_combat::host_bone_fx_damage;
 use host_mods_combat::host_command_button_hunt;
 use host_mods_combat::host_create_object_die;
 use host_mods_combat::host_dam_die;
-use host_mods_special_powers::host_defector_special_power;
 use host_mods_combat::host_deploy_style;
 use host_mods_combat::host_fire_weapon_power;
 use host_mods_combat::host_fire_weapon_when_dead;
 use host_mods_combat::host_fx_list_die;
 use host_mods_combat::host_highlander_body;
 use host_mods_combat::host_keep_object_die;
+use host_mods_combat::host_squish_collide;
+use host_mods_combat::host_status_damage;
+use host_mods_combat::host_transition_damage_fx;
+use host_mods_combat::host_upgrade_die;
+use host_mods_combat::host_wave_guide;
+use host_mods_residuals_on::host_upgrade_module_residuals;
+use host_mods_special_powers::host_baikonur_launch;
+use host_mods_special_powers::host_defector_special_power;
+use host_mods_special_powers::host_special_power_completion_die;
+use host_mods_structures::host_black_market;
 use host_mods_structures::host_model_condition_upgrade;
 use host_mods_structures::host_preorder_create;
 use host_mods_structures::host_replace_object_upgrade;
-use host_mods_special_powers::host_special_power_completion_die;
-use host_mods_combat::host_squish_collide;
-use host_mods_combat::host_status_damage;
 use host_mods_structures::host_sub_objects_upgrade;
-use host_mods_combat::host_transition_damage_fx;
-use host_mods_combat::host_upgrade_die;
-use host_mods_residuals_on::host_upgrade_module_residuals;
-use host_mods_combat::host_wave_guide;
 
 pub mod locomotor_bootstrap;
 pub mod mission_scripts;
-#[path = "object/mod.rs"]
 pub mod object;
 pub use object::{
     calc_slow_down_dist, is_same_position_residual, AttackSubState, LocomotorAppearance,
@@ -90,7 +89,6 @@ pub mod thing;
 pub mod units;
 pub mod victory;
 pub mod victory_conditions;
-#[path = "weapon_bootstrap/mod.rs"]
 pub mod weapon_bootstrap;
 
 pub use buildings::*;

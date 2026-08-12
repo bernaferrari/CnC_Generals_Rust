@@ -10,8 +10,9 @@
 use crate::common::bit_flags::{
     create_armor_set_flags, create_weapon_set_flags, ArmorSetBitFlags, BitFlags, WeaponSetBitFlags,
 };
+use crate::common::ini::INI;
 use crate::common::system::Snapshotable;
-use crate::common::thing::module::BaseModuleData;
+use crate::common::thing::module::{BaseModuleData, CapturedModuleData};
 #[cfg(test)]
 use crate::common::thing::module_factory::clear_pending_descriptors_for_test;
 use crate::common::thing::module_factory::{
@@ -159,6 +160,16 @@ fn is_cpp_object_field(key: &str) -> bool {
         .any(|field| field.eq_ignore_ascii_case(key))
         || key.starts_with("WeaponSet")
         || key.starts_with("ArmorSet")
+        || is_module_body_property(key)
+}
+
+fn is_module_body_property(key: &str) -> bool {
+    key.split_once('.')
+        .map(|(header, _)| {
+            let base = property_base_key(header);
+            is_module_object_field(base)
+        })
+        .unwrap_or(false)
 }
 
 fn property_base_key(key: &str) -> &str {
@@ -188,6 +199,83 @@ fn module_field_order(field: &str) -> usize {
 
 fn is_module_object_field(field: &str) -> bool {
     matches!(field, "Behavior" | "Body" | "Draw" | "ClientUpdate")
+}
+
+fn collect_module_body(
+    properties: &HashMap<String, String>,
+    header_key: &str,
+) -> (String, HashMap<String, String>) {
+    let prefix = format!("{}.", header_key);
+    let mut fields = HashMap::new();
+    let mut raw_body = String::new();
+    for (key, value) in properties {
+        let Some(rest) = key.strip_prefix(&prefix) else {
+            continue;
+        };
+        if rest == "__body" {
+            raw_body = value.clone();
+            continue;
+        }
+        if rest == "<raw>" || rest.starts_with("<raw>#") {
+            continue;
+        }
+        fields.insert(rest.to_string(), value.clone());
+    }
+    if raw_body.is_empty() && !fields.is_empty() {
+        raw_body = fields
+            .iter()
+            .map(|(key, value)| format!("{} = {}", key, value))
+            .collect::<Vec<_>>()
+            .join("\n");
+    }
+    (raw_body, fields)
+}
+
+fn module_data_from_body(
+    module_name: &str,
+    module_type: ModuleType,
+    module_tag: &str,
+    raw_body: &str,
+    fields: HashMap<String, String>,
+) -> Arc<dyn ModuleData> {
+    if let Some(data) = try_factory_module_data(module_name, module_type, module_tag, raw_body) {
+        return data;
+    }
+    if !raw_body.trim().is_empty() || !fields.is_empty() {
+        return Arc::new(CapturedModuleData::new(
+            module_tag,
+            raw_body.to_string(),
+            fields,
+        ));
+    }
+    let mut data = BaseModuleData::new();
+    data.set_module_tag_name_key(NameKeyGenerator::name_to_key(module_tag));
+    Arc::new(data)
+}
+
+fn try_factory_module_data(
+    module_name: &str,
+    module_type: ModuleType,
+    module_tag: &str,
+    raw_body: &str,
+) -> Option<Arc<dyn ModuleData>> {
+    let mut guard = get_module_factory().ok()?;
+    let factory = guard.as_mut()?;
+    if !factory.has_module_data_proc(module_name, module_type) {
+        return None;
+    }
+    let synthetic = if raw_body.trim().is_empty() {
+        "End\n".to_string()
+    } else {
+        format!("{}\nEnd\n", raw_body.trim_end())
+    };
+    let mut ini = INI::new();
+    ini.with_inline_source(&synthetic, |ini| {
+        factory
+            .try_new_module_data_from_ini(Some(ini), module_name, module_type, module_tag)
+            .ok_or(crate::common::ini::INIError::InvalidData)
+    })
+    .ok()
 }
 
 impl SparseBitSet for BitFlags {
@@ -2060,7 +2148,13 @@ impl ThingTemplate {
         self.parse_prerequisites_block(&lines);
     }
 
-    fn add_module_from_property(&mut self, field_name: &str, value: &str) -> Result<(), String> {
+    fn add_module_from_property(
+        &mut self,
+        field_name: &str,
+        property_key: &str,
+        value: &str,
+        properties: &HashMap<String, String>,
+    ) -> Result<(), String> {
         let mut tokens = value.split_whitespace();
         let module_name = tokens
             .next()
@@ -2078,9 +2172,8 @@ impl ThingTemplate {
         };
 
         let interface_mask = lookup_module_interface_mask(module_name, module_type, fallback_mask);
-        let mut data = BaseModuleData::new();
-        data.set_module_tag_name_key(NameKeyGenerator::name_to_key(module_tag));
-        let data: Arc<dyn ModuleData> = Arc::new(data);
+        let (raw_body, fields) = collect_module_body(properties, property_key);
+        let data = module_data_from_body(module_name, module_type, module_tag, &raw_body, fields);
         let target_info = match module_type {
             ModuleType::Behavior => &mut self.behavior_module_info,
             ModuleType::Draw => &mut self.draw_module_info,
@@ -2105,22 +2198,26 @@ impl ThingTemplate {
         let mut fields = properties
             .iter()
             .filter_map(|(key, value)| {
+                if key.contains('.') {
+                    return None;
+                }
                 let base_key = property_base_key(key);
                 is_module_object_field(base_key).then_some((
                     module_field_order(base_key),
                     property_repeat_index(key),
                     base_key,
+                    key.as_str(),
                     value.as_str(),
                 ))
             })
             .collect::<Vec<_>>();
 
-        fields.sort_by_key(|(field_order, repeat_index, field_name, _)| {
+        fields.sort_by_key(|(field_order, repeat_index, field_name, _, _)| {
             (*field_order, *repeat_index, (*field_name).to_string())
         });
 
-        for (_, _, field_name, value) in fields {
-            self.add_module_from_property(field_name, value.trim())?;
+        for (_, _, field_name, property_key, value) in fields {
+            self.add_module_from_property(field_name, property_key, value.trim(), properties)?;
         }
 
         Ok(())
@@ -2183,6 +2280,10 @@ impl ThingTemplate {
     pub fn set_reskinned_from(&mut self, template: Arc<ThingTemplate>) {
         debug_assert!(self.reskinned_from.is_none(), "should be None");
         self.reskinned_from = Some(template);
+    }
+
+    pub fn get_reskinned_from(&self) -> Option<&Arc<ThingTemplate>> {
+        self.reskinned_from.as_ref()
     }
 
     /// Set buildable status.
@@ -2548,6 +2649,7 @@ impl ThingTemplate {
             if key.starts_with("UnitSpecificSounds.")
                 || key.starts_with("UnitSpecificFX.")
                 || key.starts_with("Prerequisites.")
+                || is_module_body_property(key)
             {
                 continue;
             }
@@ -3227,6 +3329,50 @@ mod tests {
             "ModuleTag_Client"
         );
         assert!(descriptors.client_update[0].supports(ModuleInterfaceType::CLIENT_UPDATE));
+    }
+
+    #[test]
+    fn object_field_parse_reads_active_body_and_production_update_bodies() {
+        use crate::common::thing::module::BaseModuleData;
+
+        let mut template = ThingTemplate::new();
+        let properties = HashMap::from([
+            ("Body".to_string(), "ActiveBody Tag".to_string()),
+            ("Body.MaxHealth".to_string(), "4000".to_string()),
+            ("Body.InitialHealth".to_string(), "4000".to_string()),
+            (
+                "Body.__body".to_string(),
+                "MaxHealth = 4000\nInitialHealth = 4000".to_string(),
+            ),
+            (
+                "Behavior".to_string(),
+                "ProductionUpdate ModuleTag_04".to_string(),
+            ),
+            ("Behavior.NumDoorAnimations".to_string(), "1".to_string()),
+            (
+                "Behavior.__body".to_string(),
+                "NumDoorAnimations = 1".to_string(),
+            ),
+        ]);
+
+        template
+            .parse_object_fields_from_ini(&properties)
+            .expect("module bodies should parse");
+
+        let body = template
+            .get_behavior_module_info()
+            .iter()
+            .find(|entry| entry.name.as_str() == "ActiveBody")
+            .expect("ActiveBody");
+        assert!(body.data.downcast_ref::<BaseModuleData>().is_none());
+        assert_eq!(body.data.get_ini_real("MaxHealth"), Some(4000.0));
+
+        let production = template
+            .get_behavior_module_info()
+            .iter()
+            .find(|entry| entry.name.as_str() == "ProductionUpdate")
+            .expect("ProductionUpdate");
+        assert_eq!(production.data.get_ini_int("NumDoorAnimations"), Some(1));
     }
 
     #[test]

@@ -104,7 +104,7 @@ fn fn_body<'a>(src: &'a str, name: &str) -> Option<&'a str> {
 /// Source residual: selection/context use query probes; no get_object dual-read in prod.
 pub fn honesty_selection_query_probe_source() -> bool {
     let gl = include_str!("../game_logic.rs");
-    let cs_full = include_str!("../../command_system.rs");
+    let cs_full = crate::command_system::COMMAND_SYSTEM_SRC;
     let cs = cs_full.split("#[cfg(test)]").next().unwrap_or(cs_full);
     let ci_full = include_str!("../../command_integration.rs");
     let ci = ci_full.split("#[cfg(test)]").next().unwrap_or(ci_full);

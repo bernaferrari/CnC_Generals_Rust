@@ -240,4 +240,3 @@ pub fn relative_angle_2d(
 pub fn is_within_aim_delta(rel_angle: f32, aim_delta_rad: f32) -> bool {
     rel_angle.abs() <= aim_delta_rad.max(AIM_DELTA_REL_THRESH_RAD)
 }
-

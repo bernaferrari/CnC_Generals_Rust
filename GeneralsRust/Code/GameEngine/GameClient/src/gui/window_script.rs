@@ -12,9 +12,10 @@ use super::game_window::{
 use super::MAX_DRAW_DATA;
 use std::collections::HashMap;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::{Mutex, OnceLock};
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct WindowLayoutDefinition {
     pub version: u32,
     pub init_callback: String,
@@ -46,7 +47,7 @@ pub struct WindowLayoutDefinition {
     pub combo_list_hilite_draw_data: Vec<WindowDrawData>,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct WindowDefinition {
     pub name: String,
     pub window_type: String,
@@ -80,6 +81,9 @@ pub struct WindowDefinition {
     pub enabled_draw_data: Vec<WindowDrawData>,
     pub disabled_draw_data: Vec<WindowDrawData>,
     pub hilite_draw_data: Vec<WindowDrawData>,
+    pub slider_thumb_enabled_draw_data: Vec<WindowDrawData>,
+    pub slider_thumb_disabled_draw_data: Vec<WindowDrawData>,
+    pub slider_thumb_hilite_draw_data: Vec<WindowDrawData>,
     pub children: Vec<WindowDefinition>,
 }
 
@@ -158,7 +162,39 @@ impl From<std::io::Error> for WindowScriptError {
     }
 }
 
+/// Parse a `.wnd` script. Interactive SkirmishGameOptionsMenu.wnd is ~900KB;
+/// cache the parsed definition so a second push does not re-parse (do not skip).
 pub fn parse_window_script(path: &Path) -> Result<WindowLayoutDefinition, WindowScriptError> {
+    if let Some(cached) = wnd_parse_cache_get(path) {
+        return Ok(cached);
+    }
+    let parsed = parse_window_script_uncached(path)?;
+    wnd_parse_cache_put(path, parsed.clone());
+    Ok(parsed)
+}
+
+fn wnd_parse_cache() -> &'static Mutex<HashMap<PathBuf, WindowLayoutDefinition>> {
+    static CACHE: OnceLock<Mutex<HashMap<PathBuf, WindowLayoutDefinition>>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn wnd_parse_cache_get(path: &Path) -> Option<WindowLayoutDefinition> {
+    let key = path.to_path_buf();
+    wnd_parse_cache()
+        .lock()
+        .ok()
+        .and_then(|cache| cache.get(&key).cloned())
+}
+
+fn wnd_parse_cache_put(path: &Path, parsed: WindowLayoutDefinition) {
+    if let Ok(mut cache) = wnd_parse_cache().lock() {
+        cache.insert(path.to_path_buf(), parsed);
+    }
+}
+
+pub fn parse_window_script_uncached(
+    path: &Path,
+) -> Result<WindowLayoutDefinition, WindowScriptError> {
     let content = fs::read_to_string(path)?;
     let statements = split_statements(&content);
     let mut layout = WindowLayoutDefinition::default();
@@ -369,6 +405,15 @@ fn parse_window_statement(
         "ENABLEDDRAWDATA" => window.enabled_draw_data = parse_draw_data(val),
         "DISABLEDDRAWDATA" => window.disabled_draw_data = parse_draw_data(val),
         "HILITEDRAWDATA" => window.hilite_draw_data = parse_draw_data(val),
+        "SLIDERTHUMBENABLEDDRAWDATA" => {
+            window.slider_thumb_enabled_draw_data = parse_draw_data(val);
+        }
+        "SLIDERTHUMBDISABLEDDRAWDATA" => {
+            window.slider_thumb_disabled_draw_data = parse_draw_data(val);
+        }
+        "SLIDERTHUMBHILITEDRAWDATA" => {
+            window.slider_thumb_hilite_draw_data = parse_draw_data(val);
+        }
         "LISTBOXDATA" => window.listbox_data = Some(parse_listbox_data(val)),
         "TEXTENTRYDATA" => window.text_entry_data = Some(parse_text_entry_data(val)),
         "COMBOBOXDATA" => window.combo_box_data = Some(parse_combo_box_data(val)),
@@ -933,5 +978,23 @@ mod tests {
         assert!(data.centered_vertically);
         assert_eq!(data.left_margin, 7);
         assert_eq!(data.top_margin, 7);
+    }
+
+    #[test]
+    fn slider_thumb_draw_data_parses_onto_window_not_only_layout() {
+        let mut window = super::WindowDefinition::default();
+        super::parse_window_statement(
+            "SLIDERTHUMBENABLEDDRAWDATA = IMAGE: Thumb, COLOR: 255 255 255 255, BORDERCOLOR: 0 0 0 255;",
+            &mut window,
+        )
+        .unwrap();
+        assert!(
+            !window.slider_thumb_enabled_draw_data.is_empty(),
+            "per-window SLIDERTHUMB* must land on WindowDefinition"
+        );
+        assert!(window.slider_thumb_enabled_draw_data[0]
+            .image
+            .as_ref()
+            .is_some_and(|image| image.name == "Thumb"));
     }
 }

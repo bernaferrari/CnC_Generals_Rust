@@ -84,7 +84,7 @@ pub fn honesty_live_presentation_overlay_deepen_residual_pack_wave189() -> bool 
 
 /// Source residual: overlay stamps velocity/selection/team_color/body_damage.
 pub fn honesty_overlay_deepen_fields_source() -> bool {
-    let src = include_str!("../../presentation_frame.rs");
+    let src = crate::presentation_frame::PRESENTATION_FRAME_SRC;
     let i = match src.find("fn overlay_gameworld_shadow") {
         Some(i) => i,
         None => return false,
@@ -101,10 +101,10 @@ pub fn honesty_overlay_deepen_fields_source() -> bool {
 
 /// Source residual: engine still calls overlay on seed paths.
 pub fn honesty_engine_still_calls_overlay_source() -> bool {
-    let eng = include_str!("../../cnc_game_engine.rs");
+    let eng = crate::cnc_game_engine::ENGINE_SRC;
     // Wave 195: engine presentation helpers fold overlay/rebuild.
     (eng.contains("build_for_engine") || eng.contains("build_with_victory_for_engine"))
-        && include_str!("../../presentation_frame.rs").contains("fn overlay_gameworld_shadow")
+        && crate::presentation_frame::PRESENTATION_FRAME_SRC.contains("fn overlay_gameworld_shadow")
 }
 
 /// Live residual: overlay stamps deepened fields from desynced shadow entity.

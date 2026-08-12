@@ -19,7 +19,11 @@ impl GameLogic {
     /// Find the nearest supply center (refinery/supply dropzone) for a team.
 
     /// Nearest alive harvestable supply pile residual for gather re-target.
-    pub(in super::super) fn find_nearest_harvestable_supply(&self, team: Team, from: Vec3) -> Option<ObjectId> {
+    pub(in super::super) fn find_nearest_harvestable_supply(
+        &self,
+        team: Team,
+        from: Vec3,
+    ) -> Option<ObjectId> {
         let _ = team; // supplies are neutral/shared residual
                       // Pure residual acquire: nearest harvestable supply pile (3D distance).
         let candidates: Vec<_> = self
@@ -78,7 +82,11 @@ impl GameLogic {
         .map(|(id, _, _)| id)
     }
 
-    pub(in super::super) fn find_nearest_supply_center(&self, team: Team, from_position: Vec3) -> Option<ObjectId> {
+    pub(in super::super) fn find_nearest_supply_center(
+        &self,
+        team: Team,
+        from_position: Vec3,
+    ) -> Option<ObjectId> {
         // Pure residual acquire: nearest friendly constructed SupplyCenter (3D).
         let candidates: Vec<_> = self
             .objects
@@ -164,6 +172,7 @@ impl GameLogic {
     /// Clear all objects (for snapshot restoration)
     pub fn clear_all_objects(&mut self) {
         self.objects.clear();
+        self.host_view_dirty.clear();
         self.next_object_id = ObjectId(1);
         self.next_formation_id = 1;
     }

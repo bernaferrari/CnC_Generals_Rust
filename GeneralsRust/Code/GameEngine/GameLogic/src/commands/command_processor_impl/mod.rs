@@ -64,3 +64,18 @@ include!("handler_misc.rs");
 include!("handler_dispatch.rs");
 include!("processor.rs");
 include!("tests.rs");
+
+/// Concatenated live sources for residual `include_str!` scans.
+pub const COMMAND_PROCESSOR_SRC: &str = concat!(
+    include_str!("mod.rs"),
+    include_str!("handler_build.rs"),
+    include_str!("handler_dispatch.rs"),
+    include_str!("handler_group.rs"),
+    include_str!("handler_guard.rs"),
+    include_str!("handler_misc.rs"),
+    include_str!("handler_move_attack.rs"),
+    include_str!("handler_special.rs"),
+    include_str!("handler_unit.rs"),
+    include_str!("processor.rs"),
+    include_str!("types.rs"),
+);

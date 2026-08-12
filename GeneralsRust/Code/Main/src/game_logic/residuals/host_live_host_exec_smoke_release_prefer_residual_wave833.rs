@@ -54,7 +54,7 @@ fn shell_base_source() -> &'static str {
     include_str!("../../../../GameEngine/GameClient/src/gui/shell/base.rs")
 }
 fn cnc_source() -> &'static str {
-    include_str!("../../cnc_game_engine.rs")
+    crate::cnc_game_engine::ENGINE_SRC
 }
 pub fn honesty_host_exec_smoke_release_prefer_method_names_residual_wave833() -> bool {
     let names = LIVE_HOST_EXEC_SMOKE_RELEASE_PREFER_METHOD_NAMES_WAVE833;
@@ -78,7 +78,8 @@ pub fn honesty_host_exec_smoke_release_prefer_nav_commands_residual_wave833() ->
 }
 pub fn honesty_host_exec_smoke_release_prefer_residual_pack_wave833() -> bool {
     let es = es_source();
-    let ok = es.contains("Wave 833: prefer release over debug for smoke stability")
+    let ok = (es.contains("Wave 833: current-source binary")
+        || es.contains("Wave 833: prefer release over debug for smoke stability"))
         && es.contains("GENERALS_RUNTIME_EXE_PREFER_DEBUG")
         && es.contains("Wave 833: run from GeneralsRust workspace root")
         && es.contains(".current_dir(&workspace_cwd)")

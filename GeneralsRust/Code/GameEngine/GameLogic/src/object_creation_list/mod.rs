@@ -209,7 +209,20 @@ mod tests {
 
     #[test]
     fn test_module_structure() {
-        // Verify module is accessible
-        assert!(true);
+        let ocl = ObjectCreationList::new();
+        assert_eq!(
+            format!("{:?}", ocl),
+            "ObjectCreationList { nugget_count: 0 }",
+            "default OCL must start with an empty nugget list"
+        );
+
+        let store = ObjectCreationListStore::new();
+        assert!(
+            store.find_object_creation_list("nonexistent_ocl").is_none(),
+            "empty store has no named lists"
+        );
+
+        let ctx = live_creation_context();
+        let _ = ctx.game_logic.get_frame();
     }
 }

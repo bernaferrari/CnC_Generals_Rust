@@ -688,6 +688,28 @@ impl ModuleFactory {
         Ok(arc_data)
     }
 
+    /// True when a registered `create_data_proc` exists (GameLogic override or builtin).
+    pub fn has_module_data_proc(&self, name: &str, module_type: ModuleType) -> bool {
+        self.find_module_template(name, module_type)
+            .and_then(|template| template.create_data_proc)
+            .is_some()
+    }
+
+    /// Fail-closed module-data create: `None` when the template or data_proc is missing.
+    pub fn try_new_module_data_from_ini(
+        &mut self,
+        ini: Option<&mut INI>,
+        name: &str,
+        module_type: ModuleType,
+        module_tag: &str,
+    ) -> Option<Arc<dyn ModuleData>> {
+        if !self.has_module_data_proc(name, module_type) {
+            return None;
+        }
+        self.new_module_data_from_ini(ini, name, module_type, module_tag)
+            .ok()
+    }
+
     /// Find the interface mask for a module
     pub fn find_module_interface_mask(
         &self,

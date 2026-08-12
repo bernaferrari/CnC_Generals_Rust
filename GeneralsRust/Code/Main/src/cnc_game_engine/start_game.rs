@@ -100,14 +100,25 @@ impl CnCGameEngine {
         let interactive_start_from_menu = self.current_state == GameState::Menu;
         let offline_mode = matches!(mode, GameMode::SinglePlayer | GameMode::Skirmish);
         // Wave 611: host residual helper.
+        // A still-running boot worker must not overwrite this match start (or
+        // keep finalize_startup_map_load pointed at Menu) after we leave Loading.
+        self.abandon_startup_load_worker();
+        info!("host_start_game_from_ui: abandoned boot worker");
+        // Mark MainMenu as starting a match so shutdown skips reverse-animate
+        // (windowed host start was SIGSEGV'ing mid MainMenuShutdown / hide_shell).
+        #[cfg(feature = "game_client")]
+        game_client::gui::mark_host_match_start();
         // Show loading screen before starting map load (matches C++ loading screen flow)
         #[cfg(feature = "game_client")]
         self.prepare_cpp_load_screen_for_mode(mode, false);
+        info!("host_start_game_from_ui: load screen prepared");
         self.transition_to_state(GameState::Loading);
+        info!("host_start_game_from_ui: state=Loading");
         // Wave 842: stamp host-owned match mode before map load / presentation seed.
         self.host_match_game_mode = Some(mode);
         // Wave 843/844/871: clear prior match residuals until load completes.
         self.host_clear_match_residuals();
+        info!("host_start_game_from_ui: match residuals cleared");
 
         let faction_team = Self::team_from_faction(&faction);
         // Wave 169/840: empty UI map → DEFAULT_SKIRMISH_MAP (Defcon6) before
@@ -143,15 +154,19 @@ impl CnCGameEngine {
                 }
             } else {
                 // Wave 577: host start residual via helper.
+                info!("host_start_game_from_ui: host_start_new_game_with_faction(skirmish)");
                 self.host_start_new_game_with_faction(mode, faction_team, true);
             }
         } else {
             // Wave 577: host start residual via helper (non-skirmish).
+            info!("host_start_game_from_ui: host_start_new_game_with_faction(non-skirmish)");
             self.host_start_new_game_with_faction(mode, faction_team, false);
         }
+        info!("host_start_game_from_ui: new game started, loading map={map_name}");
 
         // Wave 579: host map-load residual via helper.
         self.host_load_map_or_default(&map_name);
+        info!("host_start_game_from_ui: map load done");
         // Wave 840: drop shell presentation freeze so match seed cannot keep ShellMapMD.
         self.render_pipeline.set_presentation_frame(None);
         self.last_presentation_frame = None;
@@ -168,9 +183,29 @@ impl CnCGameEngine {
         self.victory_summary = None;
         self.selected_objects.clear();
 
-        // Update minimap/world bounds and camera to the new map.
+        // Dual-tick residual close: map load → presentation seed → InGame HUD/units
+        // without waiting for the first logic frame (render collect uses snapshot IDs).
+        // Leave Loading BEFORE heightmap/minimap GPU. Windowed sit-through was
+        // stuck in Loading because terrain visual never returned.
+        info!("host_start_game_from_ui: seeding presentation");
+        self.seed_presentation_after_match_start();
+        self.snap_camera_to_local_units_if_needed();
+        info!("host_start_game_from_ui: transition to InGame");
+        self.transition_to_state(GameState::InGame);
+        info!(
+            "host_start_game_from_ui: pre-note menu_click={} was_menu={} offline={}",
+            self.interactive_playability.menu_wnd_click, interactive_start_from_menu, offline_mode
+        );
+        self.interactive_playability
+            .note_offline_match_started(interactive_start_from_menu, offline_mode);
+        info!(
+            "host_start_game_from_ui: InGame menu_match={} menu_click={}",
+            self.interactive_playability.match_started_from_menu_wnd,
+            self.interactive_playability.menu_wnd_click
+        );
+
+        // Update minimap/world bounds and camera to the new map (post-InGame).
         // Wave 455: seed presentation env then apply presentation-only heightmap/skybox hints.
-        // Wave 455: seed presentation env then apply presentation-only hints.
         self.ensure_presentation_env_seeded();
         Self::apply_heightmap_hint(&mut self.render_pipeline);
         Self::apply_skybox_hint(&mut self.render_pipeline);
@@ -204,15 +239,7 @@ impl CnCGameEngine {
                 startup_camera_presentation,
             );
         self.sync_orbit_from_camera_transform();
-        // Dual-tick residual close: map load → presentation seed → InGame HUD/units
-        // without waiting for the first logic frame (render collect uses snapshot IDs).
-        self.seed_presentation_after_match_start();
-        // Residual: after seed, prefer a live local-unit centroid so the first InGame
-        // frustum contains host armies (metadata InitialCameraPosition can be far off).
         self.snap_camera_to_local_units_if_needed();
-        self.transition_to_state(GameState::InGame);
-        self.interactive_playability
-            .note_offline_match_started(interactive_start_from_menu, offline_mode);
     }
 
     /// Prefer a local base focus for the match camera when bootstrap aim is far
@@ -321,8 +348,19 @@ impl CnCGameEngine {
         let dx = focus.x - self.camera_target.x;
         let dz = focus.z - self.camera_target.z;
         let dist_sq = dx * dx + dz * dz;
+        let looking_at_boot_origin = {
+            let tx = self.camera_target.x;
+            let tz = self.camera_target.z;
+            tx * tx + tz * tz < 80.0 * 80.0
+        };
+        let focus_is_real_base = {
+            let fx = focus.x;
+            let fz = focus.z;
+            fx * fx + fz * fz > 200.0 * 200.0
+        };
         // If already aimed near the local base, keep bootstrap (C++ InitialCamera).
-        if dist_sq < 250.0 * 250.0 {
+        // Boot camera sits at the origin; never treat that as "already on the base".
+        if dist_sq < 250.0 * 250.0 && !(looking_at_boot_origin && focus_is_real_base) {
             // Still force a sane orbit so frustum is not degenerate after shell→match.
             if self.camera_orbit_distance < 40.0 || self.camera_orbit_distance > 800.0 {
                 self.camera_orbit_distance = 280.0;
@@ -847,12 +885,17 @@ impl CnCGameEngine {
 
         let limit = Duration::from_millis(limit_ms as u64);
         if let Some(previous) = self.script_fps_limit_last_tick {
-            let mut now = Instant::now();
-            while now.duration_since(previous) < limit {
-                std::thread::sleep(Duration::ZERO);
-                now = Instant::now();
+            let now = Instant::now();
+            if now.duration_since(previous) < limit {
+                // Cap the wait so a tight Sleep(0) spin cannot stall InGame
+                // event-loop frames (first-match mesh load / UI).
+                let remaining = (limit - now.duration_since(previous))
+                    .min(Duration::from_millis(8));
+                if remaining > Duration::ZERO {
+                    std::thread::sleep(remaining);
+                }
             }
-            self.script_fps_limit_last_tick = Some(now);
+            self.script_fps_limit_last_tick = Some(Instant::now());
         } else {
             self.script_fps_limit_last_tick = Some(Instant::now());
         }
@@ -992,7 +1035,10 @@ impl CnCGameEngine {
         angle
     }
 
-    pub(super) fn apply_camera_look_toward_request(&mut self, request: CameraLookTowardWaypointRequest) {
+    pub(super) fn apply_camera_look_toward_request(
+        &mut self,
+        request: CameraLookTowardWaypointRequest,
+    ) {
         let to_target = request.position - self.camera_target;
         let horiz = Vec2::new(to_target.x, to_target.z);
         if horiz.length_squared() <= f32::EPSILON {

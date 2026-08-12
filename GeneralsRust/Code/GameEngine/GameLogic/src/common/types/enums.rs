@@ -316,13 +316,79 @@ pub enum SpecialPowerType {
 
 impl SpecialPowerType {
     /// Convert from a numeric value (matches C++ casting with bounds check).
+    /// Exhaustive match — no transmute of an unchecked discriminant.
     pub fn from_u32(value: u32) -> Option<Self> {
-        if value <= SpecialPowerType::SpecialPowerCount as u32 {
-            // SAFETY: SpecialPowerType is #[repr(u32)] and we bounds-check against the max value.
-            Some(unsafe { std::mem::transmute::<u32, SpecialPowerType>(value) })
-        } else {
-            None
-        }
+        Some(match value {
+            0 => Self::SpecialInvalid,
+            1 => Self::SpecialDaisyCutter,
+            2 => Self::SpecialParadropAmerica,
+            3 => Self::SpecialCarpetBomb,
+            4 => Self::SpecialClusterMines,
+            5 => Self::SpecialEmpPulse,
+            6 => Self::SpecialNapalmStrike,
+            7 => Self::SpecialCashHack,
+            8 => Self::SpecialNeutronMissile,
+            9 => Self::SpecialSpySatellite,
+            10 => Self::SpecialDefector,
+            11 => Self::SpecialTerrorCell,
+            12 => Self::SpecialAmbush,
+            13 => Self::SpecialBlackMarketNuke,
+            14 => Self::SpecialAnthraxBomb,
+            15 => Self::SpecialScudStorm,
+            16 => Self::SpecialDemoralizeObsolete,
+            17 => Self::SpecialCrateDrop,
+            18 => Self::SpecialA10ThunderboltStrike,
+            19 => Self::SpecialDetonateDirtyNuke,
+            20 => Self::SpecialArtilleryBarrage,
+            21 => Self::SpecialMissileDefenderLaserGuidedMissiles,
+            22 => Self::SpecialRemoteCharges,
+            23 => Self::SpecialTimedCharges,
+            24 => Self::SpecialHelixNapalmBomb,
+            25 => Self::SpecialHackerDisableBuilding,
+            26 => Self::SpecialTankHunterTntAttack,
+            27 => Self::SpecialBlackLotusCaptureBuilding,
+            28 => Self::SpecialBlackLotusDisableVehicleHack,
+            29 => Self::SpecialBlackLotusStealCashHack,
+            30 => Self::SpecialInfantryCaptureBuilding,
+            31 => Self::SpecialRadarVanScan,
+            32 => Self::SpecialSpyDrone,
+            33 => Self::SpecialDisguiseAsVehicle,
+            34 => Self::SpecialBoobyTrap,
+            35 => Self::SpecialRepairVehicles,
+            36 => Self::SpecialParticleUplinkCannon,
+            37 => Self::SpecialCashBounty,
+            38 => Self::SpecialChangeBattlePlans,
+            39 => Self::SpecialCiaIntelligence,
+            40 => Self::SpecialCleanupArea,
+            41 => Self::SpecialLaunchBaikonurRocket,
+            42 => Self::SpecialSpectreGunship,
+            43 => Self::SpecialGpsScrambler,
+            44 => Self::SpecialFrenzy,
+            45 => Self::SpecialSneakAttack,
+            46 => Self::SpecialChinaCarpetBomb,
+            47 => Self::EarlySpecialChinaCarpetBomb,
+            48 => Self::SpecialLeafletDrop,
+            49 => Self::EarlySpecialLeafletDrop,
+            50 => Self::EarlySpecialFrenzy,
+            51 => Self::SpecialCommunicationsDownload,
+            52 => Self::EarlySpecialRepairVehicles,
+            53 => Self::SpecialTankParadrop,
+            54 => Self::SupwSpecialParticleUplinkCannon,
+            55 => Self::AirfSpecialDaisyCutter,
+            56 => Self::NukeSpecialClusterMines,
+            57 => Self::NukeSpecialNeutronMissile,
+            58 => Self::AirfSpecialA10ThunderboltStrike,
+            59 => Self::AirfSpecialSpectreGunship,
+            60 => Self::InfaSpecialParadropAmerica,
+            61 => Self::SlthSpecialGpsScrambler,
+            62 => Self::AirfSpecialCarpetBomb,
+            63 => Self::SuprSpecialCruiseMissile,
+            64 => Self::LazrSpecialParticleUplinkCannon,
+            65 => Self::SupwSpecialNeutronMissile,
+            66 => Self::SpecialBattleshipBombardment,
+            67 => Self::SpecialPowerCount,
+            _ => return None,
+        })
     }
 }
 
@@ -452,6 +518,40 @@ impl FormationID {
 impl Default for FormationID {
     fn default() -> Self {
         FormationID::NONE
+    }
+}
+
+#[cfg(test)]
+mod special_power_from_u32_tests {
+    use super::SpecialPowerType;
+
+    #[test]
+    fn special_power_from_u32_is_exhaustive_and_rejects_oob() {
+        assert_eq!(
+            SpecialPowerType::from_u32(0),
+            Some(SpecialPowerType::SpecialInvalid)
+        );
+        assert_eq!(
+            SpecialPowerType::from_u32(8),
+            Some(SpecialPowerType::SpecialNeutronMissile)
+        );
+        assert_eq!(
+            SpecialPowerType::from_u32(66),
+            Some(SpecialPowerType::SpecialBattleshipBombardment)
+        );
+        assert_eq!(
+            SpecialPowerType::from_u32(67),
+            Some(SpecialPowerType::SpecialPowerCount)
+        );
+        assert_eq!(SpecialPowerType::from_u32(68), None);
+        let impl_src = include_str!("enums.rs")
+            .split("#[cfg(test)]")
+            .next()
+            .unwrap_or("");
+        assert!(
+            !impl_src.contains("mem::transmute"),
+            "SpecialPowerType::from_u32 must not transmute"
+        );
     }
 }
 

@@ -83,11 +83,11 @@ pub fn residual_combat_kill_particle_observe_last_action() -> ResidualCombatKill
 }
 
 fn pf_source() -> &'static str {
-    include_str!("../../presentation_frame.rs")
+    crate::presentation_frame::PRESENTATION_FRAME_SRC
 }
 
 fn obj_source() -> &'static str {
-    include_str!("../object.rs")
+    crate::game_logic::object::OBJECT_SRC
 }
 
 fn test_body<'a>(src: &'a str) -> Option<&'a str> {

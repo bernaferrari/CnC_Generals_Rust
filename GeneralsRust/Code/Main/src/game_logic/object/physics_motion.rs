@@ -680,7 +680,7 @@ impl Object {
         }
     }
 
-    pub(in super) fn ensure_locomotor_surfaces(&mut self) {
+    pub(super) fn ensure_locomotor_surfaces(&mut self) {
         if self.locomotor_surfaces == 0 {
             self.locomotor_surfaces =
                 Self::default_locomotor_surfaces_for_template(&self.thing.template);

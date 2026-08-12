@@ -113,7 +113,7 @@ fn fn_body<'a>(src: &'a str, name: &str) -> Option<&'a str> {
 
 /// Source residual: ScriptEngine empty dual-world short-circuits.
 pub fn honesty_script_engine_dual_world_empty_gate_source() -> bool {
-    let g = include_str!("../../../../GameEngine/GameLogic/src/scripting/engine.rs");
+    let g = gamelogic::scripting::engine::SCRIPT_ENGINE_SRC;
     if !(g.contains("Wave 348")
         && g.contains("fn dual_world_registry_unavailable")
         && g.contains("OBJECT_REGISTRY.is_empty()"))

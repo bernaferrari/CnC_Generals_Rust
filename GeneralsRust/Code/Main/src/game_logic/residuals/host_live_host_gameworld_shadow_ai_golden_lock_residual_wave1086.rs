@@ -51,10 +51,10 @@ fn aw_source() -> &'static str {
     include_str!("../../authoritative_world.rs")
 }
 fn cnc_source() -> &'static str {
-    include_str!("../../cnc_game_engine.rs")
+    crate::cnc_game_engine::ENGINE_SRC
 }
 fn shadow_source() -> &'static str {
-    include_str!("../../gameworld_shadow.rs")
+    crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC
 }
 fn ai_source() -> &'static str {
     include_str!("../../ai.rs")
@@ -66,7 +66,7 @@ fn es_source() -> &'static str {
     include_str!("../../executable_smoke.rs")
 }
 fn ui_source() -> &'static str {
-    include_str!("../../../../GameEngine/GameClient/src/gui/ingame_ui.rs")
+    game_client::gui::ingame_ui::INGAME_UI_SRC
 }
 
 pub fn honesty_host_gameworld_shadow_ai_golden_lock_method_names_residual_wave1086() -> bool {

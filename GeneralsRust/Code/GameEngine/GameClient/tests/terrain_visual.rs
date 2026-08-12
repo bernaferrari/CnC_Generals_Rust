@@ -599,10 +599,9 @@ fn tree_vb_upload_uses_do_lighting_on_every_draw() {
             emissive: [0.0, 0.0, 0.0],
         },
     );
-    visual.tree_buffer_mut().set_bounds(TreeRegion2D::new(
-        Vec2::ZERO,
-        Vec2::new(100.0, 100.0),
-    ));
+    visual
+        .tree_buffer_mut()
+        .set_bounds(TreeRegion2D::new(Vec2::ZERO, Vec2::new(100.0, 100.0)));
     visual
         .tree_buffer_mut()
         .add_tree(
@@ -661,10 +660,12 @@ fn tree_atlas_mips_reach_terrain_visual_upload_path() {
             TreeSphere::default(),
         )
         .unwrap();
-    visual.tree_buffer_mut().update_texture(&[TreeTileImageSpec {
-        texture_name: "Oak.tga".into(),
-        header: TreeTgaHeader::truecolor(64, 64),
-    }]);
+    visual
+        .tree_buffer_mut()
+        .update_texture(&[TreeTileImageSpec {
+            texture_name: "Oak.tga".into(),
+            header: TreeTgaHeader::truecolor(64, 64),
+        }]);
     let mut tile = vec![0u8; TREE_TILE_DATA_LEN];
     tile[0..4].copy_from_slice(&[11, 22, 33, 44]);
     assert!(visual.tree_buffer_mut().set_source_tile_bgra(0, &tile));
@@ -694,10 +695,12 @@ fn tree_atlas_live_draw_matches_cpp_blit_mip_and_lod() {
     let mut tile = vec![0u8; TREE_TILE_DATA_LEN];
     tile[0..4].copy_from_slice(&[11, 22, 33, 44]);
     assert!(visual.tree_buffer_mut().set_source_tile_bgra(0, &tile));
-    visual.tree_buffer_mut().update_texture(&[TreeTileImageSpec {
-        texture_name: "Oak.tga".into(),
-        header: TreeTgaHeader::truecolor(64, 64),
-    }]);
+    visual
+        .tree_buffer_mut()
+        .update_texture(&[TreeTileImageSpec {
+            texture_name: "Oak.tga".into(),
+            header: TreeTgaHeader::truecolor(64, 64),
+        }]);
     visual.tree_buffer_mut().set_texture_lod(1);
     visual.update_tree_meshes();
 

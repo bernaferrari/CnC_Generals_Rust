@@ -90,7 +90,7 @@ pub fn residual_production_exit_delay_sole_tick_last_action(
 }
 
 fn shadow_source() -> &'static str {
-    include_str!("../../gameworld_shadow.rs")
+    crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC
 }
 
 fn game_logic_source() -> &'static str {

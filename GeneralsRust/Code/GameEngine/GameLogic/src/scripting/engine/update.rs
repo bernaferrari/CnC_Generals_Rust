@@ -329,7 +329,7 @@ impl ScriptEngine {
 
         // Difficulty gating (C++ uses `m_currentPlayer->getPlayerDifficulty()` when available).
         let difficulty = self
-            .current_player
+            .with_inner(|inner| inner.current_player.clone())
             .as_deref()
             .and_then(|name| {
                 crate::player::player_list()
@@ -572,6 +572,7 @@ impl ScriptEngine {
 
     /// Evaluate and progress sequential scripts
     fn evaluate_and_progress_all_sequential_scripts(&self) -> GameLogicResult<()> {
+        self.with_inner(|inner| {
         // Wave 348: empty dual-world → Ok(()).
         if dual_world_registry_unavailable() {
             return Ok(());
@@ -607,7 +608,7 @@ impl ScriptEngine {
             let mut last_i: Option<usize> = None;
             let mut spin_count: i32 = 0;
 
-            while i < self.sequential_scripts.len() {
+            while i < inner.sequential_scripts.len() {
                 if last_i == Some(i) {
                     spin_count += 1;
                 } else {
@@ -616,7 +617,7 @@ impl ScriptEngine {
                 last_i = Some(i);
 
                 if spin_count > MAX_SEQUENTIAL_SPIN_COUNT {
-                    if let Some(seq_name) = self.sequential_scripts[i]
+                    if let Some(seq_name) = inner.sequential_scripts[i]
                         .script_to_execute_sequentially
                         .as_ref()
                         .map(|s| s.script_name.clone())
@@ -630,7 +631,7 @@ impl ScriptEngine {
                     continue;
                 }
 
-                if self.sequential_scripts[i]
+                if inner.sequential_scripts[i]
                     .script_to_execute_sequentially
                     .is_none()
                 {
@@ -639,8 +640,8 @@ impl ScriptEngine {
                 }
 
                 let mut it_advanced = false;
-                let team_name = self.sequential_scripts[i].team_to_exec_on.clone();
-                let object_id = self.sequential_scripts[i].object_id;
+                let team_name = inner.sequential_scripts[i].team_to_exec_on.clone();
+                let object_id = inner.sequential_scripts[i].object_id;
 
                 let team_arc = team_name.as_ref().and_then(|name| {
                     get_team_factory()
@@ -675,7 +676,7 @@ impl ScriptEngine {
                     .unwrap_or((false, false, false));
 
                 if obj_has_ai || team_has_group {
-                    let frames_to_wait = self.sequential_scripts[i].frames_to_wait;
+                    let frames_to_wait = inner.sequential_scripts[i].frames_to_wait;
                     let should_progress = (((obj_has_ai && obj_idle)
                         || (team_has_group && team_idle))
                         && frames_to_wait < 1)
@@ -691,9 +692,9 @@ impl ScriptEngine {
                             }
                         }
 
-                        let instruction = self.sequential_scripts[i].current_instruction;
+                        let instruction = inner.sequential_scripts[i].current_instruction;
                         let action = Self::script_action_at_instruction(
-                            &self.sequential_scripts[i],
+                            &inner.sequential_scripts[i],
                             instruction,
                         );
 
@@ -736,7 +737,7 @@ impl ScriptEngine {
                                 }
                             }
 
-                            if self.sequential_scripts[i].dont_advance_instruction {
+                            if inner.sequential_scripts[i].dont_advance_instruction {
                                 i += 1;
                                 let _it_advanced = true;
                                 continue;
@@ -771,9 +772,9 @@ impl ScriptEngine {
                                 }
                             }
                         } else {
-                            let times_to_loop = self.sequential_scripts[i].times_to_loop;
+                            let times_to_loop = inner.sequential_scripts[i].times_to_loop;
                             if times_to_loop != 0 {
-                                let mut loop_script = self.sequential_scripts[i].clone();
+                                let mut loop_script = inner.sequential_scripts[i].clone();
                                 if loop_script.times_to_loop != -1 {
                                     loop_script.times_to_loop -= 1;
                                 }
@@ -783,7 +784,7 @@ impl ScriptEngine {
                             self.cleanup_sequential_script_at(i, false);
                             it_advanced = true;
                         }
-                    } else if self.sequential_scripts[i].frames_to_wait > 0 {
+                    } else if inner.sequential_scripts[i].frames_to_wait > 0 {
                         self.lock_inner_mut().sequential_scripts[i].frames_to_wait -= 1;
                     }
                 }
@@ -804,6 +805,7 @@ impl ScriptEngine {
         }
 
         result
+            })
     }
 
     fn script_action_at_instruction(

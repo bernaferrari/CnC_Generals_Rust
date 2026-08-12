@@ -82,8 +82,8 @@ pub fn honesty_live_rmb_target_presentation_only_residual_pack_wave228() -> bool
 
 /// Source residual: hint type + classify path + engine helper.
 pub fn honesty_rmb_target_presentation_only_source() -> bool {
-    let cs = include_str!("../../command_system.rs");
-    let eng = include_str!("../../cnc_game_engine.rs");
+    let cs = crate::command_system::COMMAND_SYSTEM_SRC;
+    let eng = crate::cnc_game_engine::ENGINE_SRC;
     cs.contains("struct PresentationTargetHint")
         && cs.contains("target_presentation: Option<PresentationTargetHint>")
         && cs.contains("fn classify_right_click_target_from_presentation")

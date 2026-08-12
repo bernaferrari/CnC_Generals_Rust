@@ -953,7 +953,7 @@ fn apply_upgrade_template_ini_fields(
     name: &str,
     properties: &HashMap<String, String>,
 ) -> Result<(), String> {
-    use game_engine::common::ini::{INI, INIError};
+    use game_engine::common::ini::{INIError, INI};
     use gamelogic::upgrade::center::with_upgrade_center_mut;
 
     let mut source = String::new();
@@ -1007,10 +1007,7 @@ fn register_upgrade_template(name: &str, properties: &HashMap<String, String>) -
     // C++ initFromINI on the (possibly pre-existing) template. Always apply
     // ButtonImage / DisplayName / BuildCost / BuildTime / Type when present.
     if let Err(e) = apply_upgrade_template_ini_fields(name, properties) {
-        warn!(
-            "Failed to apply Upgrade.ini fields for '{}': {}",
-            name, e
-        );
+        warn!("Failed to apply Upgrade.ini fields for '{}': {}", name, e);
     }
 
     debug!("Registered upgrade template: {}", name);

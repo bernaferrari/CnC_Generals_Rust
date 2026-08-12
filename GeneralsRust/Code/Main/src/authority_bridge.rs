@@ -123,10 +123,7 @@ pub fn run_host_only_combat_victory() -> (bool, String) {
         })
         .unwrap_or(false);
 
-    let hp_before = logic
-        .host_object(enemy)
-        .map(|o| o.health.current)
-        .unwrap_or(0.0);
+    let hp_before = logic.host_authoritative_health(enemy).unwrap_or(0.0);
     // 200 HP / 25 dmg ≈ 8 shots at 1s reload → need ~240+ logic frames.
     let mut combat_killed = false;
     for round in 0..400u32 {
@@ -145,10 +142,7 @@ pub fn run_host_only_combat_victory() -> (bool, String) {
             break;
         }
     }
-    let hp_after = logic
-        .host_object(enemy)
-        .map(|o| o.health.current)
-        .unwrap_or(0.0);
+    let hp_after = logic.host_authoritative_health(enemy).unwrap_or(0.0);
     let damaged = hp_after < hp_before || combat_killed;
 
     // Victory only if combat removed the sole enemy CC (no force-destroy of leftovers).

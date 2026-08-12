@@ -3,7 +3,6 @@
 use super::super::*;
 use super::helpers::*;
 
-
 #[test]
 fn continue_attack_range_chains_to_nearby_same_team_target() {
     let mut logic = GameLogic::new();
@@ -187,12 +186,7 @@ fn fire_base_shell_scatters_vs_infantry() {
         .expect("tank");
     let before = logic.fire_base_scatter_applied;
     let shell2 = logic
-        .spawn_fire_base_shell_projectile(
-            fb,
-            from,
-            glam::Vec3::new(150.0, 0.0, 0.0),
-            Some(tank),
-        )
+        .spawn_fire_base_shell_projectile(fb, from, glam::Vec3::new(150.0, 0.0, 0.0), Some(tank))
         .expect("shell2");
     assert_eq!(logic.fire_base_scatter_applied, before);
     let aim2 = logic
@@ -277,12 +271,7 @@ fn raptor_missile_scatters_vs_infantry() {
         .expect("tank");
     let before = logic.raptor_scatter_applied;
     let msl2 = logic
-        .spawn_raptor_missile_projectile(
-            raptor,
-            from,
-            glam::Vec3::new(250.0, 0.0, 0.0),
-            Some(tank),
-        )
+        .spawn_raptor_missile_projectile(raptor, from, glam::Vec3::new(250.0, 0.0, 0.0), Some(tank))
         .expect("missile2");
     assert_eq!(logic.raptor_scatter_applied, before);
     let aim2 = logic
@@ -789,12 +778,7 @@ fn battlemaster_shell_scatters_vs_infantry() {
         .expect("tank");
     let before = logic.battlemaster_scatter_applied;
     let shell2 = logic
-        .spawn_battlemaster_shell_projectile(
-            bm,
-            from,
-            glam::Vec3::new(150.0, 0.0, 0.0),
-            Some(tank),
-        )
+        .spawn_battlemaster_shell_projectile(bm, from, glam::Vec3::new(150.0, 0.0, 0.0), Some(tank))
         .expect("shell2");
     assert_eq!(logic.battlemaster_scatter_applied, before);
     let aim2 = logic
@@ -1212,12 +1196,7 @@ fn tomahawk_missile_scatters_vs_infantry() {
         .expect("tank");
     let before = logic.tomahawk_scatter_applied;
     let shell2 = logic
-        .spawn_tomahawk_missile_projectile(
-            tom,
-            from,
-            glam::Vec3::new(250.0, 0.0, 0.0),
-            Some(tank),
-        )
+        .spawn_tomahawk_missile_projectile(tom, from, glam::Vec3::new(250.0, 0.0, 0.0), Some(tank))
         .expect("missile2");
     assert_eq!(logic.tomahawk_scatter_applied, before);
     let aim2 = logic
@@ -1863,9 +1842,7 @@ fn patriot_scatter_misses_infantry_residual() {
         .add_kind_of(KindOf::FSBaseDefense)
         .set_health(600.0)
         .set_primary_weapon_name(crate::game_logic::weapon_bootstrap::PATRIOT_PRIMARY_WEAPON)
-        .set_secondary_weapon_name(
-            crate::game_logic::weapon_bootstrap::PATRIOT_SECONDARY_WEAPON,
-        );
+        .set_secondary_weapon_name(crate::game_logic::weapon_bootstrap::PATRIOT_SECONDARY_WEAPON);
     logic
         .templates
         .insert("USA_Patriot".to_string(), patriot_tpl);
@@ -2309,8 +2286,7 @@ fn missile_defender_scatter_misses_infantry_residual() {
         .get(&tank)
         .map(|o| o.get_position())
         .unwrap_or(glam::Vec3::new(45.0, 0.0, 0.0));
-    let (hits, _) =
-        logic.apply_missile_defender_residual_at(impact, Some(md), Some(tank), false);
+    let (hits, _) = logic.apply_missile_defender_residual_at(impact, Some(md), Some(tank), false);
     let hp_after = logic
         .host_object(tank)
         .map(|o| o.health.current)
@@ -2541,9 +2517,7 @@ fn marauder_scatter_misses_infantry_residual() {
 
 #[test]
 fn tomahawk_scatter_misses_infantry_residual() {
-    use crate::game_logic::host_tomahawk::{
-        TOMAHAWK_MISSILE_WEAPON, TOMAHAWK_SCATTER_VS_INFANTRY,
-    };
+    use crate::game_logic::host_tomahawk::{TOMAHAWK_MISSILE_WEAPON, TOMAHAWK_SCATTER_VS_INFANTRY};
     use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
 
     ensure_host_weapon_store();
@@ -2921,9 +2895,7 @@ fn scud_launcher_scatter_misses_infantry_residual() {
 
 #[test]
 fn overlord_scatter_misses_infantry_residual() {
-    use crate::game_logic::host_overlord_gun::{
-        OVERLORD_SCATTER_VS_INFANTRY, OVERLORD_TANK_GUN,
-    };
+    use crate::game_logic::host_overlord_gun::{OVERLORD_SCATTER_VS_INFANTRY, OVERLORD_TANK_GUN};
     use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
 
     ensure_host_weapon_store();
@@ -3069,9 +3041,7 @@ fn inferno_cannon_scatter_misses_infantry_residual() {
 
 #[test]
 fn raptor_scatter_misses_infantry_residual() {
-    use crate::game_logic::host_raptor::{
-        RAPTOR_JET_MISSILE_WEAPON, RAPTOR_SCATTER_VS_INFANTRY,
-    };
+    use crate::game_logic::host_raptor::{RAPTOR_JET_MISSILE_WEAPON, RAPTOR_SCATTER_VS_INFANTRY};
     use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
 
     ensure_host_weapon_store();
@@ -3144,9 +3114,7 @@ fn raptor_scatter_misses_infantry_residual() {
 
 #[test]
 fn usa_tank_scatter_misses_infantry_residual() {
-    use crate::game_logic::host_usa_tanks::{
-        CRUSADER_TANK_GUN, USA_TANK_GUN_SCATTER_VS_INFANTRY,
-    };
+    use crate::game_logic::host_usa_tanks::{CRUSADER_TANK_GUN, USA_TANK_GUN_SCATTER_VS_INFANTRY};
     use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
 
     ensure_host_weapon_store();
@@ -3418,9 +3386,7 @@ fn flashbang_scatter_misses_intended_residual() {
 
 #[test]
 fn rocket_buggy_scatter_misses_infantry_residual() {
-    use crate::game_logic::host_rocket_buggy::{
-        BUGGY_ROCKET_WEAPON, BUGGY_SCATTER_VS_INFANTRY,
-    };
+    use crate::game_logic::host_rocket_buggy::{BUGGY_ROCKET_WEAPON, BUGGY_SCATTER_VS_INFANTRY};
     use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
 
     ensure_host_weapon_store();
@@ -3619,4 +3585,3 @@ fn comanche_at_scatter_misses_infantry_residual() {
         .unwrap_or(0.0);
     assert!(hits > 0 && hp_after < hp_before, "vehicle still hit");
 }
-

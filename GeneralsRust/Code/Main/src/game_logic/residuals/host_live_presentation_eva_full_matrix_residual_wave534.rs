@@ -92,7 +92,7 @@ fn log_source() -> &'static str {
 }
 
 fn pf_source() -> &'static str {
-    include_str!("../../presentation_frame.rs")
+    crate::presentation_frame::PRESENTATION_FRAME_SRC
 }
 
 pub fn honesty_presentation_eva_full_matrix_method_names_residual_wave534() -> bool {

@@ -67,10 +67,10 @@ pub fn residual_host_eager_ai_fire_intent_helper_last_action(
     ResidualHostEagerAiFireIntentHelperAction::from_u8(RESIDUAL_ACTION.load(Ordering::SeqCst))
 }
 fn eng_source() -> &'static str {
-    include_str!("../../cnc_game_engine.rs")
+    crate::cnc_game_engine::ENGINE_SRC
 }
 fn shadow_source() -> &'static str {
-    include_str!("../../gameworld_shadow.rs")
+    crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC
 }
 pub fn honesty_host_eager_ai_fire_intent_helper_method_names_residual_wave687() -> bool {
     let names = LIVE_HOST_EAGER_AI_FIRE_INTENT_HELPER_METHOD_NAMES_WAVE687;

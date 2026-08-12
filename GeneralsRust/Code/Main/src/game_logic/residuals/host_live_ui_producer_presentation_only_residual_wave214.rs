@@ -81,7 +81,7 @@ pub fn honesty_live_ui_producer_presentation_only_residual_pack_wave214() -> boo
 
 /// Source residual: force_completed path is presentation-only.
 pub fn honesty_force_completed_presentation_only_source() -> bool {
-    let eng = include_str!("../../cnc_game_engine.rs");
+    let eng = crate::cnc_game_engine::ENGINE_SRC;
     // Anchor on the production for-loop, not cfg(test) residual strings.
     let i = match eng.find("for id in force_completed.iter().copied()") {
         Some(i) => i,
@@ -99,7 +99,7 @@ pub fn honesty_force_completed_presentation_only_source() -> bool {
 
 /// Source residual: no live classify closure remains near force_completed production loop.
 pub fn honesty_no_live_classify_closure_source() -> bool {
-    let eng = include_str!("../../cnc_game_engine.rs");
+    let eng = crate::cnc_game_engine::ENGINE_SRC;
     let i = match eng.find("for id in force_completed.iter().copied()") {
         Some(i) => i,
         None => return false,

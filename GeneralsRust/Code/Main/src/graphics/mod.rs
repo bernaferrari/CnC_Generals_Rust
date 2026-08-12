@@ -9,7 +9,9 @@ pub mod attack_line_upload;
 pub mod floating_text_layout;
 pub mod fow_uniform_integration;
 pub mod game_text_residual;
+pub mod granny_honesty;
 pub mod graphics_system;
+pub mod laser_draw;
 pub mod laser_segment_upload;
 pub mod move_line_upload;
 pub use attack_line_upload::AttackLineUpload;
@@ -23,7 +25,6 @@ pub use particle_system_upload::{
 pub use projectile_segment_upload::ProjectileSegmentUpload;
 pub mod minimap_renderer;
 pub mod render_item;
-#[path = "render_pipeline_impl/mod.rs"]
 pub mod render_pipeline;
 pub use render_pipeline::{
     residual_presentation_boundary_last_action, residual_presentation_boundary_ok,

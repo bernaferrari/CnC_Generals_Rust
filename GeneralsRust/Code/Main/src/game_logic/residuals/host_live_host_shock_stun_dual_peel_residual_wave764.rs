@@ -64,7 +64,7 @@ pub fn residual_host_shock_stun_dual_peel_last_action() -> ResidualHostShockStun
     ResidualHostShockStunDualPeelAction::from_u8(RESIDUAL_ACTION.load(Ordering::SeqCst))
 }
 fn sh_source() -> &'static str {
-    include_str!("../../gameworld_shadow.rs")
+    crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC
 }
 fn gl_source() -> &'static str {
     include_str!("../game_logic.rs")
@@ -83,7 +83,7 @@ pub fn honesty_host_shock_stun_dual_peel_method_names_residual_wave764() -> bool
 pub fn honesty_host_shock_stun_dual_peel_source_markers_residual_wave764() -> bool {
     let sh = sh_source();
     let gl = gl_source();
-    let obj = include_str!("../object.rs");
+    let obj = crate::game_logic::object::OBJECT_SRC;
     let ok = sh.contains("Wave 764")
         && sh.contains("e.shock_stun_frames = e.shock_stun_frames.saturating_sub(1)")
         && obj.contains("tick_shock_stun_physics_only")
@@ -106,14 +106,14 @@ pub fn honesty_host_shock_stun_dual_peel_nav_commands_residual_wave764() -> bool
 pub fn simulate_host_shock_stun_dual_peel_collect_source() -> bool {
     let ok = sh_source().contains("Wave 764")
         && gl_source().contains("Wave 764")
-        && include_str!("../object.rs").contains("tick_shock_stun_physics_only");
+        && crate::game_logic::object::OBJECT_SRC.contains("tick_shock_stun_physics_only");
     residual_action_store(ResidualHostShockStunDualPeelAction::CollectSource);
     ok
 }
 pub fn simulate_host_shock_stun_dual_peel_dispatch_source() -> bool {
     let ok = sh_source().contains("shock_stun_frames.saturating_sub")
         && gl_source().contains("tick_shock_stun_physics_only()")
-        && include_str!("../object.rs").contains("if countdown")
+        && crate::game_logic::object::OBJECT_SRC.contains("if countdown")
         && gl_source().matches("Wave 764").count() >= 1;
     residual_action_store(ResidualHostShockStunDualPeelAction::DispatchSource);
     ok

@@ -247,4 +247,3 @@ pub fn host_scaled_weapon_speed(peel: &HostWeaponSpeedPeel, range_2d: f32) -> f3
     let ratio = (range_2d - min_r) / span;
     peel.min_weapon_speed + ratio * (peel.weapon_speed - peel.min_weapon_speed)
 }
-

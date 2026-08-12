@@ -103,7 +103,7 @@ fn fn_body<'a>(src: &'a str, name: &str) -> Option<&'a str> {
 /// Source residual: selection/view use player probes; no get_player dual-read.
 pub fn honesty_command_player_probe_source() -> bool {
     let gl = include_str!("../game_logic.rs");
-    let cs = include_str!("../../command_system.rs");
+    let cs = crate::command_system::COMMAND_SYSTEM_SRC;
     if !(gl.contains("pub fn player_extend_selection(")
         && gl.contains("pub fn player_selected_count("))
     {

@@ -1760,11 +1760,9 @@ mod tests {
         }
 
         let object_id = 4_242u32;
-        let sys_id = gamelogic::helpers::attach_particle_system_to_object(
-            "OclDummyAttachSmoke",
-            object_id,
-        )
-        .expect("registered template should create+attach");
+        let sys_id =
+            gamelogic::helpers::attach_particle_system_to_object("OclDummyAttachSmoke", object_id)
+                .expect("registered template should create+attach");
 
         {
             let guard = get_particle_system_manager().expect("global particle manager");

@@ -1,8 +1,8 @@
 //! Single post-logic host→GameWorld residual batch (coupled tick).
 
+use super::*;
 use crate::game_logic::GameLogic;
 use crate::gameworld_shadow::GameWorldShadow;
-use super::*;
 
 /// Wave 682: immediately after the host logic frame on a coupled tick, drain
 /// `host_fire_spawn_log` into host CombatSystem + GameWorld projectile map.

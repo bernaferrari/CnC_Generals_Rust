@@ -329,4 +329,3 @@ pub fn w3d_gadget_combo_box_image_draw(window: &GameWindow, inst_data: &WindowIn
         height -= height_delta;
     }
 }
-

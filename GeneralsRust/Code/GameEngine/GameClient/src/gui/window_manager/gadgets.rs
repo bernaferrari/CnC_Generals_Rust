@@ -1,23 +1,11 @@
 //! Gadget factories and script-created combo/slider/listbox/tab children.
 #![allow(unused_imports)]
 
-use std::cell::{Cell, RefCell};
-use std::collections::{HashMap, VecDeque};
-use std::fs;
-use std::path::{Path, PathBuf};
-use std::rc::{Rc, Weak};
-use std::sync::atomic::{AtomicI32, Ordering};
-use std::sync::Arc;
-use std::time::Instant;
 use crate::gui::gadgets::{
     CheckBox, ComboBox, HorizontalSlider, ListBox, ProgressBar, PushButton, RadioButton,
     RadioButtonGroup, StaticText, TabControl, TextEntry, VerticalSlider,
 };
 use crate::gui::game_window::*;
-use crate::gui::window_script::{
-    parse_window_script, TabControlData as ScriptTabControlData, WindowDefinition,
-    WindowLayoutDefinition,
-};
 use crate::gui::w3d_gadget_draw::{
     w3d_cameo_movie_draw, w3d_clock_draw, w3d_command_bar_background_draw,
     w3d_command_bar_foreground_draw, w3d_command_bar_gen_exp_draw, w3d_command_bar_grid_draw,
@@ -39,11 +27,26 @@ use crate::gui::w3d_gadget_draw::{
     w3d_power_draw, w3d_power_draw_a, w3d_right_hud_draw, w3d_shell_menu_scheme_draw,
     w3d_thin_border_draw,
 };
+use crate::gui::window_script::{
+    parse_window_script, TabControlData as ScriptTabControlData, WindowDefinition,
+    WindowLayoutDefinition,
+};
+use std::cell::{Cell, RefCell};
+use std::collections::{HashMap, VecDeque};
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::rc::{Rc, Weak};
+use std::sync::atomic::{AtomicI32, Ordering};
+use std::sync::Arc;
+use std::time::Instant;
 
 use super::*;
 
 impl WindowManager {
-    pub(crate) fn create_default_tab_panes(&mut self, window: &Rc<RefCell<GameWindow>>) -> WindowResult<()> {
+    pub(crate) fn create_default_tab_panes(
+        &mut self,
+        window: &Rc<RefCell<GameWindow>>,
+    ) -> WindowResult<()> {
         let (pane_x, pane_y, pane_width, pane_height) = self.compute_tab_pane_rect(window);
 
         for pane_index in 0..crate::gui::gadgets::tabcontrol::NUM_TAB_PANES {
@@ -94,7 +97,10 @@ impl WindowManager {
         }
     }
 
-    pub(crate) fn compute_tab_pane_rect(&self, window: &Rc<RefCell<GameWindow>>) -> (i32, i32, i32, i32) {
+    pub(crate) fn compute_tab_pane_rect(
+        &self,
+        window: &Rc<RefCell<GameWindow>>,
+    ) -> (i32, i32, i32, i32) {
         let window_ref = window.borrow();
         let (win_width, win_height) = window_ref.get_size();
         let (win_width, win_height) = (win_width, win_height);
@@ -314,12 +320,35 @@ impl WindowManager {
         slider: &Rc<RefCell<GameWindow>>,
         layout: &WindowLayoutDefinition,
     ) -> WindowResult<()> {
-        if layout.slider_thumb_enabled_draw_data.is_empty()
-            && layout.slider_thumb_disabled_draw_data.is_empty()
-            && layout.slider_thumb_hilite_draw_data.is_empty()
-        {
-            return Ok(());
-        }
+        self.create_slider_thumb_child_with_window(slider, layout, None)
+    }
+
+    pub(crate) fn create_slider_thumb_child_with_window(
+        &mut self,
+        slider: &Rc<RefCell<GameWindow>>,
+        layout: &WindowLayoutDefinition,
+        window_def: Option<&crate::gui::window_script::WindowDefinition>,
+    ) -> WindowResult<()> {
+        // C++ gogoGadgetSlider always creates a thumb (ENABLED | DRAGABLE).
+        // Prefer per-WINDOW SLIDERTHUMB* draw data; fall back to layout-global.
+        let (enabled, disabled, hilite) = match window_def {
+            Some(window)
+                if !window.slider_thumb_enabled_draw_data.is_empty()
+                    || !window.slider_thumb_disabled_draw_data.is_empty()
+                    || !window.slider_thumb_hilite_draw_data.is_empty() =>
+            {
+                (
+                    window.slider_thumb_enabled_draw_data.as_slice(),
+                    window.slider_thumb_disabled_draw_data.as_slice(),
+                    window.slider_thumb_hilite_draw_data.as_slice(),
+                )
+            }
+            _ => (
+                layout.slider_thumb_enabled_draw_data.as_slice(),
+                layout.slider_thumb_disabled_draw_data.as_slice(),
+                layout.slider_thumb_hilite_draw_data.as_slice(),
+            ),
+        };
 
         let (width, _height) = slider.borrow().get_size();
         let is_horizontal = (slider.borrow().get_style() & GWS_HORZ_SLIDER) != 0;
@@ -327,8 +356,8 @@ impl WindowManager {
         let thumb_y = if is_horizontal { 10 } else { 0 };
 
         let mut status = slider.borrow().get_status();
-        status.remove(WindowStatus::BORDER | WindowStatus::HIDDEN);
-        status.insert(WindowStatus::ACTIVE | WindowStatus::ENABLED | WindowStatus::NO_INPUT);
+        status.remove(WindowStatus::BORDER | WindowStatus::HIDDEN | WindowStatus::NO_INPUT);
+        status.insert(WindowStatus::ACTIVE | WindowStatus::ENABLED | WindowStatus::DRAGABLE);
 
         let thumb_id = generate_window_id();
         let thumb = self.create_window_with_id_internal(
@@ -351,12 +380,7 @@ impl WindowManager {
                 thumb_w as u32,
                 thumb_h as u32,
             )));
-            self.apply_draw_data_set(
-                &mut thumb_mut,
-                &layout.slider_thumb_enabled_draw_data,
-                &layout.slider_thumb_disabled_draw_data,
-                &layout.slider_thumb_hilite_draw_data,
-            );
+            self.apply_draw_data_set(&mut thumb_mut, enabled, disabled, hilite);
             self.apply_default_draw_callback(&mut thumb_mut);
         }
 

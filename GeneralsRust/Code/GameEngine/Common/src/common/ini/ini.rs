@@ -377,6 +377,37 @@ fn parse_key_value_line(line: &str) -> Option<(String, String)> {
     Some((key.to_string(), value))
 }
 
+fn named_property_is_repeatable(key: &str) -> bool {
+    matches!(
+        key.to_ascii_lowercase().as_str(),
+        "weaponbonus" | "scattertarget"
+    )
+}
+
+/// C++ WeaponTemplate field tables append repeated `WeaponBonus` / `ScatterTarget`.
+/// HashMap last-wins would drop Ranger ACR's RATE_OF_FIRE/RANGE lines.
+fn insert_repeatable_named_property(
+    properties: &mut HashMap<String, String>,
+    key: String,
+    value: String,
+) {
+    if !named_property_is_repeatable(&key) {
+        properties.insert(key, value);
+        return;
+    }
+    if !properties.contains_key(&key) {
+        properties.insert(key, value);
+        return;
+    }
+    for index in 1.. {
+        let repeated_key = format!("{}#{}", key, index);
+        if !properties.contains_key(&repeated_key) {
+            properties.insert(repeated_key, value);
+            return;
+        }
+    }
+}
+
 fn parse_named_property_block(ini: &mut INI) -> INIResult<(String, HashMap<String, String>)> {
     let name = ini.get_next_value_token().ok_or(INIError::InvalidData)?;
     if name.trim().is_empty() {
@@ -399,7 +430,7 @@ fn parse_named_property_block(ini: &mut INI) -> INIResult<(String, HashMap<Strin
         }
 
         if let Some((key, value)) = parse_key_value_line(&ini.buffer) {
-            properties.insert(key, value);
+            insert_repeatable_named_property(&mut properties, key, value);
         }
     }
 
@@ -1209,10 +1240,11 @@ impl INI {
 
         // C++ parity: INI.cpp lines 458-463
         // if (s_xfer) { s_xfer->xferUser(m_buffer, sizeof(char) * strlen(m_buffer)); }
+        // Raw buffer bytes, no length prefix (C++ xferUser, not a length-prefixed string).
         if let Some(ref xfer_mutex) = self.xfer {
             if let Ok(mut xfer) = xfer_mutex.lock() {
-                let mut buf = self.buffer.clone();
-                let _ = xfer.xfer_ascii_string(&mut buf);
+                let mut bytes = self.buffer.as_bytes().to_vec();
+                let _ = xfer.xfer_user_bytes(&mut bytes);
             }
         }
 
@@ -2081,6 +2113,53 @@ End
         assert_eq!(
             store.find_template("DuplicatePower").unwrap().power_type,
             SpecialPowerType::DaisyCutter
+        );
+    }
+
+    #[test]
+    fn named_blocks_keep_repeated_weapon_bonus_keys() {
+        let mut ini = INI::new();
+        ini.with_inline_source(
+            "\
+Weapon RangerACR
+  PrimaryDamage = 20
+  WeaponBonus = DRONE_SPOTTING RATE_OF_FIRE 200%
+  WeaponBonus = DRONE_SPOTTING RANGE 200%
+  WeaponBonus = DRONE_SPOTTING DAMAGE 200%
+  ScatterTarget = 0.0 0.0
+  ScatterTarget = 1.0 0.5
+End
+",
+            |ini| {
+                ini.read_line()?;
+                let (_name, properties) = parse_named_property_block(ini)?;
+                assert!(properties.contains_key("WeaponBonus"));
+                assert!(properties.contains_key("WeaponBonus#1"));
+                assert!(properties.contains_key("WeaponBonus#2"));
+                assert!(properties.contains_key("ScatterTarget"));
+                assert!(properties.contains_key("ScatterTarget#1"));
+                assert!(properties.get("WeaponBonus").unwrap().contains("RATE_OF_FIRE"));
+                assert!(properties.get("WeaponBonus#2").unwrap().contains("DAMAGE"));
+                Ok(())
+            },
+        )
+        .expect("parse weapon bonuses");
+    }
+
+    #[test]
+    fn ini_line_crc_uses_raw_buffer_bytes_not_ascii_string() {
+        let impl_src = include_str!("ini.rs")
+            .split("#[cfg(test)]")
+            .next()
+            .unwrap_or("");
+        let crc_block = impl_src
+            .split("s_xfer->xferUser")
+            .nth(1)
+            .and_then(|s| s.split("Get the first token").next())
+            .unwrap_or("");
+        assert!(
+            crc_block.contains("xfer_user_bytes"),
+            "INI deep CRC must hash raw line bytes like C++ xferUser"
         );
     }
 }

@@ -81,8 +81,8 @@ pub fn honesty_new_game_stream_residual_pack_wave167() -> bool {
 
 /// Source residual: engine posts and drains NewGame on the retail path.
 pub fn honesty_new_game_stream_source() -> bool {
-    let src = include_str!("../cnc_game_engine.rs");
-    let q = match src.find("\"queue_new_game\" =>") {
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    let q = match src.find("fn runtime_host_cmd_queue_new_game") {
         Some(i) => i,
         None => return false,
     };
@@ -98,7 +98,7 @@ pub fn honesty_new_game_stream_source() -> bool {
             && src.contains("start_game_from_ui"));
 
     // click_skirmish_start also drains after WND ButtonStart.
-    let s = match src.find("\"click_skirmish_start\" =>") {
+    let s = match src.find("fn runtime_host_cmd_click_skirmish_start") {
         Some(i) => i,
         None => return false,
     };

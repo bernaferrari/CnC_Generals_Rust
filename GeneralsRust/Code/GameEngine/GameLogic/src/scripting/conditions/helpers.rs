@@ -6,8 +6,126 @@ use crate::player::{player_list, Player};
 use crate::scripting::engine::{get_named_object_tracker, get_script_engine};
 use crate::scripting::events::GameEventType;
 use crate::{GameLogicError, GameLogicResult};
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
+
+/// Host-path script query snapshot (IDs/poses only — no crate `Object`).
+#[derive(Debug, Clone, Default)]
+pub struct HostScriptQuerySnapshot {
+    pub named: HashMap<String, u32>,
+    pub team_ids: HashMap<u32, Vec<u32>>,
+    pub objects: Vec<HostScriptQueryObject>,
+    /// Named trigger-area AABBs (min_x, min_z, max_x, max_z). Missing name →
+    /// inside-area cannot be resolved (fail-closed).
+    pub areas: HashMap<String, (f32, f32, f32, f32)>,
+}
+
+#[derive(Debug, Clone)]
+pub struct HostScriptQueryObject {
+    pub id: u32,
+    pub name: String,
+    pub team: u32,
+    pub x: f32,
+    pub z: f32,
+    pub alive: bool,
+}
+
+thread_local! {
+    static HOST_SCRIPT_QUERY: RefCell<HostScriptQuerySnapshot> =
+        RefCell::new(HostScriptQuerySnapshot::default());
+}
+
+/// Inject a read-only host name/team/area query map for crate conditions.
+pub fn set_host_script_query_snapshot(snap: HostScriptQuerySnapshot) {
+    HOST_SCRIPT_QUERY.with(|slot| *slot.borrow_mut() = snap);
+}
+
+pub fn clear_host_script_query_snapshot() {
+    HOST_SCRIPT_QUERY.with(|slot| *slot.borrow_mut() = HostScriptQuerySnapshot::default());
+}
+
+pub fn host_script_named_unit_id(name: &str) -> Option<u32> {
+    if name.is_empty() {
+        return None;
+    }
+    HOST_SCRIPT_QUERY.with(|slot| slot.borrow().named.get(name).copied())
+}
+
+/// True when a host snapshot was injected (any named/team/object/area row).
+pub fn host_script_query_has_any() -> bool {
+    HOST_SCRIPT_QUERY.with(|slot| {
+        let snap = slot.borrow();
+        !snap.named.is_empty() || !snap.objects.is_empty() || !snap.team_ids.is_empty()
+    })
+}
+
+/// Host named-unit aliveness from the snapshot (no crate Object).
+pub fn host_script_named_unit_alive(name: &str) -> Option<bool> {
+    if name.is_empty() {
+        return None;
+    }
+    HOST_SCRIPT_QUERY.with(|slot| {
+        let snap = slot.borrow();
+        snap.objects
+            .iter()
+            .find(|o| o.name == name)
+            .map(|o| o.alive)
+            .or_else(|| snap.named.contains_key(name).then_some(true))
+    })
+}
+
+pub fn host_script_team_unit_ids(team: u32) -> Vec<u32> {
+    HOST_SCRIPT_QUERY.with(|slot| {
+        slot.borrow()
+            .team_ids
+            .get(&team)
+            .cloned()
+            .unwrap_or_default()
+    })
+}
+
+pub fn host_script_area_unit_ids(min_x: f32, min_z: f32, max_x: f32, max_z: f32) -> Vec<u32> {
+    HOST_SCRIPT_QUERY.with(|slot| {
+        slot.borrow()
+            .objects
+            .iter()
+            .filter(|o| {
+                o.alive && o.x >= min_x && o.x <= max_x && o.z >= min_z && o.z <= max_z
+            })
+            .map(|o| o.id)
+            .collect()
+    })
+}
+
+pub fn host_script_named_unit_in_area(name: &str, min_x: f32, min_z: f32, max_x: f32, max_z: f32) -> bool {
+    HOST_SCRIPT_QUERY.with(|slot| {
+        let snap = slot.borrow();
+        snap.objects.iter().any(|o| {
+            o.alive
+                && o.name == name
+                && o.x >= min_x
+                && o.x <= max_x
+                && o.z >= min_z
+                && o.z <= max_z
+        })
+    })
+}
+
+pub fn host_script_area_bounds(area_name: &str) -> Option<(f32, f32, f32, f32)> {
+    if area_name.is_empty() {
+        return None;
+    }
+    HOST_SCRIPT_QUERY.with(|slot| slot.borrow().areas.get(area_name).copied())
+}
+
+/// `Some(true/false)` when `area_name` has host bounds; `None` if geometry is unknown.
+pub fn host_script_named_unit_in_named_area(unit_name: &str, area_name: &str) -> Option<bool> {
+    let (min_x, min_z, max_x, max_z) = host_script_area_bounds(area_name)?;
+    Some(host_script_named_unit_in_area(
+        unit_name, min_x, min_z, max_x, max_z,
+    ))
+}
 
 
 /// Wave 271: host-only path has no dual-world factory objects.

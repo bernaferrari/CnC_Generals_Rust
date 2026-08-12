@@ -94,7 +94,7 @@ pub fn honesty_start_sell_uses_deselect_source() -> bool {
 
 /// Source residual: execute_sell calls start_sell_object.
 pub fn honesty_execute_sell_starts_sell_source() -> bool {
-    let ce = include_str!("../../command_executor.rs");
+    let ce = crate::command_executor::COMMAND_EXECUTOR_SRC;
     let i = match ce.find("fn execute_sell") {
         Some(i) => i,
         None => return false,

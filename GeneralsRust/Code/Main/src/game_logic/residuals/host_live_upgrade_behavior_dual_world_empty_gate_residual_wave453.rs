@@ -124,8 +124,9 @@ fn honesty_one(src: &str, fn_name: &str, expected_return_snip: &str) -> bool {
 /// Source residual: upgrade/behavior empty dual-world short-circuits.
 pub fn honesty_upgrade_behavior_dual_world_empty_gate_source() -> bool {
     let up = include_str!("../../../../GameEngine/GameLogic/src/upgrade/mod.rs");
-    let bi =
-        include_str!("../../../../GameEngine/GameLogic/src/object/behavior/behavior_integration.rs");
+    let bi = include_str!(
+        "../../../../GameEngine/GameLogic/src/object/behavior/behavior_integration.rs"
+    );
     honesty_one(up, "complete_upgrade", "return Ok(())")
         && honesty_one(bi, "create_legacy_adapter", "GameLogicError::Configuration")
 }

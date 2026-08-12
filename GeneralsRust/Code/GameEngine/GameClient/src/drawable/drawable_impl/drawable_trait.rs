@@ -1,10 +1,10 @@
 //! Drawable trait surface plus downcast helpers.
 
 use super::*;
-use std::any::Any;
-use std::error::Error;
 use crate::system::TimeOfDay;
 use game_engine::common::system::Xfer;
+use std::any::Any;
+use std::error::Error;
 
 pub trait DrawableDowncast {
     /// Get a reference to the object as Any for downcasting
@@ -22,7 +22,6 @@ pub trait DrawableExt {
     /// Try to downcast to a specific drawable type (mutable)
     fn downcast_mut<T: 'static>(&mut self) -> Option<&mut T>;
 }
-
 
 /// Main drawable trait that all renderable objects must implement
 pub trait Drawable: std::fmt::Debug + Send + Sync + DrawableDowncast {

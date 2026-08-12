@@ -3,7 +3,6 @@
 use super::super::*;
 use super::helpers::*;
 
-
 #[test]
 fn attack_ground_advances_reload_without_victim() {
     let mut game_logic = GameLogic::new();
@@ -248,8 +247,9 @@ fn projectiles_step_inside_game_logic_update() {
         shock_wave_amount: 0.0,
         shock_wave_radius: 0.0,
         shock_wave_taper_off: 0.0,
-        radius_damage_affects: crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_ENEMIES
-            | crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_NEUTRALS,
+        radius_damage_affects:
+            crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_ENEMIES
+                | crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_NEUTRALS,
         projectile_collides: crate::game_logic::weapon_bootstrap::PROJECTILE_COLLIDE_DEFAULT,
         scatter_radius: 0.0,
         min_weapon_speed: 0.0,
@@ -1134,8 +1134,8 @@ fn combat_kill_spawns_particle_system_registry_entries() {
             mirrored > 0,
             "with game_client, host entries should mirror into client manager"
         );
-        let guard = game_client::effects::get_particle_system_manager()
-            .expect("particle manager readable");
+        let guard =
+            game_client::effects::get_particle_system_manager().expect("particle manager readable");
         let manager = guard.as_ref().expect("manager initialized");
         assert!(
             manager.active_system_count() > 0,
@@ -1762,8 +1762,8 @@ fn carpet_bomb_host_path_queues_and_applies_delayed_line_damage() {
     use crate::command_system::{CommandType, GameCommand, PowerTarget, SpecialPowerType};
     use crate::game_logic::special_power_strikes::{
         carpet_bomb_points, multi_strike_last_impact_frame, ArtilleryBarrageScienceTier,
-        HostStrikePhase, HostSuperweaponKind, CARPET_BOMB_DAMAGE,
-        CARPET_BOMB_DROP_DELAY_FRAMES, CARPET_BOMB_IMPACT_DELAY_FRAMES,
+        HostStrikePhase, HostSuperweaponKind, CARPET_BOMB_DAMAGE, CARPET_BOMB_DROP_DELAY_FRAMES,
+        CARPET_BOMB_IMPACT_DELAY_FRAMES,
     };
 
     let mut game_logic = GameLogic::new();
@@ -2802,8 +2802,7 @@ fn scud_storm_host_path_queues_and_completes() {
 
     // First missile at PreAttackDelay = 90 frames (multi-missile residual).
     use crate::game_logic::special_power_strikes::{
-        multi_strike_last_impact_frame, ArtilleryBarrageScienceTier,
-        SCUD_STORM_PRE_ATTACK_FRAMES,
+        multi_strike_last_impact_frame, ArtilleryBarrageScienceTier, SCUD_STORM_PRE_ATTACK_FRAMES,
     };
     game_logic.frame = SCUD_STORM_PRE_ATTACK_FRAMES;
     game_logic.update_special_power_strikes();
@@ -2998,8 +2997,8 @@ fn particle_cannon_host_path_queues_and_completes() {
 
 fn cleanup_stream_projectile_flies_and_clears() {
     use crate::game_logic::host_cleanup_area::{
-        cleanup_stream_flight_frames, CLEANUP_STREAM_MISSILE_FUEL_FRAMES,
-        HOST_CLEANUP_PROJECTILE, HOST_CLEANUP_PROJECTILE_STREAM,
+        cleanup_stream_flight_frames, CLEANUP_STREAM_MISSILE_FUEL_FRAMES, HOST_CLEANUP_PROJECTILE,
+        HOST_CLEANUP_PROJECTILE_STREAM,
     };
     use crate::game_logic::special_power_strikes::HostSuperweaponKind;
 
@@ -3216,8 +3215,7 @@ fn cleanup_area_residual_clears_hazards_and_mines() {
         "cleanup must queue detox audio"
     );
     assert!(
-        (game_logic.cleanup_areas().activations()[0].radius - HOST_CLEANUP_AREA_RADIUS).abs()
-            < 0.1
+        (game_logic.cleanup_areas().activations()[0].radius - HOST_CLEANUP_AREA_RADIUS).abs() < 0.1
     );
     let _ = ANTHRAX_TOXIN_DAMAGE_PER_TICK;
 }
@@ -3413,8 +3411,7 @@ fn nuclear_missile_host_path_queues_damage_after_delay_and_radiation() {
     }
 
     let enemy_after = game_logic.host_object(enemy_id).map(|o| o.health.current);
-    let enemy_dealt =
-        test_observed_damage_to(enemy_id, health_before, enemy_after.unwrap_or(0.0));
+    let enemy_dealt = test_observed_damage_to(enemy_id, health_before, enemy_after.unwrap_or(0.0));
     assert!(
         enemy_dealt + 0.1 >= health_before
             || enemy_after.is_none()
@@ -3721,4 +3718,3 @@ fn spectre_gunship_host_path_queues_orbit_damage_over_time() {
 
     game_logic.process_destroy_list();
 }
-

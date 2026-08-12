@@ -115,7 +115,7 @@ fn fn_body<'a>(src: &'a str, name: &str) -> Option<&'a str> {
 
 /// Source residual: helpers empty dual-world short-circuits.
 pub fn honesty_helpers_dual_world_empty_gate_source() -> bool {
-    let g = include_str!("../../../../GameEngine/GameLogic/src/helpers.rs");
+    let g = gamelogic::helpers::HELPERS_SRC;
     if !(g.contains("Wave 281")
         && g.contains("fn dual_world_registry_unavailable")
         && g.contains("OBJECT_REGISTRY.is_empty()"))

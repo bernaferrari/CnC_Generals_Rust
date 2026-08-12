@@ -20,7 +20,6 @@ use glam::Vec3;
 use log::{debug, warn};
 use std::collections::{HashMap, HashSet};
 
-
 impl<'a> CommandExecutor<'a> {
     /// C++ AIGroup::groupOverrideSpecialPowerDestination residual.
     pub(crate) fn execute_override_special_power_destination(
@@ -675,7 +674,11 @@ impl<'a> CommandExecutor<'a> {
     }
 
     /// Remote-charge special residual (Burton/Demo Kell): walk + plant remote charge.
-    pub(super) fn queue_special_remote_charge(&mut self, unit_id: ObjectId, target_id: ObjectId) -> bool {
+    pub(super) fn queue_special_remote_charge(
+        &mut self,
+        unit_id: ObjectId,
+        target_id: ObjectId,
+    ) -> bool {
         use crate::game_logic::{AIState, PendingSpecialAbility};
 
         let Some(unit) = self.game_logic.host_object(unit_id) else {
@@ -755,5 +758,4 @@ impl<'a> CommandExecutor<'a> {
         let _ = TNT_START_ABILITY_RANGE;
         true
     }
-
 }

@@ -69,7 +69,7 @@ pub fn residual_host_writeback_skip_pending_shock_disable_repulsor_last_action(
     )
 }
 fn sh_source() -> &'static str {
-    include_str!("../../gameworld_shadow.rs")
+    crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC
 }
 fn shock_log() -> &'static str {
     include_str!("../host_shock_stun_log.rs")

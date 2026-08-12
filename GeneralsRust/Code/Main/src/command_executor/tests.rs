@@ -1,8 +1,7 @@
-
 #[test]
 fn group_move_destinations_spreads_multi_unit() {
     // Wave 955: multi-unit move spreads via group_move_destinations + unit_command_move_free.
-    let src = include_str!("../command_executor.rs");
+    let src = crate::command_executor::COMMAND_EXECUTOR_SRC;
     let prod = src.split("#[cfg(test)]").next().unwrap_or(src);
     assert!(
         prod.contains("fn group_move_destinations")
@@ -275,8 +274,8 @@ fn infantry_group_move_uses_column_pack() {
     assert_eq!(goals.len(), 4);
     // Column pack: goals should not all share the same XZ (lateral spread).
     let zs: Vec<f32> = goals.iter().map(|(_, g)| g.z).collect();
-    let z_span = zs.iter().cloned().fold(f32::MIN, f32::max)
-        - zs.iter().cloned().fold(f32::MAX, f32::min);
+    let z_span =
+        zs.iter().cloned().fold(f32::MIN, f32::max) - zs.iter().cloned().fold(f32::MAX, f32::min);
     assert!(
         z_span > 5.0,
         "infantry column should lateral-spread goals, zs={zs:?}"
@@ -921,8 +920,7 @@ fn special_power_and_command_button_source_object() {
         m.special_power_cooldowns.clear();
     }
     let exec = CommandExecutor::new(&mut logic, 0);
-    let sp =
-        exec.special_power_source_object(&[mover, attacker], &SpecialPowerType::SpySatellite);
+    let sp = exec.special_power_source_object(&[mover, attacker], &SpecialPowerType::SpySatellite);
     assert_eq!(
         sp,
         Some(attacker),
@@ -1125,8 +1123,7 @@ fn special_power_at_location_wrapper() {
             &SpecialPowerType::SpySatellite,
             Vec3::new(100.0, 0.0, 50.0),
         );
-        let _ =
-            exec.execute_special_power_at_object(&[id], &SpecialPowerType::SpySatellite, id);
+        let _ = exec.execute_special_power_at_object(&[id], &SpecialPowerType::SpySatellite, id);
     }
 }
 
@@ -1845,7 +1842,7 @@ fn evacuate_requires_container_not_passenger_only() {
 #[test]
 fn attack_move_uses_assign_unit_path() {
     // Wave 955: attack/force move last-write via GameLogic unit_command_* helpers.
-    let src = include_str!("../command_executor.rs");
+    let src = crate::command_executor::COMMAND_EXECUTOR_SRC;
     let prod = src.split("#[cfg(test)]").next().unwrap_or(src);
     let i = prod.find("fn execute_attack_move").expect("attack_move");
     let w = &prod[i..prod.len().min(i + 1500)];
@@ -1867,7 +1864,7 @@ fn attack_move_uses_assign_unit_path() {
 
 #[test]
 fn path_to_goal_with_state_used_by_guard_scatter_gather() {
-    let src = include_str!("../command_executor.rs");
+    let src = crate::command_executor::COMMAND_EXECUTOR_SRC;
     let prod = src.split("#[cfg(test)]").next().unwrap_or(src);
     assert!(prod.contains("fn path_to_goal_with_state"));
     for name in [
@@ -1897,7 +1894,7 @@ fn path_to_goal_with_state_used_by_guard_scatter_gather() {
 
 #[test]
 fn interaction_commands_pathfind_surface() {
-    let src = include_str!("../command_executor.rs");
+    let src = crate::command_executor::COMMAND_EXECUTOR_SRC;
     let prod = src.split("#[cfg(test)]").next().unwrap_or(src);
     // Production locomotion commands should prefer path_to_goal_with_state.
     assert!(prod.matches("path_to_goal_with_state").count() >= 10);
@@ -1913,7 +1910,7 @@ fn interaction_commands_pathfind_surface() {
 
 #[test]
 fn deploy_style_toggle_residual() {
-    let src = include_str!("../command_executor.rs");
+    let src = crate::command_executor::COMMAND_EXECUTOR_SRC;
     let start = src.find("fn execute_deploy").expect("execute_deploy");
     let body = &src[start..start + 2500];
     assert!(
@@ -1929,7 +1926,7 @@ fn deploy_style_toggle_residual() {
 #[test]
 fn execute_stop_clears_guard_residual() {
     // Wave 955: Stop delegates guard clear to GameLogic::unit_command_stop.
-    let src = include_str!("../command_executor.rs");
+    let src = crate::command_executor::COMMAND_EXECUTOR_SRC;
     let gl = include_str!("../game_logic/game_logic.rs");
     let start = src.find("fn execute_stop").expect("execute_stop");
     let body = &src[start..start + 800];
@@ -1946,8 +1943,7 @@ fn execute_stop_clears_guard_residual() {
         "unit_command_stop must clear guard anchors/targets"
     );
     assert!(
-        src.contains("fn apply_player_stealth_mood_delay")
-            && src.contains("next_mood_check_time"),
+        src.contains("fn apply_player_stealth_mood_delay") && src.contains("next_mood_check_time"),
         "shared stealth mood delay helper must schedule next_mood_check_time"
     );
 }

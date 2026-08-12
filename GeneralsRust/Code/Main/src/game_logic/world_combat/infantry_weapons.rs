@@ -4,7 +4,6 @@
 use super::super::*;
 
 impl GameLogic {
-
     pub fn apply_scud_area_at(
         &mut self,
         impact: Vec3,

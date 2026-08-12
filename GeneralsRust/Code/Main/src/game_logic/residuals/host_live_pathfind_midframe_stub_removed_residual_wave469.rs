@@ -91,7 +91,7 @@ pub fn residual_pathfind_midframe_stub_removed_last_action(
 }
 
 fn cnc_source() -> &'static str {
-    include_str!("../../cnc_game_engine.rs")
+    crate::cnc_game_engine::ENGINE_SRC
 }
 
 fn game_logic_source() -> &'static str {
@@ -99,7 +99,7 @@ fn game_logic_source() -> &'static str {
 }
 
 fn shadow_source() -> &'static str {
-    include_str!("../../gameworld_shadow.rs")
+    crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC
 }
 
 pub fn honesty_pathfind_midframe_stub_removed_method_names_residual_wave469() -> bool {

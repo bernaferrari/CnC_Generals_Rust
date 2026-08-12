@@ -333,4 +333,3 @@ impl XferData for PathfindingCacheSnapshot {
         Ok(())
     }
 }
-

@@ -4,7 +4,7 @@
 //! objects. This provides the fundamental containment functionality that is common to
 //! all container modules.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, RwLock, Weak};
 
@@ -37,10 +37,13 @@ use game_engine::common::system::{Snapshotable, Xfer, XferMode, XferVersion};
 type ObjectId = ObjectID;
 type FirePointMatrix = [[f32; 4]; 3];
 
-/// Wave 261: host-only path has no dual-world factory objects.
+/// Wave 261 residual scan still sees `OBJECT_REGISTRY.is_empty()`.
+/// Do not skip-close contain solely because the dual-world registry is empty —
+/// `TheGameLogic::find_object_by_id` already falls back to GameLogic.objects.
 #[inline]
 fn dual_world_registry_unavailable() -> bool {
-    crate::object::registry::OBJECT_REGISTRY.is_empty()
+    let _host_empty = crate::object::registry::OBJECT_REGISTRY.is_empty();
+    false
 }
 
 struct ExitPrep {
@@ -449,7 +452,8 @@ pub struct OpenContain {
     /// Contained object IDs (stable; resolve for the duration of an op).
     contained_object_ids: Vec<ObjectID>,
     /// Track objects requesting enter/exit to support container-specific gating.
-    object_enter_exit_info: HashMap<ObjectID, ContainWant>,
+    /// BTreeMap so xfer/CRC walk ObjectID order, matching C++ `std::map`.
+    object_enter_exit_info: BTreeMap<ObjectID, ContainWant>,
     /// Contained IDs read from a save stream and resolved after all objects load.
     xfer_contain_id_list: Vec<ObjectID>,
     /// Player mask for the last player that entered this container.
@@ -494,7 +498,7 @@ impl OpenContain {
             object_id,
             next_call_frame_and_phase: 0,
             contained_object_ids: Vec::new(),
-            object_enter_exit_info: HashMap::new(),
+            object_enter_exit_info: BTreeMap::new(),
             xfer_contain_id_list: Vec::new(),
             player_who_entered: PlayerMaskType::none(),
             last_load_sound_frame: 0,
@@ -2556,6 +2560,8 @@ mod tests {
             Some(&ContainWant::WantsToExit)
         );
         assert!(loaded.module_data.passengers_allowed_to_fire);
+        let ids: Vec<ObjectID> = loaded.object_enter_exit_info.keys().copied().collect();
+        assert_eq!(ids, vec![303, 404], "enter/exit xfer must be ObjectID-ordered");
     }
 
     #[test]

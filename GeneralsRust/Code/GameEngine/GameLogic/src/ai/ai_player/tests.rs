@@ -72,7 +72,7 @@
 
     #[test]
     fn team_in_queue_xfer_uses_team_id_like_cpp() {
-        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let src = crate::ai::ai_player::AI_PLAYER_SRC;
         let i = src.find("impl TeamInQueue").unwrap_or(0);
         // Find TeamInQueue::xfer after work orders
         let j = src[i..]
@@ -93,7 +93,7 @@
 
     #[test]
     fn ai_pre_team_destroy_matches_m_team_pointer() {
-        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let src = crate::ai::ai_player::AI_PLAYER_SRC;
         let i = src
             .find("pub fn ai_pre_team_destroy(&mut self, deleted:")
             .expect("aiPreTeamDestroy");
@@ -108,7 +108,7 @@
 
     #[test]
     fn includes_a_dozer_uses_kindof_dozer() {
-        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let src = crate::ai::ai_player::AI_PLAYER_SRC;
         let i = src.find("pub fn includes_a_dozer").expect("includesADozer");
         let window = &src[i..src.len().min(i + 1200)];
         assert!(
@@ -121,7 +121,7 @@
 
     #[test]
     fn is_location_safe_filters_like_cpp() {
-        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let src = crate::ai::ai_player::AI_PLAYER_SRC;
         let i = src.find("pub fn is_location_safe").expect("isLocationSafe");
         let window = &src[i..src.len().min(i + 3500)];
         assert!(
@@ -137,7 +137,7 @@
 
     #[test]
     fn team_in_queue_drop_activates_like_cpp() {
-        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let src = crate::ai::ai_player::AI_PLAYER_SRC;
         assert!(
             src.contains("impl Drop for TeamInQueue")
                 && src.contains("tg.set_active()")
@@ -155,7 +155,7 @@
 
     #[test]
     fn team_in_queue_stores_team_handle_like_cpp() {
-        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let src = crate::ai::ai_player::AI_PLAYER_SRC;
         assert!(
             src.contains("pub team: Option<Arc<RwLock<crate::team::Team>>>"),
             "TeamInQueue must hold m_team handle"
@@ -186,7 +186,7 @@
 
     #[test]
     fn check_ready_teams_execute_actions_uses_team_handle() {
-        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let src = crate::ai::ai_player::AI_PLAYER_SRC;
         let i = src
             .find("pub(crate) fn check_ready_teams")
             .expect("checkReadyTeams");
@@ -271,7 +271,7 @@
 
     #[test]
     fn science_points_early_out_before_skillset_like_cpp() {
-        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let src = crate::ai::ai_player::AI_PLAYER_SRC;
         let i = src
             .find("pub(crate) fn do_upgrades_and_skills")
             .expect("do_upgrades_and_skills");
@@ -296,17 +296,14 @@
 
     #[test]
     fn friend_execute_action_team_scoped_like_cpp() {
-        let eng = include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/src/scripting/engine.rs"
-        ));
+        let eng = crate::scripting::engine::SCRIPT_ENGINE_SRC;
         assert!(
             eng.contains("fn friend_execute_action")
                 && eng.contains("calling_team")
                 && eng.contains("execute_action_chain"),
             "ScriptEngine must expose friend_executeAction with team context"
         );
-        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let src = crate::ai::ai_player::AI_PLAYER_SRC;
         let i = src
             .find("pub(crate) fn check_queued_teams")
             .expect("check_queued_teams");
@@ -327,7 +324,7 @@
 
     #[test]
     fn process_base_building_no_priority_fallback_like_cpp() {
-        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let src = crate::ai::ai_player::AI_PLAYER_SRC;
         let i = src
             .find("fn process_base_building(&mut self)")
             .expect("process_base_building");
@@ -351,7 +348,7 @@
 
     #[test]
     fn is_a_good_idea_checks_m_team_handle_like_cpp() {
-        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let src = crate::ai::ai_player::AI_PLAYER_SRC;
         let i = src
             .find("pub(crate) fn is_a_good_idea_to_build_team")
             .expect("is_a_good_idea");
@@ -366,7 +363,7 @@
 
     #[test]
     fn ai_player_trait_update_order_like_cpp() {
-        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let src = crate::ai::ai_player::AI_PLAYER_SRC;
         let i = src.find("impl AiPlayerTrait for AIPlayer").expect("trait");
         let j = src[i..].find("fn update(&mut self)").expect("update") + i;
         let w = &src[j..src.len().min(j + 600)];
@@ -396,7 +393,7 @@
 
     #[test]
     fn check_queued_teams_no_factory_residual_like_cpp() {
-        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let src = crate::ai::ai_player::AI_PLAYER_SRC;
         let i = src
             .find("pub(crate) fn check_queued_teams")
             .expect("check_queued_teams");
@@ -423,7 +420,7 @@
 
     #[test]
     fn set_ai_difficulty_only_sets_field_like_cpp() {
-        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let src = crate::ai::ai_player::AI_PLAYER_SRC;
         let prod = src
             .split("#[cfg(test)]")
             .next()
@@ -448,7 +445,7 @@
     #[test]
     fn do_upgrades_and_skills_skips_first_two_frames_like_cpp() {
         // C++: if (TheGameLogic->getFrame() < 2) return;
-        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let src = crate::ai::ai_player::AI_PLAYER_SRC;
         let i = src
             .find("pub(crate) fn do_upgrades_and_skills")
             .expect("do_upgrades");
@@ -548,7 +545,7 @@
     fn update_with_frame_source_order_matches_cpp_do_methods() {
         // Source-order honesty: do_base → check_ready → check_queued → do_team
         // (delays are inside do_*, not pre-gated in update_with_frame).
-        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let src = crate::ai::ai_player::AI_PLAYER_SRC;
         let i = src.find("pub fn update_with_frame").expect("uwf");
         let window = &src[i..src.len().min(i + 2800)];
         let base = window.find("self.do_base_building()?").expect("base");
@@ -612,7 +609,7 @@
 
     #[test]
     fn arm_structure_timer_reads_live_aidata_like_cpp() {
-        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let src = crate::ai::ai_player::AI_PLAYER_SRC;
         let i = src
             .find("fn arm_structure_timer_after_build")
             .expect("arm_structure");
@@ -638,7 +635,7 @@
 
     #[test]
     fn process_base_building_source_has_cpp_rebuild_and_timer_arm() {
-        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let src = crate::ai::ai_player::AI_PLAYER_SRC;
         let i = src
             .find("fn process_base_building(&mut self) -> Result<(), AiError>")
             .expect("pbb");
@@ -656,7 +653,7 @@
 
     #[test]
     fn select_team_uses_player_team_list_like_cpp() {
-        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let src = crate::ai::ai_player::AI_PLAYER_SRC;
         for (label, needle) in [
             ("build", "pub(crate) fn select_team_to_build"),
             ("reinforce", "pub(crate) fn select_team_to_reinforce"),
@@ -672,7 +669,7 @@
                 "{label} must not walk global TeamFactory list"
             );
         }
-        let player = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/player.rs"));
+        let player = crate::player::PLAYER_SRC;
         assert!(
             player.contains("pub fn get_player_team_prototypes"),
             "Player must expose getPlayerTeams equivalent"
@@ -681,7 +678,7 @@
 
     #[test]
     fn select_team_to_build_random_hi_pri_surface() {
-        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let src = crate::ai::ai_player::AI_PLAYER_SRC;
         // Anchor on the Result signature so we do not match select_team_to_build_ai.
         let i = src
             .find("fn select_team_to_build(&mut self) -> Result<bool, AiError>")
@@ -727,7 +724,7 @@
     #[test]
     fn is_a_good_idea_requires_idle_factory_like_cpp() {
         // C++ isAGoodIdeaToBuildTeam calls isPossibleToBuildTeam(proto, true, ...)
-        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let src = crate::ai::ai_player::AI_PLAYER_SRC;
         let i = src.find("fn is_a_good_idea_to_build_team").expect("good");
         let window = &src[i..src.len().min(i + 2000)];
         assert!(
@@ -738,7 +735,7 @@
 
     #[test]
     fn is_a_good_idea_calls_evaluate_production_condition() {
-        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let src = crate::ai::ai_player::AI_PLAYER_SRC;
         let i = src.find("fn is_a_good_idea_to_build_team").expect("good");
         let window = &src[i..src.len().min(i + 2200)];
         assert!(
@@ -749,7 +746,7 @@
 
     #[test]
     fn queue_units_prefers_m_team_handle() {
-        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let src = crate::ai::ai_player::AI_PLAYER_SRC;
         let i = src
             .find("pub fn queue_units(&mut self)")
             .expect("queue_units");
@@ -765,7 +762,7 @@
 
     #[test]
     fn queue_units_try_to_recruit_cpp_surface() {
-        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let src = crate::ai::ai_player::AI_PLAYER_SRC;
         // Doc comment sits above the fn signature — include a lookback.
         let i = src
             .find("C++ `AIPlayer::queueUnits`")
@@ -792,7 +789,7 @@
 
     #[test]
     fn is_a_good_idea_drops_factory_lock_before_possible() {
-        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let src = crate::ai::ai_player::AI_PLAYER_SRC;
         let i = src
             .find("pub(crate) fn is_a_good_idea_to_build_team")
             .expect("good idea");
@@ -825,7 +822,7 @@
 
     #[test]
     fn is_possible_to_build_team_avg_cost_cpp_surface() {
-        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let src = crate::ai::ai_player::AI_PLAYER_SRC;
         let i = src
             .find("C++ `AIPlayer::isPossibleToBuildTeam`")
             .expect("isPossible doc");
@@ -850,7 +847,7 @@
 
     #[test]
     fn start_training_queues_create_unit_cpp_surface() {
-        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let src = crate::ai::ai_player::AI_PLAYER_SRC;
         let i = src
             .find("C++ `AIPlayer::startTraining`")
             .expect("startTraining doc");
@@ -866,7 +863,7 @@
 
     #[test]
     fn find_factory_prefers_build_list_cpp_surface() {
-        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let src = crate::ai::ai_player::AI_PLAYER_SRC;
         let i = src
             .find("C++ `AIPlayer::findFactory`")
             .expect("findFactory doc");
@@ -883,7 +880,7 @@
 
     #[test]
     fn on_unit_produced_cpp_surface() {
-        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let src = crate::ai::ai_player::AI_PLAYER_SRC;
         let i = src
             .find("C++ `AIPlayer::onUnitProduced`")
             .expect("onUnitProduced");
@@ -926,7 +923,7 @@
 
     #[test]
     fn build_structure_with_dozer_cpp_surface() {
-        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let src = crate::ai::ai_player::AI_PLAYER_SRC;
         let i = src
             .find("pub fn build_structure_with_dozer")
             .expect("buildStructureWithDozer");
@@ -954,7 +951,7 @@
 
     #[test]
     fn calc_closest_construction_zone_location_cpp_surface() {
-        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let src = crate::ai::ai_player::AI_PLAYER_SRC;
         let prod = src.split("#[cfg(test)]").next().expect("production");
         let i = prod
             .find("pub fn calc_closest_construction_zone_location")
@@ -973,7 +970,7 @@
 
     #[test]
     fn find_valid_build_location_cpp_surface() {
-        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let src = crate::ai::ai_player::AI_PLAYER_SRC;
         let prod = src.split("#[cfg(test)]").next().expect("production");
         let i = prod
             .find("fn find_valid_build_location(")
@@ -992,7 +989,7 @@
 
     #[test]
     fn process_base_building_resumes_dozer_like_cpp() {
-        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let src = crate::ai::ai_player::AI_PLAYER_SRC;
         let i = src
             .find("fn process_base_building(&mut self)")
             .expect("pbb");
@@ -1007,7 +1004,7 @@
 
     #[test]
     fn process_base_building_rebuild_delay_requires_invalid_id() {
-        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let src = crate::ai::ai_player::AI_PLAYER_SRC;
         let i = src
             .find("fn process_base_building(&mut self)")
             .expect("pbb");
@@ -1021,7 +1018,7 @@
 
     #[test]
     fn process_base_building_calls_build_structure_with_dozer() {
-        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let src = crate::ai::ai_player::AI_PLAYER_SRC;
         let i = src.find("fn process_base_building").expect("pbb");
         let window = &src[i..src.len().min(i + 12000)];
         assert!(
@@ -1034,7 +1031,7 @@
 
     #[test]
     fn compute_center_uses_build_list_like_cpp() {
-        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let src = crate::ai::ai_player::AI_PLAYER_SRC;
         let i = src
             .find("pub fn compute_center_and_radius_of_base")
             .expect("compute");
@@ -1051,7 +1048,7 @@
 
     #[test]
     fn on_structure_produced_applies_map_props_and_script() {
-        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let src = crate::ai::ai_player::AI_PLAYER_SRC;
         let i = src
             .find("pub fn on_structure_produced")
             .expect("onStructure");
@@ -1073,7 +1070,7 @@
 
     #[test]
     fn new_map_cpp_surface() {
-        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let src = crate::ai::ai_player::AI_PLAYER_SRC;
         let prod = src
             .split("#[cfg(test)]")
             .next()
@@ -1108,7 +1105,7 @@
 
     #[test]
     fn join_team_reinforcement_calls_join_team_like_cpp() {
-        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let src = crate::ai::ai_player::AI_PLAYER_SRC;
         let i = src
             .find("fn join_team_reinforcement")
             .expect("join_team_reinforcement");
@@ -1145,7 +1142,7 @@
 
     #[test]
     fn build_structure_now_at_cpp_surface() {
-        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let src = crate::ai::ai_player::AI_PLAYER_SRC;
         let i = src
             .find("C++ `AIPlayer::buildStructureNow` (AIPlayer.cpp)")
             .expect("buildStructureNow");
@@ -1165,7 +1162,7 @@
 
     #[test]
     fn check_for_supply_center_cpp_surface() {
-        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let src = crate::ai::ai_player::AI_PLAYER_SRC;
         let i = src
             .find("C++ `AIPlayer::checkForSupplyCenter`")
             .expect("checkForSupplyCenter");
@@ -1181,7 +1178,7 @@
 
     #[test]
     fn queue_supply_truck_cpp_surface() {
-        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let src = crate::ai::ai_player::AI_PLAYER_SRC;
         let prod = src
             .split("#[cfg(test)]")
             .next()
@@ -1223,7 +1220,7 @@
 
     #[test]
     fn find_dozer_cpp_surface() {
-        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let src = crate::ai::ai_player::AI_PLAYER_SRC;
         let i = src.find("C++ `AIPlayer::findDozer`").expect("findDozer");
         let window = &src[i..src.len().min(i + 5000)];
         assert!(
@@ -1239,7 +1236,7 @@
 
     #[test]
     fn compute_superweapon_target_uses_get_extent_and_int_cash() {
-        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let src = crate::ai::ai_player::AI_PLAYER_SRC;
         let i = src
             .find("pub fn compute_superweapon_target")
             .expect("compute_superweapon_target");
@@ -1262,7 +1259,7 @@
             vw.contains("-> Result<i32, AiError>") && vw.contains("Ok(cash as i32)"),
             "getPlayerSuperweaponValue must return Int like C++"
         );
-        let h = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/helpers.rs"));
+        let h = crate::helpers::HELPERS_SRC;
         assert!(
             h.contains("pub fn get_extent(&self)") && h.contains("guard.get_extent()"),
             "TheTerrainLogic must expose get_extent"
@@ -1271,7 +1268,7 @@
 
     #[test]
     fn ai_player_crc_is_empty_like_cpp() {
-        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let src = crate::ai::ai_player::AI_PLAYER_SRC;
         let i = src
             .find("/// C++ `AIPlayer::crc` is empty")
             .expect("crc doc");
@@ -1287,7 +1284,7 @@
 
     #[test]
     fn check_for_supply_center_module_only_like_cpp() {
-        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let src = crate::ai::ai_player::AI_PLAYER_SRC;
         let i = src
             .find("pub fn check_for_supply_center")
             .expect("check_for_supply_center");
@@ -1303,7 +1300,7 @@
 
     #[test]
     fn get_player_structure_bounds_cpp_surface() {
-        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let src = crate::ai::ai_player::AI_PLAYER_SRC;
         let i = src
             .find("pub fn get_player_structure_bounds_ex")
             .expect("bounds_ex");
@@ -1321,7 +1318,7 @@
 
     #[test]
     fn calc_closest_construction_zone_cpp_surface() {
-        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let src = crate::ai::ai_player::AI_PLAYER_SRC;
         let i = src
             .find("C++ `AIPlayer::calcClosestConstructionZoneLocation`")
             .expect("calcClosest");
@@ -1337,7 +1334,7 @@
 
     #[test]
     fn compute_superweapon_target_cpp_surface() {
-        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let src = crate::ai::ai_player::AI_PLAYER_SRC;
         let i = src
             .find("C++ `AIPlayer::computeSuperweaponTarget`")
             .expect("computeSuperweaponTarget");
@@ -1360,7 +1357,7 @@
 
     #[test]
     fn build_upgrade_cpp_surface() {
-        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let src = crate::ai::ai_player::AI_PLAYER_SRC;
         let i = src
             .find("C++ `AIPlayer::buildUpgrade`")
             .expect("buildUpgrade");
@@ -1378,7 +1375,7 @@
 
     #[test]
     fn find_supply_center_cpp_surface() {
-        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let src = crate::ai::ai_player::AI_PLAYER_SRC;
         let prod = src
             .split("#[cfg(test)]")
             .next()
@@ -1414,7 +1411,7 @@
 
     #[test]
     fn build_specific_ai_team_cpp_surface() {
-        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let src = crate::ai::ai_player::AI_PLAYER_SRC;
         let i = src
             .find("C++ `AIPlayer::buildSpecificAITeam`")
             .expect("buildSpecificAITeam");
@@ -1435,7 +1432,7 @@
 
     #[test]
     fn recruit_specific_ai_team_cpp_surface() {
-        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let src = crate::ai::ai_player::AI_PLAYER_SRC;
         let i = src
             .find("C++ `AIPlayer::recruitSpecificAITeam`")
             .expect("recruitSpecificAITeam");
@@ -1464,7 +1461,7 @@
 
     #[test]
     fn build_nearest_team_and_calc_closest_cpp_surface() {
-        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let src = crate::ai::ai_player::AI_PLAYER_SRC;
         let n = src
             .find("C++ `AIPlayer::buildSpecificBuildingNearestTeam`")
             .expect("nearest");
@@ -1489,7 +1486,7 @@
 
     #[test]
     fn solo_base_defense_and_on_structure_cpp_surface() {
-        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let src = crate::ai::ai_player::AI_PLAYER_SRC;
         let d = src
             .find("C++ `AIPlayer::buildAIBaseDefense`")
             .expect("defense");
@@ -1514,7 +1511,7 @@
 
     #[test]
     fn build_paths_use_placement_view_angle_like_cpp() {
-        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let src = crate::ai::ai_player::AI_PLAYER_SRC;
         let i = src
             .find("pub fn build_by_supplies")
             .expect("build_by_supplies");
@@ -1535,7 +1532,7 @@
 
     #[test]
     fn get_skirmish_enemy_player_index_prefers_current_enemy_like_cpp() {
-        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let src = crate::ai::ai_player::AI_PLAYER_SRC;
         let i = src
             .find("fn get_skirmish_enemy_player_index")
             .expect("skirmish enemy");
@@ -1551,7 +1548,7 @@
     #[test]
     fn guard_supply_center_uses_script_cmd_source_like_cpp() {
         // C++ groupGuardPosition(..., GUARDMODE_NORMAL, CMD_FROM_SCRIPT)
-        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let src = crate::ai::ai_player::AI_PLAYER_SRC;
         let i = src
             .find("C++ `AIPlayer::guardSupplyCenter`")
             .expect("guardSupplyCenter");
@@ -1567,7 +1564,7 @@
 
     #[test]
     fn build_by_supplies_cpp_surface() {
-        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let src = crate::ai::ai_player::AI_PLAYER_SRC;
         let prod = src
             .split("#[cfg(test)]")
             .next()
@@ -1601,7 +1598,7 @@
 
     #[test]
     fn repair_structure_and_bridge_cpp_surface() {
-        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let src = crate::ai::ai_player::AI_PLAYER_SRC;
         let r = src
             .find("C++ `AIPlayer::repairStructure`")
             .expect("repairStructure");
@@ -1654,7 +1651,7 @@
 
     #[test]
     fn build_specific_ai_building_solo_is_noop_surface() {
-        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let src = crate::ai::ai_player::AI_PLAYER_SRC;
         let i = src
             .find("C++ `AIPlayer::buildSpecificAIBuilding`")
             .expect("buildSpecificAIBuilding");
@@ -1667,7 +1664,7 @@
 
     #[test]
     fn get_player_superweapon_value_cpp_surface() {
-        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let src = crate::ai::ai_player::AI_PLAYER_SRC;
         let i = src
             .find("C++ `AIPlayer::getPlayerSuperweaponValue`")
             .expect("getPlayerSuperweaponValue");
@@ -1685,7 +1682,7 @@
 
     #[test]
     fn queue_dozer_cpp_surface() {
-        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let src = crate::ai::ai_player::AI_PLAYER_SRC;
         let i = src.find("C++ `AIPlayer::queueDozer`").expect("queueDozer");
         let window = &src[i..src.len().min(i + 4500)];
         assert!(
@@ -1704,7 +1701,7 @@
     #[test]
     fn is_supply_source_attacked_scan_rate_is_10_frames_like_cpp() {
         // C++: const Int SCAN_RATE = 10; added to frame counters (not * LOGICFRAMES).
-        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let src = crate::ai::ai_player::AI_PLAYER_SRC;
         let i = src
             .find("pub fn is_supply_source_attacked")
             .expect("is_supply_source_attacked");
@@ -1719,7 +1716,7 @@
 
     #[test]
     fn supply_source_attacked_safe_guard_cpp_surface() {
-        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let src = crate::ai::ai_player::AI_PLAYER_SRC;
         let a = src
             .find("C++ `AIPlayer::isSupplySourceAttacked`")
             .expect("attacked");
@@ -1755,7 +1752,7 @@
 
     #[test]
     fn dozer_in_queue_uses_includes_a_dozer_like_cpp() {
-        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let src = crate::ai::ai_player::AI_PLAYER_SRC;
         let i = src.find("pub fn dozer_in_queue").expect("dozerInQueue");
         let w = &src[i..src.len().min(i + 500)];
         assert!(
@@ -1779,7 +1776,7 @@
     #[test]
     fn queue_dozer_does_not_set_repair_flag_like_cpp() {
         // C++ queueDozer never sets m_dozerQueuedForRepair (repair path only).
-        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let src = crate::ai::ai_player::AI_PLAYER_SRC;
         let i = src.find("pub(crate) fn queue_dozer").expect("queue_dozer");
         let end = src[i..].find("pub fn dozer_in_queue").unwrap_or(5000);
         let window = &src[i..i + end];
@@ -1812,7 +1809,7 @@
     #[test]
     fn queue_one_harvester_walks_thing_factory_like_cpp() {
         // C++ queueSupplyTruck: tTemplate = firstTemplate(); while (tTemplate) { isKindOf(HARVESTER); tTemplate = friend_getNextTemplate(); }
-        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let src = crate::ai::ai_player::AI_PLAYER_SRC;
         let i = src
             .find("fn queue_one_harvester_at_factory")
             .expect("queue_one_harvester");
@@ -1846,7 +1843,7 @@
 
     #[test]
     fn select_team_to_reinforce_auto_cpp_surface() {
-        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ai/ai_player.rs"));
+        let src = crate::ai::ai_player::AI_PLAYER_SRC;
         let i = src
             .find("fn select_team_to_reinforce(&mut self, min_priority: i32)")
             .expect("reinforce");

@@ -79,7 +79,7 @@ pub fn honesty_live_command_guard_log_residual_pack_wave198() -> bool {
 
 /// Source residual: execute_guard records host_guard_log.
 pub fn honesty_execute_guard_records_source() -> bool {
-    let src = include_str!("../../command_executor.rs");
+    let src = crate::command_executor::COMMAND_EXECUTOR_SRC;
     let i = match src.find("fn execute_guard(") {
         Some(i) => i,
         None => return false,
@@ -104,8 +104,8 @@ pub fn honesty_execute_guard_records_source() -> bool {
 
 /// Source residual: stop/patrol clear guard log; shadow drains it.
 pub fn honesty_shadow_drains_guard_log_source() -> bool {
-    let ce = include_str!("../../command_executor.rs");
-    let gw = include_str!("../../gameworld_shadow.rs");
+    let ce = crate::command_executor::COMMAND_EXECUTOR_SRC;
+    let gw = crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC;
     let stop_i = ce.find("fn execute_stop").unwrap_or(0);
     let stop = &ce[stop_i..ce.len().min(stop_i + 1200)];
     // Wave 232: stop clears guard via unit_command_stop (records host_guard_log).

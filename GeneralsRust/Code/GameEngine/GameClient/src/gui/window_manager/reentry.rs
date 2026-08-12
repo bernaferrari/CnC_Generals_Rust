@@ -1,6 +1,11 @@
 //! Singleton re-entry queue, typed fail-closed payloads, and OS dispatch.
 #![allow(unused_imports)]
 
+use crate::gui::game_window::*;
+use crate::gui::shell::get_shell;
+use crate::gui::w3d_gadget_draw::{
+    w3d_main_menu_button_drop_shadow_draw, w3d_main_menu_random_text_draw,
+};
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, VecDeque};
 use std::fs;
@@ -9,19 +14,20 @@ use std::rc::{Rc, Weak};
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
-use crate::gui::game_window::*;
-use crate::gui::w3d_gadget_draw::{
-    w3d_main_menu_button_drop_shadow_draw, w3d_main_menu_random_text_draw,
-};
-use crate::gui::shell::get_shell;
 
 use super::*;
 
 thread_local! {
     static THE_WINDOW_MANAGER: RefCell<WindowManager> = RefCell::new(WindowManager::new());
-    /// Side-effecting `R = ()` ops enqueued when `with_window_manager` re-enters.
-    /// Flushed by the stack owner after the outer `&mut WindowManager` is the only live mut ref.
+    /// Side-effecting ops queued via [`queue_window_manager_op`] when the singleton
+    /// is already borrowed. Flushed by the stack owner after the outer
+    /// `&mut WindowManager` is the only live mut ref.
     static WINDOW_MANAGER_OP_QUEUE: RefCell<Vec<Box<dyn FnOnce(&mut WindowManager) + 'static>>> =
+        RefCell::new(Vec::new());
+    /// Ops that could not mutate a live window RefCell during drain. Spliced
+    /// into the regular queue at the next `with_window_manager` entry so we
+    /// do not spin the drain loop while the cell is still borrowed.
+    static WINDOW_MANAGER_DEFERRED_OPS: RefCell<Vec<Box<dyn FnOnce(&mut WindowManager) + 'static>>> =
         RefCell::new(Vec::new());
     /// Empty snapshot used when a shared read re-enters while a mutable borrow is live.
     /// Draw helpers (`win_font_height`, `win_draw_image`, …) ignore `self`; lookups fail-closed.
@@ -36,6 +42,45 @@ fn drain_window_manager_ops(manager: &mut WindowManager) {
         }
         for op in ops {
             op(manager);
+        }
+    }
+}
+
+fn splice_deferred_window_manager_ops() {
+    let deferred = WINDOW_MANAGER_DEFERRED_OPS.with(|q| q.replace(Vec::new()));
+    if deferred.is_empty() {
+        return;
+    }
+    WINDOW_MANAGER_OP_QUEUE.with(|queue| queue.borrow_mut().extend(deferred));
+}
+
+/// Queue work for the *next* `with_window_manager` entry, not the in-flight drain.
+/// Used when a window RefCell is still borrowed during drain.
+pub fn queue_window_manager_op_deferred(f: impl FnOnce(&mut WindowManager) + 'static) {
+    WINDOW_MANAGER_DEFERRED_OPS.with(|queue| queue.borrow_mut().push(Box::new(f)));
+}
+
+/// Hide/show without panicking if the window RefCell is already borrowed.
+/// Re-queues until the cell is free (next outer drain), not fail-closed no-op.
+pub fn hide_window_rc(win_rc: &Rc<RefCell<GameWindow>>, hide: bool) {
+    match win_rc.try_borrow_mut() {
+        Ok(mut win) => {
+            let _ = win.hide(hide);
+        }
+        Err(_) => {
+            let win_rc = win_rc.clone();
+            queue_window_manager_op(move |_manager| {
+                if let Ok(mut win) = win_rc.try_borrow_mut() {
+                    let _ = win.hide(hide);
+                } else {
+                    let win_rc = win_rc.clone();
+                    queue_window_manager_op_deferred(move |_manager| {
+                        if let Ok(mut win) = win_rc.try_borrow_mut() {
+                            let _ = win.hide(hide);
+                        }
+                    });
+                }
+            });
         }
     }
 }
@@ -55,15 +100,35 @@ pub fn queue_window_manager_op(f: impl FnOnce(&mut WindowManager) + 'static) {
     });
 }
 
+/// Nested Start / hide-parent create must queue, not fail-closed no-op.
+pub fn queue_create_layout(filename: impl Into<String>) {
+    let filename = filename.into();
+    queue_window_manager_op(move |manager| {
+        let _ = manager.create_layout_with_windows(&filename);
+    });
+}
+
+/// Nested focus during a gadget callback must queue, not fail-closed no-op.
+pub fn queue_set_focus(window: Rc<RefCell<GameWindow>>) {
+    queue_window_manager_op(move |manager| {
+        let _ = manager.set_focus(Some(&window));
+    });
+}
+
 /// Access `TheWindowManager` mutably.
 ///
 /// On re-entry (RefCell already mutably borrowed) this does **not** create an overlapping
-/// `&mut WindowManager` via `as_ptr()`. Unit (`R = ()`) callbacks are enqueued and run
-/// when the outer borrow drains the queue. Non-unit returns are fail-closed (see
-/// [`window_manager_reentry_fallback`]) without running `f`.
-pub fn with_window_manager<R: 'static>(f: impl FnOnce(&mut WindowManager) -> R) -> R {
+/// `&mut WindowManager` via `as_ptr()`. Nested `f` is dropped unrun and the return
+/// value is fail-closed (see [`window_manager_reentry_fallback`]), including `()`.
+///
+/// Side effects that must still run after the outer borrow go through
+/// [`queue_window_manager_op`] with owned (`'static`) command data. That is the
+/// working unit-reentry path: queue, then flush when the outer borrow ends.
+pub fn with_window_manager<R: ReentryFallback>(f: impl FnOnce(&mut WindowManager) -> R) -> R {
     THE_WINDOW_MANAGER.with(|manager| match manager.try_borrow_mut() {
         Ok(mut borrow) => {
+            splice_deferred_window_manager_ops();
+            drain_window_manager_ops(&mut borrow);
             let result = f(&mut borrow);
             drain_window_manager_ops(&mut borrow);
             result
@@ -83,104 +148,107 @@ pub fn with_window_manager_ref<R>(f: impl FnOnce(&WindowManager) -> R) -> R {
     })
 }
 
-fn window_manager_reentry<R: 'static>(f: impl FnOnce(&mut WindowManager) -> R) -> R {
-    use std::any::TypeId;
-    use std::mem;
+/// True when the thread-local WindowManager is not currently mutably borrowed.
+/// Used by MainMenuInit to skip hide/bring-forward work that would stall while
+/// Shell::push still holds the manager.
+pub fn window_manager_try_borrow_free() -> bool {
+    THE_WINDOW_MANAGER.with(|manager| manager.try_borrow_mut().is_ok())
+}
 
-    if TypeId::of::<R>() == TypeId::of::<()>() {
-        // Enqueue the unit op. The stack owner drains this queue before returning
-        // from the outer `with_window_manager` (and after input callbacks).
-        //
-        // SAFETY: `f` is treated as `'static` for TLS storage. Callers that re-enter
-        // with `R = ()` must capture only data that outlives the outer
-        // `with_window_manager` call (owned values / `Rc` / `'static`). `WindowLayout`
-        // helpers clone `Rc`s for this reason. The queue is drained before that outer
-        // call returns to *its* caller.
-        let op: Box<dyn FnOnce(&mut WindowManager) + 'static> = unsafe {
-            mem::transmute::<
-                Box<dyn FnOnce(&mut WindowManager) + '_>,
-                Box<dyn FnOnce(&mut WindowManager) + 'static>,
-            >(Box::new(move |manager| {
-                let _: R = f(manager);
-            }))
-        };
-        WINDOW_MANAGER_OP_QUEUE.with(|queue| queue.borrow_mut().push(op));
-        // SAFETY: `R` is `()` (checked via TypeId).
-        return unsafe { mem::transmute_copy(&()) };
-    }
-
-    // Non-unit re-entry cannot be queued. Drop `f` and return a fail-closed default.
+fn window_manager_reentry<R: ReentryFallback>(f: impl FnOnce(&mut WindowManager) -> R) -> R {
+    // Do not transmute a borrowed closure into the TLS queue. Unit work that
+    // must run after the outer borrow uses [`queue_window_manager_op`].
     drop(f);
     window_manager_reentry_fallback::<R>()
 }
 
-/// Fail-closed values for re-entrant `with_window_manager` when `R != ()`.
+mod reentry_fallback_seal {
+    pub trait Sealed {}
+}
+
+/// Typed fail-closed payload for re-entrant [`with_window_manager`].
 ///
-/// Documented defaults: `false`, `0`, `None`, `WindowInputReturnCode::NotUsed`,
-/// `Err(WindowError::GeneralFailure)`. Unknown `R` panics so we never invent a
-/// bit-pattern for an arbitrary type.
-fn window_manager_reentry_fallback<R: 'static>() -> R {
-    use std::any::TypeId;
-    use std::mem;
+/// Sealed to the known UI return types. There is no `transmute` path: only
+/// types with an explicit impl can be constructed on re-entry.
+pub trait ReentryFallback: Sized + 'static + reentry_fallback_seal::Sealed {
+    fn fallback() -> Option<Self>;
+}
 
-    fn ret_if<R: 'static, T: 'static>(value: T) -> Option<R> {
-        if TypeId::of::<R>() == TypeId::of::<T>() {
-            // SAFETY: TypeId matched, so R == T.
-            Some(unsafe { mem::transmute_copy::<T, R>(&value) })
-        } else {
-            None
-        }
-    }
+macro_rules! impl_reentry_fallback {
+    ($($ty:ty => $value:expr),+ $(,)?) => {
+        $(
+            impl reentry_fallback_seal::Sealed for $ty {}
+            impl ReentryFallback for $ty {
+                fn fallback() -> Option<Self> {
+                    Some($value)
+                }
+            }
+        )+
+    };
+}
 
-    if let Some(v) = ret_if::<R, bool>(false) {
-        return v;
-    }
-    if let Some(v) = ret_if::<R, i32>(0) {
-        return v;
-    }
-    if let Some(v) = ret_if::<R, u32>(0) {
-        return v;
-    }
-    if let Some(v) = ret_if::<R, usize>(0) {
-        return v;
-    }
-    if let Some(v) = ret_if::<R, (i32, i32)>((0, 0)) {
-        return v;
-    }
-    if let Some(v) = ret_if::<R, (u32, u32)>((0, 0)) {
-        return v;
-    }
-    if let Some(v) = ret_if::<R, WindowInputReturnCode>(WindowInputReturnCode::NotUsed) {
-        return v;
-    }
-    if let Some(v) = ret_if::<R, Option<Rc<RefCell<GameWindow>>>>(None) {
-        return v;
-    }
-    if let Some(v) = ret_if::<R, Option<(i32, i32)>>(None) {
-        return v;
-    }
-    if let Some(v) = ret_if::<R, Option<bool>>(None) {
-        return v;
-    }
-    if let Some(v) = ret_if::<R, WindowResult<()>>(Err(WindowError::GeneralFailure)) {
-        return v;
-    }
-    if let Some(v) = ret_if::<R, WindowResult<Rc<RefCell<GameWindow>>>>(Err(
-        WindowError::GeneralFailure,
-    )) {
-        return v;
-    }
-    if let Some(v) = ret_if::<R, WindowResult<(Rc<RefCell<WindowLayout>>, WindowLayoutInfo)>>(Err(
-        WindowError::GeneralFailure,
-    )) {
-        return v;
-    }
+impl_reentry_fallback! {
+    () => (),
+    bool => false,
+    i32 => 0,
+    u32 => 0,
+    usize => 0,
+    (i32, i32) => (0, 0),
+    (u32, u32) => (0, 0),
+    WindowInputReturnCode => WindowInputReturnCode::NotUsed,
+    Option<Rc<RefCell<GameWindow>>> => None,
+    Option<(i32, i32)> => None,
+    Option<bool> => None,
+    Option<String> => None,
+    Option<f32> => None,
+    Option<WindowMsgHandled> => None,
+    (WindowInputReturnCode, WindowInputReturnCode) => {
+        (WindowInputReturnCode::NotUsed, WindowInputReturnCode::NotUsed)
+    },
+    Option<Rc<RefCell<WindowLayout>>> => None,
+    Option<(Rc<RefCell<WindowLayout>>, WindowLayoutInfo)> => None,
+    WindowResult<()> => Err(WindowError::GeneralFailure),
+    WindowResult<Rc<RefCell<GameWindow>>> => Err(WindowError::GeneralFailure),
+    WindowResult<WindowLayoutInfo> => Err(WindowError::GeneralFailure),
+    WindowResult<(Rc<RefCell<WindowLayout>>, WindowLayoutInfo)> => {
+        Err(WindowError::GeneralFailure)
+    },
+}
 
-    panic!(
-        "re-entrant with_window_manager cannot fail-closed a value of type {}; \
-         use a unit callback so the op can be queued",
-        std::any::type_name::<R>()
-    );
+/// Known types that have no safe dummy. Re-entry panics rather than inventing
+/// an `Rc` that is not in the live window tree.
+macro_rules! impl_reentry_fallback_none {
+    ($($ty:ty),+ $(,)?) => {
+        $(
+            impl reentry_fallback_seal::Sealed for $ty {}
+            impl ReentryFallback for $ty {
+                fn fallback() -> Option<Self> {
+                    None
+                }
+            }
+        )+
+    };
+}
+
+impl_reentry_fallback_none! {
+    Rc<RefCell<GameWindow>>,
+    Rc<RefCell<WindowLayout>>,
+    (Rc<RefCell<WindowLayout>>, WindowLayoutInfo),
+}
+
+/// Fail-closed values for re-entrant `with_window_manager`.
+///
+/// Documented defaults: `()`, `false`, `0`, `None`, `WindowInputReturnCode::NotUsed`,
+/// `Err(WindowError::GeneralFailure)`. Types with no dummy (`Rc<…>`) panic so we
+/// never invent a detached window/layout.
+fn window_manager_reentry_fallback<R: ReentryFallback>() -> R {
+    R::fallback().unwrap_or_else(|| {
+        panic!(
+            "re-entrant with_window_manager cannot fail-closed a value of type {}; \
+             use queue_window_manager_op with owned command data",
+            std::any::type_name::<R>()
+        )
+    })
 }
 
 /// OS mouse → `TheWindowManager` hit-test + gadget input.
@@ -214,7 +282,10 @@ pub fn dispatch_os_key_to_window_manager(key: u8, state: u8) -> WindowInputRetur
     }
 }
 
-pub(crate) fn apply_draw_callback_override(window_name: &str, draw: fn(&GameWindow, &WindowInstanceData)) {
+pub(crate) fn apply_draw_callback_override(
+    window_name: &str,
+    draw: fn(&GameWindow, &WindowInstanceData),
+) {
     with_window_manager(|manager| {
         if let Some(window) = manager.find_window_by_name(window_name) {
             window.borrow_mut().set_draw_callback(draw);

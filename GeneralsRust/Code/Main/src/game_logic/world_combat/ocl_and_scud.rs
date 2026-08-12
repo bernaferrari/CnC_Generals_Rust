@@ -4,7 +4,6 @@
 use super::super::*;
 
 impl GameLogic {
-
     pub fn apply_nuke_cannon_primary_at(
         &mut self,
         impact: Vec3,

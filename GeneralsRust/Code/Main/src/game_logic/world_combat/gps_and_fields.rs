@@ -4,7 +4,6 @@
 use super::super::*;
 
 impl GameLogic {
-
     /// Activate GPS Scrambler residual: GrantStealth to ally vehicles/infantry in radius.
     ///
     /// Matches retail SuperweaponGPSScrambler → GPSScrambler_InvisibleMarker:
@@ -1256,5 +1255,4 @@ impl GameLogic {
     pub fn honesty_hero_ability_ok(&self) -> bool {
         self.hero_abilities.honesty_any_ok()
     }
-
 }

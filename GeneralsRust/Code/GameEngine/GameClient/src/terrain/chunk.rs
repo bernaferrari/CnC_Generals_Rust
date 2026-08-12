@@ -299,7 +299,11 @@ impl TerrainChunk {
     pub fn apply_dynamic_lights(&mut self) {
         let lights = scene_dynamic_lights();
         for (i, vertex) in self.vertices.iter_mut().enumerate() {
-            let base = self.base_colors.get(i).copied().unwrap_or([1.0, 1.0, 1.0, 1.0]);
+            let base = self
+                .base_colors
+                .get(i)
+                .copied()
+                .unwrap_or([1.0, 1.0, 1.0, 1.0]);
             let base_packed = rgba_f32_to_bgra_u32(base);
             let xyz = [vertex.position[0], vertex.position[2], vertex.position[1]];
             let normal = [vertex.normal[0], vertex.normal[2], vertex.normal[1]];
@@ -355,7 +359,7 @@ impl TerrainChunk {
         let h10 = self.sample_height_grid(x1, z0); // p1
         let h01 = self.sample_height_grid(x0, z1); // p3
         let h11 = self.sample_height_grid(x1, z1); // p2
-        // Same plane split as HeightMap::get_height_at / C++ fy > fx upper triangle.
+                                                   // Same plane split as HeightMap::get_height_at / C++ fy > fx upper triangle.
         if tz > tx {
             h01 + (1.0 - tz) * (h00 - h01) + tx * (h11 - h01)
         } else {

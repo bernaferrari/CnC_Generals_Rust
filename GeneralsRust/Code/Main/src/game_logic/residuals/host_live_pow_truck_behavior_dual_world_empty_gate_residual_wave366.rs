@@ -116,7 +116,8 @@ fn fn_body<'a>(src: &'a str, name: &str) -> Option<&'a str> {
 
 /// Source residual: POWTruckBehavior empty dual-world short-circuits.
 pub fn honesty_pow_truck_behavior_dual_world_empty_gate_source() -> bool {
-    let g = include_str!("../../../../GameEngine/GameLogic/src/object/behavior/pow_truck_behavior.rs");
+    let g =
+        include_str!("../../../../GameEngine/GameLogic/src/object/behavior/pow_truck_behavior.rs");
     if !(g.contains("Wave 366")
         && g.contains("fn dual_world_registry_unavailable")
         && g.contains("OBJECT_REGISTRY.is_empty()"))

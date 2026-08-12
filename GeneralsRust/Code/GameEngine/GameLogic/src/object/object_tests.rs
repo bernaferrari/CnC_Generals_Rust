@@ -59,7 +59,7 @@ mod tests {
 
     #[test]
     fn object_crc_matches_cpp_object_cpp_field_order() {
-        let src = include_str!("mod.rs");
+        let src = include_str!("object_xfer.rs");
         let crc = src
             .split("impl Snapshot for Object {")
             .nth(1)
@@ -270,6 +270,167 @@ mod tests {
 
         assert_eq!(obj.get_health(), 75.0);
         assert_eq!(obj.get_max_health(), 100.0);
+    }
+
+    #[test]
+    fn init_modules_for_puts_helpers_on_behaviors_before_template_modules() {
+        let mut obj = Object::new_test(0xBEEF, 100.0);
+        let names: Vec<String> = obj
+            .get_behavior_modules()
+            .into_iter()
+            .map(|module| {
+                module
+                    .lock()
+                    .map(|g| g.get_module_name().to_string())
+                    .unwrap_or_default()
+            })
+            .collect();
+        assert!(
+            names.len() >= 3,
+            "ctor helpers must appear on get_behavior_modules(): {names:?}"
+        );
+        assert_eq!(names[0], "ObjectSMCHelper");
+        assert_eq!(names[1], "StatusDamageHelper");
+        assert_eq!(names[2], "SubdualDamageHelper");
+        assert!(obj.has_ctor_helpers());
+    }
+
+    #[test]
+    fn object_xfer_routes_through_body_snapshot_and_helpers() {
+        use game_engine::system::xfer_load::XferLoad;
+        use game_engine::system::xfer_save::XferSave;
+        use std::io::Cursor;
+
+        let mut saved = Object::new_test(42, 100.0);
+        assert!(saved.set_health(55.0).is_ok());
+        if let Some(helper) = saved.status_damage_helper() {
+            if let Ok(mut guard) = helper.lock() {
+                guard.set_frame_to_heal_for_test(77);
+            }
+        }
+
+        let mut bytes = Vec::new();
+        {
+            let cursor = Cursor::new(&mut bytes);
+            let mut save = XferSave::new(cursor, 1);
+            saved.xfer(&mut save);
+        }
+
+        let mut loaded = Object::new_test(1, 100.0);
+        {
+            let cursor = Cursor::new(&bytes);
+            let mut load = XferLoad::new(cursor, 1);
+            loaded.xfer(&mut load);
+        }
+
+        assert_eq!(loaded.get_id(), 42);
+        assert!(
+            (loaded.get_health() - 55.0).abs() < 0.01,
+            "body Snapshot must restore HP, got {}",
+            loaded.get_health()
+        );
+        let heal_frame = loaded
+            .status_damage_helper()
+            .and_then(|h| h.lock().ok().map(|g| g.get_frame_to_heal()))
+            .unwrap_or(0);
+        assert_eq!(heal_frame, 77, "StatusDamageHelper must xfer with Object");
+    }
+
+    #[test]
+    fn destroy_walks_get_behavior_modules() {
+        let obj = Object::new_test(99, 100.0);
+        let modules = obj.get_behavior_modules();
+        assert!(
+            !modules.is_empty(),
+            "destroyObject walks get_behavior_modules(); list must not be empty"
+        );
+        for module in modules {
+            let mut guard = module.lock().expect("behavior lock");
+            let _ = guard.get_destroy();
+            let _ = guard.get_damage();
+        }
+    }
+
+    #[test]
+    fn set_status_under_construction_and_stealth_match_cpp_side_effects() {
+        let src = include_str!("object_status.rs");
+        assert!(
+            src.contains("get_shroud_reveal_to_all_range() > 0.0"),
+            "stealth partition only if reveal-to-all > 0"
+        );
+        assert!(
+            src.contains("iterate_potential_collisions"),
+            "UnderConstruction must use potential-collision iterate"
+        );
+        assert!(
+            src.contains("destroy_object_by_id"),
+            "allies/neutrals are destroyed silently"
+        );
+        assert!(
+            src.contains("Relationship::Allies | Relationship::Neutral"),
+            "allies and neutrals share silent destroy"
+        );
+
+        let mut obj = Object::new_test(0x51A1, 100.0);
+        assert!(!obj.test_status(ObjectStatusTypes::UnderConstruction));
+        obj.set_status(ObjectStatusTypes::UnderConstruction.into(), true);
+        assert!(obj.test_status(ObjectStatusTypes::UnderConstruction));
+        obj.set_status(ObjectStatusTypes::Stealthed.into(), true);
+        assert!(obj.test_status(ObjectStatusTypes::Stealthed));
+        assert!(
+            obj.get_template().get_shroud_reveal_to_all_range() <= 0.0,
+            "default test template has no reveal-to-all"
+        );
+    }
+
+    #[test]
+    fn destroy_tail_runs_radar_team_group_pathfinder_script_control_bar() {
+        let src = include_str!("object_lifecycle.rs");
+        let tail = src
+            .split("fn run_destructor_tail")
+            .nth(1)
+            .expect("run_destructor_tail");
+        assert!(tail.contains("remove_object_from_map"), "pathfinder/wall");
+        assert!(tail.contains("remove_object"), "radar remove");
+        assert!(tail.contains("set_team(None)"), "team clear");
+        assert!(tail.contains("group_guard.remove"), "group remove");
+        assert!(
+            tail.contains("notify_of_object_destruction")
+                && tail.contains("notify_of_object_creation_or_destruction"),
+            "script notify"
+        );
+        assert!(tail.contains("mark_ui_dirty"), "ControlBar dirty");
+        assert!(src.contains("self.run_destructor_tail()"));
+
+        let mut obj = Object::new_test(0xD151, 100.0);
+        obj.on_destroy();
+        assert!(obj.is_destroyed());
+        assert!(obj.get_group_id().is_none());
+        assert!(obj.get_team().is_none());
+    }
+
+    #[test]
+    fn contain_production_do_not_skip_close_on_empty_registry() {
+        let open = include_str!("contain/open_contain.rs");
+        assert!(open.contains("OBJECT_REGISTRY.is_empty()"));
+        assert!(
+            open.contains("let _host_empty") && open.contains("false"),
+            "open contain must not skip-close solely because registry is empty"
+        );
+
+        let prod = include_str!("production/production_update_complete.rs");
+        assert!(prod.contains("OBJECT_REGISTRY.is_empty()"));
+        assert!(
+            prod.contains("let _host_empty") && prod.contains("false"),
+            "production must not skip-close solely because registry is empty"
+        );
+
+        let modules = include_str!("object_modules.rs");
+        assert!(
+            modules.contains("ModuleInterfaceType::DESTROY")
+                && modules.contains("ModuleInterfaceType::DAMAGE"),
+            "TemplateModuleBehavior must advertise destroy/damage from the module mask"
+        );
     }
 
     #[test]
@@ -549,18 +710,49 @@ mod tests {
 
     #[test]
     fn test_object_creation() {
-        // Test object creation
-        // This would require mock implementations of dependencies
+        let obj = Object::new_test(1, 100.0);
+        assert_eq!(obj.get_id(), 1);
+        assert_eq!(obj.get_health(), 100.0);
+        assert!(!obj.is_effectively_dead());
+        assert!(!obj.is_destroyed());
     }
 
     #[test]
     fn test_status_management() {
-        // Test status bit management
+        let mut obj = Object::new_test(2, 100.0);
+        assert!(!obj.test_status(ObjectStatusTypes::Stealthed));
+        obj.set_status(ObjectStatusTypes::Stealthed.into(), true);
+        assert!(obj.test_status(ObjectStatusTypes::Stealthed));
+        obj.set_status(ObjectStatusTypes::UnderConstruction.into(), true);
+        assert!(obj.test_status(ObjectStatusTypes::UnderConstruction));
+        obj.set_status(ObjectStatusTypes::Stealthed.into(), false);
+        assert!(!obj.test_status(ObjectStatusTypes::Stealthed));
+        assert!(obj.test_status(ObjectStatusTypes::UnderConstruction));
     }
 
     #[test]
     fn test_weapon_management() {
-        // Test weapon system
+        use crate::weapon::{
+            WeaponLockType, WeaponSetType, WeaponSlotType, WeaponTemplate, WeaponTemplateSet,
+        };
+
+        let mut obj = Object::new_test(3, 100.0);
+        obj.set_weapon_set_flag(WeaponSetType::Veteran);
+        assert!(obj.test_weapon_set_flag(WeaponSetType::Veteran));
+
+        let mut weapon_template = WeaponTemplate::new("TestPrimarySlot".to_string());
+        weapon_template.attack_range = 150.0;
+        let mut template_set = WeaponTemplateSet::new();
+        template_set.set_weapon_template(WeaponSlotType::Primary, Arc::new(weapon_template));
+        obj.weapon_set.add_weapon_template_set(template_set);
+        obj.weapon_set
+            .update_weapon_set(obj.get_id(), &crate::weapon::WeaponSetFlags::new())
+            .expect("install primary weapon slot");
+
+        assert!(obj.get_weapon_in_slot(WeaponSlotType::Primary).is_some());
+        assert!(obj.get_weapon_in_slot(WeaponSlotType::Secondary).is_none());
+        obj.set_weapon_lock(WeaponSlotType::Primary, WeaponLockType::LockedPermanently);
+        assert!(obj.is_cur_weapon_locked());
     }
 
     #[test]

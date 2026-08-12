@@ -90,7 +90,7 @@ pub fn honesty_live_construct_spawn_pose_authority_api_residual_pack_wave227() -
 /// Source residual: spawn pose + object_is_alive; engine has no `.get_object(`.
 pub fn honesty_construct_spawn_pose_authority_api_source() -> bool {
     let gl = include_str!("../game_logic.rs");
-    let eng = include_str!("../../cnc_game_engine.rs");
+    let eng = crate::cnc_game_engine::ENGINE_SRC;
     gl.contains("pub fn object_is_alive")
         && gl.contains("pub fn object_position")
         && gl.contains("Wave 227")

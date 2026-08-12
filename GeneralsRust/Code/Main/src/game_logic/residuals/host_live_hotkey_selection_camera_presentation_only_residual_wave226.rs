@@ -86,7 +86,7 @@ pub fn honesty_live_hotkey_selection_camera_presentation_only_residual_pack_wave
 
 /// Source residual: three hotkey helpers presentation-first.
 pub fn honesty_hotkey_selection_camera_presentation_only_source() -> bool {
-    let eng = include_str!("../../cnc_game_engine.rs");
+    let eng = crate::cnc_game_engine::ENGINE_SRC;
     let checks = [
         (
             "fn update_camera_tracking_drawable",

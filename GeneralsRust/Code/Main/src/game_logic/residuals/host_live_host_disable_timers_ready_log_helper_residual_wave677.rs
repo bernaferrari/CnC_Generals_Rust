@@ -67,7 +67,7 @@ fn gl_source() -> &'static str {
     include_str!("../game_logic.rs")
 }
 fn shadow_source() -> &'static str {
-    include_str!("../../gameworld_shadow.rs")
+    crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC
 }
 fn ready_log_source() -> &'static str {
     include_str!("../host_disable_timers_ready_log.rs")

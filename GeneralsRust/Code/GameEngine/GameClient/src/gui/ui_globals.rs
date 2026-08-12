@@ -5,14 +5,16 @@
 //! thread safety. The UI draw path used to stash a TLS `*mut UIRenderer` while
 //! an outer write guard was live; that aliases `&mut UIRenderer`.
 //!
-//! Re-entry protocol:
-//! - `set_active_ui_renderer(Some(_))` sets a **non-aliased in-draw flag only**
-//!   (the pointer is not stored).
-//! - While the flag is set, `with_ui_renderer_mut` does not take another write
-//!   guard and does not reconstruct `&mut UIRenderer` from a raw pointer.
-//!   Unit (`R = ()`) ops are queued; valued calls fail-closed as `None`.
-//! - The stack owner flushes the queue the next time it holds a unique
-//!   `&mut UIRenderer` (`set_active_ui_renderer(Some)` or a successful write).
+//! Draw protocol (no aliasing, no no-op):
+//! - Frame owners (`flush_ui_to_frame`, Display UI pass) must **drop** the
+//!   `RwLock` write guard before `wm.draw_all()`. Gadget WND callbacks then
+//!   call [`with_ui_renderer_mut`] and successfully `try_write()` the same
+//!   renderer, recording real draw commands.
+//! - Do **not** hold a write guard across `draw_all` and do **not** set the
+//!   in-draw flag around it. That combination discarded nested draws.
+//! - If a write guard is already live, [`with_ui_renderer_mut`] fail-closes
+//!   valued calls and does not transmute borrowed closures into the TLS queue.
+//!   Owned `'static` unit work goes through [`queue_ui_renderer_op`].
 
 use std::cell::{Cell, RefCell};
 use std::sync::{Arc, OnceLock, RwLock};
@@ -54,15 +56,64 @@ fn drain_ui_renderer_ops(renderer: &mut UIRenderer) {
     }
 }
 
+/// Clears `UI_DRAW_ACTIVE` on drop, including panic unwind.
+struct UiDrawActiveGuard;
+
+impl UiDrawActiveGuard {
+    fn enter() -> Self {
+        UI_DRAW_ACTIVE.with(|flag| flag.set(true));
+        Self
+    }
+}
+
+impl Drop for UiDrawActiveGuard {
+    fn drop(&mut self) {
+        UI_DRAW_ACTIVE.with(|flag| flag.set(false));
+    }
+}
+
+/// Queue a `'static` UI-renderer side effect.
+///
+/// Runs immediately when the write lock is free; otherwise runs the next time
+/// a unique `&mut UIRenderer` is held (`set_active_ui_renderer(Some)` or a
+/// successful [`with_ui_renderer_mut`] write).
+pub fn queue_ui_renderer_op(f: impl FnOnce(&mut UIRenderer) + 'static) {
+    if ui_draw_active() {
+        UI_RENDERER_OP_QUEUE.with(|queue| queue.borrow_mut().push(Box::new(f)));
+        return;
+    }
+    let queued = with_ui_renderer(|arc| match arc.try_write() {
+        Ok(mut guard) => {
+            let _draw = UiDrawActiveGuard::enter();
+            f(&mut guard);
+            drain_ui_renderer_ops(&mut guard);
+            false
+        }
+        Err(std::sync::TryLockError::WouldBlock) => {
+            UI_RENDERER_OP_QUEUE.with(|queue| queue.borrow_mut().push(Box::new(f)));
+            true
+        }
+        Err(std::sync::TryLockError::Poisoned(poisoned)) => {
+            let mut guard = poisoned.into_inner();
+            let _draw = UiDrawActiveGuard::enter();
+            f(&mut guard);
+            drain_ui_renderer_ops(&mut guard);
+            false
+        }
+    });
+    // Renderer unset: nothing to draw into. Drop `f` with the unused closure.
+    let _ = queued;
+}
+
 /// Set the active-UI-draw flag during draw traversal.
 ///
-/// Call with `Some(&mut *renderer)` before entering `wm.draw_all()` if the
-/// caller will keep a write guard live across gadget callbacks. Only a
-/// boolean is stored — the `&mut UIRenderer` is **not** retained.
+/// **Do not use this around `wm.draw_all()`.** Gadget callbacks submit drawing
+/// through [`with_ui_renderer_mut`]; they need to acquire the write lock
+/// themselves. Holding a write guard and setting this flag discards those
+/// nested draws (zero commands).
 ///
-/// Passing `Some` also flushes any ops queued by a previous nested
-/// `with_ui_renderer_mut` onto `renderer`.
-/// Call with `None` after draw_all completes.
+/// Passing `Some` flushes any ops queued by [`queue_ui_renderer_op`].
+/// Call with `None` to clear the flag.
 pub fn set_active_ui_renderer(renderer: Option<&mut UIRenderer>) {
     match renderer {
         Some(renderer) => {
@@ -80,27 +131,10 @@ fn ui_draw_active() -> bool {
 }
 
 fn enqueue_ui_renderer_unit_op<R: 'static>(f: impl FnOnce(&mut UIRenderer) -> R) -> Option<R> {
-    use std::any::TypeId;
-    use std::mem;
-
-    if TypeId::of::<R>() != TypeId::of::<()>() {
-        // Valued nested calls cannot be queued. Fail-closed.
-        drop(f);
-        return None;
-    }
-
-    // SAFETY: same scoped-queue invariant as `with_window_manager`: the stack
-    // owner drains before returning to *its* caller. Unit UI draw callbacks
-    // that capture short-lived borrows must be `'static` (owned rects / `Arc`s).
-    let op: Box<dyn FnOnce(&mut UIRenderer) + 'static> = unsafe {
-        mem::transmute::<
-            Box<dyn FnOnce(&mut UIRenderer) + '_>,
-            Box<dyn FnOnce(&mut UIRenderer) + 'static>,
-        >(Box::new(move |renderer| {
-            let _: R = f(renderer);
-        }))
-    };
-    UI_RENDERER_OP_QUEUE.with(|queue| queue.borrow_mut().push(op));
+    // Nested draw work that captures `&GameWindow` is not `'static`. Do not
+    // transmute it into the TLS queue. Frame owners must drop the write guard
+    // before `draw_all` so this path is not taken for gadget draws.
+    drop(f);
     None
 }
 
@@ -132,10 +166,9 @@ where
             }
             Err(std::sync::TryLockError::Poisoned(poisoned)) => poisoned.into_inner(),
         };
-        UI_DRAW_ACTIVE.with(|flag| flag.set(true));
+        let _draw = UiDrawActiveGuard::enter();
         let result = f(&mut guard);
         drain_ui_renderer_ops(&mut guard);
-        UI_DRAW_ACTIVE.with(|flag| flag.set(false));
         Some(result)
     })?
 }
@@ -193,7 +226,7 @@ mod tests {
     }
 
     #[test]
-    fn with_ui_renderer_mut_queues_unit_op_when_draw_active() {
+    fn with_ui_renderer_mut_fail_closed_unit_op_when_draw_active() {
         set_ui_draw_active_for_test(true);
         let ran = Cell::new(false);
         let queued = with_ui_renderer_mut(|_| {
@@ -202,10 +235,55 @@ mod tests {
         assert!(queued.is_none());
         assert!(
             !ran.get(),
-            "unit op is queued, not executed under the live outer write"
+            "non-'static nested unit op must not run under a live outer write"
         );
         let queued_len = UI_RENDERER_OP_QUEUE.with(|queue| queue.borrow().len());
         set_ui_draw_active_for_test(false);
-        assert_eq!(queued_len, 1);
+        assert_eq!(
+            queued_len, 0,
+            "borrowed closures must not be transmuted into the TLS queue"
+        );
+    }
+
+    #[test]
+    fn with_ui_renderer_mut_clears_draw_active_after_panic() {
+        set_active_ui_renderer(None);
+        // No renderer: with_ui_renderer_mut returns None without setting the flag.
+        // Simulate the write-held path via the guard used by the live function.
+        let panicked = std::panic::catch_unwind(|| {
+            let _draw = UiDrawActiveGuard::enter();
+            assert!(ui_draw_active());
+            panic!("callback boom");
+        });
+        assert!(panicked.is_err());
+        assert!(
+            !ui_draw_active(),
+            "panic in a draw callback must clear UI_DRAW_ACTIVE"
+        );
+    }
+
+    #[test]
+    fn display_ui_pass_drops_write_lock_before_draw_all() {
+        let src = include_str!("../display/display.rs");
+        assert!(
+            !src.contains("*mut UIRenderer"),
+            "must not reintroduce TLS *mut UIRenderer"
+        );
+        let begin = src
+            .find("renderer.begin_frame()")
+            .expect("display UI pass must begin_frame");
+        let draw = src
+            .find("manager.draw_all()")
+            .expect("display UI pass must call draw_all");
+        assert!(begin < draw, "begin_frame must precede draw_all");
+        let between = &src[begin..draw];
+        assert!(
+            between.contains('}'),
+            "UI write lock must drop before wm.draw_all()"
+        );
+        assert!(
+            !between.contains("set_active_ui_renderer(Some"),
+            "must not hold in-draw flag across draw_all"
+        );
     }
 }

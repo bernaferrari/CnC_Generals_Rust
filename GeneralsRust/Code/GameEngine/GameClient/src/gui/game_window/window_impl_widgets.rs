@@ -34,7 +34,10 @@ impl GameWindow {
         entry.set_text(combo.text());
     }
 
-    pub(crate) fn combo_box_dropdown_visible_count(entry_count: usize, max_display: usize) -> usize {
+    pub(crate) fn combo_box_dropdown_visible_count(
+        entry_count: usize,
+        max_display: usize,
+    ) -> usize {
         if max_display > 0 {
             entry_count.min(max_display)
         } else {
@@ -42,7 +45,11 @@ impl GameWindow {
         }
     }
 
-    pub(crate) fn combo_box_dropdown_height(entry_count: usize, max_display: usize, font_height: i32) -> i32 {
+    pub(crate) fn combo_box_dropdown_height(
+        entry_count: usize,
+        max_display: usize,
+        font_height: i32,
+    ) -> i32 {
         let visible = Self::combo_box_dropdown_visible_count(entry_count, max_display);
         (font_height.max(0) * visible as i32) + (visible as i32 * 2) + 4
     }

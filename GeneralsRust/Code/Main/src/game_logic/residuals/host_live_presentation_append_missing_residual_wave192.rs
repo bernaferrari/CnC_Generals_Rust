@@ -84,7 +84,7 @@ pub fn honesty_live_presentation_append_missing_residual_pack_wave192() -> bool 
 
 /// Source residual: sparse builder + append API exist on PresentationFrame.
 pub fn honesty_append_missing_api_source() -> bool {
-    let src = include_str!("../../presentation_frame.rs");
+    let src = crate::presentation_frame::PRESENTATION_FRAME_SRC;
     src.contains("pub fn renderable_from_gameworld_entity")
         && src.contains("pub fn append_missing_from_gameworld")
         && src.contains("pub gameworld_appended: usize")
@@ -93,11 +93,12 @@ pub fn honesty_append_missing_api_source() -> bool {
 
 /// Source residual: engine calls append after overlay on seed paths.
 pub fn honesty_engine_append_after_overlay_source() -> bool {
-    let src = include_str!("../../cnc_game_engine.rs");
+    let src = crate::cnc_game_engine::ENGINE_SRC;
     // Wave 195: append/rebuild folded into build_for_engine helpers.
     (src.contains("build_for_engine(") || src.contains("build_with_victory_for_engine("))
         && src.contains("gameworld_appended")
-        && include_str!("../../presentation_frame.rs").contains("append_missing_from_gameworld")
+        && crate::presentation_frame::PRESENTATION_FRAME_SRC
+            .contains("append_missing_from_gameworld")
 }
 
 /// Live residual: append creates a frame object for a shadow-only entity.

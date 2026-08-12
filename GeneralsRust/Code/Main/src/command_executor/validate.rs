@@ -20,7 +20,6 @@ use glam::Vec3;
 use log::{debug, warn};
 use std::collections::{HashMap, HashSet};
 
-
 impl<'a> CommandExecutor<'a> {
     pub(super) fn validate_target_exists(&self, target_id: ObjectId) -> bool {
         self.game_logic.host_object(target_id).is_some()
@@ -155,5 +154,4 @@ impl<'a> CommandExecutor<'a> {
 
         true
     }
-
 }

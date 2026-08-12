@@ -1,6 +1,10 @@
 //! Snapshot save/load residual tests.
 
 use super::*;
+use crate::game_logic::{
+    AIState, Experience, GameLogic, HostStrikePhase, HostSuperweaponKind, KindOf, Object, ObjectId,
+    Player, Team, ThingTemplate, VeterancyLevel, Weapon,
+};
 use glam::Vec3;
 
 #[test]
@@ -1061,8 +1065,11 @@ fn host_upgrade_capture_mid_flight_save_load_completes_unlock() {
     let barracks_id = source
         .create_object("TestBarracks", Team::USA, Vec3::new(-50.0, 0.0, 0.0))
         .expect("barracks");
+    // Stand outside the barracks/building static path footprint so post-load
+    // CaptureBuilding can A* (same live gap as 12-unit spawn sitting inside
+    // the structure block). Upgrade residual is what this test persists.
     let captor_id = source
-        .create_object("TestInfantry", Team::USA, Vec3::new(12.0, 0.0, 0.0))
+        .create_object("TestInfantry", Team::USA, Vec3::new(80.0, 0.0, 0.0))
         .expect("captor");
     let building_id = source
         .create_object("TestBuilding", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
@@ -1325,4 +1332,75 @@ fn drawable_camo_stealth_look_snapshot_residual_wave79() {
     assert!(obj.status.stealthed);
     assert!(obj.status.detected);
     assert!(honesty_drawable_residual_fields_wave79_ok());
+}
+
+/// Popup and host write the same Common CHUNK_*.sav tokens. Load restores
+/// into the store `host_authoritative_*` reads.
+#[test]
+fn popup_and_host_write_common_sav_chunks_and_restore_authority() {
+    use crate::save_load::{GameDifficulty, SaveFileManager, SaveFileType, SaveGameInfo};
+    use std::fs;
+    use std::time::{Duration, SystemTime};
+
+    let save_dir = tempfile::TempDir::new().expect("temp save dir");
+    let mut manager = SaveFileManager::with_save_directory(save_dir.path());
+    manager.init().expect("init");
+
+    let mut source = GameLogic::new();
+    let mut template = ThingTemplate::new("AuthTank");
+    template
+        .add_kind_of(KindOf::Vehicle)
+        .set_health(200.0);
+    source.templates.insert("AuthTank".into(), template);
+    source.add_player(Player::new(1, Team::USA, "P1", true));
+    let id = source
+        .create_object("AuthTank", Team::USA, Vec3::new(12.0, 0.0, 8.0))
+        .expect("create");
+    {
+        let obj = source.host_object_mut(id).expect("obj");
+        obj.health.current = 77.0;
+        obj.health.maximum = 200.0;
+    }
+
+    let info = SaveGameInfo {
+        filename: "auth_rt".to_string(),
+        display_name: "Auth".to_string(),
+        description: "host authoritative restore".to_string(),
+        map_name: "AuthMap".to_string(),
+        campaign_side: None,
+        mission_number: None,
+        save_date: SystemTime::now(),
+        game_version: env!("CARGO_PKG_VERSION").to_string(),
+        play_time: Duration::from_secs(0),
+        difficulty: GameDifficulty::Medium,
+        save_type: SaveFileType::Normal,
+    };
+    manager
+        .save_game("auth_rt", &source, &info)
+        .expect("save");
+
+    let path = manager.get_save_path("auth_rt");
+    assert!(
+        path.extension().and_then(|e| e.to_str()) == Some("sav"),
+        "host must write .sav like Popup"
+    );
+    let bytes = fs::read(&path).expect("read sav");
+    let text = String::from_utf8_lossy(&bytes);
+    assert!(
+        text.contains("CHUNK_GameState") && text.contains("CHUNK_GameLogic") && text.contains("SG_EOF"),
+        "host file must use the same Common .sav chunk tokens as Popup"
+    );
+
+    let mut loaded = GameLogic::new();
+    loaded.templates = source.templates.clone();
+    manager.load_game("auth_rt", &mut loaded).expect("load");
+
+    let hp = loaded
+        .host_authoritative_health(id)
+        .expect("authoritative HP");
+    assert!((hp - 77.0).abs() < 0.01, "restored HP must be host_authoritative, got {hp}");
+    let pose = loaded
+        .host_authoritative_pose(id)
+        .expect("authoritative pose");
+    assert!((pose[0] - 12.0).abs() < 0.01 && (pose[2] - 8.0).abs() < 0.01);
 }

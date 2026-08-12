@@ -22,7 +22,9 @@ Main `GameLogic` object map access:
 
 | API | Role |
 |-----|------|
-| `host_object` / `host_objects` / `host_object_mut` | **Canonical** — reads `self.objects` directly |
+| `host_object` / `host_objects` | **ID roster / view** — `self.objects.get`; HP/pose/target use `host_authoritative_*` when coupled |
+| `host_object_mut` | Overlays GameWorld HP/pose/target, marks dirty, returns HashMap mut |
+| `commit_dirty_host_objects_to_gameworld` | End-of-tick write-through (`WorldMutation`) |
 | `get_object` / `get_objects` / `find_object` | **Legacy aliases** only (thin wrappers) |
 | `PresentationFrame` | **Only** client/render/input dual-read surface |
 

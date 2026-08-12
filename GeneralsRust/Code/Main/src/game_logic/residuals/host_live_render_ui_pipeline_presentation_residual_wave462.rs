@@ -92,7 +92,7 @@ pub fn residual_render_ui_pipeline_presentation_last_action(
 }
 
 fn cnc_source() -> &'static str {
-    include_str!("../../cnc_game_engine.rs")
+    crate::cnc_game_engine::ENGINE_SRC
 }
 
 pub fn honesty_render_ui_pipeline_presentation_method_names_residual_wave462() -> bool {

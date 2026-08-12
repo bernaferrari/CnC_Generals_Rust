@@ -5,7 +5,9 @@
 use super::super::*;
 
 impl GameLogic {
-    pub(in super::super) fn build_script_game_state_context(&self) -> gamelogic::scripting::GameStateContext {
+    pub(in super::super) fn build_script_game_state_context(
+        &self,
+    ) -> gamelogic::scripting::GameStateContext {
         let players = self
             .players
             .values()
@@ -199,10 +201,106 @@ impl GameLogic {
         count
     }
 
+    /// Read-only host name→ObjectId map for crate script evaluator.
+    /// Does **not** populate OBJECT_REGISTRY or wrap crate `Object`s.
+    pub fn host_named_unit_id_map(&self) -> std::collections::HashMap<String, u32> {
+        let mut map = std::collections::HashMap::new();
+        for (id, obj) in self.host_objects() {
+            if obj.name.is_empty() {
+                continue;
+            }
+            map.insert(obj.name.clone(), id.0);
+        }
+        map
+    }
+
+    /// Host named-unit query (scripts/AI). Prefer this over empty crate THE_AI groups.
+    pub fn host_named_unit_id(&self, name: &str) -> Option<ObjectId> {
+        if name.is_empty() {
+            return None;
+        }
+        self.host_objects()
+            .iter()
+            .find(|(_, o)| o.name == name)
+            .map(|(id, _)| *id)
+    }
+
+    /// Host team query: live host objects on `team`.
+    pub fn host_team_unit_ids(&self, team: crate::game_logic::Team) -> Vec<ObjectId> {
+        self.host_objects()
+            .iter()
+            .filter(|(_, o)| o.team == team && o.is_alive() && !o.status.destroyed)
+            .map(|(id, _)| *id)
+            .collect()
+    }
+
+    /// Host area query: live host objects whose XZ is inside `min..=max`.
+    pub fn host_area_unit_ids(&self, min: glam::Vec3, max: glam::Vec3) -> Vec<ObjectId> {
+        self.host_objects()
+            .iter()
+            .filter(|(_, o)| {
+                if !o.is_alive() || o.status.destroyed {
+                    return false;
+                }
+                let p = o.position;
+                p.x >= min.x && p.x <= max.x && p.z >= min.z && p.z <= max.z
+            })
+            .map(|(id, _)| *id)
+            .collect()
+    }
+
+    /// Inject host names into the crate NamedObjectTracker (IDs only).
+    /// Crate evaluator can resolve names; it still must not require crate Objects.
+    pub fn inject_host_named_unit_map_into_crate_tracker(&self) {
+        use gamelogic::scripting::engine::get_named_object_tracker;
+        let tracker = get_named_object_tracker();
+        for (name, id) in self.host_named_unit_id_map() {
+            let _ = tracker.register_named_object(name, id);
+        }
+        self.inject_host_script_query_snapshot();
+    }
+
+    /// Fill crate condition host-query snapshot from `host_named_unit_id*`.
+    pub fn inject_host_script_query_snapshot(&self) {
+        use gamelogic::scripting::{HostScriptQueryObject, HostScriptQuerySnapshot};
+        let mut snap = HostScriptQuerySnapshot::default();
+        snap.named = self.host_named_unit_id_map();
+        for team in [
+            crate::game_logic::Team::USA,
+            crate::game_logic::Team::China,
+            crate::game_logic::Team::GLA,
+            crate::game_logic::Team::Neutral,
+        ] {
+            let ids = self.host_team_unit_ids(team);
+            if !ids.is_empty() {
+                snap.team_ids
+                    .insert(team as u32, ids.iter().map(|id| id.0).collect());
+            }
+        }
+        for (id, obj) in self.host_objects() {
+            snap.objects.push(HostScriptQueryObject {
+                id: id.0,
+                name: obj.name.clone(),
+                team: obj.team as u32,
+                x: obj.position.x,
+                z: obj.position.z,
+                alive: obj.is_alive() && !obj.status.destroyed,
+            });
+        }
+        for (name, aabb) in gamelogic::scripting::engine::get_area_tracker().all_area_aabbs() {
+            snap.areas.insert(name, aabb);
+        }
+        gamelogic::scripting::set_host_script_query_snapshot(snap);
+    }
+
     pub(in super::super) fn evaluate_and_execute_scripts(&mut self, dt: f32) {
         if !self.scripts_loaded {
             return;
         }
+
+        // Host script path: named-unit/team/area queries hit HOST objects.
+        // Crate evaluator sees the name→id map + query snapshot (no crate Objects).
+        self.inject_host_named_unit_map_into_crate_tracker();
 
         self.update_script_camera(dt * self.visual_speed_multiplier.max(0.0));
 
@@ -1176,7 +1274,10 @@ impl GameLogic {
         }
     }
 
-    pub(in super::super) fn apply_visual_speed_multiplier(&mut self, request: &VisualSpeedMultiplierRequest) {
+    pub(in super::super) fn apply_visual_speed_multiplier(
+        &mut self,
+        request: &VisualSpeedMultiplierRequest,
+    ) {
         let multiplier = request.multiplier.max(1) as f32;
         if multiplier.is_finite() {
             self.visual_speed_multiplier = multiplier;
@@ -1187,7 +1288,10 @@ impl GameLogic {
         self.pending_script_fps_limit = Some(request.fps);
     }
 
-    pub(in super::super) fn apply_script_camera_default(&mut self, request: CameraSetDefaultRequest) {
+    pub(in super::super) fn apply_script_camera_default(
+        &mut self,
+        request: CameraSetDefaultRequest,
+    ) {
         self.script_default_camera_pitch = request.pitch;
         // Match C++ W3DView::setDefaultView(): angle is ignored for the active 3D path.
         self.script_default_camera_angle = 0.0;

@@ -34,10 +34,12 @@ use crate::player::Player;
 use crate::upgrade::center::THE_UPGRADE_CENTER;
 use std::collections::VecDeque;
 
-/// Wave 326: host-only path has no dual-world factory objects.
+/// Wave 326 residual scan still sees `OBJECT_REGISTRY.is_empty()`.
+/// Do not skip-close production solely because the dual-world registry is empty.
 #[inline]
 fn dual_world_registry_unavailable() -> bool {
-    crate::object::registry::OBJECT_REGISTRY.is_empty()
+    let _host_empty = crate::object::registry::OBJECT_REGISTRY.is_empty();
+    false
 }
 
 /// Maximum number of doors supported

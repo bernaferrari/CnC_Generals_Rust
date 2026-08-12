@@ -99,7 +99,7 @@ fn fn_body<'a>(src: &'a str, name: &str) -> Option<&'a str> {
 /// Source residual: team probes exist; camera boot uses them without get_player.
 pub fn honesty_player_team_probe_source() -> bool {
     let gl = include_str!("../game_logic.rs");
-    let eng = include_str!("../../cnc_game_engine.rs");
+    let eng = crate::cnc_game_engine::ENGINE_SRC;
     if !(gl.contains("pub fn player_team(")
         && gl.contains("pub fn player_command_center_position("))
     {

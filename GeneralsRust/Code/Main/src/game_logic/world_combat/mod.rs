@@ -3,17 +3,17 @@
 //! matches the previous `pub(super)` visibility on the flat file.
 #![allow(unused_imports, non_snake_case)]
 
+mod air_and_mig;
+mod base_defense_lasers;
+mod drones_and_garrison;
+mod gps_and_fields;
+mod heroes_and_plans;
+mod infantry_weapons;
+mod missile_defenders;
+mod ocl_and_scud;
 mod registries;
 mod special_power_flights;
 mod strategy_center;
-mod base_defense_lasers;
-mod infantry_weapons;
-mod ocl_and_scud;
-mod vehicle_shells;
-mod air_and_mig;
-mod tanks_and_upgrades;
 mod streams_and_rpg;
-mod missile_defenders;
-mod drones_and_garrison;
-mod heroes_and_plans;
-mod gps_and_fields;
+mod tanks_and_upgrades;
+mod vehicle_shells;

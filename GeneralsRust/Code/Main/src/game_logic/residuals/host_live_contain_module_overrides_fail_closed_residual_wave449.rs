@@ -79,7 +79,7 @@ pub fn honesty_live_contain_module_overrides_fail_closed_residual_pack_wave449()
 
 /// Source residual: contain factory missing-owner fail-closed.
 pub fn honesty_contain_module_overrides_fail_closed_source() -> bool {
-    let g = include_str!("../../../../GameEngine/GameLogic/src/contain_module_overrides.rs");
+    let g = gamelogic::contain_module_overrides::CONTAIN_OVERRIDES_SRC;
     if !(g.contains("Wave 449")
         && g.contains("struct MissingOwnerModule")
         && g.contains("fn missing_owner_module(")

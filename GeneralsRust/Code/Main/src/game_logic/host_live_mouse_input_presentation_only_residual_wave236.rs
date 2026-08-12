@@ -115,8 +115,8 @@ pub fn mouse_game_logic_for_process_mouse_input<'a>(
 
 /// Source residual: Option mouse input + engine None-with-frame.
 pub fn honesty_mouse_input_presentation_only_source() -> bool {
-    let cs = include_str!("../command_system.rs");
-    let eng = include_str!("../cnc_game_engine.rs");
+    let cs = crate::command_system::COMMAND_SYSTEM_SRC;
+    let eng = crate::cnc_game_engine::ENGINE_SRC;
     let helper = include_str!("host_live_mouse_input_presentation_only_residual_wave236.rs");
     let Some(pmi) = fn_body(cs, "pub fn process_mouse_input(")
         .or_else(|| fn_body(cs, "fn process_mouse_input("))
@@ -344,7 +344,9 @@ mod tests {
                 assert!(create_new);
                 assert_eq!(units, vec![a, b]);
             }
-            other => panic!("expected CreateSelectedGroup from presentation box ids, got {other:?}"),
+            other => {
+                panic!("expected CreateSelectedGroup from presentation box ids, got {other:?}")
+            }
         }
     }
 
@@ -364,9 +366,7 @@ mod tests {
             .add_kind_of(KindOf::Infantry)
             .add_kind_of(KindOf::Selectable)
             .set_health(100.0);
-        logic
-            .templates
-            .insert("Wave236BootRanger".into(), ranger_t);
+        logic.templates.insert("Wave236BootRanger".into(), ranger_t);
         let mut rebel_t = ThingTemplate::new("Wave236BootRebel");
         rebel_t
             .add_kind_of(KindOf::Infantry)

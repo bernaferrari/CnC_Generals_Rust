@@ -285,6 +285,14 @@ pub trait BodyModuleInterface: Send + Sync {
     fn set_armor_set_flag_player_upgrade(&mut self) -> BodyResult<()> {
         self.set_armor_set_flag(ArmorSetType::PlayerUpgrade)
     }
+
+    /// C++ `xferSnapshot(getBodyModule())` payload. ActiveBody writes health/state.
+    fn snapshot_xfer(
+        &mut self,
+        _xfer: &mut dyn game_engine::common::system::Xfer,
+    ) -> Result<(), String> {
+        Ok(())
+    }
 }
 
 /// Base body module implementation

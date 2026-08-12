@@ -52,7 +52,7 @@ fn residual_action_store(a: ResidualHostPresentationCmdFeedUsableAction) {
 }
 
 fn pf_source() -> &'static str {
-    include_str!("../../presentation_frame.rs")
+    crate::presentation_frame::PRESENTATION_FRAME_SRC
 }
 fn es_source() -> &'static str {
     include_str!("../../executable_smoke.rs")

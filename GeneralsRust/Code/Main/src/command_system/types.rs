@@ -364,4 +364,3 @@ pub enum DropTarget {
     Location(Vec3),
     Object(ObjectId),
 }
-

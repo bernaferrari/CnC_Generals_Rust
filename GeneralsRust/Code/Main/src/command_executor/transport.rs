@@ -20,7 +20,6 @@ use glam::Vec3;
 use log::{debug, warn};
 use std::collections::{HashMap, HashSet};
 
-
 impl<'a> CommandExecutor<'a> {
     /// C++ AIGroup::groupExecuteRailedTransport residual.
     pub(crate) fn execute_railed_transport(&mut self, units: &[ObjectId]) -> CommandResult {
@@ -108,7 +107,11 @@ impl<'a> CommandExecutor<'a> {
 
     // === Transport Commands ===
 
-    pub(super) fn execute_enter(&mut self, units: &[ObjectId], target_id: ObjectId) -> CommandResult {
+    pub(super) fn execute_enter(
+        &mut self,
+        units: &[ObjectId],
+        target_id: ObjectId,
+    ) -> CommandResult {
         // USA Pilot residual: Enter unmanned vehicle for recrew (not transport contain).
         let pilot_recrew_target = self.game_logic.host_object(target_id).map(|t| {
             crate::game_logic::host_usa_pilot::is_recrewable_unmanned_vehicle(
@@ -557,7 +560,11 @@ impl<'a> CommandExecutor<'a> {
         }
     }
 
-    pub(super) fn execute_dock(&mut self, units: &[ObjectId], target_id: ObjectId) -> CommandResult {
+    pub(super) fn execute_dock(
+        &mut self,
+        units: &[ObjectId],
+        target_id: ObjectId,
+    ) -> CommandResult {
         let target_pos = if let Some(target) = self.game_logic.host_object(target_id) {
             if target.is_alive() && !target.status.under_construction && target.can_contain() {
                 target.get_position()
@@ -589,7 +596,11 @@ impl<'a> CommandExecutor<'a> {
         }
     }
 
-    pub(super) fn execute_combat_drop(&mut self, units: &[ObjectId], target: &DropTarget) -> CommandResult {
+    pub(super) fn execute_combat_drop(
+        &mut self,
+        units: &[ObjectId],
+        target: &DropTarget,
+    ) -> CommandResult {
         debug!("Executing combat drop at {:?}", target);
         match target {
             DropTarget::Location(pos) => {
@@ -615,5 +626,4 @@ impl<'a> CommandExecutor<'a> {
         }
         CommandResult::Success
     }
-
 }

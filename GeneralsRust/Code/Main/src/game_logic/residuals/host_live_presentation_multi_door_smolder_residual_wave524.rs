@@ -88,7 +88,7 @@ pub fn residual_presentation_multi_door_smolder_last_action(
 }
 
 fn pf_source() -> &'static str {
-    include_str!("../../presentation_frame.rs")
+    crate::presentation_frame::PRESENTATION_FRAME_SRC
 }
 
 fn en_source() -> &'static str {

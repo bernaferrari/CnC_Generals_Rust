@@ -1015,17 +1015,11 @@ impl HeaderTemplateManagerSubsystem {
 impl SubsystemInterface for HeaderTemplateManagerSubsystem {
     fn init(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         crate::gui::header_template::register_parser();
-        let mut manager = crate::gui::header_template::get_header_template_manager();
-        crate::gui::header_template::set_active_manager(&mut *manager);
-        let result = manager.init();
-        crate::gui::header_template::clear_active_manager();
-        result
+        crate::gui::header_template::HeaderTemplateManager::load_ini_unlocked()
     }
 
     fn reset(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        let mut manager = crate::gui::header_template::get_header_template_manager();
-        manager.reset()?;
-        Ok(())
+        crate::gui::header_template::HeaderTemplateManager::load_ini_unlocked()
     }
 
     fn update(&mut self) -> Result<(), Box<dyn std::error::Error>> {

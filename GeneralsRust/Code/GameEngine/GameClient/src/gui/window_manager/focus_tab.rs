@@ -1,6 +1,7 @@
 //! Keyboard focus and tab-list navigation.
 #![allow(unused_imports)]
 
+use crate::gui::game_window::*;
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, VecDeque};
 use std::fs;
@@ -9,7 +10,6 @@ use std::rc::{Rc, Weak};
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
-use crate::gui::game_window::*;
 
 use super::*;
 
@@ -17,11 +17,11 @@ impl WindowManager {
     /// Set keyboard focus to a window
     pub fn set_focus(&mut self, window: Option<&Rc<RefCell<GameWindow>>>) -> WindowResult<()> {
         if let Some(new_focus) = window {
-            if new_focus
-                .borrow()
-                .get_status()
-                .contains(WindowStatus::NO_FOCUS)
-            {
+            let no_focus = match new_focus.try_borrow() {
+                Ok(win) => win.get_status().contains(WindowStatus::NO_FOCUS),
+                Err(_) => false,
+            };
+            if no_focus {
                 return Ok(());
             }
         }
@@ -34,11 +34,9 @@ impl WindowManager {
                     .unwrap_or(true);
                 if changing_focus {
                     let token = push_payload(WindowMsgPayload::Bool(false));
-                    old_focus.borrow_mut().send_system_message(
-                        WindowMessage::InputFocus,
-                        0,
-                        token,
-                    );
+                    old_focus
+                        .borrow_mut()
+                        .send_system_message(WindowMessage::InputFocus, 0, token);
                     let _ = pop_payload(token);
                 }
             }
@@ -52,11 +50,9 @@ impl WindowManager {
             let mut focus_probe = Some(new_focus.clone());
             while let Some(window) = focus_probe {
                 let token = push_payload(WindowMsgPayload::Bool(false));
-                window.borrow_mut().send_system_message(
-                    WindowMessage::InputFocus,
-                    1,
-                    token,
-                );
+                window
+                    .borrow_mut()
+                    .send_system_message(WindowMessage::InputFocus, 1, token);
                 wants_focus = matches!(pop_payload(token), Some(WindowMsgPayload::Bool(true)));
                 if wants_focus {
                     break;

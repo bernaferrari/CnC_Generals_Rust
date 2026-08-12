@@ -89,7 +89,7 @@ pub fn residual_host_game_client_menu_shell_helper_last_action(
 }
 
 fn eng_source() -> &'static str {
-    include_str!("../../cnc_game_engine.rs")
+    crate::cnc_game_engine::ENGINE_SRC
 }
 
 fn fn_body<'a>(src: &'a str, sig: &str) -> Option<&'a str> {

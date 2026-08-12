@@ -319,6 +319,34 @@ impl ControlBar {
         }
     }
 
+    pub fn show_special_power_shortcut(&mut self) {
+        if self.special_power_shortcut_count == 0 {
+            self.init_special_power_shortcut_bar();
+        }
+        for shortcut in &mut self.special_power_shortcuts {
+            if !shortcut.command_name.is_empty() {
+                shortcut.is_hidden = false;
+            }
+        }
+    }
+
+    pub fn animate_special_power_shortcut(&mut self, enabled: bool) {
+        self.is_animating = enabled;
+        if enabled {
+            self.animation_start_time = Instant::now();
+        }
+    }
+
+    pub fn get_observer_look_at_player_index(&self) -> Option<i32> {
+        if !self.observer_mode {
+            return None;
+        }
+        self.context
+            .read()
+            .ok()
+            .map(|ctx| ctx.player_id as i32)
+    }
+
     pub fn has_any_shortcut_selection(&self) -> bool {
         self.special_power_shortcuts
             .iter()
@@ -472,6 +500,7 @@ impl ControlBar {
             context.selected_objects = selected_objects;
         }
         self.mark_ui_dirty();
+        self.update(Duration::from_millis(33))?;
         Ok(())
     }
 

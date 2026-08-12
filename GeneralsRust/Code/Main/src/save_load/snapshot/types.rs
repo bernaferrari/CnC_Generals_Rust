@@ -2,10 +2,9 @@
 
 use super::{
     AIPlayerSnapshot, CombatParticleRegistrySnapshot, CombatTrackerSnapshot,
-    ExperienceTrackerSnapshot, GlobalAIStateSnapshot, HostUpgradeRegistrySnapshot,
-    ObjectSnapshot, ObjectStatusSnapshot, PathfindingCacheSnapshot, PlayerSnapshot,
-    ResourceManagerSnapshot, SpecialPowerStrikeRegistrySnapshot, TeamSnapshot,
-    TerrainSnapshot, WeatherSnapshot,
+    ExperienceTrackerSnapshot, GlobalAIStateSnapshot, HostUpgradeRegistrySnapshot, ObjectSnapshot,
+    ObjectStatusSnapshot, PathfindingCacheSnapshot, PlayerSnapshot, ResourceManagerSnapshot,
+    SpecialPowerStrikeRegistrySnapshot, TeamSnapshot, TerrainSnapshot, WeatherSnapshot,
 };
 use crate::game_logic::*;
 use crate::save_load::{SaveLoadResult, Xfer, XferData};
@@ -147,4 +146,3 @@ pub fn honesty_drawable_residual_fields_wave79_ok() -> bool {
             && cloned.detected == status.detected
     }) && ObjectStatusSnapshot::default().camo_stealth_look == 0
 }
-

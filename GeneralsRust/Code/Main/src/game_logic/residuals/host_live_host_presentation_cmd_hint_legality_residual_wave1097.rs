@@ -45,7 +45,7 @@ fn residual_action_store(a: ResidualHostPresentationCmdHintLegalityAction) {
 }
 
 fn cnc_source() -> &'static str {
-    include_str!("../../cnc_game_engine.rs")
+    crate::cnc_game_engine::ENGINE_SRC
 }
 fn es_source() -> &'static str {
     include_str!("../../executable_smoke.rs")

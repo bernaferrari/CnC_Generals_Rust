@@ -1232,3 +1232,19 @@ pub async fn load_particle_templates(
     info!("Loaded {} particle system templates", templates.len());
     Ok(templates)
 }
+
+#[cfg(test)]
+mod particle_upload_tests {
+    #[test]
+    fn update_gpu_particles_writes_buffer_when_present() {
+        let src = include_str!("particle_system.rs");
+        let i = src
+            .find("fn update_gpu_particles")
+            .expect("update_gpu_particles");
+        let body = &src[i..src.len().min(i + 800)];
+        assert!(
+            body.contains("self.queue.write_buffer") && body.contains("particle_buffer"),
+            "particles must Queue::write_buffer when the buffer exists"
+        );
+    }
+}

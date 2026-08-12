@@ -94,7 +94,7 @@ pub fn honesty_evacuate_uses_set_contained_by_source() -> bool {
 
 /// Source residual: engine has zero production build_from_logic; uses build_for_engine.
 pub fn honesty_engine_build_for_engine_only_source() -> bool {
-    let eng = include_str!("../../cnc_game_engine.rs");
+    let eng = crate::cnc_game_engine::ENGINE_SRC;
     // Production code (not test strings): map-load and preload use build_for_engine.
     eng.contains("build_for_engine")
         && eng

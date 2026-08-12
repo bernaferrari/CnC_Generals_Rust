@@ -772,7 +772,9 @@ impl GameLogic {
     ///   energy_short = (1.0 - ratio) * LowEnergyPenaltyModifier (0.4)
     ///   rate = max(1.0 - energy_short, MinLowEnergyProductionSpeed (0.5))
     ///   if ratio < 1.0: rate = min(rate, MaxLowEnergyProductionSpeed (0.8))
-    pub(in super::super) fn compute_team_power_factors(&self) -> std::collections::HashMap<Team, f32> {
+    pub(in super::super) fn compute_team_power_factors(
+        &self,
+    ) -> std::collections::HashMap<Team, f32> {
         const LOW_ENERGY_PENALTY_MODIFIER: f32 = 0.4;
         const MIN_LOW_ENERGY_PRODUCTION_SPEED: f32 = 0.5;
         const MAX_LOW_ENERGY_PRODUCTION_SPEED: f32 = 0.8;

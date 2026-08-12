@@ -91,7 +91,7 @@ pub fn residual_presentation_host_fx_overlay_last_action() -> ResidualPresentati
 }
 
 fn pf_source() -> &'static str {
-    include_str!("../../presentation_frame.rs")
+    crate::presentation_frame::PRESENTATION_FRAME_SRC
 }
 
 pub fn honesty_presentation_host_fx_overlay_method_names_residual_wave498() -> bool {

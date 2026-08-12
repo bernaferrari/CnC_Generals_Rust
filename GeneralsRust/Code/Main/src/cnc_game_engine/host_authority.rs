@@ -107,7 +107,10 @@ impl CnCGameEngine {
     /// Wave 584: presentation freeze owns object-alive residual when installed.
     /// Boot residual without freeze uses host object_is_alive probe.
     #[inline]
-    pub(super) fn presentation_or_boot_object_alive(&self, id: crate::game_logic::ObjectId) -> bool {
+    pub(super) fn presentation_or_boot_object_alive(
+        &self,
+        id: crate::game_logic::ObjectId,
+    ) -> bool {
         // Wave 584/851: presentation-first alive residual (ui_object_alive).
         if self.ui_object_alive(id) {
             return true;
@@ -158,7 +161,10 @@ impl CnCGameEngine {
 
     /// Wave 908: stamp sim timing residuals from a post-tick snapshot payload.
     #[inline]
-    pub(super) fn host_stamp_sim_timing_from_snapshot(&mut self, snap: crate::game_logic::SimTimingSnapshot) {
+    pub(super) fn host_stamp_sim_timing_from_snapshot(
+        &mut self,
+        snap: crate::game_logic::SimTimingSnapshot,
+    ) {
         if let Some(pres) = self.last_presentation_frame.as_ref() {
             // Freeze still preferred when installed (presentation owns residual clocks).
             self.host_match_visual_speed = Some(pres.visual_speed_multiplier);
@@ -387,7 +393,10 @@ impl CnCGameEngine {
 
     /// Wave 584: host clear unit path residual (waypoint clear path).
     #[inline]
-    pub(super) fn host_clear_unit_movement_path(&mut self, id: crate::game_logic::ObjectId) -> bool {
+    pub(super) fn host_clear_unit_movement_path(
+        &mut self,
+        id: crate::game_logic::ObjectId,
+    ) -> bool {
         // Wave 584/869/918/920/931: clear path via object-lifecycle authority.
         // Skip authority clear when presentation residual already has no move destination.
         if self.last_presentation_frame.as_ref().is_some_and(|pres| {
@@ -440,7 +449,10 @@ impl CnCGameEngine {
 
     /// Wave 583: host force-complete construction residual (runtime train honesty).
     #[inline]
-    pub(super) fn host_force_complete_construction(&mut self, id: crate::game_logic::ObjectId) -> bool {
+    pub(super) fn host_force_complete_construction(
+        &mut self,
+        id: crate::game_logic::ObjectId,
+    ) -> bool {
         // Wave 583/867/917/920/931: force-complete via object-lifecycle authority.
         // Skip authority force-complete when presentation residual is already complete.
         if self.last_presentation_frame.as_ref().is_some_and(|pres| {
@@ -464,7 +476,10 @@ impl CnCGameEngine {
 
     /// Wave 583/723: host barracks building-data residual (opt-in producer pick path).
     #[inline]
-    pub(super) fn host_ensure_barracks_building_data(&mut self, id: crate::game_logic::ObjectId) -> bool {
+    pub(super) fn host_ensure_barracks_building_data(
+        &mut self,
+        id: crate::game_logic::ObjectId,
+    ) -> bool {
         // Wave 583/723/872/917/920/934: barracks ensure via host-support authority.
         // Skip authority ensure when residual already lists this barracks producer.
         if self
@@ -514,7 +529,10 @@ impl CnCGameEngine {
 
     /// Wave 929: single direct-order authority boundary + residual stamp.
     #[inline]
-    pub(super) fn host_issue_direct_player_order(&mut self, order: crate::game_logic::DirectPlayerOrder) {
+    pub(super) fn host_issue_direct_player_order(
+        &mut self,
+        order: crate::game_logic::DirectPlayerOrder,
+    ) {
         // Wave 929/930: single GameLogic direct-order authority boundary + stamp.
         self.host_game_logic_mut().apply_direct_player_order(order);
         self.host_stamp_after_authority_command();
@@ -527,7 +545,11 @@ impl CnCGameEngine {
         }
     }
 
-    pub(super) fn host_command_attack(&mut self, player_id: u32, target: crate::game_logic::ObjectId) {
+    pub(super) fn host_command_attack(
+        &mut self,
+        player_id: u32,
+        target: crate::game_logic::ObjectId,
+    ) {
         // Wave 583/871/917/927/929: host attack residual via direct-order boundary.
         self.host_issue_direct_player_order(crate::game_logic::DirectPlayerOrder::Attack {
             player_id,
@@ -619,7 +641,10 @@ impl CnCGameEngine {
 
     /// Wave 583: host camera-follow write residual.
     #[inline]
-    pub(super) fn host_set_camera_follow_object(&mut self, id: Option<crate::game_logic::ObjectId>) {
+    pub(super) fn host_set_camera_follow_object(
+        &mut self,
+        id: Option<crate::game_logic::ObjectId>,
+    ) {
         // Wave 583/847/891/903/904/913/933: camera follow via session-control authority.
         // (no get_object dual-read). Skip authority write when residual already matches.
         let stamped_pos = id.and_then(|oid| {

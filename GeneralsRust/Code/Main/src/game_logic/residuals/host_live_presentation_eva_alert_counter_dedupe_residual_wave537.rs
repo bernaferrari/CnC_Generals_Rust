@@ -85,7 +85,7 @@ pub fn residual_presentation_eva_alert_counter_dedupe_last_action(
 }
 
 fn eng_source() -> &'static str {
-    include_str!("../../cnc_game_engine.rs")
+    crate::cnc_game_engine::ENGINE_SRC
 }
 
 pub fn honesty_presentation_eva_alert_counter_dedupe_method_names_residual_wave537() -> bool {

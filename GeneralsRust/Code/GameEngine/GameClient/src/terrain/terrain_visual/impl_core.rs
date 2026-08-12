@@ -72,6 +72,16 @@ impl TerrainVisualImpl {
             draw_height: NORMAL_DRAW_HEIGHT,
             draw_origin_x: 0,
             draw_origin_y: 0,
+            extra_blend_tile_positions: Vec::new(),
+            extra_blend_gpu_upload: ExtraBlendGpuUpload::default(),
+            extra_blend_draw_mesh: ExtraBlendDrawMesh::default(),
+            extra_blend_position_buffer: None,
+            extra_blend_vertex_buffer: None,
+            extra_blend_index_buffer: None,
+            extra_blend_index_count: 0,
+            extra_blend_vertex_count: 0,
+            extra_blend_pipeline: None,
+            extra_blend_draw_count: AtomicU32::new(0),
         }
     }
 

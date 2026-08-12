@@ -29,9 +29,8 @@ use std::rc::Rc;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-// Dump+path split: `gui/load_screen.rs` is the unused original dump.
-// This directory is the live `load_screen` module. `include!` keeps one logical
-// module so field privacy and the public API stay identical to the dump.
+// Live `load_screen` module. `include!` keeps one logical module so field
+// privacy and the public API stay identical to the former dump.
 
 include!("types.rs");
 include!("api.rs");
@@ -43,3 +42,17 @@ include!("multiplayer.rs");
 include!("map_transfer.rs");
 include!("helpers.rs");
 include!("tests.rs");
+
+/// Concatenated live sources for residual `include_str!` scans.
+pub const LOAD_SCREEN_SRC: &str = concat!(
+    include_str!("mod.rs"),
+    include_str!("types.rs"),
+    include_str!("api.rs"),
+    include_str!("init_windows.rs"),
+    include_str!("single_player.rs"),
+    include_str!("challenge.rs"),
+    include_str!("movies_audio.rs"),
+    include_str!("multiplayer.rs"),
+    include_str!("map_transfer.rs"),
+    include_str!("helpers.rs"),
+);

@@ -136,7 +136,10 @@ pub(super) fn object_matches_context_pick_profile(
         || (profile.include_shrubbery && obj.is_kind_of(KindOf::Shrubbery))
 }
 
-pub(super) fn object_is_hidden_for_player(obj: &gamelogic::object::Object, local_player_index: i32) -> bool {
+pub(super) fn object_is_hidden_for_player(
+    obj: &gamelogic::object::Object,
+    local_player_index: i32,
+) -> bool {
     matches!(
         obj.get_shrouded_status(local_player_index),
         ObjectShroudStatus::Fogged
@@ -204,7 +207,10 @@ pub(super) fn is_enemy_target(_local_player: i32, _target_id: ObjectID) -> bool 
     false
 }
 
-pub(super) fn selection_has_quick_path_to(_selection: &HashSet<ObjectID>, _world: &Coord3D) -> bool {
+pub(super) fn selection_has_quick_path_to(
+    _selection: &HashSet<ObjectID>,
+    _world: &Coord3D,
+) -> bool {
     true
 }
 
@@ -262,4 +268,3 @@ pub(super) fn point_click_is_actionable(
         !alternate_mouse || pending_command_active
     }
 }
-

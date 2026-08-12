@@ -149,3 +149,22 @@ pub use science_ui::{
 
 #[cfg(test)]
 mod tests;
+
+/// Concatenated live sources for residual `include_str!` scans.
+pub const PLAYER_SRC: &str = concat!(
+    include_str!("mod.rs"),
+    include_str!("academy_score.rs"),
+    include_str!("core.rs"),
+    include_str!("economy.rs"),
+    include_str!("energy_handicap.rs"),
+    include_str!("list.rs"),
+    include_str!("manager.rs"),
+    include_str!("money.rs"),
+    include_str!("objects.rs"),
+    include_str!("production.rs"),
+    include_str!("relations.rs"),
+    include_str!("science_management.rs"),
+    include_str!("science_ui.rs"),
+    include_str!("snapshot.rs"),
+    include_str!("template.rs"),
+);

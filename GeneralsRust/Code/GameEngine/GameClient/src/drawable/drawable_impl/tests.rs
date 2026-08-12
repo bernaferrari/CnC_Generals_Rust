@@ -7,6 +7,7 @@ use game_engine::common::audio::dynamic_audio_event_info::DynamicAudioEventInfo;
 use game_engine::common::bit_flags::ModelConditionFlags;
 use game_engine::common::system::game_common::WhichTurretType;
 use game_engine::common::system::{Snapshotable, Xfer};
+use game_engine::common::thing::module::Module;
 use gamelogic::common::types::{WeaponSlotType, INVALID_ID};
 use gamelogic::helpers::BoneOverrideState;
 use gamelogic::object::registry::OBJECT_REGISTRY;
@@ -918,8 +919,7 @@ fn test_drawable_xfer_preserves_instance_matrix() {
     use game_engine::common::system::xfer_save::XferSave;
     use std::io::Cursor;
 
-    let instance =
-        Matrix4::translation(Vector3::new(11.0, 22.0, 33.0)).mul(&Matrix4::scale(2.5));
+    let instance = Matrix4::translation(Vector3::new(11.0, 22.0, 33.0)).mul(&Matrix4::scale(2.5));
     let mut saved = BasicDrawable::new(DrawableId(77));
     saved.set_instance_transform(instance);
     saved.set_instance_scale(3.0);
@@ -1374,20 +1374,17 @@ fn test_model_condition_change_preserves_shadow_status() {
     let mut drawable = BasicDrawable::new(DrawableId(42));
     assert!(drawable.get_shadows_enabled());
 
-    drawable
-        .react_to_body_damage_state_change(gamelogic::common::types::BodyDamageType::Damaged);
+    drawable.react_to_body_damage_state_change(gamelogic::common::types::BodyDamageType::Damaged);
     assert!(
         drawable.get_shadows_enabled(),
         "damage model condition must not clear SHADOWS status"
     );
 
-    drawable
-        .react_to_body_damage_state_change(gamelogic::common::types::BodyDamageType::Rubble);
+    drawable.react_to_body_damage_state_change(gamelogic::common::types::BodyDamageType::Rubble);
     assert!(drawable.get_shadows_enabled());
 
     drawable.set_shadows_enabled(false);
-    drawable
-        .react_to_body_damage_state_change(gamelogic::common::types::BodyDamageType::Pristine);
+    drawable.react_to_body_damage_state_change(gamelogic::common::types::BodyDamageType::Pristine);
     assert!(
         !drawable.get_shadows_enabled(),
         "explicit disable must survive model condition updates"

@@ -43,7 +43,7 @@ fn residual_action_store(a: ResidualHostIsSelectableFowPrisonerDisabledResidualA
 }
 
 fn cnc_source() -> &'static str {
-    include_str!("../../cnc_game_engine.rs")
+    crate::cnc_game_engine::ENGINE_SRC
 }
 fn gl_source() -> &'static str {
     include_str!("../game_logic.rs")
@@ -52,7 +52,7 @@ fn sx_source() -> &'static str {
     include_str!("../../../../GameEngine/GameClient/src/message_stream/selection_xlat.rs")
 }
 fn tr_source() -> &'static str {
-    include_str!("../../../../GameEngine/GameClient/src/message_stream/translators.rs")
+    game_client::message_stream::translators::TRANSLATORS_SRC
 }
 
 pub fn honesty_host_is_selectable_fow_prisoner_disabled_residual_method_names_residual_wave1082(

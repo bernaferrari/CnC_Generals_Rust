@@ -26,11 +26,11 @@ impl XferSnapshotTrait for GameLogicSnapshotBridge {
 }
 
 struct ScriptEngineSnapshotBridge {
-    script_engine: Arc<RwLock<Option<ScriptEngine>>>,
+    script_engine: crate::scripting::engine::ScriptEngineHandle,
 }
 
 impl ScriptEngineSnapshotBridge {
-    fn new(script_engine: Arc<RwLock<Option<ScriptEngine>>>) -> Self {
+    fn new(script_engine: crate::scripting::engine::ScriptEngineHandle) -> Self {
         Self { script_engine }
     }
 
@@ -103,7 +103,7 @@ impl ScriptEngineSnapshotBridge {
             engine.set_time_frozen_debug(freeze_debug);
         }
 
-        let mut current_track = engine.get_current_track_name().to_string();
+        let mut current_track = engine.get_current_track_name();
         xfer.xfer_string(&mut current_track)?;
         if xfer.get_xfer_mode() == XferMode::Load {
             engine.set_current_track_name(current_track);

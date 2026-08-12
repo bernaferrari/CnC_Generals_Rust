@@ -130,7 +130,10 @@ pub(super) struct Waves201240 {
     pub live_player_field_probe_live_wave240_ok: bool,
 }
 
-pub(super) fn evaluate(pres: &crate::presentation_frame::PresentationFrame, presentation_ok: bool) -> Waves201240 {
+pub(super) fn evaluate(
+    pres: &crate::presentation_frame::PresentationFrame,
+    presentation_ok: bool,
+) -> Waves201240 {
     let _ = (pres, presentation_ok);
     Waves201240 {
         live_evacuate_contain_log_method_names_wave201_ok: honesty_live_evacuate_contain_log_method_names_residual_wave201(),

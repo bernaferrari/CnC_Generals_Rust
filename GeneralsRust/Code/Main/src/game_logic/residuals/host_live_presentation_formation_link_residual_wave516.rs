@@ -93,7 +93,7 @@ fn sel_source() -> &'static str {
 }
 
 fn pf_source() -> &'static str {
-    include_str!("../../presentation_frame.rs")
+    crate::presentation_frame::PRESENTATION_FRAME_SRC
 }
 
 pub fn honesty_presentation_formation_link_method_names_residual_wave516() -> bool {

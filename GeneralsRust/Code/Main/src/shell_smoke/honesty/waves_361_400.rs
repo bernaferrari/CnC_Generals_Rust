@@ -74,8 +74,10 @@ pub(super) struct Waves361400 {
     pub live_missile_launcher_building_update_dual_world_empty_gate_method_names_wave382_ok: bool,
     pub live_missile_launcher_building_update_dual_world_empty_gate_nav_commands_wave382_ok: bool,
     pub live_missile_launcher_building_update_dual_world_empty_gate_live_wave382_ok: bool,
-    pub live_dynamic_shroud_clearing_range_update_dual_world_empty_gate_method_names_wave383_ok: bool,
-    pub live_dynamic_shroud_clearing_range_update_dual_world_empty_gate_nav_commands_wave383_ok: bool,
+    pub live_dynamic_shroud_clearing_range_update_dual_world_empty_gate_method_names_wave383_ok:
+        bool,
+    pub live_dynamic_shroud_clearing_range_update_dual_world_empty_gate_nav_commands_wave383_ok:
+        bool,
     pub live_dynamic_shroud_clearing_range_update_dual_world_empty_gate_live_wave383_ok: bool,
     pub live_command_button_hunt_update_dual_world_empty_gate_method_names_wave384_ok: bool,
     pub live_command_button_hunt_update_dual_world_empty_gate_nav_commands_wave384_ok: bool,
@@ -98,8 +100,10 @@ pub(super) struct Waves361400 {
     pub live_salvage_crate_collide_dual_world_empty_gate_method_names_wave390_ok: bool,
     pub live_salvage_crate_collide_dual_world_empty_gate_nav_commands_wave390_ok: bool,
     pub live_salvage_crate_collide_dual_world_empty_gate_live_wave390_ok: bool,
-    pub live_sabotage_internet_center_crate_collide_dual_world_empty_gate_method_names_wave391_ok: bool,
-    pub live_sabotage_internet_center_crate_collide_dual_world_empty_gate_nav_commands_wave391_ok: bool,
+    pub live_sabotage_internet_center_crate_collide_dual_world_empty_gate_method_names_wave391_ok:
+        bool,
+    pub live_sabotage_internet_center_crate_collide_dual_world_empty_gate_nav_commands_wave391_ok:
+        bool,
     pub live_sabotage_internet_center_crate_collide_dual_world_empty_gate_live_wave391_ok: bool,
     pub live_power_plant_update_dual_world_empty_gate_method_names_wave392_ok: bool,
     pub live_power_plant_update_dual_world_empty_gate_nav_commands_wave392_ok: bool,
@@ -110,8 +114,10 @@ pub(super) struct Waves361400 {
     pub live_auto_deposit_update_dual_world_empty_gate_method_names_wave394_ok: bool,
     pub live_auto_deposit_update_dual_world_empty_gate_nav_commands_wave394_ok: bool,
     pub live_auto_deposit_update_dual_world_empty_gate_live_wave394_ok: bool,
-    pub live_supply_warehouse_crippling_behavior_dual_world_empty_gate_method_names_wave395_ok: bool,
-    pub live_supply_warehouse_crippling_behavior_dual_world_empty_gate_nav_commands_wave395_ok: bool,
+    pub live_supply_warehouse_crippling_behavior_dual_world_empty_gate_method_names_wave395_ok:
+        bool,
+    pub live_supply_warehouse_crippling_behavior_dual_world_empty_gate_nav_commands_wave395_ok:
+        bool,
     pub live_supply_warehouse_crippling_behavior_dual_world_empty_gate_live_wave395_ok: bool,
     pub live_neutron_missile_slow_death_update_dual_world_empty_gate_method_names_wave396_ok: bool,
     pub live_neutron_missile_slow_death_update_dual_world_empty_gate_nav_commands_wave396_ok: bool,
@@ -130,7 +136,10 @@ pub(super) struct Waves361400 {
     pub live_baikonur_launch_power_dual_world_empty_gate_live_wave400_ok: bool,
 }
 
-pub(super) fn evaluate(pres: &crate::presentation_frame::PresentationFrame, presentation_ok: bool) -> Waves361400 {
+pub(super) fn evaluate(
+    pres: &crate::presentation_frame::PresentationFrame,
+    presentation_ok: bool,
+) -> Waves361400 {
     let _ = (pres, presentation_ok);
     Waves361400 {
         live_railed_transport_dock_dual_world_empty_gate_method_names_wave361_ok: honesty_live_railed_transport_dock_dual_world_empty_gate_method_names_residual_wave361(),

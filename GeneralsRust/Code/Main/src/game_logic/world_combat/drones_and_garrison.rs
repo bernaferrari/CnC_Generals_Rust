@@ -4,7 +4,6 @@
 use super::super::*;
 
 impl GameLogic {
-
     /// Apply NeutronBlast residual at world impact: kill infantry + unman vehicles
     /// in blast radius. Returns (infantry_kills, vehicles_unmanned, vehicle_kills).
     ///
@@ -315,7 +314,10 @@ impl GameLogic {
     /// enemy in weapon range from the **container position** when the container
     /// has `passengers_allowed_to_fire` (Battle Bus / Combat Chinook / Humvee residual).
     /// Fail-closed: not C++ transport weapon bone positions / multi-slot matrix.
-    pub(in super::super) fn try_transport_passenger_residual_fire(&mut self, passenger_id: ObjectId) {
+    pub(in super::super) fn try_transport_passenger_residual_fire(
+        &mut self,
+        passenger_id: ObjectId,
+    ) {
         let current_time = self.frame as f32 * LOGIC_FRAME_TIMESTEP;
 
         let Some(attacker) = self.objects.get(&passenger_id) else {
@@ -987,7 +989,11 @@ impl GameLogic {
     }
 
     /// C++ GenerateMinefieldBehavior::upgradeImplementation residual.
-    pub(in super::super) fn place_structure_minefield_for_upgrade(&mut self, object_id: ObjectId, upgrade: &str) -> u32 {
+    pub(in super::super) fn place_structure_minefield_for_upgrade(
+        &mut self,
+        object_id: ObjectId,
+        upgrade: &str,
+    ) -> u32 {
         use crate::game_logic::host_mines::{
             is_china_mines_upgrade, structure_minefield_positions, CHINA_STANDARD_MINE_TEMPLATE,
             CHINA_STRUCTURE_MINE_RING_COUNT, CHINA_STRUCTURE_MINE_RING_RADIUS,

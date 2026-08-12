@@ -87,11 +87,11 @@ pub fn residual_construct_template_presentation_helper_last_action(
 }
 
 fn eng_source() -> &'static str {
-    include_str!("../../cnc_game_engine.rs")
+    crate::cnc_game_engine::ENGINE_SRC
 }
 
 fn pf_source() -> &'static str {
-    include_str!("../../presentation_frame.rs")
+    crate::presentation_frame::PRESENTATION_FRAME_SRC
 }
 
 fn fn_body<'a>(src: &'a str, sig: &str) -> Option<&'a str> {

@@ -68,10 +68,10 @@ fn gl_source() -> &'static str {
     include_str!("../game_logic.rs")
 }
 fn eng_source() -> &'static str {
-    include_str!("../../cnc_game_engine.rs")
+    crate::cnc_game_engine::ENGINE_SRC
 }
 fn shadow_source() -> &'static str {
-    include_str!("../../gameworld_shadow.rs")
+    crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC
 }
 pub fn honesty_host_eager_spawn_map_helper_method_names_residual_wave680() -> bool {
     let names = LIVE_HOST_EAGER_SPAWN_MAP_HELPER_METHOD_NAMES_WAVE680;

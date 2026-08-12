@@ -586,4 +586,3 @@ pub fn secondary_weapon_name_for_unit(template_name: &str) -> Option<&'static st
         }
     }
 }
-

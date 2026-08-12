@@ -1,11 +1,11 @@
 //! DrawModule trait, logic snapshot adapter, bone data, and terrain decals.
 
 use super::*;
-use std::collections::HashMap;
-use game_engine::common::system::Xfer;
 use game_engine::common::system::game_common::WhichTurretType;
+use game_engine::common::system::Xfer;
 use game_engine::common::thing::module::Module;
 use gamelogic::common::types::WeaponSlotType;
+use std::collections::HashMap;
 
 /// Terrain decal types (converted from C++ TerrainDecalType)
 #[derive(Debug, Clone, Copy, PartialEq)]

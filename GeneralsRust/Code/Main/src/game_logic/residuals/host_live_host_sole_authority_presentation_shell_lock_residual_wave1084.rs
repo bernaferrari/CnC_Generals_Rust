@@ -51,16 +51,16 @@ fn aw_source() -> &'static str {
     include_str!("../../authoritative_world.rs")
 }
 fn cnc_source() -> &'static str {
-    include_str!("../../cnc_game_engine.rs")
+    crate::cnc_game_engine::ENGINE_SRC
 }
 fn es_source() -> &'static str {
     include_str!("../../executable_smoke.rs")
 }
 fn rp_source() -> &'static str {
-    include_str!("../../graphics/render_pipeline.rs")
+    crate::graphics::render_pipeline::RENDER_PIPELINE_SRC
 }
 fn cb_source() -> &'static str {
-    include_str!("../../../../GameEngine/GameClient/src/gui/control_bar/control_bar.rs")
+    game_client::gui::control_bar::control_bar::CONTROL_BAR_SRC
 }
 fn sx_source() -> &'static str {
     include_str!("../../../../GameEngine/GameClient/src/message_stream/selection_xlat.rs")

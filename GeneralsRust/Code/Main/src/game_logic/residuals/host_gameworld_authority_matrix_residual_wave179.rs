@@ -94,7 +94,7 @@ fn authority_fn_defaults_on(src: &str, fn_name: &str) -> bool {
 
 /// Source residual: full authority matrix defaults on.
 pub fn honesty_authority_matrix_default_on_source() -> bool {
-    let src = include_str!("../../gameworld_shadow.rs");
+    let src = crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC;
     let names = [
         "gameworld_damage_authority_enabled",
         "gameworld_economy_authority_enabled",
@@ -112,7 +112,7 @@ pub fn honesty_authority_matrix_default_on_source() -> bool {
 
 /// Source residual: engine couples shadow tick around host logic update.
 pub fn honesty_engine_couple_shadow_tick_source() -> bool {
-    let src = include_str!("../../cnc_game_engine.rs");
+    let src = crate::cnc_game_engine::ENGINE_SRC;
     src.contains("begin_shadow_coupled_tick()")
         && src.contains("end_shadow_coupled_tick()")
         && src.contains("couple_shadow")

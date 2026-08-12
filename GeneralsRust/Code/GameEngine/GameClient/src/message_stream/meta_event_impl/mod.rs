@@ -56,9 +56,9 @@ use gamelogic::object::registry::OBJECT_REGISTRY;
 use gamelogic::player::{PlayerType, ThePlayerList, PLAYER_INDEX_INVALID};
 use gamelogic::scripting::engine::get_script_engine;
 
-// Dump+path split: `message_stream/meta_event.rs` is the unused original dump.
-// This directory is the live `meta_event` module. `include!` keeps one logical
-// module so field privacy and the public API stay identical to the dump.
+// Live `meta_event` module via `#[path = "meta_event_impl/mod.rs"]`.
+// `include!` keeps one logical module so field privacy and the public API
+// stay identical to the former dump.
 
 include!("residual.rs");
 include!("types.rs");
@@ -70,3 +70,17 @@ include!("parse.rs");
 include!("dispatch.rs");
 include!("translator.rs");
 include!("tests.rs");
+
+/// Concatenated live sources for residual `include_str!` scans.
+pub const META_EVENT_SRC: &str = concat!(
+    include_str!("mod.rs"),
+    include_str!("residual.rs"),
+    include_str!("types.rs"),
+    include_str!("state.rs"),
+    include_str!("command_map.rs"),
+    include_str!("helpers.rs"),
+    include_str!("player.rs"),
+    include_str!("parse.rs"),
+    include_str!("dispatch.rs"),
+    include_str!("translator.rs"),
+);

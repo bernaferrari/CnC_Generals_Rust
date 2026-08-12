@@ -52,6 +52,7 @@ impl TerrainVisualImpl {
             .load_heightmap(&heightmap, &self.config)?;
         self.height_map = Some(heightmap);
         self.reset_draw_area_state();
+        self.upload_extra_blend_overlay();
         Ok(())
     }
 
@@ -104,6 +105,7 @@ impl TerrainVisualImpl {
 
         self.height_map = Some(heightmap);
         self.reset_draw_area_state();
+        self.upload_extra_blend_overlay();
 
         log::info!("Terrain heightmap loaded successfully");
         Ok(())

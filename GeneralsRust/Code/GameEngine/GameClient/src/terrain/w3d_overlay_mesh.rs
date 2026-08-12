@@ -227,6 +227,54 @@ pub fn bake_water_patch_world(
     (world, strip, list)
 }
 
+/// Tile C++ 15×15 sea patches across the water extent instead of stretching
+/// one patch over the whole map. Each tile keeps native `PATCH_WIDTH` UVs.
+#[must_use]
+pub fn bake_water_tiles_world(
+    min_x: f32,
+    min_z: f32,
+    max_x: f32,
+    max_z: f32,
+    water_y: f32,
+    transparent_water_diffuse: u32,
+) -> (Vec<SeaPatchVertex>, Vec<u32>) {
+    const MAX_TILES_PER_AXIS: usize = 24;
+    let span_x = (max_x - min_x).max(0.0);
+    let span_z = (max_z - min_z).max(0.0);
+    if span_x <= 0.0 || span_z <= 0.0 {
+        return (Vec::new(), Vec::new());
+    }
+    let tile = PATCH_WIDTH as f32;
+    let tiles_x = ((span_x / tile).ceil() as usize).clamp(1, MAX_TILES_PER_AXIS);
+    let tiles_z = ((span_z / tile).ceil() as usize).clamp(1, MAX_TILES_PER_AXIS);
+    let step_x = span_x / tiles_x as f32;
+    let step_z = span_z / tiles_z as f32;
+    let mut verts = Vec::new();
+    let mut indices = Vec::new();
+    for tz in 0..tiles_z {
+        for tx in 0..tiles_x {
+            let x0 = min_x + tx as f32 * step_x;
+            let z0 = min_z + tz as f32 * step_z;
+            let x1 = if tx + 1 == tiles_x {
+                max_x
+            } else {
+                x0 + step_x
+            };
+            let z1 = if tz + 1 == tiles_z {
+                max_z
+            } else {
+                z0 + step_z
+            };
+            let (patch, _strip, list) =
+                bake_water_patch_world(x0, z0, x1, z1, water_y, transparent_water_diffuse);
+            let base = verts.len() as u32;
+            indices.extend(list.into_iter().map(|i| i + base));
+            verts.extend(patch);
+        }
+    }
+    (verts, indices)
+}
+
 /// One terrain directional light for C++ standing-water lighting.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct WaterTerrainLight {
@@ -895,7 +943,12 @@ pub fn unpack_bgra_rgb(diffuse: u32) -> [f32; 3] {
 #[must_use]
 pub fn unpack_bgra_rgba(diffuse: u32) -> [f32; 4] {
     let rgb = unpack_bgra_rgb(diffuse);
-    [rgb[0], rgb[1], rgb[2], ((diffuse >> 24) & 0xFF) as f32 / 255.0]
+    [
+        rgb[0],
+        rgb[1],
+        rgb[2],
+        ((diffuse >> 24) & 0xFF) as f32 / 255.0,
+    ]
 }
 
 /// Shipped wgpu water overlay vertex. `packed_c` is C++ `SEA_PATCH_VERTEX.c`.
@@ -1111,6 +1164,26 @@ mod tests {
     }
 
     #[test]
+    fn bake_water_tiles_world_does_not_stretch_one_patch() {
+        let (verts, list) =
+            bake_water_tiles_world(-100.0, -50.0, 100.0, 50.0, 3.0, 0xffff_ffff);
+        // 200×100 extent / PATCH_WIDTH(14) → more than one 15×15 sheet.
+        assert!(
+            verts.len() > PATCH_SIZE * PATCH_SIZE,
+            "water must tile, not stretch one 15x15 patch; got {} verts",
+            verts.len()
+        );
+        assert!(!list.is_empty());
+        assert_eq!(list.len() % 3, 0);
+        assert!((verts[0].x - (-100.0)).abs() < 1.0e-3);
+        assert!((verts[0].z - (-50.0)).abs() < 1.0e-3);
+        assert_eq!(verts[0].y, 3.0);
+        let last = verts.last().copied().expect("verts");
+        assert!((last.x - 100.0).abs() < 1.0e-3);
+        assert!((last.z - 50.0).abs() < 1.0e-3);
+    }
+
+    #[test]
     fn bake_water_patch_world_preserves_cpp_uvs_and_maps_extent() {
         let (verts, strip, list) =
             bake_water_patch_world(-100.0, -50.0, 100.0, 50.0, 3.0, 0xffff_ffff);
@@ -1128,7 +1201,7 @@ mod tests {
     #[test]
     fn compute_standing_water_diffuse_matches_cpp_w3d_water() {
         let water_diffuse = 0x80FF_CC99; // A=0x80, R=0xFF, G=0xCC, B=0x99 in ARGB naming... packed as u32 hex
-        // C++ unpacks waterShadeR = low byte, G = <<8, B = <<16 then packs shadeB|G<<8|R<<16
+                                         // C++ unpacks waterShadeR = low byte, G = <<8, B = <<16 then packs shadeB|G<<8|R<<16
         let lights = [WaterTerrainLight {
             light_pos: [0.0, 0.0, -1.0],
             diffuse: [0.5, 0.25, 0.0],
@@ -1174,29 +1247,22 @@ mod tests {
             increase_frames: 0,
             decay_frames: 0,
         }));
-        let (verts, _, _) =
-            bake_water_patch_world(-20.0, -20.0, 20.0, 20.0, 3.0, 0x8033_3333);
+        let (verts, _, _) = bake_water_patch_world(-20.0, -20.0, 20.0, 20.0, 3.0, 0x8033_3333);
         assert!(!verts.is_empty());
         let lights = scene_dynamic_lights();
         let v = verts[0];
-        let expected = do_the_dynamic_light(
-            [v.x, v.z, v.y],
-            [0.0, 0.0, 1.0],
-            0x8033_3333,
-            &lights,
-        );
+        let expected = do_the_dynamic_light([v.x, v.z, v.y], [0.0, 0.0, 1.0], 0x8033_3333, &lights);
         assert_eq!(v.c, expected);
         let gpu = fill_water_gpu_upload_vertices(&verts);
         assert_eq!(gpu.len(), verts.len());
         for (cpu, uploaded) in verts.iter().zip(gpu.iter()) {
-            let expected_c = do_the_dynamic_light(
-                [cpu.x, cpu.z, cpu.y],
-                [0.0, 0.0, 1.0],
-                0x8033_3333,
-                &lights,
-            );
+            let expected_c =
+                do_the_dynamic_light([cpu.x, cpu.z, cpu.y], [0.0, 0.0, 1.0], 0x8033_3333, &lights);
             assert_eq!(cpu.c, expected_c);
-            assert_eq!(uploaded.packed_c, expected_c, "wgpu VB must keep SeaPatchVertex.c");
+            assert_eq!(
+                uploaded.packed_c, expected_c,
+                "wgpu VB must keep SeaPatchVertex.c"
+            );
             assert_eq!(uploaded.position, [cpu.x, cpu.y, cpu.z]);
             assert_eq!(uploaded.color, unpack_bgra_rgb(expected_c));
             assert_eq!(uploaded.tex_coords, [cpu.tu, cpu.tv]);
@@ -1372,15 +1438,16 @@ mod tests {
             vertex.diffuse = 0xFF33_3333;
         }
         light_road_seg_vertices(&mut relit, 0xFF33_3333);
-        let expected_gray = do_road_dynamic_light(
-            [relit[0].x, relit[0].y, relit[0].z],
-            0xFF33_3333,
-            &lights,
-        );
+        let expected_gray =
+            do_road_dynamic_light([relit[0].x, relit[0].y, relit[0].z], 0xFF33_3333, &lights);
         assert_eq!(relit[0].diffuse, expected_gray);
         let r = (relit[0].diffuse >> 16) & 0xFF;
         let g = (relit[0].diffuse >> 8) & 0xFF;
-        assert!(r > g, "red pulse must raise R vs G, packed={:#010x}", relit[0].diffuse);
+        assert!(
+            r > g,
+            "red pulse must raise R vs G, packed={:#010x}",
+            relit[0].diffuse
+        );
         clear_scene_dynamic_lights();
     }
 
@@ -1414,7 +1481,10 @@ mod tests {
         let mut far = light.clone();
         far.pos = [1000.0, 0.0, 0.0];
         let missed = do_road_dynamic_light([0.0, 0.0, 0.0], 0xFF00_0000, &[far]);
-        assert_eq!(missed, 0xFF00_0000, "XY AABB must skip distant POINT lights");
+        assert_eq!(
+            missed, 0xFF00_0000,
+            "XY AABB must skip distant POINT lights"
+        );
     }
 
     #[test]
@@ -1454,7 +1524,10 @@ mod tests {
         for (cpu, uploaded) in verts.iter().zip(gpu.iter()) {
             let expected = do_road_dynamic_light([cpu.x, cpu.y, cpu.z], 0xFFFF_FFFF, &lights);
             assert_eq!(cpu.diffuse, expected);
-            assert_eq!(uploaded.diffuse, expected, "wgpu VB must keep C++ packed diffuse");
+            assert_eq!(
+                uploaded.diffuse, expected,
+                "wgpu VB must keep C++ packed diffuse"
+            );
             assert_eq!(uploaded.position, cpp_map_to_y_up(cpu.x, cpu.y, cpu.z));
             assert_eq!(uploaded.color, unpack_bgra_rgb(expected));
             assert_eq!(uploaded.tex_coords, [cpu.u1, cpu.v1]);

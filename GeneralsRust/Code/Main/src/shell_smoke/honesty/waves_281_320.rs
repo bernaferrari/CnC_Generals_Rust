@@ -130,128 +130,251 @@ pub(super) struct Waves281320 {
     pub live_paradrop_power_dual_world_empty_gate_live_wave320_ok: bool,
 }
 
-pub(super) fn evaluate(pres: &crate::presentation_frame::PresentationFrame, presentation_ok: bool) -> Waves281320 {
+pub(super) fn evaluate(
+    pres: &crate::presentation_frame::PresentationFrame,
+    presentation_ok: bool,
+) -> Waves281320 {
     let _ = (pres, presentation_ok);
     Waves281320 {
-        live_helpers_dual_world_empty_gate_method_names_wave281_ok: honesty_live_helpers_dual_world_empty_gate_method_names_residual_wave281(),
-        live_helpers_dual_world_empty_gate_nav_commands_wave281_ok: honesty_live_helpers_dual_world_empty_gate_nav_commands_residual_wave281(),
-        live_helpers_dual_world_empty_gate_live_wave281_ok: simulate_live_helpers_dual_world_empty_gate_honesty(),
-        live_ai_update_interface_dual_world_empty_gate_method_names_wave282_ok: honesty_live_ai_update_interface_dual_world_empty_gate_method_names_residual_wave282(),
-        live_ai_update_interface_dual_world_empty_gate_nav_commands_wave282_ok: honesty_live_ai_update_interface_dual_world_empty_gate_nav_commands_residual_wave282(),
-        live_ai_update_interface_dual_world_empty_gate_live_wave282_ok: simulate_live_ai_update_interface_dual_world_empty_gate_honesty(),
-        live_stealth_update_dual_world_empty_gate_method_names_wave283_ok: honesty_live_stealth_update_dual_world_empty_gate_method_names_residual_wave283(),
-        live_stealth_update_dual_world_empty_gate_nav_commands_wave283_ok: honesty_live_stealth_update_dual_world_empty_gate_nav_commands_residual_wave283(),
-        live_stealth_update_dual_world_empty_gate_live_wave283_ok: simulate_live_stealth_update_dual_world_empty_gate_honesty(),
-        live_script_executor_dual_world_empty_gate_method_names_wave284_ok: honesty_live_script_executor_dual_world_empty_gate_method_names_residual_wave284(),
-        live_script_executor_dual_world_empty_gate_nav_commands_wave284_ok: honesty_live_script_executor_dual_world_empty_gate_nav_commands_residual_wave284(),
-        live_script_executor_dual_world_empty_gate_live_wave284_ok: simulate_live_script_executor_dual_world_empty_gate_honesty(),
-        live_ai_integration_dual_world_empty_gate_method_names_wave285_ok: honesty_live_ai_integration_dual_world_empty_gate_method_names_residual_wave285(),
-        live_ai_integration_dual_world_empty_gate_nav_commands_wave285_ok: honesty_live_ai_integration_dual_world_empty_gate_nav_commands_residual_wave285(),
-        live_ai_integration_dual_world_empty_gate_live_wave285_ok: simulate_live_ai_integration_dual_world_empty_gate_honesty(),
-        live_dumb_projectile_dual_world_empty_gate_method_names_wave286_ok: honesty_live_dumb_projectile_dual_world_empty_gate_method_names_residual_wave286(),
-        live_dumb_projectile_dual_world_empty_gate_nav_commands_wave286_ok: honesty_live_dumb_projectile_dual_world_empty_gate_nav_commands_residual_wave286(),
-        live_dumb_projectile_dual_world_empty_gate_live_wave286_ok: simulate_live_dumb_projectile_dual_world_empty_gate_honesty(),
-        live_enhanced_player_dual_world_empty_gate_method_names_wave287_ok: honesty_live_enhanced_player_dual_world_empty_gate_method_names_residual_wave287(),
-        live_enhanced_player_dual_world_empty_gate_nav_commands_wave287_ok: honesty_live_enhanced_player_dual_world_empty_gate_nav_commands_residual_wave287(),
-        live_enhanced_player_dual_world_empty_gate_live_wave287_ok: simulate_live_enhanced_player_dual_world_empty_gate_honesty(),
-        live_hijacker_update_dual_world_empty_gate_method_names_wave288_ok: honesty_live_hijacker_update_dual_world_empty_gate_method_names_residual_wave288(),
-        live_hijacker_update_dual_world_empty_gate_nav_commands_wave288_ok: honesty_live_hijacker_update_dual_world_empty_gate_nav_commands_residual_wave288(),
-        live_hijacker_update_dual_world_empty_gate_live_wave288_ok: simulate_live_hijacker_update_dual_world_empty_gate_honesty(),
-        live_weapon_impl_dual_world_empty_gate_method_names_wave289_ok: honesty_live_weapon_impl_dual_world_empty_gate_method_names_residual_wave289(),
-        live_weapon_impl_dual_world_empty_gate_nav_commands_wave289_ok: honesty_live_weapon_impl_dual_world_empty_gate_nav_commands_residual_wave289(),
-        live_weapon_impl_dual_world_empty_gate_live_wave289_ok: simulate_live_weapon_impl_dual_world_empty_gate_honesty(),
-        live_async_player_dual_world_empty_gate_method_names_wave290_ok: honesty_live_async_player_dual_world_empty_gate_method_names_residual_wave290(),
-        live_async_player_dual_world_empty_gate_nav_commands_wave290_ok: honesty_live_async_player_dual_world_empty_gate_nav_commands_residual_wave290(),
-        live_async_player_dual_world_empty_gate_live_wave290_ok: simulate_live_async_player_dual_world_empty_gate_honesty(),
-        live_active_body_dual_world_empty_gate_method_names_wave291_ok: honesty_live_active_body_dual_world_empty_gate_method_names_residual_wave291(),
-        live_active_body_dual_world_empty_gate_nav_commands_wave291_ok: honesty_live_active_body_dual_world_empty_gate_nav_commands_residual_wave291(),
-        live_active_body_dual_world_empty_gate_live_wave291_ok: simulate_live_active_body_dual_world_empty_gate_honesty(),
-        live_skirmish_conditions_dual_world_empty_gate_method_names_wave292_ok: honesty_live_skirmish_conditions_dual_world_empty_gate_method_names_residual_wave292(),
-        live_skirmish_conditions_dual_world_empty_gate_nav_commands_wave292_ok: honesty_live_skirmish_conditions_dual_world_empty_gate_nav_commands_residual_wave292(),
-        live_skirmish_conditions_dual_world_empty_gate_live_wave292_ok: simulate_live_skirmish_conditions_dual_world_empty_gate_honesty(),
-        live_ai_build_list_dual_world_empty_gate_method_names_wave293_ok: honesty_live_ai_build_list_dual_world_empty_gate_method_names_residual_wave293(),
-        live_ai_build_list_dual_world_empty_gate_nav_commands_wave293_ok: honesty_live_ai_build_list_dual_world_empty_gate_nav_commands_residual_wave293(),
-        live_ai_build_list_dual_world_empty_gate_live_wave293_ok: simulate_live_ai_build_list_dual_world_empty_gate_honesty(),
-        live_victory_dual_world_empty_gate_method_names_wave294_ok: honesty_live_victory_dual_world_empty_gate_method_names_residual_wave294(),
-        live_victory_dual_world_empty_gate_nav_commands_wave294_ok: honesty_live_victory_dual_world_empty_gate_nav_commands_residual_wave294(),
-        live_victory_dual_world_empty_gate_live_wave294_ok: simulate_live_victory_dual_world_empty_gate_honesty(),
-        live_script_actions_dual_world_empty_gate_method_names_wave295_ok: honesty_live_script_actions_dual_world_empty_gate_method_names_residual_wave295(),
-        live_script_actions_dual_world_empty_gate_nav_commands_wave295_ok: honesty_live_script_actions_dual_world_empty_gate_nav_commands_residual_wave295(),
-        live_script_actions_dual_world_empty_gate_live_wave295_ok: simulate_live_script_actions_dual_world_empty_gate_honesty(),
-        live_special_ability_dual_world_empty_gate_method_names_wave296_ok: honesty_live_special_ability_dual_world_empty_gate_method_names_residual_wave296(),
-        live_special_ability_dual_world_empty_gate_nav_commands_wave296_ok: honesty_live_special_ability_dual_world_empty_gate_nav_commands_residual_wave296(),
-        live_special_ability_dual_world_empty_gate_live_wave296_ok: simulate_live_special_ability_dual_world_empty_gate_honesty(),
-        live_stealth_detector_dual_world_empty_gate_method_names_wave297_ok: honesty_live_stealth_detector_dual_world_empty_gate_method_names_residual_wave297(),
-        live_stealth_detector_dual_world_empty_gate_nav_commands_wave297_ok: honesty_live_stealth_detector_dual_world_empty_gate_nav_commands_residual_wave297(),
-        live_stealth_detector_dual_world_empty_gate_live_wave297_ok: simulate_live_stealth_detector_dual_world_empty_gate_honesty(),
-        live_supply_system_dual_world_empty_gate_method_names_wave298_ok: honesty_live_supply_system_dual_world_empty_gate_method_names_residual_wave298(),
-        live_supply_system_dual_world_empty_gate_nav_commands_wave298_ok: honesty_live_supply_system_dual_world_empty_gate_nav_commands_residual_wave298(),
-        live_supply_system_dual_world_empty_gate_live_wave298_ok: simulate_live_supply_system_dual_world_empty_gate_honesty(),
-        live_particle_uplink_dual_world_empty_gate_method_names_wave299_ok: honesty_live_particle_uplink_dual_world_empty_gate_method_names_residual_wave299(),
-        live_particle_uplink_dual_world_empty_gate_nav_commands_wave299_ok: honesty_live_particle_uplink_dual_world_empty_gate_nav_commands_residual_wave299(),
-        live_particle_uplink_dual_world_empty_gate_live_wave299_ok: simulate_live_particle_uplink_dual_world_empty_gate_honesty(),
-        live_overlord_contain_dual_world_empty_gate_method_names_wave300_ok: honesty_live_overlord_contain_dual_world_empty_gate_method_names_residual_wave300(),
-        live_overlord_contain_dual_world_empty_gate_nav_commands_wave300_ok: honesty_live_overlord_contain_dual_world_empty_gate_nav_commands_residual_wave300(),
-        live_overlord_contain_dual_world_empty_gate_live_wave300_ok: simulate_live_overlord_contain_dual_world_empty_gate_honesty(),
-        live_bridge_behavior_dual_world_empty_gate_method_names_wave301_ok: honesty_live_bridge_behavior_dual_world_empty_gate_method_names_residual_wave301(),
-        live_bridge_behavior_dual_world_empty_gate_nav_commands_wave301_ok: honesty_live_bridge_behavior_dual_world_empty_gate_nav_commands_residual_wave301(),
-        live_bridge_behavior_dual_world_empty_gate_live_wave301_ok: simulate_live_bridge_behavior_dual_world_empty_gate_honesty(),
-        live_stealth_behavior_dual_world_empty_gate_method_names_wave302_ok: honesty_live_stealth_behavior_dual_world_empty_gate_method_names_residual_wave302(),
-        live_stealth_behavior_dual_world_empty_gate_nav_commands_wave302_ok: honesty_live_stealth_behavior_dual_world_empty_gate_nav_commands_residual_wave302(),
-        live_stealth_behavior_dual_world_empty_gate_live_wave302_ok: simulate_live_stealth_behavior_dual_world_empty_gate_honesty(),
-        live_crate_collide_dual_world_empty_gate_method_names_wave303_ok: honesty_live_crate_collide_dual_world_empty_gate_method_names_residual_wave303(),
-        live_crate_collide_dual_world_empty_gate_nav_commands_wave303_ok: honesty_live_crate_collide_dual_world_empty_gate_nav_commands_residual_wave303(),
-        live_crate_collide_dual_world_empty_gate_live_wave303_ok: simulate_live_crate_collide_dual_world_empty_gate_honesty(),
-        live_object_manager_dual_world_empty_gate_method_names_wave304_ok: honesty_live_object_manager_dual_world_empty_gate_method_names_residual_wave304(),
-        live_object_manager_dual_world_empty_gate_nav_commands_wave304_ok: honesty_live_object_manager_dual_world_empty_gate_nav_commands_residual_wave304(),
-        live_object_manager_dual_world_empty_gate_live_wave304_ok: simulate_live_object_manager_dual_world_empty_gate_honesty(),
-        live_sticky_bomb_dual_world_empty_gate_method_names_wave305_ok: honesty_live_sticky_bomb_dual_world_empty_gate_method_names_residual_wave305(),
-        live_sticky_bomb_dual_world_empty_gate_nav_commands_wave305_ok: honesty_live_sticky_bomb_dual_world_empty_gate_nav_commands_residual_wave305(),
-        live_sticky_bomb_dual_world_empty_gate_live_wave305_ok: simulate_live_sticky_bomb_dual_world_empty_gate_honesty(),
-        live_auto_heal_dual_world_empty_gate_method_names_wave306_ok: honesty_live_auto_heal_dual_world_empty_gate_method_names_residual_wave306(),
-        live_auto_heal_dual_world_empty_gate_nav_commands_wave306_ok: honesty_live_auto_heal_dual_world_empty_gate_nav_commands_residual_wave306(),
-        live_auto_heal_dual_world_empty_gate_live_wave306_ok: simulate_live_auto_heal_dual_world_empty_gate_honesty(),
-        live_grant_stealth_dual_world_empty_gate_method_names_wave307_ok: honesty_live_grant_stealth_dual_world_empty_gate_method_names_residual_wave307(),
-        live_grant_stealth_dual_world_empty_gate_nav_commands_wave307_ok: honesty_live_grant_stealth_dual_world_empty_gate_nav_commands_residual_wave307(),
-        live_grant_stealth_dual_world_empty_gate_live_wave307_ok: simulate_live_grant_stealth_dual_world_empty_gate_honesty(),
-        live_status_bits_upgrade_dual_world_empty_gate_method_names_wave308_ok: honesty_live_status_bits_upgrade_dual_world_empty_gate_method_names_residual_wave308(),
-        live_status_bits_upgrade_dual_world_empty_gate_nav_commands_wave308_ok: honesty_live_status_bits_upgrade_dual_world_empty_gate_nav_commands_residual_wave308(),
-        live_status_bits_upgrade_dual_world_empty_gate_live_wave308_ok: simulate_live_status_bits_upgrade_dual_world_empty_gate_honesty(),
-        live_jet_ai_dual_world_empty_gate_method_names_wave309_ok: honesty_live_jet_ai_dual_world_empty_gate_method_names_residual_wave309(),
-        live_jet_ai_dual_world_empty_gate_nav_commands_wave309_ok: honesty_live_jet_ai_dual_world_empty_gate_nav_commands_residual_wave309(),
-        live_jet_ai_dual_world_empty_gate_live_wave309_ok: simulate_live_jet_ai_dual_world_empty_gate_honesty(),
-        live_parking_place_dual_world_empty_gate_method_names_wave310_ok: honesty_live_parking_place_dual_world_empty_gate_method_names_residual_wave310(),
-        live_parking_place_dual_world_empty_gate_nav_commands_wave310_ok: honesty_live_parking_place_dual_world_empty_gate_nav_commands_residual_wave310(),
-        live_parking_place_dual_world_empty_gate_live_wave310_ok: simulate_live_parking_place_dual_world_empty_gate_honesty(),
-        live_flight_deck_dual_world_empty_gate_method_names_wave311_ok: honesty_live_flight_deck_dual_world_empty_gate_method_names_residual_wave311(),
-        live_flight_deck_dual_world_empty_gate_nav_commands_wave311_ok: honesty_live_flight_deck_dual_world_empty_gate_nav_commands_residual_wave311(),
-        live_flight_deck_dual_world_empty_gate_live_wave311_ok: simulate_live_flight_deck_dual_world_empty_gate_honesty(),
-        live_exit_strategies_dual_world_empty_gate_method_names_wave312_ok: honesty_live_exit_strategies_dual_world_empty_gate_method_names_residual_wave312(),
-        live_exit_strategies_dual_world_empty_gate_nav_commands_wave312_ok: honesty_live_exit_strategies_dual_world_empty_gate_nav_commands_residual_wave312(),
-        live_exit_strategies_dual_world_empty_gate_live_wave312_ok: simulate_live_exit_strategies_dual_world_empty_gate_honesty(),
-        live_collision_system_dual_world_empty_gate_method_names_wave313_ok: honesty_live_collision_system_dual_world_empty_gate_method_names_residual_wave313(),
-        live_collision_system_dual_world_empty_gate_nav_commands_wave313_ok: honesty_live_collision_system_dual_world_empty_gate_nav_commands_residual_wave313(),
-        live_collision_system_dual_world_empty_gate_live_wave313_ok: simulate_live_collision_system_dual_world_empty_gate_honesty(),
-        live_max_health_upgrade_dual_world_empty_gate_method_names_wave314_ok: honesty_live_max_health_upgrade_dual_world_empty_gate_method_names_residual_wave314(),
-        live_max_health_upgrade_dual_world_empty_gate_nav_commands_wave314_ok: honesty_live_max_health_upgrade_dual_world_empty_gate_nav_commands_residual_wave314(),
-        live_max_health_upgrade_dual_world_empty_gate_live_wave314_ok: simulate_live_max_health_upgrade_dual_world_empty_gate_honesty(),
-        live_structure_topple_dual_world_empty_gate_method_names_wave315_ok: honesty_live_structure_topple_dual_world_empty_gate_method_names_residual_wave315(),
-        live_structure_topple_dual_world_empty_gate_nav_commands_wave315_ok: honesty_live_structure_topple_dual_world_empty_gate_nav_commands_residual_wave315(),
-        live_structure_topple_dual_world_empty_gate_live_wave315_ok: simulate_live_structure_topple_dual_world_empty_gate_honesty(),
-        live_physics_update_dual_world_empty_gate_method_names_wave316_ok: honesty_live_physics_update_dual_world_empty_gate_method_names_residual_wave316(),
-        live_physics_update_dual_world_empty_gate_nav_commands_wave316_ok: honesty_live_physics_update_dual_world_empty_gate_nav_commands_residual_wave316(),
-        live_physics_update_dual_world_empty_gate_live_wave316_ok: simulate_live_physics_update_dual_world_empty_gate_honesty(),
-        live_cleanup_hazard_dual_world_empty_gate_method_names_wave317_ok: honesty_live_cleanup_hazard_dual_world_empty_gate_method_names_residual_wave317(),
-        live_cleanup_hazard_dual_world_empty_gate_nav_commands_wave317_ok: honesty_live_cleanup_hazard_dual_world_empty_gate_nav_commands_residual_wave317(),
-        live_cleanup_hazard_dual_world_empty_gate_live_wave317_ok: simulate_live_cleanup_hazard_dual_world_empty_gate_honesty(),
-        live_bridge_tower_dual_world_empty_gate_method_names_wave318_ok: honesty_live_bridge_tower_dual_world_empty_gate_method_names_residual_wave318(),
-        live_bridge_tower_dual_world_empty_gate_nav_commands_wave318_ok: honesty_live_bridge_tower_dual_world_empty_gate_nav_commands_residual_wave318(),
-        live_bridge_tower_dual_world_empty_gate_live_wave318_ok: simulate_live_bridge_tower_dual_world_empty_gate_honesty(),
-        live_armor_upgrade_dual_world_empty_gate_method_names_wave319_ok: honesty_live_armor_upgrade_dual_world_empty_gate_method_names_residual_wave319(),
-        live_armor_upgrade_dual_world_empty_gate_nav_commands_wave319_ok: honesty_live_armor_upgrade_dual_world_empty_gate_nav_commands_residual_wave319(),
-        live_armor_upgrade_dual_world_empty_gate_live_wave319_ok: simulate_live_armor_upgrade_dual_world_empty_gate_honesty(),
-        live_paradrop_power_dual_world_empty_gate_method_names_wave320_ok: honesty_live_paradrop_power_dual_world_empty_gate_method_names_residual_wave320(),
-        live_paradrop_power_dual_world_empty_gate_nav_commands_wave320_ok: honesty_live_paradrop_power_dual_world_empty_gate_nav_commands_residual_wave320(),
-        live_paradrop_power_dual_world_empty_gate_live_wave320_ok: simulate_live_paradrop_power_dual_world_empty_gate_honesty(),
+        live_helpers_dual_world_empty_gate_method_names_wave281_ok:
+            honesty_live_helpers_dual_world_empty_gate_method_names_residual_wave281(),
+        live_helpers_dual_world_empty_gate_nav_commands_wave281_ok:
+            honesty_live_helpers_dual_world_empty_gate_nav_commands_residual_wave281(),
+        live_helpers_dual_world_empty_gate_live_wave281_ok:
+            simulate_live_helpers_dual_world_empty_gate_honesty(),
+        live_ai_update_interface_dual_world_empty_gate_method_names_wave282_ok:
+            honesty_live_ai_update_interface_dual_world_empty_gate_method_names_residual_wave282(),
+        live_ai_update_interface_dual_world_empty_gate_nav_commands_wave282_ok:
+            honesty_live_ai_update_interface_dual_world_empty_gate_nav_commands_residual_wave282(),
+        live_ai_update_interface_dual_world_empty_gate_live_wave282_ok:
+            simulate_live_ai_update_interface_dual_world_empty_gate_honesty(),
+        live_stealth_update_dual_world_empty_gate_method_names_wave283_ok:
+            honesty_live_stealth_update_dual_world_empty_gate_method_names_residual_wave283(),
+        live_stealth_update_dual_world_empty_gate_nav_commands_wave283_ok:
+            honesty_live_stealth_update_dual_world_empty_gate_nav_commands_residual_wave283(),
+        live_stealth_update_dual_world_empty_gate_live_wave283_ok:
+            simulate_live_stealth_update_dual_world_empty_gate_honesty(),
+        live_script_executor_dual_world_empty_gate_method_names_wave284_ok:
+            honesty_live_script_executor_dual_world_empty_gate_method_names_residual_wave284(),
+        live_script_executor_dual_world_empty_gate_nav_commands_wave284_ok:
+            honesty_live_script_executor_dual_world_empty_gate_nav_commands_residual_wave284(),
+        live_script_executor_dual_world_empty_gate_live_wave284_ok:
+            simulate_live_script_executor_dual_world_empty_gate_honesty(),
+        live_ai_integration_dual_world_empty_gate_method_names_wave285_ok:
+            honesty_live_ai_integration_dual_world_empty_gate_method_names_residual_wave285(),
+        live_ai_integration_dual_world_empty_gate_nav_commands_wave285_ok:
+            honesty_live_ai_integration_dual_world_empty_gate_nav_commands_residual_wave285(),
+        live_ai_integration_dual_world_empty_gate_live_wave285_ok:
+            simulate_live_ai_integration_dual_world_empty_gate_honesty(),
+        live_dumb_projectile_dual_world_empty_gate_method_names_wave286_ok:
+            honesty_live_dumb_projectile_dual_world_empty_gate_method_names_residual_wave286(),
+        live_dumb_projectile_dual_world_empty_gate_nav_commands_wave286_ok:
+            honesty_live_dumb_projectile_dual_world_empty_gate_nav_commands_residual_wave286(),
+        live_dumb_projectile_dual_world_empty_gate_live_wave286_ok:
+            simulate_live_dumb_projectile_dual_world_empty_gate_honesty(),
+        live_enhanced_player_dual_world_empty_gate_method_names_wave287_ok:
+            honesty_live_enhanced_player_dual_world_empty_gate_method_names_residual_wave287(),
+        live_enhanced_player_dual_world_empty_gate_nav_commands_wave287_ok:
+            honesty_live_enhanced_player_dual_world_empty_gate_nav_commands_residual_wave287(),
+        live_enhanced_player_dual_world_empty_gate_live_wave287_ok:
+            simulate_live_enhanced_player_dual_world_empty_gate_honesty(),
+        live_hijacker_update_dual_world_empty_gate_method_names_wave288_ok:
+            honesty_live_hijacker_update_dual_world_empty_gate_method_names_residual_wave288(),
+        live_hijacker_update_dual_world_empty_gate_nav_commands_wave288_ok:
+            honesty_live_hijacker_update_dual_world_empty_gate_nav_commands_residual_wave288(),
+        live_hijacker_update_dual_world_empty_gate_live_wave288_ok:
+            simulate_live_hijacker_update_dual_world_empty_gate_honesty(),
+        live_weapon_impl_dual_world_empty_gate_method_names_wave289_ok:
+            honesty_live_weapon_impl_dual_world_empty_gate_method_names_residual_wave289(),
+        live_weapon_impl_dual_world_empty_gate_nav_commands_wave289_ok:
+            honesty_live_weapon_impl_dual_world_empty_gate_nav_commands_residual_wave289(),
+        live_weapon_impl_dual_world_empty_gate_live_wave289_ok:
+            simulate_live_weapon_impl_dual_world_empty_gate_honesty(),
+        live_async_player_dual_world_empty_gate_method_names_wave290_ok:
+            honesty_live_async_player_dual_world_empty_gate_method_names_residual_wave290(),
+        live_async_player_dual_world_empty_gate_nav_commands_wave290_ok:
+            honesty_live_async_player_dual_world_empty_gate_nav_commands_residual_wave290(),
+        live_async_player_dual_world_empty_gate_live_wave290_ok:
+            simulate_live_async_player_dual_world_empty_gate_honesty(),
+        live_active_body_dual_world_empty_gate_method_names_wave291_ok:
+            honesty_live_active_body_dual_world_empty_gate_method_names_residual_wave291(),
+        live_active_body_dual_world_empty_gate_nav_commands_wave291_ok:
+            honesty_live_active_body_dual_world_empty_gate_nav_commands_residual_wave291(),
+        live_active_body_dual_world_empty_gate_live_wave291_ok:
+            simulate_live_active_body_dual_world_empty_gate_honesty(),
+        live_skirmish_conditions_dual_world_empty_gate_method_names_wave292_ok:
+            honesty_live_skirmish_conditions_dual_world_empty_gate_method_names_residual_wave292(),
+        live_skirmish_conditions_dual_world_empty_gate_nav_commands_wave292_ok:
+            honesty_live_skirmish_conditions_dual_world_empty_gate_nav_commands_residual_wave292(),
+        live_skirmish_conditions_dual_world_empty_gate_live_wave292_ok:
+            simulate_live_skirmish_conditions_dual_world_empty_gate_honesty(),
+        live_ai_build_list_dual_world_empty_gate_method_names_wave293_ok:
+            honesty_live_ai_build_list_dual_world_empty_gate_method_names_residual_wave293(),
+        live_ai_build_list_dual_world_empty_gate_nav_commands_wave293_ok:
+            honesty_live_ai_build_list_dual_world_empty_gate_nav_commands_residual_wave293(),
+        live_ai_build_list_dual_world_empty_gate_live_wave293_ok:
+            simulate_live_ai_build_list_dual_world_empty_gate_honesty(),
+        live_victory_dual_world_empty_gate_method_names_wave294_ok:
+            honesty_live_victory_dual_world_empty_gate_method_names_residual_wave294(),
+        live_victory_dual_world_empty_gate_nav_commands_wave294_ok:
+            honesty_live_victory_dual_world_empty_gate_nav_commands_residual_wave294(),
+        live_victory_dual_world_empty_gate_live_wave294_ok:
+            simulate_live_victory_dual_world_empty_gate_honesty(),
+        live_script_actions_dual_world_empty_gate_method_names_wave295_ok:
+            honesty_live_script_actions_dual_world_empty_gate_method_names_residual_wave295(),
+        live_script_actions_dual_world_empty_gate_nav_commands_wave295_ok:
+            honesty_live_script_actions_dual_world_empty_gate_nav_commands_residual_wave295(),
+        live_script_actions_dual_world_empty_gate_live_wave295_ok:
+            simulate_live_script_actions_dual_world_empty_gate_honesty(),
+        live_special_ability_dual_world_empty_gate_method_names_wave296_ok:
+            honesty_live_special_ability_dual_world_empty_gate_method_names_residual_wave296(),
+        live_special_ability_dual_world_empty_gate_nav_commands_wave296_ok:
+            honesty_live_special_ability_dual_world_empty_gate_nav_commands_residual_wave296(),
+        live_special_ability_dual_world_empty_gate_live_wave296_ok:
+            simulate_live_special_ability_dual_world_empty_gate_honesty(),
+        live_stealth_detector_dual_world_empty_gate_method_names_wave297_ok:
+            honesty_live_stealth_detector_dual_world_empty_gate_method_names_residual_wave297(),
+        live_stealth_detector_dual_world_empty_gate_nav_commands_wave297_ok:
+            honesty_live_stealth_detector_dual_world_empty_gate_nav_commands_residual_wave297(),
+        live_stealth_detector_dual_world_empty_gate_live_wave297_ok:
+            simulate_live_stealth_detector_dual_world_empty_gate_honesty(),
+        live_supply_system_dual_world_empty_gate_method_names_wave298_ok:
+            honesty_live_supply_system_dual_world_empty_gate_method_names_residual_wave298(),
+        live_supply_system_dual_world_empty_gate_nav_commands_wave298_ok:
+            honesty_live_supply_system_dual_world_empty_gate_nav_commands_residual_wave298(),
+        live_supply_system_dual_world_empty_gate_live_wave298_ok:
+            simulate_live_supply_system_dual_world_empty_gate_honesty(),
+        live_particle_uplink_dual_world_empty_gate_method_names_wave299_ok:
+            honesty_live_particle_uplink_dual_world_empty_gate_method_names_residual_wave299(),
+        live_particle_uplink_dual_world_empty_gate_nav_commands_wave299_ok:
+            honesty_live_particle_uplink_dual_world_empty_gate_nav_commands_residual_wave299(),
+        live_particle_uplink_dual_world_empty_gate_live_wave299_ok:
+            simulate_live_particle_uplink_dual_world_empty_gate_honesty(),
+        live_overlord_contain_dual_world_empty_gate_method_names_wave300_ok:
+            honesty_live_overlord_contain_dual_world_empty_gate_method_names_residual_wave300(),
+        live_overlord_contain_dual_world_empty_gate_nav_commands_wave300_ok:
+            honesty_live_overlord_contain_dual_world_empty_gate_nav_commands_residual_wave300(),
+        live_overlord_contain_dual_world_empty_gate_live_wave300_ok:
+            simulate_live_overlord_contain_dual_world_empty_gate_honesty(),
+        live_bridge_behavior_dual_world_empty_gate_method_names_wave301_ok:
+            honesty_live_bridge_behavior_dual_world_empty_gate_method_names_residual_wave301(),
+        live_bridge_behavior_dual_world_empty_gate_nav_commands_wave301_ok:
+            honesty_live_bridge_behavior_dual_world_empty_gate_nav_commands_residual_wave301(),
+        live_bridge_behavior_dual_world_empty_gate_live_wave301_ok:
+            simulate_live_bridge_behavior_dual_world_empty_gate_honesty(),
+        live_stealth_behavior_dual_world_empty_gate_method_names_wave302_ok:
+            honesty_live_stealth_behavior_dual_world_empty_gate_method_names_residual_wave302(),
+        live_stealth_behavior_dual_world_empty_gate_nav_commands_wave302_ok:
+            honesty_live_stealth_behavior_dual_world_empty_gate_nav_commands_residual_wave302(),
+        live_stealth_behavior_dual_world_empty_gate_live_wave302_ok:
+            simulate_live_stealth_behavior_dual_world_empty_gate_honesty(),
+        live_crate_collide_dual_world_empty_gate_method_names_wave303_ok:
+            honesty_live_crate_collide_dual_world_empty_gate_method_names_residual_wave303(),
+        live_crate_collide_dual_world_empty_gate_nav_commands_wave303_ok:
+            honesty_live_crate_collide_dual_world_empty_gate_nav_commands_residual_wave303(),
+        live_crate_collide_dual_world_empty_gate_live_wave303_ok:
+            simulate_live_crate_collide_dual_world_empty_gate_honesty(),
+        live_object_manager_dual_world_empty_gate_method_names_wave304_ok:
+            honesty_live_object_manager_dual_world_empty_gate_method_names_residual_wave304(),
+        live_object_manager_dual_world_empty_gate_nav_commands_wave304_ok:
+            honesty_live_object_manager_dual_world_empty_gate_nav_commands_residual_wave304(),
+        live_object_manager_dual_world_empty_gate_live_wave304_ok:
+            simulate_live_object_manager_dual_world_empty_gate_honesty(),
+        live_sticky_bomb_dual_world_empty_gate_method_names_wave305_ok:
+            honesty_live_sticky_bomb_dual_world_empty_gate_method_names_residual_wave305(),
+        live_sticky_bomb_dual_world_empty_gate_nav_commands_wave305_ok:
+            honesty_live_sticky_bomb_dual_world_empty_gate_nav_commands_residual_wave305(),
+        live_sticky_bomb_dual_world_empty_gate_live_wave305_ok:
+            simulate_live_sticky_bomb_dual_world_empty_gate_honesty(),
+        live_auto_heal_dual_world_empty_gate_method_names_wave306_ok:
+            honesty_live_auto_heal_dual_world_empty_gate_method_names_residual_wave306(),
+        live_auto_heal_dual_world_empty_gate_nav_commands_wave306_ok:
+            honesty_live_auto_heal_dual_world_empty_gate_nav_commands_residual_wave306(),
+        live_auto_heal_dual_world_empty_gate_live_wave306_ok:
+            simulate_live_auto_heal_dual_world_empty_gate_honesty(),
+        live_grant_stealth_dual_world_empty_gate_method_names_wave307_ok:
+            honesty_live_grant_stealth_dual_world_empty_gate_method_names_residual_wave307(),
+        live_grant_stealth_dual_world_empty_gate_nav_commands_wave307_ok:
+            honesty_live_grant_stealth_dual_world_empty_gate_nav_commands_residual_wave307(),
+        live_grant_stealth_dual_world_empty_gate_live_wave307_ok:
+            simulate_live_grant_stealth_dual_world_empty_gate_honesty(),
+        live_status_bits_upgrade_dual_world_empty_gate_method_names_wave308_ok:
+            honesty_live_status_bits_upgrade_dual_world_empty_gate_method_names_residual_wave308(),
+        live_status_bits_upgrade_dual_world_empty_gate_nav_commands_wave308_ok:
+            honesty_live_status_bits_upgrade_dual_world_empty_gate_nav_commands_residual_wave308(),
+        live_status_bits_upgrade_dual_world_empty_gate_live_wave308_ok:
+            simulate_live_status_bits_upgrade_dual_world_empty_gate_honesty(),
+        live_jet_ai_dual_world_empty_gate_method_names_wave309_ok:
+            honesty_live_jet_ai_dual_world_empty_gate_method_names_residual_wave309(),
+        live_jet_ai_dual_world_empty_gate_nav_commands_wave309_ok:
+            honesty_live_jet_ai_dual_world_empty_gate_nav_commands_residual_wave309(),
+        live_jet_ai_dual_world_empty_gate_live_wave309_ok:
+            simulate_live_jet_ai_dual_world_empty_gate_honesty(),
+        live_parking_place_dual_world_empty_gate_method_names_wave310_ok:
+            honesty_live_parking_place_dual_world_empty_gate_method_names_residual_wave310(),
+        live_parking_place_dual_world_empty_gate_nav_commands_wave310_ok:
+            honesty_live_parking_place_dual_world_empty_gate_nav_commands_residual_wave310(),
+        live_parking_place_dual_world_empty_gate_live_wave310_ok:
+            simulate_live_parking_place_dual_world_empty_gate_honesty(),
+        live_flight_deck_dual_world_empty_gate_method_names_wave311_ok:
+            honesty_live_flight_deck_dual_world_empty_gate_method_names_residual_wave311(),
+        live_flight_deck_dual_world_empty_gate_nav_commands_wave311_ok:
+            honesty_live_flight_deck_dual_world_empty_gate_nav_commands_residual_wave311(),
+        live_flight_deck_dual_world_empty_gate_live_wave311_ok:
+            simulate_live_flight_deck_dual_world_empty_gate_honesty(),
+        live_exit_strategies_dual_world_empty_gate_method_names_wave312_ok:
+            honesty_live_exit_strategies_dual_world_empty_gate_method_names_residual_wave312(),
+        live_exit_strategies_dual_world_empty_gate_nav_commands_wave312_ok:
+            honesty_live_exit_strategies_dual_world_empty_gate_nav_commands_residual_wave312(),
+        live_exit_strategies_dual_world_empty_gate_live_wave312_ok:
+            simulate_live_exit_strategies_dual_world_empty_gate_honesty(),
+        live_collision_system_dual_world_empty_gate_method_names_wave313_ok:
+            honesty_live_collision_system_dual_world_empty_gate_method_names_residual_wave313(),
+        live_collision_system_dual_world_empty_gate_nav_commands_wave313_ok:
+            honesty_live_collision_system_dual_world_empty_gate_nav_commands_residual_wave313(),
+        live_collision_system_dual_world_empty_gate_live_wave313_ok:
+            simulate_live_collision_system_dual_world_empty_gate_honesty(),
+        live_max_health_upgrade_dual_world_empty_gate_method_names_wave314_ok:
+            honesty_live_max_health_upgrade_dual_world_empty_gate_method_names_residual_wave314(),
+        live_max_health_upgrade_dual_world_empty_gate_nav_commands_wave314_ok:
+            honesty_live_max_health_upgrade_dual_world_empty_gate_nav_commands_residual_wave314(),
+        live_max_health_upgrade_dual_world_empty_gate_live_wave314_ok:
+            simulate_live_max_health_upgrade_dual_world_empty_gate_honesty(),
+        live_structure_topple_dual_world_empty_gate_method_names_wave315_ok:
+            honesty_live_structure_topple_dual_world_empty_gate_method_names_residual_wave315(),
+        live_structure_topple_dual_world_empty_gate_nav_commands_wave315_ok:
+            honesty_live_structure_topple_dual_world_empty_gate_nav_commands_residual_wave315(),
+        live_structure_topple_dual_world_empty_gate_live_wave315_ok:
+            simulate_live_structure_topple_dual_world_empty_gate_honesty(),
+        live_physics_update_dual_world_empty_gate_method_names_wave316_ok:
+            honesty_live_physics_update_dual_world_empty_gate_method_names_residual_wave316(),
+        live_physics_update_dual_world_empty_gate_nav_commands_wave316_ok:
+            honesty_live_physics_update_dual_world_empty_gate_nav_commands_residual_wave316(),
+        live_physics_update_dual_world_empty_gate_live_wave316_ok:
+            simulate_live_physics_update_dual_world_empty_gate_honesty(),
+        live_cleanup_hazard_dual_world_empty_gate_method_names_wave317_ok:
+            honesty_live_cleanup_hazard_dual_world_empty_gate_method_names_residual_wave317(),
+        live_cleanup_hazard_dual_world_empty_gate_nav_commands_wave317_ok:
+            honesty_live_cleanup_hazard_dual_world_empty_gate_nav_commands_residual_wave317(),
+        live_cleanup_hazard_dual_world_empty_gate_live_wave317_ok:
+            simulate_live_cleanup_hazard_dual_world_empty_gate_honesty(),
+        live_bridge_tower_dual_world_empty_gate_method_names_wave318_ok:
+            honesty_live_bridge_tower_dual_world_empty_gate_method_names_residual_wave318(),
+        live_bridge_tower_dual_world_empty_gate_nav_commands_wave318_ok:
+            honesty_live_bridge_tower_dual_world_empty_gate_nav_commands_residual_wave318(),
+        live_bridge_tower_dual_world_empty_gate_live_wave318_ok:
+            simulate_live_bridge_tower_dual_world_empty_gate_honesty(),
+        live_armor_upgrade_dual_world_empty_gate_method_names_wave319_ok:
+            honesty_live_armor_upgrade_dual_world_empty_gate_method_names_residual_wave319(),
+        live_armor_upgrade_dual_world_empty_gate_nav_commands_wave319_ok:
+            honesty_live_armor_upgrade_dual_world_empty_gate_nav_commands_residual_wave319(),
+        live_armor_upgrade_dual_world_empty_gate_live_wave319_ok:
+            simulate_live_armor_upgrade_dual_world_empty_gate_honesty(),
+        live_paradrop_power_dual_world_empty_gate_method_names_wave320_ok:
+            honesty_live_paradrop_power_dual_world_empty_gate_method_names_residual_wave320(),
+        live_paradrop_power_dual_world_empty_gate_nav_commands_wave320_ok:
+            honesty_live_paradrop_power_dual_world_empty_gate_nav_commands_residual_wave320(),
+        live_paradrop_power_dual_world_empty_gate_live_wave320_ok:
+            simulate_live_paradrop_power_dual_world_empty_gate_honesty(),
     }
 }

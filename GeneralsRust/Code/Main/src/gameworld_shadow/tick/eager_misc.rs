@@ -1,8 +1,8 @@
 //! Post-logic misc residuals: repulsor, timers, body/death, physics, locomotor, supplies.
 
+use super::*;
 use crate::game_logic::GameLogic;
 use crate::gameworld_shadow::GameWorldShadow;
-use super::*;
 
 // Wave 701: post-logic faerie-fire / repulsor / disable-timers batch handoff.
 thread_local! {

@@ -44,11 +44,13 @@ fn residual_action_store(a: ResidualHostSkirmishMapForceLoneEagleAction) {
 }
 
 fn cnc_source() -> &'static str {
-    include_str!("../../cnc_game_engine.rs")
+    crate::cnc_game_engine::ENGINE_SRC
 }
 
 fn skirmish_menu_source() -> &'static str {
-    include_str!("../../../../GameEngine/GameClient/src/gui/callbacks/skirmish_game_options_menu.rs")
+    include_str!(
+        "../../../../GameEngine/GameClient/src/gui/callbacks/skirmish_game_options_menu.rs"
+    )
 }
 
 pub fn honesty_host_skirmish_map_force_lone_eagle_method_names_residual_wave837() -> bool {

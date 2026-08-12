@@ -6,4 +6,3 @@ pub(super) const HOST_MAP_CANDIDATES: &[&str] = &[
     "Maps/Lone Eagle/Lone Eagle.map",
     "Lone Eagle",
 ];
-

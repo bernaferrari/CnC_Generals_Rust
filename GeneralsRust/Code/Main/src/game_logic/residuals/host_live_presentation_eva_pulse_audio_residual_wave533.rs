@@ -85,7 +85,7 @@ pub fn residual_presentation_eva_pulse_audio_last_action() -> ResidualPresentati
 }
 
 fn pf_source() -> &'static str {
-    include_str!("../../presentation_frame.rs")
+    crate::presentation_frame::PRESENTATION_FRAME_SRC
 }
 
 fn gl_source() -> &'static str {

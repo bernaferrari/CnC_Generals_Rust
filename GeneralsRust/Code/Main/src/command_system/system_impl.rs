@@ -1413,4 +1413,3 @@ impl CommandSystem {
         &self.command_history
     }
 }
-

@@ -7,8 +7,7 @@
 //! Author: Converted from C++ original by Michael S. Booth
 //!
 //! Split from the former monolithic `ai/ai_states.rs` into focused submodules.
-//! Public types and impls remain identical. The sibling `ai_states.rs` file is
-//! a scan dump only (not compiled).
+//! Public types and impls remain identical.
 
 #![allow(
     unused_imports,
@@ -64,3 +63,17 @@ include!("hunt.rs");
 include!("state_machine.rs");
 
 include!("tests.rs");
+
+/// Concatenated live sources for residual `include_str!` scans.
+pub const AI_STATES_SRC: &str = concat!(
+    include_str!("mod.rs"),
+    include_str!("combat.rs"),
+    include_str!("enter_hack.rs"),
+    include_str!("face_special.rs"),
+    include_str!("hunt.rs"),
+    include_str!("move_states.rs"),
+    include_str!("path_dock.rs"),
+    include_str!("state_machine.rs"),
+    include_str!("types.rs"),
+    include_str!("wander.rs"),
+);

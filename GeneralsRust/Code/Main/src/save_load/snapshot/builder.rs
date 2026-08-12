@@ -13,7 +13,6 @@ pub struct SnapshotBuilder {
     // Access to game systems for snapshot creation
 }
 
-
 impl Default for SnapshotBuilder {
     fn default() -> Self {
         Self::new()
@@ -101,7 +100,6 @@ impl SnapshotBuilder {
         Ok(())
     }
 
-
     fn snapshot_all_objects(
         &self,
         game_logic: &GameLogic,
@@ -109,7 +107,7 @@ impl SnapshotBuilder {
         let mut objects = HashMap::new();
 
         for (id, object) in game_logic.host_objects() {
-            match self.snapshot_object(object) {
+            match self.snapshot_object(game_logic, object) {
                 Ok(snapshot) => {
                     objects.insert(*id, snapshot);
                 }
@@ -122,7 +120,11 @@ impl SnapshotBuilder {
         Ok(objects)
     }
 
-    fn snapshot_object(&self, object: &Object) -> SaveLoadResult<ObjectSnapshot> {
+    fn snapshot_object(
+        &self,
+        game_logic: &GameLogic,
+        object: &Object,
+    ) -> SaveLoadResult<ObjectSnapshot> {
         // Get player_id from team (simplified mapping)
         let player_id = match object.team {
             Team::USA => 0,
@@ -132,8 +134,8 @@ impl SnapshotBuilder {
         };
 
         // Snapshot the object's state
-        let status = self.snapshot_object_status(object);
-        let object_type = self.snapshot_object_type(object)?;
+        let status = self.snapshot_object_status(game_logic, object);
+        let object_type = self.snapshot_object_type(game_logic, object)?;
 
         Ok(ObjectSnapshot {
             id: object.id,
@@ -148,7 +150,16 @@ impl SnapshotBuilder {
                 radius: object.thing.geometry.radius,
             },
             status,
-            health: object.health.clone(),
+            // C++ Object::xfer uses getBodyModule()->getHealth() (the live
+            // body store). When GameWorld is coupled, that is GW HP — not the
+            // mid-frame HashMap field that can lag writeback.
+            health: {
+                let mut h = object.health.clone();
+                if let Some(hp) = game_logic.host_authoritative_health(object.id) {
+                    h.current = hp;
+                }
+                h
+            },
             movement: object.movement.clone(),
             experience: object.experience.clone(),
             // Slot layout (host residual, not full C++ WeaponSet):
@@ -201,11 +212,18 @@ impl SnapshotBuilder {
         weapons
     }
 
-    fn snapshot_object_status(&self, object: &Object) -> ObjectStatusSnapshot {
+    fn snapshot_object_status(
+        &self,
+        game_logic: &GameLogic,
+        object: &Object,
+    ) -> ObjectStatusSnapshot {
         ObjectStatusSnapshot {
             ai_state: object.ai_state.clone(),
             destroyed: object.status.destroyed,
-            under_construction: object.status.under_construction,
+            under_construction: game_logic
+                .host_authoritative_construction(object.id)
+                .map(|(_, uc)| uc)
+                .unwrap_or(object.status.under_construction),
             selected: object.selected,
             moving: object.status.moving,
             attacking: object.status.attacking,
@@ -279,7 +297,11 @@ impl SnapshotBuilder {
         Ok(modules)
     }
 
-    fn snapshot_object_type(&self, object: &Object) -> SaveLoadResult<ObjectTypeSnapshot> {
+    fn snapshot_object_type(
+        &self,
+        game_logic: &GameLogic,
+        object: &Object,
+    ) -> SaveLoadResult<ObjectTypeSnapshot> {
         // Determine object type from the object's type field
         match object.object_type {
             ObjectType::Infantry | ObjectType::Vehicle | ObjectType::Aircraft => {
@@ -293,7 +315,10 @@ impl SnapshotBuilder {
             }
             ObjectType::Building => Ok(ObjectTypeSnapshot::Building(BuildingSnapshot {
                 building_type: object.template_name.clone(),
-                construction_progress: object.construction_percent,
+                construction_progress: game_logic
+                    .host_authoritative_construction(object.id)
+                    .map(|(pct, _)| pct)
+                    .unwrap_or(object.construction_percent),
                 power_provided: object.power_provided,
                 power_required: object.power_consumed,
                 is_powered: object.power_provided >= object.power_consumed,
@@ -829,7 +854,9 @@ impl SnapshotBuilder {
         }
     }
 
-    pub(super) fn difficulty_from_modifiers(modifiers: &DifficultyModifiers) -> crate::ai::AIDifficulty {
+    pub(super) fn difficulty_from_modifiers(
+        modifiers: &DifficultyModifiers,
+    ) -> crate::ai::AIDifficulty {
         let score = (modifiers.ai_resource_bonus
             + modifiers.ai_damage_bonus
             + modifiers.ai_health_bonus

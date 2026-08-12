@@ -84,7 +84,7 @@ pub fn honesty_live_gameworld_presentation_view_residual_pack_wave186() -> bool 
 
 /// Source residual: presentation view APIs exist.
 pub fn honesty_presentation_view_api_source() -> bool {
-    let src = include_str!("../../gameworld_shadow.rs");
+    let src = crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC;
     src.contains("pub fn presentation_view_from_shadow")
         && src.contains("pub fn presentation_view_from_gameworld")
         && src.contains("pub struct GameWorldPresentationView")
@@ -93,7 +93,7 @@ pub fn honesty_presentation_view_api_source() -> bool {
 
 /// Source residual: engine seeds GW presentation count after shadow session.
 pub fn honesty_engine_seeds_gameworld_presentation_view_source() -> bool {
-    let eng = include_str!("../../cnc_game_engine.rs");
+    let eng = crate::cnc_game_engine::ENGINE_SRC;
     eng.contains("last_gameworld_presentation_entity_count")
         && eng.contains("presentation_view_from_shadow")
         && eng.contains("gameworld_presentation_entities")
@@ -227,11 +227,7 @@ mod tests {
         t.add_kind_of(KindOf::Selectable);
         logic.templates.insert("GwViewRanger186".into(), t);
         let id = logic
-            .create_object(
-                "GwViewRanger186",
-                Team::USA,
-                Vec3::new(8.0, 0.0, 16.0),
-            )
+            .create_object("GwViewRanger186", Team::USA, Vec3::new(8.0, 0.0, 16.0))
             .expect("create host object");
 
         let mut shadow = GameWorldShadow::new(64);
@@ -242,7 +238,9 @@ mod tests {
             "presentation_view_from_shadow must observe synced host objects"
         );
         assert!(
-            view.entities.iter().any(|e| e.id == id.0 || e.template.contains("GwViewRanger186")),
+            view.entities
+                .iter()
+                .any(|e| e.id == id.0 || e.template.contains("GwViewRanger186")),
             "observe-path view must include the created unit"
         );
         assert!(

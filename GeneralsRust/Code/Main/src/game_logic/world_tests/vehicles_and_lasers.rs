@@ -3,14 +3,12 @@
 use super::super::*;
 use super::helpers::*;
 
-
 /// Residual: Colonel Burton sniper gun + knife one-shot vs close infantry.
 /// Fail-closed: not full clip volley / pre-attack knife anim lock matrix.
 #[test]
 fn colonel_burton_residual_sniper_and_knife() {
     use crate::game_logic::host_colonel_burton::{
-        is_colonel_burton_template, BURTON_SNIPER_DAMAGE, BURTON_SNIPER_RANGE,
-        BURTON_SNIPER_WEAPON,
+        is_colonel_burton_template, BURTON_SNIPER_DAMAGE, BURTON_SNIPER_RANGE, BURTON_SNIPER_WEAPON,
     };
     use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
 
@@ -206,12 +204,9 @@ fn nuclear_tanks_residual_speed_death_and_radiation() {
         game_logic.apply_nuclear_tanks_unlock_to_team(Team::China, UPGRADE_CHINA_NUCLEAR_TANKS);
     assert!(affected >= 1, "Nuclear Tanks must affect battlemaster");
     let frame = game_logic.frame;
-    game_logic.host_upgrades_mut().record_complete(
-        UPGRADE_CHINA_NUCLEAR_TANKS,
-        0,
-        frame,
-        affected,
-    );
+    game_logic
+        .host_upgrades_mut()
+        .record_complete(UPGRADE_CHINA_NUCLEAR_TANKS, 0, frame, affected);
 
     let tank = game_logic.host_object(tank_id).expect("tank after upgrade");
     assert!(
@@ -646,9 +641,8 @@ fn supw_emp_scatter_misses_infantry_residual() {
 fn anthrax_gamma_residual_toxin_stream_and_field() {
     use crate::command_system::{CommandType, GameCommand};
     use crate::game_logic::host_toxin_tractor::{
-        TOXIN_MED_FIELD_DAMAGE_UPGRADED, TOXIN_STREAM_DAMAGE_GAMMA,
-        TOXIN_STREAM_DAMAGE_UPGRADED, TOXIN_TRUCK_GUN, TOXIN_TRUCK_SPRAYER,
-        UPGRADE_GLA_ANTHRAX_GAMMA,
+        TOXIN_MED_FIELD_DAMAGE_UPGRADED, TOXIN_STREAM_DAMAGE_GAMMA, TOXIN_STREAM_DAMAGE_UPGRADED,
+        TOXIN_TRUCK_GUN, TOXIN_TRUCK_SPRAYER, UPGRADE_GLA_ANTHRAX_GAMMA,
     };
     use crate::game_logic::host_upgrades::HostUpgradeKind;
     use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
@@ -1727,8 +1721,7 @@ fn demo_tertiary_suicide_plus_fire_command_set_residual() {
 fn combat_chase_pathfinds_cpp_surface() {
     let src = include_str!("../game_logic.rs");
     assert!(
-        src.contains("fn assign_unit_attack_path")
-            && src.contains("find_attack_firing_position"),
+        src.contains("fn assign_unit_attack_path") && src.contains("find_attack_firing_position"),
         "combat chase must use findAttackPath residual (assign_unit_attack_path)"
     );
     let i = src
@@ -2229,15 +2222,13 @@ fn airfield_parking_rearm_docks_and_heals() {
         // Docked AI state last-write under AI_DECISION_AUTHORITY (default on).
         if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
             assert_eq!(jet.ai_state, AIState::Idle);
-            let docked = crate::gameworld_shadow::GameWorldShadow::host_ai_state_ordinal(
-                &AIState::Docked,
-            );
+            let docked =
+                crate::gameworld_shadow::GameWorldShadow::host_ai_state_ordinal(&AIState::Docked);
             let events = crate::game_logic::host_ai_decision_log::snapshot();
             assert!(
                 events.iter().any(|e| {
                     e.host_object == jet_id
-                        && e.kind
-                            == crate::game_logic::host_ai_decision_log::AI_DECISION_SET_STATE
+                        && e.kind == crate::game_logic::host_ai_decision_log::AI_DECISION_SET_STATE
                         && e.ai_state_ordinal == docked
                 }),
                 "RTB rearm must log SetAIState(Docked) under decision authority"
@@ -3622,9 +3613,8 @@ fn dozer_bored_mine_clear_assigns_enemy_mine() {
         assert_eq!(d.target, None);
         assert_eq!(d.ai_state, AIState::Idle);
         let events = crate::game_logic::host_ai_decision_log::snapshot();
-        let attacking = crate::gameworld_shadow::GameWorldShadow::host_ai_state_ordinal(
-            &AIState::Attacking,
-        );
+        let attacking =
+            crate::gameworld_shadow::GameWorldShadow::host_ai_state_ordinal(&AIState::Attacking);
         assert!(
             events.iter().any(|e| {
                 e.host_object == did
@@ -3707,9 +3697,8 @@ fn dozer_bored_auto_repair_assigns_damaged_structure() {
     if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
         assert_eq!(d.ai_state, AIState::Idle);
         let events = crate::game_logic::host_ai_decision_log::snapshot();
-        let repairing = crate::gameworld_shadow::GameWorldShadow::host_ai_state_ordinal(
-            &AIState::Repairing,
-        );
+        let repairing =
+            crate::gameworld_shadow::GameWorldShadow::host_ai_state_ordinal(&AIState::Repairing);
         assert!(
             events.iter().any(|e| {
                 e.host_object == did
@@ -3799,4 +3788,3 @@ fn dozer_repair_sole_benefactor_rejects_second_dozer() {
         Some(d2)
     );
 }
-

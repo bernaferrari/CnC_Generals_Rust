@@ -79,4 +79,3 @@ pub fn refresh_gameworld_authority_env_caches() {
     refresh_engine_object_bridge_cache();
     super::authority::reset_authority_env_caches();
 }
-

@@ -15,14 +15,15 @@ fn main() {
 }
 
 fn configure_windows_gpu() {
-    // DirectX 11/12 libraries
-    println!("cargo:rustc-link-lib=d3d11");
-    println!("cargo:rustc-link-lib=d3d12");
-    println!("cargo:rustc-link-lib=dxgi");
-    println!("cargo:rustc-link-lib=d3dcompiler");
-
-    // Windows graphics foundation
-    println!("cargo:rustc-link-lib=dxguid");
+    // WGPU-only: do not link D3D11/12/DXGI/D3DCompiler. Optional `d3d`
+    // feature re-enables the native DirectX loader for diagnostics only.
+    if env::var_os("CARGO_FEATURE_D3D").is_some() {
+        println!("cargo:rustc-link-lib=d3d11");
+        println!("cargo:rustc-link-lib=d3d12");
+        println!("cargo:rustc-link-lib=dxgi");
+        println!("cargo:rustc-link-lib=d3dcompiler");
+        println!("cargo:rustc-link-lib=dxguid");
+    }
 }
 
 fn configure_macos_gpu() {

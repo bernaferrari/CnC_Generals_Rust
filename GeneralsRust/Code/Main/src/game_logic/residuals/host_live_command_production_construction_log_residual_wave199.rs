@@ -98,7 +98,7 @@ pub fn honesty_construction_start_progress_log_source() -> bool {
 pub fn honesty_production_cancel_log_source() -> bool {
     let gl = include_str!("../game_logic.rs");
     let hp = include_str!("../host_production_log.rs");
-    let gw = include_str!("../../gameworld_shadow.rs");
+    let gw = crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC;
     let i = match gl.find("fn cancel_production") {
         Some(i) => i,
         None => return false,

@@ -51,7 +51,6 @@ pub(super) fn should_exit_for_smoke_test(
     smoke_test && matches!(state, GameState::Menu) && startup_progress >= 1.0 && !exiting_pending
 }
 
-
 #[cfg(feature = "internal")]
 pub mod parity_test_support {
     use super::GameState;
@@ -246,7 +245,12 @@ pub(crate) struct ScriptCameraShaker {
 }
 
 impl ScriptCameraShaker {
-    pub(super) fn new(epicenter: Vec3, radius: f32, duration_seconds: f32, amplitude_degrees: f32) -> Self {
+    pub(super) fn new(
+        epicenter: Vec3,
+        radius: f32,
+        duration_seconds: f32,
+        amplitude_degrees: f32,
+    ) -> Self {
         // Deterministic phase/frequency seed from shaker parameters.
         let seed = (epicenter.x * 0.013
             + epicenter.y * 0.021
@@ -320,19 +324,23 @@ pub(super) enum PendingUnitAbility {
     Repair,
 }
 
-/// Evidence collected exclusively from physical winit input during one windowed
-/// session.  Runtime-host commands and the GameClient's scripted WND helpers do
-/// not call `CnCGameEngine::input`, so they cannot manufacture this evidence.
+/// Evidence for retail windowed sit-through (`wnd_widget_tree_nav` /
+/// interactive gameplay). Latched **only** via
+/// [`CnCGameEngine::handle_mouse_button_input`] (physical winit `MouseInput` or
+/// winit-equivalent inject that re-enters that path after a real gadget hit /
+/// RMB release with selection).
 ///
-/// Keeping the claim here rather than in the smoke runner is important: this is
-/// the boundary that knows whether an event came from the OS or from a test
-/// control file.  It also makes the in-game status useful to a real player
-/// without weakening the headless vertical-slice checks.
+/// Host control cmds must **not** call `note_menu_wnd_click` /
+/// `note_gameplay_order` directly. Scripted `drive_os_wnd_*` and headless
+/// soft UI cannot manufacture this evidence.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub(super) struct InteractivePlayabilityEvidence {
     /// A physical left click was hit-tested and consumed by a visible shell WND
     /// widget while the engine was in its menu state.
     pub(crate) menu_wnd_click: bool,
+    /// That click (or a later one) hit a MainMenu → Skirmish / Start gadget,
+    /// not Parent/Ruler/Options chrome.
+    pub(crate) skirmish_path: bool,
     /// That menu interaction subsequently started an offline match through the
     /// normal `start_game_from_ui` authority path.
     pub(crate) match_started_from_menu_wnd: bool,
@@ -343,14 +351,36 @@ pub(super) struct InteractivePlayabilityEvidence {
 }
 
 impl InteractivePlayabilityEvidence {
-    pub(super) fn note_menu_wnd_click(&mut self, windowed: bool, wnd_consumed: bool, hit_widget: bool) {
+    pub(super) fn note_menu_wnd_click(
+        &mut self,
+        windowed: bool,
+        wnd_consumed: bool,
+        hit_widget: bool,
+    ) {
         if windowed && wnd_consumed && hit_widget {
             self.menu_wnd_click = true;
+            log::info!(
+                "InteractivePlayabilityEvidence: latched menu_wnd_click (windowed={windowed} consumed={wnd_consumed} hit={hit_widget})"
+            );
+        } else {
+            log::debug!(
+                "InteractivePlayabilityEvidence: menu_wnd_click miss windowed={windowed} consumed={wnd_consumed} hit={hit_widget}"
+            );
+        }
+    }
+
+    pub(super) fn note_skirmish_path_gadget(&mut self, windowed: bool, gadget_name: &str) {
+        if windowed
+            && crate::executable_smoke::ExecutableSmokeResult::wnd_nav_gadget_is_skirmish_path(
+                gadget_name,
+            )
+        {
+            self.skirmish_path = true;
         }
     }
 
     pub(super) fn note_offline_match_started(&mut self, was_menu: bool, offline_mode: bool) {
-        if self.menu_wnd_click && was_menu && offline_mode {
+        if self.menu_wnd_click && self.skirmish_path && was_menu && offline_mode {
             self.match_started_from_menu_wnd = true;
         }
     }
@@ -365,7 +395,7 @@ impl InteractivePlayabilityEvidence {
     /// menu-to-match chain, rather than a broad sticky "some gadget was hovered"
     /// bit from the GUI singleton.
     pub(super) fn wnd_menu_to_match_complete(self) -> bool {
-        self.menu_wnd_click && self.match_started_from_menu_wnd
+        self.menu_wnd_click && self.skirmish_path && self.match_started_from_menu_wnd
     }
 
     pub(super) fn gameplay_complete(self) -> bool {
@@ -449,7 +479,8 @@ pub struct CnCGameEngine {
     pub(crate) host_match_in_shell: Option<bool>,
     pub(crate) host_match_local_team: Option<crate::game_logic::Team>,
     /// Wave 846: host-owned diplomacy / template / sciences residuals.
-    pub(crate) host_match_diplomacy_players: Option<Vec<crate::presentation_frame::PresentationPlayerInfo>>,
+    pub(crate) host_match_diplomacy_players:
+        Option<Vec<crate::presentation_frame::PresentationPlayerInfo>>,
     pub(crate) host_match_known_template_names: Option<Vec<String>>,
     pub(crate) host_match_unlocked_sciences: Option<std::collections::HashMap<u32, Vec<String>>>,
     /// Wave 847: host-owned camera-follow residuals for presentation_or_boot peels.
@@ -483,7 +514,8 @@ pub struct CnCGameEngine {
     pub(crate) host_match_special_power_ready_ids: Option<std::collections::HashSet<u32>>,
     /// Wave 855: boot victory condition residual (single evaluate stamp).
     /// None = not stamped; Some(None) = no winner yet; Some(Some(cond)) = outcome.
-    pub(crate) host_match_boot_victory_condition: Option<Option<crate::game_logic::VictoryCondition>>,
+    pub(crate) host_match_boot_victory_condition:
+        Option<Option<crate::game_logic::VictoryCondition>>,
     /// Wave 911: per-frame legal-build residual cache (construct pad scan peel).
     pub(crate) host_legal_build_cache_frame: Option<u32>,
     pub(crate) host_legal_build_cache:
@@ -730,11 +762,11 @@ pub(super) struct SAGEUniforms {
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub(super) struct MaterialProperties {
-    pub(crate) diffuse_color: [f32; 4],   // Base color reflected by lighting
-    pub(crate) specular_color: [f32; 4],  // Sharp reflective highlights
-    pub(crate) emissive_color: [f32; 4],  // Self-illumination color
-    pub(crate) opacity: f32,              // Transparency (1.0 = opaque, 0.0 = transparent)
-    pub(crate) shininess: f32,            // Specular power
+    pub(crate) diffuse_color: [f32; 4], // Base color reflected by lighting
+    pub(crate) specular_color: [f32; 4], // Sharp reflective highlights
+    pub(crate) emissive_color: [f32; 4], // Self-illumination color
+    pub(crate) opacity: f32,            // Transparency (1.0 = opaque, 0.0 = transparent)
+    pub(crate) shininess: f32,          // Specular power
     pub(crate) stage0_uv_scale: [f32; 2], // UV scaling for stage 0
     pub(crate) stage1_uv_scale: [f32; 2], // UV scaling for stage 1
 }
@@ -836,4 +868,3 @@ pub(super) fn register_real_game_client_bootstrap() {
 
 #[cfg(not(feature = "game_client"))]
 pub(super) fn register_real_game_client_bootstrap() {}
-

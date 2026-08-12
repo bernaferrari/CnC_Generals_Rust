@@ -76,6 +76,16 @@ pub struct GrannyPose {
     pub bone_matrices: Vec<Mat4>,
 }
 
+/// Honesty: this crate parses a simplified `GR2R` test blob, not the RAD
+/// Granny SDK / retail `.gr2` decoder. Do not claim Granny load→skeleton→clip
+/// for shipped models until a real decoder exists.
+pub const GRANNY_DECODER_AVAILABLE: bool = false;
+
+/// Runtime honesty flag for the live mesh path.
+pub fn granny_decoder_available() -> bool {
+    GRANNY_DECODER_AVAILABLE
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum GrannyError {
     #[error("invalid granny header")]
@@ -357,6 +367,15 @@ mod tests {
     fn push_str(buf: &mut Vec<u8>, value: &str) {
         push_u16(buf, value.len() as u16);
         buf.extend_from_slice(value.as_bytes());
+    }
+
+    #[test]
+    fn granny_decoder_is_not_claimed_without_sdk() {
+        assert!(
+            !granny_decoder_available(),
+            "simplified GR2R blob parser is not a retail Granny decoder"
+        );
+        assert!(!GRANNY_DECODER_AVAILABLE);
     }
 
     #[test]

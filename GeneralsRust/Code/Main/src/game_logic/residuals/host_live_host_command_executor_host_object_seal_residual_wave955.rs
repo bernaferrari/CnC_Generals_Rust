@@ -46,7 +46,7 @@ fn residual_action_store(a: ResidualHostCommandExecutorHostObjectSealAction) {
 }
 
 fn cnc_source() -> &'static str {
-    include_str!("../../cnc_game_engine.rs")
+    crate::cnc_game_engine::ENGINE_SRC
 }
 
 fn gl_source() -> &'static str {
@@ -54,7 +54,7 @@ fn gl_source() -> &'static str {
 }
 
 fn ce_source() -> &'static str {
-    include_str!("../../command_executor.rs")
+    crate::command_executor::COMMAND_EXECUTOR_SRC
 }
 
 fn non_comment_prod(src: &str) -> String {

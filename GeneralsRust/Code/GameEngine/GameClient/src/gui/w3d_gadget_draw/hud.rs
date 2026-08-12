@@ -44,6 +44,7 @@ pub fn w3d_clock_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
             scissor,
         );
     });
+    note_shipped_ui_draw_commands(1);
 }
 
 pub fn w3d_cameo_movie_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
@@ -120,6 +121,18 @@ pub fn w3d_left_hud_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
     } else {
         // Fall back to default drawing when no radar
         crate::gui::game_window::default_draw_callback(window, inst_data);
+        let (x, y) = window.get_screen_position();
+        let (width, height) = window.get_size();
+        if width > 0 && height > 0 {
+            draw_visible_fill(
+                x,
+                y,
+                width,
+                height,
+                visible_enabled_color(window, inst_data, FALLBACK_HUD_FILL),
+                Some(FALLBACK_BORDER),
+            );
+        }
     }
 }
 
@@ -405,6 +418,26 @@ pub fn w3d_right_hud_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
     if window.get_status().contains(WindowStatus::IMAGE) {
         crate::gui::game_window::default_draw_callback(window, inst_data);
     }
+    let (x, y) = window.get_screen_position();
+    let (width, height) = window.get_size();
+    if width > 0 && height > 0 {
+        let has_visible_draw_data = window.get_enabled_draw_data(0).is_some_and(|entry| {
+            entry.image.is_some()
+                || (entry.color != WIN_COLOR_UNDEFINED && color_alpha(entry.color) > 16)
+        });
+        if !has_visible_draw_data || !window.get_status().contains(WindowStatus::IMAGE) {
+            draw_visible_fill(
+                x,
+                y,
+                width,
+                height,
+                visible_enabled_color(window, inst_data, FALLBACK_HUD_FILL),
+                Some(FALLBACK_BORDER),
+            );
+        } else {
+            note_shipped_ui_draw_commands(1);
+        }
+    }
 }
 
 pub(super) fn log_n(value: f32, base: f32) -> f32 {
@@ -414,7 +447,13 @@ pub(super) fn log_n(value: f32, base: f32) -> f32 {
     value.log10() / base.log10()
 }
 
-pub(super) fn draw_tiled_horiz(image: &crate::gui::game_window::Image, x: i32, y: i32, width: i32, height: i32) {
+pub(super) fn draw_tiled_horiz(
+    image: &crate::gui::game_window::Image,
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+) {
     if width <= 0 || height <= 0 {
         return;
     }
@@ -430,7 +469,13 @@ pub(super) fn draw_tiled_horiz(image: &crate::gui::game_window::Image, x: i32, y
     });
 }
 
-pub(super) fn draw_tiled_vert(image: &crate::gui::game_window::Image, x: i32, y: i32, width: i32, height: i32) {
+pub(super) fn draw_tiled_vert(
+    image: &crate::gui::game_window::Image,
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+) {
     if width <= 0 || height <= 0 {
         return;
     }
@@ -445,4 +490,3 @@ pub(super) fn draw_tiled_vert(image: &crate::gui::game_window::Image, x: i32, y:
         }
     });
 }
-

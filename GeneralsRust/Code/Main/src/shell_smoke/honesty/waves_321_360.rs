@@ -130,7 +130,10 @@ pub(super) struct Waves321360 {
     pub live_radius_decal_update_dual_world_empty_gate_live_wave360_ok: bool,
 }
 
-pub(super) fn evaluate(pres: &crate::presentation_frame::PresentationFrame, presentation_ok: bool) -> Waves321360 {
+pub(super) fn evaluate(
+    pres: &crate::presentation_frame::PresentationFrame,
+    presentation_ok: bool,
+) -> Waves321360 {
     let _ = (pres, presentation_ok);
     Waves321360 {
         live_fuel_air_bomb_dual_world_empty_gate_method_names_wave321_ok: honesty_live_fuel_air_bomb_dual_world_empty_gate_method_names_residual_wave321(),

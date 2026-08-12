@@ -43,11 +43,11 @@ fn residual_action_store(a: ResidualHostShellNoDualPaceAction) {
 }
 
 fn cnc_source() -> &'static str {
-    include_str!("../../cnc_game_engine.rs")
+    crate::cnc_game_engine::ENGINE_SRC
 }
 
 fn game_client_source() -> &'static str {
-    include_str!("../../../../GameEngine/GameClient/src/core/game_client.rs")
+    game_client::core::game_client::GAME_CLIENT_SRC
 }
 
 pub fn honesty_host_shell_no_dual_pace_method_names_residual_wave876() -> bool {

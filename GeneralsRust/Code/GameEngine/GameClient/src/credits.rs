@@ -811,8 +811,7 @@ pub fn simulate_credits_prepare_short_roll() -> bool {
 /// Human click-through: OS LeftDown/Up on `CreditsMenu.wnd:ParentCreditsWindow`
 /// (C++ CreditsMenuUpdate / TheCredits::update). Not `simulate_*` first.
 pub fn drive_os_wnd_credits_roll_prepare_like_cpp() -> bool {
-    let clicked =
-        crate::gui::dispatch_os_click_named_window("CreditsMenu.wnd:ParentCreditsWindow");
+    let clicked = crate::gui::dispatch_os_click_named_window("CreditsMenu.wnd:ParentCreditsWindow");
     if !clicked {
         return false;
     }
@@ -820,8 +819,7 @@ pub fn drive_os_wnd_credits_roll_prepare_like_cpp() -> bool {
 }
 
 pub fn drive_os_wnd_credits_roll_update_like_cpp() -> bool {
-    let clicked =
-        crate::gui::dispatch_os_click_named_window("CreditsMenu.wnd:ParentCreditsWindow");
+    let clicked = crate::gui::dispatch_os_click_named_window("CreditsMenu.wnd:ParentCreditsWindow");
     if !clicked {
         return false;
     }
@@ -829,8 +827,7 @@ pub fn drive_os_wnd_credits_roll_update_like_cpp() -> bool {
 }
 
 pub fn drive_os_wnd_credits_roll_finished_like_cpp() -> bool {
-    let clicked =
-        crate::gui::dispatch_os_click_named_window("CreditsMenu.wnd:ParentCreditsWindow");
+    let clicked = crate::gui::dispatch_os_click_named_window("CreditsMenu.wnd:ParentCreditsWindow");
     if !clicked {
         return false;
     }
@@ -860,6 +857,9 @@ mod os_wnd_tests {
         assert!(residual_credits_line_count() >= 3);
         assert!(!residual_credits_is_finished());
         assert!(drive_os_wnd_credits_roll_update_like_cpp());
-        assert_eq!(residual_credits_last_action(), ResidualCreditsAction::Update);
+        assert_eq!(
+            residual_credits_last_action(),
+            ResidualCreditsAction::Update
+        );
     }
 }

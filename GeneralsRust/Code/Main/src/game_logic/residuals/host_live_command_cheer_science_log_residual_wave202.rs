@@ -81,7 +81,7 @@ pub fn honesty_live_command_cheer_science_log_residual_pack_wave202() -> bool {
 
 /// Source residual: execute_cheer uses begin_cheer (not direct bit/timer writes).
 pub fn honesty_cheer_uses_begin_cheer_source() -> bool {
-    let ce = include_str!("../../command_executor.rs");
+    let ce = crate::command_executor::COMMAND_EXECUTOR_SRC;
     let i = match ce.find("fn execute_cheer") {
         Some(i) => i,
         None => return false,
@@ -108,7 +108,7 @@ pub fn honesty_science_purchase_logs_progress_source() -> bool {
 
 /// Source residual: Object::begin_cheer records both logs.
 pub fn honesty_begin_cheer_records_logs_source() -> bool {
-    let src = include_str!("../object.rs");
+    let src = crate::game_logic::object::OBJECT_SRC;
     let i = match src.find("fn begin_cheer") {
         Some(i) => i,
         None => return false,

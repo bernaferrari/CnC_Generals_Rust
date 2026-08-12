@@ -258,6 +258,7 @@ impl Object {
             return;
         }
         self.destroyed = true;
+        self.status.set_status(ObjectStatusTypes::Destroyed);
 
         let _ = crate::scripting::engine::get_named_object_tracker().unregister_object(self.id);
 
@@ -266,6 +267,56 @@ impl Object {
         }
 
         self.on_destroy_internal();
+        self.run_destructor_tail();
+    }
+
+    /// C++ `Object::~Object` after `onDestroy`: pathfinder, scripts, radar,
+    /// `sendObjectDestroyed`, clear team/group, ControlBar dirty.
+    pub(crate) fn run_destructor_tail(&mut self) {
+        let pos = *self.get_position();
+        let footprint = crate::ai::object_footprint_positions(self).unwrap_or_else(|| vec![pos]);
+        if let Ok(ai) = crate::ai::THE_AI.read() {
+            if let Some(pf) = ai.pathfinder() {
+                if let Ok(mut pf) = pf.write() {
+                    pf.remove_object_from_map(self.id, &footprint);
+                    pf.remove_wall_from_object(self);
+                }
+            }
+        }
+
+        if !self.is_kind_of(KindOf::Projectile) && !self.is_kind_of(KindOf::Inert) {
+            crate::helpers::TheGameLogic::queue_objects_changed_trigger_areas(self.id);
+            crate::helpers::TheScriptEngine::notify_of_object_creation_or_destruction();
+        }
+
+        if self.radar_data.is_some() {
+            let radar = game_engine::common::system::radar::get_radar_system();
+            if let Ok(mut radar_guard) = radar.write() {
+                radar_guard.remove_object(self.id);
+            }
+            self.radar_data = None;
+        }
+
+        if let Ok(logic) = crate::system::game_logic::get_game_logic().try_lock() {
+            logic.send_object_destroyed(self.id);
+        }
+
+        let _ = self.set_team(None);
+
+        if let Some(group) = self.get_group() {
+            if let Ok(mut group_guard) = group.write() {
+                let _ = group_guard.remove(self.id);
+            }
+        }
+        self.group_id = None;
+
+        if let Ok(mut engine) = crate::scripting::engine::get_script_engine().write() {
+            if let Some(engine) = engine.as_mut() {
+                engine.notify_of_object_destruction(self.id);
+            }
+        }
+
+        crate::control_bar::mark_ui_dirty();
     }
 
     /// Internal destroy routine that performs per-object module cleanup
@@ -984,12 +1035,10 @@ impl Object {
         self.kill_with_type(damage_type, death_type)
     }
 
-    /// Create a test object for unit tests
-    #[cfg(any(test, feature = "internal"))]
-    pub fn new_test(id: ObjectID, max_health: f32) -> Self {
-        let template = Arc::new(DefaultThingTemplate::new("TestObject".to_string()));
+    /// Create an object for save/load when ThingFactory cannot rebuild the template yet.
+    pub fn new_for_xfer_load(id: ObjectID, max_health: f32) -> Self {
+        let template = Arc::new(DefaultThingTemplate::new("XferLoadObject".to_string()));
         let mut obj = Self::new_raw(template, id, ObjectStatusMaskType::none(), None);
-
         let mut module_data = crate::object::body::active_body::ActiveBodyModuleData::default();
         module_data.max_health = max_health;
         module_data.initial_health = max_health;
@@ -1001,7 +1050,27 @@ impl Object {
                 ),
             ));
         obj.body = Some(body);
+        obj.install_ctor_helpers();
+        obj
+    }
 
+    /// Create a test object for unit tests
+    #[cfg(any(test, feature = "internal"))]
+    pub fn new_test(id: ObjectID, max_health: f32) -> Self {
+        let template = Arc::new(DefaultThingTemplate::new("TestObject".to_string()));
+        let mut obj = Self::new_raw(template, id, ObjectStatusMaskType::none(), None);
+        let mut module_data = crate::object::body::active_body::ActiveBodyModuleData::default();
+        module_data.max_health = max_health;
+        module_data.initial_health = max_health;
+        let body: Arc<Mutex<dyn crate::object::body::body_module::BodyModuleInterface>> =
+            Arc::new(Mutex::new(
+                crate::object::body::active_body::ActiveBody::new_with_owner(
+                    module_data,
+                    obj.get_id(),
+                ),
+            ));
+        obj.body = Some(body);
+        obj.install_ctor_helpers();
         obj
     }
 

@@ -2,6 +2,7 @@ use super::*;
 
 pub fn w3d_power_draw_a(window: &GameWindow, inst_data: &WindowInstanceData) {
     let Some(global) = get_global_data() else {
+        draw_power_meter_fallback(window, inst_data, 0, 0, 0);
         return;
     };
     let global = global.read();
@@ -11,6 +12,7 @@ pub fn w3d_power_draw_a(window: &GameWindow, inst_data: &WindowInstanceData) {
     drop(global);
 
     let Ok(list) = ThePlayerList().read() else {
+        draw_power_meter_fallback(window, inst_data, 0, 0, 0);
         return;
     };
     let player_arc = TheControlBar::get_observer_look_at_player_index()
@@ -23,9 +25,11 @@ pub fn w3d_power_draw_a(window: &GameWindow, inst_data: &WindowInstanceData) {
         })
         .or_else(|| list.get_local_player().cloned());
     let Some(player_arc) = player_arc else {
+        draw_power_meter_fallback(window, inst_data, 0, 0, 0);
         return;
     };
     let Ok(player) = player_arc.read() else {
+        draw_power_meter_fallback(window, inst_data, 0, 0, 0);
         return;
     };
     let energy = player.get_energy();
@@ -53,6 +57,7 @@ pub fn w3d_power_draw_a(window: &GameWindow, inst_data: &WindowInstanceData) {
     let (Some(end_bar), Some(begin_bar), Some(center_bar), Some(slider)) =
         (end_bar, begin_bar, center_bar, slider)
     else {
+        draw_power_meter_fallback(window, inst_data, consumption, production, yellow_range);
         return;
     };
 
@@ -185,6 +190,7 @@ pub fn w3d_power_draw_a(window: &GameWindow, inst_data: &WindowInstanceData) {
 
 pub fn w3d_power_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
     let Some(global) = get_global_data() else {
+        draw_power_meter_fallback(window, inst_data, 0, 0, 0);
         return;
     };
     let global = global.read();
@@ -194,6 +200,7 @@ pub fn w3d_power_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
     drop(global);
 
     let Ok(list) = ThePlayerList().read() else {
+        draw_power_meter_fallback(window, inst_data, 0, 0, 0);
         return;
     };
     let player_arc = TheControlBar::get_observer_look_at_player_index()
@@ -206,9 +213,11 @@ pub fn w3d_power_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
         })
         .or_else(|| list.get_local_player().cloned());
     let Some(player_arc) = player_arc else {
+        draw_power_meter_fallback(window, inst_data, 0, 0, 0);
         return;
     };
     let Ok(player) = player_arc.read() else {
+        draw_power_meter_fallback(window, inst_data, 0, 0, 0);
         return;
     };
     let energy = player.get_energy();
@@ -231,7 +240,7 @@ pub fn w3d_power_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
         )
     });
     let (Some(center_bar), Some(slider)) = (center_bar, slider) else {
-        crate::gui::game_window::default_draw_callback(window, inst_data);
+        draw_power_meter_fallback(window, inst_data, consumption, production, yellow_range);
         return;
     };
 
@@ -298,6 +307,7 @@ pub(super) fn draw_vertical_meter(
         )
     });
     let (Some(top), Some(bottom), Some(center)) = (top, bottom, center) else {
+        draw_vertical_meter_fallback(window, filled_height);
         return;
     };
 
@@ -345,5 +355,67 @@ pub(super) fn draw_vertical_meter(
     if center_end > center_start {
         draw_tiled_vert(&center, x, center_start, width, center_end - center_start);
     }
+    note_shipped_ui_draw_commands(1);
 }
 
+pub(super) fn power_fallback_color(consumption: i32, production: i32, yellow_range: i32) -> u32 {
+    if consumption > production - yellow_range && consumption <= production {
+        FALLBACK_POWER_YELLOW
+    } else if consumption > production {
+        FALLBACK_POWER_RED
+    } else {
+        FALLBACK_POWER_GREEN
+    }
+}
+
+pub(super) fn draw_power_meter_fallback(
+    window: &GameWindow,
+    inst_data: &WindowInstanceData,
+    consumption: i32,
+    production: i32,
+    yellow_range: i32,
+) {
+    let (x, y) = window.get_screen_position();
+    let (width, height) = window.get_size();
+    if width <= 0 || height <= 0 {
+        return;
+    }
+    let track = visible_enabled_color(window, inst_data, 0xFF1B242C);
+    draw_visible_fill(x, y, width, height, track, Some(FALLBACK_BORDER));
+    let fill_color = power_fallback_color(consumption, production, yellow_range);
+    let filled = if production <= 0 {
+        width / 4
+    } else {
+        ((width as i64 * production.max(1) as i64) / (production.max(1) as i64 + 4)).max(1) as i32
+    };
+    let filled = filled.clamp(1, width);
+    draw_visible_fill(x, y, filled, height, fill_color, None);
+    let needle = if production <= 0 {
+        width / 6
+    } else {
+        ((width as i64 * consumption.max(0) as i64) / production.max(1) as i64) as i32
+    };
+    let needle = needle.clamp(0, width.saturating_sub(3));
+    draw_visible_fill(x + needle, y, 3, height, 0xFFF5F7FA, None);
+    draw_visible_label(x, y, "PWR", FALLBACK_LABEL);
+}
+
+pub(super) fn draw_vertical_meter_fallback(window: &GameWindow, filled_height: i32) {
+    let (x, y) = window.get_screen_position();
+    let (width, height) = window.get_size();
+    if width <= 0 || height <= 0 {
+        return;
+    }
+    draw_visible_fill(x, y, width, height, 0xFF1B242C, Some(FALLBACK_BORDER));
+    let fill = filled_height.clamp(0, height);
+    if fill > 0 {
+        draw_visible_fill(
+            x,
+            y + height - fill,
+            width,
+            fill,
+            FALLBACK_POWER_GREEN,
+            None,
+        );
+    }
+}

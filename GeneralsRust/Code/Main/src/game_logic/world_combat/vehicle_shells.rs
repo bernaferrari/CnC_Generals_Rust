@@ -4,7 +4,6 @@
 use super::super::*;
 
 impl GameLogic {
-
     pub fn update_scorpion_missile_projectiles(&mut self) {
         use crate::game_logic::host_scorpion::{
             SCORPION_MISSILE_INITIAL_VELOCITY, SCORPION_MISSILE_PROJECTILE_SPEED,

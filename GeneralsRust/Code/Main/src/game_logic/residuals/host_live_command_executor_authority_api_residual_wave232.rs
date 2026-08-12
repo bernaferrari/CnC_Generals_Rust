@@ -103,8 +103,8 @@ fn fn_body<'a>(src: &'a str, name: &str) -> Option<&'a str> {
 /// Source residual: APIs exist; core execute bodies call them without get_object_mut.
 pub fn honesty_command_executor_authority_api_source() -> bool {
     let gl = include_str!("../game_logic.rs");
-    let ce = include_str!("../../command_executor.rs");
-    let cs = include_str!("../../command_system.rs");
+    let ce = crate::command_executor::COMMAND_EXECUTOR_SRC;
+    let cs = crate::command_system::COMMAND_SYSTEM_SRC;
     for api in [
         "pub fn unit_command_move_free",
         "pub fn unit_command_move_to_waypoints",

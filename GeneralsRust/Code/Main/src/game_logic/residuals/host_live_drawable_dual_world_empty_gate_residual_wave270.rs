@@ -102,7 +102,7 @@ fn fn_body<'a>(src: &'a str, name: &str) -> Option<&'a str> {
 
 /// Source residual: Drawable empty dual-world short-circuits.
 pub fn honesty_drawable_dual_world_empty_gate_source() -> bool {
-    let g = include_str!("../../../../GameEngine/GameClient/src/drawable/drawable.rs");
+    let g = game_client::drawable::drawable::DRAWABLE_SRC;
     if !(g.contains("Wave 270")
         && g.contains("fn dual_world_registry_unavailable")
         && g.contains("OBJECT_REGISTRY.is_empty()"))

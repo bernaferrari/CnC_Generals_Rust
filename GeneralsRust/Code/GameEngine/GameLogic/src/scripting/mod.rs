@@ -25,12 +25,9 @@ pub mod actions;
 pub mod camera_actions;
 pub mod conditions;
 pub mod core;
-#[path = "engine/mod.rs"]
 pub mod engine;
-#[path = "evaluator/mod.rs"]
 pub mod evaluator;
 pub mod events;
-#[path = "executor/mod.rs"]
 pub mod executor;
 pub mod ini_parser;
 pub mod map_scripts;
@@ -58,6 +55,12 @@ pub use scripts::*;
 pub use triggers::{GameDifficulty, Trigger, TriggerMode, TriggerState, TriggerSystem};
 pub use variables::{VariableScope, VariableScopeManager};
 pub use victory::*;
+pub use conditions::{
+    clear_host_script_query_snapshot, host_script_area_bounds, host_script_area_unit_ids,
+    host_script_named_unit_alive, host_script_named_unit_id, host_script_named_unit_in_area,
+    host_script_named_unit_in_named_area, host_script_query_has_any, host_script_team_unit_ids,
+    set_host_script_query_snapshot, HostScriptQueryObject, HostScriptQuerySnapshot,
+};
 
 /// Snapshot serialization trait for scripting data.
 pub trait XferSnapshot {

@@ -65,7 +65,7 @@ pub fn residual_host_fire_sound_loop_dual_peel_last_action(
     ResidualHostFireSoundLoopDualPeelAction::from_u8(RESIDUAL_ACTION.load(Ordering::SeqCst))
 }
 fn sh_source() -> &'static str {
-    include_str!("../../gameworld_shadow.rs")
+    crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC
 }
 fn gl_source() -> &'static str {
     include_str!("../game_logic.rs")
@@ -91,7 +91,7 @@ pub fn honesty_host_fire_sound_loop_dual_peel_source_markers_residual_wave767() 
         && sh.contains("host_fire_sound_loop_log::record")
         && gl.contains("Wave 767")
         && !gl.contains("obj.tick_fire_sound_loop(self.frame)")
-        && include_str!("../object.rs").contains("fn tick_fire_sound_loop");
+        && crate::game_logic::object::OBJECT_SRC.contains("fn tick_fire_sound_loop");
     residual_action_store(ResidualHostFireSoundLoopDualPeelAction::SourceMarkers);
     ok
 }
@@ -117,7 +117,7 @@ pub fn simulate_host_fire_sound_loop_dual_peel_dispatch_source() -> bool {
         && sh_source()
             .contains("obj.fire_sound_loop_until_frame = ent.fire_sound_loop_until_frame")
         && !gl_source().contains("obj.tick_fire_sound_loop(self.frame)")
-        && include_str!("../object.rs").contains("tick_fire_sound_loop(frame)");
+        && crate::game_logic::object::OBJECT_SRC.contains("tick_fire_sound_loop(frame)");
     residual_action_store(ResidualHostFireSoundLoopDualPeelAction::DispatchSource);
     ok
 }

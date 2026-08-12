@@ -82,7 +82,7 @@ pub fn honesty_live_path_guard_authority_api_residual_pack_wave225() -> bool {
 /// Source residual: GameLogic APIs + engine helpers presentation-first.
 pub fn honesty_path_guard_authority_api_source() -> bool {
     let gl = include_str!("../game_logic.rs");
-    let eng = include_str!("../../cnc_game_engine.rs");
+    let eng = crate::cnc_game_engine::ENGINE_SRC;
     gl.contains("pub fn clear_unit_movement_path")
         && gl.contains("pub fn adjust_unit_guard_radius")
         && gl.contains("Wave 225")

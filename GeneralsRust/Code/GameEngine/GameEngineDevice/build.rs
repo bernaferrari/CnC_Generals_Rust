@@ -18,18 +18,10 @@ fn main() {
 }
 
 fn configure_windows_device() {
-    // DirectX and Windows multimedia
-    println!("cargo:rustc-link-lib=d3d11");
-    println!("cargo:rustc-link-lib=dxgi");
-    println!("cargo:rustc-link-lib=d3dcompiler");
+    // WGPU-only graphics. Input/window libs stay; D3D/DirectSound do not.
     println!("cargo:rustc-link-lib=dinput8");
     println!("cargo:rustc-link-lib=xinput");
-
-    // Audio
-    println!("cargo:rustc-link-lib=dsound");
     println!("cargo:rustc-link-lib=winmm");
-
-    // Window management
     println!("cargo:rustc-link-lib=user32");
     println!("cargo:rustc-link-lib=gdi32");
 }

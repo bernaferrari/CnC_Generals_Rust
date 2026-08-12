@@ -136,7 +136,7 @@ pub fn resolve_attack_priority_info_for_object(owner_id: ObjectID) -> Option<Att
 
     if let Ok(engine_lock) = get_script_engine().read() {
         if let Some(engine) = engine_lock.as_ref() {
-            return engine.get_attack_info(&priority_set_name).cloned();
+            return engine.get_attack_info(&priority_set_name);
         }
     }
 
@@ -3485,7 +3485,6 @@ pub mod guard;
 pub mod guard_retaliate;
 
 // AI player systems
-#[path = "ai_player/mod.rs"]
 pub mod ai_player; // Base AIPlayer implementation
 
 pub mod skirmish_player; // Skirmish-specific AI
@@ -3511,7 +3510,6 @@ mod pathfinding_tests;
 
 // Legacy AIPlayer implementation superseded by ai_player.
 pub mod squad;
-#[path = "ai_states/mod.rs"]
 pub mod ai_states;
 #[path = "states/mod.rs"]
 pub mod states;

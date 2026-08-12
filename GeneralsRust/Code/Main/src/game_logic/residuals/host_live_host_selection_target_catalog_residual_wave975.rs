@@ -46,7 +46,7 @@ fn residual_action_store(a: ResidualHostSelectionTargetCatalogAction) {
 }
 
 fn cnc_source() -> &'static str {
-    include_str!("../../cnc_game_engine.rs")
+    crate::cnc_game_engine::ENGINE_SRC
 }
 
 fn gl_source() -> &'static str {
@@ -54,7 +54,7 @@ fn gl_source() -> &'static str {
 }
 
 fn tr_source() -> &'static str {
-    include_str!("../../../../GameEngine/GameClient/src/message_stream/translators.rs")
+    game_client::message_stream::translators::TRANSLATORS_SRC
 }
 
 pub fn honesty_host_selection_target_catalog_method_names_residual_wave975() -> bool {

@@ -235,4 +235,3 @@ pub enum WeaponSlot {
     AntiAir,
     Slot(u32),
 }
-

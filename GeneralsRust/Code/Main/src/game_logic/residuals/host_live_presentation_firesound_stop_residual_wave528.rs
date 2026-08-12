@@ -91,7 +91,7 @@ pub fn residual_presentation_firesound_stop_last_action() -> ResidualPresentatio
 }
 
 fn pf_source() -> &'static str {
-    include_str!("../../presentation_frame.rs")
+    crate::presentation_frame::PRESENTATION_FRAME_SRC
 }
 
 fn sm_source() -> &'static str {

@@ -1,40 +1,7 @@
 //! Layout and per-window script callback binding (FunctionLexicon parity).
 #![allow(unused_imports)]
 
-use std::cell::{Cell, RefCell};
-use std::collections::{HashMap, VecDeque};
-use std::fs;
-use std::path::{Path, PathBuf};
-use std::rc::{Rc, Weak};
-use std::sync::atomic::{AtomicI32, Ordering};
-use std::sync::Arc;
-use std::time::Instant;
-use crate::gui::game_window::*;
-use crate::gui::w3d_gadget_draw::{
-    w3d_cameo_movie_draw, w3d_clock_draw, w3d_command_bar_background_draw,
-    w3d_command_bar_foreground_draw, w3d_command_bar_gen_exp_draw, w3d_command_bar_grid_draw,
-    w3d_command_bar_help_popup_draw, w3d_command_bar_top_draw, w3d_credits_menu_draw,
-    w3d_draw_map_preview, w3d_gadget_check_box_draw, w3d_gadget_check_box_image_draw,
-    w3d_gadget_combo_box_draw, w3d_gadget_combo_box_image_draw, w3d_gadget_horizontal_slider_draw,
-    w3d_gadget_horizontal_slider_image_draw, w3d_gadget_horizontal_slider_image_draw_a,
-    w3d_gadget_horizontal_slider_image_draw_b, w3d_gadget_list_box_draw,
-    w3d_gadget_list_box_image_draw, w3d_gadget_progress_bar_draw,
-    w3d_gadget_progress_bar_image_draw, w3d_gadget_progress_bar_image_draw_a,
-    w3d_gadget_push_button_draw, w3d_gadget_push_button_image_draw, w3d_gadget_radio_button_draw,
-    w3d_gadget_radio_button_image_draw, w3d_gadget_static_text_draw,
-    w3d_gadget_static_text_image_draw, w3d_gadget_tab_control_draw,
-    w3d_gadget_tab_control_image_draw, w3d_gadget_text_entry_draw,
-    w3d_gadget_text_entry_image_draw, w3d_gadget_vertical_slider_draw,
-    w3d_gadget_vertical_slider_image_draw, w3d_left_hud_draw,
-    w3d_main_menu_button_drop_shadow_draw, w3d_main_menu_draw, w3d_main_menu_four_draw,
-    w3d_main_menu_map_border, w3d_main_menu_random_text_draw, w3d_metal_bar_menu_draw, w3d_no_draw,
-    w3d_power_draw, w3d_power_draw_a, w3d_right_hud_draw, w3d_shell_menu_scheme_draw,
-    w3d_thin_border_draw,
-};
-use crate::gui::window_script::{
-    parse_window_script, TabControlData as ScriptTabControlData, WindowDefinition,
-    WindowLayoutDefinition,
-};
+use crate::gui::callbacks::menu_callbacks::MenuCallbacks;
 use crate::gui::callbacks::{
     beacon_window_input, challenge_menu_init, challenge_menu_input, challenge_menu_shutdown,
     challenge_menu_system, challenge_menu_update, difficulty_select_init, difficulty_select_input,
@@ -91,11 +58,44 @@ use crate::gui::callbacks::{
     wol_status_menu_update, wol_welcome_menu_init, wol_welcome_menu_input,
     wol_welcome_menu_shutdown, wol_welcome_menu_system, wol_welcome_menu_update,
 };
-use crate::gui::callbacks::menu_callbacks::MenuCallbacks;
+use crate::gui::game_window::*;
 use crate::gui::header_template::get_header_template_manager;
 use crate::gui::shell::main_menu::get_main_menu;
+use crate::gui::w3d_gadget_draw::{
+    w3d_cameo_movie_draw, w3d_clock_draw, w3d_command_bar_background_draw,
+    w3d_command_bar_foreground_draw, w3d_command_bar_gen_exp_draw, w3d_command_bar_grid_draw,
+    w3d_command_bar_help_popup_draw, w3d_command_bar_top_draw, w3d_credits_menu_draw,
+    w3d_draw_map_preview, w3d_gadget_check_box_draw, w3d_gadget_check_box_image_draw,
+    w3d_gadget_combo_box_draw, w3d_gadget_combo_box_image_draw, w3d_gadget_horizontal_slider_draw,
+    w3d_gadget_horizontal_slider_image_draw, w3d_gadget_horizontal_slider_image_draw_a,
+    w3d_gadget_horizontal_slider_image_draw_b, w3d_gadget_list_box_draw,
+    w3d_gadget_list_box_image_draw, w3d_gadget_progress_bar_draw,
+    w3d_gadget_progress_bar_image_draw, w3d_gadget_progress_bar_image_draw_a,
+    w3d_gadget_push_button_draw, w3d_gadget_push_button_image_draw, w3d_gadget_radio_button_draw,
+    w3d_gadget_radio_button_image_draw, w3d_gadget_static_text_draw,
+    w3d_gadget_static_text_image_draw, w3d_gadget_tab_control_draw,
+    w3d_gadget_tab_control_image_draw, w3d_gadget_text_entry_draw,
+    w3d_gadget_text_entry_image_draw, w3d_gadget_vertical_slider_draw,
+    w3d_gadget_vertical_slider_image_draw, w3d_left_hud_draw,
+    w3d_main_menu_button_drop_shadow_draw, w3d_main_menu_draw, w3d_main_menu_four_draw,
+    w3d_main_menu_map_border, w3d_main_menu_random_text_draw, w3d_metal_bar_menu_draw, w3d_no_draw,
+    w3d_power_draw, w3d_power_draw_a, w3d_right_hud_draw, w3d_shell_menu_scheme_draw,
+    w3d_thin_border_draw,
+};
+use crate::gui::window_script::{
+    parse_window_script, TabControlData as ScriptTabControlData, WindowDefinition,
+    WindowLayoutDefinition,
+};
 use crate::gui::{get_disconnect_menu, get_establish_connections_menu};
 use log::warn;
+use std::cell::{Cell, RefCell};
+use std::collections::{HashMap, VecDeque};
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::rc::{Rc, Weak};
+use std::sync::atomic::{AtomicI32, Ordering};
+use std::sync::Arc;
+use std::time::Instant;
 
 use super::*;
 
@@ -944,11 +944,9 @@ impl WindowManager {
                             if let Ok(mut parent_ref) = parent.try_borrow_mut() {
                                 parent_ref.send_system_message(msg, data1, data2)
                             } else {
-                                let ptr = parent.as_ptr();
-                                // SAFETY: mirrors legacy re-entrant parent dispatch in the
-                                // single-threaded UI message pump.
-                                let parent_ref = unsafe { &mut *ptr };
-                                parent_ref.send_system_message(msg, data1, data2)
+                                // Parent already borrowed. Fail-closed instead of
+                                // aliasing the RefCell.
+                                WindowMsgHandled::Ignored
                             }
                         } else {
                             WindowMsgHandled::Ignored
@@ -970,11 +968,9 @@ impl WindowManager {
                             if let Ok(mut parent_ref) = parent.try_borrow_mut() {
                                 parent_ref.send_system_message(msg, data1, data2)
                             } else {
-                                let ptr = parent.as_ptr();
-                                // SAFETY: mirrors legacy re-entrant parent dispatch in the
-                                // single-threaded UI message pump.
-                                let parent_ref = unsafe { &mut *ptr };
-                                parent_ref.send_system_message(msg, data1, data2)
+                                // Parent already borrowed. Fail-closed instead of
+                                // aliasing the RefCell.
+                                WindowMsgHandled::Ignored
                             }
                         } else {
                             WindowMsgHandled::Ignored
@@ -1312,7 +1308,8 @@ impl WindowManager {
             let name = window_def.draw_callback.as_str();
             match name {
                 "GameWinDefaultDraw" => {
-                    window.set_draw_callback(default_draw_callback);
+                    // C++ FunctionLexicon: GameWinDefaultDraw is a no-op.
+                    window.set_draw_callback(legacy_default_draw_callback);
                 }
                 "W3DGameWinDefaultDraw" => {
                     window.set_draw_callback(default_draw_callback);

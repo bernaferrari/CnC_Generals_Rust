@@ -14,18 +14,24 @@ pub(in crate::message_stream::translators) use super::command_list::get_command_
 pub(in crate::message_stream::translators) use super::game_message::*;
 pub(in crate::message_stream::translators) use super::hot_key::HotKeyTranslator;
 pub(in crate::message_stream::translators) use super::look_at_xlat::LookAtTranslator;
-pub(in crate::message_stream::translators) use super::message_stream::{GameMessageDisposition, GameMessageTranslator};
+pub(in crate::message_stream::translators) use super::message_stream::{
+    GameMessageDisposition, GameMessageTranslator,
+};
 pub(in crate::message_stream::translators) use super::meta_event::MetaEventTranslator;
 pub(in crate::message_stream::translators) use super::place_event_translator::PlaceEventTranslator;
 pub(in crate::message_stream::translators) use super::player_state::get_local_player_id;
 pub(in crate::message_stream::translators) use super::selection_xlat::SelectionTranslator as SelectionTranslatorXlat;
 pub(in crate::message_stream::translators) use super::window_xlat::WindowTranslator;
 pub(in crate::message_stream::translators) use crate::core::game_client::CommandEvaluateType as ClientCommandEvaluateType;
-pub(in crate::message_stream::translators) use crate::display::view::{with_tactical_view, with_tactical_view_ref, IPoint2, Point3};
+pub(in crate::message_stream::translators) use crate::display::view::{
+    with_tactical_view, with_tactical_view_ref, IPoint2, Point3,
+};
 pub(in crate::message_stream::translators) use crate::drawable::Drawable;
 pub(in crate::message_stream::translators) use crate::gui::game_window::WindowStatus;
 pub(in crate::message_stream::translators) use crate::gui::window_manager::with_window_manager_ref;
-pub(in crate::message_stream::translators) use crate::gui::{toggle_control_bar, toggle_diplomacy, toggle_quit_menu};
+pub(in crate::message_stream::translators) use crate::gui::{
+    toggle_control_bar, toggle_diplomacy, toggle_quit_menu,
+};
 pub(in crate::message_stream::translators) use crate::helpers::{PendingCommand, TheInGameUI};
 pub(in crate::message_stream::translators) use crate::input::KeyModifiers;
 pub(in crate::message_stream::translators) use crate::presentation_translator_residual::{
@@ -38,8 +44,12 @@ pub(in crate::message_stream::translators) use crate::system::GameMessageResult;
 pub(in crate::message_stream::translators) use game_engine::common::game_engine::get_game_engine;
 pub(in crate::message_stream::translators) use game_engine::common::ini::ini_game_data::get_global_data;
 pub(in crate::message_stream::translators) use game_engine::common::system::radar::get_radar_system;
-pub(in crate::message_stream::translators) use gamelogic::action_manager::{ActionManager, CanEnterType};
-pub(in crate::message_stream::translators) use gamelogic::attack::{AbleToAttackType, CanAttackResult};
+pub(in crate::message_stream::translators) use gamelogic::action_manager::{
+    ActionManager, CanEnterType,
+};
+pub(in crate::message_stream::translators) use gamelogic::attack::{
+    AbleToAttackType, CanAttackResult,
+};
 pub(in crate::message_stream::translators) use gamelogic::commands::command::CommandType;
 pub(in crate::message_stream::translators) use gamelogic::commands::get_selection_manager;
 pub(in crate::message_stream::translators) use gamelogic::common::Coord3D as LogicCoord3D;
@@ -48,12 +58,18 @@ pub(in crate::message_stream::translators) use gamelogic::common::{
     ObjectStatusMaskType as LogicObjectStatusMaskType, Relationship,
 };
 pub(in crate::message_stream::translators) use gamelogic::damage::DamageType;
-pub(in crate::message_stream::translators) use gamelogic::helpers::{TheGameLogic, TheTerrainLogic};
+pub(in crate::message_stream::translators) use gamelogic::helpers::{
+    TheGameLogic, TheTerrainLogic,
+};
 pub(in crate::message_stream::translators) use gamelogic::object::registry::OBJECT_REGISTRY;
-pub(in crate::message_stream::translators) use gamelogic::object::special_power_template::{get_special_power_store, SpecialPowerTemplate};
+pub(in crate::message_stream::translators) use gamelogic::object::special_power_template::{
+    get_special_power_store, SpecialPowerTemplate,
+};
 pub(in crate::message_stream::translators) use gamelogic::path::SURFACE_CLIFF;
 pub(in crate::message_stream::translators) use gamelogic::player::player_list;
-pub(in crate::message_stream::translators) use gamelogic::system::shroud_manager::{get_shroud_manager, ShroudState};
+pub(in crate::message_stream::translators) use gamelogic::system::shroud_manager::{
+    get_shroud_manager, ShroudState,
+};
 pub(in crate::message_stream::translators) use gamelogic::weapon::WeaponSlotType;
 pub(in crate::message_stream::translators) use log::{debug, info, warn};
 pub(in crate::message_stream::translators) use std::collections::{HashMap, HashSet};
@@ -84,3 +100,19 @@ pub use factory::*;
 
 #[cfg(test)]
 mod tests;
+
+/// Concatenated live sources for residual `include_str!` scans.
+pub const TRANSLATORS_SRC: &str = concat!(
+    include_str!("mod.rs"),
+    include_str!("dual_world.rs"),
+    include_str!("pick.rs"),
+    include_str!("flags.rs"),
+    include_str!("pending.rs"),
+    include_str!("attack.rs"),
+    include_str!("context.rs"),
+    include_str!("command_translator.rs"),
+    include_str!("command_translate.rs"),
+    include_str!("gui_command.rs"),
+    include_str!("hint_spy.rs"),
+    include_str!("factory.rs"),
+);

@@ -1,6 +1,17 @@
 //! Layout construction and .wnd script instantiation.
 #![allow(unused_imports)]
 
+use crate::gui::gadgets::{
+    CheckBox, ComboBox, HorizontalSlider, ListBox, ProgressBar, PushButton, RadioButton,
+    RadioButtonGroup, StaticText, TabControl, TextEntry, VerticalSlider,
+};
+use crate::gui::game_window::*;
+use crate::gui::header_template::get_header_template_manager;
+use crate::gui::window_script::{
+    parse_window_script, TabControlData as ScriptTabControlData, WindowDefinition,
+    WindowLayoutDefinition,
+};
+use game_engine::common::name_key_generator::NameKeyGenerator;
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, VecDeque};
 use std::fs;
@@ -9,17 +20,6 @@ use std::rc::{Rc, Weak};
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
-use crate::gui::gadgets::{
-    CheckBox, ComboBox, HorizontalSlider, ListBox, ProgressBar, PushButton, RadioButton,
-    RadioButtonGroup, StaticText, TabControl, TextEntry, VerticalSlider,
-};
-use crate::gui::game_window::*;
-use crate::gui::window_script::{
-    parse_window_script, TabControlData as ScriptTabControlData, WindowDefinition,
-    WindowLayoutDefinition,
-};
-use crate::gui::header_template::get_header_template_manager;
-use game_engine::common::name_key_generator::NameKeyGenerator;
 
 use super::*;
 
@@ -300,7 +300,7 @@ impl WindowManager {
         }
 
         if (window.borrow().get_style() & GWS_ALL_SLIDER) != 0 {
-            self.create_slider_thumb_child(&window, layout_def)
+            self.create_slider_thumb_child_with_window(&window, layout_def, Some(window_def))
                 .map_err(|err| {
                     log::error!(
                         "Failed creating slider thumb for '{}': {:?}",

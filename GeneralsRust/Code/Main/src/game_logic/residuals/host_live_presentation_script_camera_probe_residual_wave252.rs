@@ -100,8 +100,8 @@ fn fn_body<'a>(src: &'a str, name: &str) -> Option<&'a str> {
 
 /// Source residual: presentation freezes script camera; UI helpers prefer freeze.
 pub fn honesty_presentation_script_camera_probe_source() -> bool {
-    let pf = include_str!("../../presentation_frame.rs");
-    let eng = include_str!("../../cnc_game_engine.rs");
+    let pf = crate::presentation_frame::PRESENTATION_FRAME_SRC;
+    let eng = crate::cnc_game_engine::ENGINE_SRC;
     if !(pf.contains("pub script_default_camera_max_height: f32")
         && pf.contains("pub script_default_camera_pitch: f32")
         && pf.contains("Wave 252")

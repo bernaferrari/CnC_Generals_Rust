@@ -74,7 +74,9 @@ pub(super) fn horizontal_slider_image_draw_b_sources() -> (usize, usize, usize) 
     (0, 1, 0)
 }
 
-pub(super) fn horizontal_slider_image_draw_a_sources(enabled: bool) -> [(PushButtonDrawBank, usize); 8] {
+pub(super) fn horizontal_slider_image_draw_a_sources(
+    enabled: bool,
+) -> [(PushButtonDrawBank, usize); 8] {
     if enabled {
         [
             (PushButtonDrawBank::Hilite, 0),
@@ -676,4 +678,3 @@ pub fn w3d_gadget_vertical_slider_image_draw(window: &GameWindow, inst_data: &Wi
         });
     }
 }
-

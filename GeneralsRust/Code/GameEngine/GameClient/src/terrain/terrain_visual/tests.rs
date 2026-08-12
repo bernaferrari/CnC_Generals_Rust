@@ -77,4 +77,88 @@ mod tests {
         );
         assert_eq!(clamped, [1.0, 1.0, 1.0, 1.0]);
     }
+
+    #[test]
+    fn extra_blend_gpu_upload_is_called_with_non_empty_positions() {
+        let mut heightmap = HeightMap::new(3, 3, 255.0, 1.0);
+        let mut extra = vec![0i16; 9];
+        extra[0] = 2; // cell (0,0)
+        extra[4] = 3; // cell (1,1)
+        heightmap.assign_extra_blend_tile_ndxes(extra);
+
+        let mut visual = TerrainVisualImpl::new();
+        visual
+            .load_heightmap_from_data(heightmap, None, None)
+            .expect("runtime heightmap should load");
+
+        assert_eq!(visual.extra_blend_tile_count(), 2);
+        assert_eq!(
+            visual.extra_blend_tile_positions(),
+            &[0 | (0 << 16), 1 | (1 << 16)]
+        );
+
+        visual.upload_extra_blend_overlay();
+        let upload = visual.last_extra_blend_gpu_upload();
+        assert!(!upload.is_empty(), "GPU extra-blend upload must be non-empty");
+        assert_eq!(upload.tile_count, 2);
+        assert_eq!(upload.positions, vec![0 | (0 << 16), 1 | (1 << 16)]);
+        assert!(
+            upload.vertex_count >= 12,
+            "two extra-blend tiles must upload at least 12 verts"
+        );
+        assert!(
+            upload.index_count >= 12,
+            "two extra-blend tiles must upload 6 indices each"
+        );
+    }
+
+    #[test]
+    fn extra_blend_ndxes_produce_non_empty_draw_mesh() {
+        let mut heightmap = HeightMap::new(3, 3, 255.0, 1.0);
+        let mut extra = vec![0i16; 9];
+        extra[0] = 2;
+        heightmap.assign_extra_blend_tile_ndxes(extra);
+
+        let mut visual = TerrainVisualImpl::new();
+        visual
+            .load_heightmap_from_data(heightmap, None, None)
+            .expect("runtime heightmap should load");
+
+        let mesh = visual.build_extra_blend_draw_mesh();
+        assert!(
+            mesh.vertex_count() >= 6,
+            "one extra-blend tile must emit two triangles (vert count >= 6)"
+        );
+        assert_eq!(mesh.index_count(), 6);
+        assert_eq!(mesh.tile_count, 1);
+    }
+
+    #[test]
+    fn extra_blend_draw_increments_when_tiles_exist_and_stays_zero_when_none() {
+        let mut with_tiles = HeightMap::new(3, 3, 255.0, 1.0);
+        let mut extra = vec![0i16; 9];
+        extra[0] = 2;
+        with_tiles.assign_extra_blend_tile_ndxes(extra);
+
+        let mut visual = TerrainVisualImpl::new();
+        visual
+            .load_heightmap_from_data(with_tiles, None, None)
+            .expect("runtime heightmap should load");
+        visual.upload_extra_blend_overlay();
+        assert_eq!(visual.extra_blend_draw_count(), 0);
+        assert!(visual.extra_blend_draw());
+        assert_eq!(visual.extra_blend_draw_count(), 1);
+        assert!(visual.extra_blend_draw());
+        assert_eq!(visual.extra_blend_draw_count(), 2);
+
+        let empty_map = HeightMap::new(3, 3, 255.0, 1.0);
+        let mut empty_visual = TerrainVisualImpl::new();
+        empty_visual
+            .load_heightmap_from_data(empty_map, None, None)
+            .expect("empty heightmap should load");
+        empty_visual.upload_extra_blend_overlay();
+        assert_eq!(empty_visual.extra_blend_draw_count(), 0);
+        assert!(!empty_visual.extra_blend_draw());
+        assert_eq!(empty_visual.extra_blend_draw_count(), 0);
+    }
 }

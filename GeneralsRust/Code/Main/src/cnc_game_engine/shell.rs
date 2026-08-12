@@ -1,7 +1,10 @@
 #![allow(unused_imports, unused_variables, dead_code, non_snake_case)]
 use super::*;
 impl CnCGameEngine {
-    pub(super) fn enter_shell_menu_from_runtime_host(&mut self, override_screen: Option<&'static str>) {
+    pub(super) fn enter_shell_menu_from_runtime_host(
+        &mut self,
+        override_screen: Option<&'static str>,
+    ) {
         self.set_runtime_host_ui_screen_override(override_screen);
         self.ui_manager.suspend_for_shell_overlay();
         // Wave 845: shell residual — presentation peels treat FOW shell bypass as true.
@@ -99,7 +102,9 @@ impl CnCGameEngine {
     }
 
     #[cfg(feature = "game_client")]
-    pub(super) fn load_screen_game_mode(mode: GameMode) -> game_client::gui::load_screen::LoadScreenGameMode {
+    pub(super) fn load_screen_game_mode(
+        mode: GameMode,
+    ) -> game_client::gui::load_screen::LoadScreenGameMode {
         match mode {
             GameMode::SinglePlayer => {
                 game_client::gui::load_screen::LoadScreenGameMode::SinglePlayer
@@ -139,12 +144,18 @@ impl CnCGameEngine {
     }
 
     #[cfg(feature = "game_client")]
-    pub(super) fn prepare_cpp_load_screen_for_mode(&mut self, mode: GameMode, loading_save_game: bool) {
+    pub(super) fn prepare_cpp_load_screen_for_mode(
+        &mut self,
+        mode: GameMode,
+        loading_save_game: bool,
+    ) {
         self.active_load_screen = self.select_cpp_load_screen(mode, loading_save_game);
     }
 
     #[cfg(feature = "game_client")]
-    pub(super) fn load_screen_init_context(&self) -> game_client::gui::load_screen::LoadScreenInitContext {
+    pub(super) fn load_screen_init_context(
+        &self,
+    ) -> game_client::gui::load_screen::LoadScreenInitContext {
         // Prefer presentation game_mode residual when installed.
         let game_info_context = match self.presentation_or_live_game_mode() {
             GameMode::Lan | GameMode::Multiplayer => Some({
@@ -496,6 +507,20 @@ impl CnCGameEngine {
                     "ensure_gameplay_layouts: {} (path={}, loaded={}, windows={})",
                     report, path, loaded, honesty.window_count
                 );
+                // Windowed InGame: materialise ControlBar.wnd into TheWindowManager
+                // only when the ControlBar parent gadget is missing. Leftover
+                // MainMenu/Skirmish window_count must not skip the load.
+                #[cfg(feature = "game_client")]
+                if !self.runtime_host_headless {
+                    if crate::gameplay_layout::control_bar_parent_is_live() {
+                        info!("ensure_gameplay_layouts: ControlBar parent already live ({path})");
+                    } else {
+                        let loaded = crate::gameplay_layout::materialise_live_control_bar();
+                        info!(
+                            "ensure_gameplay_layouts: TheWindowManager ControlBar live={loaded} path={path}"
+                        );
+                    }
+                }
             }
             crate::gameplay_layout::GameplayLayoutStatus::AssetsUnavailable { searched } => {
                 warn!(
@@ -595,18 +620,11 @@ impl CnCGameEngine {
 
     #[cfg(feature = "game_client")]
     pub(super) fn should_skip_world_scene_for_shell_menu(&self) -> bool {
-        // Loading: no 3D world.
-        // Menu: draw shell-map world for a short warmup, then UI-only.
-        // InGame/Paused/Victory/Defeat: always draw the match world.
-        //
-        // Prior bug: `menu_world_frames_rendered < 3` skipped InGame forever when
-        // the counter stayed 0 (counter only increments on non-skipped Menu frames).
-        const MENU_WORLD_WARMUP_FRAMES: u32 = 3;
-        match self.current_state {
-            GameState::Loading => true,
-            GameState::Menu => self.menu_world_frames_rendered >= MENU_WORLD_WARMUP_FRAMES,
-            _ => false,
-        }
+        // C++ W3DDisplay::draw always paints the 3D scene (shell map) then UI.
+        // Skipping the world after a few Menu frames left a frozen/empty terrain
+        // backdrop while MainMenu buttons were still first-run hidden.
+        // Loading: no 3D world. Menu and InGame: always draw.
+        matches!(self.current_state, GameState::Loading)
     }
 
     #[cfg(not(feature = "game_client"))]
@@ -669,7 +687,8 @@ impl CnCGameEngine {
         } else {
             None
         };
-        let metadata_target = metadata_initial_camera.map(|pos| Vec2::new(pos.x, pos.y));
+        // Gameplay ground is X/Z (Y-up). InitialCamera.y is height, not a map axis.
+        let metadata_target = metadata_initial_camera.map(|pos| Vec2::new(pos.x, pos.z));
 
         let clamp_focus_to_world = |focus: Vec2| {
             Vec2::new(
@@ -827,7 +846,11 @@ impl CnCGameEngine {
         }
     }
 
-    pub(super) fn compute_default_camera_zoom_for_target(&self, target: Vec3, max_height_scale: f32) -> f32 {
+    pub(super) fn compute_default_camera_zoom_for_target(
+        &self,
+        target: Vec3,
+        max_height_scale: f32,
+    ) -> f32 {
         let defaults = Self::configured_startup_camera_defaults();
         // Wave 241: no live dual-read when presentation freeze is installed.
         let (ground_height, terrain_height_max) = Self::sample_startup_camera_heights(
@@ -868,10 +891,22 @@ impl CnCGameEngine {
         player_name: Option<String>,
     ) -> StartupLoadState {
         let (sender, receiver) = mpsc::channel();
+        let worker_gen = startup_worker_generation();
         thread::spawn(move || {
             Self::emit_startup_load_progress(&sender, 0.03, "Preparing startup archive access");
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(
                 || -> std::result::Result<StartupLoadResult, String> {
+                    let worker_stop_if_abandoned = || -> std::result::Result<(), String> {
+                        if startup_worker_owns(worker_gen) {
+                            Ok(())
+                        } else {
+                            Err(
+                                "startup worker abandoned; host owns session (skip INI/stream)"
+                                    .into(),
+                            )
+                        }
+                    };
+                    worker_stop_if_abandoned()?;
                     let mut start_in_menu = start_in_menu;
                     let mut map_to_load = map_to_load;
                     let replay_startup_requested = replay_to_load.is_some();
@@ -884,14 +919,19 @@ impl CnCGameEngine {
                     Self::emit_startup_load_progress(&sender, 0.14, "Startup archives ready");
 
                     let extract_ini_text_from_archives = |virtual_path: &str| -> Option<String> {
+                        // Prefer extracted INIZH on disk — archive extract holds the
+                        // asset-manager mutex and can stall Loading for minutes.
+                        if let Some(text) = Self::read_startup_ini_from_disk(virtual_path) {
+                            return Some(text);
+                        }
                         runtime.block_on(async {
                             let Some(manager_arc) = crate::assets::manager::get_asset_manager()
                             else {
                                 return None;
                             };
-                            let Ok(mut manager) = manager_arc.lock() else {
+                            let Ok(mut manager) = manager_arc.try_lock() else {
                                 warn!(
-                                    "Asset manager lock poisoned while extracting '{}'; skipping",
+                                    "Asset manager busy while extracting '{}'; skipping",
                                     virtual_path
                                 );
                                 return None;
@@ -916,6 +956,7 @@ impl CnCGameEngine {
 
                     // C++ parity: force eager initialization of the lazy stores/managers that
                     // the original boot path expects to exist before game-session setup.
+                    worker_stop_if_abandoned()?;
                     game_engine::common::ini::initialize_ini_systems();
 
                     Self::emit_startup_load_progress(
@@ -924,6 +965,11 @@ impl CnCGameEngine {
                         "Preloading water and weather settings",
                     );
                     Self::preload_startup_water_weather_inis();
+                    Self::emit_startup_load_progress(
+                        &sender,
+                        0.15,
+                        "Water and weather settings ready",
+                    );
 
                     {
                         let lexicon =
@@ -1061,6 +1107,7 @@ impl CnCGameEngine {
 
                     // C++ parity: GameEngine.cpp:440 — load Weapon.ini into TheWeaponStore.
                     // No Default/ prefix variant exists for Weapon.ini.
+                    worker_stop_if_abandoned()?;
                     game_engine::common::ini::ini_weapon::initialize_weapon_store();
                     {
                         if let Some(content) = extract_ini_text_from_archives("Data/INI/Weapon.ini") {
@@ -1272,18 +1319,43 @@ impl CnCGameEngine {
                     }
 
                     {
-                        let object_ini_paths: Vec<String> = match crate::assets::manager::get_asset_manager() {
-                            Some(manager_arc) => {
-                                match manager_arc.lock() {
-                                    Ok(mgr) => mgr.list_all_files().into_iter().filter(|p| {
-                                        let lower = p.to_ascii_lowercase().replace('\\', "/");
-                                        lower.starts_with("data/ini/object/") && lower.ends_with(".ini")
-                                    }).collect(),
-                                    Err(_) => Vec::new(),
+                        let mut object_ini_paths: Vec<String> = Vec::new();
+                        for root in Self::startup_ini_disk_roots() {
+                            if root == "." {
+                                continue;
+                            }
+                            let dir = std::path::Path::new(root).join("Data/INI/Object");
+                            if let Ok(rd) = std::fs::read_dir(&dir) {
+                                for ent in rd.flatten() {
+                                    let p = ent.path();
+                                    if p.extension().and_then(|e| e.to_str())
+                                        .is_some_and(|e| e.eq_ignore_ascii_case("ini"))
+                                    {
+                                        if let Some(name) = p.file_name().and_then(|n| n.to_str()) {
+                                            object_ini_paths
+                                                .push(format!("Data/INI/Object/{name}"));
+                                        }
+                                    }
+                                }
+                                if !object_ini_paths.is_empty() {
+                                    break;
                                 }
                             }
-                            None => Vec::new(),
-                        };
+                        }
+                        if object_ini_paths.is_empty() {
+                            object_ini_paths = match crate::assets::manager::get_asset_manager() {
+                                Some(manager_arc) => {
+                                    match manager_arc.try_lock() {
+                                        Ok(mgr) => mgr.list_all_files().into_iter().filter(|p| {
+                                            let lower = p.to_ascii_lowercase().replace('\\', "/");
+                                            lower.starts_with("data/ini/object/") && lower.ends_with(".ini")
+                                        }).collect(),
+                                        Err(_) => Vec::new(),
+                                    }
+                                }
+                                None => Vec::new(),
+                            };
+                        }
                         let mut total_loaded = 0usize;
                         for ini_path in &object_ini_paths {
                             if let Some(content) = extract_ini_text_from_archives(ini_path) {
@@ -1315,6 +1387,7 @@ impl CnCGameEngine {
                         }
                     }
 
+                    worker_stop_if_abandoned()?;
                     Self::emit_startup_load_progress(&sender, 0.18, "Creating game session");
                     let mut game_logic = GameLogic::initialize();
                     Self::emit_startup_load_progress(&sender, 0.22, "Priming object templates");
@@ -1395,7 +1468,8 @@ impl CnCGameEngine {
                         }
                     }
 
-                    let startup_messages = Self::take_startup_messages_from_stream()
+                    worker_stop_if_abandoned()?;
+                    let startup_messages = Self::take_startup_messages_from_stream(worker_gen)
                         .unwrap_or_default();
                     let startup_new_game =
                         Self::startup_new_game_dispatch_from_messages(&startup_messages);
@@ -1424,10 +1498,20 @@ impl CnCGameEngine {
                         game_engine::common::global_data::write().pending_file.clear();
                     }
 
+                    worker_stop_if_abandoned()?;
                     game_logic.start_new_game(startup_mode);
 
                     let mut loaded_map_name = None;
-                    if let Some(map_to_load) = map_to_load {
+                    if start_in_menu {
+                        // ShellMapMD decode is optional background. Waiting on it
+                        // pinned the windowed host in Loading (Menu never appeared,
+                        // so NewGame / start_game_from_ui never ran).
+                        Self::emit_startup_load_progress(&sender, 0.24, "Skipping shell map load");
+                        info!(
+                            "start_in_menu: skipping blocking shell-map load so Menu can appear"
+                        );
+                        let _ = map_to_load;
+                    } else if let Some(map_to_load) = map_to_load {
                         Self::emit_startup_load_progress(&sender, 0.24, "Loading map data");
                         let map_loaded =
                             game_logic.load_map_with_progress(&map_to_load, |progress, phase| {
@@ -1532,7 +1616,10 @@ impl CnCGameEngine {
         self.host_finalize_startup_map_load(result)
     }
 
-    pub(super) fn host_finalize_startup_map_load(&mut self, result: StartupLoadResult) -> Result<()> {
+    pub(super) fn host_finalize_startup_map_load(
+        &mut self,
+        result: StartupLoadResult,
+    ) -> Result<()> {
         // Wave 610: host residual helper.
         self.update_shell_loading_progress(0.995, Some("Finalizing startup"));
         self.host_replace_game_logic(result.game_logic);
@@ -1541,6 +1628,35 @@ impl CnCGameEngine {
         // the retail map's decoded HeightMapData, lighting, roads, and bounds.
         self.render_pipeline.set_presentation_frame(None);
         self.last_presentation_frame = None;
+
+        let fallback_to_menu = result.start_in_menu
+            || (result.map_requested_from_cli && result.loaded_map_name.is_none());
+        if fallback_to_menu {
+            // Menu must not wait on shell-map heightmap / minimap GPU. That work
+            // pinned the windowed host in Loading after the worker completed.
+            if result.map_requested_from_cli && result.loaded_map_name.is_none() {
+                warn!("QuickStart map load failed; falling back to menu startup");
+            }
+            self.pending_shell_model_prewarm.clear();
+            self.last_shell_prewarm_log = None;
+            self.shell_prewarm_completion_logged = true;
+            self.ui_manager.suspend_for_shell_overlay();
+            self.set_runtime_ui_state_projection(UISystemState::MainMenu);
+            let _ = self.startup_target_state.take();
+            self.transition_to_state(GameState::Menu);
+            self.startup_load_state = StartupLoadState::Complete;
+            self.last_loading_title_update = None;
+            self.update_shell_loading_progress(1.0, Some("Startup complete"));
+            self.startup_last_reported_progress = 1.0;
+            self.startup_last_progress_change_at = Instant::now();
+            self.startup_last_stall_warning_at = None;
+            self.hide_shell_loading_overlay();
+            self.log_startup_health_summary();
+            self.window
+                .set_title("Command & Conquer Generals Zero Hour");
+            self.window.request_redraw();
+            return Ok(());
+        }
 
         if let Some(active_map_name) = result.loaded_map_name.as_ref() {
             if result.replay_requested {
@@ -1589,26 +1705,7 @@ impl CnCGameEngine {
             self.sync_orbit_from_camera_transform();
         }
 
-        let fallback_to_menu = result.start_in_menu
-            || (result.map_requested_from_cli && result.loaded_map_name.is_none());
-        if fallback_to_menu {
-            if result.map_requested_from_cli && result.loaded_map_name.is_none() {
-                warn!("QuickStart map load failed; falling back to menu startup");
-            }
-            self.pending_shell_model_prewarm.clear();
-            self.last_shell_prewarm_log = None;
-            self.shell_prewarm_completion_logged = true;
-
-            self.ui_manager.suspend_for_shell_overlay();
-            self.set_runtime_ui_state_projection(UISystemState::MainMenu);
-        }
-
-        let target_state = if fallback_to_menu {
-            let _ = self.startup_target_state.take();
-            Some(GameState::Menu)
-        } else {
-            self.startup_target_state.take()
-        };
+        let target_state = self.startup_target_state.take();
 
         if let Some(target_state) = target_state {
             // Apply the post-load state transition immediately so we do not render additional
@@ -1627,6 +1724,39 @@ impl CnCGameEngine {
             .set_title("Command & Conquer Generals Zero Hour");
         self.window.request_redraw();
         Ok(())
+    }
+
+    /// Drop an in-flight boot worker so a shipped `start_game_from_ui` / Menu
+    /// release owns the session. The worker's later Complete is ignored.
+    pub(super) fn abandon_startup_load_worker(&mut self) {
+        if matches!(self.startup_load_state, StartupLoadState::InProgress { .. }) {
+            // Invalidate the in-flight worker so it cannot clear NewGame or
+            // keep mutating INI/weapon stores after the host owns the session.
+            bump_startup_worker_generation();
+            self.startup_load_state = StartupLoadState::Complete;
+            let _ = self.startup_target_state.take();
+        }
+    }
+
+    /// True when the boot overlay should release to Menu instead of waiting
+    /// forever for INI / optional shell-map decode.
+    pub(super) fn startup_load_should_release_to_menu(&self) -> bool {
+        let StartupLoadState::InProgress {
+            started_at,
+            last_worker_progress,
+            ..
+        } = &self.startup_load_state
+        else {
+            return false;
+        };
+        let wants_menu = self.startup_start_in_menu
+            || matches!(self.startup_target_state, Some(GameState::Menu) | None);
+        if !wants_menu {
+            return false;
+        }
+        // Session create is 0.18; after that the remaining work is optional shell.
+        (*last_worker_progress >= 0.18 && started_at.elapsed() >= Duration::from_secs(8))
+            || started_at.elapsed() >= Duration::from_secs(15)
     }
 
     pub(super) fn update_startup_loading(&mut self) -> Result<()> {

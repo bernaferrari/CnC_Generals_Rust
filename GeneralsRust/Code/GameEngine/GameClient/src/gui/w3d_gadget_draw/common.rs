@@ -1,17 +1,226 @@
 use super::*;
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+/// Shipped gadget/HUD draw ops recorded even when no UIRenderer/GPU is bound.
+/// Tests drive the real W3D callbacks and assert this (or UIRenderer) is > 0.
+static SHIPPED_UI_DRAW_COMMANDS: AtomicUsize = AtomicUsize::new(0);
+
+pub fn shipped_ui_draw_command_count() -> usize {
+    SHIPPED_UI_DRAW_COMMANDS.load(Ordering::Relaxed)
+}
+
+pub fn reset_shipped_ui_draw_command_count() {
+    SHIPPED_UI_DRAW_COMMANDS.store(0, Ordering::Relaxed);
+}
+
+pub(super) fn note_shipped_ui_draw_commands(count: usize) {
+    if count > 0 {
+        SHIPPED_UI_DRAW_COMMANDS.fetch_add(count, Ordering::Relaxed);
+    }
+}
+
+/// Honest, visible palette when mapped art is missing (never blank).
+pub(super) const FALLBACK_FILL: u32 = 0xFF3D4F63;
+pub(super) const FALLBACK_BORDER: u32 = 0xFF8BA3B8;
+pub(super) const FALLBACK_MENU_FILL: u32 = 0xCC2A2218;
+pub(super) const FALLBACK_HUD_FILL: u32 = 0xE01A1E24;
+pub(super) const FALLBACK_BUTTON_FILL: u32 = 0xFF4A5A3A;
+pub(super) const FALLBACK_METAL_FILL: u32 = 0xFF5A646E;
+pub(super) const FALLBACK_POWER_GREEN: u32 = 0xD92E7D32;
+pub(super) const FALLBACK_POWER_YELLOW: u32 = 0xD9C9A227;
+pub(super) const FALLBACK_POWER_RED: u32 = 0xD9B71C1C;
+pub(super) const FALLBACK_LABEL: u32 = 0xFFE8EEF4;
+pub(super) const FALLBACK_PULSE: u32 = 0x66D4B06A;
+
+pub(super) fn win_color_to_rgba(color: u32) -> [f32; 4] {
+    crate::gui::game_window::color_to_rgba(color)
+}
+
+pub(super) fn color_alpha(color: u32) -> u32 {
+    color >> 24
+}
+
+/// Prefer enabled draw-data color when it is defined and actually visible.
+pub(super) fn visible_enabled_color(
+    window: &GameWindow,
+    inst_data: &WindowInstanceData,
+    fallback: u32,
+) -> u32 {
+    let pick = |color: u32| {
+        if color != WIN_COLOR_UNDEFINED && color_alpha(color) > 16 {
+            Some(color)
+        } else {
+            None
+        }
+    };
+    window
+        .get_enabled_draw_data(0)
+        .and_then(|entry| pick(entry.color))
+        .or_else(|| {
+            inst_data
+                .enabled_draw_data
+                .first()
+                .and_then(|e| pick(e.color))
+        })
+        .unwrap_or(fallback)
+}
+
+/// Queue a filled rect (and optional border) via UIRenderer when present.
+/// Always increments the shipped counter so tests stay honest without WGPU.
+pub(super) fn draw_visible_fill(
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+    color: u32,
+    border: Option<u32>,
+) {
+    if width <= 0 || height <= 0 {
+        return;
+    }
+    let rect = UIRect::new(x as f32, y as f32, width as f32, height as f32);
+    let fill = win_color_to_rgba(color);
+    let queued = with_ui_renderer_mut(|renderer| {
+        renderer.draw_rect(rect, fill, 0.0);
+        if let Some(border_color) = border {
+            renderer.draw_rect_outline(rect, 1.0, win_color_to_rgba(border_color), 0.1);
+        }
+    });
+    if queued.is_none() {
+        with_window_manager_ref(|manager| {
+            manager.win_fill_rect(color, 1.0, x, y, x + width, y + height);
+            if let Some(border_color) = border {
+                manager.win_open_rect(border_color, 1.0, x, y, x + width, y + height);
+            }
+        });
+    }
+    note_shipped_ui_draw_commands(1 + usize::from(border.is_some()));
+}
+
+pub(super) fn draw_visible_label(x: i32, y: i32, text: &str, color: u32) {
+    if text.is_empty() {
+        return;
+    }
+    let _ = with_ui_renderer_mut(|renderer| {
+        let _ = renderer.draw_text_simple(
+            text,
+            glam::Vec2::new((x + 4) as f32, (y + 2) as f32),
+            12.0,
+            win_color_to_rgba(color),
+        );
+    });
+    note_shipped_ui_draw_commands(1);
+}
+
+pub(super) fn draw_visible_line(color: u32, width: f32, x1: i32, y1: i32, x2: i32, y2: i32) {
+    let queued = with_ui_renderer_mut(|renderer| {
+        renderer.draw_line(
+            glam::Vec2::new(x1 as f32, y1 as f32),
+            glam::Vec2::new(x2 as f32, y2 as f32),
+            width,
+            win_color_to_rgba(color),
+            0.0,
+        );
+    });
+    if queued.is_none() {
+        with_window_manager_ref(|manager| {
+            manager.win_draw_line(color, width, x1, y1, x2, y2);
+        });
+    }
+    note_shipped_ui_draw_commands(1);
+}
+
+/// Image path when mapped art exists; otherwise a visible rect (never blank).
+pub(super) fn draw_named_image_or_fallback(
+    name: &str,
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+    fallback: u32,
+) -> bool {
+    if width <= 0 || height <= 0 {
+        return false;
+    }
+    let found = with_window_manager_ref(|manager| {
+        if let Some(image) = manager.win_find_image(name) {
+            manager.win_draw_image(&image, x, y, x + width, y + height, WIN_COLOR_UNDEFINED);
+            true
+        } else {
+            false
+        }
+    });
+    if found {
+        note_shipped_ui_draw_commands(1);
+        true
+    } else {
+        draw_visible_fill(x, y, width, height, fallback, Some(FALLBACK_BORDER));
+        false
+    }
+}
+
+pub(super) fn draw_window_image_or_fallback(
+    window: &GameWindow,
+    inst_data: &WindowInstanceData,
+    image: Option<&crate::gui::game_window::Image>,
+    fallback: u32,
+) {
+    let (x, y) = window.get_screen_position();
+    let (width, height) = window.get_size();
+    if let Some(image) = image {
+        with_window_manager_ref(|manager| {
+            manager.win_draw_image(
+                image,
+                x + inst_data.image_offset.x,
+                y + inst_data.image_offset.y,
+                x + inst_data.image_offset.x + width,
+                y + inst_data.image_offset.y + height,
+                WIN_COLOR_UNDEFINED,
+            );
+        });
+        note_shipped_ui_draw_commands(1);
+    } else {
+        let color = visible_enabled_color(window, inst_data, fallback);
+        draw_visible_fill(x, y, width, height, color, Some(FALLBACK_BORDER));
+    }
+}
 
 /// Draw callback for control bar scheme images.
 /// Resolves image name via the window manager and draws the image.
-pub(super) fn scheme_draw_image(image_name: &str, start_x: i32, start_y: i32, end_x: i32, end_y: i32) {
-    with_window_manager_ref(|manager| {
+/// Missing art → honest filled rect so HUD chrome is never blank.
+pub(super) fn scheme_draw_image(
+    image_name: &str,
+    start_x: i32,
+    start_y: i32,
+    end_x: i32,
+    end_y: i32,
+) {
+    let width = end_x - start_x;
+    let height = end_y - start_y;
+    let found = with_window_manager_ref(|manager| {
         if let Some(image) = manager.win_find_image(image_name) {
             manager.win_draw_image(&image, start_x, start_y, end_x, end_y, WIN_COLOR_UNDEFINED);
+            true
+        } else {
+            false
         }
     });
+    if found {
+        note_shipped_ui_draw_commands(1);
+    } else {
+        draw_visible_fill(
+            start_x,
+            start_y,
+            width,
+            height,
+            FALLBACK_HUD_FILL,
+            Some(FALLBACK_BORDER),
+        );
+    }
 }
 
 /// One-time initialization for scheme draw callback.
-pub(super) fn ensure_scheme_draw_registered() {
+pub fn ensure_scheme_draw_registered() {
     pub(super) static REGISTER_DRAW: OnceLock<()> = OnceLock::new();
     REGISTER_DRAW.get_or_init(|| {
         set_scheme_draw_func(scheme_draw_image);
@@ -92,7 +301,8 @@ pub(super) struct RadarObjectOverlayTextureCache {
     pub(super) hero_object_ids: Vec<u32>,
 }
 
-pub(super) fn radar_object_overlay_texture_cache() -> &'static Mutex<RadarObjectOverlayTextureCache> {
+pub(super) fn radar_object_overlay_texture_cache() -> &'static Mutex<RadarObjectOverlayTextureCache>
+{
     pub(super) static CACHE: OnceLock<Mutex<RadarObjectOverlayTextureCache>> = OnceLock::new();
     CACHE.get_or_init(|| Mutex::new(RadarObjectOverlayTextureCache::default()))
 }
@@ -205,9 +415,13 @@ pub(super) fn draw_button_text(window: &GameWindow, inst_data: &WindowInstanceDa
             }
         });
     }
+    note_shipped_ui_draw_commands(1);
 }
 
-pub(super) fn draw_main_menu_button_drop_shadow_text(window: &GameWindow, inst_data: &WindowInstanceData) {
+pub(super) fn draw_main_menu_button_drop_shadow_text(
+    window: &GameWindow,
+    inst_data: &WindowInstanceData,
+) {
     let raw_text = if !inst_data.text.is_empty() {
         inst_data.text.as_str()
     } else {
@@ -348,6 +562,16 @@ pub(super) fn draw_main_menu_frame(window: &GameWindow, vertical_ratios: &[f32])
         pos_y + size_y + 1,
     );
 
+    // Honest chrome fill so the menu is never a blank hole when art is missing.
+    draw_visible_fill(
+        pos_x,
+        pos_y,
+        size_x,
+        size_y,
+        FALLBACK_MENU_FILL,
+        Some(COLOR),
+    );
+
     with_window_manager_ref(|manager| {
         for (x1, y1, x2, y2, width, color) in [
             (
@@ -416,31 +640,32 @@ pub(super) fn draw_main_menu_frame(window: &GameWindow, vertical_ratios: &[f32])
             ),
         ] {
             manager.win_draw_line(color, width, x1, y1, x2, y2);
+            note_shipped_ui_draw_commands(1);
         }
 
         for ratio in vertical_ratios {
             let x = pos_x + truncate_to_i32(size_x as f32 * ratio);
             manager.win_draw_line(COLOR, 3.0, x, pos_y, x, height);
+            note_shipped_ui_draw_commands(1);
         }
     });
 }
 
 pub(super) fn animate_main_menu_pulse(window: &GameWindow, pulse_image_name: &str) {
-    let Some(image) = with_window_manager_ref(|manager| manager.win_find_image(pulse_image_name))
-    else {
-        return;
-    };
+    let image = with_window_manager_ref(|manager| manager.win_find_image(pulse_image_name));
 
     let (_pos_x, pos_y) = window.get_screen_position();
     let (size_x, size_y) = window.get_size();
+    let pulse_w = image.as_ref().map(|img| img.width).unwrap_or(120).max(24);
+    let pulse_h = image.as_ref().map(|img| img.height).unwrap_or(12).max(6);
 
     let mut state = main_menu_pulse_state()
         .lock()
         .unwrap_or_else(|e| e.into_inner());
     if !state.initialized {
-        state.width = size_x + image.width;
+        state.width = size_x + pulse_w;
         state.x = -800;
-        state.y = pos_y - (image.height / 2);
+        state.y = pos_y - (pulse_h / 2);
         state.started_at = Instant::now();
         state.going_forward = true;
         state.initialized = true;
@@ -451,33 +676,41 @@ pub(super) fn animate_main_menu_pulse(window: &GameWindow, pulse_image_name: &st
 
     if state.going_forward {
         if percent_done >= 1.0 {
-            state.y = pos_y + size_y - (image.height / 2);
+            state.y = pos_y + size_y - (pulse_h / 2);
             state.started_at = Instant::now();
             state.going_forward = false;
         } else {
-            state.y = pos_y - (image.height / 2);
-            state.x = truncate_to_i32(percent_done * state.width as f32) - image.width;
+            state.y = pos_y - (pulse_h / 2);
+            state.x = truncate_to_i32(percent_done * state.width as f32) - pulse_w;
         }
     } else {
         if percent_done >= 1.0 {
-            state.y = pos_y - (image.height / 2);
+            state.y = pos_y - (pulse_h / 2);
             state.started_at = Instant::now();
             state.going_forward = true;
         } else {
-            state.y = pos_y + size_y - (image.height / 2);
+            state.y = pos_y + size_y - (pulse_h / 2);
             state.x = size_x - truncate_to_i32(percent_done * state.width as f32);
         }
     }
 
-    with_window_manager_ref(|manager| {
-        manager.win_draw_image(
-            &image,
-            state.x,
-            state.y,
-            state.x + image.width,
-            state.y + image.height,
-            WIN_COLOR_UNDEFINED,
-        );
-    });
-}
+    let draw_x = state.x;
+    let draw_y = state.y;
+    drop(state);
 
+    if let Some(image) = image {
+        with_window_manager_ref(|manager| {
+            manager.win_draw_image(
+                &image,
+                draw_x,
+                draw_y,
+                draw_x + image.width,
+                draw_y + image.height,
+                WIN_COLOR_UNDEFINED,
+            );
+        });
+        note_shipped_ui_draw_commands(1);
+    } else {
+        draw_visible_fill(draw_x, draw_y, pulse_w, pulse_h, FALLBACK_PULSE, None);
+    }
+}

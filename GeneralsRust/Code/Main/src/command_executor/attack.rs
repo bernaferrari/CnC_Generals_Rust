@@ -20,7 +20,6 @@ use glam::Vec3;
 use log::{debug, warn};
 use std::collections::{HashMap, HashSet};
 
-
 impl<'a> CommandExecutor<'a> {
     /// C++ AIGroup::setWeaponSetFlag residual.
     pub(crate) fn execute_set_weapon_set_flag(
@@ -129,7 +128,11 @@ impl<'a> CommandExecutor<'a> {
 
     // === Combat Commands ===
 
-    pub(super) fn execute_attack(&mut self, units: &[ObjectId], target_id: ObjectId) -> CommandResult {
+    pub(super) fn execute_attack(
+        &mut self,
+        units: &[ObjectId],
+        target_id: ObjectId,
+    ) -> CommandResult {
         // Wave 232: attack last-writes via GameLogic unit_command_attack.
         let Some(target_team) = self
             .game_logic
@@ -181,11 +184,19 @@ impl<'a> CommandExecutor<'a> {
         }
     }
 
-    pub(super) fn execute_attack_object(&mut self, units: &[ObjectId], target_id: ObjectId) -> CommandResult {
+    pub(super) fn execute_attack_object(
+        &mut self,
+        units: &[ObjectId],
+        target_id: ObjectId,
+    ) -> CommandResult {
         self.execute_attack(units, target_id)
     }
 
-    pub(super) fn execute_force_attack(&mut self, units: &[ObjectId], target_id: ObjectId) -> CommandResult {
+    pub(super) fn execute_force_attack(
+        &mut self,
+        units: &[ObjectId],
+        target_id: ObjectId,
+    ) -> CommandResult {
         // Wave 232: force-attack last-writes via GameLogic unit_command_force_attack.
         if !self.validate_target_exists(target_id) {
             return CommandResult::InvalidTarget;
@@ -578,5 +589,4 @@ impl<'a> CommandExecutor<'a> {
             CommandResult::InvalidCommand
         }
     }
-
 }

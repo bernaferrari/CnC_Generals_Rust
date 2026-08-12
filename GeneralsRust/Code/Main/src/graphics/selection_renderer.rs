@@ -465,6 +465,29 @@ impl SelectionRenderer {
 ///
 /// Identity fields (position/team/selected/aliveness) come only from the immutable
 /// snapshot — not a live re-read of `GameLogic` objects.
+/// Dark blob discs under every live `unit_render_inputs` pose.
+pub fn collect_blob_shadows_from_presentation(
+    frame: &crate::presentation_frame::PresentationFrame,
+) -> Vec<SelectedUnit> {
+    frame
+        .unit_render_inputs()
+        .iter()
+        .filter(|u| !u.destroyed)
+        .map(|u| {
+            let radius = u
+                .selection_radius
+                .max(if u.is_structure { 10.0 } else { 4.0 })
+                * 0.85;
+            SelectedUnit {
+                // Plant discs on the unit pose (terrain Y), not y=0 — units must not hover.
+                position: glam::Vec3::new(u.position.x, u.position.y, u.position.z),
+                radius,
+                team_color: [0.0, 0.0, 0.0, 0.4],
+            }
+        })
+        .collect()
+}
+
 pub fn collect_selected_units_from_presentation(
     frame: &crate::presentation_frame::PresentationFrame,
 ) -> Vec<SelectedUnit> {
@@ -582,6 +605,11 @@ pub fn enqueue_selection_render(
     let inv_view_proj = view_proj.inverse();
 
     let mut selected_units = collect_selected_units(presentation);
+    // Blob discs are the fallback when the forward-pass projected/CSM sample
+    // is empty. Planted at unit Y (not world origin) so units do not hover.
+    if let Some(frame) = presentation {
+        selected_units.splice(0..0, collect_blob_shadows_from_presentation(frame));
+    }
     selected_units.extend(ground_markers);
 
     // Move/attack order line residual from presentation snapshot.
@@ -675,7 +703,7 @@ mod presentation_selection_tests {
         t.add_kind_of(KindOf::Selectable);
         logic.templates.insert("SelUnit".into(), t);
         let id = logic
-            .create_object("SelUnit", Team::USA, Vec3::new(12.0, 0.0, -7.0))
+            .create_object("SelUnit", Team::USA, Vec3::new(12.0, 4.0, -7.0))
             .expect("unit");
         if let Some(o) = logic./* Wave 950 */ host_object_mut(id) {
             o.selected = true;
@@ -719,13 +747,55 @@ mod presentation_selection_tests {
             collect_selected_units(None).is_empty(),
             "missing presentation yields no selection overlay units"
         );
+
+        let blobs = collect_blob_shadows_from_presentation(&snap);
+        let inputs = snap.unit_render_inputs();
+        assert!(
+            !blobs.is_empty(),
+            "blob shadows must be drawn under unit_render_inputs poses"
+        );
+        assert_eq!(blobs.len(), inputs.len());
+        assert!(
+            blobs
+                .iter()
+                .all(|b| b.team_color[0] == 0.0 && b.team_color[3] > 0.0),
+            "blob shadows are dark discs"
+        );
+        for (blob, unit) in blobs.iter().zip(inputs.iter()) {
+            assert!(
+                (blob.position.y - unit.position.y).abs() < 0.01,
+                "blob Y must match unit_render_inputs Y: blob={} unit={}",
+                blob.position.y,
+                unit.position.y
+            );
+        }
+        let opaque = include_str!(
+            "../../../Libraries/Source/WWVegas/WW3D2/crates/ww3d-renderer-3d/src/rendering/shader_system/opaque.wgsl"
+        );
+        assert!(
+            opaque.contains("fn sample_projected_shadow"),
+            "forward pass must sample a live projected shadow"
+        );
+        assert!(
+            opaque.contains("fn sample_csm_pcf"),
+            "forward pass must PCF-sample the live cascade map"
+        );
+        assert!(
+            opaque.contains("textureSampleCompare"),
+            "CSM PCF must sample the bound depth array"
+        );
+        assert!(
+            opaque.contains("@group(1) @binding(3)"),
+            "cascade shadow map must be a live bind, not a comment"
+        );
+        assert!(opaque.contains("shadow_factor"));
     }
 
     #[test]
     fn production_cnc_render_path_enqueues_selection_with_presentation() {
         // Structural proof: CncGameEngine::render ships enqueue_selection_render with
         // last_presentation_frame (not a dead helper).
-        let src = include_str!("../cnc_game_engine.rs");
+        let src = crate::cnc_game_engine::ENGINE_SRC;
         assert!(
             src.contains("enqueue_selection_render"),
             "InGame render must call enqueue_selection_render"

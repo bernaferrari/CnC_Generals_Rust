@@ -135,6 +135,9 @@ impl<'a> CommandExecutor<'a> {
         let mut best = f32::INFINITY;
         let mut saw = false;
         for &id in units {
+            // Authoritative HP first (GameWorld when coupled) so we do not
+            // hold a host_object borrow across a second game_logic call.
+            let auth_hp = self.game_logic.host_authoritative_health(id);
             let Some(o) = self.game_logic.host_object(id) else {
                 continue;
             };
@@ -150,7 +153,11 @@ impl<'a> CommandExecutor<'a> {
                 continue; // HELD residual — skip riders
             }
             let max_h = o.health.maximum.max(1.0);
-            let dmg = calc_damage_state_residual(o.health.current, max_h);
+            // Fail-closed when no authoritative HP (no HashMap mid-frame truth).
+            let Some(cur_h) = auth_hp else {
+                continue;
+            };
+            let dmg = calc_damage_state_residual(cur_h, max_h);
             // C++: only if IS_CONDITION_BETTER(damageState, movementPenaltyDamageState)
             if !is_body_condition_better(dmg, BODY_REALLYDAMAGED) {
                 continue;
@@ -522,5 +529,4 @@ impl<'a> CommandExecutor<'a> {
 
         CommandResult::Success
     }
-
 }

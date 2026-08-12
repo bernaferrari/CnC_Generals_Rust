@@ -103,7 +103,7 @@ fn log_source() -> &'static str {
 }
 
 fn shadow_source() -> &'static str {
-    include_str!("../../gameworld_shadow.rs")
+    crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC
 }
 
 fn function_body<'a>(src: &'a str, sig: &str) -> Option<&'a str> {

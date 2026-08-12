@@ -44,7 +44,7 @@ fn residual_action_store(a: ResidualHostMainDualReadFreeSealAction) {
 }
 
 fn cnc_source() -> &'static str {
-    include_str!("../../cnc_game_engine.rs")
+    crate::cnc_game_engine::ENGINE_SRC
 }
 
 fn gl_source() -> &'static str {
@@ -110,11 +110,11 @@ pub fn honesty_host_main_dual_read_free_seal_residual_pack_wave961() -> bool {
     let own = ownership_source();
     // Core production surfaces (not every residual pack file).
     let surfaces = [
-        include_str!("../../command_executor.rs"),
+        crate::command_executor::COMMAND_EXECUTOR_SRC,
         include_str!("../../ai.rs"),
-        include_str!("../../gameworld_shadow.rs"),
-        include_str!("../../presentation_frame.rs"),
-        include_str!("../../cnc_game_engine.rs"),
+        crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC,
+        crate::presentation_frame::PRESENTATION_FRAME_SRC,
+        crate::cnc_game_engine::ENGINE_SRC,
         include_str!("../../executable_smoke.rs"),
         include_str!("../../golden_skirmish.rs"),
         include_str!("../game_logic.rs"),

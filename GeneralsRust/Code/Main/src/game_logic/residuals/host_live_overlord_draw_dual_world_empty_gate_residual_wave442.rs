@@ -155,8 +155,9 @@ pub fn honesty_overlord_draw_dual_world_empty_gate_source() -> bool {
         include_str!("../../../../GameEngine/GameLogic/src/object/draw/w3d_overlord_truck_draw.rs");
     let tank =
         include_str!("../../../../GameEngine/GameLogic/src/object/draw/w3d_overlord_tank_draw.rs");
-    let aircraft =
-        include_str!("../../../../GameEngine/GameLogic/src/object/draw/w3d_overlord_aircraft_draw.rs");
+    let aircraft = include_str!(
+        "../../../../GameEngine/GameLogic/src/object/draw/w3d_overlord_aircraft_draw.rs"
+    );
     honesty_one_overlord_draw_source(truck)
         && honesty_one_overlord_draw_source(tank)
         && honesty_one_overlord_draw_source(aircraft)

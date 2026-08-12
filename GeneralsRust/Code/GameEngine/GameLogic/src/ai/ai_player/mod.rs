@@ -7,8 +7,7 @@
 //! Author: Converted from C++ original by Michael S. Booth
 //!
 //! Split from the former monolithic `ai/ai_player.rs` into focused submodules.
-//! Public types and impls remain identical. The sibling `ai_player.rs` file is
-//! a scan dump only (not compiled).
+//! Public types and impls remain identical.
 
 #![allow(
     unused_imports,
@@ -96,3 +95,22 @@ pub use types::*;
 pub use work_order::*;
 pub use team_in_queue::*;
 pub use strategy::*;
+
+/// Concatenated live sources for residual `include_str!` scans.
+pub const AI_PLAYER_SRC: &str = concat!(
+    include_str!("mod.rs"),
+    include_str!("impl_build.rs"),
+    include_str!("impl_dozer.rs"),
+    include_str!("impl_economy.rs"),
+    include_str!("impl_military.rs"),
+    include_str!("impl_runtime.rs"),
+    include_str!("impl_select.rs"),
+    include_str!("impl_teams.rs"),
+    include_str!("impl_update.rs"),
+    include_str!("snapshot.rs"),
+    include_str!("strategy.rs"),
+    include_str!("team_in_queue.rs"),
+    include_str!("trait_impl.rs"),
+    include_str!("types.rs"),
+    include_str!("work_order.rs"),
+);

@@ -86,7 +86,7 @@ pub fn residual_presentation_alliance_notify_last_action(
 }
 
 fn eng_source() -> &'static str {
-    include_str!("../../cnc_game_engine.rs")
+    crate::cnc_game_engine::ENGINE_SRC
 }
 
 pub fn honesty_presentation_alliance_notify_method_names_residual_wave538() -> bool {

@@ -69,7 +69,7 @@ fn gl_source() -> &'static str {
     include_str!("../game_logic.rs")
 }
 fn shadow_source() -> &'static str {
-    include_str!("../../gameworld_shadow.rs")
+    crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC
 }
 pub fn honesty_host_special_power_same_frame_ready_eva_method_names_residual_wave717() -> bool {
     let names = LIVE_HOST_SPECIAL_POWER_SAME_FRAME_READY_EVA_METHOD_NAMES_WAVE717;

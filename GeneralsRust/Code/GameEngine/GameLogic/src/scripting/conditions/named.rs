@@ -40,12 +40,13 @@ impl ScriptCondition for NamedUnitExistsCondition {
         parameters: &HashMap<String, ScriptValue>,
         _context: &ScriptContext,
     ) -> GameLogicResult<bool> {
-        // Wave 271: empty dual-world → fail-closed condition.
+        let unit_name = get_str_param(parameters, "unit_name")?;
+        // Host path: name→id map / host query, no crate Object required.
         if dual_world_registry_unavailable() {
-            return Ok(false);
+            return Ok(super::helpers::host_script_named_unit_id(&unit_name).is_some()
+                || lookup_named_object_id(&unit_name)?.is_some());
         }
 
-        let unit_name = get_str_param(parameters, "unit_name")?;
         let object_id = match lookup_named_object_id(&unit_name)? {
             Some(id) => id,
             None => return Ok(false),
@@ -84,8 +85,15 @@ impl ScriptCondition for NamedUnitDestroyedCondition {
         parameters: &HashMap<String, ScriptValue>,
         _context: &ScriptContext,
     ) -> GameLogicResult<bool> {
-        // Wave 271: empty dual-world → fail-closed condition.
+        // Empty dual-world: host snapshot is the named-unit source of truth.
         if dual_world_registry_unavailable() {
+            let unit_name = get_str_param(parameters, "unit_name")?;
+            if let Some(alive) = super::helpers::host_script_named_unit_alive(&unit_name) {
+                return Ok(!alive);
+            }
+            if super::helpers::host_script_query_has_any() {
+                return Ok(true);
+            }
             return Ok(false);
         }
 
@@ -282,13 +290,15 @@ impl ScriptCondition for NamedInsideAreaCondition {
         parameters: &HashMap<String, ScriptValue>,
         _context: &ScriptContext,
     ) -> GameLogicResult<bool> {
-        // Wave 271: empty dual-world → fail-closed condition.
-        if dual_world_registry_unavailable() {
-            return Ok(false);
-        }
-
         let unit_name = get_str_param(parameters, "unit_name")?;
         let area_name = get_str_param(parameters, "area_name")?;
+        if dual_world_registry_unavailable() {
+            // Existence is not inside-area. Require mapped host AABB bounds.
+            return Ok(
+                super::helpers::host_script_named_unit_in_named_area(&unit_name, &area_name)
+                    .unwrap_or(false),
+            );
+        }
 
         let object_id = match lookup_named_object_id(&unit_name)? {
             Some(id) => id,
@@ -334,6 +344,17 @@ impl ScriptCondition for NamedOutsideAreaCondition {
         parameters: &HashMap<String, ScriptValue>,
         context: &ScriptContext,
     ) -> GameLogicResult<bool> {
+        // Do not invert an unresolved inside-area (would fail-open).
+        if dual_world_registry_unavailable() {
+            let unit_name = get_str_param(parameters, "unit_name")?;
+            let area_name = get_str_param(parameters, "area_name")?;
+            return Ok(
+                match super::helpers::host_script_named_unit_in_named_area(&unit_name, &area_name) {
+                    Some(inside) => !inside,
+                    None => false,
+                },
+            );
+        }
         NamedInsideAreaCondition
             .evaluate(parameters, context)
             .await

@@ -390,6 +390,11 @@ impl GameClient {
             self.subsystem_manager.hot_key_manager = Some(Arc::new(Mutex::new(hot_keys)));
         }
 
+        crate::render_bridge::init_render_bridge();
+        let _ = gamelogic::helpers::register_scene_submission(Arc::new(
+            crate::render_bridge::RenderBridge::new(),
+        ));
+
         log::debug!("init_display_subsystems done");
         Ok(())
     }
@@ -518,6 +523,7 @@ impl GameClient {
         crate::helpers::register_load_screen_hooks();
         crate::helpers::register_observer_audio_locality_hooks();
         crate::helpers::register_observer_audio_view_hooks();
+        crate::helpers::register_live_control_bar_hooks();
         self.install_script_action_handler();
 
         let _ = crate::snow::initialize_snow_manager();

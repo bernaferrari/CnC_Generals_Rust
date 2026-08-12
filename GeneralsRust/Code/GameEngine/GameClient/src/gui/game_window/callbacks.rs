@@ -13,10 +13,47 @@ use crate::video_buffer::{VideoBufferHandle, VideoBufferType};
 use super::font::{Color, WindowInstanceData, WindowState};
 use super::messages::{WindowMessage, WindowMsgHandled, WindowStatus, WIN_COLOR_UNDEFINED};
 use super::payload::{
-    KEY_STATE_DOWN, KEY_STATE_LALT, KEY_STATE_LCONTROL, KEY_STATE_LSHIFT, KEY_STATE_RALT,
-    KEY_STATE_RCONTROL, KEY_STATE_RSHIFT, KEY_STATE_UP, WindowMsgData,
+    WindowMsgData, KEY_STATE_DOWN, KEY_STATE_LALT, KEY_STATE_LCONTROL, KEY_STATE_LSHIFT,
+    KEY_STATE_RALT, KEY_STATE_RCONTROL, KEY_STATE_RSHIFT, KEY_STATE_UP,
 };
 use super::window_struct::GameWindow;
+
+/// C++ W3DGameWinDefaultDraw ops (W3DGameWindow.cpp 278–323).
+///
+/// `WIN_STATUS_IMAGE` draws the mapped image only (neutral tint). Color fill
+/// and border are the else branch. Missing image → no ops (not a black rect).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum W3dDefaultDrawOp {
+    Image,
+    ColorFill,
+    ColorBorder,
+}
+
+/// Plan the C++ IMAGE vs color-fill branch. Tests and [`default_draw_callback`]
+/// share this so IMAGE + defined color cannot emit `draw_rect` fill.
+pub fn plan_w3d_game_win_default_draw(
+    image_status: bool,
+    color_defined: bool,
+    border_defined: bool,
+    has_image: bool,
+) -> Vec<W3dDefaultDrawOp> {
+    if image_status {
+        if has_image {
+            vec![W3dDefaultDrawOp::Image]
+        } else {
+            Vec::new()
+        }
+    } else {
+        let mut ops = Vec::new();
+        if color_defined {
+            ops.push(W3dDefaultDrawOp::ColorFill);
+        }
+        if border_defined {
+            ops.push(W3dDefaultDrawOp::ColorBorder);
+        }
+        ops
+    }
+}
 
 // Default callback implementations
 pub fn legacy_default_draw_callback(_window: &GameWindow, _inst_data: &WindowInstanceData) {
@@ -59,19 +96,27 @@ pub fn default_draw_callback(_window: &GameWindow, _inst_data: &WindowInstanceDa
                 (&_inst_data.enabled_draw_data, &_inst_data.enabled_text)
             };
 
-        if _window.get_status().contains(WindowStatus::IMAGE) {
-            // C++ parity: W3DGameWinDefaultDraw ALWAYS draws the color background,
-            // then overlays the image if available. Don't skip the color fill just
-            // because the image is missing.
-            if let Some(entry) = draw_data.first() {
-                if entry.color != WIN_COLOR_UNDEFINED {
-                    renderer.draw_rect(rect, color_to_rgba(entry.color), 0.0);
-                }
-                if entry.border_color != WIN_COLOR_UNDEFINED {
-                    renderer.draw_rect_outline(rect, 1.0, color_to_rgba(entry.border_color), 0.1);
-                }
+        let entry = draw_data.first();
+        let color_defined = entry.is_some_and(|e| e.color != WIN_COLOR_UNDEFINED);
+        let border_defined = entry.is_some_and(|e| e.border_color != WIN_COLOR_UNDEFINED);
+        let has_image = entry.is_some_and(|e| e.image.is_some());
+        let image_status = _window.get_status().contains(WindowStatus::IMAGE);
+        let ops =
+            plan_w3d_game_win_default_draw(image_status, color_defined, border_defined, has_image);
+
+        if ops.contains(&W3dDefaultDrawOp::ColorFill) {
+            if let Some(entry) = entry {
+                renderer.draw_rect(rect, color_to_rgba(entry.color), 0.0);
             }
-            if let Some(entry) = draw_data.first() {
+        }
+        if ops.contains(&W3dDefaultDrawOp::ColorBorder) {
+            if let Some(entry) = entry {
+                renderer.draw_rect_outline(rect, 1.0, color_to_rgba(entry.border_color), 0.1);
+            }
+        }
+        if ops.contains(&W3dDefaultDrawOp::Image) {
+            // Neutral/white tint matches C++ winDrawImage (no color multiply).
+            if let Some(entry) = entry {
                 if let Some(image) = &entry.image {
                     let _ = ensure_client_mapped_image(&image.name);
                     let texture = {
@@ -104,16 +149,6 @@ pub fn default_draw_callback(_window: &GameWindow, _inst_data: &WindowInstanceDa
                             0.0,
                         );
                     }
-                }
-            }
-        } else {
-            if let Some(entry) = draw_data.first() {
-                if entry.color != WIN_COLOR_UNDEFINED {
-                    renderer.draw_rect(rect, color_to_rgba(entry.color), 0.0);
-                }
-
-                if entry.border_color != WIN_COLOR_UNDEFINED {
-                    renderer.draw_rect_outline(rect, 1.0, color_to_rgba(entry.border_color), 0.1);
                 }
             }
         }

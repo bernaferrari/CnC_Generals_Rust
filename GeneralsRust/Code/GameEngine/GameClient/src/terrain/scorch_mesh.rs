@@ -199,8 +199,8 @@ impl TerrainScorchBuffer {
                     if mesh.vertices.len() >= MAX_SCORCH_VERTEX {
                         return mesh;
                     }
-                    let the_z = SCORCH_FLOAT_AMOUNT
-                        + height.clip_height_world(i + border, j + border);
+                    let the_z =
+                        SCORCH_FLOAT_AMOUNT + height.clip_height_world(i + border, j + border);
                     let u_offset = (ty % SCORCH_PER_ROW) as f32 * 1.5;
                     let v_offset = (ty / SCORCH_PER_ROW) as f32 * 1.5;
                     let x = i as f32 * MAP_XY_FACTOR;

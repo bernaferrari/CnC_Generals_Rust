@@ -82,7 +82,7 @@ pub fn honesty_live_command_order_target_log_residual_pack_wave205() -> bool {
 
 /// Source residual: set_order_target records attack log and does not force Attacking.
 pub fn honesty_set_order_target_source() -> bool {
-    let src = include_str!("../object.rs");
+    let src = crate::game_logic::object::OBJECT_SRC;
     let i = match src.find("fn set_order_target") {
         Some(i) => i,
         None => return false,
@@ -95,7 +95,7 @@ pub fn honesty_set_order_target_source() -> bool {
 
 /// Source residual: ability pathing uses set_order_target; no production target=Some bypass.
 pub fn honesty_ability_paths_use_order_target_source() -> bool {
-    let ce = include_str!("../../command_executor.rs");
+    let ce = crate::command_executor::COMMAND_EXECUTOR_SRC;
     // Production section: before #[cfg(test)]
     let prod = match ce.find("#[cfg(test)]") {
         Some(i) => &ce[..i],

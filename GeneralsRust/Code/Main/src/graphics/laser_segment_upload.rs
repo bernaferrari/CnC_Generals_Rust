@@ -44,8 +44,11 @@
 //!   CurrentUVOffset advance residual, atlas bind name pack expanded)
 //! - Multi-beam soft-edge residual fields retained + UV atlas honesty cross-link
 //!
+//! Live path (this module):
+//! - `write_laser_segment_bytes` is the single copy used by `Queue::write_buffer`
+//! - `LaserSegmentUpload::write_to_queue` submits when a live buffer exists
+//!
 //! Still residual:
-//! - Actual `wgpu::Queue::write_buffer` against a live device/pipeline
 //! - Texture atlas GPU sample bind / sampler state
 //! - Full soft-edge additive shader blend on live W3D scene graph
 
@@ -546,16 +549,23 @@ pub fn honesty_outer_beam_width_multi_beam_pack() -> bool {
         }
 }
 
-/// Honesty: host `gpu_upload_ready` never claims a live `Queue::write_buffer`.
+/// Copy packed laser vertex bytes into `dest` (live upload payload).
 ///
-/// Wave 50 residual: pack may mark upload-ready for presentation consumers, but
-/// this residual path does not submit GPU commands. Always fail-closed.
+/// This is the single memcpy used by [`LaserSegmentUpload::write_to_queue`].
+pub fn write_laser_segment_bytes(dest: &mut [u8], src: &[u8]) -> usize {
+    let n = dest.len().min(src.len());
+    if n == 0 {
+        return 0;
+    }
+    dest[..n].copy_from_slice(&src[..n]);
+    n
+}
+
+/// Honesty: pack-only / ready-flag path has not submitted `Queue::write_buffer`.
+///
+/// Single source of truth: [`LaserSegmentUploadHonesty::gpu_write_buffer_submitted`].
 pub fn honesty_gpu_write_buffer_not_claimed(upload: &LaserSegmentUpload) -> bool {
-    // Ready flag is host-testable only; it is never evidence of a live write.
-    // Residual honesty: empty or packed packs both report no live GPU claim.
-    let _ = upload.honesty.gpu_upload_ready;
-    // Explicit non-claim: residual has no device/queue handle by construction.
-    true
+    honesty_gpu_write_buffer_not_claimed_flag(upload.honesty.gpu_write_buffer_submitted)
 }
 
 /// Bytes per packed laser segment vertex (pos.xyz + uv.xy + color.rgba = 9 × f32).
@@ -606,6 +616,9 @@ pub struct LaserSegmentUploadHonesty {
     pub texture_name: String,
     /// True after a host called `mark_gpu_upload_ready` (still not a live queue write).
     pub gpu_upload_ready: bool,
+    /// Sole write-submit flag. Set only by [`LaserSegmentUpload::write_to_queue`]
+    /// after `Queue::write_buffer` (or the test double that calls the same copy).
+    pub gpu_write_buffer_submitted: bool,
     /// Multi-beam soft-edge residual: overlapping cylinder layers packed.
     pub multi_beam_layers: u32,
     /// Peak layer width residual (OuterBeamWidth × width_scalar at outer edge).
@@ -671,11 +684,17 @@ impl LaserSegmentUploadHonesty {
                 || self.texture_name == PATRIOT_LASER_TEXTURE)
     }
 
-    /// Residual honesty: gpu_upload_ready is a flag only (never live write_buffer).
+    /// Residual honesty: pack-only path has not submitted `Queue::write_buffer`.
+    ///
+    /// Delegates to [`honesty_gpu_write_buffer_not_claimed`] — one helper.
     pub fn honesty_no_live_gpu_write_buffer(&self) -> bool {
-        // Host residual never owns a wgpu::Queue; ready flag is bookkeeping only.
-        true
+        // Built from the same submitted flag as the public helper (no second counter).
+        honesty_gpu_write_buffer_not_claimed_flag(self.gpu_write_buffer_submitted)
     }
+}
+
+fn honesty_gpu_write_buffer_not_claimed_flag(submitted: bool) -> bool {
+    !submitted
 }
 
 /// One multi-beam soft-edge layer residual (width + color lerp).
@@ -823,8 +842,41 @@ impl LaserSegmentUpload {
     }
 
     /// Mark residual as ready for a live queue write (host-testable flag only).
+    /// Does **not** set [`LaserSegmentUploadHonesty::gpu_write_buffer_submitted`].
     pub fn mark_gpu_upload_ready(&mut self) {
         self.honesty.gpu_upload_ready = self.honesty.cpu_pack_ok;
+    }
+
+    /// Copy packed vertices into `dest` (same bytes `Queue::write_buffer` submits).
+    pub fn copy_vertex_bytes_into(&self, dest: &mut [u8]) -> usize {
+        write_laser_segment_bytes(dest, &self.vertex_bytes)
+    }
+
+    /// Prepare packed vertices for a live `Queue::write_buffer`.
+    ///
+    /// **Sole writer** of `gpu_write_buffer_submitted`. Returns staging bytes +
+    /// buffer for `ForwardPass` to submit. Empty / missing buffer do not claim.
+    pub fn write_to_queue<'a>(
+        &mut self,
+        buffer: Option<&'a wgpu::Buffer>,
+    ) -> Option<(Vec<u8>, &'a wgpu::Buffer)> {
+        if self.vertex_bytes.is_empty() || !self.honesty.cpu_pack_ok {
+            self.honesty.gpu_write_buffer_submitted = false;
+            return None;
+        }
+        let Some(buffer) = buffer else {
+            self.honesty.gpu_write_buffer_submitted = false;
+            return None;
+        };
+        let mut staging = vec![0u8; self.vertex_bytes.len()];
+        let n = write_laser_segment_bytes(&mut staging, &self.vertex_bytes);
+        if n == 0 {
+            self.honesty.gpu_write_buffer_submitted = false;
+            return None;
+        }
+        staging.truncate(n);
+        self.honesty.gpu_write_buffer_submitted = true;
+        Some((staging, buffer))
     }
 
     /// Pack OrbitalLaser multi-beam soft-edge residual for a single vertical segment.
@@ -898,6 +950,7 @@ impl LaserSegmentUpload {
                     && ORBITAL_LASER_TEXTURE_MAPPING == "TILED_TEXTURE_MAP",
                 uv_offset_u: ORBITAL_LASER_UV_OFFSET_U,
                 uv_offset_v: scroll_uv,
+                gpu_write_buffer_submitted: false,
             },
         }
     }
@@ -941,7 +994,11 @@ impl LaserSegmentUpload {
 
     /// Pack all beams from a presentation snapshot (preferred production path).
     pub fn pack_from_presentation(frame: &PresentationFrame) -> Self {
-        Self::pack_beams_with_projectile_streams(&frame.laser_beams, &frame.projectile_streams)
+        Self::pack_beams_streams_and_scene_lines(
+            &frame.laser_beams,
+            &frame.projectile_streams,
+            &frame.scene_lines,
+        )
     }
 
     /// Pack laser beams and C++ ProjectileStreamUpdate residual point trails.
@@ -949,7 +1006,19 @@ impl LaserSegmentUpload {
         beams: &[PresentationLaserBeam],
         streams: &[crate::presentation_frame::PresentationProjectileStream],
     ) -> Self {
-        if beams.is_empty() && streams.iter().all(|s| s.points.len() < 2) {
+        Self::pack_beams_streams_and_scene_lines(beams, streams, &[])
+    }
+
+    /// Pack host lasers, projectile streams, and client scene lines (tracer/rope/W3DLaser).
+    pub fn pack_beams_streams_and_scene_lines(
+        beams: &[PresentationLaserBeam],
+        streams: &[crate::presentation_frame::PresentationProjectileStream],
+        scene_lines: &[crate::presentation_frame::PresentationSceneLine],
+    ) -> Self {
+        if beams.is_empty()
+            && streams.iter().all(|s| s.points.len() < 2)
+            && scene_lines.is_empty()
+        {
             return Self::empty();
         }
         let mut floats = Vec::new();
@@ -991,6 +1060,20 @@ impl LaserSegmentUpload {
                 segments_packed = segments_packed.saturating_add(1);
             }
         }
+        for line in scene_lines {
+            let host = HostLaserLine3DSegment {
+                start: line.start,
+                end: line.end,
+                width: line.width,
+                tile_factor: line.tile_factor.max(0.001),
+                scroll_offset: 0.0,
+            };
+            let verts = segment_to_vertices(&host, line.color, 0.0);
+            for v in verts {
+                floats.extend_from_slice(&v.to_floats());
+            }
+            segments_packed = segments_packed.saturating_add(1);
+        }
         if floats.is_empty() {
             return Self::empty();
         }
@@ -1009,11 +1092,12 @@ impl LaserSegmentUpload {
                     }
                 })
             })
+            .or_else(|| scene_lines.first().map(|l| l.texture_name.clone()))
             .unwrap_or_else(|| PATRIOT_LASER_TEXTURE.to_string());
         Self {
             vertex_bytes,
             honesty: LaserSegmentUploadHonesty {
-                beams_packed: beams.len() as u32,
+                beams_packed: beams.len() as u32 + scene_lines.len() as u32,
                 segments_packed,
                 vertices_packed,
                 bytes_packed,
@@ -1471,6 +1555,50 @@ mod tests {
         );
         assert!(layers[0].tile_factor > layers[11].tile_factor);
         assert!((layers[0].scroll_uv - layers[11].scroll_uv).abs() < 0.001);
+    }
+
+    #[test]
+    fn live_laser_write_path_copies_same_bytes_queue_would_submit() {
+        let mut pack = LaserSegmentUpload::pack_orbital_multi_beam_soft_edge(
+            (0.0, 500.0, 0.0),
+            (0.0, 0.0, 0.0),
+            1.0,
+            1.0,
+        );
+        assert!(!pack.vertex_bytes.is_empty());
+        pack.mark_gpu_upload_ready();
+        assert!(pack.honesty.gpu_upload_ready);
+        assert!(
+            !pack.honesty.gpu_write_buffer_submitted,
+            "ready flag must not claim write_buffer"
+        );
+        assert!(honesty_gpu_write_buffer_not_claimed(&pack));
+        let mut dest = vec![0u8; pack.vertex_bytes.len()];
+        let n = pack.copy_vertex_bytes_into(&mut dest);
+        assert_eq!(n, pack.vertex_bytes.len());
+        assert_eq!(dest, pack.vertex_bytes);
+        // Same helper Queue::write_buffer uses.
+        let mut dest2 = vec![0u8; pack.vertex_bytes.len()];
+        assert_eq!(
+            write_laser_segment_bytes(&mut dest2, &pack.vertex_bytes),
+            dest.len()
+        );
+        assert_eq!(dest2, dest);
+        let exec = include_str!("render_pipeline/pipeline_execute.rs");
+        assert!(
+            exec.contains("upload_laser_segments("),
+            "execute must call upload_laser_segments("
+        );
+        let fwd = include_str!("render_pipeline/forward_render.rs");
+        assert!(
+            fwd.contains("queue.write_buffer("),
+            "ForwardPass must call queue.write_buffer("
+        );
+        assert!(fwd.contains("write_to_queue("));
+        assert!(
+            !fwd.contains("gpu_write_buffer_submitted ="),
+            "upload_laser_segments must not assign the submit flag"
+        );
     }
 
     /// Wave 102 residual: soft-edge UV atlas texture bind expand + multi-beam fields.

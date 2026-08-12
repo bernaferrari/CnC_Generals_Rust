@@ -3,7 +3,6 @@
 use super::super::*;
 use super::helpers::*;
 
-
 /// Residual: AnthraxBomb (GLA SPECIAL_ANTHRAX_BOMB) queues delayed area damage
 /// and spawns residual toxin field after impact.
 /// Fail-closed: not full OCL jet cargo / PoisonField object / gamma upgrade.
@@ -137,8 +136,7 @@ fn anthrax_bomb_host_path_queues_damage_after_delay_and_toxin() {
     );
 
     let enemy_after = game_logic.host_object(enemy_id).map(|o| o.health.current);
-    let enemy_dealt =
-        test_observed_damage_to(enemy_id, health_before, enemy_after.unwrap_or(0.0));
+    let enemy_dealt = test_observed_damage_to(enemy_id, health_before, enemy_after.unwrap_or(0.0));
     assert!(
         enemy_dealt > 0.0
             || enemy_after.is_none()
@@ -514,8 +512,7 @@ fn spy_satellite_special_power_reveals_fow() {
         "active residual scan must cover target"
     );
     assert!(
-        (game_logic.spy_satellites().active_scans()[0].radius - SPY_SATELLITE_RADIUS).abs()
-            < 0.01,
+        (game_logic.spy_satellites().active_scans()[0].radius - SPY_SATELLITE_RADIUS).abs() < 0.01,
         "retail residual radius 300"
     );
 
@@ -983,9 +980,7 @@ fn firewall_inch_forward_moves_segment_objects() {
 
 #[test]
 fn firewall_spawns_segment_objects_residual() {
-    use crate::game_logic::host_firewall::{
-        FIREWALL_DURATION_FRAMES, FIREWALL_SEGMENT_TEMPLATE,
-    };
+    use crate::game_logic::host_firewall::{FIREWALL_DURATION_FRAMES, FIREWALL_SEGMENT_TEMPLATE};
     use crate::game_logic::KindOf;
     let mut logic = GameLogic::new();
     ensure_test_tank_template(&mut logic);
@@ -1894,8 +1889,7 @@ fn aurora_bomb_host_path_queues_and_applies_delayed_area_damage() {
         "enemy at epicenter must take Aurora residual damage (~{AURORA_BOMB_DAMAGE}), got {enemy_hp:?} dealt={enemy_dealt}"
     );
     assert!(
-        near_dealt > 0.0
-            || near_hp.map(|h| h < near_before).unwrap_or(true),
+        near_dealt > 0.0 || near_hp.map(|h| h < near_before).unwrap_or(true),
         "enemy inside Aurora radius must take residual damage, got {near_hp:?} dealt={near_dealt}"
     );
     assert!(
@@ -1904,8 +1898,7 @@ fn aurora_bomb_host_path_queues_and_applies_delayed_area_damage() {
     );
     // RadiusDamageAffects ALLIES residual: friendly at epicenter takes blast.
     let friend_hp = game_logic.host_object(friend_id).map(|o| o.health.current);
-    let friend_dealt =
-        test_observed_damage_to(friend_id, friend_before, friend_hp.unwrap_or(0.0));
+    let friend_dealt = test_observed_damage_to(friend_id, friend_before, friend_hp.unwrap_or(0.0));
     assert!(
         friend_dealt > 0.0
             || friend_hp.map(|h| h < friend_before).unwrap_or(true)
@@ -2024,8 +2017,7 @@ fn aurora_bomb_host_path_queues_and_applies_delayed_area_damage() {
         game_logic.update_fuel_air_gas_slow_death();
     }
     let fuel_after = game_logic.host_object(fuel_enemy).map(|o| o.health.current);
-    let fuel_dealt =
-        test_observed_damage_to(fuel_enemy, fuel_before, fuel_after.unwrap_or(0.0));
+    let fuel_dealt = test_observed_damage_to(fuel_enemy, fuel_before, fuel_after.unwrap_or(0.0));
     assert!(
         fuel_dealt > 0.0
             || fuel_after.map(|h| h < fuel_before).unwrap_or(true)
@@ -2359,9 +2351,7 @@ fn capture_building_walk_into_range_transfers_ownership_after_upgrade() {
 fn flashbang_upgrade_queue_complete_equips_ranger_secondary() {
     use crate::command_system::{CommandType, GameCommand};
     use crate::game_logic::host_upgrades::{HostUpgradeKind, UPGRADE_AMERICA_FLASHBANG};
-    use crate::game_logic::weapon_bootstrap::{
-        ensure_host_weapon_store, RANGER_PRIMARY_WEAPON,
-    };
+    use crate::game_logic::weapon_bootstrap::{ensure_host_weapon_store, RANGER_PRIMARY_WEAPON};
 
     ensure_host_weapon_store();
 
@@ -2787,8 +2777,7 @@ fn supply_lines_drop_off_yields_more_cash_than_without() {
         (gained, pure_deposit, bonus, honesty)
     }
 
-    let (without_gained, without_pure, without_bonus, without_honesty) =
-        run_one_drop_off(false);
+    let (without_gained, without_pure, without_bonus, without_honesty) = run_one_drop_off(false);
     let (with_gained, with_pure, with_bonus, with_honesty) = run_one_drop_off(true);
 
     assert_eq!(without_bonus, 0, "no economy boost without Supply Lines");
@@ -3700,4 +3689,3 @@ fn overlord_bunker_residual_rejects_vehicle_enter() {
         .contained_units()
         .is_empty());
 }
-

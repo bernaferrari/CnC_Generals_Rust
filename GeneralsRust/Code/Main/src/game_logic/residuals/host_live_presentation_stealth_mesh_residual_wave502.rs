@@ -90,11 +90,11 @@ pub fn residual_presentation_stealth_mesh_last_action() -> ResidualPresentationS
 }
 
 fn pf_source() -> &'static str {
-    include_str!("../../presentation_frame.rs")
+    crate::presentation_frame::PRESENTATION_FRAME_SRC
 }
 
 fn rp_source() -> &'static str {
-    include_str!("../../graphics/render_pipeline.rs")
+    crate::graphics::render_pipeline::RENDER_PIPELINE_SRC
 }
 
 pub fn honesty_presentation_stealth_mesh_method_names_residual_wave502() -> bool {

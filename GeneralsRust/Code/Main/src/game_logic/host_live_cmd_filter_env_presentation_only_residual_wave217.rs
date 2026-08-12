@@ -117,7 +117,7 @@ pub fn presentation_selected_sellable_structure_ids(
 
 /// Source residual: sell/upgrade/formation/construct filters presentation-required.
 pub fn honesty_cmd_filters_presentation_only_source() -> bool {
-    let eng = include_str!("../cnc_game_engine.rs");
+    let eng = crate::cnc_game_engine::ENGINE_SRC;
     let helper = include_str!("host_live_cmd_filter_env_presentation_only_residual_wave217.rs");
     if !helper.contains("Wave 217: presentation required for sell identity")
         || !helper.contains("pub fn presentation_selected_sellable_structure_ids")
@@ -159,7 +159,7 @@ pub fn honesty_cmd_filters_presentation_only_source() -> bool {
 
 /// Source residual: env hints presentation-only (Wave 455: no live GameLogic dual-read).
 pub fn honesty_env_hints_presentation_only_source() -> bool {
-    let eng = include_str!("../cnc_game_engine.rs");
+    let eng = crate::cnc_game_engine::ENGINE_SRC;
     // Wave 455/466: presentation-only env apply; seed passes GameWorld shadow.
     eng.contains("fn ensure_presentation_env_for_hints")
         && eng.contains("fn host_ensure_presentation_env_for_hints")
@@ -240,11 +240,7 @@ mod tests {
         logic.templates.insert("SellRanger217".into(), ranger);
 
         let bid = logic
-            .create_object(
-                "SellBarracks217",
-                Team::USA,
-                Vec3::new(10.0, 0.0, 0.0),
-            )
+            .create_object("SellBarracks217", Team::USA, Vec3::new(10.0, 0.0, 0.0))
             .expect("barracks");
         let cid = logic
             .create_object("SellCC217", Team::USA, Vec3::new(20.0, 0.0, 0.0))
@@ -259,11 +255,8 @@ mod tests {
         );
 
         let frame = PresentationFrame::build_from_logic(&logic, 0);
-        let sold = presentation_selected_sellable_structure_ids(
-            Some(&frame),
-            &[bid, cid, rid],
-            Team::USA,
-        );
+        let sold =
+            presentation_selected_sellable_structure_ids(Some(&frame), &[bid, cid, rid], Team::USA);
         assert_eq!(sold, vec![bid], "only non-CC structure is sellable");
         assert!(
             presentation_selected_sellable_structure_ids(Some(&frame), &[rid], Team::USA)

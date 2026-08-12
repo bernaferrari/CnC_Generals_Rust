@@ -81,7 +81,7 @@ pub fn honesty_live_pick_object_presentation_only_residual_pack_wave222() -> boo
 
 /// Source residual: find_object_at_position has no GameLogic parameter.
 pub fn honesty_pick_object_presentation_only_source() -> bool {
-    let eng = include_str!("../../cnc_game_engine.rs");
+    let eng = crate::cnc_game_engine::ENGINE_SRC;
     let Some(i) = eng.find("fn find_object_at_position(") else {
         return false;
     };

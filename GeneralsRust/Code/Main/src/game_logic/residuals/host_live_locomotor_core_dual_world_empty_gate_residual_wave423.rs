@@ -110,7 +110,7 @@ fn fn_body<'a>(src: &'a str, name: &str) -> Option<&'a str> {
 
 /// Source residual: Locomotor core empty dual-world short-circuits.
 pub fn honesty_locomotor_core_dual_world_empty_gate_source() -> bool {
-    let g = include_str!("../../../../GameEngine/GameLogic/src/locomotor/core.rs");
+    let g = gamelogic::locomotor::core::LOCOMOTOR_CORE_SRC;
     if !(g.contains("Wave 423")
         && g.contains("fn dual_world_registry_unavailable")
         && g.contains("OBJECT_REGISTRY.is_empty()"))

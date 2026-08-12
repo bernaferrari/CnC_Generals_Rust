@@ -49,7 +49,7 @@ fn residual_action_store(a: ResidualHostSpCmdhintMouseoverUnusableAction) {
 }
 
 fn ui_source() -> &'static str {
-    include_str!("../../../../GameEngine/GameClient/src/gui/ingame_ui.rs")
+    game_client::gui::ingame_ui::INGAME_UI_SRC
 }
 fn es_source() -> &'static str {
     include_str!("../../executable_smoke.rs")

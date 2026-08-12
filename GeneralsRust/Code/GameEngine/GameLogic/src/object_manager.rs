@@ -43,7 +43,8 @@ use crate::modules::{
     AIUpdateInterface, BehaviorModuleInterface, UpdateSleepTime, UPDATE_SLEEP_NONE,
 };
 use crate::object::{
-    registry::OBJECT_REGISTRY, CrushSquishTestType, Object, MAX_TRIGGER_AREA_INFOS,
+    crate_registry_bind::bind_crate_object, registry::OBJECT_REGISTRY, CrushSquishTestType, Object,
+    MAX_TRIGGER_AREA_INFOS,
 };
 use crate::physics::{PhysicsState, PhysicsType};
 use crate::player::{Player, PlayerIndex};
@@ -273,7 +274,7 @@ impl GameObjectInstance {
             ));
 
         if object_id != INVALID_ID {
-            OBJECT_REGISTRY.register_object(object_id, &base);
+            bind_crate_object(object_id, &base);
             register_legacy_object(&base);
         }
 
@@ -324,7 +325,7 @@ impl GameObjectInstance {
             .map_err(|err| GameLogicError::SystemNotInitialized(err.to_string()))?;
 
         if id != INVALID_ID {
-            OBJECT_REGISTRY.register_object(id, &base);
+            bind_crate_object(id, &base);
             register_legacy_object(&base);
         }
 
@@ -1050,7 +1051,7 @@ impl ObjectManager {
 
         if let Some(slot) = self.objects.get(&object_id) {
             if let Ok(obj) = slot.read() {
-                OBJECT_REGISTRY.register_object(object_id, &obj.base());
+                bind_crate_object(object_id, &obj.base());
                 register_legacy_object(&obj.base());
                 self.register_player_ownership(object_id, &obj);
             }
@@ -1128,7 +1129,7 @@ impl ObjectManager {
         }
         if let Some(slot) = self.objects.get(&object_id) {
             if let Ok(obj) = slot.read() {
-                OBJECT_REGISTRY.register_object(object_id, &obj.base());
+                bind_crate_object(object_id, &obj.base());
                 register_legacy_object(&obj.base());
                 self.register_player_ownership(object_id, &obj);
             }

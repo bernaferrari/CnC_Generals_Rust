@@ -46,7 +46,7 @@ fn residual_action_store(a: ResidualHostDrawableOverlayDeadAction) {
 }
 
 fn dr_source() -> &'static str {
-    include_str!("../../../../GameEngine/GameClient/src/drawable/drawable.rs")
+    game_client::drawable::drawable::DRAWABLE_SRC
 }
 fn es_source() -> &'static str {
     include_str!("../../executable_smoke.rs")

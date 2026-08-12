@@ -81,7 +81,7 @@ pub fn honesty_live_control_group_camera_presentation_only_residual_pack_wave216
 
 /// Source residual: control-group assign uses ui_selected_ids.
 pub fn honesty_control_group_assign_presentation_only_source() -> bool {
-    let eng = include_str!("../../cnc_game_engine.rs");
+    let eng = crate::cnc_game_engine::ENGINE_SRC;
     let Some(i) = eng.find("control_group_assign_fail_no_selection") else {
         return false;
     };
@@ -93,7 +93,7 @@ pub fn honesty_control_group_assign_presentation_only_source() -> bool {
 
 /// Source residual: control-group recall filters via ui_object_alive.
 pub fn honesty_control_group_recall_presentation_only_source() -> bool {
-    let eng = include_str!("../../cnc_game_engine.rs");
+    let eng = crate::cnc_game_engine::ENGINE_SRC;
     let Some(i) = eng.find("control_group_recall_fail_empty") else {
         return false;
     };
@@ -105,7 +105,7 @@ pub fn honesty_control_group_recall_presentation_only_source() -> bool {
 
 /// Source residual: presentation camera residual has no live camera_follow dual-read.
 pub fn honesty_camera_follow_presentation_only_source() -> bool {
-    let eng = include_str!("../../cnc_game_engine.rs");
+    let eng = crate::cnc_game_engine::ENGINE_SRC;
     let Some(i) = eng.find("fn apply_presentation_camera_residual") else {
         return false;
     };

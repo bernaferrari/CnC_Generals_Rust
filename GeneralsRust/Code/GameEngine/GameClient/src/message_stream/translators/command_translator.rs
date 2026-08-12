@@ -848,7 +848,10 @@ impl CommandTranslator {
         vec![self.resolve_move_hint(pos.clone())]
     }
 
-    pub(super) fn handle_mouseover_drawable_hint(&self, drawable: DrawableID) -> Vec<GameMessageType> {
+    pub(super) fn handle_mouseover_drawable_hint(
+        &self,
+        drawable: DrawableID,
+    ) -> Vec<GameMessageType> {
         if self.current_selection.is_empty() {
             return Vec::new();
         }
@@ -1330,4 +1333,3 @@ impl Default for CommandTranslator {
         Self::new()
     }
 }
-

@@ -52,7 +52,7 @@ fn es_source() -> &'static str {
     include_str!("../../executable_smoke.rs")
 }
 fn cnc_source() -> &'static str {
-    include_str!("../../cnc_game_engine.rs")
+    crate::cnc_game_engine::ENGINE_SRC
 }
 
 pub fn honesty_host_presentation_is_selectable_status_method_names_residual_wave1092() -> bool {

@@ -92,7 +92,7 @@ pub fn residual_presentation_capture_load_overcharge_last_action(
 }
 
 fn pf_source() -> &'static str {
-    include_str!("../../presentation_frame.rs")
+    crate::presentation_frame::PRESENTATION_FRAME_SRC
 }
 
 fn en_source() -> &'static str {
@@ -100,7 +100,7 @@ fn en_source() -> &'static str {
 }
 
 fn rp_source() -> &'static str {
-    include_str!("../../graphics/render_pipeline.rs")
+    crate::graphics::render_pipeline::RENDER_PIPELINE_SRC
 }
 
 pub fn honesty_presentation_capture_load_overcharge_method_names_residual_wave510() -> bool {

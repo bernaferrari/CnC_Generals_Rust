@@ -310,13 +310,9 @@ impl GameWindow {
                 y += parent.region.low.y;
                 current_parent = parent.parent.as_ref().and_then(|w| w.upgrade());
             } else {
-                let ptr = parent_rc.as_ptr();
-                // SAFETY: mirrors the legacy single-threaded window tree traversal where
-                // parent reads can occur while a mutable callback path already owns the window.
-                let parent = unsafe { &*ptr };
-                x += parent.region.low.x;
-                y += parent.region.low.y;
-                current_parent = parent.parent.as_ref().and_then(|w| w.upgrade());
+                // Parent is already borrowed on this thread. Fail-closed: stop
+                // walking rather than aliasing the RefCell.
+                break;
             }
         }
 
@@ -432,10 +428,29 @@ impl GameWindow {
             widget.set_enabled(enable);
         }
 
-        // Enable/disable all children
-        for child_rc in &self.children {
-            let mut child = child_rc.borrow_mut();
-            child.enable(enable)?;
+        // Enable/disable all children. Nested create/focus/hide callbacks may
+        // already hold a child RefCell — queue instead of panic or fail-closed.
+        let children = self.children.clone();
+        for child_rc in children {
+            let queued = child_rc.try_borrow_mut().is_err();
+            if queued {
+                queue_window_manager_op(move |_manager| {
+                    if let Ok(mut child) = child_rc.try_borrow_mut() {
+                        let _ = child.enable(enable);
+                    } else {
+                        let child_rc = child_rc.clone();
+                        crate::gui::window_manager::queue_window_manager_op_deferred(
+                            move |_manager| {
+                                if let Ok(mut child) = child_rc.try_borrow_mut() {
+                                    let _ = child.enable(enable);
+                                }
+                            },
+                        );
+                    }
+                });
+            } else {
+                child_rc.borrow_mut().enable(enable)?;
+            }
         }
 
         Ok(())
@@ -455,12 +470,9 @@ impl GameWindow {
                 }
                 current = parent.parent.as_ref().and_then(|w| w.upgrade());
             } else {
-                // SAFETY: mirrors legacy single-threaded window tree traversal
-                let parent = unsafe { &*parent_rc.as_ptr() };
-                if !parent.status.contains(WindowStatus::ENABLED) {
-                    return false;
-                }
-                current = parent.parent.as_ref().and_then(|w| w.upgrade());
+                // Parent is already borrowed on this thread. Fail-closed: treat
+                // as not enabled rather than aliasing the RefCell.
+                return false;
             }
         }
         true
@@ -472,7 +484,9 @@ impl GameWindow {
         if hide {
             let window_ptr = self as *const GameWindow;
             let children = self.children.clone();
-            with_window_manager(|manager| {
+            // Re-enters `TheWindowManager` when called from `with_window_manager`.
+            // Queue so focus/capture/modal cleanup still runs after the outer borrow.
+            queue_window_manager_op(move |manager| {
                 manager.window_hiding_from_direct_hide(window_ptr, children);
             });
         }
@@ -1071,7 +1085,9 @@ impl GameWindow {
         }
     }
 
-    pub(crate) fn first_leaf_from(mut leaf: Rc<RefCell<GameWindow>>) -> Option<Rc<RefCell<GameWindow>>> {
+    pub(crate) fn first_leaf_from(
+        mut leaf: Rc<RefCell<GameWindow>>,
+    ) -> Option<Rc<RefCell<GameWindow>>> {
         loop {
             let leaf_borrow = leaf.borrow();
             if leaf_borrow.children().is_empty()

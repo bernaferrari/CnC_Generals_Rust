@@ -74,8 +74,7 @@ use bytemuck::{Pod, Zeroable};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use crate::core::error::Error;
-pub use crate::core::error::RendererResult;
+pub use crate::core::error::{Error, RendererResult};
 pub use ww3d_assets::AssetManager;
 pub use ww3d_core::errors::{W3DError, W3DResult};
 pub use ww3d_core::ww3d::WW3D;

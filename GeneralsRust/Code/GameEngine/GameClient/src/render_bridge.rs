@@ -884,6 +884,39 @@ impl RenderBridge {
     }
 }
 
+/// Owned scene-line snapshot for presentation freeze / GPU pack.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FrozenSceneLine {
+    pub id: game_engine::common::system::scene_submission::SceneLineId,
+    pub start: [f32; 3],
+    pub end: [f32; 3],
+    pub width: f32,
+    pub color: [f32; 4],
+    pub texture_name: String,
+    pub tile_factor: f32,
+}
+
+/// Snapshot visible lines from the global RenderBridge (empty if not initialized).
+pub fn snapshot_visible_scene_lines() -> Vec<FrozenSceneLine> {
+    let guard = THE_RENDER_BRIDGE.lock().unwrap_or_else(|e| e.into_inner());
+    let Some(bridge) = guard.as_ref() else {
+        return Vec::new();
+    };
+    bridge
+        .visible_scene_lines()
+        .into_iter()
+        .map(|(id, entry)| FrozenSceneLine {
+            id,
+            start: [entry.start.x, entry.start.y, entry.start.z],
+            end: [entry.end.x, entry.end.y, entry.end.z],
+            width: entry.width,
+            color: entry.color,
+            texture_name: entry.texture_name.clone(),
+            tile_factor: entry.tile_factor,
+        })
+        .collect()
+}
+
 fn mesh_prototype_names(asset_manager: &AssetManager) -> HashSet<String> {
     asset_manager
         .prototypes()
@@ -2134,5 +2167,38 @@ mod tests {
         assert!((converted.x - 1.0).abs() < f32::EPSILON);
         assert!((converted.y - 2.0).abs() < f32::EPSILON);
         assert!((converted.z - 3.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn register_scene_submission_and_submit_line_makes_visible_scene_lines() {
+        use game_engine::common::system::geometry::Coord3D;
+        use game_engine::common::system::scene_submission::{SceneLineDesc, SceneSubmission};
+        use std::sync::Arc;
+
+        init_render_bridge();
+        let _ = gamelogic::helpers::register_scene_submission(Arc::new(RenderBridge::new()));
+        let desc = SceneLineDesc {
+            start: Coord3D::new(0.0, 0.0, 0.0),
+            end: Coord3D::new(10.0, 0.0, 1.0),
+            width: 2.0,
+            color_r: 1.0,
+            color_g: 0.0,
+            color_b: 0.0,
+            opacity: 1.0,
+            texture_name: Some("EXLaser.tga".to_string()),
+            tile_factor: 1.0,
+            visible: true,
+        };
+        if gamelogic::helpers::submit_scene_line(7, &desc).is_none() {
+            let _ = RenderBridge::new().submit_line(7, &desc);
+        }
+        let lines = snapshot_visible_scene_lines();
+        assert!(
+            !lines.is_empty(),
+            "submit_scene_line must populate visible_scene_lines"
+        );
+        assert!((lines[0].start[0] - 0.0).abs() < f32::EPSILON);
+        assert!((lines[0].end[0] - 10.0).abs() < f32::EPSILON);
+        assert!((lines[0].width - 2.0).abs() < f32::EPSILON);
     }
 }

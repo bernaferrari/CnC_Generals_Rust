@@ -459,36 +459,28 @@ impl GameLogic {
                 continue;
             }
 
-            // Short hops: skip A* overhead and go direct.
+            // Never fail-open through blocked cells: always ask the pathfinder.
             let straight = horiz(segment_start, goal);
-            let segment = if straight < 20.0 {
-                None
-            } else {
-                self.pathfinding_system.find_path_ex(
-                    segment_start,
-                    goal,
-                    &self.objects,
-                    is_aircraft,
-                )
-            };
+            let segment = self.pathfinding_system.find_path_ex(
+                segment_start,
+                goal,
+                &self.objects,
+                is_aircraft,
+            );
 
             match segment {
                 Some(mut segment_path) => {
-                    // Reject absurd detours (fragmented slope masks / blocked corridors).
-                    // Prefer honest direct march so combat can close range without teleports.
+                    // Keep the found path even if it is long — do not walk through walls.
                     let path_len: f32 = segment_path.windows(2).map(|w| horiz(w[0], w[1])).sum();
                     if straight > 1.0 && path_len > straight * 3.5 {
                         log::debug!(
-                            "Path detour {:.0} vs straight {:.0} for {:?}; using direct march",
+                            "Path detour {:.0} vs straight {:.0} for {:?}",
                             path_len,
                             straight,
                             unit_id
                         );
-                        if full_path.is_empty() {
-                            full_path.push(segment_start);
-                        }
-                        full_path.push(goal);
-                    } else {
+                    }
+                    {
                         if let Some(first) = segment_path.first_mut() {
                             *first = segment_start;
                         }
@@ -508,15 +500,12 @@ impl GameLogic {
                 }
                 None => {
                     log::debug!(
-                        "No path found for unit {:?} from {:?} to {:?}; falling back to direct segment",
+                        "No path found for unit {:?} from {:?} to {:?}; refuse fail-open march",
                         unit_id,
                         segment_start,
                         goal
                     );
-                    if full_path.is_empty() {
-                        full_path.push(segment_start);
-                    }
-                    full_path.push(goal);
+                    return false;
                 }
             }
 
@@ -524,8 +513,9 @@ impl GameLogic {
         }
 
         if full_path.is_empty() {
-            full_path.push(start);
-            full_path.push(destination);
+            // Already at goal (all segments < 0.1) is not a fail-open march.
+            // Any real hop that missed A* already returned false above.
+            return false;
         }
 
         let Some(unit) = self.objects.get_mut(&unit_id) else {
@@ -800,7 +790,12 @@ impl GameLogic {
             .is_attack_view_blocked(from, target_pos)
     }
 
-    pub(super) fn path_approach_with_state(&mut self, object_id: ObjectId, goal: Vec3, state: AIState) {
+    pub(super) fn path_approach_with_state(
+        &mut self,
+        object_id: ObjectId,
+        goal: Vec3,
+        state: AIState,
+    ) {
         let decision_auth = crate::gameworld_shadow::gameworld_ai_decision_authority_live();
         let ordinal = crate::gameworld_shadow::GameWorldShadow::host_ai_state_ordinal(&state);
         if self.assign_unit_path(object_id, goal, &[]) {
@@ -2006,6 +2001,12 @@ impl GameLogic {
                                 {
                                     heightmap.blend_tile_ndxes = blend.blend_tile_ndxes.clone();
                                 }
+                                if blend.extra_blend_tile_ndxes.len()
+                                    == heightmap.extra_blend_tile_ndxes.len()
+                                {
+                                    heightmap.extra_blend_tile_ndxes =
+                                        blend.extra_blend_tile_ndxes.clone();
+                                }
                             }
                             self.terrain = Some(super::terrain::TerrainData::from_heightmap(
                                 heightmap,
@@ -2164,5 +2165,4 @@ impl GameLogic {
             fallback.to_string()
         }
     }
-
 }

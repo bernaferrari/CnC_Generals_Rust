@@ -277,7 +277,9 @@ pub use super::host_hero_abilities::{
     HostHeroAbilityRegistry, DISABLE_VEHICLE_HACK_AUDIO, DISABLE_VEHICLE_HACK_DURATION_FRAMES,
     SNIPE_VEHICLE_AUDIO, STEAL_CASH_AUDIO, STEAL_CASH_DEFAULT_AMOUNT,
 };
-pub use super::host_humvee::{is_humvee_template, HUMVEE_MISSILE_WEAPON_AIR, HUMVEE_TRANSPORT_SLOTS};
+pub use super::host_humvee::{
+    is_humvee_template, HUMVEE_MISSILE_WEAPON_AIR, HUMVEE_TRANSPORT_SLOTS,
+};
 pub use super::host_inferno_cannon::{
     has_black_napalm_upgrade as has_inferno_black_napalm_upgrade, is_inferno_cannon_template,
     HostInfernoFireZone, HostInfernoFireZoneRegistry, INFERNO_CANNON_FIRE_AUDIO,

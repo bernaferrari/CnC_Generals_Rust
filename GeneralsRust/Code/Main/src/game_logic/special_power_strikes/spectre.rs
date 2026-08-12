@@ -382,7 +382,6 @@ pub const SPECTRE_HOWITZER_CONTINUOUS_FIRE_COAST_MS: u32 = 2000;
 /// Retail SpectreHowitzerGun VeterancyFireFX residual (HEROIC same tracer).
 pub const SPECTRE_HOWITZER_VETERANCY_FIRE_FX: &str = "WeaponFX_GenericTankGunNoTracer";
 
-
 /// SpectreHowitzerShell loft residual position after `frames` of pad-safe delay.
 ///
 /// Retail: HeightDie InitialDelay 30f prevents pad detonation; host residual

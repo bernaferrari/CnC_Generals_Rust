@@ -94,11 +94,11 @@ fn gl_source() -> &'static str {
 }
 
 fn shadow_source() -> &'static str {
-    include_str!("../../gameworld_shadow.rs")
+    crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC
 }
 
 fn object_source() -> &'static str {
-    include_str!("../object.rs")
+    crate::game_logic::object::OBJECT_SRC
 }
 
 fn ready_log_source() -> &'static str {

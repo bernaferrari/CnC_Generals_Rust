@@ -1,8 +1,8 @@
 //! Post-logic identity residuals: command-set, model, formation, FOW, kind-of, mesh.
 
+use super::*;
 use crate::game_logic::GameLogic;
 use crate::gameworld_shadow::GameWorldShadow;
-use super::*;
 
 // Wave 696: post-logic command-set / disguise / vision-camo batch handoff.
 thread_local! {
@@ -317,7 +317,8 @@ pub fn take_early_model_mesh_batch() -> Option<(
     EARLY_MODEL_MESH_BATCH.with(|c| c.borrow_mut().take())
 }
 
-pub fn take_early_fow_batch() -> Option<(Vec<crate::game_logic::host_fow_log::HostFowEvent>, bool)> {
+pub fn take_early_fow_batch() -> Option<(Vec<crate::game_logic::host_fow_log::HostFowEvent>, bool)>
+{
     EARLY_FOW_BATCH.with(|c| c.borrow_mut().take())
 }
 

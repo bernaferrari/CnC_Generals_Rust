@@ -3,7 +3,6 @@
 use super::super::*;
 use super::helpers::*;
 
-
 /// Residual: pilot Enter rejects manned vehicles for recrew residual path
 /// (fails closed into normal transport rules).
 #[test]
@@ -51,8 +50,7 @@ fn worker_shoes_upgrade_speed_and_supply_boost_residual() {
     use crate::command_system::{CommandType, GameCommand};
     use crate::game_logic::host_gla_worker::{
         is_gla_worker_template, residual_worker_shoes_drop_off_boost, worker_residual_speed,
-        UPGRADE_GLA_WORKER_SHOES, WORKER_BASE_SPEED, WORKER_SHOES_SPEED,
-        WORKER_SHOES_SUPPLY_BOOST,
+        UPGRADE_GLA_WORKER_SHOES, WORKER_BASE_SPEED, WORKER_SHOES_SPEED, WORKER_SHOES_SUPPLY_BOOST,
     };
     use crate::game_logic::host_upgrades::HostUpgradeKind;
 
@@ -897,8 +895,7 @@ fn aurora_fuel_air_impact_spawns_gas_object() {
         logic.update_fuel_air_gas_slow_death();
     }
     assert!(
-        logic.fuel_air_gas_reg.final_detonations > 0
-            || logic.fuel_air_gas_reg.midpoint_flames > 0,
+        logic.fuel_air_gas_reg.final_detonations > 0 || logic.fuel_air_gas_reg.midpoint_flames > 0,
         "gas SlowDeath must tick midpoint/final residual"
     );
     assert!(
@@ -1771,9 +1768,8 @@ fn oil_derrick_residual_deposits_cash_on_interval() {
 fn supply_drop_zone_residual_credits_cash_on_interval() {
     use crate::game_logic::host_deliver_payload::{
         HostCargoPlaneFlightPhase, HostDeliverPayloadKind, CARGO_PLANE_APPROACH_DELAY_FRAMES,
-        CARGO_PLANE_DOOR_DELAY_FRAMES, CARGO_PLANE_PREFERRED_HEIGHT,
-        SUPPLY_DROP_DROP_DELAY_FRAMES, SUPPLY_DROP_PAYLOAD_COUNT,
-        SUPPLY_DROP_PAYLOAD_RESIDUAL_TEMPLATE,
+        CARGO_PLANE_DOOR_DELAY_FRAMES, CARGO_PLANE_PREFERRED_HEIGHT, SUPPLY_DROP_DROP_DELAY_FRAMES,
+        SUPPLY_DROP_PAYLOAD_COUNT, SUPPLY_DROP_PAYLOAD_RESIDUAL_TEMPLATE,
     };
     use crate::game_logic::host_supply_drop_zone::{
         SUPPLY_DROP_ZONE_DROP_CASH, SUPPLY_DROP_ZONE_DROP_CASH_WITH_SUPPLY_LINES,
@@ -2114,8 +2110,7 @@ fn deliver_payload_cargo_residual_constants_and_skip() {
     assert!(HostDeliverPayloadKind::SupplyDropZoneCrate.spawns_payload_objects());
     assert!(!HostDeliverPayloadKind::AmericaParadrop.spawns_payload_objects());
     assert!(
-        (residual_allowed_delivery_distance(HostDeliverPayloadKind::SupplyDropZoneCrate)
-            - 410.0)
+        (residual_allowed_delivery_distance(HostDeliverPayloadKind::SupplyDropZoneCrate) - 410.0)
             .abs()
             < 0.01
     );
@@ -2598,9 +2593,7 @@ fn hacker_internet_center_residual_deposits_cash() {
 /// Residual: field HackInternet command deposits $5 every 60 frames.
 #[test]
 fn hacker_field_residual_deposits_cash_on_interval() {
-    use crate::game_logic::host_hacker_income::{
-        HACKER_CASH_INTERVAL_FRAMES, HACKER_CASH_REGULAR,
-    };
+    use crate::game_logic::host_hacker_income::{HACKER_CASH_INTERVAL_FRAMES, HACKER_CASH_REGULAR};
     use crate::game_logic::{KindOf, ThingTemplate};
 
     let mut game_logic = GameLogic::new();
@@ -3083,9 +3076,7 @@ fn disable_vehicle_hack_rejects_non_lotus() {
 #[test]
 fn ecm_missile_jam_scatters_in_flight_projectile() {
     use crate::game_logic::host_ecm_jam::HOST_ECM_JAM_RADIUS;
-    use crate::game_logic::host_technical::{
-        TechnicalWeaponTier, TECH_CANNON_SHELL_PROJECTILE,
-    };
+    use crate::game_logic::host_technical::{TechnicalWeaponTier, TECH_CANNON_SHELL_PROJECTILE};
 
     let mut logic = GameLogic::new();
     let mut ecm_tpl = ThingTemplate::new("ChinaTankECM");
@@ -3764,4 +3755,3 @@ fn weapon_bonus_upgrade_sets_player_upgrade_condition() {
     logic.apply_upgrade_to_object(id, "Upgrade_GLAAPRockets");
     assert!(logic.objects.get(&id).unwrap().weapon_bonus_player_upgrade);
 }
-

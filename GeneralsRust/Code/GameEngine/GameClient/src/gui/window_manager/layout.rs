@@ -5,7 +5,7 @@ use std::rc::{Rc, Weak};
 
 use crate::gui::game_window::{Color, GameFont, GameWindow};
 
-use super::queue_window_manager_op;
+use super::{queue_window_manager_op, queue_window_manager_op_deferred};
 
 /// Window layout for grouping related windows
 pub struct WindowLayout {
@@ -18,7 +18,8 @@ pub struct WindowLayout {
     // Layout callbacks would be function pointers in the original
     pub(crate) init_callback: Option<Box<dyn Fn(&WindowLayout, Option<&dyn std::any::Any>)>>,
     pub(crate) update_callback: Option<Box<dyn Fn(&WindowLayout, Option<&dyn std::any::Any>)>>,
-    pub(crate) shutdown_callback: Option<Box<dyn Fn(&WindowLayout, Option<&mut dyn std::any::Any>)>>,
+    pub(crate) shutdown_callback:
+        Option<Box<dyn Fn(&WindowLayout, Option<&mut dyn std::any::Any>)>>,
 }
 
 impl std::fmt::Debug for WindowLayout {
@@ -144,7 +145,20 @@ impl WindowLayout {
     pub fn bring_forward(&mut self) {
         if let Some(layout) = self.self_handle.upgrade() {
             queue_window_manager_op(move |manager| {
-                manager.bring_layout_forward(&layout.borrow());
+                // Shell::push may still hold a mutable layout borrow when this
+                // op drains; try_borrow avoids a RefCell panic that aborted
+                // Menu entry on the windowed sit-through path.
+                match layout.try_borrow() {
+                    Ok(borrowed) => manager.bring_layout_forward(&borrowed),
+                    Err(_) => {
+                        let layout = layout.clone();
+                        queue_window_manager_op_deferred(move |manager| {
+                            if let Ok(borrowed) = layout.try_borrow() {
+                                manager.bring_layout_forward(&borrowed);
+                            }
+                        });
+                    }
+                }
             });
         }
     }

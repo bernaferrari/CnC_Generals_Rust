@@ -10,7 +10,11 @@ pub fn w3d_main_menu_four_draw(window: &GameWindow, _inst_data: &WindowInstanceD
     animate_main_menu_pulse(window, "MainMenuPulse");
 }
 
-pub fn w3d_metal_bar_menu_draw(window: &GameWindow, _inst_data: &WindowInstanceData) {
+pub fn w3d_metal_bar_menu_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
+    let color = visible_enabled_color(window, inst_data, FALLBACK_METAL_FILL);
+    let (x, y) = window.get_screen_position();
+    let (width, height) = window.get_size();
+    draw_visible_fill(x, y, width, height, color, Some(FALLBACK_BORDER));
     window.draw_border_w3d();
 }
 
@@ -214,6 +218,9 @@ pub fn w3d_main_menu_map_border(window: &GameWindow, _inst_data: &WindowInstance
             manager.win_draw_line(COLOR_DROP, 1.0, left + 1, top, left + 1, bottom);
             manager.win_draw_line(COLOR, 1.0, right, top, right, bottom);
             manager.win_draw_line(COLOR_DROP, 1.0, right - 1, top, right - 1, bottom);
+            note_shipped_ui_draw_commands(8);
+        } else {
+            note_shipped_ui_draw_commands(1);
         }
     });
 }
@@ -301,25 +308,10 @@ pub fn w3d_main_menu_random_text_draw(window: &GameWindow, inst_data: &WindowIns
 }
 
 pub fn w3d_thin_border_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
-    let Some(draw_data) = window.get_enabled_draw_data(0) else {
-        return;
-    };
-    let Some(image) = draw_data.image else {
-        return;
-    };
-
-    let (x, y) = window.get_screen_position();
-    let (width, height) = window.get_size();
-    with_window_manager_ref(|manager| {
-        manager.win_draw_image(
-            &image,
-            x + inst_data.image_offset.x,
-            y + inst_data.image_offset.y,
-            x + inst_data.image_offset.x + width,
-            y + inst_data.image_offset.y + height,
-            WIN_COLOR_UNDEFINED,
-        );
-    });
+    let image = window
+        .get_enabled_draw_data(0)
+        .and_then(|draw_data| draw_data.image);
+    draw_window_image_or_fallback(window, inst_data, image.as_ref(), FALLBACK_FILL);
 }
 
 pub fn w3d_shell_menu_scheme_draw(_window: &GameWindow, _inst_data: &WindowInstanceData) {
@@ -341,13 +333,18 @@ pub fn w3d_credits_menu_draw(_window: &GameWindow, _inst_data: &WindowInstanceDa
     menu.draw();
 }
 
-pub(super) fn draw_data_has_compat_default_content(entry: &crate::gui::game_window::WindowDrawData) -> bool {
+pub(super) fn draw_data_has_compat_default_content(
+    entry: &crate::gui::game_window::WindowDrawData,
+) -> bool {
     entry.image.is_some()
         || entry.color != WIN_COLOR_UNDEFINED
         || entry.border_color != WIN_COLOR_UNDEFINED
 }
 
-pub(super) fn has_compat_default_content(window: &GameWindow, inst_data: &WindowInstanceData) -> bool {
+pub(super) fn has_compat_default_content(
+    window: &GameWindow,
+    inst_data: &WindowInstanceData,
+) -> bool {
     window.get_status().contains(WindowStatus::IMAGE)
         || inst_data.video_buffer.is_some()
         || inst_data
@@ -373,4 +370,3 @@ pub fn w3d_no_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
 pub fn w3d_compat_default_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
     crate::gui::game_window::default_draw_callback(window, inst_data);
 }
-

@@ -55,7 +55,6 @@ pub mod scorch_mesh;
 pub mod terrain_background;
 pub mod terrain_roads;
 pub mod terrain_tracks;
-#[path = "terrain_visual/mod.rs"]
 pub mod terrain_visual;
 pub mod textures;
 pub mod tree_buffer;
@@ -75,7 +74,9 @@ use game_engine::common::ini::ini_terrain::TerrainError as IniTerrainError;
 // Re-export main types for convenience
 pub use chunk::{ChunkId, TerrainChunk};
 pub use collision::TerrainCollision;
-pub use height_map::HeightMap;
+pub use height_map::{
+    ExtraAlphaUvData, ExtraBlendDrawMesh, ExtraBlendDrawVertex, HeightMap,
+};
 pub use manager::TerrainManager;
 pub use roads::{Road, RoadSystem, RoadType};
 pub use scorch_mesh::{
@@ -101,14 +102,14 @@ pub use tree_buffer::{
     TreeRegion2D, TreeSaveRecord, TreeShroudStatus, TreeSphere, TreeTgaHeader, TreeTileImageSpec,
     TreeTypeMesh, TreeVertexXyznduv1, W3DToppleState, W3DTreeBuffer, ANGULAR_LIMIT,
     CONSTRUCTION_TREE_COLLISION_RADIUS, DELETED_TREE_TYPE, END_OF_PARTITION, MAX_TEX_WIDTH,
-    MAX_TILES, MAX_TREES, MAX_TYPES, MAX_TREE_INDEX, MAX_TREE_VERTEX, PARTITION_WIDTH_HEIGHT,
+    MAX_TILES, MAX_TREES, MAX_TREE_INDEX, MAX_TREE_VERTEX, MAX_TYPES, PARTITION_WIDTH_HEIGHT,
     TILE_BYTES_PER_PIXEL, TILE_PIXEL_EXTENT, TREE_MAX_GLOBAL_LIGHTS, TREE_RADIUS_APPROX,
     TREE_TILE_DATA_LEN, W3D_TOPPLE_OPTIONS_NONE, W3D_TOPPLE_OPTIONS_NO_BOUNCE,
     W3D_TOPPLE_OPTIONS_NO_FX,
 };
 pub use vertex::TerrainVertex;
 pub use w3d_overlay_mesh::{
-    bake_bridge_span, bake_straight_road_segment, bake_water_patch_world,
+    bake_bridge_span, bake_straight_road_segment, bake_water_patch_world, bake_water_tiles_world,
     default_sectional_bridge_model, fill_bridge_gpu_upload_vertices, fill_road_gpu_upload_vertices,
     fill_water_gpu_upload_vertices, generate_water_index_buffer, generate_water_vertex_buffer,
     load_float_4pt_section, triangle_list_from_strip, unpack_bgra_rgb, unpack_bgra_rgba,

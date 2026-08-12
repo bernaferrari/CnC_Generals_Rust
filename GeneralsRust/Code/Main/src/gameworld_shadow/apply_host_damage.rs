@@ -103,7 +103,12 @@ impl GameWorldShadow {
     }
 
     /// Wave 779: FWWDB onDamage reaction sole-emit after GW applied damage.
-    pub(super) fn try_fwwd_reaction_for_host(&mut self, host: ObjectId, actual_damage: f32, frame: u32) {
+    pub(super) fn try_fwwd_reaction_for_host(
+        &mut self,
+        host: ObjectId,
+        actual_damage: f32,
+        frame: u32,
+    ) {
         use crate::game_logic::host_enum_table_residual::{
             host_calc_body_damage_state, HostBodyDamageType,
         };

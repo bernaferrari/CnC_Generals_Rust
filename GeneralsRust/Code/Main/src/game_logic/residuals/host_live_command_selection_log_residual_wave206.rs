@@ -82,7 +82,7 @@ pub fn honesty_live_command_selection_log_residual_pack_wave206() -> bool {
 
 /// Source residual: execute_selection uses select_objects / select (not list-only).
 pub fn honesty_selection_uses_object_select_source() -> bool {
-    let ce = include_str!("../../command_executor.rs");
+    let ce = crate::command_executor::COMMAND_EXECUTOR_SRC;
     let i = match ce.find("fn execute_selection") {
         Some(i) => i,
         None => return false,
@@ -96,7 +96,7 @@ pub fn honesty_selection_uses_object_select_source() -> bool {
 
 /// Source residual: command_system selection uses select_objects.
 pub fn honesty_command_system_selection_uses_object_select_source() -> bool {
-    let cs = include_str!("../../command_system.rs");
+    let cs = crate::command_system::COMMAND_SYSTEM_SRC;
     let i = match cs.find("fn execute_selection_command") {
         Some(i) => i,
         None => return false,
@@ -110,7 +110,7 @@ pub fn honesty_command_system_selection_uses_object_select_source() -> bool {
 
 /// Source residual: production has no formation_id = 0 field write.
 pub fn honesty_formation_dissolve_uses_set_formation_source() -> bool {
-    let ce = include_str!("../../command_executor.rs");
+    let ce = crate::command_executor::COMMAND_EXECUTOR_SRC;
     let gl = include_str!("../game_logic.rs");
     let prod = match ce.find("#[cfg(test)]") {
         Some(i) => &ce[..i],

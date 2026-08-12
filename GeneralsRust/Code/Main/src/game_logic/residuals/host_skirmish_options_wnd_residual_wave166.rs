@@ -83,7 +83,7 @@ pub fn honesty_skirmish_options_wnd_residual_pack_wave166() -> bool {
 
 /// Source residual: runtime-host click_skirmish_start exists and routes to start path.
 pub fn honesty_click_skirmish_start_source() -> bool {
-    let src = include_str!("../../cnc_game_engine.rs");
+    let src = crate::cnc_game_engine::ENGINE_SRC;
     let needle = "\"click_skirmish_start\" =>";
     let i = match src.find(needle) {
         Some(i) => i,

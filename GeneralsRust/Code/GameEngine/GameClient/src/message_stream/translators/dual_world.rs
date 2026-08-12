@@ -637,4 +637,3 @@ pub(super) fn selection_can_attack_target(
         CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving
     )
 }
-

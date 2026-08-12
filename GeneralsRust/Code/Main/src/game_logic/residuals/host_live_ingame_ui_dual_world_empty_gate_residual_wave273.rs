@@ -101,7 +101,7 @@ fn fn_body<'a>(src: &'a str, name: &str) -> Option<&'a str> {
 
 /// Source residual: InGameUI empty dual-world short-circuits.
 pub fn honesty_ingame_ui_dual_world_empty_gate_source() -> bool {
-    let g = include_str!("../../../../GameEngine/GameClient/src/gui/ingame_ui.rs");
+    let g = game_client::gui::ingame_ui::INGAME_UI_SRC;
     if !(g.contains("Wave 273")
         && g.contains("fn dual_world_registry_unavailable")
         && g.contains("OBJECT_REGISTRY.is_empty()"))

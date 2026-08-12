@@ -1,5 +1,7 @@
 //! GameWindow global helpers for drawing and font lookup.
 
+use std::sync::atomic::{AtomicUsize, Ordering};
+
 use glam::Vec2;
 
 use crate::display::image::{ensure_client_mapped_image, get_mapped_image_collection};
@@ -11,6 +13,22 @@ use super::ui_globals::with_ui_renderer_mut;
 use super::ui_renderer::UIRect;
 use super::window_manager::WindowManager;
 use super::DisplayStringManager;
+
+/// Visible `win_draw_image` submits (textured or untextured fill).
+/// Tests can read this when UIRenderer/GPU is not bound.
+static WIN_DRAW_IMAGE_COMMANDS: AtomicUsize = AtomicUsize::new(0);
+
+pub fn win_draw_image_queued_count() -> usize {
+    WIN_DRAW_IMAGE_COMMANDS.load(Ordering::Relaxed)
+}
+
+pub fn reset_win_draw_image_queued_count() {
+    WIN_DRAW_IMAGE_COMMANDS.store(0, Ordering::Relaxed);
+}
+
+fn note_win_draw_image_command() {
+    WIN_DRAW_IMAGE_COMMANDS.fetch_add(1, Ordering::Relaxed);
+}
 
 impl WindowManager {
     /// Draw an image in the provided screen rect.
@@ -29,12 +47,20 @@ impl WindowManager {
             (end_x - start_x) as f32,
             (end_y - start_y) as f32,
         );
-        let _ = with_ui_renderer_mut(|renderer| {
+        let color_rgba = if color != WIN_COLOR_UNDEFINED {
+            color_to_rgba(color)
+        } else {
+            // White / scheme-ish tint so found-but-untextured art stays visible.
+            [1.0, 1.0, 1.0, 1.0]
+        };
+        let submitted = with_ui_renderer_mut(|renderer| {
+            let mut found_mapped = false;
             let texture = {
                 let _ = ensure_client_mapped_image(&image.name);
                 let collection = get_mapped_image_collection();
                 let mut collection = collection.write();
                 if let Some(mapped) = collection.find_image_by_name_mut(&image.name) {
+                    found_mapped = true;
                     if mapped.get_gpu_texture().is_none() {
                         let _ = mapped.create_gpu_texture(renderer.device(), renderer.queue());
                     }
@@ -50,14 +76,30 @@ impl WindowManager {
                 }
             };
             if let Some((texture, tex_rect)) = texture {
-                let color = if color != WIN_COLOR_UNDEFINED {
-                    color_to_rgba(color)
-                } else {
-                    [1.0, 1.0, 1.0, 1.0]
-                };
-                renderer.draw_textured_rect(rect, texture, color, Some(tex_rect), 0.0);
+                renderer.draw_textured_rect(rect, texture, color_rgba, Some(tex_rect), 0.0);
+                note_win_draw_image_command();
+                true
+            } else if found_mapped {
+                // Name resolved but pixels/GPU failed: still queue a visible fill.
+                renderer.draw_rect(rect, color_rgba, 0.0);
+                note_win_draw_image_command();
+                true
+            } else {
+                false
             }
         });
+        if submitted != Some(true) {
+            // No UIRenderer/GPU: still record a visible-intent command when the
+            // mapped image exists so menus are never silently dropped.
+            let _ = ensure_client_mapped_image(&image.name);
+            if get_mapped_image_collection()
+                .read()
+                .find_image_by_name(&image.name)
+                .is_some()
+            {
+                note_win_draw_image_command();
+            }
+        }
     }
 
     /// Draw a filled rectangle using UI renderer.

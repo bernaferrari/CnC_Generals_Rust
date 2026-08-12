@@ -43,7 +43,7 @@ fn residual_action_store(a: ResidualHostCameraDrainFreezeSkipAction) {
 }
 
 fn cnc_source() -> &'static str {
-    include_str!("../../cnc_game_engine.rs")
+    crate::cnc_game_engine::ENGINE_SRC
 }
 
 pub fn honesty_host_camera_drain_freeze_skip_method_names_residual_wave865() -> bool {

@@ -47,19 +47,14 @@ fn production_sources_do_not_import_direct3d() {
 
     let mut offenders = Vec::new();
     for path in &files {
-        let text = fs::read_to_string(path)
-            .unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+        let text =
+            fs::read_to_string(path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
         for (idx, line) in text.lines().enumerate() {
             if is_comment_line(line) {
                 continue;
             }
             if line.contains(FORBIDDEN_IMPORT) || line.contains(FORBIDDEN_PATH) {
-                offenders.push(format!(
-                    "{}:{}: {}",
-                    path.display(),
-                    idx + 1,
-                    line.trim()
-                ));
+                offenders.push(format!("{}:{}: {}", path.display(), idx + 1, line.trim()));
             }
         }
     }
@@ -74,7 +69,8 @@ fn production_sources_do_not_import_direct3d() {
 #[test]
 fn cargo_toml_omits_direct3d_windows_features() {
     let cargo = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml");
-    let text = fs::read_to_string(&cargo).unwrap_or_else(|e| panic!("read {}: {e}", cargo.display()));
+    let text =
+        fs::read_to_string(&cargo).unwrap_or_else(|e| panic!("read {}: {e}", cargo.display()));
     let mut offenders = Vec::new();
     for feature in FORBIDDEN_CARGO_FEATURES {
         if text.contains(feature) {

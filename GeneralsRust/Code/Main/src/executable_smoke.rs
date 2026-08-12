@@ -10,7 +10,8 @@
 //!   `wnd_widget_tree_nav` && `live_frame_ok` && InGame && gameplay). Headless
 //!   host smoke never publishes a visible OS window or OS/WND widget-tree nav, so
 //!   the claim stays false (`executable_smoke_gate` / `behavior_gate` still require
-//!   false for the headless host).
+//!   false for the **headless** host). Windowed launch may publish true when all
+//!   five flags are observed; the gate does not reject that finished-window claim.
 //! - `retail_sit_through_missing` lists whichever of those five flags are still
 //!   false (empty only when the claim is true). Status lines print each flag.
 //! - `host_vertical_slice_ok` is the strengthened headless claim: shell WND + skirmish
@@ -30,7 +31,10 @@ use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 /// Candidate retail Lone Eagle paths (workspace-relative).
-const LONE_EAGLE_CANDIDATES: &[&str] = &[
+///
+/// Shared with [`crate::windowed_acceptance`] so the windowed sit-through gate
+/// probes the same extract locations as executable smoke.
+pub const LONE_EAGLE_CANDIDATES: &[&str] = &[
     "windows_game/extracted_big_files/MapsZH/Maps/Lone Eagle/Lone Eagle.map",
     "windows_game/extracted_big_files_v2/MapsZH/Maps/Lone Eagle/Lone Eagle.map",
     "../windows_game/extracted_big_files/MapsZH/Maps/Lone Eagle/Lone Eagle.map",
@@ -139,6 +143,9 @@ pub struct ExecutableSmokeResult {
     pub window_visible: bool,
     /// Host published a hit-verified WND widget-tree LeftDown/Up click.
     pub wnd_widget_tree_nav: bool,
+    /// Physical winit command after a physical WND menu→match transition.
+    /// Never set by runtime-host control-file commands.
+    pub interactive_gameplay: bool,
     /// Comma-separated names of the five retail sit-through flags that are still
     /// false (`window_visible`, `wnd_widget_tree_nav`, `live_frame_ok`, `ingame`,
     /// `gameplay`). Empty only when `playable_claim` is true.
@@ -170,9 +177,47 @@ pub struct ExecutableSmokeResult {
     pub map_seen: String,
     pub exit_code: Option<i32>,
     pub new_game_path: bool,
+    /// True when this result came from [`ExecutableSmokeLaunch::Windowed`].
+    /// Headless host smoke stays false so `playable_claim` cannot go true.
+    pub windowed_launch: bool,
 }
 
 impl ExecutableSmokeResult {
+    /// Shell / empty / "-" maps cannot satisfy `reached_ingame`.
+    pub fn map_is_shell_for_claim(map: &str) -> bool {
+        let m = map.trim().to_ascii_lowercase();
+        m.is_empty() || m == "-" || m.contains("shellmap")
+    }
+
+    /// `reached_ingame` from the live status snapshot: InGame/Paused and a
+    /// non-shell map. Empty / `-` / shellmap stay false.
+    pub fn reached_ingame_from_live_map(state: &str, map: &str) -> bool {
+        matches!(state, "InGame" | "Paused") && !Self::map_is_shell_for_claim(map)
+    }
+
+    /// `window_visible` from the shipped winit query. Headless is always false.
+    /// `None` (platform cannot query) is visible only when not headless.
+    pub fn window_visible_from_winit_query(headless: bool, is_visible: Option<bool>) -> bool {
+        !headless && is_visible.unwrap_or(!headless)
+    }
+
+    /// `live_frame_ok` from a promoted capture PNG **or** a windowed wgpu
+    /// surface present. Headless never calls the present latch.
+    pub fn live_frame_ok_from_windowed_present(
+        capture_promoted: bool,
+        windowed_surface_presented: bool,
+    ) -> bool {
+        capture_promoted || windowed_surface_presented
+    }
+
+    /// Named gadgets that count as MainMenu → Skirmish (not Parent/Ruler/Options).
+    pub fn wnd_nav_gadget_is_skirmish_path(name: &str) -> bool {
+        let n = name.to_ascii_lowercase();
+        n.contains("buttonskirmish")
+            || n.contains("buttonstart")
+            || n.contains("skirmishgameoptions")
+    }
+
     /// Honest retail `playable_claim`: all five must be true. Headless host smoke
     /// never passes `window_visible` / `wnd_widget_tree_nav`.
     pub fn retail_windowed_playable_claim(
@@ -183,6 +228,37 @@ impl ExecutableSmokeResult {
         gameplay: bool,
     ) -> bool {
         window_visible && wnd_widget_tree_nav && gpu_present && ingame && gameplay
+    }
+
+    /// Headless smoke must keep `playable_claim == false`. Windowed smoke may
+    /// publish true **only** when all five retail flags are true.
+    ///
+    /// The fifth flag is `interactive_gameplay` (RMB order latch via
+    /// `handle_mouse_button_input` / status `gameplay=`), **not** host
+    /// `gameplay_cmd_ok` (select/move/construct residual).
+    ///
+    /// This is the gate policy used by `executable_smoke_gate`: a finished
+    /// windowed sit-through is allowed to claim playable; a headless host
+    /// result never is.
+    pub fn playable_claim_gate_ok(&self) -> Result<(), &'static str> {
+        if !self.playable_claim {
+            return Ok(());
+        }
+        if self.windowed_launch {
+            if Self::retail_windowed_playable_claim(
+                self.window_visible,
+                self.wnd_widget_tree_nav,
+                self.live_frame_ok,
+                self.reached_ingame,
+                self.interactive_gameplay,
+            ) {
+                return Ok(());
+            }
+            return Err(
+                "windowed playable_claim=true is only legal when all five retail flags are true",
+            );
+        }
+        Err("headless playable_claim must stay false")
     }
 
     /// Comma-separated list of the five retail sit-through flags that are false.
@@ -218,27 +294,26 @@ impl ExecutableSmokeResult {
     /// InGame requires a presentation-owned frame with zero live GameLogic dual-reads.
     /// Soft when the display never reached InGame (assets/GPU unavailable).
     /// `playable_claim` follows the five-flag retail formula (false in headless).
+    /// Fifth retail flag is `interactive_gameplay` only — never host `gameplay_cmd_ok`.
     pub fn apply_host_vertical_slice_gate(&mut self) {
         // Headless latch peels / GenericTracer INI do not flip this claim.
         // Windowed interactive can prove it only when all five residuals are true.
+        // Fifth flag: physical/inject RMB order latch, not host select/move residual.
         self.retail_sit_through_missing = Self::retail_sit_through_missing_flags(
             self.window_visible,
             self.wnd_widget_tree_nav,
             self.live_frame_ok,
             self.reached_ingame,
-            self.gameplay_cmd_ok,
+            self.interactive_gameplay,
         );
         self.playable_claim = Self::retail_windowed_playable_claim(
             self.window_visible,
             self.wnd_widget_tree_nav,
             self.live_frame_ok,
             self.reached_ingame,
-            self.gameplay_cmd_ok,
+            self.interactive_gameplay,
         );
-        let map_is_shell_residual = {
-            let m = self.map_seen.to_ascii_lowercase();
-            m.contains("shellmap") || m.trim().is_empty() || m == "-"
-        };
+        let map_is_shell_residual = Self::map_is_shell_for_claim(&self.map_seen);
         let skirmish_map_boundary_ok = !self.reached_ingame || !map_is_shell_residual;
         let gameworld_presentation_boundary_ok = !self.reached_ingame
             || !self.presentation_frame_ok
@@ -350,6 +425,7 @@ impl Default for ExecutableSmokeResult {
             live_frame_ok: false,
             window_visible: false,
             wnd_widget_tree_nav: false,
+            interactive_gameplay: false,
             retail_sit_through_missing: Self::retail_sit_through_missing_flags(
                 false, false, false, false, false,
             ),
@@ -370,6 +446,7 @@ impl Default for ExecutableSmokeResult {
             map_seen: "-".into(),
             exit_code: None,
             new_game_path: false,
+            windowed_launch: false,
         }
     }
 }
@@ -386,6 +463,7 @@ struct StatusSnap {
     startup_phase: String,
     selected_count: u32,
     local_mobile_units: u32,
+    under_construction: u32,
     match_damage_applied: f32,
     match_kills: u32,
     last_gameplay_cmd: String,
@@ -405,6 +483,7 @@ struct StatusSnap {
     live_frame_ok: bool,
     window_visible: bool,
     wnd_widget_tree_nav: bool,
+    interactive_gameplay: bool,
     retail_sit_through_missing: String,
     render_item_count: u32,
     render_alive_objects: u32,
@@ -435,6 +514,7 @@ fn parse_status(path: &Path) -> Option<StatusSnap> {
             "startup_phase" => snap.startup_phase = v.trim().to_string(),
             "selected_count" => snap.selected_count = v.trim().parse().unwrap_or(0),
             "local_mobile_units" => snap.local_mobile_units = v.trim().parse().unwrap_or(0),
+            "under_construction" => snap.under_construction = v.trim().parse().unwrap_or(0),
             "match_damage_applied" => {
                 snap.match_damage_applied = v.trim().parse().unwrap_or(0.0);
             }
@@ -497,6 +577,12 @@ fn parse_status(path: &Path) -> Option<StatusSnap> {
             }
             "wnd_widget_tree_nav" => {
                 snap.wnd_widget_tree_nav = matches!(
+                    v.trim().to_ascii_lowercase().as_str(),
+                    "1" | "true" | "yes" | "on"
+                );
+            }
+            "gameplay" | "interactive_gameplay" => {
+                snap.interactive_gameplay = matches!(
                     v.trim().to_ascii_lowercase().as_str(),
                     "1" | "true" | "yes" | "on"
                 );
@@ -564,25 +650,27 @@ fn kill_stale_runtime_host_generals(exe: &Path) {
     let _ = exe;
 }
 
-fn resolve_runtime_exe() -> Option<PathBuf> {
+pub(crate) fn resolve_runtime_exe() -> Option<PathBuf> {
     if let Ok(p) = std::env::var("GENERALS_RUNTIME_EXE") {
         let pb = PathBuf::from(p);
         if pb.is_file() {
             return Some(pb);
         }
     }
-    // Wave 833: prefer release over debug for smoke stability. Newest-mtime
-    // selection previously picked a freshly-linked debug binary after `cargo test`
-    // that could exit Booting (101) while release reached Menu.
-    // Override with GENERALS_RUNTIME_EXE. Optional GENERALS_RUNTIME_EXE_PREFER_DEBUG=1
-    // restores newest-mtime among debug+release for residual command bring-up.
-    let prefer_debug = std::env::var_os("GENERALS_RUNTIME_EXE_PREFER_DEBUG").is_some_and(|v| {
-        let s = v.to_string_lossy();
-        !(s.is_empty()
-            || s == "0"
-            || s.eq_ignore_ascii_case("false")
-            || s.eq_ignore_ascii_case("no"))
-    });
+    // Wave 833: current-source binary. Newest-mtime among debug+release so a
+    // freshly built debug tree is not skipped for a stale release. Optional
+    // GENERALS_RUNTIME_EXE_PREFER_RELEASE=1 restores release-first. Override
+    // with GENERALS_RUNTIME_EXE. GENERALS_RUNTIME_EXE_PREFER_DEBUG=1 still
+    // means newest-mtime (same as default).
+    let prefer_release_first = std::env::var_os("GENERALS_RUNTIME_EXE_PREFER_RELEASE").is_some_and(
+        |v| {
+            let s = v.to_string_lossy();
+            !(s.is_empty()
+                || s == "0"
+                || s.eq_ignore_ascii_case("false")
+                || s.eq_ignore_ascii_case("no"))
+        },
+    );
     let candidates = [
         PathBuf::from("target/release/generals"),
         PathBuf::from("GeneralsRust/target/release/generals"),
@@ -591,7 +679,28 @@ fn resolve_runtime_exe() -> Option<PathBuf> {
         PathBuf::from("GeneralsRust/target/debug/generals"),
         PathBuf::from("./target/debug/generals"),
     ];
-    if prefer_debug {
+    if let Some(path) =
+        resolve_runtime_exe_from_candidates(&candidates, !prefer_release_first)
+    {
+        return Some(path);
+    }
+    // Try next to current exe
+    if let Ok(cur) = std::env::current_exe() {
+        if let Some(dir) = cur.parent() {
+            let sibling = dir.join("generals");
+            if sibling.is_file() {
+                return Some(sibling);
+            }
+        }
+    }
+    None
+}
+
+pub(crate) fn resolve_runtime_exe_from_candidates(
+    candidates: &[PathBuf],
+    newest_mtime: bool,
+) -> Option<PathBuf> {
+    if newest_mtime {
         let mut best: Option<(std::time::SystemTime, PathBuf)> = None;
         for c in candidates {
             if !c.is_file() {
@@ -603,7 +712,7 @@ fn resolve_runtime_exe() -> Option<PathBuf> {
                 .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
             match &best {
                 Some((t, _)) if modified <= *t => {}
-                _ => best = Some((modified, c)),
+                _ => best = Some((modified, c.clone())),
             }
         }
         if let Some((_, path)) = best {
@@ -612,16 +721,7 @@ fn resolve_runtime_exe() -> Option<PathBuf> {
     } else {
         for c in candidates {
             if c.is_file() {
-                return Some(c);
-            }
-        }
-    }
-    // Try next to current exe
-    if let Ok(cur) = std::env::current_exe() {
-        if let Some(dir) = cur.parent() {
-            let sibling = dir.join("generals");
-            if sibling.is_file() {
-                return Some(sibling);
+                return Some(c.clone());
             }
         }
     }
@@ -664,9 +764,28 @@ fn resolve_lone_eagle_map() -> String {
     "Lone Eagle".into()
 }
 
+/// True when a Lone Eagle `.map` file exists on one of the smoke search paths.
+///
+/// The bare `"Lone Eagle"` fallback name (no file on disk) is **not** a hit.
+pub fn lone_eagle_map_on_disk() -> bool {
+    let resolved = resolve_lone_eagle_map();
+    Path::new(&resolved).is_file()
+}
+
 fn kill_child(child: &mut Child) {
     let _ = child.kill();
     let _ = child.wait();
+}
+
+/// How the production `generals` child is launched.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ExecutableSmokeLaunch {
+    /// Existing headless host gate. Uses `-runtime_host=headless`.
+    /// `playable_claim` stays false.
+    HeadlessHost,
+    /// Visible OS window + WGPU. Uses `-runtime_host=windowed` so GPUI
+    /// status/control still publish, but `init_headless` is not used.
+    Windowed,
 }
 
 /// Run the executable smoke with a timeout budget.
@@ -674,9 +793,29 @@ fn kill_child(child: &mut Child) {
 /// `use_new_game_path`: when true, drive Start via `queue_new_game` (Menu drain).
 /// When false, use direct `start_game` runtime host command.
 pub fn run_executable_smoke(timeout: Duration, use_new_game_path: bool) -> ExecutableSmokeResult {
+    run_executable_smoke_with_launch(
+        timeout,
+        use_new_game_path,
+        ExecutableSmokeLaunch::HeadlessHost,
+    )
+}
+
+/// Windowed sit-through runner. Never passes `-runtime_host=headless`.
+pub fn run_windowed_acceptance_smoke(
+    timeout: Duration,
+    use_new_game_path: bool,
+) -> ExecutableSmokeResult {
+    run_executable_smoke_with_launch(timeout, use_new_game_path, ExecutableSmokeLaunch::Windowed)
+}
+
+fn run_executable_smoke_with_launch(
+    timeout: Duration,
+    use_new_game_path: bool,
+    launch: ExecutableSmokeLaunch,
+) -> ExecutableSmokeResult {
     // One automatic retry: Booting early-exit is commonly a stale GPU/lock race after
     // pkill -9 (no Drop cleanup). Second attempt after a fresh kill is usually green.
-    let first = run_executable_smoke_once(timeout, use_new_game_path);
+    let first = run_executable_smoke_once(timeout, use_new_game_path, launch);
     let retryable = matches!(
         first.status.as_str(),
         "process_exited" | "timeout" | "no_menu"
@@ -686,7 +825,7 @@ pub fn run_executable_smoke(timeout: Duration, use_new_game_path: bool) -> Execu
         return first;
     }
     std::thread::sleep(Duration::from_millis(1500));
-    let second = run_executable_smoke_once(timeout, use_new_game_path);
+    let second = run_executable_smoke_once(timeout, use_new_game_path, launch);
     if second.executable_host_ok || second.reached_menu || second.reached_ingame {
         let mut out = second;
         out.detail = format!(
@@ -704,10 +843,15 @@ pub fn run_executable_smoke(timeout: Duration, use_new_game_path: bool) -> Execu
     out
 }
 
-fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> ExecutableSmokeResult {
+fn run_executable_smoke_once(
+    timeout: Duration,
+    use_new_game_path: bool,
+    launch: ExecutableSmokeLaunch,
+) -> ExecutableSmokeResult {
     let mut result = ExecutableSmokeResult {
         playable_claim: false,
         new_game_path: use_new_game_path,
+        windowed_launch: matches!(launch, ExecutableSmokeLaunch::Windowed),
         ..Default::default()
     };
 
@@ -750,9 +894,13 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
             .or_else(|| std::env::current_dir().ok())
             .unwrap_or_else(|| PathBuf::from("."))
     };
+    let runtime_host_arg = match launch {
+        ExecutableSmokeLaunch::HeadlessHost => "-runtime_host=headless",
+        ExecutableSmokeLaunch::Windowed => "-runtime_host=windowed",
+    };
     let mut child = match Command::new(&exe)
         .current_dir(&workspace_cwd)
-        .arg("-runtime_host=headless")
+        .arg(runtime_host_arg)
         .arg("-windowed")
         .arg("-width=640")
         .arg("-height=480")
@@ -910,6 +1058,7 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
     let mut saw_live_frame_ok = false;
     let mut saw_window_visible = false;
     let mut saw_wnd_widget_tree_nav = false;
+    let mut saw_interactive_gameplay = false;
     let mut max_render_item_count: u32 = 0;
     let mut max_render_alive_objects: u32 = 0;
     let mut render_items_nonzero_polls: u32 = 0;
@@ -921,9 +1070,17 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
     let mut request_capture_detail = String::new();
     let mut saw_skirmish_start_wnd_ok = false;
     let mut train_sent = false;
+    let mut saw_construct_under_construction = false;
+    let mut train_retry_started: Option<Instant> = None;
+    let mut load_retry_started: Option<Instant> = None;
     let mut phase = 0u8; // 0 wait menu/boot, 1 commanded, 2 wait ingame, 3 exit
     let mut last_snap = StatusSnap::default();
     let mut commanded_at: Option<Instant> = None;
+    let mut windowed_start_sent = false;
+    // Windowed phase-20 substep: 0=menu nav inject, 1=start_game, 2=gameplay order inject.
+    let mut windowed_inject_step: u8 = 0;
+    let mut windowed_menu_nav_sent = false;
+    let mut windowed_gameplay_order_sent = false;
 
     loop {
         if started.elapsed() > timeout {
@@ -1099,11 +1256,41 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
             if snap.wnd_widget_tree_nav {
                 saw_wnd_widget_tree_nav = true;
             }
+            if snap.interactive_gameplay {
+                saw_interactive_gameplay = true;
+            }
             if snap.match_damage_applied > 0.0 || snap.match_kills > 0 {
                 saw_combat_damage = true;
             }
             // Wave 864: keep latched if counters ever rose (status may reset on path change).
             // (saw_combat_damage is sticky once true)
+            if snap.last_gameplay_cmd.starts_with("construct_ok") {
+                saw_construct_ok = true;
+                construct_detail = snap.last_gameplay_cmd.clone();
+            } else if snap.last_gameplay_cmd.starts_with("construct_")
+                && construct_detail.is_empty()
+            {
+                construct_detail = snap.last_gameplay_cmd.clone();
+            }
+            if snap.last_gameplay_cmd.starts_with("train_ok") {
+                saw_train_ok = true;
+                train_detail = snap.last_gameplay_cmd.clone();
+            } else if snap.last_gameplay_cmd.starts_with("train_") && train_detail.is_empty()
+            {
+                train_detail = snap.last_gameplay_cmd.clone();
+            }
+            if snap.last_gameplay_cmd.starts_with("save_ok") {
+                saw_save_ok = true;
+                save_detail = snap.last_gameplay_cmd.clone();
+            } else if snap.last_gameplay_cmd.starts_with("save_") && save_detail.is_empty() {
+                save_detail = snap.last_gameplay_cmd.clone();
+            }
+            if snap.last_gameplay_cmd.starts_with("load_ok") {
+                saw_load_ok = true;
+                load_detail = snap.last_gameplay_cmd.clone();
+            } else if snap.last_gameplay_cmd.starts_with("load_") && load_detail.is_empty() {
+                load_detail = snap.last_gameplay_cmd.clone();
+            }
             if snap.last_gameplay_cmd.starts_with("select_all_ok") {
                 saw_select_all_ok = true;
                 select_all_detail = snap.last_gameplay_cmd.clone();
@@ -1164,7 +1351,12 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
                         result.main_menu_skirmish_wnd_ok = true;
                         result.skirmish_menu_ok = true;
                     }
-                    result.reached_ingame = true;
+                    if ExecutableSmokeResult::reached_ingame_from_live_map(
+                        snap.state.as_str(),
+                        &snap.map,
+                    ) {
+                        result.reached_ingame = true;
+                    }
                 }
                 _ => {}
             }
@@ -1178,10 +1370,225 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
                             && started.elapsed() > Duration::from_secs(8))
                         || started.elapsed() > Duration::from_secs(25)
                     {
-                        // Soft open Skirmish UI first (override only; WND off).
-                        let _ = write_control(&control_path, &["open_skirmish_menu"]);
+                        if launch == ExecutableSmokeLaunch::Windowed {
+                            // Phase 20 drives winit-equivalent inject (same
+                            // handle_mouse_button_input as Injected — automation
+                            // only; does not latch playable_claim physical flags)
+                            // then shipped start_game — never soft skirmish menu
+                            // host commands / drive_os_wnd / cheat tokens.
+                            commanded_at = Some(Instant::now());
+                            phase = 20;
+                        } else {
+                            // Soft open Skirmish UI first (override only; WND off).
+                            let _ = write_control(&control_path, &["open_skirmish_menu"]);
+                            commanded_at = Some(Instant::now());
+                            phase = 10; // wait for Skirmish UI before start_game
+                        }
+                    }
+                }
+
+                20 => {
+                    // Windowed interactive phase: honest winit-equivalent inject
+                    // only (inject_winit_equivalent_named_gadget_click /
+                    // inject_winit_equivalent_gameplay_order_click → handle_mouse_button_input).
+                    // Never drive_os_wnd_* for evidence, never note_* forge, never cheats.
+                    if saw_wnd_widget_tree_nav && saw_interactive_gameplay && result.reached_ingame
+                    {
+                        phase = 2;
+                        gameplay_step = 0;
                         commanded_at = Some(Instant::now());
-                        phase = 10; // wait for Skirmish UI before start_game
+                    } else if !result.reached_ingame {
+                        let ready = commanded_at
+                            .map(|t| t.elapsed() > Duration::from_millis(600))
+                            .unwrap_or(true);
+                        // Bare Menu (early latch before show_shell_menu) is not enough.
+                        // Require shell_active (MainMenu.wnd pushed). Top WND / prior ok
+                        // residual may corroborate, but screen_count alone is not ready.
+                        let shell_ready = snap.shell_active
+                            || (snap.shell_top_wnd.to_ascii_lowercase().contains("mainmenu")
+                                && snap.shell_active)
+                            || snap.last_gameplay_cmd.starts_with("winit_menu_nav_ok")
+                            || snap.last_gameplay_cmd.starts_with("winit_click_named_ok");
+                        let nav_ok = snap.wnd_widget_tree_nav
+                            || snap.last_gameplay_cmd.starts_with("winit_menu_nav_ok")
+                            || saw_wnd_widget_tree_nav;
+                        let nav_miss = snap.last_gameplay_cmd.starts_with("winit_menu_nav_miss")
+                            || snap.last_gameplay_cmd.starts_with("winit_menu_nav_partial");
+                        // Sequential honesty path (not forge):
+                        // 1) winit_menu_nav only → latch menu_click via inject
+                        // 2) after nav_ok residual, start_game → match_started
+                        // 3) never start before nav when shell is ready
+                        // Wait for a presented frame before menu inject so live_frame
+                        // can latch on the Menu residual (smoke polls may miss it after start).
+                        let frame_ready = snap.live_frame_ok || saw_live_frame_ok;
+                        if !windowed_menu_nav_sent
+                            && ready
+                            && shell_ready
+                            && frame_ready
+                            && snap.state == "Menu"
+                        {
+                            let _ = write_control(&control_path, &["winit_menu_nav"]);
+                            windowed_menu_nav_sent = true;
+                            windowed_inject_step = 1;
+                            commanded_at = Some(Instant::now());
+                            result.detail.push_str(" windowed_winit_menu_nav;");
+                        } else if !windowed_menu_nav_sent
+                            && ready
+                            && shell_ready
+                            && !frame_ready
+                            && snap.state == "Menu"
+                            && commanded_at
+                                .map(|t| t.elapsed() > Duration::from_secs(45))
+                                .unwrap_or(false)
+                        {
+                            // Proceed with nav after wait; claim stays false without live_frame.
+                            let _ = write_control(&control_path, &["winit_menu_nav"]);
+                            windowed_menu_nav_sent = true;
+                            windowed_inject_step = 1;
+                            commanded_at = Some(Instant::now());
+                            result
+                                .detail
+                                .push_str(" windowed_winit_menu_nav_no_live_frame;");
+                        } else if windowed_menu_nav_sent
+                            && !windowed_start_sent
+                            && nav_miss
+                            && ready
+                            && snap.state == "Menu"
+                            && shell_ready
+                            && windowed_inject_step < 4
+                        {
+                            let _ = write_control(&control_path, &["winit_menu_nav"]);
+                            windowed_inject_step = windowed_inject_step.saturating_add(1);
+                            commanded_at = Some(Instant::now());
+                            result.detail.push_str(" windowed_winit_menu_nav_retry;");
+                        } else if windowed_menu_nav_sent
+                            && !windowed_start_sent
+                            && nav_ok
+                            && ready
+                            && (snap.state == "Menu" || snap.state == "Loading")
+                        {
+                            // Start only after honest menu inject residual.
+                            let start = format!(
+                                "start_game|mode=skirmish|faction=USA|map={}",
+                                map.replace('|', "/")
+                            );
+                            let _ = write_control(&control_path, &[start.as_str()]);
+                            windowed_start_sent = true;
+                            commanded_at = Some(Instant::now());
+                            result.detail.push_str(" windowed_start_game_after_nav;");
+                        } else if !windowed_start_sent
+                            && windowed_menu_nav_sent
+                            && !nav_ok
+                            && ready
+                            && commanded_at
+                                .map(|t| t.elapsed() > Duration::from_secs(12))
+                                .unwrap_or(false)
+                        {
+                            // Grace start after inject attempts (claim stays false without
+                            // menu_click → match chain).
+                            let start = format!(
+                                "start_game|mode=skirmish|faction=USA|map={}",
+                                map.replace('|', "/")
+                            );
+                            let _ = write_control(&control_path, &[start.as_str()]);
+                            windowed_start_sent = true;
+                            commanded_at = Some(Instant::now());
+                            result
+                                .detail
+                                .push_str(" windowed_start_game_grace_after_nav_miss;");
+                        } else if !windowed_start_sent
+                            && !windowed_menu_nav_sent
+                            && !shell_ready
+                            && commanded_at
+                                .map(|t| t.elapsed() > Duration::from_secs(25))
+                                .unwrap_or(false)
+                        {
+                            // Grace start if shell never becomes ready (claim stays false).
+                            let start = format!(
+                                "start_game|mode=skirmish|faction=USA|map={}",
+                                map.replace('|', "/")
+                            );
+                            let _ = write_control(&control_path, &[start.as_str()]);
+                            windowed_start_sent = true;
+                            commanded_at = Some(Instant::now());
+                            result.detail.push_str(" windowed_start_game_grace;");
+                        }
+                    } else if result.reached_ingame {
+                        // Select + RMB inject through handle_mouse_button_input.
+                        // Wait briefly for units (render_alive) so select can succeed.
+                        // Fifth claim flag is interactive_gameplay only — keep retrying
+                        // until status gameplay=true (or inject budget exhausted).
+                        let ready = commanded_at
+                            .map(|t| t.elapsed() > Duration::from_millis(800))
+                            .unwrap_or(true);
+                        let units_ready = snap.render_alive_objects > 0
+                            || snap.local_mobile_units > 0
+                            || snap.last_gameplay_cmd.starts_with("select_ok")
+                            || commanded_at
+                                .map(|t| t.elapsed() > Duration::from_secs(8))
+                                .unwrap_or(false);
+                        let select_ok = snap.last_gameplay_cmd.starts_with("select_ok")
+                            || snap
+                                .last_gameplay_cmd
+                                .starts_with("winit_gameplay_order_ok")
+                            || snap
+                                .last_gameplay_cmd
+                                .starts_with("winit_gameplay_order_partial");
+                        // Sequential inject: even steps = select, odd steps = RMB order.
+                        // Never advance to host-cmd phase until interactive_gameplay or
+                        // inject budget is exhausted (fifth claim flag is RMB only).
+                        if !windowed_gameplay_order_sent && ready && units_ready {
+                            let _ = write_control(&control_path, &["select_local_unit"]);
+                            windowed_gameplay_order_sent = true;
+                            windowed_inject_step = 0;
+                            commanded_at = Some(Instant::now());
+                            result.detail.push_str(" windowed_select_local_unit;");
+                        } else if windowed_gameplay_order_sent
+                            && !saw_interactive_gameplay
+                            && ready
+                            && units_ready
+                            && commanded_at
+                                .map(|t| t.elapsed() > Duration::from_millis(1200))
+                                .unwrap_or(false)
+                            && windowed_inject_step < 48
+                        {
+                            if windowed_inject_step % 2 == 0 {
+                                // After first select (step 0 already sent), even steps
+                                // re-select when residual is missing/fail; otherwise RMB.
+                                if windowed_inject_step == 0
+                                    || select_ok
+                                    || snap.last_gameplay_cmd.starts_with("select_ok")
+                                    || snap.last_gameplay_cmd.starts_with("winit_gameplay_order")
+                                {
+                                    let _ = write_control(&control_path, &["winit_gameplay_order"]);
+                                    result.detail.push_str(" windowed_winit_gameplay_order;");
+                                } else {
+                                    let _ = write_control(&control_path, &["select_local_unit"]);
+                                    result.detail.push_str(" windowed_select_local_unit;");
+                                }
+                            } else {
+                                let _ = write_control(&control_path, &["select_local_unit"]);
+                                result.detail.push_str(" windowed_select_local_unit;");
+                            }
+                            windowed_inject_step = windowed_inject_step.saturating_add(1);
+                            commanded_at = Some(Instant::now());
+                        } else if windowed_gameplay_order_sent
+                            && (saw_interactive_gameplay
+                                || (windowed_inject_step >= 48
+                                    && commanded_at
+                                        .map(|t| t.elapsed() > Duration::from_secs(2))
+                                        .unwrap_or(false))
+                                || commanded_at
+                                    .map(|t| t.elapsed() > Duration::from_secs(120))
+                                    .unwrap_or(false))
+                            && ready
+                        {
+                            // Advance only after interactive evidence or inject budget.
+                            phase = 2;
+                            gameplay_step = 0;
+                            commanded_at = Some(Instant::now());
+                        }
+                        let _ = windowed_inject_step;
                     }
                 }
 
@@ -1327,15 +1734,40 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
                         if snap.last_gameplay_cmd.starts_with("move_ok") {
                             saw_move_ok = true;
                         }
-                        let _ = write_control(&control_path, &["construct|template=USA_Barracks|spawn_dozer=1|alias_fallback=1|auto_target=1"]);
-                        gameplay_step = 3;
-                        commanded_at = Some(Instant::now());
+                        if launch == ExecutableSmokeLaunch::Windowed {
+                            // Wait real frames after physical nav+order before construct.
+                            if commanded_at
+                                .map(|t| t.elapsed() < Duration::from_secs(2))
+                                .unwrap_or(false)
+                            {
+                                // keep polling
+                            } else {
+                                // Require an existing builder — no spawn_dozer cheat.
+                                let _ = write_control(
+                                    &control_path,
+                                    &["construct|template=USA_Barracks|auto_target=1"],
+                                );
+                                gameplay_step = 3;
+                                commanded_at = Some(Instant::now());
+                            }
+                        } else {
+                            let _ = write_control(&control_path, &["construct|template=USA_Barracks|spawn_dozer=1|alias_fallback=1|auto_target=1"]);
+                            gameplay_step = 3;
+                            commanded_at = Some(Instant::now());
+                        }
                     } else if gameplay_step == 3
                         && (snap.last_gameplay_cmd.starts_with("construct_ok")
                             || snap.last_gameplay_cmd.starts_with("construct_fail")
                             || snap.last_gameplay_cmd.starts_with("construct_")
                             || commanded_at
-                                .map(|t| t.elapsed() > Duration::from_secs(5))
+                                .map(|t| {
+                                    t.elapsed()
+                                        > if launch == ExecutableSmokeLaunch::Windowed {
+                                            Duration::from_secs(45)
+                                        } else {
+                                            Duration::from_secs(5)
+                                        }
+                                })
                                 .unwrap_or(false))
                     {
                         if snap.last_gameplay_cmd.starts_with("construct_ok") {
@@ -1344,17 +1776,60 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
                         if snap.last_gameplay_cmd.starts_with("construct_") {
                             construct_detail = snap.last_gameplay_cmd.clone();
                         }
-                        // Train before attack so victory/match_over cannot skip production residual.
-                        let _ = write_control(
-                            &control_path,
-                            &[
-                                "train_unit|template=AmericaInfantryRanger|force_complete=1|grant_supplies=1|alias_fallback=1|auto_target=1",
-                                "train_unit|template=USA_Ranger|force_complete=1|grant_supplies=1|alias_fallback=1|auto_target=1",
-                            ],
-                        );
-                        train_sent = true;
-                        gameplay_step = 4;
-                        commanded_at = Some(Instant::now());
+                        if launch == ExecutableSmokeLaunch::Windowed
+                            && snap
+                                .last_gameplay_cmd
+                                .starts_with("construct_fail_no_building")
+                            && commanded_at
+                                .map(|t| t.elapsed() > Duration::from_secs(3))
+                                .unwrap_or(false)
+                        {
+                            let _ = write_control(
+                                &control_path,
+                                &["construct|template=USA_Barracks|auto_target=1"],
+                            );
+                            commanded_at = Some(Instant::now());
+                        }
+                        if launch == ExecutableSmokeLaunch::Windowed {
+                            // construct_ok is "DozerConstruct issued". Honest train
+                            // waits until we observe under_construction>0 then 0
+                            // (barracks finished). Immediate UC==0 is a stale frame.
+                            if snap.under_construction > 0 {
+                                saw_construct_under_construction = true;
+                            }
+                            let elapsed = commanded_at.map(|t| t.elapsed()).unwrap_or_default();
+                            let min_wait = elapsed > Duration::from_secs(8);
+                            let build_done = saw_construct_ok
+                                && saw_construct_under_construction
+                                && snap.under_construction == 0
+                                && min_wait;
+                            let build_timeout = elapsed > Duration::from_secs(90);
+                            if !build_done && !build_timeout {
+                                // keep polling; do not issue train yet
+                            } else if saw_construct_ok || build_timeout {
+                                // One template only — a second train_unit overwrites
+                                // train_ok with train_fail_enqueue on the CC.
+                                let _ = write_control(
+                                    &control_path,
+                                    &["train_unit|template=AmericaInfantryRanger|auto_target=1"],
+                                );
+                                train_sent = true;
+                                train_retry_started = Some(Instant::now());
+                                gameplay_step = 4;
+                                commanded_at = Some(Instant::now());
+                            }
+                        } else {
+                            let _ = write_control(
+                                &control_path,
+                                &[
+                                    "train_unit|template=AmericaInfantryRanger|force_complete=1|grant_supplies=1|alias_fallback=1|auto_target=1",
+                                    "train_unit|template=USA_Ranger|force_complete=1|grant_supplies=1|alias_fallback=1|auto_target=1",
+                                ],
+                            );
+                            train_sent = true;
+                            gameplay_step = 4;
+                            commanded_at = Some(Instant::now());
+                        }
                     } else if gameplay_step == 4
                         && (snap.last_gameplay_cmd.starts_with("train_ok")
                             || snap.last_gameplay_cmd.starts_with("train_fail")
@@ -1369,6 +1844,28 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
                         if snap.last_gameplay_cmd.starts_with("train_") {
                             train_detail = snap.last_gameplay_cmd.clone();
                         }
+                        // Barracks not ready yet — retry train, do not advance.
+                        if launch == ExecutableSmokeLaunch::Windowed
+                            && !saw_train_ok
+                            && snap
+                                .last_gameplay_cmd
+                                .starts_with("train_fail_no_ready_barracks")
+                            && train_retry_started
+                                .map(|t| t.elapsed() < Duration::from_secs(75))
+                                .unwrap_or(false)
+                        {
+                            if commanded_at
+                                .map(|t| t.elapsed() >= Duration::from_secs(4))
+                                .unwrap_or(false)
+                            {
+                                let _ = write_control(
+                                    &control_path,
+                                    &["train_unit|template=AmericaInfantryRanger|auto_target=1"],
+                                );
+                                commanded_at = Some(Instant::now());
+                            }
+                            // stay on step 4 — bounded by train_retry_started
+                        } else {
                         // Host residual: train_ok queues production; wait until a second
                         // local mobile exits so later formation/select residuals are honest.
                         // Fail-closed timeout still advances so the chain cannot hang forever.
@@ -1411,6 +1908,13 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
                                     &["attack_nearest_enemy|auto_target=1"],
                                 );
                             }
+                        } else if launch == ExecutableSmokeLaunch::Windowed {
+                            let _ = write_control(
+                                &control_path,
+                                &["upgrade|name=UpgradeAmericaRangerCaptureBuilding|auto_target=1"],
+                            );
+                            gameplay_step = 5;
+                            commanded_at = Some(Instant::now());
                         } else {
                             let _ = write_control(
                                 &control_path,
@@ -1418,6 +1922,7 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
                             );
                             gameplay_step = 5;
                             commanded_at = Some(Instant::now());
+                        }
                         }
                     } else if gameplay_step == 5
                         && (snap.last_gameplay_cmd.starts_with("upgrade_ok")
@@ -1432,7 +1937,18 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
                         if snap.last_gameplay_cmd.starts_with("upgrade_") {
                             upgrade_detail = snap.last_gameplay_cmd.clone();
                         }
-                        let _ = write_control(&control_path, &["quicksave"]);
+                        // Step 8: windowed drives Pause → PopupSaveLoad.wnd (or quit-menu
+                        // SaveLoad gadget) so save_cmd_ok / load_cmd_ok come from the WND
+                        // path. Headless keeps host quicksave. Do not fake a pass if the
+                        // layout is missing (`save_fail_wnd_missing`).
+                        if launch == ExecutableSmokeLaunch::Windowed {
+                            let _ = write_control(
+                                &control_path,
+                                &["pause_save|slot=wnd_pause|via=PopupSaveLoad.wnd"],
+                            );
+                        } else {
+                            let _ = write_control(&control_path, &["quicksave"]);
+                        }
                         gameplay_step = 6;
                         commanded_at = Some(Instant::now());
                     } else if gameplay_step == 6
@@ -1448,8 +1964,15 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
                         if snap.last_gameplay_cmd.starts_with("save_") {
                             save_detail = snap.last_gameplay_cmd.clone();
                         }
-                        // Round-trip residual: load the slot we just wrote.
-                        let _ = write_control(&control_path, &["quickload"]);
+                        // Round-trip: windowed Pause/PopupSaveLoad load; headless quickload.
+                        if launch == ExecutableSmokeLaunch::Windowed {
+                            let _ = write_control(
+                                &control_path,
+                                &["pause_load|slot=wnd_pause|via=PopupSaveLoad.wnd"],
+                            );
+                        } else {
+                            let _ = write_control(&control_path, &["quickload"]);
+                        }
                         gameplay_step = 7;
                         commanded_at = Some(Instant::now());
                     } else if gameplay_step == 7
@@ -1465,9 +1988,38 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
                         if snap.last_gameplay_cmd.starts_with("load_") {
                             load_detail = snap.last_gameplay_cmd.clone();
                         }
-                        let _ = write_control(&control_path, &["stop_all"]);
-                        gameplay_step = 8;
-                        commanded_at = Some(Instant::now());
+                        if launch == ExecutableSmokeLaunch::Windowed
+                            && !saw_load_ok
+                            && saw_save_ok
+                        {
+                            if load_retry_started.is_none() {
+                                load_retry_started = Some(Instant::now());
+                            }
+                            let retry_budget = load_retry_started
+                                .map(|t| t.elapsed() < Duration::from_secs(18))
+                                .unwrap_or(false);
+                            if retry_budget
+                                && snap.last_gameplay_cmd.starts_with("load_fail")
+                                && commanded_at
+                                    .map(|t| t.elapsed() >= Duration::from_secs(2))
+                                    .unwrap_or(false)
+                            {
+                                let _ = write_control(
+                                    &control_path,
+                                    &["pause_load|slot=wnd_pause|via=PopupSaveLoad.wnd"],
+                                );
+                                commanded_at = Some(Instant::now());
+                            } else if !retry_budget {
+                                let _ = write_control(&control_path, &["stop_all"]);
+                                gameplay_step = 8;
+                                commanded_at = Some(Instant::now());
+                            }
+                            // stay on step 7 until load_ok or retry budget
+                        } else {
+                            let _ = write_control(&control_path, &["stop_all"]);
+                            gameplay_step = 8;
+                            commanded_at = Some(Instant::now());
+                        }
                     } else if gameplay_step == 8
                         && (snap.last_gameplay_cmd.starts_with("stop_ok")
                             || snap.last_gameplay_cmd.starts_with("stop_fail")
@@ -2589,7 +3141,24 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
                         if snap.last_gameplay_cmd.starts_with("select_ok") {
                             saw_select_ok = true;
                         }
-                        if train_sent
+                        if launch == ExecutableSmokeLaunch::Windowed {
+                            // Re-issue only while the producer is complete and train
+                            // has not succeeded. train_fail must not block a retry.
+                            if train_sent
+                                && !saw_train_ok
+                                && saw_construct_ok
+                                && saw_construct_under_construction
+                                && snap.under_construction == 0
+                                && commanded_at
+                                    .map(|t| t.elapsed() > Duration::from_secs(2))
+                                    .unwrap_or(false)
+                            {
+                                let _ = write_control(
+                                    &control_path,
+                                    &["train_unit|template=AmericaInfantryRanger|auto_target=1"],
+                                );
+                            }
+                        } else if train_sent
                             && train_detail.is_empty()
                             && commanded_at
                                 .map(|t| t.elapsed() > Duration::from_secs(2))
@@ -2681,6 +3250,7 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
                         result.live_frame_ok = saw_live_frame_ok;
                         result.window_visible = saw_window_visible;
                         result.wnd_widget_tree_nav = saw_wnd_widget_tree_nav;
+                        result.interactive_gameplay = saw_interactive_gameplay;
                         result.auto_attack_cmd_ok = saw_auto_attack_ok;
                         result.options_cmd_ok = saw_options_ok;
                         result.request_capture_cmd_ok = saw_request_capture_ok;
@@ -2699,6 +3269,12 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
                         if !train_detail.is_empty() {
                             result.detail = format!("{}; train={}", result.detail, train_detail);
                         }
+                        if !save_detail.is_empty() {
+                            result.detail = format!("{}; save={}", result.detail, save_detail);
+                        }
+                        if !load_detail.is_empty() {
+                            result.detail = format!("{}; load={}", result.detail, load_detail);
+                        }
                         // Exit only after the full host command chain finishes
                         // (step >= 59: pause/cancel/attack/options/diplomacy), or on
                         // hard stall / frame budget. Do not cut off mid-chain once
@@ -2711,7 +3287,39 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
                             && commanded_at
                                 .map(|t| t.elapsed() > Duration::from_secs(120))
                                 .unwrap_or(false);
-                        if chain_complete || hard_stall || snap.frame >= 500 {
+                        // Windowed: after the host chain finishes, keep retrying the
+                        // RMB inject until interactive_gameplay (fifth claim flag)
+                        // latches — do not exit solely on host gameplay_cmd_ok.
+                        let want_exit = chain_complete
+                            || hard_stall
+                            || snap.frame
+                                >= if launch == ExecutableSmokeLaunch::Windowed
+                                    && !saw_interactive_gameplay
+                                {
+                                    2500u32
+                                } else {
+                                    500u32
+                                };
+                        if want_exit
+                            && launch == ExecutableSmokeLaunch::Windowed
+                            && !saw_interactive_gameplay
+                            && result.reached_ingame
+                            && windowed_inject_step < 90
+                            && commanded_at
+                                .map(|t| t.elapsed() > Duration::from_secs(2))
+                                .unwrap_or(true)
+                        {
+                            if windowed_inject_step % 2 == 0 {
+                                let _ = write_control(&control_path, &["select_local_unit"]);
+                            } else {
+                                let _ = write_control(&control_path, &["winit_gameplay_order"]);
+                                result
+                                    .detail
+                                    .push_str(" windowed_late_winit_gameplay_order;");
+                            }
+                            windowed_inject_step = windowed_inject_step.saturating_add(1);
+                            commanded_at = Some(Instant::now());
+                        } else if want_exit {
                             let _ = write_control(&control_path, &["exit"]);
                             phase = 3;
                         }
@@ -2798,17 +3406,49 @@ fn run_executable_smoke_once(timeout: Duration, use_new_game_path: bool) -> Exec
     let _ = fs::remove_dir_all(&tmp);
 
     // Wave 839: ensure presentation honesty counters are latched before vertical gate.
+    // Always merge poll latches here — early child death / partial exit skips the
+    // phase-2 assignment block, and must not drop live_frame_ok / interactive_gameplay.
     result.presentation_frame_ok = result.presentation_frame_ok || saw_presentation_frame_ok;
     result.window_visible = result.window_visible || saw_window_visible;
     result.wnd_widget_tree_nav = result.wnd_widget_tree_nav || saw_wnd_widget_tree_nav;
+    result.interactive_gameplay = result.interactive_gameplay || saw_interactive_gameplay;
+    result.live_frame_ok = result.live_frame_ok || saw_live_frame_ok;
+    // Fifth retail claim flag is interactive_gameplay alone (status `gameplay=` /
+    // RMB latch). Host gameplay_cmd_ok remains a separate residual for the
+    // vertical-slice / command chain and must NOT OR into playable_claim.
     result.presentation_live_fallback_ok =
         result.presentation_live_fallback_ok || saw_presentation_live_fallback_ok;
+    result.shell_wnd_ok = result.shell_wnd_ok || saw_shell_wnd_ok;
     result.max_render_item_count = result.max_render_item_count.max(max_render_item_count);
     result.max_render_alive_objects = result
         .max_render_alive_objects
         .max(max_render_alive_objects);
     result.render_items_stable_ok = result.render_items_stable_ok
         || (result.reached_ingame && max_render_item_count > 0 && render_items_nonzero_polls >= 3);
+    result.gameworld_presentation_entities_ok =
+        result.gameworld_presentation_entities_ok || saw_gameworld_presentation_entities_ok;
+    result.max_gameworld_presentation_entities = result
+        .max_gameworld_presentation_entities
+        .max(max_gameworld_presentation_entities);
+    result.gameworld_overlay_stamped_ok =
+        result.gameworld_overlay_stamped_ok || saw_gameworld_overlay_stamped_ok;
+    result.max_gameworld_overlay_stamped = result
+        .max_gameworld_overlay_stamped
+        .max(max_gameworld_overlay_stamped);
+    result.max_gameworld_appended = result.max_gameworld_appended.max(max_gameworld_appended);
+    result.max_gameworld_rebuilt = result.max_gameworld_rebuilt.max(max_gameworld_rebuilt);
+    result.gameworld_rebuilt_ok = result.gameworld_rebuilt_ok || saw_gameworld_rebuilt_ok;
+    // Host command residuals observed during polls (even if chain cut short).
+    result.gameplay_cmd_ok = result.gameplay_cmd_ok
+        || (saw_select_ok && saw_move_ok && saw_attack_ok)
+        || (saw_select_ok && saw_move_ok && saw_construct_ok && saw_train_ok)
+        || (saw_construct_ok && saw_train_ok && saw_attack_ok)
+        || (saw_construct_ok && (saw_attack_ok || saw_attack_move_ok || saw_combat_damage))
+        || (saw_select_ok
+            && saw_move_ok
+            && (saw_attack_ok || saw_attack_move_ok || saw_construct_ok));
+    result.construct_cmd_ok = result.construct_cmd_ok || saw_construct_ok;
+    result.train_cmd_ok = result.train_cmd_ok || saw_train_ok;
     // Wave 176: presentation boundary + host vertical slice on the result itself.
     result.apply_host_vertical_slice_gate();
     result
@@ -2838,12 +3478,13 @@ fn executable_host_ok_from_residuals(reached_ingame: bool, shell_wnd_ok: bool) -
 }
 
 pub fn format_executable_smoke_report(r: &ExecutableSmokeResult) -> String {
+    // Five-flag report: gameplay= is interactive_gameplay (RMB latch), not host cmd.
     let sit_through_missing = ExecutableSmokeResult::retail_sit_through_missing_flags(
         r.window_visible,
         r.wnd_widget_tree_nav,
         r.live_frame_ok,
         r.reached_ingame,
-        r.gameplay_cmd_ok,
+        r.interactive_gameplay,
     );
     format!(
         "executable_smoke status={} host_ok={} playable_claim={} window_visible={} wnd_widget_tree_nav={} live_frame_ok={} ingame={} gameplay={} retail_sit_through_missing={} host_vertical_slice={} presentation_fallback={} started={} menu={} shell_wnd={} main_menu_skirmish_wnd={} map_select_wnd={} slot_config_wnd={} rules_wnd={} ingame={} gameplay_cmd={} construct_cmd={} train_cmd={} upgrade_cmd={} save_cmd={} load_cmd={} stop_cmd={} sell_cmd={} guard_cmd={} attack_move_cmd={} combat_damage={} scatter_cmd={} patrol_cmd={} deploy_cmd={} cheer_cmd={} formation_cmd={} capture_cmd={} return_supplies_cmd={} evacuate_cmd={} repair_cmd={} return_to_base_cmd={} attitude_cmd={} rally_cmd={} switch_weapons_cmd={} view_cc_cmd={} clear_mines_cmd={} beacon_cmd={} hack_cmd={} cleanup_cmd={} combat_drop_cmd={} overcharge_cmd={} special_power_cmd={} remove_beacon_cmd={} demo_cmd={} view_radar_cmd={} force_attack_cmd={} force_attack_object_cmd={} select_all_cmd={} control_group_cmd={} waypoint_cmd={} box_select_cmd={} presentation_frame_ok={} gw_pres_ents_ok={} max_gw_pres_ents={} gw_overlay_stamp_ok={} gw_appended={} gw_rebuilt_ok={} gw_rebuilt={} max_gw_overlay_stamp={} max_render_items={} render_items_stable={} max_render_alive={} presentation_live_fallback_ok={} select_similar_cmd={} select_on_screen_cmd={} select_structures_cmd={} select_aircraft_cmd={} select_idle_cmd={} camera_reset_cmd={} camera_zoom_cmd={} pause_cmd={} cancel_production_cmd={} diplomacy_cmd={} live_frame_ok={} window_visible={} wnd_widget_tree_nav={} auto_attack_cmd={} options_cmd={} request_capture_cmd={} skirmish_start_wnd={} skirmish_menu={} skirmish_start_click={} frames={} map={} exit={:?} new_game={} detail={}",
@@ -2854,7 +3495,7 @@ pub fn format_executable_smoke_report(r: &ExecutableSmokeResult) -> String {
         r.wnd_widget_tree_nav,
         r.live_frame_ok,
         r.reached_ingame,
-        r.gameplay_cmd_ok,
+        r.interactive_gameplay,
         sit_through_missing,
         r.host_vertical_slice_ok,
             r.presentation_live_fallback_ok,
@@ -2972,6 +3613,46 @@ mod tests {
     }
 
     use super::*;
+
+    #[test]
+    fn resolve_runtime_exe_honors_general_runtime_exe_override() {
+        let dir = tempfile::tempdir().unwrap();
+        let fake = dir.path().join("generals_override_bin");
+        fs::write(&fake, b"ok").unwrap();
+        let prev = std::env::var_os("GENERALS_RUNTIME_EXE");
+        std::env::set_var("GENERALS_RUNTIME_EXE", &fake);
+        let got = resolve_runtime_exe();
+        match prev {
+            Some(v) => std::env::set_var("GENERALS_RUNTIME_EXE", v),
+            None => std::env::remove_var("GENERALS_RUNTIME_EXE"),
+        }
+        assert_eq!(got.as_deref(), Some(fake.as_path()));
+    }
+
+    #[test]
+    fn resolve_runtime_exe_from_candidates_prefers_newer_mtime() {
+        let dir = tempfile::tempdir().unwrap();
+        let older = dir.path().join("release_generals");
+        let newer = dir.path().join("debug_generals");
+        fs::write(&older, b"old").unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(1100));
+        fs::write(&newer, b"new").unwrap();
+        let picked = resolve_runtime_exe_from_candidates(
+            &[older.clone(), newer.clone()],
+            true,
+        );
+        assert_eq!(
+            picked.as_deref(),
+            Some(newer.as_path()),
+            "newest-mtime must win over a stale earlier candidate"
+        );
+        let release_first = resolve_runtime_exe_from_candidates(&[older.clone(), newer], false);
+        assert_eq!(
+            release_first.as_deref(),
+            Some(older.as_path()),
+            "release-first policy still walks in candidate order"
+        );
+    }
 
     #[test]
     fn parse_status_reads_keys() {
@@ -3107,10 +3788,8 @@ mod tests {
 
     #[test]
     fn parses_window_visible_and_wnd_widget_tree_nav_from_status() {
-        let path = std::env::temp_dir().join(format!(
-            "generals_smoke_wnd_vis_{}.txt",
-            std::process::id()
-        ));
+        let path =
+            std::env::temp_dir().join(format!("generals_smoke_wnd_vis_{}.txt", std::process::id()));
         std::fs::write(
             &path,
             "state=Menu\nwindow_visible=true\nwnd_widget_tree_nav=true\nlive_frame_ok=true\nretail_sit_through_missing=ingame,gameplay\n",
@@ -3143,10 +3822,57 @@ mod tests {
     }
 
     #[test]
+    fn parses_physical_interactive_gameplay_from_status() {
+        let path = std::env::temp_dir().join(format!(
+            "generals_smoke_interactive_gameplay_{}.txt",
+            std::process::id()
+        ));
+        std::fs::write(
+            &path,
+            "state=InGame\ngameplay=true\ninteractive_gameplay=1\n",
+        )
+        .unwrap();
+        let snap = parse_status(&path).expect("snap");
+        let _ = std::fs::remove_file(&path);
+        assert!(snap.interactive_gameplay);
+    }
+
+    #[test]
+    fn windowed_launch_is_not_headless_runtime_host() {
+        let src = include_str!("executable_smoke.rs");
+        assert!(src.contains("ExecutableSmokeLaunch::Windowed => \"-runtime_host=windowed\""));
+        assert!(src.contains("run_windowed_acceptance_smoke"));
+        let launch = src
+            .split("let runtime_host_arg = match launch")
+            .nth(1)
+            .expect("launch match");
+        assert!(launch.contains("Windowed => \"-runtime_host=windowed\""));
+        assert!(!include_str!("bin/windowed_acceptance_gate.rs").contains("-runtime_host=headless"));
+        assert!(
+            src.contains("phase = 20"),
+            "windowed must wait in a physical interactive phase"
+        );
+        let windowed_arm = src
+            .split("if launch == ExecutableSmokeLaunch::Windowed")
+            .nth(1)
+            .expect("windowed branch");
+        assert!(
+            !windowed_arm
+                .split("} else {")
+                .next()
+                .unwrap_or("")
+                .contains("open_skirmish_menu"),
+            "windowed phase 0 must not script open_skirmish_menu"
+        );
+    }
+
+    #[test]
     fn apply_host_vertical_slice_gate_playable_only_with_all_five_retail_flags() {
         let mut r = ExecutableSmokeResult::default();
         r.reached_ingame = true;
+        // Host cmd residual alone must never be the fifth claim flag.
         r.gameplay_cmd_ok = true;
+        r.interactive_gameplay = false;
         r.live_frame_ok = true;
         r.apply_host_vertical_slice_gate();
         assert!(
@@ -3155,8 +3881,19 @@ mod tests {
         );
         assert!(r.retail_sit_through_missing.contains("window_visible"));
         assert!(r.retail_sit_through_missing.contains("wnd_widget_tree_nav"));
+        assert!(
+            r.retail_sit_through_missing.contains("gameplay"),
+            "fifth flag missing without interactive_gameplay"
+        );
         r.window_visible = true;
         r.wnd_widget_tree_nav = true;
+        r.apply_host_vertical_slice_gate();
+        assert!(
+            !r.playable_claim,
+            "gameplay_cmd_ok without interactive_gameplay must keep playable_claim false"
+        );
+        assert_eq!(r.retail_sit_through_missing, "gameplay");
+        r.interactive_gameplay = true;
         r.apply_host_vertical_slice_gate();
         assert!(
             r.playable_claim,
@@ -3178,45 +3915,35 @@ mod tests {
             false, true, true, true, true
         ));
         assert_eq!(
-            ExecutableSmokeResult::retail_sit_through_missing_flags(
-                false, true, true, true, true
-            ),
+            ExecutableSmokeResult::retail_sit_through_missing_flags(false, true, true, true, true),
             "window_visible"
         );
         assert!(!ExecutableSmokeResult::retail_windowed_playable_claim(
             true, false, true, true, true
         ));
         assert_eq!(
-            ExecutableSmokeResult::retail_sit_through_missing_flags(
-                true, false, true, true, true
-            ),
+            ExecutableSmokeResult::retail_sit_through_missing_flags(true, false, true, true, true),
             "wnd_widget_tree_nav"
         );
         assert!(!ExecutableSmokeResult::retail_windowed_playable_claim(
             true, true, false, true, true
         ));
         assert_eq!(
-            ExecutableSmokeResult::retail_sit_through_missing_flags(
-                true, true, false, true, true
-            ),
+            ExecutableSmokeResult::retail_sit_through_missing_flags(true, true, false, true, true),
             "live_frame_ok"
         );
         assert!(!ExecutableSmokeResult::retail_windowed_playable_claim(
             true, true, true, false, true
         ));
         assert_eq!(
-            ExecutableSmokeResult::retail_sit_through_missing_flags(
-                true, true, true, false, true
-            ),
+            ExecutableSmokeResult::retail_sit_through_missing_flags(true, true, true, false, true),
             "ingame"
         );
         assert!(!ExecutableSmokeResult::retail_windowed_playable_claim(
             true, true, true, true, false
         ));
         assert_eq!(
-            ExecutableSmokeResult::retail_sit_through_missing_flags(
-                true, true, true, true, false
-            ),
+            ExecutableSmokeResult::retail_sit_through_missing_flags(true, true, true, true, false),
             "gameplay"
         );
         assert!(ExecutableSmokeResult::retail_windowed_playable_claim(
@@ -3229,13 +3956,61 @@ mod tests {
     }
 
     #[test]
+    fn playable_claim_gate_rejects_headless_true_allows_windowed_five_flags() {
+        let mut headless = ExecutableSmokeResult::default();
+        assert!(headless.playable_claim_gate_ok().is_ok());
+        headless.playable_claim = true;
+        assert!(
+            headless.playable_claim_gate_ok().is_err(),
+            "headless claim true must fail the gate"
+        );
+
+        let mut windowed = ExecutableSmokeResult::default();
+        windowed.windowed_launch = true;
+        windowed.window_visible = true;
+        windowed.wnd_widget_tree_nav = true;
+        windowed.live_frame_ok = true;
+        windowed.reached_ingame = true;
+        // Host residual alone is not the fifth flag.
+        windowed.gameplay_cmd_ok = true;
+        windowed.interactive_gameplay = false;
+        windowed.apply_host_vertical_slice_gate();
+        assert!(
+            !windowed.playable_claim,
+            "gameplay_cmd_ok without interactive_gameplay must keep claim false"
+        );
+        windowed.interactive_gameplay = true;
+        windowed.apply_host_vertical_slice_gate();
+        assert!(windowed.playable_claim, "five flags => windowed claim");
+        assert!(
+            windowed.playable_claim_gate_ok().is_ok(),
+            "gate must not reject a true windowed claim when all five flags hold"
+        );
+
+        windowed.live_frame_ok = false;
+        windowed.apply_host_vertical_slice_gate();
+        assert!(!windowed.playable_claim);
+        windowed.playable_claim = true; // forged
+        assert!(
+            windowed.playable_claim_gate_ok().is_err(),
+            "windowed true without all five flags is still illegal"
+        );
+
+        let src = include_str!("bin/executable_smoke_gate.rs");
+        assert!(src.contains("playable_claim_gate_ok"));
+        assert!(!src.contains("playable_claim must stay false\""));
+    }
+
+    #[test]
     fn four_of_five_retail_flags_keep_playable_claim_false() {
         let mut r = ExecutableSmokeResult::default();
         r.window_visible = true;
         r.wnd_widget_tree_nav = true;
         r.live_frame_ok = true;
         r.reached_ingame = true;
-        // gameplay still false — 4/5
+        // interactive_gameplay still false — 4/5 (host cmd residual is irrelevant)
+        r.gameplay_cmd_ok = true;
+        r.interactive_gameplay = false;
         r.apply_host_vertical_slice_gate();
         assert!(
             !r.playable_claim,
@@ -3249,9 +4024,19 @@ mod tests {
         assert!(report.contains("live_frame_ok=true"));
         assert!(report.contains("ingame=true"));
         assert!(report.contains("gameplay=false"));
+        assert!(report.contains("gameplay_cmd=true"));
         assert!(report.contains("retail_sit_through_missing=gameplay"));
 
+        // Still false: host residual was already true; fifth flag is interactive only.
         r.gameplay_cmd_ok = true;
+        r.interactive_gameplay = false;
+        r.apply_host_vertical_slice_gate();
+        assert!(
+            !r.playable_claim,
+            "gameplay_cmd_ok=true with interactive_gameplay=false keeps claim false"
+        );
+
+        r.interactive_gameplay = true;
         r.apply_host_vertical_slice_gate();
         assert!(
             r.playable_claim,
@@ -3263,6 +4048,143 @@ mod tests {
         assert!(report.contains("gameplay=true"));
         assert!(report.contains("retail_sit_through_missing="));
         assert!(!report.contains("retail_sit_through_missing=gameplay"));
+    }
+
+    #[test]
+    fn window_visible_from_winit_query_false_when_headless_or_hidden() {
+        assert!(!ExecutableSmokeResult::window_visible_from_winit_query(
+            true,
+            Some(true)
+        ));
+        assert!(!ExecutableSmokeResult::window_visible_from_winit_query(
+            false,
+            Some(false)
+        ));
+        assert!(!ExecutableSmokeResult::window_visible_from_winit_query(
+            true, None
+        ));
+        assert!(ExecutableSmokeResult::window_visible_from_winit_query(
+            false,
+            Some(true)
+        ));
+        assert!(ExecutableSmokeResult::window_visible_from_winit_query(
+            false, None
+        ));
+        let src = include_str!("cnc_game_engine/dispatch.rs");
+        assert!(
+            src.contains("window_visible_from_winit_query")
+                && src.contains("self.window.is_visible()"),
+            "engine must call the shipped winit visibility helper"
+        );
+    }
+
+    #[test]
+    fn live_frame_ok_from_windowed_present_not_host_ok() {
+        assert!(!ExecutableSmokeResult::live_frame_ok_from_windowed_present(
+            false, false
+        ));
+        assert!(ExecutableSmokeResult::live_frame_ok_from_windowed_present(
+            true, false
+        ));
+        assert!(ExecutableSmokeResult::live_frame_ok_from_windowed_present(
+            false, true
+        ));
+        let runtime = include_str!("cnc_game_engine/runtime.rs");
+        assert!(
+            runtime.contains("note_windowed_surface_presented")
+                && runtime.contains("live_frame_ok_from_windowed_present"),
+            "publish must use the shipped present/capture helper"
+        );
+        let loop_src = include_str!("cnc_game_engine/run_loop.rs");
+        assert!(
+            loop_src.contains("note_windowed_surface_presented")
+                && loop_src.contains("!runtime_headless_mode"),
+            "present latch only after a successful windowed render"
+        );
+    }
+
+    #[test]
+    fn wnd_widget_tree_nav_requires_skirmish_path_not_click_skirmish_start() {
+        assert!(ExecutableSmokeResult::wnd_nav_gadget_is_skirmish_path(
+            "MainMenu.wnd:ButtonSkirmish"
+        ));
+        assert!(ExecutableSmokeResult::wnd_nav_gadget_is_skirmish_path(
+            "SkirmishGameOptionsMenu.wnd:ButtonStart"
+        ));
+        assert!(!ExecutableSmokeResult::wnd_nav_gadget_is_skirmish_path(
+            "MainMenu.wnd:ButtonOptions"
+        ));
+        let input = include_str!("cnc_game_engine/input.rs");
+        assert!(
+            input.contains("note_skirmish_path_gadget")
+                && input.contains("handle_mouse_button_input"),
+            "skirmish path must latch inside handle_mouse_button_input"
+        );
+        assert!(
+            !input.contains("click_skirmish_start")
+                && !input.contains("main_menu_skirmish_wnd_ok"),
+            "host click_skirmish_start residual is not the wnd_widget_tree_nav latch"
+        );
+        let snap = include_str!("cnc_game_engine/dispatch.rs");
+        assert!(
+            snap.contains("interactive_playability.wnd_menu_to_match_complete()"),
+            "status wnd_widget_tree_nav is the evidence chain, not host-ok"
+        );
+    }
+
+    #[test]
+    fn reached_ingame_from_live_map_rejects_shell_empty_and_dash() {
+        assert!(!ExecutableSmokeResult::reached_ingame_from_live_map(
+            "InGame", "shellmap"
+        ));
+        assert!(!ExecutableSmokeResult::reached_ingame_from_live_map(
+            "InGame", "ShellMapMD"
+        ));
+        assert!(!ExecutableSmokeResult::reached_ingame_from_live_map(
+            "InGame", "-"
+        ));
+        assert!(!ExecutableSmokeResult::reached_ingame_from_live_map(
+            "InGame", "  "
+        ));
+        assert!(!ExecutableSmokeResult::reached_ingame_from_live_map(
+            "Menu", "Lone Eagle"
+        ));
+        assert!(ExecutableSmokeResult::reached_ingame_from_live_map(
+            "InGame",
+            "Lone Eagle"
+        ));
+        assert!(ExecutableSmokeResult::reached_ingame_from_live_map(
+            "Paused", "MapsZH/foo"
+        ));
+        let smoke = include_str!("executable_smoke.rs");
+        let prod = smoke.split("#[cfg(test)]").next().expect("prod");
+        assert!(
+            prod.contains("reached_ingame_from_live_map"),
+            "smoke must set reached_ingame from the shipped map latch"
+        );
+    }
+
+    #[test]
+    fn interactive_gameplay_latches_only_from_handle_mouse_button_input_rmb() {
+        let input = include_str!("cnc_game_engine/input.rs");
+        let start = input
+            .find("fn handle_mouse_button_input")
+            .expect("handle_mouse_button_input");
+        let end = input[start..]
+            .find("fn inject_winit_equivalent_cursor_at")
+            .map(|i| start + i)
+            .unwrap_or(start + 4000);
+        let body = &input[start..end];
+        assert!(
+            body.contains("note_gameplay_order") && body.contains("handle_right_click"),
+            "RMB release on world must call handle_right_click then note_gameplay_order"
+        );
+        assert!(
+            !body.contains("gameplay_cmd_ok"),
+            "host gameplay_cmd_ok must not be the interactive_gameplay latch"
+        );
+        let snap = include_str!("cnc_game_engine/dispatch.rs");
+        assert!(snap.contains("interactive_playability.gameplay_complete()"));
     }
 
     #[test]
@@ -3321,7 +4243,7 @@ mod tests {
 
     #[test]
     fn smoke_tracks_shell_wnd_residual_keys() {
-        let eng = include_str!("cnc_game_engine.rs");
+        let eng = crate::cnc_game_engine::ENGINE_SRC;
         assert!(
             eng.contains("shell_screen_count")
                 && eng.contains("shell_top_wnd")
@@ -3358,11 +4280,17 @@ shell_active=true
 mod skirmish_wnd_start_residual_tests {
     #[test]
     fn click_skirmish_start_prefers_wnd_gadget_when_enabled() {
-        let eng = include_str!("cnc_game_engine.rs");
-        let idx = eng
-            .find("\"click_skirmish_start\"")
-            .expect("click_skirmish_start command");
-        let window = &eng[idx..idx + 9000];
+        let dispatch = include_str!("cnc_game_engine/runtime_host/mod.rs");
+        assert!(
+            dispatch.contains("\"click_skirmish_start\""),
+            "click_skirmish_start command must be dispatched"
+        );
+        // Live impl is in skirmish.rs (ENGINE_SRC 9k window no longer reaches it).
+        let window = include_str!("cnc_game_engine/runtime_host/skirmish.rs");
+        let idx = window
+            .find("fn runtime_host_cmd_click_skirmish_start")
+            .expect("click_skirmish_start impl");
+        let window = &window[idx..];
         assert!(
             window.contains("simulate_skirmish_start_button_gadget_selected"),
             "must try retail WND ButtonStart GadgetSelected residual"

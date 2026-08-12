@@ -14,7 +14,7 @@ use game_engine::rts::academy_stats::{
     set_academy_template_context_provider, AcademyTemplateContext,
 };
 use once_cell::sync::OnceCell;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 #[derive(Debug)]
 pub struct ControlBarBridge {
@@ -286,30 +286,45 @@ pub trait ControlBarUiHooks: Send + Sync {
     fn on_player_rank_changed(&self, player_id: i32, rank_level: i32, points: i32);
 }
 
-static CONTROL_BAR_UI_HOOKS: OnceCell<Arc<dyn ControlBarUiHooks>> = OnceCell::new();
+static CONTROL_BAR_UI_HOOKS: Mutex<Option<Arc<dyn ControlBarUiHooks>>> = Mutex::new(None);
 
 pub fn register_control_bar_ui_hooks(hooks: Arc<dyn ControlBarUiHooks>) -> bool {
-    CONTROL_BAR_UI_HOOKS.set(hooks).is_ok()
+    let mut slot = CONTROL_BAR_UI_HOOKS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    *slot = Some(hooks);
+    true
+}
+
+fn with_control_bar_ui_hooks<F>(f: F)
+where
+    F: FnOnce(&dyn ControlBarUiHooks),
+{
+    let hooks = {
+        let slot = CONTROL_BAR_UI_HOOKS
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        slot.clone()
+    };
+    if let Some(hooks) = hooks {
+        f(hooks.as_ref());
+    }
 }
 
 /// Notify the control bar that UI state needs to be refreshed.
 pub fn mark_ui_dirty() {
     let _ = get_control_bar_bridge();
-    if let Some(hooks) = CONTROL_BAR_UI_HOOKS.get() {
-        hooks.mark_ui_dirty();
-    }
+    with_control_bar_ui_hooks(|hooks| hooks.mark_ui_dirty());
 }
 
 pub fn notify_science_purchase_points_changed(player_id: i32, points: i32) {
-    if let Some(hooks) = CONTROL_BAR_UI_HOOKS.get() {
-        hooks.on_player_science_purchase_points_changed(player_id, points);
-    }
+    with_control_bar_ui_hooks(|hooks| {
+        hooks.on_player_science_purchase_points_changed(player_id, points)
+    });
 }
 
 pub fn notify_player_rank_changed(player_id: i32, rank_level: i32, points: i32) {
-    if let Some(hooks) = CONTROL_BAR_UI_HOOKS.get() {
-        hooks.on_player_rank_changed(player_id, rank_level, points);
-    }
+    with_control_bar_ui_hooks(|hooks| hooks.on_player_rank_changed(player_id, rank_level, points));
 }
 
 impl ControlBarInterface for ControlBarBridge {

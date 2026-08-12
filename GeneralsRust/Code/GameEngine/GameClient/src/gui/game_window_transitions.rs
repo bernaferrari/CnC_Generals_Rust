@@ -10,6 +10,7 @@ use glam::Vec2;
 use super::game_window::{resolve_window_text, Color, GameWindow, WindowDrawData, WindowStatus};
 use super::ui_globals::with_ui_renderer_mut;
 use super::ui_renderer::UIRect;
+use super::window_manager::hide_window_rc;
 use crate::display::image::get_mapped_image_collection;
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use gamelogic::common::audio::AudioEventRts;
@@ -128,6 +129,11 @@ fn play_sound(event_name: &str) {
     }
 }
 
+thread_local! {
+    /// Empty snapshot used when a shared window read re-enters a live borrow.
+    static GAME_WINDOW_FAIL_CLOSED: GameWindow = GameWindow::new();
+}
+
 fn with_game_window_ref<R>(
     win_rc: &Rc<RefCell<GameWindow>>,
     f: impl FnOnce(&GameWindow) -> R,
@@ -135,26 +141,20 @@ fn with_game_window_ref<R>(
     if let Ok(window) = win_rc.try_borrow() {
         f(&window)
     } else {
-        let ptr = win_rc.as_ptr();
-        // SAFETY: transition callbacks run on the legacy single-threaded UI path and need
-        // the same re-entrant access fallback used by the rest of the window system.
-        let window = unsafe { &*ptr };
-        f(window)
+        // Fail-closed: empty snapshot. Do not alias a live RefCell borrow.
+        GAME_WINDOW_FAIL_CLOSED.with(|dummy| f(dummy))
     }
 }
 
 fn with_game_window_mut<R>(
     win_rc: &Rc<RefCell<GameWindow>>,
     f: impl FnOnce(&mut GameWindow) -> R,
-) -> R {
+) -> Option<R> {
     if let Ok(mut window) = win_rc.try_borrow_mut() {
-        f(&mut window)
+        Some(f(&mut window))
     } else {
-        let ptr = win_rc.as_ptr();
-        // SAFETY: transition callbacks run on the legacy single-threaded UI path and need
-        // the same re-entrant access fallback used by the rest of the window system.
-        let window = unsafe { &mut *ptr };
-        f(window)
+        // Fail-closed: skip mutation rather than forging `&mut` over a live borrow.
+        None
     }
 }
 
@@ -778,13 +778,13 @@ impl Transition for FadeTransition {
                     return;
                 }
                 if let Some(win_rc) = self.with_window() {
-                    let _ = win_rc.borrow_mut().hide(true);
+                    hide_window_rc(&win_rc, true);
                     self.is_finished = true;
                 }
             }
             1..=8 => {
                 if let Some(win_rc) = self.with_window() {
-                    let _ = win_rc.borrow_mut().hide(true);
+                    hide_window_rc(&win_rc, true);
                     self.draw_state = frame;
                 }
             }
@@ -793,7 +793,7 @@ impl Transition for FadeTransition {
                     return;
                 }
                 if let Some(win_rc) = self.with_window() {
-                    let _ = win_rc.borrow_mut().hide(false);
+                    hide_window_rc(&win_rc, false);
                     self.is_finished = true;
                 }
             }
@@ -918,7 +918,7 @@ impl Transition for ScaleUpTransition {
                     return;
                 }
                 if let Some(win_rc) = self.with_window() {
-                    let _ = win_rc.borrow_mut().hide(true);
+                    hide_window_rc(&win_rc, true);
                     self.is_finished = true;
                 }
             }
@@ -927,13 +927,13 @@ impl Transition for ScaleUpTransition {
                     play_sound("GUILogoMouseOver");
                 }
                 if let Some(win_rc) = self.with_window() {
-                    let _ = win_rc.borrow_mut().hide(true);
+                    hide_window_rc(&win_rc, true);
                 }
                 self.draw_state = frame;
             }
             2..=5 => {
                 if let Some(win_rc) = self.with_window() {
-                    let _ = win_rc.borrow_mut().hide(true);
+                    hide_window_rc(&win_rc, true);
                 }
                 self.draw_state = frame;
             }
@@ -942,7 +942,7 @@ impl Transition for ScaleUpTransition {
                     return;
                 }
                 if let Some(win_rc) = self.with_window() {
-                    let _ = win_rc.borrow_mut().hide(false);
+                    hide_window_rc(&win_rc, false);
                     self.is_finished = true;
                 }
             }
@@ -1012,7 +1012,7 @@ impl Transition for ScoreScaleUpTransition {
                     return;
                 }
                 if let Some(win_rc) = self.inner.with_window() {
-                    let _ = win_rc.borrow_mut().hide(true);
+                    hide_window_rc(&win_rc, true);
                     self.inner.is_finished = true;
                 }
             }
@@ -1021,13 +1021,13 @@ impl Transition for ScoreScaleUpTransition {
                     play_sound("GUIScoreScreenPictures");
                 }
                 if let Some(win_rc) = self.inner.with_window() {
-                    let _ = win_rc.borrow_mut().hide(true);
+                    hide_window_rc(&win_rc, true);
                 }
                 self.inner.draw_state = frame;
             }
             2..=5 => {
                 if let Some(win_rc) = self.inner.with_window() {
-                    let _ = win_rc.borrow_mut().hide(true);
+                    hide_window_rc(&win_rc, true);
                 }
                 self.inner.draw_state = frame;
             }
@@ -1036,7 +1036,7 @@ impl Transition for ScoreScaleUpTransition {
                     return;
                 }
                 if let Some(win_rc) = self.inner.with_window() {
-                    let _ = win_rc.borrow_mut().hide(false);
+                    hide_window_rc(&win_rc, false);
                     self.inner.is_finished = true;
                 }
             }
@@ -1169,7 +1169,7 @@ impl Transition for MainMenuScaleUpTransition {
                     return;
                 }
                 if let Some(grow_rc) = self.with_grow_window() {
-                    let _ = grow_rc.borrow_mut().hide(true);
+                    hide_window_rc(&grow_rc, true);
                     self.is_finished = true;
                 }
             }
@@ -1178,19 +1178,19 @@ impl Transition for MainMenuScaleUpTransition {
                     return;
                 }
                 if let Some(win_rc) = self.with_window() {
-                    let _ = win_rc.borrow_mut().hide(true);
+                    hide_window_rc(&win_rc, true);
                 }
                 if let Some(grow_rc) = self.with_grow_window() {
-                    let _ = grow_rc.borrow_mut().hide(false);
+                    hide_window_rc(&grow_rc, false);
                 }
                 self.is_finished = true;
             }
             1..=4 => {
                 if let Some(win_rc) = self.with_window() {
-                    let _ = win_rc.borrow_mut().hide(true);
+                    hide_window_rc(&win_rc, true);
                 }
                 if let Some(grow_rc) = self.with_grow_window() {
-                    let _ = grow_rc.borrow_mut().hide(true);
+                    hide_window_rc(&grow_rc, true);
                 }
                 self.draw_state = frame;
             }
@@ -1324,10 +1324,10 @@ impl Transition for MainMenuMediumScaleUpTransition {
                     return;
                 }
                 if let Some(win_rc) = self.with_window() {
-                    let _ = win_rc.borrow_mut().hide(false);
+                    hide_window_rc(&win_rc, false);
                 }
                 if let Some(grow_rc) = self.with_grow_window() {
-                    let _ = grow_rc.borrow_mut().hide(true);
+                    hide_window_rc(&grow_rc, true);
                 }
                 self.is_finished = true;
             }
@@ -1336,10 +1336,10 @@ impl Transition for MainMenuMediumScaleUpTransition {
                     return;
                 }
                 if let Some(win_rc) = self.with_window() {
-                    let _ = win_rc.borrow_mut().hide(true);
+                    hide_window_rc(&win_rc, true);
                 }
                 if let Some(grow_rc) = self.with_grow_window() {
-                    let _ = grow_rc.borrow_mut().hide(false);
+                    hide_window_rc(&grow_rc, false);
                 }
                 self.is_finished = true;
             }
@@ -1348,10 +1348,10 @@ impl Transition for MainMenuMediumScaleUpTransition {
                     play_sound("GUILogoMouseOver");
                 }
                 if let Some(win_rc) = self.with_window() {
-                    let _ = win_rc.borrow_mut().hide(true);
+                    hide_window_rc(&win_rc, true);
                 }
                 if let Some(grow_rc) = self.with_grow_window() {
-                    let _ = grow_rc.borrow_mut().hide(true);
+                    hide_window_rc(&grow_rc, true);
                 }
                 self.draw_state = frame;
             }
@@ -1363,10 +1363,10 @@ impl Transition for MainMenuMediumScaleUpTransition {
         self.is_finished = false;
         self.is_forward = false;
         if let Some(win_rc) = self.with_window() {
-            let _ = win_rc.borrow_mut().hide(true);
+            hide_window_rc(&win_rc, true);
         }
         if let Some(grow_rc) = self.with_grow_window() {
-            let _ = grow_rc.borrow_mut().hide(true);
+            hide_window_rc(&grow_rc, true);
         }
     }
 
@@ -1477,10 +1477,10 @@ impl Transition for MainMenuSmallScaleDownTransition {
                     return;
                 }
                 if let Some(win_rc) = self.with_window() {
-                    let _ = win_rc.borrow_mut().hide(false);
+                    hide_window_rc(&win_rc, false);
                 }
                 if let Some(grow_rc) = self.with_grow_window() {
-                    let _ = grow_rc.borrow_mut().hide(true);
+                    hide_window_rc(&grow_rc, true);
                 }
                 self.is_finished = true;
             }
@@ -1489,19 +1489,19 @@ impl Transition for MainMenuSmallScaleDownTransition {
                     return;
                 }
                 if let Some(win_rc) = self.with_window() {
-                    let _ = win_rc.borrow_mut().hide(true);
+                    hide_window_rc(&win_rc, true);
                 }
                 if let Some(grow_rc) = self.with_grow_window() {
-                    let _ = grow_rc.borrow_mut().hide(false);
+                    hide_window_rc(&grow_rc, false);
                 }
                 self.is_finished = true;
             }
             1..=4 => {
                 if let Some(win_rc) = self.with_window() {
-                    let _ = win_rc.borrow_mut().hide(true);
+                    hide_window_rc(&win_rc, true);
                 }
                 if let Some(grow_rc) = self.with_grow_window() {
-                    let _ = grow_rc.borrow_mut().hide(true);
+                    hide_window_rc(&grow_rc, true);
                 }
                 self.draw_state = frame;
             }
@@ -1608,7 +1608,7 @@ impl Transition for TextTypeTransition {
                     return;
                 }
                 if let Some(win_rc) = self.with_window() {
-                    let _ = win_rc.borrow_mut().hide(true);
+                    hide_window_rc(&win_rc, true);
                     self.is_finished = true;
                 }
             }
@@ -1617,7 +1617,7 @@ impl Transition for TextTypeTransition {
                     return;
                 }
                 if let Some(win_rc) = self.with_window() {
-                    let _ = win_rc.borrow_mut().hide(false);
+                    hide_window_rc(&win_rc, false);
                     self.is_finished = true;
                 }
             }
@@ -1625,12 +1625,12 @@ impl Transition for TextTypeTransition {
         }
         if frame >= self.frame_length {
             if let Some(win_rc) = self.with_window() {
-                let _ = win_rc.borrow_mut().hide(false);
+                hide_window_rc(&win_rc, false);
             }
         }
         if frame > 0 && frame < self.frame_length {
             if let Some(win_rc) = self.with_window() {
-                let _ = win_rc.borrow_mut().hide(true);
+                hide_window_rc(&win_rc, true);
             }
             self.draw_state = frame;
             play_sound("GUITypeText");
@@ -1774,7 +1774,7 @@ impl Transition for CountUpTransition {
                 self.current_value = 0;
                 if let Some(win_rc) = self.with_window() {
                     let _ = win_rc.borrow_mut().set_text("0");
-                    let _ = win_rc.borrow_mut().hide(true);
+                    hide_window_rc(&win_rc, true);
                 }
                 self.is_finished = true;
             }
@@ -1783,7 +1783,7 @@ impl Transition for CountUpTransition {
                     return;
                 }
                 if let Some(win_rc) = self.with_window() {
-                    let _ = win_rc.borrow_mut().hide(false);
+                    hide_window_rc(&win_rc, false);
                 }
                 self.is_finished = true;
             }
@@ -1791,12 +1791,12 @@ impl Transition for CountUpTransition {
         }
         if frame >= self.frame_length {
             if let Some(win_rc) = self.with_window() {
-                let _ = win_rc.borrow_mut().hide(false);
+                hide_window_rc(&win_rc, false);
             }
         }
         if frame > 0 && frame < self.frame_length {
             if let Some(win_rc) = self.with_window() {
-                let _ = win_rc.borrow_mut().hide(false);
+                hide_window_rc(&win_rc, false);
             }
             self.draw_state = frame;
             play_sound("GUIScoreScreenTick");
@@ -2115,7 +2115,7 @@ impl Transition for FullFadeTransition {
                     return;
                 }
                 if let Some(win_rc) = self.with_window() {
-                    let _ = win_rc.borrow_mut().hide(true);
+                    hide_window_rc(&win_rc, true);
                     self.is_finished = true;
                 }
             }
@@ -2124,7 +2124,7 @@ impl Transition for FullFadeTransition {
                     return;
                 }
                 if let Some(win_rc) = self.with_window() {
-                    let _ = win_rc.borrow_mut().hide(false);
+                    hide_window_rc(&win_rc, false);
                     self.is_finished = true;
                 }
             }
@@ -2132,11 +2132,7 @@ impl Transition for FullFadeTransition {
         }
         if frame == self.frame_length / 2 {
             if let Some(win_rc) = self.with_window() {
-                let _ = if self.is_forward {
-                    win_rc.borrow_mut().hide(false)
-                } else {
-                    win_rc.borrow_mut().hide(true)
-                };
+                hide_window_rc(&win_rc, !self.is_forward);
             }
         }
     }
@@ -2236,7 +2232,7 @@ impl Transition for TextOnFrameTransition {
                     return;
                 }
                 if let Some(win_rc) = self.with_window() {
-                    let _ = win_rc.borrow_mut().hide(true);
+                    hide_window_rc(&win_rc, true);
                     self.is_finished = true;
                 }
             }
@@ -2245,7 +2241,7 @@ impl Transition for TextOnFrameTransition {
                     return;
                 }
                 if let Some(win_rc) = self.with_window() {
-                    let _ = win_rc.borrow_mut().hide(false);
+                    hide_window_rc(&win_rc, false);
                     self.is_finished = true;
                 }
             }

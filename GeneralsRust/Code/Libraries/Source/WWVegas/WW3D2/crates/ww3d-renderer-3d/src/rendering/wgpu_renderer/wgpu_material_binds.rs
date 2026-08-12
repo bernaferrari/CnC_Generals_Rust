@@ -4,6 +4,7 @@ use crate::material_system::MaterialPassClass;
 use crate::render_object_system::{FogSettings, RenderInfoClass};
 use crate::rendering::frame_uniform_arena::FrameUniformArena;
 use crate::rendering::lighting_system::{LightClass, LightType};
+use crate::rendering::shadow_system::live_cascade_shadow::LiveCascadeShadowMap;
 use bytemuck::{Pod, Zeroable};
 use glam::{Mat4, Vec3};
 use std::sync::Arc;
@@ -188,6 +189,7 @@ impl WgpuMaterialBinds {
         visibility_alpha: Option<f32>,
         visibility_falloff: Option<f32>,
         is_explored: Option<f32>,
+        live_csm: Option<&LiveCascadeShadowMap>,
     ) -> Result<ModelBinds> {
         let normal_matrix = model.inverse().transpose();
         let stage_mask_u32 = texture_stage_mask as u32;
@@ -219,6 +221,15 @@ impl WgpuMaterialBinds {
         let model_slice = arena.allocate(gpu, bytemuck::bytes_of(&model_uniform), 256)?;
         let lighting_slice = arena.allocate(gpu, bytemuck::bytes_of(&lighting_uniform), 256)?;
 
+        let dummy_csm;
+        let csm = match live_csm {
+            Some(existing) => existing,
+            None => {
+                dummy_csm = LiveCascadeShadowMap::dummy(gpu.wgpu_device());
+                &dummy_csm
+            }
+        };
+
         let bind_group = gpu
             .wgpu_device()
             .create_bind_group(&wgpu::BindGroupDescriptor {
@@ -232,6 +243,18 @@ impl WgpuMaterialBinds {
                     wgpu::BindGroupEntry {
                         binding: 1,
                         resource: wgpu::BindingResource::Buffer(lighting_slice.as_binding()),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: csm.uniform_buffer.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: wgpu::BindingResource::TextureView(&csm.view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 4,
+                        resource: wgpu::BindingResource::Sampler(&csm.sampler),
                     },
                 ],
             });

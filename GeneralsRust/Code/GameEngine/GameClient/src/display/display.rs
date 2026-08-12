@@ -915,35 +915,45 @@ impl DisplayInterface for Display {
         }
 
         // UI rendering pass
-        let ui_result = with_ui_renderer(|renderer| {
-            let mut renderer = renderer.write().unwrap_or_else(|e| e.into_inner());
-            renderer.begin_frame();
-            renderer.set_time(self.start_time.elapsed().as_secs_f32());
-            renderer.set_screen_size(self.width.max(1), self.height.max(1));
-            with_window_manager(|manager| manager.draw_all());
-            let render_result = {
-                let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("Display UI Pass"),
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: &view,
-                        depth_slice: None,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Load,
-                            store: wgpu::StoreOp::Store,
-                        },
-                    })],
-                    depth_stencil_attachment: None,
-                    occlusion_query_set: None,
-                    timestamp_writes: None,
-                });
-                renderer.render(&mut render_pass)
-            };
-            renderer.end_frame();
-            render_result
-        });
+        let ui_result =
+            with_ui_renderer(|renderer_arc| -> Result<(), Box<dyn std::error::Error>> {
+                {
+                    let mut renderer = renderer_arc
+                        .write()
+                        .map_err(|_| "UI renderer lock poisoned")?;
+                    renderer.begin_frame();
+                    renderer.set_time(self.start_time.elapsed().as_secs_f32());
+                    renderer.set_screen_size(self.width.max(1), self.height.max(1));
+                }
+                // Drop the write guard before gadget draw so `with_ui_renderer_mut`
+                // can record real commands. Holding it discarded WND draws.
+                with_window_manager(|manager| manager.draw_all());
+                let mut renderer = renderer_arc
+                    .write()
+                    .map_err(|_| "UI renderer lock poisoned")?;
+                let render_result = {
+                    let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: Some("Display UI Pass"),
+                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                            view: &view,
+                            depth_slice: None,
+                            resolve_target: None,
+                            ops: wgpu::Operations {
+                                load: wgpu::LoadOp::Load,
+                                store: wgpu::StoreOp::Store,
+                            },
+                        })],
+                        depth_stencil_attachment: None,
+                        occlusion_query_set: None,
+                        timestamp_writes: None,
+                    });
+                    renderer.render(&mut render_pass)
+                };
+                renderer.end_frame();
+                render_result.map_err(|err| Box::new(err) as Box<dyn std::error::Error>)
+            });
         if let Some(Err(err)) = ui_result {
-            return Err(Box::new(err));
+            return Err(err);
         }
 
         self.graphics

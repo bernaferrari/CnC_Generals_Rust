@@ -1,8 +1,8 @@
 //! Post-logic weapon residuals: bonus/slot/set/stats, entity power, continuous fire.
 
+use super::*;
 use crate::game_logic::GameLogic;
 use crate::gameworld_shadow::GameWorldShadow;
-use super::*;
 
 // Wave 690: post-logic weapon-bonus / weapon-slot batch handoff (avoid double-apply).
 thread_local! {

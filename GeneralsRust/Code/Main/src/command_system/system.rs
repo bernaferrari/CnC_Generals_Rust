@@ -66,4 +66,3 @@ pub fn get_command_system() -> &'static Mutex<CommandSystem> {
         Mutex::new(CommandSystem::new())
     })
 }
-

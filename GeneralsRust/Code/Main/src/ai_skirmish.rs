@@ -412,7 +412,11 @@ impl AISkirmishPlayer {
             for object in game_logic.host_objects().values() {
                 if object.team == player.team && object.is_alive() {
                     if object.can_attack() {
-                        intel.military_strength += object.health.current * 0.1;
+                        // Mid-frame HP: GameWorld when coupled; skip if no auth
+                        // residual (no HashMap dual-read as mid-frame truth).
+                        if let Some(hp) = game_logic.host_authoritative_health(object.id) {
+                            intel.military_strength += hp * 0.1;
+                        }
                     }
 
                     if object.is_kind_of(KindOf::CommandCenter) {
@@ -1066,9 +1070,9 @@ impl AISkirmishPlayer {
 
                 // Add expansion buildings to queue
                 let command_center = match self.base.team {
-                    Team::USA => "USA_CommandCenter",
-                    Team::China => "China_CommandCenter",
-                    Team::GLA => "GLA_CommandCenter",
+                    Team::USA => "AmericaCommandCenter",
+                    Team::China => "ChinaCommandCenter",
+                    Team::GLA => "GLACommandCenter",
                     _ => return,
                 };
 
@@ -1093,9 +1097,9 @@ impl AISkirmishPlayer {
 
                     // Add expansion buildings to queue
                     let command_center = match self.base.team {
-                        Team::USA => "USA_CommandCenter",
-                        Team::China => "China_CommandCenter",
-                        Team::GLA => "GLA_CommandCenter",
+                        Team::USA => "AmericaCommandCenter",
+                        Team::China => "ChinaCommandCenter",
+                        Team::GLA => "GLACommandCenter",
                         _ => return,
                     };
 
@@ -1467,8 +1471,9 @@ impl AISkirmishPlayer {
         let mut total_health = 0.0;
 
         for &unit_id in units {
-            if let Some(unit) = game_logic.host_object(unit_id) {
-                total_health += unit.health.current;
+            // Fail-closed: no HashMap dual-read when auth is absent.
+            if let Some(hp) = game_logic.host_authoritative_health(unit_id) {
+                total_health += hp;
             }
         }
 
@@ -1494,7 +1499,9 @@ impl AISkirmishPlayer {
                 && object.can_attack()
                 && object.get_position().distance(position) < 200.0
             {
-                strength += object.health.current;
+                if let Some(hp) = game_logic.host_authoritative_health(object.id) {
+                    strength += hp;
+                }
             }
         }
 

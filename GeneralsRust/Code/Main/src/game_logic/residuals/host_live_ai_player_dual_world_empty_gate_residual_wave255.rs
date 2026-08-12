@@ -101,7 +101,7 @@ fn fn_body<'a>(src: &'a str, name: &str) -> Option<&'a str> {
 
 /// Source residual: AIPlayer empty dual-world short-circuits.
 pub fn honesty_ai_player_dual_world_empty_gate_source() -> bool {
-    let g = include_str!("../../../../GameEngine/GameLogic/src/ai/ai_player.rs");
+    let g = gamelogic::ai::ai_player::AI_PLAYER_SRC;
     if !(g.contains("Wave 255")
         && g.contains("fn dual_world_registry_unavailable")
         && g.contains("OBJECT_REGISTRY.is_empty()"))

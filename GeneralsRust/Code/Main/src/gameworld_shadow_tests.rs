@@ -164,7 +164,7 @@
             !e.engine_bridged,
             "dual-id bridge retired — engine_bridged stays false"
         );
-        let src = include_str!("gameworld_shadow.rs");
+        let src = crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC;
         assert!(
             src.contains("e.engine_bridged = false"),
             "sync must force engine_bridged false"
@@ -186,7 +186,7 @@
         assert!((e.fow_visibility_alpha - 1.0).abs() < 1e-5);
         assert!((e.fow_is_explored - 1.0).abs() < 1e-5);
         assert!(e.ground_height.is_finite());
-        let src = include_str!("gameworld_shadow.rs");
+        let src = crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC;
         assert!(
             src.contains("fow_visibility_alpha")
                 && src.contains("ground_height_from_terrain")
@@ -232,7 +232,7 @@
             e.mesh_scale.is_finite() && e.mesh_scale > 0.0,
             "mesh_scale residual"
         );
-        let src = include_str!("gameworld_shadow.rs");
+        let src = crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC;
         assert!(
             src.contains("model_key_from_template") && src.contains("mesh_scale_from_template"),
             "sync must copy mesh residual via resolve helpers"
@@ -294,7 +294,7 @@
         assert_eq!(e.production_queue_items[1].template_name, "UnitB");
         assert_eq!(e.production_queue_items[1].total_time, 12.0);
         assert_eq!(e.production_template, "UnitA");
-        let src = include_str!("gameworld_shadow.rs");
+        let src = crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC;
         assert!(
             src.contains("production_queue_items") && src.contains("EntityProductionItem"),
             "sync must copy full production queue residual"
@@ -323,7 +323,7 @@
             e.applied_upgrade_names,
             vec!["UpgradeA".to_string(), "UpgradeB".to_string()]
         );
-        let src = include_str!("gameworld_shadow.rs");
+        let src = crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC;
         assert!(
             src.contains("applied_upgrade_names") && src.contains("MAX_UPGRADES"),
             "sync must copy upgrade name residual"
@@ -353,7 +353,7 @@
         assert!(e.kind_of_bits & (1 << 1) != 0, "Infantry bit");
         assert!(e.kind_of_bits & (1 << 6) != 0, "Selectable bit");
         assert!(e.kind_of_bits & (1 << 7) != 0, "Attackable bit");
-        let src = include_str!("gameworld_shadow.rs");
+        let src = crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC;
         assert!(
             src.contains("host_kind_of_bits") && src.contains("kind_of_bits"),
             "sync must copy kind_of residual"
@@ -394,7 +394,7 @@
         let ie = shadow.entity_for_host(inf).expect("im");
         let i = shadow.world().entity(ie).expect("i");
         assert_eq!(i.contained_by_host, bldg.0);
-        let src = include_str!("gameworld_shadow.rs");
+        let src = crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC;
         assert!(
             src.contains("garrisoned_host_ids") && src.contains("garrisoned_units"),
             "sync must copy garrison residual"
@@ -445,7 +445,7 @@
         assert!(e.has_secondary_weapon || e.secondary_weapon_range > 0.0);
         assert!((e.secondary_weapon_range - 90.0).abs() < 0.01);
         assert!((e.secondary_weapon_damage - 8.0).abs() < 0.01);
-        let src = include_str!("gameworld_shadow.rs");
+        let src = crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC;
         assert!(
             src.contains("path_waypoints") && src.contains("secondary_weapon_range"),
             "sync must copy path/secondary residual"
@@ -477,7 +477,7 @@
         assert_eq!(e.continuous_fire_coast_until_frame, 33);
         assert!((e.battle_plan_sight_scalar_applied - 1.5).abs() < 0.001);
         assert_eq!(e.continuous_fire_consecutive, 4);
-        let src = include_str!("gameworld_shadow.rs");
+        let src = crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC;
         assert!(
             src.contains("weapon_bonus_frenzy_until_frame")
                 && src.contains("continuous_fire_coast_until_frame")
@@ -556,7 +556,7 @@
         assert_eq!(e.disguise_as_team_ordinal, 0); // USA
         assert_eq!(e.vision_spied_mask, 0b101);
         assert!((e.camo_friendly_opacity - 0.4).abs() < 0.01);
-        let src_txt = include_str!("gameworld_shadow.rs");
+        let src_txt = crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC;
         assert!(
             src_txt.contains("weapon_bonus_horde")
                 && src_txt.contains("turret_angle_deg")
@@ -609,7 +609,7 @@
         assert!((e.detection_range - 200.0).abs() < 0.01);
         assert_eq!(e.detection_rate_frames, 15);
         assert!(e.stealth_breaks_on_attack && e.stealth_breaks_on_move && e.innate_stealth);
-        let src = include_str!("gameworld_shadow.rs");
+        let src = crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC;
         assert!(
             src.contains("is_detector")
                 && src.contains("special_power_ready")
@@ -664,7 +664,7 @@
         let rid = shadow.entity_for_host(rider).expect("rmap");
         let r = shadow.world().entity(rid).expect("r");
         assert_eq!(r.contained_by_host, bus.0);
-        let src = include_str!("gameworld_shadow.rs");
+        let src = crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC;
         assert!(
             src.contains("overlord_bunker_capacity")
                 && src.contains("contained_by_host")
@@ -725,7 +725,7 @@
         assert!((e.velocity[2] - 2.0).abs() < 0.01);
         assert_eq!(e.path_len, 2);
         assert_eq!(e.path_index, 1);
-        let src = include_str!("gameworld_shadow.rs");
+        let src = crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC;
         assert!(
             src.contains("weapon_damage")
                 && src.contains("move_max_speed")
@@ -780,7 +780,7 @@
         assert_eq!(e.max_garrison, 5);
         let rp = e.rally_point.expect("rally");
         assert!((rp[0] - 20.0).abs() < 0.01);
-        let src = include_str!("gameworld_shadow.rs");
+        let src = crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC;
         assert!(
             src.contains("production_queue_len")
                 && src.contains("building_type_ordinal")
@@ -2646,7 +2646,7 @@
         assert!(e.stealthed && e.detected && e.using_ability);
         assert!(e.airborne_target && e.disabled_underpowered && e.disabled_hacked);
         assert!(!e.disabled_unmanned);
-        let src = include_str!("gameworld_shadow.rs");
+        let src = crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC;
         assert!(
             src.contains("experience_points")
                 && src.contains("veterancy_ordinal")
@@ -2690,7 +2690,7 @@
         assert_eq!(e.occupant_count, 1);
         let tl = e.target_location.expect("tl");
         assert!((tl[0] - 10.0).abs() < 0.01);
-        let src = include_str!("gameworld_shadow.rs");
+        let src = crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC;
         assert!(
             src.contains("force_attack")
                 && src.contains("guard_target_host")
@@ -2727,7 +2727,7 @@
         assert!((e.team_color[3] - 0.9).abs() < 0.001);
         assert_eq!(e.power_provided, 50);
         assert_eq!(e.power_consumed, 5);
-        let src = include_str!("gameworld_shadow.rs");
+        let src = crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC;
         assert!(
             src.contains("team_color")
                 && src.contains("power_provided")
@@ -2763,7 +2763,7 @@
         assert!((e.selection_radius - 12.5).abs() < 0.01);
         assert!(e.moving && e.attacking);
         assert!(!e.under_construction);
-        let src = include_str!("gameworld_shadow.rs");
+        let src = crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC;
         assert!(
             src.contains("team_ordinal")
                 && src.contains("selection_radius")
@@ -2798,7 +2798,7 @@
         assert!((e.max_health - 150.0).abs() < 0.01);
         assert!((e.construction_percent - 0.4).abs() < 0.01);
         assert!(!e.destroyed);
-        let src = include_str!("gameworld_shadow.rs");
+        let src = crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC;
         assert!(
             src.contains("e.selected = obj.selected") && src.contains("e.construction_percent"),
             "sync must copy entity selection/construction residual"
@@ -2834,7 +2834,7 @@
         }
         shadow.sync_from_host(&logic);
         assert_eq!(shadow.alive_player_count(), n_players.saturating_sub(1));
-        let src = include_str!("gameworld_shadow.rs");
+        let src = crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC;
         assert!(
             src.contains("is_alive")
                 && src.contains("cash_bounty_percent")
@@ -2877,7 +2877,7 @@
             !shadow.any_player_has_radar(),
             "disabled radar must fail hasRadar residual"
         );
-        let src = include_str!("gameworld_shadow.rs");
+        let src = crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC;
         assert!(
             src.contains("radar_count") && src.contains("radar_disabled"),
             "sync_players must refresh radar residual"
@@ -2994,7 +2994,7 @@
             .find(|p| p.power_produced == 120 && p.power_consumed == 45)
             .expect("mapped power bar player");
         assert_eq!(pd.power_available, 75);
-        let src = include_str!("gameworld_shadow.rs");
+        let src = crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC;
         assert!(
             src.contains("power_produced") && src.contains("power_consumed"),
             "sync_players must refresh power bar residual"
@@ -3018,7 +3018,7 @@
             shadow.unlocked_science_count() >= 2,
             "shadow must copy host unlocked sciences"
         );
-        let src = include_str!("gameworld_shadow.rs");
+        let src = crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC;
         assert!(
             src.contains("host_player_science_and_upgrades") && src.contains("unlocked_sciences"),
             "sync_players must refresh unlocked_sciences residual"
@@ -3050,7 +3050,7 @@
             "shadow player must retain completed upgrade"
         );
         // Source honesty: session must drain upgrade snapshot.
-        let src = include_str!("gameworld_shadow.rs");
+        let src = crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC;
         let idx = src
             .find("fn shadow_session_after_host_tick")
             .expect("session");
@@ -5838,7 +5838,7 @@
 
     #[test]
     fn sync_from_host_copies_host_orientation() {
-        let src = include_str!("gameworld_shadow.rs");
+        let src = crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC;
         let idx = src
             .find("pub fn sync_from_host_with")
             .expect("sync_from_host_with");
@@ -6517,7 +6517,7 @@
         assert!((o.get_health_percentage() - (33.0 / 80.0)).abs() < 1e-5);
         assert!(o.is_alive());
         // Source honesty: no OBJECT_REGISTRY dual-read helpers on host Object.
-        let src = include_str!("game_logic/object.rs");
+        let src = crate::game_logic::object::OBJECT_SRC;
         assert!(
             !src.contains("read_engine_position")
                 && !src.contains("read_engine_is_alive")
@@ -11473,7 +11473,7 @@
                 "{fn_name} must record fire-intent under AI attack authority"
             );
         }
-        let obj = include_str!("game_logic/object.rs");
+        let obj = crate::game_logic::object::OBJECT_SRC;
         let i = obj.find("fn fire_at_ex").expect("fire_at_ex");
         let w = &obj[i..i + 8000];
         assert!(
@@ -12434,7 +12434,7 @@
 
     #[test]
     fn execute_packs_presentation_particle_systems_source() {
-        let rp = include_str!("graphics/render_pipeline.rs");
+        let rp = crate::graphics::render_pipeline::RENDER_PIPELINE_SRC;
         let i = rp.find("pub fn execute").expect("execute");
         let body = &rp[i..rp.len().min(i + 4000)];
         assert!(
@@ -12539,7 +12539,7 @@
             !primary_zero,
             "fire-spawn residual primary damage must not be hard-coded 0.0"
         );
-        let apply_src = include_str!("gameworld_shadow.rs");
+        let apply_src = crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC;
         assert!(
             apply_src.contains("drain_residual_hitscans") && apply_src.contains("ev.damage = 0.0"),
             "shadow fire-spawn apply must zero residual-hitscan damage"
@@ -12618,7 +12618,7 @@
                 && pf.contains("AudioManagerSubsystem"),
             "presentation must collect+dispatch audio without requiring GameLogic mut"
         );
-        let eng = include_str!("cnc_game_engine.rs");
+        let eng = crate::cnc_game_engine::ENGINE_SRC;
         // Production frame path must use direct dispatch, not GameLogic dual-write.
         let i = eng
             .find("dispatch_audio_events_direct")
@@ -12636,7 +12636,7 @@
 
     #[test]
     fn presentation_audio_no_dual_sfx_source() {
-        let eng = include_str!("cnc_game_engine.rs");
+        let eng = crate::cnc_game_engine::ENGINE_SRC;
         let i = eng
             .find("self.apply_presentation_to_huds(&pres);")
             .expect("hud apply");
@@ -12691,7 +12691,7 @@
             pf.contains("eva_low_power_count: logic.eva_low_power_count()"),
             "build_from_logic must snapshot EVA counters"
         );
-        let eng = include_str!("cnc_game_engine.rs");
+        let eng = crate::cnc_game_engine::ENGINE_SRC;
         assert!(
             eng.contains("fn sync_eva_messages_from_presentation")
                 && eng.contains("fn sync_eva_messages_from_host_counts"),
@@ -12714,7 +12714,7 @@
 
     #[test]
     fn play_sound_effect_direct_audio_source() {
-        let eng = include_str!("cnc_game_engine.rs");
+        let eng = crate::cnc_game_engine::ENGINE_SRC;
         let i = eng.find("fn play_sound_effect").expect("play_sound_effect");
         let body = &eng[i..eng.len().min(i + 2200)];
         assert!(
@@ -12761,7 +12761,7 @@
 
     #[test]
     fn game_client_mouse_inject_source() {
-        let eng = include_str!("cnc_game_engine.rs");
+        let eng = crate::cnc_game_engine::ENGINE_SRC;
         assert!(
             eng.contains("fn inject_game_client_mouse_move")
                 && eng.contains("fn inject_game_client_mouse_button")
@@ -12791,7 +12791,7 @@
 
     #[test]
     fn game_client_keyboard_inject_source() {
-        let eng = include_str!("cnc_game_engine.rs");
+        let eng = crate::cnc_game_engine::ENGINE_SRC;
         assert!(
             eng.contains("fn inject_game_client_key")
                 && eng.contains("fn to_game_client_key_code")
@@ -12875,7 +12875,7 @@
             pf.contains("fn alive_selectable_friendly_hero_ids") && pf.contains("KindOf::Hero"),
             "PresentationFrame must expose hero select helper from snapshot kind_of"
         );
-        let eng = include_str!("cnc_game_engine.rs");
+        let eng = crate::cnc_game_engine::ENGINE_SRC;
         let i = eng
             .find("fn select_hero_units_hotkey")
             .expect("select_hero_units_hotkey");
@@ -12909,7 +12909,7 @@
                 "PresentationFrame must expose {name}"
             );
         }
-        let eng = include_str!("cnc_game_engine.rs");
+        let eng = crate::cnc_game_engine::ENGINE_SRC;
         for (fn_name, call) in [
             (
                 "select_all_friendly_combat",
@@ -12963,7 +12963,7 @@
                 "PresentationFrame must expose {name}"
             );
         }
-        let eng = include_str!("cnc_game_engine.rs");
+        let eng = crate::cnc_game_engine::ENGINE_SRC;
         for (fn_name, call) in [
             (
                 "select_all_harvesters",
@@ -13014,7 +13014,7 @@
                 "PresentationFrame must expose {name}"
             );
         }
-        let eng = include_str!("cnc_game_engine.rs");
+        let eng = crate::cnc_game_engine::ENGINE_SRC;
         for (fn_name, call) in [
             (
                 "cycle_damaged_unit_selection",
@@ -13045,7 +13045,7 @@
 
     #[test]
     fn snap_camera_presentation_source() {
-        let eng = include_str!("cnc_game_engine.rs");
+        let eng = crate::cnc_game_engine::ENGINE_SRC;
         let i = eng
             .find("fn snap_camera_to_local_units_if_needed")
             .expect("snap_camera");
@@ -13064,7 +13064,7 @@
 
     #[test]
     fn runtime_host_select_attack_presentation_source() {
-        let eng = include_str!("cnc_game_engine.rs");
+        let eng = crate::cnc_game_engine::ENGINE_SRC;
         let i = eng.find("select_local_unit").expect("select_local_unit");
         let body = &eng[i..eng.len().min(i + 1800)];
         assert!(
@@ -13091,7 +13091,7 @@
 
     #[test]
     fn runtime_host_sell_presentation_source() {
-        let eng = include_str!("cnc_game_engine.rs");
+        let eng = crate::cnc_game_engine::ENGINE_SRC;
         let i = eng.find("sell_selected").expect("sell_selected");
         let body = &eng[i..eng.len().min(i + 4500)];
         assert!(
@@ -13112,7 +13112,7 @@
 
     #[test]
     fn runtime_host_upgrade_construct_presentation_source() {
-        let eng = include_str!("cnc_game_engine.rs");
+        let eng = crate::cnc_game_engine::ENGINE_SRC;
         let i = eng.find("queue_upgrade").expect("queue_upgrade");
         let body = &eng[i..eng.len().min(i + 3500)];
         assert!(
@@ -13139,7 +13139,7 @@
 
     #[test]
     fn runtime_host_empty_pick_batch_presentation_source() {
-        let eng = include_str!("cnc_game_engine.rs");
+        let eng = crate::cnc_game_engine::ENGINE_SRC;
         let checks = [
             ("scatter", "alive_selectable_friendly_mobile_ids"),
             (
@@ -13168,7 +13168,7 @@
 
     #[test]
     fn runtime_host_force_attack_presentation_source() {
-        let eng = include_str!("cnc_game_engine.rs");
+        let eng = crate::cnc_game_engine::ENGINE_SRC;
         let i = eng.find("force_attack_object").expect("force_attack");
         let body = &eng[i..eng.len().min(i + 2500)];
         assert!(
@@ -13194,7 +13194,7 @@
 
     #[test]
     fn runtime_host_construct_train_presentation_source() {
-        let eng = include_str!("cnc_game_engine.rs");
+        let eng = crate::cnc_game_engine::ENGINE_SRC;
         let i = eng.find("dozer_construct").expect("construct");
         let body = &eng[i..eng.len().min(i + 7000)];
         assert!(
@@ -13223,7 +13223,7 @@
 
     #[test]
     fn worker_unfinished_construction_presentation_source() {
-        let eng = include_str!("cnc_game_engine.rs");
+        let eng = crate::cnc_game_engine::ENGINE_SRC;
         let i = eng
             .find("fn cycle_friendly_worker_selection")
             .expect("worker cycle");
@@ -13258,7 +13258,7 @@
 
     #[test]
     fn runtime_host_status_snapshot_presentation_source() {
-        let eng = include_str!("cnc_game_engine.rs");
+        let eng = crate::cnc_game_engine::ENGINE_SRC;
         let i = eng
             .find("fn runtime_host_status_snapshot")
             .expect("status snapshot");
@@ -13294,7 +13294,7 @@
         assert_eq!(drained.len(), 2);
         assert!(host_fire_spawn_log::drain_residual_hitscans().is_empty());
 
-        let apply_src = include_str!("gameworld_shadow.rs");
+        let apply_src = crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC;
         let i = apply_src
             .find("fn apply_host_fire_spawn_events")
             .expect("apply");
@@ -13379,7 +13379,7 @@
         }
         // Engine boot mouse pick residual priority (presentation delegates to unit_control).
         {
-            let eng = include_str!("cnc_game_engine.rs");
+            let eng = crate::cnc_game_engine::ENGINE_SRC;
             let i = eng
                 .find("fn find_object_at_position")
                 .expect("engine find_object_at_position");
@@ -13439,7 +13439,7 @@
                     && res.contains("pick_nearest_residual_target"),
                 "resources find_nearest_supply_source must use pure residual acquire"
             );
-            let eng = include_str!("cnc_game_engine.rs");
+            let eng = crate::cnc_game_engine::ENGINE_SRC;
             let i = eng
                 .find("fn find_nearest_friendly_dozer")
                 .expect("find_nearest_friendly_dozer");
@@ -13455,7 +13455,7 @@
         }
         // CommandExecutor residual nearest picks.
         {
-            let src = include_str!("command_executor.rs");
+            let src = crate::command_executor::COMMAND_EXECUTOR_SRC;
             assert!(
                 src.contains("fn find_nearest_garrison_target")
                     && src.contains("is_friendly_airfield")
@@ -13670,7 +13670,7 @@
 
     #[test]
     fn boot_residual_dual_scan_labels_source() {
-        let eng = include_str!("cnc_game_engine.rs");
+        let eng = crate::cnc_game_engine::ENGINE_SRC;
         // Every live get_objects dual-scan should sit near Boot residual / Fail-open labels
         // when a presentation-first path exists.
         let mut unlabeled = 0u32;

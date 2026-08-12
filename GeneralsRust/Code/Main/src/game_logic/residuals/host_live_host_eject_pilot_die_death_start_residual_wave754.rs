@@ -67,7 +67,7 @@ fn gl_source() -> &'static str {
     include_str!("../game_logic.rs")
 }
 fn obj_source() -> &'static str {
-    include_str!("../object.rs")
+    crate::game_logic::object::OBJECT_SRC
 }
 pub fn honesty_host_eject_pilot_die_death_start_method_names_residual_wave754() -> bool {
     let names = LIVE_HOST_EJECT_PILOT_DIE_DEATH_START_METHOD_NAMES_WAVE754;

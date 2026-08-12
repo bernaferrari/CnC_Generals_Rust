@@ -81,7 +81,10 @@ pub(super) fn list_box_solid_content_width(width: i32, slider: Option<(i32, bool
     }
 }
 
-pub(super) fn list_box_solid_frame_and_content_widths(width: i32, slider: Option<(i32, bool)>) -> (i32, i32) {
+pub(super) fn list_box_solid_frame_and_content_widths(
+    width: i32,
+    slider: Option<(i32, bool)>,
+) -> (i32, i32) {
     (width, list_box_solid_content_width(width, slider))
 }
 
@@ -123,6 +126,7 @@ pub(super) fn draw_list_box_cell_text(
         text_color,
         border_color,
     );
+    note_shipped_ui_draw_commands(1);
 }
 
 pub fn w3d_gadget_list_box_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
@@ -174,8 +178,9 @@ pub fn w3d_gadget_list_box_draw(window: &GameWindow, inst_data: &WindowInstanceD
         with_window_manager_ref(|manager| {
             manager.win_open_rect(back.border_color, 1.0, x, y, x + frame_width, y + height);
         });
+        note_shipped_ui_draw_commands(1);
     }
-    if back.color != WIN_COLOR_UNDEFINED {
+    if back.color != WIN_COLOR_UNDEFINED && color_alpha(back.color) > 16 {
         with_window_manager_ref(|manager| {
             manager.win_fill_rect(
                 back.color,
@@ -186,6 +191,16 @@ pub fn w3d_gadget_list_box_draw(window: &GameWindow, inst_data: &WindowInstanceD
                 y + height - 1,
             );
         });
+        note_shipped_ui_draw_commands(1);
+    } else {
+        draw_visible_fill(
+            x,
+            y,
+            frame_width,
+            height,
+            FALLBACK_FILL,
+            Some(FALLBACK_BORDER),
+        );
     }
 
     if let Some(widget) = window.widget() {
@@ -380,6 +395,9 @@ pub fn w3d_gadget_list_box_image_draw(window: &GameWindow, inst_data: &WindowIns
                 WIN_COLOR_UNDEFINED,
             );
         });
+        note_shipped_ui_draw_commands(1);
+    } else {
+        draw_visible_fill(x, y, width, height, FALLBACK_FILL, Some(FALLBACK_BORDER));
     }
 
     let font_height = with_window_manager_ref(|manager| {
@@ -726,4 +744,3 @@ pub(super) fn draw_window_image_clipped(
         WIN_COLOR_UNDEFINED,
     );
 }
-

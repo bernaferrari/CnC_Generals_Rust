@@ -43,13 +43,13 @@ fn residual_action_store(a: ResidualHostPresentationProducerUsableAction) {
 }
 
 fn pf_source() -> &'static str {
-    include_str!("../../presentation_frame.rs")
+    crate::presentation_frame::PRESENTATION_FRAME_SRC
 }
 fn es_source() -> &'static str {
     include_str!("../../executable_smoke.rs")
 }
 fn cnc_source() -> &'static str {
-    include_str!("../../cnc_game_engine.rs")
+    crate::cnc_game_engine::ENGINE_SRC
 }
 
 pub fn honesty_host_presentation_producer_usable_method_names_residual_wave1100() -> bool {

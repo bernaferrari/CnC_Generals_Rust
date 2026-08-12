@@ -113,7 +113,8 @@ fn fn_body<'a>(src: &'a str, name: &str) -> Option<&'a str> {
 
 /// Source residual: TransitionDamageFX empty dual-world short-circuits.
 pub fn honesty_transition_damage_fx_dual_world_empty_gate_source() -> bool {
-    let g = include_str!("../../../../GameEngine/GameLogic/src/object/damage/transition_damage_fx.rs");
+    let g =
+        include_str!("../../../../GameEngine/GameLogic/src/object/damage/transition_damage_fx.rs");
     if !(g.contains("Wave 416")
         && g.contains("fn dual_world_registry_unavailable")
         && g.contains("OBJECT_REGISTRY.is_empty()"))

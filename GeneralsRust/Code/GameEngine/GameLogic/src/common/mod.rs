@@ -10,7 +10,6 @@ pub mod option_ext;
 pub mod perf_timer;
 pub mod result_ext;
 pub mod science;
-#[path = "types/mod.rs"]
 pub mod types;
 pub mod vec_ext;
 pub mod vector_ext;

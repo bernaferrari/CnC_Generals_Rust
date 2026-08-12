@@ -8,8 +8,8 @@
 
 use std::sync::{Mutex, OnceLock};
 
-use glam::{Mat4, Vec3, Vec4};
 use gamelogic::object::draw::{DrawModule, TracerDrawInterface};
+use glam::{Mat4, Vec3, Vec4};
 
 /// Live tracer created by FXList (wgpu stand-in for the Drawable + Line3D).
 #[derive(Debug, Clone, PartialEq)]
@@ -153,7 +153,10 @@ pub fn tracer_opacity_after_frames(
 ///
 /// Line3D lives in local space `(0,0,0)→(length,0,0)`; each draw translates
 /// that transform by `(speed, 0, 0)` on local X (`W3DTracerDraw.cpp`).
-pub fn tracer_world_endpoints(tracer: &TracerFxInstance, elapsed_frames: u32) -> ([f32; 3], [f32; 3]) {
+pub fn tracer_world_endpoints(
+    tracer: &TracerFxInstance,
+    elapsed_frames: u32,
+) -> ([f32; 3], [f32; 3]) {
     let travel = tracer.speed * elapsed_frames as f32;
     let xform = build_tracer_transform(tracer.pos, tracer.dir);
     let (local_start, local_end) = tracer_line3d_local_endpoints(tracer.length);
@@ -162,11 +165,7 @@ pub fn tracer_world_endpoints(tracer: &TracerFxInstance, elapsed_frames: u32) ->
         local_start[1],
         local_start[2],
     ));
-    let end = xform.transform_point3(Vec3::new(
-        local_end[0] + travel,
-        local_end[1],
-        local_end[2],
-    ));
+    let end = xform.transform_point3(Vec3::new(local_end[0] + travel, local_end[1], local_end[2]));
     ([start.x, start.y, start.z], [end.x, end.y, end.z])
 }
 
@@ -190,12 +189,7 @@ pub fn bake_tracer_gpu_mesh(tracer: &TracerFxInstance, elapsed_frames: u32) -> T
         tracer.expire_frame,
         elapsed_frames,
     );
-    let color = [
-        tracer.color[0],
-        tracer.color[1],
-        tracer.color[2],
-        alpha,
-    ];
+    let color = [tracer.color[0], tracer.color[1], tracer.color[2], alpha];
     let v = |p: Vec3, uv: [f32; 2]| TracerGpuVertex {
         position: [p.x, p.y, p.z],
         color,
@@ -413,9 +407,7 @@ pub fn create_tracer_fx(
     let dist = tracer_distance(primary, secondary);
     let frames = tracer_expiration_frames(dist - length, speed, decay_at);
     let instance = {
-        let mut store = global_tracers()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+        let mut store = global_tracers().lock().unwrap_or_else(|e| e.into_inner());
         let id = store.next_id;
         store.next_id = store.next_id.wrapping_add(1).max(1);
         let inst = TracerFxInstance {
@@ -446,9 +438,7 @@ pub fn live_tracer_fx() -> Vec<TracerFxInstance> {
 }
 
 pub fn clear_tracer_fx() {
-    let mut store = global_tracers()
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
+    let mut store = global_tracers().lock().unwrap_or_else(|e| e.into_inner());
     store.tracers.clear();
     clear_tracer_drawables();
 }
@@ -456,9 +446,7 @@ pub fn clear_tracer_fx() {
 /// C++ `W3DTracerDraw::doDrawModule` opacity decay + local-X translate, then
 /// expire when `current_frame >= expirationDate`.
 pub fn update_tracer_fx(current_frame: u32) {
-    let mut store = global_tracers()
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
+    let mut store = global_tracers().lock().unwrap_or_else(|e| e.into_inner());
     store
         .tracers
         .retain(|t| t.expire_frame == 0 || current_frame < t.expire_frame);
@@ -600,7 +588,11 @@ mod tests {
         );
 
         let spawned = live_tracer_fx();
-        assert_eq!(spawned.len(), 1, "FXList TracerFXNugget must call create_tracer_fx");
+        assert_eq!(
+            spawned.len(),
+            1,
+            "FXList TracerFXNugget must call create_tracer_fx"
+        );
         let drawables = live_tracer_drawables();
         assert_eq!(
             drawables.len(),

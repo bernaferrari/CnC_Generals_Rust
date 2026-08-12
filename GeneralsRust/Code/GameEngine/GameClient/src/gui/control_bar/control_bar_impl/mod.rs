@@ -20,8 +20,8 @@ use super::{
     ControlBarContext, ControlBarState, ProductionItem, ProductionType, QueueProductionType,
     MAX_BUILD_QUEUE_BUTTONS,
 };
-use crate::gui::{GameWindow, WindowManager};
-use crate::helpers::TheInGameUI;
+use crate::gui::{with_window_manager, GameWindow, WindowManager};
+use crate::helpers::{drain_live_control_bar_events, set_live_control_bar_observer_look_at, TheInGameUI};
 use crate::message_stream::game_message::GameMessageType;
 use crate::message_stream::message_stream::THE_MESSAGE_STREAM;
 use crate::system::SubsystemInterface;
@@ -42,9 +42,9 @@ use gamelogic::player::{player_list as logic_player_list, PlayerIndex};
 use gamelogic::system::beacon_manager::snapshot_beacons;
 use gamelogic::upgrade::center::with_upgrade_center;
 
-// Dump+path split: `gui/control_bar/control_bar.rs` is the unused original dump.
-// This directory is the live `control_bar` module. `include!` keeps one logical
-// module so field privacy and the public API stay identical to the dump.
+// Live `control_bar` module via `#[path = "control_bar_impl/mod.rs"]`.
+// `include!` keeps one logical module so field privacy and the public API
+// stay identical to the former dump.
 
 include!("types.rs");
 include!("impl_lifecycle.rs");
@@ -57,3 +57,18 @@ include!("impl_portrait.rs");
 include!("impl_science.rs");
 include!("traits.rs");
 include!("tests.rs");
+
+/// Concatenated live sources for residual `include_str!` scans.
+pub const CONTROL_BAR_SRC: &str = concat!(
+    include_str!("mod.rs"),
+    include_str!("types.rs"),
+    include_str!("impl_lifecycle.rs"),
+    include_str!("impl_context.rs"),
+    include_str!("impl_command_context.rs"),
+    include_str!("impl_execute.rs"),
+    include_str!("impl_buttons.rs"),
+    include_str!("impl_contexts.rs"),
+    include_str!("impl_portrait.rs"),
+    include_str!("impl_science.rs"),
+    include_str!("traits.rs"),
+);

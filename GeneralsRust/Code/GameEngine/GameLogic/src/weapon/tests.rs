@@ -6,9 +6,6 @@ use crate::damage::DamageInfo;
 use crate::helpers::TheGameLogic;
 use std::sync::{Arc, RwLock};
 
-    use super::*;
-    use crate::damage::DamageInfo;
-
     fn weapon_range_test_guard() -> std::sync::MutexGuard<'static, ()> {
         // Share isolation with other registry-mutating weapon tests (e.g.
         // weapon_template collision checks) so parallel suites cannot clear

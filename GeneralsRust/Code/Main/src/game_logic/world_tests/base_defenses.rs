@@ -3,7 +3,6 @@
 use super::super::*;
 use super::helpers::*;
 
-
 #[test]
 fn microwave_tank_residual_disables_enemy_structure() {
     use crate::game_logic::host_microwave::{is_microwave_tank, HOST_MICROWAVE_DISABLE_RANGE};
@@ -280,9 +279,7 @@ fn king_raptor_residual_laser_intercepts_missile() {
 /// Residual: regular AmericaJetRaptor (non-AirF) does not get PDL residual.
 #[test]
 fn king_raptor_residual_skips_regular_raptor() {
-    use crate::game_logic::host_point_defense::{
-        is_king_raptor_carrier, is_point_defense_carrier,
-    };
+    use crate::game_logic::host_point_defense::{is_king_raptor_carrier, is_point_defense_carrier};
 
     let mut game_logic = GameLogic::new();
 
@@ -967,8 +964,8 @@ fn quad_cannon_residual_anti_air_and_multi_barrel() {
 #[test]
 fn scud_launcher_residual_area_and_toxin() {
     use crate::game_logic::host_scud_launcher::{
-        is_scud_launcher_template, SCUD_ATTACK_RANGE, SCUD_EXP_PRIMARY_DAMAGE,
-        SCUD_GUN_EXPLOSIVE, SCUD_GUN_TOXIN, SCUD_MIN_RANGE, SCUD_POISON_DAMAGE_PER_TICK,
+        is_scud_launcher_template, SCUD_ATTACK_RANGE, SCUD_EXP_PRIMARY_DAMAGE, SCUD_GUN_EXPLOSIVE,
+        SCUD_GUN_TOXIN, SCUD_MIN_RANGE, SCUD_POISON_DAMAGE_PER_TICK,
     };
     use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
 
@@ -2189,8 +2186,7 @@ fn inferno_shell_bezier_flight_and_fire_field() {
 #[test]
 fn marauder_shell_bezier_flight_and_blast() {
     use crate::game_logic::host_marauder::{
-        marauder_shell_flight_frames, MARAUDER_DAMAGE, MARAUDER_SPEED_TIER0,
-        MARAUDER_TANK_SHELL,
+        marauder_shell_flight_frames, MARAUDER_DAMAGE, MARAUDER_SPEED_TIER0, MARAUDER_TANK_SHELL,
     };
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     use glam::Vec3;
@@ -2566,8 +2562,8 @@ fn technical_cannon_shell_projectile_flies_and_impacts() {
 #[test]
 fn technical_rpg_missile_projectile_flies_and_impacts() {
     use crate::game_logic::host_technical::{
-        technical_rpg_flight_frames, TechnicalWeaponTier, TECHNICAL_RPG_MISSILE,
-        TECH_RPG_DAMAGE, TECH_RPG_MISSILE_FUEL_FRAMES,
+        technical_rpg_flight_frames, TechnicalWeaponTier, TECHNICAL_RPG_MISSILE, TECH_RPG_DAMAGE,
+        TECH_RPG_MISSILE_FUEL_FRAMES,
     };
     use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
 
@@ -2778,8 +2774,7 @@ fn technical_residual_transport_and_salvage_weapon() {
         assert!(game_logic
             .spawn_technical_rpg_missile_projectile(tech_id, from, aim, Some(enemy))
             .is_some());
-        game_logic.technical_residual_fires =
-            game_logic.technical_residual_fires.saturating_add(1);
+        game_logic.technical_residual_fires = game_logic.technical_residual_fires.saturating_add(1);
     }
     for _ in 0..60 {
         game_logic.frame = game_logic.frame.saturating_add(1);
@@ -2835,8 +2830,7 @@ fn technical_residual_transport_and_salvage_weapon() {
         "technical unload residual honesty"
     );
     // Force unload honesty if Exit did not classify technical (fail-open for test).
-    if game_logic.technical_residual_loads() > 0 && game_logic.technical_residual_unloads() == 0
-    {
+    if game_logic.technical_residual_loads() > 0 && game_logic.technical_residual_unloads() == 0 {
         game_logic.record_technical_residual_unload();
     }
     assert!(
@@ -2948,8 +2942,8 @@ fn toxin_stream_projectile_flies_and_impacts() {
 #[test]
 fn toxin_tractor_residual_stream_spray_and_death_field() {
     use crate::game_logic::host_toxin_tractor::{
-        is_toxin_tractor_template, TOXIN_MED_FIELD_DAMAGE, TOXIN_STREAM_DAMAGE,
-        TOXIN_TRUCK_GUN, TOXIN_TRUCK_SPRAYER,
+        is_toxin_tractor_template, TOXIN_MED_FIELD_DAMAGE, TOXIN_STREAM_DAMAGE, TOXIN_TRUCK_GUN,
+        TOXIN_TRUCK_SPRAYER,
     };
     use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
 
@@ -3102,8 +3096,7 @@ fn toxin_tractor_residual_stream_spray_and_death_field() {
         .map(|e| e.health.current)
         .unwrap_or(0.0);
     assert!(
-        spray_hp_after < spray_hp_before
-            || game_logic.toxin_tractor_registry().spray_units_hit > 0,
+        spray_hp_after < spray_hp_before || game_logic.toxin_tractor_registry().spray_units_hit > 0,
         "spray residual must hit nearby ground unit"
     );
 
@@ -3774,8 +3767,5 @@ fn hellfire_scatter_misses_infantry_residual() {
         hp_before,
         hp_after
     );
-    assert!(
-        logic.honesty_hellfire_scatter_ok() || logic.hellfire_drone_residual_auto_fires > 0
-    );
+    assert!(logic.honesty_hellfire_scatter_ok() || logic.hellfire_drone_residual_auto_fires > 0);
 }
-

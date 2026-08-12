@@ -2,7 +2,9 @@
 
 // Restricted re-exports so impl submodules can `use super::*;`
 // without dumping the parent crate surface through `pub use`.
-pub(in crate::command_system) use crate::game_logic::{AIState, BuildingType, GameLogic, KindOf, Object, ObjectId, Team};
+pub(in crate::command_system) use crate::game_logic::{
+    AIState, BuildingType, GameLogic, KindOf, Object, ObjectId, Team,
+};
 pub(in crate::command_system) use glam::{Vec2, Vec3};
 pub(in crate::command_system) use serde::{Deserialize, Serialize};
 pub(in crate::command_system) use std::collections::{HashMap, VecDeque};
@@ -31,3 +33,17 @@ pub use button_map::*;
 
 #[cfg(test)]
 mod tests;
+
+/// Concatenated live command_system sources for residual `include_str` scans.
+pub const COMMAND_SYSTEM_SRC: &str = concat!(
+    include_str!("mod.rs"),
+    include_str!("button_map.rs"),
+    include_str!("command.rs"),
+    include_str!("commandable.rs"),
+    include_str!("helpers.rs"),
+    include_str!("presentation.rs"),
+    include_str!("special_power.rs"),
+    include_str!("system.rs"),
+    include_str!("system_impl.rs"),
+    include_str!("types.rs"),
+);

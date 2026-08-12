@@ -98,17 +98,57 @@ pub const TERRAIN_TYPE_NAMES: &[&str] = &[
 ];
 
 /// Look up a TerrainClass by name string.
+pub fn terrain_class_from_index(i: usize) -> Option<TerrainClass> {
+    // C++ TerrainClass is a dense 0..NumClasses-1 enum. No transmute:
+    // a stale index must not become an invalid discriminant.
+    Some(match i {
+        0 => TerrainClass::None,
+        1 => TerrainClass::Desert1,
+        2 => TerrainClass::Desert2,
+        3 => TerrainClass::Desert3,
+        4 => TerrainClass::EasternEurope1,
+        5 => TerrainClass::EasternEurope2,
+        6 => TerrainClass::EasternEurope3,
+        7 => TerrainClass::Swiss1,
+        8 => TerrainClass::Swiss2,
+        9 => TerrainClass::Swiss3,
+        10 => TerrainClass::Snow1,
+        11 => TerrainClass::Snow2,
+        12 => TerrainClass::Snow3,
+        13 => TerrainClass::Dirt,
+        14 => TerrainClass::Grass,
+        15 => TerrainClass::Transition,
+        16 => TerrainClass::Rock,
+        17 => TerrainClass::Sand,
+        18 => TerrainClass::Cliff,
+        19 => TerrainClass::Wood,
+        20 => TerrainClass::BlendEdges,
+        21 => TerrainClass::LiveDesert,
+        22 => TerrainClass::DryDesert,
+        23 => TerrainClass::AccentSand,
+        24 => TerrainClass::TropicalBeach,
+        25 => TerrainClass::BeachPark,
+        26 => TerrainClass::RuggedMountain,
+        27 => TerrainClass::CobblestoneGrass,
+        28 => TerrainClass::AccentGrass,
+        29 => TerrainClass::Residential,
+        30 => TerrainClass::RuggedSnow,
+        31 => TerrainClass::FlatSnow,
+        32 => TerrainClass::Field,
+        33 => TerrainClass::Asphalt,
+        34 => TerrainClass::Concrete,
+        35 => TerrainClass::China,
+        36 => TerrainClass::AccentRock,
+        37 => TerrainClass::Urban,
+        _ => return None,
+    })
+}
+
 pub fn terrain_class_from_name(name: &str) -> Option<TerrainClass> {
     TERRAIN_TYPE_NAMES
         .iter()
         .position(|&n| name.eq_ignore_ascii_case(n))
-        .and_then(|i| {
-            if i < TerrainClass::NumClasses as usize {
-                Some(unsafe { std::mem::transmute(i as u32) })
-            } else {
-                None
-            }
-        })
+        .and_then(terrain_class_from_index)
 }
 
 /// Get the name string for a TerrainClass.
@@ -360,6 +400,17 @@ mod tests {
             assert_eq!(class as usize, i);
             assert_eq!(terrain_class_name(class), name);
         }
+        assert_eq!(terrain_class_from_name("NONE"), Some(TerrainClass::None));
+        assert_eq!(terrain_class_from_index(TerrainClass::NumClasses as usize), None);
+        assert_eq!(terrain_class_from_index(999), None);
+        let impl_src = include_str!("terrain_types.rs")
+            .split("#[cfg(test)]")
+            .next()
+            .unwrap_or("");
+        assert!(
+            !impl_src.contains("mem::transmute"),
+            "TerrainClass lookup must not transmute integers"
+        );
     }
 
     #[test]

@@ -583,11 +583,27 @@ impl UIRenderer {
     }
 
     fn ensure_geometry_buffer_capacity(&mut self) {
+        // Fail-closed caps: runaway draw command storms (bad sizes / reentry)
+        // previously requested multi-GB UI buffers and aborted the process
+        // (wgpu Validation Error: Buffer size > max buffer size).
+        const MAX_UI_INDICES: usize = 1 << 21;
         let required_vertices = self.vertex_data.len();
+        if required_vertices > Self::MAX_UI_VERTICES {
+            log::error!(
+                "UI vertex flood ({} > {}); clearing draw geometry to fail closed",
+                required_vertices,
+                Self::MAX_UI_VERTICES
+            );
+            self.vertex_data.clear();
+            self.index_data.clear();
+            self.draw_commands.clear();
+            return;
+        }
         if required_vertices > self.vertex_capacity {
             let new_capacity = required_vertices
                 .next_power_of_two()
-                .max(self.vertex_capacity * 2);
+                .max(self.vertex_capacity * 2)
+                .min(Self::MAX_UI_VERTICES);
             self.vertex_buffer = self.device.create_buffer(&BufferDescriptor {
                 label: Some("UI Vertex Buffer"),
                 size: (std::mem::size_of::<UIVertex>() * new_capacity) as u64,
@@ -598,10 +614,22 @@ impl UIRenderer {
         }
 
         let required_indices = self.index_data.len();
+        if required_indices > MAX_UI_INDICES {
+            log::error!(
+                "UI index flood ({} > {}); clearing draw geometry to fail closed",
+                required_indices,
+                MAX_UI_INDICES
+            );
+            self.vertex_data.clear();
+            self.index_data.clear();
+            self.draw_commands.clear();
+            return;
+        }
         if required_indices > self.index_capacity {
             let new_capacity = required_indices
                 .next_power_of_two()
-                .max(self.index_capacity * 2);
+                .max(self.index_capacity * 2)
+                .min(MAX_UI_INDICES);
             self.index_buffer = self.device.create_buffer(&BufferDescriptor {
                 label: Some("UI Index Buffer"),
                 size: (std::mem::size_of::<u32>() * new_capacity) as u64,
@@ -654,8 +682,24 @@ impl UIRenderer {
         )
     }
 
+    /// Hard cap on queued gadget draws per frame. A runaway border-tile or
+    /// WND re-draw loop used to push hundreds of millions of verts and get
+    /// the process SIGKILL'd (code=None) mid-InGame construct.
+    pub const MAX_DRAW_COMMANDS_PER_FRAME: usize = 8_192;
+    pub const MAX_UI_VERTICES: usize = 1 << 20;
+
+    fn push_draw_command(&mut self, command: UIDrawCommand) {
+        if self.draw_commands.len() >= Self::MAX_DRAW_COMMANDS_PER_FRAME {
+            return;
+        }
+        self.draw_commands.push(command);
+    }
+
     /// Add a rectangle draw command
     pub fn draw_rect(&mut self, rect: UIRect, color: [f32; 4], z_order: f32) {
+        if self.draw_commands.len() >= Self::MAX_DRAW_COMMANDS_PER_FRAME {
+            return;
+        }
         let (positions, uvs, colors, indices) =
             Self::gadget_gpu_fill_rect_mesh(rect, color, z_order);
         let vertices = positions
@@ -669,7 +713,7 @@ impl UIRenderer {
             })
             .collect();
 
-        self.draw_commands.push(UIDrawCommand {
+        self.push_draw_command(UIDrawCommand {
             vertices,
             indices,
             texture: None,
@@ -688,6 +732,9 @@ impl UIRenderer {
         tex_rect: Option<UIRect>,
         z_order: f32,
     ) {
+        if self.draw_commands.len() >= Self::MAX_DRAW_COMMANDS_PER_FRAME {
+            return;
+        }
         let tex_rect = tex_rect.unwrap_or(UIRect::new(0.0, 0.0, 1.0, 1.0));
 
         let vertices = vec![
@@ -715,7 +762,7 @@ impl UIRenderer {
 
         let indices = vec![0, 1, 2, 0, 2, 3];
 
-        self.draw_commands.push(UIDrawCommand {
+        self.push_draw_command(UIDrawCommand {
             vertices,
             indices,
             texture: Some(texture),
@@ -915,7 +962,7 @@ impl UIRenderer {
 
         let indices = vec![0, 1, 2, 0, 2, 3];
 
-        self.draw_commands.push(UIDrawCommand {
+        self.push_draw_command(UIDrawCommand {
             vertices,
             indices,
             texture: Some(self.default_texture.clone()),
@@ -945,7 +992,7 @@ impl UIRenderer {
             },
         ];
         let indices = vec![0, 1, 2];
-        self.draw_commands.push(UIDrawCommand {
+        self.push_draw_command(UIDrawCommand {
             vertices,
             indices,
             texture: Some(self.default_texture.clone()),
@@ -961,8 +1008,8 @@ impl UIRenderer {
             return Ok(());
         }
 
-        let canvas_width = layout.bounds.width.ceil().max(1.0) as u32;
-        let canvas_height = layout.bounds.height.ceil().max(1.0) as u32;
+        let canvas_width = layout.bounds.width.ceil().max(1.0).min(2048.0) as u32;
+        let canvas_height = layout.bounds.height.ceil().max(1.0).min(512.0) as u32;
         let mut canvas = vec![0u8; canvas_width as usize * canvas_height as usize * 4];
 
         let metrics = Metrics::new(layout.font_size.max(1.0), (layout.font_size * 1.2).max(1.0));
@@ -1006,17 +1053,21 @@ impl UIRenderer {
             text_buffer.set_wrap(wrap_mode);
             text_buffer.set_text(&text, attrs, Shaping::Advanced);
             text_buffer.shape_until_scroll();
-            text_buffer.draw(&mut runtime.swash_cache, text_color, |x, y, _w, _h, color| {
-                let rgba = color.as_rgba();
-                if rgba[3] == 0 {
-                    return;
-                }
-                min_x = min_x.min(x);
-                min_y = min_y.min(y);
-                max_x = max_x.max(x);
-                max_y = max_y.max(y);
-                pixels.push((x, y, rgba));
-            });
+            text_buffer.draw(
+                &mut runtime.swash_cache,
+                text_color,
+                |x, y, _w, _h, color| {
+                    let rgba = color.as_rgba();
+                    if rgba[3] == 0 {
+                        return;
+                    }
+                    min_x = min_x.min(x);
+                    min_y = min_y.min(y);
+                    max_x = max_x.max(x);
+                    max_y = max_y.max(y);
+                    pixels.push((x, y, rgba));
+                },
+            );
         }
 
         if pixels.is_empty() {
@@ -1101,6 +1152,15 @@ impl UIRenderer {
         let mut vertex_offset = 0u32;
         let mut command_ranges: Vec<(u32, u32)> = Vec::with_capacity(self.draw_commands.len());
         for command in &self.draw_commands {
+            if self.vertex_data.len() + command.vertices.len() > Self::MAX_UI_VERTICES {
+                log::error!(
+                    "UI vertex flood ({} + {} > {}); dropping remaining commands",
+                    self.vertex_data.len(),
+                    command.vertices.len(),
+                    Self::MAX_UI_VERTICES
+                );
+                break;
+            }
             let base_vertex = vertex_offset;
             let start = self.index_data.len() as u32;
 

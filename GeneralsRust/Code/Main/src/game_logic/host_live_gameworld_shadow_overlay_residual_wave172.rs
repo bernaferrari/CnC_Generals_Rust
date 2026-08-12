@@ -82,7 +82,7 @@ pub fn honesty_live_gameworld_shadow_overlay_residual_pack_wave172() -> bool {
 
 /// Source residual: seed_presentation overlays GameWorld shadow after host freeze.
 pub fn honesty_seed_presentation_shadow_overlay_source() -> bool {
-    let src = include_str!("../cnc_game_engine.rs");
+    let src = crate::cnc_game_engine::ENGINE_SRC;
     // Wave 590: real seed body lives in host_seed_presentation_after_match_start.
     let i = match src.find("fn host_seed_presentation_after_match_start(&mut self)") {
         Some(i) => i,
@@ -221,11 +221,7 @@ mod tests {
         t.add_kind_of(KindOf::Selectable);
         logic.templates.insert("ShadowRanger172".into(), t);
         let id = logic
-            .create_object(
-                "ShadowRanger172",
-                Team::USA,
-                Vec3::new(12.0, 0.0, 24.0),
-            )
+            .create_object("ShadowRanger172", Team::USA, Vec3::new(12.0, 0.0, 24.0))
             .expect("create host object");
 
         let mut shadow = GameWorldShadow::new(64);

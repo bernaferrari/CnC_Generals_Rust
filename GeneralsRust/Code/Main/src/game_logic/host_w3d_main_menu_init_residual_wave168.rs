@@ -85,7 +85,7 @@ pub fn honesty_w3d_main_menu_init_residual_pack_wave168() -> bool {
 /// Source residual: WindowManager binds W3DMainMenuInit → MainMenu.init.
 pub fn honesty_w3d_main_menu_init_bind_source() -> bool {
     // window_manager.rs is large; include_str from Main via relative path into GameClient.
-    let src = include_str!("../../../GameEngine/GameClient/src/gui/window_manager.rs");
+    let src = game_client::gui::window_manager::WINDOW_MANAGER_SRC;
     let i = match src.find("\"W3DMainMenuInit\"") {
         Some(i) => i,
         None => return false,

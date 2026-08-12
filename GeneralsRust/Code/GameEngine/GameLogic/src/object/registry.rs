@@ -234,3 +234,93 @@ pub fn test_isolation_lock() -> &'static std::sync::Mutex<()> {
     static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
     LOCK.get_or_init(|| Mutex::new(()))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::common::{DefaultThingTemplate, ObjectStatusMaskType};
+    use crate::object::crate_registry_bind::bind_crate_object;
+    use crate::object::Object;
+    use std::sync::{Arc, RwLock};
+
+    fn crate_test_object(id: ObjectID) -> Arc<RwLock<Object>> {
+        let template = Arc::new(DefaultThingTemplate::new(format!("CrateBind{id}")));
+        Arc::new(RwLock::new(Object::new_raw(
+            template,
+            id,
+            ObjectStatusMaskType::none(),
+            None,
+        )))
+    }
+
+    #[test]
+    fn bind_crate_object_fills_object_registry_store() {
+        let _lock = test_isolation_lock().lock().unwrap();
+        let id = 0xC0_FF_EE;
+        let object = crate_test_object(id);
+        OBJECT_REGISTRY.clear();
+        assert!(
+            OBJECT_REGISTRY.store_is_empty(),
+            "cleared store must start empty"
+        );
+
+        bind_crate_object(id, &object);
+
+        assert!(
+            !OBJECT_REGISTRY.store_is_empty(),
+            "crate bind must fill OBJECT_REGISTRY store"
+        );
+        assert!(!OBJECT_REGISTRY.is_empty());
+        let found = OBJECT_REGISTRY.with_object(id, |obj| obj.get_id());
+        assert_eq!(found, Some(id));
+
+        OBJECT_REGISTRY.unregister_object(id);
+        OBJECT_REGISTRY.clear();
+    }
+
+    #[test]
+    fn crate_object_manager_create_registers_in_object_registry() {
+        let _lock = test_isolation_lock().lock().unwrap();
+        let id = 0xC0_11_EC;
+        let object = crate_test_object(id);
+        OBJECT_REGISTRY.clear();
+
+        // Same helper crate object_manager new/from_existing/create/register call.
+        bind_crate_object(id, &object);
+
+        assert!(
+            !OBJECT_REGISTRY.is_empty(),
+            "crate object_manager create must fill OBJECT_REGISTRY"
+        );
+        assert!(!OBJECT_REGISTRY.store_is_empty());
+        let found = OBJECT_REGISTRY.with_object(id, |obj| obj.get_id());
+        assert_eq!(found, Some(id));
+
+        OBJECT_REGISTRY.unregister_object(id);
+        OBJECT_REGISTRY.clear();
+    }
+
+    #[test]
+    fn object_manager_crate_create_path_calls_bind_crate_object() {
+        let src = include_str!("../object_manager.rs");
+        let bind_count = src.matches("bind_crate_object(").count();
+        assert!(
+            bind_count >= 4,
+            "crate object_manager new/from_existing/create/register must call bind_crate_object, got {bind_count}"
+        );
+        let manager_impl = src.find("impl ObjectManager").expect("ObjectManager impl");
+        let create_rel = src[manager_impl..]
+            .find("pub fn create_object(")
+            .expect("ObjectManager::create_object");
+        let create_idx = manager_impl + create_rel;
+        let create_window = &src[create_idx..src.len().min(create_idx + 2800)];
+        assert!(
+            create_window.contains("bind_crate_object("),
+            "ObjectManager::create_object must bind crate objects"
+        );
+        assert!(
+            !src.contains("gameworld_shadow"),
+            "crate object_manager must not be the host create/couple path"
+        );
+    }
+}

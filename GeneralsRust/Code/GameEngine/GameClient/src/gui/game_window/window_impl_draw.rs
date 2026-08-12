@@ -39,6 +39,13 @@ pub(crate) fn border_pieces() -> &'static BorderPieces {
     })
 }
 
+/// Max edge length for W3D border tiling. Larger spans are clamped.
+pub(crate) const MAX_BORDER_SPAN: i32 = 4096;
+
+pub(crate) fn clamp_border_span(span: i32) -> i32 {
+    span.clamp(0, MAX_BORDER_SPAN)
+}
+
 impl GameWindow {
     /// Draw W3D border art for this window (port of W3DGameWindow::winDrawBorder).
     pub fn draw_border_w3d(&self) {
@@ -174,6 +181,10 @@ impl GameWindow {
         corner_size: i32,
     ) {
         let pieces = border_pieces().clone();
+        // Huge/garbage window sizes used to tile tens of millions of border
+        // pieces and SIGKILL the process during InGame HUD draw.
+        let width = clamp_border_span(width);
+        let height = clamp_border_span(height);
         let max_x = x + width;
         let max_y = y + height;
 

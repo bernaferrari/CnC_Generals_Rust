@@ -424,6 +424,19 @@ impl ControlBar {
     // C++ ControlBar.cpp:2071-2090
     // ---------------------------------------------------------------------------
 
+    /// C++ ControlBar::processContextSensitiveButtonClick → processCommandUI.
+    pub fn process_context_sensitive_button_click(&mut self, control_id: u32, _msg: u32) {
+        let command_name = with_window_manager(|wm| {
+            wm.get_window_by_id(control_id as crate::gui::WindowId)
+                .and_then(|win| win.borrow().get_user_data::<String>().cloned())
+        });
+        if let Some(command_name) = command_name {
+            if !command_name.is_empty() {
+                let _ = self.process_command(&command_name, CommandSourceType::FromUser);
+            }
+        }
+    }
+
     pub fn process_command(
         &mut self,
         command_name: &str,

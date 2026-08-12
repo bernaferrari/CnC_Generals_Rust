@@ -31,7 +31,7 @@ use gamelogic::helpers::{
 use log::info;
 use std::cell::RefCell;
 use std::rc::Rc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
 /// Trait implemented by the real in-game UI layer so the legacy
@@ -241,6 +241,141 @@ pub fn register_control_bar_backend(hooks: Arc<dyn ControlBarHooks>) {
         .lock()
         .unwrap_or_else(|e| e.into_inner());
     *slot = Some(hooks);
+}
+
+/// Pending WND clicks / UI dirty bits for the live `ControlBar` (not Send).
+#[derive(Debug, Default)]
+pub struct LiveControlBarEvents {
+    pub ui_dirty: bool,
+    pub clicks: Vec<(u32, u32)>,
+    pub transitions: Vec<(u32, bool)>,
+    pub hide_purchase_science: bool,
+    pub toggle_purchase_science: bool,
+    pub show_special_power_shortcut: bool,
+    pub hide_special_power_shortcut: bool,
+    pub animate_special_power_shortcut: Option<bool>,
+    pub toggle_control_bar_stage: bool,
+    pub init_special_power_shortcut_for_player: Option<String>,
+    pub set_scheme_by_player: Option<String>,
+}
+
+struct LiveControlBarPending {
+    ui_dirty: AtomicBool,
+    observer_look_at: AtomicI32,
+    events: Mutex<LiveControlBarEvents>,
+}
+
+fn live_control_bar_pending() -> &'static LiveControlBarPending {
+    static PENDING: OnceLock<LiveControlBarPending> = OnceLock::new();
+    PENDING.get_or_init(|| LiveControlBarPending {
+        ui_dirty: AtomicBool::new(false),
+        observer_look_at: AtomicI32::new(-1),
+        events: Mutex::new(LiveControlBarEvents::default()),
+    })
+}
+
+fn with_live_control_bar_events<R>(f: impl FnOnce(&mut LiveControlBarEvents) -> R) -> R {
+    let mut guard = live_control_bar_pending()
+        .events
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    f(&mut guard)
+}
+
+/// Drain queued ControlBar hook events for the live UI tick.
+pub fn drain_live_control_bar_events() -> LiveControlBarEvents {
+    let pending = live_control_bar_pending();
+    let ui_dirty = pending.ui_dirty.swap(false, Ordering::SeqCst);
+    let mut events = with_live_control_bar_events(std::mem::take);
+    events.ui_dirty |= ui_dirty;
+    events
+}
+
+/// Stamp observer look-at residual for audio locality hooks.
+pub fn set_live_control_bar_observer_look_at(index: Option<i32>) {
+    live_control_bar_pending()
+        .observer_look_at
+        .store(index.unwrap_or(-1), Ordering::Relaxed);
+}
+
+struct LiveControlBarBackend;
+
+impl ControlBarHooks for LiveControlBarBackend {
+    fn hide_purchase_science(&self) {
+        with_live_control_bar_events(|events| events.hide_purchase_science = true);
+    }
+
+    fn process_context_sensitive_button_click(&self, control_id: u32, msg: u32) {
+        with_live_control_bar_events(|events| events.clicks.push((control_id, msg)));
+    }
+
+    fn process_context_sensitive_button_transition(&self, control_id: u32, entering: bool) {
+        with_live_control_bar_events(|events| events.transitions.push((control_id, entering)));
+    }
+
+    fn toggle_purchase_science(&self) {
+        with_live_control_bar_events(|events| events.toggle_purchase_science = true);
+    }
+
+    fn show_special_power_shortcut(&self) {
+        with_live_control_bar_events(|events| events.show_special_power_shortcut = true);
+    }
+
+    fn hide_special_power_shortcut(&self) {
+        with_live_control_bar_events(|events| events.hide_special_power_shortcut = true);
+    }
+
+    fn animate_special_power_shortcut(&self, enabled: bool) {
+        with_live_control_bar_events(|events| events.animate_special_power_shortcut = Some(enabled));
+    }
+
+    fn init_special_power_shortcut_bar_for_player(&self, player_side: &str) {
+        with_live_control_bar_events(|events| {
+            events.init_special_power_shortcut_for_player = Some(player_side.to_string());
+        });
+    }
+
+    fn set_control_bar_scheme_by_player(&self, player_side: &str) {
+        with_live_control_bar_events(|events| {
+            events.set_scheme_by_player = Some(player_side.to_string());
+        });
+    }
+
+    fn toggle_control_bar_stage(&self) {
+        with_live_control_bar_events(|events| events.toggle_control_bar_stage = true);
+    }
+
+    fn get_observer_look_at_player_index(&self) -> Option<i32> {
+        let index = live_control_bar_pending()
+            .observer_look_at
+            .load(Ordering::Relaxed);
+        (index >= 0).then_some(index)
+    }
+}
+
+struct LiveControlBarUiHooks;
+
+impl gamelogic::control_bar::ControlBarUiHooks for LiveControlBarUiHooks {
+    fn mark_ui_dirty(&self) {
+        live_control_bar_pending()
+            .ui_dirty
+            .store(true, Ordering::SeqCst);
+        with_live_control_bar_events(|events| events.ui_dirty = true);
+    }
+
+    fn on_player_science_purchase_points_changed(&self, _player_id: i32, _points: i32) {
+        self.mark_ui_dirty();
+    }
+
+    fn on_player_rank_changed(&self, _player_id: i32, _rank_level: i32, _points: i32) {
+        self.mark_ui_dirty();
+    }
+}
+
+/// Register WND click + GameLogic `mark_ui_dirty` forwarding for the live ControlBar.
+pub fn register_live_control_bar_hooks() {
+    register_control_bar_backend(Arc::new(LiveControlBarBackend));
+    let _ = gamelogic::control_bar::register_control_bar_ui_hooks(Arc::new(LiveControlBarUiHooks));
 }
 
 fn with_control_bar_backend<F>(f: F) -> bool

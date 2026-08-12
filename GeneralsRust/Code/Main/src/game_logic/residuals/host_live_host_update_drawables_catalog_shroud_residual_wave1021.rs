@@ -46,13 +46,13 @@ fn residual_action_store(a: ResidualHostUpdateDrawablesCatalogShroudResidualActi
 }
 
 fn cnc_source() -> &'static str {
-    include_str!("../../cnc_game_engine.rs")
+    crate::cnc_game_engine::ENGINE_SRC
 }
 fn gl_source() -> &'static str {
     include_str!("../game_logic.rs")
 }
 fn gc_source() -> &'static str {
-    include_str!("../../../../GameEngine/GameClient/src/core/game_client.rs")
+    game_client::core::game_client::GAME_CLIENT_SRC
 }
 
 pub fn honesty_host_update_drawables_catalog_shroud_residual_method_names_residual_wave1021() -> bool

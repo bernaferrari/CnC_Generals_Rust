@@ -101,7 +101,7 @@ fn fn_body<'a>(src: &'a str, name: &str) -> Option<&'a str> {
 /// Source residual: probe APIs exist; engine HUD/purchase use them without get_player.
 pub fn honesty_player_probe_api_source() -> bool {
     let gl = include_str!("../game_logic.rs");
-    let eng = include_str!("../../cnc_game_engine.rs");
+    let eng = crate::cnc_game_engine::ENGINE_SRC;
     for api in [
         "pub fn player_economy(",
         "pub fn player_unlocked_sciences(",

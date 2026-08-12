@@ -368,6 +368,40 @@ impl CnCGameEngine {
             // Loading completed and transitioned this frame; avoid re-applying loading UI.
             return Ok(());
         }
+        // NewGame / start-new-game must drain on the load screen, not only Menu.
+        // Windowed sit-through was stuck in Loading because WND/start posted
+        // NewGame while boot load was still InProgress and Menu never ticked.
+        if let Some((mode, faction, map, skirmish)) = self.take_pending_new_game_start_request() {
+            info!(
+                "Loading NewGame drain: mode={:?} faction={} map={}",
+                mode, faction, map
+            );
+            self.start_game_from_ui(mode, faction, map, skirmish);
+            return Ok(());
+        }
+        if gamelogic::helpers::TheGameLogic::is_start_new_game_requested() {
+            gamelogic::helpers::TheGameLogic::clear_start_new_game_request();
+            if let Some((mode, faction, map, skirmish)) =
+                self.build_start_request_from_pending_globals(None)
+            {
+                info!(
+                    "Loading start_new_game flag drain: mode={:?} map={}",
+                    mode, map
+                );
+                self.start_game_from_ui(mode, faction, map, skirmish);
+                return Ok(());
+            }
+        }
+        // Boot worker (INI + optional shell map) must not pin Loading forever.
+        // Intended target is Menu; a later start_game_from_ui owns match load.
+        if self.startup_load_should_release_to_menu() {
+            info!(
+                "Startup load still in progress; releasing Loading → Menu so start_game_from_ui can run"
+            );
+            self.abandon_startup_load_worker();
+            self.transition_to_state(GameState::Menu);
+            return Ok(());
+        }
         self.set_runtime_ui_state_projection(UISystemState::Loading);
         // After loading completes, the state will transition to InGame
         // This is handled by the initialization code setting pending_state
@@ -1358,7 +1392,9 @@ impl CnCGameEngine {
         }
     }
 
-    pub(super) fn host_build_render_ui_state_from_presentation(&mut self) -> crate::ui::GameUIState {
+    pub(super) fn host_build_render_ui_state_from_presentation(
+        &mut self,
+    ) -> crate::ui::GameUIState {
         // Wave 591: render UI presentation consumer residual.
         // Wave 462: prefer pipeline freeze, then last_presentation_frame.
         // Boot residual: update_ui_state only when no frame is installed yet.
@@ -1378,6 +1414,9 @@ impl CnCGameEngine {
             #[cfg(feature = "game_client")]
             {
                 pres.apply_to_control_bar(&mut self.control_bar);
+                let _ = self
+                    .control_bar
+                    .update(std::time::Duration::from_millis(33));
             }
             // Keep last_presentation aligned with pipeline freeze when it was the source.
             self.last_presentation_frame = Some(pres);
@@ -1432,6 +1471,9 @@ impl CnCGameEngine {
         #[cfg(feature = "game_client")]
         {
             pres.apply_to_control_bar(&mut self.control_bar);
+            let _ = self
+                .control_bar
+                .update(std::time::Duration::from_millis(33));
         }
         let mut ui = GameUIState::default();
         pres.apply_to_ui_state(&mut ui);
@@ -1661,6 +1703,9 @@ impl CnCGameEngine {
             #[cfg(feature = "game_client")]
             {
                 pres.apply_to_control_bar(&mut self.control_bar);
+                let _ = self
+                    .control_bar
+                    .update(std::time::Duration::from_millis(33));
             }
         } else {
             // Wave 238: boot residual via ui_local_economy (no &Player dual-read).
@@ -1693,7 +1738,8 @@ impl CnCGameEngine {
     pub(super) fn host_run_gameworld_shadow_after_logic(&mut self, couple_shadow: bool) {
         // Wave 597/680/927: GameWorld shadow session residual via single boundary.
         // AFTER host logic + projectiles + path; host temporary mid-frame owner.
-        crate::gameworld_shadow::clear_active_shadow_for_coupled_tick();
+        // Keep the generation-checked couple handle live through writeback
+        // complete/spawn so `host_authoritative_*` still see GameWorld.
         let from_boundary = crate::gameworld_shadow::run_post_logic_shadow_boundary(
             self.gameworld_shadow.as_mut(),
             &mut self.game_logic,
@@ -1717,6 +1763,7 @@ impl CnCGameEngine {
         if couple_shadow {
             crate::gameworld_shadow::end_shadow_coupled_tick();
         }
+        crate::gameworld_shadow::clear_active_shadow_for_coupled_tick();
     }
 
     /// Wave 589: post-logic presentation finalize residual.

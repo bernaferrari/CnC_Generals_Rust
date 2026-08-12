@@ -124,6 +124,21 @@ impl RuntimeHostBridge {
         }
     }
 
+    /// Latch live_frame_ok after a real windowed wgpu surface present.
+    ///
+    /// Capture-path promotion still owns the primary residual; this covers the
+    /// honest case where the OS surface has presented even if PNG readback is
+    /// delayed. Headless must never call this (no OS surface present).
+    pub(super) fn note_windowed_surface_presented(&mut self) {
+        if !self.has_published_live_frame {
+            info!(
+                "Runtime host latched live_frame_ok from windowed surface present (frame={})",
+                self.last_published_frame
+            );
+        }
+        self.has_published_live_frame = true;
+    }
+
     pub(super) fn capture_interval_for_state(state: &str) -> Duration {
         match state {
             "Menu" | "InGame" | "Paused" => Self::CAPTURE_REQUEST_INTERVAL_INTERACTIVE,
@@ -340,21 +355,28 @@ impl RuntimeHostBridge {
             snapshot.presentation_live_fallback_reads
         ));
         payload.push_str(&format!("waypoint_mode={}\n", snapshot.waypoint_mode));
-        // Honest: only a promoted GPU/screenshot capture (or an explicit snapshot
-        // flag). Fallback PNGs written to frame_path must not flip live_frame_ok.
+        // Honest live_frame sources: promoted capture PNG **or** windowed surface
+        // present latch (`note_windowed_surface_presented`). Never fallback PNG;
+        // never headless present (headless cannot call the present latch).
         payload.push_str(&format!(
             "live_frame_ok={}\n",
-            snapshot.live_frame_ok || self.has_published_live_frame
+            crate::executable_smoke::ExecutableSmokeResult::live_frame_ok_from_windowed_present(
+                snapshot.live_frame_ok,
+                self.has_published_live_frame,
+            )
         ));
         payload.push_str(&format!("window_visible={}\n", snapshot.window_visible));
         payload.push_str(&format!(
             "wnd_widget_tree_nav={}\n",
             snapshot.wnd_widget_tree_nav
         ));
-        // Five-flag sit-through diagnostic. `live_frame_ok` above is
-        // capture-promoted only; gameplay is physical input evidence, never a
-        // runtime-host command string.
-        let live_frame_ok = snapshot.live_frame_ok || self.has_published_live_frame;
+        // Five-flag sit-through diagnostic. Gameplay is physical / inject RMB
+        // evidence via handle_mouse_button_input, never a forged host string.
+        let live_frame_ok =
+            crate::executable_smoke::ExecutableSmokeResult::live_frame_ok_from_windowed_present(
+                snapshot.live_frame_ok,
+                self.has_published_live_frame,
+            );
         let ingame = matches!(snapshot.state.as_str(), "InGame" | "Paused");
         let gameplay = snapshot.interactive_gameplay;
         let sit_through_missing =

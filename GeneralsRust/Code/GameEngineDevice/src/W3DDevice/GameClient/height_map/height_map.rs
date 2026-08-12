@@ -24,6 +24,8 @@ pub struct HeightMap {
     pub flat: FlatHeightMap,
     world: Arc<RwLock<WorldHeightMap>>,
     cached_height: RwLock<CachedHeightSample>,
+    /// C++ `m_extraBlendTilePositions` packed as `i | (j << 16)`.
+    extra_blend_tile_positions: Vec<i32>,
 }
 
 impl HeightMap {
@@ -50,11 +52,16 @@ impl HeightMap {
         base.x = x;
         base.y = y;
 
+        let extra_blend_tile_positions = world
+            .read()
+            .map(|map| map.collect_extra_blend_tile_positions())
+            .unwrap_or_default();
         Self {
             base,
             flat,
             world,
             cached_height: RwLock::new(CachedHeightSample::default()),
+            extra_blend_tile_positions,
         }
     }
 
@@ -153,5 +160,22 @@ impl HeightMap {
         if let Ok(mut cache) = self.cached_height.write() {
             cache.valid = false;
         }
+    }
+
+    /// Rebuild extra-blend tile positions from the world height map (C++ initHeightData).
+    pub fn rebuild_extra_blend_tile_positions(&mut self) {
+        self.extra_blend_tile_positions = self
+            .world
+            .read()
+            .map(|map| map.collect_extra_blend_tile_positions())
+            .unwrap_or_default();
+    }
+
+    pub fn extra_blend_tile_count(&self) -> usize {
+        self.extra_blend_tile_positions.len()
+    }
+
+    pub fn extra_blend_tile_positions(&self) -> &[i32] {
+        &self.extra_blend_tile_positions
     }
 }

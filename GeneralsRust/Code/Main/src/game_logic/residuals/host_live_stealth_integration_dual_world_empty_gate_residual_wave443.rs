@@ -113,7 +113,8 @@ fn fn_body<'a>(src: &'a str, name: &str) -> Option<&'a str> {
 
 /// Source residual: StealthIntegrationLayer empty dual-world short-circuits.
 pub fn honesty_stealth_integration_dual_world_empty_gate_source() -> bool {
-    let g = include_str!("../../../../GameEngine/GameLogic/src/system/stealth_integration_layer.rs");
+    let g =
+        include_str!("../../../../GameEngine/GameLogic/src/system/stealth_integration_layer.rs");
     if !(g.contains("Wave 443")
         && g.contains("fn dual_world_registry_unavailable")
         && g.contains("OBJECT_REGISTRY.is_empty()"))

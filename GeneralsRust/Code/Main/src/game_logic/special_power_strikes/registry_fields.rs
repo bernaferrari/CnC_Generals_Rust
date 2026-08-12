@@ -2,7 +2,6 @@
 use super::types::*;
 use super::*;
 impl HostSpecialPowerStrikeRegistry {
-
     /// Spawn a residual radiation field at `position` (NuclearMissile impact).
 
     /// C++ NeutronMissileSlowDeathBehavior activation residual at impact.
@@ -810,7 +809,6 @@ impl HostSpecialPowerStrikeRegistry {
         }
     }
 
-
     pub fn prune_expired_orbit(&mut self, current_frame: u32) {
         self.apply_orbit_coast_cooldown(current_frame);
         self.orbit_fields.retain(|f| !f.is_expired(current_frame));
@@ -1331,6 +1329,4 @@ impl HostSpecialPowerStrikeRegistry {
             }
         }
     }
-
-
 }

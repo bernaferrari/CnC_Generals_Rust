@@ -25,6 +25,23 @@ impl ScriptConditionEvaluator {
             area_name
         );
 
+        if crate::object::registry::OBJECT_REGISTRY.is_empty() {
+            // Match named.rs: existence is not inside-area. Missing host AABB
+            // is False (do not fall through to NamedObjectTracker).
+            return Ok(
+                if crate::scripting::host_script_named_unit_in_named_area(
+                    &object_name,
+                    &area_name,
+                )
+                .unwrap_or(false)
+                {
+                    ScriptConditionResult::True
+                } else {
+                    ScriptConditionResult::False
+                },
+            );
+        }
+
         // Look up the named object using the tracker
         let tracker = get_named_object_tracker();
         if let Ok(Some(object_id)) = tracker.get_object_id(&object_name) {
@@ -49,6 +66,27 @@ impl ScriptConditionEvaluator {
     ) -> Result<ScriptConditionResult, ScriptError> {
         log::debug!("Evaluating named outside area (inverting inside check per C++)");
 
+        if crate::object::registry::OBJECT_REGISTRY.is_empty() {
+            // Do not invert unresolved host area geometry (fail-closed).
+            let object_name = self.get_condition_string_param(condition, 0)?;
+            let area_name = self.get_condition_string_param(condition, 1)?;
+            return Ok(
+                match crate::scripting::host_script_named_unit_in_named_area(
+                    &object_name,
+                    &area_name,
+                ) {
+                    Some(inside) => {
+                        if inside {
+                            ScriptConditionResult::False
+                        } else {
+                            ScriptConditionResult::True
+                        }
+                    }
+                    None => ScriptConditionResult::False,
+                },
+            );
+        }
+
         // C++ pattern: return !evaluateNamedInsideArea(pUnitParm, pTriggerParm);
         match self.eval_named_inside_area(condition)? {
             ScriptConditionResult::True => Ok(ScriptConditionResult::False),
@@ -63,6 +101,19 @@ impl ScriptConditionEvaluator {
     ) -> Result<ScriptConditionResult, ScriptError> {
         let object_name = self.get_condition_string_param(condition, 0)?;
         log::debug!("Evaluating if '{}' is destroyed", object_name);
+
+        if crate::object::registry::OBJECT_REGISTRY.is_empty() {
+            if let Some(alive) = crate::scripting::host_script_named_unit_alive(&object_name) {
+                return Ok(if alive {
+                    ScriptConditionResult::False
+                } else {
+                    ScriptConditionResult::True
+                });
+            }
+            if crate::scripting::host_script_query_has_any() {
+                return Ok(ScriptConditionResult::True);
+            }
+        }
 
         // Look up the named object using the tracker
         let tracker = get_named_object_tracker();

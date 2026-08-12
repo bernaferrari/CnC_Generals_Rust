@@ -82,7 +82,7 @@ pub fn honesty_live_command_non_attack_order_target_residual_pack_wave207() -> b
 
 /// Source residual: dock/enter/repair use set_order_target.
 pub fn honesty_non_attack_paths_use_order_target_source() -> bool {
-    let ce = include_str!("../../command_executor.rs");
+    let ce = crate::command_executor::COMMAND_EXECUTOR_SRC;
     let prod = match ce.find("#[cfg(test)]") {
         Some(i) => &ce[..i],
         None => ce,
@@ -110,7 +110,7 @@ pub fn honesty_non_attack_paths_use_order_target_source() -> bool {
 
 /// Source residual: production has no set_target followed by non-Attacking AIState first.
 pub fn honesty_no_set_target_before_non_attack_ai_source() -> bool {
-    let ce = include_str!("../../command_executor.rs");
+    let ce = crate::command_executor::COMMAND_EXECUTOR_SRC;
     let prod = match ce.find("#[cfg(test)]") {
         Some(i) => &ce[..i],
         None => ce,

@@ -20,7 +20,6 @@ use glam::Vec3;
 use log::{debug, warn};
 use std::collections::{HashMap, HashSet};
 
-
 impl<'a> CommandExecutor<'a> {
     /// C++ AIGroup::groupSurrender residual.
     pub(crate) fn execute_surrender(
@@ -47,7 +46,12 @@ impl<'a> CommandExecutor<'a> {
 
     /// Pathfind to `goal` then set AI state. Returns false if path assign fails.
     /// Used by Guard/Scatter/Gather/Enter/Construct so units navigate obstacles.
-    pub(super) fn path_to_goal_with_state(&mut self, unit_id: ObjectId, goal: Vec3, state: AIState) -> bool {
+    pub(super) fn path_to_goal_with_state(
+        &mut self,
+        unit_id: ObjectId,
+        goal: Vec3,
+        state: AIState,
+    ) -> bool {
         // Wave 233: path+AI state via GameLogic unit_command_path_with_state.
         self.game_logic
             .unit_command_path_with_state(unit_id, goal, state)
@@ -146,7 +150,11 @@ impl<'a> CommandExecutor<'a> {
     }
 
     /// Send worker/harvester units to gather from a resource target.
-    pub(super) fn execute_gather(&mut self, units: &[ObjectId], target_id: ObjectId) -> CommandResult {
+    pub(super) fn execute_gather(
+        &mut self,
+        units: &[ObjectId],
+        target_id: ObjectId,
+    ) -> CommandResult {
         let player_team = self.player_team(self.current_player_id);
         let (target_pos, target_alive, target_is_resource) =
             match self.game_logic.host_object(target_id) {
@@ -502,7 +510,11 @@ impl<'a> CommandExecutor<'a> {
 
     // === Utility Commands ===
 
-    pub(super) fn execute_repair(&mut self, units: &[ObjectId], target_id: ObjectId) -> CommandResult {
+    pub(super) fn execute_repair(
+        &mut self,
+        units: &[ObjectId],
+        target_id: ObjectId,
+    ) -> CommandResult {
         // Host residual: dozer/worker repairs damaged structure over time
         // (C++ DozerAIUpdate::privateRepair → DOZER_TASK_REPAIR).
         // Fail-closed: not sole-benefactor reject / scaffolding / percent INI matrix.
@@ -558,7 +570,11 @@ impl<'a> CommandExecutor<'a> {
         }
     }
 
-    pub(super) fn execute_get_repaired(&mut self, units: &[ObjectId], target_id: ObjectId) -> CommandResult {
+    pub(super) fn execute_get_repaired(
+        &mut self,
+        units: &[ObjectId],
+        target_id: ObjectId,
+    ) -> CommandResult {
         // Host residual: damaged vehicle → RepairPad or WarFactory (China RepairDock);
         // aircraft → Airfield. Fail-closed: not full dock bones / TimeForFullHeal matrix.
         let (
@@ -632,7 +648,11 @@ impl<'a> CommandExecutor<'a> {
         }
     }
 
-    pub(super) fn execute_get_healed(&mut self, units: &[ObjectId], target_id: ObjectId) -> CommandResult {
+    pub(super) fn execute_get_healed(
+        &mut self,
+        units: &[ObjectId],
+        target_id: ObjectId,
+    ) -> CommandResult {
         let (
             target_team,
             target_pos,
@@ -695,7 +715,11 @@ impl<'a> CommandExecutor<'a> {
         }
     }
 
-    pub(super) fn execute_set_rally_point(&mut self, units: &[ObjectId], location: Vec3) -> CommandResult {
+    pub(super) fn execute_set_rally_point(
+        &mut self,
+        units: &[ObjectId],
+        location: Vec3,
+    ) -> CommandResult {
         let mut applied = false;
         for &unit_id in units {
             // Wave 233: rally point via GameLogic authority API.
@@ -798,5 +822,4 @@ impl<'a> CommandExecutor<'a> {
             CommandResult::InvalidCommand
         }
     }
-
 }

@@ -99,7 +99,7 @@ fn fn_body<'a>(src: &'a str, name: &str) -> Option<&'a str> {
 
 /// Source residual: sample takes Option; presentation path skips live dual-read.
 pub fn honesty_camera_height_probe_source() -> bool {
-    let eng = include_str!("../../cnc_game_engine.rs");
+    let eng = crate::cnc_game_engine::ENGINE_SRC;
     let Some(sample) = fn_body(eng, "fn sample_startup_camera_heights(") else {
         return false;
     };

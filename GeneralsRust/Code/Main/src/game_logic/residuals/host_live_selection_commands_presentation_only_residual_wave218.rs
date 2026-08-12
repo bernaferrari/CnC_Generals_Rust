@@ -82,7 +82,7 @@ pub fn honesty_live_selection_commands_presentation_only_residual_pack_wave218()
 
 /// Source residual: move/force_attack/waypoint/select paths use ui_selected_ids.
 pub fn honesty_selection_commands_presentation_only_source() -> bool {
-    let eng = include_str!("../../cnc_game_engine.rs");
+    let eng = crate::cnc_game_engine::ENGINE_SRC;
     let checks = [
         (
             "move_fail_no_selection",

@@ -1150,6 +1150,7 @@ impl AIGroup {
                         z: obj_ref.get_position().z,
                     },
                     orientation: obj_ref.get_orientation(),
+                    command_set: None,
                 })
             else {
                 continue;

@@ -47,7 +47,7 @@ fn residual_action_store(a: ResidualHostMetaDrawableTemplateAction) {
 }
 
 fn cnc_source() -> &'static str {
-    include_str!("../../cnc_game_engine.rs")
+    crate::cnc_game_engine::ENGINE_SRC
 }
 
 fn gl_source() -> &'static str {
@@ -55,11 +55,11 @@ fn gl_source() -> &'static str {
 }
 
 fn meta_source() -> &'static str {
-    include_str!("../../../../GameEngine/GameClient/src/message_stream/meta_event.rs")
+    game_client::message_stream::meta_event::META_EVENT_SRC
 }
 
 fn client_source() -> &'static str {
-    include_str!("../../../../GameEngine/GameClient/src/core/game_client.rs")
+    game_client::core::game_client::GAME_CLIENT_SRC
 }
 
 fn residual_mod_source() -> &'static str {

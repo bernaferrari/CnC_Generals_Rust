@@ -254,10 +254,20 @@ impl HostSpecialPowerStrikeRegistry {
     ) {
         let mut spawn_radiation: Option<(ObjectId, crate::game_logic::Team, Vec3, u32)> = None;
         let mut spawn_toxin: Option<(ObjectId, crate::game_logic::Team, Vec3, u32)> = None;
-        let mut spawn_scud_poison: Vec<(ObjectId, crate::game_logic::Team, Vec3, u32, ScudStormAnthraxTier)> =
-            Vec::new();
-        let mut spawn_orbit: Option<(ObjectId, crate::game_logic::Team, Vec3, u32, SpectreGunshipScienceTier)> =
-            None;
+        let mut spawn_scud_poison: Vec<(
+            ObjectId,
+            crate::game_logic::Team,
+            Vec3,
+            u32,
+            ScudStormAnthraxTier,
+        )> = Vec::new();
+        let mut spawn_orbit: Option<(
+            ObjectId,
+            crate::game_logic::Team,
+            Vec3,
+            u32,
+            SpectreGunshipScienceTier,
+        )> = None;
         let mut spawn_beam: Option<(ObjectId, crate::game_logic::Team, Vec3, u32)> = None;
         if let Some(strike) = self.strikes.get_mut(&strike_id) {
             if strike.phase == HostStrikePhase::Queued {
@@ -569,5 +579,4 @@ impl HostSpecialPowerStrikeRegistry {
             self.spawn_beam_field(source, team, pos, impact_frame, strike_id);
         }
     }
-
 }

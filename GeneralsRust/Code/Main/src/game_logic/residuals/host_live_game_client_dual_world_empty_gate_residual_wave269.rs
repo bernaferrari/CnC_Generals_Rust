@@ -100,7 +100,7 @@ fn fn_body<'a>(src: &'a str, name: &str) -> Option<&'a str> {
 
 /// Source residual: GameClient empty dual-world short-circuits.
 pub fn honesty_game_client_dual_world_empty_gate_source() -> bool {
-    let g = include_str!("../../../../GameEngine/GameClient/src/core/game_client.rs");
+    let g = game_client::core::game_client::GAME_CLIENT_SRC;
     if !(g.contains("Wave 269")
         && g.contains("fn dual_world_registry_unavailable")
         && g.contains("OBJECT_REGISTRY.is_empty()"))

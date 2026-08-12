@@ -1,6 +1,5 @@
 //! EVA voice system (GameClient/Eva.cpp).
 
-use std::cell::Cell;
 use std::sync::{Mutex, OnceLock};
 
 use game_engine::common::ini::{
@@ -869,22 +868,12 @@ pub fn parse_eva_event(ini: &mut INI) -> INIResult<()> {
         return Err(INIError::InvalidData);
     }
 
-    let ptr = ACTIVE_EVA_MANAGER.with(|p| p.get());
-    if !ptr.is_null() {
-        let eva = unsafe { &mut *ptr };
-        let Some(check) = eva.new_eva_check_info(name) else {
-            skip_eva_event_block(ini)?;
-            return Ok(());
-        };
-        parse_eva_check_info_fields(ini, check)?;
-        return Ok(());
-    }
-
-    let Some(eva) = THE_EVA.get() else {
-        return Err(INIError::InvalidData);
-    };
+    // Always use the OnceLock singleton. Do not hold THE_EVA across INI load
+    // (parse callbacks re-enter this function).
+    let eva = get_eva();
     let mut eva = eva.lock().map_err(|_| INIError::InvalidData)?;
     let Some(check) = eva.new_eva_check_info(name) else {
+        drop(eva);
         skip_eva_event_block(ini)?;
         return Ok(());
     };
@@ -894,36 +883,16 @@ pub fn parse_eva_event(ini: &mut INI) -> INIResult<()> {
 
 static THE_EVA: OnceLock<Mutex<Eva>> = OnceLock::new();
 
-thread_local! {
-    static ACTIVE_EVA_MANAGER: Cell<*mut Eva> = const { Cell::new(std::ptr::null_mut()) };
-}
-
-/// Set the active EVA manager pointer for INI parser callbacks.
-/// Must be cleared after use. Only call when THE_EVA lock is already held.
-///
-/// # Safety
-/// Caller must ensure the pointer is valid and the mutex is held for the duration.
-unsafe fn set_active_eva_manager(eva: *mut Eva) {
-    ACTIVE_EVA_MANAGER.with(|ptr| ptr.set(eva));
-}
-
-fn clear_active_eva_manager() {
-    ACTIVE_EVA_MANAGER.with(|ptr| ptr.set(std::ptr::null_mut()));
-}
-
 pub fn get_eva() -> &'static Mutex<Eva> {
     THE_EVA.get_or_init(|| Mutex::new(Eva::new()))
 }
 
 pub fn initialize_eva_system() -> INIResult<()> {
-    let eva = get_eva();
-    let mut guard = eva.lock().map_err(|_| INIError::InvalidData)?;
-    unsafe {
-        set_active_eva_manager(&mut *guard as *mut Eva);
-    }
-    let result = guard.init();
-    clear_active_eva_manager();
-    result
+    let _ = get_eva();
+    // Register + load without holding THE_EVA; parse_eva_event locks per event.
+    let _ = register_block_parser("EvaEvent", parse_eva_event);
+    let mut ini = INI::new();
+    ini.load("Data/INI/Eva.ini", INILoadType::Overwrite)
 }
 
 pub fn reset_eva_system() {
@@ -971,15 +940,13 @@ mod tests {
         }
     }
 
-    fn load_eva_file_for_test(eva: &mut Eva, path: &Path) -> INIResult<()> {
+    fn load_eva_file_for_test(path: &Path) -> INIResult<()> {
+        // Shipped parse path writes THE_EVA (OnceLock), not a raw TLS pointer.
+        reset_eva_system();
+        let _ = get_eva();
         let _ = register_block_parser("EvaEvent", parse_eva_event);
-        unsafe {
-            set_active_eva_manager(eva as *mut Eva);
-        }
         let mut ini = INI::new();
-        let result = ini.load(path, INILoadType::Overwrite);
-        clear_active_eva_manager();
-        result
+        ini.load(path, INILoadType::Overwrite)
     }
 
     #[test]
@@ -1044,9 +1011,11 @@ mod tests {
             return;
         }
 
-        let mut eva = Eva::new();
-        load_eva_file_for_test(&mut eva, &path).expect("retail Eva.ini should parse");
+        load_eva_file_for_test(&path).expect("retail Eva.ini should parse");
 
+        // Assert the shipped singleton the parser actually writes.
+        let eva = get_eva();
+        let eva = eva.lock().expect("THE_EVA lock");
         assert_eq!(eva.all_check_infos.len(), 49);
         assert!(eva
             .get_eva_check_info_by_name("SuperweaponLaunched_Enemy_GPS_Scrambler")

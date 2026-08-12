@@ -35,7 +35,7 @@ fn configure_windows() {
     println!("cargo:rustc-link-lib=shell32");
     println!("cargo:rustc-link-lib=ole32");
     println!("cargo:rustc-link-lib=winmm");
-    println!("cargo:rustc-link-lib=dsound");
+    // Audio is rodio/cpal, not DirectSound. Do not link dsound.
 
     // Enable Windows subsystem for GUI application
     println!("cargo:rustc-link-arg=/SUBSYSTEM:WINDOWS");

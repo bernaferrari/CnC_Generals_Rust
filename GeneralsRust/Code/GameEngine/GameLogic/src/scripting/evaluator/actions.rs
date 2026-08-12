@@ -406,9 +406,11 @@ impl ScriptEvaluator {
 
         // Mark as countdown timer
         let index = engine.allocate_counter(counter_name)?;
-        if let Some(counter) = &mut engine.counters[index] {
-            counter.is_countdown_timer = true;
-        }
+        engine.with_inner_mut(|inner| {
+            if let Some(counter) = inner.counters.get_mut(index).and_then(|c| c.as_mut()) {
+                counter.is_countdown_timer = true;
+            }
+        });
 
         log::debug!(
             "Set timer '{}' to {} seconds ({} frames)",
@@ -447,9 +449,11 @@ impl ScriptEvaluator {
 
         // Mark as countdown timer
         let index = engine.allocate_counter(counter_name)?;
-        if let Some(counter) = &mut engine.counters[index] {
-            counter.is_countdown_timer = true;
-        }
+        engine.with_inner_mut(|inner| {
+            if let Some(counter) = inner.counters.get_mut(index).and_then(|c| c.as_mut()) {
+                counter.is_countdown_timer = true;
+            }
+        });
 
         log::debug!(
             "Set millisecond timer '{}' to {} script-seconds ({} frames)",

@@ -86,7 +86,7 @@ pub fn honesty_live_presentation_seed_residual_pack_wave171() -> bool {
 
 /// Source residual: engine seeds presentation after match start from GameLogic.
 pub fn honesty_seed_presentation_after_match_start_source() -> bool {
-    let src = include_str!("../cnc_game_engine.rs");
+    let src = crate::cnc_game_engine::ENGINE_SRC;
     // Wave 590: real seed body lives in host_seed_presentation_after_match_start.
     let i = match src.find("fn host_seed_presentation_after_match_start(&mut self)") {
         Some(i) => i,
@@ -104,7 +104,7 @@ pub fn honesty_seed_presentation_after_match_start_source() -> bool {
 
 /// Source residual: render execute stays presentation-only (no live GameLogic arg).
 pub fn honesty_render_execute_presentation_only_source() -> bool {
-    let src = include_str!("../graphics/render_pipeline.rs");
+    let src = crate::graphics::render_pipeline::RENDER_PIPELINE_SRC;
     let i = match src.find("pub fn execute(") {
         Some(i) => i,
         None => return false,

@@ -4,12 +4,14 @@ use crate::game_text::GameText;
 use crate::gui::callbacks::message_box::{
     message_box_yes_no, quit_message_box_yes_no, MessageBoxFunc,
 };
+use crate::gui::callbacks::popup_save_load::show_live_popup_save_load_layout;
 use crate::gui::{
     get_disconnect_menu, get_lan_setup, get_shell, hide_diplomacy, hide_in_game_chat,
     show_shell_map_if_available, try_with_shell_mut,
 };
 use crate::gui::{
-    with_window_manager, GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled,
+    queue_window_manager_op, with_window_manager, GameWindow, WindowLayout, WindowMessage,
+    WindowMsgData, WindowMsgHandled,
 };
 use crate::helpers::{TheControlBar, TheInGameUI};
 use crate::message_stream::{get_message_stream, GameMessageType};
@@ -132,14 +134,18 @@ pub fn destroy_quit_menu() {
     let state_handle = quit_menu_state();
     let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
     state.quit_confirmation_window = None;
-    if let Some(layout) = state.full_quit_menu_layout.take() {
-        with_window_manager(|manager| manager.destroy_layout(&layout));
-    }
-    if let Some(layout) = state.no_save_quit_menu_layout.take() {
-        with_window_manager(|manager| manager.destroy_layout(&layout));
-    }
+    let full_layout = state.full_quit_menu_layout.take();
+    let no_save_layout = state.no_save_quit_menu_layout.take();
     state.quit_menu_layout = None;
     state.is_visible = false;
+    drop(state);
+
+    // Load confirmation can call this from a WindowManager input callback.
+    // Queue destruction so real QuitMenu layouts are torn down after that
+    // dispatch instead of silently failing the manager's re-entry guard.
+    for layout in [full_layout, no_save_layout].into_iter().flatten() {
+        queue_window_manager_op(move |manager| manager.destroy_layout(&layout));
+    }
 }
 
 fn exit_quit_menu() {
@@ -553,20 +559,38 @@ pub fn quit_menu_system(
             let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
 
             if control_id == state.button_save_load {
-                if state.save_load_layout.is_none() {
-                    let created = with_window_manager(|manager| {
-                        manager
+                let existing_layout = state.save_load_layout.clone();
+                drop(state);
+
+                if let Some(layout) = existing_layout {
+                    // This callback normally runs under WindowManager input
+                    // dispatch, so the popup init must not re-enter the
+                    // manager for control lookup.
+                    layout.borrow().run_init(None);
+                    show_live_popup_save_load_layout(layout);
+                } else {
+                    // The current input dispatch already owns WindowManager.
+                    // Queue the retail layout creation instead of invoking
+                    // with_window_manager and getting its fail-closed result.
+                    queue_window_manager_op(move |manager| {
+                        let Some(layout) = manager
                             .create_layout_with_windows("Menus/PopupSaveLoad.wnd")
                             .ok()
                             .map(|(layout, _)| layout)
+                        else {
+                            return;
+                        };
+
+                        let state_handle = quit_menu_state();
+                        let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+                        state.save_load_layout = Some(layout.clone());
+                        drop(state);
+
+                        layout.borrow().run_init(None);
+                        show_live_popup_save_load_layout(layout);
                     });
-                    state.save_load_layout = created;
                 }
-                if let Some(layout) = state.save_load_layout.as_ref() {
-                    layout.borrow().run_init(None);
-                    layout.borrow_mut().hide(false);
-                    layout.borrow_mut().bring_forward();
-                }
+                return WindowMsgHandled::Handled;
             } else if control_id == state.button_exit {
                 let yes: MessageBoxFunc = Box::new(exit_quit_menu);
                 let no: MessageBoxFunc = Box::new(no_exit_quit_menu);
@@ -842,6 +866,31 @@ pub fn drive_os_wnd_quit_menu_save_load_like_cpp() -> bool {
     )
 }
 
+/// Create `Menus/QuitMenu.wnd` if missing, then require live SaveLoad gadget.
+///
+/// C++ Pause/Esc shows this layout. Fail-closed if parse/create fails.
+pub fn ensure_live_quit_menu_layout() -> bool {
+    const SAVE_LOAD: &str = "QuitMenu.wnd:ButtonSaveLoad";
+    let present = with_window_manager(|manager| manager.find_window_by_name(SAVE_LOAD).is_some())
+        || with_window_manager(|manager| {
+            manager
+                .create_layout_with_windows("Menus/QuitMenu.wnd")
+                .is_ok()
+        });
+    if !present || !with_window_manager(|manager| manager.find_window_by_name(SAVE_LOAD).is_some())
+    {
+        return false;
+    }
+
+    // The WND file has no LAYOUTINIT callback. Bind the QuitMenu IDs here so
+    // a real ButtonSaveLoad click reaches `quit_menu_system` rather than only
+    // a residual test latch.
+    let state_handle = quit_menu_state();
+    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+    init_gadgets_full_quit(&mut state);
+    true
+}
+
 /// Human click-through: ButtonExit then confirm residual (C++ exit + yes).
 pub fn drive_os_wnd_quit_menu_prepare_exit_like_cpp() -> bool {
     let clicked = drive_os_wnd_quit_menu_exit_like_cpp();
@@ -854,6 +903,9 @@ pub fn drive_os_wnd_quit_menu_prepare_exit_like_cpp() -> bool {
 #[cfg(test)]
 mod os_wnd_tests {
     use super::*;
+    use crate::gui::callbacks::popup_save_load::{
+        drive_os_wnd_popup_save_load_save_like_cpp, live_popup_save_load_window_present,
+    };
     use crate::gui::with_window_manager;
 
     fn install_named_button(name: &str, x: i32, y: i32) {
@@ -903,5 +955,62 @@ mod os_wnd_tests {
             ResidualQuitMenuAction::ConfirmExit
         );
         assert!(!residual_quit_menu_is_visible());
+    }
+
+    #[test]
+    fn retail_quit_save_load_click_creates_initialized_popup_layout() {
+        with_window_manager(|manager| manager.reset());
+        assert!(
+            ensure_live_quit_menu_layout(),
+            "the retail QuitMenu.wnd must parse with ButtonSaveLoad"
+        );
+
+        assert!(
+            drive_os_wnd_quit_menu_save_load_like_cpp(),
+            "the real ButtonSaveLoad OS click must be hittable"
+        );
+
+        for name in [
+            "PopupSaveLoad.wnd:SaveLoadMenu",
+            "PopupSaveLoad.wnd:MenuButtonFrame",
+            "PopupSaveLoad.wnd:ButtonSave",
+            "PopupSaveLoad.wnd:ButtonLoad",
+            "PopupSaveLoad.wnd:ListboxGames",
+            "PopupSaveLoad.wnd:LoadConfirmParent",
+            "PopupSaveLoad.wnd:OverwriteConfirmParent",
+            "PopupSaveLoad.wnd:SaveDescParent",
+            "PopupSaveLoad.wnd:DeleteConfirmParent",
+        ] {
+            assert!(
+                live_popup_save_load_window_present(name),
+                "real PopupSaveLoad.wnd must create {name}"
+            );
+        }
+
+        let popup_state =
+            crate::gui::callbacks::popup_save_load::prepare_live_popup_save_load_for_click();
+        assert!(
+            popup_state,
+            "popup must have bound its real listbox/control state"
+        );
+
+        assert!(
+            drive_os_wnd_popup_save_load_save_like_cpp(),
+            "Save must reach the retail PopupSaveLoad callback"
+        );
+        let save_description_visible = with_window_manager(|manager| {
+            manager
+                .find_window_by_name("PopupSaveLoad.wnd:SaveDescParent")
+                .is_some_and(|window| !window.borrow().is_hidden())
+        });
+        assert!(
+            save_description_visible,
+            "New Save Game must open SaveDescParent instead of stopping at ButtonSave"
+        );
+        assert!(
+            crate::gui::dispatch_os_click_named_window("PopupSaveLoad.wnd:ButtonSaveDescCancel"),
+            "the real save description cancel button must be hittable"
+        );
+        with_window_manager(|manager| manager.reset());
     }
 }

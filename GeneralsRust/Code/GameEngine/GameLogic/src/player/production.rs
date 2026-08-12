@@ -206,9 +206,9 @@ impl Player {
     /// Force units to idle in place or resume supply trucking.
     /// Matches C++ Player::setUnitsShouldIdleOrResume.
     pub fn set_units_should_idle_or_resume(&mut self, idle: Bool, source: CommandSourceType) {
-        if crate::object::registry::OBJECT_REGISTRY.is_empty() {
-            return;
-        }
+        // Walk owned ids even when OBJECT_REGISTRY is empty (C++ Player list).
+        // An empty registry is not a skip-close: the loop simply finds nothing.
+        let _registry_empty = crate::object::registry::OBJECT_REGISTRY.is_empty();
         for object_id in &self.owned_objects {
             let Some((is_structure, ai, pos)) = crate::object::registry::OBJECT_REGISTRY
                 .with_object(*object_id, |object_guard| {

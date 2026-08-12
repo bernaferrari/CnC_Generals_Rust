@@ -82,7 +82,7 @@ pub fn honesty_live_gameworld_economy_movement_residual_pack_wave183() -> bool {
 }
 
 pub fn honesty_economy_movement_channel_api_source() -> bool {
-    let src = include_str!("../../gameworld_shadow.rs");
+    let src = crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC;
     let econ = include_str!("../host_economy_log.rs");
     let mov = include_str!("../host_movement_log.rs");
     src.contains("pub fn writeback_economy_to_host")
@@ -95,7 +95,7 @@ pub fn honesty_economy_movement_channel_api_source() -> bool {
 
 /// Source residual: economy + movement authorities default on.
 pub fn honesty_economy_movement_authority_default_on_source() -> bool {
-    let src = include_str!("../../gameworld_shadow.rs");
+    let src = crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC;
     let econ_ok = {
         let i = match src.find("pub fn gameworld_economy_authority_enabled") {
             Some(i) => i,

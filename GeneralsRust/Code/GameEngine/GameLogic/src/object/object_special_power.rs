@@ -333,6 +333,7 @@ impl Object {
                             z: self.get_position().z,
                         },
                         orientation: self.get_orientation(),
+                        command_set: None,
                     };
                     assistant.sell_object(&object, crate::helpers::TheGameLogic::get_frame());
                     return Ok(());

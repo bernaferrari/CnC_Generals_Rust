@@ -112,7 +112,8 @@ fn fn_body<'a>(src: &'a str, name: &str) -> Option<&'a str> {
 
 /// Source residual: sticky bomb empty dual-world short-circuits.
 pub fn honesty_sticky_bomb_dual_world_empty_gate_source() -> bool {
-    let g = include_str!("../../../../GameEngine/GameLogic/src/object/behavior/sticky_bomb_update.rs");
+    let g =
+        include_str!("../../../../GameEngine/GameLogic/src/object/behavior/sticky_bomb_update.rs");
     if !(g.contains("Wave 305")
         && g.contains("fn dual_world_registry_unavailable")
         && g.contains("OBJECT_REGISTRY.is_empty()"))

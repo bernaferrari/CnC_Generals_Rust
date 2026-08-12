@@ -244,9 +244,7 @@ fn particle_gpu_mesh_bake_matches_live_particle_positions() {
 
 #[test]
 fn terrain_scorch_add_dedups_and_drops_oldest_like_cpp() {
-    use game_client_rust::terrain::scorch_mesh::{
-        TerrainScorchBuffer, MAX_SCORCH_MARKS,
-    };
+    use game_client_rust::terrain::scorch_mesh::{TerrainScorchBuffer, MAX_SCORCH_MARKS};
 
     let mut buf = TerrainScorchBuffer::new();
     assert!(buf.add_scorch([100.0, 200.0, 0.0], 20.0, 1));
@@ -318,9 +316,7 @@ fn fxlist_terrain_scorch_nugget_calls_add_scorch_with_type_and_radius() {
     use game_client_rust::effects::fxlist_integration::{
         FXContext, FXNugget, ScorchType, TerrainScorchFXNugget,
     };
-    use game_client_rust::terrain::scorch_mesh::{
-        clear_terrain_scorches, terrain_scorch_marks,
-    };
+    use game_client_rust::terrain::scorch_mesh::{clear_terrain_scorches, terrain_scorch_marks};
 
     clear_terrain_scorches();
     let nugget = TerrainScorchFXNugget {
@@ -382,15 +378,7 @@ fn fxlist_tracer_nugget_sets_parms_transform_and_ceil_expiration() {
         current_frame: 30,
         local_player_index: 0,
     };
-    FXNugget::do_fx_pos(
-        &nugget,
-        primary,
-        None,
-        0.0,
-        Some(secondary),
-        0.0,
-        &mut ctx,
-    );
+    FXNugget::do_fx_pos(&nugget, primary, None, 0.0, Some(secondary), 0.0, &mut ctx);
 
     let tracers = live_tracer_fx();
     assert_eq!(tracers.len(), 1);

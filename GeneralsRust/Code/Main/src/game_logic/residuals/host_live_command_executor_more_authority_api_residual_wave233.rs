@@ -102,7 +102,7 @@ fn fn_body<'a>(src: &'a str, name: &str) -> Option<&'a str> {
 /// Source residual: APIs exist; production execute bodies have no get_object_mut.
 pub fn honesty_command_executor_more_authority_api_source() -> bool {
     let gl = include_str!("../game_logic.rs");
-    let ce = include_str!("../../command_executor.rs");
+    let ce = crate::command_executor::COMMAND_EXECUTOR_SRC;
     for api in [
         "pub fn unit_command_set_order_target",
         "pub fn unit_command_stop_moving_order_target",

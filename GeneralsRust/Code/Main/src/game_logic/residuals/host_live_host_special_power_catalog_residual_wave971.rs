@@ -45,7 +45,7 @@ fn residual_action_store(a: ResidualHostSpecialPowerCatalogAction) {
 }
 
 fn cnc_source() -> &'static str {
-    include_str!("../../cnc_game_engine.rs")
+    crate::cnc_game_engine::ENGINE_SRC
 }
 
 fn gl_source() -> &'static str {
@@ -53,7 +53,7 @@ fn gl_source() -> &'static str {
 }
 
 fn ui_source() -> &'static str {
-    include_str!("../../../../GameEngine/GameClient/src/gui/ingame_ui.rs")
+    game_client::gui::ingame_ui::INGAME_UI_SRC
 }
 
 pub fn honesty_host_special_power_catalog_method_names_residual_wave971() -> bool {

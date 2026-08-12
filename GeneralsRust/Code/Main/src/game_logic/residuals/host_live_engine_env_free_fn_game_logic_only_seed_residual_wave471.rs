@@ -93,7 +93,7 @@ pub fn residual_engine_env_free_fn_game_logic_only_seed_last_action(
 }
 
 fn cnc_source() -> &'static str {
-    include_str!("../../cnc_game_engine.rs")
+    crate::cnc_game_engine::ENGINE_SRC
 }
 
 /// Collect free/associated-fn names whose params include game_logic without self receiver.

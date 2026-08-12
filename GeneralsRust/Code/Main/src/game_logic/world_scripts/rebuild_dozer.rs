@@ -1105,7 +1105,9 @@ impl GameLogic {
     }
 
     /// C++ RebuildHoleExposeDie HoleName residual for common GLA structures.
-    pub(in super::super) fn rebuild_hole_name_for_template(template_name: &str) -> Option<&'static str> {
+    pub(in super::super) fn rebuild_hole_name_for_template(
+        template_name: &str,
+    ) -> Option<&'static str> {
         let n = template_name.to_ascii_lowercase();
         if n.contains("tunnel") {
             return Some("GLAHoleTunnelNetwork");

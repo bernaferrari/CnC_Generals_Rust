@@ -27,7 +27,7 @@ use std::sync::{Arc, Mutex, RwLock};
 /// Module data for ProductionUpdate (configuration)
 #[derive(Debug, Clone)]
 pub struct ProductionUpdateData {
-    /// Maximum queue size (0 = unlimited)
+    /// Maximum queue size (C++ default 9; INI `MaxQueueEntries` may override)
     pub max_queue_size: usize,
     /// Base production speed modifier (1.0 = normal)
     pub production_modifier: f32,
@@ -52,7 +52,7 @@ pub struct ProductionUpdateData {
 impl Default for ProductionUpdateData {
     fn default() -> Self {
         Self {
-            max_queue_size: 0, // Unlimited
+            max_queue_size: 9, // C++ ProductionUpdateModuleData::m_maxQueueEntries default
             production_modifier: 1.0,
             num_doors: 1,
             door_open_time: 15,      // ~0.5 seconds at 30 FPS

@@ -37,14 +37,11 @@
 pub mod action_manager;
 pub mod ai;
 pub mod error;
-#[path = "helpers/mod.rs"]
 pub mod helpers;
 pub mod system;
 
-#[path = "contain_module_overrides/mod.rs"]
 pub mod contain_module_overrides;
 pub mod game_logic;
-#[path = "modules/mod.rs"]
 pub mod modules;
 pub mod object;
 pub mod script_engine;
@@ -69,7 +66,6 @@ pub mod map;
 pub mod messages;
 pub mod path;
 pub mod physics;
-#[path = "player/mod.rs"]
 pub mod player;
 pub mod polygon_trigger;
 pub mod resource;
@@ -78,7 +74,6 @@ pub mod special_power;
 pub mod squad;
 pub mod stealth;
 pub mod stealth_update;
-#[path = "supply_system/mod.rs"]
 pub mod supply_system;
 pub mod waypoint;
 pub mod world;
@@ -90,7 +85,6 @@ pub mod pow_truck_ai_update;
 pub mod sides_list;
 pub mod special_power_module;
 pub mod state_machine;
-#[path = "team/mod.rs"]
 pub mod team;
 pub mod template;
 pub mod terrain;

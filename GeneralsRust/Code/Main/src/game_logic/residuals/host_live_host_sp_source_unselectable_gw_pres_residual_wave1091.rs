@@ -50,10 +50,10 @@ fn residual_action_store(a: ResidualHostSpSourceUnselectableGwPresAction) {
 }
 
 fn ui_source() -> &'static str {
-    include_str!("../../../../GameEngine/GameClient/src/gui/ingame_ui.rs")
+    game_client::gui::ingame_ui::INGAME_UI_SRC
 }
 fn pf_source() -> &'static str {
-    include_str!("../../presentation_frame.rs")
+    crate::presentation_frame::PRESENTATION_FRAME_SRC
 }
 fn es_source() -> &'static str {
     include_str!("../../executable_smoke.rs")

@@ -4,8 +4,11 @@
 //! identity for the main mesh pass:
 //! 1. `model_key` / `ThingTemplate::get_model_name` → canonical W3D key
 //! 2. Common units (USA_Ranger / airanger_s) resolve a non-empty model name
-//! 3. Load real mesh bytes when assets are present; placeholder + honesty when not
-//! 4. Fail-closed: not full W3D material / animation / GPU retail parity
+//! 3. Load real mesh bytes when assets are present; production records a miss
+//!    and skips an unresolved mesh
+//! 4. The fallback cube is an explicit debug/test-only diagnostic. Material /
+//!    animation / GPU retail parity is still incomplete; scale uses the
+//!    residual table (combat default 1.0).
 //!
 //! Wave 53 residual peels:
 //! - Expanded common unit model_key table (top ZH host units)
@@ -346,6 +349,35 @@ pub fn remap_model_key_alias(model_key: &str) -> String {
         "gla_battlebus" | "glavehiclebattlebus" => "uvbattlebus".to_string(),
         "gla_stingersite" | "glastingersite" => "ubstingers".to_string(),
         "gla_jarmenkell" | "glainfantryjarmenkell" => "gijarmen".to_string(),
+        // USA structures — FactionBuilding.ini Model + host buildings.rs set_model.
+        "usa_commandcenter" | "americacommandcenter" => "abbtcmdhq".to_string(),
+        "usa_powerplant" | "americapowerplant" => "abpwrplant".to_string(),
+        "usa_supplycenter" | "americasupplycenter" => "absupplyct".to_string(),
+        "usa_barracks" | "americabarracks" => "abbarracks".to_string(),
+        "usa_warfactory" | "americawarfactory" => "abwarfact".to_string(),
+        // China structures — FactionBuilding.ini Model + host buildings.rs set_model.
+        "china_commandcenter" | "chinacommandcenter" => "nbconyard".to_string(),
+        "china_powerplant" | "chinapowerplant" => "nbpwrplant".to_string(),
+        "china_barracks" | "chinabarracks" => "nbbarracks".to_string(),
+        "china_warfactory" | "chinawarfactory" => "nbwarfact".to_string(),
+        "china_supplycenter" | "chinasupplycenter" => "nbsupcent".to_string(),
+        // GLA structures — FactionBuilding.ini Model + host buildings.rs set_model.
+        "gla_commandcenter" | "glacommandcenter" | "gla_command" => "ubcmdhq".to_string(),
+        "gla_supplystash" | "glasupplystash" => "ubsupply".to_string(),
+        "gla_barracks" | "glabarracks" => "ubbarracks".to_string(),
+        "glatunnelnetwork" => "ubundtunn".to_string(),
+        // NatureProp.ini trees / rocks (Model / ModelName).
+        "generictree" | "genericopttree" | "treedogwood1" => "ptdogwod01".to_string(),
+        "treedogwood1snow" => "ptdogwod01_s".to_string(),
+        "bush01" => "ptbush01".to_string(),
+        "treefir01b" => "ptfir01".to_string(),
+        "treecherryblossom01" => "ptblossom01".to_string(),
+        "treecherryblossom02" => "ptblossom02".to_string(),
+        "treeoak1" => "ptoak01".to_string(),
+        "treemaple2" => "ptmaple02".to_string(),
+        "treepine" => "ptpine01".to_string(),
+        "rocks1" => "pmrocks01".to_string(),
+        "rocks2" => "pmrocks02".to_string(),
         other => {
             // Preserve original casing when no alias; archive open is case-insensitive.
             if other == lower {
@@ -395,6 +427,38 @@ pub fn retail_w3d_basename_residuals() -> &'static [(&'static str, &'static str)
         ("nvhelix", "NVHelix"),
         ("nvdragon", "NVDragon"),
         ("nvgatttank", "NVGattTank"),
+        // Structure / prop archive casing (FactionBuilding.ini + NatureProp.ini).
+        ("abbtcmdhq", "ABBtCmdHQ"),
+        ("abpwrplant", "ABPWRPLANT"),
+        ("abpwrplant_d06", "ABPWRPLANT_d06"),
+        ("absupplyct", "ABSupplyCT"),
+        ("absupplyct_a2", "ABSupplyCT_A2"),
+        ("abbarracks", "ABBarracks"),
+        ("abbarracks_fa", "ABBarracks_FA"),
+        ("abwarfact", "ABWarFact"),
+        ("abwarfact_e", "ABWarFact_E"),
+        ("abpatriotsw", "ABPatriotSW"),
+        ("nbconyard", "NBConYard"),
+        ("nbconyard_fa", "NBConYard_FA"),
+        ("nbpwrplant", "NBPwrPlant"),
+        ("nbnreactr", "NBNReactr"),
+        ("nbbarracks", "NBBarracks"),
+        ("nbintcnt", "NBIntCnt"),
+        ("nbwarfact", "NBWarFact"),
+        ("nbweapfact", "NBWeapFact"),
+        ("nbsupcent", "NBSupCent"),
+        ("cxsupcent", "CXSupCent"),
+        ("ubcmdhq", "UBCmdHQ"),
+        ("ubarfrccmd", "UBArfrCCmd"),
+        ("ubsupply", "UBSupply"),
+        ("ubsupply_f", "UBSupply_F"),
+        ("ubbarracks", "UBBarracks"),
+        ("ubbarracksf", "UBBarracksF"),
+        ("ubundtunn", "UBUndTunn"),
+        ("ubhole_a4", "UBHole_A4"),
+        ("ptdogwod01", "PTDogwod01"),
+        ("ptdogwod01_s", "PTDogwod01_S"),
+        ("ptmaple02", "PTMaple02"),
     ]
 }
 
@@ -409,6 +473,40 @@ pub fn retail_w3d_basename_for_key(model_key: &str) -> String {
         return (*retail).to_string();
     }
     key
+}
+
+/// Compatibility hook for presentation callers that used to retry a different
+/// W3D after a miss.
+///
+/// It intentionally has no entries.  Models such as `ABPWRPLANT_d06`,
+/// `ABBarracks_FA`, `PTDogwod01_S`, and `UBArFrcCmd` are debris, construction,
+/// snow, or faction-specific `ConditionState` assets—not substitutes for the
+/// pristine model requested by the original game.
+pub fn w3d_load_fallback_keys(_model_key: &str) -> &'static [&'static str] {
+    &[]
+}
+
+/// Archive / filesystem path stems to try for a model key (`art/w3d/{key}.w3d`, `{key}.w3d`).
+pub fn w3d_archive_path_variants(model_key: &str) -> Vec<String> {
+    let remapped = remap_model_key_alias(model_key);
+    let retail = retail_w3d_basename_for_key(&remapped);
+    let stems = vec![remapped.clone(), retail];
+    let mut out = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for stem in stems {
+        if stem.is_empty() {
+            continue;
+        }
+        for name in w3d_filename_variants(&stem) {
+            for path in [format!("art/w3d/{name}"), name.clone()] {
+                let key = path.to_ascii_lowercase();
+                if seen.insert(key) {
+                    out.push(path);
+                }
+            }
+        }
+    }
+    out
 }
 
 /// Honesty: retail basename residual map covers AIRanger_S + AvHummer + AVRaptorAG.
@@ -707,7 +805,44 @@ pub fn common_unit_model_keys() -> &'static [(&'static str, &'static str)] {
         ("GLA_BattleBus", "uvbattlebus"),
         ("GLA_JarmenKell", "gijarmen"),
         ("GLA_StingerSite", "ubstingers"),
+        ("GLAStingerSite", "ubstingers"),
         ("GLA_TunnelNetwork", "ubhole_a4"),
+        // USA structures (FactionBuilding.ini / host buildings.rs)
+        ("USA_CommandCenter", "abbtcmdhq"),
+        ("AmericaCommandCenter", "abbtcmdhq"),
+        ("USA_PowerPlant", "abpwrplant"),
+        ("AmericaPowerPlant", "abpwrplant"),
+        ("USA_SupplyCenter", "absupplyct"),
+        ("AmericaSupplyCenter", "absupplyct"),
+        ("USA_Barracks", "abbarracks"),
+        ("AmericaBarracks", "abbarracks"),
+        ("USA_WarFactory", "abwarfact"),
+        ("AmericaWarFactory", "abwarfact"),
+        // China structures
+        ("China_CommandCenter", "nbconyard"),
+        ("ChinaCommandCenter", "nbconyard"),
+        ("China_PowerPlant", "nbpwrplant"),
+        ("ChinaPowerPlant", "nbpwrplant"),
+        ("China_Barracks", "nbbarracks"),
+        ("ChinaBarracks", "nbbarracks"),
+        ("China_WarFactory", "nbwarfact"),
+        ("ChinaWarFactory", "nbwarfact"),
+        ("China_SupplyCenter", "nbsupcent"),
+        ("ChinaSupplyCenter", "nbsupcent"),
+        // GLA structures
+        ("GLA_CommandCenter", "ubcmdhq"),
+        ("GLACommandCenter", "ubcmdhq"),
+        ("GLA_SupplyStash", "ubsupply"),
+        ("GLASupplyStash", "ubsupply"),
+        ("GLA_Barracks", "ubbarracks"),
+        ("GLABarracks", "ubbarracks"),
+        ("GLATunnelNetwork", "ubundtunn"),
+        // NatureProp.ini trees / rocks
+        ("GenericTree", "ptdogwod01"),
+        ("GenericOptTree", "ptdogwod01"),
+        ("TreeDogwood1", "ptdogwod01"),
+        ("TreeMaple2", "ptmaple02"),
+        ("Rocks1", "pmrocks01"),
     ]
 }
 
@@ -728,7 +863,7 @@ pub fn expected_model_key_for_unit(template_name: &str) -> Option<&'static str> 
 }
 
 /// Build residual filename variants for a model key (case + retail archive peel).
-fn w3d_filename_variants(model_key: &str) -> Vec<String> {
+pub fn w3d_filename_variants(model_key: &str) -> Vec<String> {
     let key = canonical_model_key(model_key);
     let lower = key.to_ascii_lowercase();
     let retail = retail_w3d_basename_for_key(&key);
@@ -809,12 +944,14 @@ pub fn filesystem_w3d_candidates(model_key: &str) -> Vec<PathBuf> {
                 out.push(p);
             }
         }
-        // Also try Art/W3D under root with original key casing variants
-        for name in &file_names {
-            let p = root.join("Art/W3D").join(name);
-            let key_s = p.to_string_lossy().to_ascii_lowercase();
-            if seen.insert(key_s) {
-                out.push(p);
+        // Also try Art/W3D (and art/w3d) under root with original key casing variants
+        for sub in ["Art/W3D", "art/w3d"] {
+            for name in &file_names {
+                let p = root.join(sub).join(name);
+                let key_s = p.to_string_lossy().to_ascii_lowercase();
+                if seen.insert(key_s) {
+                    out.push(p);
+                }
             }
         }
     }
@@ -965,34 +1102,72 @@ pub fn try_load_w3d_from_filesystem(model_key: &str) -> Option<(W3DModel, PathBu
     }
 }
 
+/// Collect the requested key, its canonical alias, and retail archive casing.
+fn mesh_load_key_candidates(model_key: &str) -> Vec<String> {
+    let remapped = remap_model_key_alias(model_key);
+    let mut keys = Vec::new();
+    let mut push = |k: String| {
+        if k.is_empty() {
+            return;
+        }
+        if !keys.iter().any(|e: &String| e.eq_ignore_ascii_case(&k)) {
+            keys.push(k);
+        }
+    };
+    push(remapped.clone());
+    push(retail_w3d_basename_for_key(&remapped));
+    if !model_key.eq_ignore_ascii_case(&remapped) {
+        push(model_key.to_string());
+    }
+    keys
+}
+
 /// Try AssetManager cache / load when the global manager is available.
+///
+/// Tries `art/w3d/{key}.w3d`, `{key}.w3d`, retail basename casing, and the
+/// template `get_model_for_object` remap.  Do not replace an absent model with
+/// a construction, damage, snow, or faction variant: those are distinct C++
+/// `ConditionState` assets, not aliases.
 pub fn try_load_w3d_from_asset_manager(model_key: &str) -> Option<W3DModel> {
-    let key = remap_model_key_alias(model_key);
+    let remapped = remap_model_key_alias(model_key);
     let manager_arc = crate::assets::get_asset_manager()?;
     let mut manager = manager_arc.lock().ok()?;
-    if let Some(model) = manager.get_cached_model(&key) {
-        if !model.meshes.is_empty() {
-            return Some(model);
-        }
-    }
-    // Also try object-definition remap (template name → model).
-    if let Some(mapped) = manager.get_model_for_object(&key) {
-        let mapped_key = remap_model_key_alias(&mapped);
-        if let Some(model) = manager.get_cached_model(&mapped_key) {
-            if !model.meshes.is_empty() {
-                return Some(model);
-            }
-        }
-        if let Ok(model) = manager.load_w3d_model(&mapped_key) {
+    let keys = mesh_load_key_candidates(model_key);
+
+    for key in &keys {
+        if let Some(model) = manager.get_cached_model(key) {
             if !model.meshes.is_empty() {
                 return Some(model);
             }
         }
     }
-    match manager.load_w3d_model(&key) {
-        Ok(model) if !model.meshes.is_empty() => Some(model),
-        _ => None,
+
+    // Object-definition remap (template name → INI model).
+    for probe in [model_key, remapped.as_str()] {
+        if let Some(mapped) = manager.get_model_for_object(probe) {
+            let mapped_key = remap_model_key_alias(&mapped);
+            if let Some(model) = manager.get_cached_model(&mapped_key) {
+                if !model.meshes.is_empty() {
+                    return Some(model);
+                }
+            }
+            if let Ok(model) = manager.load_w3d_model(&mapped_key) {
+                if !model.meshes.is_empty() {
+                    return Some(model);
+                }
+            }
+        }
     }
+
+    // `load_w3d_model` already probes art/w3d/{name}.w3d and {name}.w3d.
+    for key in &keys {
+        if let Ok(model) = manager.load_w3d_model(key) {
+            if !model.meshes.is_empty() {
+                return Some(model);
+            }
+        }
+    }
+    None
 }
 
 /// Resolve presentation model_key → W3DModel with honesty bookkeeping.
@@ -1091,17 +1266,15 @@ pub fn resolve_mesh_for_template(
 
 /// Whether retail/sample W3D bytes for this key are discoverable right now.
 pub fn mesh_asset_available(model_key: &str) -> bool {
-    let key = remap_model_key_alias(model_key);
-    if find_filesystem_w3d(&key).is_some() {
+    if find_filesystem_w3d(model_key).is_some() {
         return true;
     }
     if let Some(manager_arc) = crate::assets::get_asset_manager() {
         if let Ok(mut manager) = manager_arc.lock() {
-            let w3d = format!("{key}.w3d");
-            if manager.can_open_file_sync(&format!("art/w3d/{w3d}"))
-                || manager.can_open_file_sync(&w3d)
-            {
-                return true;
+            for path in w3d_archive_path_variants(model_key) {
+                if manager.can_open_file_sync(&path) {
+                    return true;
+                }
             }
         }
     }
@@ -1438,5 +1611,154 @@ mod tests {
             model_key_from_projectile_object("JetMissile").to_ascii_lowercase(),
             "pmjetmissile"
         );
+    }
+
+    #[test]
+    fn faction_building_templates_remap_to_non_empty_w3d_keys() {
+        let required = [
+            ("AmericaCommandCenter", "abbtcmdhq"),
+            ("USA_CommandCenter", "abbtcmdhq"),
+            ("AmericaPowerPlant", "abpwrplant"),
+            ("AmericaSupplyCenter", "absupplyct"),
+            ("AmericaWarFactory", "abwarfact"),
+            ("AmericaBarracks", "abbarracks"),
+            ("AmericaPatriotBattery", "abpatriot"),
+            ("ChinaCommandCenter", "nbconyard"),
+            ("ChinaPowerPlant", "nbpwrplant"),
+            ("ChinaWarFactory", "nbwarfact"),
+            ("ChinaBarracks", "nbbarracks"),
+            ("GLACommandCenter", "ubcmdhq"),
+            ("GLASupplyStash", "ubsupply"),
+            ("GLABarracks", "ubbarracks"),
+            ("GLAStingerSite", "ubstingers"),
+            ("GLATunnelNetwork", "ubundtunn"),
+        ];
+        for (template, expected) in required {
+            let key = remap_model_key_alias(template);
+            assert!(
+                !key.is_empty(),
+                "{template} must remap to a non-empty W3D key"
+            );
+            assert_eq!(
+                key.to_ascii_lowercase(),
+                expected,
+                "{template} remap mismatch"
+            );
+            assert!(
+                common_unit_has_model_key(template),
+                "common_unit_model_keys must cover {template}"
+            );
+        }
+    }
+
+    #[test]
+    fn remap_filesystem_candidates_include_art_w3d_and_w3d_variants() {
+        let candidates = filesystem_w3d_candidates("AmericaCommandCenter");
+        assert!(
+            !candidates.is_empty(),
+            "command center must produce filesystem candidates"
+        );
+        assert!(
+            candidates.iter().any(|p| {
+                let s = p.to_string_lossy();
+                s.contains("art/w3d") || s.contains("Art/W3D")
+            }),
+            "candidates must include art/w3d variants: {candidates:?}"
+        );
+        assert!(
+            candidates.iter().any(|p| {
+                p.extension()
+                    .and_then(|e| e.to_str())
+                    .is_some_and(|e| e.eq_ignore_ascii_case("w3d"))
+            }),
+            "candidates must include .w3d filenames"
+        );
+        assert!(
+            candidates.iter().any(|p| {
+                let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                name.eq_ignore_ascii_case("ABBtCmdHQ.W3D")
+                    || name.eq_ignore_ascii_case("ABBtCmdHQ.w3d")
+            }),
+            "remapped command-center basename must appear: {candidates:?}"
+        );
+        let archive = w3d_archive_path_variants("AmericaCommandCenter");
+        assert!(
+            archive.iter().any(|p| p.eq_ignore_ascii_case("art/w3d/ABBtCmdHQ.w3d")
+                || p.eq_ignore_ascii_case("art/w3d/abbtcmdhq.w3d")),
+            "archive variants must include art/w3d/ABBtCmdHQ.w3d: {archive:?}"
+        );
+        assert!(
+            archive
+                .iter()
+                .any(|p| p.eq_ignore_ascii_case("ABBtCmdHQ.w3d")
+                    || p.eq_ignore_ascii_case("abbtcmdhq.w3d")),
+            "archive variants must include ABBtCmdHQ.w3d: {archive:?}"
+        );
+    }
+
+    #[test]
+    fn pristine_models_never_cross_resolve_to_condition_or_faction_variants() {
+        let pairs = [
+            ("ABPWRPLANT", "ABPWRPLANT_d06"),
+            ("ABBarracks", "ABBarracks_FA"),
+            ("ABPatriot", "ABPatriotSW"),
+            ("NBConYard", "NBConYard_FA"),
+            ("UBCmdHQ", "UBArFrcCmd"),
+            ("PTDogwod01", "PTDogwod01_S"),
+        ];
+        for (pristine, wrong_variant) in pairs {
+            assert!(
+                w3d_load_fallback_keys(pristine).is_empty(),
+                "{pristine} must not have cross-state fallback keys"
+            );
+            assert!(
+                !mesh_load_key_candidates(pristine)
+                    .iter()
+                    .any(|candidate| candidate.eq_ignore_ascii_case(wrong_variant)),
+                "{pristine} must not resolve as distinct C++ state/faction asset {wrong_variant}"
+            );
+            assert!(
+                !w3d_archive_path_variants(pristine)
+                    .iter()
+                    .any(|path| path.contains(wrong_variant)),
+                "{pristine} archive lookup must not probe distinct C++ state/faction asset {wrong_variant}"
+            );
+        }
+    }
+
+    #[test]
+    fn resolve_garbage_key_is_missing_not_panic() {
+        let result = resolve_mesh_for_model_key("__garbage_stage_a_mesh_xyz__", false);
+        assert!(result.is_missing(), "garbage key must be honest Missing");
+        assert!(!result.is_placeholder());
+        assert!(!result.is_loaded());
+        let placeholder = resolve_mesh_for_model_key("__garbage_stage_a_mesh_xyz__", true);
+        assert!(
+            placeholder.is_placeholder(),
+            "use_placeholder=true must still placeholder"
+        );
+        assert!(placeholder.mesh_count() > 0);
+    }
+
+    #[test]
+    fn sample_w3d_loads_when_present_on_disk() {
+        // ABBtCmdHQ.W3D ships under Tools/w3d_to_gltf/W3D and extracted BIG trees.
+        let key = "AmericaCommandCenter";
+        if !mesh_asset_available(key) && !mesh_asset_available("abbtcmdhq") {
+            eprintln!("skip: ABBtCmdHQ W3D not available in workspace");
+            let result = resolve_mesh_for_model_key(key, false);
+            assert!(
+                result.is_missing(),
+                "without assets, production resolve must stay Missing (not placeholder)"
+            );
+            return;
+        }
+        let result = resolve_mesh_for_model_key(key, false);
+        assert!(
+            result.is_loaded(),
+            "AmericaCommandCenter must load ABBtCmdHQ when sample W3D is present: {:?}",
+            result.model_key()
+        );
+        assert!(result.mesh_count() > 0);
     }
 }

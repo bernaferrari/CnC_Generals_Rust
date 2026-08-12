@@ -87,7 +87,7 @@ pub fn honesty_live_hotkey_move_attack_selection_presentation_only_residual_pack
 
 /// Source residual: move/attack/hotkey selection paths use ui_selected_ids.
 pub fn honesty_hotkey_move_attack_selection_presentation_only_source() -> bool {
-    let eng = include_str!("../../cnc_game_engine.rs");
+    let eng = crate::cnc_game_engine::ENGINE_SRC;
     let checks = [
         (
             "move_fail_no_selection",

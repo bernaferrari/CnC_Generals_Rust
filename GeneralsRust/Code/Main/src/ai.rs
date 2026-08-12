@@ -277,24 +277,24 @@ impl AIPlayer {
         // Core base buildings based on team
         match self.team {
             Team::USA => {
-                self.add_building("USA_CommandCenter", center, 1);
-                self.add_building("USA_SupplyCenter", center + Vec3::new(50.0, 0.0, 0.0), 2);
-                self.add_building("USA_PowerPlant", center + Vec3::new(-50.0, 0.0, 0.0), 2);
-                self.add_building("USA_Barracks", center + Vec3::new(0.0, 0.0, 50.0), 2);
-                self.add_building("USA_WarFactory", center + Vec3::new(100.0, 0.0, 50.0), 1);
+                self.add_building("AmericaCommandCenter", center, 1);
+                self.add_building("AmericaSupplyCenter", center + Vec3::new(50.0, 0.0, 0.0), 2);
+                self.add_building("AmericaPowerPlant", center + Vec3::new(-50.0, 0.0, 0.0), 2);
+                self.add_building("AmericaBarracks", center + Vec3::new(0.0, 0.0, 50.0), 2);
+                self.add_building("AmericaWarFactory", center + Vec3::new(100.0, 0.0, 50.0), 1);
             }
             Team::China => {
-                self.add_building("China_CommandCenter", center, 1);
-                self.add_building("China_SupplyCenter", center + Vec3::new(50.0, 0.0, 0.0), 2);
-                self.add_building("China_PowerPlant", center + Vec3::new(-50.0, 0.0, 0.0), 2);
-                self.add_building("China_Barracks", center + Vec3::new(0.0, 0.0, 50.0), 2);
-                self.add_building("China_WarFactory", center + Vec3::new(100.0, 0.0, 50.0), 1);
+                self.add_building("ChinaCommandCenter", center, 1);
+                self.add_building("ChinaSupplyCenter", center + Vec3::new(50.0, 0.0, 0.0), 2);
+                self.add_building("ChinaPowerPlant", center + Vec3::new(-50.0, 0.0, 0.0), 2);
+                self.add_building("ChinaBarracks", center + Vec3::new(0.0, 0.0, 50.0), 2);
+                self.add_building("ChinaWarFactory", center + Vec3::new(100.0, 0.0, 50.0), 1);
             }
             Team::GLA => {
-                self.add_building("GLA_CommandCenter", center, 1);
-                self.add_building("GLA_SupplyStash", center + Vec3::new(50.0, 0.0, 0.0), 3);
-                self.add_building("GLA_ArmsDealer", center + Vec3::new(0.0, 0.0, 50.0), 2);
-                self.add_building("GLA_Barracks", center + Vec3::new(-50.0, 0.0, 50.0), 2);
+                self.add_building("GLACommandCenter", center, 1);
+                self.add_building("GLASupplyStash", center + Vec3::new(50.0, 0.0, 0.0), 3);
+                self.add_building("GLAArmsDealer", center + Vec3::new(0.0, 0.0, 50.0), 2);
+                self.add_building("GLABarracks", center + Vec3::new(-50.0, 0.0, 50.0), 2);
             }
             _ => {}
         }
@@ -523,9 +523,9 @@ impl AIPlayer {
     /// Try to build a supply center for resource generation
     fn try_build_supply_center(&mut self, _game_logic: &mut GameLogic) {
         let supply_center_name = match self.team {
-            Team::USA => "USA_SupplyCenter",
-            Team::China => "China_SupplyCenter",
-            Team::GLA => "GLA_SupplyStash",
+            Team::USA => "AmericaSupplyCenter",
+            Team::China => "ChinaSupplyCenter",
+            Team::GLA => "GLASupplyStash",
             _ => return,
         };
 
@@ -554,8 +554,8 @@ impl AIPlayer {
     /// Try to build a power plant for energy
     fn try_build_power_plant(&mut self, _game_logic: &mut GameLogic) {
         let power_plant_name = match self.team {
-            Team::USA => "USA_PowerPlant",
-            Team::China => "China_PowerPlant",
+            Team::USA => "AmericaPowerPlant",
+            Team::China => "ChinaPowerPlant",
             Team::GLA => return, // GLA doesn't use power
             _ => return,
         };
@@ -785,19 +785,27 @@ impl AIPlayer {
 
         match team_name {
             "USA_RangerSquad" => {
-                orders.push(AIWorkOrder::new("USA_Ranger".to_string(), 4, 100));
+                orders.push(AIWorkOrder::new(
+                    "AmericaInfantryRanger".to_string(),
+                    4,
+                    100,
+                ));
             }
             "USA_BasicForce" => {
-                orders.push(AIWorkOrder::new("USA_Ranger".to_string(), 2, 90));
-                orders.push(AIWorkOrder::new("USA_Humvee".to_string(), 1, 100));
+                orders.push(AIWorkOrder::new("AmericaInfantryRanger".to_string(), 2, 90));
+                orders.push(AIWorkOrder::new("AmericaVehicleHumvee".to_string(), 1, 100));
             }
             "USA_CombinedArms" => {
-                orders.push(AIWorkOrder::new("USA_Ranger".to_string(), 3, 80));
-                orders.push(AIWorkOrder::new("USA_Humvee".to_string(), 2, 90));
+                orders.push(AIWorkOrder::new("AmericaInfantryRanger".to_string(), 3, 80));
+                orders.push(AIWorkOrder::new("AmericaVehicleHumvee".to_string(), 2, 90));
                 orders.push(AIWorkOrder::new("USA_CrusaderTank".to_string(), 1, 100));
             }
             "China_RedGuardSquad" => {
-                orders.push(AIWorkOrder::new("China_RedGuard".to_string(), 4, 100));
+                orders.push(AIWorkOrder::new(
+                    "ChinaInfantryRedguard".to_string(),
+                    4,
+                    100,
+                ));
             }
             "China_TankSquad" => {
                 orders.push(AIWorkOrder::new(
@@ -805,32 +813,40 @@ impl AIPlayer {
                     2,
                     100,
                 ));
-                orders.push(AIWorkOrder::new("China_RedGuard".to_string(), 2, 80));
+                orders.push(AIWorkOrder::new("ChinaInfantryRedguard".to_string(), 2, 80));
             }
             "GLA_TechnicalSquad" => {
                 // Barracks first: infantry produces even if ArmsDealer is still building.
-                orders.push(AIWorkOrder::new("GLA_Soldier".to_string(), 2, 90));
+                orders.push(AIWorkOrder::new("GLAInfantryRebel".to_string(), 2, 90));
                 orders.push(AIWorkOrder::new("GLA_Technical".to_string(), 2, 100));
             }
             "GLA_RebelSwarm" => {
-                orders.push(AIWorkOrder::new("GLA_Soldier".to_string(), 4, 100));
+                orders.push(AIWorkOrder::new("GLAInfantryRebel".to_string(), 4, 100));
             }
             "GLA_HitAndRun" => {
-                orders.push(AIWorkOrder::new("GLA_Soldier".to_string(), 2, 80));
+                orders.push(AIWorkOrder::new("GLAInfantryRebel".to_string(), 2, 80));
                 orders.push(AIWorkOrder::new("GLA_Technical".to_string(), 2, 100));
             }
             "GLA_MassAssault" => {
-                orders.push(AIWorkOrder::new("GLA_Soldier".to_string(), 4, 80));
+                orders.push(AIWorkOrder::new("GLAInfantryRebel".to_string(), 4, 80));
                 orders.push(AIWorkOrder::new("GLA_Technical".to_string(), 3, 100));
             }
             _ => {
                 // Default team
                 match self.team {
-                    Team::USA => orders.push(AIWorkOrder::new("USA_Ranger".to_string(), 2, 100)),
-                    Team::China => {
-                        orders.push(AIWorkOrder::new("China_RedGuard".to_string(), 2, 100))
+                    Team::USA => orders.push(AIWorkOrder::new(
+                        "AmericaInfantryRanger".to_string(),
+                        2,
+                        100,
+                    )),
+                    Team::China => orders.push(AIWorkOrder::new(
+                        "ChinaInfantryRedguard".to_string(),
+                        2,
+                        100,
+                    )),
+                    Team::GLA => {
+                        orders.push(AIWorkOrder::new("GLAInfantryRebel".to_string(), 3, 100))
                     }
-                    Team::GLA => orders.push(AIWorkOrder::new("GLA_Soldier".to_string(), 3, 100)),
                     _ => {}
                 }
             }
@@ -859,27 +875,47 @@ impl AIPlayer {
             .or_else(|| Self::find_factory_for_unit_ex(game_logic, unit_template_name, team, true))
     }
 
-    /// Map host unit template → factory template residual.
+    /// Map host unit template → retail factory template residual.
     fn factory_template_for_unit(unit_template_name: &str, team: Team) -> Option<&'static str> {
-        match unit_template_name {
-            s if s.contains("Ranger") || s.contains("RedGuard") || s.contains("Soldier") => {
-                match team {
-                    Team::USA => Some("USA_Barracks"),
-                    Team::China => Some("China_Barracks"),
-                    Team::GLA => Some("GLA_Barracks"),
-                    _ => None,
-                }
-            }
-            s if s.contains("Humvee") || s.contains("Technical") || s.contains("Tank") => {
-                match team {
-                    Team::USA => Some("USA_WarFactory"),
-                    Team::China => Some("China_WarFactory"),
-                    Team::GLA => Some("GLA_ArmsDealer"),
-                    _ => None,
-                }
-            }
-            _ => None,
+        let unit = unit_template_name.to_ascii_lowercase();
+        if unit.contains("ranger")
+            || unit.contains("redguard")
+            || unit.contains("soldier")
+            || unit.contains("rebel")
+        {
+            return match team {
+                Team::USA => Some("AmericaBarracks"),
+                Team::China => Some("ChinaBarracks"),
+                Team::GLA => Some("GLABarracks"),
+                _ => None,
+            };
         }
+        if unit.contains("humvee") || unit.contains("technical") || unit.contains("tank") {
+            return match team {
+                Team::USA => Some("AmericaWarFactory"),
+                Team::China => Some("ChinaWarFactory"),
+                Team::GLA => Some("GLAArmsDealer"),
+                _ => None,
+            };
+        }
+        None
+    }
+
+    /// Retail factory name plus leftover USA_*/China_*/GLA_* aliases used by older tests.
+    fn factory_name_matches(object_name: &str, retail_factory: &str) -> bool {
+        if object_name.eq_ignore_ascii_case(retail_factory) {
+            return true;
+        }
+        let alias = match retail_factory {
+            "AmericaBarracks" => "USA_Barracks",
+            "AmericaWarFactory" => "USA_WarFactory",
+            "ChinaBarracks" => "China_Barracks",
+            "ChinaWarFactory" => "China_WarFactory",
+            "GLABarracks" => "GLA_Barracks",
+            "GLAArmsDealer" => "GLA_ArmsDealer",
+            _ => return false,
+        };
+        object_name.eq_ignore_ascii_case(alias)
     }
 
     /// C++ factory idle residual: empty production_queue ⇒ idle.
@@ -908,8 +944,8 @@ impl AIPlayer {
                 if object.team != team || !object.is_constructed() || !object.is_alive() {
                     return None;
                 }
-                let name_ok = object.template_name == factory_name
-                    || object.get_template().name == factory_name;
+                let name_ok = Self::factory_name_matches(&object.template_name, factory_name)
+                    || Self::factory_name_matches(&object.get_template().name, factory_name);
                 if !name_ok {
                     return None;
                 }
@@ -1598,12 +1634,16 @@ mod cpp_parity_tests {
         assert!((AIPlayer::TEAM_RESOURCES_TO_START - 0.1).abs() < 1e-5);
         let mut logic = crate::game_logic::GameLogic::new();
         // Seed templates with known build costs.
-        let mut ranger = crate::game_logic::ThingTemplate::new("USA_Ranger");
+        let mut ranger = crate::game_logic::ThingTemplate::new("AmericaInfantryRanger");
         ranger.set_cost(225, 0);
-        logic.templates.insert("USA_Ranger".into(), ranger);
-        let mut humvee = crate::game_logic::ThingTemplate::new("USA_Humvee");
+        logic
+            .templates
+            .insert("AmericaInfantryRanger".into(), ranger);
+        let mut humvee = crate::game_logic::ThingTemplate::new("AmericaVehicleHumvee");
         humvee.set_cost(700, 0);
-        logic.templates.insert("USA_Humvee".into(), humvee);
+        logic
+            .templates
+            .insert("AmericaVehicleHumvee".into(), humvee);
 
         let ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
         // USA_BasicForce = 2*Ranger + 1*Humvee = 2*225 + 700 = 1150; *0.1 = 115.
@@ -1627,20 +1667,24 @@ mod cpp_parity_tests {
     #[test]
     fn aidata_team_factory_idle_gate() {
         let mut logic = crate::game_logic::GameLogic::new();
-        let mut ranger = crate::game_logic::ThingTemplate::new("USA_Ranger");
+        let mut ranger = crate::game_logic::ThingTemplate::new("AmericaInfantryRanger");
         ranger.set_cost(225, 0);
-        logic.templates.insert("USA_Ranger".into(), ranger);
-        let mut humvee = crate::game_logic::ThingTemplate::new("USA_Humvee");
+        logic
+            .templates
+            .insert("AmericaInfantryRanger".into(), ranger);
+        let mut humvee = crate::game_logic::ThingTemplate::new("AmericaVehicleHumvee");
         humvee.set_cost(700, 0);
-        logic.templates.insert("USA_Humvee".into(), humvee);
-        let mut barracks_t = crate::game_logic::ThingTemplate::new("USA_Barracks");
+        logic
+            .templates
+            .insert("AmericaVehicleHumvee".into(), humvee);
+        let mut barracks_t = crate::game_logic::ThingTemplate::new("AmericaBarracks");
         barracks_t.set_cost(500, 0);
         barracks_t.add_kind_of(crate::game_logic::KindOf::Structure);
-        logic.templates.insert("USA_Barracks".into(), barracks_t);
-        let mut wf_t = crate::game_logic::ThingTemplate::new("USA_WarFactory");
+        logic.templates.insert("AmericaBarracks".into(), barracks_t);
+        let mut wf_t = crate::game_logic::ThingTemplate::new("AmericaWarFactory");
         wf_t.set_cost(1000, 0);
         wf_t.add_kind_of(crate::game_logic::KindOf::Structure);
-        logic.templates.insert("USA_WarFactory".into(), wf_t);
+        logic.templates.insert("AmericaWarFactory".into(), wf_t);
 
         let mut player = crate::game_logic::Player::new(1, Team::USA, "USA", true);
         player.resources.supplies = 10_000;
@@ -1653,10 +1697,14 @@ mod cpp_parity_tests {
 
         // Spawn constructed barracks + war factory.
         let barracks_id = logic
-            .create_object("USA_Barracks", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .create_object("AmericaBarracks", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
             .expect("barracks");
         let wf_id = logic
-            .create_object("USA_WarFactory", Team::USA, glam::Vec3::new(50.0, 0.0, 0.0))
+            .create_object(
+                "AmericaWarFactory",
+                Team::USA,
+                glam::Vec3::new(50.0, 0.0, 0.0),
+            )
             .expect("war factory");
         // Ensure constructed + empty queues.
         if let Some(o) = logic./* Wave 950 */ host_object_mut(barracks_id) {

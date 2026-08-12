@@ -89,7 +89,7 @@ fn eng_fn_body<'a>(eng: &'a str, sig: &str) -> Option<&'a str> {
 
 /// Source residual: key UI command helpers use ui_selected_ids, not live get_player first.
 pub fn honesty_ui_command_selection_presentation_only_source() -> bool {
-    let eng = include_str!("../../cnc_game_engine.rs");
+    let eng = crate::cnc_game_engine::ENGINE_SRC;
     let sigs = [
         "fn commit_pending_map_command(",
         "fn place_structure_from_ui(",

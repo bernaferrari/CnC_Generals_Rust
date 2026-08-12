@@ -83,7 +83,7 @@ pub fn honesty_live_gameworld_fire_special_power_residual_pack_wave185() -> bool
 
 /// Source residual: special-power + fire-spawn channel APIs.
 pub fn honesty_fire_special_power_channel_api_source() -> bool {
-    let src = include_str!("../../gameworld_shadow.rs");
+    let src = crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC;
     let sp = include_str!("../host_special_power_log.rs");
     let fs = include_str!("../host_fire_spawn_log.rs");
     src.contains("pub fn apply_host_special_power_events")
@@ -96,7 +96,7 @@ pub fn honesty_fire_special_power_channel_api_source() -> bool {
 
 /// Source residual: fire-spawn + special-power authorities default on.
 pub fn honesty_fire_special_power_authority_default_on_source() -> bool {
-    let src = include_str!("../../gameworld_shadow.rs");
+    let src = crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC;
     let fire_ok = {
         let i = match src.find("pub fn gameworld_fire_spawn_authority_enabled") {
             Some(i) => i,

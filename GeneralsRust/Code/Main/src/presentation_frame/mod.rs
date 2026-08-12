@@ -20,58 +20,57 @@ use crate::game_logic::{
 use glam::Vec3;
 use serde::{Deserialize, Serialize};
 
+mod alive;
+mod apply;
+mod build;
+mod events;
+mod floating_text;
+mod frame;
+mod honesty;
+mod lasers;
+mod overlay;
+mod particles;
+mod projectile;
+mod queries;
+mod spectre;
 mod types;
 mod unit_render;
-mod projectile;
-mod events;
-mod particles;
-mod lasers;
-mod floating_text;
-mod spectre;
 mod world_env;
-mod frame;
-mod build;
-mod queries;
-mod alive;
-mod overlay;
-mod honesty;
-mod apply;
 
 #[cfg(test)]
 mod tests;
 
+pub use events::*;
+pub use floating_text::*;
+pub use frame::*;
+pub use lasers::*;
+pub use particles::*;
+pub use projectile::*;
+pub use spectre::*;
 pub use types::*;
 pub use unit_render::*;
-pub use projectile::*;
-pub use events::*;
-pub use particles::*;
-pub use lasers::*;
-pub use floating_text::*;
-pub use spectre::*;
 pub use world_env::*;
-pub use frame::*;
 
 /// Concatenated presentation_frame sources for residual `include_str` scans.
 ///
 /// External crate tests previously read `presentation_frame.rs`. After the
 /// directory split they should compare against this pack instead of a single file.
-#[cfg(test)]
 pub const PRESENTATION_FRAME_SRC: &str = concat!(
     include_str!("mod.rs"),
+    include_str!("alive.rs"),
+    include_str!("apply.rs"),
+    include_str!("build.rs"),
+    include_str!("events.rs"),
+    include_str!("floating_text.rs"),
+    include_str!("frame.rs"),
+    include_str!("honesty.rs"),
+    include_str!("lasers.rs"),
+    include_str!("overlay.rs"),
+    include_str!("particles.rs"),
+    include_str!("projectile.rs"),
+    include_str!("queries.rs"),
+    include_str!("spectre.rs"),
     include_str!("types.rs"),
     include_str!("unit_render.rs"),
-    include_str!("projectile.rs"),
-    include_str!("events.rs"),
-    include_str!("particles.rs"),
-    include_str!("lasers.rs"),
-    include_str!("floating_text.rs"),
-    include_str!("spectre.rs"),
     include_str!("world_env.rs"),
-    include_str!("frame.rs"),
-    include_str!("build.rs"),
-    include_str!("queries.rs"),
-    include_str!("alive.rs"),
-    include_str!("overlay.rs"),
-    include_str!("honesty.rs"),
-    include_str!("apply.rs"),
 );

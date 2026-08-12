@@ -503,4 +503,3 @@ pub(super) fn current_local_selection(local_player: i32) -> HashSet<ObjectID> {
     selection_ids.extend(selection.get_selected_objects());
     selection_ids
 }
-

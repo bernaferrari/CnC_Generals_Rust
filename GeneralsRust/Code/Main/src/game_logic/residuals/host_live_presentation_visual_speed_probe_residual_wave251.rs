@@ -82,8 +82,8 @@ pub fn honesty_live_presentation_visual_speed_probe_residual_pack_wave251() -> b
 
 /// Source residual: presentation freezes visual speed; engine consumers prefer it.
 pub fn honesty_presentation_visual_speed_probe_source() -> bool {
-    let pf = include_str!("../../presentation_frame.rs");
-    let eng = include_str!("../../cnc_game_engine.rs");
+    let pf = crate::presentation_frame::PRESENTATION_FRAME_SRC;
+    let eng = crate::cnc_game_engine::ENGINE_SRC;
     if !(pf.contains("pub visual_speed_multiplier: f32")
         && pf.contains("Wave 251")
         && pf.contains("visual_speed_multiplier: logic.visual_speed_multiplier()"))
