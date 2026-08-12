@@ -238,7 +238,12 @@ pub struct RenderPipeline {
     skybox_textures_hint: Option<[String; 5]>,
     skybox_enabled: bool,
     heightmap_world_size: Option<(f32, f32)>,
+    /// Object/forward lighting selected at map activation.
     cached_lighting: Option<CachedLighting>,
+    /// Terrain uses its own GameData `TerrainLighting*` record. Keeping this
+    /// separate prevents object-scene lighting from being reused for terrain
+    /// when the authored arrays differ.
+    cached_terrain_lighting: Option<CachedLighting>,
     last_startup_model_prewarm_signature: Option<String>,
 
     // Render items for current frame

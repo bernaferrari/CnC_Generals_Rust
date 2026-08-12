@@ -111,13 +111,33 @@ impl RenderPipeline {
             fog_color,
             fog_range,
         };
-        self.cached_lighting = Some(lighting.clone());
-        self.apply_cached_lighting_to_terrain(&lighting);
+        self.set_environment_lighting_with_terrain(Some(lighting.clone()), Some(lighting));
+    }
+
+    /// Install separately authored object-scene and terrain lighting.
+    ///
+    /// C++ `W3DDisplay::setTimeOfDay` reads `TerrainObjectsLighting[tod][0]`
+    /// for the scene and `TerrainLighting[tod][0]` for TerrainVisual. Main's
+    /// forward pass and GraphicsSystem consume the object record, while the
+    /// terrain bridge consumes the terrain record.
+    pub fn set_environment_lighting_with_terrain(
+        &mut self,
+        object_lighting: Option<CachedLighting>,
+        terrain_lighting: Option<CachedLighting>,
+    ) {
+        if let Some(object_lighting) = object_lighting {
+            self.cached_lighting = Some(object_lighting);
+        }
+        if let Some(terrain_lighting) = terrain_lighting {
+            self.cached_terrain_lighting = Some(terrain_lighting.clone());
+            self.apply_cached_lighting_to_terrain(&terrain_lighting);
+        }
     }
 
     /// Clear any cached lighting state.
     pub fn clear_environment_lighting(&mut self) {
         self.cached_lighting = None;
+        self.cached_terrain_lighting = None;
     }
 
     #[cfg(feature = "game_client")]
@@ -195,7 +215,11 @@ impl RenderPipeline {
                     self.pending_heightmap_hint_load = false;
 
                     // Push lighting into the terrain visual if available.
-                    if let Some(ref lighting) = self.cached_lighting {
+                    if let Some(lighting) = self
+                        .cached_terrain_lighting
+                        .as_ref()
+                        .or(self.cached_lighting.as_ref())
+                    {
                         visual.set_lighting(
                             lighting.sun_direction,
                             lighting.sun_color,
@@ -290,7 +314,11 @@ impl RenderPipeline {
                     self.heightmap_world_size = Some(visual.world_size());
                     self.pending_heightmap_hint_load = false;
 
-                    if let Some(ref lighting) = self.cached_lighting {
+                    if let Some(lighting) = self
+                        .cached_terrain_lighting
+                        .as_ref()
+                        .or(self.cached_lighting.as_ref())
+                    {
                         visual.set_lighting(
                             lighting.sun_direction,
                             lighting.sun_color,

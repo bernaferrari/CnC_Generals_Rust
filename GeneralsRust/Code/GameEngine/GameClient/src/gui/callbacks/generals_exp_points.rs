@@ -1,5 +1,6 @@
 //! GeneralsExpPoints.cpp callback port.
 
+use crate::gui::control_bar::publish_host_cancel_structure_placement;
 use crate::gui::{
     write_input_focus_response, GameWindow, WindowMessage, WindowMsgData, WindowMsgHandled,
 };
@@ -18,7 +19,9 @@ pub fn generals_exp_points_input(
 ) -> WindowMsgHandled {
     match msg {
         WindowMessage::MouseEntering => {
-            TheInGameUI::place_build_available(None, None);
+            if !publish_host_cancel_structure_placement() {
+                TheInGameUI::place_build_available(None, None);
+            }
         }
         WindowMessage::Char if data1 == KEY_ESC => {
             TheControlBar::hide_purchase_science();
@@ -131,4 +134,47 @@ pub fn simulate_generals_exp_prepare_exit() -> bool {
         return false;
     }
     simulate_generals_exp_exit_button_gadget_selected()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mouse_entering_keeps_legacy_placement_cancel_when_bridge_is_disabled() {
+        let _guard = crate::gui::control_bar::acquire_host_control_bar_bridge_test_guard();
+        TheInGameUI::place_build_available(Some("TestStructure".to_string()), Some(77));
+        assert_eq!(
+            TheInGameUI::get_pending_place_template().as_deref(),
+            Some("TestStructure")
+        );
+
+        let window = GameWindow::new();
+        assert_eq!(
+            generals_exp_points_input(&window, WindowMessage::MouseEntering, 0, 0),
+            WindowMsgHandled::Handled
+        );
+        assert!(
+            TheInGameUI::get_pending_place_template().is_none(),
+            "standalone GameClient must retain C++ placement cancellation"
+        );
+        assert_eq!(TheInGameUI::get_pending_place_source_object_id(), 0);
+        assert!(crate::gui::control_bar::take_host_control_bar_requests().is_empty());
+    }
+
+    #[test]
+    fn mouse_entering_publishes_host_placement_cancel_when_bridge_is_enabled() {
+        let _guard = crate::gui::control_bar::acquire_host_control_bar_bridge_test_guard();
+        crate::gui::control_bar::set_host_control_bar_bridge_enabled(true);
+
+        let window = GameWindow::new();
+        assert_eq!(
+            generals_exp_points_input(&window, WindowMessage::MouseEntering, 0, 0),
+            WindowMsgHandled::Handled
+        );
+        assert!(matches!(
+            crate::gui::control_bar::take_host_control_bar_requests().as_slice(),
+            [crate::gui::control_bar::HostControlBarRequest::CancelStructurePlacement]
+        ));
+    }
 }

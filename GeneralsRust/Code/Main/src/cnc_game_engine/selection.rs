@@ -1,6 +1,111 @@
 #![allow(unused_imports, unused_variables, dead_code, non_snake_case)]
 use super::*;
+
+/// One C++ `InGameUI::m_idleWorkers` entry projected onto the host-owned
+/// presentation frame.  The worker id drives C++'s first/next/wrap choice;
+/// selection and camera may target its container instead.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct IdleWorkerSelectionTarget {
+    worker_id: ObjectId,
+    selection_id: ObjectId,
+    focus_position: glam::Vec3,
+}
+
+/// Mirror `InGameUI::selectNextIdleWorker`: only exactly one currently
+/// selected idle worker advances; any empty, multi, or unrelated selection
+/// starts from the first worker.
+fn select_next_idle_worker_target(
+    targets: &[IdleWorkerSelectionTarget],
+    selected: &[ObjectId],
+) -> Option<IdleWorkerSelectionTarget> {
+    let first = *targets.first()?;
+    if selected.len() != 1 {
+        return Some(first);
+    }
+
+    let selected_worker = selected[0];
+    let Some(index) = targets
+        .iter()
+        .position(|target| target.worker_id == selected_worker)
+    else {
+        return Some(first);
+    };
+    Some(targets[(index + 1) % targets.len()])
+}
+
+/// Build the stable local idle-worker list from frozen host data without
+/// reading legacy GameLogic globals.  C++ selects a containing object when an
+/// idle worker is contained, so validate and retain that selectable container
+/// as the target while preserving the worker id for cycle order.
+fn idle_worker_selection_targets_from_presentation(
+    frame: &crate::presentation_frame::PresentationFrame,
+    team: crate::game_logic::Team,
+) -> Vec<IdleWorkerSelectionTarget> {
+    use crate::presentation_frame::PresentationFrame;
+    use crate::unit_control::UnitControlSystem;
+
+    let mut targets: Vec<_> = frame
+        .objects
+        .iter()
+        .filter_map(|worker| {
+            let idle_worker = worker.team == team
+                && !worker.destroyed
+                && !worker.sold
+                && PresentationFrame::presentation_is_worker_like(worker)
+                && worker.move_destination.is_none()
+                && worker.attack_target.is_none()
+                && !worker.under_construction
+                && worker.ai_state_ordinal == 0;
+            idle_worker.then_some(())?;
+
+            let target = match worker.contained_by {
+                Some(container_id) => frame
+                    .objects
+                    .iter()
+                    .find(|object| object.id == container_id)?,
+                None => worker,
+            };
+            (target.team == team && UnitControlSystem::presentation_is_selectable(target))
+                .then_some(())?;
+
+            Some(IdleWorkerSelectionTarget {
+                worker_id: worker.id,
+                selection_id: target.id,
+                focus_position: target.position,
+            })
+        })
+        .collect();
+    // The host presentation has no live `ObjectList` ownership.  Preserve a
+    // stable deterministic order for C++ first/next/wrap semantics.
+    targets.sort_by_key(|target| target.worker_id.0);
+    targets
+}
+
 impl CnCGameEngine {
+    /// Retail `ControlBar.wnd:ButtonIdleWorker` and
+    /// `IdleWorker.wnd:ButtonSelectNextIdleWorker` action.  This deliberately
+    /// differs from the broader hotkey worker cycle: C++ considers idle
+    /// workers only and always centers the tactical view on the selected
+    /// worker (or its container).
+    pub(super) fn host_select_next_idle_worker_from_control_bar(&mut self) {
+        let (local_player_id, targets) = {
+            let Some(frame) = self.last_presentation_frame.as_ref() else {
+                return;
+            };
+            (
+                frame.local_player_id,
+                idle_worker_selection_targets_from_presentation(frame, frame.local_team()),
+            )
+        };
+        let Some(target) = select_next_idle_worker_target(&targets, &self.selected_objects) else {
+            return;
+        };
+
+        self.host_set_selection(local_player_id, vec![target.selection_id]);
+        self.play_sound_effect(SoundType::Select);
+        self.host_center_camera_and_request_focus(target.focus_position);
+    }
+
     /// Retail SELECT_NEXT/PREV_UNIT residual.
     pub(super) fn cycle_friendly_selection(&mut self, delta: i32) {
         // Presentation-only: InGame always has last_presentation_frame.
@@ -1413,5 +1518,47 @@ impl CnCGameEngine {
             return;
         };
         self.select_similar_units(seed);
+    }
+}
+
+#[cfg(test)]
+mod idle_worker_selection_tests {
+    use super::*;
+
+    fn target(worker: u32, selected: u32, x: f32) -> IdleWorkerSelectionTarget {
+        IdleWorkerSelectionTarget {
+            worker_id: ObjectId(worker),
+            selection_id: ObjectId(selected),
+            focus_position: glam::Vec3::new(x, 0.0, x + 10.0),
+        }
+    }
+
+    #[test]
+    fn control_bar_idle_worker_choice_matches_cpp_first_next_wrap_and_container_target() {
+        // The second target models an idle worker inside selectable container 90.
+        let targets = [target(10, 10, 10.0), target(20, 90, 20.0)];
+
+        // C++ starts at the first idle worker for zero, multiple, or unrelated selection.
+        for selected in [vec![], vec![ObjectId(77)], vec![ObjectId(10), ObjectId(20)]] {
+            assert_eq!(
+                select_next_idle_worker_target(&targets, &selected),
+                Some(targets[0])
+            );
+        }
+        // One selected idle worker advances and wraps through the idle-list order.
+        assert_eq!(
+            select_next_idle_worker_target(&targets, &[ObjectId(10)]),
+            Some(targets[1])
+        );
+        assert_eq!(
+            select_next_idle_worker_target(&targets, &[ObjectId(20)]),
+            Some(targets[0])
+        );
+        // A contained worker's cycle identity remains the worker, while the
+        // host selection/camera payload targets its containing object like C++.
+        assert_eq!(targets[1].worker_id, ObjectId(20));
+        assert_eq!(targets[1].selection_id, ObjectId(90));
+        assert_eq!(targets[1].focus_position, glam::Vec3::new(20.0, 0.0, 30.0));
+        assert!(select_next_idle_worker_target(&[], &[]).is_none());
     }
 }

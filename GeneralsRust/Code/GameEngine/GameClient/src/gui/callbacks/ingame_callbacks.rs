@@ -4,6 +4,7 @@
 //! such as chat, replay controls, diplomacy, etc.
 
 use crate::game_text::GameText;
+use crate::gui::control_bar::publish_host_select_next_idle_worker;
 use crate::gui::{
     get_disconnect_menu, with_window_manager, write_input_focus_response, GameWindow, WindowLayout,
     WindowMessage, WindowMsgData, WindowMsgHandled,
@@ -701,7 +702,13 @@ impl IdleWorkerCallbacks {
                     NameKeyGenerator::name_to_key("IdleWorker.wnd:ButtonSelectNextIdleWorker")
                         as i32;
                 if data1 as i32 == button_id {
-                    self.select_next_idle_worker();
+                    // C++ routes this button to the same direct
+                    // InGameUI::selectNextIdleWorker action as the Control
+                    // Bar button.  Main owns live selection in the executable;
+                    // leave the legacy manager untouched when its bridge is on.
+                    if !publish_host_select_next_idle_worker() {
+                        self.select_next_idle_worker();
+                    }
                 }
                 WindowMsgHandled::Handled
             }
@@ -974,6 +981,25 @@ mod tests {
             replay.system(&window, WindowMessage::GadgetSelected, 0, 0),
             WindowMsgHandled::Handled
         );
+    }
+
+    #[test]
+    fn idle_worker_popup_publishes_typed_host_request_when_bridge_enabled() {
+        let _guard = crate::gui::control_bar::acquire_host_control_bar_bridge_test_guard();
+        crate::gui::control_bar::set_host_control_bar_bridge_enabled(true);
+
+        let mut callbacks = IdleWorkerCallbacks::new();
+        let window = GameWindow::new();
+        let button_id = NameKeyGenerator::name_to_key("IdleWorker.wnd:ButtonSelectNextIdleWorker")
+            as WindowMsgData;
+        assert_eq!(
+            callbacks.system(&window, WindowMessage::GadgetSelected, button_id, 0),
+            WindowMsgHandled::Handled
+        );
+        assert!(matches!(
+            crate::gui::control_bar::take_host_control_bar_requests().as_slice(),
+            [crate::gui::control_bar::HostControlBarRequest::SelectNextIdleWorker]
+        ));
     }
 }
 

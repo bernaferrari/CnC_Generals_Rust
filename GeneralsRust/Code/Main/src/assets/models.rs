@@ -273,6 +273,18 @@ pub struct W3dAnimation {
 }
 
 impl W3dAnimation {
+    /// Match the name by which C++ `HAnimManagerClass` registers raw W3D
+    /// motions: `<HierarchyName>.<AnimationName>`.  A Draw state carries this
+    /// qualified identity, so accepting either half independently would turn a
+    /// missing motion into an unrelated animation.
+    pub fn matches_draw_identity(&self, identity: &str) -> bool {
+        let Some((hierarchy, animation)) = split_w3d_draw_animation_identity(identity) else {
+            return false;
+        };
+        self.hierarchy_name.eq_ignore_ascii_case(hierarchy)
+            && self.name.eq_ignore_ascii_case(animation)
+    }
+
     /// Return the source HTree visibility for one pivot, or `None` when a
     /// compressed/malformed `BIT_CHANNEL_VIS` means Main cannot safely decide
     /// whether that child should be drawn.
@@ -300,6 +312,63 @@ impl W3dAnimation {
             // `HRawAnimClass::Get_Visibility` defaults to visible when this
             // animation has no visibility channel for the requested pivot.
             .or(Some(true))
+    }
+}
+
+/// A frozen `W3DModelDraw` animation selection carried from collection through
+/// the final GPU palette upload.
+///
+/// C++ keeps model geometry and `HAnimClass` assets separate: on a miss,
+/// `WW3DAssetManager::Get_HAnim` derives an exact companion `Animation.w3d`
+/// file from `Hierarchy.Animation`.  Main therefore must not reduce a selected
+/// companion to an index into the geometry file's local animation array.
+#[derive(Debug, Clone)]
+pub enum W3dAnimationBinding {
+    /// A motion authored in the geometry W3D itself.
+    Local { index: usize },
+    /// A motion loaded from the exact companion W3D named by the frozen Draw
+    /// identity.  The shared clip stays render-only and is not merged into the
+    /// geometry model or selected through filename-family heuristics.
+    Companion {
+        identity: String,
+        animation: Arc<W3dAnimation>,
+    },
+}
+
+/// Stable state key for one selected W3D motion.  Animation playback state
+/// needs identity equality without comparing raw floating-point channel data.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum W3dAnimationBindingKey {
+    Local(usize),
+    Companion(String),
+}
+
+impl W3dAnimationBinding {
+    pub fn local(index: usize) -> Self {
+        Self::Local { index }
+    }
+
+    pub fn companion(identity: impl Into<String>, animation: Arc<W3dAnimation>) -> Self {
+        Self::Companion {
+            identity: identity.into(),
+            animation,
+        }
+    }
+
+    pub fn state_key(&self) -> W3dAnimationBindingKey {
+        match self {
+            Self::Local { index } => W3dAnimationBindingKey::Local(*index),
+            Self::Companion { identity, .. } => {
+                W3dAnimationBindingKey::Companion(identity.to_ascii_lowercase())
+            }
+        }
+    }
+
+    fn animation<'a>(&'a self, model: &'a W3DModel) -> Option<&'a W3dAnimation> {
+        match self {
+            Self::Local { index } => model.animations.get(*index),
+            Self::Companion { animation, .. } => Some(animation.as_ref()),
+        }
     }
 }
 

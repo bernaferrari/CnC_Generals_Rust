@@ -120,8 +120,9 @@ pub use host_command_bridge::{
 };
 pub(crate) use host_command_bridge::{
     host_control_bar_input_provenance_for_current_dispatch, host_request_from_button,
-    host_request_from_button_with_weapon_slot, publish_host_control_bar_request,
-    publish_host_minimap_interaction, publish_host_production_pause, publish_host_queue_cancel,
+    host_request_from_button_with_weapon_slot, publish_host_cancel_structure_placement,
+    publish_host_control_bar_request, publish_host_minimap_interaction,
+    publish_host_production_pause, publish_host_queue_cancel, publish_host_select_next_idle_worker,
     HostMinimapInteractionRequest,
 };
 pub use multi_select::*;
