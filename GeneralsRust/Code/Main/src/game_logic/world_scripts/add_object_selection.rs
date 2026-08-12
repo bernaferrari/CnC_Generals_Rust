@@ -657,6 +657,7 @@ impl GameLogic {
                     &[
                         KindOf::Structure,
                         KindOf::SupplyCenter,
+                        KindOf::CannotBuildNearSupplies,
                         KindOf::Selectable,
                         KindOf::Attackable,
                     ],
@@ -668,6 +669,7 @@ impl GameLogic {
                     &[
                         KindOf::Structure,
                         KindOf::SupplyCenter,
+                        KindOf::CannotBuildNearSupplies,
                         KindOf::Selectable,
                         KindOf::Attackable,
                     ],
@@ -805,6 +807,7 @@ impl GameLogic {
                     &[
                         KindOf::Structure,
                         KindOf::SupplyCenter,
+                        KindOf::CannotBuildNearSupplies,
                         KindOf::Selectable,
                         KindOf::Attackable,
                     ],
@@ -816,6 +819,7 @@ impl GameLogic {
                     &[
                         KindOf::Structure,
                         KindOf::SupplyCenter,
+                        KindOf::CannotBuildNearSupplies,
                         KindOf::Selectable,
                         KindOf::Attackable,
                     ],
@@ -916,6 +920,7 @@ impl GameLogic {
                     &[
                         KindOf::Structure,
                         KindOf::SupplyCenter,
+                        KindOf::CannotBuildNearSupplies,
                         KindOf::Selectable,
                         KindOf::Attackable,
                     ],
@@ -927,6 +932,7 @@ impl GameLogic {
                     &[
                         KindOf::Structure,
                         KindOf::SupplyCenter,
+                        KindOf::CannotBuildNearSupplies,
                         KindOf::Selectable,
                         KindOf::Attackable,
                     ],

@@ -487,6 +487,9 @@ impl GameLogic {
         if has_kind("supply_source") {
             template.add_kind_of(KindOf::SupplySource);
         }
+        if has_kind("cannot_build_near_supplies") {
+            template.add_kind_of(KindOf::CannotBuildNearSupplies);
+        }
         if has_kind("unattackable") {
             template.add_kind_of(KindOf::Unattackable);
         }
@@ -3716,6 +3719,191 @@ End
     }
 
     #[test]
+    fn retail_superweapon_modules_drive_arm_limit_energy_and_presentation_not_names() {
+        use glam::Vec3;
+        use std::collections::HashMap;
+        use std::path::Path;
+
+        // The fixture uses the actual retail FactionBuilding declarations and
+        // only seeds the corresponding loaded SpecialPower records when the
+        // wider shell bootstrap has not already done so.
+        {
+            use game_engine::common::rts::special_power::get_special_power_store_mut;
+
+            let mut powers = get_special_power_store_mut();
+            for (name, enum_name, reload) in [
+                (
+                    "SuperweaponParticleUplinkCannon",
+                    "SPECIAL_PARTICLE_UPLINK_CANNON",
+                    "240000",
+                ),
+                ("SuperweaponScudStorm", "SPECIAL_SCUD_STORM", "300000"),
+                (
+                    "SuperweaponNeutronMissile",
+                    "SPECIAL_NEUTRON_MISSILE",
+                    "360000",
+                ),
+            ] {
+                if powers.find_template(name).is_none() {
+                    let mut fields = HashMap::new();
+                    fields.insert("Enum".to_string(), enum_name.to_string());
+                    fields.insert("ReloadTime".to_string(), reload.to_string());
+                    fields.insert("PublicTimer".to_string(), "Yes".to_string());
+                    powers
+                        .parse_special_power_definition(name, &fields)
+                        .unwrap_or_else(|error| {
+                            panic!("seed required retail special power {name}: {error}")
+                        });
+                }
+            }
+        }
+
+        let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .ancestors()
+            .nth(3)
+            .expect("Main crate must remain three levels below repository root");
+        let faction_buildings =
+            std::fs::read_to_string(repo_root.join(
+                "windows_game/extracted_big_files_v2/INIZH/Data/INI/Object/FactionBuilding.ini",
+            ))
+            .expect("retail FactionBuilding.ini");
+        let mut parser = crate::assets::IniParser::new();
+        parser
+            .parse_ini_content(&faction_buildings, "FactionBuilding.ini")
+            .expect("parse retail faction structures");
+        parser
+            .parse_ini_content(
+                r#"
+Object AmericaParticleCannonUplinkNamedButNoModule
+  Type = Structure
+  KindOf = STRUCTURE SELECTABLE POWERED FS_SUPERWEAPON
+End
+"#,
+                "superweapon_name_spoof.ini",
+            )
+            .expect("parse name spoof");
+
+        let parsed = |name| {
+            GameLogic::build_template_from_object_definition(
+                name,
+                parser
+                    .get_definition(name)
+                    .unwrap_or_else(|| panic!("missing retail Object {name}")),
+                None,
+            )
+        };
+        let particle = parsed("AmericaParticleCannonUplink");
+        let scud = parsed("GLAScudStorm");
+        let nuke = parsed("ChinaNuclearMissileLauncher");
+        let spoof = parsed("AmericaParticleCannonUplinkNamedButNoModule");
+
+        fn first_power_name(template: &ThingTemplate) -> Option<&str> {
+            template
+                .special_power_modules
+                .first()
+                .map(|module| module.special_power_template.as_str())
+        }
+        assert_eq!(
+            first_power_name(&particle),
+            Some("SuperweaponParticleUplinkCannon")
+        );
+        assert_eq!(first_power_name(&scud), Some("SuperweaponScudStorm"));
+        assert_eq!(first_power_name(&nuke), Some("SuperweaponNeutronMissile"));
+        assert!(particle.special_power_modules[0].module_tag.is_some());
+        assert_eq!(particle.energy_production, Some(-10));
+        assert_eq!(scud.energy_production, Some(0));
+        assert_eq!(nuke.energy_production, Some(-10));
+        assert_eq!(
+            particle.max_simultaneous_link_key.as_deref(),
+            Some("Superweapon")
+        );
+        assert!(particle.max_simultaneous_determined_by_superweapon_restriction);
+        assert!(spoof.special_power_modules.is_empty());
+        assert_eq!(spoof.energy_production, None);
+        assert!(!spoof.has_superweapon_restriction_link_key());
+
+        let mut logic = GameLogic::new();
+        logic.add_player(Player::new(1, Team::USA, "USA", true));
+        logic.templates.insert(particle.name.clone(), particle);
+        logic.templates.insert(scud.name.clone(), scud);
+        logic.templates.insert(nuke.name.clone(), nuke);
+        logic.templates.insert(spoof.name.clone(), spoof);
+        logic.skirmish_rules.limit_superweapons = true;
+
+        let particle_id = logic
+            .create_object_for_player("AmericaParticleCannonUplink", 1, Vec3::ZERO)
+            .expect("retail particle structure");
+        let spoof_id = logic
+            .create_object_for_player(
+                "AmericaParticleCannonUplinkNamedButNoModule",
+                1,
+                Vec3::new(40.0, 0.0, 0.0),
+            )
+            .expect("name spoof structure");
+        use crate::command_system::SpecialPowerType as P;
+        assert!(logic
+            .host_object(particle_id)
+            .expect("particle object")
+            .special_power_cooldowns
+            .contains_key(&P::ParticleCannon));
+        assert!(logic
+            .host_object(spoof_id)
+            .expect("spoof object")
+            .special_power_cooldowns
+            .is_empty());
+        assert!(!logic.can_start_superweapon_building_for_player(1, "AmericaParticleCannonUplink"));
+        assert!(logic.can_start_superweapon_building_for_player(
+            1,
+            "AmericaParticleCannonUplinkNamedButNoModule"
+        ));
+
+        let particle_object = logic.host_object_mut(particle_id).expect("particle object");
+        particle_object
+            .special_power_cooldowns
+            .remove(&P::ParticleCannon);
+        particle_object.special_power_cooldown_remaining = 0.0;
+        particle_object.refresh_special_power_aggregate_cooldown();
+        assert!(logic.is_special_power_ready_for(particle_id, &P::ParticleCannon));
+        assert!(!logic.is_special_power_ready_for(spoof_id, &P::ParticleCannon));
+        let frame = crate::presentation_frame::PresentationFrame::build_from_logic(&logic, 1);
+        let particle_presentation = frame
+            .objects
+            .iter()
+            .find(|object| object.id == particle_id)
+            .expect("particle presentation");
+        assert_eq!(
+            particle_presentation
+                .special_power_ready_template_name
+                .as_deref(),
+            Some("SuperweaponParticleUplinkCannon")
+        );
+        assert!(frame
+            .objects
+            .iter()
+            .find(|object| object.id == spoof_id)
+            .expect("spoof presentation")
+            .special_power_ready_template_name
+            .is_none());
+
+        logic.select_objects(1, vec![particle_id]);
+        let particle_frame =
+            crate::presentation_frame::PresentationFrame::build_from_logic(&logic, 1);
+        assert!(particle_frame.unit_command_buttons().iter().any(|button| {
+            button
+                .command_name
+                .eq_ignore_ascii_case("Command_ParticleCannon")
+                && button.enabled
+        }));
+        logic.select_objects(1, vec![spoof_id]);
+        let spoof_frame = crate::presentation_frame::PresentationFrame::build_from_logic(&logic, 1);
+        assert!(!spoof_frame.unit_command_buttons().iter().any(|button| {
+            button
+                .command_name
+                .eq_ignore_ascii_case("Command_ParticleCannon")
+        }));
+    }
+
+    #[test]
     fn parsed_parking_place_behavior_keeps_authored_shape_without_name_fallback() {
         let mut parser = crate::assets::IniParser::new();
         parser
@@ -4148,7 +4336,7 @@ End
 Object ArbitraryRetailSupplyIdentity
   Type = Structure
   Model = SupplySourceModel
-  KindOf = STRUCTURE SELECTABLE SUPPLY_SOURCE
+  KindOf = STRUCTURE SELECTABLE SUPPLY_SOURCE CANNOT_BUILD_NEAR_SUPPLIES
 End
 Object SupplyNamedButNotAuthored
   Type = Structure
@@ -4168,6 +4356,7 @@ End
             None,
         );
         assert!(source.is_kind_of(KindOf::SupplySource));
+        assert!(source.is_kind_of(KindOf::CannotBuildNearSupplies));
         assert!(source.is_kind_of(KindOf::Resource));
         assert!(source.is_kind_of(KindOf::Harvestable));
 
@@ -4179,6 +4368,7 @@ End
             None,
         );
         assert!(!lookalike.is_kind_of(KindOf::SupplySource));
+        assert!(!lookalike.is_kind_of(KindOf::CannotBuildNearSupplies));
         assert!(!lookalike.is_kind_of(KindOf::Resource));
         assert!(!lookalike.is_kind_of(KindOf::Harvestable));
 
@@ -4209,6 +4399,52 @@ End
                 "{template_name} must retain retail KINDOF_SUPPLY_SOURCE"
             );
         }
+        let faction_buildings =
+            std::fs::read_to_string(repo_root.join(
+                "windows_game/extracted_big_files_v2/INIZH/Data/INI/Object/FactionBuilding.ini",
+            ))
+            .expect("retail FactionBuilding.ini");
+        retail_parser
+            .parse_ini_content(&faction_buildings, "FactionBuilding.ini")
+            .expect("parse retail FactionBuilding.ini");
+        for template_name in ["AmericaSupplyCenter", "GLASupplyStash", "ChinaSupplyCenter"] {
+            let template = GameLogic::build_template_from_object_definition(
+                template_name,
+                retail_parser
+                    .get_definition(template_name)
+                    .expect("retail supply-center definition"),
+                None,
+            );
+            assert!(
+                template.is_kind_of(KindOf::CannotBuildNearSupplies),
+                "{template_name} must retain retail KINDOF_CANNOT_BUILD_NEAR_SUPPLIES"
+            );
+        }
+
+        // Normal offline boot already has a hand-authored starter template
+        // before the retail Object catalogue enriches it.  Enrichment must
+        // carry this exact build rule too; otherwise headless games would
+        // regress to a name-based exception even though parsed data is live.
+        let mut seeded = GameLogic::new();
+        seeded.templates.insert(
+            "AmericaSupplyCenter".to_string(),
+            ThingTemplate::new("AmericaSupplyCenter"),
+        );
+        assert_eq!(
+            seeded.seed_asset_definition_templates_from_snapshot(vec![(
+                "AmericaSupplyCenter".to_string(),
+                retail_parser
+                    .get_definition("AmericaSupplyCenter")
+                    .expect("retail America supply center definition")
+                    .clone(),
+            )]),
+            0,
+            "the existing starter template is enriched rather than replaced"
+        );
+        assert!(seeded
+            .templates
+            .get("AmericaSupplyCenter")
+            .is_some_and(|template| template.is_kind_of(KindOf::CannotBuildNearSupplies)));
     }
 
     #[test]

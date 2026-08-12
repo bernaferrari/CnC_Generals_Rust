@@ -223,6 +223,9 @@ fn write_kind_of_variant(kind_of: KindOf) -> u8 {
         // host Resource/Harvestable bridge so C++ build-near-supplies and
         // dock authority do not depend on a template basename.
         KindOf::SupplySource => 52,
+        // Append-only identifier.  Build-near-supplies authorization belongs
+        // to the requested template's exact C++ KindOf, not its name.
+        KindOf::CannotBuildNearSupplies => 53,
     }
 }
 
@@ -281,6 +284,7 @@ fn read_kind_of_variant(variant: u8) -> SaveLoadResult<KindOf> {
         50 => Ok(KindOf::HealPad),
         51 => Ok(KindOf::MoneyHacker),
         52 => Ok(KindOf::SupplySource),
+        53 => Ok(KindOf::CannotBuildNearSupplies),
         _ => Err(SaveLoadError::Corrupted(format!(
             "Invalid KindOf variant: {variant}"
         ))),

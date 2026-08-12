@@ -180,6 +180,13 @@ pub enum KindOf {
     /// bits used by the host gather UI, while this bit preserves the exact
     /// C++ distinction for supply-source-only authority.
     SupplySource,
+    /// C++ `KINDOF_CANNOT_BUILD_NEAR_SUPPLIES`.  BuildAssistant applies its
+    /// expanded-footprint check only when the *requested building* has this
+    /// authored capability; SupplyCenter-like spelling is not sufficient.
+    ///
+    /// Gameplay-only and append-only for the same compact-presentation-bank
+    /// reason as [`Self::SupplySource`].
+    CannotBuildNearSupplies,
 }
 
 /// Object status flags

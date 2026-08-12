@@ -1760,6 +1760,10 @@ fn retail_special_power_names_map_without_fuzzy_asset_or_id_fallbacks() {
         ("SuperweaponTerrorCell", Power::TerrorCell),
         ("SupW_CruiseMissile", Power::CruiseMissile),
         (
+            "SupW_SuperweaponParticleUplinkCannon",
+            Power::SuperweaponParticleCannon,
+        ),
+        (
             "SupW_SuperweaponNeutronMissile",
             Power::SuperweaponNeutronMissile,
         ),

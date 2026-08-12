@@ -54,14 +54,14 @@ impl Snapshot for WorldSnapshot {
                 let mut id = ObjectId(0);
                 id.xfer(xfer)?;
                 let mut obj = default_object_snapshot();
-                obj.xfer(xfer)?;
+                obj.xfer_for_world_version(xfer, self.version)?;
                 self.objects.insert(id, obj);
             }
         } else {
             for (id, obj) in &mut self.objects {
                 let mut id_copy = *id;
                 id_copy.xfer(xfer)?;
-                obj.xfer(xfer)?;
+                obj.xfer_for_world_version(xfer, self.version)?;
             }
         }
 

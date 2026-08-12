@@ -1924,6 +1924,14 @@ fn ordinary_do_weapon_uses_authored_mine_detail_and_disarms_only_when_armed() {
     let mine_id = logic
         .place_land_mine(Team::GLA, Vec3::new(2.0, 0.0, 0.0), None)
         .expect("enemy mine");
+    // The normal creation path starts a weapon's reload clock at frame zero.
+    // Start this focused combat assertion with the authored detail weapon
+    // ready, just as the other direct `update_combat` tests do.
+    logic
+        .host_object_mut(clearer_id)
+        .and_then(|clearer| clearer.mine_clearing_primary_weapon.as_mut())
+        .expect("authored mine detail weapon")
+        .last_fire_time = -10.0;
 
     // The actual retail FIRE_WEAPON does not become usable merely because the
     // object owns a mine row.  The parsed option arms the persistent detail

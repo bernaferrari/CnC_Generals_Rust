@@ -521,7 +521,6 @@ impl GameLogic {
             is_legal_build_distance_from_map_edge, is_legal_build_height_variation,
             MIN_DIST_FROM_EDGE_OF_MAP_FOR_BUILD, SUPPLY_BUILD_BORDER,
         };
-        use crate::game_logic::host_upgrades::is_supply_center_template;
         let (min, max) = self.world_bounds();
         // Use real map extent (no generous pad) for C++ off-map / edge residual.
         let min_x = min.x;
@@ -564,12 +563,13 @@ impl GameLogic {
         }
         let in_way =
             legal_build_objects_in_the_way_residual((position.x, position.z), place_r, &blockers);
-        // C++ CANNOT_BUILD_NEAR_SUPPLIES: supply centers only.
-        let lower = template_name.to_ascii_lowercase();
-        let too_close = if is_supply_center_template(template_name)
-            || lower.contains("supplycenter")
-            || lower.contains("supply_center")
-            || lower.contains("supplystash")
+        // C++ BuildAssistant checks the requested template's exact
+        // KINDOF_CANNOT_BUILD_NEAR_SUPPLIES bit, rather than assigning the
+        // rule to every supply-looking basename.
+        let too_close = if self
+            .templates
+            .get(template_name)
+            .is_some_and(|template| template.is_kind_of(KindOf::CannotBuildNearSupplies))
         {
             legal_build_too_close_to_supplies_residual(
                 (position.x, position.z),
