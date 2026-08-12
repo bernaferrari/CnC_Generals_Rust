@@ -160,7 +160,10 @@ impl GameLogic {
                 || obj.object_type == crate::game_logic::ObjectType::Building;
             if is_bldg && !attack_buildings {
                 let bldg_can_attack =
-                    obj.can_attack() || obj.weapon.is_some() || obj.secondary_weapon.is_some();
+                    obj.can_attack()
+                        || obj.weapon.is_some()
+                        || obj.secondary_weapon.is_some()
+                        || obj.tertiary_weapon.is_some();
                 if !bldg_can_attack {
                     continue;
                 }

@@ -163,10 +163,9 @@ impl SnapshotBuilder {
             },
             movement: object.movement.clone(),
             experience: object.experience.clone(),
-            // Slot layout (host residual, not full C++ WeaponSet):
-            //   weapons[0] = primary, weapons[1] = secondary when present.
-            // When primary is missing but secondary exists, pad index 0 with a
-            // zero-damage placeholder so secondary stays at index 1 on restore.
+            // Concrete C++ WeaponSet layout: PRIMARY=0, SECONDARY=1,
+            // TERTIARY=2.  Missing earlier slots are represented by an
+            // explicit zero-value pad so later slot identity survives load.
             weapons: Self::snapshot_object_weapons(object),
             contained_objects: object.occupants.clone(),
             container_object: None, // Would need to track container
@@ -175,42 +174,44 @@ impl SnapshotBuilder {
         })
     }
 
-    /// Capture primary + secondary weapons into the snapshot `weapons` vec.
+    /// Capture all concrete WeaponSet slots into the snapshot `weapons` vec.
     ///
-    /// Index 0 = primary, index 1 = secondary. Runtime state such as
+    /// Index 0 = primary, 1 = secondary, 2 = tertiary. Runtime state such as
     /// `last_fire_time` / ammo must survive so combat does not desync after load.
     pub(crate) fn snapshot_object_weapons(object: &Object) -> Vec<Weapon> {
-        let mut weapons = Vec::new();
-        match (&object.weapon, &object.secondary_weapon) {
-            (Some(primary), Some(secondary)) => {
-                weapons.push(primary.clone());
-                weapons.push(secondary.clone());
-            }
-            (Some(primary), None) => {
-                weapons.push(primary.clone());
-            }
-            (None, Some(secondary)) => {
-                // Pad so secondary restores at slot 1 (see restore_object).
-                weapons.push(Weapon {
-                    damage: 0.0,
-                    range: 0.0,
-                    min_range: 0.0,
-                    reload_time: 0.0,
-                    last_fire_time: 0.0,
-                    ammo: None,
-                    clip_size: 0,
-                    clip_reload_time: 0.0,
-                    can_target_air: false,
-                    can_target_ground: false,
-                    projectile_speed: 0.0,
-                    pre_attack_delay: 0.0,
-                    splash_radius: 0.0,
-                });
-                weapons.push(secondary.clone());
-            }
-            (None, None) => {}
+        let slots = [
+            object.weapon.as_ref(),
+            object.secondary_weapon.as_ref(),
+            object.tertiary_weapon.as_ref(),
+        ];
+        let Some(last_present) = slots.iter().rposition(Option::is_some) else {
+            return Vec::new();
+        };
+
+        let mut weapons = Vec::with_capacity(last_present + 1);
+        for slot in slots.into_iter().take(last_present + 1) {
+            weapons.push(slot.cloned().unwrap_or_else(Self::empty_weapon_slot_pad));
         }
         weapons
+    }
+
+    /// Snapshot-only marker for a missing lower WeaponSet slot.
+    fn empty_weapon_slot_pad() -> Weapon {
+        Weapon {
+            damage: 0.0,
+            range: 0.0,
+            min_range: 0.0,
+            reload_time: 0.0,
+            last_fire_time: 0.0,
+            ammo: None,
+            clip_size: 0,
+            clip_reload_time: 0.0,
+            can_target_air: false,
+            can_target_ground: false,
+            projectile_speed: 0.0,
+            pre_attack_delay: 0.0,
+            splash_radius: 0.0,
+        }
     }
 
     fn snapshot_object_status(

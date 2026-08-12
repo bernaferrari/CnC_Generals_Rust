@@ -258,6 +258,20 @@ pub struct LiveControlBarClick {
     pub input_provenance: HostControlBarInputProvenance,
 }
 
+impl LiveControlBarClick {
+    /// Snapshot the currently scoped WND input origin for deferred replay.
+    ///
+    /// This must happen while the WindowManager callback is still executing;
+    /// `ControlBar::update` publishes the eventual host request later.
+    fn from_current_dispatch(control_id: u32, msg: u32) -> Self {
+        Self {
+            control_id,
+            msg,
+            input_provenance: host_control_bar_input_provenance_for_current_dispatch(),
+        }
+    }
+}
+
 /// Pending WND clicks / UI dirty bits for the live `ControlBar` (not Send).
 #[derive(Debug, Default)]
 pub struct LiveControlBarEvents {
@@ -322,11 +336,9 @@ impl ControlBarHooks for LiveControlBarBackend {
 
     fn process_context_sensitive_button_click(&self, control_id: u32, msg: u32) {
         with_live_control_bar_events(|events| {
-            events.clicks.push(LiveControlBarClick {
-                control_id,
-                msg,
-                input_provenance: host_control_bar_input_provenance_for_current_dispatch(),
-            });
+            events
+                .clicks
+                .push(LiveControlBarClick::from_current_dispatch(control_id, msg));
         });
     }
 
@@ -397,6 +409,40 @@ impl gamelogic::control_bar::ControlBarUiHooks for LiveControlBarUiHooks {
 pub fn register_live_control_bar_hooks() {
     register_control_bar_backend(Arc::new(LiveControlBarBackend));
     let _ = gamelogic::control_bar::register_control_bar_ui_hooks(Arc::new(LiveControlBarUiHooks));
+}
+
+#[cfg(test)]
+mod live_control_bar_click_provenance_tests {
+    use super::LiveControlBarClick;
+    use crate::gui::control_bar::{
+        with_host_control_bar_input_provenance, HostControlBarInputProvenance,
+    };
+
+    #[test]
+    fn deferred_click_snapshots_physical_origin_and_fails_closed_otherwise() {
+        let unscoped = LiveControlBarClick::from_current_dispatch(10, 20);
+        let injected = with_host_control_bar_input_provenance(
+            HostControlBarInputProvenance::InjectedOrUnknown,
+            || LiveControlBarClick::from_current_dispatch(11, 21),
+        );
+        let physical = with_host_control_bar_input_provenance(
+            HostControlBarInputProvenance::PhysicalWindowMouseInput,
+            || LiveControlBarClick::from_current_dispatch(12, 22),
+        );
+
+        assert_eq!(
+            unscoped.input_provenance,
+            HostControlBarInputProvenance::InjectedOrUnknown
+        );
+        assert_eq!(
+            injected.input_provenance,
+            HostControlBarInputProvenance::InjectedOrUnknown
+        );
+        assert_eq!(
+            physical.input_provenance,
+            HostControlBarInputProvenance::PhysicalWindowMouseInput
+        );
+    }
 }
 
 fn with_control_bar_backend<F>(f: F) -> bool

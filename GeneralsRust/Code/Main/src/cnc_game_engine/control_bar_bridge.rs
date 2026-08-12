@@ -280,7 +280,7 @@ impl CnCGameEngine {
 
         let selected = self.host_control_bar_local_selection(player_id, selected_object_ids);
         if selected.is_empty()
-            && !self.host_control_bar_command_allows_empty_selection(command_name)
+            && !self.host_control_bar_command_allows_empty_selection(command_type)
         {
             self.host_reject_control_bar_request(
                 "direct command has no local selectable selection",
@@ -338,10 +338,11 @@ impl CnCGameEngine {
         }
 
         // GameClient represents FIRE_WEAPON as DoAttackObject.  A targetless
-        // button is only meaningful for the retail Demo tertiary suicide
+        // button is only meaningful for the exact retail Demo tertiary suicide
         // action; do not fire an arbitrary default weapon at a made-up target.
         if command_type == LegacyCommandType::DoAttackObject {
-            if host_control_bar_key(command_name).contains("demotertiarysuicide") {
+            if host_control_bar_is_exact_retail_button(command_name, "Demo_Command_TertiarySuicide")
+            {
                 self.host_control_bar_queue_command(
                     player_id,
                     selected,
@@ -356,7 +357,56 @@ impl CnCGameEngine {
             return;
         }
 
-        self.issue_named_command_from_ui(command_name);
+        match host_control_bar_direct_action(command_type, command_name, weapon_slot) {
+            Ok(action) => self.host_apply_control_bar_direct_action(player_id, selected, action),
+            Err(reason) => self.host_reject_control_bar_request(reason),
+        }
+    }
+
+    fn host_apply_control_bar_direct_action(
+        &mut self,
+        player_id: u32,
+        selected: Vec<crate::game_logic::ObjectId>,
+        action: HostControlBarDirectAction,
+    ) {
+        match action {
+            HostControlBarDirectAction::Queue(command_type) => {
+                self.host_control_bar_queue_command(player_id, selected, command_type);
+            }
+            HostControlBarDirectAction::FirstSelectedObject(action) => {
+                let Some(object_id) = selected.first().copied() else {
+                    self.host_reject_control_bar_request(
+                        "selected-object Control Bar command has no local selection",
+                    );
+                    return;
+                };
+                let command_type = match action {
+                    HostControlBarFirstSelectedObjectAction::Sell => {
+                        crate::command_system::CommandType::Sell { object_id }
+                    }
+                    HostControlBarFirstSelectedObjectAction::CancelConstruction => {
+                        crate::command_system::CommandType::DozerCancelConstruct { object_id }
+                    }
+                };
+                self.host_control_bar_queue_command(player_id, selected, command_type);
+            }
+            HostControlBarDirectAction::LockWeapon(slot) => {
+                // `SWITCH_WEAPON` is not a toggle.  The retail button carries
+                // the concrete primary/secondary/tertiary choice and C++ locks
+                // that exact set permanently.
+                self.host_control_bar_queue_command(
+                    player_id,
+                    selected,
+                    crate::command_system::CommandType::SetWeaponLock { slot, lock_type: 2 },
+                );
+            }
+            HostControlBarDirectAction::ArmUnitAbility(ability) => {
+                self.arm_pending_unit_ability(
+                    ability,
+                    host_control_bar_unit_ability_message(ability),
+                );
+            }
+        }
     }
 
     fn host_apply_control_bar_target(
@@ -369,15 +419,38 @@ impl CnCGameEngine {
         target: HostControlBarTarget,
         physical_os_input: bool,
     ) {
+        let generic_action = match &target {
+            HostControlBarTarget::Generic => {
+                match host_control_bar_generic_target_action(
+                    command_type,
+                    command_name,
+                    weapon_slot,
+                ) {
+                    Ok(action) => Some(action),
+                    Err(reason) => {
+                        self.host_reject_control_bar_request(reason);
+                        return;
+                    }
+                }
+            }
+            HostControlBarTarget::DozerConstruct { .. }
+            | HostControlBarTarget::SpecialPower { .. } => None,
+        };
         let selected = self.host_control_bar_local_selection(player_id, selected_object_ids);
-        if selected.is_empty() {
+        let generic_allows_empty_selection = matches!(
+            generic_action.as_ref(),
+            Some(HostControlBarGenericTargetAction::PlaceBeacon)
+        );
+        if selected.is_empty() && !generic_allows_empty_selection {
             self.host_reject_control_bar_request(
                 "target command has no local selectable selection",
             );
             return;
         }
         let selected_has_dozer = selected.iter().any(|id| self.ui_object_is_dozer(*id));
-        self.host_set_selection(player_id, selected);
+        if !selected.is_empty() {
+            self.host_set_selection(player_id, selected);
+        }
 
         match target {
             HostControlBarTarget::DozerConstruct { template_name } => {
@@ -421,21 +494,47 @@ impl CnCGameEngine {
                 self.pending_structure_placement = None;
                 self.arm_radius_cursor_for_pending(cursor);
             }
-            HostControlBarTarget::Generic => {
-                if command_type == LegacyCommandType::DoAttackObject {
-                    let Some(weapon_slot) = host_control_bar_weapon_slot(weapon_slot) else {
-                        self.host_reject_control_bar_request(
-                            "FIRE_WEAPON button has no valid explicit slot",
-                        );
-                        return;
-                    };
+            HostControlBarTarget::Generic => match generic_action {
+                Some(HostControlBarGenericTargetAction::Weapon(weapon_slot)) => {
                     self.pending_map_command = Some(PendingMapCommand::Weapon(weapon_slot));
                     self.pending_structure_placement = None;
                     self.arm_radius_cursor_for_pending("OFFENSIVE_SPECIALPOWER");
-                } else {
-                    self.issue_named_command_from_ui(command_name);
                 }
-            }
+                Some(HostControlBarGenericTargetAction::UnitAbility(ability)) => {
+                    self.arm_pending_unit_ability(
+                        ability,
+                        host_control_bar_unit_ability_message(ability),
+                    );
+                }
+                Some(HostControlBarGenericTargetAction::AttackMove) => {
+                    self.pending_map_command = Some(PendingMapCommand::AttackMove);
+                    self.pending_structure_placement = None;
+                    self.arm_radius_cursor_for_pending("ATTACK_CONTINUE_AREA");
+                }
+                Some(HostControlBarGenericTargetAction::Guard(mode)) => {
+                    self.pending_map_command = Some(PendingMapCommand::Guard(mode));
+                    self.pending_structure_placement = None;
+                    self.arm_radius_cursor_for_pending("GUARD_AREA");
+                }
+                Some(HostControlBarGenericTargetAction::SetRallyPoint) => {
+                    self.pending_map_command = Some(PendingMapCommand::SetRallyPoint);
+                    self.pending_structure_placement = None;
+                    self.arm_radius_cursor_for_pending("FRIENDLY_SPECIALPOWER");
+                }
+                Some(HostControlBarGenericTargetAction::CombatDrop) => {
+                    self.pending_map_command = Some(PendingMapCommand::CombatDrop);
+                    self.pending_structure_placement = None;
+                    self.arm_radius_cursor_for_pending("COMBATDROP");
+                }
+                Some(HostControlBarGenericTargetAction::PlaceBeacon) => {
+                    self.pending_map_command = Some(PendingMapCommand::PlaceBeacon);
+                    self.pending_structure_placement = None;
+                    self.arm_radius_cursor_for_pending("RADAR");
+                }
+                None => self.host_reject_control_bar_request(
+                    "target command reached the host without a typed translation",
+                ),
+            },
         }
     }
 
@@ -557,13 +656,19 @@ impl CnCGameEngine {
         }
     }
 
-    fn host_control_bar_command_allows_empty_selection(&self, command_name: &str) -> bool {
+    fn host_control_bar_command_allows_empty_selection(
+        &self,
+        command_type: LegacyCommandType,
+    ) -> bool {
         matches!(
-            host_control_bar_key(command_name).as_str(),
-            "commandviewcommandcenter"
-                | "commandviewlastradarevent"
-                | "commandplacebeacon"
-                | "commandremovebeacon"
+            command_type,
+            LegacyCommandType::DoStop
+                | LegacyCommandType::DoScatter
+                | LegacyCommandType::MetaScatter
+                | LegacyCommandType::MetaViewCommandCenter
+                | LegacyCommandType::MetaViewLastRadarEvent
+                | LegacyCommandType::RemoveBeacon
+                | LegacyCommandType::MetaRemoveBeacon
         )
     }
 
@@ -594,14 +699,250 @@ impl CnCGameEngine {
     }
 }
 
+/// A fully typed immediate Control Bar operation.  Keeping this separate from
+/// button names means a newly parsed legacy command cannot accidentally take a
+/// nearby legacy name-parser path with different semantics.
+#[derive(Debug, Clone, PartialEq)]
+enum HostControlBarDirectAction {
+    Queue(crate::command_system::CommandType),
+    FirstSelectedObject(HostControlBarFirstSelectedObjectAction),
+    /// C++ `MSG_SWITCH_WEAPONS`: a permanent lock for one explicit slot.
+    LockWeapon(u8),
+    /// A legacy target command whose button was published direct despite its
+    /// exact retail identity proving that it must arm a target interaction.
+    ArmUnitAbility(PendingUnitAbility),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum HostControlBarFirstSelectedObjectAction {
+    Sell,
+    CancelConstruction,
+}
+
+/// A non-special target mode awaiting the next map/object click.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum HostControlBarGenericTargetAction {
+    Weapon(crate::command_system::WeaponSlot),
+    UnitAbility(PendingUnitAbility),
+    AttackMove,
+    Guard(crate::game_logic::GuardMode),
+    SetRallyPoint,
+    CombatDrop,
+    PlaceBeacon,
+}
+
+/// Translate only legacy command types that have a corresponding Main command.
+///
+/// This intentionally does not call the name-based UI compatibility method:
+/// command names are presentation identifiers, while the parsed C++ command
+/// type is the authority for immediate behavior.  Unknown or incomplete
+/// legacy payloads reject at the bridge rather than being guessed into a
+/// different host action.
+fn host_control_bar_direct_action(
+    command_type: LegacyCommandType,
+    command_name: &str,
+    weapon_slot: Option<u32>,
+) -> Result<HostControlBarDirectAction, &'static str> {
+    if let Some(ability) = host_control_bar_target_unit_ability(command_type, command_name) {
+        return Ok(HostControlBarDirectAction::ArmUnitAbility(ability));
+    }
+
+    use crate::command_system::CommandType as HostCommandType;
+    let action = match command_type {
+        LegacyCommandType::Exit => HostControlBarDirectAction::Queue(HostCommandType::Exit),
+        LegacyCommandType::Evacuate => HostControlBarDirectAction::Queue(HostCommandType::Evacuate),
+        LegacyCommandType::ExecuteRailedTransport => {
+            HostControlBarDirectAction::Queue(HostCommandType::ExecuteRailedTransport)
+        }
+        LegacyCommandType::InternetHack => {
+            HostControlBarDirectAction::Queue(HostCommandType::HackInternet)
+        }
+        LegacyCommandType::ToggleOvercharge => {
+            HostControlBarDirectAction::Queue(HostCommandType::ToggleOvercharge)
+        }
+        LegacyCommandType::DoStop => HostControlBarDirectAction::Queue(HostCommandType::Stop),
+        LegacyCommandType::DoScatter | LegacyCommandType::MetaScatter => {
+            HostControlBarDirectAction::Queue(HostCommandType::Scatter)
+        }
+        LegacyCommandType::MetaDeploy => HostControlBarDirectAction::Queue(HostCommandType::Deploy),
+        LegacyCommandType::DoCheer => HostControlBarDirectAction::Queue(HostCommandType::Cheer),
+        LegacyCommandType::MetaCreateFormation => {
+            HostControlBarDirectAction::Queue(HostCommandType::CreateFormation)
+        }
+        LegacyCommandType::MetaViewCommandCenter => {
+            HostControlBarDirectAction::Queue(HostCommandType::ViewCommandCenter)
+        }
+        LegacyCommandType::MetaViewLastRadarEvent => {
+            HostControlBarDirectAction::Queue(HostCommandType::ViewLastRadarEvent)
+        }
+        LegacyCommandType::RemoveBeacon | LegacyCommandType::MetaRemoveBeacon => {
+            HostControlBarDirectAction::Queue(HostCommandType::RemoveBeacon)
+        }
+        LegacyCommandType::Sell => HostControlBarDirectAction::FirstSelectedObject(
+            HostControlBarFirstSelectedObjectAction::Sell,
+        ),
+        LegacyCommandType::DozerCancelConstruct => HostControlBarDirectAction::FirstSelectedObject(
+            HostControlBarFirstSelectedObjectAction::CancelConstruction,
+        ),
+        LegacyCommandType::SwitchWeapons => {
+            let Some(slot) = host_control_bar_weapon_slot_index(weapon_slot) else {
+                return Err("SWITCH_WEAPON button has no valid explicit slot");
+            };
+            HostControlBarDirectAction::LockWeapon(slot)
+        }
+        // `HIJACK_VEHICLE` and `SABOTAGE_BUILDING` are both represented by
+        // legacy Enter.  Only the exact retail button identities above can
+        // disambiguate them.  A generic Enter must never become either action.
+        LegacyCommandType::Enter => {
+            return Err("legacy ENTER button is not an exact supported retail target ability");
+        }
+        LegacyCommandType::ConvertToCarBomb => {
+            return Err("legacy CONVERT_TO_CARBOMB button is not the exact retail car-bomb action");
+        }
+        LegacyCommandType::CancelUnitCreate | LegacyCommandType::CancelUpgrade => {
+            return Err("queue cancellation requires the displayed queue entry identity");
+        }
+        _ => return Err("legacy Control Bar command has no typed offline host translation"),
+    };
+    Ok(action)
+}
+
+/// Resolve the two legacy `Enter` aliases and `ConvertToCarBomb` solely by
+/// their retail CommandButton keys.  The C++ enum intentionally collapses the
+/// first two commands, so a type-only conversion would turn a normal enter
+/// order into hijack or sabotage.
+fn host_control_bar_target_unit_ability(
+    command_type: LegacyCommandType,
+    command_name: &str,
+) -> Option<PendingUnitAbility> {
+    match command_type {
+        LegacyCommandType::Enter
+            if host_control_bar_is_exact_retail_button(
+                command_name,
+                "Command_GLAInfantryHijack",
+            ) =>
+        {
+            Some(PendingUnitAbility::Hijack)
+        }
+        LegacyCommandType::Enter
+            if host_control_bar_is_exact_retail_button(
+                command_name,
+                "Command_SabotageBuilding",
+            ) =>
+        {
+            Some(PendingUnitAbility::Sabotage)
+        }
+        LegacyCommandType::ConvertToCarBomb
+            if host_control_bar_is_exact_retail_button(
+                command_name,
+                "Command_GLAInfantryTerroristMakeCarBomb",
+            ) =>
+        {
+            Some(PendingUnitAbility::ConvertToCarbomb)
+        }
+        _ => None,
+    }
+}
+
+/// Translate target-bearing non-special buttons without routing through a
+/// name parser.  Guard variants retain their exact retail keys because all
+/// three share the same legacy `DoGuardPosition` enum value.
+fn host_control_bar_generic_target_action(
+    command_type: LegacyCommandType,
+    command_name: &str,
+    weapon_slot: Option<u32>,
+) -> Result<HostControlBarGenericTargetAction, &'static str> {
+    if let Some(ability) = host_control_bar_target_unit_ability(command_type, command_name) {
+        return Ok(HostControlBarGenericTargetAction::UnitAbility(ability));
+    }
+
+    match command_type {
+        LegacyCommandType::DoAttackObject => {
+            let Some(slot) = host_control_bar_weapon_slot(weapon_slot) else {
+                return Err("FIRE_WEAPON button has no valid explicit slot");
+            };
+            Ok(HostControlBarGenericTargetAction::Weapon(slot))
+        }
+        LegacyCommandType::DoAttackMoveTo
+            if host_control_bar_is_exact_retail_button(command_name, "Command_AttackMove") =>
+        {
+            Ok(HostControlBarGenericTargetAction::AttackMove)
+        }
+        LegacyCommandType::DoGuardPosition => {
+            let mode = if host_control_bar_is_exact_retail_button(command_name, "Command_Guard") {
+                crate::game_logic::GuardMode::Normal
+            } else if host_control_bar_is_exact_retail_button(
+                command_name,
+                "Command_GuardWithoutPursuit",
+            ) {
+                crate::game_logic::GuardMode::WithoutPursuit
+            } else if host_control_bar_is_exact_retail_button(
+                command_name,
+                "Command_GuardFlyingUnitsOnly",
+            ) {
+                crate::game_logic::GuardMode::FlyingUnitsOnly
+            } else {
+                return Err("GUARD button is not an exact supported retail key");
+            };
+            Ok(HostControlBarGenericTargetAction::Guard(mode))
+        }
+        LegacyCommandType::SetRallyPoint
+            if host_control_bar_is_exact_retail_button(command_name, "Command_SetRallyPoint") =>
+        {
+            Ok(HostControlBarGenericTargetAction::SetRallyPoint)
+        }
+        LegacyCommandType::CombatDropAtLocation | LegacyCommandType::CombatDropAtObject
+            if host_control_bar_is_exact_retail_button(command_name, "Command_CombatDrop") =>
+        {
+            Ok(HostControlBarGenericTargetAction::CombatDrop)
+        }
+        LegacyCommandType::PlaceBeacon | LegacyCommandType::MetaPlaceBeacon
+            if host_control_bar_is_exact_retail_button(command_name, "Command_PlaceBeacon") =>
+        {
+            Ok(HostControlBarGenericTargetAction::PlaceBeacon)
+        }
+        LegacyCommandType::Enter => {
+            Err("legacy ENTER button is not an exact supported retail target ability")
+        }
+        LegacyCommandType::ConvertToCarBomb => {
+            Err("legacy CONVERT_TO_CARBOMB button is not the exact retail car-bomb action")
+        }
+        _ => Err("target Control Bar command has no typed offline host translation"),
+    }
+}
+
+fn host_control_bar_unit_ability_message(ability: PendingUnitAbility) -> &'static str {
+    match ability {
+        PendingUnitAbility::Hijack => "Hijack: click vehicle",
+        PendingUnitAbility::Sabotage => "Sabotage: click building",
+        PendingUnitAbility::ConvertToCarbomb => "Car bomb: click vehicle",
+        _ => "Unit ability: click target",
+    }
+}
+
+/// Case-insensitive comparison remains faithful to INI identifiers while
+/// deliberately refusing punctuation-stripped or substring aliases.
+fn host_control_bar_is_exact_retail_button(value: &str, retail_name: &str) -> bool {
+    value.eq_ignore_ascii_case(retail_name)
+}
+
 /// The host never receives a raw legacy enum discriminant for a weapon slot.
 /// GameClient already emits the three C++ values as explicit numbers; retain
 /// that contract in one checked conversion and reject unknown values.
 fn host_control_bar_weapon_slot(slot: Option<u32>) -> Option<crate::command_system::WeaponSlot> {
-    match slot? {
+    match host_control_bar_weapon_slot_index(slot)? {
         0 => Some(crate::command_system::WeaponSlot::Primary),
         1 => Some(crate::command_system::WeaponSlot::Secondary),
         2 => Some(crate::command_system::WeaponSlot::Tertiary),
+        _ => None,
+    }
+}
+
+fn host_control_bar_weapon_slot_index(slot: Option<u32>) -> Option<u8> {
+    match slot? {
+        0 => Some(0),
+        1 => Some(1),
+        2 => Some(2),
         _ => None,
     }
 }
@@ -670,5 +1011,165 @@ mod tests {
             host_control_bar_battle_plan_from_options(COMMAND_OPTION_ONE | COMMAND_OPTION_TWO),
             None
         );
+    }
+
+    #[test]
+    fn direct_legacy_commands_stay_typed_and_switch_weapons_keeps_its_slot() {
+        use crate::command_system::CommandType as HostCommandType;
+
+        assert!(matches!(
+            host_control_bar_direct_action(LegacyCommandType::Exit, "Command_TransportExit", None),
+            Ok(HostControlBarDirectAction::Queue(HostCommandType::Exit))
+        ));
+        assert!(matches!(
+            host_control_bar_direct_action(LegacyCommandType::Evacuate, "Command_Evacuate", None),
+            Ok(HostControlBarDirectAction::Queue(HostCommandType::Evacuate))
+        ));
+        assert!(matches!(
+            host_control_bar_direct_action(
+                LegacyCommandType::ExecuteRailedTransport,
+                "Command_ExecuteRailedTransport",
+                None,
+            ),
+            Ok(HostControlBarDirectAction::Queue(
+                HostCommandType::ExecuteRailedTransport
+            ))
+        ));
+        assert!(matches!(
+            host_control_bar_direct_action(
+                LegacyCommandType::InternetHack,
+                "Command_ChinaInfantryHackerInternetHack",
+                None,
+            ),
+            Ok(HostControlBarDirectAction::Queue(
+                HostCommandType::HackInternet
+            ))
+        ));
+        assert!(matches!(
+            host_control_bar_direct_action(
+                LegacyCommandType::ToggleOvercharge,
+                "Command_Overcharge",
+                None,
+            ),
+            Ok(HostControlBarDirectAction::Queue(
+                HostCommandType::ToggleOvercharge
+            ))
+        ));
+        assert!(matches!(
+            host_control_bar_direct_action(LegacyCommandType::DoStop, "Command_Stop", None),
+            Ok(HostControlBarDirectAction::Queue(HostCommandType::Stop))
+        ));
+        assert!(matches!(
+            host_control_bar_direct_action(LegacyCommandType::MetaDeploy, "Command_Deploy", None),
+            Ok(HostControlBarDirectAction::Queue(HostCommandType::Deploy))
+        ));
+        assert!(matches!(
+            host_control_bar_direct_action(LegacyCommandType::DoCheer, "Command_Cheer", None),
+            Ok(HostControlBarDirectAction::Queue(HostCommandType::Cheer))
+        ));
+        assert!(matches!(
+            host_control_bar_direct_action(
+                LegacyCommandType::SwitchWeapons,
+                "Command_SetDemoTrapManualDetonation",
+                Some(2),
+            ),
+            Ok(HostControlBarDirectAction::LockWeapon(2))
+        ));
+        assert!(host_control_bar_direct_action(
+            LegacyCommandType::SwitchWeapons,
+            "Command_SetDemoTrapManualDetonation",
+            Some(3),
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn ambiguous_legacy_target_aliases_require_exact_retail_button_keys() {
+        assert_eq!(
+            host_control_bar_target_unit_ability(
+                LegacyCommandType::Enter,
+                "Command_GLAInfantryHijack",
+            ),
+            Some(PendingUnitAbility::Hijack)
+        );
+        assert_eq!(
+            host_control_bar_target_unit_ability(
+                LegacyCommandType::Enter,
+                "Command_SabotageBuilding",
+            ),
+            Some(PendingUnitAbility::Sabotage)
+        );
+        assert_eq!(
+            host_control_bar_target_unit_ability(
+                LegacyCommandType::ConvertToCarBomb,
+                "Command_GLAInfantryTerroristMakeCarBomb",
+            ),
+            Some(PendingUnitAbility::ConvertToCarbomb)
+        );
+
+        assert!(host_control_bar_generic_target_action(
+            LegacyCommandType::Enter,
+            "Command_Enter",
+            None,
+        )
+        .is_err());
+        assert!(host_control_bar_generic_target_action(
+            LegacyCommandType::Enter,
+            "Command-GLAInfantryHijack",
+            None,
+        )
+        .is_err());
+        assert!(host_control_bar_direct_action(
+            LegacyCommandType::ConvertToCarBomb,
+            "Command_ConvertToCarBomb",
+            None,
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn target_buttons_translate_without_name_based_ui_fallback() {
+        assert!(matches!(
+            host_control_bar_generic_target_action(
+                LegacyCommandType::DoAttackMoveTo,
+                "Command_AttackMove",
+                None,
+            ),
+            Ok(HostControlBarGenericTargetAction::AttackMove)
+        ));
+        assert!(matches!(
+            host_control_bar_generic_target_action(
+                LegacyCommandType::DoGuardPosition,
+                "Command_GuardFlyingUnitsOnly",
+                None,
+            ),
+            Ok(HostControlBarGenericTargetAction::Guard(
+                crate::game_logic::GuardMode::FlyingUnitsOnly
+            ))
+        ));
+        assert!(matches!(
+            host_control_bar_generic_target_action(
+                LegacyCommandType::SetRallyPoint,
+                "Command_SetRallyPoint",
+                None,
+            ),
+            Ok(HostControlBarGenericTargetAction::SetRallyPoint)
+        ));
+        assert!(matches!(
+            host_control_bar_generic_target_action(
+                LegacyCommandType::CombatDropAtLocation,
+                "Command_CombatDrop",
+                None,
+            ),
+            Ok(HostControlBarGenericTargetAction::CombatDrop)
+        ));
+        assert!(matches!(
+            host_control_bar_generic_target_action(
+                LegacyCommandType::PlaceBeacon,
+                "Command_PlaceBeacon",
+                None,
+            ),
+            Ok(HostControlBarGenericTargetAction::PlaceBeacon)
+        ));
     }
 }

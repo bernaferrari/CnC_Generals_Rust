@@ -193,7 +193,9 @@ impl GameLogic {
                 if obj.status.under_construction {
                     return None;
                 }
-                let has_weapon = obj.weapon.is_some() || obj.secondary_weapon.is_some();
+                let has_weapon = obj.weapon.is_some()
+                    || obj.secondary_weapon.is_some()
+                    || obj.tertiary_weapon.is_some();
                 if !has_weapon {
                     return None;
                 }
