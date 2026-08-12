@@ -9,8 +9,17 @@
 )]
 use super::*;
 
+#[cfg(feature = "game_client")]
+use game_client::effects::particle_renderer::{register_particle_renderer, ParticleUniforms};
+#[cfg(feature = "game_client")]
+use game_client::effects::weather_complete::get_weather_system;
+#[cfg(feature = "game_client")]
+use game_client::effects::{get_particle_system_manager, ParticleRenderer};
+#[cfg(feature = "game_client")]
+use game_client::fx_list::get_decal_manager;
+
 impl ForwardPass {
-    pub(super) fn initialize() -> Result<Self> {
+    pub(super) fn initialize(graphics_system: &GraphicsSystem) -> Result<Self> {
         // Initialize WW3D renderer - this may fail if engine is not initialized
         let clear_color = if std::env::var_os("GENERALS_DEBUG_WW3D_CLEAR_COLOR").is_some() {
             Vec4::new(0.0, 0.55, 0.0, 1.0)
@@ -30,6 +39,34 @@ impl ForwardPass {
         let queue =
             ww3d_engine::queue().map_err(|e| anyhow::anyhow!("WW3D queue unavailable: {e:?}"))?;
 
+        #[cfg(feature = "game_client")]
+        let particle_renderer = match graphics_system.depth_format() {
+            Some(depth_format) => match ParticleRenderer::new_with_depth_format(
+                Arc::clone(&device),
+                Arc::clone(&queue),
+                graphics_system.color_format(),
+                depth_format,
+            ) {
+                Ok(renderer) => {
+                    let renderer = Arc::new(Mutex::new(renderer));
+                    // Asset loading happens after RenderPipeline initialization, so
+                    // registering Main's sole renderer lets normal GameClient asset
+                    // uploads populate this exact WGPU device instead of a second
+                    // Display-owned surface.
+                    register_particle_renderer(Arc::clone(&renderer));
+                    Some(renderer)
+                }
+                Err(error) => {
+                    warn!("Main particle renderer initialization failed: {error}");
+                    None
+                }
+            },
+            None => {
+                warn!("Main frame has no depth target; particle draw is unavailable");
+                None
+            }
+        };
+
         info!("ForwardPass initialized successfully");
 
         Ok(Self {
@@ -46,6 +83,8 @@ impl ForwardPass {
             laser_vertex_capacity: 0,
             laser_vertices_uploaded: 0,
             laser_draw_gpu: None,
+            #[cfg(feature = "game_client")]
+            particle_renderer,
         })
     }
 
@@ -157,6 +196,115 @@ impl ForwardPass {
             render_pass.set_vertex_buffer(0, buffer.slice(..));
             render_pass.draw(0..vertex_count, 0..1);
             drop(render_pass);
+            Ok(())
+        });
+        true
+    }
+
+    /// Queue GameClient particle, weather, and decal draws on Main's sole WGPU
+    /// frame.  `GameClient::Display::draw` stays disconnected: it would create
+    /// and present a second surface instead of sharing this post-scene target.
+    #[cfg(feature = "game_client")]
+    pub(super) fn enqueue_client_effect_draw(
+        &mut self,
+        view_matrix: &Mat4,
+        projection_matrix: &Mat4,
+        camera_position: Vec3,
+        time: f32,
+    ) -> bool {
+        let Some(renderer) = self.particle_renderer.as_ref().map(Arc::clone) else {
+            return false;
+        };
+
+        // The current particle vertex shader uses world-space billboard size;
+        // `screen_size` remains in the C++-shaped uniform layout for effects
+        // that need it later.  Its default value is therefore preferable to
+        // inventing a second window-size ownership path here.
+        let uniforms = ParticleUniforms {
+            view_matrix: view_matrix.to_cols_array_2d(),
+            projection_matrix: projection_matrix.to_cols_array_2d(),
+            camera_position: camera_position.to_array(),
+            time,
+            ..ParticleUniforms::default()
+        };
+
+        self.renderer.enqueue_post_frame_callback(move |frame| {
+            let Some(depth_view) = frame.depth_view_arc() else {
+                // The renderer was constructed for a depth-backed Main frame;
+                // do not issue a depth-test pipeline against an absent target.
+                return Ok(());
+            };
+            let color_view = frame.color_view_arc();
+            let encoder = frame.encoder();
+
+            let Ok(mut renderer_guard) = renderer.lock() else {
+                warn!("Main particle renderer lock poisoned; skipping effect draw");
+                return Ok(());
+            };
+
+            // Systems are owned and advanced by the GameClient presentation
+            // shell. Borrow the real manager only while its live system refs are
+            // submitted; no Main GameLogic state is read in this render callback.
+            if let Ok(manager_guard) = get_particle_system_manager() {
+                if let Some(manager) = manager_guard.as_ref() {
+                    let systems = manager.draw_particle_systems();
+                    if !systems.is_empty() {
+                        let mut particle_uniforms = uniforms;
+                        particle_uniforms.particle_count = systems
+                            .iter()
+                            .map(|system| system.particle_count())
+                            .sum::<usize>()
+                            .min(u32::MAX as usize)
+                            as u32;
+                        renderer_guard.render_particles(
+                            encoder,
+                            color_view.as_ref(),
+                            depth_view.as_ref(),
+                            &systems,
+                            &particle_uniforms,
+                        );
+                    }
+                }
+            }
+
+            // Weather and decals are updated by `update_presentation_shell` too.
+            // Draw their real client-managed data in the same post-scene order as
+            // GameClient::Display rather than synthesizing presentation geometry.
+            if let Ok(weather_guard) = get_weather_system() {
+                if let Some(weather) = weather_guard.as_ref() {
+                    let particles = weather.get_all_particles();
+                    if !particles.is_empty() {
+                        let mut weather_uniforms = uniforms;
+                        weather_uniforms.particle_count =
+                            particles.len().min(u32::MAX as usize) as u32;
+                        renderer_guard.render_weather_particles(
+                            encoder,
+                            color_view.as_ref(),
+                            depth_view.as_ref(),
+                            &particles,
+                            &weather_uniforms,
+                        );
+                    }
+                }
+            }
+
+            if let Some(manager) = get_decal_manager() {
+                if let Ok(guard) = manager.lock() {
+                    let decals = guard.collect_render_items();
+                    if !decals.is_empty() {
+                        let mut decal_uniforms = uniforms;
+                        decal_uniforms.particle_count = decals.len().min(u32::MAX as usize) as u32;
+                        renderer_guard.render_decals(
+                            encoder,
+                            color_view.as_ref(),
+                            depth_view.as_ref(),
+                            &decals,
+                            &decal_uniforms,
+                        );
+                    }
+                }
+            }
+
             Ok(())
         });
         true

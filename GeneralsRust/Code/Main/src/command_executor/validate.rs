@@ -41,8 +41,10 @@ impl<'a> CommandExecutor<'a> {
         location.x >= min_x && location.x <= max_x && location.z >= min_z && location.z <= max_z
     }
 
-    /// Minimal `canEnterObject`/`canDockAt` legality mirror for Main command execution.
-    pub(super) fn can_issue_enter_or_dock(&self, unit_id: ObjectId, target_id: ObjectId) -> bool {
+    /// C++ `canEnterObject` legality mirror.  Dock uses the distinct
+    /// `can_issue_dock` path below; a SupplyCenter/Warehouse is never treated
+    /// as a generic container.
+    pub(super) fn can_issue_enter(&self, unit_id: ObjectId, target_id: ObjectId) -> bool {
         if unit_id == target_id {
             return false;
         }
@@ -58,6 +60,10 @@ impl<'a> CommandExecutor<'a> {
             || !target.is_alive()
             || unit.status.under_construction
             || target.status.under_construction
+            || target.status.sold
+            || target.is_subdued_disabled()
+            || unit.is_kind_of(KindOf::IgnoredInGui)
+            || target.is_kind_of(KindOf::IgnoredInGui)
         {
             return false;
         }
@@ -69,7 +75,7 @@ impl<'a> CommandExecutor<'a> {
             .tunnel_network_residual()
             .team_holding_unit(unit_id)
             .is_some();
-        if unit.is_kind_of(KindOf::Structure) {
+        if unit.is_kind_of(KindOf::Structure) || unit.is_kind_of(KindOf::Immobile) {
             return false;
         }
         if !unit.can_move() && !unit_in_tunnel {
@@ -93,65 +99,98 @@ impl<'a> CommandExecutor<'a> {
             return true;
         }
 
-        if !target.can_contain() {
-            return false;
+        // Keep the executor as the final authority.  This central helper is
+        // also used by boot classification and Enter arrival, so a frozen RMB
+        // hint cannot bypass exact-controller ownership or rider-weighted
+        // TransportContain capacity while the order is in flight.
+        self.game_logic
+            .can_unit_enter_normal_target(unit_id, target_id)
+    }
+
+    /// C++ `ActionManager::canDockAt` subset for the exact DockUpdate modules
+    /// retained by Main.  In particular, it does *not* require `can_contain`
+    /// or spare capacity before a railed dock command is issued.
+    pub(super) fn can_issue_dock(
+        &self,
+        unit_id: ObjectId,
+        target_id: ObjectId,
+    ) -> Option<crate::game_logic::DockKind> {
+        use crate::game_logic::DockKind;
+        use gamelogic::common::Relationship;
+
+        if unit_id == target_id {
+            return None;
+        }
+        let unit = self.game_logic.host_object(unit_id)?;
+        let target = self.game_logic.host_object(target_id)?;
+        if !unit.is_alive()
+            || !target.is_alive()
+            || unit.status.under_construction
+            || target.status.under_construction
+            || target.status.sold
+            || unit.is_kind_of(KindOf::Structure)
+            || !unit.can_move()
+        {
+            return None;
         }
 
-        // Residual garrison / Overlord BattleBunker / Battle Bus: infantry (and heroes)
-        // only. C++ AllowInsideKindOf = INFANTRY. Generic transports still accept any
-        // mobile unit. Combat Chinook allows INFANTRY + VEHICLE (rejects AIRCRAFT).
-        // Tunnel Network: all units except aircraft (C++ TunnelTracker residual).
-        // Fail-closed vs full C++ garrison filters.
-        if target.is_tunnel_network_style_container() {
-            if unit.is_kind_of(KindOf::Aircraft) {
-                return false;
+        // `ActionManager::canTransferSuppliesAt` has two deliberately
+        // different ownership rules.  A SupplyCenter is a deposit owned by
+        // one *controlling player*, not merely an ally/faction.  A warehouse
+        // is a map supply source and only refuses an enemy relationship.
+        //
+        // Some legacy/map saves have no player provenance at all.  Retain
+        // the old faction fallback only for a wholly ownerless, unambiguous
+        // host world; mixing a player-owned object with an ownerless one must
+        // not make a player-specific SupplyCenter look shared.
+        let legacy_ownerless_world = self.game_logic.uses_legacy_team_ownership_fallback();
+        let same_supply_center_controller = match (unit.owner_player_id, target.owner_player_id) {
+            (Some(unit_owner), Some(target_owner)) => unit_owner == target_owner,
+            (None, None) => {
+                legacy_ownerless_world
+                    && unit.team == target.team
+                    && self.game_logic.unique_player_id_for_team(unit.team).is_some()
             }
-            // Shared MaxTunnelCapacity=10 residual (team pool).
-            let in_pool = self
-                .game_logic
-                .tunnel_network_residual()
-                .is_in_network(unit.team, unit_id);
-            if !in_pool
-                && !self
-                    .game_logic
-                    .tunnel_network_residual()
-                    .has_capacity(unit.team)
+            _ => false,
+        };
+        let warehouse_is_not_enemy = match (unit.owner_player_id, target.owner_player_id) {
+            (Some(_), Some(_)) => {
+                self.game_logic.object_relationship(target, unit) != Relationship::Enemies
+            }
+            // `Object::getRelationship` treats an ownerless map object as
+            // neutral. Do not manufacture hostility from its faction label.
+            (Some(_), None) | (None, Some(_)) => true,
+            // Only old map/synthetic objects with no ownership provenance at
+            // all retain the legacy faction/Neutral fallback.
+            (None, None) => {
+                legacy_ownerless_world
+                    && (target.team == Team::Neutral
+                        || (target.team == unit.team
+                            && self.game_logic.unique_player_id_for_team(unit.team).is_some()))
+            }
+        };
+
+        match target.thing.template.dock_kind {
+            DockKind::SupplyCenter
+                if unit.is_resource_collector()
+                    && unit.stored_resources.supplies > 0
+                    && same_supply_center_controller =>
             {
-                return false;
+                Some(DockKind::SupplyCenter)
             }
-            // Ally tunnels only for residual enter (not enemy capture residual).
-            if target.team != unit.team && target.team != Team::Neutral {
-                return false;
+            DockKind::SupplyWarehouse
+                if unit.is_resource_collector()
+                    && target.stored_resources.supplies > 0
+                    && warehouse_is_not_enemy =>
+            {
+                Some(DockKind::SupplyWarehouse)
             }
-            return true;
-        }
-
-        let infantry_only_container = target.is_kind_of(KindOf::Structure)
-            || (target.is_overlord_style_container() && target.overlord_bunker_slot_capacity() > 0)
-            || target.is_battle_bus_style_container()
-            || target.is_listening_outpost_style_container()
-            || target.is_troop_crawler_style_container();
-        if infantry_only_container && !unit.is_kind_of(KindOf::Infantry) && !unit.is_hero() {
-            return false;
-        }
-        // Combat Chinook ForbidInsideKindOf = AIRCRAFT residual.
-        if target.is_combat_chinook_style_container() && unit.is_kind_of(KindOf::Aircraft) {
-            return false;
-        }
-
-        let target_contains_unit = target.contained_units().contains(&unit_id);
-        let target_has_space = target.has_capacity_for(1);
-        if !target_contains_unit && !target_has_space {
-            return false;
-        }
-
-        if target.team != unit.team && target.team != Team::Neutral {
-            let target_has_occupants = !target.contained_units().is_empty();
-            if target.is_faction_structure() || target_has_occupants {
-                return false;
+            DockKind::RailedTransport
+                if unit.is_kind_of(KindOf::Vehicle) || unit.is_kind_of(KindOf::Infantry) =>
+            {
+                Some(DockKind::RailedTransport)
             }
+            _ => None,
         }
-
-        true
     }
 }

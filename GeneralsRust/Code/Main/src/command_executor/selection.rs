@@ -29,7 +29,8 @@ impl<'a> CommandExecutor<'a> {
         create_new: bool,
         units: &[ObjectId],
     ) -> CommandResult {
-        // Wave 232: selection last-writes via select_objects / unit_select_if_team.
+        // Selection is controlled by player identity; faction equality is not
+        // ownership in a same-faction skirmish.
         if self.game_logic.get_player(player_id).is_none() {
             return CommandResult::InvalidCommand;
         }
@@ -39,13 +40,9 @@ impl<'a> CommandExecutor<'a> {
             return CommandResult::Success;
         }
         // Additive selection residual (shift-click style).
-        let player_team = self.game_logic.get_player(player_id).map(|p| p.team);
-        let Some(player_team) = player_team else {
-            return CommandResult::InvalidCommand;
-        };
         let mut added = Vec::new();
         for &unit_id in units {
-            if self.game_logic.unit_select_if_team(unit_id, player_team) {
+            if self.game_logic.unit_select_if_player(unit_id, player_id) {
                 added.push(unit_id);
             }
         }

@@ -12,8 +12,8 @@ use crate::common::{ObjectID, Real, UnsignedInt, Xfer, XferMode, XferVersion, IN
 use crate::damage::{DamageType, DeathType};
 use crate::effects::{FXList, ObjectCreationList};
 use crate::helpers::{
-    get_game_logic_random_value, get_game_logic_random_value_real, TheGameLogic, TheTerrainLogic,
-    TheThingFactory,
+    get_game_logic_random_value, get_game_logic_random_value_real, TheGameLogic,
+    TheObjectCreationListStore, TheTerrainLogic, TheThingFactory,
 };
 use crate::modules::CountermeasuresBehaviorInterface;
 use crate::object::collide::GameObject;
@@ -24,7 +24,8 @@ use crate::weapon::projectile_launch_cast::{
     module_projectile_launch_kind, ProjectileLaunchKindMut,
 };
 use crate::{GameLogicError, GameLogicResult};
-use game_engine::common::ini::ini_particle_sys::ParticleSystemTemplate;
+use game_engine::common::ascii_string::AsciiString;
+use game_engine::common::ini::ini_particle_sys::{IniParticleSys, ParticleSystemTemplate};
 use game_engine::common::system::Snapshotable;
 
 use super::audio_event::AudioEventRts;
@@ -130,9 +131,20 @@ pub struct WeaponTemplate {
     /// Per-veterancy level effects (Regular, Veteran, Elite, Heroic)
     pub fire_fx: [Option<FXList>; 4],
     pub projectile_detonate_fx: [Option<FXList>; 4],
-    pub fire_ocl: [Option<ObjectCreationList>; 4],
-    pub projectile_detonation_ocl: [Option<ObjectCreationList>; 4],
-    pub projectile_exhaust: [Option<ParticleSystemTemplate>; 4],
+    /// Direct OCL handles used by programmatic callers. Weapon.ini references
+    /// are retained separately because C++ resolves them after all OCL blocks
+    /// have been loaded.
+    pub fire_ocl: [Option<Arc<ObjectCreationList>>; 4],
+    pub projectile_detonation_ocl: [Option<Arc<ObjectCreationList>>; 4],
+    /// Raw C++ `FireOCL` / `VeterancyFireOCL` names, one per veterancy level.
+    pub fire_ocl_names: [Option<String>; 4],
+    /// Raw C++ `ProjectileDetonationOCL` names, one per veterancy level.
+    pub projectile_detonation_ocl_names: [Option<String>; 4],
+    /// Direct particle-template handles used by programmatic callers.
+    pub projectile_exhaust: [Option<Arc<ParticleSystemTemplate>>; 4],
+    /// Raw C++ `ProjectileExhaust` names, resolved lazily once ParticleSystem
+    /// definitions are available. This avoids inventing a default template.
+    pub projectile_exhaust_names: [Option<String>; 4],
 
     /// Bonuses
     pub extra_bonus: Option<WeaponBonusSet>,
@@ -415,7 +427,10 @@ impl WeaponTemplate {
             projectile_detonate_fx: [None, None, None, None],
             fire_ocl: [None, None, None, None],
             projectile_detonation_ocl: [None, None, None, None],
+            fire_ocl_names: [None, None, None, None],
+            projectile_detonation_ocl_names: [None, None, None, None],
             projectile_exhaust: [None, None, None, None],
+            projectile_exhaust_names: [None, None, None, None],
             extra_bonus: None,
             historic_damage: Arc::new(Mutex::new(VecDeque::new())),
             next_template: None,
@@ -872,9 +887,7 @@ impl WeaponTemplate {
                 }
             }
 
-            let exhaust = self
-                .get_projectile_exhaust(source_veterancy)
-                .map(|tmpl| Arc::new(tmpl.clone()));
+            let exhaust = self.get_projectile_exhaust(source_veterancy);
 
             let weapon_template = Arc::new(self.clone());
             let mut launched = false;
@@ -1261,31 +1274,96 @@ impl WeaponTemplate {
             .and_then(|fx| fx.as_ref())
     }
 
+    /// Resolve the C++ `FireOCL` reference for this veterancy level.
+    ///
+    /// Weapon.ini is loaded before or independently from ObjectCreationList.ini
+    /// in several Rust startup paths. Keeping the name and resolving it at use
+    /// time matches C++ post-load resolution without manufacturing an empty OCL
+    /// for a missing asset.
     pub fn get_fire_ocl(
         &self,
         level: crate::common::VeterancyLevel,
-    ) -> Option<&ObjectCreationList> {
-        self.fire_ocl
-            .get(level as usize)
-            .and_then(|ocl| ocl.as_ref())
+    ) -> Option<Arc<ObjectCreationList>> {
+        let index = level as usize;
+        self.fire_ocl.get(index).cloned().flatten().or_else(|| {
+            self.fire_ocl_names
+                .get(index)
+                .and_then(|name| name.as_deref())
+                .and_then(TheObjectCreationListStore::find_object_creation_list)
+        })
     }
 
+    /// Resolve the C++ `ProjectileDetonationOCL` reference for this veterancy
+    /// level without inventing an OCL when its definition is absent.
     pub fn get_projectile_detonation_ocl(
         &self,
         level: crate::common::VeterancyLevel,
-    ) -> Option<&ObjectCreationList> {
+    ) -> Option<Arc<ObjectCreationList>> {
+        let index = level as usize;
         self.projectile_detonation_ocl
-            .get(level as usize)
-            .and_then(|ocl| ocl.as_ref())
+            .get(index)
+            .cloned()
+            .flatten()
+            .or_else(|| {
+                self.projectile_detonation_ocl_names
+                    .get(index)
+                    .and_then(|name| name.as_deref())
+                    .and_then(TheObjectCreationListStore::find_object_creation_list)
+            })
     }
 
+    /// Raw `FireOCL` name, retained for host-side presentation paths that use
+    /// names rather than direct ObjectCreationList handles.
+    pub fn get_fire_ocl_name(&self, level: crate::common::VeterancyLevel) -> Option<&str> {
+        self.fire_ocl_names
+            .get(level as usize)
+            .and_then(|name| name.as_deref())
+    }
+
+    /// Raw `ProjectileDetonationOCL` name, retained until it can be resolved
+    /// against the live ObjectCreationList store.
+    pub fn get_projectile_detonation_ocl_name(
+        &self,
+        level: crate::common::VeterancyLevel,
+    ) -> Option<&str> {
+        self.projectile_detonation_ocl_names
+            .get(level as usize)
+            .and_then(|name| name.as_deref())
+    }
+
+    /// Resolve the C++ `ProjectileExhaust` particle template for this
+    /// veterancy level. A missing particle definition remains absent: we keep
+    /// its parsed name but never synthesize a generic particle template.
     pub fn get_projectile_exhaust(
         &self,
         level: crate::common::VeterancyLevel,
-    ) -> Option<&ParticleSystemTemplate> {
+    ) -> Option<Arc<ParticleSystemTemplate>> {
+        let index = level as usize;
         self.projectile_exhaust
+            .get(index)
+            .cloned()
+            .flatten()
+            .or_else(|| {
+                self.projectile_exhaust_names
+                    .get(index)
+                    .and_then(|name| name.as_deref())
+                    .and_then(|name| {
+                        IniParticleSys::find_template_by_name(&AsciiString::from(name))
+                    })
+                    .map(Arc::new)
+            })
+    }
+
+    /// Raw `ProjectileExhaust` name. This is intentionally separate from
+    /// `get_projectile_exhaust`: presentation can wait for the client template
+    /// loader, while simulation stays fail-closed when the definition is gone.
+    pub fn get_projectile_exhaust_name(
+        &self,
+        level: crate::common::VeterancyLevel,
+    ) -> Option<&str> {
+        self.projectile_exhaust_names
             .get(level as usize)
-            .and_then(|tmpl| tmpl.as_ref())
+            .and_then(|name| name.as_deref())
     }
 
     pub fn get_homing_delay(&self) -> crate::common::Real {
@@ -1312,5 +1390,3 @@ impl WeaponTemplate {
         self.projectile_has_behavior("DumbProjectileBehavior")
     }
 }
-
-

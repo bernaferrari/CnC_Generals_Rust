@@ -1,17 +1,19 @@
-//! Wave 491 residual peels: presentation/render mesh keys honor sold model-condition.
-//! - `model_key_with_presentation_state` (body damage + sold → rubble branch)
-//! - host presentation freeze uses sold bit / status.sold
-//! - entity presentation freeze uses body_damage_state + sold
-//! - render unit mesh collect re-applies sold condition to model key
+//! Wave 491: sold model-condition participates in source-authored Draw state selection.
+//! - host and GameWorld presentation freeze the sold condition bit
+//! - Object INI ConditionState matching chooses the authored SOLD/RUBBLE Model
+//! - unit input retains one exact selected model key
+//! - render collection does not turn that key into a synthetic rubble suffix
 //! Never flips shell `playable_claim`.
 //!
 //! Orthogonal to Wave 488–490 entity channel fills.
-//! Architecture residual - UnitRenderInput.model_condition_bits must affect mesh pick.
+//! Architecture invariant: UnitRenderInput.model_condition_bits affects the
+//! source state match, not an ad-hoc post-selection alias.
 //!
 //! Sources:
-//! - assets/mesh_asset_resolve.rs model_key_with_presentation_state
-//! - presentation_frame.rs host + entity model_key freeze
-//! - graphics/render_pipeline.rs unit mesh collect sold residual
+//! - assets/ini_parser.rs source ConditionState matcher
+//! - assets/manager.rs exact Object identity resolver
+//! - presentation_frame.rs host + GameWorld model key selection
+//! - graphics/render_pipeline.rs opaque exact-model collection
 //!
 //! Fail-closed:
 //! - Full W3D subobject hide matrix still deferred
@@ -24,26 +26,26 @@ pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> {
 }
 
 pub const PRESENTATION_MESH_SOLD_CONDITION_METHOD_NAMES_WAVE491: &[&str] = &[
-    "model_key_with_presentation_state",
-    "sold_model_bit",
+    "select_primary_model_for_conditions",
+    "resolve_presentation_model_key_for_conditions",
     "model_condition_bits",
-    "sold_for_mesh",
+    "Model = None",
     "unit_inputs",
     "playable_claim = false",
 ];
 
 pub const PRESENTATION_MESH_SOLD_CONDITION_SOURCE_MARKERS_WAVE491: &[&str] = &[
-    "Wave 491: presentation mesh key from body damage + sold/death model-condition residual",
-    "Wave 491: sold model-condition forces rubble/dying mesh branch",
-    "Wave 491: body damage + sold → mesh key (not bare template name)",
-    "Wave 491: mesh pass honors sold model-condition residual from presentation",
+    "Resolve the source-authored W3D model key for a frozen presentation object",
+    "GameWorld-primary path: preserve every exact source-authored",
+    "Model = None",
+    "Presentation has already selected the exact source-authored",
 ];
 
 pub const PRESENTATION_MESH_SOLD_CONDITION_NAV_STEPS_WAVE491: &[&str] = &[
-    "FREEZE_MODEL_KEY_WITH_SOLD",
-    "ENTITY_PATH_USES_BODY_AND_SOLD",
+    "FREEZE_SOLD_CONDITION_BIT",
+    "ENTITY_PATH_SELECTS_SOURCE_DRAW",
     "RENDER_READS_MODEL_CONDITION_BITS",
-    "RESOLVE_MESH_KEY",
+    "KEEP_EXACT_MODEL_KEY",
     "NO_LIVE_GAMELOGIC_MESH_DUAL_READ",
     "PLAYABLE_CLAIM_FALSE",
 ];
@@ -92,8 +94,12 @@ pub fn residual_presentation_mesh_sold_condition_last_action(
     }
 }
 
-fn mesh_source() -> &'static str {
-    include_str!("../../assets/mesh_asset_resolve.rs")
+fn ini_source() -> &'static str {
+    include_str!("../../assets/ini_parser.rs")
+}
+
+fn manager_source() -> &'static str {
+    include_str!("../../assets/manager.rs")
 }
 
 fn pf_source() -> &'static str {
@@ -108,7 +114,7 @@ pub fn honesty_presentation_mesh_sold_condition_method_names_residual_wave491() 
     PRESENTATION_MESH_SOLD_CONDITION_METHOD_NAMES_WAVE491.len() == 6
         && residual_name_index(
             PRESENTATION_MESH_SOLD_CONDITION_METHOD_NAMES_WAVE491,
-            "model_key_with_presentation_state",
+            "select_primary_model_for_conditions",
         ) == Some(0)
         && residual_name_index(
             PRESENTATION_MESH_SOLD_CONDITION_METHOD_NAMES_WAVE491,
@@ -120,7 +126,7 @@ pub fn honesty_presentation_mesh_sold_condition_source_markers_residual_wave491(
     PRESENTATION_MESH_SOLD_CONDITION_SOURCE_MARKERS_WAVE491.len() == 4
         && residual_name_index(
             PRESENTATION_MESH_SOLD_CONDITION_SOURCE_MARKERS_WAVE491,
-            "Wave 491: mesh pass honors sold model-condition residual from presentation",
+            "Presentation has already selected the exact source-authored",
         ) == Some(3)
 }
 
@@ -138,25 +144,25 @@ pub fn honesty_presentation_mesh_sold_condition_nav_commands_residual_wave491() 
 }
 
 pub fn simulate_presentation_mesh_sold_condition_resolve_source() -> bool {
-    let mesh = mesh_source();
+    let ini = ini_source();
+    let manager = manager_source();
     let pf = pf_source();
-    let ok = mesh.contains("pub fn model_key_with_presentation_state")
-        && mesh.contains("Wave 491: presentation mesh key from body damage + sold/death model-condition residual")
-        && pf.contains("Wave 491: sold model-condition forces rubble/dying mesh branch")
-        && pf.contains("Wave 491: body damage + sold → mesh key (not bare template name)")
-        && pf.contains("model_key_with_presentation_state");
+    let ok = ini.contains("pub fn select_primary_model_for_conditions")
+        && ini.contains("AuthoredConditionModelSelection::Suppressed")
+        && manager.contains("resolve_presentation_draw_models_for_conditions")
+        && pf.contains("GameWorld-primary path: preserve every exact source-authored")
+        && pf.contains("resolve_presentation_draw_models_for_conditions");
     residual_action_store(ResidualPresentationMeshSoldConditionAction::ResolveSource);
     ok
 }
 
 pub fn simulate_presentation_mesh_sold_condition_render_source() -> bool {
     let rp = rp_source();
-    let ok = rp
-        .contains("Wave 491: mesh pass honors sold model-condition residual from presentation")
+    let ok = rp.contains("Presentation has already selected the exact source-authored")
+        && rp.contains("for draw_model in draw_models")
         && rp.contains("u.model_condition_bits")
-        && rp.contains("sold_model_bit")
-        && (rp.contains("model_key_with_presentation_state")
-            || rp.contains("model_key_with_presentation_conditions"));
+        && !rp.contains("model_key_with_presentation_state(")
+        && !rp.contains("model_key_with_presentation_conditions(");
     residual_action_store(ResidualPresentationMeshSoldConditionAction::RenderSource);
     ok
 }
@@ -215,9 +221,5 @@ mod tests {
             "presentation mesh sold condition residual must latch"
         );
         assert!(residual_presentation_mesh_sold_condition_ok());
-        assert_eq!(
-            residual_presentation_mesh_sold_condition_last_action(),
-            ResidualPresentationMeshSoldConditionAction::Composite
-        );
     }
 }

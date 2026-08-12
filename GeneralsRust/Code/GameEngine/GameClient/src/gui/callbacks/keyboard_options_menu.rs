@@ -4,9 +4,9 @@ use crate::game_text::GameText;
 use crate::gui::gadgets::ComboBoxItem;
 use crate::gui::gadgets::KeyModifiers;
 use crate::gui::{
-    get_shell, show_shell_map_if_available, try_with_shell_mut, with_window_manager,
-    write_input_focus_response, GameWindow, WindowLayout, WindowMessage, WindowMsgData,
-    WindowMsgHandled, WindowWidget,
+    queue_shell_pop, queue_shell_shutdown_complete, show_shell_map_if_available,
+    with_window_manager, write_input_focus_response, GameWindow, WindowLayout, WindowMessage,
+    WindowMsgData, WindowMsgHandled, WindowWidget,
 };
 use crate::message_stream::meta_event::{
     get_command_map_entries, reset_command_map_entries, update_command_map_entry, CommandMapEntry,
@@ -474,7 +474,7 @@ pub fn keyboard_options_menu_shutdown(
         state.selected_command_index = None;
     }
     layout.hide(true);
-    let _ = try_with_shell_mut(|shell| shell.shutdown_complete(None, false));
+    queue_shell_shutdown_complete(false);
 }
 
 pub fn keyboard_options_menu_input(
@@ -580,7 +580,7 @@ pub fn keyboard_options_menu_system(
             let control_id = data1 as i32;
             if control_id == state.button_back_id {
                 drop(state);
-                let _ = try_with_shell_mut(|shell| shell.pop());
+                queue_shell_pop();
                 return WindowMsgHandled::Handled;
             }
 

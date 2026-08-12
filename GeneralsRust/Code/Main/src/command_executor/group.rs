@@ -377,18 +377,17 @@ impl<'a> CommandExecutor<'a> {
         Some(Vec3::new(cx / n, cy / n, cz / n))
     }
 
-    /// C++ AIGroup::containsAnyObjectsNotOwnedByPlayer residual (team ownership).
+    /// C++ AIGroup::containsAnyObjectsNotOwnedByPlayer residual.
     pub(crate) fn contains_any_objects_not_owned_by_player(
         &self,
         units: &[ObjectId],
         player_id: u32,
     ) -> bool {
-        let owner_team = self.player_team(player_id);
         for &id in units {
             let Some(o) = self.game_logic.host_object(id) else {
                 continue;
             };
-            if o.team != owner_team {
+            if o.owner_player_id != Some(player_id) {
                 return true;
             }
         }
@@ -402,14 +401,13 @@ impl<'a> CommandExecutor<'a> {
         units: &[ObjectId],
         player_id: u32,
     ) -> (Vec<ObjectId>, bool) {
-        let owner_team = self.player_team(player_id);
         let kept: Vec<ObjectId> = units
             .iter()
             .copied()
             .filter(|&id| {
                 self.game_logic
                     .host_object(id)
-                    .map(|o| o.team == owner_team)
+                    .map(|o| o.owner_player_id == Some(player_id))
                     .unwrap_or(false)
             })
             .collect();

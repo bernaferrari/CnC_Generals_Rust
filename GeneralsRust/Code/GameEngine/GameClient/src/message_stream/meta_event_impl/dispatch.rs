@@ -646,7 +646,7 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
     }
 
     if record.name.eq_ignore_ascii_case("DEMO_TOGGLE_LETTERBOX") {
-        let handled = try_with_shell_mut(|shell| {
+        let handled = crate::gui::with_shell_mut(|shell| {
             if shell.is_shell_active() {
                 if let Some(layout) = shell.top() {
                     let hide = !layout.is_hidden();

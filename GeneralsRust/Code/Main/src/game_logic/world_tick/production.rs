@@ -10,14 +10,31 @@ impl GameLogic {
 
         // C++ parity: calcTimeToBuild applies the same power penalty to dozer
         // construction as to production queue speed.
-        let team_power_factor = self.compute_team_power_factors();
+        let player_power_factor = self.compute_player_power_factors();
+        // Resolve legacy ownerless objects before taking mutable object borrows.
+        // A concrete PlayerId is authoritative; the helper only supplies a
+        // compatibility owner when this team has exactly one living player.
+        let object_owner_player_ids: std::collections::HashMap<ObjectId, Option<u32>> = self
+            .objects
+            .values()
+            .map(|obj| (obj.id, self.player_owner_for_host_object(obj)))
+            .collect();
 
         // Pre-scan dozers: exclusive dock = assigned to this building (C++ DozerAIUpdate).
-        let dozer_info: Vec<(Vec3, Team, Option<ObjectId>)> = self
+        let dozer_info: Vec<(Vec3, Option<u32>, Option<ObjectId>)> = self
             .objects
             .values()
             .filter(|obj| obj.is_alive() && obj.can_construct())
-            .map(|obj| (obj.get_position(), obj.team, obj.target))
+            .map(|obj| {
+                (
+                    obj.get_position(),
+                    object_owner_player_ids
+                        .get(&obj.id)
+                        .copied()
+                        .flatten(),
+                    obj.target,
+                )
+            })
             .collect();
 
         let mut completed_superweapon_detects: Vec<(Team, String)> = Vec::new();
@@ -36,13 +53,16 @@ impl GameLogic {
             if let Some(obj) = self.objects.get_mut(&id) {
                 if obj.status.under_construction {
                     let build_pos = obj.get_position();
-                    let build_team = obj.team;
+                    let build_owner_player_id = object_owner_player_ids
+                        .get(&id)
+                        .copied()
+                        .flatten();
                     // Exclusive dock: only dozers targeting this building contribute.
                     // Nearby idle dozers do not ghost-progress (no max(1)).
                     let nearby_dozers = dozer_info
                         .iter()
-                        .filter(|(pos, t, target)| {
-                            *t == build_team
+                        .filter(|(pos, owner_player_id, target)| {
+                            *owner_player_id == build_owner_player_id
                                 && *target == Some(id)
                                 && pos.distance(build_pos) <= BUILDER_RANGE
                         })
@@ -54,7 +74,9 @@ impl GameLogic {
                     self.construction_model_condition_updates =
                         self.construction_model_condition_updates.saturating_add(1);
 
-                    let power_factor = team_power_factor.get(&build_team).copied().unwrap_or(1.0);
+                    let power_factor = build_owner_player_id
+                        .and_then(|player_id| player_power_factor.get(&player_id).copied())
+                        .unwrap_or(1.0);
                     let base_rate = 1.0 / obj.thing.template.build_time.max(0.01);
                     let effective_rate = base_rate * dozer_count as f32 * power_factor;
                     // Under CONSTRUCTION_AUTHORITY + shadow, GameWorld sole-ticks percent
@@ -314,7 +336,7 @@ impl GameLogic {
     }
 
     fn publish_production_power_factors(&self) {
-        let team_power_factor = self.compute_team_power_factors();
+        let player_power_factor = self.compute_player_power_factors();
         for (&id, obj) in self.objects.iter() {
             if !obj.is_constructed() || !obj.is_alive() || obj.is_disabled() {
                 continue;
@@ -322,7 +344,10 @@ impl GameLogic {
             if obj.building_data.is_none() {
                 continue;
             }
-            let pf = team_power_factor.get(&obj.team).copied().unwrap_or(1.0);
+            let pf = self
+                .player_owner_for_host_object(obj)
+                .and_then(|player_id| player_power_factor.get(&player_id).copied())
+                .unwrap_or(1.0);
             crate::game_logic::host_production_progress_log::record_power_factor_only(id, pf);
         }
     }
@@ -368,14 +393,23 @@ impl GameLogic {
     ) {
         // Wave 613: host production complete collect residual.
 
-        // C++ parity: pre-compute per-team power factor so we don't borrow
+        // C++ parity: pre-compute per-player power factor so we don't borrow
         // self.players while self.objects is mutably borrowed.
         // Formula matches ThingTemplate::calcTimeToBuild():
         //   energy_ratio = produced / max(consumed, produced) clamped to [0,1]
         //   energy_short = (1.0 - ratio) * penalty_modifier
         //   rate = max(1.0 - energy_short, 0.5)
         //   if ratio < 1.0: rate = min(rate, 0.8)
-        let team_power_factor = self.compute_team_power_factors();
+        let player_power_factor = self.compute_player_power_factors();
+        // Resolve the ownership scope before mutating producers.  Do not use
+        // the historical first-player-for-team lookup: only a genuinely
+        // ownerless object with one living team member gets a compatibility
+        // owner through player_owner_for_host_object.
+        let object_owner_player_ids: std::collections::HashMap<ObjectId, Option<u32>> = self
+            .objects
+            .values()
+            .map(|obj| (obj.id, self.player_owner_for_host_object(obj)))
+            .collect();
 
         use crate::game_logic::buildings::ProductionKind;
         // Unit completions: (team, template, spawn_pos, rally, producer_id)
@@ -412,7 +446,12 @@ impl GameLogic {
                 continue;
             }
             if let Some(building) = obj.building_data.as_mut() {
-                let pf = team_power_factor.get(&obj.team).copied().unwrap_or(1.0);
+                let pf = object_owner_player_ids
+                    .get(&id)
+                    .copied()
+                    .flatten()
+                    .and_then(|player_id| player_power_factor.get(&player_id).copied())
+                    .unwrap_or(1.0);
                 // C++ ProductionUpdate: when NumDoorAnimations > 0, hold complete
                 // until the door is WAITING_OPEN. Start the cycle when the head is ready.
                 let doors = crate::game_logic::host_production_buildable_command_residual::producer_num_door_animations(
@@ -567,6 +606,19 @@ impl GameLogic {
         // Wave 608: host production complete/spawn apply residual.
         // Wave 595: host upgrade production completion residual.
         for (team, upgrade_name, producer_id) in upgrade_completions {
+            // Production completion carries its producer ObjectId, which in
+            // turn carries the authoritative PlayerId.  Resolve it before the
+            // mutable producer borrow; never credit the first same-faction
+            // player just because this older event also contains a Team.
+            let producer_owner_player_id = self
+                .objects
+                .get(&producer_id)
+                .and_then(|producer| self.player_owner_for_host_object(producer))
+                .filter(|player_id| {
+                    self.players
+                        .get(player_id)
+                        .is_some_and(|player| player.team == team)
+                });
             // Door + construction-complete flash residual on producer.
             if let Some(prod) = self.objects.get_mut(&producer_id) {
                 let now = self.frame.max(1);
@@ -582,8 +634,7 @@ impl GameLogic {
                 ObjectId(0),
             );
             // Unlock via player queue drain + host apply path.
-            let player_id = self.players.values().find(|p| p.team == team).map(|p| p.id);
-            if let Some(pid) = player_id {
+            if let Some(pid) = producer_owner_player_id {
                 let already = self
                     .players
                     .get(&pid)
@@ -681,6 +732,35 @@ impl GameLogic {
         team: Team,
         spawn_pos: Vec3,
     ) -> Option<ObjectId> {
+        self.host_spawn_production_unit_with_owner(template, team, None, spawn_pos)
+    }
+
+    /// Complete a production queue for the exact player that owns its
+    /// producer.  `team` remains in the lower-level spawning path for
+    /// template/faction behavior, but must not choose between same-faction
+    /// skirmish slots.
+    pub(in super::super) fn host_spawn_production_unit_for_player(
+        &mut self,
+        template: &str,
+        owner_player_id: u32,
+        spawn_pos: Vec3,
+    ) -> Option<ObjectId> {
+        let team = self.players.get(&owner_player_id)?.team;
+        self.host_spawn_production_unit_with_owner(
+            template,
+            team,
+            Some(owner_player_id),
+            spawn_pos,
+        )
+    }
+
+    fn host_spawn_production_unit_with_owner(
+        &mut self,
+        template: &str,
+        team: Team,
+        owner_player_id: Option<u32>,
+        spawn_pos: Vec3,
+    ) -> Option<ObjectId> {
         // Wave 615: host production spawn residual.
         // Wave 736: under sole-tick, bind host ObjectId to GW pre-spawned entity
         // (entity-first).
@@ -702,7 +782,12 @@ impl GameLogic {
                 if raw != 0 && !self.objects.contains_key(&preferred) {
                     let saved_next = self.next_object_id;
                     self.next_object_id = preferred;
-                    let spawned = self.create_object(template, team, spawn_pos);
+                    let spawned = self.create_object_for_owner_or_team(
+                        template,
+                        team,
+                        owner_player_id,
+                        spawn_pos,
+                    );
                     // Keep monotonic next_id at least past both saved and allocated.
                     let after = self.next_object_id.0;
                     self.next_object_id = ObjectId(saved_next.0.max(after));
@@ -714,7 +799,12 @@ impl GameLogic {
                     self.next_object_id = saved_next;
                 }
                 // Bind present (preferred collision or create miss): host allocate + map.
-                return self.create_object(template, team, spawn_pos);
+                return self.create_object_for_owner_or_team(
+                    template,
+                    team,
+                    owner_player_id,
+                    spawn_pos,
+                );
             }
             let allow_without_bind =
                 std::env::var_os("GENERALS_RUNTIME_HOST_PRODUCTION_SPAWN_WITHOUT_GW_BIND")
@@ -732,7 +822,7 @@ impl GameLogic {
                 return None;
             }
         }
-        self.create_object(template, team, spawn_pos)
+        self.create_object_for_owner_or_team(template, team, owner_player_id, spawn_pos)
     }
 
     /// Wave 595: host unit production completion residual — spawn, door, exit delay,
@@ -744,17 +834,68 @@ impl GameLogic {
         // Wave 608: host production complete/spawn apply residual.
         // Wave 595: host unit production completion residual.
         for (team, template, spawn_pos, rally, producer_id) in unit_completions {
+            // ProductionUpdate.cpp creates the unit, then immediately links it
+            // to the factory before handing it to QueueProductionExitUpdate.
+            // Preserve that relationship and the factory's exit-facing rather
+            // than leaving a completed unit indistinguishable from a generic
+            // script spawn.  The link is used by real airfield parking and by
+            // presentation consumers that retain the producer identity.
+            let Some(producer) = self.objects.get(&producer_id) else {
+                // A completion is only valid while its producing building is
+                // live.  Do not create a unit with a dangling producer id.
+                log::warn!(
+                    "Ignoring production completion for missing producer {:?} ({template})",
+                    producer_id
+                );
+                continue;
+            };
+            let producer_orientation = producer.get_orientation();
+            // Preserve a concrete player owner, and only use the compatibility
+            // unique-team owner for genuinely ownerless legacy producers.
+            let owner_player_id = self.player_owner_for_host_object(producer);
             // Wave 615: production unit spawn via host helper (still host ID authority).
             let new_id =
                 match self.apply_production_authority_op(ProductionAuthorityOp::SpawnUnit {
                     template: template.clone(),
                     team,
+                    owner_player_id,
                     spawn_pos,
                 }) {
                     ProductionAuthorityResult::Spawned(id) => id,
                     _ => None,
                 };
             if let Some(new_id) = new_id {
+                if let Some(unit) = self.host_object_mut(new_id) {
+                    unit.producer_id = Some(producer_id);
+                    unit.set_orientation(producer_orientation);
+                }
+
+                // C++ `ParkingPlaceBehavior::exitObjectViaDoor` reserves an
+                // authored m_spaces slot before a non-helipad aircraft leaves
+                // its airfield.  Do not model that relation through a generic
+                // building garrison: producer_id is retained only if the
+                // exact producer controller could reserve real ParkingPlace
+                // metadata for this completed aircraft.
+                let airfield_output = self
+                    .host_object(producer_id)
+                    .is_some_and(|producer| producer.is_kind_of(KindOf::FSAirfield))
+                    && self.host_object(new_id).is_some_and(|unit| {
+                        unit.is_kind_of(KindOf::Aircraft)
+                            || unit.object_type == ObjectType::Aircraft
+                    });
+                if airfield_output
+                    && !self.reserve_produced_aircraft_parking_space(producer_id, new_id)
+                {
+                    log::warn!(
+                        "Production aircraft {:?} from airfield {:?} has no exact ParkingPlace reservation; clearing producer link",
+                        new_id,
+                        producer_id
+                    );
+                    if let Some(unit) = self.host_object_mut(new_id) {
+                        unit.producer_id = None;
+                        unit.airfield_parking_space_index = None;
+                    }
+                }
                 crate::game_logic::host_production_log::record_complete(
                     producer_id,
                     template.clone(),
@@ -928,7 +1069,7 @@ impl GameLogic {
             };
 
             // --- Starting building (C++ placeStartingStructures) ---
-            let mut base = self.team_base_position(player.team);
+            let mut base = self.player_base_position(pid);
             if base.is_none() {
                 // Wave 831/832: place at Player_N_Start when map has no faction army.
                 let building = residual.starting_building;
@@ -982,7 +1123,7 @@ impl GameLogic {
                         pos.y = h;
                     }
                     self.ensure_ai_faction_templates(player.team);
-                    if self.create_object(building, player.team, pos).is_some() {
+                    if self.create_object_for_player(building, pid, pos).is_some() {
                         base = Some(pos);
                         log::info!(
                             "Wave 831/832: seeded starting building {} for player {} at {:?}",
@@ -994,7 +1135,7 @@ impl GameLogic {
                 }
             }
 
-            let Some(base_pos0) = base.or_else(|| self.team_base_position(player.team)) else {
+            let Some(base_pos0) = base.or_else(|| self.player_base_position(pid)) else {
                 continue;
             };
             let mut base_pos = base_pos0;
@@ -1017,7 +1158,7 @@ impl GameLogic {
             for (i, unit_name) in unit_names.iter().enumerate() {
                 // Skip if this exact starting unit template already exists for the team.
                 let already = self.objects.values().any(|o| {
-                    o.team == player.team
+                    o.owner_player_id == Some(pid)
                         && o.is_alive()
                         && o.template_name.eq_ignore_ascii_case(unit_name)
                 });
@@ -1026,7 +1167,7 @@ impl GameLogic {
                     || unit_name.to_ascii_lowercase().contains("worker");
                 let has_builder = is_builder
                     && self.objects.values().any(|o| {
-                        o.team == player.team
+                        o.owner_player_id == Some(pid)
                             && o.is_alive()
                             && o.is_mobile()
                             && (o.can_construct()
@@ -1043,7 +1184,7 @@ impl GameLogic {
                 if let Some(h) = self.terrain_height_at(Vec3::new(unit_pos.x, 0.0, unit_pos.z)) {
                     unit_pos.y = h;
                 }
-                if let Some(id) = self.create_object(unit_name, player.team, unit_pos) {
+                if let Some(id) = self.create_object_for_player(unit_name, pid, unit_pos) {
                     log::info!(
                         "Wave 832: starting unit player={} team={:?} spawned {} id={:?}",
                         pid,
@@ -1064,7 +1205,7 @@ impl GameLogic {
                         if fallback.eq_ignore_ascii_case(unit_name) {
                             continue;
                         }
-                        if let Some(id) = self.create_object(fallback, player.team, unit_pos) {
+                        if let Some(id) = self.create_object_for_player(fallback, pid, unit_pos) {
                             log::info!(
                                 "Wave 832: starting unit fallback player={} {} id={:?}",
                                 pid,

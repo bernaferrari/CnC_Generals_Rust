@@ -153,7 +153,12 @@ impl GameLogic {
             if oid == unit_id {
                 continue;
             }
-            if !obj.is_targetable_by_enemy_of(me_team) {
+            let is_enemy = if self.has_object_ownership_provenance(me, obj) {
+                self.object_relationship(me, obj) == gamelogic::common::Relationship::Enemies
+            } else {
+                obj.is_targetable_by_enemy_of(me_team)
+            };
+            if !is_enemy {
                 continue;
             }
             let is_bldg = obj.is_kind_of(crate::game_logic::KindOf::Structure)
@@ -455,51 +460,91 @@ impl GameLogic {
         {
             return CanAttackResult::NotPossible;
         }
-        // MASKED residual: under_construction structures not attackable until built? skip.
-        // UNATTACKABLE kind residual: name-token fail-closed.
-        // UNATTACKABLE residual: KindOf token not yet ported; skip name gate.
-        // NO_ATTACK_FROM_AI residual not fully tracked; skip unless AI path later.
+        // C++ WeaponSet rejects UNATTACKABLE before stealth, relationships, or
+        // forced-attack handling. These objects still exist for lifecycle and
+        // vision, but must never become a player/AI weapon target.
+        if victim.is_kind_of(KindOf::Unattackable) {
+            return CanAttackResult::NotPossible;
+        }
+        // C++ OBJECT_STATUS_MASKED is an explicit targetability override.  A
+        // masked object may remain alive in the world (for example during a
+        // rebuild transition), but WeaponSet must never acquire or fire on it.
+        if victim.status.masked {
+            return CanAttackResult::NotPossible;
+        }
+        // MinefieldBehavior and related C++ modules set this generic status
+        // bit to keep automatic acquisition off an object while preserving
+        // explicit player/script interactions.  All current `from_player =
+        // false` callers are the host's AI/mood/retaliation paths.
+        if !from_player && victim.has_object_status_bit("NO_ATTACK_FROM_AI") {
+            return CanAttackResult::NotPossible;
+        }
 
+        let owner_relationship_known = self.has_object_ownership_provenance(source, victim);
+        let owner_relationship = self.object_relationship(source, victim);
+        let (allies, enemies) = if owner_relationship_known {
+            (
+                owner_relationship == gamelogic::common::Relationship::Allies,
+                owner_relationship == gamelogic::common::Relationship::Enemies,
+            )
+        } else {
+            let allies = source.team == victim.team;
+            let enemies = !allies && source.team != Team::Neutral && victim.team != Team::Neutral;
+            (allies, enemies)
+        };
         let force = attack_type.is_forced();
-        let same_owner_force = force && source.team == victim.team;
+        let same_owner_force = force && allies;
 
         // Stealth residual.
         let mut allow_stealth_block = true;
         if source.status.ignoring_stealth || same_owner_force {
             allow_stealth_block = false;
         }
-        if force && victim.status.disguised {
+        if force && victim.is_kind_of(KindOf::Disguiser) && victim.status.disguised {
             allow_stealth_block = false;
         }
-        if allow_stealth_block
-            && victim.status.stealthed
-            && !victim.status.detected
-            && !victim.status.disguised
-        {
-            return CanAttackResult::NotPossible;
+        if allow_stealth_block && victim.status.stealthed && !victim.status.detected {
+            if !victim.status.disguised {
+                return CanAttackResult::NotPossible;
+            }
+
+            // C++ StealthUpdate keeps a disguised bomb truck targetable only
+            // when the *apparent* controller is hostile to the attacker.
+            // Relationship checks below intentionally use the real owner, so
+            // they cannot substitute for this earlier visibility gate.
+            if !crate::game_logic::host_bomb_truck_disguise::is_auto_targetable_as_enemy(
+                victim.team,
+                victim.disguise_as_team,
+                true,
+                source.team,
+            ) {
+                return CanAttackResult::NotPossible;
+            }
         }
 
-        // Relationship residual: ENEMIES required unless force / mine.
-        let enemies = source.team != victim.team;
-        let is_mine = false; // KindOf::Projectile residual pending full matrix
-        if !enemies && !force && !(is_mine && source.team != victim.team) {
-            // Player command rejects non-enemies; AI/script may continue.
-            if from_player {
-                return CanAttackResult::NotPossible;
-            }
-            // AI residual: still allow if not same team allies — same team blocked.
-            if source.team == victim.team {
-                return CanAttackResult::NotPossible;
-            }
+        // C++ Relationship is not equivalent to `team != team`: map/civilian
+        // objects are neutral, not enemies.  WeaponSet only rejects a
+        // non-enemy target for a player-originated command; AI/script callers
+        // intentionally keep going (their acquisition filters decide whether
+        // an order is sensible). Neutral mines are the C++ exception and may
+        // be explicitly targeted without force attack.
+        let is_mine = victim.is_kind_of(KindOf::Mine)
+            || victim.is_kind_of(KindOf::DemoTrap)
+            || victim.is_disarmable_mine();
+        if !enemies && !force && !(is_mine && !allies) && from_player {
+            // Script-targetable state is a distinct C++ ScriptStatus channel
+            // not yet modeled in Main, so an unrepresented override remains
+            // fail-closed rather than letting neutral scenery become a normal
+            // right-click attack target.
+            return CanAttackResult::NotPossible;
         }
 
         // Contained in enclosing container residual.
         if victim.contained_by.is_some() {
-            // Fail-closed: treat any contained victim as not directly attackable
-            // unless force (garrison fire residual elsewhere).
-            if !force {
-                return CanAttackResult::NotPossible;
-            }
+            // C++ rejects a victim inside an enclosing container regardless of
+            // force-attack.  Force fire can choose ground, but it cannot make a
+            // passenger itself a direct weapon target.
+            return CanAttackResult::NotPossible;
         }
 
         // Weapon legality / range residual.
@@ -517,13 +562,27 @@ impl GameLogic {
         let Some(source) = self.objects.get(&unit_id) else {
             return CanAttackResult::NotPossible;
         };
-        // TERTIARY is manual-only unless it is the currently selected/locked
-        // concrete slot.  Do not let a Comanche-style pod weapon become an
-        // autonomous fallback simply because it exists on the object.
-        let tertiary_explicit = source.selected_weapon_slot() == Some(2);
-        if source.weapon.is_none()
-            && source.secondary_weapon.is_none()
-            && !(tertiary_explicit && source.tertiary_weapon.is_some())
+        // A C++ WeaponSet lock constrains *all* target validation to that
+        // concrete slot.  In particular, a permanently selected PRIMARY must
+        // not borrow SECONDARY's AntiMask merely because the latter could hit
+        // the candidate.  TERTIARY remains manual-only when it is explicitly
+        // selected, while normal automatic acquisition considers A/B only.
+        let candidate_slots: &[u8] = if source.is_weapon_locked() {
+            match source.weapon_lock_slot {
+                0 => &[0],
+                1 => &[1],
+                2 => &[2],
+                _ => &[],
+            }
+        } else if source.selected_weapon_slot() == Some(2) {
+            &[2]
+        } else {
+            &[0, 1]
+        };
+        if !candidate_slots
+            .iter()
+            .copied()
+            .any(|slot| source.weapon_slot(slot).is_some())
         {
             return CanAttackResult::InvalidShot;
         }
@@ -532,53 +591,49 @@ impl GameLogic {
             let Some(v) = self.objects.get(&vid) else {
                 return CanAttackResult::NotPossible;
             };
-            // Kind legality residual (air/ground), NOT range — range decides
-            // Possible vs PossibleAfterMoving below (C++ WeaponSet split).
-            let target_is_air =
-                v.is_kind_of(crate::game_logic::KindOf::Aircraft) || v.status.airborne_target;
-            let kind_ok = |w: &crate::game_logic::Weapon| {
-                if target_is_air {
-                    w.can_target_air
-                } else {
-                    w.can_target_ground
-                }
+            // C++ WeaponSet compares each weapon's actual Anti* mask with
+            // getVictimAntiMask(victim), not just an air/ground boolean. This
+            // keeps PointDefense/mine/projectile-only weapons from acquiring
+            // ordinary ground units and preserves their real target categories
+            // when an exact Weapon.ini template is present.
+            let target_anti_mask = v.weapon_target_anti_mask();
+            let kind_ok = |slot: u8, weapon: &crate::game_logic::Weapon| {
+                source.weapon_allows_target_anti_mask(weapon, Some(slot), target_anti_mask)
             };
             // Stealthed gate already applied in get_able_to_attack_specific_object;
             // still block here if stealthed and not ignoring (defense in depth).
-            if v.is_effectively_stealthed()
-                && v.team != source.team
-                && !source.status.ignoring_stealth
+            let owner_relationship_known = self.has_object_ownership_provenance(source, v);
+            let allied = if owner_relationship_known {
+                self.object_relationship(source, v) == gamelogic::common::Relationship::Allies
+            } else {
+                v.team == source.team
+            };
+            if v.is_effectively_stealthed() && !allied && !source.status.ignoring_stealth
             {
                 return CanAttackResult::NotPossible;
             }
-            let primary_ok = source.weapon.as_ref().is_some_and(kind_ok);
-            let secondary_ok = source.secondary_weapon.as_ref().is_some_and(kind_ok);
-            let tertiary_ok = source.tertiary_weapon.as_ref().is_some_and(kind_ok);
-            let has_legal_weapon = if tertiary_explicit {
-                tertiary_ok
-            } else {
-                primary_ok || secondary_ok
-            };
+            let has_legal_weapon = candidate_slots.iter().copied().any(|slot| {
+                source
+                    .weapon_slot(slot)
+                    .is_some_and(|weapon| kind_ok(slot, weapon))
+            });
             if !has_legal_weapon {
                 return CanAttackResult::InvalidShot;
             }
             v.get_position()
         } else if let Some(p) = pos {
-            let can_target_ground = |w: &crate::game_logic::Weapon| w.can_target_ground;
-            let primary_ok = source.weapon.as_ref().is_some_and(can_target_ground);
-            let secondary_ok = source
-                .secondary_weapon
-                .as_ref()
-                .is_some_and(can_target_ground);
-            let tertiary_ok = source
-                .tertiary_weapon
-                .as_ref()
-                .is_some_and(can_target_ground);
-            let has_legal_weapon = if tertiary_explicit {
-                tertiary_ok
-            } else {
-                primary_ok || secondary_ok
+            let can_target_ground = |slot: u8, weapon: &crate::game_logic::Weapon| {
+                source.weapon_allows_target_anti_mask(
+                    weapon,
+                    Some(slot),
+                    gamelogic::weapon::WeaponAntiMask::GROUND,
+                )
             };
+            let has_legal_weapon = candidate_slots.iter().copied().any(|slot| {
+                source
+                    .weapon_slot(slot)
+                    .is_some_and(|weapon| can_target_ground(slot, weapon))
+            });
             if !has_legal_weapon {
                 return CanAttackResult::InvalidShot;
             }
@@ -589,21 +644,15 @@ impl GameLogic {
 
         let within = if let Some(vid) = victim_id {
             let v = self.objects.get(&vid).unwrap();
-            if tertiary_explicit {
-                source.is_within_attack_range_for_slot(2, v)
-            } else {
-                [0u8, 1u8]
-                    .into_iter()
-                    .any(|slot| source.is_within_attack_range_for_slot(slot, v))
-            }
+            candidate_slots
+                .iter()
+                .copied()
+                .any(|slot| source.is_within_attack_range_for_slot(slot, v))
         } else {
-            if tertiary_explicit {
-                source.is_within_attack_range_pos_for_slot(2, target_pos)
-            } else {
-                [0u8, 1u8]
-                    .into_iter()
-                    .any(|slot| source.is_within_attack_range_pos_for_slot(slot, target_pos))
-            }
+            candidate_slots
+                .iter()
+                .copied()
+                .any(|slot| source.is_within_attack_range_pos_for_slot(slot, target_pos))
         };
 
         // Contact / invalid pitch residual not expanded — range gate only.

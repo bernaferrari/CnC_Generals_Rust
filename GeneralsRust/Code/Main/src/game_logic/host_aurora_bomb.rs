@@ -328,6 +328,9 @@ pub struct HostAuroraBombMission {
     pub kind: HostAuroraBombKind,
     pub source_object: ObjectId,
     pub source_team: super::Team,
+    /// Concrete firing player retained across the dive / gas delay.
+    #[serde(default)]
+    pub source_owner_player_id: Option<u32>,
     pub target_position: Vec3,
     pub activate_frame: u32,
     pub impact_frame: u32,
@@ -347,6 +350,7 @@ pub struct HostAuroraBombImpactPlan {
     pub kind: HostAuroraBombKind,
     pub source_object: ObjectId,
     pub source_team: super::Team,
+    pub source_owner_player_id: Option<u32>,
     pub target_position: Vec3,
     pub hits: Vec<HostAuroraBombHit>,
 }
@@ -556,6 +560,27 @@ impl HostAuroraBombRegistry {
         target_position: Vec3,
         activate_frame: u32,
     ) -> u32 {
+        self.queue_for_owner(
+            kind,
+            source_object,
+            source_team,
+            None,
+            target_position,
+            activate_frame,
+        )
+    }
+
+    /// Queue a dive with exact source ownership.  The legacy wrapper above
+    /// remains for tests and old records that only contain a faction.
+    pub fn queue_for_owner(
+        &mut self,
+        kind: HostAuroraBombKind,
+        source_object: ObjectId,
+        source_team: super::Team,
+        source_owner_player_id: Option<u32>,
+        target_position: Vec3,
+        activate_frame: u32,
+    ) -> u32 {
         let id = self.next_id;
         self.next_id = self.next_id.saturating_add(1).max(1);
         let impact_frame = activate_frame.saturating_add(kind.impact_delay_frames());
@@ -564,6 +589,7 @@ impl HostAuroraBombRegistry {
             kind,
             source_object,
             source_team,
+            source_owner_player_id,
             target_position,
             activate_frame,
             impact_frame,
@@ -624,6 +650,7 @@ impl HostAuroraBombRegistry {
                 kind: mission.kind,
                 source_object: mission.source_object,
                 source_team: mission.source_team,
+                source_owner_player_id: mission.source_owner_player_id,
                 target_position: mission.target_position,
                 hits,
             });

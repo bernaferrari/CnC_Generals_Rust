@@ -14,46 +14,16 @@ impl ScriptActionDispatcher {
         let team_name = self.resolve_team_name_token(&self.get_string_param(action, 0)?);
         log::debug!("Building team '{}'", team_name);
 
-        let (prototype_owner, team_owner_id) = if let Ok(mut factory) = get_team_factory().lock() {
-            (
-                factory.find_team_prototype(&team_name).and_then(|proto| {
-                    let owner = proto.get_owner_name().to_string();
-                    if owner.is_empty() {
-                        None
-                    } else {
-                        Some(owner)
-                    }
-                }),
-                factory.find_team(&team_name).and_then(|team| {
-                    team.read()
-                        .ok()
-                        .and_then(|team| team.get_controlling_player_id())
-                }),
-            )
-        } else {
-            (None, None)
-        };
-
-        let owner_name = prototype_owner
-            .or_else(|| {
-                team_owner_id.and_then(|player_id| {
-                    player_list()
-                        .read()
-                        .ok()
-                        .and_then(|list| list.get_player(player_id as i32).cloned())
-                        .and_then(|player| {
-                            player.read().ok().and_then(|player| {
-                                NameKeyGenerator::key_to_name(player.get_player_name_key())
-                            })
-                        })
-                })
-            })
-            .or_else(|| {
-                get_script_engine().read().ok().and_then(|g| {
-                    g.as_ref()
-                        .and_then(|e| e.get_current_player_name().map(|s| s.to_string()))
-                })
-            });
+        // C++ ScriptActions::doBuildTeam uses only
+        // `findTeamPrototype(teamName)->getControllingPlayer()`.  A live team
+        // instance or the currently executing script side must not substitute
+        // for a missing prototype owner.
+        let owner_name = get_team_factory()
+            .lock()
+            .ok()
+            .and_then(|factory| factory.find_team_prototype(&team_name))
+            .map(|prototype| prototype.get_owner_name().to_string())
+            .filter(|owner| !owner.is_empty());
 
         if let Some(owner_name) = owner_name {
             self.with_named_player_ai(&owner_name, |ai_player| {
@@ -79,46 +49,14 @@ impl ScriptActionDispatcher {
         let recruit_radius = self.get_real_param(action, 1)?;
         log::debug!("Recruiting team '{}' radius {}", team_name, recruit_radius);
 
-        let (prototype_owner, team_owner_id) = if let Ok(mut factory) = get_team_factory().lock() {
-            (
-                factory.find_team_prototype(&team_name).and_then(|proto| {
-                    let owner = proto.get_owner_name().to_string();
-                    if owner.is_empty() {
-                        None
-                    } else {
-                        Some(owner)
-                    }
-                }),
-                factory.find_team(&team_name).and_then(|team| {
-                    team.read()
-                        .ok()
-                        .and_then(|team| team.get_controlling_player_id())
-                }),
-            )
-        } else {
-            (None, None)
-        };
-
-        let owner_name = prototype_owner
-            .or_else(|| {
-                team_owner_id.and_then(|player_id| {
-                    player_list()
-                        .read()
-                        .ok()
-                        .and_then(|list| list.get_player(player_id as i32).cloned())
-                        .and_then(|player| {
-                            player.read().ok().and_then(|player| {
-                                NameKeyGenerator::key_to_name(player.get_player_name_key())
-                            })
-                        })
-                })
-            })
-            .or_else(|| {
-                get_script_engine().read().ok().and_then(|g| {
-                    g.as_ref()
-                        .and_then(|e| e.get_current_player_name().map(|s| s.to_string()))
-                })
-            });
+        // C++ ScriptActions::doRecruitTeam has the same prototype-controller
+        // requirement as doBuildTeam.  Missing ownership is a no-op.
+        let owner_name = get_team_factory()
+            .lock()
+            .ok()
+            .and_then(|factory| factory.find_team_prototype(&team_name))
+            .map(|prototype| prototype.get_owner_name().to_string())
+            .filter(|owner| !owner.is_empty());
 
         if let Some(owner_name) = owner_name {
             self.with_named_player_ai(&owner_name, |ai_player| {

@@ -162,6 +162,11 @@ impl BuildingData {
             BuildingType::Barracks => template.is_kind_of(KindOf::Infantry),
             BuildingType::WarFactory => template.is_kind_of(KindOf::Vehicle),
             BuildingType::Airfield => template.is_kind_of(KindOf::Aircraft),
+            // Retail SupplyCenterProductionExitUpdate builds only the faction's
+            // HARVESTER listed in its CommandSet (Chinook, Supply Truck, or
+            // Worker).  Exact CommandSet authorization is checked before this
+            // broad producer capability; this is the typed queue gate.
+            BuildingType::SupplyCenter => template.is_kind_of(KindOf::Harvester),
             BuildingType::CommandCenter => {
                 // Command centers can produce workers/dozers
                 template.name.contains("Worker") || template.name.contains("Dozer")

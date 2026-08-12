@@ -6,6 +6,7 @@ fn unit_render_input_world_matrix_applies_mesh_scale() {
         id: ObjectId(1),
         template_name: "T".into(),
         model_key: "M".into(),
+        draw_models: Vec::new(),
         mesh_scale: 2.0,
         team: Team::USA,
         team_color: [1.0, 1.0, 1.0, 1.0],
@@ -201,6 +202,41 @@ fn overlay_gameworld_shadow_copies_entity_residual() {
             && src.contains("shadow last-writer residual"),
         "overlay must copy expanded entity residual"
     );
+}
+
+#[test]
+fn gameworld_primary_presentation_retains_unattackable_weaponset_override() {
+    use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
+    use crate::gameworld_shadow::GameWorldShadow;
+    use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
+    use crate::unit_control::UnitControlSystem;
+
+    let mut logic = GameLogic::new();
+    let cfg = golden_skirmish_config("OverlayUnattackable");
+    apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+    let mut template = ThingTemplate::new("UnattackableVictim");
+    template.set_health(100.0);
+    template
+        .add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Attackable)
+        .add_kind_of(KindOf::Unattackable);
+    logic
+        .templates
+        .insert("UnattackableVictim".into(), template);
+    let id = logic
+        .create_object(
+            "UnattackableVictim",
+            Team::GLA,
+            glam::Vec3::new(2.0, 0.0, 2.0),
+        )
+        .expect("object");
+
+    let mut shadow = GameWorldShadow::new(64);
+    shadow.sync_from_host(&logic);
+    let frame = PresentationFrame::build_from_gameworld(&shadow, 0, Some(&logic));
+    let object = frame.objects.iter().find(|object| object.id == id).unwrap();
+    assert!(object.unattackable);
+    assert!(!UnitControlSystem::presentation_is_attackable(object));
 }
 
 #[test]

@@ -315,10 +315,14 @@ pub fn w3d_thin_border_draw(window: &GameWindow, inst_data: &WindowInstanceData)
 }
 
 pub fn w3d_shell_menu_scheme_draw(_window: &GameWindow, _inst_data: &WindowInstanceData) {
-    let mut shell = get_shell();
-    if shell.is_shell_active() {
-        shell.get_shell_menu_scheme_manager().draw();
-    }
+    // Drawing may re-enter from a shell layout callback.  It has no durable
+    // shell mutation to queue, so skip the frame rather than aliasing a live
+    // lifecycle borrow.
+    let _ = crate::gui::shell::try_with_shell_mut(|shell| {
+        if shell.is_shell_active() {
+            shell.get_shell_menu_scheme_manager().draw();
+        }
+    });
 }
 
 pub fn w3d_credits_menu_draw(_window: &GameWindow, _inst_data: &WindowInstanceData) {

@@ -1432,11 +1432,19 @@ pub fn load_object_creation_lists_from_path<P: AsRef<Path>>(path: P) -> Result<u
     load_object_creation_lists_from_str(&content)
 }
 
-fn default_ocl_paths() -> [PathBuf; 3] {
-    [
+fn default_ocl_paths() -> Vec<PathBuf> {
+    let workspace_retail = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        // GameLogic lives at GeneralsRust/Code/GameEngine/GameLogic.
+        // Keep the retail source-data lookup independent of the executable's
+        // current working directory so a Cargo launch from GeneralsRust does
+        // not silently leave the global OCL store empty.
+        .join("../../../..")
+        .join("windows_game/extracted_big_files/INIZH/Data/INI/ObjectCreationList.ini");
+    vec![
         PathBuf::from("Data/INI/ObjectCreationList.ini"),
         PathBuf::from("windows_game/extracted_big_files_v2/INIZH/Data/INI/ObjectCreationList.ini"),
         PathBuf::from("windows_game/extracted_big_files/INIZH/Data/INI/ObjectCreationList.ini"),
+        workspace_retail,
     ]
 }
 
@@ -1739,7 +1747,7 @@ End
 
     #[test]
     fn test_parse_stock_object_creation_list_file_when_present() {
-        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../../..");
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../..");
         let stock =
             root.join("windows_game/extracted_big_files/INIZH/Data/INI/ObjectCreationList.ini");
         if !stock.exists() {

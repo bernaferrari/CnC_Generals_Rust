@@ -113,6 +113,23 @@ fn effectively_stealthed_blocks_enemy_visibility_and_targeting() {
 }
 
 #[test]
+fn targetable_by_enemy_honors_weaponset_unattackable_and_masked_overrides() {
+    let mut object = make_test_object();
+    object.team = Team::USA;
+    object.thing.template.add_kind_of(KindOf::Attackable);
+
+    object.thing.template.add_kind_of(KindOf::Unattackable);
+    assert!(!object.is_targetable_by_enemy_of(Team::China));
+
+    object.thing.template.kind_of.remove(&KindOf::Unattackable);
+    object.status.masked = true;
+    assert!(!object.is_targetable_by_enemy_of(Team::China));
+
+    object.status.masked = false;
+    assert!(object.is_targetable_by_enemy_of(Team::China));
+}
+
+#[test]
 fn fire_at_breaks_stealth_when_forbidden_while_attacking() {
     let mut object = make_test_object();
     object.status.stealthed = true;
@@ -148,6 +165,31 @@ fn can_target_rejects_undetected_stealthed_enemy() {
     assert!(!attacker.can_target(&target));
 
     target.status.detected = true;
+    assert!(attacker.can_target(&target));
+}
+
+#[test]
+fn can_target_rejects_weaponset_unattackable_and_masked_overrides() {
+    let mut attacker = make_test_object();
+    attacker.weapon = Some(Weapon {
+        damage: 10.0,
+        range: 100.0,
+        can_target_ground: true,
+        ..Weapon::default()
+    });
+
+    let mut target = make_test_object();
+    target.id = ObjectId(2);
+    target.team = Team::China;
+    target.set_position(Vec3::new(5.0, 0.0, 0.0));
+    target.thing.template.add_kind_of(KindOf::Unattackable);
+    assert!(!attacker.can_target(&target));
+
+    target.thing.template.kind_of.remove(&KindOf::Unattackable);
+    target.status.masked = true;
+    assert!(!attacker.can_target(&target));
+
+    target.status.masked = false;
     assert!(attacker.can_target(&target));
 }
 

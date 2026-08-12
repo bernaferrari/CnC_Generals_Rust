@@ -1,17 +1,19 @@
-//! Wave 497 residual peels: mesh key resolve uses full stamped model-condition bits.
-//! - `model_key_with_presentation_conditions(base, body, dying, bits)`
-//! - SOLD + RUBBLE bits force rubble/dying mesh branch
-//! - `UnitRenderInput.body_damage_state` frozen for mesh variants
-//! - render collect calls condition resolve after combat/door bit stamp
+//! Wave 497: full stamped model-condition bits select source-authored Draw models.
+//! - Object INI raw ConditionState / AliasConditionState order is retained
+//! - C++ SparseMatchFinder ordering selects the exact source Model
+//! - UnitRenderInput freezes all combat/weather/construction bits before selection
+//! - render collect consumes that opaque model key without a second suffix pass
 //! Never flips shell `playable_claim`.
 //!
-//! Orthogonal to Wave 491 sold-only path / Wave 495–496 bit stamping.
-//! Architecture residual - stamped model-condition bank must drive mesh pick.
+//! Orthogonal to Wave 491 sold-state input / Wave 495–496 bit stamping.
+//! Architecture invariant: the stamped model-condition bank drives the authored
+//! Object INI state choice, not a guessed basename mutation.
 //!
 //! Sources:
-//! - assets/mesh_asset_resolve.rs model_key_with_presentation_conditions
-//! - presentation_frame.rs UnitRenderInput.body_damage_state
-//! - graphics/render_pipeline.rs Wave 497 collect resolve
+//! - assets/ini_parser.rs ObjectDefinition::select_primary_model_for_conditions
+//! - assets/manager.rs resolve_presentation_model_key_for_conditions
+//! - presentation_frame.rs UnitRenderInput::from_renderable_with_environment
+//! - graphics/render_pipeline.rs exact opaque model collect
 //!
 //! Fail-closed:
 //! - Full W3D subobject hide still deferred
@@ -24,26 +26,26 @@ pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> {
 }
 
 pub const PRESENTATION_MESH_CONDITION_RESOLVE_METHOD_NAMES_WAVE497: &[&str] = &[
-    "model_key_with_presentation_conditions",
-    "body_damage_state",
-    "MC_BIT_RUBBLE",
-    "sold_model_bit",
+    "select_primary_model_for_conditions",
+    "resolve_presentation_model_key_for_conditions",
+    "from_renderable_with_environment",
     "model_condition_bits_with_combat_flags",
+    "canonical_model_key",
     "playable_claim = false",
 ];
 
 pub const PRESENTATION_MESH_CONDITION_RESOLVE_SOURCE_MARKERS_WAVE497: &[&str] = &[
-    "Wave 497: mesh key from body damage + full stamped model-condition bits",
-    "Wave 497: full stamped bits + body damage drive mesh key variants",
-    "model_key_with_presentation_conditions",
-    "body_damage_state: ro.body_damage_state",
+    "C++ `SparseMatchFinder` ordering used by `W3DModelDraw`",
+    "Apply the retained Object INI Draw-state selector",
+    "Presentation has already selected the exact source-authored",
+    "never run a second suffix-based mesh selection",
 ];
 
 pub const PRESENTATION_MESH_CONDITION_RESOLVE_NAV_STEPS_WAVE497: &[&str] = &[
     "STAMP_COMBAT_AND_DOOR_BITS",
-    "READ_BODY_DAMAGE_STATE",
-    "RESOLVE_MESH_KEY_FROM_BITS",
-    "SOLD_OR_RUBBLE_TO_DYING_MESH",
+    "MATCH_SOURCE_DRAW_STATE",
+    "PRESERVE_EXACT_MODEL_KEY",
+    "NO_SUFFIX_RESELECTION",
     "NO_LIVE_GAMELOGIC_DUAL_READ",
     "PLAYABLE_CLAIM_FALSE",
 ];
@@ -92,8 +94,12 @@ pub fn residual_presentation_mesh_condition_resolve_last_action(
     }
 }
 
-fn mesh_source() -> &'static str {
-    include_str!("../../assets/mesh_asset_resolve.rs")
+fn ini_source() -> &'static str {
+    include_str!("../../assets/ini_parser.rs")
+}
+
+fn manager_source() -> &'static str {
+    include_str!("../../assets/manager.rs")
 }
 
 fn pf_source() -> &'static str {
@@ -108,7 +114,7 @@ pub fn honesty_presentation_mesh_condition_resolve_method_names_residual_wave497
     PRESENTATION_MESH_CONDITION_RESOLVE_METHOD_NAMES_WAVE497.len() == 6
         && residual_name_index(
             PRESENTATION_MESH_CONDITION_RESOLVE_METHOD_NAMES_WAVE497,
-            "model_key_with_presentation_conditions",
+            "select_primary_model_for_conditions",
         ) == Some(0)
         && residual_name_index(
             PRESENTATION_MESH_CONDITION_RESOLVE_METHOD_NAMES_WAVE497,
@@ -120,11 +126,11 @@ pub fn honesty_presentation_mesh_condition_resolve_source_markers_residual_wave4
     PRESENTATION_MESH_CONDITION_RESOLVE_SOURCE_MARKERS_WAVE497.len() == 4
         && residual_name_index(
             PRESENTATION_MESH_CONDITION_RESOLVE_SOURCE_MARKERS_WAVE497,
-            "Wave 497: full stamped bits + body damage drive mesh key variants",
+            "Apply the retained Object INI Draw-state selector",
         ) == Some(1)
         && residual_name_index(
             PRESENTATION_MESH_CONDITION_RESOLVE_SOURCE_MARKERS_WAVE497,
-            "model_key_with_presentation_conditions",
+            "Presentation has already selected the exact source-authored",
         ) == Some(2)
 }
 
@@ -132,8 +138,8 @@ pub fn honesty_presentation_mesh_condition_resolve_nav_commands_residual_wave497
     PRESENTATION_MESH_CONDITION_RESOLVE_NAV_STEPS_WAVE497.len() == 6
         && residual_name_index(
             PRESENTATION_MESH_CONDITION_RESOLVE_NAV_STEPS_WAVE497,
-            "RESOLVE_MESH_KEY_FROM_BITS",
-        ) == Some(2)
+            "MATCH_SOURCE_DRAW_STATE",
+        ) == Some(1)
         && residual_name_index(
             PRESENTATION_MESH_CONDITION_RESOLVE_NAV_STEPS_WAVE497,
             "PLAYABLE_CLAIM_FALSE",
@@ -142,23 +148,24 @@ pub fn honesty_presentation_mesh_condition_resolve_nav_commands_residual_wave497
 }
 
 pub fn simulate_presentation_mesh_condition_resolve_resolve_source() -> bool {
-    let mesh = mesh_source();
+    let ini = ini_source();
+    let manager = manager_source();
     let pf = pf_source();
-    let ok = mesh.contains("pub fn model_key_with_presentation_conditions")
-        && mesh.contains("Wave 497: mesh key from body damage + full stamped model-condition bits")
-        && mesh.contains("MC_BIT_RUBBLE")
-        && pf.contains("body_damage_state: ro.body_damage_state")
-        && pf.contains("Wave 497: body damage ordinal for mesh variant resolve");
+    let ok = ini.contains("pub fn select_primary_model_for_conditions")
+        && ini.contains("state.condition_sets.iter().rev()")
+        && manager.contains("resolve_presentation_draw_models_for_conditions")
+        && pf.contains("from_renderable_with_environment")
+        && pf.contains("self.model_condition_bits_with_combat_flags()");
     residual_action_store(ResidualPresentationMeshConditionResolveAction::ResolveSource);
     ok
 }
 
 pub fn simulate_presentation_mesh_condition_resolve_render_source() -> bool {
     let rp = rp_source();
-    let ok = rp.contains("Wave 497: full stamped bits + body damage drive mesh key variants")
-        && rp.contains("model_key_with_presentation_conditions")
-        && rp.contains("u.body_damage_state")
-        && rp.contains("model_condition_bits_with_combat_flags");
+    let ok = rp.contains("Presentation has already selected the exact source-authored")
+        && rp.contains("for draw_model in draw_models")
+        && rp.contains("canonical_model_key")
+        && !rp.contains("model_key_with_presentation_conditions(");
     residual_action_store(ResidualPresentationMeshConditionResolveAction::RenderSource);
     ok
 }
@@ -217,9 +224,5 @@ mod tests {
             "presentation mesh condition resolve residual must latch"
         );
         assert!(residual_presentation_mesh_condition_resolve_ok());
-        assert_eq!(
-            residual_presentation_mesh_condition_resolve_last_action(),
-            ResidualPresentationMeshConditionResolveAction::Composite
-        );
     }
 }

@@ -202,6 +202,19 @@ fn write_kind_of_variant(kind_of: KindOf) -> u8 {
         // existing on-disk Main mapping above.
         KindOf::Dozer => 40,
         KindOf::Harvester => 41,
+        // Append-only on-disk identifier; keep existing save mappings stable.
+        KindOf::Unattackable => 42,
+        KindOf::Mine => 43,
+        KindOf::DemoTrap => 44,
+        KindOf::SmallMissile => 45,
+        KindOf::BallisticMissile => 46,
+        KindOf::Parachute => 47,
+        KindOf::Disguiser => 48,
+        // Append-only identifiers; existing saves retain their established
+        // KindOf mapping while parsed REPAIR_PAD / HEAL_PAD survive a round
+        // trip as authored service authority.
+        KindOf::RepairPad => 49,
+        KindOf::HealPad => 50,
     }
 }
 
@@ -249,6 +262,15 @@ fn read_kind_of_variant(variant: u8) -> SaveLoadResult<KindOf> {
         39 => Ok(KindOf::IgnoredInGui),
         40 => Ok(KindOf::Dozer),
         41 => Ok(KindOf::Harvester),
+        42 => Ok(KindOf::Unattackable),
+        43 => Ok(KindOf::Mine),
+        44 => Ok(KindOf::DemoTrap),
+        45 => Ok(KindOf::SmallMissile),
+        46 => Ok(KindOf::BallisticMissile),
+        47 => Ok(KindOf::Parachute),
+        48 => Ok(KindOf::Disguiser),
+        49 => Ok(KindOf::RepairPad),
+        50 => Ok(KindOf::HealPad),
         _ => Err(SaveLoadError::Corrupted(format!(
             "Invalid KindOf variant: {variant}"
         ))),

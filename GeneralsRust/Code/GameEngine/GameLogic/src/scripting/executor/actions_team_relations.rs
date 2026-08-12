@@ -1026,15 +1026,12 @@ impl ScriptActionDispatcher {
             priority_set
         );
 
-        let info_name = get_script_engine()
-            .read()
-            .ok()
-            .and_then(|engine_guard| {
-                engine_guard
-                    .as_ref()
-                    .and_then(|engine| engine.get_attack_info(&priority_set))
-                    .map(|info| info.get_name().to_string())
-            })
+        let info_name = with_script_engine_ref(|engine| {
+            engine
+                .get_attack_info(&priority_set)
+                .map(|info| info.get_name().to_string())
+        })
+            .flatten()
             .unwrap_or_default();
 
         let mut prototype_updated = false;
@@ -1058,8 +1055,8 @@ impl ScriptActionDispatcher {
                     team_name,
                     info_name
                 );
-            } else if let Ok(mut engine_guard) = get_script_engine().write() {
-                if let Some(engine) = engine_guard.as_mut() {
+            } else {
+                let _ = with_script_engine_mut(|engine| {
                     for member_id in team_members {
                         if info_name.is_empty() {
                             engine.clear_object_attack_priority_set(member_id);
@@ -1067,7 +1064,7 @@ impl ScriptActionDispatcher {
                             engine.set_object_attack_priority_set(member_id, info_name.as_str());
                         }
                     }
-                }
+                });
             }
         }
 
@@ -1146,14 +1143,12 @@ impl ScriptActionDispatcher {
             return Ok(ScriptActionResult::Success);
         };
 
-        let script_engine_lock = get_script_engine();
-        let Ok(mut engine_guard) = script_engine_lock.write() else {
-            return Ok(ScriptActionResult::Success);
-        };
-        let Some(engine) = engine_guard.as_mut() else {
-            return Ok(ScriptActionResult::Success);
-        };
-        let Some(script) = engine.find_script_clone_by_name(&script_name) else {
+        // C++ resolves the script before it idles the team.  Take an owned
+        // clone through the lexically active engine, then leave engine state
+        // unlocked while issuing the AI command.
+        let Some(script) =
+            with_script_engine_ref(|engine| engine.find_script_clone_by_name(&script_name)).flatten()
+        else {
             return Ok(ScriptActionResult::Success);
         };
 
@@ -1166,12 +1161,14 @@ impl ScriptActionDispatcher {
             }
         }
 
-        let mut seq_script = crate::scripting::engine::SequentialScript::new();
-        seq_script.team_to_exec_on = Some(team_name.clone());
-        seq_script.object_id = INVALID_ID;
-        seq_script.script_to_execute_sequentially = Some(Box::new(script));
-        seq_script.times_to_loop = 0;
-        engine.append_sequential_script(seq_script);
+        let _ = with_script_engine_mut(|engine| {
+            let mut seq_script = crate::scripting::engine::SequentialScript::new();
+            seq_script.team_to_exec_on = Some(team_name.clone());
+            seq_script.object_id = INVALID_ID;
+            seq_script.script_to_execute_sequentially = Some(Box::new(script));
+            seq_script.times_to_loop = 0;
+            engine.append_sequential_script(seq_script);
+        });
 
         Ok(ScriptActionResult::Success)
     }
@@ -1194,14 +1191,11 @@ impl ScriptActionDispatcher {
             return Ok(ScriptActionResult::Success);
         };
 
-        let script_engine_lock = get_script_engine();
-        let Ok(mut engine_guard) = script_engine_lock.write() else {
-            return Ok(ScriptActionResult::Success);
-        };
-        let Some(engine) = engine_guard.as_mut() else {
-            return Ok(ScriptActionResult::Success);
-        };
-        let Some(script) = engine.find_script_clone_by_name(&script_name) else {
+        // Preserve C++ lookup-before-idle order without holding an engine
+        // lock across the AI command.
+        let Some(script) =
+            with_script_engine_ref(|engine| engine.find_script_clone_by_name(&script_name)).flatten()
+        else {
             return Ok(ScriptActionResult::Success);
         };
 
@@ -1214,12 +1208,14 @@ impl ScriptActionDispatcher {
             }
         }
 
-        let mut seq_script = crate::scripting::engine::SequentialScript::new();
-        seq_script.team_to_exec_on = Some(team_name.clone());
-        seq_script.object_id = INVALID_ID;
-        seq_script.script_to_execute_sequentially = Some(Box::new(script));
-        seq_script.times_to_loop = loop_val;
-        engine.append_sequential_script(seq_script);
+        let _ = with_script_engine_mut(|engine| {
+            let mut seq_script = crate::scripting::engine::SequentialScript::new();
+            seq_script.team_to_exec_on = Some(team_name.clone());
+            seq_script.object_id = INVALID_ID;
+            seq_script.script_to_execute_sequentially = Some(Box::new(script));
+            seq_script.times_to_loop = loop_val;
+            engine.append_sequential_script(seq_script);
+        });
 
         Ok(ScriptActionResult::Success)
     }
@@ -1235,12 +1231,9 @@ impl ScriptActionDispatcher {
             return Ok(ScriptActionResult::Success);
         };
 
-        let script_engine_lock = get_script_engine();
-        if let Ok(mut engine_guard) = script_engine_lock.write() {
-            if let Some(engine) = engine_guard.as_mut() {
-                engine.remove_all_sequential_scripts_for_team(&team_name);
-            }
-        }
+        let _ = with_script_engine_mut(|engine| {
+            engine.remove_all_sequential_scripts_for_team(&team_name);
+        });
 
         Ok(ScriptActionResult::Success)
     }
@@ -1353,30 +1346,31 @@ impl ScriptActionDispatcher {
             event_type
         );
         let team_arc = self.get_team_by_name(&team_name)?;
-        if let Ok(team) = team_arc.read() {
+        let pos = {
+            let Ok(team) = team_arc.read() else {
+                return Ok(ScriptActionResult::Success);
+            };
             if !team.has_any_units() {
                 return Ok(ScriptActionResult::Success);
             }
-            if let Some(pos) = team.get_estimate_team_position() {
-                let radar_event = Self::radar_event_type_from_int(event_type);
-                if let Ok(mut radar) = get_radar_system().write() {
-                    let radar_pos = to_radar_coord(&pos);
-                    radar.create_event(&radar_pos, radar_event, 4.0);
-                }
-                if let Ok(engine_guard) = get_script_engine().read() {
-                    if let Some(ref script_engine) = *engine_guard {
-                        if let Some(handler) = script_engine.action_handler() {
-                            if let Err(err) =
-                                handler.create_radar_event(pos.x, pos.y, pos.z, event_type)
-                            {
-                                log::warn!(
-                                    "Script action handler create_radar_event failed: {}",
-                                    err
-                                );
-                            }
-                        }
-                    }
-                }
+            team.get_estimate_team_position()
+        };
+        let Some(pos) = pos else {
+            return Ok(ScriptActionResult::Success);
+        };
+
+        let radar_event = Self::radar_event_type_from_int(event_type);
+        if let Ok(mut radar) = get_radar_system().write() {
+            let radar_pos = to_radar_coord(&pos);
+            radar.create_event(&radar_pos, radar_event, 4.0);
+        }
+        // The host callback can execute nested script/UI work.  Clone it
+        // first so neither the team nor ScriptEngine lock spans that call.
+        let handler =
+            with_script_engine_ref(|script_engine| script_engine.action_handler()).flatten();
+        if let Some(handler) = handler {
+            if let Err(err) = handler.create_radar_event(pos.x, pos.y, pos.z, event_type) {
+                log::warn!("Script action handler create_radar_event failed: {}", err);
             }
         }
         Ok(ScriptActionResult::Success)

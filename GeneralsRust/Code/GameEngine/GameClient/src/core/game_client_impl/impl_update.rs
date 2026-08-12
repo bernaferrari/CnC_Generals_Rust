@@ -17,6 +17,7 @@ impl GameClient {
         self.last_update_time = current_time;
 
         self.frame = self.frame.wrapping_add(1);
+        publish_live_game_client_frame(self);
 
         self.create_frame_tick_message()?;
         self.update_startup_movies()?;
@@ -129,7 +130,6 @@ impl GameClient {
             thread::sleep(target_frame_duration - frame_elapsed);
         }
     }
-
 
     pub fn update_input(&mut self) -> GameClientResult<()> {
         if let Some(ref keyboard) = self.subsystem_manager.input_keyboard {
@@ -678,6 +678,7 @@ impl GameClient {
         let current_time = Instant::now();
         self.last_update_time = current_time;
         self.frame = self.frame.wrapping_add(1);
+        publish_live_game_client_frame(self);
 
         self.create_frame_tick_message()?;
         // Wave 981: drain meta TOD residual onto host presentation drawables.

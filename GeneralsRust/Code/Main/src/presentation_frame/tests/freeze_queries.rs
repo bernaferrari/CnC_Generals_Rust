@@ -201,6 +201,110 @@ fn box_select_unit_ids_from_presentation() {
 }
 
 #[test]
+fn screen_box_select_uses_the_camera_pixel_region_not_a_world_xz_aabb() {
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    use glam::{Mat4, Vec2, Vec3};
+
+    let mut logic = crate::game_logic::GameLogic::new();
+    let mut unit = ThingTemplate::new("ScreenBoxUnit");
+    unit.set_health(100.0);
+    unit.add_kind_of(KindOf::Infantry);
+    unit.add_kind_of(KindOf::Selectable);
+    logic.templates.insert("ScreenBoxUnit".into(), unit);
+
+    let center = logic
+        .create_object("ScreenBoxUnit", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("center unit");
+    // Under a rotated camera this point falls in the world X/Z AABB between
+    // the two drag-ray ground hits, but projects outside the actual pixel
+    // rectangle.  The screen-space routine must not select it.
+    let outside_screen = logic
+        .create_object("ScreenBoxUnit", Team::USA, Vec3::new(36.0, 0.0, 0.0))
+        .expect("off-rectangle unit");
+    let mut frame = PresentationFrame::build_from_logic(&logic, 0);
+    // Retail W3DView drag selection projects drawable centers; unlike a
+    // point-click ray cast, it does not inflate the screen region by geometry
+    // or selection radius. Keep this intentionally huge value out of the
+    // region to prevent a future convenience radius test from changing the
+    // observable C++ marquee behavior.
+    frame
+        .objects
+        .iter_mut()
+        .find(|object| object.id == outside_screen)
+        .expect("frozen off-rectangle unit")
+        .selection_radius = 10_000.0;
+    let view = Mat4::look_at_rh(Vec3::new(70.0, 90.0, 110.0), Vec3::ZERO, Vec3::Y);
+    let projection = Mat4::perspective_rh(60.0_f32.to_radians(), 1.0, 1.0, 2_000.0);
+
+    let selected = frame.box_select_unit_ids_in_screen_rect(
+        Team::USA,
+        view,
+        projection,
+        Vec2::new(470.0, 470.0),
+        Vec2::new(530.0, 530.0),
+        Vec2::splat(1_000.0),
+    );
+    assert_eq!(selected, vec![center]);
+    assert!(!selected.contains(&outside_screen));
+}
+
+#[test]
+fn unit_render_inputs_keep_distinct_source_draw_modules() {
+    use crate::assets::AuthoredDrawModel;
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+
+    let mut logic = crate::game_logic::GameLogic::new();
+    let mut unit = ThingTemplate::new("MultiDrawPresentationProbe");
+    unit.set_health(100.0);
+    unit.add_kind_of(KindOf::Infantry);
+    logic
+        .templates
+        .insert("MultiDrawPresentationProbe".into(), unit);
+    let id = logic
+        .create_object("MultiDrawPresentationProbe", Team::USA, glam::Vec3::ZERO)
+        .expect("probe object");
+
+    let mut frame = PresentationFrame::build_from_logic(&logic, 0);
+    let object = frame
+        .objects
+        .iter_mut()
+        .find(|object| object.id == id)
+        .expect("frozen object");
+    object.model_key = Some("ProbeBody".to_string());
+    object.draw_models = vec![
+        AuthoredDrawModel {
+            module_index: 0,
+            model_key: "ProbeBody".to_string(),
+        },
+        AuthoredDrawModel {
+            module_index: 2,
+            model_key: "ProbeDoor".to_string(),
+        },
+    ];
+
+    let inputs = frame.unit_render_inputs();
+    let input = inputs
+        .iter()
+        .find(|input| input.id == id)
+        .expect("unit render input");
+    assert_eq!(input.model_key, "ProbeBody");
+    assert_eq!(
+        input.draw_models,
+        vec![
+            AuthoredDrawModel {
+                module_index: 0,
+                model_key: "ProbeBody".to_string(),
+            },
+            AuthoredDrawModel {
+                module_index: 2,
+                model_key: "ProbeDoor".to_string(),
+            },
+        ],
+        "snapshot hand-off must preserve module order and independent identity"
+    );
+}
+
+#[test]
 fn alive_selectable_friendly_aircraft_ids_residual() {
     use crate::game_logic::{GameLogic, KindOf, Player, Team, ThingTemplate};
     let mut logic = GameLogic::new();

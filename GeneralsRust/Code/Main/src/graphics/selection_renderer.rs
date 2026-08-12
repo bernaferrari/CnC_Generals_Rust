@@ -3,13 +3,11 @@
 //! PARITY_NOTE: C++ SAGE draws the drag-select region as a 2D open rectangle via
 //! `W3DInGameUI::drawSelectionRegion()` using `TheDisplay->drawOpenRect()` with
 //! color `0x9933FF33` (alpha 0x99, green tint).  The C++ W3DScene code tints
-//! selected drawables via `Drawable::getSelectionColor()`.  This Rust implementation
-//! projects the drag rectangle into 3D world space on the terrain plane (standard RTS
-//! approach) and draws per-unit selection circles using team colors from
-//! `color_for_player()`.
+//! selected drawables via `Drawable::getSelectionColor()`.  The drag marquee
+//! remains a 2D screen-space open rectangle, while the Rust-only unit circles
+//! and order markers remain world-space overlays.
 
-use glam::{Mat4, Vec2, Vec3, Vec4};
-use log::trace;
+use glam::{Mat4, Vec2, Vec3};
 use std::sync::Arc;
 use wgpu::util::DeviceExt;
 
@@ -17,10 +15,10 @@ use wgpu::util::DeviceExt;
 // Constants (C++ parity)
 // ---------------------------------------------------------------------------
 
-/// PARITY_NOTE: C++ `W3DInGameUI::drawSelectionRegion()` uses color `0x9933FF33`.
-/// Alpha = 0x99 ≈ 0.6 but we use a lower alpha for the 3D projected quad to avoid
-/// obscuring terrain detail.
-const DRAG_RECT_COLOR: [f32; 4] = [0.2, 1.0, 0.2, 0.3];
+/// C++ `W3DInGameUI::drawSelectionRegion()` uses `drawOpenRect(..., 2.0f,
+/// 0x9933FF33)`: a two-pixel, 60%-alpha green screen-space border.
+const DRAG_RECT_COLOR: [f32; 4] = [0.2, 1.0, 0.2, 0.6];
+const DRAG_RECT_LINE_WIDTH_PX: f32 = 2.0;
 
 const TERRAIN_Y_OFFSET: f32 = 0.5;
 const CIRCLE_SEGMENTS: u32 = 24;
@@ -43,6 +41,73 @@ impl DragSelectRect {
         let dy = (self.end.y - self.start.y).abs();
         dx > 2.0 || dy > 2.0
     }
+}
+
+/// Pack the C++ `drawOpenRect` marquee as four screen-space quads.  Positions
+/// are already WGPU clip coordinates; each vertex is `[x, y, r, g, b, a]`.
+/// Keeping this CPU-only makes the geometry and its two-pixel thickness easy
+/// to test without a graphics device.
+fn drag_rect_screen_vertices(rect: &DragSelectRect) -> Vec<f32> {
+    if !rect.is_valid() {
+        return Vec::new();
+    }
+
+    let viewport_width = rect.window_width.max(1.0);
+    let viewport_height = rect.window_height.max(1.0);
+    let left = (rect.start.x.min(rect.end.x) / viewport_width) * 2.0 - 1.0;
+    let right = (rect.start.x.max(rect.end.x) / viewport_width) * 2.0 - 1.0;
+    let top = 1.0 - (rect.start.y.min(rect.end.y) / viewport_height) * 2.0;
+    let bottom = 1.0 - (rect.start.y.max(rect.end.y) / viewport_height) * 2.0;
+    // Pixel → clip scale is two clip units per viewport dimension.  A two
+    // pixel line therefore has a half-thickness of `2 / dimension`.
+    let half_width = DRAG_RECT_LINE_WIDTH_PX / viewport_width;
+    let half_height = DRAG_RECT_LINE_WIDTH_PX / viewport_height;
+
+    let mut vertices = Vec::with_capacity(24 * 6);
+    let mut push_vertex = |x: f32, y: f32| {
+        vertices.extend_from_slice(&[
+            x,
+            y,
+            DRAG_RECT_COLOR[0],
+            DRAG_RECT_COLOR[1],
+            DRAG_RECT_COLOR[2],
+            DRAG_RECT_COLOR[3],
+        ]);
+    };
+    let mut push_quad = |min_x: f32, min_y: f32, max_x: f32, max_y: f32| {
+        push_vertex(min_x, min_y);
+        push_vertex(max_x, min_y);
+        push_vertex(max_x, max_y);
+        push_vertex(min_x, min_y);
+        push_vertex(max_x, max_y);
+        push_vertex(min_x, max_y);
+    };
+
+    push_quad(
+        left - half_width,
+        bottom - half_height,
+        right + half_width,
+        bottom + half_height,
+    );
+    push_quad(
+        left - half_width,
+        top - half_height,
+        right + half_width,
+        top + half_height,
+    );
+    push_quad(
+        left - half_width,
+        bottom - half_height,
+        left + half_width,
+        top + half_height,
+    );
+    push_quad(
+        right - half_width,
+        bottom - half_height,
+        right + half_width,
+        top + half_height,
+    );
+    vertices
 }
 
 /// Per-selected-unit data for circle rendering.
@@ -86,6 +151,34 @@ fn fs_main(@location(0) vertex_color: vec4<f32>) -> @location(0) vec4<f32> {
 }
 ";
 
+/// The drag marquee is a Display/UI primitive in C++, not terrain geometry.
+/// Its vertices already arrive in clip coordinates, so this shader deliberately
+/// has no camera uniform and no depth attachment.
+const DRAG_RECT_SHADER: &str = r"
+struct VertexInput {
+    @location(0) clip_position: vec2<f32>,
+    @location(1) color: vec4<f32>,
+};
+
+struct VertexOutput {
+    @builtin(position) clip_position: vec4<f32>,
+    @location(0) vertex_color: vec4<f32>,
+};
+
+@vertex
+fn vs_main(input: VertexInput) -> VertexOutput {
+    var output: VertexOutput;
+    output.clip_position = vec4<f32>(input.clip_position, 0.0, 1.0);
+    output.vertex_color = input.color;
+    return output;
+}
+
+@fragment
+fn fs_main(@location(0) vertex_color: vec4<f32>) -> @location(0) vec4<f32> {
+    return vertex_color;
+}
+";
+
 // ---------------------------------------------------------------------------
 // SelectionRenderer
 // ---------------------------------------------------------------------------
@@ -94,6 +187,7 @@ pub struct SelectionRenderer {
     device: Arc<wgpu::Device>,
     queue: Arc<wgpu::Queue>,
     pipeline: wgpu::RenderPipeline,
+    drag_rect_pipeline: wgpu::RenderPipeline,
     uniform_buffer: wgpu::Buffer,
     uniform_bind_group: wgpu::BindGroup,
 }
@@ -200,10 +294,70 @@ impl SelectionRenderer {
             cache: None,
         });
 
+        let drag_rect_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("selection_drag_rect_shader"),
+            source: wgpu::ShaderSource::Wgsl(DRAG_RECT_SHADER.into()),
+        });
+        let drag_rect_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("selection_drag_rect_pipeline_layout"),
+                bind_group_layouts: &[],
+                push_constant_ranges: &[],
+            });
+        let drag_rect_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("selection_drag_rect_pipeline"),
+            layout: Some(&drag_rect_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &drag_rect_shader,
+                entry_point: Some("vs_main"),
+                buffers: &[wgpu::VertexBufferLayout {
+                    array_stride: 24,
+                    step_mode: wgpu::VertexStepMode::Vertex,
+                    attributes: &wgpu::vertex_attr_array![0 => Float32x2, 1 => Float32x4],
+                }],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &drag_rect_shader,
+                entry_point: Some("fs_main"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: wgpu::TextureFormat::Bgra8UnormSrgb,
+                    blend: Some(wgpu::BlendState {
+                        color: wgpu::BlendComponent {
+                            src_factor: wgpu::BlendFactor::SrcAlpha,
+                            dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                            operation: wgpu::BlendOperation::Add,
+                        },
+                        alpha: wgpu::BlendComponent {
+                            src_factor: wgpu::BlendFactor::SrcAlpha,
+                            dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                            operation: wgpu::BlendOperation::Add,
+                        },
+                    }),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: None,
+                polygon_mode: wgpu::PolygonMode::Fill,
+                unclipped_depth: false,
+                conservative: false,
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+            cache: None,
+        });
+
         Some(Self {
             device,
             queue,
             pipeline,
+            drag_rect_pipeline,
             uniform_buffer,
             uniform_bind_group,
         })
@@ -213,8 +367,6 @@ impl SelectionRenderer {
         &self,
         render_pass: &mut wgpu::RenderPass<'_>,
         view_proj: &Mat4,
-        inv_view_proj: &Mat4,
-        drag_rect: Option<&DragSelectRect>,
         selected_units: &[SelectedUnit],
         order_line_vertices: &[f32],
     ) {
@@ -227,12 +379,6 @@ impl SelectionRenderer {
         render_pass.set_pipeline(&self.pipeline);
         render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
 
-        if let Some(rect) = drag_rect {
-            if rect.is_valid() {
-                self.draw_drag_rect(render_pass, inv_view_proj, rect);
-            }
-        }
-
         for unit in selected_units {
             self.draw_selection_circle(render_pass, unit);
         }
@@ -243,83 +389,14 @@ impl SelectionRenderer {
     }
 
     // -----------------------------------------------------------------------
-    // Drag rectangle projected onto the XZ plane
+    // Screen-space drag rectangle
     // -----------------------------------------------------------------------
 
-    fn draw_drag_rect(
-        &self,
-        render_pass: &mut wgpu::RenderPass<'_>,
-        inv_view_proj: &Mat4,
-        rect: &DragSelectRect,
-    ) {
-        // Screen corners in pixel coords (top-left origin).
-        let corners_screen: [(f32, f32); 4] = [
-            (rect.start.x, rect.start.y),
-            (rect.end.x, rect.start.y),
-            (rect.end.x, rect.end.y),
-            (rect.start.x, rect.end.y),
-        ];
-
-        let w = rect.window_width.max(1.0);
-        let h = rect.window_height.max(1.0);
-
-        // Project each screen corner to world space via ray-plane intersection.
-        // NDC: X in [-1,1], Y in [-1,1] (Y flipped from screen space).
-        // Then unproject near/far clip points, build ray, intersect Y=0 plane.
-        let mut world_corners: [Vec3; 4] = [Vec3::ZERO; 4];
-        for (i, (sx, sy)) in corners_screen.iter().enumerate() {
-            // NDC: X in [-1,1], Y in [-1,1] (Y flipped from screen space).
-            let ndc_x = (*sx / w) * 2.0 - 1.0;
-            let ndc_y = 1.0 - (*sy / h) * 2.0;
-
-            let near_clip = Vec4::new(ndc_x, ndc_y, 0.0, 1.0);
-            let far_clip = Vec4::new(ndc_x, ndc_y, 1.0, 1.0);
-
-            let near_world = *inv_view_proj * near_clip;
-            let far_world = *inv_view_proj * far_clip;
-
-            // Perspective divide: w may be negative for behind-camera points.
-            let near_w = near_world.w.abs().max(1e-6);
-            let far_w = far_world.w.abs().max(1e-6);
-            let near_pt = Vec3::new(
-                near_world.x / near_w,
-                near_world.y / near_w,
-                near_world.z / near_w,
-            );
-            let far_pt = Vec3::new(
-                far_world.x / far_w,
-                far_world.y / far_w,
-                far_world.z / far_w,
-            );
-
-            let ray_dir = far_pt - near_pt;
-
-            // Intersect ray with Y=0 plane: t = -near_pt.y / ray_dir.y
-            if ray_dir.y.abs() < 1e-6 {
-                world_corners[i] = near_pt;
-                continue;
-            }
-            let t = -near_pt.y / ray_dir.y;
-            let hit = near_pt + ray_dir * t;
-            world_corners[i] = Vec3::new(hit.x, TERRAIN_Y_OFFSET, hit.z);
+    fn draw_drag_rect(&self, render_pass: &mut wgpu::RenderPass<'_>, rect: &DragSelectRect) {
+        let vertices = drag_rect_screen_vertices(rect);
+        if vertices.is_empty() {
+            return;
         }
-
-        let indices: [usize; 6] = [0, 1, 2, 0, 2, 3];
-        let vertices: Vec<f32> = indices
-            .iter()
-            .flat_map(|&idx| {
-                let p = world_corners[idx];
-                [
-                    p.x,
-                    p.y,
-                    p.z,
-                    DRAG_RECT_COLOR[0],
-                    DRAG_RECT_COLOR[1],
-                    DRAG_RECT_COLOR[2],
-                    DRAG_RECT_COLOR[3],
-                ]
-            })
-            .collect();
 
         let vertex_buffer = self
             .device
@@ -329,10 +406,9 @@ impl SelectionRenderer {
                 usage: wgpu::BufferUsages::VERTEX,
             });
 
+        render_pass.set_pipeline(&self.drag_rect_pipeline);
         render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
-        render_pass.draw(0..6, 0..1);
-
-        trace!("Drew 3D drag-select rect: corners={:?}", world_corners);
+        render_pass.draw(0..24, 0..1);
     }
 
     // -----------------------------------------------------------------------
@@ -602,7 +678,6 @@ pub fn enqueue_selection_render(
     };
 
     let view_proj = *projection_matrix * *view_matrix;
-    let inv_view_proj = view_proj.inverse();
 
     let mut selected_units = collect_selected_units(presentation);
     // Blob discs are the fallback when the forward-pass projected/CSM sample
@@ -631,56 +706,86 @@ pub fn enqueue_selection_render(
         order_line_vertices.extend(pack_rally_point_lines(frame));
     }
 
+    let drag_rect = drag_rect.filter(|rect| rect.is_valid());
     if drag_rect.is_none() && selected_units.is_empty() && order_line_vertices.is_empty() {
         return;
     }
 
-    let drag_rect_owned = drag_rect;
+    if !selected_units.is_empty() || !order_line_vertices.is_empty() {
+        let world_renderer = Arc::clone(&renderer);
+        pipeline.enqueue_pre_scene_callback(move |frame| {
+            let color_view = frame.color_view_arc();
+            let depth_view = frame.depth_view_arc();
+            let encoder = frame.encoder();
 
-    pipeline.enqueue_pre_scene_callback(move |frame| {
-        let color_view = frame.color_view_arc();
-        let depth_view = frame.depth_view_arc();
-        let encoder = frame.encoder();
+            let depth_stencil =
+                depth_view
+                    .as_ref()
+                    .map(|dv| wgpu::RenderPassDepthStencilAttachment {
+                        view: dv.as_ref(),
+                        depth_ops: Some(wgpu::Operations {
+                            load: wgpu::LoadOp::Load,
+                            store: wgpu::StoreOp::Store,
+                        }),
+                        stencil_ops: None,
+                    });
 
-        let depth_stencil = depth_view
-            .as_ref()
-            .map(|dv| wgpu::RenderPassDepthStencilAttachment {
-                view: dv.as_ref(),
-                depth_ops: Some(wgpu::Operations {
-                    load: wgpu::LoadOp::Load,
-                    store: wgpu::StoreOp::Store,
-                }),
-                stencil_ops: None,
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("selection world overlay pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: color_view.as_ref(),
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: depth_stencil,
+                timestamp_writes: None,
+                occlusion_query_set: None,
             });
 
-        let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("selection overlay pass"),
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: color_view.as_ref(),
-                depth_slice: None,
-                resolve_target: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Load,
-                    store: wgpu::StoreOp::Store,
-                },
-            })],
-            depth_stencil_attachment: depth_stencil,
-            timestamp_writes: None,
-            occlusion_query_set: None,
+            world_renderer.draw(
+                &mut render_pass,
+                &view_proj,
+                &selected_units,
+                &order_line_vertices,
+            );
+
+            drop(render_pass);
+            Ok(())
         });
+    }
 
-        renderer.draw(
-            &mut render_pass,
-            &view_proj,
-            &inv_view_proj,
-            drag_rect_owned.as_ref(),
-            &selected_units,
-            &order_line_vertices,
-        );
-
-        drop(render_pass);
-        Ok(())
-    });
+    if let Some(drag_rect) = drag_rect {
+        // C++ draws this in W3DInGameUI's 2D pass, after the scene and before
+        // window repaint.  Queue it before Main queues its UI flush, so HUD
+        // widgets still render over the marquee exactly as in the original.
+        let drag_renderer = Arc::clone(&renderer);
+        pipeline.enqueue_post_frame_callback(move |frame| {
+            let color_view = frame.color_view_arc();
+            let encoder = frame.encoder();
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("selection drag rectangle pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: color_view.as_ref(),
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+            drag_renderer.draw_drag_rect(&mut render_pass, &drag_rect);
+            drop(render_pass);
+            Ok(())
+        });
+    }
 }
 
 #[cfg(test)]
@@ -832,6 +937,9 @@ mod presentation_selection_tests {
 
 #[cfg(test)]
 mod selection_shader_residual_tests {
+    use super::{drag_rect_screen_vertices, DragSelectRect, DRAG_RECT_COLOR};
+    use glam::Vec2;
+
     #[test]
     fn selection_shader_module_contains_both_entry_points() {
         let src = include_str!("selection_renderer.rs");
@@ -845,5 +953,26 @@ mod selection_shader_residual_tests {
             module.contains("@fragment"),
             "fragment stage must be in the same WGSL module as vs_main"
         );
+    }
+
+    #[test]
+    fn drag_marquee_is_a_two_pixel_screen_space_open_rectangle() {
+        let vertices = drag_rect_screen_vertices(&DragSelectRect {
+            start: Vec2::new(100.0, 50.0),
+            end: Vec2::new(300.0, 150.0),
+            window_width: 400.0,
+            window_height: 200.0,
+        });
+        // Four border quads × six vertices × [clip_x, clip_y, rgba].
+        assert_eq!(vertices.len(), 4 * 6 * 6);
+        assert_eq!(&vertices[2..6], &DRAG_RECT_COLOR);
+        assert!(vertices.iter().all(|value| value.is_finite()));
+
+        // The first quad is the bottom 2px border.  In a 400×200 viewport,
+        // its half-thickness is 0.005 NDC horizontally and 0.01 vertically.
+        assert!((vertices[0] - -0.505).abs() < f32::EPSILON);
+        assert!((vertices[1] - -0.51).abs() < f32::EPSILON);
+        assert!((vertices[6] - 0.505).abs() < f32::EPSILON);
+        assert!((vertices[13] - -0.49).abs() < f32::EPSILON);
     }
 }

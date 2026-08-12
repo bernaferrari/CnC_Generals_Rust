@@ -291,16 +291,12 @@ impl GameWorldShadow {
                 // Entity lost — fall through to normal Spawn residual.
             }
             let (health, owner) = if let Some(obj) = logic.host_objects().get(&ev.id) {
-                let owner = self.owner_for_host_object(logic, obj.team);
+                let owner = self.owner_for_host_object(logic, obj);
                 (obj.health.current.max(0.0), owner)
             } else {
-                let owner = match ev.team_ordinal {
-                    0 => self.host_player_to_gw.values().next().copied(),
-                    1 => self.host_player_to_gw.values().nth(1).copied(),
-                    2 => self.host_player_to_gw.values().nth(2).copied(),
-                    _ => None,
-                };
-                (100.0, owner)
+                // A spawn log carries faction only. It cannot identify one
+                // same-faction slot, so leave a missing host object unowned.
+                (100.0, None)
             };
             // Mutation-channel spawn (sole create path) then map host ObjectId.
             self.world.queue_mutation(WorldMutation::Spawn {

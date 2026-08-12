@@ -6,11 +6,18 @@ use super::helpers::*;
 #[test]
 fn unpause_special_power_upgrade_enables_capture() {
     use crate::command_system::SpecialPowerType;
-    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    use crate::game_logic::{CapturePowerKind, KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
     let mut t = ThingTemplate::new("AmericaInfantryRanger");
     t.set_health(100.0);
     t.add_kind_of(KindOf::Infantry);
+    t.capture_power = CapturePowerKind::Ranger;
+    t.capture_start_ability_range = Some(5.0);
+    t.capture_unpack_time_ms = Some(3_000);
+    t.capture_preparation_time_ms = Some(20_000);
+    t.capture_pack_time_ms = Some(2_000);
+    t.capture_starts_paused = true;
+    t.capture_upgrade_trigger = Some("Upgrade_InfantryCaptureBuilding".to_string());
     logic.templates.insert("AmericaInfantryRanger".into(), t);
     let id = logic
         .create_object("AmericaInfantryRanger", Team::USA, glam::Vec3::ZERO)

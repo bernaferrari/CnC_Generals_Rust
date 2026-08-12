@@ -217,6 +217,7 @@ pub fn simulate_live_gameworld_fire_special_power_honesty() -> bool {
     host_fire_spawn_log::record(PendingProjectile {
         shooter_id: ObjectId(1),
         shooter_pos: Vec3::ZERO,
+        source_context: None,
         target_id: Some(ObjectId(2)),
         target_pos: Some(Vec3::new(50.0, 0.0, 0.0)),
         damage: 12.0,
@@ -226,6 +227,9 @@ pub fn simulate_live_gameworld_fire_special_power_honesty() -> bool {
         damage_type: DamageType::Bullet,
         death_type: HostDeathType::Normal,
         projectile_object_name: String::new(),
+        projectile_lifecycle: None,
+        fire_fx_name: String::new(),
+        fire_ocl_name: String::new(),
         detonation_fx_name: String::new(),
         detonation_ocl_name: String::new(),
         exhaust_name: String::new(),

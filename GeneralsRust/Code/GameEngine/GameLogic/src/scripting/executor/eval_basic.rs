@@ -8,13 +8,8 @@ use super::*;
 impl ScriptConditionEvaluator {
     pub(crate) fn resolve_string_token(&self, raw: &str) -> String {
         match raw {
-            THE_PLAYER | THIS_PLAYER => get_script_engine()
-                .read()
-                .ok()
-                .and_then(|g| {
-                    g.as_ref()
-                        .and_then(|e| e.get_current_player_name().map(|s| s.to_string()))
-                })
+            THE_PLAYER | THIS_PLAYER => with_script_engine_ref(|engine| engine.get_current_player_name())
+                .flatten()
                 .unwrap_or_else(|| raw.to_string()),
             LOCAL_PLAYER => player_list()
                 .read()
@@ -26,22 +21,16 @@ impl ScriptConditionEvaluator {
                         .and_then(|p| NameKeyGenerator::key_to_name(p.get_player_name_key()))
                 })
                 .unwrap_or_else(|| raw.to_string()),
-            THIS_TEAM => get_script_engine()
-                .read()
-                .ok()
-                .and_then(|g| {
-                    g.as_ref().and_then(|e| {
-                        e.get_condition_team_name()
-                            .or_else(|| e.get_calling_team_name())
-                            .map(|s| s.to_string())
-                    })
-                })
+            THIS_TEAM => with_script_engine_ref(|engine| {
+                engine
+                    .get_condition_team_name()
+                    .or_else(|| engine.get_calling_team_name())
+            })
+            .flatten()
                 .unwrap_or_else(|| raw.to_string()),
             TEAM_THE_PLAYER => {
-                let current_player = get_script_engine().read().ok().and_then(|g| {
-                    g.as_ref()
-                        .and_then(|e| e.get_current_player_name().map(|s| s.to_string()))
-                });
+                let current_player =
+                    with_script_engine_ref(|engine| engine.get_current_player_name()).flatten();
                 let Some(player_name) = current_player else {
                     return raw.to_string();
                 };
@@ -437,18 +426,13 @@ impl ScriptConditionEvaluator {
         );
 
         // Get counter value from script engine
-        let counter_value = if let Ok(engine_guard) = get_script_engine().read() {
-            if let Some(engine) = engine_guard.as_ref() {
-                engine
-                    .get_counter(&counter_name)
-                    .map(|c| c.value)
-                    .unwrap_or(0)
-            } else {
-                0
-            }
-        } else {
-            0
-        };
+        let counter_value = with_script_engine_ref(|engine| {
+            engine
+                .get_counter(&counter_name)
+                .map(|counter| counter.value)
+                .unwrap_or(0)
+        })
+        .unwrap_or(0);
 
         // Perform comparison matching C++ ScriptEngine::evaluateCounter()
         let result = match comparison {
@@ -838,15 +822,12 @@ impl ScriptConditionEvaluator {
             Err(_) => return Ok(ScriptConditionResult::False),
         };
 
-        let script_engine = get_script_engine();
-        let Ok(mut engine_guard) = script_engine.write() else {
-            return Ok(ScriptConditionResult::False);
-        };
-        let Some(engine) = engine_guard.as_mut() else {
-            return Ok(ScriptConditionResult::False);
-        };
+        let acquired = with_script_engine_mut(|engine| {
+            engine.is_science_acquired(player_index, science, true)
+        })
+        .unwrap_or(false);
 
-        Ok(if engine.is_science_acquired(player_index, science, true) {
+        Ok(if acquired {
             ScriptConditionResult::True
         } else {
             ScriptConditionResult::False
@@ -966,15 +947,10 @@ impl ScriptConditionEvaluator {
             return Ok(ScriptConditionResult::False);
         };
 
-        let current_count = crate::scripting::engine::get_script_engine()
-            .read()
-            .ok()
-            .and_then(|engine| {
-                engine
-                    .as_ref()
-                    .map(|engine| engine.get_object_count(player_index, &object_type))
-            })
-            .unwrap_or(0);
+        let current_count = with_script_engine_ref(|engine| {
+            engine.get_object_count(player_index, &object_type)
+        })
+        .unwrap_or(0);
 
         let object_manager = get_object_manager();
         let sum_of_objs = object_manager
@@ -1015,11 +991,9 @@ impl ScriptConditionEvaluator {
             .unwrap_or(0);
 
         if sum_of_objs != current_count {
-            if let Ok(mut engine_guard) = crate::scripting::engine::get_script_engine().write() {
-                if let Some(ref mut engine) = *engine_guard {
-                    engine.set_object_count(player_index, &object_type, sum_of_objs);
-                }
-            }
+            let _ = with_script_engine_mut(|engine| {
+                engine.set_object_count(player_index, &object_type, sum_of_objs);
+            });
         }
 
         Ok(if sum_of_objs < current_count {
@@ -1081,16 +1055,16 @@ impl ScriptConditionEvaluator {
         );
 
         if condition.custom_data != 0 {
-            if let Ok(engine_guard) = get_script_engine().read() {
-                if let Some(engine) = engine_guard.as_ref() {
-                    if engine.get_frame_object_count_changed() == condition.custom_frame {
-                        return Ok(if condition.custom_data == 1 {
-                            ScriptConditionResult::True
-                        } else {
-                            ScriptConditionResult::False
-                        });
-                    }
-                }
+            if with_script_engine_ref(|engine| {
+                engine.get_frame_object_count_changed() == condition.custom_frame
+            })
+            .unwrap_or(false)
+            {
+                return Ok(if condition.custom_data == 1 {
+                    ScriptConditionResult::True
+                } else {
+                    ScriptConditionResult::False
+                });
             }
         }
 
@@ -1131,10 +1105,8 @@ impl ScriptConditionEvaluator {
         };
 
         condition.custom_data = if result { 1 } else { -1 };
-        if let Ok(engine_guard) = get_script_engine().read() {
-            if let Some(engine) = engine_guard.as_ref() {
-                condition.custom_frame = engine.get_frame_object_count_changed();
-            }
+        if let Some(frame) = with_script_engine_ref(|engine| engine.get_frame_object_count_changed()) {
+            condition.custom_frame = frame;
         }
 
         Ok(if result {
@@ -1973,12 +1945,10 @@ impl ScriptConditionEvaluator {
             return types;
         }
 
-        if let Ok(engine_guard) = get_script_engine().read() {
-            if let Some(engine) = engine_guard.as_ref() {
-                if let Some(found) = engine.get_object_types(type_or_list_name) {
-                    return found;
-                }
-            }
+        if let Some(Some(found)) =
+            with_script_engine_ref(|engine| engine.get_object_types(type_or_list_name))
+        {
+            return found;
         }
 
         types.add_object_type(AsciiString::from(type_or_list_name));

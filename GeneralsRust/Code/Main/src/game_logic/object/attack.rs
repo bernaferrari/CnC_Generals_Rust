@@ -132,6 +132,11 @@ impl Object {
 
         let fire_weapon_name = self.weapon_name_for_slot(slot).map(str::to_owned);
         let name = fire_weapon_name.as_deref();
+        // C++ WeaponTemplate keeps each of these references per veterancy
+        // level. Capture the shooter rank before the mutable weapon-slot
+        // borrow below so the launched projectile carries the exact names
+        // selected for this shot.
+        let veterancy = self.experience.level;
         let (base_damage, fallback_range, fallback_min_range) = self
             .weapon_slot(slot)
             .map(|weapon| (weapon.damage, weapon.range, weapon.min_range))
@@ -144,14 +149,45 @@ impl Object {
         let projectile_object_name = name
             .map(crate::game_logic::weapon_bootstrap::host_projectile_name_for_weapon_name)
             .unwrap_or_default();
+        let fire_fx_name = name
+            .map(|weapon_name| {
+                crate::game_logic::weapon_bootstrap::host_fire_fx_for_weapon_name_at_veterancy(
+                    weapon_name,
+                    veterancy,
+                )
+            })
+            .unwrap_or_default();
+        let fire_ocl_name = name
+            .map(|weapon_name| {
+                crate::game_logic::weapon_bootstrap::host_fire_ocl_for_weapon_name_at_veterancy(
+                    weapon_name,
+                    veterancy,
+                )
+            })
+            .unwrap_or_default();
         let detonation_fx_name = name
-            .map(crate::game_logic::weapon_bootstrap::host_detonation_fx_for_weapon_name)
+            .map(|weapon_name| {
+                crate::game_logic::weapon_bootstrap::host_detonation_fx_for_weapon_name_at_veterancy(
+                    weapon_name,
+                    veterancy,
+                )
+            })
             .unwrap_or_default();
         let detonation_ocl_name = name
-            .map(crate::game_logic::weapon_bootstrap::host_detonation_ocl_for_weapon_name)
+            .map(|weapon_name| {
+                crate::game_logic::weapon_bootstrap::host_detonation_ocl_for_weapon_name_at_veterancy(
+                    weapon_name,
+                    veterancy,
+                )
+            })
             .unwrap_or_default();
         let exhaust_name = name
-            .map(crate::game_logic::weapon_bootstrap::host_projectile_exhaust_for_weapon_name)
+            .map(|weapon_name| {
+                crate::game_logic::weapon_bootstrap::host_projectile_exhaust_for_weapon_name_at_veterancy(
+                    weapon_name,
+                    veterancy,
+                )
+            })
             .unwrap_or_default();
         let secondary_damage = name
             .map(crate::game_logic::weapon_bootstrap::host_secondary_damage_for_weapon_name)
@@ -235,6 +271,12 @@ impl Object {
         super::combat::queue_projectile(super::combat::PendingProjectile {
             shooter_id,
             shooter_pos,
+            source_context: Some(super::combat::ProjectileLaunchContext {
+                source_team: self.team,
+                source_veterancy: veterancy,
+                source_orientation: self.get_orientation(),
+                source_velocity: self.movement.velocity,
+            }),
             target_id: Some(target_id),
             target_pos: None,
             damage: weapon_damage,
@@ -247,6 +289,9 @@ impl Object {
                 weapon_dtype,
             ),
             projectile_object_name,
+            projectile_lifecycle: None,
+            fire_fx_name,
+            fire_ocl_name,
             detonation_fx_name,
             detonation_ocl_name,
             exhaust_name,

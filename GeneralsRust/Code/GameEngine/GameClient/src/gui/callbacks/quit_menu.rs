@@ -7,7 +7,7 @@ use crate::gui::callbacks::message_box::{
 use crate::gui::callbacks::popup_save_load::show_live_popup_save_load_layout;
 use crate::gui::{
     get_disconnect_menu, get_lan_setup, get_shell, hide_diplomacy, hide_in_game_chat,
-    show_shell_map_if_available, try_with_shell_mut,
+    queue_shell_operation, show_shell_map_if_available, try_with_shell_mut,
 };
 use crate::gui::{
     queue_window_manager_op, with_window_manager, GameWindow, WindowLayout, WindowMessage,
@@ -338,17 +338,43 @@ mod tests {
     }
 }
 
+/// Observable result of a retail `ToggleQuitMenu()` call.
+///
+/// The C++ function also services the Options and PopupSaveLoad back paths
+/// before it considers the quit layout.  Main needs to distinguish that
+/// successful interception from a missing QuitMenu WND: only a real visible
+/// quit layout owns Main's simulation pause.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum QuitMenuToggleResult {
+    /// The live QuitMenu / QuitNoSave WND was shown or hidden.
+    ToggledQuitMenu,
+    /// Escape backed out of Options or PopupSaveLoad instead of toggling Quit.
+    ClosedInterveningLayout,
+    /// C++ intentionally rejected the command (intro/loading/disconnect).
+    Suppressed,
+    /// C++ attempted the QuitMenu path but the retail WND could not load.
+    LayoutUnavailable,
+}
+
+/// Preserve the C++-shaped fire-and-forget entry point used by GUI command
+/// translation and callbacks.
 pub fn toggle_quit_menu() {
+    let _ = toggle_quit_menu_with_result();
+}
+
+/// Run retail `ToggleQuitMenu()` and report which of its three externally
+/// visible routes occurred.  See [`QuitMenuToggleResult`].
+pub fn toggle_quit_menu_with_result() -> QuitMenuToggleResult {
     if TheGameLogic::is_intro_movie_playing()
         || TheGameLogic::is_loading_map()
         || TheScriptEngine::is_game_ending()
     {
-        return;
+        return QuitMenuToggleResult::Suppressed;
     }
 
     if let Ok(menu) = get_disconnect_menu().read() {
         if menu.is_visible() {
-            return;
+            return QuitMenuToggleResult::Suppressed;
         }
     }
 
@@ -368,7 +394,7 @@ pub fn toggle_quit_menu() {
     })
     .unwrap_or(false);
     if handled_options {
-        return;
+        return QuitMenuToggleResult::ClosedInterveningLayout;
     }
 
     {
@@ -378,11 +404,11 @@ pub fn toggle_quit_menu() {
             if !layout.borrow().is_hidden() {
                 if send_back_button_selection("PopupSaveLoad.wnd:ButtonBack") {
                     state.save_load_layout = None;
-                    return;
+                    return QuitMenuToggleResult::ClosedInterveningLayout;
                 }
                 layout.borrow_mut().hide(true);
                 state.save_load_layout = None;
-                return;
+                return QuitMenuToggleResult::ClosedInterveningLayout;
             }
         }
     }
@@ -455,7 +481,7 @@ pub fn toggle_quit_menu() {
         let Some(layout) = state.quit_menu_layout.as_ref() else {
             state.is_visible = false;
             TheInGameUI::set_quit_menu_visible(false);
-            return;
+            return QuitMenuToggleResult::LayoutUnavailable;
         };
 
         layout.borrow().run_init(None);
@@ -542,6 +568,17 @@ pub fn toggle_quit_menu() {
     }
 
     TheInGameUI::set_quit_menu_visible(state.is_visible);
+    QuitMenuToggleResult::ToggledQuitMenu
+}
+
+/// True only while a live `QuitMenu.wnd` / `QuitNoSave.wnd` callback layout is
+/// visible. This deliberately excludes the residual smoke-test latch: Main
+/// uses it to keep its authoritative offline simulation pause in step with a
+/// real WND callback.
+pub fn is_quit_menu_visible() -> bool {
+    let state = quit_menu_state();
+    let state = state.lock().unwrap_or_else(|e| e.into_inner());
+    state.is_visible && state.quit_menu_layout.is_some()
 }
 
 pub fn quit_menu_system(
@@ -601,9 +638,15 @@ pub fn quit_menu_system(
                     Some(no),
                 );
             } else if control_id == state.button_return {
+                // `ToggleQuitMenu` owns the same state mutex.  A real
+                // ButtonReturn arrives through WindowManager while this
+                // callback is live, so release our callback-local guard
+                // before re-entering the retail toggle path.
+                drop(state);
                 toggle_quit_menu();
+                return WindowMsgHandled::Handled;
             } else if control_id == state.button_options {
-                let _ = try_with_shell_mut(|shell| {
+                queue_shell_operation(|shell| {
                     if let Some(layout) = shell.get_options_layout(true) {
                         let _ = layout.run_init(None);
                         layout.hide(false);
@@ -1011,6 +1054,46 @@ mod os_wnd_tests {
             crate::gui::dispatch_os_click_named_window("PopupSaveLoad.wnd:ButtonSaveDescCancel"),
             "the real save description cancel button must be hittable"
         );
+        with_window_manager(|manager| manager.reset());
+    }
+
+    #[test]
+    fn retail_quit_menu_toggle_tracks_live_wnd_visibility() {
+        // This is intentionally the production toggle, not the residual
+        // `simulate_quit_menu_*` latch.  It parses the retail QuitMenu.wnd,
+        // binds its actual ButtonReturn gadget, and exercises the visible →
+        // hidden pause transition used by Main's offline host bridge.
+        with_window_manager(|manager| manager.reset());
+        {
+            let state = quit_menu_state();
+            *state.lock().unwrap_or_else(|e| e.into_inner()) = QuitMenuState::default();
+        }
+        TheGameLogic::set_intro_movie_playing(false);
+        TheGameLogic::set_game_paused(false, true);
+
+        assert_eq!(
+            toggle_quit_menu_with_result(),
+            QuitMenuToggleResult::ToggledQuitMenu
+        );
+        assert!(is_quit_menu_visible());
+        assert!(TheGameLogic::is_game_paused());
+        assert!(with_window_manager(|manager| {
+            manager
+                .find_window_by_name("QuitMenu.wnd:ButtonReturn")
+                .is_some_and(|window| !window.borrow().is_hidden())
+        }));
+
+        assert!(
+            crate::gui::dispatch_os_click_named_window("QuitMenu.wnd:ButtonReturn"),
+            "the retail Return button must dispatch through QuitMenuSystem"
+        );
+        assert!(!is_quit_menu_visible());
+        assert!(!TheGameLogic::is_game_paused());
+
+        {
+            let state = quit_menu_state();
+            *state.lock().unwrap_or_else(|e| e.into_inner()) = QuitMenuState::default();
+        }
         with_window_manager(|manager| manager.reset());
     }
 }

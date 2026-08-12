@@ -1069,6 +1069,29 @@ impl INI {
         result
     }
 
+    /// Give a caller controlled, sequential access to one INI source.
+    ///
+    /// Most callers should use [`Self::load`], which dispatches registered
+    /// global block parsers.  A few client-side systems own an independent
+    /// registry and must parse the same retail source without replacing those
+    /// global parsers.  This preserves the normal virtual-file/BIG lookup and
+    /// always releases the prepared source before returning.
+    pub fn with_file_source<P, F, R>(
+        &mut self,
+        filename: P,
+        load_type: INILoadType,
+        f: F,
+    ) -> INIResult<R>
+    where
+        P: AsRef<Path>,
+        F: FnOnce(&mut INI) -> INIResult<R>,
+    {
+        self.prep_file(filename, load_type)?;
+        let result = f(self);
+        self.un_prep_file();
+        result
+    }
+
     /// Temporarily parse an inline INI block by staging it in a temp file.
     pub fn with_inline_source<F, R>(&mut self, contents: &str, f: F) -> INIResult<R>
     where
@@ -2138,7 +2161,10 @@ End
                 assert!(properties.contains_key("WeaponBonus#2"));
                 assert!(properties.contains_key("ScatterTarget"));
                 assert!(properties.contains_key("ScatterTarget#1"));
-                assert!(properties.get("WeaponBonus").unwrap().contains("RATE_OF_FIRE"));
+                assert!(properties
+                    .get("WeaponBonus")
+                    .unwrap()
+                    .contains("RATE_OF_FIRE"));
                 assert!(properties.get("WeaponBonus#2").unwrap().contains("DAMAGE"));
                 Ok(())
             },

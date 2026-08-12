@@ -21,7 +21,8 @@
 
 use game_engine::common::ini::ini_locomotor::{
     get_locomotor_store, get_locomotor_store_mut, load_locomotors_from_str,
-    parse_locomotor_template_definition, LocomotorTemplate,
+    parse_locomotor_template_definition, LocomotorAppearance as SourceLocomotorAppearance,
+    LocomotorBehaviorZ as SourceLocomotorBehaviorZ, LocomotorTemplate,
 };
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -93,6 +94,8 @@ pub const A10_THUNDERBOLT_LOCOMOTOR: &str = "A10ThunderboltLocomotor";
 pub const B52_LOCOMOTOR: &str = "B52Locomotor";
 /// Retail GLAVehicleCombatBike residual.
 pub const COMBAT_BIKE_GROUND_LOCOMOTOR: &str = "CombatBikeGroundLocomotor";
+/// Retail cliff member of GLAVehicleCombatBike's SET_NORMAL row.
+pub const COMBAT_BIKE_CLIFF_LOCOMOTOR: &str = "CombatBikeCliffLocomotor";
 /// Retail AmericaVehiclePOWTruck residual.
 pub const POW_TRUCK_LOCOMOTOR: &str = "POWTruckLocomotor";
 /// Retail Nuke_ChinaTankBattleMaster residual.
@@ -166,6 +169,53 @@ pub struct HostMovementStats {
     pub turn_rate: f32,
 }
 
+/// Complete active-host projection of one exact Locomotor.ini template.
+/// `HostMovementStats` deliberately predates the physics representation and
+/// remains the light-weight spawn API; RiderChange needs this fuller record
+/// because `AIUpdateInterface::chooseLocomotorSet` changes more than speed.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct HostLocomotorBinding {
+    pub movement: HostMovementStats,
+    pub max_speed_damaged: f32,
+    pub acceleration_damaged: f32,
+    pub turn_rate_damaged: f32,
+    pub braking: f32,
+    pub min_speed: f32,
+    pub min_turn_speed: f32,
+    pub behavior_z: crate::game_logic::LocomotorBehaviorZ,
+    pub appearance: crate::game_logic::LocomotorAppearance,
+    pub extra_2d_friction: f32,
+    pub apply_2d_friction_when_airborne: bool,
+    pub can_move_backward: bool,
+    pub downhill_only: bool,
+    pub max_lift: f32,
+    pub max_lift_damaged: f32,
+    pub speed_limit_z: f32,
+    pub preferred_height: f32,
+    pub preferred_height_damping: f32,
+    pub circling_radius: f32,
+    pub turn_pivot_offset: f32,
+    pub stick_to_ground: bool,
+    pub locomotor_surfaces: u32,
+}
+
+/// A complete authored Locomotor set when every surface member has identical
+/// behavior in the active host.  C++ selects a member by terrain surface;
+/// Main can represent the set safely only when that selection changes the
+/// surface capability, not an unmodeled movement profile.
+#[derive(Debug, Clone, PartialEq)]
+pub struct HostUniformLocomotorSetBinding {
+    /// First source declaration, retained as the canonical active name for
+    /// existing single-locomotor snapshot consumers.
+    pub representative_name: String,
+    /// Every exact authored locomotor name in source order.
+    pub locomotor_names: Vec<String>,
+    /// The common active behavior shared by every member.
+    pub binding: HostLocomotorBinding,
+    /// Union of the members' non-overlapping source surface masks.
+    pub locomotor_surfaces: u32,
+}
+
 /// Initialize / seed the Common LocomotorStore for host create_object binding.
 /// Safe to call repeatedly.
 ///
@@ -177,6 +227,12 @@ pub fn ensure_host_locomotor_store() -> usize {
     if !BOOTSTRAP_ATTEMPTED.swap(true, Ordering::Relaxed) {
         added += try_load_locomotor_ini_from_disk();
     }
+
+    // RiderChange must validate the complete SET_NORMAL surface row even in
+    // headless tests where the extracted Locomotor.ini is unavailable.  Seed
+    // both retail Combat Bike members with every currently-live physics field
+    // before the older speed-only generic table fills the ground member.
+    added += seed_exact_combat_bike_normal_locomotors();
 
     // Always fill missing golden / Wave 81 common-unit locomotors.
     // (INI load may have BasicHuman but omit some residual names.)
@@ -450,6 +506,64 @@ pub fn resolve_host_movement(locomotor_name: &str) -> Option<HostMovementStats> 
     movement_from_store(locomotor_name)
 }
 
+/// Resolve every Locomotor.ini field Main currently has a live Object field
+/// for.  Callers must use this for stateful swaps instead of copying the
+/// template's normal movement or reusing a rider-name heuristic.
+pub fn resolve_host_locomotor_binding(locomotor_name: &str) -> Option<HostLocomotorBinding> {
+    let _ = ensure_host_locomotor_store();
+    let store = get_locomotor_store();
+    let template = store.find_template(locomotor_name)?;
+    if template.max_speed <= 0.0 {
+        return None;
+    }
+    host_locomotor_binding_from_template(template)
+}
+
+/// Resolve a C++ `Locomotor = SET_* ...` row without collapsing its ordered
+/// surface members.  It is deliberately restrictive: if two members cover
+/// the same surface or any active behavior differs, a caller cannot emulate
+/// `chooseGoodLocomotorFromCurrentSet` with Main's one live movement profile
+/// and must reject the row rather than quietly choose one member.
+pub fn resolve_uniform_host_locomotor_set(
+    locomotor_names: &[String],
+) -> Option<HostUniformLocomotorSetBinding> {
+    let first_name = locomotor_names.first()?.trim();
+    if first_name.is_empty() || first_name.eq_ignore_ascii_case("none") {
+        return None;
+    }
+    let mut canonical_names = Vec::with_capacity(locomotor_names.len());
+    let mut representative = resolve_host_locomotor_binding(first_name)?;
+    let mut surfaces = 0u32;
+
+    for raw_name in locomotor_names {
+        let name = raw_name.trim();
+        if name.is_empty()
+            || name.eq_ignore_ascii_case("none")
+            || canonical_names
+                .iter()
+                .any(|prior: &String| prior.eq_ignore_ascii_case(name))
+        {
+            return None;
+        }
+        let binding = resolve_host_locomotor_binding(name)?;
+        if binding.locomotor_surfaces == 0
+            || (surfaces & binding.locomotor_surfaces) != 0
+            || !same_host_locomotor_behavior(&representative, &binding)
+        {
+            return None;
+        }
+        surfaces |= binding.locomotor_surfaces;
+        canonical_names.push(name.to_string());
+    }
+    representative.locomotor_surfaces = surfaces;
+    Some(HostUniformLocomotorSetBinding {
+        representative_name: first_name.to_string(),
+        locomotor_names: canonical_names,
+        binding: representative,
+        locomotor_surfaces: surfaces,
+    })
+}
+
 /// Convert a Common LocomotorTemplate (per-frame) into host Movement units (per-sec).
 ///
 /// C++ Locomotor.ini: Speed is dist/sec, stored as Speed/30 dist/frame.
@@ -482,6 +596,128 @@ fn host_stats_from_template(t: &LocomotorTemplate) -> HostMovementStats {
         acceleration,
         turn_rate,
     }
+}
+
+fn host_locomotor_binding_from_template(t: &LocomotorTemplate) -> Option<HostLocomotorBinding> {
+    const FPS: f32 = LOGIC_FPS;
+    let movement = host_stats_from_template(t);
+    let acceleration = |value: f32| {
+        if value > 0.0 {
+            value * FPS * FPS
+        } else {
+            movement.acceleration
+        }
+    };
+    let turn_rate = |value: f32| {
+        if value > 0.0 {
+            value * FPS
+        } else {
+            movement.turn_rate
+        }
+    };
+    let surface_mask = t.surfaces.0;
+    // A valid C++ Locomotor set can contain distinct ground and cliff
+    // templates.  This binding is one selected template, so its own source
+    // surface mask—not the object's generic KindOf fallback—is authoritative.
+    if surface_mask == 0 {
+        return None;
+    }
+    let behavior_z = match t.behavior_z {
+        SourceLocomotorBehaviorZ::NoZMotiveForce => {
+            crate::game_logic::LocomotorBehaviorZ::NoZMotiveForce
+        }
+        SourceLocomotorBehaviorZ::SeaLevel => crate::game_logic::LocomotorBehaviorZ::SeaLevel,
+        SourceLocomotorBehaviorZ::SurfaceRelativeHeight => {
+            crate::game_logic::LocomotorBehaviorZ::SurfaceRelativeHeight
+        }
+        SourceLocomotorBehaviorZ::AbsoluteHeight => {
+            crate::game_logic::LocomotorBehaviorZ::AbsoluteHeight
+        }
+        SourceLocomotorBehaviorZ::SmoothRelativeToHighestLayer => {
+            crate::game_logic::LocomotorBehaviorZ::SmoothRelativeToHighestLayer
+        }
+        // The active host has no distinct fixed-height / building-relative
+        // locomotor mode.  Treating either as a normal surface-relative
+        // state would silently change an authored RiderChange row, so an
+        // attempt to use one is deliberately not physically admissible.
+        SourceLocomotorBehaviorZ::FixedSurfaceRelativeHeight
+        | SourceLocomotorBehaviorZ::FixedAbsoluteHeight
+        | SourceLocomotorBehaviorZ::RelativeToGroundAndBuildings => return None,
+    };
+    Some(HostLocomotorBinding {
+        movement,
+        max_speed_damaged: if t.max_speed_damaged > 0.0 {
+            t.max_speed_damaged * FPS
+        } else {
+            movement.max_speed
+        },
+        acceleration_damaged: acceleration(t.acceleration_damaged),
+        turn_rate_damaged: turn_rate(t.max_turn_rate_damaged),
+        braking: if t.braking > 0.0 {
+            t.braking * FPS * FPS
+        } else {
+            0.0
+        },
+        min_speed: t.min_speed,
+        min_turn_speed: t.min_turn_speed,
+        behavior_z,
+        appearance: match t.appearance {
+            SourceLocomotorAppearance::LegsTWO => crate::game_logic::LocomotorAppearance::LegsTwo,
+            SourceLocomotorAppearance::WheelsFOUR => {
+                crate::game_logic::LocomotorAppearance::WheelsFour
+            }
+            SourceLocomotorAppearance::Treads => crate::game_logic::LocomotorAppearance::Treads,
+            SourceLocomotorAppearance::Hover => crate::game_logic::LocomotorAppearance::Hover,
+            SourceLocomotorAppearance::Wings => crate::game_logic::LocomotorAppearance::Wings,
+            SourceLocomotorAppearance::Thrust => crate::game_logic::LocomotorAppearance::Thrust,
+            SourceLocomotorAppearance::Climber => crate::game_logic::LocomotorAppearance::Climber,
+            SourceLocomotorAppearance::Other => crate::game_logic::LocomotorAppearance::Other,
+            SourceLocomotorAppearance::Motorcycle => {
+                crate::game_logic::LocomotorAppearance::Motorcycle
+            }
+        },
+        extra_2d_friction: t.extra_2d_friction,
+        apply_2d_friction_when_airborne: t.apply_2d_friction_when_airborne,
+        can_move_backward: t.can_move_backward,
+        downhill_only: t.downhill_only,
+        max_lift: t.lift * FPS * FPS,
+        max_lift_damaged: if t.lift_damaged >= 0.0 {
+            t.lift_damaged * FPS * FPS
+        } else {
+            t.lift * FPS * FPS
+        },
+        speed_limit_z: t.speed_limit_z,
+        preferred_height: t.preferred_height,
+        preferred_height_damping: t.preferred_height_damping,
+        circling_radius: t.circling_radius,
+        turn_pivot_offset: t.turn_pivot_offset,
+        stick_to_ground: t.stick_to_ground,
+        locomotor_surfaces: surface_mask,
+    })
+}
+
+fn same_host_locomotor_behavior(left: &HostLocomotorBinding, right: &HostLocomotorBinding) -> bool {
+    left.movement == right.movement
+        && left.max_speed_damaged == right.max_speed_damaged
+        && left.acceleration_damaged == right.acceleration_damaged
+        && left.turn_rate_damaged == right.turn_rate_damaged
+        && left.braking == right.braking
+        && left.min_speed == right.min_speed
+        && left.min_turn_speed == right.min_turn_speed
+        && left.behavior_z == right.behavior_z
+        && left.appearance == right.appearance
+        && left.extra_2d_friction == right.extra_2d_friction
+        && left.apply_2d_friction_when_airborne == right.apply_2d_friction_when_airborne
+        && left.can_move_backward == right.can_move_backward
+        && left.downhill_only == right.downhill_only
+        && left.max_lift == right.max_lift
+        && left.max_lift_damaged == right.max_lift_damaged
+        && left.speed_limit_z == right.speed_limit_z
+        && left.preferred_height == right.preferred_height
+        && left.preferred_height_damping == right.preferred_height_damping
+        && left.circling_radius == right.circling_radius
+        && left.turn_pivot_offset == right.turn_pivot_offset
+        && left.stick_to_ground == right.stick_to_ground
 }
 
 fn store_has(name: &str) -> bool {
@@ -601,6 +837,46 @@ fn seed_known_host_locomotors() -> usize {
             "Host LocomotorStore: seeded {} known golden-unit locomotors (INI data unavailable or incomplete)",
             added
         );
+    }
+    added
+}
+
+fn seed_exact_combat_bike_normal_locomotors() -> usize {
+    let mut added = 0usize;
+    for (name, surfaces) in [
+        (COMBAT_BIKE_GROUND_LOCOMOTOR, "GROUND RUBBLE"),
+        (COMBAT_BIKE_CLIFF_LOCOMOTOR, "CLIFF"),
+    ] {
+        if store_has(name) {
+            continue;
+        }
+        let mut props = HashMap::new();
+        props.insert("Surfaces".to_string(), surfaces.to_string());
+        props.insert("Speed".to_string(), "120".to_string());
+        props.insert("SpeedDamaged".to_string(), "90".to_string());
+        props.insert("TurnRate".to_string(), "120".to_string());
+        props.insert("TurnRateDamaged".to_string(), "120".to_string());
+        props.insert("Acceleration".to_string(), "90".to_string());
+        props.insert("AccelerationDamaged".to_string(), "80".to_string());
+        props.insert("Braking".to_string(), "60".to_string());
+        props.insert("MinTurnSpeed".to_string(), "20".to_string());
+        props.insert("TurnPivotOffset".to_string(), "-0.60".to_string());
+        props.insert("ZAxisBehavior".to_string(), "NO_Z_MOTIVE_FORCE".to_string());
+        props.insert("Appearance".to_string(), "MOTORCYCLE".to_string());
+        props.insert("UniformAxialDamping".to_string(), "0.9".to_string());
+        props.insert("CanMoveBackwards".to_string(), "No".to_string());
+        props.insert("HasSuspension".to_string(), "Yes".to_string());
+        match parse_locomotor_template_definition(name, &props) {
+            Ok(template) => match get_locomotor_store_mut().add_template(template) {
+                Ok(()) => added += 1,
+                Err(error) => log::warn!(
+                    "Host LocomotorStore: cannot seed Combat Bike locomotor {name}: {error}"
+                ),
+            },
+            Err(error) => log::warn!(
+                "Host LocomotorStore: cannot parse Combat Bike locomotor {name}: {error}"
+            ),
+        }
     }
     added
 }

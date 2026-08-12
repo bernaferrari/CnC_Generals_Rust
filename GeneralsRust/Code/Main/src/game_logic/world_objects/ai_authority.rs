@@ -75,8 +75,9 @@ impl GameLogic {
                 if can_attack && !ai_auto_engage_paused && should_scan(30) {
                     let search_radius = 200.0;
                     if let Some((enemy_id, _)) =
-                        crate::ai_decisions::AIDecisionSystem::find_nearest_enemy(
+                        crate::ai_decisions::AIDecisionSystem::find_nearest_enemy_for_attacker(
                             self,
+                            object_id,
                             position,
                             team,
                             search_radius,
@@ -137,8 +138,9 @@ impl GameLogic {
                 if can_attack && !ai_auto_engage_paused && should_scan(20) {
                     let search_radius = 220.0;
                     if let Some((enemy_id, _)) =
-                        crate::ai_decisions::AIDecisionSystem::find_nearest_enemy(
+                        crate::ai_decisions::AIDecisionSystem::find_nearest_enemy_for_attacker(
                             self,
+                            object_id,
                             position,
                             team,
                             search_radius,
@@ -160,8 +162,9 @@ impl GameLogic {
                 if can_attack && !ai_auto_engage_paused && should_scan(25) {
                     let search_radius = 200.0;
                     if let Some((enemy_id, _)) =
-                        crate::ai_decisions::AIDecisionSystem::find_nearest_enemy(
+                        crate::ai_decisions::AIDecisionSystem::find_nearest_enemy_for_attacker(
                             self,
+                            object_id,
                             position,
                             team,
                             search_radius,
@@ -277,7 +280,9 @@ impl GameLogic {
             AIState::ReturningResources => {
                 // Worker heading back to supply center to deposit resources.
                 // The actual deposit happens in the update loop when close enough.
-                if let Some(refinery_id) = self.find_nearest_supply_center(team, position) {
+                if let Some(refinery_id) =
+                    self.preferred_supply_center_or_nearest(object_id, team, position)
+                {
                     if let Some(refinery) = self.objects.get(&refinery_id) {
                         let dist_to_refinery = position.distance(refinery.get_position());
                         if dist_to_refinery > 20.0 {
@@ -433,6 +438,45 @@ impl GameLogic {
         // Ballistic projectile-owned residual HP (no hitscan) remains deferred until
         // dual-tick tests drive shadow materialize+resolve after host combat.
         if crate::gameworld_shadow::gameworld_fire_spawn_authority_live() {
+            // Even this alternate auto-fire path must retain the real
+            // Weapon.ini presentation references. C++ carries them on the
+            // WeaponTemplate selected for the firing object; do not infer an
+            // effect from the weapon's category when the host shadow later
+            // materializes this pending projectile.
+            let (projectile_object_name, fire_fx_name, fire_ocl_name, detonation_fx_name, detonation_ocl_name, exhaust_name) = self
+                .objects
+                .get(&attacker_id)
+                .and_then(|attacker| {
+                    let veterancy = attacker.experience.level;
+                    attacker.weapon_name_for_slot(slot).map(|weapon_name| {
+                        (
+                            crate::game_logic::weapon_bootstrap::host_projectile_name_for_weapon_name(
+                                weapon_name,
+                            ),
+                            crate::game_logic::weapon_bootstrap::host_fire_fx_for_weapon_name_at_veterancy(
+                                weapon_name,
+                                veterancy,
+                            ),
+                            crate::game_logic::weapon_bootstrap::host_fire_ocl_for_weapon_name_at_veterancy(
+                                weapon_name,
+                                veterancy,
+                            ),
+                            crate::game_logic::weapon_bootstrap::host_detonation_fx_for_weapon_name_at_veterancy(
+                                weapon_name,
+                                veterancy,
+                            ),
+                            crate::game_logic::weapon_bootstrap::host_detonation_ocl_for_weapon_name_at_veterancy(
+                                weapon_name,
+                                veterancy,
+                            ),
+                            crate::game_logic::weapon_bootstrap::host_projectile_exhaust_for_weapon_name_at_veterancy(
+                                weapon_name,
+                                veterancy,
+                            ),
+                        )
+                    })
+                })
+                .unwrap_or_default();
             let (speed, splash, homing, dtype, attack_range, min_attack_range) = match weapon {
                 Some(w) => {
                     let speed = if w.projectile_speed <= 0.0 {
@@ -452,10 +496,17 @@ impl GameLogic {
                 }
                 None => (999_000.0, 0.0, false, DamageType::Laser, 0.0, 0.0),
             };
-            let _ = slot;
             combat::queue_projectile(PendingProjectile {
                 shooter_id: attacker_id,
                 shooter_pos,
+                source_context: self.objects.get(&attacker_id).map(|attacker| {
+                    combat::ProjectileLaunchContext {
+                        source_team: attacker.team,
+                        source_veterancy: attacker.experience.level,
+                        source_orientation: attacker.get_orientation(),
+                        source_velocity: attacker.movement.velocity,
+                    }
+                }),
                 target_id: Some(target_id),
                 target_pos: self.objects.get(&target_id).map(|t| t.get_position()),
                 damage,
@@ -464,10 +515,13 @@ impl GameLogic {
                 is_homing: homing,
                 damage_type: dtype,
                 death_type: HostDeathType::Normal,
-                projectile_object_name: String::new(),
-                detonation_fx_name: String::new(),
-                detonation_ocl_name: String::new(),
-                exhaust_name: String::new(),
+                projectile_object_name,
+                projectile_lifecycle: None,
+                fire_fx_name,
+                fire_ocl_name,
+                detonation_fx_name,
+                detonation_ocl_name,
+                exhaust_name,
                 secondary_damage: 0.0,
                 secondary_damage_radius: 0.0,
                 shock_wave_amount: 0.0,
@@ -544,7 +598,22 @@ impl GameLogic {
         &mut self,
         unit_id: ObjectId,
         target_id: ObjectId,
-    ) {
+    ) -> bool {
+        // C++ AIAttackState / AIGuard do not make an arbitrary visible object
+        // a goal.  They validate the concrete WeaponSet first.  This is the
+        // final authority boundary for all host AI engagement producers,
+        // including guards and skirmish decisions.
+        if !matches!(
+            self.get_able_to_attack_specific_object(
+                unit_id,
+                target_id,
+                AbleToAttackType::NewTarget,
+                false,
+            ),
+            CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving
+        ) {
+            return false;
+        }
         // Host engagement is same-frame so residual auto-fire / continue-after-kill
         // can shoot without waiting for shadow writeback.
         if let Some(u) = self.objects.get_mut(&unit_id) {
@@ -558,6 +627,7 @@ impl GameLogic {
             crate::game_logic::host_ai_decision_log::record_set_state(unit_id, 2);
             // Attacking
         }
+        true
     }
 
     #[cfg(test)]
@@ -566,7 +636,7 @@ impl GameLogic {
         unit_id: ObjectId,
         target_id: ObjectId,
     ) {
-        self.apply_engagement_decision_aware(unit_id, target_id);
+        let _ = self.apply_engagement_decision_aware(unit_id, target_id);
     }
 
     /// AI / skirmish manager entry: host-immediate engagement + decision log.
@@ -575,7 +645,7 @@ impl GameLogic {
         unit_id: ObjectId,
         target_id: ObjectId,
     ) {
-        self.apply_engagement_decision_aware(unit_id, target_id);
+        let _ = self.apply_engagement_decision_aware(unit_id, target_id);
     }
 
     /// AI / skirmish manager entry: host-immediate AI state + decision log.
@@ -587,7 +657,18 @@ impl GameLogic {
         &mut self,
         unit_id: ObjectId,
         target_id: ObjectId,
-    ) {
+    ) -> bool {
+        if !matches!(
+            self.get_able_to_attack_specific_object(
+                unit_id,
+                target_id,
+                AbleToAttackType::NewTarget,
+                false,
+            ),
+            CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving
+        ) {
+            return false;
+        }
         // Full host attack_target residual (weapon arming / force-attack clear).
         if let Some(obj) = self.objects.get_mut(&unit_id) {
             obj.set_force_attack(false);
@@ -598,6 +679,7 @@ impl GameLogic {
             crate::game_logic::host_ai_decision_log::record_set_state(unit_id, 2);
             // Attacking
         }
+        true
     }
 
     #[cfg(test)]
@@ -606,7 +688,7 @@ impl GameLogic {
         unit_id: ObjectId,
         target_id: ObjectId,
     ) {
-        self.engage_target_decision_aware(unit_id, target_id);
+        let _ = self.engage_target_decision_aware(unit_id, target_id);
     }
 
     pub(in super::super) fn apply_ai_command(&mut self, command: AICommand) {
@@ -619,7 +701,7 @@ impl GameLogic {
                 target_id,
             } => {
                 // Prefer engagement helper (sets target even without weapon residual).
-                self.apply_engagement_decision_aware(object_id, target_id);
+                let _ = self.apply_engagement_decision_aware(object_id, target_id);
             }
             AICommand::StopAttack { object_id } => {
                 // stop_attack_decision_aware clears host + logs.

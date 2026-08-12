@@ -28,24 +28,20 @@ impl ScriptActionDispatcher {
             ease_out_seconds
         );
 
-        if let Ok(engine_guard) = get_script_engine().read() {
-            if let Some(ref script_engine) = *engine_guard {
-                if let Some(handler) = script_engine.action_handler() {
-                    if let Err(err) = handler.move_camera_along_waypoint_path(
-                        &waypoint_path,
-                        seconds,
-                        camera_stutter_seconds,
-                        ease_in_seconds,
-                        ease_out_seconds,
-                    ) {
-                        log::warn!(
-                            "Script action handler move_camera_along_waypoint_path failed: {}",
-                            err
-                        );
-                    }
-                    return Ok(ScriptActionResult::Success);
-                }
+        if let Some(handler) = current_script_action_handler() {
+            if let Err(err) = handler.move_camera_along_waypoint_path(
+                &waypoint_path,
+                seconds,
+                camera_stutter_seconds,
+                ease_in_seconds,
+                ease_out_seconds,
+            ) {
+                log::warn!(
+                    "Script action handler move_camera_along_waypoint_path failed: {}",
+                    err
+                );
             }
+            return Ok(ScriptActionResult::Success);
         }
         Ok(ScriptActionResult::Success)
     }
@@ -68,15 +64,9 @@ impl ScriptActionDispatcher {
             ease_out_seconds
         );
 
-        if let Ok(engine_guard) = get_script_engine().read() {
-            if let Some(ref script_engine) = *engine_guard {
-                if let Some(handler) = script_engine.action_handler() {
-                    if let Err(err) =
-                        handler.rotate_camera(rotations, seconds, ease_in_seconds, ease_out_seconds)
-                    {
-                        log::warn!("Script action handler rotate_camera failed: {}", err);
-                    }
-                }
+        if let Some(handler) = current_script_action_handler() {
+            if let Err(err) = handler.rotate_camera(rotations, seconds, ease_in_seconds, ease_out_seconds) {
+                log::warn!("Script action handler rotate_camera failed: {}", err);
             }
         }
         Ok(ScriptActionResult::Success)
@@ -89,18 +79,14 @@ impl ScriptActionDispatcher {
         log::debug!("Retargeting active camera movement to selection");
 
         // Prefer host-integrated selection center (Main runtime queue) when available.
-        if let Ok(engine_guard) = get_script_engine().read() {
-            if let Some(ref script_engine) = *engine_guard {
-                if let Some(handler) = script_engine.action_handler() {
-                    if let Err(err) = handler.move_camera_to_selection() {
-                        log::warn!(
-                            "Script action handler move_camera_to_selection failed: {}",
-                            err
-                        );
-                    }
-                    return Ok(ScriptActionResult::Success);
-                }
+        if let Some(handler) = current_script_action_handler() {
+            if let Err(err) = handler.move_camera_to_selection() {
+                log::warn!(
+                    "Script action handler move_camera_to_selection failed: {}",
+                    err
+                );
             }
+            return Ok(ScriptActionResult::Success);
         }
 
         let local_player_id = player_list()
@@ -133,18 +119,14 @@ impl ScriptActionDispatcher {
         }
         let center = sum / (selected_len as f32);
 
-        if let Ok(engine_guard) = get_script_engine().read() {
-            if let Some(ref script_engine) = *engine_guard {
-                if let Some(handler) = script_engine.action_handler() {
-                    if let Err(err) = handler.move_camera_to_selection() {
-                        log::warn!(
-                            "Script action handler move_camera_to_selection failed: {}",
-                            err
-                        );
-                    }
-                    return Ok(ScriptActionResult::Success);
-                }
+        if let Some(handler) = current_script_action_handler() {
+            if let Err(err) = handler.move_camera_to_selection() {
+                log::warn!(
+                    "Script action handler move_camera_to_selection failed: {}",
+                    err
+                );
             }
+            return Ok(ScriptActionResult::Success);
         }
 
         log::info!("Script move_camera_to_selection center {:?}", center);
@@ -157,13 +139,9 @@ impl ScriptActionDispatcher {
     ) -> Result<ScriptActionResult, ScriptError> {
         log::debug!("Moving camera home");
 
-        if let Ok(engine_guard) = get_script_engine().read() {
-            if let Some(ref script_engine) = *engine_guard {
-                if let Some(handler) = script_engine.action_handler() {
-                    if let Err(err) = handler.camera_move_home() {
-                        log::warn!("Script action handler camera_move_home failed: {}", err);
-                    }
-                }
+        if let Some(handler) = current_script_action_handler() {
+            if let Err(err) = handler.camera_move_home() {
+                log::warn!("Script action handler camera_move_home failed: {}", err);
             }
         }
 
@@ -203,16 +181,12 @@ impl ScriptActionDispatcher {
             look_at_waypoint
         );
 
-        if let Ok(engine_guard) = get_script_engine().read() {
-            if let Some(ref script_engine) = *engine_guard {
-                if let Some(handler) = script_engine.action_handler() {
-                    if let Err(err) = handler.setup_camera(
-                        position.x, position.y, position.z, zoom, pitch, look_at.x, look_at.y,
-                        look_at.z,
-                    ) {
-                        log::warn!("Script action handler setup_camera failed: {}", err);
-                    }
-                }
+        if let Some(handler) = current_script_action_handler() {
+            if let Err(err) = handler.setup_camera(
+                position.x, position.y, position.z, zoom, pitch, look_at.x, look_at.y,
+                look_at.z,
+            ) {
+                log::warn!("Script action handler setup_camera failed: {}", err);
             }
         }
         Ok(ScriptActionResult::Success)
@@ -223,33 +197,25 @@ impl ScriptActionDispatcher {
         _action: &ScriptAction,
     ) -> Result<ScriptActionResult, ScriptError> {
         log::debug!("Beginning camera letterbox");
-        if let Ok(engine_guard) = get_script_engine().read() {
-            if let Some(ref script_engine) = *engine_guard {
-                if let Some(handler) = script_engine.action_handler() {
-                    if let Err(err) = handler.camera_letterbox_begin() {
-                        log::warn!(
-                            "Script action handler camera_letterbox_begin failed: {}",
-                            err
-                        );
-                    }
-                    return Ok(ScriptActionResult::Success);
-                }
+        if let Some(handler) = current_script_action_handler() {
+            if let Err(err) = handler.camera_letterbox_begin() {
+                log::warn!(
+                    "Script action handler camera_letterbox_begin failed: {}",
+                    err
+                );
             }
+            return Ok(ScriptActionResult::Success);
         }
         Ok(ScriptActionResult::Success)
     }
 
     pub(crate) fn do_camera_letterbox_end(&mut self) -> Result<ScriptActionResult, ScriptError> {
         log::debug!("Ending camera letterbox");
-        if let Ok(engine_guard) = get_script_engine().read() {
-            if let Some(ref script_engine) = *engine_guard {
-                if let Some(handler) = script_engine.action_handler() {
-                    if let Err(err) = handler.camera_letterbox_end() {
-                        log::warn!("Script action handler camera_letterbox_end failed: {}", err);
-                    }
-                    return Ok(ScriptActionResult::Success);
-                }
+        if let Some(handler) = current_script_action_handler() {
+            if let Err(err) = handler.camera_letterbox_end() {
+                log::warn!("Script action handler camera_letterbox_end failed: {}", err);
             }
+            return Ok(ScriptActionResult::Success);
         }
         Ok(ScriptActionResult::Success)
     }
@@ -267,15 +233,9 @@ impl ScriptActionDispatcher {
             ease_out_seconds
         );
 
-        if let Ok(engine_guard) = get_script_engine().read() {
-            if let Some(ref script_engine) = *engine_guard {
-                if let Some(handler) = script_engine.action_handler() {
-                    if let Err(err) =
-                        handler.zoom_camera(zoom, seconds, ease_in_seconds, ease_out_seconds)
-                    {
-                        log::warn!("Script action handler zoom_camera failed: {}", err);
-                    }
-                }
+        if let Some(handler) = current_script_action_handler() {
+            if let Err(err) = handler.zoom_camera(zoom, seconds, ease_in_seconds, ease_out_seconds) {
+                log::warn!("Script action handler zoom_camera failed: {}", err);
             }
         }
         Ok(ScriptActionResult::Success)
@@ -298,15 +258,11 @@ impl ScriptActionDispatcher {
             ease_out_seconds
         );
 
-        if let Ok(engine_guard) = get_script_engine().read() {
-            if let Some(ref script_engine) = *engine_guard {
-                if let Some(handler) = script_engine.action_handler() {
-                    if let Err(err) =
-                        handler.set_camera_pitch(pitch, seconds, ease_in_seconds, ease_out_seconds)
-                    {
-                        log::warn!("Script action handler set_camera_pitch failed: {}", err);
-                    }
-                }
+        if let Some(handler) = current_script_action_handler() {
+            if let Err(err) =
+                handler.set_camera_pitch(pitch, seconds, ease_in_seconds, ease_out_seconds)
+            {
+                log::warn!("Script action handler set_camera_pitch failed: {}", err);
             }
         }
         Ok(ScriptActionResult::Success)
@@ -319,13 +275,9 @@ impl ScriptActionDispatcher {
         let amount = self.get_int_param(action, 0)?;
         log::debug!("Setting terrain oversize to {}", amount);
 
-        if let Ok(engine_guard) = get_script_engine().read() {
-            if let Some(ref script_engine) = *engine_guard {
-                if let Some(handler) = script_engine.action_handler() {
-                    if let Err(err) = handler.oversize_terrain(amount) {
-                        log::warn!("Script action handler oversize_terrain failed: {}", err);
-                    }
-                }
+        if let Some(handler) = current_script_action_handler() {
+            if let Err(err) = handler.oversize_terrain(amount) {
+                log::warn!("Script action handler oversize_terrain failed: {}", err);
             }
         }
 
@@ -342,18 +294,16 @@ impl ScriptActionDispatcher {
         let frames_hold = self.get_int_param(action, 3)?;
         let frames_decrease = self.get_int_param(action, 4)?;
 
-        if let Ok(mut engine_guard) = get_script_engine().write() {
-            if let Some(ref mut script_engine) = *engine_guard {
-                script_engine.set_fade_parameters(
-                    TFade::Add,
-                    min_fade,
-                    max_fade,
-                    frames_increase,
-                    frames_hold,
-                    frames_decrease,
-                );
-            }
-        }
+        let _ = with_script_engine_mut(|script_engine| {
+            script_engine.set_fade_parameters(
+                TFade::Add,
+                min_fade,
+                max_fade,
+                frames_increase,
+                frames_hold,
+                frames_decrease,
+            );
+        });
 
         log::debug!(
             "Camera fade add from {} to {} (increase: {}, hold: {}, decrease: {})",
@@ -376,18 +326,16 @@ impl ScriptActionDispatcher {
         let frames_hold = self.get_int_param(action, 3)?;
         let frames_decrease = self.get_int_param(action, 4)?;
 
-        if let Ok(mut engine_guard) = get_script_engine().write() {
-            if let Some(ref mut script_engine) = *engine_guard {
-                script_engine.set_fade_parameters(
-                    TFade::Subtract,
-                    min_fade,
-                    max_fade,
-                    frames_increase,
-                    frames_hold,
-                    frames_decrease,
-                );
-            }
-        }
+        let _ = with_script_engine_mut(|script_engine| {
+            script_engine.set_fade_parameters(
+                TFade::Subtract,
+                min_fade,
+                max_fade,
+                frames_increase,
+                frames_hold,
+                frames_decrease,
+            );
+        });
 
         log::debug!(
             "Camera fade subtract from {} to {} (increase: {}, hold: {}, decrease: {})",
@@ -410,18 +358,16 @@ impl ScriptActionDispatcher {
         let frames_hold = self.get_int_param(action, 3)?;
         let frames_decrease = self.get_int_param(action, 4)?;
 
-        if let Ok(mut engine_guard) = get_script_engine().write() {
-            if let Some(ref mut script_engine) = *engine_guard {
-                script_engine.set_fade_parameters(
-                    TFade::Saturate,
-                    min_fade,
-                    max_fade,
-                    frames_increase,
-                    frames_hold,
-                    frames_decrease,
-                );
-            }
-        }
+        let _ = with_script_engine_mut(|script_engine| {
+            script_engine.set_fade_parameters(
+                TFade::Saturate,
+                min_fade,
+                max_fade,
+                frames_increase,
+                frames_hold,
+                frames_decrease,
+            );
+        });
 
         log::debug!(
             "Camera fade saturate from {} to {} (increase: {}, hold: {}, decrease: {})",
@@ -444,18 +390,16 @@ impl ScriptActionDispatcher {
         let frames_hold = self.get_int_param(action, 3)?;
         let frames_decrease = self.get_int_param(action, 4)?;
 
-        if let Ok(mut engine_guard) = get_script_engine().write() {
-            if let Some(ref mut script_engine) = *engine_guard {
-                script_engine.set_fade_parameters(
-                    TFade::Multiply,
-                    min_fade,
-                    max_fade,
-                    frames_increase,
-                    frames_hold,
-                    frames_decrease,
-                );
-            }
-        }
+        let _ = with_script_engine_mut(|script_engine| {
+            script_engine.set_fade_parameters(
+                TFade::Multiply,
+                min_fade,
+                max_fade,
+                frames_increase,
+                frames_hold,
+                frames_decrease,
+            );
+        });
 
         log::debug!(
             "Camera fade multiply from {} to {} (increase: {}, hold: {}, decrease: {})",
@@ -475,16 +419,12 @@ impl ScriptActionDispatcher {
         let frames = action.get_parameter(0).map(|p| p.get_int()).unwrap_or(0);
         log::debug!("Beginning camera B&W mode over {} frames", frames);
 
-        if let Ok(engine_guard) = get_script_engine().read() {
-            if let Some(ref script_engine) = *engine_guard {
-                if let Some(handler) = script_engine.action_handler() {
-                    if let Err(err) = handler.set_camera_bw_mode(true, frames) {
-                        log::warn!(
-                            "Script action handler set_camera_bw_mode(true) failed: {}",
-                            err
-                        );
-                    }
-                }
+        if let Some(handler) = current_script_action_handler() {
+            if let Err(err) = handler.set_camera_bw_mode(true, frames) {
+                log::warn!(
+                    "Script action handler set_camera_bw_mode(true) failed: {}",
+                    err
+                );
             }
         }
 
@@ -498,16 +438,12 @@ impl ScriptActionDispatcher {
         let frames = action.get_parameter(0).map(|p| p.get_int()).unwrap_or(0);
         log::debug!("Ending camera B&W mode over {} frames", frames);
 
-        if let Ok(engine_guard) = get_script_engine().read() {
-            if let Some(ref script_engine) = *engine_guard {
-                if let Some(handler) = script_engine.action_handler() {
-                    if let Err(err) = handler.set_camera_bw_mode(false, frames) {
-                        log::warn!(
-                            "Script action handler set_camera_bw_mode(false) failed: {}",
-                            err
-                        );
-                    }
-                }
+        if let Some(handler) = current_script_action_handler() {
+            if let Err(err) = handler.set_camera_bw_mode(false, frames) {
+                log::warn!(
+                    "Script action handler set_camera_bw_mode(false) failed: {}",
+                    err
+                );
             }
         }
 
@@ -517,16 +453,12 @@ impl ScriptActionDispatcher {
     pub(crate) fn do_draw_skybox_begin(&mut self) -> Result<ScriptActionResult, ScriptError> {
         log::debug!("Beginning skybox draw");
 
-        if let Ok(engine_guard) = get_script_engine().read() {
-            if let Some(ref script_engine) = *engine_guard {
-                if let Some(handler) = script_engine.action_handler() {
-                    if let Err(err) = handler.set_skybox_enabled(true) {
-                        log::warn!(
-                            "Script action handler set_skybox_enabled(true) failed: {}",
-                            err
-                        );
-                    }
-                }
+        if let Some(handler) = current_script_action_handler() {
+            if let Err(err) = handler.set_skybox_enabled(true) {
+                log::warn!(
+                    "Script action handler set_skybox_enabled(true) failed: {}",
+                    err
+                );
             }
         }
 
@@ -536,16 +468,12 @@ impl ScriptActionDispatcher {
     pub(crate) fn do_draw_skybox_end(&mut self) -> Result<ScriptActionResult, ScriptError> {
         log::debug!("Ending skybox draw");
 
-        if let Ok(engine_guard) = get_script_engine().read() {
-            if let Some(ref script_engine) = *engine_guard {
-                if let Some(handler) = script_engine.action_handler() {
-                    if let Err(err) = handler.set_skybox_enabled(false) {
-                        log::warn!(
-                            "Script action handler set_skybox_enabled(false) failed: {}",
-                            err
-                        );
-                    }
-                }
+        if let Some(handler) = current_script_action_handler() {
+            if let Err(err) = handler.set_skybox_enabled(false) {
+                log::warn!(
+                    "Script action handler set_skybox_enabled(false) failed: {}",
+                    err
+                );
             }
         }
 
@@ -564,13 +492,9 @@ impl ScriptActionDispatcher {
             saturate
         );
 
-        if let Ok(engine_guard) = get_script_engine().read() {
-            if let Some(ref script_engine) = *engine_guard {
-                if let Some(handler) = script_engine.action_handler() {
-                    if let Err(err) = handler.camera_motion_blur(zoom_in, saturate) {
-                        log::warn!("Script action handler camera_motion_blur failed: {}", err);
-                    }
-                }
+        if let Some(handler) = current_script_action_handler() {
+            if let Err(err) = handler.camera_motion_blur(zoom_in, saturate) {
+                log::warn!("Script action handler camera_motion_blur failed: {}", err);
             }
         }
 
@@ -604,20 +528,13 @@ impl ScriptActionDispatcher {
             saturate
         );
 
-        if let Ok(engine_guard) = get_script_engine().read() {
-            if let Some(ref script_engine) = *engine_guard {
-                if let Some(handler) = script_engine.action_handler() {
-                    if let Err(err) =
-                        handler.camera_motion_blur_jump(target.x, target.y, target.z, saturate)
-                    {
-                        log::warn!(
-                            "Script action handler camera_motion_blur_jump failed: {}",
-                            err
-                        );
-                        let _ = handler
-                            .move_camera_to(target.x, target.y, target.z, 0.0, 0.0, 0.0, 0.0);
-                    }
-                }
+        if let Some(handler) = current_script_action_handler() {
+            if let Err(err) = handler.camera_motion_blur_jump(target.x, target.y, target.z, saturate) {
+                log::warn!(
+                    "Script action handler camera_motion_blur_jump failed: {}",
+                    err
+                );
+                let _ = handler.move_camera_to(target.x, target.y, target.z, 0.0, 0.0, 0.0, 0.0);
             }
         }
 
@@ -631,16 +548,12 @@ impl ScriptActionDispatcher {
         let amount = self.get_int_param(action, 0)?;
         log::debug!("Camera motion blur follow amount {}", amount);
 
-        if let Ok(engine_guard) = get_script_engine().read() {
-            if let Some(ref script_engine) = *engine_guard {
-                if let Some(handler) = script_engine.action_handler() {
-                    if let Err(err) = handler.camera_motion_blur_follow(amount) {
-                        log::warn!(
-                            "Script action handler camera_motion_blur_follow failed: {}",
-                            err
-                        );
-                    }
-                }
+        if let Some(handler) = current_script_action_handler() {
+            if let Err(err) = handler.camera_motion_blur_follow(amount) {
+                log::warn!(
+                    "Script action handler camera_motion_blur_follow failed: {}",
+                    err
+                );
             }
         }
 
@@ -650,16 +563,12 @@ impl ScriptActionDispatcher {
     pub(crate) fn do_camera_motion_blur_end_follow(&mut self) -> Result<ScriptActionResult, ScriptError> {
         log::debug!("Ending camera motion blur follow");
 
-        if let Ok(engine_guard) = get_script_engine().read() {
-            if let Some(ref script_engine) = *engine_guard {
-                if let Some(handler) = script_engine.action_handler() {
-                    if let Err(err) = handler.camera_motion_blur_end_follow() {
-                        log::warn!(
-                            "Script action handler camera_motion_blur_end_follow failed: {}",
-                            err
-                        );
-                    }
-                }
+        if let Some(handler) = current_script_action_handler() {
+            if let Err(err) = handler.camera_motion_blur_end_follow() {
+                log::warn!(
+                    "Script action handler camera_motion_blur_end_follow failed: {}",
+                    err
+                );
             }
         }
 
@@ -718,13 +627,9 @@ impl ScriptActionDispatcher {
             return Ok(ScriptActionResult::Success);
         };
 
-        if let Ok(engine_guard) = get_script_engine().read() {
-            if let Some(ref script_engine) = *engine_guard {
-                if let Some(handler) = script_engine.action_handler() {
-                    if let Err(err) = handler.camera_tether_object(object_id, snap_to_unit, play) {
-                        log::warn!("Script action handler camera_tether_object failed: {}", err);
-                    }
-                }
+        if let Some(handler) = current_script_action_handler() {
+            if let Err(err) = handler.camera_tether_object(object_id, snap_to_unit, play) {
+                log::warn!("Script action handler camera_tether_object failed: {}", err);
             }
         }
         Ok(ScriptActionResult::Success)
@@ -733,13 +638,9 @@ impl ScriptActionDispatcher {
     pub(crate) fn do_camera_stop_tether_named(&mut self) -> Result<ScriptActionResult, ScriptError> {
         log::debug!("Stopping camera tether");
 
-        if let Ok(engine_guard) = get_script_engine().read() {
-            if let Some(ref script_engine) = *engine_guard {
-                if let Some(handler) = script_engine.action_handler() {
-                    if let Err(err) = handler.stop_camera_follow() {
-                        log::warn!("Script action handler stop_camera_follow failed: {}", err);
-                    }
-                }
+        if let Some(handler) = current_script_action_handler() {
+            if let Err(err) = handler.stop_camera_follow() {
+                log::warn!("Script action handler stop_camera_follow failed: {}", err);
             }
         }
 
@@ -761,13 +662,9 @@ impl ScriptActionDispatcher {
             max_height
         );
 
-        if let Ok(engine_guard) = get_script_engine().read() {
-            if let Some(ref script_engine) = *engine_guard {
-                if let Some(handler) = script_engine.action_handler() {
-                    if let Err(err) = handler.camera_set_default(pitch, angle, max_height) {
-                        log::warn!("Script action handler camera_set_default failed: {}", err);
-                    }
-                }
+        if let Some(handler) = current_script_action_handler() {
+            if let Err(err) = handler.camera_set_default(pitch, angle, max_height) {
+                log::warn!("Script action handler camera_set_default failed: {}", err);
             }
         }
 
@@ -817,22 +714,18 @@ impl ScriptActionDispatcher {
         );
 
         if let Some(object_id) = object_id {
-            if let Ok(engine_guard) = get_script_engine().read() {
-                if let Some(ref script_engine) = *engine_guard {
-                    if let Some(handler) = script_engine.action_handler() {
-                        if let Err(err) = handler.camera_look_toward_object(
-                            object_id,
-                            seconds,
-                            hold_seconds,
-                            ease_in_seconds,
-                            ease_out_seconds,
-                        ) {
-                            log::warn!(
-                                "Script action handler camera_look_toward_object failed: {}",
-                                err
-                            );
-                        }
-                    }
+            if let Some(handler) = current_script_action_handler() {
+                if let Err(err) = handler.camera_look_toward_object(
+                    object_id,
+                    seconds,
+                    hold_seconds,
+                    ease_in_seconds,
+                    ease_out_seconds,
+                ) {
+                    log::warn!(
+                        "Script action handler camera_look_toward_object failed: {}",
+                        err
+                    );
                 }
             }
         } else {
@@ -868,24 +761,20 @@ impl ScriptActionDispatcher {
         );
 
         if let Some(target) = target {
-            if let Ok(engine_guard) = get_script_engine().read() {
-                if let Some(ref script_engine) = *engine_guard {
-                    if let Some(handler) = script_engine.action_handler() {
-                        if let Err(err) = handler.camera_look_toward_waypoint(
-                            target.x,
-                            target.y,
-                            target.z,
-                            seconds,
-                            ease_in_seconds,
-                            ease_out_seconds,
-                            reverse_rotation,
-                        ) {
-                            log::warn!(
-                                "Script action handler camera_look_toward_waypoint failed: {}",
-                                err
-                            );
-                        }
-                    }
+            if let Some(handler) = current_script_action_handler() {
+                if let Err(err) = handler.camera_look_toward_waypoint(
+                    target.x,
+                    target.y,
+                    target.z,
+                    seconds,
+                    ease_in_seconds,
+                    ease_out_seconds,
+                    reverse_rotation,
+                ) {
+                    log::warn!(
+                        "Script action handler camera_look_toward_waypoint failed: {}",
+                        err
+                    );
                 }
             }
         } else {
@@ -896,16 +785,12 @@ impl ScriptActionDispatcher {
 
     pub(crate) fn do_camera_mod_freeze_time(&mut self) -> Result<ScriptActionResult, ScriptError> {
         log::debug!("Camera mod freeze time");
-        if let Ok(engine_guard) = get_script_engine().read() {
-            if let Some(ref script_engine) = *engine_guard {
-                if let Some(handler) = script_engine.action_handler() {
-                    if let Err(err) = handler.camera_mod_freeze_time() {
-                        log::warn!(
-                            "Script action handler camera_mod_freeze_time failed: {}",
-                            err
-                        );
-                    }
-                }
+        if let Some(handler) = current_script_action_handler() {
+            if let Err(err) = handler.camera_mod_freeze_time() {
+                log::warn!(
+                    "Script action handler camera_mod_freeze_time failed: {}",
+                    err
+                );
             }
         }
         Ok(ScriptActionResult::Success)
@@ -925,16 +810,12 @@ impl ScriptActionDispatcher {
             ease_out
         );
 
-        if let Ok(engine_guard) = get_script_engine().read() {
-            if let Some(ref script_engine) = *engine_guard {
-                if let Some(handler) = script_engine.action_handler() {
-                    if let Err(err) = handler.camera_mod_set_final_zoom(zoom, ease_in, ease_out) {
-                        log::warn!(
-                            "Script action handler camera_mod_set_final_zoom failed: {}",
-                            err
-                        );
-                    }
-                }
+        if let Some(handler) = current_script_action_handler() {
+            if let Err(err) = handler.camera_mod_set_final_zoom(zoom, ease_in, ease_out) {
+                log::warn!(
+                    "Script action handler camera_mod_set_final_zoom failed: {}",
+                    err
+                );
             }
         }
         Ok(ScriptActionResult::Success)
@@ -954,16 +835,12 @@ impl ScriptActionDispatcher {
             ease_out
         );
 
-        if let Ok(engine_guard) = get_script_engine().read() {
-            if let Some(ref script_engine) = *engine_guard {
-                if let Some(handler) = script_engine.action_handler() {
-                    if let Err(err) = handler.camera_mod_set_final_pitch(pitch, ease_in, ease_out) {
-                        log::warn!(
-                            "Script action handler camera_mod_set_final_pitch failed: {}",
-                            err
-                        );
-                    }
-                }
+        if let Some(handler) = current_script_action_handler() {
+            if let Err(err) = handler.camera_mod_set_final_pitch(pitch, ease_in, ease_out) {
+                log::warn!(
+                    "Script action handler camera_mod_set_final_pitch failed: {}",
+                    err
+                );
             }
         }
         Ok(ScriptActionResult::Success)
@@ -971,16 +848,12 @@ impl ScriptActionDispatcher {
 
     pub(crate) fn do_camera_mod_freeze_angle(&mut self) -> Result<ScriptActionResult, ScriptError> {
         log::debug!("Camera mod freeze angle");
-        if let Ok(engine_guard) = get_script_engine().read() {
-            if let Some(ref script_engine) = *engine_guard {
-                if let Some(handler) = script_engine.action_handler() {
-                    if let Err(err) = handler.camera_mod_freeze_angle() {
-                        log::warn!(
-                            "Script action handler camera_mod_freeze_angle failed: {}",
-                            err
-                        );
-                    }
-                }
+        if let Some(handler) = current_script_action_handler() {
+            if let Err(err) = handler.camera_mod_freeze_angle() {
+                log::warn!(
+                    "Script action handler camera_mod_freeze_angle failed: {}",
+                    err
+                );
             }
         }
         Ok(ScriptActionResult::Success)
@@ -992,16 +865,12 @@ impl ScriptActionDispatcher {
     ) -> Result<ScriptActionResult, ScriptError> {
         let multiplier = self.get_int_param(action, 0)?;
         log::debug!("Camera mod set final speed multiplier to {}", multiplier);
-        if let Ok(engine_guard) = get_script_engine().read() {
-            if let Some(ref script_engine) = *engine_guard {
-                if let Some(handler) = script_engine.action_handler() {
-                    if let Err(err) = handler.camera_mod_set_final_speed_multiplier(multiplier) {
-                        log::warn!(
-                            "Script action handler camera_mod_set_final_speed_multiplier failed: {}",
-                            err
-                        );
-                    }
-                }
+        if let Some(handler) = current_script_action_handler() {
+            if let Err(err) = handler.camera_mod_set_final_speed_multiplier(multiplier) {
+                log::warn!(
+                    "Script action handler camera_mod_set_final_speed_multiplier failed: {}",
+                    err
+                );
             }
         }
         Ok(ScriptActionResult::Success)
@@ -1013,16 +882,12 @@ impl ScriptActionDispatcher {
     ) -> Result<ScriptActionResult, ScriptError> {
         let frames = self.get_int_param(action, 0)?;
         log::debug!("Camera mod set rolling average to {} frames", frames);
-        if let Ok(engine_guard) = get_script_engine().read() {
-            if let Some(ref script_engine) = *engine_guard {
-                if let Some(handler) = script_engine.action_handler() {
-                    if let Err(err) = handler.camera_mod_set_rolling_average(frames) {
-                        log::warn!(
-                            "Script action handler camera_mod_set_rolling_average failed: {}",
-                            err
-                        );
-                    }
-                }
+        if let Some(handler) = current_script_action_handler() {
+            if let Err(err) = handler.camera_mod_set_rolling_average(frames) {
+                log::warn!(
+                    "Script action handler camera_mod_set_rolling_average failed: {}",
+                    err
+                );
             }
         }
         Ok(ScriptActionResult::Success)
@@ -1042,18 +907,13 @@ impl ScriptActionDispatcher {
         log::debug!("Camera mod final look toward '{}'", waypoint);
 
         if let Some(target) = target {
-            if let Ok(engine_guard) = get_script_engine().read() {
-                if let Some(ref script_engine) = *engine_guard {
-                    if let Some(handler) = script_engine.action_handler() {
-                        if let Err(err) =
-                            handler.camera_mod_final_look_toward(target.x, target.y, target.z)
-                        {
-                            log::warn!(
-                                "Script action handler camera_mod_final_look_toward failed: {}",
-                                err
-                            );
-                        }
-                    }
+            if let Some(handler) = current_script_action_handler() {
+                if let Err(err) = handler.camera_mod_final_look_toward(target.x, target.y, target.z)
+                {
+                    log::warn!(
+                        "Script action handler camera_mod_final_look_toward failed: {}",
+                        err
+                    );
                 }
             }
         } else {
@@ -1079,18 +939,12 @@ impl ScriptActionDispatcher {
         log::debug!("Camera mod look toward '{}'", waypoint);
 
         if let Some(target) = target {
-            if let Ok(engine_guard) = get_script_engine().read() {
-                if let Some(ref script_engine) = *engine_guard {
-                    if let Some(handler) = script_engine.action_handler() {
-                        if let Err(err) =
-                            handler.camera_mod_look_toward(target.x, target.y, target.z)
-                        {
-                            log::warn!(
-                                "Script action handler camera_mod_look_toward failed: {}",
-                                err
-                            );
-                        }
-                    }
+            if let Some(handler) = current_script_action_handler() {
+                if let Err(err) = handler.camera_mod_look_toward(target.x, target.y, target.z) {
+                    log::warn!(
+                        "Script action handler camera_mod_look_toward failed: {}",
+                        err
+                    );
                 }
             }
         } else {
@@ -1111,18 +965,12 @@ impl ScriptActionDispatcher {
             bone_name
         );
 
-        if let Ok(engine_guard) = get_script_engine().read() {
-            if let Some(ref script_engine) = *engine_guard {
-                if let Some(handler) = script_engine.action_handler() {
-                    if let Err(err) =
-                        handler.camera_enable_slave_mode(&thing_template_name, &bone_name)
-                    {
-                        log::warn!(
-                            "Script action handler camera_enable_slave_mode failed: {}",
-                            err
-                        );
-                    }
-                }
+        if let Some(handler) = current_script_action_handler() {
+            if let Err(err) = handler.camera_enable_slave_mode(&thing_template_name, &bone_name) {
+                log::warn!(
+                    "Script action handler camera_enable_slave_mode failed: {}",
+                    err
+                );
             }
         }
         Ok(ScriptActionResult::Success)
@@ -1131,16 +979,12 @@ impl ScriptActionDispatcher {
     pub(crate) fn do_camera_disable_slave_mode(&mut self) -> Result<ScriptActionResult, ScriptError> {
         log::debug!("Disabling camera slave mode");
 
-        if let Ok(engine_guard) = get_script_engine().read() {
-            if let Some(ref script_engine) = *engine_guard {
-                if let Some(handler) = script_engine.action_handler() {
-                    if let Err(err) = handler.camera_disable_slave_mode() {
-                        log::warn!(
-                            "Script action handler camera_disable_slave_mode failed: {}",
-                            err
-                        );
-                    }
-                }
+        if let Some(handler) = current_script_action_handler() {
+            if let Err(err) = handler.camera_disable_slave_mode() {
+                log::warn!(
+                    "Script action handler camera_disable_slave_mode failed: {}",
+                    err
+                );
             }
         }
         Ok(ScriptActionResult::Success)
@@ -1171,23 +1015,19 @@ impl ScriptActionDispatcher {
         );
 
         if let Some(target) = target {
-            if let Ok(engine_guard) = get_script_engine().read() {
-                if let Some(ref script_engine) = *engine_guard {
-                    if let Some(handler) = script_engine.action_handler() {
-                        if let Err(err) = handler.camera_add_shaker_at(
-                            target.x,
-                            target.y,
-                            target.z,
-                            amplitude,
-                            duration_seconds,
-                            radius,
-                        ) {
-                            log::warn!(
-                                "Script action handler camera_add_shaker_at failed: {}",
-                                err
-                            );
-                        }
-                    }
+            if let Some(handler) = current_script_action_handler() {
+                if let Err(err) = handler.camera_add_shaker_at(
+                    target.x,
+                    target.y,
+                    target.z,
+                    amplitude,
+                    duration_seconds,
+                    radius,
+                ) {
+                    log::warn!(
+                        "Script action handler camera_add_shaker_at failed: {}",
+                        err
+                    );
                 }
             }
         } else {
@@ -1203,13 +1043,9 @@ impl ScriptActionDispatcher {
         let intensity = self.get_int_param(action, 0)?;
         log::debug!("Screen shake intensity {}", intensity);
 
-        if let Ok(engine_guard) = get_script_engine().read() {
-            if let Some(ref script_engine) = *engine_guard {
-                if let Some(handler) = script_engine.action_handler() {
-                    if let Err(err) = handler.screen_shake(intensity) {
-                        log::warn!("Script action handler screen_shake failed: {}", err);
-                    }
-                }
+        if let Some(handler) = current_script_action_handler() {
+            if let Err(err) = handler.screen_shake(intensity) {
+                log::warn!("Script action handler screen_shake failed: {}", err);
             }
         }
         Ok(ScriptActionResult::Success)

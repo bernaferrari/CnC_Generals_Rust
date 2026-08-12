@@ -270,9 +270,7 @@ pub fn special_power_type_from_template_name(name: &str) -> Option<SpecialPowerT
         "specialabilityhackerdisablebuilding" => Power::HackerDisableBuilding,
         "specialabilityhelixnapalmbomb" => Power::HelixNapalmBomb,
         "specialabilitymicrowavedisablebuilding" => Power::MicrowaveDisableBuilding,
-        "specialabilitymissiledefenderlaserguidedmissiles" => {
-            Power::MissileDefenderLaserGuided
-        }
+        "specialabilitymissiledefenderlaserguidedmissiles" => Power::MissileDefenderLaserGuided,
         "specialabilityrangercapturebuilding" => Power::RangerCaptureBuilding,
         "specialabilityrebelcapturebuilding" => Power::RebelCaptureBuilding,
         "specialabilityredguardcapturebuilding" => Power::RedGuardCaptureBuilding,

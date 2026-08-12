@@ -1601,6 +1601,7 @@ fn do_weapon_locks_the_requested_secondary_slot_before_targeting() {
     let result = CommandExecutor::new(&mut logic, 0).execute_weapon(
         &[unit_id],
         &WeaponSlot::Secondary,
+        1,
         &WeaponTarget::Location(target),
     );
     assert_eq!(result, CommandResult::Success);
@@ -1611,6 +1612,7 @@ fn do_weapon_locks_the_requested_secondary_slot_before_targeting() {
     assert_eq!(unit.weapon_lock_slot, 1);
     assert_eq!(unit.target_location, Some(target));
     assert_eq!(unit.ai_state, AIState::AttackingGround);
+    assert_eq!(unit.max_shots_to_fire, 1);
 }
 
 #[test]
@@ -1655,6 +1657,7 @@ fn do_weapon_uses_the_real_tertiary_slot_without_secondary_aliasing() {
     let result = CommandExecutor::new(&mut logic, 0).execute_weapon(
         &[unit_id],
         &WeaponSlot::Tertiary,
+        -1,
         &WeaponTarget::Object(target),
     );
     assert_eq!(result, CommandResult::Success);
@@ -1700,6 +1703,7 @@ fn do_weapon_rejects_unrepresented_slots_without_primary_fallback() {
     let result = CommandExecutor::new(&mut logic, 0).execute_weapon(
         &[unit_id],
         &WeaponSlot::Tertiary,
+        -1,
         &WeaponTarget::Location(Vec3::new(75.0, 0.0, 25.0)),
     );
     assert_eq!(result, CommandResult::InvalidCommand);
@@ -1712,6 +1716,7 @@ fn do_weapon_rejects_unrepresented_slots_without_primary_fallback() {
     let result = CommandExecutor::new(&mut logic, 0).execute_weapon(
         &[unit_id],
         &WeaponSlot::Slot(u32::MAX),
+        -1,
         &WeaponTarget::Location(Vec3::new(80.0, 0.0, 30.0)),
     );
     assert_eq!(result, CommandResult::InvalidCommand);
@@ -2070,13 +2075,145 @@ fn deploy_style_toggle_residual() {
     let start = src.find("fn execute_deploy").expect("execute_deploy");
     let body = &src[start..start + 2500];
     assert!(
-        body.contains("set_deployed") && body.contains("is_deployed"),
-        "Deploy must toggle OBJECT_STATUS_DEPLOYED residual for deploy-style units"
+        body.contains("deploy_style_metadata") && body.contains("unit_command_toggle_deploy_style"),
+        "DeployStyle authorization must use exact authored module metadata"
     );
     assert!(
-        body.contains("tomahawk") || body.contains("humvee"),
-        "Deploy residual must recognize retail deploy-style unit names"
+        !body.contains("looks_deployable")
+            && !body.contains("tomahawk")
+            && !body.contains("nukecannon"),
+        "DeployStyle authorization must not fall back to vehicle basenames"
     );
+}
+
+#[test]
+fn deploy_command_uses_authored_metadata_and_pack_unpack_timing() {
+    use super::CommandExecutor;
+    use crate::command_system::{CommandResult, CommandType, GameCommand, ModifierKeys};
+    use crate::game_logic::{DeployStyleMetadata, GameLogic, KindOf, Player, Team, ThingTemplate};
+    use glam::Vec3;
+    use std::time::UNIX_EPOCH;
+
+    fn deploy_command(id: u32, selected_units: Vec<crate::game_logic::ObjectId>) -> GameCommand {
+        GameCommand {
+            command_type: CommandType::Deploy,
+            player_id: 0,
+            command_id: id,
+            timestamp: UNIX_EPOCH,
+            selected_units,
+            modifier_keys: ModifierKeys::default(),
+        }
+    }
+
+    let mut logic = GameLogic::new();
+    logic.add_player(Player::new(0, Team::USA, "source-backed deploy", true));
+
+    let mut authored = ThingTemplate::new("ArbitraryDeployStyleVehicle");
+    authored
+        .add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(300.0);
+    authored.deploy_style_metadata = Some(DeployStyleMetadata {
+        pack_time_frames: 3,
+        unpack_time_frames: 3,
+        ..Default::default()
+    });
+    logic
+        .templates
+        .insert("ArbitraryDeployStyleVehicle".to_string(), authored);
+
+    let mut ordinary = ThingTemplate::new("PlainVehicleWithoutBehavior");
+    ordinary
+        .add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(300.0);
+    logic
+        .templates
+        .insert("PlainVehicleWithoutBehavior".to_string(), ordinary);
+
+    let deployable = logic
+        .create_object_for_player("ArbitraryDeployStyleVehicle", 0, Vec3::ZERO)
+        .expect("source-backed DeployStyle unit");
+    let no_behavior = logic
+        .create_object_for_player(
+            "PlainVehicleWithoutBehavior",
+            0,
+            Vec3::new(50.0, 0.0, 0.0),
+        )
+        .expect("ordinary vehicle");
+
+    // Full player command -> executor -> authoritative GameLogic transition.
+    {
+        let mut executor = CommandExecutor::new(&mut logic, 0);
+        assert_eq!(
+            executor
+                .execute_command(deploy_command(1, vec![deployable]))
+                .expect("deploy command result"),
+            CommandResult::Success
+        );
+    }
+    let first = logic.host_object(deployable).expect("deploying unit");
+    assert!(
+        first.deploy_style.as_ref().is_some_and(|style| style.is_busy()),
+        "the command starts an authored unpack timer rather than immediately setting deployed"
+    );
+    assert!(!first.is_deployed());
+
+    logic.frame = 2;
+    logic.tick_deploy_style_updates();
+    assert!(
+        !logic.host_object(deployable).unwrap().is_deployed(),
+        "unpack must still be pending before its authored frame boundary"
+    );
+    logic.frame = 3;
+    logic.tick_deploy_style_updates();
+    let unpacked = logic.host_object(deployable).expect("unpacked unit");
+    assert!(unpacked.is_deployed());
+    assert!(unpacked
+        .deploy_style
+        .as_ref()
+        .is_some_and(|style| style.is_ready_to_attack()));
+
+    // The next explicit Deploy reverses direction: deployed status clears at
+    // pack start and movement becomes available only on the authored boundary.
+    {
+        let mut executor = CommandExecutor::new(&mut logic, 0);
+        assert_eq!(
+            executor
+                .execute_command(deploy_command(2, vec![deployable]))
+                .expect("undeploy command result"),
+            CommandResult::Success
+        );
+    }
+    assert!(!logic.host_object(deployable).unwrap().is_deployed());
+    logic.frame = 5;
+    logic.tick_deploy_style_updates();
+    assert!(
+        !logic
+            .host_object(deployable)
+            .unwrap()
+            .deploy_style_allows_move(),
+        "pack remains active through frame 5"
+    );
+    logic.frame = 6;
+    logic.tick_deploy_style_updates();
+    assert!(logic
+        .host_object(deployable)
+        .unwrap()
+        .deploy_style_allows_move());
+
+    // A plain vehicle must not inherit DeployStyle behavior because a name or
+    // VEHICLE KindOf happened to resemble an older residual list.
+    let mut executor = CommandExecutor::new(&mut logic, 0);
+    assert_eq!(
+        executor
+            .execute_command(deploy_command(3, vec![no_behavior]))
+            .expect("ordinary deploy command result"),
+        CommandResult::InvalidCommand
+    );
+    drop(executor);
+    assert!(logic.host_object(no_behavior).unwrap().deploy_style.is_none());
 }
 
 #[test]
@@ -2212,4 +2349,238 @@ fn move_delays_mood_for_unstealthed_stealth_unit() {
     );
     let u = logic.host_object(a).unwrap();
     assert_eq!(u.next_mood_check_time, 80); // 50+30+0
+}
+
+#[test]
+fn dock_uses_controlling_player_for_centers_and_relationship_for_warehouses() {
+    use super::CommandExecutor;
+    use crate::game_logic::{DockKind, GameLogic, KindOf, Player, Team, ThingTemplate};
+    use glam::Vec3;
+
+    let mut logic = GameLogic::new();
+    logic.add_player(Player::new(0, Team::USA, "USA slot 0", true));
+    logic.add_player(Player::new(1, Team::USA, "USA slot 1", false));
+
+    let mut collector = ThingTemplate::new("DockOwnerCollector");
+    collector
+        .add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Harvester)
+        .set_health(100.0);
+    logic
+        .templates
+        .insert("DockOwnerCollector".to_string(), collector);
+
+    let mut center = ThingTemplate::new("DockOwnerCenter");
+    center
+        .add_kind_of(KindOf::Structure)
+        .set_health(1_000.0);
+    center.dock_kind = DockKind::SupplyCenter;
+    logic.templates.insert("DockOwnerCenter".to_string(), center);
+
+    let mut warehouse = ThingTemplate::new("DockOwnerWarehouse");
+    warehouse
+        .add_kind_of(KindOf::Structure)
+        .set_health(1_000.0);
+    warehouse.dock_kind = DockKind::SupplyWarehouse;
+    logic
+        .templates
+        .insert("DockOwnerWarehouse".to_string(), warehouse);
+
+    let collector_id = logic
+        .create_object("DockOwnerCollector", Team::USA, Vec3::ZERO)
+        .expect("collector");
+    let center_id = logic
+        .create_object("DockOwnerCenter", Team::USA, Vec3::new(30.0, 0.0, 0.0))
+        .expect("center");
+    let warehouse_id = logic
+        .create_object("DockOwnerWarehouse", Team::USA, Vec3::new(60.0, 0.0, 0.0))
+        .expect("warehouse");
+    {
+        let collector = logic.host_object_mut(collector_id).expect("collector object");
+        collector.owner_player_id = Some(0);
+        collector.stored_resources.supplies = 1;
+    }
+    for id in [center_id, warehouse_id] {
+        let target = logic.host_object_mut(id).expect("dock target");
+        target.owner_player_id = Some(1);
+        target.stored_resources.supplies = 1;
+    }
+
+    // C++ ActionManager::canTransferSuppliesAt: SupplyCenter checks pointer
+    // equality of controlling players, not faction/alliance equality.
+    {
+        let exec = CommandExecutor::new(&mut logic, 0);
+        assert_eq!(exec.can_issue_dock(collector_id, center_id), None);
+        // The two player slots have no alliance, so the same-faction warehouse
+        // is an enemy target and must be refused by its relationship gate.
+        assert_eq!(exec.can_issue_dock(collector_id, warehouse_id), None);
+    }
+
+    logic
+        .get_player_mut(0)
+        .expect("slot 0")
+        .alliance_team = 7;
+    logic
+        .get_player_mut(1)
+        .expect("slot 1")
+        .alliance_team = 7;
+    let exec = CommandExecutor::new(&mut logic, 0);
+    assert_eq!(
+        exec.can_issue_dock(collector_id, warehouse_id),
+        Some(DockKind::SupplyWarehouse),
+        "allied owners may collect from a warehouse"
+    );
+    assert_eq!(
+        exec.can_issue_dock(collector_id, center_id),
+        None,
+        "allied is still not the same controller for a SupplyCenter"
+    );
+}
+
+#[test]
+fn return_to_base_prefers_exact_owner_producer_and_only_allows_explicitly_allied_fallback() {
+    use super::CommandExecutor;
+    use crate::command_system::CommandResult;
+    use crate::game_logic::{
+        GameLogic, KindOf, ParkingPlaceMetadata, Player, Team, ThingTemplate,
+    };
+    use glam::Vec3;
+
+    let mut logic = GameLogic::new();
+    // Slots 0 and 1 deliberately share a faction but begin as enemies.  A
+    // faction/name shortcut would incorrectly send the first unbound jet to
+    // the nearer slot-1 airfield.
+    logic.add_player(Player::new(0, Team::USA, "USA slot 0", true));
+    logic.add_player(Player::new(1, Team::USA, "USA slot 1", false));
+    logic.add_player(Player::new(2, Team::China, "China slot 2", false));
+
+    let parking = ParkingPlaceMetadata {
+        num_rows: 1,
+        num_cols: 1,
+        approach_height: 37.0,
+        landing_deck_height_offset: 4.0,
+        has_runways: false,
+        park_in_hangars: true,
+        heal_amount_per_second: 10.0,
+    };
+    for name in ["RTBExactOwnerAirfield", "RTBAlternateAirfield"] {
+        let mut airfield = ThingTemplate::new(name);
+        airfield
+            .add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::FSAirfield)
+            .set_health(1_000.0);
+        airfield.parking_place = Some(parking.clone());
+        logic.templates.insert(name.to_string(), airfield);
+    }
+    let mut jet = ThingTemplate::new("RTBOwnerJet");
+    jet.add_kind_of(KindOf::Aircraft)
+        .add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(100.0);
+    logic.templates.insert("RTBOwnerJet".to_string(), jet);
+
+    let owner_airfield = logic
+        .create_object_for_player("RTBExactOwnerAirfield", 0, Vec3::new(80.0, 0.0, 0.0))
+        .expect("slot-0 airfield");
+    let same_faction_other_player_airfield = logic
+        .create_object_for_player("RTBAlternateAirfield", 1, Vec3::new(2.0, 0.0, 0.0))
+        .expect("slot-1 airfield");
+    let enemy_airfield = logic
+        .create_object_for_player("RTBAlternateAirfield", 2, Vec3::new(4.0, 0.0, 0.0))
+        .expect("enemy airfield");
+
+    // C++ JetAIUpdate first asks getPP(producerID).  Its exact controller is
+    // the authority here, even though two invalid alternates are closer.
+    let producer_jet = logic
+        .create_object_for_player("RTBOwnerJet", 0, Vec3::ZERO)
+        .expect("producer jet");
+    logic
+        .host_object_mut(producer_jet)
+        .expect("producer jet object")
+        .producer_id = Some(owner_airfield);
+    {
+        let mut executor = CommandExecutor::new(&mut logic, 0);
+        assert_eq!(
+            executor.execute_return_to_base(&[producer_jet]),
+            CommandResult::Success
+        );
+    }
+    let producer_jet_object = logic.host_object(producer_jet).expect("parked producer jet");
+    assert_eq!(producer_jet_object.contained_by, Some(owner_airfield));
+    assert_eq!(producer_jet_object.producer_id, Some(owner_airfield));
+    assert_eq!(producer_jet_object.airfield_parking_space_index, Some(0));
+    assert_ne!(
+        producer_jet_object.contained_by,
+        Some(same_faction_other_player_airfield),
+        "nearer same-faction other-player airfield must not override producer"
+    );
+
+    // Remove the exact owner field.  The only remaining candidates are a
+    // same-faction other player and a genuine enemy; neither is an ally.
+    logic
+        .host_object_mut(owner_airfield)
+        .expect("owner airfield")
+        .status
+        .sold = true;
+    let rejected_jet = logic
+        .create_object_for_player("RTBOwnerJet", 0, Vec3::ZERO)
+        .expect("rejected jet");
+    {
+        let mut executor = CommandExecutor::new(&mut logic, 0);
+        assert_eq!(
+            executor.execute_return_to_base(&[rejected_jet]),
+            CommandResult::InvalidCommand
+        );
+    }
+    let rejected = logic.host_object(rejected_jet).expect("rejected jet object");
+    assert_eq!(rejected.contained_by, None);
+    assert_eq!(rejected.producer_id, None);
+    assert_eq!(rejected.airfield_parking_space_index, None);
+    assert_ne!(rejected.contained_by, Some(enemy_airfield));
+
+    // Once the two separate player slots are explicitly allied, C++
+    // ALLOW_ALLIES fallback may choose the actual ParkingPlaceBehavior.
+    logic
+        .get_player_mut(0)
+        .expect("slot 0")
+        .alliance_team = 17;
+    logic
+        .get_player_mut(1)
+        .expect("slot 1")
+        .alliance_team = 17;
+    let allied_fallback_jet = logic
+        .create_object_for_player("RTBOwnerJet", 0, Vec3::ZERO)
+        .expect("allied fallback jet");
+    {
+        let mut executor = CommandExecutor::new(&mut logic, 0);
+        assert_eq!(
+            executor.execute_return_to_base(&[allied_fallback_jet]),
+            CommandResult::Success
+        );
+    }
+    let allied = logic
+        .host_object(allied_fallback_jet)
+        .expect("allied fallback jet object");
+    assert_eq!(
+        allied.contained_by,
+        Some(same_faction_other_player_airfield),
+        "only an explicit player alliance may unlock alternate-airfield RTB"
+    );
+    assert_eq!(allied.airfield_parking_space_index, Some(0));
+
+    // The fallback remains relationship-authorized because it owns an actual
+    // reserved slot; it must not be reclassified as a same-owner producer or
+    // release/reacquire capacity on each RTB update.
+    {
+        let mut executor = CommandExecutor::new(&mut logic, 0);
+        assert_eq!(
+            executor.execute_return_to_base(&[allied_fallback_jet]),
+            CommandResult::Success
+        );
+    }
+    let allied_again = logic
+        .host_object(allied_fallback_jet)
+        .expect("persisted allied fallback reservation");
+    assert_eq!(allied_again.producer_id, Some(same_faction_other_player_airfield));
+    assert_eq!(allied_again.airfield_parking_space_index, Some(0));
 }

@@ -955,6 +955,147 @@ fn able_to_attack_possible_in_range_enemy() {
 }
 
 #[test]
+fn player_attack_command_uses_weaponset_target_legality_before_stamping_target() {
+    use crate::game_logic::{
+        KindOf, Object, ObjectId, Team, ThingTemplate, Weapon, WeaponLockType,
+    };
+    use glam::Vec3;
+
+    let mut logic = GameLogic::new();
+    let attacker_id = ObjectId(2310);
+    let mut attacker_template = ThingTemplate::new("PlayerAttackMaskSource");
+    attacker_template.add_kind_of(KindOf::Infantry);
+    logic.objects.insert(attacker_id, {
+        let mut attacker = Object::new(attacker_template, attacker_id, Team::USA);
+        attacker.set_position(Vec3::ZERO);
+        attacker.weapon = Some(Weapon {
+            range: 100.0,
+            damage: 10.0,
+            can_target_ground: true,
+            can_target_air: false,
+            ..Default::default()
+        });
+        attacker
+    });
+
+    let target_id = ObjectId(2311);
+    let mut target_template = ThingTemplate::new("PlayerAttackMaskTarget");
+    target_template
+        .add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Unattackable);
+    logic.objects.insert(target_id, {
+        let mut target = Object::new(target_template, target_id, Team::GLA);
+        target.set_position(Vec3::new(10.0, 0.0, 0.0));
+        target
+    });
+
+    // The command boundary, not just AI target acquisition, must reject a
+    // target C++ marks UNATTACKABLE. Force attack cannot override it either.
+    assert!(!logic.unit_command_attack(attacker_id, target_id));
+    assert!(!logic.unit_command_force_attack(attacker_id, target_id));
+    assert_eq!(logic.objects[&attacker_id].target, None);
+
+    let target = logic.objects.get_mut(&target_id).unwrap();
+    target.thing.template.kind_of.remove(&KindOf::Unattackable);
+    target.thing.template.add_kind_of(KindOf::Projectile);
+
+    // A hand-authored ground-only weapon is not silently promoted to
+    // AntiProjectile by the command route.
+    assert!(!logic.unit_command_attack(attacker_id, target_id));
+    assert_eq!(logic.objects[&attacker_id].target, None);
+
+    let target = logic.objects.get_mut(&target_id).unwrap();
+    target.thing.template.kind_of.remove(&KindOf::Projectile);
+    assert!(logic.unit_command_attack(attacker_id, target_id));
+    assert_eq!(logic.objects[&attacker_id].target, Some(target_id));
+
+    // A locked slot is the actual C++ WeaponSet choice.  PRIMARY cannot use
+    // SECONDARY's ground capability just to obtain a targeting cursor; once
+    // unlocked the same object may use SECONDARY normally.
+    let attacker = logic.objects.get_mut(&attacker_id).unwrap();
+    attacker.set_target(None);
+    attacker.weapon.as_mut().unwrap().can_target_ground = false;
+    attacker.weapon.as_mut().unwrap().can_target_air = true;
+    attacker.secondary_weapon = Some(Weapon {
+        range: 100.0,
+        damage: 10.0,
+        can_target_ground: true,
+        can_target_air: false,
+        ..Default::default()
+    });
+    assert!(attacker.set_weapon_lock(0, WeaponLockType::LockedPermanently));
+    drop(attacker);
+    assert!(!logic.unit_command_attack(attacker_id, target_id));
+    assert_eq!(logic.objects[&attacker_id].target, None);
+    logic
+        .objects
+        .get_mut(&attacker_id)
+        .unwrap()
+        .release_weapon_lock(WeaponLockType::LockedPermanently);
+    assert!(logic.unit_command_attack(attacker_id, target_id));
+}
+
+#[test]
+fn host_direct_attack_authority_does_not_bypass_weaponset_target_legality() {
+    use crate::game_logic::{KindOf, Object, ObjectId, Player, Team, ThingTemplate, Weapon};
+    use glam::Vec3;
+
+    let mut logic = GameLogic::new();
+    logic
+        .players
+        .insert(0, Player::new(0, Team::USA, "Local", true));
+
+    let attacker_id = ObjectId(2330);
+    let mut attacker_template = ThingTemplate::new("HostAttackMaskSource");
+    attacker_template.add_kind_of(KindOf::Infantry);
+    logic.objects.insert(attacker_id, {
+        let mut object = Object::new(attacker_template, attacker_id, Team::USA);
+        object.set_position(Vec3::ZERO);
+        object.weapon = Some(Weapon {
+            range: 100.0,
+            damage: 10.0,
+            can_target_ground: true,
+            ..Default::default()
+        });
+        object
+    });
+
+    let target_id = ObjectId(2331);
+    let mut target_template = ThingTemplate::new("HostAttackMaskTarget");
+    target_template
+        .add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Unattackable);
+    logic.objects.insert(target_id, {
+        let mut object = Object::new(target_template, target_id, Team::GLA);
+        object.set_position(Vec3::new(10.0, 0.0, 0.0));
+        object
+    });
+    logic
+        .players
+        .get_mut(&0)
+        .expect("local player")
+        .selected_objects
+        .push(attacker_id);
+
+    // `host_command_attack` reaches this `command_attack` authority, rather
+    // than the unit-command helper.  It must still reject the C++ victim
+    // override before setting any target/path state.
+    logic.command_attack(0, target_id);
+    assert_eq!(logic.objects[&attacker_id].target, None);
+
+    logic
+        .objects
+        .get_mut(&target_id)
+        .expect("target")
+        .thing
+        .template
+        .kind_of
+        .remove(&KindOf::Unattackable);
+    logic.command_attack(0, target_id);
+    assert_eq!(logic.objects[&attacker_id].target, Some(target_id));
+}
+
+#[test]
 fn able_to_attack_after_moving_when_oor() {
     use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
     use glam::Vec3;
@@ -1049,6 +1190,68 @@ fn able_to_attack_stealth_blocks_unless_force() {
     logic.objects.get_mut(&aid).unwrap().status.ignoring_stealth = true;
     assert_eq!(
         logic.get_able_to_attack_specific_object(aid, vid, AbleToAttackType::NewTarget, false),
+        CanAttackResult::Possible
+    );
+}
+
+#[test]
+fn able_to_attack_uses_disguised_target_apparent_team_before_real_owner() {
+    use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
+    use glam::Vec3;
+
+    let mut logic = GameLogic::new();
+    let attacker_id = ObjectId(2314);
+    let mut attacker_template = ThingTemplate::new("DisguiseTargetAttacker");
+    attacker_template.add_kind_of(KindOf::Infantry);
+    logic.objects.insert(attacker_id, {
+        let mut attacker = Object::new(attacker_template, attacker_id, Team::USA);
+        attacker.set_position(Vec3::ZERO);
+        attacker.weapon = Some(Weapon {
+            range: 100.0,
+            damage: 10.0,
+            can_target_ground: true,
+            ..Default::default()
+        });
+        attacker
+    });
+
+    let victim_id = ObjectId(2315);
+    let mut victim_template = ThingTemplate::new("DisguisedBombTruck");
+    victim_template
+        .add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Disguiser);
+    logic.objects.insert(victim_id, {
+        let mut victim = Object::new(victim_template, victim_id, Team::GLA);
+        victim.set_position(Vec3::new(10.0, 0.0, 0.0));
+        victim.set_status_stealthed(true);
+        victim.set_status_detected(false);
+        victim.set_status_disguised(true);
+        victim.disguise_as_team = Some(Team::USA);
+        victim
+    });
+
+    // C++ WeaponSet uses the disguised controller while the truck is hidden.
+    // An ordinary USA order must not target something presented as USA merely
+    // because its underlying owner remains GLA.
+    assert_eq!(
+        logic.get_able_to_attack_specific_object(
+            attacker_id,
+            victim_id,
+            AbleToAttackType::NewTarget,
+            true,
+        ),
+        CanAttackResult::NotPossible
+    );
+
+    // The explicit C++ force-attack disguise exception still permits the
+    // order, just as force fire can reveal a bomb truck.
+    assert_eq!(
+        logic.get_able_to_attack_specific_object(
+            attacker_id,
+            victim_id,
+            AbleToAttackType::NewTargetForced,
+            true,
+        ),
         CanAttackResult::Possible
     );
 }

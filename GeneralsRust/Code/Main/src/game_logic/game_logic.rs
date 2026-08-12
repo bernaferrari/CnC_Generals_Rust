@@ -1049,6 +1049,19 @@ pub(self) struct ObjectSellInfo {
     sell_frame: u32,
 }
 
+/// One live C++ `ParkingPlaceBehavior::ParkingPlaceInfo` slot.
+///
+/// This is deliberately not a generic building `garrisoned_units` entry:
+/// ParkingPlace tracks a per-space reservation while an aircraft is returning
+/// as well as while it is physically parked.  `reserved_for_exit` is retained
+/// so a later authored production-exit bridge cannot treat an exit door as a
+/// free landing slot.
+#[derive(Debug, Clone, Copy, Default)]
+pub(self) struct AirfieldParkingSpace {
+    pub(self) object_id: Option<ObjectId>,
+    pub(self) reserved_for_exit: bool,
+}
+
 /// Fat-object ID store as its **own field** so a tick can mut-borrow objects
 /// without `&mut self` on the whole [`GameLogic`] (`self.objects.get_mut` +
 /// `self.frame` split-borrow).
@@ -1382,6 +1395,10 @@ pub struct GameLogic {
     /// Host America Microwave Tank residual (DISABLED_SUBDUED on structures).
     /// Fail-closed: not full subdual accumulate/heal / laser stream / emitter field.
     microwaves: crate::game_logic::host_microwave::HostMicrowaveRegistry,
+    /// C++ ParkingPlaceBehavior `m_spaces`: exact per-airfield reservation
+    /// records, sized from authored NumRows × NumCols rather than a generic
+    /// container roster or retail-name capacity.
+    airfield_parking_spaces: std::collections::HashMap<ObjectId, Vec<AirfieldParkingSpace>>,
     /// C++ ParkingPlaceBehavior runway in-use residual (airfield → runway slots → jet).
     runway_reservations: std::collections::HashMap<ObjectId, Vec<Option<ObjectId>>>,
 
@@ -3307,6 +3324,9 @@ pub enum ProductionAuthorityOp {
     SpawnUnit {
         template: String,
         team: Team,
+        /// Exact producer owner when known. `team` is retained for template
+        /// and legacy payloads, not same-faction ownership selection.
+        owner_player_id: Option<u32>,
         spawn_pos: glam::Vec3,
     },
     /// Drain production spawn-ready log into host door/notify residuals.
@@ -3579,11 +3599,13 @@ pub enum HostWritebackOp {
     AiState { id: ObjectId, ordinal: u8 },
     /// Wave 945: AI attitude last-write.
     AiAttitude { id: ObjectId, attitude: i8 },
-    /// Wave 945: owner team last-write.
+    /// Wave 945: owner last-write. `team` remains faction/presentation state;
+    /// `owner_player_id` distinguishes same-faction skirmish slots.
     Owner {
         id: ObjectId,
         team: Team,
         team_color: [f32; 4],
+        owner_player_id: Option<u32>,
     },
     /// Wave 945: special-power ready/cooldown last-write.
     SpecialPower {
@@ -3798,6 +3820,7 @@ impl GameLogic {
             propaganda_residual_buffs: 0,
             ecm_residual_jams: 0,
             microwaves: crate::game_logic::host_microwave::HostMicrowaveRegistry::new(),
+            airfield_parking_spaces: std::collections::HashMap::new(),
             runway_reservations: std::collections::HashMap::new(),
             emp_pulses: crate::game_logic::host_emp_pulse::HostEmpPulseRegistry::new(),
             baikonur_launches:
@@ -4368,6 +4391,7 @@ impl GameLogic {
         self.propaganda_residual_buffs = 0;
         self.ecm_residual_jams = 0;
         self.microwaves.clear();
+        self.airfield_parking_spaces.clear();
         self.runway_reservations.clear();
         self.emp_pulses.clear();
         self.baikonur_launches =

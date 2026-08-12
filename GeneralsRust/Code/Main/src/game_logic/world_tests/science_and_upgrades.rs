@@ -4,6 +4,236 @@ use super::super::*;
 use super::helpers::*;
 
 #[test]
+fn same_faction_players_keep_upgrade_and_construction_power_separate() {
+    use crate::command_system::SpecialPowerType;
+    use crate::game_logic::host_paradrop::HostParadropKind;
+    use crate::game_logic::host_upgrades::UPGRADE_AMERICA_SUPPLY_LINES;
+    use crate::game_logic::{KindOf, Player, Team, ThingTemplate};
+
+    let mut logic = GameLogic::new();
+    logic.add_player(Player::new(0, Team::USA, "USA one", true));
+    logic.add_player(Player::new(1, Team::USA, "USA two", false));
+
+    let mut powered_building = ThingTemplate::new("OwnerScopedPoweredBuilding");
+    powered_building
+        .add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(1_000.0);
+    powered_building.build_time = 10.0;
+    logic
+        .templates
+        .insert("OwnerScopedPoweredBuilding".to_string(), powered_building);
+
+    let mut construction_building = ThingTemplate::new("OwnerScopedConstructionBuilding");
+    construction_building
+        .add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(1_000.0);
+    construction_building.build_time = 10.0;
+    logic.templates.insert(
+        "OwnerScopedConstructionBuilding".to_string(),
+        construction_building,
+    );
+
+    let mut dozer = ThingTemplate::new("OwnerScopedDozer");
+    dozer
+        .add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Worker)
+        .set_health(200.0);
+    logic
+        .templates
+        .insert("OwnerScopedDozer".to_string(), dozer);
+
+    let mut supply = ThingTemplate::new("OwnerScopedSupplyCenter");
+    supply
+        .add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::SupplyCenter)
+        .set_health(1_000.0);
+    logic
+        .templates
+        .insert("OwnerScopedSupplyCenter".to_string(), supply);
+
+    // These are explicitly ready map objects, not construction-phase
+    // placeholders.  This keeps the power assertion independent of the
+    // construction test below.
+    let mut supply_center_ready = ThingTemplate::new("OwnerScopedReadySupplyCenter");
+    supply_center_ready
+        .add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::SupplyCenter)
+        .set_health(1_000.0);
+    logic.templates.insert(
+        "OwnerScopedReadySupplyCenter".to_string(),
+        supply_center_ready,
+    );
+
+    // Player 0 has a full grid; player 1 owns a separate, unpowered grid.
+    let p0_plant = logic
+        .create_object_for_player(
+            "OwnerScopedPoweredBuilding",
+            0,
+            Vec3::new(-100.0, 0.0, 0.0),
+        )
+        .expect("player 0 power building");
+    let p1_drain = logic
+        .create_object_for_player(
+            "OwnerScopedPoweredBuilding",
+            1,
+            Vec3::new(100.0, 0.0, 0.0),
+        )
+        .expect("player 1 power drain");
+    for id in [p0_plant, p1_drain] {
+        let object = logic.host_object_mut(id).expect("power object");
+        object.set_status_under_construction(false);
+        object.construction_percent = 1.0;
+    }
+    // The host recognises power-plant-like fixture names and may seed a
+    // production value.  Pin both sides of the deliberately asymmetric grid
+    // so the regression measures ownership rather than that name heuristic.
+    {
+        let plant = logic.host_object_mut(p0_plant).unwrap();
+        plant.power_provided = 10;
+        plant.power_consumed = 0;
+    }
+    {
+        let drain = logic.host_object_mut(p1_drain).unwrap();
+        drain.power_provided = 0;
+        drain.power_consumed = 10;
+    }
+
+    let p0_building = logic
+        .create_object_for_player("OwnerScopedConstructionBuilding", 0, Vec3::ZERO)
+        .expect("player 0 construction");
+    let p1_building = logic
+        .create_object_for_player(
+            "OwnerScopedConstructionBuilding",
+            1,
+            Vec3::new(50.0, 0.0, 0.0),
+        )
+        .expect("player 1 construction");
+    for id in [p0_building, p1_building] {
+        let object = logic.host_object_mut(id).expect("construction object");
+        object.set_status_under_construction(true);
+        object.construction_percent = 0.0;
+    }
+    let p0_dozer = logic
+        .create_object_for_player("OwnerScopedDozer", 0, Vec3::new(5.0, 0.0, 0.0))
+        .expect("player 0 dozer");
+    let p1_dozer = logic
+        .create_object_for_player("OwnerScopedDozer", 1, Vec3::new(55.0, 0.0, 0.0))
+        .expect("player 1 dozer");
+    for (dozer_id, target_id) in [(p0_dozer, p0_building), (p1_dozer, p1_building)] {
+        let object = logic.host_object_mut(dozer_id).expect("dozer");
+        object.set_target(Some(target_id));
+        object.set_ai_state(AIState::Constructing);
+    }
+
+    let p0_ready_supply = logic
+        .create_object_for_player(
+            "OwnerScopedReadySupplyCenter",
+            0,
+            Vec3::new(-50.0, 0.0, 20.0),
+        )
+        .expect("player 0 ready supply center");
+    let p1_ready_supply = logic
+        .create_object_for_player(
+            "OwnerScopedReadySupplyCenter",
+            1,
+            Vec3::new(100.0, 0.0, 20.0),
+        )
+        .expect("player 1 ready supply center");
+    for id in [p0_ready_supply, p1_ready_supply] {
+        let object = logic.host_object_mut(id).expect("ready supply center");
+        object.set_status_under_construction(false);
+        object.construction_percent = 1.0;
+    }
+
+    let p0_supply = logic
+        .create_object_for_player("OwnerScopedSupplyCenter", 0, Vec3::new(0.0, 0.0, 20.0))
+        .expect("player 0 supply center");
+    let p1_supply = logic
+        .create_object_for_player("OwnerScopedSupplyCenter", 1, Vec3::new(50.0, 0.0, 20.0))
+        .expect("player 1 supply center");
+
+    // Supply centers carry the game's default one-unit power draw.  The
+    // regression's grid is deliberately just the p0 plant and p1 drain, so
+    // remove that unrelated fixture load before asserting the two owners'
+    // independently calculated power factors.
+    for id in [p0_ready_supply, p1_ready_supply, p0_supply, p1_supply] {
+        logic.host_object_mut(id).expect("fixture supply center").power_consumed = 0;
+    }
+
+    let p1_drain_object = logic.host_object(p1_drain).expect("player 1 drain object");
+    assert_eq!(p1_drain_object.owner_player_id, Some(1));
+    assert!(p1_drain_object.is_alive());
+    assert!(p1_drain_object.is_constructed());
+    assert_eq!(p1_drain_object.power_provided, 0);
+    assert_eq!(p1_drain_object.power_consumed, 10);
+
+    logic.update_player_resources(0.0);
+    assert_eq!(logic.get_player(0).unwrap().power_available, 10);
+    assert_eq!(logic.get_player(1).unwrap().power_available, -10);
+    let factors = logic.compute_player_power_factors();
+    assert_eq!(factors.get(&0).copied(), Some(1.0));
+    assert_eq!(factors.get(&1).copied(), Some(0.6));
+
+    // Both dozers are docked, but only the owner's grid may scale each build.
+    logic.update_construction(&[p0_building, p1_building], 1.0);
+    let p0_progress = logic.host_object(p0_building).unwrap().construction_percent;
+    let p1_progress = logic.host_object(p1_building).unwrap().construction_percent;
+    assert!((p0_progress - 0.1).abs() < 0.001, "p0 progress={p0_progress}");
+    assert!((p1_progress - 0.06).abs() < 0.001, "p1 progress={p1_progress}");
+
+    // This is the production completion boundary: it gets the producer ID in
+    // addition to a team-shaped legacy record.  The other USA player must not
+    // receive the upgrade or its supply-center tag.
+    logic.host_apply_upgrade_production_completions(vec![
+        (Team::USA, UPGRADE_AMERICA_SUPPLY_LINES.to_string(), p0_supply),
+    ]);
+    assert!(logic
+        .get_player(0)
+        .unwrap()
+        .has_unlocked_upgrade(UPGRADE_AMERICA_SUPPLY_LINES));
+    assert!(!logic
+        .get_player(1)
+        .unwrap()
+        .has_unlocked_upgrade(UPGRADE_AMERICA_SUPPLY_LINES));
+    assert!(logic
+        .host_object(p0_supply)
+        .unwrap()
+        .has_upgrade_tag(UPGRADE_AMERICA_SUPPLY_LINES));
+    assert!(!logic
+        .host_object(p1_supply)
+        .unwrap()
+        .has_upgrade_tag(UPGRADE_AMERICA_SUPPLY_LINES));
+
+    // A delayed special-power spawn is a second ownership boundary: the
+    // source is player 0, while player 1 shares the same USA faction.  Both
+    // the queued mission and every spawned Ranger must retain player 0.
+    let paradrop_id = logic
+        .queue_paradrop(
+            &SpecialPowerType::Paradrop,
+            p0_plant,
+            Vec3::new(200.0, 0.0, 0.0),
+        )
+        .expect("player-owned paradrop");
+    assert_eq!(
+        logic.host_paradrops
+            .get(paradrop_id)
+            .and_then(|mission| mission.source_owner_player_id),
+        Some(0)
+    );
+    logic.frame = HostParadropKind::AmericaParadrop.drop_delay_frames();
+    logic.update_paradrops();
+    let mission = logic.host_paradrops.get(paradrop_id).expect("completed paradrop");
+    assert!(!mission.spawned_unit_ids.is_empty());
+    assert!(mission.spawned_unit_ids.iter().all(|id| {
+        logic
+            .host_object(*id)
+            .is_some_and(|object| object.owner_player_id == Some(0))
+    }));
+}
+
+#[test]
 fn host_upgrade_complete_chain_guns_includes_gattling_tank() {
     use crate::game_logic::host_gattling_tank::UPGRADE_CHINA_CHAIN_GUNS;
     use crate::game_logic::{KindOf, Team, ThingTemplate};

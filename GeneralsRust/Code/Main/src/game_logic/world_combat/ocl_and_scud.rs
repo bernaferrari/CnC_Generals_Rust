@@ -3,7 +3,304 @@
 #![allow(unused_imports, non_snake_case)]
 use super::super::*;
 
+/// Whether this host bridge can reproduce a parsed generic OCL nugget without
+/// silently dropping behavior.  Unsupported physics/container/debris nuggets
+/// remain fail-closed until their matching host object behavior exists.
+fn supports_host_weapon_generic_ocl(
+    nugget: &gamelogic::object_creation_list::GenericObjectCreationNugget,
+) -> bool {
+    use gamelogic::object_creation_list::DebrisDisposition;
+
+    let unsupported_disposition = DebrisDisposition::SEND_IT_FLYING
+        | DebrisDisposition::SEND_IT_UP
+        | DebrisDisposition::SEND_IT_OUT
+        | DebrisDisposition::RANDOM_FORCE
+        | DebrisDisposition::FLOATING
+        | DebrisDisposition::WHIRLING;
+
+    nugget.name_are_objects
+        && !nugget.names.is_empty()
+        && nugget.debris_to_generate > 0
+        && !nugget.disposition.has(unsupported_disposition)
+        && nugget.put_in_container.trim().is_empty()
+        && nugget.particle_sys_name.trim().is_empty()
+        && !nugget.ignore_primary_obstacle
+        && !nugget.contain_inside_source_object
+        && !nugget.spread_formation
+        && !nugget.fade_in
+        && !nugget.fade_out
+        && !nugget.dies_on_bad_land
+        && !nugget.requires_live_player
+}
+
 impl GameLogic {
+    /// Execute a parsed `Weapon.ini` OCL at a source origin.
+    ///
+    /// C++ `Weapon::fireWeaponTemplate` calls `ObjectCreationList::create`
+    /// with the firing object for `FireOCL`, and with the live missile object
+    /// for `ProjectileDetonationOCL` (`Weapon.cpp:943-949`,
+    /// `MissileAIUpdate.cpp:364-381`).  The host has no simulation `Object`
+    /// for every visual projectile, so the caller supplies that object's
+    /// frozen team/rank and its fire/impact origin.  References are resolved
+    /// only through the parsed global OCL store; unresolved lists and object
+    /// templates intentionally produce no guessed replacement.
+    pub(crate) fn execute_parsed_weapon_ocl_at(
+        &mut self,
+        ocl_name: &str,
+        source_id: Option<ObjectId>,
+        source_team: Team,
+        source_veterancy: VeterancyLevel,
+        source_orientation: f32,
+        source_velocity: Vec3,
+        origin: Vec3,
+    ) -> Vec<ObjectId> {
+        use gamelogic::object_creation_list::{
+            DebrisDisposition, GenericObjectCreationNugget, ObjectCreationNugget,
+        };
+
+        let ocl_name = ocl_name.trim();
+        if source_id.is_none() || ocl_name.is_empty() || ocl_name.eq_ignore_ascii_case("None") {
+            return Vec::new();
+        }
+
+        let Some(ocl) =
+            gamelogic::helpers::TheObjectCreationListStore::lookup_object_creation_list(ocl_name)
+        else {
+            return Vec::new();
+        };
+
+        // An OCL is an ordered, indivisible authored effect.  Do not create
+        // only its easy generic subset when a later nugget needs unsupported
+        // payload/physics behavior: that would be a new hybrid effect rather
+        // than C++ semantics.  Simple retail field/firewall OCLs pass this
+        // gate; mixed lists wait until every typed nugget has a host bridge.
+        if !ocl.nuggets().iter().all(|nugget| {
+            nugget
+                .as_any()
+                .downcast_ref::<GenericObjectCreationNugget>()
+                .is_some_and(supports_host_weapon_generic_ocl)
+        }) {
+            return Vec::new();
+        }
+
+        let mut created = Vec::new();
+        for nugget in ocl.nuggets() {
+            let Some(generic) = nugget
+                .as_any()
+                .downcast_ref::<GenericObjectCreationNugget>()
+            else {
+                // Pre-validation above proves this branch is unreachable.
+                return Vec::new();
+            };
+
+            // `GenericObjectCreationNugget::create` checks source altitude
+            // before spawning.  The host coordinate system is Y-up, whereas
+            // C++ Coord3D is Z-up; terrain_height_at already accepts host X/Z.
+            if generic.skip_if_significantly_airborne {
+                let terrain_y = self.terrain_height_at(origin).unwrap_or(origin.y);
+                if crate::game_logic::host_usa_pilot::is_significantly_above_terrain(
+                    origin.y - terrain_y,
+                ) {
+                    continue;
+                }
+            }
+
+            let count = usize::try_from(generic.debris_to_generate).unwrap_or_default();
+            let upper_pick = match i32::try_from(generic.names.len().saturating_sub(1)) {
+                Ok(value) => value,
+                Err(_) => continue,
+            };
+            for _ in 0..count {
+                // C++ chooses once per created object from ObjectNames using
+                // the game-logic random stream (ObjectCreationList.cpp:1326).
+                let raw_pick = gamelogic::helpers::get_game_logic_random_value(0, upper_pick);
+                let Ok(pick) = usize::try_from(raw_pick) else {
+                    continue;
+                };
+                let Some(template_name) = generic.names.get(pick) else {
+                    continue;
+                };
+                let template_name = template_name.trim();
+                if template_name.is_empty() || template_name.eq_ignore_ascii_case("None") {
+                    continue;
+                }
+
+                // `GameLogic::create_object` has a map/decorative fallback
+                // path.  Weapon OCLs must not enter that path: first inject
+                // only a real parsed asset definition, then create through the
+                // normal world object lifecycle.
+                if !self.templates.contains_key(template_name) {
+                    let Some(template) = Self::build_template_from_asset_definition(template_name)
+                    else {
+                        continue;
+                    };
+                    self.templates.insert(template_name.to_string(), template);
+                }
+
+                // C++ `GenericObjectCreationNugget::doStuffToObj` transforms
+                // `Offset` through the primary object's matrix before adding
+                // it to the source position (ObjectCreationList.cpp:953-960).
+                // `Coord3D` is (X, Y-horizontal, Z-up), whereas the host is
+                // X/Z-horizontal with Y-up, so convert first and then apply
+                // the frozen source yaw.  Leaving this unrotated puts every
+                // directional FireOCL/debris spawn on the same world side of
+                // its source regardless of facing.
+                let local_offset = Vec3::new(generic.offset.x, generic.offset.z, generic.offset.y);
+                let rotated_offset = glam::Mat3::from_rotation_y(source_orientation) * local_offset;
+                let mut spawn_position = origin + rotated_offset;
+                let on_ground = generic
+                    .disposition
+                    .has(DebrisDisposition::ON_GROUND_ALIGNED);
+                if on_ground {
+                    spawn_position.y = self
+                        .terrain_height_at(spawn_position)
+                        .unwrap_or(spawn_position.y);
+                }
+
+                let Some(created_id) =
+                    self.create_object(template_name, source_team, spawn_position)
+                else {
+                    continue;
+                };
+                let Some(object) = self.objects.get_mut(&created_id) else {
+                    continue;
+                };
+
+                object.producer_id = source_id;
+                if generic.disposition.has(DebrisDisposition::LIKE_EXISTING) {
+                    object.set_orientation(source_orientation);
+                }
+                if generic.disposition.has(DebrisDisposition::INHERIT_VELOCITY) {
+                    // The host's movement/physics state is the concrete
+                    // equivalent of C++ PhysicsBehavior::applyForce for this
+                    // disposition.  It also preserves DragonTank FireWall
+                    // segment direction without inspecting an OCL name.
+                    object.movement.velocity = source_velocity;
+                }
+                if generic.inherit_veterancy {
+                    object.set_min_veterancy_level(source_veterancy);
+                }
+                if generic.max_frames > 0 {
+                    let min_frames = i32::try_from(generic.min_frames).unwrap_or(i32::MAX);
+                    let max_frames = i32::try_from(generic.max_frames).unwrap_or(i32::MAX);
+                    let chosen_frames =
+                        gamelogic::helpers::get_game_logic_random_value(min_frames, max_frames);
+                    let delay_frames = u32::try_from(chosen_frames).unwrap_or(generic.min_frames);
+                    object.lifetime_update = Some(
+                        crate::game_logic::host_lifetime_update::HostLifetimeUpdateData::from_delay_frames(
+                            self.frame,
+                            delay_frames,
+                        ),
+                    );
+                }
+
+                // C++ calls BodyModuleInterface::setInitialHealth with a
+                // game-logic random percent after the object is created.
+                let health_percent = gamelogic::helpers::get_game_logic_random_value_real(
+                    generic.min_health,
+                    generic.max_health,
+                )
+                .clamp(0.0, 1.0);
+                object.health.current = object.health.maximum * health_percent;
+
+                if generic.invulnerable_time > 0 {
+                    object.apply_eject_invulnerable(
+                        self.frame.saturating_add(generic.invulnerable_time),
+                    );
+                }
+                if on_ground {
+                    // `ON_GROUND_ALIGNED` gives every spawned object a random
+                    // yaw after terrain placement (ObjectCreationList.cpp).
+                    object.set_orientation(gamelogic::helpers::get_game_logic_random_value_real(
+                        0.0,
+                        std::f32::consts::TAU,
+                    ));
+                }
+                created.push(created_id);
+            }
+        }
+        created
+    }
+
+    /// Materialize FireFX and FireOCL events stamped when pending projectiles
+    /// were drained. This is kept in GameLogic so both the normal host tick
+    /// and GameWorld fire-spawn apply path use the same real object lifecycle.
+    pub(crate) fn execute_pending_weapon_fire_ocls(&mut self) {
+        let fire_ocls = self.combat_system.take_fire_ocl();
+        for fire in fire_ocls {
+            // C++ Weapon.cpp handles FireFX before invoking FireOCL.  Do not
+            // synthesize a generic muzzle event for a blank FX reference: the
+            // parsed name is authoritative and a null FXList is genuinely no
+            // visual effect.
+            if !fire.fire_fx_name.trim().is_empty()
+                && !fire.fire_fx_name.trim().eq_ignore_ascii_case("None")
+            {
+                let _ = self.combat_particles.spawn_weapon_fire_fx_named_ocl(
+                    fire.origin,
+                    None,
+                    self.frame,
+                    fire.shooter_id,
+                    None,
+                    &fire.fire_fx_name,
+                    "",
+                    &fire.fire_ocl_name,
+                    "",
+                );
+            }
+            if !fire.fire_ocl_name.trim().is_empty()
+                && !fire.fire_ocl_name.trim().eq_ignore_ascii_case("None")
+            {
+                let _ = self.execute_parsed_weapon_ocl_at(
+                    &fire.fire_ocl_name,
+                    Some(fire.shooter_id),
+                    fire.source_team,
+                    fire.source_veterancy,
+                    fire.source_orientation,
+                    fire.source_velocity,
+                    fire.origin,
+                );
+            }
+        }
+    }
+
+    /// Flush real projectile impacts after either host- or GameWorld-owned
+    /// flight integration.  Keeping this at the combat boundary ensures an
+    /// OCL-only detonation cannot become a presentation-only no-op.
+    pub(crate) fn flush_projectile_impact_fx(&mut self) {
+        let impacts = self.combat_system.take_impact_fx();
+        for impact in impacts {
+            // C++ executes ProjectileDetonationFX and
+            // ProjectileDetonationOCL independently.  An OCL-only weapon
+            // (common poison/radiation field pattern) therefore still reaches
+            // the real host object-creation path.
+            if impact.detonation_fx_name.is_empty() && impact.detonation_ocl_name.is_empty() {
+                continue;
+            }
+            if !impact.detonation_ocl_name.is_empty() {
+                let _ = self.execute_parsed_weapon_ocl_at(
+                    &impact.detonation_ocl_name,
+                    Some(impact.shooter_id),
+                    impact.source_team,
+                    impact.source_veterancy,
+                    impact.source_orientation,
+                    impact.source_velocity,
+                    impact.position,
+                );
+            }
+            let _ = self.combat_particles.spawn_weapon_fire_fx_named_ocl(
+                impact.position,
+                Some(impact.position),
+                self.frame,
+                impact.shooter_id,
+                impact.target_id,
+                "",
+                &impact.detonation_fx_name,
+                "",
+                &impact.detonation_ocl_name,
+            );
+        }
+    }
+
     pub fn apply_nuke_cannon_primary_at(
         &mut self,
         impact: Vec3,
@@ -1834,5 +2131,56 @@ impl GameLogic {
         let _ = SCORPION_MISSILE_PROJECTILE_SPEED; // cruise used in update
         self.scorpion_missiles_spawned = self.scorpion_missiles_spawned.saturating_add(1);
         Some(pid)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::game_logic::ThingTemplate;
+    use std::path::PathBuf;
+
+    #[test]
+    fn retail_fire_field_ocl_creates_the_authored_object_for_the_source_team() {
+        // Load the actual retail source rather than registering an invented
+        // OCL. This exercises the same parsed store lookup used by a Weapon
+        // FireOCL/ProjectileDetonationOCL in a live game.
+        let retail = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../..")
+            .join("windows_game/extracted_big_files/INIZH/Data/INI/ObjectCreationList.ini");
+        gamelogic::object_creation_list::store::load_object_creation_lists_from_path(&retail)
+            .expect("retail ObjectCreationList.ini must parse");
+
+        let mut logic = GameLogic::new();
+        logic.templates.insert(
+            "__OclBridgeSource".into(),
+            ThingTemplate::new("__OclBridgeSource"),
+        );
+        // The test supplies the exact existing Object identity; production
+        // obtains it from the parsed asset definition before creating it.
+        logic.templates.insert(
+            "FireFieldSmall".into(),
+            ThingTemplate::new("FireFieldSmall"),
+        );
+        let source = logic
+            .create_object("__OclBridgeSource", Team::China, Vec3::new(10.0, 3.0, 20.0))
+            .expect("source object");
+
+        let created = logic.execute_parsed_weapon_ocl_at(
+            "OCL_FireFieldSmall",
+            Some(source),
+            Team::China,
+            VeterancyLevel::Veteran,
+            0.0,
+            Vec3::ZERO,
+            Vec3::new(10.0, 3.0, 20.0),
+        );
+
+        assert_eq!(created.len(), 1);
+        let field = logic.objects.get(&created[0]).expect("created field");
+        assert_eq!(field.template_name, "FireFieldSmall");
+        assert_eq!(field.team, Team::China);
+        assert_eq!(field.producer_id, Some(source));
+        assert_eq!(field.get_position(), Vec3::new(10.0, 3.0, 20.0));
     }
 }

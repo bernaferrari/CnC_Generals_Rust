@@ -7,10 +7,10 @@ use crate::display::image::get_mapped_image_collection;
 use crate::game_text::GameText;
 use crate::gui::game_window::Image as WindowImage;
 use crate::gui::{
-    get_shell, get_skirmish_setup, message_box_ok, message_box_ok_cancel,
-    show_shell_map_if_available, try_with_shell_mut, with_window_manager, GameWindow,
-    SkirmishPreferences, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled,
-    WindowStatus, GLM_RIGHT_CLICKED,
+    get_shell, get_skirmish_setup, message_box_ok, message_box_ok_cancel, queue_shell_pop,
+    queue_shell_reverse_animate_window, queue_shell_shutdown_complete, show_shell_map_if_available,
+    try_with_shell_mut, with_window_manager, GameWindow, SkirmishPreferences, WindowLayout,
+    WindowMessage, WindowMsgData, WindowMsgHandled, WindowStatus, GLM_RIGHT_CLICKED,
 };
 use crate::map_util::{find_draw_positions, get_map_cache_manager, get_map_preview_image};
 use crate::message_stream::{get_message_stream, GameMessageType};
@@ -1588,7 +1588,7 @@ pub fn skirmish_game_options_menu_update(
                 set_skirmish_is_shutting_down(false);
             }
             layout.hide(true);
-            let _ = try_with_shell_mut(|shell| shell.shutdown_complete(None, false));
+            queue_shell_shutdown_complete(false);
         }
     });
 }
@@ -1608,11 +1608,11 @@ pub fn skirmish_game_options_menu_shutdown(
         destroy_skirmish_map_select_overlay();
         layout.hide(true);
         set_skirmish_is_shutting_down(false);
-        let _ = try_with_shell_mut(|shell| shell.shutdown_complete(None, false));
+        queue_shell_shutdown_complete(false);
         return;
     }
 
-    let _ = try_with_shell_mut(|shell| shell.reverse_animate_window());
+    queue_shell_reverse_animate_window();
     with_window_manager(|manager| manager.transition_reverse("SkirmishGameOptionsMenuFade"));
 
     with_state(|state| state.is_shutting_down = true);
@@ -1926,7 +1926,7 @@ pub fn skirmish_game_options_menu_system(
                 set_skirmish_button_pushed(true);
                 write_skirmish_preferences(state);
                 destroy_skirmish_map_select_overlay();
-                let _ = try_with_shell_mut(|shell| shell.pop());
+                queue_shell_pop();
                 {
                     let mut setup = get_skirmish_setup();
                     *setup = Default::default();

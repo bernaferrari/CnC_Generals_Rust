@@ -186,7 +186,9 @@ impl GameLogic {
         }
         // Laser-guided special: engage secondary-slot target.
         // Under AI decision authority, log-only for GameWorld writeback.
-        self.engage_target_decision_aware(object_id, target_id);
+        if !self.engage_target_decision_aware(object_id, target_id) {
+            return false;
+        }
         self.missile_defender_residual_laser_specials = self
             .missile_defender_residual_laser_specials
             .saturating_add(1);
@@ -231,10 +233,17 @@ impl GameLogic {
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return false;
         };
-        if !is_combat_cycle_template(&obj.template_name) {
+        let parsed_rider_change = obj.thing.template.contain_module.kind
+            == crate::game_logic::ContainModuleKind::RiderChange
+            && obj
+                .thing
+                .template
+                .contain_module
+                .has_supported_rider_change_roster();
+        if !is_combat_cycle_template(&obj.template_name) && !parsed_rider_change {
             return false;
         }
-        if !obj.is_combat_cycle_style_container() {
+        if !obj.is_combat_cycle_style_container() && !parsed_rider_change {
             obj.install_combat_cycle_transport();
         }
 
@@ -283,6 +292,32 @@ impl GameLogic {
         let Some(container) = self.objects.get(&container_id) else {
             return;
         };
+        let parsed_rider_change = container.thing.template.contain_module.kind
+            == crate::game_logic::ContainModuleKind::RiderChange
+            && container
+                .thing
+                .template
+                .contain_module
+                .has_supported_rider_change_roster();
+        if parsed_rider_change {
+            // An authored RiderChange transaction owns this state.  Never
+            // infer the occupant class from a template basename after it has
+            // selected a RiderN slot.  The only retained legacy exception is
+            // an initial payload with no live occupant yet.
+            let active_rider = container
+                .rider_change_active_slot
+                .map(CombatCycleRider::from_u8)
+                .or_else(|| {
+                    container
+                        .contained_units()
+                        .is_empty()
+                        .then(|| CombatCycleRider::from_u8(container.combat_cycle_rider))
+                });
+            if let Some(rider) = active_rider {
+                let _ = self.apply_combat_cycle_rider(container_id, rider);
+            }
+            return;
+        }
         if !is_combat_cycle_template(&container.template_name)
             && !container.is_combat_cycle_style_container()
         {

@@ -45,7 +45,12 @@ impl<'a> CommandExecutor<'a> {
 
         for &unit_id in units {
             let team = match self.game_logic.host_object(unit_id) {
-                Some(unit) if unit.can_construct() => unit.team,
+                Some(unit)
+                    if unit.can_construct()
+                        && unit.owner_player_id == Some(self.current_player_id) =>
+                {
+                    unit.team
+                }
                 Some(_) => continue,
                 None => continue,
             };
@@ -61,7 +66,7 @@ impl<'a> CommandExecutor<'a> {
             }
 
             {
-                let Some(player) = self.game_logic.get_player_mut_by_team(team) else {
+                let Some(player) = self.game_logic.get_player_mut(self.current_player_id) else {
                     continue;
                 };
 
@@ -70,12 +75,14 @@ impl<'a> CommandExecutor<'a> {
                 }
             }
 
-            let building_id =
-                self.game_logic
-                    .create_object_under_construction(template_name, team, location);
+            let building_id = self.game_logic.create_object_under_construction_for_player(
+                template_name,
+                self.current_player_id,
+                location,
+            );
             let Some(building_id) = building_id else {
                 // Refund on failed placement.
-                if let Some(player) = self.game_logic.get_player_mut_by_team(team) {
+                if let Some(player) = self.game_logic.get_player_mut(self.current_player_id) {
                     player.resources.supplies = player
                         .resources
                         .supplies
@@ -159,9 +166,8 @@ impl<'a> CommandExecutor<'a> {
         object_id: ObjectId,
         player_id: u32,
     ) -> CommandResult {
-        let player_team = self.player_team(player_id);
         if let Some(obj) = self.game_logic.host_object(object_id) {
-            if obj.team != player_team {
+            if obj.owner_player_id != Some(player_id) {
                 return CommandResult::InvalidTarget;
             }
             // C++ MSG_DOZER_CANCEL_CONSTRUCT: must be under construction, not sold.

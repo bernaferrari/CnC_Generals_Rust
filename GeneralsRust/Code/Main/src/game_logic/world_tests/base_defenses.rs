@@ -485,7 +485,7 @@ fn comanche_rocket_pods_residual_upgrade_and_area_attack() {
         c.set_position(Vec3::new(80.0, 0.0, 0.0));
     }
     assert!(game_logic.unit_command_select_weapon_slot(comanche_id, 2));
-    assert!(game_logic.unit_command_fire_weapon(comanche_id, Some(tank_id), None));
+    assert!(game_logic.unit_command_fire_weapon(comanche_id, Some(tank_id), None, -1));
     {
         let c = game_logic.host_object(comanche_id).expect("comanche");
         assert_eq!(c.weapon_lock_type, WeaponLockType::LockedTemporarily);

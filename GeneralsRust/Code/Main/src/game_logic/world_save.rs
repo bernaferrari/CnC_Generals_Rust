@@ -991,6 +991,39 @@ impl GameLogic {
             .map(|o| o.get_position())
     }
 
+    /// Resolve a base from the controlling player first. A faction fallback is
+    /// valid only if the faction has a single active player; otherwise USA-vs-
+    /// USA would incorrectly share whichever base happens to be visited first.
+    pub fn player_base_position(&self, player_id: u32) -> Option<Vec3> {
+        let player = self.players.get(&player_id)?;
+        for obj in self.objects.values() {
+            if obj.owner_player_id != Some(player_id) {
+                continue;
+            }
+            if obj.is_kind_of(KindOf::Structure)
+                && obj.name.to_ascii_lowercase().contains("commandcenter")
+            {
+                return Some(obj.get_position());
+            }
+        }
+        for obj in self.objects.values() {
+            if obj.owner_player_id == Some(player_id) && obj.is_kind_of(KindOf::Structure) {
+                return Some(obj.get_position());
+            }
+        }
+        if let Some(position) = self
+            .objects
+            .values()
+            .find(|obj| obj.owner_player_id == Some(player_id))
+            .map(|obj| obj.get_position())
+        {
+            return Some(position);
+        }
+        (self.unique_player_id_for_team(player.team) == Some(player_id))
+            .then(|| self.team_base_position(player.team))
+            .flatten()
+    }
+
     /// Initialize the GameLogic singleton
     pub fn initialize() -> GameLogic {
         // For the engine, return a new instance as requested by the original code
@@ -1051,20 +1084,31 @@ impl GameLogic {
         if builds.is_empty() {
             return 0;
         }
-        // Map side_index -> team from skirmish players (sorted) and map_player_to_team.
+        // Map side_index -> faction and controlling player. A side build belongs
+        // to a player start, not to the faction shared by every same-side slot.
         let mut side_teams: std::collections::HashMap<u32, Team> = std::collections::HashMap::new();
+        let mut side_players: std::collections::HashMap<u32, u32> =
+            std::collections::HashMap::new();
         let mut pids: Vec<u32> = self.players.keys().copied().collect();
         pids.sort_unstable();
         for (idx, pid) in pids.iter().enumerate() {
             if let Some(p) = self.players.get(pid) {
                 if p.team != Team::Neutral {
                     side_teams.insert(idx as u32, p.team);
+                    side_players.insert(idx as u32, *pid);
                 }
             }
         }
         for (pid, team) in map_player_to_team {
             // Common residual: side index aligns with player id on skirmish maps.
             side_teams.entry(*pid).or_insert(*team);
+            if self
+                .players
+                .get(pid)
+                .is_some_and(|player| player.is_alive && player.team == *team)
+            {
+                side_players.entry(*pid).or_insert(*pid);
+            }
         }
 
         let mut spawned = 0u32;
@@ -1094,10 +1138,17 @@ impl GameLogic {
             if let Some(ground) = self.terrain_height_at(glam::Vec3::new(pos.x, 0.0, pos.z)) {
                 pos.y = ground + entry.position.z;
             }
-            let id = if entry.initially_built {
-                self.create_object(template, team, pos)
-            } else {
-                None
+            let owner_player_id = side_players
+                .get(&entry.side_index)
+                .copied()
+                .filter(|player_id| {
+                    self.players
+                        .get(player_id)
+                        .is_some_and(|player| player.is_alive && player.team == team)
+                });
+            let id = match owner_player_id {
+                Some(player_id) => self.create_object_for_player(template, player_id, pos),
+                None => self.create_object(template, team, pos),
             };
             if let Some(id) = id {
                 spawned = spawned.saturating_add(1);
@@ -1852,9 +1903,24 @@ impl GameLogic {
                                 // Match C++ map-object placement: map z-offset sits on top of terrain.
                                 spawn_position.y += ground_height;
                             }
-                            if let Some(id) =
-                                self.create_object(obj.template.as_str(), team, spawn_position)
-                            {
+                            let owner_player_id = obj.player_id.filter(|player_id| {
+                                self.players.get(player_id).is_some_and(|player| {
+                                    player.is_alive && player.team == team
+                                })
+                            });
+                            let created = match owner_player_id {
+                                Some(player_id) => self.create_object_for_player(
+                                    obj.template.as_str(),
+                                    player_id,
+                                    spawn_position,
+                                ),
+                                None => self.create_object(
+                                    obj.template.as_str(),
+                                    team,
+                                    spawn_position,
+                                ),
+                            };
+                            if let Some(id) = created {
                                 spawned_object_ids.push((id, index));
                                 if let Some(name) =
                                     obj.name.as_deref().map(str::trim).filter(|n| !n.is_empty())

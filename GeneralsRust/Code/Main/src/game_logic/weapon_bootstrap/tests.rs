@@ -604,12 +604,18 @@ fn shows_ammo_pips_and_waypoint_seeds() {
     ));
 }
 #[test]
-fn play_fx_when_stealthed_and_allow_garrisoned_seeds() {
+fn play_fx_when_stealthed_uses_the_retail_weapon_field() {
     assert!(!host_play_fx_when_stealthed_for_weapon_name(
         "AmericaTankCrusaderGun"
     ));
     assert!(host_play_fx_when_stealthed_for_weapon_name(
+        "DemoTrapDetonationWeapon"
+    ));
+    assert!(!host_play_fx_when_stealthed_for_weapon_name(
         "TunnelNetworkGun"
+    ));
+    assert!(!host_play_fx_when_stealthed_for_weapon_name(
+        "UnknownWeaponXYZ"
     ));
     assert!(host_allow_attack_garrisoned_for_weapon_name(
         "DragonTankFlameWeapon"
@@ -650,30 +656,72 @@ fn fire_sound_for_seeded_weapons_residual() {
 }
 
 #[test]
-fn fire_fx_for_seeded_weapons_residual() {
+fn fire_fx_uses_exact_retail_weapon_reference() {
     let _ = ensure_host_weapon_store();
+    // These values come from Weapon.ini. They must not be inferred from a
+    // weapon name: a missing or unknown store entry instead produces no FX.
     assert_eq!(
-        seed_fire_fx_for("AmericaTankCrusaderGun"),
+        host_fire_fx_for_weapon_name("CrusaderTankGun"),
         "WeaponFX_GenericTankGunNoTracer"
     );
     assert_eq!(
-        seed_detonation_fx_for(TANK_HUNTER_PRIMARY_WEAPON),
+        host_detonation_fx_for_weapon_name(TANK_HUNTER_PRIMARY_WEAPON),
         "WeaponFX_RocketBuggyMissileDetonation"
     );
-    let (ffx, dfx) = host_weapon_fx_for_unit_slot(
-        "ChinaInfantryTankHunter",
-        Some(TANK_HUNTER_PRIMARY_WEAPON),
-        None,
-        0,
+    assert!(host_fire_fx_for_weapon_name("UnknownWeaponXYZ").is_empty());
+    assert!(host_detonation_fx_for_weapon_name("UnknownWeaponXYZ").is_empty());
+}
+
+#[test]
+fn parsed_veterancy_effects_drive_host_weapon_lookup() {
+    // This exercises the host-facing path used by combat, rather than only
+    // inspecting the parsed template. Each repeated Veterancy property must
+    // remain attached to its own C++ rank slot.
+    let ini = r#"
+Weapon __RustHostVeterancyEffectLookup
+  FireFX = FX_BaseFire
+  VeterancyFireFX = HEROIC FX_HeroicFire
+  ProjectileDetonationFX = FX_BaseDetonation
+  VeterancyProjectileDetonationFX = ELITE FX_EliteDetonation
+  FireOCL = OCL_BaseFire
+  VeterancyFireOCL = VETERAN OCL_VeteranFire
+  ProjectileDetonationOCL = OCL_BaseDetonation
+  VeterancyProjectileDetonationOCL = HEROIC OCL_HeroicDetonation
+  ProjectileExhaust = Exhaust_Base
+  VeterancyProjectileExhaust = HEROIC Exhaust_Heroic
+End
+"#;
+    assert_eq!(
+        crate::assets::ini_template_loader::register_weapons_from_ini_text(ini),
+        1
     );
-    // Store may supply retail FireFX; peel residual is non-empty for tank hunter.
-    assert!(
-        !dfx.is_empty()
-            || !ffx.is_empty()
-            || !seed_fire_fx_for(TANK_HUNTER_PRIMARY_WEAPON).is_empty()
+
+    use crate::game_logic::VeterancyLevel::{Elite, Heroic, Rookie, Veteran};
+    let name = "__RustHostVeterancyEffectLookup";
+    assert_eq!(
+        host_fire_fx_for_weapon_name_at_veterancy(name, Rookie),
+        "FX_BaseFire"
     );
-    let ffx2 = host_fire_fx_for_weapon_name(TANK_HUNTER_PRIMARY_WEAPON);
-    assert!(!ffx2.is_empty() || ffx2 == seed_fire_fx_for(TANK_HUNTER_PRIMARY_WEAPON));
+    assert_eq!(
+        host_fire_fx_for_weapon_name_at_veterancy(name, Heroic),
+        "FX_HeroicFire"
+    );
+    assert_eq!(
+        host_detonation_fx_for_weapon_name_at_veterancy(name, Elite),
+        "FX_EliteDetonation"
+    );
+    assert_eq!(
+        host_fire_ocl_for_weapon_name_at_veterancy(name, Veteran),
+        "OCL_VeteranFire"
+    );
+    assert_eq!(
+        host_detonation_ocl_for_weapon_name_at_veterancy(name, Heroic),
+        "OCL_HeroicDetonation"
+    );
+    assert_eq!(
+        host_projectile_exhaust_for_weapon_name_at_veterancy(name, Heroic),
+        "Exhaust_Heroic"
+    );
 }
 
 #[test]
@@ -699,51 +747,28 @@ fn projectile_object_for_seeded_weapons_residual() {
 }
 
 #[test]
-fn fire_ocl_for_seeded_weapons_residual() {
+fn weapon_ocl_uses_exact_retail_reference() {
+    let _ = ensure_host_weapon_store();
+    // Retail ToxinShellWeapon has FireOCL only. The old name heuristic
+    // invented a ProjectileDetonationOCL poison field, which differs from
+    // Weapon.ini and causes an extra gameplay spawn.
     assert_eq!(
-        seed_fire_ocl_for("ChinaTankInfernoCannonGun"),
-        "OCL_FireFieldSmall"
-    );
-    assert_eq!(
-        seed_detonation_ocl_for("ChinaTankInfernoCannonGun"),
-        "OCL_FireFieldSmall"
-    );
-    assert_eq!(
-        seed_fire_ocl_for("GLAInfantryTerroristSuicideWeapon"),
+        host_fire_ocl_for_weapon_name("ToxinShellWeapon"),
         "OCL_PoisonFieldSmall"
     );
-    assert_eq!(
-        host_detonation_ocl_for_weapon_name("ToxinShellWeapon"),
-        "OCL_PoisonFieldMedium"
-    );
-    let (f, d) = host_weapon_ocl_for_unit_slot(
-        "ChinaTankInfernoCannon",
-        Some("ChinaTankInfernoCannonGun"),
-        None,
-        0,
-    );
-    assert_eq!(f, "OCL_FireFieldSmall");
-    assert_eq!(d, "OCL_FireFieldSmall");
+    assert!(host_detonation_ocl_for_weapon_name("ToxinShellWeapon").is_empty());
+    let (f, d) =
+        host_weapon_ocl_for_unit_slot("AnyHostTemplate", Some("ToxinShellWeapon"), None, 0);
+    assert_eq!(f, "OCL_PoisonFieldSmall");
+    assert!(d.is_empty());
     // Unknown stays empty (fail-closed).
     assert!(host_fire_ocl_for_weapon_name("UnknownWeaponXYZ").is_empty());
     assert!(host_detonation_ocl_for_weapon_name("UnknownWeaponXYZ").is_empty());
 }
 
 #[test]
-fn projectile_exhaust_for_seeded_weapons_residual() {
-    assert_eq!(
-        seed_projectile_exhaust_for("ChinaInfantryTankHunterMissileLauncher"),
-        "MissileExhaust"
-    );
-    assert_eq!(
-        seed_projectile_exhaust_for("AmericaMissileDefenderMissileWeapon"),
-        "MissileDefenderMissileExhaust"
-    );
-    assert_eq!(
-        seed_projectile_exhaust_for("GLAScudLauncherWeapon"),
-        "ScudMissileExhaust"
-    );
-    assert_eq!(seed_projectile_exhaust_for("AmericaTankCrusaderGun"), "");
+fn projectile_exhaust_uses_exact_retail_weapon_reference() {
+    let _ = ensure_host_weapon_store();
     let e = host_projectile_exhaust_for_unit_slot(
         "ChinaInfantryTankHunter",
         Some("ChinaInfantryTankHunterMissileLauncher"),
@@ -751,6 +776,13 @@ fn projectile_exhaust_for_seeded_weapons_residual() {
         0,
     );
     assert_eq!(e, "MissileExhaust");
+    assert_eq!(
+        host_projectile_exhaust_for_weapon_name_at_veterancy(
+            "ChinaInfantryTankHunterMissileLauncher",
+            crate::game_logic::VeterancyLevel::Heroic,
+        ),
+        "HeroicMissileExhaust"
+    );
     assert!(host_projectile_exhaust_for_weapon_name("UnknownWeaponXYZ").is_empty());
 }
 

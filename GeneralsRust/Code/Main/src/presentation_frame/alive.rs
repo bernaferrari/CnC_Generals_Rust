@@ -1,4 +1,5 @@
 use super::*;
+use glam::{Mat4, Vec2, Vec3};
 
 impl PresentationFrame {
     /// Hotkey residual: idle selectable friendly workers/dozers/chinooks/supply/hack.
@@ -205,15 +206,82 @@ impl PresentationFrame {
         player_team: crate::game_logic::Team,
     ) -> Vec<ObjectId> {
         use crate::unit_control::UnitControlSystem;
+        let _ = player_team;
         let mut out = Vec::new();
         for id in ids {
             if let Some(o) = self.objects.iter().find(|o| o.id == *id) {
-                if o.team == player_team && UnitControlSystem::presentation_is_selectable(o) {
+                if self.is_owned_by_local(o) && UnitControlSystem::presentation_is_selectable(o) {
                     out.push(*id);
                 }
             }
         }
         out
+    }
+
+    /// Old snapshots did not include object owner provenance.  Preserve their
+    /// faction-only selection behavior only when the whole frame is legacy;
+    /// mixing a `None` owner into a live owner-aware frame must not let a
+    /// same-faction opponent become selectable.
+    #[inline]
+    pub fn uses_legacy_team_ownership_fallback(&self) -> bool {
+        self.objects.iter().all(|object| object.owner_player_id.is_none())
+    }
+
+    /// Whether this frozen object is controlled by the local player. Faction
+    /// is an art/template property, not authority, once the frame has owner
+    /// provenance.
+    #[inline]
+    pub fn is_owned_by_local(&self, object: &RenderableObject) -> bool {
+        match object.owner_player_id {
+            Some(owner_player_id) => owner_player_id == self.local_player_id,
+            None => self.uses_legacy_team_ownership_fallback() && object.team == self.local_team,
+        }
+    }
+
+    /// Player relationship represented by this presentation snapshot.  It
+    /// intentionally uses the same limited rule as host GameLogic: self and
+    /// matching non-negative alliance slots are allied; distinct live slots
+    /// are enemies. Unknown owner provenance stays neutral/fail-closed.
+    pub fn is_allied_with_local(&self, object: &RenderableObject) -> bool {
+        let Some(owner_player_id) = object.owner_player_id else {
+            return self.uses_legacy_team_ownership_fallback() && object.team == self.local_team;
+        };
+        if owner_player_id == self.local_player_id {
+            return true;
+        }
+        let Some(local) = self.player_info(self.local_player_id) else {
+            return false;
+        };
+        let Some(owner) = self.player_info(owner_player_id) else {
+            return false;
+        };
+        local.is_alive
+            && owner.is_alive
+            && local.alliance_team >= 0
+            && local.alliance_team == owner.alliance_team
+    }
+
+    /// True only for a proven, active opposing player. This avoids inventing
+    /// hostility for neutral props or ownerless compatibility records.
+    pub fn is_enemy_of_local(&self, object: &RenderableObject) -> bool {
+        if object.team == crate::game_logic::Team::Neutral {
+            return false;
+        }
+        let Some(owner_player_id) = object.owner_player_id else {
+            return self.uses_legacy_team_ownership_fallback() && object.team != self.local_team;
+        };
+        if owner_player_id == self.local_player_id {
+            return false;
+        }
+        let Some(local) = self.player_info(self.local_player_id) else {
+            return false;
+        };
+        let Some(owner) = self.player_info(owner_player_id) else {
+            return false;
+        };
+        local.is_alive
+            && owner.is_alive
+            && !(local.alliance_team >= 0 && local.alliance_team == owner.alliance_team)
     }
 
     /// All alive selectable friendlies (Ctrl+A / Tab cycle residual).
@@ -782,6 +850,84 @@ impl PresentationFrame {
         }
     }
 
+    /// Select friendly units inside the actual screen-space drag rectangle.
+    ///
+    /// C++ `SelectionTranslator` sends an `IRegion2D` pixel region to
+    /// `TacticalView::iterateDrawablesInRegion`; it does not turn the two
+    /// ground-ray intersections into a world X/Z rectangle.  More
+    /// specifically, `W3DView::iterateDrawablesInRegion` projects each
+    /// drawable's center and compares that point to the normalized region;
+    /// drag selection does not inflate the region by geometry or selection
+    /// radius. The presentation object list remains frozen, while the current
+    /// camera matrices only project those frozen positions into the input/UI
+    /// coordinate system.
+    pub fn box_select_unit_ids_in_screen_rect(
+        &self,
+        player_team: crate::game_logic::Team,
+        view_matrix: Mat4,
+        projection_matrix: Mat4,
+        start: Vec2,
+        end: Vec2,
+        viewport_size: Vec2,
+    ) -> Vec<ObjectId> {
+        use crate::game_logic::KindOf;
+        use crate::unit_control::UnitControlSystem;
+
+        let viewport_width = viewport_size.x.max(1.0);
+        let viewport_height = viewport_size.y.max(1.0);
+        let view_projection = projection_matrix * view_matrix;
+        if !view_projection.is_finite() {
+            return Vec::new();
+        }
+        let min_x = start.x.min(end.x);
+        let max_x = start.x.max(end.x);
+        let min_y = start.y.min(end.y);
+        let max_y = start.y.max(end.y);
+
+        let mut units = Vec::new();
+        let mut structures = Vec::new();
+        for object in &self.objects {
+            if object.team != player_team || !UnitControlSystem::presentation_is_selectable(object)
+            {
+                continue;
+            }
+            let Some(screen_position) = project_position_to_screen(
+                view_projection,
+                object.position,
+                viewport_width,
+                viewport_height,
+            ) else {
+                continue;
+            };
+            if screen_position.x < min_x
+                || screen_position.x > max_x
+                || screen_position.y < min_y
+                || screen_position.y > max_y
+            {
+                continue;
+            }
+
+            let is_structure = object.is_structure
+                || Self::object_has_kind(object, KindOf::Structure)
+                || object.object_type == PresentationObjectType::Building;
+            if is_structure {
+                structures.push(object.id);
+            } else {
+                units.push(object.id);
+            }
+        }
+
+        if !units.is_empty() {
+            units
+        } else if structures.len() == 1 {
+            structures
+        } else {
+            // Preserve the existing C++ selection policy: a structure-only
+            // drag selects exactly one structure, never an arbitrary group.
+            Vec::new()
+        }
+    }
+
     /// Structures residual (KindOf::Structure or object_type Building).
     pub fn structure_objects(&self) -> Vec<&RenderableObject> {
         use crate::game_logic::KindOf;
@@ -818,4 +964,28 @@ impl PresentationFrame {
             })
             .collect()
     }
+}
+
+fn project_position_to_screen(
+    view_projection: Mat4,
+    position: Vec3,
+    viewport_width: f32,
+    viewport_height: f32,
+) -> Option<Vec2> {
+    let clip = view_projection * position.extend(1.0);
+    // A non-positive W is behind the camera for Main's right-handed WGPU
+    // projection.  Keeping the sign is essential: `abs(w)` would mirror
+    // behind-camera objects into a legitimate drag rectangle.
+    if !clip.is_finite() || clip.w <= f32::EPSILON {
+        return None;
+    }
+    let ndc = clip.truncate() / clip.w;
+    if !ndc.is_finite() || !(0.0..=1.0).contains(&ndc.z) {
+        return None;
+    }
+    let screen = Vec2::new(
+        (ndc.x + 1.0) * 0.5 * viewport_width,
+        (1.0 - ndc.y) * 0.5 * viewport_height,
+    );
+    screen.is_finite().then_some(screen)
 }

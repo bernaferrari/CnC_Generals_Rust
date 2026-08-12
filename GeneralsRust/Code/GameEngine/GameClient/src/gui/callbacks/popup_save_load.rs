@@ -12,10 +12,11 @@ use crate::gui::menu_flags::{
 };
 use crate::gui::shell::Color as WindowColor;
 use crate::gui::{
-    queue_set_focus, queue_window_manager_op, queue_window_manager_op_deferred,
-    show_shell_map_if_available, try_with_shell_mut, with_window_manager,
-    write_input_focus_response, GameWindow, KeyModifiers, WindowLayout, WindowMessage,
-    WindowMsgData, WindowMsgHandled, GLM_DOUBLE_CLICKED,
+    queue_set_focus, queue_shell_hide, queue_shell_pop, queue_shell_show,
+    queue_shell_shutdown_complete, queue_window_manager_op, queue_window_manager_op_deferred,
+    show_shell_map_if_available, with_shell_ref, with_window_manager, write_input_focus_response,
+    GameWindow, KeyModifiers, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled,
+    GLM_DOUBLE_CLICKED,
 };
 use game_engine::common::game_engine::get_game_engine;
 use game_engine::common::ini::get_global_data;
@@ -969,7 +970,7 @@ fn close_save_menu(window: &GameWindow, is_popup: bool) {
             layout.borrow().hide(true);
         }
     } else {
-        let _ = try_with_shell_mut(|shell| shell.hide_shell());
+        queue_shell_hide();
     }
 }
 
@@ -987,12 +988,12 @@ fn close_save_menu_after_dispatch(state: &SaveLoadMenuState) {
             layout.borrow().hide(true);
         }
     } else {
-        let _ = try_with_shell_mut(|shell| shell.hide_shell());
+        queue_shell_hide();
     }
 }
 
 fn do_load_game(selected: AvailableGameInfo) {
-    let shell_active = try_with_shell_mut(|shell| shell.is_shell_active()).unwrap_or(false);
+    let shell_active = with_shell_ref(|shell| shell.is_shell_active()).unwrap_or(false);
     if !shell_active {
         destroy_quit_menu();
     } else {
@@ -1015,7 +1016,7 @@ fn do_load_game(selected: AvailableGameInfo) {
             let mut engine = engine.lock();
             let _ = pollster::block_on(engine.reset());
         }
-        let _ = try_with_shell_mut(|shell| shell.show_shell(true));
+        queue_shell_show(true);
     }
 }
 
@@ -1120,7 +1121,7 @@ fn process_load_button_press(
 ) -> Option<SaveLoadSelection> {
     let selected = selected_save(state)?;
 
-    if try_with_shell_mut(|shell| shell.is_shell_active()).unwrap_or(false) {
+    if with_shell_ref(|shell| shell.is_shell_active()).unwrap_or(false) {
         close_save_menu(window, state.is_popup);
         return Some(selected);
     }
@@ -1152,7 +1153,7 @@ fn process_load_double_click_after_dispatch(
     drop(listbox);
 
     let selected = selected_save(state)?;
-    if try_with_shell_mut(|shell| shell.is_shell_active()).unwrap_or(false) {
+    if with_shell_ref(|shell| shell.is_shell_active()).unwrap_or(false) {
         close_save_menu_after_dispatch(state);
         return Some(selected);
     }
@@ -1319,7 +1320,7 @@ pub fn save_load_menu_shutdown(layout: &WindowLayout, user_data: Option<&dyn std
 
     if pop_immediate {
         layout.hide(true);
-        let _ = try_with_shell_mut(|shell| shell.shutdown_complete(None, false));
+        queue_shell_shutdown_complete(false);
         return;
     }
 
@@ -1357,11 +1358,11 @@ pub fn save_load_menu_update(layout: &WindowLayout, _user_data: Option<&dyn std:
     }
 
     if state.is_shutting_down {
-        let shell_finished = try_with_shell_mut(|shell| shell.is_anim_finished()).unwrap_or(false);
+        let shell_finished = with_shell_ref(|shell| shell.is_anim_finished()).unwrap_or(false);
         let transitions_finished = with_window_manager(|manager| manager.transitions_finished());
         if shell_finished && transitions_finished {
             layout.hide(true);
-            let _ = try_with_shell_mut(|shell| shell.shutdown_complete(None, false));
+            queue_shell_shutdown_complete(false);
         }
     }
 }
@@ -1517,7 +1518,7 @@ pub fn save_load_menu_system(
                 if state.is_popup {
                     close_save_menu(window, true);
                 } else {
-                    let _ = try_with_shell_mut(|shell| shell.pop());
+                    queue_shell_pop();
                 }
                 return WindowMsgHandled::Handled;
             }

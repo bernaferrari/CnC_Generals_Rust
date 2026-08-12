@@ -75,7 +75,15 @@ impl<'a> CommandExecutor<'a> {
                 if obj.team != unit_team || !obj.is_alive() || !obj.can_contain() {
                     return None;
                 }
-                if !obj.has_capacity_for(1) {
+                // This helper feeds the normal garrison/Enter acquire path,
+                // not an internal payload spawn.  Keep its candidate screen
+                // on the centralized ContainModule authority so a heavy
+                // rider cannot be matched to a transport with only one raw
+                // body slot left.
+                if !self
+                    .game_logic
+                    .can_unit_enter_normal_target(unit_id, obj_id)
+                {
                     return None;
                 }
                 Some(
@@ -143,7 +151,7 @@ impl<'a> CommandExecutor<'a> {
                 ) && u.is_alive()
                     && u.can_move()
             });
-            if pilot_recrew != Some(true) && !self.can_issue_enter_or_dock(unit_id, target_id) {
+            if pilot_recrew != Some(true) && !self.can_issue_enter(unit_id, target_id) {
                 continue;
             }
 
@@ -565,27 +573,60 @@ impl<'a> CommandExecutor<'a> {
         units: &[ObjectId],
         target_id: ObjectId,
     ) -> CommandResult {
-        let target_pos = if let Some(target) = self.game_logic.host_object(target_id) {
-            if target.is_alive() && !target.status.under_construction && target.can_contain() {
+        let target_pos = match self.game_logic.host_object(target_id) {
+            Some(target)
+                if target.is_alive()
+                    && !target.status.under_construction
+                    && !target.status.sold =>
+            {
                 target.get_position()
-            } else {
-                return CommandResult::InvalidTarget;
             }
-        } else {
-            return CommandResult::InvalidTarget;
+            _ => return CommandResult::InvalidTarget,
         };
 
         let mut issued = false;
         for &unit_id in units {
-            if !self.can_issue_enter_or_dock(unit_id, target_id) {
+            let Some(dock_kind) = self.can_issue_dock(unit_id, target_id) else {
                 continue;
-            }
+            };
 
-            // Wave 233: order-target via GameLogic authority API.
-            let _ = self
-                .game_logic
-                .unit_command_set_order_target(unit_id, Some(target_id));
-            if self.path_to_goal_with_state(unit_id, target_pos, AIState::Docking) {
+            let state = match dock_kind {
+                crate::game_logic::DockKind::SupplyCenter => {
+                    if !self
+                        .game_logic
+                        .unit_command_return_supplies(unit_id, target_id)
+                    {
+                        continue;
+                    }
+                    AIState::ReturningResources
+                }
+                crate::game_logic::DockKind::SupplyWarehouse => {
+                    if !self
+                        .game_logic
+                        .unit_command_dock_at_supply_warehouse(unit_id, target_id)
+                    {
+                        continue;
+                    }
+                    AIState::Gathering
+                }
+                crate::game_logic::DockKind::RailedTransport => {
+                    if !self
+                        .game_logic
+                        .unit_command_dock_at_railed_transport(unit_id, target_id)
+                    {
+                        continue;
+                    }
+                    AIState::Docking
+                }
+                crate::game_logic::DockKind::None => continue,
+            };
+
+            if self.path_to_goal_with_state(unit_id, target_pos, state)
+                || self
+                    .game_logic
+                    .host_object(unit_id)
+                    .is_some_and(|unit| unit.get_position().distance(target_pos) <= 0.1)
+            {
                 issued = true;
             }
         }

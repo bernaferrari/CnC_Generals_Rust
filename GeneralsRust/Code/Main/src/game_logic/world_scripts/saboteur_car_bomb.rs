@@ -178,7 +178,7 @@ impl GameLogic {
                 // C++ PLAYER_HUMAN → no scan. Host residual: local player is human.
                 // No mapped player → fail-closed treat as non-AI (no auto-scan).
                 let is_ai = self
-                    .player_id_for_team(obj.team)
+                    .player_owner_for_host_object(obj)
                     .and_then(|pid| self.players.get(&pid))
                     .map(|p| !p.is_local)
                     .unwrap_or(false);
@@ -645,7 +645,7 @@ impl GameLogic {
                 let has_module = is_auto_find_healing_template(&obj.template_name);
                 let is_idle = matches!(obj.ai_state, AIState::Idle);
                 let is_ai = self
-                    .player_id_for_team(obj.team)
+                    .player_owner_for_host_object(obj)
                     .and_then(|pid| self.players.get(&pid))
                     .map(|p| !p.is_local)
                     .unwrap_or(false);
@@ -1246,7 +1246,7 @@ impl GameLogic {
                 }
                 // Human player residual: no auto-seek.
                 let is_ai = self
-                    .player_id_for_team(obj.team)
+                    .player_owner_for_host_object(obj)
                     .and_then(|pid| self.players.get(&pid))
                     .map(|p| !p.is_local)
                     .unwrap_or(false);
@@ -1343,7 +1343,7 @@ impl GameLogic {
                     return;
                 }
                 let is_ai = self
-                    .player_id_for_team(obj.team)
+                    .player_owner_for_host_object(obj)
                     .and_then(|pid| self.players.get(&pid))
                     .map(|p| !p.is_local)
                     .unwrap_or(false);

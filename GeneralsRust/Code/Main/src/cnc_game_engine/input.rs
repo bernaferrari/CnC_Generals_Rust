@@ -94,6 +94,15 @@ impl CnCGameEngine {
                     let _ = game_client::gui::reveal_main_menu_first_input_like_cpp();
                 }
                 let wnd_used = self.dispatch_os_key_to_window_manager(physical_key, pressed);
+                #[cfg(feature = "game_client")]
+                let escape_toggles_live_quit_menu = pressed
+                    && matches!(
+                        physical_key,
+                        winit::keyboard::PhysicalKey::Code(winit::keyboard::KeyCode::Escape)
+                    )
+                    && game_client::gui::callbacks::is_quit_menu_visible();
+                #[cfg(not(feature = "game_client"))]
+                let escape_toggles_live_quit_menu = false;
                 let route_keyboard_to_legacy_ui = !wnd_used
                     && matches!(
                         self.current_state,
@@ -143,13 +152,34 @@ impl CnCGameEngine {
                             ) => {
                                 self.camera_zoom_out_held = true;
                             }
-                            _ if wnd_used => {
+                            // QuitMenu.wnd deliberately uses GameWinBlockInput
+                            // to wall off world input.  C++ CommandMap's global
+                            // OPTIONS binding still owns Escape, including when
+                            // a QuitMenu child has keyboard focus, so let only
+                            // that key continue to the hotkey router.
+                            _ if wnd_used && !escape_toggles_live_quit_menu => {
                                 // C++ WindowXlat consumed the key (shell or focused gadget).
                             }
                             _ if construction_consumed => {
                                 // Construction cameo / Escape placement cancel residual.
                             }
-                            _ => self.handle_key_press(key),
+                            _ => {
+                                // CommandMap binds CREATE/SELECT/ADD/VIEW_TEAM to
+                                // the physical number row (`KEY_0`..`KEY_9`).  A
+                                // shifted number row key has a punctuation logical
+                                // character (for example Shift+1 is `!`), so routing
+                                // it through `Key::Character` loses ADD_TEAM.
+                                // Keep keypad keys separate: those are camera keys,
+                                // not control-group aliases in the retail map.
+                                if let Some(group) =
+                                    Self::control_group_from_physical_number_row(physical_key)
+                                        .filter(|_| !self.chat_panel.is_open())
+                                {
+                                    self.handle_control_group_hotkey(group);
+                                } else {
+                                    self.handle_key_press(key);
+                                }
+                            }
                         }
                     }
                     ElementState::Released => {
@@ -207,6 +237,30 @@ impl CnCGameEngine {
         }
     }
 
+    /// Return a retail control-group slot only for the physical number row.
+    ///
+    /// C++ `CommandMap.ini` uses `KEY_0` through `KEY_9` for the team commands;
+    /// it deliberately does not bind numpad digits to those commands.
+    pub(super) fn control_group_from_physical_number_row(
+        physical_key: &winit::keyboard::PhysicalKey,
+    ) -> Option<u8> {
+        use winit::keyboard::{KeyCode, PhysicalKey};
+
+        match physical_key {
+            PhysicalKey::Code(KeyCode::Digit0) => Some(0),
+            PhysicalKey::Code(KeyCode::Digit1) => Some(1),
+            PhysicalKey::Code(KeyCode::Digit2) => Some(2),
+            PhysicalKey::Code(KeyCode::Digit3) => Some(3),
+            PhysicalKey::Code(KeyCode::Digit4) => Some(4),
+            PhysicalKey::Code(KeyCode::Digit5) => Some(5),
+            PhysicalKey::Code(KeyCode::Digit6) => Some(6),
+            PhysicalKey::Code(KeyCode::Digit7) => Some(7),
+            PhysicalKey::Code(KeyCode::Digit8) => Some(8),
+            PhysicalKey::Code(KeyCode::Digit9) => Some(9),
+            _ => None,
+        }
+    }
+
     /// Shared cursor move path for physical winit `CursorMoved` and host inject.
     pub(super) fn apply_cursor_position(&mut self, x: f32, y: f32) {
         self.mouse_position = (x, y);
@@ -249,14 +303,20 @@ impl CnCGameEngine {
             let _ = game_client::gui::reveal_main_menu_first_input_like_cpp();
         }
         // Real WM process_mouse_event residual (Used / NotUsed) — never forged.
-        let wnd_used_raw =
-            self.dispatch_os_mouse_to_window_manager(button, pressed, x, y, origin);
+        let wnd_used_raw = self.dispatch_os_mouse_to_window_manager(button, pressed, x, y, origin);
         #[cfg(feature = "game_client")]
         let live_hit = game_client::gui::note_os_wnd_widget_tree_hit(x, y);
         #[cfg(not(feature = "game_client"))]
         let live_hit = false;
         let hit_wnd_widget = live_hit;
         let in_world = matches!(self.current_state, GameState::InGame | GameState::Paused);
+        // A click may arrive after the camera moved without a new CursorMoved
+        // event (keyboard/edge scroll, rotation, script camera).  Refresh the
+        // W3D camera ray at the command boundary so this click is interpreted
+        // against the frame the player currently sees.
+        if in_world {
+            self.update_mouse_world_position();
+        }
         // InGame RMB: shell/HUD may soft-report Used without a live gadget under the
         // cursor (fullscreen residual). World orders require a real gadget hit to
         // steal the click — same honesty as physical: empty world → handle_right_click.
@@ -291,7 +351,8 @@ impl CnCGameEngine {
         // - InGame world: handle_left/right_click + presentation picks.
         //   GameHUD cameo fallback only when WND did not consume.
         #[cfg(feature = "game_client")]
-        let shell_active = game_client::gui::get_shell().is_shell_active();
+        let shell_active =
+            game_client::gui::with_shell_ref(|shell| shell.is_shell_active()).unwrap_or(false);
         #[cfg(not(feature = "game_client"))]
         let shell_active = self.shell_menu_active;
         let mut hud_cameo_consumed = false;
@@ -1037,11 +1098,22 @@ impl CnCGameEngine {
         // the authoritative world underneath it.
         #[cfg(feature = "game_client")]
         self.host_tick_control_bar_bridge();
+        // `ControlBar.wnd:LeftHUD` is also part of the retail Control Bar.
+        // Its WND callback queues typed geometry/provenance, while Main owns
+        // the WGPU minimap/FOW conversion and the authoritative world order.
+        #[cfg(feature = "game_client")]
+        self.host_tick_minimap_bridge();
         // PopupSaveLoad owns the retail WND sequence, but Main owns the only
         // Rust snapshot world.  Drain requests after input/UI callbacks have
         // unwound, before the frame's state-specific work observes a load.
         #[cfg(feature = "game_client")]
         self.host_tick_popup_save_load_bridge();
+        // C++ `ToggleQuitMenu` owns the visible WND, while Main owns the only
+        // offline simulation.  Reconcile after popup callbacks have unwound so
+        // a real QuitMenu ButtonReturn/Exit/Restart cannot leave host time
+        // paused (or running) independently of the rendered WND.
+        #[cfg(feature = "game_client")]
+        self.host_tick_quit_menu_bridge();
         if matches!(self.current_state, GameState::Menu) && self.menu_world_frames_rendered < 5 {
             debug!(
                 "update_internal: Menu state, update_runtime_subsystems done, entering state match"
@@ -1751,5 +1823,34 @@ impl CnCGameEngine {
         // Dual GameHUD residual: engine HUD + interactive UIManager HUD.
         pres.apply_to_game_hud(&mut self.game_hud);
         pres.apply_to_game_hud(self.ui_manager.game_hud_mut());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::CnCGameEngine;
+    use winit::keyboard::{KeyCode, PhysicalKey};
+
+    #[test]
+    fn control_groups_use_physical_number_row_not_shifted_text_or_numpad() {
+        assert_eq!(
+            CnCGameEngine::control_group_from_physical_number_row(&PhysicalKey::Code(
+                KeyCode::Digit0,
+            )),
+            Some(0)
+        );
+        assert_eq!(
+            CnCGameEngine::control_group_from_physical_number_row(&PhysicalKey::Code(
+                KeyCode::Digit1,
+            )),
+            Some(1)
+        );
+        assert_eq!(
+            CnCGameEngine::control_group_from_physical_number_row(&PhysicalKey::Code(
+                KeyCode::Numpad1,
+            )),
+            None,
+            "retail CommandMap only binds KEY_1, never KEY_KP1"
+        );
     }
 }

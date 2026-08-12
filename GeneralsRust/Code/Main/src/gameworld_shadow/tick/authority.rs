@@ -264,34 +264,26 @@ pub fn gameworld_production_sole_tick_enabled() -> bool {
         && shadow_coupled_tick_active()
 }
 
-/// Gates/smoke: no-op when production defaults are already on.
-/// Still forces `1` if env was never set (explicit documentation for gate binaries).
+/// Refresh the default-on authority-gate cache for smoke/gate entry points.
+///
+/// An unset authority variable already means `true`, so writing `"1"` into the
+/// process environment changes no game behavior.  Avoid that global mutation:
+/// Rust correctly marks environment writes unsafe because another thread or a
+/// foreign library may observe the process environment concurrently.  Explicit
+/// user opt-outs (`=0|false`) remain untouched and are re-read below.
 pub fn ensure_gate_damage_authority() {
-    if std::env::var_os("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY").is_none() {
-        unsafe {
-            std::env::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", "1");
-        }
-    }
     ensure_gate_economy_authority();
     ensure_gate_production_authority();
-    // Caches may have been primed before gate env force-on.
+    // Caches may have been primed before a caller changed an explicit gate.
     refresh_gameworld_authority_env_caches();
 }
 
-/// Gates/smoke: force economy authority env to `1` when unset.
+/// Refresh the default-on economy authority cache without mutating process env.
 pub fn ensure_gate_economy_authority() {
-    if std::env::var_os("GENERALS_GAMEWORLD_ECONOMY_AUTHORITY").is_none() {
-        unsafe {
-            std::env::set_var("GENERALS_GAMEWORLD_ECONOMY_AUTHORITY", "1");
-        }
-    }
+    refresh_gameworld_authority_env_caches();
 }
 
-/// Gates/smoke: force production authority env to `1` when unset.
+/// Refresh the default-on production authority cache without mutating process env.
 pub fn ensure_gate_production_authority() {
-    if std::env::var_os("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY").is_none() {
-        unsafe {
-            std::env::set_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", "1");
-        }
-    }
+    refresh_gameworld_authority_env_caches();
 }

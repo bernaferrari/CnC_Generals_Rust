@@ -171,6 +171,7 @@ mod tests {
         PendingProjectile {
             shooter_id: shooter,
             shooter_pos: Vec3::ZERO,
+            source_context: None,
             target_id: Some(target),
             target_pos: Some(Vec3::new(20.0, 0.0, 0.0)),
             damage: 10.0,
@@ -180,6 +181,9 @@ mod tests {
             damage_type: DamageType::Bullet,
             death_type: HostDeathType::Normal,
             projectile_object_name: String::new(),
+            projectile_lifecycle: None,
+            fire_fx_name: String::new(),
+            fire_ocl_name: String::new(),
             detonation_fx_name: String::new(),
             detonation_ocl_name: String::new(),
             exhaust_name: String::new(),

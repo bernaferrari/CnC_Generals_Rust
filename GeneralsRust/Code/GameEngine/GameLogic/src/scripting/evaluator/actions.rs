@@ -111,20 +111,17 @@ impl ScriptEvaluator {
             }
         }
 
-        let mut engine = self.engine.write().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to acquire engine lock: {}", e))
-        })?;
-        let engine = engine.as_mut().ok_or_else(|| {
-            GameLogicError::Configuration("Script engine not initialized".to_string())
-        })?;
+        let result = self.with_evaluation_engine_mut(|engine| {
+            if midway {
+                engine.is_special_power_midway(player_index, power_name, true, source_id)
+            } else if complete {
+                engine.is_special_power_complete(player_index, power_name, true, source_id)
+            } else {
+                engine.is_special_power_triggered(player_index, power_name, true, source_id)
+            }
+        });
 
-        if midway {
-            Ok(engine.is_special_power_midway(player_index, power_name, true, source_id))
-        } else if complete {
-            Ok(engine.is_special_power_complete(player_index, power_name, true, source_id))
-        } else {
-            Ok(engine.is_special_power_triggered(player_index, power_name, true, source_id))
-        }
+        Ok(result.unwrap_or(false))
     }
 
     /// Helper for upgrade conditions (built upgrade, built upgrade from named).
@@ -181,14 +178,11 @@ impl ScriptEvaluator {
             }
         }
 
-        let mut engine = self.engine.write().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to acquire engine lock: {}", e))
-        })?;
-        let engine = engine.as_mut().ok_or_else(|| {
-            GameLogicError::Configuration("Script engine not initialized".to_string())
-        })?;
-
-        Ok(engine.is_upgrade_complete(player_index, upgrade_name, true, source_id))
+        Ok(self
+            .with_evaluation_engine_mut(|engine| {
+                engine.is_upgrade_complete(player_index, upgrade_name, true, source_id)
+            })
+            .unwrap_or(false))
     }
 
     fn make_script_context(&self) -> Arc<RwLock<ScriptContext>> {
@@ -209,24 +203,16 @@ impl ScriptEvaluator {
     }
 
     fn get_action_handler(&self) -> GameLogicResult<Option<Arc<dyn ScriptActionHandler>>> {
-        let engine = self.engine.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to acquire engine lock: {}", e))
-        })?;
-        Ok(engine.as_ref().and_then(|engine| engine.action_handler()))
+        Ok(self
+            .with_evaluation_engine_ref(|engine| engine.action_handler())
+            .flatten())
     }
 
     /// Execute victory action
     fn execute_victory_action(&self, _action: &ScriptAction) -> GameLogicResult<()> {
         log::info!("Victory action executed");
 
-        let mut engine = self.engine.write().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to acquire engine lock: {}", e))
-        })?;
-        let engine = engine.as_mut().ok_or_else(|| {
-            GameLogicError::Configuration("Script engine not initialized".to_string())
-        })?;
-
-        engine.start_end_game_timer();
+        let _ = self.with_evaluation_engine_mut(|engine| engine.start_end_game_timer());
         Ok(())
     }
 
@@ -234,14 +220,7 @@ impl ScriptEvaluator {
     fn execute_defeat_action(&self, _action: &ScriptAction) -> GameLogicResult<()> {
         log::info!("Defeat action executed");
 
-        let mut engine = self.engine.write().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to acquire engine lock: {}", e))
-        })?;
-        let engine = engine.as_mut().ok_or_else(|| {
-            GameLogicError::Configuration("Script engine not initialized".to_string())
-        })?;
-
-        engine.start_end_game_timer();
+        let _ = self.with_evaluation_engine_mut(|engine| engine.start_end_game_timer());
         Ok(())
     }
 
@@ -249,14 +228,7 @@ impl ScriptEvaluator {
     fn execute_quick_victory_action(&self, _action: &ScriptAction) -> GameLogicResult<()> {
         log::info!("Quick victory action executed");
 
-        let mut engine = self.engine.write().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to acquire engine lock: {}", e))
-        })?;
-        let engine = engine.as_mut().ok_or_else(|| {
-            GameLogicError::Configuration("Script engine not initialized".to_string())
-        })?;
-
-        engine.start_quick_end_game_timer();
+        let _ = self.with_evaluation_engine_mut(|engine| engine.start_quick_end_game_timer());
         Ok(())
     }
 
@@ -272,22 +244,11 @@ impl ScriptEvaluator {
         let flag_name = flag_param.get_string();
         let flag_value = value_param.get_int() != 0;
 
-        if let Some(result) =
-            super::engine::with_script_engine_mut(|engine| engine.set_flag(flag_name, flag_value))
+        if let Some(result) = self
+            .with_evaluation_engine_mut(|engine| engine.set_flag(flag_name, flag_value))
         {
             result?;
-            log::debug!("Set flag '{}' to {}", flag_name, flag_value);
-            return Ok(());
         }
-
-        let mut engine = self.engine.write().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to acquire engine lock: {}", e))
-        })?;
-        let engine = engine.as_mut().ok_or_else(|| {
-            GameLogicError::Configuration("Script engine not initialized".to_string())
-        })?;
-
-        engine.set_flag(flag_name, flag_value)?;
         log::debug!("Set flag '{}' to {}", flag_name, flag_value);
         Ok(())
     }
@@ -304,14 +265,11 @@ impl ScriptEvaluator {
         let counter_name = counter_param.get_string();
         let counter_value = value_param.get_int();
 
-        let mut engine = self.engine.write().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to acquire engine lock: {}", e))
-        })?;
-        let engine = engine.as_mut().ok_or_else(|| {
-            GameLogicError::Configuration("Script engine not initialized".to_string())
-        })?;
-
-        engine.set_counter(counter_name, counter_value)?;
+        if let Some(result) = self
+            .with_evaluation_engine_mut(|engine| engine.set_counter(counter_name, counter_value))
+        {
+            result?;
+        }
         log::debug!("Set counter '{}' to {}", counter_name, counter_value);
         Ok(())
     }
@@ -327,19 +285,17 @@ impl ScriptEvaluator {
 
         let counter_name = counter_param.get_string();
 
-        let mut engine = self.engine.write().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to acquire engine lock: {}", e))
-        })?;
-        let engine = engine.as_mut().ok_or_else(|| {
-            GameLogicError::Configuration("Script engine not initialized".to_string())
-        })?;
-
-        // Get current value and increment
-        let current_value = engine
-            .get_counter(counter_name)
-            .map(|c| c.value)
+        let current_value = self
+            .with_evaluation_engine_mut(|engine| {
+                let current_value = engine
+                    .get_counter(counter_name)
+                    .map(|counter| counter.value)
+                    .unwrap_or(0);
+                engine.set_counter(counter_name, current_value + value_param)?;
+                Ok::<_, GameLogicError>(current_value)
+            })
+            .transpose()?
             .unwrap_or(0);
-        engine.set_counter(counter_name, current_value + value_param)?;
         log::debug!(
             "Incremented counter '{}' by {} to {}",
             counter_name,
@@ -360,19 +316,17 @@ impl ScriptEvaluator {
 
         let counter_name = counter_param.get_string();
 
-        let mut engine = self.engine.write().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to acquire engine lock: {}", e))
-        })?;
-        let engine = engine.as_mut().ok_or_else(|| {
-            GameLogicError::Configuration("Script engine not initialized".to_string())
-        })?;
-
-        // Get current value and decrement
-        let current_value = engine
-            .get_counter(counter_name)
-            .map(|c| c.value)
+        let current_value = self
+            .with_evaluation_engine_mut(|engine| {
+                let current_value = engine
+                    .get_counter(counter_name)
+                    .map(|counter| counter.value)
+                    .unwrap_or(0);
+                engine.set_counter(counter_name, current_value - value_param)?;
+                Ok::<_, GameLogicError>(current_value)
+            })
+            .transpose()?
             .unwrap_or(0);
-        engine.set_counter(counter_name, current_value - value_param)?;
         log::debug!(
             "Decremented counter '{}' by {} to {}",
             counter_name,
@@ -393,24 +347,13 @@ impl ScriptEvaluator {
 
         let counter_name = counter_param.get_string();
         let seconds = seconds_param.get_int();
-        let frames = seconds * 30; // 30 fps typical game framerate
+        let frames = seconds * LOGICFRAMES_PER_SECOND as i32;
 
-        let mut engine = self.engine.write().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to acquire engine lock: {}", e))
-        })?;
-        let engine = engine.as_mut().ok_or_else(|| {
-            GameLogicError::Configuration("Script engine not initialized".to_string())
-        })?;
-
-        engine.set_counter(counter_name, frames)?;
-
-        // Mark as countdown timer
-        let index = engine.allocate_counter(counter_name)?;
-        engine.with_inner_mut(|inner| {
-            if let Some(counter) = inner.counters.get_mut(index).and_then(|c| c.as_mut()) {
-                counter.is_countdown_timer = true;
-            }
-        });
+        if let Some(result) =
+            self.with_evaluation_engine_mut(|engine| engine.set_timer(counter_name, frames))
+        {
+            result?;
+        }
 
         log::debug!(
             "Set timer '{}' to {} seconds ({} frames)",
@@ -438,22 +381,11 @@ impl ScriptEvaluator {
         let seconds = milliseconds_param.get_real();
         let frames = (seconds.max(0.0) * LOGICFRAMES_PER_SECOND as f32).ceil() as i32;
 
-        let mut engine = self.engine.write().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to acquire engine lock: {}", e))
-        })?;
-        let engine = engine.as_mut().ok_or_else(|| {
-            GameLogicError::Configuration("Script engine not initialized".to_string())
-        })?;
-
-        engine.set_counter(counter_name, frames)?;
-
-        // Mark as countdown timer
-        let index = engine.allocate_counter(counter_name)?;
-        engine.with_inner_mut(|inner| {
-            if let Some(counter) = inner.counters.get_mut(index).and_then(|c| c.as_mut()) {
-                counter.is_countdown_timer = true;
-            }
-        });
+        if let Some(result) = self.with_evaluation_engine_mut(|engine| {
+            engine.set_timer_millisecond_script_seconds(counter_name, seconds)
+        }) {
+            result?;
+        }
 
         log::debug!(
             "Set millisecond timer '{}' to {} script-seconds ({} frames)",
@@ -512,27 +444,13 @@ impl ScriptEvaluator {
 
     /// Execute freeze time action
     fn execute_freeze_time_action(&self, _action: &ScriptAction) -> GameLogicResult<()> {
-        let mut engine = self.engine.write().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to acquire engine lock: {}", e))
-        })?;
-        let engine = engine.as_mut().ok_or_else(|| {
-            GameLogicError::Configuration("Script engine not initialized".to_string())
-        })?;
-
-        engine.do_freeze_time();
+        let _ = self.with_evaluation_engine_mut(|engine| engine.do_freeze_time());
         Ok(())
     }
 
     /// Execute unfreeze time action
     fn execute_unfreeze_time_action(&self, _action: &ScriptAction) -> GameLogicResult<()> {
-        let mut engine = self.engine.write().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to acquire engine lock: {}", e))
-        })?;
-        let engine = engine.as_mut().ok_or_else(|| {
-            GameLogicError::Configuration("Script engine not initialized".to_string())
-        })?;
-
-        engine.do_unfreeze_time();
+        let _ = self.with_evaluation_engine_mut(|engine| engine.do_unfreeze_time());
         Ok(())
     }
 

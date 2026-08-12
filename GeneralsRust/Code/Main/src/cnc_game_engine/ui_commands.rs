@@ -1,5 +1,55 @@
 #![allow(unused_imports, unused_variables, dead_code, non_snake_case)]
 use super::*;
+
+/// Convert a still-armed FIRE_WEAPON button into Main's authoritative order.
+///
+/// `ATTACK_OBJECTS_POSITION` deliberately keeps the target object only for
+/// click validation.  C++ emits `MSG_DO_WEAPON_AT_LOCATION` in that case, so
+/// the host must use the click's terrain position even when the picker also
+/// supplied an object ID.
+fn resolve_pending_weapon_command(
+    weapon: PendingWeaponCommand,
+    location: glam::Vec3,
+    target_object: Option<crate::game_logic::ObjectId>,
+) -> crate::command_system::CommandType {
+    let target = match target_object {
+        Some(_) if weapon.attacks_object_position() => {
+            crate::command_system::WeaponTarget::Location(location)
+        }
+        Some(target_id) => crate::command_system::WeaponTarget::Object(target_id),
+        None => crate::command_system::WeaponTarget::Location(location),
+    };
+    crate::command_system::CommandType::DoWeapon {
+        weapon_slot: weapon.weapon_slot,
+        max_shots_to_fire: weapon.max_shots_to_fire,
+        target,
+    }
+}
+
+/// Convert an armed `COMBATDROP` button using C++'s target precedence.
+///
+/// `CommandXlat::issueCombatDropCommand` emits `MSG_COMBATDROP_AT_OBJECT`
+/// when an object was clicked and the button has any
+/// `COMMAND_OPTION_NEED_OBJECT_TARGET` bit.  It only falls through to the
+/// terrain location when that object route is unavailable and `NEED_TARGET_POS`
+/// is present.
+fn resolve_pending_combat_drop_command(
+    combat_drop: PendingCombatDropCommand,
+    location: glam::Vec3,
+    target_object: Option<crate::game_logic::ObjectId>,
+) -> Option<crate::command_system::CommandType> {
+    if let Some(target_id) = target_object.filter(|_| combat_drop.accepts_object_target()) {
+        return Some(crate::command_system::CommandType::CombatDrop {
+            target: crate::command_system::DropTarget::Object(target_id),
+        });
+    }
+    combat_drop.accepts_position_target().then_some(
+        crate::command_system::CommandType::CombatDrop {
+            target: crate::command_system::DropTarget::Location(location),
+        },
+    )
+}
+
 impl CnCGameEngine {
     pub(super) fn commit_pending_map_command(
         &mut self,
@@ -38,9 +88,14 @@ impl CnCGameEngine {
             PendingMapCommand::SetRallyPoint => {
                 crate::command_system::CommandType::SetRallyPoint { location }
             }
-            PendingMapCommand::CombatDrop => crate::command_system::CommandType::CombatDrop {
-                target: crate::command_system::DropTarget::Location(location),
-            },
+            PendingMapCommand::CombatDrop(combat_drop) => {
+                let Some(command) =
+                    resolve_pending_combat_drop_command(combat_drop, location, target_object)
+                else {
+                    return;
+                };
+                command
+            }
             PendingMapCommand::SpecialPower(power_type) => {
                 let target = if let Some(tid) = target_object {
                     crate::command_system::PowerTarget::Object(tid)
@@ -49,16 +104,8 @@ impl CnCGameEngine {
                 };
                 crate::command_system::CommandType::DoSpecialPower { power_type, target }
             }
-            PendingMapCommand::Weapon(weapon_slot) => {
-                let target = if let Some(tid) = target_object {
-                    crate::command_system::WeaponTarget::Object(tid)
-                } else {
-                    crate::command_system::WeaponTarget::Location(location)
-                };
-                crate::command_system::CommandType::DoWeapon {
-                    weapon_slot,
-                    target,
-                }
+            PendingMapCommand::Weapon(weapon) => {
+                resolve_pending_weapon_command(weapon, location, target_object)
             }
             PendingMapCommand::PlaceBeacon => crate::command_system::CommandType::PlaceBeacon {
                 location,
@@ -198,7 +245,7 @@ impl CnCGameEngine {
             PendingMapCommand::AttackMove => "ATTACK_CONTINUE_AREA",
             PendingMapCommand::Guard(_) => "GUARD_AREA",
             PendingMapCommand::SetRallyPoint => "FRIENDLY_SPECIALPOWER",
-            PendingMapCommand::CombatDrop => "COMBATDROP",
+            PendingMapCommand::CombatDrop(_) => "COMBATDROP",
             PendingMapCommand::PlaceBeacon => "RADAR",
             PendingMapCommand::SpecialPower(ref p) => Self::radius_cursor_type_for_special_power(p),
             PendingMapCommand::Weapon(_) => "OFFENSIVE_SPECIALPOWER",
@@ -478,6 +525,13 @@ impl CnCGameEngine {
         let clamped = self.clamp_to_world_bounds(world_pos);
         self.camera_target.x = clamped.x;
         self.camera_target.z = clamped.z;
+        // C++ W3DView::lookAt/setPosition rebuilds the active camera rather
+        // than waiting for unrelated scroll/shake activity.
+        self.apply_camera_orbit_transform();
+        if matches!(self.current_state, GameState::InGame | GameState::Paused) {
+            self.update_mouse_world_position();
+            self.sync_context_mouse_cursor();
+        }
         clamped
     }
 
@@ -1275,7 +1329,9 @@ impl CnCGameEngine {
                 return;
             }
             crate::command_system::CommandType::CombatDrop { .. } => {
-                self.pending_map_command = Some(PendingMapCommand::CombatDrop);
+                self.pending_map_command = Some(PendingMapCommand::CombatDrop(
+                    PendingCombatDropCommand::position_only(),
+                ));
                 self.pending_structure_placement = None;
                 self.arm_radius_cursor_for_pending("COMBATDROP");
                 let msg = "Combat drop: click landing zone";
@@ -1514,5 +1570,70 @@ impl CnCGameEngine {
             selected_units: selected,
             modifier_keys: crate::command_system::ModifierKeys::default(),
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn attack_objects_position_weapon_uses_click_location_and_keeps_shot_budget() {
+        let click = glam::Vec3::new(41.0, 0.0, -23.0);
+        let command = resolve_pending_weapon_command(
+            PendingWeaponCommand {
+                weapon_slot: crate::command_system::WeaponSlot::Primary,
+                max_shots_to_fire: 1,
+                // C++ CommandOption::ATTACK_OBJECTS_POSITION.
+                options: 0x0000_1000,
+            },
+            click,
+            Some(crate::game_logic::ObjectId(77)),
+        );
+
+        assert_eq!(
+            command,
+            crate::command_system::CommandType::DoWeapon {
+                weapon_slot: crate::command_system::WeaponSlot::Primary,
+                max_shots_to_fire: 1,
+                target: crate::command_system::WeaponTarget::Location(click),
+            }
+        );
+    }
+
+    #[test]
+    fn retail_combat_drop_keeps_object_click_precedence_over_its_position_option() {
+        let click = glam::Vec3::new(41.0, 0.0, -23.0);
+        let target_id = crate::game_logic::ObjectId(77);
+        // Parsed Command_CombatDrop: enemy | neutral | ally | position |
+        // multi-select | context command.
+        let retail = PendingCombatDropCommand {
+            options: 0x0000_0327,
+        };
+
+        assert_eq!(
+            resolve_pending_combat_drop_command(retail.clone(), click, Some(target_id)),
+            Some(crate::command_system::CommandType::CombatDrop {
+                target: crate::command_system::DropTarget::Object(target_id),
+            })
+        );
+        assert_eq!(
+            resolve_pending_combat_drop_command(retail, click, None),
+            Some(crate::command_system::CommandType::CombatDrop {
+                target: crate::command_system::DropTarget::Location(click),
+            })
+        );
+    }
+
+    #[test]
+    fn combat_drop_without_a_parsed_target_mode_fails_closed() {
+        assert_eq!(
+            resolve_pending_combat_drop_command(
+                PendingCombatDropCommand { options: 0 },
+                glam::Vec3::ZERO,
+                Some(crate::game_logic::ObjectId(77)),
+            ),
+            None
+        );
     }
 }

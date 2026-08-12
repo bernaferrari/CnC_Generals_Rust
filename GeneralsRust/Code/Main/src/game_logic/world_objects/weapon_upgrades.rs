@@ -2,6 +2,57 @@
 //! apply_*_to_team weapon upgrades. Child of `world_objects` (itself a child of `game_logic.rs`).
 #![allow(unused_imports, non_snake_case)]
 use super::super::*;
+use std::cell::Cell;
+
+// Upgrade completion reaches many C++ `giveUpgrade` residuals which retain a
+// team-shaped public API.  The authoritative completion path supplies a
+// PlayerId, so scope that identity for the synchronous fan-out rather than
+// letting every routine select all same-faction slots.  The guard restores the
+// previous scope on every exit, including an early return or panic.
+thread_local! {
+    static ACTIVE_UPGRADE_OWNER: Cell<Option<u32>> = Cell::new(None);
+}
+
+pub(super) struct UpgradeOwnerScope {
+    previous: Option<u32>,
+}
+
+pub(super) fn enter_upgrade_owner_scope(player_id: u32) -> UpgradeOwnerScope {
+    let previous = ACTIVE_UPGRADE_OWNER.with(|owner| owner.replace(Some(player_id)));
+    UpgradeOwnerScope { previous }
+}
+
+impl Drop for UpgradeOwnerScope {
+    fn drop(&mut self) {
+        ACTIVE_UPGRADE_OWNER.with(|owner| owner.set(self.previous));
+    }
+}
+
+/// `None` means an old direct team-only caller, which retains legacy behavior.
+/// A live player-owned completion requires exact ownership; an unowned object
+/// is intentionally not guessed to belong to one of two same-faction players.
+#[inline]
+pub(super) fn upgrade_targets_object(object: &Object, team: Team) -> bool {
+    object.team == team
+        && ACTIVE_UPGRADE_OWNER.with(|owner| match owner.get() {
+            Some(player_id) => object.owner_player_id == Some(player_id),
+            None => true,
+        })
+}
+
+#[inline]
+pub(super) fn upgrade_targets_player(player: &Player, team: Team) -> bool {
+    player.team == team
+        && ACTIVE_UPGRADE_OWNER.with(|owner| match owner.get() {
+            Some(player_id) => player.id == player_id,
+            None => true,
+        })
+}
+
+#[inline]
+pub(super) fn active_upgrade_owner() -> Option<u32> {
+    ACTIVE_UPGRADE_OWNER.with(|owner| owner.get())
+}
 
 impl GameLogic {
     /// C++ CashBountyPower / SCIENCE_CashBounty residual via upgrade complete.
@@ -19,7 +70,7 @@ impl GameLogic {
             let Some(obj) = self.objects.get_mut(&id) else {
                 continue;
             };
-            if obj.team != team || !obj.is_alive() {
+            if !upgrade_targets_object(obj, team) || !obj.is_alive() {
                 continue;
             }
             if !is_helix_napalm_caster(&obj.template_name) {
@@ -35,7 +86,11 @@ impl GameLogic {
             n = n.saturating_add(1);
         }
         // Player unlock residual for science/UI gates.
-        if let Some(p) = self.get_player_mut_by_team(team) {
+        let player = match active_upgrade_owner() {
+            Some(player_id) => self.get_player_mut(player_id),
+            None => self.get_player_mut_by_team(team),
+        };
+        if let Some(p) = player {
             p.unlocked_sciences.insert(canonical_tag.to_string());
             if upgrade_name != canonical_tag {
                 p.unlocked_sciences.insert(upgrade_name.to_string());
@@ -54,7 +109,7 @@ impl GameLogic {
         let pct = cash_bounty_percent_for_science(upgrade_name).unwrap_or(0.05);
         let mut n = 0u32;
         for p in self.players.values_mut() {
-            if p.team != team {
+            if !upgrade_targets_player(p, team) {
                 continue;
             }
             p.unlocked_sciences.insert(upgrade_name.to_string());
@@ -96,7 +151,7 @@ impl GameLogic {
             .objects
             .iter()
             .filter(|(_, o)| {
-                o.team == team
+                upgrade_targets_object(o, team)
                     && o.is_alive()
                     && !o.status.under_construction
                     && is_slave_drone_master_template(&o.template_name)
@@ -131,7 +186,7 @@ impl GameLogic {
         let mut n =
             self.apply_player_unlock_upgrade(team, upgrade_name, UPGRADE_AMERICA_CHEMICAL_SUITS);
         for obj in self.objects.values_mut() {
-            if obj.team != team || !obj.is_alive() {
+            if !upgrade_targets_object(obj, team) || !obj.is_alive() {
                 continue;
             }
             if !obj.is_kind_of(KindOf::Infantry) {
@@ -188,7 +243,7 @@ impl GameLogic {
         let mut n =
             self.apply_player_unlock_upgrade(team, upgrade_name, UPGRADE_AMERICA_COUNTERMEASURES);
         for obj in self.objects.values_mut() {
-            if obj.team != team || !obj.is_alive() {
+            if !upgrade_targets_object(obj, team) || !obj.is_alive() {
                 continue;
             }
             if !obj.is_kind_of(KindOf::Aircraft) {
@@ -217,7 +272,7 @@ impl GameLogic {
     ) -> u32 {
         let mut n = 0u32;
         for p in self.players.values_mut() {
-            if p.team != team {
+            if !upgrade_targets_player(p, team) {
                 continue;
             }
             p.unlocked_sciences.insert(canonical.to_string());
@@ -239,7 +294,7 @@ impl GameLogic {
         let add = FORTIFIED_STRUCTURE_ADD_MAX_HEALTH;
         let mut n = 0u32;
         for obj in self.objects.values_mut() {
-            if obj.team != team || !obj.is_alive() {
+            if !upgrade_targets_object(obj, team) || !obj.is_alive() {
                 continue;
             }
             if !obj.is_kind_of(KindOf::Structure) {
@@ -260,7 +315,7 @@ impl GameLogic {
             n = n.saturating_add(1);
         }
         for p in self.players.values_mut() {
-            if p.team == team {
+            if upgrade_targets_player(p, team) {
                 p.unlocked_sciences
                     .insert(UPGRADE_GLA_FORTIFIED_STRUCTURE.to_string());
                 p.unlocked_sciences.insert(upgrade_name.to_string());
@@ -288,7 +343,7 @@ impl GameLogic {
 
         let mut n = self.apply_player_unlock_upgrade(team, upgrade_name, canonical);
         for obj in self.objects.values_mut() {
-            if obj.team != team || !obj.is_alive() {
+            if !upgrade_targets_object(obj, team) || !obj.is_alive() {
                 continue;
             }
             if !is_radar_provider_template(&obj.template_name)
@@ -328,7 +383,7 @@ impl GameLogic {
 
         let mut n = 0u32;
         for obj in self.objects.values_mut() {
-            if obj.team != team || !obj.is_alive() {
+            if !upgrade_targets_object(obj, team) || !obj.is_alive() {
                 continue;
             }
             let kind = if is_battle_drone_template(&obj.template_name) {
@@ -360,7 +415,7 @@ impl GameLogic {
             n = n.saturating_add(1);
         }
         for p in self.players.values_mut() {
-            if p.team == team {
+            if upgrade_targets_player(p, team) {
                 p.unlocked_sciences
                     .insert(UPGRADE_AMERICA_DRONE_ARMOR.to_string());
                 p.unlocked_sciences.insert(upgrade_name.to_string());
@@ -381,7 +436,7 @@ impl GameLogic {
 
         let mut n = 0u32;
         for obj in self.objects.values_mut() {
-            if obj.team != team || !obj.is_alive() {
+            if !upgrade_targets_object(obj, team) || !obj.is_alive() {
                 continue;
             }
             if !is_mig_template(&obj.template_name) {
@@ -407,7 +462,7 @@ impl GameLogic {
             n = n.saturating_add(1);
         }
         for p in self.players.values_mut() {
-            if p.team == team {
+            if upgrade_targets_player(p, team) {
                 p.unlocked_sciences
                     .insert(UPGRADE_CHINA_AIRCRAFT_ARMOR.to_string());
                 p.unlocked_sciences.insert(upgrade_name.to_string());
@@ -425,7 +480,7 @@ impl GameLogic {
         use crate::game_logic::host_unit_training::UPGRADE_AMERICA_ADVANCED_TRAINING;
         let mut n = 0u32;
         for p in self.players.values_mut() {
-            if p.team != team {
+            if !upgrade_targets_player(p, team) {
                 continue;
             }
             p.unlocked_sciences
@@ -435,7 +490,7 @@ impl GameLogic {
         }
         // Tag living USA combat units so XP path can read unit tags residual.
         for obj in self.objects.values_mut() {
-            if obj.team != team || !obj.is_alive() {
+            if !upgrade_targets_object(obj, team) || !obj.is_alive() {
                 continue;
             }
             if obj.is_kind_of(KindOf::Structure) {
@@ -462,7 +517,7 @@ impl GameLogic {
             .objects
             .iter()
             .filter(|(_, o)| {
-                o.team == team && o.is_alive() && is_nuke_mig_template(&o.template_name)
+                upgrade_targets_object(o, team) && o.is_alive() && is_nuke_mig_template(&o.template_name)
             })
             .map(|(id, _)| *id)
             .collect();
@@ -477,7 +532,7 @@ impl GameLogic {
             }
         }
         for p in self.players.values_mut() {
-            if p.team == team {
+            if upgrade_targets_player(p, team) {
                 p.unlocked_sciences
                     .insert(UPGRADE_CHINA_TACTICAL_NUKE_MIG.to_string());
                 p.unlocked_sciences.insert(upgrade_name.to_string());
@@ -499,7 +554,7 @@ impl GameLogic {
 
         let mut n = 0u32;
         for obj in self.objects.values_mut() {
-            if obj.team != team || !obj.is_alive() {
+            if !upgrade_targets_object(obj, team) || !obj.is_alive() {
                 continue;
             }
             let is_tt = is_toxin_tractor_template(&obj.template_name);
@@ -517,7 +572,7 @@ impl GameLogic {
             n = n.saturating_add(1);
         }
         for p in self.players.values_mut() {
-            if p.team == team {
+            if upgrade_targets_player(p, team) {
                 p.unlocked_sciences
                     .insert(UPGRADE_GLA_ANTHRAX_BETA.to_string());
                 p.unlocked_sciences.insert(upgrade_name.to_string());
@@ -537,7 +592,7 @@ impl GameLogic {
 
         let mut n = 0u32;
         for obj in self.objects.values_mut() {
-            if obj.team != team || !obj.is_alive() {
+            if !upgrade_targets_object(obj, team) || !obj.is_alive() {
                 continue;
             }
             if !is_scud_launcher_template(&obj.template_name) {
@@ -554,7 +609,7 @@ impl GameLogic {
             n = n.saturating_add(1);
         }
         for p in self.players.values_mut() {
-            if p.team == team {
+            if upgrade_targets_player(p, team) {
                 p.unlocked_sciences
                     .insert(UPGRADE_GLA_TOXIN_SHELLS.to_string());
                 p.unlocked_sciences.insert(upgrade_name.to_string());
@@ -579,7 +634,7 @@ impl GameLogic {
         let ids: Vec<(ObjectId, u8)> = self
             .objects
             .iter()
-            .filter(|(_, o)| o.team == team && o.is_alive())
+            .filter(|(_, o)| upgrade_targets_object(o, team) && o.is_alive())
             .filter_map(|(id, o)| {
                 if is_jarmen_kell_template(&o.template_name) {
                     Some((*id, 0u8))
@@ -631,7 +686,7 @@ impl GameLogic {
             }
         }
         for p in self.players.values_mut() {
-            if p.team == team {
+            if upgrade_targets_player(p, team) {
                 p.unlocked_sciences
                     .insert(UPGRADE_GLA_AP_BULLETS.to_string());
                 p.unlocked_sciences.insert(upgrade_name.to_string());
@@ -654,7 +709,7 @@ impl GameLogic {
         let ids: Vec<(ObjectId, u8)> = self
             .objects
             .iter()
-            .filter(|(_, o)| o.team == team && o.is_alive())
+            .filter(|(_, o)| upgrade_targets_object(o, team) && o.is_alive())
             .filter_map(|(id, o)| {
                 if is_battlemaster_template(&o.template_name) {
                     Some((*id, 0u8))
@@ -681,7 +736,7 @@ impl GameLogic {
             }
         }
         for p in self.players.values_mut() {
-            if p.team == team {
+            if upgrade_targets_player(p, team) {
                 p.unlocked_sciences
                     .insert(UPGRADE_CHINA_URANIUM_SHELLS.to_string());
                 p.unlocked_sciences.insert(upgrade_name.to_string());
@@ -703,7 +758,7 @@ impl GameLogic {
         let ids: Vec<(ObjectId, u8)> = self
             .objects
             .iter()
-            .filter(|(_, o)| o.team == team && o.is_alive())
+            .filter(|(_, o)| upgrade_targets_object(o, team) && o.is_alive())
             .filter_map(|(id, o)| {
                 if is_mig_template(&o.template_name) {
                     Some((*id, 0u8))
@@ -733,7 +788,7 @@ impl GameLogic {
             }
         }
         for p in self.players.values_mut() {
-            if p.team == team {
+            if upgrade_targets_player(p, team) {
                 p.unlocked_sciences
                     .insert("Upgrade_ChinaBlackNapalm".to_string());
                 p.unlocked_sciences.insert(upgrade_name.to_string());
@@ -753,7 +808,7 @@ impl GameLogic {
             .objects
             .iter()
             .filter(|(_, o)| {
-                o.team == team && o.is_alive() && is_scorpion_template(&o.template_name)
+                upgrade_targets_object(o, team) && o.is_alive() && is_scorpion_template(&o.template_name)
             })
             .map(|(id, _)| *id)
             .collect();
@@ -784,7 +839,7 @@ impl GameLogic {
         let ids: Vec<(ObjectId, u8)> = self
             .objects
             .iter()
-            .filter(|(_, o)| o.team == team && o.is_alive())
+            .filter(|(_, o)| upgrade_targets_object(o, team) && o.is_alive())
             .filter_map(|(id, o)| {
                 if is_scorpion_template(&o.template_name) {
                     Some((*id, 0u8))
@@ -814,7 +869,7 @@ impl GameLogic {
             }
         }
         for p in self.players.values_mut() {
-            if p.team == team {
+            if upgrade_targets_player(p, team) {
                 p.unlocked_sciences
                     .insert(UPGRADE_GLA_AP_ROCKETS.to_string());
                 p.unlocked_sciences.insert(upgrade_name.to_string());
@@ -833,7 +888,7 @@ impl GameLogic {
         let ids: Vec<ObjectId> = self
             .objects
             .iter()
-            .filter(|(_, o)| o.team == team && o.is_alive() && is_raptor_template(&o.template_name))
+            .filter(|(_, o)| upgrade_targets_object(o, team) && o.is_alive() && is_raptor_template(&o.template_name))
             .map(|(id, _)| *id)
             .collect();
         let mut n = 0u32;
@@ -863,7 +918,7 @@ impl GameLogic {
         let ids: Vec<(ObjectId, u8)> = self
             .objects
             .iter()
-            .filter(|(_, o)| o.team == team && o.is_alive())
+            .filter(|(_, o)| upgrade_targets_object(o, team) && o.is_alive())
             .filter_map(|(id, o)| {
                 if is_battlemaster_template(&o.template_name) {
                     Some((*id, 0u8))
@@ -897,7 +952,7 @@ impl GameLogic {
         }
         // Player-level unlock residual so late-built units can inherit.
         for p in self.players.values_mut() {
-            if p.team == team {
+            if upgrade_targets_player(p, team) {
                 p.unlocked_sciences.insert(UPGRADE_NATIONALISM.to_string());
                 p.unlocked_sciences.insert(upgrade_name.to_string());
             }
@@ -920,7 +975,7 @@ impl GameLogic {
         let ids: Vec<(ObjectId, u8)> = self
             .objects
             .iter()
-            .filter(|(_, o)| o.team == team && o.is_alive())
+            .filter(|(_, o)| upgrade_targets_object(o, team) && o.is_alive())
             .filter_map(|(id, o)| {
                 if is_minigunner_template(&o.template_name) {
                     Some((*id, 0u8))
@@ -949,7 +1004,7 @@ impl GameLogic {
             }
         }
         for p in self.players.values_mut() {
-            if p.team == team {
+            if upgrade_targets_player(p, team) {
                 p.unlocked_sciences
                     .insert(UPGRADE_CHINA_CHAIN_GUNS.to_string());
                 p.unlocked_sciences.insert(upgrade_name.to_string());
@@ -972,7 +1027,7 @@ impl GameLogic {
         };
         let mut affected = 0u32;
         for obj in self.objects.values_mut() {
-            if obj.team != team || !obj.is_alive() {
+            if !upgrade_targets_object(obj, team) || !obj.is_alive() {
                 continue;
             }
             let is_tower =
@@ -991,7 +1046,7 @@ impl GameLogic {
         }
         // Also unlock at player level so towers without tags still see upgraded rate.
         for p in self.players.values_mut() {
-            if p.team == team {
+            if upgrade_targets_player(p, team) {
                 p.unlocked_sciences
                     .insert(UPGRADE_CHINA_SUBLIMINAL_MESSAGING.to_string());
                 p.unlocked_sciences.insert(upgrade_name.to_string());
@@ -1019,7 +1074,7 @@ impl GameLogic {
         let bonus = AMERICA_POWER_ENERGY_BONUS;
         let mut plant_ids: Vec<ObjectId> = Vec::new();
         for (id, obj) in self.objects.iter_mut() {
-            if obj.team != team || !obj.is_alive() {
+            if !upgrade_targets_object(obj, team) || !obj.is_alive() {
                 continue;
             }
             if !obj.is_kind_of(KindOf::Structure) {
@@ -1076,7 +1131,7 @@ impl GameLogic {
 
         let mut affected = 0u32;
         for obj in self.objects.values_mut() {
-            if obj.team != team || !obj.is_alive() {
+            if !upgrade_targets_object(obj, team) || !obj.is_alive() {
                 continue;
             }
             if !is_gla_worker_template(&obj.template_name) && !obj.is_worker() {
@@ -1117,7 +1172,7 @@ impl GameLogic {
 
         let mut affected = 0u32;
         for obj in self.objects.values_mut() {
-            if obj.team != team || !obj.is_alive() {
+            if !upgrade_targets_object(obj, team) || !obj.is_alive() {
                 continue;
             }
             if !is_nuclear_tanks_eligible(&obj.template_name) {
@@ -1155,7 +1210,7 @@ impl GameLogic {
 
         let mut affected = 0u32;
         for obj in self.objects.values_mut() {
-            if obj.team != team || !obj.is_alive() {
+            if !upgrade_targets_object(obj, team) || !obj.is_alive() {
                 continue;
             }
             if !is_booby_trap_planter_template(&obj.template_name) {
@@ -1191,7 +1246,7 @@ impl GameLogic {
         let secondary = ThingTemplate::weapon_from_store(RANGER_SECONDARY_WEAPON);
         let mut affected = 0u32;
         for obj in self.objects.values_mut() {
-            if obj.team != team || !obj.is_alive() {
+            if !upgrade_targets_object(obj, team) || !obj.is_alive() {
                 continue;
             }
             if !is_flashbang_unit_template(&obj.template_name) {
@@ -1225,7 +1280,7 @@ impl GameLogic {
         let secondary = ThingTemplate::weapon_from_store(HUMVEE_SECONDARY_WEAPON);
         let mut affected = 0u32;
         for obj in self.objects.values_mut() {
-            if obj.team != team || !obj.is_alive() {
+            if !upgrade_targets_object(obj, team) || !obj.is_alive() {
                 continue;
             }
             if !is_tow_unit_template(&obj.template_name) {
@@ -1267,7 +1322,7 @@ impl GameLogic {
 
         let mut affected = 0u32;
         for obj in self.objects.values_mut() {
-            if obj.team != team || !obj.is_alive() {
+            if !upgrade_targets_object(obj, team) || !obj.is_alive() {
                 continue;
             }
             if !is_composite_armor_unit_template(&obj.template_name) {
@@ -1311,7 +1366,7 @@ impl GameLogic {
         let secondary = ThingTemplate::weapon_from_store(NUKE_CANNON_NEUTRON_WEAPON);
         let mut affected = 0u32;
         for obj in self.objects.values_mut() {
-            if obj.team != team || !obj.is_alive() {
+            if !upgrade_targets_object(obj, team) || !obj.is_alive() {
                 continue;
             }
             if !is_neutron_shell_unit_template(&obj.template_name) {
@@ -1346,7 +1401,7 @@ impl GameLogic {
         let tertiary = comanche_rocket_pod_weapon();
         let mut affected = 0u32;
         for obj in self.objects.values_mut() {
-            if obj.team != team || !obj.is_alive() {
+            if !upgrade_targets_object(obj, team) || !obj.is_alive() {
                 continue;
             }
             if !is_comanche_template(&obj.template_name) {
@@ -1387,7 +1442,7 @@ impl GameLogic {
         let primary = ThingTemplate::weapon_from_store(SENTRY_DRONE_GUN_WEAPON);
         let mut affected = 0u32;
         for obj in self.objects.values_mut() {
-            if obj.team != team || !obj.is_alive() {
+            if !upgrade_targets_object(obj, team) || !obj.is_alive() {
                 continue;
             }
             if !is_sentry_drone_template(&obj.template_name) {
@@ -1425,7 +1480,7 @@ impl GameLogic {
         let primary = ThingTemplate::weapon_from_store(STEALTH_JET_MISSILE_WEAPON);
         let mut affected = 0u32;
         for obj in self.objects.values_mut() {
-            if obj.team != team || !obj.is_alive() {
+            if !upgrade_targets_object(obj, team) || !obj.is_alive() {
                 continue;
             }
             if !is_bunker_buster_carrier(&obj.template_name) {
@@ -1456,7 +1511,7 @@ impl GameLogic {
 
         let mut affected = 0u32;
         for obj in self.objects.values_mut() {
-            if obj.team != team || !obj.is_alive() {
+            if !upgrade_targets_object(obj, team) || !obj.is_alive() {
                 continue;
             }
             if !obj.is_kind_of(KindOf::Infantry) {
@@ -1490,7 +1545,7 @@ impl GameLogic {
 
         let mut affected = 0u32;
         for obj in self.objects.values_mut() {
-            if obj.team != team || !obj.is_alive() {
+            if !upgrade_targets_object(obj, team) || !obj.is_alive() {
                 continue;
             }
             if !obj.is_kind_of(KindOf::Infantry) {
@@ -1534,7 +1589,7 @@ impl GameLogic {
 
         let mut affected = 0u32;
         for obj in self.objects.values_mut() {
-            if obj.team != team || !obj.is_alive() {
+            if !upgrade_targets_object(obj, team) || !obj.is_alive() {
                 continue;
             }
             // Residual name matrix filters eligible GLA structures (not infantry).
@@ -1594,7 +1649,7 @@ impl GameLogic {
 
         let mut affected = 0u32;
         for obj in self.objects.values_mut() {
-            if obj.team != team || !obj.is_alive() {
+            if !upgrade_targets_object(obj, team) || !obj.is_alive() {
                 continue;
             }
             if !is_anthrax_gamma_unit_template(&obj.template_name)
@@ -1626,7 +1681,7 @@ impl GameLogic {
         let mut affected = 0u32;
         let mut command_sets = 0u32;
         for obj in self.objects.values_mut() {
-            if obj.team != team || !obj.is_alive() {
+            if !upgrade_targets_object(obj, team) || !obj.is_alive() {
                 continue;
             }
             if !is_demo_suicide_bomb_eligible_template(&obj.template_name) {
@@ -1668,7 +1723,7 @@ impl GameLogic {
 
         let mut affected = 0u32;
         for obj in self.objects.values_mut() {
-            if obj.team != team || !obj.is_alive() {
+            if !upgrade_targets_object(obj, team) || !obj.is_alive() {
                 continue;
             }
             if obj.is_kind_of(KindOf::SupplyCenter) || is_supply_center_template(&obj.template_name)

@@ -235,12 +235,18 @@ impl GameLogic {
                     if let (Some(attacker), Some(target)) =
                         (self.objects.get(&attacker_id), self.objects.get(&target_id))
                     {
+                        let is_enemy = if self.has_object_ownership_provenance(attacker, target) {
+                            self.object_relationship(attacker, target)
+                                == gamelogic::common::Relationship::Enemies
+                        } else {
+                            attacker.team != target.team
+                        };
                         let stealthed_hidden =
-                            target.is_effectively_stealthed() && target.team != attacker.team;
+                            target.is_effectively_stealthed() && is_enemy;
                         // InvulnerableTime residual: enemies treat as ALLIES (skip auto fire).
                         let invuln_hidden =
-                            target.is_eject_invulnerable() && target.team != attacker.team;
-                        let enemy_or_forced = attacker.force_attack || attacker.team != target.team;
+                            target.is_eject_invulnerable() && is_enemy;
+                        let enemy_or_forced = attacker.force_attack || is_enemy;
                         let slot = if enemy_or_forced && !stealthed_hidden && !invuln_hidden {
                             attacker.select_combat_weapon_slot(target, current_time)
                         } else {
@@ -2564,20 +2570,21 @@ impl GameLogic {
                         .unwrap_or(false)
                 };
 
-                let can_fire_at_location = {
-                    ground_slot
-                        .and_then(|slot| {
-                            self.objects.get(&attacker_id).and_then(|attacker| {
-                                attacker.weapon_slot(slot).map(|weapon| {
-                                    Object::weapon_ready(weapon, current_time)
-                                        && weapon.can_target_ground
-                                        && attacker.position.distance(target_location)
-                                            <= weapon.range
-                                })
+                let can_fire_at_location = ground_slot
+                    .and_then(|slot| {
+                        self.objects.get(&attacker_id).and_then(|attacker| {
+                            attacker.weapon_slot(slot).map(|weapon| {
+                                Object::weapon_ready(weapon, current_time)
+                                    && attacker.weapon_allows_target_anti_mask(
+                                        weapon,
+                                        Some(slot),
+                                        gamelogic::weapon::WeaponAntiMask::GROUND,
+                                    )
+                                    && attacker.position.distance(target_location) <= weapon.range
                             })
                         })
-                        .unwrap_or(false)
-                };
+                    })
+                    .unwrap_or(false);
 
                 if can_fire_at_location {
                     // AcceptableAimDelta residual for force-attack-ground.
@@ -2968,48 +2975,69 @@ impl GameLogic {
                 let (fire_fx, det_fx) = {
                     self.objects
                         .get(&attacker_id)
-                        .and_then(|attacker| attacker.weapon_name_for_slot(slot))
-                        .map(|weapon_name| {
-                            (
-                                crate::game_logic::weapon_bootstrap::host_fire_fx_for_weapon_name(
-                                    weapon_name,
-                                ),
-                                crate::game_logic::weapon_bootstrap::host_detonation_fx_for_weapon_name(
-                                    weapon_name,
-                                ),
-                            )
+                        .and_then(|attacker| {
+                            let veterancy = attacker.experience.level;
+                            attacker.weapon_name_for_slot(slot).map(|weapon_name| {
+                                (
+                                    crate::game_logic::weapon_bootstrap::host_fire_fx_for_weapon_name_at_veterancy(
+                                        weapon_name,
+                                        veterancy,
+                                    ),
+                                    crate::game_logic::weapon_bootstrap::host_detonation_fx_for_weapon_name_at_veterancy(
+                                        weapon_name,
+                                        veterancy,
+                                    ),
+                                )
+                            })
                         })
                         .unwrap_or_default()
                 };
                 let (fire_ocl, det_ocl) = {
                     self.objects
                         .get(&attacker_id)
-                        .and_then(|attacker| attacker.weapon_name_for_slot(slot))
-                        .map(|weapon_name| {
-                            (
-                                crate::game_logic::weapon_bootstrap::host_fire_ocl_for_weapon_name(
-                                    weapon_name,
-                                ),
-                                crate::game_logic::weapon_bootstrap::host_detonation_ocl_for_weapon_name(
-                                    weapon_name,
-                                ),
-                            )
+                        .and_then(|attacker| {
+                            let veterancy = attacker.experience.level;
+                            attacker.weapon_name_for_slot(slot).map(|weapon_name| {
+                                (
+                                    crate::game_logic::weapon_bootstrap::host_fire_ocl_for_weapon_name_at_veterancy(
+                                        weapon_name,
+                                        veterancy,
+                                    ),
+                                    crate::game_logic::weapon_bootstrap::host_detonation_ocl_for_weapon_name_at_veterancy(
+                                        weapon_name,
+                                        veterancy,
+                                    ),
+                                )
+                            })
                         })
                         .unwrap_or_default()
                 };
+                // C++ Weapon::fireWeaponTemplate invokes FireOCL with the
+                // firing object (`Weapon.cpp:943-949`).  This normal combat
+                // path does not route through PendingProjectile, so retain
+                // the firing context for the parsed OCL below.
+                let fire_ocl_source = self.objects.get(&attacker_id).map(|attacker| {
+                    (
+                        attacker.team,
+                        attacker.experience.level,
+                        attacker.get_orientation(),
+                        attacker.movement.velocity,
+                    )
+                });
                 // C++ Weapon::fireWeaponTemplate FireFX stealth gate residual:
                 // stealthed+undetected+non-disguised suppress muzzle FX unless
-                // PlayFXWhenStealthed or KINDOF_MINE.
+                // the observer locally controls the source, PlayFXWhenStealthed
+                // is set, or the source is KINDOF_MINE.
                 let suppress_fire_fx = {
                     let a = self.objects.get(&attacker_id);
                     a.map(|o| {
-                        let is_mine = {
-                            let n = o.template_name.to_ascii_lowercase();
-                            n.contains("mine")
-                                || n.contains("demotrap")
-                                || n.contains("booby")
-                        };
-                        let hidden = o.status.stealthed
+                        let locally_controlled = self
+                            .players
+                            .values()
+                            .any(|player| player.is_local && player.team == o.team);
+                        let is_mine = o.is_kind_of(KindOf::Mine);
+                        let hidden = !locally_controlled
+                            && o.status.stealthed
                             && !o.status.detected
                             && !o.status.disguised
                             && !is_mine;
@@ -3040,6 +3068,29 @@ impl GameLogic {
                         // Instant combat residual still stamps det_ocl at fire-time impact.
                         &det_ocl,
                     );
+                }
+                // C++ performs FireFX before FireOCL (`Weapon.cpp:889-949`).
+                // FireOCL is intentionally outside the visual stealth gate:
+                // hiding a muzzle effect does not suppress the authored game
+                // object creation effect.
+                if !fire_ocl.is_empty() {
+                    if let Some((
+                        source_team,
+                        source_veterancy,
+                        source_orientation,
+                        source_velocity,
+                    )) = fire_ocl_source
+                    {
+                        let _ = self.execute_parsed_weapon_ocl_at(
+                            &fire_ocl,
+                            Some(attacker_id),
+                            source_team,
+                            source_veterancy,
+                            source_orientation,
+                            source_velocity,
+                            muzzle_pos,
+                        );
+                    }
                 }
                 // C++ Weapon.ini LaserName residual: short-lived combat beam for
                 // presentation / laser_segment_upload observe path.

@@ -411,19 +411,10 @@ impl CnCGameEngine {
             let y: f32 = args.get("y").and_then(|s| s.parse().ok()).unwrap_or(0.0);
             let z: f32 = args.get("z").and_then(|s| s.parse().ok()).unwrap_or(0.0);
             let target = self.clamp_to_world_bounds(glam::Vec3::new(x, y, z));
-            self.camera_target = target;
-            // Keep camera offset relative if possible.
-            let offset = self.camera_position - self.camera_target;
-            // Recompute position with same planar offset magnitude toward target.
-            let planar = glam::Vec3::new(offset.x, 0.0, offset.z);
-            let dist = planar.length().max(50.0);
-            let dir = if planar.length_squared() > 1.0 {
-                planar.normalize()
-            } else {
-                glam::Vec3::new(0.0, 0.0, -1.0)
-            };
-            self.camera_position =
-                target + dir * dist + glam::Vec3::new(0.0, offset.y.abs().max(100.0), 0.0);
+            // Use the same W3D-orbit rebuild as physical centering.  Writing
+            // only `camera_position` here left the actual view matrix stale
+            // and made the next input update snap the command back.
+            self.host_center_camera_on(target);
             self.runtime_host_last_gameplay_cmd = format!(
                 "camera_look_ok:{:.1},{:.1},{:.1}",
                 target.x, target.y, target.z
@@ -447,6 +438,7 @@ impl CnCGameEngine {
                 .clamp(0.2_f32, 4.0_f32);
             self.camera_zoom = z;
             self.camera_zoom_target = None;
+            self.apply_camera_orbit_transform();
             self.runtime_host_last_gameplay_cmd = format!("camera_zoom_ok:{:.3}", z);
         }
     }

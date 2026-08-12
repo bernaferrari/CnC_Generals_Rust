@@ -1087,9 +1087,10 @@ fn return_to_base_aircraft_residual() {
     let ex = crate::command_executor::COMMAND_EXECUTOR_SRC;
     assert!(
         ex.contains("fn execute_return_to_base")
-            && ex.contains("is_friendly_airfield")
-            && ex.contains("execute_dock"),
-        "execute_return_to_base docks nearest airfield residual"
+            && ex.contains("request_return_to_base")
+            && ex.contains("producer-first ParkingPlace reservation")
+            && !ex.contains("self.execute_dock(&[unit_id], airfield_id)"),
+        "execute_return_to_base must use authoritative producer-first parking, not generic Dock"
     );
     let pf = crate::presentation_frame::PRESENTATION_FRAME_SRC;
     assert!(

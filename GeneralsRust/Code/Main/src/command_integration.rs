@@ -90,12 +90,8 @@ impl InputCommandProcessor {
 
     fn select_worker_cycle(&mut self, game_logic: &GameLogic, reverse: bool) -> bool {
         // Wave 245: team + worker list via probes (no get_player/get_objects dual-read).
-        let Some(player_team) = game_logic.player_team(self.current_player_id) else {
-            return false;
-        };
-
-        let mut workers: Vec<ObjectId> =
-            game_logic.unit_ids_for_team_where(player_team, |id| game_logic.unit_is_worker(id));
+        let mut workers: Vec<ObjectId> = game_logic
+            .unit_ids_for_player_where(self.current_player_id, |id| game_logic.unit_is_worker(id));
 
         if workers.is_empty() {
             return false;
@@ -152,12 +148,8 @@ impl InputCommandProcessor {
 
     fn select_unit_cycle(&mut self, game_logic: &GameLogic, reverse: bool) -> bool {
         // Wave 245: team + selectable list via probes (no get_player/get_objects dual-read).
-        let Some(player_team) = game_logic.player_team(self.current_player_id) else {
-            return false;
-        };
-
         let mut units: Vec<ObjectId> =
-            game_logic.selectable_unit_ids_for_team_where(player_team, |_| true);
+            game_logic.selectable_unit_ids_for_player_where(self.current_player_id, |_| true);
 
         if units.is_empty() {
             return false;
@@ -814,35 +806,66 @@ impl InputCommandProcessor {
         id: ObjectId,
     ) -> Option<PresentationTargetHint> {
         let o = frame.objects.iter().find(|x| x.id == id && !x.destroyed)?;
-        let local = frame.local_team();
         let is_neutral = o.team == Team::Neutral;
-        let is_enemy = o.team != local && !is_neutral;
+        let is_enemy = frame.is_enemy_of_local(o);
         let is_structure = o.object_type == PresentationObjectType::Building
             || PresentationFrame::object_has_kind(o, crate::game_logic::KindOf::Structure);
         let is_resource =
             PresentationFrame::object_has_kind(o, crate::game_logic::KindOf::Harvestable)
                 || PresentationFrame::object_has_kind(o, crate::game_logic::KindOf::Resource)
                 || o.template_name.to_ascii_lowercase().contains("supply");
-        let n = o.template_name.to_ascii_lowercase();
-        let can_be_entered = n.contains("transport")
-            || n.contains("chinook")
-            || n.contains("bunker")
-            || n.contains("garrison")
-            || n.contains("overlord");
+        let enter_available_capacity = frame
+            .normal_enter_available_capacity_for_local(o)
+            .unwrap_or(0);
+        let can_be_entered = enter_available_capacity > 0;
         let is_damaged = o.health_max > 0.0 && o.health_current + 0.01 < o.health_max;
-        let is_friendly = o.team == local && !is_neutral;
-        let provides_heal = n.contains("healpad")
-            || n.contains("heal_pad")
-            || n.contains("hospital")
-            || n.contains("ambulance");
-        let provides_aircraft_repair =
-            n.contains("airfield") || n.contains("helipad") || n.contains("airstrip");
-        let provides_vehicle_repair = n.contains("repair")
-            || n.contains("warfactory")
-            || n.contains("war_factory")
-            || n.contains("armsdealer")
-            || n.contains("propaganda")
-            || provides_aircraft_repair;
+        let is_friendly = !is_neutral && frame.is_allied_with_local(o);
+        // C++ ActionManager service eligibility is the source-authored
+        // REPAIR_PAD / HEAL_PAD / FS_AIRFIELD KindOf matrix, frozen here for
+        // physical input and revalidated at executor authority.
+        let provides_heal = PresentationFrame::object_has_kind(
+            o,
+            crate::game_logic::KindOf::HealPad,
+        );
+        let provides_aircraft_repair = PresentationFrame::object_has_kind(
+            o,
+            crate::game_logic::KindOf::FSAirfield,
+        );
+        let provides_vehicle_repair = PresentationFrame::object_has_kind(
+            o,
+            crate::game_logic::KindOf::RepairPad,
+        );
+        // C++ capture has two independent containment gates: a
+        // `GarrisonContain` target rejects any non-stealthed occupant, while
+        // `appearsToContainFriendlies` rejects a friendly occupant on any
+        // target. Keep both facts frozen instead of making the latter depend
+        // on the former.
+        let (capture_nonstealthed_garrison_count, capture_friendly_garrison_count) = o
+            .garrisoned_units
+            .iter()
+            .fold((0u16, 0u16), |counts, occupant_id| {
+                let Some(occupant) = frame
+                    .objects
+                    .iter()
+                    .find(|candidate| candidate.id == *occupant_id)
+                else {
+                    // A stale/missing contained record must not make a
+                    // defended target capturable in a frozen physical-input
+                    // context.
+                    return (
+                        counts.0.saturating_add(o.capture_garrisonable as u16),
+                        counts.1.saturating_add(1),
+                    );
+                };
+                (
+                    counts
+                        .0
+                        .saturating_add((o.capture_garrisonable && !occupant.stealthed) as u16),
+                    counts
+                        .1
+                        .saturating_add(frame.is_allied_with_local(occupant) as u16),
+                )
+            });
         Some(PresentationTargetHint {
             id,
             is_alive: !o.destroyed && o.health_current > 0.0,
@@ -855,11 +878,29 @@ impl InputCommandProcessor {
             is_neutral,
             template_name: o.template_name.clone(),
             can_be_entered,
+            enter_available_capacity,
+            enter_uses_transport_slots: o.normal_enter_uses_transport_slots(),
+            enter_requires_infantry: o.normal_enter_requires_infantry(),
+            enter_forbids_aircraft: o.normal_enter_forbids_aircraft(),
+            enter_disabled_subdued: o.disabled_subdued,
+            enter_is_rider_change: o.contain_module_kind
+                == crate::game_logic::ContainModuleKind::RiderChange,
+            rider_change_allowed_templates: o.rider_change_allowed_templates.clone(),
             is_damaged,
             is_friendly_of_local: is_friendly,
-            provides_vehicle_repair: is_structure && provides_vehicle_repair,
-            provides_aircraft_repair: is_structure && provides_aircraft_repair,
-            provides_heal: is_structure && provides_heal,
+            // ActionManager keys service on KindOf, not ObjectType::Building.
+            provides_vehicle_repair,
+            provides_aircraft_repair,
+            provides_heal,
+            dock_kind: o.dock_kind,
+            dock_controller_is_local: frame.is_owned_by_local(o),
+            stored_supplies: o.stored_supplies,
+            capturable: o.capturable,
+            immune_to_capture: o.immune_to_capture,
+            capture_garrisonable: o.capture_garrisonable,
+            capture_nonstealthed_garrison_count,
+            capture_friendly_garrison_count,
+            capture_target_effectively_stealthed: o.effectively_stealthed,
         })
     }
 
@@ -877,32 +918,19 @@ impl InputCommandProcessor {
             if o.destroyed || o.health_current <= 0.0 {
                 continue;
             }
-            let n = o.template_name.to_ascii_lowercase();
-            let is_worker = PresentationFrame::presentation_is_worker_like(o)
-                || n.contains("dozer")
-                || n.contains("worker")
-                || n.contains("supplytruck")
-                || n.contains("supply_truck");
+            let is_worker = PresentationFrame::object_has_kind(
+                o,
+                crate::game_logic::KindOf::Dozer,
+            );
             let is_resource_collector =
                 PresentationFrame::object_has_kind(o, crate::game_logic::KindOf::Harvester);
             let can_attack = o.has_weapon;
             let can_move = o.is_mobile;
-            let is_lotus =
-                crate::game_logic::host_hero_abilities::is_black_lotus_template(&o.template_name);
-            let is_hero = PresentationFrame::object_has_kind(o, crate::game_logic::KindOf::Hero)
-                || n.contains("colonel")
-                || n.contains("jarmen")
-                || n.contains("lotus");
-            let can_capture = n.contains("ranger")
-                || n.contains("rebel")
-                || n.contains("redguard")
-                || crate::game_logic::host_hero_abilities::can_capture_without_upgrade(
-                    is_hero, is_lotus,
-                );
-            let can_repair = is_worker
-                || n.contains("dozer")
-                || n.contains("worker")
-                || n.contains("construction");
+            let capture_power = o.capture_power;
+            let capture_power_ready = o.capture_power_ready;
+            let can_capture =
+                capture_power != crate::game_logic::CapturePowerKind::None && capture_power_ready;
+            let can_repair = is_worker;
             let is_damaged = o.health_max > 0.0 && o.health_current + 0.01 < o.health_max;
             let is_vehicle =
                 PresentationFrame::object_has_kind(o, crate::game_logic::KindOf::Vehicle)
@@ -927,6 +955,11 @@ impl InputCommandProcessor {
                 is_vehicle,
                 is_aircraft,
                 is_infantry,
+                transport_slot_count: o.transport_slot_count,
+                stored_supplies: o.stored_supplies,
+                is_controlled_by_local: frame.is_owned_by_local(o),
+                capture_power,
+                capture_power_ready,
             });
         }
         out
@@ -994,7 +1027,10 @@ pub fn process_command_queue(game_logic: &mut GameLogic) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::game_logic::{GameLogic, KindOf, Object, Player, ThingTemplate};
+    use crate::game_logic::{
+        ContainAdmission, ContainModuleKind, ContainModuleMetadata, GameLogic, KindOf, Object,
+        Player, ThingTemplate, Weapon,
+    };
 
     fn ensure_player(game_logic: &mut GameLogic, player_id: u32, team: Team) {
         if game_logic.get_player(player_id).is_some() {
@@ -1140,5 +1176,666 @@ mod tests {
 
         let target = processor.find_object_at_position(&game_logic);
         assert_eq!(target, Some(friendly_id));
+    }
+
+    #[test]
+    fn physical_rmb_enter_uses_frozen_transport_capability_not_template_spelling() {
+        use crate::command_system::{CommandResult, CommandSystem};
+        use crate::game_logic::AIState;
+
+        let mut game_logic = GameLogic::new();
+        ensure_player(&mut game_logic, 0, Team::USA);
+
+        let infantry_id = ObjectId(801);
+        let humvee_id = ObjectId(802);
+
+        let mut infantry_template = ThingTemplate::new("TestRanger");
+        infantry_template
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(100.0);
+        infantry_template.transport_slot_count = Some(1);
+        let mut infantry = Object::new(infantry_template, infantry_id, Team::USA);
+        infantry.owner_player_id = Some(0);
+        infantry.set_position(Vec3::ZERO);
+        game_logic.add_object(infantry);
+
+        // `AmericaVehicleHumvee` does not contain any of the former RMB
+        // spelling probes (`transport`, `chinook`, `bunker`, `garrison`,
+        // `overlord`).  The only valid source here is the frozen
+        // TransportContain role and Slots=5 installed by host authority.
+        let mut humvee_template = ThingTemplate::new("AmericaVehicleHumvee");
+        humvee_template
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(300.0);
+        let mut humvee = Object::new(humvee_template, humvee_id, Team::USA);
+        humvee.owner_player_id = Some(0);
+        humvee.install_humvee_transport();
+        humvee.set_position(Vec3::new(40.0, 0.0, 0.0));
+        game_logic.add_object(humvee);
+
+        let frame = PresentationFrame::build_from_logic(&game_logic, 0);
+        let processor = InputCommandProcessor::new();
+        let target = processor
+            .presentation_target_hint(&frame, humvee_id)
+            .expect("the live carrier must reach the frozen RMB target snapshot");
+        assert!(target.can_be_entered, "open Humvee seat must be enterable");
+        assert!(
+            target.enter_requires_infantry,
+            "Humvee TransportContain retains AllowInsideKindOf=INFANTRY"
+        );
+
+        let selected = processor.presentation_selected_unit_hints(&frame, &[infantry_id]);
+        assert_eq!(selected.len(), 1, "selected infantry must cross the freeze");
+
+        let context = MouseCommandContext {
+            world_position: Vec3::new(40.0, 0.0, 0.0),
+            target_object: Some(humvee_id),
+            target_presentation: Some(target),
+            selected_presentation: selected,
+            presentation_box_select_units: Vec::new(),
+            presentation_select_similar_units: Vec::new(),
+            screen_position: Vec2::ZERO,
+            viewport_size: None,
+            world_min: None,
+            world_max: None,
+            mouse_button: MouseButton::Right,
+            modifier_keys: ModifierKeys::default(),
+            is_drag: false,
+            drag_start: None,
+            drag_end: None,
+            drag_start_world: None,
+            drag_end_world: None,
+        };
+
+        let mut commands = CommandSystem::new();
+        // Deliberately provide no live GameLogic to classification: the
+        // physical input branch must rely solely on frozen presentation data.
+        let command = commands
+            .process_mouse_input(&context, &[infantry_id], 0, None)
+            .expect("right click must create a command");
+        assert!(matches!(
+            command.command_type,
+            CommandType::Enter { target_id } if target_id == humvee_id
+        ));
+
+        assert_eq!(
+            commands.execute_command(&command, &mut game_logic),
+            CommandResult::Success,
+            "the physical Enter command must reach live command authority"
+        );
+        let infantry_after = game_logic
+            .host_object(infantry_id)
+            .expect("infantry remains live while walking to carrier");
+        assert_eq!(infantry_after.target, Some(humvee_id));
+        assert_eq!(infantry_after.ai_state, AIState::Entering);
+    }
+
+    #[test]
+    fn physical_rmb_parsed_rider_change_replaces_live_rider_without_name_admission() {
+        use crate::assets::IniParser;
+        use crate::command_system::{CommandResult, CommandSystem};
+        use crate::game_logic::{AIState, VeterancyLevel};
+
+        let mut parser = IniParser::new();
+        parser
+            .parse_ini_content(
+                r#"
+Object ParsedRetailRiderHost
+  Type = Vehicle
+  Model = UVCombatBike
+  KindOf = SELECTABLE VEHICLE
+  Locomotor = SET_NORMAL CombatBikeGroundLocomotor CombatBikeCliffLocomotor
+  Locomotor = SET_SLUGGISH CombatBikeTerroristGroundLocomotor CombatBikeTerroristCliffLocomotor
+  Behavior = RiderChangeContain ModuleTag_Rider
+    Slots = 1
+    AllowInsideKindOf = INFANTRY
+    Rider1 = GLAInfantryWorker RIDER1 WEAPON_RIDER1 STATUS_RIDER1 GLAVehicleCombatBikeDefaultCommandSet SET_NORMAL
+    Rider2 = GLAInfantryRebel RIDER2 WEAPON_RIDER2 STATUS_RIDER2 GLAVehicleCombatBikeDefaultCommandSet SET_NORMAL
+    Rider3 = GLAInfantryTunnelDefender RIDER3 WEAPON_RIDER3 STATUS_RIDER3 GLAVehicleCombatBikeDefaultCommandSet SET_NORMAL
+    Rider4 = GLAInfantryJarmenKell RIDER4 WEAPON_RIDER4 STATUS_RIDER4 GLAVehicleCombatBikeJarmenKellCommandSet SET_NORMAL
+    Rider5 = GLAInfantryTerrorist RIDER5 WEAPON_RIDER5 STATUS_RIDER5 GLAVehicleCombatBikeDefaultCommandSet SET_SLUGGISH
+    Rider6 = GLAInfantryHijacker RIDER6 WEAPON_RIDER6 STATUS_RIDER6 GLAVehicleCombatBikeDefaultCommandSet SET_NORMAL
+    Rider7 = GLAInfantrySaboteur RIDER7 WEAPON_RIDER7 STATUS_RIDER7 GLAVehicleCombatBikeDefaultCommandSet SET_NORMAL
+    ScuttleDelay = 1500
+    ScuttleStatus = TOPPLED
+  End
+End
+"#,
+                "parsed_retail_rider_change.ini",
+            )
+            .expect("retail-shaped RiderChange fixture must parse");
+        let bike_template = GameLogic::build_template_from_object_definition(
+            "ParsedRetailRiderHost",
+            parser
+                .get_definition("ParsedRetailRiderHost")
+                .expect("parsed RiderChange definition"),
+            None,
+        );
+        let rider_change = &bike_template.contain_module;
+        assert!(
+            rider_change.has_supported_rider_change_roster(),
+            "the complete parsed RiderChange roster, not a vehicle basename, enables it"
+        );
+        assert_eq!(rider_change.slots, Some(1));
+        assert_eq!(rider_change.rider_change_scuttle_delay_frames, Some(45));
+        assert_eq!(
+            bike_template.locomotor_name.as_deref(),
+            Some("CombatBikeGroundLocomotor"),
+            "RiderChange uses the authored SET_NORMAL primary, not the later sluggish row"
+        );
+        assert_eq!(
+            rider_change
+                .rider_change_riders
+                .iter()
+                .find(|rider| rider.slot == 5)
+                .expect("retail Terrorist row retained")
+                .locomotor_set,
+            "SET_SLUGGISH"
+        );
+        assert!(
+            !rider_change
+                .rider_change_riders
+                .iter()
+                .find(|rider| rider.slot == 5)
+                .expect("retail Terrorist row retained")
+                .physical_enter_supported,
+            "the unsupported multi-locomotor row is retained but must fail closed"
+        );
+
+        fn rider_template(name: &str) -> ThingTemplate {
+            let mut template = ThingTemplate::new(name);
+            template
+                .add_kind_of(KindOf::Infantry)
+                .add_kind_of(KindOf::Selectable)
+                .set_health(100.0);
+            template.transport_slot_count = Some(1);
+            template
+        }
+
+        let mut game_logic = GameLogic::new();
+        ensure_player(&mut game_logic, 0, Team::GLA);
+
+        let bike_id = ObjectId(805);
+        let old_rider_id = ObjectId(806);
+        let incoming_rider_id = ObjectId(807);
+        let slow_rider_id = ObjectId(808);
+        // Start inside the authoritative enter radius so the next public
+        // gameplay tick is the actual arrival/replace boundary, not merely
+        // one movement-path tick.
+        let bike_position = Vec3::new(2.0, 0.0, 0.0);
+
+        // Deliberately use a host identity that does not match the old
+        // `is_combat_cycle_template` spelling residual.  Only the parsed
+        // RiderChange module may expose physical normal Enter here.
+        let mut bike = Object::new(bike_template, bike_id, Team::GLA);
+        bike.owner_player_id = Some(0);
+        bike.set_position(bike_position);
+        bike.experience.level = VeterancyLevel::Veteran;
+        bike.occupants.push(old_rider_id);
+
+        let mut old_rider =
+            Object::new(rider_template("GLAInfantryWorker"), old_rider_id, Team::GLA);
+        old_rider.owner_player_id = Some(0);
+        old_rider.set_position(bike_position);
+        old_rider.set_contained_by(Some(bike_id));
+        old_rider.set_ai_state(AIState::Docked);
+
+        let mut incoming_rider = Object::new(
+            rider_template("GLAInfantryRebel"),
+            incoming_rider_id,
+            Team::GLA,
+        );
+        incoming_rider.owner_player_id = Some(0);
+        incoming_rider.set_position(Vec3::ZERO);
+        incoming_rider.experience.level = VeterancyLevel::Elite;
+        incoming_rider.select();
+
+        let mut slow_rider = Object::new(
+            rider_template("GLAInfantryTerrorist"),
+            slow_rider_id,
+            Team::GLA,
+        );
+        slow_rider.owner_player_id = Some(0);
+        slow_rider.set_position(Vec3::ZERO);
+
+        game_logic.add_object(bike);
+        game_logic.add_object(old_rider);
+        game_logic.add_object(incoming_rider);
+        game_logic.add_object(slow_rider);
+        game_logic
+            .get_player_mut(0)
+            .expect("local player")
+            .selected_objects
+            .push(incoming_rider_id);
+
+        // Both physical input and live authority visibly reject the parsed
+        // SET_SLUGGISH row; it must never get fallback normal locomotion.
+        assert!(
+            !game_logic.can_unit_enter_normal_target(slow_rider_id, bike_id),
+            "unsupported parsed RiderN effect must be rejected by authority"
+        );
+        let frame = PresentationFrame::build_from_logic(&game_logic, 0);
+        let processor = InputCommandProcessor::new();
+        let target = processor
+            .presentation_target_hint(&frame, bike_id)
+            .expect("parsed RiderChange host crosses the frozen frame");
+        assert!(target.enter_is_rider_change);
+        assert!(target.can_be_entered);
+        assert!(target
+            .rider_change_allowed_templates
+            .iter()
+            .any(|template| template.eq_ignore_ascii_case("GLAInfantryRebel")));
+        assert!(
+            !target
+                .rider_change_allowed_templates
+                .iter()
+                .any(|template| template.eq_ignore_ascii_case("GLAInfantryTerrorist")),
+            "presentation exposes only records whose full effects are modeled"
+        );
+        let slow_selected = processor.presentation_selected_unit_hints(&frame, &[slow_rider_id]);
+        let context = MouseCommandContext {
+            world_position: bike_position,
+            target_object: Some(bike_id),
+            target_presentation: Some(target.clone()),
+            selected_presentation: slow_selected,
+            presentation_box_select_units: Vec::new(),
+            presentation_select_similar_units: Vec::new(),
+            screen_position: Vec2::ZERO,
+            viewport_size: None,
+            world_min: None,
+            world_max: None,
+            mouse_button: MouseButton::Right,
+            modifier_keys: ModifierKeys::default(),
+            is_drag: false,
+            drag_start: None,
+            drag_end: None,
+            drag_start_world: None,
+            drag_end_world: None,
+        };
+        let mut commands = CommandSystem::new();
+        let slow_command = commands
+            .process_mouse_input(&context, &[slow_rider_id], 0, None)
+            .expect("RMB still has a non-enter fallback");
+        assert!(
+            !matches!(slow_command.command_type, CommandType::Enter { .. }),
+            "frozen physical RMB must reject the retained-but-unsupported rider row"
+        );
+
+        // Run a real RMB -> frozen command -> executor -> arrival sequence.
+        // The target has an existing valid worker rider, so the final arrival
+        // must be an atomic C++ RiderChange replacement rather than a generic
+        // one-seat transport add.
+        let selected = processor.presentation_selected_unit_hints(&frame, &[incoming_rider_id]);
+        let mut context = context;
+        context.selected_presentation = selected;
+        let command = commands
+            .process_mouse_input(&context, &[incoming_rider_id], 0, None)
+            .expect("supported parsed rider reaches frozen physical RMB input");
+        assert!(matches!(
+            command.command_type,
+            CommandType::Enter { target_id } if target_id == bike_id
+        ));
+        assert_eq!(
+            commands.execute_command(&command, &mut game_logic),
+            CommandResult::Success,
+            "executor repeats parsed roster/controller authority"
+        );
+        assert_eq!(
+            game_logic
+                .host_object(incoming_rider_id)
+                .expect("incoming rider remains live while approaching")
+                .ai_state,
+            AIState::Entering
+        );
+
+        // Public gameplay tick reaches the same support-state arrival
+        // authority used by an offline match; keep this regression outside
+        // the private GameLogic AI helper.
+        game_logic.update();
+
+        let bike_after = game_logic
+            .host_object(bike_id)
+            .expect("bike after replacement");
+        assert_eq!(bike_after.contained_units(), vec![incoming_rider_id]);
+        assert_eq!(bike_after.rider_change_active_slot, Some(2));
+        assert_eq!(
+            bike_after.rider_change_weapon_set.as_deref(),
+            Some("WEAPON_RIDER2")
+        );
+        assert_eq!(
+            bike_after.rider_change_locomotor_set.as_deref(),
+            Some("SET_NORMAL")
+        );
+        assert_eq!(
+            bike_after.rider_change_locomotor_name.as_deref(),
+            Some("CombatBikeGroundLocomotor"),
+            "arrival binds the exact parsed normal primary rather than a name fallback"
+        );
+        assert_eq!(bike_after.movement.max_speed, 120.0);
+        assert_eq!(
+            bike_after.command_set_override.as_deref(),
+            Some("GLAVehicleCombatBikeDefaultCommandSet")
+        );
+        assert_eq!(bike_after.combat_cycle_rider, 2);
+        assert!(
+            bike_after.weapon.is_some(),
+            "parsed Rider2 slot sets bike weapon"
+        );
+        assert_eq!(bike_after.experience.level, VeterancyLevel::Elite);
+        assert!(
+            bike_after.selected,
+            "selected incoming rider transfers selection to bike"
+        );
+        assert_eq!(
+            game_logic.player_selected_objects(0),
+            vec![bike_id],
+            "RiderChange selection transfer preserves the player's selection roster too"
+        );
+
+        let old_after = game_logic
+            .host_object(old_rider_id)
+            .expect("ejected rider remains live");
+        assert_eq!(old_after.contained_by, None);
+        assert_eq!(old_after.ai_state, AIState::Idle);
+        assert_eq!(old_after.experience.level, VeterancyLevel::Veteran);
+        let incoming_after = game_logic
+            .host_object(incoming_rider_id)
+            .expect("new rider remains contained");
+        assert_eq!(incoming_after.contained_by, Some(bike_id));
+        assert_eq!(incoming_after.ai_state, AIState::Docked);
+        assert_eq!(incoming_after.experience.level, VeterancyLevel::Rookie);
+        assert!(!incoming_after.selected);
+
+        // Generic host refresh is intentionally unable to replace the parsed
+        // selected RiderN with a rider-name heuristic after the transaction.
+        game_logic.refresh_combat_cycle_rider_weapon(bike_id);
+        let bike_after_refresh = game_logic.host_object(bike_id).expect("bike after refresh");
+        assert_eq!(bike_after_refresh.rider_change_active_slot, Some(2));
+        assert_eq!(bike_after_refresh.combat_cycle_rider, 2);
+        assert_eq!(
+            bike_after_refresh.rider_change_weapon_set.as_deref(),
+            Some("WEAPON_RIDER2")
+        );
+    }
+
+    #[test]
+    fn physical_rmb_enters_empty_enemy_garrison_before_attack() {
+        use crate::command_system::{CommandResult, CommandSystem};
+        use crate::game_logic::AIState;
+
+        let mut game_logic = GameLogic::new();
+        ensure_player(&mut game_logic, 0, Team::USA);
+        ensure_player(&mut game_logic, 1, Team::GLA);
+
+        let infantry_id = ObjectId(811);
+        let garrison_id = ObjectId(812);
+
+        let mut infantry_template = ThingTemplate::new("TestRanger");
+        infantry_template
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(100.0);
+        infantry_template.transport_slot_count = Some(1);
+        let mut infantry = Object::new(infantry_template, infantry_id, Team::USA);
+        infantry.owner_player_id = Some(0);
+        // Make the alternate branch genuinely available: prior to this fix,
+        // physical RMB classified this exact input as AttackObject before it
+        // could reach Enter.
+        infantry.weapon = Some(Weapon::default());
+        infantry.set_position(Vec3::ZERO);
+        game_logic.add_object(infantry);
+
+        let mut garrison_template = ThingTemplate::new("TestBunker");
+        garrison_template
+            .add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(1_000.0);
+        garrison_template.contain_module = ContainModuleMetadata {
+            kind: ContainModuleKind::Garrison,
+            slots: Some(5),
+            admission: ContainAdmission::InfantryOnly,
+            allow_allies_inside: true,
+            allow_enemies_inside: true,
+            allow_neutral_inside: true,
+            ..ContainModuleMetadata::default()
+        };
+        let mut garrison = Object::new(garrison_template, garrison_id, Team::GLA);
+        garrison.owner_player_id = Some(1);
+        garrison.set_position(Vec3::new(40.0, 0.0, 0.0));
+        game_logic.add_object(garrison);
+
+        let frame = PresentationFrame::build_from_logic(&game_logic, 0);
+        let processor = InputCommandProcessor::new();
+        let target = processor
+            .presentation_target_hint(&frame, garrison_id)
+            .expect("the empty non-faction garrison must reach physical RMB input");
+        assert!(
+            target.is_enemy_of_local,
+            "the garrison is controlled by player 1"
+        );
+        assert!(
+            target.can_be_entered,
+            "C++ permits entry into an empty enemy non-faction garrison"
+        );
+        let selected = processor.presentation_selected_unit_hints(&frame, &[infantry_id]);
+        assert!(
+            selected[0].can_attack,
+            "the regression must distinguish Enter precedence from a move fallback"
+        );
+
+        let context = MouseCommandContext {
+            world_position: Vec3::new(40.0, 0.0, 0.0),
+            target_object: Some(garrison_id),
+            target_presentation: Some(target),
+            selected_presentation: selected,
+            presentation_box_select_units: Vec::new(),
+            presentation_select_similar_units: Vec::new(),
+            screen_position: Vec2::ZERO,
+            viewport_size: None,
+            world_min: None,
+            world_max: None,
+            mouse_button: MouseButton::Right,
+            modifier_keys: ModifierKeys::default(),
+            is_drag: false,
+            drag_start: None,
+            drag_end: None,
+            drag_start_world: None,
+            drag_end_world: None,
+        };
+
+        let mut commands = CommandSystem::new();
+        let command = commands
+            .process_mouse_input(&context, &[infantry_id], 0, None)
+            .expect("right click must create a command from frozen input");
+        assert!(matches!(
+            command.command_type,
+            CommandType::Enter { target_id } if target_id == garrison_id
+        ));
+        assert_eq!(
+            commands.execute_command(&command, &mut game_logic),
+            CommandResult::Success,
+            "the selected infantry must reach the same authority Enter path"
+        );
+        let infantry_after = game_logic
+            .host_object(infantry_id)
+            .expect("infantry remains live while approaching the garrison");
+        assert_eq!(infantry_after.target, Some(garrison_id));
+        assert_eq!(infantry_after.ai_state, AIState::Entering);
+    }
+
+    #[test]
+    fn physical_rmb_rejects_same_faction_other_player_transport() {
+        use crate::command_system::CommandSystem;
+
+        let mut game_logic = GameLogic::new();
+        ensure_player(&mut game_logic, 0, Team::USA);
+        ensure_player(&mut game_logic, 1, Team::USA);
+
+        let rider_id = ObjectId(821);
+        let transport_id = ObjectId(822);
+
+        let mut rider_template = ThingTemplate::new("ExactOwnerRider");
+        rider_template
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(100.0);
+        rider_template.transport_slot_count = Some(1);
+        let mut rider = Object::new(rider_template, rider_id, Team::USA);
+        rider.owner_player_id = Some(0);
+        rider.set_position(Vec3::ZERO);
+        game_logic.add_object(rider);
+
+        let mut transport_template = ThingTemplate::new("ExactOwnerCarrier");
+        transport_template
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(300.0);
+        transport_template.contain_module = ContainModuleMetadata {
+            kind: ContainModuleKind::Transport,
+            slots: Some(3),
+            admission: ContainAdmission::InfantryOnly,
+            allow_allies_inside: true,
+            allow_enemies_inside: true,
+            allow_neutral_inside: true,
+            ..ContainModuleMetadata::default()
+        };
+        let mut transport = Object::new(transport_template, transport_id, Team::USA);
+        transport.owner_player_id = Some(1);
+        transport.set_position(Vec3::new(40.0, 0.0, 0.0));
+        game_logic.add_object(transport);
+
+        assert!(
+            !game_logic.can_unit_enter_normal_target(rider_id, transport_id),
+            "two same-faction player slots must not share an ordinary transport"
+        );
+
+        let frame = PresentationFrame::build_from_logic(&game_logic, 0);
+        let processor = InputCommandProcessor::new();
+        let target = processor
+            .presentation_target_hint(&frame, transport_id)
+            .expect("transport reaches frozen RMB snapshot");
+        assert!(
+            !target.can_be_entered,
+            "frozen input must reject the other player's empty transport too"
+        );
+        let selected = processor.presentation_selected_unit_hints(&frame, &[rider_id]);
+        let context = MouseCommandContext {
+            world_position: Vec3::new(40.0, 0.0, 0.0),
+            target_object: Some(transport_id),
+            target_presentation: Some(target),
+            selected_presentation: selected,
+            presentation_box_select_units: Vec::new(),
+            presentation_select_similar_units: Vec::new(),
+            screen_position: Vec2::ZERO,
+            viewport_size: None,
+            world_min: None,
+            world_max: None,
+            mouse_button: MouseButton::Right,
+            modifier_keys: ModifierKeys::default(),
+            is_drag: false,
+            drag_start: None,
+            drag_end: None,
+            drag_start_world: None,
+            drag_end_world: None,
+        };
+        let mut commands = CommandSystem::new();
+        let command = commands
+            .process_mouse_input(&context, &[rider_id], 0, None)
+            .expect("RMB still yields an ordinary fallback command");
+        assert!(
+            !matches!(command.command_type, CommandType::Enter { .. }),
+            "physical RMB must not emit Enter for another controller's transport"
+        );
+    }
+
+    #[test]
+    fn physical_rmb_rejects_rider_that_exceeds_remaining_transport_slots() {
+        use crate::command_system::CommandSystem;
+
+        let mut game_logic = GameLogic::new();
+        ensure_player(&mut game_logic, 0, Team::USA);
+
+        let existing_id = ObjectId(831);
+        let heavy_rider_id = ObjectId(832);
+        let transport_id = ObjectId(833);
+
+        let mut heavy_template = ThingTemplate::new("WeightedRider");
+        heavy_template
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(250.0);
+        heavy_template.transport_slot_count = Some(2);
+        let mut existing = Object::new(heavy_template.clone(), existing_id, Team::USA);
+        existing.owner_player_id = Some(0);
+        game_logic.add_object(existing);
+        let mut heavy_rider = Object::new(heavy_template, heavy_rider_id, Team::USA);
+        heavy_rider.owner_player_id = Some(0);
+        heavy_rider.set_position(Vec3::ZERO);
+        game_logic.add_object(heavy_rider);
+
+        let mut transport_template = ThingTemplate::new("WeightedCarrier");
+        transport_template
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(300.0);
+        transport_template.contain_module = ContainModuleMetadata {
+            kind: ContainModuleKind::Transport,
+            slots: Some(3),
+            admission: ContainAdmission::AnyMobile,
+            allow_allies_inside: true,
+            allow_enemies_inside: true,
+            allow_neutral_inside: true,
+            ..ContainModuleMetadata::default()
+        };
+        let mut transport = Object::new(transport_template, transport_id, Team::USA);
+        transport.owner_player_id = Some(0);
+        transport.set_position(Vec3::new(40.0, 0.0, 0.0));
+        assert!(transport.add_occupant(existing_id));
+        game_logic.add_object(transport);
+
+        assert!(
+            !game_logic.can_unit_enter_normal_target(heavy_rider_id, transport_id),
+            "two used slots plus a two-slot rider must not fit in Slots=3"
+        );
+
+        let frame = PresentationFrame::build_from_logic(&game_logic, 0);
+        let processor = InputCommandProcessor::new();
+        let target = processor
+            .presentation_target_hint(&frame, transport_id)
+            .expect("transport reaches frozen RMB snapshot");
+        assert_eq!(target.enter_available_capacity, 1);
+        assert!(target.enter_uses_transport_slots);
+        let selected = processor.presentation_selected_unit_hints(&frame, &[heavy_rider_id]);
+        let context = MouseCommandContext {
+            world_position: Vec3::new(40.0, 0.0, 0.0),
+            target_object: Some(transport_id),
+            target_presentation: Some(target),
+            selected_presentation: selected,
+            presentation_box_select_units: Vec::new(),
+            presentation_select_similar_units: Vec::new(),
+            screen_position: Vec2::ZERO,
+            viewport_size: None,
+            world_min: None,
+            world_max: None,
+            mouse_button: MouseButton::Right,
+            modifier_keys: ModifierKeys::default(),
+            is_drag: false,
+            drag_start: None,
+            drag_end: None,
+            drag_start_world: None,
+            drag_end_world: None,
+        };
+        let mut commands = CommandSystem::new();
+        let command = commands
+            .process_mouse_input(&context, &[heavy_rider_id], 0, None)
+            .expect("RMB still yields an ordinary fallback command");
+        assert!(
+            !matches!(command.command_type, CommandType::Enter { .. }),
+            "frozen physical RMB must compare rider slot cost before emitting Enter"
+        );
     }
 }

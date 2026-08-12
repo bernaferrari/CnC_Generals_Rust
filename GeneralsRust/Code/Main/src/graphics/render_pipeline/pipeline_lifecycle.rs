@@ -15,7 +15,7 @@ impl RenderPipeline {
         info!("Initializing RenderPipeline (C++ SAGE equivalent)");
 
         // Initialize forward pass
-        let forward_pass = ForwardPass::initialize()?;
+        let forward_pass = ForwardPass::initialize(graphics_system)?;
         let (ambient_light, sun_color, sun_direction) = graphics_system.current_lighting();
 
         info!("RenderPipeline initialized successfully");

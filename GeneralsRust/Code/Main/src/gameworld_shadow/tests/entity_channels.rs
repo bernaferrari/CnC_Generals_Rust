@@ -1041,6 +1041,71 @@ fn projectile_flight_channel_via_set_projectile_flight() {
 }
 
 #[test]
+fn parsed_missile_kill_self_snapshot_holds_shadow_pose_and_retires() {
+    use crate::game_logic::combat::{DamageType, Projectile};
+    use crate::game_logic::host_projectile_log;
+    use crate::game_logic::weapon_bootstrap::HostProjectileLifecycle;
+    use gamelogic::world::ProjectileFlightState;
+
+    host_projectile_log::clear();
+    let mut projectile = Projectile::new(
+        ObjectId(502),
+        glam::Vec3::new(10.0, 1.0, 20.0),
+        glam::Vec3::new(100.0, 1.0, 20.0),
+        25.0,
+        DamageType::Explosive,
+        ObjectId(7),
+        Some(ObjectId(8)),
+    );
+    projectile.speed = 200.0;
+    projectile.velocity = glam::Vec3::new(200.0, 0.0, 0.0);
+    projectile.is_homing = true;
+    projectile.lifetime = 11.0 / 30.0;
+    projectile.set_projectile_lifecycle(Some(HostProjectileLifecycle::Missile {
+        try_to_follow_target: true,
+        fuel_lifetime_frames: 11,
+        detonate_on_no_fuel: true,
+        kill_self_delay_frames: 3,
+    }));
+    // This is set only by the parsed missile lifecycle after its real
+    // detonation/target-loss transition; no fallback name or generic timeout
+    // can produce the shadow hold state.
+    projectile.missile_kill_self_started_frame = Some(11);
+
+    host_projectile_log::record_snapshot([&projectile]);
+    let events = host_projectile_log::drain();
+    assert_eq!(events.len(), 1);
+    assert_eq!(
+        events[0].flight_state,
+        ProjectileFlightState::MissileKillSelfHold
+    );
+
+    let mut shadow = GameWorldShadow::new(64);
+    assert_eq!(shadow.apply_host_projectile_events(&events), 1);
+    assert_eq!(
+        shadow
+            .world
+            .step_projectiles(1.0 / 30.0, |_| Some([900.0, 0.0, 0.0])),
+        1
+    );
+    let held = shadow.world().projectile(projectile.id.0).expect("held");
+    assert_eq!(held.position, [10.0, 1.0, 20.0]);
+    assert_eq!(held.velocity, [200.0, 0.0, 0.0]);
+    assert_eq!(held.target_position, [100.0, 1.0, 20.0]);
+    assert!(
+        (held.lifetime - 12.0 / 30.0).abs() < 1e-6,
+        "only the host-authoritative KILL_SELF delay should age"
+    );
+
+    host_projectile_log::record_retired(projectile.id.0);
+    assert_eq!(
+        shadow.apply_host_projectile_events(&host_projectile_log::drain()),
+        1
+    );
+    assert!(shadow.world().projectile(projectile.id.0).is_none());
+}
+
+#[test]
 fn projectile_authority_steps_flight_and_writeback() {
     let _env_guard = authority_env_lock();
 

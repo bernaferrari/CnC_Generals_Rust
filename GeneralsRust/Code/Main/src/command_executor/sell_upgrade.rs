@@ -22,9 +22,11 @@ use std::collections::{HashMap, HashSet};
 
 impl<'a> CommandExecutor<'a> {
     pub(super) fn execute_sell(&mut self, object_id: ObjectId, player_id: u32) -> CommandResult {
-        let player_team = self.player_team(player_id);
         if let Some(obj) = self.game_logic.host_object(object_id) {
-            if obj.team != player_team || !obj.is_alive() || !obj.is_kind_of(KindOf::Structure) {
+            if obj.owner_player_id != Some(player_id)
+                || !obj.is_alive()
+                || !obj.is_kind_of(KindOf::Structure)
+            {
                 return CommandResult::InvalidTarget;
             }
             if obj.status.sold
@@ -96,6 +98,19 @@ impl<'a> CommandExecutor<'a> {
             }
         }
 
+        // The live Upgrade.ini loader registers actual upgrade definitions in
+        // GameLogic's UpgradeCenter rather than the object ThingTemplate map.
+        // Use that parsed cost before falling back to the built-in retail
+        // table, so mod/map overrides remain authoritative.
+        let parsed_cost = gamelogic::upgrade::center::with_upgrade_center(|center| {
+            center
+                .find_upgrade(upgrade_name)
+                .map(|template| template.get_cost())
+        });
+        if let Some(cost) = parsed_cost.filter(|cost| *cost > 0) {
+            return cost as u32;
+        }
+
         // Wave 79: apply HostUpgradeKind retail Upgrade.ini BuildCost residual.
         use crate::game_logic::host_upgrades::HostUpgradeKind;
         let kind = HostUpgradeKind::from_name(upgrade_name);
@@ -125,6 +140,27 @@ impl<'a> CommandExecutor<'a> {
             "upgradenationalism" | "upgradefanaticism" => 1500,
             _ => 1000,
         }
+    }
+
+    /// C++ `UpgradeTemplate::calcTimeToBuild` source for a ControlBar
+    /// research entry.  Upgrade.ini is loaded into the global UpgradeCenter,
+    /// not the ThingTemplate catalog, so querying the parsed template is what
+    /// keeps the live queue in sync with retail and modded BuildTime values.
+    /// A zero/missing value keeps the old minimum-one-logic-frame behavior
+    /// only for unknown legacy entries.
+    pub(super) fn resolve_upgrade_build_time_secs(&self, upgrade_name: &str) -> f32 {
+        let parsed_secs = gamelogic::upgrade::center::with_upgrade_center(|center| {
+            center
+                .find_upgrade(upgrade_name)
+                .map(|template| template.get_build_time())
+        });
+        let fallback_secs =
+            crate::game_logic::host_upgrades::HostUpgradeKind::from_name(upgrade_name)
+                .retail_build_time_secs();
+        parsed_secs
+            .filter(|seconds| seconds.is_finite() && *seconds > 0.0)
+            .unwrap_or(fallback_secs)
+            .max(1.0 / 30.0)
     }
 
     pub(super) fn execute_purchase_science(
@@ -182,7 +218,7 @@ impl<'a> CommandExecutor<'a> {
 
         use crate::game_logic::buildings::DEFAULT_PRODUCTION_QUEUE_LIMIT;
 
-        let mut seen_teams = HashSet::new();
+        let mut seen_players = HashSet::new();
         let mut any = false;
         let cost = Resources {
             supplies: self.resolve_upgrade_cost_supplies(upgrade_name),
@@ -214,30 +250,36 @@ impl<'a> CommandExecutor<'a> {
             if !producer_ok {
                 continue;
             }
-            let team = self
+            // `GameCommand::player_id` and the selected producer identify the
+            // actual research owner.  A faction can have multiple players;
+            // never charge/queue against the first player with this Team.
+            let owner = self.game_logic.host_object(unit_id).and_then(|source| {
+                (source.owner_player_id == Some(self.current_player_id))
+                    .then_some((self.current_player_id, source.team))
+            });
+            let Some((player_id, team)) = owner else {
+                continue;
+            };
+            if !seen_players.insert(player_id) {
+                continue;
+            }
+            let player_is_matching_owner = self
                 .game_logic
-                .host_object(unit_id)
-                .map(|source| source.team);
-            if let Some(team) = team {
-                if !seen_teams.insert(team) {
-                    continue;
-                }
-                if let Some(player) = self.game_logic.get_player_mut_by_team(team) {
-                    let player_id = player.id;
-                    if player.queue_upgrade(upgrade_name, &cost) {
-                        any = true;
-                        recorded.push((player_id, team, unit_id));
-                    }
+                .get_player(player_id)
+                .is_some_and(|player| player.is_alive && player.team == team);
+            if !player_is_matching_owner {
+                continue;
+            }
+            if let Some(player) = self.game_logic.get_player_mut(player_id) {
+                if player.queue_upgrade(upgrade_name, &cost) {
+                    recorded.push((player_id, team, unit_id));
                 }
             }
         }
         for (player_id, team, unit_id) in recorded {
             // C++ ProductionUpdate::queueUpgrade — research advances on the producer.
-            let research_secs = {
-                let kind =
-                    crate::game_logic::host_upgrades::HostUpgradeKind::from_name(upgrade_name);
-                kind.residual_research_frames().max(1) as f32 / 30.0
-            };
+            let research_secs = self.resolve_upgrade_build_time_secs(upgrade_name);
+            let research_frames = (research_secs * 30.0).round().max(1.0) as u32;
             // Wave 233: producer upgrade queue via GameLogic authority API.
             let building_queued = self.game_logic.unit_command_building_add_upgrade_to_queue(
                 unit_id,
@@ -264,6 +306,9 @@ impl<'a> CommandExecutor<'a> {
                 player_id,
                 cost.supplies,
             );
+            self.game_logic
+                .host_upgrades_mut()
+                .set_resolved_research_frames(upgrade_name, player_id, research_frames);
             any = true;
         }
         if any {
@@ -298,7 +343,7 @@ impl<'a> CommandExecutor<'a> {
             return CommandResult::InvalidCommand;
         };
 
-        let mut seen_teams = HashSet::new();
+        let mut seen_players = HashSet::new();
         let mut refunded = false;
         let refund = Resources {
             supplies: self.resolve_upgrade_cost_supplies(&upgrade_name),
@@ -306,21 +351,31 @@ impl<'a> CommandExecutor<'a> {
         };
         let mut cancelled_players: Vec<u32> = Vec::new();
         for &unit_id in units {
-            let team = self
+            let owner = self
                 .game_logic
                 .host_object(unit_id)
                 .filter(|source| Self::can_source_queue_upgrade(source))
-                .map(|source| source.team);
-            if let Some(team) = team {
-                if !seen_teams.insert(team) {
-                    continue;
-                }
-                if let Some(player) = self.game_logic.get_player_mut_by_team(team) {
-                    let player_id = player.id;
-                    if player.cancel_queued_upgrade(&upgrade_name, &refund) {
-                        refunded = true;
-                        cancelled_players.push(player_id);
-                    }
+                .and_then(|source| {
+                    (source.owner_player_id == Some(self.current_player_id))
+                        .then_some((self.current_player_id, source.team))
+                });
+            let Some((player_id, team)) = owner else {
+                continue;
+            };
+            if !seen_players.insert(player_id) {
+                continue;
+            }
+            let player_is_matching_owner = self
+                .game_logic
+                .get_player(player_id)
+                .is_some_and(|player| player.is_alive && player.team == team);
+            if !player_is_matching_owner {
+                continue;
+            }
+            if let Some(player) = self.game_logic.get_player_mut(player_id) {
+                if player.cancel_queued_upgrade(&upgrade_name, &refund) {
+                    refunded = true;
+                    cancelled_players.push(player_id);
                 }
             }
         }

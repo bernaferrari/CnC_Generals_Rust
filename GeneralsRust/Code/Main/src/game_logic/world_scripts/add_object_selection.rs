@@ -84,7 +84,7 @@ impl GameLogic {
             // large objects whose center is outside the box but whose radius
             // overlaps it.
             for (id, obj) in &mut self.objects {
-                if obj.team == player.team && obj.is_selectable() {
+                if obj.owner_player_id == Some(player_id) && obj.is_selectable() {
                     let pos = obj.get_position();
                     let r = obj.selection_radius;
                     // Circle-vs-AABB intersection test.
@@ -128,7 +128,7 @@ impl GameLogic {
                 .objects
                 .iter()
                 .filter_map(|(&id, obj)| {
-                    if obj.team != team || !obj.is_selectable() {
+                    if obj.owner_player_id != Some(player_id) || !obj.is_selectable() {
                         return None;
                     }
                     Some((
@@ -209,7 +209,16 @@ impl GameLogic {
     /// Command selected units to stop all actions
     pub fn command_stop(&mut self, player_id: u32) {
         if let Some(player) = self.players.get(&player_id) {
-            let selected = player.selected_objects.clone();
+            let selected: Vec<ObjectId> = player
+                .selected_objects
+                .iter()
+                .copied()
+                .filter(|object_id| {
+                    self.objects
+                        .get(object_id)
+                        .is_some_and(|obj| obj.owner_player_id == Some(player_id))
+                })
+                .collect();
             for &object_id in &selected {
                 if let Some(obj) = self.objects.get_mut(&object_id) {
                     obj.stop_moving();
@@ -228,7 +237,16 @@ impl GameLogic {
     /// Command selected units to attack-move to a position (with pathfinding)
     pub fn command_attack_move(&mut self, player_id: u32, target_position: Vec3) {
         if let Some(player) = self.players.get(&player_id) {
-            let selected = player.selected_objects.clone();
+            let selected: Vec<ObjectId> = player
+                .selected_objects
+                .iter()
+                .copied()
+                .filter(|object_id| {
+                    self.objects
+                        .get(object_id)
+                        .is_some_and(|obj| obj.owner_player_id == Some(player_id))
+                })
+                .collect();
             for &object_id in &selected {
                 let (is_mobile, can_attack) = self
                     .objects
@@ -602,6 +620,24 @@ impl GameLogic {
             }
             t
         }
+        fn collector(
+            name: &str,
+            kinds: &[KindOf],
+            hp: f32,
+            cost: u32,
+            build_time: f32,
+        ) -> ThingTemplate {
+            let mut t = unit(name, kinds, hp, cost);
+            // These are the retail Object INI values.  The loaded Object
+            // catalog wins via entry().or_insert_with below; this only keeps
+            // a headless skirmish's typed SupplyCenter production path alive.
+            t.build_time = build_time;
+            t.primary_weapon = None;
+            t.secondary_weapon = None;
+            t.primary_weapon_name = None;
+            t.secondary_weapon_name = None;
+            t
+        }
         let entries: Vec<ThingTemplate> = match team {
             Team::USA => vec![
                 structure(
@@ -707,6 +743,18 @@ impl GameLogic {
                     &[KindOf::Vehicle, KindOf::Selectable, KindOf::Attackable],
                     300.0,
                     400,
+                ),
+                collector(
+                    "AmericaVehicleChinook",
+                    &[
+                        KindOf::Vehicle,
+                        KindOf::Aircraft,
+                        KindOf::Harvester,
+                        KindOf::Selectable,
+                    ],
+                    300.0,
+                    1200,
+                    10.0,
                 ),
                 {
                     let mut d = unit(
@@ -832,6 +880,13 @@ impl GameLogic {
                     100.0,
                     80,
                 ),
+                collector(
+                    "ChinaVehicleSupplyTruck",
+                    &[KindOf::Vehicle, KindOf::Harvester, KindOf::Selectable],
+                    300.0,
+                    600,
+                    10.0,
+                ),
             ],
             Team::GLA => vec![
                 structure(
@@ -929,6 +984,19 @@ impl GameLogic {
                     &[KindOf::Vehicle, KindOf::Selectable, KindOf::Attackable],
                     250.0,
                     300,
+                ),
+                collector(
+                    "GLAInfantryWorker",
+                    &[
+                        KindOf::Infantry,
+                        KindOf::Worker,
+                        KindOf::Dozer,
+                        KindOf::Harvester,
+                        KindOf::Selectable,
+                    ],
+                    100.0,
+                    200,
+                    3.0,
                 ),
             ],
             Team::Neutral => vec![],

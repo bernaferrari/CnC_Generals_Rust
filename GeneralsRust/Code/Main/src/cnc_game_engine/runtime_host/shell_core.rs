@@ -188,7 +188,8 @@ impl CnCGameEngine {
         // Require live shell WND tree. Prefer engine residual; also accept
         // GameClient shell active (status `shell_active` can be true from either).
         #[cfg(feature = "game_client")]
-        let shell_live = self.shell_menu_active || game_client::gui::get_shell().is_shell_active();
+        let shell_live = self.shell_menu_active
+            || game_client::gui::with_shell_ref(|shell| shell.is_shell_active()).unwrap_or(false);
         #[cfg(not(feature = "game_client"))]
         let shell_live = self.shell_menu_active;
         if !shell_live {

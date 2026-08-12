@@ -62,6 +62,48 @@ impl HostControlBarInputProvenance {
     }
 }
 
+/// The mouse button which activated the Control Bar's retail LeftHUD minimap.
+///
+/// This is deliberately independent of winit's button enum: GameClient only
+/// exposes the two button messages accepted by `LeftHUDInput`, while Main
+/// decides whether the current alternate-mouse setting turns that click into
+/// a camera pan or an order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HostMinimapMouseButton {
+    Left,
+    Right,
+}
+
+/// A minimap interaction delivered from the live `ControlBar.wnd:LeftHUD`.
+///
+/// Coordinates retain the actual WND rectangle rather than assuming a fixed
+/// HUD layout.  Main stamps that rectangle into its WGPU minimap mapping
+/// before converting the click to a world position and applying its FOW gate.
+/// Input provenance is attached only while publishing from the synchronous
+/// WND callback; it must never be inferred from a legacy `FromUser` command.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HostMinimapInteraction {
+    pub screen_position: [i32; 2],
+    pub screen_top_left: [i32; 2],
+    pub screen_size: [i32; 2],
+    pub button: HostMinimapMouseButton,
+    pub alternate_mouse: bool,
+    pub input_provenance: HostControlBarInputProvenance,
+}
+
+/// Input owned by the LeftHUD callback before the bridge captures provenance.
+///
+/// Keeping this crate-private prevents a caller from constructing a published
+/// interaction with a forged physical provenance value.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct HostMinimapInteractionRequest {
+    pub screen_position: [i32; 2],
+    pub screen_top_left: [i32; 2],
+    pub screen_size: [i32; 2],
+    pub button: HostMinimapMouseButton,
+    pub alternate_mouse: bool,
+}
+
 /// A gameplay request issued by a Control Bar interaction.
 ///
 /// Names are preserved alongside the legacy [`CommandType`] so the Main host
@@ -93,6 +135,10 @@ pub enum HostControlBarRequest {
         /// Weapon slot (primary/secondary/tertiary) when the command is a
         /// legacy FIRE_WEAPON or SWITCH_WEAPON button.
         weapon_slot: Option<u32>,
+        /// Exact parsed `MaxShotsToFire =` value for a legacy FIRE_WEAPON
+        /// button.  It is absent for command kinds to which C++ does not
+        /// attach a weapon-shot budget.
+        max_shots_to_fire: Option<i32>,
         /// The raw CommandButton `Object=` identity when one was supplied.
         ///
         /// Only `QueueUnitCreate` treats this as a production template.  Other
@@ -118,6 +164,9 @@ pub enum HostControlBarRequest {
         /// Fire-weapon slot (primary/secondary/tertiary) when this target arm
         /// came from a legacy FIRE_WEAPON button.
         weapon_slot: Option<u32>,
+        /// Exact parsed `MaxShotsToFire =` value when this target arm came
+        /// from a legacy FIRE_WEAPON button.
+        max_shots_to_fire: Option<i32>,
         /// Raw CommandButton `Object=` identity, including a
         /// SPECIAL_POWER_CONSTRUCT payload such as SneakAttack's spawn unit.
         object_name: Option<String>,
@@ -164,6 +213,7 @@ pub struct HostControlBarPublishedRequest {
 struct HostControlBarBridgeState {
     enabled: bool,
     requests: VecDeque<HostControlBarPublishedRequest>,
+    minimap_interactions: VecDeque<HostMinimapInteraction>,
 }
 
 fn host_control_bar_bridge_state() -> &'static Mutex<HostControlBarBridgeState> {
@@ -283,6 +333,7 @@ pub fn set_host_control_bar_bridge_enabled(enabled: bool) {
         if state.enabled != enabled {
             state.enabled = enabled;
             state.requests.clear();
+            state.minimap_interactions.clear();
             true
         } else {
             false
@@ -313,6 +364,19 @@ pub fn take_host_control_bar_published_requests() -> Vec<HostControlBarPublished
     state.requests.drain(..).collect()
 }
 
+/// Drain WND LeftHUD minimap interactions at Main's authoritative boundary.
+///
+/// Just like Control Bar requests, these are meaningful only while the host
+/// bridge owns the live callback path.  The event retains its publication-time
+/// provenance even though minimap gameplay itself does not make a physical
+/// acceptance claim.
+pub fn take_host_minimap_interactions() -> Vec<HostMinimapInteraction> {
+    let mut state = host_control_bar_bridge_state()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    state.minimap_interactions.drain(..).collect()
+}
+
 /// Drain only request payloads for legacy standalone callers.
 ///
 /// The Main executable must call [`take_host_control_bar_published_requests`]
@@ -326,11 +390,11 @@ pub fn take_host_control_bar_requests() -> Vec<HostControlBarRequest> {
 
 /// Discard typed requests that have not yet been consumed by the host.
 pub fn clear_host_control_bar_requests() {
-    host_control_bar_bridge_state()
+    let mut state = host_control_bar_bridge_state()
         .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .requests
-        .clear();
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    state.requests.clear();
+    state.minimap_interactions.clear();
 }
 
 /// Build a host request from the exact data attached to a Control Bar button.
@@ -370,6 +434,11 @@ pub(crate) fn host_request_from_button_with_weapon_slot(
     // They still enter map-target mode in C++; keep that semantic explicit
     // instead of mistaking the object for unit production or an instant cast.
     let is_special_power_construct = !button.special_power.is_empty() && !button.object.is_empty();
+    // `MaxShotsToFire` belongs specifically to FIRE_WEAPON.  Preserve the
+    // parsed signed value verbatim: C++ uses `NO_MAX_SHOTS_LIMIT` as a real
+    // value, and a zero budget must not be rewritten into an unlimited order.
+    let max_shots_to_fire =
+        (button.command_type == CommandType::FireWeapon).then_some(button.max_shots_to_fire);
     if command_needs_target || is_special_power_construct {
         let target =
             if button.command_type == CommandType::DozerConstruct && !button.object.is_empty() {
@@ -390,6 +459,7 @@ pub(crate) fn host_request_from_button_with_weapon_slot(
             command_type: button.command_type,
             options: button.options,
             weapon_slot,
+            max_shots_to_fire,
             object_name: (!button.object.is_empty()).then(|| button.object.clone()),
             upgrade_name: (!button.upgrade.is_empty()).then(|| button.upgrade.clone()),
             selected_object_ids: context.selected_objects.clone(),
@@ -418,7 +488,14 @@ pub(crate) fn host_request_from_button_with_weapon_slot(
     // SpecialPowerConstruct/SneakAttack.  Preserve the object in the direct
     // request; only C++ MSG_QUEUE_UNIT_CREATE semantics are production.
     if !button.special_power.is_empty() || button.command_type == CommandType::PurchaseScience {
-        return direct_host_request(button, context, source, special_power_id, weapon_slot);
+        return direct_host_request(
+            button,
+            context,
+            source,
+            special_power_id,
+            weapon_slot,
+            max_shots_to_fire,
+        );
     }
 
     if button.command_type == CommandType::QueueUnitCreate && !button.object.is_empty() {
@@ -431,7 +508,14 @@ pub(crate) fn host_request_from_button_with_weapon_slot(
         };
     }
 
-    direct_host_request(button, context, source, special_power_id, weapon_slot)
+    direct_host_request(
+        button,
+        context,
+        source,
+        special_power_id,
+        weapon_slot,
+        max_shots_to_fire,
+    )
 }
 
 fn direct_host_request(
@@ -440,12 +524,14 @@ fn direct_host_request(
     source: CommandSourceType,
     special_power_id: Option<u32>,
     weapon_slot: Option<u32>,
+    max_shots_to_fire: Option<i32>,
 ) -> HostControlBarRequest {
     HostControlBarRequest::DirectCommand {
         command_name: button.command_name.clone(),
         command_type: button.command_type,
         options: button.options,
         weapon_slot,
+        max_shots_to_fire,
         object_name: (!button.object.is_empty()).then(|| button.object.clone()),
         upgrade_name: (!button.upgrade.is_empty()).then(|| button.upgrade.clone()),
         selected_object_ids: context.selected_objects.clone(),
@@ -478,6 +564,33 @@ pub(crate) fn publish_host_control_bar_request(request: HostControlBarRequest) -
         request,
         input_provenance: host_control_bar_input_provenance_for_current_dispatch(),
     });
+    true
+}
+
+/// Publish a LeftHUD minimap click only while Main owns Control Bar authority.
+///
+/// The callback supplies geometry and button semantics, but this function
+/// captures the scoped WND provenance itself.  That keeps both physical OS
+/// events and injected/runtime-host events on the same gameplay route without
+/// allowing the latter to impersonate a physical click.
+pub(crate) fn publish_host_minimap_interaction(request: HostMinimapInteractionRequest) -> bool {
+    let mut state = host_control_bar_bridge_state()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if !state.enabled {
+        return false;
+    }
+
+    state
+        .minimap_interactions
+        .push_back(HostMinimapInteraction {
+            screen_position: request.screen_position,
+            screen_top_left: request.screen_top_left,
+            screen_size: request.screen_size,
+            button: request.button,
+            alternate_mouse: request.alternate_mouse,
+            input_provenance: host_control_bar_input_provenance_for_current_dispatch(),
+        });
     true
 }
 
@@ -638,18 +751,69 @@ mod tests {
 
         // Scope cleanup is RAII: the next request must not inherit physical
         // provenance after the synchronous callback returns.
-        assert!(publish_host_control_bar_request(HostControlBarRequest::Production {
-            command_name: "Command_ConstructAmericaTank".to_string(),
-            template_name: "AmericaTankCrusader".to_string(),
-            producer_ids: vec![41],
-            player_id: 7,
-            source: CommandSourceType::FromUser,
-        }));
+        assert!(publish_host_control_bar_request(
+            HostControlBarRequest::Production {
+                command_name: "Command_ConstructAmericaTank".to_string(),
+                template_name: "AmericaTankCrusader".to_string(),
+                producer_ids: vec![41],
+                player_id: 7,
+                source: CommandSourceType::FromUser,
+            }
+        ));
         assert_eq!(
             take_host_control_bar_published_requests()[0].input_provenance,
             HostControlBarInputProvenance::InjectedOrUnknown,
             "a finished physical scope must not leak to a later request"
         );
+    }
+
+    #[test]
+    fn minimap_publication_captures_wnd_provenance_without_forging_it() {
+        let _guard = acquire();
+        let request = HostMinimapInteractionRequest {
+            screen_position: [42, 491],
+            screen_top_left: [7, 443],
+            screen_size: [167, 152],
+            button: HostMinimapMouseButton::Right,
+            alternate_mouse: false,
+        };
+
+        assert!(
+            !publish_host_minimap_interaction(request),
+            "a disabled bridge must leave the standalone radar callback alone"
+        );
+        assert!(take_host_minimap_interactions().is_empty());
+
+        set_host_control_bar_bridge_enabled(true);
+        // Neither a direct callback/test invocation nor an injected WND scope
+        // may claim to be a physical OS mouse event.
+        assert!(publish_host_minimap_interaction(request));
+        with_host_control_bar_input_provenance(
+            HostControlBarInputProvenance::InjectedOrUnknown,
+            || assert!(publish_host_minimap_interaction(request)),
+        );
+        with_host_control_bar_input_provenance(
+            HostControlBarInputProvenance::PhysicalWindowMouseInput,
+            || assert!(publish_host_minimap_interaction(request)),
+        );
+
+        let published = take_host_minimap_interactions();
+        assert_eq!(published.len(), 3);
+        assert_eq!(
+            published[0].input_provenance,
+            HostControlBarInputProvenance::InjectedOrUnknown
+        );
+        assert_eq!(
+            published[1].input_provenance,
+            HostControlBarInputProvenance::InjectedOrUnknown
+        );
+        assert_eq!(
+            published[2].input_provenance,
+            HostControlBarInputProvenance::PhysicalWindowMouseInput
+        );
+        assert_eq!(published[2].screen_top_left, [7, 443]);
+        assert_eq!(published[2].screen_size, [167, 152]);
+        assert_eq!(published[2].button, HostMinimapMouseButton::Right);
     }
 
     #[test]
@@ -886,6 +1050,7 @@ mod tests {
         let mut fire_weapon = CommandButton::default();
         fire_weapon.command_name = "Command_ComancheFireTertiaryWeapon".to_string();
         fire_weapon.command_type = CommandType::FireWeapon;
+        fire_weapon.max_shots_to_fire = 1;
 
         let armed = host_request_from_button_with_weapon_slot(
             &fire_weapon,
@@ -900,6 +1065,7 @@ mod tests {
             HostControlBarRequest::ArmTarget {
                 command_type: CommandType::FireWeapon,
                 weapon_slot: Some(2),
+                max_shots_to_fire: Some(1),
                 target: HostControlBarTarget::Generic,
                 ..
             }
@@ -918,6 +1084,7 @@ mod tests {
             HostControlBarRequest::DirectCommand {
                 command_type: CommandType::FireWeapon,
                 weapon_slot: Some(1),
+                max_shots_to_fire: Some(1),
                 ..
             }
         ));

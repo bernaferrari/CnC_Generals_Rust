@@ -879,10 +879,7 @@ impl Weapon {
                 }
             }
 
-            let exhaust = self
-                .template
-                .get_projectile_exhaust(source_veterancy)
-                .map(|tmpl| Arc::new(tmpl.clone()));
+            let exhaust = self.template.get_projectile_exhaust(source_veterancy);
 
             let weapon_template = Arc::clone(&self.template);
             let mut launched = false;
@@ -1293,5 +1290,4 @@ impl Weapon {
     pub(crate) fn random_float(&self, min: f32, max: f32) -> f32 {
         get_game_logic_random_value_real(min, max)
     }
-
 }

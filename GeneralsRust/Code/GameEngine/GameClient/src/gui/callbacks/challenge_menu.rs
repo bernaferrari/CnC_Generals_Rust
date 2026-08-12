@@ -10,9 +10,9 @@ use crate::gui::challenge_generals::{get_challenge_generals_mut, GameDifficulty,
 use crate::gui::game_window::Image as WindowImage;
 use crate::gui::window_video_manager::with_window_video_manager;
 use crate::gui::{
-    get_shell, show_shell_map_if_available, try_with_shell_mut, with_window_manager,
-    write_input_focus_response, GameWindow, WindowLayout, WindowMessage, WindowMsgData,
-    WindowMsgHandled, WindowStatus,
+    get_shell, queue_shell_pop, queue_shell_shutdown_complete, show_shell_map_if_available,
+    try_with_shell_mut, with_window_manager, write_input_focus_response, GameWindow, WindowLayout,
+    WindowMessage, WindowMsgData, WindowMsgHandled, WindowStatus,
 };
 use crate::message_stream::{get_message_stream, GameMessageType};
 use game_engine::common::game_common::LOGICFRAMES_PER_SECOND;
@@ -519,7 +519,7 @@ pub fn challenge_menu_update(layout: &WindowLayout, _user_data: Option<&dyn std:
     {
         state.is_shutting_down = false;
         layout.hide(true);
-        let _ = try_with_shell_mut(|shell| shell.shutdown_complete(None, false));
+        queue_shell_shutdown_complete(false);
     }
 
     with_window_video_manager(|manager| manager.update());
@@ -541,7 +541,7 @@ pub fn challenge_menu_shutdown(layout: &WindowLayout, user_data: Option<&dyn std
 
     if pop_immediate {
         layout.hide(true);
-        let _ = try_with_shell_mut(|shell| shell.shutdown_complete(None, false));
+        queue_shell_shutdown_complete(false);
         return;
     }
 
@@ -647,7 +647,7 @@ pub fn challenge_menu_system(
             }
             if control_id == state.button_back_id {
                 drop(state);
-                let _ = try_with_shell_mut(|shell| shell.pop());
+                queue_shell_pop();
                 return WindowMsgHandled::Handled;
             }
             WindowMsgHandled::Handled

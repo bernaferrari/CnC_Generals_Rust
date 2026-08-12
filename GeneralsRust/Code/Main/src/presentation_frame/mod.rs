@@ -15,7 +15,7 @@ use crate::game_logic::host_base_defense::{
     PATRIOT_BINARY_DATA_STREAM, PATRIOT_LASER_INNER_COLOR, PATRIOT_LASER_TEXTURE,
 };
 use crate::game_logic::{
-    CombatParticleKind, CombatParticleSystemEntry, GameLogic, KindOf, ObjectId, Team,
+    CombatParticleKind, CombatParticleSystemEntry, DockKind, GameLogic, KindOf, ObjectId, Team,
 };
 use glam::Vec3;
 use serde::{Deserialize, Serialize};

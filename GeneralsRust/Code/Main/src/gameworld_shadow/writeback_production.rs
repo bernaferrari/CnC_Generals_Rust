@@ -728,8 +728,24 @@ impl GameWorldShadow {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
             };
-            let Some(want_team) = self.host_team_for_gw_owner(logic, ent.owner) else {
-                continue;
+            let (want_owner_player_id, want_team) = match ent.owner {
+                None => (None, crate::game_logic::Team::Neutral),
+                Some(_) => {
+                    let Some(player_id) = self.host_player_for_gw_owner(ent.owner) else {
+                        // A GameWorld owner which cannot be resolved to a
+                        // live host player must not be collapsed to a faction
+                        // or neutral owner on the host.
+                        continue;
+                    };
+                    let Some(team) = logic
+                        .get_player(player_id)
+                        .filter(|player| player.is_alive)
+                        .map(|player| player.team)
+                    else {
+                        continue;
+                    };
+                    (Some(player_id), team)
+                }
             };
             // Wave 758: under coupled tick, host log pending = mid-frame authority.
             if shadow_coupled_tick_active()
@@ -740,19 +756,23 @@ impl GameWorldShadow {
             let Some(obj) = logic.host_objects().get(&ObjectId(hid)) else {
                 continue;
             };
-            if obj.team != want_team {
+            if obj.team != want_team || obj.owner_player_id != want_owner_player_id {
                 let prev = obj.team;
+                let team_changed = prev != want_team;
                 // Wave 945: owner writeback via host writeback authority.
                 if !logic.apply_host_writeback_op(crate::game_logic::HostWritebackOp::Owner {
                     id: ObjectId(hid),
                     team: want_team,
                     team_color: want_team.get_color(),
+                    owner_player_id: want_owner_player_id,
                 }) {
                     continue;
                 }
                 // Wave 629: GameWorld owner last-write residual —
                 // host applies capture side effects from ready log.
-                ready.push((ObjectId(hid), prev, want_team));
+                if team_changed {
+                    ready.push((ObjectId(hid), prev, want_team));
+                }
                 updated += 1;
             }
         }

@@ -77,6 +77,11 @@ impl GameClient {
     }
 
     pub fn mark_initialized(&mut self) {
+        // Main performs the WGPU-safe subset of GameClient initialization
+        // directly (it must not create the legacy PlatformContext).  Register
+        // that fully prepared client at the same lifecycle boundary as
+        // `GameClient::init`, so published input frame state is live.
+        register_live_game_client(self);
         self.initialized = true;
     }
 

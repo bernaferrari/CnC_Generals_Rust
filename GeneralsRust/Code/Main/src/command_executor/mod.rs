@@ -262,8 +262,14 @@ impl<'a> CommandExecutor<'a> {
             }
             CommandType::DoWeapon {
                 weapon_slot,
+                max_shots_to_fire,
                 target,
-            } => self.execute_weapon(&command.selected_units, weapon_slot, target),
+            } => self.execute_weapon(
+                &command.selected_units,
+                weapon_slot,
+                *max_shots_to_fire,
+                target,
+            ),
 
             // Transport and container
             CommandType::Enter { target_id } => {
@@ -420,12 +426,10 @@ impl<'a> CommandExecutor<'a> {
     // === Validation Helpers ===
 
     fn validate_player_ownership(&self, command: &GameCommand) -> bool {
-        let player_team = self.player_team(command.player_id);
-
         // Check if player owns all selected units
         for &unit_id in &command.selected_units {
             if let Some(unit) = self.game_logic.host_object(unit_id) {
-                if unit.team != player_team {
+                if unit.owner_player_id != Some(command.player_id) {
                     warn!(
                         "Player {} doesn't own unit {}",
                         command.player_id, unit_id.0

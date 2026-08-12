@@ -218,6 +218,51 @@ impl GameLogic {
         self.demo_suicide_bomb.honesty_plus_fire_path_ok()
     }
 
+    /// Reconcile player-owned state and refund a production entry removed from
+    /// a producer queue.
+    ///
+    /// Player upgrades have two coupled states in C++, not just the queue
+    /// entry: `ProductionUpdate::cancelUpgrade` also removes the player's
+    /// `IN_PRODUCTION` upgrade status.  Leaving that status behind makes a
+    /// cancelled research item impossible to buy again.
+    fn refund_cancelled_production_item(&mut self, team: Team, item: &ProductionItem) {
+        let mut cancelled_upgrade = None;
+
+        if let Some(player) = self.get_player_mut_by_team(team) {
+            if item.is_upgrade() {
+                let player_id = player.id;
+                if !player.cancel_queued_upgrade(&item.template_name, &item.cost) {
+                    // A normal queue always has the matching player state.
+                    // If a restored/legacy save left only the producer entry,
+                    // still refund its recorded cost rather than deleting paid
+                    // research with no recovery path.
+                    player.apply_supply_gain(item.cost.supplies);
+                    player.power_available -= item.cost.power;
+                    crate::game_logic::host_economy_log::record(
+                        player.id,
+                        player.effective_supplies(),
+                        player.power_available,
+                    );
+                }
+                cancelled_upgrade = Some((player_id, item.template_name.clone()));
+            } else {
+                // Economy authority: refund via pending delta + log (GameWorld
+                // remains the last writer for the absolute resource value).
+                player.apply_supply_gain(item.cost.supplies);
+                player.power_available -= item.cost.power;
+                crate::game_logic::host_economy_log::record(
+                    player.id,
+                    player.effective_supplies(),
+                    player.power_available,
+                );
+            }
+        }
+
+        if let Some((player_id, upgrade_name)) = cancelled_upgrade {
+            self.record_host_upgrade_cancelled(player_id, &upgrade_name);
+        }
+    }
+
     /// Cancel a queued production item by template name (first match).
     pub fn cancel_production(&mut self, producer_id: ObjectId, template_name: String) -> bool {
         let Some(team) = self.objects.get(&producer_id).map(|p| p.team) else {
@@ -227,7 +272,7 @@ impl GameLogic {
             return false;
         }
 
-        let mut refund: Option<Resources> = None;
+        let mut cancelled: Option<ProductionItem> = None;
         if let Some(producer) = self.objects.get_mut(&producer_id) {
             if let Some(building) = producer.building_data.as_mut() {
                 if let Some(pos) = building
@@ -235,26 +280,14 @@ impl GameLogic {
                     .iter()
                     .position(|item| item.template_name == template_name)
                 {
-                    refund = building.cancel_production(pos).map(|item| item.cost);
+                    cancelled = building.cancel_production(pos);
                 }
             }
         }
 
-        if let Some(cost) = refund {
-            if let Some(player) = self.get_player_mut_by_team(team) {
-                // Economy authority: refund via pending delta + log (GameWorld last-writer).
-                player.apply_supply_gain(cost.supplies);
-                player.power_available -= cost.power;
-                crate::game_logic::host_economy_log::record(
-                    player.id,
-                    player.effective_supplies(),
-                    player.power_available,
-                );
-            }
-            crate::game_logic::host_production_log::record_cancel(
-                producer_id,
-                template_name.clone(),
-            );
+        if let Some(item) = cancelled {
+            self.refund_cancelled_production_item(team, &item);
+            crate::game_logic::host_production_log::record_cancel(producer_id, item.template_name);
             // Wave 485: last cancelled item clears factory exit-delay residual.
             if let Some(producer) = self.objects.get_mut(&producer_id) {
                 if let Some(building) = producer.building_data.as_mut() {
@@ -280,7 +313,11 @@ impl GameLogic {
     /// one intact.  `cancel_production` remains the name-based API used by
     /// older callers; the authoritative HUD bridge uses this index-preserving
     /// variant.
-    pub fn cancel_production_at_index(&mut self, producer_id: ObjectId, queue_index: usize) -> bool {
+    pub fn cancel_production_at_index(
+        &mut self,
+        producer_id: ObjectId,
+        queue_index: usize,
+    ) -> bool {
         let Some(team) = self.objects.get(&producer_id).map(|producer| producer.team) else {
             return false;
         };
@@ -299,16 +336,7 @@ impl GameLogic {
             return false;
         };
 
-        if let Some(player) = self.get_player_mut_by_team(team) {
-            // Economy authority: mirror the name-based cancellation path.
-            player.apply_supply_gain(item.cost.supplies);
-            player.power_available -= item.cost.power;
-            crate::game_logic::host_economy_log::record(
-                player.id,
-                player.effective_supplies(),
-                player.power_available,
-            );
-        }
+        self.refund_cancelled_production_item(team, &item);
         crate::game_logic::host_production_log::record_cancel(producer_id, item.template_name);
 
         // The final cancellation releases the factory door immediately just as
@@ -349,16 +377,15 @@ impl GameLogic {
             return false;
         }
 
-        let mut refund = Resources::default();
+        let mut cancelled_items: Vec<ProductionItem> = Vec::new();
         let mut cancelled_any = false;
         let mut cancelled_names: Vec<String> = Vec::new();
         let mut cleared_exit_delay = false;
         if let Some(producer) = self.objects.get_mut(&producer_id) {
             if let Some(building) = producer.building_data.as_mut() {
                 for item in building.production_queue.drain(..) {
-                    refund.supplies = refund.supplies.saturating_add(item.cost.supplies);
-                    refund.power += item.cost.power;
-                    cancelled_names.push(item.template_name);
+                    cancelled_names.push(item.template_name.clone());
+                    cancelled_items.push(item);
                     cancelled_any = true;
                 }
                 // Wave 485: empty queue clears QueueProductionExitUpdate residual.
@@ -370,14 +397,8 @@ impl GameLogic {
         }
 
         if cancelled_any {
-            if let Some(player) = self.get_player_mut_by_team(team) {
-                player.apply_supply_gain(refund.supplies);
-                player.power_available -= refund.power;
-                crate::game_logic::host_economy_log::record(
-                    player.id,
-                    player.effective_supplies(),
-                    player.power_available,
-                );
+            for item in &cancelled_items {
+                self.refund_cancelled_production_item(team, item);
             }
             // Wave 484: sole-tick skips per-frame progress log — Cancel refreshes
             // GW producer queue snapshot after host drain (sell/death/cancel-all).

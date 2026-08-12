@@ -4,13 +4,196 @@
 use super::super::*;
 
 impl GameLogic {
-    /// Create a new object
+    /// Resolve the one-shot `SpawnBehavior` payload authored by a SupplyCenter
+    /// or SupplyStash.  The live Object INI catalog preserves the nested
+    /// `SpawnTemplateName` fields, so general-specific centers keep their
+    /// own collector (for example Air Force Chinooks) instead of being
+    /// rewritten to a base-faction name.
+    ///
+    /// The exact three base-game pairs are retained for headless/test worlds
+    /// that intentionally do not initialize an AssetManager.  This is not a
+    /// name-derived fallback: these are the literal `SpawnBehavior ModuleTag_12`
+    /// entries in FactionBuilding.ini.
+    fn authored_supply_center_one_shot_template(template_name: &str) -> Option<String> {
+        let parsed = get_asset_manager().and_then(|manager| {
+            let manager = manager.lock().ok()?;
+            let definition = manager.resolve_object_definition(template_name, None)?;
+            let one_shot = Self::object_definition_attr(definition, "OneShot")
+                .is_some_and(|value| value.eq_ignore_ascii_case("yes"));
+            let spawn_count = Self::object_definition_attr(definition, "SpawnNumber")
+                .and_then(|value| value.trim().parse::<u32>().ok());
+            let spawn_template = Self::object_definition_attr(definition, "SpawnTemplateName")?;
+            (one_shot && spawn_count == Some(1))
+                .then_some(spawn_template.trim().to_string())
+                .filter(|name| !name.is_empty())
+        });
+
+        parsed.or_else(|| match template_name {
+            "AmericaSupplyCenter" => Some("AmericaVehicleChinook".to_string()),
+            "ChinaSupplyCenter" => Some("ChinaVehicleSupplyTruck".to_string()),
+            "GLASupplyStash" => Some("GLAInfantryWorker".to_string()),
+            _ => None,
+        })
+    }
+
+    /// Return the authored starter-collector template for a concrete supply
+    /// center.  The AI uses this to put later paid collectors through the same
+    /// typed producer path as the original C++ `queueSupplyTruck` code.
+    pub(crate) fn supply_center_one_shot_collector_template(
+        &self,
+        center_id: ObjectId,
+    ) -> Option<String> {
+        let center = self.host_object(center_id)?;
+        if !center.is_kind_of(KindOf::SupplyCenter) && !center.is_kind_of(KindOf::FSSupplyCenter) {
+            return None;
+        }
+        Self::authored_supply_center_one_shot_template(&center.template_name)
+    }
+
+    /// C++ `SpawnBehavior::createSpawn` slice for the SupplyCenter/Stash
+    /// starter collector.  This is deliberately separate from ProductionUpdate:
+    /// retail creates the first collector as a one-shot SpawnBehavior payload,
+    /// with the center as its producer, before AI later pays for replacements.
+    pub(crate) fn spawn_supply_center_one_shot_collector(
+        &mut self,
+        center_id: ObjectId,
+    ) -> Option<ObjectId> {
+        let (team, owner_player_id, position, orientation) = {
+            let center = self.host_object(center_id)?;
+            if !center.is_alive()
+                || !center.is_constructed()
+                || center.status.under_construction
+                || center.status.sold
+                || center.status.reconstructing
+                || center.supply_center_spawn_behavior_fired
+                || center.team == Team::Neutral
+                || (!center.is_kind_of(KindOf::SupplyCenter)
+                    && !center.is_kind_of(KindOf::FSSupplyCenter))
+            {
+                return None;
+            }
+            (
+                center.team,
+                center.owner_player_id,
+                center.get_position(),
+                center.get_orientation(),
+            )
+        };
+
+        let spawn_template = self.supply_center_one_shot_collector_template(center_id)?;
+
+        // Do not let create_object synthesize a visual/name fallback for a
+        // gameplay collector.  A loaded Object INI definition is sufficient to
+        // make a typed template here; otherwise the authored behavior simply
+        // waits for a valid template rather than inventing a unit.
+        if !self.templates.contains_key(&spawn_template) {
+            let template = Self::build_template_from_asset_definition(&spawn_template)?;
+            if !template.is_kind_of(KindOf::Harvester) {
+                return None;
+            }
+            self.templates.insert(spawn_template.clone(), template);
+        }
+        if !self
+            .templates
+            .get(&spawn_template)
+            .is_some_and(|template| template.is_kind_of(KindOf::Harvester))
+        {
+            return None;
+        }
+
+        // Both activation entry points are mutually exclusive in normal play,
+        // but retain an object-level guard so duplicate completion writeback
+        // cannot turn C++ OneShot into a second free collector.
+        if self.host_objects().values().any(|object| {
+            object.producer_id == Some(center_id)
+                && object.template_name.eq_ignore_ascii_case(&spawn_template)
+        }) {
+            // Old snapshots did not carry the explicit one-shot bit. A live
+            // authored child is conclusive evidence this behavior already
+            // fired, so repair the state before declining a duplicate.
+            if let Some(center) = self.host_object_mut(center_id) {
+                center.supply_center_spawn_behavior_fired = true;
+            }
+            return None;
+        }
+
+        // `SupplyCenterProductionExitUpdate` gives all three stock centers a
+        // UnitCreatePoint of (0, 0, 0), so the C++ exit starts at the center's
+        // world transform.  Preserve both that pose and Object::m_producerID.
+        let spawned_id = match owner_player_id {
+            Some(player_id) => self.create_object_for_player(&spawn_template, player_id, position),
+            None => self.create_object(&spawn_template, team, position),
+        }?;
+        if let Some(spawned) = self.host_object_mut(spawned_id) {
+            spawned.producer_id = Some(center_id);
+            spawned.set_orientation(orientation);
+        }
+        if let Some(center) = self.host_object_mut(center_id) {
+            center.supply_center_spawn_behavior_fired = true;
+        }
+        Some(spawned_id)
+    }
+
+    /// Create a new object for an unambiguous faction owner.  Callers that
+    /// know the controlling player (map records, commands, and producers)
+    /// must use `create_object_for_player` instead.
     pub fn create_object(
         &mut self,
         template_name: &str,
         team: Team,
         position: Vec3,
     ) -> Option<ObjectId> {
+        let owner_player_id = self.unique_player_id_for_team(team);
+        self.create_object_with_owner(template_name, team, owner_player_id, position)
+    }
+
+    /// Create an object for a specific controlling player while retaining the
+    /// player's faction in `team` for INI/template and visual selection.
+    pub fn create_object_for_player(
+        &mut self,
+        template_name: &str,
+        owner_player_id: u32,
+        position: Vec3,
+    ) -> Option<ObjectId> {
+        let team = self.players.get(&owner_player_id)?.team;
+        if team == Team::Neutral {
+            return None;
+        }
+        self.create_object_with_owner(template_name, team, Some(owner_player_id), position)
+    }
+
+    /// Create through a player-aware path when a caller has exact provenance,
+    /// otherwise retain the legacy faction-only creation behavior.  This is a
+    /// small boundary helper for systems whose old payloads carried `Team`
+    /// while newer producer/map paths also carry the controlling player.
+    pub(in super::super) fn create_object_for_owner_or_team(
+        &mut self,
+        template_name: &str,
+        team: Team,
+        owner_player_id: Option<u32>,
+        position: Vec3,
+    ) -> Option<ObjectId> {
+        match owner_player_id {
+            Some(player_id) => self.create_object_for_player(template_name, player_id, position),
+            None => self.create_object(template_name, team, position),
+        }
+    }
+
+    fn create_object_with_owner(
+        &mut self,
+        template_name: &str,
+        team: Team,
+        owner_player_id: Option<u32>,
+        position: Vec3,
+    ) -> Option<ObjectId> {
+        if owner_player_id.is_some_and(|player_id| {
+            self.players
+                .get(&player_id)
+                .map(|player| player.team)
+                != Some(team)
+        }) {
+            return None;
+        }
         // Map-load skip list: decorative / overloaded templates (AngryMob nexus
         // projectiles, cinematic shells, …). Intentional residual / test spawns
         // that already registered a template are fail-open (host Angry Mob path).
@@ -102,6 +285,7 @@ impl GameLogic {
             let sentry_had_explicit_primary =
                 template.primary_weapon.is_some() || template.primary_weapon_name.is_some();
             let mut object = Object::new(template, id, team);
+            object.owner_player_id = owner_player_id;
             object.set_position(position);
             if crate::gameworld_shadow::gameworld_movement_authority_live() {
                 crate::game_logic::host_move_log::record(
@@ -878,6 +1062,12 @@ impl GameLogic {
             // C++ SupplyWarehouseCreate::onCreate residual — StartingBoxes.
             self.init_supply_warehouse_create(id);
 
+            // C++ SpawnBehavior ModuleTag_12 on stock and general-specific
+            // SupplyCenter/Stash objects.  `create_object_under_construction`
+            // intentionally does not call this; that path fires on the real
+            // construction-complete activation edge below.
+            let _ = self.spawn_supply_center_one_shot_collector(id);
+
             // Residual honesty: Emperor innate propaganda counts as install on spawn.
             if emperor_spawn {
                 self.overlord_addons.record_propaganda_install();
@@ -999,13 +1189,57 @@ impl GameLogic {
         }
     }
 
-    /// Create object under construction (for buildings)
+    /// Create a construction object for an unambiguous faction owner. Command
+    /// and builder paths that know the player must use the owned variant.
     pub fn create_object_under_construction(
         &mut self,
         template_name: &str,
         team: Team,
         position: Vec3,
     ) -> Option<ObjectId> {
+        let owner_player_id = self.unique_player_id_for_team(team);
+        self.create_object_under_construction_with_owner(
+            template_name,
+            team,
+            owner_player_id,
+            position,
+        )
+    }
+
+    /// Create a construction object for one controlling player.
+    pub fn create_object_under_construction_for_player(
+        &mut self,
+        template_name: &str,
+        owner_player_id: u32,
+        position: Vec3,
+    ) -> Option<ObjectId> {
+        let team = self.players.get(&owner_player_id)?.team;
+        if team == Team::Neutral {
+            return None;
+        }
+        self.create_object_under_construction_with_owner(
+            template_name,
+            team,
+            Some(owner_player_id),
+            position,
+        )
+    }
+
+    fn create_object_under_construction_with_owner(
+        &mut self,
+        template_name: &str,
+        team: Team,
+        owner_player_id: Option<u32>,
+        position: Vec3,
+    ) -> Option<ObjectId> {
+        if owner_player_id.is_some_and(|player_id| {
+            self.players
+                .get(&player_id)
+                .map(|player| player.team)
+                != Some(team)
+        }) {
+            return None;
+        }
         // C++ BuildAssistant isLocationLegalToBuild residual (objects-in-way / bounds).
         if !self.is_location_legal_to_build(team, position, template_name) {
             log::debug!(
@@ -1016,7 +1250,10 @@ impl GameLogic {
             return None;
         }
         // C++ ProductionPrerequisite residual (known sample table / SW tech tree).
-        if !self.team_satisfies_build_prerequisites(team, template_name) {
+        let prerequisites_ok = owner_player_id
+            .map(|player_id| self.player_satisfies_build_prerequisites(player_id, template_name))
+            .unwrap_or_else(|| self.team_satisfies_build_prerequisites(team, template_name));
+        if !prerequisites_ok {
             log::debug!(
                 "Blocked construction {} for team {:?} (Prerequisites residual)",
                 template_name,
@@ -1025,7 +1262,10 @@ impl GameLogic {
             return None;
         }
         // C++ MaxSimultaneousOfType=DeterminedBySuperweaponRestriction residual.
-        if !self.can_start_superweapon_building(team, template_name) {
+        let superweapon_ok = owner_player_id
+            .map(|player_id| self.can_start_superweapon_building_for_player(player_id, template_name))
+            .unwrap_or_else(|| self.can_start_superweapon_building(team, template_name));
+        if !superweapon_ok {
             log::debug!(
                 "Blocked superweapon construction {} for team {:?} (MaxSimultaneous residual)",
                 template_name,
@@ -1036,6 +1276,7 @@ impl GameLogic {
         if let Some(template) = self.templates.get(template_name).cloned() {
             let id = self.allocate_object_id();
             let mut object = Object::new_under_construction(template, id, team);
+            object.owner_player_id = owner_player_id;
             object.set_position(position);
             if crate::gameworld_shadow::gameworld_movement_authority_live() {
                 crate::game_logic::host_move_log::record(

@@ -27,10 +27,11 @@ impl CnCGameEngine {
                 // Best-effort stack push without re-entering MainMenu system().
                 // Skip if already on a Skirmish layout to avoid double-parse stalls.
                 if !env_soft {
-                    let top = game_client::gui::get_shell()
-                        .top()
-                        .map(|l| l.get_filename().to_string())
-                        .unwrap_or_default();
+                    let top = game_client::gui::with_shell_ref(|shell| {
+                        shell.top_filename().map(str::to_owned)
+                    })
+                    .flatten()
+                    .unwrap_or_default();
                     let top_l = top.to_ascii_lowercase();
                     if !top_l.contains("skirmish") {
                         // Push only the options menu; MainMenu already active.
@@ -39,8 +40,9 @@ impl CnCGameEngine {
                             .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
                             .unwrap_or(false);
                         if allow_heavy {
-                            let _ = game_client::gui::get_shell()
-                                .push("Menus/SkirmishGameOptionsMenu.wnd", false);
+                            let _ = game_client::gui::with_shell_mut(|shell| {
+                                shell.push("Menus/SkirmishGameOptionsMenu.wnd", false)
+                            });
                         }
                     }
                 }
@@ -55,9 +57,10 @@ impl CnCGameEngine {
                 // Always parse/push SkirmishGameOptionsMenu.wnd on interactive
                 // (cached parse; do not skip). Soft Screen::Skirmish only if
                 // WND push failed AND we are not claiming wnd_widget_tree_nav.
-                let push_ok = game_client::gui::get_shell()
-                    .push("Menus/SkirmishGameOptionsMenu.wnd", false)
-                    .is_ok();
+                let push_ok = game_client::gui::with_shell_mut(|shell| {
+                    shell.push("Menus/SkirmishGameOptionsMenu.wnd", false)
+                })
+                .is_some_and(|result| result.is_ok());
                 if push_ok {
                     main_menu_skirmish_wnd_ok = true;
                     self.set_runtime_host_ui_screen_override(Some("Skirmish"));

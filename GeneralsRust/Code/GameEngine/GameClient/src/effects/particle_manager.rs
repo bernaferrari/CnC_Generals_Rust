@@ -11,8 +11,8 @@ use std::time::Instant;
 use thiserror::Error;
 
 use crate::core::DrawableId;
+use crate::effects::particle_ini_loader::ParticleSystemINIParser;
 use crate::system::SubsystemInterface;
-use game_engine::common::ini::{INILoadType, INI};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::Snapshotable;
 use game_engine::System::XferVersion;
@@ -103,6 +103,11 @@ fn particle_priority_from_u8(value: u8) -> ParticlePriorityType {
 /// Particle shader types (matches C++ exactly)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ParticleShaderType {
+    /// C++ `INVALID_SHADER` / retail INI `Shader = NONE`.
+    /// It is intentionally preserved rather than coerced into a visible blend
+    /// mode; callers that do not implement the associated particle subtype
+    /// fail closed.
+    Invalid = 0,
     Additive = 1,
     Alpha,
     AlphaTest,
@@ -112,6 +117,8 @@ pub enum ParticleShaderType {
 /// Particle types (matches C++ exactly)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ParticleType {
+    /// C++ `INVALID_TYPE` / retail INI `Type = NONE`.
+    Invalid = 0,
     Particle = 1,
     Drawable,
     Streak,
@@ -122,6 +129,8 @@ pub enum ParticleType {
 /// Emission velocity types (matches C++ exactly)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EmissionVelocityType {
+    /// C++ `INVALID_VELOCITY` / retail INI `VelocityType = NONE`.
+    Invalid = 0,
     Ortho = 1,
     Spherical,
     Hemispherical,
@@ -132,6 +141,8 @@ pub enum EmissionVelocityType {
 /// Emission volume types (matches C++ exactly)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EmissionVolumeType {
+    /// C++ `INVALID_VOLUME` / retail INI `VolumeType = NONE`.
+    Invalid = 0,
     Point = 1,
     Line,
     Box,
@@ -142,6 +153,8 @@ pub enum EmissionVolumeType {
 /// Wind motion types (matches C++ exactly)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WindMotion {
+    /// C++ `NONE`; the shipped data normally uses `Unused` instead.
+    Invalid = 0,
     NotUsed = 1,
     PingPong,
     Circular,
@@ -531,6 +544,11 @@ impl ParticleSystemTemplate {
 pub struct ParticleSystemManager {
     pub(crate) templates: HashMap<String, Arc<ParticleSystemTemplate>>,
     active_systems: HashMap<ParticleSystemId, Box<ParticleSystem>>,
+    /// C++ keeps `m_allParticleSystemList` in creation order. The lookup map
+    /// is useful for Rust ownership, but `HashMap` iteration changes update,
+    /// blend, LOD-eviction, and save order. Keep the observable list
+    /// explicitly and use the map only for ID lookup.
+    active_system_order: Vec<ParticleSystemId>,
     next_system_id: ParticleSystemId,
 
     // Statistics
@@ -559,6 +577,7 @@ impl ParticleSystemManager {
         Self {
             templates: HashMap::new(),
             active_systems: HashMap::new(),
+            active_system_order: Vec::new(),
             next_system_id: 1,
 
             particle_count: 0,
@@ -580,6 +599,19 @@ impl ParticleSystemManager {
         }
     }
 
+    /// Load the authoritative GameClient particle definitions without
+    /// replacing Common's separate `ParticleSystem` INI parser.
+    ///
+    /// C++ `ParticleSystemManager::init` installs these templates before FX
+    /// systems are created.  Keeping them on this manager lets an exact
+    /// GameClient FX name win over the narrow host/preset fallback path.
+    fn load_retail_particle_templates(&mut self) -> Result<usize, ParticleSystemError> {
+        let parser = ParticleSystemINIParser::default();
+        parser
+            .load_particle_system_definitions("Data/INI/ParticleSystem.ini", self)
+            .map_err(|error| ParticleSystemError::ResourceLoadFailed(error.to_string()))
+    }
+
     /// Find a template by name
     pub fn find_template(&self, name: &str) -> Option<Arc<ParticleSystemTemplate>> {
         self.templates.get(name).cloned()
@@ -598,7 +630,13 @@ impl ParticleSystemManager {
             return None;
         }
 
-        for sys_template in self.templates.values() {
+        // C++ `TemplateMap` is an ordered `std::map<AsciiString, ...>`.
+        // Parent number is therefore part of the observable definition when
+        // several templates name the same slave; do not let HashMap seed
+        // order choose a different parent each run.
+        let mut templates: Vec<_> = self.templates.values().collect();
+        templates.sort_by(|left, right| left.name().cmp(right.name()));
+        for sys_template in templates {
             if sys_template.info().slave_system_name == name {
                 if parent_num == 0 {
                     return Some(sys_template.clone());
@@ -615,7 +653,11 @@ impl ParticleSystemManager {
     pub fn preload_assets(&mut self) {
         self.preloaded_texture_assets.clear();
 
-        for tmplate in self.templates.values() {
+        // `TemplateMap` is ordered in C++; keeping the preloading order stable
+        // also keeps archive requests and first-frame texture residency stable.
+        let mut templates: Vec<_> = self.templates.values().collect();
+        templates.sort_by(|left, right| left.name().cmp(right.name()));
+        for tmplate in templates {
             let info = tmplate.info();
             if info.particle_type != ParticleType::Particle || info.particle_type_name.is_empty() {
                 continue;
@@ -692,6 +734,25 @@ impl ParticleSystemManager {
         self.active_systems.len()
     }
 
+    /// Snapshot the C++ `m_allParticleSystemList` ordering for a phase that
+    /// needs mutable map access. IDs can disappear during a phase, so callers
+    /// must still re-check the lookup map before using one.
+    fn active_system_ids_in_order(&self) -> Vec<ParticleSystemId> {
+        self.active_system_order.clone()
+    }
+
+    fn remove_active_system(&mut self, id: ParticleSystemId) -> Option<Box<ParticleSystem>> {
+        let removed = self.active_systems.remove(&id)?;
+        if let Some(index) = self
+            .active_system_order
+            .iter()
+            .position(|known| *known == id)
+        {
+            self.active_system_order.remove(index);
+        }
+        Some(removed)
+    }
+
     /// Create a particle system from template
     pub fn create_particle_system(
         &mut self,
@@ -731,11 +792,17 @@ impl ParticleSystemManager {
         if system_id == INVALID_PARTICLE_SYSTEM_ID {
             return Err(ParticleSystemError::InvalidSystemId(system_id));
         }
+        if self.active_systems.contains_key(&system_id) {
+            return Err(ParticleSystemError::InitializationFailed(format!(
+                "duplicate particle system ID {system_id}"
+            )));
+        }
 
         // C++ ParticleSystemManager::createParticleSystem always instantiates the
         // system. LOD / budget gates run later in createParticle per particle.
         let system = ParticleSystem::new(template.clone(), system_id, create_slaves);
         self.active_systems.insert(system_id, Box::new(system));
+        self.active_system_order.push(system_id);
         self.system_count = self.active_systems.len();
         self.next_system_id = self.next_system_id.max(system_id.saturating_add(1));
 
@@ -779,7 +846,7 @@ impl ParticleSystemManager {
             .get(&id)
             .and_then(|s| s.slave_system_id());
 
-        if let Some(mut system) = self.active_systems.remove(&id) {
+        if let Some(mut system) = self.remove_active_system(id) {
             system.destroy();
             self.system_count = self.system_count.saturating_sub(1);
         }
@@ -793,10 +860,13 @@ impl ParticleSystemManager {
     /// Destroy all particle systems attached to an object
     pub fn destroy_attached_systems(&mut self, object_id: ObjectId) {
         let systems_to_remove: Vec<ParticleSystemId> = self
-            .active_systems
-            .iter()
-            .filter(|(_, system)| system.attached_object() == Some(object_id))
-            .map(|(id, _)| *id)
+            .active_system_ids_in_order()
+            .into_iter()
+            .filter(|id| {
+                self.active_systems
+                    .get(id)
+                    .is_some_and(|system| system.attached_object() == Some(object_id))
+            })
             .collect();
 
         for system_id in systems_to_remove {
@@ -818,7 +888,7 @@ impl ParticleSystemManager {
         self.local_player_index = local_player_index;
 
         // C++ per system: emit/createParticle then update those particles same frame.
-        let emit_ids: Vec<ParticleSystemId> = self.active_systems.keys().copied().collect();
+        let emit_ids = self.active_system_ids_in_order();
         for id in emit_ids {
             let phase = {
                 let Some(system) = self.active_systems.get_mut(&id) else {
@@ -880,16 +950,18 @@ impl ParticleSystemManager {
 
         // Process slave particle emissions (C++ ParticleSys.cpp lines 2004-2009)
         let slave_work: Vec<(ParticleSystemId, ParticleSystemId, u32)> = self
-            .active_systems
-            .iter_mut()
-            .filter_map(|(master_id, system)| {
+            .active_system_ids_in_order()
+            .into_iter()
+            .filter_map(|master_id| {
+                let system = self.active_systems.get_mut(&master_id)?;
                 let count = system.drain_slave_emission_count();
-                if count == 0 {
-                    return None;
-                }
-                system
-                    .slave_system_id()
-                    .map(|slave_id| (*master_id, slave_id, count))
+                (count != 0)
+                    .then(|| {
+                        system
+                            .slave_system_id()
+                            .map(|slave_id| (master_id, slave_id, count))
+                    })
+                    .flatten()
             })
             .collect();
 
@@ -944,14 +1016,18 @@ impl ParticleSystemManager {
         }
 
         let systems_to_remove: Vec<ParticleSystemId> = self
-            .active_systems
-            .iter()
-            .filter_map(|(id, system)| system.should_remove().then_some(*id))
+            .active_system_ids_in_order()
+            .into_iter()
+            .filter(|id| {
+                self.active_systems
+                    .get(id)
+                    .is_some_and(|system| system.should_remove())
+            })
             .collect();
         for id in systems_to_remove {
             if let Some(system) = self.active_systems.get(&id) {
                 let slave_id = system.slave_system_id();
-                self.active_systems.remove(&id);
+                self.remove_active_system(id);
                 self.system_count = self.system_count.saturating_sub(1);
                 if let Some(slave_id) = slave_id {
                     self.destroy_particle_system(slave_id);
@@ -1118,7 +1194,9 @@ impl ParticleSystemManager {
 
     /// Get all active particle systems
     pub fn all_particle_systems(&self) -> impl Iterator<Item = &ParticleSystem> {
-        self.active_systems.values().map(|b| b.as_ref())
+        self.active_system_order
+            .iter()
+            .filter_map(|id| self.active_systems.get(id).map(|system| system.as_ref()))
     }
 
     /// Get statistics
@@ -1161,7 +1239,7 @@ impl ParticleSystemManager {
     /// [`ParticleRenderer::render_particles`].  Matches the C++ draw-path
     /// where the manager hands its system list to the renderer.
     pub fn draw_particle_systems(&self) -> Vec<&ParticleSystem> {
-        self.active_systems.values().map(|b| b.as_ref()).collect()
+        self.all_particle_systems().collect()
     }
 
     /// Total number of living particles across all active systems.
@@ -1177,6 +1255,7 @@ impl SubsystemInterface for ParticleSystemManager {
         // Initialize the particle system manager
         self.templates.clear();
         self.active_systems.clear();
+        self.active_system_order.clear();
         self.next_system_id = 1;
 
         // Reset LOD settings to defaults
@@ -1187,10 +1266,10 @@ impl SubsystemInterface for ParticleSystemManager {
         self.particle_skip_mask = 0;
         self.particle_generation_count = 0;
 
-        // Load particle system definitions from INI (matches C++ ParticleSystemManager::init)
         // C++ Reference: INI ini; ini.load("Data\\INI\\ParticleSystem.ini", INI_LOAD_OVERWRITE, NULL);
-        let mut ini = INI::new();
-        if let Err(e) = ini.load("Data/INI/ParticleSystem.ini", INILoadType::Overwrite) {
+        // Parse into this GameClient manager, rather than merely opening the
+        // file through Common's independent compatibility registry.
+        if let Err(e) = self.load_retail_particle_templates() {
             // Log warning but don't fail init — particle systems can be loaded later
             eprintln!("Warning: Failed to load Data/INI/ParticleSystem.ini: {}", e);
         }
@@ -1201,6 +1280,7 @@ impl SubsystemInterface for ParticleSystemManager {
     fn reset(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         // Reset all systems and templates
         self.active_systems.clear();
+        self.active_system_order.clear();
         self.next_system_id = 1;
         self.particle_count = 0;
         self.field_particle_count = 0;
@@ -1566,7 +1646,14 @@ pub fn initialize_particle_system_manager() -> Result<(), ParticleSystemError> {
         ParticleSystemError::InitializationFailed("Failed to acquire write lock".to_string())
     })?;
 
-    *manager_guard = Some(ParticleSystemManager::new());
+    let mut manager = ParticleSystemManager::new();
+    if let Err(error) = manager.load_retail_particle_templates() {
+        // This is deliberately non-fatal just like C++'s optional asset path:
+        // the manager remains valid, and a later GameClient initialization can
+        // retry once the virtual file system has mounted the retail archives.
+        log::warn!("Failed to load retail ParticleSystem.ini: {error}");
+    }
+    *manager_guard = Some(manager);
     Ok(())
 }
 
@@ -1580,8 +1667,11 @@ pub fn xfer_particle_system_manager_state(xfer: &mut dyn Xfer) -> Result<(), Xfe
     let manager = manager_guard.get_or_insert_with(ParticleSystemManager::new);
 
     xfer.xfer_unsigned_int(&mut manager.next_system_id)?;
-    let mut system_ids: Vec<_> = manager.active_systems.keys().copied().collect();
-    system_ids.sort_unstable();
+    // C++ saves the linked `m_allParticleSystemList` in its live creation
+    // order.  Preserve that order rather than serializing a hash-map order or
+    // sorting IDs, because alpha blending and subsequent update order remain
+    // observable after a load.
+    let system_ids = manager.active_system_ids_in_order();
 
     let mut system_count = system_ids.len() as u32;
     xfer.xfer_unsigned_int(&mut system_count)?;
@@ -1600,29 +1690,17 @@ pub fn xfer_particle_system_manager_state(xfer: &mut dyn Xfer) -> Result<(), Xfe
             if template_name.is_empty() {
                 continue;
             }
-            // C++ ParticleSys.cpp line 3273: xfer->xferSnapshot(system)
-            // Uses game_engine::Xfer (not system::Xfer), so fields are xfer'd individually.
-            let mut s_id = system.system_id();
-            xfer.xfer_unsigned_int(&mut s_id)?;
-            let mut attached_drawable = system.attached_drawable_id().0;
-            xfer.xfer_drawable_id(&mut attached_drawable)?;
-            let mut attached_object = system.attached_object_id();
-            xfer.xfer_object_id(&mut attached_object)?;
-            let mut is_stopped = system.is_stopped();
-            xfer.xfer_bool(&mut is_stopped)?;
-            let mut slave_id = system
-                .slave_system_id()
-                .unwrap_or(INVALID_PARTICLE_SYSTEM_ID);
-            xfer.xfer_unsigned_int(&mut slave_id)?;
-            let mut master_id = system
-                .master_system_id()
-                .unwrap_or(INVALID_PARTICLE_SYSTEM_ID);
-            xfer.xfer_unsigned_int(&mut master_id)?;
-            let mut p_count = system.particle_count() as u32;
-            xfer.xfer_unsigned_int(&mut p_count)?;
+            // C++ ParticleSys.cpp line 3273: `xferSnapshot(system)`.  The
+            // prior Rust bridge wrote a handful of headers only, losing the
+            // particles, transforms, timers, RNG personality, and attachment
+            // state on every save/load. `ParticleSystem` already owns the full
+            // Snapshotable parity implementation, so use it directly.
+            let mut adapter = crate::core::game_client::RuntimeCommonXferAdapter::new(xfer);
+            Snapshotable::xfer(&mut **system, &mut adapter).map_err(|_| XferStatus::InvalidData)?;
         }
     } else {
         manager.active_systems.clear();
+        manager.active_system_order.clear();
         manager.particle_count = 0;
         manager.field_particle_count = 0;
         manager.system_count = 0;
@@ -1638,29 +1716,21 @@ pub fn xfer_particle_system_manager_state(xfer: &mut dyn Xfer) -> Result<(), Xfe
             let template = manager
                 .find_template(template_name.as_str())
                 .ok_or(XferStatus::InvalidData)?;
-            let system_id = manager.next_system_id;
-            let mut system = Box::new(ParticleSystem::new(template, system_id, false));
-
-            let mut s_id = 0u32;
-            xfer.xfer_unsigned_int(&mut s_id)?;
-            let mut attached_drawable = 0u32;
-            xfer.xfer_drawable_id(&mut attached_drawable)?;
-            let mut attached_object = 0u32;
-            xfer.xfer_object_id(&mut attached_object)?;
-            let mut is_stopped = false;
-            xfer.xfer_bool(&mut is_stopped)?;
-            let mut slave_id = 0u32;
-            xfer.xfer_unsigned_int(&mut slave_id)?;
-            let mut master_id = 0u32;
-            xfer.xfer_unsigned_int(&mut master_id)?;
-            let mut p_count = 0u32;
-            xfer.xfer_unsigned_int(&mut p_count)?;
-
-            // C++ ParticleSys.cpp line 3305: system = createParticleSystem(template, FALSE)
-            manager.next_system_id = manager
-                .next_system_id
-                .max(system.system_id().saturating_add(1));
-            manager.active_systems.insert(system.system_id(), system);
+            // Construct a temporary valid system, then let its exact
+            // Snapshotable implementation restore the serialized ID and all
+            // state just as C++ `xferSnapshot` does.
+            let mut system = Box::new(ParticleSystem::new(template, 1, false));
+            let mut adapter = crate::core::game_client::RuntimeCommonXferAdapter::new(xfer);
+            Snapshotable::xfer(&mut *system, &mut adapter).map_err(|_| XferStatus::InvalidData)?;
+            let system_id = system.system_id();
+            if system_id == INVALID_PARTICLE_SYSTEM_ID
+                || manager.active_systems.contains_key(&system_id)
+            {
+                return Err(XferStatus::InvalidData);
+            }
+            manager.next_system_id = manager.next_system_id.max(system_id.saturating_add(1));
+            manager.active_systems.insert(system_id, system);
+            manager.active_system_order.push(system_id);
         }
 
         manager.system_count = manager.active_systems.len();
@@ -1682,8 +1752,7 @@ pub fn load_post_process_particle_system_manager_state() -> Result<(), XferStatu
         return Ok(());
     };
 
-    let mut system_ids: Vec<_> = manager.active_systems.keys().copied().collect();
-    system_ids.sort_unstable();
+    let system_ids = manager.active_system_ids_in_order();
     for system_id in system_ids {
         let Some(system) = manager.active_systems.get_mut(&system_id) else {
             continue;

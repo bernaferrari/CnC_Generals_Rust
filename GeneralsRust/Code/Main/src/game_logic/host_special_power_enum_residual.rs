@@ -651,10 +651,10 @@ pub fn special_power_reload_seconds(
         P::BlackLotusDisableVehicle => Some(0),
         P::BlackLotusStealCash => Some(2_000),
         P::BlackLotusCaptureBuilding => Some(0),
-        P::RangerCaptureBuilding
-        | P::RedGuardCaptureBuilding
-        | P::RebelCaptureBuilding
-        | P::DisguiseAsVehiclePower => Some(0),
+        P::RangerCaptureBuilding | P::RedGuardCaptureBuilding | P::RebelCaptureBuilding => {
+            Some(15_000)
+        }
+        P::DisguiseAsVehiclePower => Some(0),
         P::SpySatellite => Some(60_000),
         P::SpyDrone => Some(crate::game_logic::host_spy_drone::SPY_DRONE_RELOAD_MS),
         P::RadarScan => Some(60_000),

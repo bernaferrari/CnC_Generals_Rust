@@ -585,11 +585,10 @@ impl GameLogic {
         let shrouded = if !self.skirmish_rules.fog_of_war {
             false
         } else {
-            let player_id = self
-                .players
-                .values()
-                .find(|p| p.team == team)
-                .map(|p| p.id)
+            let player_id = builder_id
+                .and_then(|id| self.objects.get(&id))
+                .and_then(|builder| builder.owner_player_id)
+                .or_else(|| self.unique_player_id_for_team(team))
                 .unwrap_or(0);
             let clear = self.is_build_location_shroud_clear(player_id, position);
             cell_shroud_blocks_build_residual(clear)
@@ -774,6 +773,21 @@ impl GameLogic {
             .count() as u32
     }
 
+    /// Player-scoped counterpart of the Superweapon restriction. Faction is
+    /// still used to identify the template, but each skirmish slot has its own
+    /// quota and must not consume a same-faction opponent's allowance.
+    pub fn count_superweapon_link_key_owned_by_player(&self, player_id: u32) -> u32 {
+        use crate::game_logic::host_superweapon_kindof::is_superweapon_link_key_template;
+        self.objects
+            .values()
+            .filter(|obj| {
+                obj.owner_player_id == Some(player_id)
+                    && obj.is_alive()
+                    && is_superweapon_link_key_template(&obj.template_name)
+            })
+            .count() as u32
+    }
+
     /// Living constructed template names owned by a team residual (prereq scan).
     pub fn team_owned_constructed_templates(&self, team: Team) -> Vec<String> {
         let mut names = Vec::new();
@@ -783,6 +797,19 @@ impl GameLogic {
             }
         }
         names
+    }
+
+    /// Constructed template scan for a controlling player rather than a
+    /// faction. This is the prerequisite source used by player-issued builds
+    /// and production queues.
+    pub fn player_owned_constructed_templates(&self, player_id: u32) -> Vec<String> {
+        self.objects
+            .values()
+            .filter(|obj| {
+                obj.owner_player_id == Some(player_id) && obj.is_alive() && obj.is_constructed()
+            })
+            .map(|obj| obj.template_name.clone())
+            .collect()
     }
 
     /// C++ ProductionPrerequisite residual for known sample templates.
@@ -803,6 +830,23 @@ impl GameLogic {
         prereq_is_satisfied_residual(prereqs, or_chain, &owned_refs, true)
     }
 
+    /// C++ player-owned prerequisite scan for a known controlling player.
+    pub fn player_satisfies_build_prerequisites(
+        &self,
+        player_id: u32,
+        template_name: &str,
+    ) -> bool {
+        use crate::game_logic::host_production_buildable_command_residual::{
+            prereq_is_satisfied_residual, prereq_objects_for_template_residual,
+        };
+        let Some((prereqs, or_chain)) = prereq_objects_for_template_residual(template_name) else {
+            return true;
+        };
+        let owned = self.player_owned_constructed_templates(player_id);
+        let owned_refs: Vec<&str> = owned.iter().map(|name| name.as_str()).collect();
+        prereq_is_satisfied_residual(prereqs, or_chain, &owned_refs, true)
+    }
+
     /// C++ MaxSimultaneousOfType Superweapon residual gate.
     pub fn can_start_superweapon_building(&self, team: Team, template_name: &str) -> bool {
         use crate::game_logic::host_superweapon_kindof::{
@@ -817,6 +861,27 @@ impl GameLogic {
             return true;
         };
         self.count_superweapon_link_key_owned(team) < max
+    }
+
+    /// Player-scoped superweapon restriction used where a command has exact
+    /// controlling-player provenance.
+    pub fn can_start_superweapon_building_for_player(
+        &self,
+        player_id: u32,
+        template_name: &str,
+    ) -> bool {
+        use crate::game_logic::host_superweapon_kindof::{
+            is_superweapon_link_key_template, superweapon_max_simultaneous_allowed,
+        };
+        if !is_superweapon_link_key_template(template_name) {
+            return true;
+        }
+        let Some(max) =
+            superweapon_max_simultaneous_allowed(self.skirmish_rules.limit_superweapons)
+        else {
+            return true;
+        };
+        self.count_superweapon_link_key_owned_by_player(player_id) < max
     }
 
     /// Enqueue unit production on a building if permitted.
@@ -847,70 +912,91 @@ impl GameLogic {
         n
     }
 
-    /// Hangar occupancy residual: docked aircraft at this airfield + queued aircraft.
-    pub fn airfield_parking_occupied_or_queued(&self, airfield_id: ObjectId) -> u32 {
-        let Some(af) = self.objects.get(&airfield_id) else {
-            return 0;
-        };
-        let mut n = 0u32;
-        // Docked hangar roster residual (garrisoned_units or occupants).
-        if let Some(building) = af.building_data.as_ref() {
-            n = n.saturating_add(building.garrisoned_units.len() as u32);
-            // Queued aircraft production residual.
-            for item in &building.production_queue {
-                if self
-                    .templates
-                    .get(&item.template_name)
-                    .map(|t| t.is_kind_of(KindOf::Aircraft))
-                    .unwrap_or_else(|| {
-                        item.template_name.to_ascii_lowercase().contains("aircraft")
-                            || item.template_name.to_ascii_lowercase().contains("jet")
-                            || item.template_name.to_ascii_lowercase().contains("raptor")
-                            || item.template_name.to_ascii_lowercase().contains("aurora")
-                            || item.template_name.to_ascii_lowercase().contains("comanche")
-                            || item.template_name.to_ascii_lowercase().contains("mig")
-                            || item
-                                .template_name
-                                .to_ascii_lowercase()
-                                .contains("helicopter")
-                    })
-                {
-                    n = n.saturating_add(1);
+    /// Player-scoped MaxSimultaneous count, including that player's queues.
+    pub fn count_player_units_of_template_owned_or_queued(
+        &self,
+        player_id: u32,
+        template_name: &str,
+    ) -> u32 {
+        let mut count = 0u32;
+        for obj in self.objects.values() {
+            if obj.owner_player_id != Some(player_id) || !obj.is_alive() {
+                continue;
+            }
+            if obj.template_name.eq_ignore_ascii_case(template_name) {
+                count = count.saturating_add(1);
+            }
+            if let Some(building) = obj.building_data.as_ref() {
+                for item in &building.production_queue {
+                    if item.template_name.eq_ignore_ascii_case(template_name) {
+                        count = count.saturating_add(1);
+                    }
                 }
             }
-        } else {
-            n = n.saturating_add(af.occupants.len() as u32);
         }
-        // Also count living aircraft with producer_id == this airfield still airborne
-        // (space reserved until destroyed).
+        count
+    }
+
+    /// C++ `ParkingPlaceBehavior` occupancy plus queued non-helipad aircraft.
+    ///
+    /// `producer_id` plus `airfield_parking_space_index` is the persisted
+    /// `m_spaces` reservation.  A generic building garrison is not parking
+    /// state and must never consume an airfield slot here.
+    pub fn airfield_parking_occupied_or_queued(&self, airfield_id: ObjectId) -> u32 {
+        let Some(capacity) = self.airfield_parking_capacity(airfield_id) else {
+            // An FSAirfield without parsed ParkingPlaceBehavior data cannot
+            // safely answer C++ `hasAvailableSpaceFor`; callers fail closed.
+            return u32::MAX;
+        };
+        let Some(airfield) = self.objects.get(&airfield_id) else {
+            return u32::MAX;
+        };
+
+        // Multiple stale objects must not turn one retained m_spaces index
+        // into multiple occupied slots.  Runtime normalization resolves such
+        // records too; this `&self` UI query stays deterministic and
+        // conservative between ticks.
+        let mut occupied_slots = HashSet::new();
         for obj in self.objects.values() {
-            if !obj.is_alive() {
-                continue;
-            }
-            if obj.producer_id != Some(airfield_id) {
-                continue;
-            }
-            if !(obj.is_kind_of(KindOf::Aircraft) || obj.object_type == ObjectType::Aircraft) {
-                continue;
-            }
-            // Already counted if docked in garrison list.
-            let docked = obj.contained_by == Some(airfield_id)
-                || af
-                    .building_data
-                    .as_ref()
-                    .map(|b| b.garrisoned_units.contains(&obj.id))
-                    .unwrap_or(false);
-            if !docked {
-                n = n.saturating_add(1);
+            if obj.is_alive()
+                && (obj.is_kind_of(KindOf::Aircraft) || obj.object_type == ObjectType::Aircraft)
+                && obj.producer_id == Some(airfield_id)
+            {
+                if let Some(slot) = obj.airfield_parking_space_index {
+                    if usize::try_from(slot).ok().is_some_and(|slot| slot < capacity) {
+                        occupied_slots.insert(slot);
+                    }
+                }
             }
         }
-        n
+
+        let mut queued = 0u32;
+        if let Some(building) = airfield.building_data.as_ref() {
+            for item in &building.production_queue {
+                let Some(template) = self.templates.get(&item.template_name) else {
+                    // C++ needs the actual ThingTemplate to decide whether
+                    // `shouldReserveDoorWhenQueued` applies.  Do not guess
+                    // from a name and accidentally overbook a parking slot.
+                    return u32::MAX;
+                };
+                if template.is_kind_of(KindOf::Aircraft) {
+                    // C++ exempts PRODUCED_AT_HELIPAD here, but Main's compact
+                    // host KindOf bank does not retain that source bit.  Do
+                    // not guess from an aircraft name and over-admit a queue:
+                    // conservatively reserve a real parking space until that
+                    // template-specific special case is represented.
+                    queued = queued.saturating_add(1);
+                }
+            }
+        }
+        (occupied_slots.len() as u32).saturating_add(queued)
     }
 
     /// C++ BuildAssistant::canMakeUnit residual status for a producer + template.
     ///
-    /// Fail-closed parking/maxed residual currently unused (always false) until
-    /// Hero MaxSimultaneousOfType=1 residual live; full INI MaxSimultaneous matrix deferred.
+    /// Parking uses the parsed `ParkingPlaceBehavior` reservation contract;
+    /// the remaining MaxSimultaneous matrix is intentionally only the live
+    /// hero/unique-unit residual until its complete INI representation lands.
     pub fn can_make_unit(&self, producer_id: ObjectId, template_name: &str) -> u32 {
         use crate::game_logic::buildings::DEFAULT_PRODUCTION_QUEUE_LIMIT;
         use crate::game_logic::host_production_buildable_command_residual::{
@@ -927,6 +1013,7 @@ impl GameLogic {
             return crate::game_logic::host_production_buildable_command_residual::CANMAKE_FACTORY_IS_DISABLED;
         }
         let team = producer.team;
+        let owner_player_id = producer.owner_player_id;
         let factory_disabled = producer.is_disabled();
         let Some(building) = producer.building_data.as_ref() else {
             return crate::game_logic::host_production_buildable_command_residual::CANMAKE_FACTORY_IS_DISABLED;
@@ -962,26 +1049,30 @@ impl GameLogic {
             }
         }
         let queue_full = building.production_queue.len() >= DEFAULT_PRODUCTION_QUEUE_LIMIT;
-        // C++ ParkingPlaceBehavior hangar capacity residual for aircraft at airfields.
+        // C++ ParkingPlaceBehavior `hasAvailableSpaceFor` gate for a real
+        // FSAirfield.  No building-type or template-name approximation is
+        // allowed: absent authored ParkingPlace data fails closed.
         let parking_full = {
-            use crate::game_logic::buildings::BuildingType;
-            use crate::game_logic::host_dock_contain_exit_heal_residual::airfield_parking_places_full;
-            let is_airfield = matches!(building.building_type, BuildingType::Airfield)
-                || producer.is_kind_of(KindOf::FSAirfield)
-                || producer
-                    .template_name
-                    .to_ascii_lowercase()
-                    .contains("airfield");
             let is_aircraft = template.is_kind_of(KindOf::Aircraft);
-            if is_airfield && is_aircraft {
-                // Occupancy includes current queue aircraft; producing one more needs a free slot.
-                airfield_parking_places_full(self.airfield_parking_occupied_or_queued(producer_id))
+            if producer.is_kind_of(KindOf::FSAirfield) && is_aircraft {
+                self.airfield_parking_capacity(producer_id).map_or(true, |capacity| {
+                    let capacity = u32::try_from(capacity).unwrap_or(u32::MAX);
+                    self.airfield_parking_occupied_or_queued(producer_id) >= capacity
+                })
             } else {
                 false
             }
         };
-        let has_prereq = self.team_satisfies_build_prerequisites(team, template_name)
-            && self.can_start_superweapon_building(team, template_name);
+        let has_prereq = match owner_player_id {
+            Some(player_id) => {
+                self.player_satisfies_build_prerequisites(player_id, template_name)
+                    && self.can_start_superweapon_building_for_player(player_id, template_name)
+            }
+            None => {
+                self.team_satisfies_build_prerequisites(team, template_name)
+                    && self.can_start_superweapon_building(team, template_name)
+            }
+        };
         // Science residual (stealth fighter etc.) as prereq gate.
         let science_ok = {
             use crate::game_logic::host_stealth_fighter::{
@@ -989,7 +1080,11 @@ impl GameLogic {
                 requires_stealth_fighter_science,
             };
             if requires_stealth_fighter_science(template_name) {
-                match self.get_player_by_team(team) {
+                let owner = match owner_player_id {
+                    Some(player_id) => self.get_player(player_id),
+                    None => self.get_player_by_team(team),
+                };
+                match owner {
                     Some(p) => {
                         let has = p
                             .unlocked_sciences
@@ -1004,7 +1099,11 @@ impl GameLogic {
             }
         };
         let has_prereq = has_prereq && science_ok;
-        let has_money = match self.get_player_by_team(team) {
+        let owner = match owner_player_id {
+            Some(player_id) => self.get_player(player_id),
+            None => self.get_player_by_team(team),
+        };
+        let has_money = match owner {
             Some(p) => {
                 let cost = self.modified_build_cost_supplies(
                     p.id,
@@ -1022,14 +1121,23 @@ impl GameLogic {
                 unit_max_simultaneous_of_type_residual, unit_maxed_out_for_player_residual,
             };
             let max = unit_max_simultaneous_of_type_residual(template_name);
-            let owned = self.count_team_units_of_template_owned_or_queued(team, template_name);
+            let owned = owner_player_id
+                .map(|player_id| {
+                    self.count_player_units_of_template_owned_or_queued(player_id, template_name)
+                })
+                .unwrap_or_else(|| self.count_team_units_of_template_owned_or_queued(team, template_name));
             unit_maxed_out_for_player_residual(owned, max)
         };
+        // C++ `ProductionUpdate::canQueueCreateUnit` asks the parking-place
+        // interface before it checks `m_productionCount`.  Preserve that
+        // player-visible failure reason when a full authored airfield also
+        // has a full generic queue.
+        let queue_full_after_parking_gate = queue_full && !parking_full;
         can_make_type_from_checks_residual(
             has_prereq,
             has_money,
             factory_disabled,
-            queue_full,
+            queue_full_after_parking_gate,
             parking_full,
             maxed_out,
         )
@@ -1057,7 +1165,11 @@ impl GameLogic {
         if can_make != CANMAKE_OK {
             if can_make == CANMAKE_NO_MONEY {
                 if let Some(producer) = self.objects.get(&producer_id) {
-                    if let Some(p) = self.get_player_by_team(producer.team) {
+                    let owner = match producer.owner_player_id {
+                        Some(player_id) => self.get_player(player_id),
+                        None => self.get_player_by_team(producer.team),
+                    };
+                    if let Some(p) = owner {
                         let pid = p.id;
                         self.try_eva_insufficient_funds(pid);
                     }
@@ -1074,7 +1186,12 @@ impl GameLogic {
         let science_ok = science_gated; // residual already validated via can_make
         if let Some(producer) = self.objects.get(&producer_id) {
             let team = producer.team;
-            let Some(player) = self.get_player_mut_by_team(team) else {
+            let owner_player_id = producer.owner_player_id;
+            let player = match owner_player_id {
+                Some(player_id) => self.get_player_mut(player_id),
+                None => self.get_player_mut_by_team(team),
+            };
+            let Some(player) = player else {
                 return false;
             };
             let player_id = player.id;

@@ -1402,6 +1402,11 @@ pub struct HostDeliverPayloadMission {
     /// Live transport Object spawned by OCLSpecialPower residual (optional).
     pub transport_object_id: Option<ObjectId>,
     pub source_team: super::Team,
+    /// Player that owned the source when this deferred mission was queued.
+    /// Kept separately from `source_team` because allied same-faction players
+    /// must not receive one another's crates or payload ownership.
+    #[serde(default)]
+    pub source_owner_player_id: Option<u32>,
     pub target_position: Vec3,
     pub activate_frame: u32,
     /// Frame when first payload item is due (approach + door delay).
@@ -1442,6 +1447,7 @@ pub struct HostDeliverPayloadItemPlan {
     pub kind: HostDeliverPayloadKind,
     pub source_object: ObjectId,
     pub source_team: super::Team,
+    pub source_owner_player_id: Option<u32>,
     pub target_position: Vec3,
     pub payload_template: String,
     /// 0-based item index within mission.
@@ -1482,6 +1488,7 @@ pub struct HostDeliverPayloadDropPlan {
     pub kind: HostDeliverPayloadKind,
     pub source_object: ObjectId,
     pub source_team: super::Team,
+    pub source_owner_player_id: Option<u32>,
     pub target_position: Vec3,
     pub payload_template: String,
     pub spawn_positions: Vec<Vec3>,
@@ -1737,10 +1744,35 @@ impl HostDeliverPayloadRegistry {
         payload_template: impl Into<String>,
         impact_delay_frames: u32,
     ) -> u32 {
-        let id = self.queue(
+        self.queue_superweapon_ocl_bomb_for_owner(
+            source_object,
+            source_team,
+            None,
+            target_position,
+            activate_frame,
+            payload_template,
+            impact_delay_frames,
+        )
+    }
+
+    /// Queue a superweapon payload while retaining the exact player that
+    /// launched the OCL.  The team-only wrapper remains for old snapshots and
+    /// scripted paths that cannot identify a player.
+    pub fn queue_superweapon_ocl_bomb_for_owner(
+        &mut self,
+        source_object: ObjectId,
+        source_team: super::Team,
+        source_owner_player_id: Option<u32>,
+        target_position: Vec3,
+        activate_frame: u32,
+        payload_template: impl Into<String>,
+        impact_delay_frames: u32,
+    ) -> u32 {
+        let id = self.queue_for_owner(
             HostDeliverPayloadKind::SuperweaponOclBomb,
             source_object,
             source_team,
+            source_owner_player_id,
             target_position,
             activate_frame,
             payload_template,
@@ -1765,6 +1797,30 @@ impl HostDeliverPayloadRegistry {
         activate_frame: u32,
         payload_template: impl Into<String>,
     ) -> u32 {
+        self.queue_for_owner(
+            kind,
+            source_object,
+            source_team,
+            None,
+            target_position,
+            activate_frame,
+            payload_template,
+        )
+    }
+
+    /// Queue a mission with the player identity of its source preserved across
+    /// the deferred flight/drop boundary.  The legacy [`Self::queue`] API is
+    /// intentionally retained for genuinely team-only callers.
+    pub fn queue_for_owner(
+        &mut self,
+        kind: HostDeliverPayloadKind,
+        source_object: ObjectId,
+        source_team: super::Team,
+        source_owner_player_id: Option<u32>,
+        target_position: Vec3,
+        activate_frame: u32,
+        payload_template: impl Into<String>,
+    ) -> u32 {
         let id = self.next_id;
         self.next_id = self.next_id.saturating_add(1).max(1);
         // Spawning kinds: first item after approach + DoorDelay.
@@ -1781,6 +1837,7 @@ impl HostDeliverPayloadRegistry {
             source_object,
             transport_object_id: None,
             source_team,
+            source_owner_player_id,
             target_position,
             activate_frame,
             drop_frame,
@@ -1943,6 +2000,7 @@ impl HostDeliverPayloadRegistry {
                 kind: mission.kind,
                 source_object: mission.source_object,
                 source_team: mission.source_team,
+                source_owner_player_id: mission.source_owner_player_id,
                 target_position: mission.target_position,
                 payload_template: mission.payload_template.clone(),
                 item_index: next_index,
@@ -1984,6 +2042,7 @@ impl HostDeliverPayloadRegistry {
                 kind: mission.kind,
                 source_object: mission.source_object,
                 source_team: mission.source_team,
+                source_owner_player_id: mission.source_owner_player_id,
                 target_position: mission.target_position,
                 payload_template: mission.payload_template.clone(),
                 spawn_positions,

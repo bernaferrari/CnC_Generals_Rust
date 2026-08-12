@@ -287,6 +287,11 @@ pub struct Object {
     /// Team ownership
     pub team: Team,
 
+    /// Controlling player.  `team` is faction/template identity and is not a
+    /// unique owner in same-faction skirmishes.
+    #[serde(default)]
+    pub owner_player_id: Option<u32>,
+
     /// Object name
     pub name: String,
 
@@ -327,6 +332,20 @@ pub struct Object {
     pub rebuild_reconstructing_id: Option<ObjectId>,
     /// C++ Object::m_producerID residual (hole is producer of reconstructing building).
     pub producer_id: Option<ObjectId>,
+    /// C++ SupplyTruckAIUpdate/WorkerAIUpdate::m_preferredDock.
+    ///
+    /// AIPlayer deliberately issues its collector dock command as
+    /// `CMD_FROM_PLAYER`, which makes the chosen SupplyCenter persist across
+    /// gather/return cycles instead of letting ResourceManager choose a
+    /// different nearby center.
+    #[serde(default)]
+    pub preferred_dock_id: Option<ObjectId>,
+    /// C++ one-shot SpawnBehavior state for SupplyCenter/Stash starter collectors.
+    ///
+    /// The spawned unit can die, but `OneShot = Yes` must not become eligible
+    /// again merely because no live child remains.
+    #[serde(default)]
+    pub supply_center_spawn_behavior_fired: bool,
     /// C++ HighlanderBody residual (cannot die from normal damage).
     pub highlander_body: bool,
     /// C++ UpgradeDie residual (free producer upgrade on death).
@@ -667,6 +686,12 @@ pub struct Object {
     /// Current target
     pub target: Option<ObjectId>,
 
+    /// Active C++ `SpecialAbilityUpdate` capture phase. The target remains in
+    /// `target`; this stores only the authored unpack/preparation/pack timer
+    /// so save/load cannot collapse a live channel into an instant transfer.
+    #[serde(default)]
+    pub capture_channel: Option<CaptureChannelState>,
+
     /// Construction progress (0.0 to 1.0)
     pub construction_percent: f32,
 
@@ -850,6 +875,35 @@ pub struct Object {
     /// Host residual: active Combat Cycle rider class (0=none … 7=saboteur).
     /// Mirrors RiderChangeContain WEAPON_RIDER* residual selection.
     pub combat_cycle_rider: u8,
+
+    /// Active parsed `RiderChangeContain::RiderN` ordinal.  This is separate
+    /// from the older Combat Cycle weapon residual so generic normal Enter
+    /// never has to infer a rider from its template spelling.
+    #[serde(default)]
+    pub rider_change_active_slot: Option<u8>,
+    /// The exact active RiderN model-condition mask, retained to clear the
+    /// previous rider before applying a replacement or scuttling on exit.
+    #[serde(default)]
+    pub rider_change_model_condition_mask: u128,
+    /// The exact active RiderN ObjectStatus mask.
+    #[serde(default)]
+    pub rider_change_object_status_mask: u64,
+    /// Frozen active WeaponSet and locomotor set tokens.  The full authored
+    /// roster remains on ThingTemplate; these fields record only runtime
+    /// selection needed to undo/inspect the physical transaction.
+    #[serde(default)]
+    pub rider_change_weapon_set: Option<String>,
+    #[serde(default)]
+    pub rider_change_locomotor_set: Option<String>,
+    /// Exact active primary locomotor selected from the parsed RiderN set.
+    /// This is distinct from the template's default locomotor so a snapshot
+    /// can show whether the authoritative RiderChange transaction actually
+    /// bound the authored SET_NORMAL row.
+    #[serde(default)]
+    pub rider_change_locomotor_name: Option<String>,
+    /// C++ RiderChangeContain m_scuttledOnFrame (zero = not scuttled).
+    #[serde(default)]
+    pub rider_change_scuttled_on_frame: u32,
 
     /// Host residual: GLA Tunnel Network structure (`TunnelContain`).
     /// Shared per-team capacity via `HostTunnelNetworkRegistry` (MaxTunnelCapacity=10).
@@ -1664,6 +1718,18 @@ pub struct Object {
     /// C++ JetAIUpdate ClipReload airfield rearm ready frame residual.
     #[serde(default)]
     pub airfield_rearm_ready_frame: Option<u32>,
+    /// A player-issued `ReturnToBase` is distinct from an empty
+    /// ReturnToBase-reload clip.  While it is live, the authoritative
+    /// airfield path keeps the C++ ParkingPlace reservation and completes the
+    /// landing even if there is no weapon clip to rearm.
+    #[serde(default)]
+    pub return_to_base_requested: bool,
+    /// Exact index of the C++ `ParkingPlaceBehavior::m_spaces` entry reserved
+    /// for this aircraft.  The producer id names the owning airfield; this
+    /// index is the persistent parking reservation and is intentionally not a
+    /// generic `garrisoned_units` membership bit.
+    #[serde(default)]
+    pub airfield_parking_space_index: Option<u32>,
     /// C++ Frenzy_InvisibleMarker DeletionUpdate residual.
     #[serde(default)]
     pub frenzy_invisible_marker: bool,
@@ -2152,6 +2218,35 @@ pub enum AIState {
     Entering,
     Docking,
     Capturing,
+}
+
+/// C++ `SpecialAbilityUpdate::PackingState` subset for capture abilities.
+/// `Unpacking` remains distinct from `Preparing`: the SpecialPower charge is
+/// not triggered until preparation begins.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum CaptureChannelPhase {
+    #[default]
+    Unpacking,
+    Preparing,
+    Packing,
+}
+
+/// Persistent capture channel timer in seconds. Object INI stores these
+/// values in milliseconds; seconds match the host simulation `dt` without
+/// fixed-tick truncation.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct CaptureChannelState {
+    pub phase: CaptureChannelPhase,
+    pub remaining_seconds: f32,
+}
+
+impl CaptureChannelState {
+    pub fn new(phase: CaptureChannelPhase, duration_ms: u32) -> Self {
+        Self {
+            phase,
+            remaining_seconds: duration_ms as f32 / 1_000.0,
+        }
+    }
 }
 
 fn default_shock_up_z() -> f32 {

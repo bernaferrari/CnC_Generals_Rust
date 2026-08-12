@@ -30,10 +30,10 @@ fn own_team_objects_are_fully_visible_in_presentation_fow() {
     // count_mobile_friendlies also requires KindOf::Selectable; INI-loaded
     // dozers may omit that bit. FOW residual is the own-team snapshot itself.
     assert!(
-        frame
-            .objects
-            .iter()
-            .any(|o| o.id == id && o.team == Team::USA && o.is_mobile && o.fow_visibility.should_render()),
+        frame.objects.iter().any(|o| o.id == id
+            && o.team == Team::USA
+            && o.is_mobile
+            && o.fow_visibility.should_render()),
         "own-team mobile dozer must remain in the presentation object list"
     );
 }

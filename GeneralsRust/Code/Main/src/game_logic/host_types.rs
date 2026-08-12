@@ -132,6 +132,38 @@ pub enum KindOf {
     /// Supply Trucks, and GLA Workers carry this capability and may gather
     /// supplies; it is not the same as a `Harvestable` supply source.
     Harvester,
+    /// C++ `KINDOF_UNATTACKABLE`: an object may exist for lifetime, vision,
+    /// or presentation while never being a legal WeaponSet target (bridges,
+    /// props, parachutes, and special objects use it heavily in retail INIs).
+    /// The compact presentation bit bank is full; its distinct targetability
+    /// meaning is carried through the dedicated presentation/shadow boolean
+    /// instead of changing any established bit positions.
+    Unattackable,
+    /// C++ `KINDOF_MINE`: a mine is targetable by either AntiMine or
+    /// AntiGround weapons while retaining its own targeting category.
+    Mine,
+    /// C++ `KINDOF_DEMOTRAP`, which shares the mine target anti-mask.
+    DemoTrap,
+    /// C++ `KINDOF_SMALL_MISSILE`: the most specific WeaponSet victim mask.
+    SmallMissile,
+    /// C++ `KINDOF_BALLISTIC_MISSILE`: distinct from normal projectiles for
+    /// PointDefenseLaser and WeaponSet targeting.
+    BallisticMissile,
+    /// C++ `KINDOF_PARACHUTE`, used when an airborne parachute is a legal
+    /// AntiParachute target.
+    Parachute,
+    /// C++ `KINDOF_DISGUISER`.  This is separate from the temporary
+    /// DISGUISED object status: WeaponSet grants the force-attack stealth
+    /// exception only to objects whose authored template carries this bit.
+    Disguiser,
+    /// C++ `KINDOF_REPAIR_PAD`.  `ActionManager::canGetRepairedAt` uses this
+    /// authored capability for ground vehicles; it is not inferred from a
+    /// producer/building basename or a `RepairDockUpdate` approximation.
+    RepairPad,
+    /// C++ `KINDOF_HEAL_PAD`.  `ActionManager::canGetHealedAt` uses this
+    /// authored capability for infantry; a medical-looking template without
+    /// this source tag must not become a service destination.
+    HealPad,
 }
 
 /// Object status flags

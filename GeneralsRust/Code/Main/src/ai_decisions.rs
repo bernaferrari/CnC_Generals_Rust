@@ -114,6 +114,70 @@ impl AIDecisionSystem {
         .map(|(id, dist, _)| (id, dist))
     }
 
+    /// Nearest enemy which the concrete attacker may actually engage.
+    ///
+    /// The broad `find_nearest_enemy` query is also useful to non-weapon
+    /// callers, so it deliberately has no attacker or weapon argument. AI
+    /// attack-state acquisition must use this narrower form: C++ AIGuard and
+    /// AIAttackState both ask WeaponSet::getAbleToAttackSpecificObject before
+    /// making a target the goal object.  Without that check an anti-air or
+    /// point-defense-only unit can keep selecting an incompatible ground unit
+    /// forever.
+    pub fn find_nearest_enemy_for_attacker(
+        game_logic: &GameLogic,
+        attacker_id: ObjectId,
+        position: Vec3,
+        team: Team,
+        search_radius: f32,
+    ) -> Option<(ObjectId, f32)> {
+        let candidates: Vec<_> = Self::candidate_object_ids(game_logic, position, search_radius)
+            .into_iter()
+            .filter_map(|object_id| {
+                let object = game_logic.host_object(object_id)?;
+                // Automatic C++ acquisition never treats neutral scenery as
+                // an enemy just because its team differs from the actor.
+                if object.team == Team::Neutral || !object.is_targetable_by_enemy_of(team) {
+                    return None;
+                }
+                if !matches!(
+                    game_logic.get_able_to_attack_specific_object(
+                        attacker_id,
+                        object_id,
+                        AbleToAttackType::NewTarget,
+                        false,
+                    ),
+                    CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving
+                ) {
+                    return None;
+                }
+                Some(
+                    crate::game_logic::host_residual_acquire::ResidualAcquireCandidate {
+                        id: object_id,
+                        team: object.team,
+                        position: object.get_position(),
+                        is_alive: object.is_alive(),
+                        is_neutral: false,
+                        under_construction: object.status.under_construction,
+                        combat_kind: true,
+                        effectively_stealthed: object.is_effectively_stealthed(),
+                        is_air: object.is_kind_of(crate::game_logic::KindOf::Aircraft)
+                            || object.status.airborne_target,
+                        eject_invulnerable: object.is_eject_invulnerable(),
+                    },
+                )
+            })
+            .collect();
+        crate::game_logic::host_residual_acquire::pick_nearest_residual_target(
+            attacker_id,
+            team,
+            position,
+            candidates,
+            |_| search_radius,
+            |_| true,
+        )
+        .map(|(id, dist, _)| (id, dist))
+    }
+
     /// Find the best target based on multiple criteria (distance, health, threat level)
     /// Returns ObjectId of the best target, or None if no valid targets
     pub fn find_best_target(
@@ -137,7 +201,21 @@ impl AIDecisionSystem {
                 continue;
             };
             // Skip if not a valid target (stealthed+undetected are not targetable).
-            if !object.is_targetable_by_enemy_of(team) {
+            if object.team == Team::Neutral || !object.is_targetable_by_enemy_of(team) {
+                continue;
+            }
+            // C++ target scoring is downstream of the WeaponSet legality
+            // check.  A target which the actor cannot hit must not win the
+            // priority score and prevent a legal target from being selected.
+            if !matches!(
+                game_logic.get_able_to_attack_specific_object(
+                    attacker_id,
+                    object_id,
+                    AbleToAttackType::NewTarget,
+                    false,
+                ),
+                CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving
+            ) {
                 continue;
             }
 
@@ -218,9 +296,13 @@ impl AIDecisionSystem {
             return AttackDecision::FindNewTarget;
         }
 
-        // Don't attack friendly units
+        // C++ automatic guard/attack acquisition only considers enemies, not
+        // arbitrary Neutral world objects.
         if target.team == attacker.team {
             return AttackDecision::Hold;
+        }
+        if target.team == Team::Neutral {
+            return AttackDecision::FindNewTarget;
         }
 
         // C++ residual: stealthed + not detected is not a valid victim.
@@ -231,6 +313,22 @@ impl AIDecisionSystem {
         // Check if attacker can actually attack
         if !attacker.can_attack() {
             return AttackDecision::Hold;
+        }
+
+        // This is the same C++ WeaponSet gate AIAttackState applies before
+        // retaining a goal object.  The generic AI score/engagement route
+        // previously skipped it, which made incompatible weapon masks look
+        // like valid combat targets until a later fire attempt failed.
+        if !matches!(
+            game_logic.get_able_to_attack_specific_object(
+                attacker_id,
+                target_id,
+                AbleToAttackType::NewTarget,
+                false,
+            ),
+            CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving
+        ) {
+            return AttackDecision::FindNewTarget;
         }
 
         // Check if target is in range
@@ -664,5 +762,88 @@ mod tests {
         );
 
         assert_eq!(decision, AttackDecision::FindNewTarget);
+    }
+
+    #[test]
+    fn weapon_legal_ai_acquisition_skips_incompatible_nearest_enemy() {
+        use crate::game_logic::{AICommand, KindOf, ThingTemplate, Weapon};
+
+        let mut game_logic = GameLogic::new();
+        let attacker_id = ObjectId(8101);
+        let mut attacker_template = ThingTemplate::new("AiAntiAirSource");
+        attacker_template
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Attackable);
+        game_logic.objects.insert(attacker_id, {
+            let mut attacker = Object::new(attacker_template, attacker_id, Team::USA);
+            attacker.set_position(Vec3::ZERO);
+            attacker.weapon = Some(Weapon {
+                range: 200.0,
+                damage: 10.0,
+                can_target_air: true,
+                can_target_ground: false,
+                ..Default::default()
+            });
+            attacker
+        });
+
+        let ground_id = ObjectId(8102);
+        let mut ground_template = ThingTemplate::new("AiGroundTarget");
+        ground_template
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Attackable);
+        game_logic.objects.insert(ground_id, {
+            let mut target = Object::new(ground_template, ground_id, Team::GLA);
+            target.set_position(Vec3::new(10.0, 0.0, 0.0));
+            target
+        });
+
+        let air_id = ObjectId(8103);
+        let mut air_template = ThingTemplate::new("AiAirTarget");
+        air_template
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Aircraft)
+            .add_kind_of(KindOf::Attackable);
+        game_logic.objects.insert(air_id, {
+            let mut target = Object::new(air_template, air_id, Team::GLA);
+            target.set_position(Vec3::new(25.0, 20.0, 0.0));
+            target.status.airborne_target = true;
+            target
+        });
+
+        // The intentionally broad scanner still sees the closer object.  The
+        // active attack path must make the second WeaponSet-aware choice.
+        assert_eq!(
+            AIDecisionSystem::find_nearest_enemy(&game_logic, Vec3::ZERO, Team::USA, 100.0),
+            Some((ground_id, 10.0))
+        );
+        assert_eq!(
+            AIDecisionSystem::find_nearest_enemy_for_attacker(
+                &game_logic,
+                attacker_id,
+                Vec3::ZERO,
+                Team::USA,
+                100.0,
+            )
+            .map(|(id, _)| id),
+            Some(air_id)
+        );
+        assert_eq!(
+            AIDecisionSystem::should_attack(&game_logic, attacker_id, ground_id),
+            AttackDecision::FindNewTarget
+        );
+
+        // The last authority boundary rejects even a prebuilt external AI
+        // command, then accepts the concrete anti-air victim.
+        game_logic.apply_ai_command_for_test(AICommand::AttackTarget {
+            object_id: attacker_id,
+            target_id: ground_id,
+        });
+        assert_eq!(game_logic.objects[&attacker_id].target, None);
+        game_logic.apply_ai_command_for_test(AICommand::AttackTarget {
+            object_id: attacker_id,
+            target_id: air_id,
+        });
+        assert_eq!(game_logic.objects[&attacker_id].target, Some(air_id));
     }
 }

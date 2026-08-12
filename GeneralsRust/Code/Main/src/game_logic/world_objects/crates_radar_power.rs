@@ -61,8 +61,16 @@ impl GameLogic {
                 SUPPLY_DROP_PAYLOAD_RESIDUAL_TEMPLATE.to_string()
             };
 
-            let spawned_id =
-                self.create_object(&template_name, plan.source_team, plan.spawn_position);
+            // A deferred cargo mission must retain the player that initiated it:
+            // using `source_team` here used to attach every USA payload to the
+            // first USA player.  Genuinely unowned missions keep the legacy
+            // team-only constructor and stay unowned when that team is ambiguous.
+            let spawned_id = match plan.source_owner_player_id {
+                Some(player_id) => {
+                    self.create_object_for_player(&template_name, player_id, plan.spawn_position)
+                }
+                None => self.create_object(&template_name, plan.source_team, plan.spawn_position),
+            };
             if let Some(id) = spawned_id {
                 if plan.kind
                     == crate::game_logic::host_deliver_payload::HostDeliverPayloadKind::SuperweaponOclBomb
@@ -126,15 +134,22 @@ impl GameLogic {
             // (zone path; crates remain for unit MoneyCrateCollide residual
             // only if not marked paid — mark paid after bulk to avoid double).
             if plan.is_final_item && plan.kind.credits_building_pickup_cash() {
-                let has_supply_lines = self.players.values().any(|p| {
-                    p.team == plan.source_team
-                        && p.has_unlocked_upgrade(UPGRADE_AMERICA_SUPPLY_LINES)
-                });
+                let owner_player_id = self.player_owner_for_event(
+                    plan.source_owner_player_id,
+                    plan.source_team,
+                );
+                let has_supply_lines = owner_player_id
+                    .and_then(|player_id| self.players.get(&player_id))
+                    .is_some_and(|player| {
+                        player.has_unlocked_upgrade(UPGRADE_AMERICA_SUPPLY_LINES)
+                    });
                 let amount = drop_cash_amount(has_supply_lines);
                 let boost = amount.saturating_sub(SUPPLY_DROP_ZONE_DROP_CASH);
                 self.supply_drop_zones.record_payload_cash(amount, boost);
-                if let Some(player) = self.get_player_mut_by_team(plan.source_team) {
-                    player.credit_supplies(amount);
+                if let Some(player_id) = owner_player_id {
+                    if let Some(player) = self.get_player_mut(player_id) {
+                        player.credit_supplies(amount);
+                    }
                 }
                 if boost > 0 {
                     self.supply_lines_bonus_cash_total =
@@ -262,6 +277,7 @@ impl GameLogic {
         let pickers: Vec<(
             ObjectId,
             Team,
+            Option<u32>,
             Vec3,
             bool, /*structure*/
             bool, /*constructed*/
@@ -289,6 +305,7 @@ impl GameLogic {
                 Some((
                     *id,
                     obj.team,
+                    obj.owner_player_id,
                     obj.get_position(),
                     is_structure,
                     constructed,
@@ -299,7 +316,7 @@ impl GameLogic {
             })
             .collect();
 
-        let mut pickups: Vec<(ObjectId, ObjectId, Team, bool)> = Vec::new();
+        let mut pickups: Vec<(ObjectId, ObjectId, Team, Option<u32>, bool)> = Vec::new();
         let mut above_rejects = 0_u32;
         let mut forbidden_rejects = 0_u32;
         for (crate_id, crate_pos, building_pickup, _paid, above_terrain, is_salvage) in &crates {
@@ -309,11 +326,14 @@ impl GameLogic {
                 std::collections::HashMap::new();
             let mut team_by_id: std::collections::HashMap<ObjectId, Team> =
                 std::collections::HashMap::new();
+            let mut owner_by_id: std::collections::HashMap<ObjectId, Option<u32>> =
+                std::collections::HashMap::new();
             let mut cands: Vec<crate::game_logic::host_residual_acquire::ResidualAcquireCandidate> =
                 Vec::new();
             for (
                 picker_id,
                 team,
+                picker_owner,
                 picker_pos,
                 is_structure,
                 constructed,
@@ -376,6 +396,7 @@ impl GameLogic {
                 }
                 structure_by_id.insert(*picker_id, *is_structure);
                 team_by_id.insert(*picker_id, *team);
+                owner_by_id.insert(*picker_id, *picker_owner);
                 cands.push(
                     crate::game_logic::host_residual_acquire::ResidualAcquireCandidate {
                         id: *picker_id,
@@ -403,7 +424,8 @@ impl GameLogic {
             {
                 let is_structure = structure_by_id.get(&picker_id).copied().unwrap_or(false);
                 let team = team_by_id.get(&picker_id).copied().unwrap_or(Team::Neutral);
-                pickups.push((*crate_id, picker_id, team, is_structure));
+                let owner_player_id = owner_by_id.get(&picker_id).copied().flatten();
+                pickups.push((*crate_id, picker_id, team, owner_player_id, is_structure));
             }
         }
         for _ in 0..above_rejects.min(1) {
@@ -421,14 +443,14 @@ impl GameLogic {
             self.host_money_crates.record_forbidden_kindof_reject();
         }
 
-        for (crate_id, picker_id, team, is_structure) in pickups {
+        for (crate_id, picker_id, team, picker_owner, is_structure) in pickups {
             let Some(entry) = self.host_money_crates.get(crate_id).cloned() else {
                 continue;
             };
-            let has_supply_lines = self
-                .players
-                .values()
-                .any(|p| p.team == team && p.has_unlocked_upgrade(UPGRADE_AMERICA_SUPPLY_LINES));
+            let owner_player_id = self.player_owner_for_event(picker_owner, team);
+            let has_supply_lines = owner_player_id
+                .and_then(|player_id| self.players.get(&player_id))
+                .is_some_and(|player| player.has_unlocked_upgrade(UPGRADE_AMERICA_SUPPLY_LINES));
 
             // C++ ShroudCrateCollide residual path.
             if entry.is_shroud_crate {
@@ -553,8 +575,10 @@ impl GameLogic {
                 continue;
             }
             if amount > 0 {
-                if let Some(player) = self.get_player_mut_by_team(team) {
-                    player.credit_supplies(amount);
+                if let Some(player_id) = owner_player_id {
+                    if let Some(player) = self.get_player_mut(player_id) {
+                        player.credit_supplies(amount);
+                    }
                 }
             }
             if boost > 0 {
@@ -716,8 +740,9 @@ impl GameLogic {
         };
         use std::collections::HashMap;
 
-        // Count residual radar providers per team.
-        let mut providers_by_team: HashMap<Team, u32> = HashMap::new();
+        // Count residual radar providers per player.  `Team` identifies a
+        // faction, not an economy/radar authority in a same-faction match.
+        let mut providers_by_player: HashMap<u32, u32> = HashMap::new();
         for obj in self.objects.values() {
             if !is_legal_radar_provider(
                 obj.is_alive(),
@@ -727,10 +752,10 @@ impl GameLogic {
             ) {
                 continue;
             }
-            if obj.team == Team::Neutral {
+            let Some(player_id) = self.player_owner_for_host_object(obj) else {
                 continue;
-            }
-            *providers_by_team.entry(obj.team).or_insert(0) += 1;
+            };
+            *providers_by_player.entry(player_id).or_insert(0) += 1;
         }
 
         // Apply radar_count recompute per player (absolute set, not delta).
@@ -740,7 +765,7 @@ impl GameLogic {
             let Some(player) = self.players.get_mut(&pid) else {
                 continue;
             };
-            let count = providers_by_team.get(&player.team).copied().unwrap_or(0);
+            let count = providers_by_player.get(&pid).copied().unwrap_or(0);
             let had = player.has_radar();
             player.set_radar_state(count as i32, player.radar_disabled);
             let has_now = player.has_radar();
@@ -765,16 +790,16 @@ impl GameLogic {
     /// C++ parity (Player::update → doPowerDisable): set/clear
     /// `disabled_underpowered` on all KINDOF_POWERED objects depending on
     /// whether their owning player has sufficient power.
-    /// C++ parity (ThingTemplate::calcTimeToBuild): compute per-team power
+    /// C++ parity (ThingTemplate::calcTimeToBuild): compute per-player power
     /// production speed factor based on the energy supply ratio.
     ///
     ///   energy_ratio = produced / max(consumed, 1) clamped to [0,1]
     ///   energy_short = (1.0 - ratio) * LowEnergyPenaltyModifier (0.4)
     ///   rate = max(1.0 - energy_short, MinLowEnergyProductionSpeed (0.5))
     ///   if ratio < 1.0: rate = min(rate, MaxLowEnergyProductionSpeed (0.8))
-    pub(in super::super) fn compute_team_power_factors(
+    pub(in super::super) fn compute_player_power_factors(
         &self,
-    ) -> std::collections::HashMap<Team, f32> {
+    ) -> std::collections::HashMap<u32, f32> {
         const LOW_ENERGY_PENALTY_MODIFIER: f32 = 0.4;
         const MIN_LOW_ENERGY_PRODUCTION_SPEED: f32 = 0.5;
         const MAX_LOW_ENERGY_PRODUCTION_SPEED: f32 = 0.8;
@@ -795,7 +820,7 @@ impl GameLogic {
                     rate
                 }
             };
-            factors.insert(player.team, factor);
+            factors.insert(player.id, factor);
         }
         factors
     }
@@ -892,21 +917,35 @@ impl GameLogic {
             self.update_eva_low_power();
             return;
         }
-        // Build a set of teams that are underpowered.
-        let mut underpowered_teams: std::collections::HashSet<Team> =
+        // Build a set of players that are underpowered.  A faction can contain
+        // multiple independent bases, so a USA player's brownout must not
+        // disable another USA player's structures.
+        let mut underpowered_players: std::collections::HashSet<u32> =
             std::collections::HashSet::new();
         for player in self.players.values() {
             if player.power_available < 0 {
-                underpowered_teams.insert(player.team);
+                underpowered_players.insert(player.id);
             }
         }
+
+        let powered_owners: std::collections::HashMap<ObjectId, Option<u32>> = self
+            .objects
+            .values()
+            .filter(|obj| obj.is_kind_of(KindOf::Powered))
+            .map(|obj| (obj.id, self.player_owner_for_host_object(obj)))
+            .collect();
 
         for obj in self.objects.values_mut() {
             if !obj.is_kind_of(KindOf::Powered) {
                 continue;
             }
-            let should_disable =
-                underpowered_teams.contains(&obj.team) && obj.is_alive() && obj.is_constructed();
+            let should_disable = powered_owners
+                .get(&obj.id)
+                .copied()
+                .flatten()
+                .is_some_and(|player_id| underpowered_players.contains(&player_id))
+                && obj.is_alive()
+                && obj.is_constructed();
             obj.status.disabled_underpowered = should_disable;
         }
         // C++ Eva::shouldPlayLowPower residual (local energy insufficient).

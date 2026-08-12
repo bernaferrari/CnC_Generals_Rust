@@ -22,7 +22,7 @@ use crate::gui::load_screen::{
     LoadScreenKind, LoadScreenRequest,
 };
 use crate::gui::{
-    get_shell, hide_control_bar, show_shell_map_if_available, try_with_shell_mut,
+    hide_control_bar, queue_shell_hide, queue_shell_operation, show_shell_map_if_available,
     with_window_manager, HintData, HintType, MouseCursor, MouseMode, WindowLayout, WindowStatus,
 };
 use crate::input::Mouse;
@@ -359,7 +359,9 @@ impl ControlBarHooks for LiveControlBarBackend {
     }
 
     fn animate_special_power_shortcut(&self, enabled: bool) {
-        with_live_control_bar_events(|events| events.animate_special_power_shortcut = Some(enabled));
+        with_live_control_bar_events(|events| {
+            events.animate_special_power_shortcut = Some(enabled)
+        });
     }
 
     fn init_special_power_shortcut_bar_for_player(&self, player_side: &str) {
@@ -511,7 +513,7 @@ impl gamelogic::helpers::PrepareNewGameHooks for GameClientPrepareNewGameHooks {
     }
 
     fn hide_shell(&self) {
-        let _ = try_with_shell_mut(|shell| shell.hide_shell());
+        queue_shell_hide();
     }
 }
 
@@ -573,15 +575,11 @@ impl GameClientLoadScreenHooks {
             return;
         }
 
-        match try_with_shell_mut(|shell| shell.show_main_menu_after_shell_game_start()) {
-            Some(Err(err)) => {
-                log::warn!("Failed to activate shell main menu after shell-map load: {err}")
+        queue_shell_operation(|shell| {
+            if let Err(err) = shell.show_main_menu_after_shell_game_start() {
+                log::warn!("Failed to activate shell main menu after shell-map load: {err}");
             }
-            None => {
-                log::debug!("show_main_menu_after_shell_game_start skipped: shell already borrowed")
-            }
-            Some(Ok(())) => {}
-        }
+        });
 
         if let Err(err) = hide_control_bar(true) {
             log::warn!("Failed to hide control bar after shell-map load: {err}");

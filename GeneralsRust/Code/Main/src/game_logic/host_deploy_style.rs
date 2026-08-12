@@ -3,9 +3,9 @@
 //! C++: units that must unpack to attack and pack before moving
 //! (`DeployStyleAIUpdate::update` state machine).
 //!
-//! Retail peels:
-//! - AmericaVehicleSentryDrone: PackTime/UnpackTime **1000**ms → **30**f
-//! - ChinaVehicleNukeLauncher: PackTime/UnpackTime **3333**ms → **100**f
+//! Timing and policy come from the exact parsed Object INI
+//! `DeployStyleAIUpdate` module on each template.  No template-name list is
+//! used to create deploy authority.
 //!
 //! States (simplified host residual):
 //! - ReadyToMove: undeployed, may path
@@ -13,26 +13,15 @@
 //! - ReadyToAttack: deployed, may fire
 //! - Undeploying: packing timer → ReadyToMove
 //!
-//! Fail-closed: not turret align-before-pack / manual anim scrub / guard-idle auto-deploy.
+//! Fail-closed: this compact logic state does not fabricate per-turret
+//! alignment/reset or manual Drawable animation-frame behavior.  Those source
+//! flags remain on `DeployStyleMetadata` for snapshots and later rendering
+//! work instead of becoming a guessed delay or visual.
 
 use serde::{Deserialize, Serialize};
 
 /// Logic FPS residual.
 pub const DEPLOY_STYLE_LOGIC_FPS: f32 = 30.0;
-
-/// Sentry drone pack/unpack residual (msec).
-pub const SENTRY_DRONE_PACK_MS: u32 = 1_000;
-pub const SENTRY_DRONE_UNPACK_MS: u32 = 1_000;
-/// 1000ms → 30 frames @ 30 FPS.
-pub const SENTRY_DRONE_PACK_FRAMES: u32 = 30;
-pub const SENTRY_DRONE_UNPACK_FRAMES: u32 = 30;
-
-/// Nuke cannon pack/unpack residual (msec).
-pub const NUKE_LAUNCHER_PACK_MS: u32 = 3_333;
-pub const NUKE_LAUNCHER_UNPACK_MS: u32 = 3_333;
-/// 3333ms → 100 frames @ 30 FPS.
-pub const NUKE_LAUNCHER_PACK_FRAMES: u32 = 100;
-pub const NUKE_LAUNCHER_UNPACK_FRAMES: u32 = 100;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum HostDeployStyleState {
@@ -53,14 +42,16 @@ pub struct HostDeployStyleData {
 }
 
 impl HostDeployStyleData {
-    pub fn for_template(template_name: &str) -> Option<Self> {
-        let (pack, unpack) = pack_unpack_frames_for_template(template_name)?;
-        Some(Self {
+    /// Construct live deploy state from the Object INI module data carried by
+    /// the object's template.  `DeployStyleMetadata` already stores C++
+    /// `parseDurationUnsignedInt` values in logic frames.
+    pub fn from_metadata(metadata: &crate::game_logic::DeployStyleMetadata) -> Self {
+        Self {
             state: HostDeployStyleState::ReadyToMove,
             ready_frame: 0,
-            pack_frames: pack,
-            unpack_frames: unpack,
-        })
+            pack_frames: metadata.pack_time_frames,
+            unpack_frames: metadata.unpack_time_frames,
+        }
     }
 
     pub fn is_ready_to_attack(&self) -> bool {
@@ -179,38 +170,16 @@ pub fn deploy_style_ms_to_frames(ms: u32) -> u32 {
     if ms == 0 {
         return 0;
     }
-    ((ms as f32) * DEPLOY_STYLE_LOGIC_FPS / 1000.0).round() as u32
-}
-
-pub fn is_deploy_style_template(name: &str) -> bool {
-    pack_unpack_frames_for_template(name).is_some()
-}
-
-pub fn pack_unpack_frames_for_template(name: &str) -> Option<(u32, u32)> {
-    let n = name.to_ascii_lowercase();
-    if n.contains("sentrydrone") || n.contains("sentry_drone") {
-        return Some((
-            deploy_style_ms_to_frames(SENTRY_DRONE_PACK_MS),
-            deploy_style_ms_to_frames(SENTRY_DRONE_UNPACK_MS),
-        ));
-    }
-    if n.contains("nukelauncher") || n.contains("nuke_launcher") || n.contains("nukecannon") {
-        return Some((
-            deploy_style_ms_to_frames(NUKE_LAUNCHER_PACK_MS),
-            deploy_style_ms_to_frames(NUKE_LAUNCHER_UNPACK_MS),
-        ));
-    }
-    None
+    // C++ INI::parseDurationUnsignedInt: ceil(msec * logic_fps / 1000).
+    // Use integer math to retain exact authored boundaries without f32 residue.
+    ((u64::from(ms) * 30 + 999) / 1_000) as u32
 }
 
 pub fn honesty_deploy_style_residual_ok() -> bool {
     deploy_style_ms_to_frames(1_000) == 30
         && deploy_style_ms_to_frames(3_333) == 100
-        && SENTRY_DRONE_PACK_FRAMES == 30
-        && NUKE_LAUNCHER_PACK_FRAMES == 100
-        && is_deploy_style_template("AmericaVehicleSentryDrone")
-        && is_deploy_style_template("ChinaVehicleNukeLauncher")
-        && !is_deploy_style_template("AmericaTankCrusader")
+        && deploy_style_ms_to_frames(34) == 2
+        && (DEPLOY_STYLE_LOGIC_FPS - 30.0).abs() < f32::EPSILON
 }
 
 #[cfg(test)]
@@ -218,9 +187,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn pack_unpack_peels_and_state_machine() {
+    fn parsed_metadata_drives_pack_unpack_state_machine() {
         assert!(honesty_deploy_style_residual_ok());
-        let mut d = HostDeployStyleData::for_template("AmericaVehicleSentryDrone").unwrap();
+        let metadata = crate::game_logic::DeployStyleMetadata {
+            pack_time_frames: 30,
+            unpack_time_frames: 30,
+            ..Default::default()
+        };
+        let mut d = HostDeployStyleData::from_metadata(&metadata);
         assert!(d.is_ready_to_move());
         assert!(d.begin_deploy(0));
         assert!(d.is_busy());
@@ -237,8 +211,16 @@ mod tests {
     }
 
     #[test]
-    fn nuke_launcher_longer_pack() {
-        let d = HostDeployStyleData::for_template("ChinaVehicleNukeLauncher").unwrap();
+    fn metadata_retains_longer_authored_pack() {
+        let metadata = crate::game_logic::DeployStyleMetadata {
+            pack_time_frames: 100,
+            unpack_time_frames: 100,
+            turrets_function_only_when_deployed: true,
+            turrets_must_center_before_packing: true,
+            manual_deploy_animations: true,
+            ..Default::default()
+        };
+        let d = HostDeployStyleData::from_metadata(&metadata);
         assert_eq!(d.pack_frames, 100);
         assert_eq!(d.unpack_frames, 100);
     }

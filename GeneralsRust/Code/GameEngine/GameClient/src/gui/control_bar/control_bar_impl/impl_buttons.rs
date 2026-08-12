@@ -241,7 +241,7 @@ impl ControlBar {
             .clone()
             .unwrap_or_default();
         button.radius_cursor_type = definition.radius_cursor_type.clone();
-        button.max_shorable_instances = definition.max_shots_to_fire;
+        button.max_shots_to_fire = definition.max_shots_to_fire;
         button.weapon_slot = definition.weapon_slot;
 
         if definition.purchase_cost != 0 {
@@ -263,7 +263,7 @@ impl ControlBar {
         button.descriptive_text = logic_button.tooltip.clone();
         button.options = logic_button.get_options_bits();
         button.sciences_ids = logic_button.science_vec().to_vec();
-        button.max_shorable_instances = logic_button.get_max_shots_to_fire();
+        button.max_shots_to_fire = logic_button.get_max_shots_to_fire();
         button.weapon_slot = match logic_button.get_weapon_slot() {
             gamelogic::weapon::WeaponSlotType::Primary => WeaponSlotType::Primary,
             gamelogic::weapon::WeaponSlotType::Secondary => WeaponSlotType::Secondary,

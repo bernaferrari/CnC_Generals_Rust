@@ -8,6 +8,34 @@ impl ScriptEvaluator {
         Self { engine }
     }
 
+    /// Access the engine that owns this evaluation.
+    ///
+    /// Normal game-script execution has a lexical active engine installed by
+    /// `ScriptEngine::update`; using it first avoids re-locking the global
+    /// handle during an immediate nested action.  Evaluators are also used by
+    /// triggers and tests with a private `ScriptEngineHandle`, where no active
+    /// scope exists, so retain that exact injected handle as the fallback.
+    /// An active-but-currently-borrowed engine deliberately does not fall back:
+    /// retrying the global handle there could deadlock the live update thread.
+    fn with_evaluation_engine_ref<R>(&self, f: impl FnOnce(&ScriptEngine) -> R) -> Option<R> {
+        if is_script_engine_active() {
+            return with_active_script_engine_ref(f);
+        }
+
+        let guard = self.engine.read().ok()?;
+        guard.as_ref().map(f)
+    }
+
+    /// Mutating counterpart to `with_evaluation_engine_ref`.
+    fn with_evaluation_engine_mut<R>(&self, f: impl FnOnce(&ScriptEngine) -> R) -> Option<R> {
+        if is_script_engine_active() {
+            return with_active_script_engine_mut(f);
+        }
+
+        let guard = self.engine.write().ok()?;
+        guard.as_ref().map(f)
+    }
+
     /// Evaluate a complete script matching C++ EvaluateScripts
     pub fn evaluate_script(&self, script: &mut Script) -> GameLogicResult<bool> {
         log::debug!("Evaluating script: {}", script.get_name());
@@ -226,12 +254,10 @@ impl ScriptEvaluator {
             ConditionType::CameraMovementFinished => {
                 // C++ checks TheTacticalView->isCameraMovementFinished()
                 // Query the action handler for camera state; default true (no camera = no movement = finished)
-                let engine = self.engine.read().map_err(|e| {
-                    GameLogicError::Threading(format!("Failed to acquire engine lock: {}", e))
-                })?;
-                Ok(engine
-                    .as_ref()
-                    .and_then(|e| e.action_handler())
+                let handler = self
+                    .with_evaluation_engine_ref(|engine| engine.action_handler())
+                    .flatten();
+                Ok(handler
                     .map(|h| h.is_camera_movement_finished())
                     .unwrap_or(true))
             }
@@ -249,7 +275,7 @@ impl ScriptEvaluator {
                         "NamedReachedWaypointsEnd condition missing unit parameter".to_string(),
                     )
                 })?;
-                let _waypoint_param = condition.get_parameter(1).ok_or_else(|| {
+                let waypoint_param = condition.get_parameter(1).ok_or_else(|| {
                     GameLogicError::Configuration(
                         "NamedReachedWaypointsEnd condition missing waypoint parameter".to_string(),
                     )
@@ -277,15 +303,21 @@ impl ScriptEvaluator {
                     return Ok(false);
                 };
 
-                // C++ checks waypoint pathLabel1/2/3 against the waypoint path name.
-                // Query the terrain Waypoint (which carries path labels) by ID.
-                let waypoint_path_name = _waypoint_param.get_string();
+                // C++ uses AsciiString::operator== here, which is a case-sensitive
+                // strcmp.  `Waypoint::matches_path_label` intentionally serves other
+                // terrain lookups with case-insensitive matching, so this script path
+                // must compare the three labels directly.
+                let waypoint_path_name = waypoint_param.get_string();
                 let Ok(terrain) = get_terrain_logic().read() else {
                     return Ok(false);
                 };
                 let matches = terrain
                     .get_waypoint_by_id(completed_id)
-                    .is_some_and(|wp| wp.matches_path_label(&waypoint_path_name));
+                    .is_some_and(|waypoint| {
+                        waypoint.get_path_label1().as_str() == waypoint_path_name
+                            || waypoint.get_path_label2().as_str() == waypoint_path_name
+                            || waypoint.get_path_label3().as_str() == waypoint_path_name
+                    });
                 Ok(matches)
             }
 
@@ -296,15 +328,22 @@ impl ScriptEvaluator {
                         "TeamReachedWaypointsEnd condition missing team parameter".to_string(),
                     )
                 })?;
-                let _waypoint_param = condition.get_parameter(1).ok_or_else(|| {
+                let waypoint_param = condition.get_parameter(1).ok_or_else(|| {
                     GameLogicError::Configuration(
                         "TeamReachedWaypointsEnd condition missing waypoint parameter".to_string(),
                     )
                 })?;
 
                 let team_name = self.resolve_team_name_token(team_param.get_string());
+                let waypoint_path_name = waypoint_param.get_string();
+                // Resolve through TeamFactory before holding TerrainLogic: releasing the
+                // factory guard may synchronously run queued team-create scripts.
+                let team_instances = self.resolve_team_instances(&team_name);
+                let Ok(terrain) = get_terrain_logic().read() else {
+                    return Ok(false);
+                };
 
-                for team_arc in self.resolve_team_instances(&team_name) {
+                for team_arc in team_instances {
                     let Ok(team_guard) = team_arc.read() else {
                         continue;
                     };
@@ -321,7 +360,20 @@ impl ScriptEvaluator {
                         let Ok(ai_guard) = ai.lock() else {
                             continue;
                         };
-                        if ai_guard.get_completed_waypoint_id().is_some() {
+                        let Some(completed_id) = ai_guard.get_completed_waypoint_id() else {
+                            continue;
+                        };
+                        // C++ compares each of the completed waypoint's three path labels
+                        // with the requested path.  Reaching a different path must not fire
+                        // this campaign trigger.
+                        if terrain
+                            .get_waypoint_by_id(completed_id)
+                            .is_some_and(|waypoint| {
+                                waypoint.get_path_label1().as_str() == waypoint_path_name
+                                    || waypoint.get_path_label2().as_str() == waypoint_path_name
+                                    || waypoint.get_path_label3().as_str() == waypoint_path_name
+                            })
+                        {
                             return Ok(true);
                         }
                     }
@@ -409,7 +461,7 @@ impl ScriptEvaluator {
                         "EnemySighted condition missing unit parameter".to_string(),
                     )
                 })?;
-                let _alliance_param = condition.get_parameter(1).ok_or_else(|| {
+                let alliance_param = condition.get_parameter(1).ok_or_else(|| {
                     GameLogicError::Configuration(
                         "EnemySighted condition missing alliance parameter".to_string(),
                     )
@@ -419,12 +471,21 @@ impl ScriptEvaluator {
                         "EnemySighted condition missing player parameter".to_string(),
                     )
                 })?;
-
                 let unit_name = unit_param.get_string();
-                let target_player = self.resolve_player_from_param(player_param);
-                if target_player.is_none() {
+                let alliance = alliance_param.get_int();
+                // Parameter::{REL_ENEMY, REL_NEUTRAL, REL_FRIEND} are the only
+                // values accepted by C++ ScriptConditions::evaluateEnemySighted.
+                // A malformed script must not accidentally make every nearby unit
+                // satisfy the condition.
+                let expected_relationship = match alliance {
+                    0 => crate::common::Relationship::Enemies,
+                    1 => crate::common::Relationship::Neutral,
+                    2 => crate::common::Relationship::Allies,
+                    _ => return Ok(false),
+                };
+                let Some(target_player) = self.resolve_player_from_param(player_param) else {
                     return Ok(false);
-                }
+                };
 
                 let tracker = get_named_object_tracker();
                 let Some(object_id) = tracker.get_object_id(unit_name).ok().flatten() else {
@@ -433,27 +494,33 @@ impl ScriptEvaluator {
                 let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) else {
                     return Ok(false);
                 };
-                let Ok(obj_guard) = obj_arc.read() else {
-                    return Ok(false);
+                let (obj_pos, vision, source_off_map) = {
+                    let Ok(obj_guard) = obj_arc.read() else {
+                        return Ok(false);
+                    };
+                    (
+                        *obj_guard.get_position(),
+                        obj_guard.get_vision_range(),
+                        obj_guard.is_off_map(),
+                    )
                 };
 
-                let obj_pos = *obj_guard.get_position();
-                let vision = obj_guard.get_vision_range();
+                let Some(partition) = crate::helpers::ThePartitionManager::get() else {
+                    return Ok(false);
+                };
+                let nearby_objects = partition.get_objects_in_range(&obj_pos, vision);
 
-                let partition = crate::helpers::ThePartitionManager::get()
-                    .map(|pm| pm.get_objects_in_range(&obj_pos, vision))
-                    .unwrap_or_default();
-
-                let target_player_id = target_player
-                    .as_ref()
-                    .and_then(|p| p.read().ok())
-                    .map(|p| p.get_player_index());
-
-                for nearby_id in partition {
+                for nearby_id in nearby_objects {
                     if nearby_id == object_id {
                         continue;
                     }
                     let Some(nearby_arc) = TheGameLogic::find_object_by_id(nearby_id) else {
+                        continue;
+                    };
+                    // Keep C++'s source-then-candidate read order.  Besides making the
+                    // relation snapshot coherent, this avoids a reverse-lock order with
+                    // gameplay code that evaluates a source object before its target.
+                    let Ok(obj_guard) = obj_arc.read() else {
                         continue;
                     };
                     let Ok(nearby_guard) = nearby_arc.read() else {
@@ -462,10 +529,29 @@ impl ScriptEvaluator {
                     if nearby_guard.is_effectively_dead() {
                         continue;
                     }
-                    let Some(nearby_player_id) = nearby_guard.get_controlling_player_id() else {
+                    if nearby_guard.is_off_map() != source_off_map {
                         continue;
-                    };
-                    if Some(nearby_player_id as i32) == target_player_id {
+                    }
+
+                    let status = nearby_guard.get_status_bits();
+                    if status.contains(crate::common::ObjectStatusMaskType::STEALTHED)
+                        && !status.contains(crate::common::ObjectStatusMaskType::DETECTED)
+                        && !status.contains(crate::common::ObjectStatusMaskType::DISGUISED)
+                    {
+                        continue;
+                    }
+
+                    if obj_guard.relationship_to(&nearby_guard) != expected_relationship {
+                        continue;
+                    }
+
+                    // C++ compares Player* identity, not merely a player index.  Retain
+                    // that exact ownership test so duplicate/stale player records cannot
+                    // make the condition fire for the wrong side.
+                    if nearby_guard
+                        .get_controlling_player()
+                        .is_some_and(|owner| Arc::ptr_eq(&owner, &target_player))
+                    {
                         return Ok(true);
                     }
                 }
@@ -851,10 +937,9 @@ impl ScriptEvaluator {
 
                 let unit_name = unit_param.get_string();
                 let types = self.resolve_object_types(type_param);
-                let target_player = self.resolve_player_from_param(player_param);
-                if target_player.is_none() {
+                let Some(target_player) = self.resolve_player_from_param(player_param) else {
                     return Ok(false);
-                }
+                };
 
                 let tracker = get_named_object_tracker();
                 let Some(object_id) = tracker.get_object_id(unit_name).ok().flatten() else {
@@ -863,22 +948,22 @@ impl ScriptEvaluator {
                 let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) else {
                     return Ok(false);
                 };
-                let Ok(obj_guard) = obj_arc.read() else {
+                let (obj_pos, vision, source_off_map) = {
+                    let Ok(obj_guard) = obj_arc.read() else {
+                        return Ok(false);
+                    };
+                    (
+                        *obj_guard.get_position(),
+                        obj_guard.get_vision_range(),
+                        obj_guard.is_off_map(),
+                    )
+                };
+
+                let Some(partition) = crate::helpers::ThePartitionManager::get() else {
                     return Ok(false);
                 };
 
-                let obj_pos = *obj_guard.get_position();
-                let vision = obj_guard.get_vision_range();
-                let partition = crate::helpers::ThePartitionManager::get()
-                    .map(|pm| pm.get_objects_in_range(&obj_pos, vision))
-                    .unwrap_or_default();
-
-                let target_player_id = target_player
-                    .as_ref()
-                    .and_then(|p| p.read().ok())
-                    .map(|p| p.get_player_index());
-
-                for nearby_id in partition {
+                for nearby_id in partition.get_objects_in_range(&obj_pos, vision) {
                     if nearby_id == object_id {
                         continue;
                     }
@@ -891,12 +976,24 @@ impl ScriptEvaluator {
                     if nearby_guard.is_effectively_dead() {
                         continue;
                     }
-                    if Some(nearby_guard.get_controlling_player_id().unwrap_or(0) as i32)
-                        == target_player_id
+                    if nearby_guard.is_off_map() != source_off_map {
+                        continue;
+                    }
+
+                    let status = nearby_guard.get_status_bits();
+                    if status.contains(crate::common::ObjectStatusMaskType::STEALTHED)
+                        && !status.contains(crate::common::ObjectStatusMaskType::DETECTED)
+                        && !status.contains(crate::common::ObjectStatusMaskType::DISGUISED)
                     {
-                        if types.contains_template(Some(nearby_guard.get_template())) {
-                            return Ok(true);
-                        }
+                        continue;
+                    }
+
+                    if types.contains_template(Some(nearby_guard.get_template()))
+                        && nearby_guard
+                            .get_controlling_player()
+                            .is_some_and(|owner| Arc::ptr_eq(&owner, &target_player))
+                    {
+                        return Ok(true);
                     }
                 }
                 Ok(false)
@@ -1741,12 +1838,10 @@ impl ScriptEvaluator {
                 let track_name = music_param.get_string();
                 let param = int_param.map(|p| p.get_int()).unwrap_or(0);
 
-                let engine = self.engine.read().map_err(|e| {
-                    GameLogicError::Threading(format!("Failed to acquire engine lock: {}", e))
-                })?;
-                Ok(engine
-                    .as_ref()
-                    .and_then(|e| e.action_handler())
+                let handler = self
+                    .with_evaluation_engine_ref(|engine| engine.action_handler())
+                    .flatten();
+                Ok(handler
                     .map(|h| h.has_music_track_completed(&track_name, param))
                     .unwrap_or(false))
             }
@@ -1796,21 +1891,18 @@ impl ScriptEvaluator {
                     }
                 }
 
-                // C++ compares current count to previously stored count via ScriptEngine
-                let stored_count = if let Ok(engine_guard) = get_script_engine().read() {
-                    engine_guard
-                        .as_ref()
-                        .map(|e| e.get_object_count(player_index, type_name))
-                        .unwrap_or(current_count)
-                } else {
-                    current_count
-                };
-
-                if let Ok(mut engine_guard) = get_script_engine().write() {
-                    if let Some(engine) = engine_guard.as_mut() {
-                        engine.set_object_count(player_index, type_name, current_count);
-                    }
-                }
+                // C++ compares current count to previously stored count via
+                // ScriptEngine.  ScriptEngine::update installs a lexical
+                // active engine, so re-locking the global handle here would
+                // deadlock the live campaign path.
+                let stored_count = self
+                    .with_evaluation_engine_ref(|engine| {
+                        engine.get_object_count(player_index, type_name)
+                    })
+                    .unwrap_or(current_count);
+                let _ = self.with_evaluation_engine_mut(|engine| {
+                    engine.set_object_count(player_index, type_name, current_count);
+                });
 
                 Ok(current_count < stored_count)
             }

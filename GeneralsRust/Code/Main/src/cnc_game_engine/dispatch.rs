@@ -478,7 +478,8 @@ impl CnCGameEngine {
                 #[cfg(feature = "game_client")]
                 {
                     // Honest residual: report actual Shell stack depth only.
-                    game_client::gui::get_shell().get_screen_count() as u32
+                    game_client::gui::with_shell_ref(|shell| shell.get_screen_count()).unwrap_or(0)
+                        as u32
                 }
                 #[cfg(not(feature = "game_client"))]
                 {
@@ -488,13 +489,13 @@ impl CnCGameEngine {
             shell_top_wnd: {
                 #[cfg(feature = "game_client")]
                 {
-                    let mut shell = game_client::gui::get_shell();
                     // Honest residual: report actual Shell stack top only.
                     // Do not invent MainMenu.wnd when the stack is empty.
-                    shell
-                        .top()
-                        .map(|layout| layout.get_filename().to_string())
-                        .unwrap_or_default()
+                    game_client::gui::with_shell_ref(|shell| {
+                        shell.top_filename().map(str::to_owned)
+                    })
+                    .flatten()
+                    .unwrap_or_default()
                 }
                 #[cfg(not(feature = "game_client"))]
                 {
@@ -504,7 +505,9 @@ impl CnCGameEngine {
             shell_active: {
                 #[cfg(feature = "game_client")]
                 {
-                    game_client::gui::get_shell().is_shell_active() || self.shell_menu_active
+                    game_client::gui::with_shell_ref(|shell| shell.is_shell_active())
+                        .unwrap_or(false)
+                        || self.shell_menu_active
                 }
                 #[cfg(not(feature = "game_client"))]
                 {

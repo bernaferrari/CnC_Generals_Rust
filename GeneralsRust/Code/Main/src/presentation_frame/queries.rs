@@ -1,6 +1,223 @@
 use super::*;
 
 impl PresentationFrame {
+    /// C++ `ActionManager::canEnterObject(..., CHECK_CAPACITY)` expressed only
+    /// through the immutable frame used by physical RMB input.
+    ///
+    /// This is intentionally a capability/capacity gate rather than a target
+    /// name heuristic.  The authoritative command executor repeats legality
+    /// when the queued order is consumed, but the cursor/translator must make
+    /// the same decision before it posts `MSG_ENTER`.
+    pub fn normal_enter_target_available_for_local(&self, target: &RenderableObject) -> bool {
+        self.normal_enter_available_capacity_for_local(target)
+            .is_some_and(|available| available > 0)
+    }
+
+    /// Remaining capacity in the frozen target for the local player's selected
+    /// rider.  A normal transport reports remaining authored passenger slots;
+    /// garrison/tunnel roles report remaining bodies.  Physical RMB compares a
+    /// selected rider's frozen slot count against this before it emits Enter.
+    pub fn normal_enter_available_capacity_for_local(
+        &self,
+        target: &RenderableObject,
+    ) -> Option<usize> {
+        if target.destroyed || target.sold || target.under_construction || target.disabled_subdued {
+            return None;
+        }
+        if !target.supports_normal_enter() {
+            return None;
+        }
+        let Some(capacity) = target.normal_enter_capacity() else {
+            return None;
+        };
+
+        let relationship = self.normal_enter_relationship_for_local(target);
+        if !target.normal_enter_allows_relationship(relationship) {
+            return None;
+        }
+        let same_controller = self.normal_enter_controller_matches_local(target);
+        if target.normal_enter_requires_exact_controller() && !same_controller {
+            return None;
+        }
+
+        if target.contain_module_kind == crate::game_logic::ContainModuleKind::RiderChange {
+            // The selected source is checked against the frozen roster by the
+            // input translator.  Do not use the occupied one-seat count here:
+            // a legal RiderChange command replaces that payload atomically.
+            return (!target.rider_change_allowed_templates.is_empty()).then_some(usize::MAX);
+        }
+
+        if target.is_tunnel_network {
+            // TunnelContain keeps its own friendly/team body pool.  Unlike
+            // TransportContain it does not share an owner's vehicle seats.
+            if target.team != self.local_team && target.team != Team::Neutral {
+                return None;
+            }
+            let occupied = self
+                .objects
+                .iter()
+                .filter(|candidate| {
+                    candidate.is_tunnel_network
+                        && self.normal_enter_same_tunnel_controller(candidate, target)
+                        && !candidate.destroyed
+                        && !candidate.sold
+                })
+                .map(RenderableObject::normal_enter_occupant_count)
+                .sum::<usize>();
+            return capacity.checked_sub(occupied);
+        }
+
+        // C++ permits a neutral/non-owner garrison only while it is empty.
+        // The frozen host does not retain a ContainModule stealth count, so a
+        // missing/stale occupant stays conservative rather than creating the
+        // stealth-passenger exception.
+        if !same_controller
+            && (target.is_faction_structure || target.normal_enter_occupant_count() > 0)
+        {
+            return None;
+        }
+
+        if !target.normal_enter_uses_transport_slots() {
+            return capacity.checked_sub(target.normal_enter_occupant_count());
+        }
+
+        // Mobile TransportContain tracks m_extraSlotsInUse.  The roster must
+        // be complete enough to price every current passenger; old sparse
+        // presentation records fail closed rather than charging one body per
+        // vehicle.
+        if target.normal_enter_occupant_count() != target.garrisoned_units.len() {
+            return None;
+        }
+        let mut slots_in_use = 0usize;
+        for occupant_id in &target.garrisoned_units {
+            let occupant = self
+                .objects
+                .iter()
+                .find(|candidate| candidate.id == *occupant_id)?;
+            let slots = occupant.transport_slot_count;
+            if slots == 0 {
+                return None;
+            }
+            slots_in_use = slots_in_use.checked_add(slots)?;
+        }
+        capacity.checked_sub(slots_in_use)
+    }
+
+    /// Same exact controlling player check as the authority-side
+    /// `GameLogic::normal_enter_controller_matches`, using only frozen player
+    /// provenance.  Team fallback is allowed only when the whole frame is a
+    /// genuinely ownerless, unambiguous legacy snapshot.
+    fn normal_enter_controller_matches_local(&self, target: &RenderableObject) -> bool {
+        match target.owner_player_id {
+            Some(owner_player_id) => {
+                self.normal_enter_valid_explicit_owner(target) == Some(owner_player_id)
+                    && owner_player_id == self.local_player_id
+            }
+            None => {
+                self.uses_legacy_team_ownership_fallback()
+                    && target.team == self.local_team
+                    && self.normal_enter_unique_live_player_for_team(target.team)
+                        == Some(self.local_player_id)
+            }
+        }
+    }
+
+    /// Frozen C++ `Player::getRelationship` for OpenContain admission.
+    fn normal_enter_relationship_for_local(
+        &self,
+        target: &RenderableObject,
+    ) -> gamelogic::common::Relationship {
+        use gamelogic::common::Relationship;
+
+        match target.owner_player_id {
+            Some(target_owner)
+                if self.normal_enter_valid_explicit_owner(target) == Some(target_owner) =>
+            {
+                if target_owner == self.local_player_id {
+                    return Relationship::Allies;
+                }
+                let Some(local) = self
+                    .player_info(self.local_player_id)
+                    .filter(|player| player.is_alive)
+                else {
+                    return Relationship::Neutral;
+                };
+                let Some(owner) = self
+                    .player_info(target_owner)
+                    .filter(|player| player.is_alive)
+                else {
+                    return Relationship::Neutral;
+                };
+                if local.alliance_team >= 0 && local.alliance_team == owner.alliance_team {
+                    Relationship::Allies
+                } else {
+                    Relationship::Enemies
+                }
+            }
+            None if self.uses_legacy_team_ownership_fallback()
+                && self.normal_enter_unique_live_player_for_team(self.local_team)
+                    == Some(self.local_player_id)
+                && self
+                    .normal_enter_unique_live_player_for_team(target.team)
+                    .is_some() =>
+            {
+                if target.team == self.local_team {
+                    Relationship::Allies
+                } else if target.team == Team::Neutral || self.local_team == Team::Neutral {
+                    Relationship::Neutral
+                } else {
+                    Relationship::Enemies
+                }
+            }
+            _ => Relationship::Neutral,
+        }
+    }
+
+    /// Explicit ownership must identify a live player with the matching
+    /// faction.  A stale owner is intentionally not reinterpreted through
+    /// team/faction fallback.
+    fn normal_enter_valid_explicit_owner(&self, object: &RenderableObject) -> Option<u32> {
+        object.owner_player_id.and_then(|player_id| {
+            self.player_info(player_id)
+                .filter(|player| player.is_alive && player.team == object.team)
+                .map(|player| player.id)
+        })
+    }
+
+    /// Tunnel pool grouping mirrors the authority side: exact owner identity
+    /// when present, otherwise only an all-ownerless legacy frame may use the
+    /// faction pool.
+    fn normal_enter_same_tunnel_controller(
+        &self,
+        candidate: &RenderableObject,
+        target: &RenderableObject,
+    ) -> bool {
+        match (target.owner_player_id, candidate.owner_player_id) {
+            (Some(target_owner), Some(candidate_owner)) => {
+                target_owner == candidate_owner
+                    && self.normal_enter_valid_explicit_owner(target) == Some(target_owner)
+                    && self.normal_enter_valid_explicit_owner(candidate) == Some(candidate_owner)
+            }
+            (None, None) => {
+                self.uses_legacy_team_ownership_fallback() && candidate.team == target.team
+            }
+            _ => false,
+        }
+    }
+
+    fn normal_enter_unique_live_player_for_team(&self, team: Team) -> Option<u32> {
+        if team == Team::Neutral {
+            return None;
+        }
+        let mut players = self
+            .players
+            .iter()
+            .filter(|player| player.is_alive && player.team == team)
+            .map(|player| player.id);
+        let first = players.next()?;
+        players.next().is_none().then_some(first)
+    }
+
     pub fn alive_object_count(&self) -> usize {
         // Wave 1104: alive count residual excludes sold.
         self.objects
@@ -31,7 +248,6 @@ impl PresentationFrame {
         // (C++ auto-target / draw residual: not a legal observe target).
         // Local-team stealthed units keep a translucent FOW alpha residual.
         const ALLY_STEALTH_ALPHA: f32 = 0.35;
-        let local_team = self.local_team;
         self.objects
             .iter()
             .filter(|o| !o.destroyed && !o.engine_bridged)
@@ -40,34 +256,50 @@ impl PresentationFrame {
                 if o.contained_by.is_some() {
                     return false;
                 }
-                if o.effectively_stealthed && o.team != local_team {
+                if o.effectively_stealthed && !self.is_allied_with_local(o) {
                     false
                 } else {
                     true
                 }
             })
             .map(|o| {
-                let mut input = UnitRenderInput::from_renderable(o);
-                // Wave 509: world weather/tod mesh bits from frozen presentation env.
-                input.world_is_snow = self.world_env.is_snow;
-                input.world_is_night = self.world_env.is_night;
-                // Wave 513: logic frame for coast/reload residual compare.
-                input.logic_frame = self.frame.0;
-                if o.effectively_stealthed && o.team == local_team {
+                let mut input = UnitRenderInput::from_renderable_with_environment(
+                    o,
+                    self.world_env.is_snow,
+                    self.world_env.is_night,
+                    self.frame.0,
+                );
+                if o.effectively_stealthed && self.is_allied_with_local(o) {
                     input.fow_visibility.visibility_alpha = input
                         .fow_visibility
                         .visibility_alpha
                         .min(ALLY_STEALTH_ALPHA);
                 }
                 // Wave 503: non-allied viewers see disguise mesh residual.
-                if o.disguised && o.team != local_team {
+                if o.disguised && !self.is_allied_with_local(o) {
                     if let Some(ref dt) = o.disguise_as_template {
                         if !dt.is_empty() {
-                            input.model_key =
+                            let fallback_model_key =
                                 crate::assets::mesh_asset_resolve::model_key_from_presentation(
                                     Some(dt.as_str()),
                                     dt,
                                 );
+                            let fallback_draw_models = (!fallback_model_key.trim().is_empty())
+                                .then(|| crate::assets::AuthoredDrawModel {
+                                    module_index: 0,
+                                    model_key: fallback_model_key,
+                                });
+                            input.draw_models =
+                                crate::assets::resolve_presentation_draw_models_for_conditions(
+                                    dt,
+                                    fallback_draw_models.as_slice(),
+                                    input.model_condition_bits_with_combat_flags(),
+                                );
+                            input.model_key = input
+                                .draw_models
+                                .first()
+                                .map(|model| model.model_key.clone())
+                                .unwrap_or_default();
                         }
                     }
                 }
@@ -445,17 +677,20 @@ impl PresentationFrame {
     ) -> Vec<ObjectId> {
         use crate::game_logic::KindOf;
         use crate::unit_control::UnitControlSystem;
+        let _ = player_team;
         let Some(clicked) = self.objects.iter().find(|o| o.id == clicked_id) else {
             return Vec::new();
         };
-        if clicked.team != player_team || !UnitControlSystem::presentation_is_selectable(clicked) {
+        if !self.is_owned_by_local(clicked)
+            || !UnitControlSystem::presentation_is_selectable(clicked)
+        {
             return Vec::new();
         }
         let template = clicked.template_name.as_str();
         self.objects
             .iter()
             .filter(|o| {
-                o.team == player_team
+                self.is_owned_by_local(o)
                     && UnitControlSystem::presentation_is_selectable(o)
                     && o.template_name == template
             })
@@ -470,12 +705,13 @@ impl PresentationFrame {
         player_team: crate::game_logic::Team,
     ) -> bool {
         use crate::unit_control::UnitControlSystem;
+        let _ = player_team;
         // Wave 1103: fail-closed on non-local FOW unless Clear (pick parity).
         self.objects
             .iter()
             .find(|o| o.id == target_id)
             .map(|o| {
-                o.team != player_team
+                self.is_enemy_of_local(o)
                     && o.fow_visibility.visibility_alpha >= 0.95
                     && UnitControlSystem::presentation_is_attackable(o)
             })
@@ -561,9 +797,18 @@ impl PresentationFrame {
             if o.destroyed {
                 continue;
             }
-            if let Some(k) = o.model_key.as_ref() {
-                if !k.is_empty() && seen.insert(k.clone()) {
-                    keys.push(k.clone());
+            if o.draw_models.is_empty() {
+                if let Some(k) = o.model_key.as_ref() {
+                    if !k.is_empty() && seen.insert(k.clone()) {
+                        keys.push(k.clone());
+                    }
+                }
+            } else {
+                for draw_model in &o.draw_models {
+                    if !draw_model.model_key.is_empty() && seen.insert(draw_model.model_key.clone())
+                    {
+                        keys.push(draw_model.model_key.clone());
+                    }
                 }
             }
         }
@@ -590,11 +835,12 @@ impl PresentationFrame {
     /// Friendly workers residual (dozer / worker command feed by team).
     pub fn friendly_workers(&self, player_team: crate::game_logic::Team) -> Vec<&RenderableObject> {
         use crate::game_logic::KindOf;
+        let _ = player_team;
         // Wave 1101: fail-closed on sold/disabled worker residual feed.
         self.objects
             .iter()
             .filter(|o| {
-                o.team == player_team
+                self.is_owned_by_local(o)
                     && !o.destroyed
                     && !o.sold
                     && !o.disabled
@@ -611,11 +857,12 @@ impl PresentationFrame {
         player_team: crate::game_logic::Team,
     ) -> Option<ObjectId> {
         use crate::unit_control::UnitControlSystem;
+        let _ = player_team;
         // Wave 1104: fail-closed on non-local FOW unless Clear (is_enemy_attackable parity).
         self.objects
             .iter()
             .find(|o| {
-                o.team != player_team
+                self.is_enemy_of_local(o)
                     && o.fow_visibility.visibility_alpha >= 0.95
                     && UnitControlSystem::presentation_is_attackable(o)
             })
@@ -639,11 +886,12 @@ impl PresentationFrame {
     ) -> Option<ObjectId> {
         use crate::game_logic::KindOf;
         use crate::unit_control::UnitControlSystem;
+        let _ = player_team;
         // Wave 1105: fail-closed on non-local FOW unless Clear (is_enemy_attackable /
         // first_enemy_attackable_id parity). Force-attack object residual must not
         // pick fogged/black enemies the local player cannot see.
         let visible_enemy = |o: &&RenderableObject| {
-            o.team != player_team
+            self.is_enemy_of_local(o)
                 && o.fow_visibility.visibility_alpha >= 0.95
                 && UnitControlSystem::presentation_is_attackable(o)
         };

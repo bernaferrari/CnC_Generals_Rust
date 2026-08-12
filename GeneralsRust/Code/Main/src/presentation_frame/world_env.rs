@@ -438,6 +438,63 @@ impl PresentationWorldEnv {
         self.height_samples.get(idx).copied()
     }
 
+    /// Sample the frozen full-resolution terrain using the same world-to-heightmap
+    /// mapping as Main's authoritative `TerrainData`.
+    ///
+    /// Mouse picking must use this snapshot rather than re-locking `GameLogic`:
+    /// a command is interpreted against the world which was actually presented
+    /// to the player.  The coarse height grid remains appropriate for minimap
+    /// and diagnostic consumers, but is not accurate enough for a camera ray.
+    pub fn sample_gameplay_terrain_height(&self, world_x: f32, world_z: f32) -> Option<f32> {
+        let heightmap = self.runtime_heightmap.as_ref()?;
+        if !heightmap.is_usable() {
+            return None;
+        }
+
+        let border = heightmap.border_size.max(0) as u32;
+        let playable_width = heightmap
+            .width
+            .saturating_sub(border.saturating_mul(2))
+            .max(2) as f32;
+        let playable_height = heightmap
+            .height
+            .saturating_sub(border.saturating_mul(2))
+            .max(2) as f32;
+        let (world_min, world_max) = self.world_bounds_vec3();
+        let scale_x = (world_max.x - world_min.x) / (playable_width - 1.0);
+        let scale_z = (world_max.z - world_min.z) / (playable_height - 1.0);
+        if !scale_x.is_finite()
+            || !scale_z.is_finite()
+            || scale_x.abs() <= f32::EPSILON
+            || scale_z.abs() <= f32::EPSILON
+        {
+            return None;
+        }
+
+        let max_x = heightmap.width.saturating_sub(1) as f32;
+        let max_z = heightmap.height.saturating_sub(1) as f32;
+        let sample_x = ((world_x - world_min.x) / scale_x + border as f32).clamp(0.0, max_x);
+        let sample_z = ((world_z - world_min.z) / scale_z + border as f32).clamp(0.0, max_z);
+        let x0 = sample_x.floor() as u32;
+        let z0 = sample_z.floor() as u32;
+        let x1 = (x0 + 1).min(heightmap.width.saturating_sub(1));
+        let z1 = (z0 + 1).min(heightmap.height.saturating_sub(1));
+        let tx = sample_x - x0 as f32;
+        let tz = sample_z - z0 as f32;
+        let at = |x: u32, z: u32| {
+            heightmap
+                .heights
+                .get((z * heightmap.width + x) as usize)
+                .copied()
+        };
+        let (h00, h10, h01, h11) = (at(x0, z0)?, at(x1, z0)?, at(x0, z1)?, at(x1, z1)?);
+        let lower = h00 * (1.0 - tx) + h10 * tx;
+        let upper = h01 * (1.0 - tx) + h11 * tx;
+        let normalized = lower * (1.0 - tz) + upper * tz;
+        let height = normalized * heightmap.max_height;
+        height.is_finite().then_some(height)
+    }
+
     /// Prewarm signature fragment (map|meta|objects|heightmap|shell) without live logic.
     pub fn prewarm_signature(&self, shell_bypass: bool) -> String {
         format!(

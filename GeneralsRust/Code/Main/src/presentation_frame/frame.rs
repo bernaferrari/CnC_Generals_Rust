@@ -1,5 +1,9 @@
 use super::*;
 
+const fn default_presentation_alliance_team() -> i32 {
+    -1
+}
+
 /// Snapshot-owned player roster residual (defeat/alliance UI / radar team).
 /// Fail-closed: not full Player science/upgrade/diplomacy matrix.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -7,6 +11,10 @@ pub struct PresentationPlayerInfo {
     pub id: u32,
     pub name: String,
     pub team: Team,
+    /// Skirmish alliance slot. This is distinct from faction `team` and lets
+    /// a frozen frame distinguish same-faction opponents from allied players.
+    #[serde(default = "default_presentation_alliance_team")]
+    pub alliance_team: i32,
     pub is_alive: bool,
     pub is_local: bool,
     /// True when host AI manager owns this player (skirmish AI residual).

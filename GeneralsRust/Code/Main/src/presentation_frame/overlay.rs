@@ -191,13 +191,23 @@ impl PresentationFrame {
                 (!ent.model_key.is_empty()).then_some(ent.model_key.as_str()),
                 &ent.template.name,
             );
-            let model_key = crate::assets::resolve_presentation_model_key_for_conditions(
+            let fallback_draw_models =
+                (!fallback_model_key.trim().is_empty()).then(|| crate::assets::AuthoredDrawModel {
+                    module_index: 0,
+                    model_key: fallback_model_key.clone(),
+                });
+            let draw_models = crate::assets::resolve_presentation_draw_models_for_conditions(
                 &ent.template.name,
-                &fallback_model_key,
+                fallback_draw_models.as_slice(),
                 ent.model_condition_bits,
             );
+            let model_key = draw_models.first().map(|model| model.model_key.clone());
             if obj.model_key != model_key {
                 obj.model_key = model_key;
+                dirty = true;
+            }
+            if obj.draw_models != draw_models {
+                obj.draw_models = draw_models;
                 dirty = true;
             }
             if ent.mesh_scale.is_finite()
@@ -1099,6 +1109,37 @@ impl PresentationFrame {
                     obj.kind_of = v;
                     dirty = true;
                 }
+                if obj.unattackable != ent.unattackable {
+                    obj.unattackable = ent.unattackable;
+                    dirty = true;
+                }
+                let dock_kind = crate::game_logic::DockKind::from_ordinal(ent.dock_kind);
+                if obj.dock_kind != dock_kind {
+                    obj.dock_kind = dock_kind;
+                    dirty = true;
+                }
+                if obj.capturable != ent.capturable {
+                    obj.capturable = ent.capturable;
+                    dirty = true;
+                }
+                if obj.immune_to_capture != ent.immune_to_capture {
+                    obj.immune_to_capture = ent.immune_to_capture;
+                    dirty = true;
+                }
+                if obj.capture_garrisonable != ent.capture_garrisonable {
+                    obj.capture_garrisonable = ent.capture_garrisonable;
+                    dirty = true;
+                }
+                let capture_power =
+                    crate::game_logic::CapturePowerKind::from_ordinal(ent.capture_power);
+                if obj.capture_power != capture_power {
+                    obj.capture_power = capture_power;
+                    dirty = true;
+                }
+                if obj.capture_power_ready != ent.capture_power_ready {
+                    obj.capture_power_ready = ent.capture_power_ready;
+                    dirty = true;
+                }
             }
             // Applied upgrade names residual.
             if obj.applied_upgrades != ent.applied_upgrade_names {
@@ -1267,10 +1308,28 @@ impl PresentationFrame {
             1.0
         };
         let moving = vel.length_squared() > 1e-6 || move_destination.is_some();
+        let fallback_model_key = crate::assets::mesh_asset_resolve::model_key_from_presentation(
+            Some(ent.template.name.as_str()),
+            &ent.template.name,
+        );
+        let fallback_draw_models =
+            (!fallback_model_key.trim().is_empty()).then(|| crate::assets::AuthoredDrawModel {
+                module_index: 0,
+                model_key: fallback_model_key,
+            });
+        let draw_models = crate::assets::resolve_presentation_draw_models_for_conditions(
+            &ent.template.name,
+            fallback_draw_models.as_slice(),
+            ent.model_condition_bits,
+        );
+        let model_key = draw_models.first().map(|model| model.model_key.clone());
         RenderableObject {
             id: host_id,
             template_name: ent.template.name.clone(),
             team,
+            // The GameWorld entity only carries its GameWorld PlayerId here;
+            // overlay_host_fx_residual resolves the corresponding host ID.
+            owner_player_id: None,
             team_color: ent.team_color,
             position: pos,
             orientation: ent.transform.orientation,
@@ -1347,6 +1406,12 @@ impl PresentationFrame {
             power_provided: ent.power_provided,
             power_consumed: ent.power_consumed,
             stored_supplies: ent.stored_supplies,
+            dock_kind: crate::game_logic::DockKind::from_ordinal(ent.dock_kind),
+            capturable: ent.capturable,
+            immune_to_capture: ent.immune_to_capture,
+            capture_garrisonable: ent.capture_garrisonable,
+            capture_power: crate::game_logic::CapturePowerKind::from_ordinal(ent.capture_power),
+            capture_power_ready: ent.capture_power_ready,
             health_current: ent.health.max(0.0),
             health_max,
             selected: ent.selected,
@@ -1398,6 +1463,7 @@ impl PresentationFrame {
             disabled_paralyzed: ent.disabled_paralyzed,
             weapons_jammed: ent.weapons_jammed,
             masked: ent.masked,
+            unattackable: ent.unattackable,
             ignoring_stealth: ent.ignoring_stealth,
             repulsor: ent.repulsor,
             // Wave 489: stealth/weapon presentation from GW entity.
@@ -1539,6 +1605,18 @@ impl PresentationFrame {
             } else {
                 ent.overlord_bunker_capacity as usize
             },
+            // GameWorld has not retained generic Object INI ContainModule
+            // metadata yet.  Preserve only explicitly mirrored host roles;
+            // arbitrary vehicles remain fail-closed for normal RMB Enter.
+            contain_module_present: false,
+            contain_module_kind: crate::game_logic::ContainModuleKind::None,
+            contain_admission: crate::game_logic::ContainAdmission::Unsupported,
+            rider_change_allowed_templates: Vec::new(),
+            contain_allow_allies_inside: true,
+            contain_allow_enemies_inside: true,
+            contain_allow_neutral_inside: true,
+            transport_slot_count: 0,
+            is_faction_structure: false,
             passengers_allowed_to_fire: ent.passengers_allowed_to_fire,
             display_name: ent.template.name.clone(),
             // Wave 490: demo/turret-hold/command-set presentation from GW entity.
@@ -1573,24 +1651,19 @@ impl PresentationFrame {
             can_produce: ent.is_building && !ent.under_construction,
             // Wave 490: building type from GW entity ordinal.
             building_type: PresentationBuildingType::from_ordinal(ent.building_type_ordinal),
-            // GameWorld-primary path: select the exact source-authored Draw
-            // state by Object identity.  `model_key` remains opaque after
-            // this point; later presentation/render code must not apply a
-            // suffix-based second selection.
-            model_key: {
-                let fallback_model_key =
-                    crate::assets::mesh_asset_resolve::model_key_from_presentation(
-                        Some(ent.template.name.as_str()),
-                        &ent.template.name,
-                    );
-                crate::assets::resolve_presentation_model_key_for_conditions(
-                    &ent.template.name,
-                    &fallback_model_key,
-                    ent.model_condition_bits,
-                )
+            // GameWorld-primary path: preserve every exact source-authored
+            // Draw model by Object identity. Later presentation/render code
+            // must not apply suffix-based reselection.
+            model_key,
+            draw_models,
+            // GameWorld carries the originating template's authored Object INI
+            // scale.  Keep it frozen instead of recovering scale from a unit
+            // name compatibility table.
+            mesh_scale: if ent.mesh_scale.is_finite() && ent.mesh_scale > 0.0 {
+                ent.mesh_scale
+            } else {
+                1.0
             },
-            // Wave 492: mesh scale + FOW from GW entity residual (not hard defaults).
-            mesh_scale: crate::assets::mesh_asset_resolve::mesh_scale_for_unit(&ent.template.name),
             selection_radius: if ent.selection_radius > 0.0 {
                 ent.selection_radius
             } else {
@@ -1736,6 +1809,118 @@ impl PresentationFrame {
                 continue;
             };
             let mut dirty = false;
+            if ro.owner_player_id != obj.owner_player_id {
+                ro.owner_player_id = obj.owner_player_id;
+                dirty = true;
+            }
+            // GameWorld is the object-roster authority in the active frame,
+            // but it has not yet retained parsed ContainModule metadata.  Copy
+            // the immutable host containment snapshot at frame construction
+            // time so physical RMB remains presentation-only and does not
+            // invent a transport from vehicle geometry.
+            let contain_kind = obj.thing.template.contain_module.kind;
+            let contain_present = contain_kind != crate::game_logic::ContainModuleKind::None;
+            if ro.contain_module_present != contain_present {
+                ro.contain_module_present = contain_present;
+                dirty = true;
+            }
+            if ro.contain_module_kind != contain_kind {
+                ro.contain_module_kind = contain_kind;
+                dirty = true;
+            }
+            let contain_admission = obj.normal_enter_admission();
+            if ro.contain_admission != contain_admission {
+                ro.contain_admission = contain_admission;
+                dirty = true;
+            }
+            let rider_change_allowed_templates: Vec<String> = obj
+                .thing
+                .template
+                .contain_module
+                .rider_change_riders
+                .iter()
+                .filter(|rider| rider.physical_enter_supported)
+                .map(|rider| rider.template_name.clone())
+                .collect();
+            if ro.rider_change_allowed_templates != rider_change_allowed_templates {
+                ro.rider_change_allowed_templates = rider_change_allowed_templates;
+                dirty = true;
+            }
+            let allow_allies = obj.thing.template.contain_module.allow_allies_inside;
+            if ro.contain_allow_allies_inside != allow_allies {
+                ro.contain_allow_allies_inside = allow_allies;
+                dirty = true;
+            }
+            let allow_enemies = obj.thing.template.contain_module.allow_enemies_inside;
+            if ro.contain_allow_enemies_inside != allow_enemies {
+                ro.contain_allow_enemies_inside = allow_enemies;
+                dirty = true;
+            }
+            let allow_neutral = obj.thing.template.contain_module.allow_neutral_inside;
+            if ro.contain_allow_neutral_inside != allow_neutral {
+                ro.contain_allow_neutral_inside = allow_neutral;
+                dirty = true;
+            }
+            let transport_slots = obj.transport_slot_count();
+            if ro.transport_slot_count != transport_slots {
+                ro.transport_slot_count = transport_slots;
+                dirty = true;
+            }
+            let faction_structure = obj.is_faction_structure();
+            if ro.is_faction_structure != faction_structure {
+                ro.is_faction_structure = faction_structure;
+                dirty = true;
+            }
+            let contained = obj.contained_units();
+            if ro.garrisoned_units != contained {
+                ro.garrisoned_units = contained;
+                dirty = true;
+            }
+            let max_transport = obj.transport_capacity();
+            if ro.max_transport != max_transport {
+                ro.max_transport = max_transport;
+                dirty = true;
+            }
+            let max_garrison = obj.garrison_capacity();
+            if ro.max_garrison != max_garrison {
+                ro.max_garrison = max_garrison;
+                dirty = true;
+            }
+            let overlord_capacity = obj.overlord_bunker_capacity.unwrap_or(usize::MAX);
+            if ro.overlord_bunker_capacity != overlord_capacity {
+                ro.overlord_bunker_capacity = overlord_capacity;
+                dirty = true;
+            }
+            let tunnel_network = obj.is_tunnel_network_style_container();
+            if ro.is_tunnel_network != tunnel_network {
+                ro.is_tunnel_network = tunnel_network;
+                dirty = true;
+            }
+            // These are explicit specialized host containment roles, not
+            // template-name discovery.  Stamp them with the same immutable
+            // snapshot as the parsed module so GameWorld-primary presentation
+            // can still classify an implemented Humvee/Helix/etc. correctly.
+            macro_rules! stamp_containment_role {
+                ($field:ident) => {
+                    if ro.$field != obj.$field {
+                        ro.$field = obj.$field;
+                        dirty = true;
+                    }
+                };
+            }
+            stamp_containment_role!(is_humvee_transport);
+            stamp_containment_role!(is_listening_outpost_transport);
+            stamp_containment_role!(is_troop_crawler_transport);
+            stamp_containment_role!(is_helix_transport);
+            stamp_containment_role!(is_battle_bus_transport);
+            stamp_containment_role!(is_technical_transport);
+            stamp_containment_role!(is_combat_cycle_transport);
+            stamp_containment_role!(is_combat_chinook_transport);
+            let is_structure = obj.is_kind_of(crate::game_logic::KindOf::Structure);
+            if ro.is_structure != is_structure {
+                ro.is_structure = is_structure;
+                dirty = true;
+            }
             let topple = obj.presentation_topple_lean_radians();
             if (ro.topple_lean_radians - topple).abs() > 1e-5 {
                 ro.topple_lean_radians = topple;

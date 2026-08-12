@@ -134,13 +134,9 @@ impl<'a> CommandExecutor<'a> {
         target_id: ObjectId,
     ) -> CommandResult {
         // Wave 232: attack last-writes via GameLogic unit_command_attack.
-        let Some(target_team) = self
-            .game_logic
-            .host_object(target_id)
-            .map(|target| target.team)
-        else {
+        if self.game_logic.host_object(target_id).is_none() {
             return CommandResult::InvalidTarget;
-        };
+        }
 
         if self
             .game_logic
@@ -161,7 +157,7 @@ impl<'a> CommandExecutor<'a> {
             let Some(unit) = self.game_logic.host_object(unit_id) else {
                 continue;
             };
-            if !unit.can_attack() || unit.team == target_team {
+            if !unit.can_attack() {
                 continue;
             }
             let p = unit.get_position();

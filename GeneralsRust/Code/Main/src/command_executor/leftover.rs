@@ -57,19 +57,71 @@ impl<'a> CommandExecutor<'a> {
             .unit_command_path_with_state(unit_id, goal, state)
     }
 
+    /// Begin one C++ support order after its caller has validated the concrete
+    /// repair/heal provider and relationship.  The support-state machine heals
+    /// at `HOST_REPAIR_INTERACT_RANGE`, so an already-in-range unit must enter
+    /// the requested state directly.  Requiring A* to the centre of a repair
+    /// pad in that case can reject a legal order because the pad's own static
+    /// footprint occupies the goal cell.
+    ///
+    /// Outside that physical range we deliberately retain the normal
+    /// fail-closed path allocation; this is not a straight-line bypass for an
+    /// unreachable support target.
+    fn begin_support_order(
+        &mut self,
+        unit_id: ObjectId,
+        target_id: ObjectId,
+        target_pos: Vec3,
+        state: AIState,
+    ) -> bool {
+        let Some((source_pos, target_selection_radius)) = self
+            .game_logic
+            .host_object(unit_id)
+            .zip(self.game_logic.host_object(target_id))
+            .map(|(unit, target)| (unit.get_position(), target.selection_radius))
+        else {
+            return false;
+        };
+        let in_interaction_range = source_pos.distance(target_pos)
+            <= crate::game_logic::host_repair::HOST_REPAIR_INTERACT_RANGE;
+
+        if !self
+            .game_logic
+            .unit_command_set_order_target(unit_id, Some(target_id))
+        {
+            return false;
+        }
+
+        if in_interaction_range {
+            self.game_logic.unit_command_set_ai_state(unit_id, state)
+        } else {
+            // C++ DozerAIUpdate does not hand A* the centre of a structure;
+            // it seeds a position on the source-facing side and finds a
+            // viable dock/repair point there.  This keeps the normal
+            // fail-closed path allocation while avoiding the target's own
+            // static footprint as an impossible A* endpoint.
+            let approach = crate::game_logic::host_repair::support_approach_position(
+                source_pos,
+                target_pos,
+                target_selection_radius,
+            );
+            self.path_to_goal_with_state(unit_id, approach, state)
+        }
+    }
+
     /// Deploy selected units at their current position.
     /// C&C Generals: garrisonable infantry deploy into structures,
     /// dozers unpack into construction yards, etc.
     pub(super) fn execute_deploy(&mut self, units: &[ObjectId]) -> CommandResult {
         let mut any = false;
         for &unit_id in units {
-            let Some((alive, name, is_infantry, is_deployed)) =
+            let Some((alive, name, is_infantry, has_deploy_style_metadata)) =
                 self.game_logic.host_object(unit_id).map(|unit| {
                     (
                         unit.is_alive(),
                         unit.template_name.to_ascii_lowercase(),
                         unit.is_kind_of(KindOf::Infantry),
-                        unit.is_deployed(),
+                        unit.get_template().deploy_style_metadata.is_some(),
                     )
                 })
             else {
@@ -79,31 +131,12 @@ impl<'a> CommandExecutor<'a> {
                 continue;
             }
 
-            // C++ DeployStyleAIUpdate residual: toggle OBJECT_STATUS_DEPLOYED.
-            let looks_deployable = [
-                "tomahawk",
-                "scud",
-                "buggy",
-                "humvee",
-                "stinger",
-                "crawler",
-                "artillery",
-                "nukecannon",
-                "nuke cannon",
-                "spectrum",
-                "quadcannon",
-                "infernocannon",
-                "inferno cannon",
-                "missile humvee",
-                "tow",
-            ]
-            .iter()
-            .any(|k| name.contains(k));
-
-            if looks_deployable && !is_infantry {
-                // Wave 232: deploy toggle via GameLogic unit_command_set_deployed.
-                let next = !is_deployed;
-                if self.game_logic.unit_command_set_deployed(unit_id, next) {
+            // C++ DeployStyleAIUpdate is a concrete Object INI behavior, not
+            // a list of vehicle basenames.  Recheck it in GameLogic before
+            // transitioning so a stale/injected UI command cannot bypass the
+            // template's authored module data.
+            if has_deploy_style_metadata && !is_infantry {
+                if self.game_logic.unit_command_toggle_deploy_style(unit_id) {
                     any = true;
                 }
                 continue;
@@ -155,7 +188,6 @@ impl<'a> CommandExecutor<'a> {
         units: &[ObjectId],
         target_id: ObjectId,
     ) -> CommandResult {
-        let player_team = self.player_team(self.current_player_id);
         let (target_pos, target_alive, target_is_resource) =
             match self.game_logic.host_object(target_id) {
                 Some(target) => (
@@ -181,7 +213,7 @@ impl<'a> CommandExecutor<'a> {
                     unit.is_alive()
                         && unit.is_resource_collector()
                         && unit.can_move()
-                        && unit.team == player_team
+                        && unit.owner_player_id == Some(self.current_player_id)
                 })
                 .unwrap_or(false);
             if !can_gather {
@@ -207,58 +239,15 @@ impl<'a> CommandExecutor<'a> {
     pub(super) fn execute_return_to_base(&mut self, units: &[ObjectId]) -> CommandResult {
         let mut any = false;
         for &unit_id in units {
-            let Some(unit) = self.game_logic.host_object(unit_id) else {
-                continue;
-            };
-            if !unit.is_alive() {
-                continue;
-            }
-            let is_aircraft = unit.is_kind_of(crate::game_logic::KindOf::Aircraft)
-                || unit.object_type == crate::game_logic::ObjectType::Aircraft;
-            if !is_aircraft {
-                continue;
-            }
-            let team = unit.team;
-            let pos = unit.get_position();
-            // Nearest friendly airfield residual.
-            // Pure residual acquire: nearest friendly airfield (3D).
-            let af_cands: Vec<_> = self
+            // Freeze the command player at the physical UI boundary.  The
+            // GameLogic authority rechecks that exact owner and performs the
+            // C++ producer-first ParkingPlace reservation before it mutates
+            // landing state; no team/name airfield search or generic Dock is
+            // allowed on this route.
+            if self
                 .game_logic
-                .host_objects()
-                .iter()
-                .filter_map(|(&id, obj)| {
-                    if !crate::game_logic::GameLogic::is_friendly_airfield(obj, team) {
-                        return None;
-                    }
-                    Some(
-                        crate::game_logic::host_residual_acquire::ResidualAcquireCandidate {
-                            id,
-                            team: obj.team,
-                            position: obj.get_position(),
-                            is_alive: obj.is_alive(),
-                            is_neutral: false,
-                            under_construction: obj.status.under_construction,
-                            combat_kind: true,
-                            effectively_stealthed: false,
-                            is_air: false,
-                            eject_invulnerable: false,
-                        },
-                    )
-                })
-                .collect();
-            let Some((airfield_id, _, _)) =
-                crate::game_logic::host_residual_acquire::pick_nearest_residual_target(
-                    unit_id,
-                    team,
-                    pos,
-                    af_cands,
-                    |_| f32::MAX,
-                    |_| true,
-                )
-            else {
-                continue;
-            };
-            if self.execute_dock(&[unit_id], airfield_id) == CommandResult::Success {
+                .request_return_to_base(unit_id, self.current_player_id)
+            {
                 any = true;
             }
         }
@@ -520,7 +509,6 @@ impl<'a> CommandExecutor<'a> {
         // (C++ DozerAIUpdate::privateRepair → DOZER_TASK_REPAIR).
         // Fail-closed: not sole-benefactor reject / scaffolding / percent INI matrix.
         let (
-            target_team,
             target_pos,
             target_alive,
             target_is_structure,
@@ -528,7 +516,6 @@ impl<'a> CommandExecutor<'a> {
             target_under_construction,
         ) = match self.game_logic.host_object(target_id) {
             Some(target) => (
-                target.team,
                 target.get_position(),
                 target.is_alive(),
                 target.is_kind_of(KindOf::Structure),
@@ -549,17 +536,17 @@ impl<'a> CommandExecutor<'a> {
                 .game_logic
                 .host_object(unit_id)
                 .map(|unit| {
-                    unit.can_repair() && (unit.team == target_team || target_team == Team::Neutral)
+                    unit.can_repair()
+                        && unit.contained_by.is_none()
+                        && self
+                            .game_logic
+                            .repair_relationship_is_not_enemy(unit_id, target_id)
                 })
                 .unwrap_or(false);
             if !can {
                 continue;
             }
-            // Wave 233: order-target via GameLogic authority API.
-            let _ = self
-                .game_logic
-                .unit_command_set_order_target(unit_id, Some(target_id));
-            if self.path_to_goal_with_state(unit_id, target_pos, AIState::Repairing) {
+            if self.begin_support_order(unit_id, target_id, target_pos, AIState::Repairing) {
                 any = true;
             }
         }
@@ -576,32 +563,29 @@ impl<'a> CommandExecutor<'a> {
         units: &[ObjectId],
         target_id: ObjectId,
     ) -> CommandResult {
-        // Host residual: damaged vehicle → RepairPad or WarFactory (China RepairDock);
-        // aircraft → Airfield. Fail-closed: not full dock bones / TimeForFullHeal matrix.
+        // C++ ActionManager::canGetRepairedAt: vehicle → authored
+        // KINDOF_REPAIR_PAD, aircraft → authored KINDOF_FS_AIRFIELD.  The
+        // host BuildingType is name-derived and cannot authorize this path.
         let (
-            target_team,
             target_pos,
             target_alive,
-            target_is_structure,
             target_under_construction,
-            target_building_type,
+            target_sold,
+            target_is_repair_pad,
+            target_is_fs_airfield,
         ) = match self.game_logic.host_object(target_id) {
             Some(target) => (
-                target.team,
                 target.get_position(),
                 target.is_alive(),
-                target.is_kind_of(KindOf::Structure),
                 target.status.under_construction,
-                target
-                    .building_data
-                    .as_ref()
-                    .map(|b| b.building_type)
-                    .unwrap_or(crate::game_logic::BuildingType::CommandCenter),
+                target.status.sold,
+                target.is_kind_of(KindOf::RepairPad),
+                target.is_kind_of(KindOf::FSAirfield),
             ),
             None => return CommandResult::InvalidTarget,
         };
 
-        if !target_alive || !target_is_structure || target_under_construction {
+        if !target_alive || target_under_construction || target_sold {
             return CommandResult::InvalidTarget;
         }
 
@@ -614,30 +598,33 @@ impl<'a> CommandExecutor<'a> {
                     let is_damaged = unit.health.current + 0.01 < unit.health.maximum;
                     let is_aircraft = unit.is_kind_of(KindOf::Aircraft);
                     let is_vehicle = unit.is_kind_of(KindOf::Vehicle);
-                    let supports_unit = if is_aircraft {
-                        crate::game_logic::host_repair::building_provides_aircraft_repair(
-                            target_building_type,
-                        )
-                    } else if is_vehicle {
-                        crate::game_logic::host_repair::building_provides_vehicle_repair(
-                            target_building_type,
-                        )
-                    } else {
-                        false
-                    };
-                    unit.team == target_team
+                    let supports_unit = is_vehicle
+                        && if is_aircraft {
+                            target_is_fs_airfield
+                        } else {
+                            target_is_repair_pad
+                        };
+                    self.game_logic
+                        .service_relationship_is_allies(unit_id, target_id)
                         && unit.is_alive()
                         && unit.can_move()
+                        && !unit.status.under_construction
                         && is_damaged
                         && supports_unit
+                        // C++ ActionManager::canGetRepairedAt accepts an
+                        // aircraft only while it is above terrain.  A live
+                        // airborne flag or sourced terrain height is required;
+                        // an unknown ground sample cannot fabricate a landing
+                        // request.
+                        && (!is_aircraft
+                            || unit.status.airborne_target
+                            || (unit.ground_height_from_terrain
+                                && unit.get_position().y > unit.ground_height + 0.01))
                 })
                 .unwrap_or(false);
             if can {
-                // Wave 233: order-target via GameLogic authority API.
-                let _ = self
-                    .game_logic
-                    .unit_command_set_order_target(unit_id, Some(target_id));
-                if self.path_to_goal_with_state(unit_id, target_pos, AIState::SeekingRepair) {
+                if self.begin_support_order(unit_id, target_id, target_pos, AIState::SeekingRepair)
+                {
                     any = true;
                 }
             }
@@ -655,32 +642,26 @@ impl<'a> CommandExecutor<'a> {
         target_id: ObjectId,
     ) -> CommandResult {
         let (
-            target_team,
             target_pos,
             target_alive,
-            target_is_structure,
             target_under_construction,
-            target_building_type,
+            target_sold,
+            target_is_heal_pad,
         ) = match self.game_logic.host_object(target_id) {
             Some(target) => (
-                target.team,
                 target.get_position(),
                 target.is_alive(),
-                target.is_kind_of(KindOf::Structure),
                 target.status.under_construction,
-                target
-                    .building_data
-                    .as_ref()
-                    .map(|b| b.building_type)
-                    .unwrap_or(crate::game_logic::BuildingType::CommandCenter),
+                target.status.sold,
+                target.is_kind_of(KindOf::HealPad),
             ),
             None => return CommandResult::InvalidTarget,
         };
 
         if !target_alive
-            || !target_is_structure
             || target_under_construction
-            || target_building_type != crate::game_logic::BuildingType::HealPad
+            || target_sold
+            || !target_is_heal_pad
         {
             return CommandResult::InvalidTarget;
         }
@@ -692,19 +673,18 @@ impl<'a> CommandExecutor<'a> {
                 .host_object(unit_id)
                 .map(|unit| {
                     let is_injured = unit.health.current + 0.01 < unit.health.maximum;
-                    unit.team == target_team
+                    self.game_logic
+                        .service_relationship_is_allies(unit_id, target_id)
                         && unit.is_alive()
                         && unit.can_move()
+                        && !unit.status.under_construction
                         && is_injured
                         && unit.is_kind_of(KindOf::Infantry)
                 })
                 .unwrap_or(false);
             if can {
-                // Wave 233: order-target via GameLogic authority API.
-                let _ = self
-                    .game_logic
-                    .unit_command_set_order_target(unit_id, Some(target_id));
-                if self.path_to_goal_with_state(unit_id, target_pos, AIState::SeekingHealing) {
+                if self.begin_support_order(unit_id, target_id, target_pos, AIState::SeekingHealing)
+                {
                     any = true;
                 }
             }

@@ -485,6 +485,135 @@ fn sell_deconstruction_negative_percent_survives_shadow_writeback() {
 }
 
 #[test]
+fn sell_command_uses_authored_refund_value_through_world_completion() {
+    use crate::command_system::{
+        CommandResult, CommandSystem, CommandType, GameCommand, ModifierKeys,
+    };
+    use crate::game_logic::{KindOf, Player, Team, ThingTemplate};
+    use game_engine::common::global_data::with_global_data_restored;
+    use std::time::SystemTime;
+
+    with_global_data_restored(|| {
+        // Make the ordinary percentage deliberately different from the
+        // authored refund so this cannot pass through the fallback path.
+        game_engine::common::global_data::write().sell_percentage = 0.25;
+
+        let command_system = CommandSystem::new();
+        let mut logic = GameLogic::new();
+        let mut player = Player::new(0, Team::USA, "USA", true);
+        player.resources.supplies = 0;
+        logic.add_player(player);
+
+        let mut structure = ThingTemplate::new("RefundOverrideStructure");
+        structure
+            .add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(1_000.0)
+            .set_cost(1_000, -1);
+        // C++ Object INI `RefundValue = 650`: this is an exact credit, not
+        // 25% of the build cost.
+        structure.refund_value = 650;
+        logic
+            .templates
+            .insert("RefundOverrideStructure".to_string(), structure);
+
+        let structure_id = logic
+            .create_object_for_player("RefundOverrideStructure", 0, glam::Vec3::ZERO)
+            .expect("player-owned structure");
+        {
+            let object = logic.host_object_mut(structure_id).expect("structure");
+            object.set_status_under_construction(false);
+            object.construction_percent = 1.0;
+        }
+
+        let sell = GameCommand {
+            command_type: CommandType::Sell {
+                object_id: structure_id,
+            },
+            player_id: 0,
+            command_id: 9001,
+            timestamp: SystemTime::now(),
+            selected_units: vec![structure_id],
+            modifier_keys: ModifierKeys::default(),
+        };
+        assert_eq!(
+            command_system.execute_command(&sell, &mut logic),
+            CommandResult::Success,
+            "the physical sell command must enter the normal world sell lifecycle"
+        );
+
+        for frame in 1..=240 {
+            logic.set_current_frame(frame);
+            logic.update_sell_list();
+            logic.process_destroy_list();
+            if logic.host_object(structure_id).is_none() {
+                break;
+            }
+        }
+
+        assert!(
+            logic.host_object(structure_id).is_none(),
+            "sell lifecycle must finish by destroying the structure"
+        );
+        assert_eq!(
+            logic.get_player(0).expect("owner").effective_supplies(),
+            650,
+            "C++ RefundValue must override BuildCost × SellPercentage"
+        );
+
+        let mut fallback = ThingTemplate::new("DefaultRefundStructure");
+        fallback
+            .add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(1_000.0)
+            .set_cost(1_000, -1);
+        // Default `refund_value = 0` must retain the ordinary percentage
+        // path, rather than being mistaken for a literal zero-credit sale.
+        logic
+            .templates
+            .insert("DefaultRefundStructure".to_string(), fallback);
+        let fallback_id = logic
+            .create_object_for_player("DefaultRefundStructure", 0, glam::Vec3::X)
+            .expect("player-owned fallback structure");
+        {
+            let object = logic
+                .host_object_mut(fallback_id)
+                .expect("fallback structure");
+            object.set_status_under_construction(false);
+            object.construction_percent = 1.0;
+        }
+        let fallback_sell = GameCommand {
+            command_type: CommandType::Sell {
+                object_id: fallback_id,
+            },
+            player_id: 0,
+            command_id: 9002,
+            timestamp: SystemTime::now(),
+            selected_units: vec![fallback_id],
+            modifier_keys: ModifierKeys::default(),
+        };
+        assert_eq!(
+            command_system.execute_command(&fallback_sell, &mut logic),
+            CommandResult::Success
+        );
+        for frame in 241..=480 {
+            logic.set_current_frame(frame);
+            logic.update_sell_list();
+            logic.process_destroy_list();
+            if logic.host_object(fallback_id).is_none() {
+                break;
+            }
+        }
+        assert!(logic.host_object(fallback_id).is_none());
+        assert_eq!(
+            logic.get_player(0).expect("owner").effective_supplies(),
+            900,
+            "zero RefundValue must use 25% of the 1000 BuildCost"
+        );
+    });
+}
+
+#[test]
 fn heal_armor_absolute_hp_authority_source() {
     let src = include_str!("../../game_logic/game_logic.rs");
     assert!(

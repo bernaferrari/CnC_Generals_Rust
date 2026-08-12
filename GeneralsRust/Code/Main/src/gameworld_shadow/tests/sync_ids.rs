@@ -31,6 +31,101 @@ fn shadow_stable_ids_across_sync() {
 }
 
 #[test]
+fn same_faction_slots_keep_owner_authority_through_shadow_and_presentation() {
+    use crate::game_logic::Player;
+    use crate::presentation_frame::PresentationFrame;
+    use gamelogic::common::Relationship;
+
+    let mut logic = GameLogic::new();
+    logic.clear_all_players();
+    let mut local = Player::new(0, Team::USA, "USA local", true);
+    local.alliance_team = 0;
+    let mut opponent = Player::new(1, Team::USA, "USA opponent", false);
+    opponent.alliance_team = 1;
+    logic.add_player(local);
+    logic.add_player(opponent);
+
+    ensure_template(&mut logic, "OwnerParityUnit", 100.0);
+    logic
+        .templates
+        .get_mut("OwnerParityUnit")
+        .expect("template")
+        .add_kind_of(KindOf::Vehicle);
+    let mine = logic
+        .create_object_for_player("OwnerParityUnit", 0, Vec3::ZERO)
+        .expect("local unit");
+    let theirs = logic
+        .create_object_for_player("OwnerParityUnit", 1, Vec3::new(20.0, 0.0, 0.0))
+        .expect("opponent unit");
+
+    let mine_host = logic.host_object(mine).expect("mine host");
+    let theirs_host = logic.host_object(theirs).expect("opponent host");
+    assert_eq!(mine_host.team, Team::USA);
+    assert_eq!(theirs_host.team, Team::USA);
+    assert_eq!(mine_host.owner_player_id, Some(0));
+    assert_eq!(theirs_host.owner_player_id, Some(1));
+    assert_eq!(logic.player_relationship(0, 1), Relationship::Enemies);
+    assert_eq!(logic.object_relationship(mine_host, theirs_host), Relationship::Enemies);
+
+    // The host selection and direct-order gates must reject a same-faction
+    // opponent even if a stale client attempts to provide its ObjectId.
+    logic.select_objects(0, vec![mine, theirs]);
+    assert_eq!(
+        logic.get_player(0).expect("local player").selected_objects,
+        vec![mine]
+    );
+    logic.get_player_mut(0).expect("local player").selected_objects = vec![theirs];
+    logic.command_move(0, Vec3::new(100.0, 0.0, 0.0));
+    assert!(
+        logic
+            .host_object(theirs)
+            .expect("opponent host")
+            .movement
+            .target_position
+            .is_none(),
+        "player 0 must not move player 1's same-faction unit"
+    );
+    logic.get_player_mut(0).expect("local player").selected_objects = vec![mine];
+    logic.command_move(0, Vec3::new(100.0, 0.0, 0.0));
+    assert!(
+        logic
+            .host_object(mine)
+            .expect("local host")
+            .movement
+            .target_position
+            .is_some(),
+        "the owning player retains command authority"
+    );
+
+    let mut shadow = GameWorldShadow::new(64);
+    shadow.sync_from_host(&logic);
+    let mine_entity = shadow.entity_for_host(mine).expect("mine entity");
+    let theirs_entity = shadow.entity_for_host(theirs).expect("opponent entity");
+    assert_ne!(
+        shadow.world().entity(mine_entity).expect("mine entity").owner,
+        shadow
+            .world()
+            .entity(theirs_entity)
+            .expect("opponent entity")
+            .owner,
+        "shadow must not collapse two USA owners"
+    );
+
+    let frame = PresentationFrame::build_from_logic(&logic, 0);
+    let mine_frame = frame.objects.iter().find(|o| o.id == mine).expect("mine frame");
+    let theirs_frame = frame
+        .objects
+        .iter()
+        .find(|o| o.id == theirs)
+        .expect("opponent frame");
+    assert_eq!(mine_frame.owner_player_id, Some(0));
+    assert_eq!(theirs_frame.owner_player_id, Some(1));
+    assert!(frame.is_owned_by_local(mine_frame));
+    assert!(!frame.is_owned_by_local(theirs_frame));
+    assert!(frame.is_enemy_of_local(theirs_frame));
+}
+
+#[test]
 fn shadow_damage_mutation_matches_host() {
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("DamageParity");
@@ -320,6 +415,7 @@ fn sync_from_host_copies_entity_kind_of_bits_residual() {
         t.add_kind_of(KindOf::Selectable);
         t.add_kind_of(KindOf::Infantry);
         t.add_kind_of(KindOf::Attackable);
+        t.add_kind_of(KindOf::Unattackable);
     }
     let id = logic
         .create_object("KindU", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
@@ -332,6 +428,10 @@ fn sync_from_host_copies_entity_kind_of_bits_residual() {
     assert!(e.kind_of_bits & (1 << 1) != 0, "Infantry bit");
     assert!(e.kind_of_bits & (1 << 6) != 0, "Selectable bit");
     assert!(e.kind_of_bits & (1 << 7) != 0, "Attackable bit");
+    assert!(
+        e.unattackable,
+        "the full compact KindOf bank has no spare bit, so the C++ WeaponSet victim override travels on its dedicated shadow channel"
+    );
     let src = GAMEWORLD_SHADOW_SRC;
     assert!(
         src.contains("host_kind_of_bits") && src.contains("kind_of_bits"),

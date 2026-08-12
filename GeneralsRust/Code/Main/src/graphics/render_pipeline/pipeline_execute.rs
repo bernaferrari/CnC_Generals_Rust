@@ -72,6 +72,19 @@ impl RenderPipeline {
             let particles = self.pack_presentation_particle_systems();
             self.debug_last_particle_systems_packed = particles.honesty.systems_packed;
             self.debug_last_particle_pack_ok = particles.honesty.cpu_pack_ok;
+            #[cfg(feature = "game_client")]
+            {
+                // The packed frame remains an immutable presentation diagnostic,
+                // while the live WGPU draw consumes the GameClient systems that
+                // `host_tick_game_client_presentation_shell` already advanced.
+                // This queues onto Main's sole frame; it never calls Display::draw.
+                let _ = self.forward_pass.enqueue_client_effect_draw(
+                    view_matrix,
+                    projection_matrix,
+                    camera_position,
+                    time,
+                );
+            }
             let _ = (laser, proj, moves, attacks, floats, anims, particles);
         }
 

@@ -317,6 +317,10 @@ pub struct HostParadropMission {
     pub kind: HostParadropKind,
     pub source_object: ObjectId,
     pub source_team: super::Team,
+    /// Controlling player captured when the power was fired.  Team alone is
+    /// insufficient when multiple allied players share a faction.
+    #[serde(default)]
+    pub source_owner_player_id: Option<u32>,
     pub target_position: Vec3,
     pub activate_frame: u32,
     pub drop_frame: u32,
@@ -336,6 +340,7 @@ pub struct HostParadropDropPlan {
     pub kind: HostParadropKind,
     pub source_object: ObjectId,
     pub source_team: super::Team,
+    pub source_owner_player_id: Option<u32>,
     pub target_position: Vec3,
     pub unit_template: String,
     pub spawn_positions: Vec<Vec3>,
@@ -494,6 +499,32 @@ impl HostParadropRegistry {
         unit_template: impl Into<String>,
         unit_count: u32,
     ) -> u32 {
+        self.queue_with_unit_count_for_owner(
+            kind,
+            source_object,
+            source_team,
+            None,
+            target_position,
+            activate_frame,
+            unit_template,
+            unit_count,
+        )
+    }
+
+    /// Queue with the exact player that initiated the drop.  The legacy
+    /// team-only API remains for authored/snapshot paths that genuinely lack
+    /// a player identity.
+    pub fn queue_with_unit_count_for_owner(
+        &mut self,
+        kind: HostParadropKind,
+        source_object: ObjectId,
+        source_team: super::Team,
+        source_owner_player_id: Option<u32>,
+        target_position: Vec3,
+        activate_frame: u32,
+        unit_template: impl Into<String>,
+        unit_count: u32,
+    ) -> u32 {
         let id = self.next_id;
         self.next_id = self.next_id.saturating_add(1).max(1);
         let drop_frame = activate_frame.saturating_add(kind.drop_delay_frames());
@@ -502,6 +533,7 @@ impl HostParadropRegistry {
             kind,
             source_object,
             source_team,
+            source_owner_player_id,
             target_position,
             activate_frame,
             drop_frame,
@@ -532,6 +564,7 @@ impl HostParadropRegistry {
                 kind: mission.kind,
                 source_object: mission.source_object,
                 source_team: mission.source_team,
+                source_owner_player_id: mission.source_owner_player_id,
                 target_position: mission.target_position,
                 unit_template: mission.unit_template.clone(),
                 spawn_positions,

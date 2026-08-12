@@ -131,20 +131,21 @@ pub fn simulate_shell_skirmish_nav_honesty() -> bool {
 
     #[cfg(feature = "game_client")]
     {
-        use game_client::gui::{get_shell, with_window_manager_ref};
+        use game_client::gui::{with_shell_mut, with_shell_ref, with_window_manager_ref};
 
         // C++ Shell::doPush → layout runInit creates windows into TheWindowManager.
         let wm_count = with_window_manager_ref(|wm| wm.window_count());
         if wm_count == 0 {
-            let mut shell = get_shell();
-            if let Some(top) = shell.top() {
-                if top.run_init(None).is_err() {
-                    return false;
-                }
-            } else {
+            let initialized = with_shell_mut(|shell| {
+                shell
+                    .top()
+                    .map(|top| top.run_init(None).is_ok())
+                    .unwrap_or(false)
+            })
+            .unwrap_or(false);
+            if !initialized {
                 return false;
             }
-            drop(shell);
             let wm_count = with_window_manager_ref(|wm| wm.window_count());
             if wm_count == 0 {
                 return false;
@@ -157,16 +158,14 @@ pub fn simulate_shell_skirmish_nav_honesty() -> bool {
         }
 
         // Stack still holds MainMenu after latch-only residual.
-        let mut shell = get_shell();
-        let top = shell
-            .top()
-            .map(|l| l.get_filename().to_string())
+        let top = with_shell_ref(|shell| shell.top_filename().map(str::to_owned))
+            .flatten()
             .unwrap_or_default();
         let top_l = top.replace('\\', "/").to_ascii_lowercase();
         if !top_l.contains("mainmenu.wnd") {
             return false;
         }
-        if shell.get_screen_count() == 0 {
+        if with_shell_ref(|shell| shell.get_screen_count()).unwrap_or(0) == 0 {
             return false;
         }
         true

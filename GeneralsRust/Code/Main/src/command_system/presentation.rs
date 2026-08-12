@@ -12,7 +12,40 @@ pub struct PresentationTargetHint {
     pub is_enemy_of_local: bool,
     pub is_neutral: bool,
     pub template_name: String,
+    /// C++ normal `ACTIONTYPE_ENTER_OBJECT` capability/capacity result frozen
+    /// from the presentation frame.  It is never inferred from the template
+    /// spelling at physical-input time.
     pub can_be_entered: bool,
+    /// Remaining frozen capacity for normal Enter.  This is passenger slots
+    /// for TransportContain/RailedTransportContain and bodies for garrison or
+    /// tunnel containers; the selected rider is checked against it before
+    /// physical RMB emits the command.
+    #[serde(default)]
+    pub enter_available_capacity: usize,
+    /// Whether `enter_available_capacity` is measured in the selected rider's
+    /// authored TransportSlotCount rather than contained-body count.
+    #[serde(default)]
+    pub enter_uses_transport_slots: bool,
+    /// Frozen `AllowInsideKindOf = INFANTRY` restriction for normal Enter.
+    #[serde(default)]
+    pub enter_requires_infantry: bool,
+    /// Frozen `ForbidInsideKindOf = AIRCRAFT` restriction for normal Enter.
+    #[serde(default)]
+    pub enter_forbids_aircraft: bool,
+    /// C++ `DISABLED_SUBDUED` closes container doors.
+    #[serde(default)]
+    pub enter_disabled_subdued: bool,
+    /// Distinguishes a normal transport (whose allowed-roster slice is empty)
+    /// from a RiderChangeContain whose roster was absent/unsupported.  This
+    /// keeps old serialized frames fail-closed for RiderChange input.
+    #[serde(default)]
+    pub enter_is_rider_change: bool,
+    /// Frozen RiderChange capability: physical RMB may emit Enter only when
+    /// every selected source matches one of these exact authored RiderN
+    /// template identities.  Full rider visual/weapon metadata is not copied
+    /// into input and is revalidated by authority.
+    #[serde(default)]
+    pub rider_change_allowed_templates: Vec<String>,
     /// Wave 235: damaged structure/unit residual for repair/service classification.
     pub is_damaged: bool,
     /// Wave 235: ally of local player (same team).
@@ -23,6 +56,43 @@ pub struct PresentationTargetHint {
     pub provides_aircraft_repair: bool,
     /// Wave 235: heal pad / medical residual.
     pub provides_heal: bool,
+    /// Exact source-authored DockUpdate family frozen from the target.  It is
+    /// not derived from `KindOf`, containment, or template spelling.
+    #[serde(default)]
+    pub dock_kind: crate::game_logic::DockKind,
+    /// Frozen C++ controlling-player equality for SupplyCenter Dock.  This is
+    /// deliberately narrower than `is_friendly_of_local`: allied players may
+    /// use the same faction but cannot deposit into each other's center.
+    /// Ownerless legacy frames set it only through their unambiguous
+    /// faction-wide fallback.
+    #[serde(default)]
+    pub dock_controller_is_local: bool,
+    /// Warehouse remaining cash/boxes represented in host supply units.
+    #[serde(default)]
+    pub stored_supplies: u32,
+    /// Exact C++ `KINDOF_CAPTURABLE` frozen from Object INI metadata.
+    #[serde(default)]
+    pub capturable: bool,
+    /// Exact C++ `KINDOF_IMMUNE_TO_CAPTURE` frozen from Object INI metadata.
+    #[serde(default)]
+    pub immune_to_capture: bool,
+    /// Exact `GarrisonContain` presence; ordinary Enter capacity does not
+    /// imply this capture-specific semantic.
+    #[serde(default)]
+    pub capture_garrisonable: bool,
+    /// Number of target garrison occupants that are not stealthed.  This is
+    /// frozen from the same presentation frame and fails closed on a missing
+    /// contained record.
+    #[serde(default)]
+    pub capture_nonstealthed_garrison_count: u16,
+    /// Number of target occupants allied to the local player, used for C++
+    /// `appearsToContainFriendlies` parity during physical RMB classification.
+    #[serde(default)]
+    pub capture_friendly_garrison_count: u16,
+    /// C++ rejects an undetected pure-stealth target before capture.  A
+    /// disguised target is not represented as true here.
+    #[serde(default)]
+    pub capture_target_effectively_stealthed: bool,
 }
 
 /// Wave 229: presentation-frozen selected-unit capability for RMB classification.
@@ -49,6 +119,25 @@ pub struct PresentationSelectedUnitHint {
     pub is_vehicle: bool,
     pub is_aircraft: bool,
     pub is_infantry: bool,
+    /// C++ Object INI `TransportSlotCount`, frozen for normal Enter.  A
+    /// missing/zero value must not board a capacity-checked transport.
+    #[serde(default)]
+    pub transport_slot_count: usize,
+    /// Carried supply value frozen so SupplyCenter Dock can require a nonempty
+    /// collector without a live authority read during physical RMB handling.
+    #[serde(default)]
+    pub stored_supplies: u32,
+    /// Exact local-player control frozen with the selected object.  A physical
+    /// RMB context must never turn a foreign/allied object into a SupplyCenter
+    /// depositor merely because the faction tint is friendly.
+    #[serde(default)]
+    pub is_controlled_by_local: bool,
+    /// Exact Object INI SpecialAbility capture module (not a unit name).
+    #[serde(default)]
+    pub capture_power: crate::game_logic::CapturePowerKind,
+    /// Frozen `SpecialPowerModule::isReady` for that exact capture module.
+    #[serde(default)]
+    pub capture_power_ready: bool,
 }
 
 /// Information needed for command creation from mouse input

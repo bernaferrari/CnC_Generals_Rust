@@ -111,6 +111,7 @@ impl GameLogic {
         &mut self,
         mission_id: u32,
         team: Team,
+        owner_player_id: Option<u32>,
         position: Vec3,
     ) -> Option<ObjectId> {
         use crate::game_logic::host_sneak_attack::SNEAK_ATTACK_TUNNEL_START_TEMPLATE;
@@ -128,7 +129,12 @@ impl GameLogic {
             self.templates
                 .insert(SNEAK_ATTACK_TUNNEL_START_TEMPLATE.to_string(), t);
         }
-        let sid = self.create_object(SNEAK_ATTACK_TUNNEL_START_TEMPLATE, team, position)?;
+        let sid = self.create_object_for_owner_or_team(
+            SNEAK_ATTACK_TUNNEL_START_TEMPLATE,
+            team,
+            owner_player_id,
+            position,
+        )?;
         if let Some(o) = self.objects.get_mut(&sid) {
             o.sneak_tunnel_start = true;
         }
@@ -985,7 +991,19 @@ impl GameLogic {
             self.templates
                 .insert(SPY_SATELLITE_PING_TEMPLATE.to_string(), t);
         }
-        let pid = self.create_object(SPY_SATELLITE_PING_TEMPLATE, team, position)?;
+        let owner_player_id = match caster_id.and_then(|caster| self.objects.get(&caster)) {
+            Some(caster) if caster.owner_player_id.is_some() => {
+                Some(self.player_owner_for_host_object(caster)?)
+            }
+            Some(_) => None,
+            None => None,
+        };
+        let pid = self.create_object_for_owner_or_team(
+            SPY_SATELLITE_PING_TEMPLATE,
+            team,
+            owner_player_id,
+            position,
+        )?;
         if let Some(o) = self.objects.get_mut(&pid) {
             o.spy_satellite_ping = true;
             o.producer_id = caster_id;
@@ -1723,10 +1741,11 @@ impl GameLogic {
                 unit.set_status_moving(false);
             }
             // GoAggressiveOnExit residual: attack designated target.
-            self.apply_engagement_decision_aware(occ_id, target_id);
-            if let Some(unit) = self.objects.get_mut(&occ_id) {
-                if unit.target != Some(target_id) {
-                    unit.target = Some(target_id);
+            if self.apply_engagement_decision_aware(occ_id, target_id) {
+                // The helper has already stored the legal target and attack
+                // state.  Do not re-stamp it here: that used to bypass the
+                // C++ WeaponSet gate for an incompatible assault passenger.
+                if let Some(unit) = self.objects.get_mut(&occ_id) {
                     unit.set_status_attacking(true);
                 }
             }

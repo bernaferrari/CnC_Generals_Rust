@@ -95,7 +95,8 @@ impl GameLogic {
                 if obj.team != team
                     || !obj.is_alive()
                     || !obj.is_constructed()
-                    || !obj.is_kind_of(KindOf::SupplyCenter)
+                    || (obj.thing.template.dock_kind != crate::game_logic::DockKind::SupplyCenter
+                        && !obj.is_kind_of(KindOf::SupplyCenter))
                 {
                     return None;
                 }
@@ -124,6 +125,38 @@ impl GameLogic {
             |_| true,
         )
         .map(|(id, _, _)| id)
+    }
+
+    /// C++ `SupplyTruckAIUpdate::m_preferredDock` overrides the ordinary
+    /// ResourceManager center search after `AIPlayer::queueSupplyTruck` issues
+    /// a `CMD_FROM_PLAYER` dock order.  Keep that preference only while it is
+    /// still a live, constructed friendly SupplyCenter; a destroyed or
+    /// repurposed dock falls back to the normal closest-center behavior.
+    pub(in super::super) fn preferred_supply_center_or_nearest(
+        &self,
+        collector_id: ObjectId,
+        team: Team,
+        from_position: Vec3,
+    ) -> Option<ObjectId> {
+        let preferred = self
+            .objects
+            .get(&collector_id)
+            .and_then(|collector| collector.preferred_dock_id);
+        if let Some(center_id) = preferred {
+            let valid_preferred_center = self.objects.get(&center_id).is_some_and(|center| {
+                center.team == team
+                    && center.is_alive()
+                    && center.is_constructed()
+                    && (center.thing.template.dock_kind
+                        == crate::game_logic::DockKind::SupplyCenter
+                        || center.is_kind_of(KindOf::SupplyCenter))
+            });
+            if valid_preferred_center {
+                return Some(center_id);
+            }
+        }
+
+        self.find_nearest_supply_center(team, from_position)
     }
 
     /// Wave 958: legacy alias — prefer [`Self::host_objects`].
@@ -157,6 +190,420 @@ impl GameLogic {
     /// Get mutable players (for snapshot restoration)
     pub fn get_players_mut(&mut self) -> &mut HashMap<u32, Player> {
         &mut self.players
+    }
+
+    /// Transfer an object to an exact active player. The player's faction is
+    /// copied only for template/art identity; command authority follows the
+    /// persistent `owner_player_id`.
+    pub fn transfer_object_to_player(&mut self, object_id: ObjectId, player_id: u32) -> bool {
+        let Some(team) = self
+            .players
+            .get(&player_id)
+            .filter(|player| player.is_alive && player.team != Team::Neutral)
+            .map(|player| player.team)
+        else {
+            return false;
+        };
+        let Some(object) = self.objects.get_mut(&object_id) else {
+            return false;
+        };
+        object.set_team_and_owner(team, Some(player_id));
+        true
+    }
+
+    /// C++ `Player::getRelationship` foundation for host objects. Faction is
+    /// intentionally absent from this calculation: two USA slots can be
+    /// enemies, while differently skinned allies can share an alliance team.
+    pub fn player_relationship(
+        &self,
+        source_player_id: u32,
+        target_player_id: u32,
+    ) -> gamelogic::common::Relationship {
+        use gamelogic::common::Relationship;
+
+        let Some(source) = self.players.get(&source_player_id) else {
+            return Relationship::Neutral;
+        };
+        let Some(target) = self.players.get(&target_player_id) else {
+            return Relationship::Neutral;
+        };
+        if source_player_id == target_player_id {
+            return Relationship::Allies;
+        }
+        // Inactive/map-placeholder slots are not combat enemies.
+        if !source.is_alive || !target.is_alive {
+            return Relationship::Neutral;
+        }
+        if source.alliance_team >= 0 && source.alliance_team == target.alliance_team {
+            Relationship::Allies
+        } else {
+            Relationship::Enemies
+        }
+    }
+
+    /// Relationship inferred from persistent object ownership. Any unowned
+    /// object is neutral rather than being assigned to a player by faction.
+    pub fn object_relationship(
+        &self,
+        source: &Object,
+        target: &Object,
+    ) -> gamelogic::common::Relationship {
+        use gamelogic::common::Relationship;
+
+        match (source.owner_player_id, target.owner_player_id) {
+            (Some(source_player_id), Some(target_player_id)) => {
+                self.player_relationship(source_player_id, target_player_id)
+            }
+            _ => Relationship::Neutral,
+        }
+    }
+
+    /// C++ `ActionManager::canGetRepairedAt` / `canGetHealedAt` service
+    /// relationship gate.  A repair bay or heal pad is usable only by
+    /// `ALLIES`; faction equality is not ownership when two human slots chose
+    /// the same faction.
+    ///
+    /// Live object ownership is authoritative and must resolve to an active
+    /// player with the object's recorded faction.  The narrow compatibility
+    /// fallback exists only for a wholly ownerless legacy/synthetic world,
+    /// only for one unambiguous non-neutral faction (or a world with no
+    /// player roster at all).  A mixed or ambiguous record is deliberately
+    /// not upgraded into an alliance by its `Team` value.
+    #[inline]
+    pub fn service_relationship_is_allies(&self, source_id: ObjectId, target_id: ObjectId) -> bool {
+        use gamelogic::common::Relationship;
+
+        if source_id == target_id {
+            return false;
+        }
+        let Some(source) = self.host_object(source_id) else {
+            return false;
+        };
+        let Some(target) = self.host_object(target_id) else {
+            return false;
+        };
+
+        match (source.owner_player_id, target.owner_player_id) {
+            (Some(source_player_id), Some(target_player_id))
+                if self.player_owner_for_host_object(source) == Some(source_player_id)
+                    && self.player_owner_for_host_object(target) == Some(target_player_id) =>
+            {
+                self.player_relationship(source_player_id, target_player_id) == Relationship::Allies
+            }
+            (None, None) if self.uses_legacy_team_ownership_fallback() => {
+                source.team != Team::Neutral
+                    && source.team == target.team
+                    && (self.players.is_empty()
+                        || self.unique_player_id_for_team(source.team).is_some())
+            }
+            _ => false,
+        }
+    }
+
+    /// C++ `ActionManager::canRepairObject` relationship gate.  Manual dozer
+    /// repair is wider than service-dock use: it rejects enemies, while an
+    /// ownerless neutral civilian structure remains a legal repair target.
+    /// Exact player provenance still takes precedence over faction identity.
+    #[inline]
+    pub fn repair_relationship_is_not_enemy(
+        &self,
+        source_id: ObjectId,
+        target_id: ObjectId,
+    ) -> bool {
+        use gamelogic::common::Relationship;
+
+        if source_id == target_id {
+            return false;
+        }
+        let Some(source) = self.host_object(source_id) else {
+            return false;
+        };
+        let Some(target) = self.host_object(target_id) else {
+            return false;
+        };
+
+        match (source.owner_player_id, target.owner_player_id) {
+            (Some(source_player_id), Some(target_player_id))
+                if self.player_owner_for_host_object(source) == Some(source_player_id)
+                    && self.player_owner_for_host_object(target) == Some(target_player_id) =>
+            {
+                self.player_relationship(source_player_id, target_player_id)
+                    != Relationship::Enemies
+            }
+            // C++ explicitly allows a dozer to repair neutral civilian
+            // buildings. A real player-owned source facing an ownerless
+            // neutral map target is therefore a proven neutral relationship,
+            // not an ambiguous faction fallback.
+            (Some(source_player_id), None)
+                if self.player_owner_for_host_object(source) == Some(source_player_id)
+                    && target.team == Team::Neutral =>
+            {
+                true
+            }
+            (None, None) if self.uses_legacy_team_ownership_fallback() => {
+                target.team == Team::Neutral
+                    || (source.team != Team::Neutral
+                        && source.team == target.team
+                        && (self.players.is_empty()
+                            || self.unique_player_id_for_team(source.team).is_some()))
+            }
+            _ => false,
+        }
+    }
+
+    /// Resolve the normal-Enter controlling-player check without ever treating
+    /// a faction as a player.  Explicit owners must match exactly.  The old
+    /// team fallback is retained only when *both* objects are genuinely
+    /// ownerless and that faction identifies one live player; a half-proven
+    /// or ambiguous same-faction pair fails closed.
+    #[inline]
+    pub fn normal_enter_controller_matches(&self, source: &Object, target: &Object) -> bool {
+        match (source.owner_player_id, target.owner_player_id) {
+            (Some(source_player_id), Some(target_player_id)) => {
+                self.player_owner_for_host_object(source) == Some(source_player_id)
+                    && self.player_owner_for_host_object(target) == Some(target_player_id)
+                    && source_player_id == target_player_id
+            }
+            (None, None) if source.team == target.team => {
+                self.unique_player_id_for_team(source.team).is_some()
+            }
+            _ => false,
+        }
+    }
+
+    /// C++ `OpenContain` relationship for normal Enter.  Ownership provenance
+    /// is authoritative.  Team behavior survives solely for an unambiguous
+    /// pair of ownerless legacy objects.  A one-sided/stale owner stays
+    /// Neutral instead of inheriting a same-faction relationship.
+    #[inline]
+    pub fn normal_enter_relationship(
+        &self,
+        source: &Object,
+        target: &Object,
+    ) -> gamelogic::common::Relationship {
+        use gamelogic::common::Relationship;
+
+        match (source.owner_player_id, target.owner_player_id) {
+            (Some(source_player_id), Some(target_player_id))
+                if self.player_owner_for_host_object(source) == Some(source_player_id)
+                    && self.player_owner_for_host_object(target) == Some(target_player_id) =>
+            {
+                self.player_relationship(source_player_id, target_player_id)
+            }
+            (None, None)
+                if self.unique_player_id_for_team(source.team).is_some()
+                    && self.unique_player_id_for_team(target.team).is_some() =>
+            {
+                if source.team == target.team {
+                    Relationship::Allies
+                } else if source.team == Team::Neutral || target.team == Team::Neutral {
+                    Relationship::Neutral
+                } else {
+                    Relationship::Enemies
+                }
+            }
+            _ => Relationship::Neutral,
+        }
+    }
+
+    /// Remaining normal-Enter capacity before adding `unit_id`.
+    ///
+    /// `TransportContain`/`RailedTransportContain` consume each rider's
+    /// authored `TransportSlotCount`; garrisons and the shared tunnel network
+    /// intentionally remain body-count containers.  A missing contained
+    /// object or missing slot metadata is not silently treated as one slot.
+    pub fn normal_enter_available_capacity_for(
+        &self,
+        unit_id: ObjectId,
+        target_id: ObjectId,
+    ) -> Option<usize> {
+        if unit_id == target_id {
+            return None;
+        }
+        let unit = self.host_object(unit_id)?;
+        let target = self.host_object(target_id)?;
+        if !target.can_contain() || !target.supports_normal_enter() {
+            return None;
+        }
+
+        if target.contained_units().contains(&unit_id) {
+            // Retain the historical idempotent Enter behavior.  The caller
+            // will not try to add the rider a second time.
+            return Some(usize::MAX);
+        }
+
+        // RiderChangeContain deliberately does not price a replacement
+        // against its occupied TransportContain slot.  C++ validates the
+        // authored RiderN equivalence with CHECK_CAPACITY=false, ejects the
+        // old rider, then boards the new one in one transaction.
+        if target.supports_authored_rider_change_normal_enter() {
+            return target
+                .authored_rider_change_rider_for_template(&unit.template_name)
+                .map(|_| usize::MAX)
+                .or(Some(0));
+        }
+
+        if target.is_tunnel_network_style_container() {
+            let team = unit.team;
+            return Some(
+                if self.tunnel_network.is_in_network(team, unit_id)
+                    || self.tunnel_network.has_capacity(team)
+                {
+                    1
+                } else {
+                    0
+                },
+            );
+        }
+
+        if target.normal_enter_uses_transport_slots() {
+            let capacity = target.transport_capacity();
+            if capacity == 0 {
+                return None;
+            }
+            let mut slots_in_use = 0usize;
+            for occupant_id in target.contained_units() {
+                let occupant = self.host_object(occupant_id)?;
+                let slots = occupant.transport_slot_count();
+                if slots == 0 {
+                    return None;
+                }
+                slots_in_use = slots_in_use.checked_add(slots)?;
+            }
+            return capacity.checked_sub(slots_in_use);
+        }
+
+        // GarrisonContain (including Overlord's retained bunker role) uses
+        // body count, not passenger slot cost.
+        let capacity = target
+            .garrison_capacity()
+            .max(target.overlord_bunker_slot_capacity());
+        (capacity > 0)
+            .then(|| capacity.checked_sub(target.contained_units().len()))
+            .flatten()
+    }
+
+    /// Authoritative C++ `ActionManager::canEnterObject(..., CHECK_CAPACITY)`
+    /// subset used by normal player Enter.  Pilot recrew is intentionally
+    /// handled by the specialized executor path before this generic container
+    /// check.  Dock uses a different command path entirely.
+    pub fn can_unit_enter_normal_target(&self, unit_id: ObjectId, target_id: ObjectId) -> bool {
+        if unit_id == target_id {
+            return false;
+        }
+        let Some(unit) = self.host_object(unit_id) else {
+            return false;
+        };
+        let Some(target) = self.host_object(target_id) else {
+            return false;
+        };
+
+        if !unit.is_alive()
+            || !target.is_alive()
+            || unit.status.under_construction
+            || target.status.under_construction
+            || unit.status.sold
+            || target.status.sold
+            || target.is_subdued_disabled()
+            || unit.is_kind_of(KindOf::IgnoredInGui)
+            || target.is_kind_of(KindOf::IgnoredInGui)
+            || unit.is_kind_of(KindOf::Structure)
+            || unit.is_kind_of(KindOf::Immobile)
+            || unit.transport_slot_count() == 0
+            || !target.can_contain()
+            || !target.supports_normal_enter()
+        {
+            return false;
+        }
+
+        let unit_in_tunnel = self.tunnel_network.team_holding_unit(unit_id).is_some();
+        if !unit.can_move() && !unit_in_tunnel {
+            return false;
+        }
+
+        let relationship = self.normal_enter_relationship(unit, target);
+        if !target.allows_normal_enter_for_relationship(relationship) {
+            return false;
+        }
+        let same_controller = self.normal_enter_controller_matches(unit, target);
+        if target.normal_enter_requires_exact_controller() && !same_controller {
+            return false;
+        }
+
+        if target.is_tunnel_network_style_container() {
+            if unit.is_kind_of(KindOf::Aircraft)
+                || (target.team != unit.team && target.team != Team::Neutral)
+            {
+                return false;
+            }
+        } else {
+            match target.normal_enter_admission() {
+                crate::game_logic::ContainAdmission::AnyMobile => {}
+                crate::game_logic::ContainAdmission::InfantryOnly => {
+                    if !unit.is_kind_of(KindOf::Infantry) && !unit.is_hero() {
+                        return false;
+                    }
+                }
+                crate::game_logic::ContainAdmission::InfantryOrVehicle => {
+                    if unit.is_kind_of(KindOf::Aircraft) {
+                        return false;
+                    }
+                }
+                crate::game_logic::ContainAdmission::Unsupported => return false,
+            }
+
+            // C++ lets a non-owner Enter an empty civilian/non-faction
+            // garrison, but not an occupied target or a faction structure.
+            // Use exact controllers here: same-faction skirmish slots are not
+            // implicitly the same owner.
+            if !same_controller
+                && (target.is_faction_structure() || !target.contained_units().is_empty())
+            {
+                return false;
+            }
+
+            // Repeat the exact parsed roster lookup in authority even when
+            // presentation already filtered it.  Do not turn a Combat Cycle
+            // template-name residual into a rider admission heuristic.
+            if target.supports_authored_rider_change_normal_enter()
+                && target
+                    .authored_rider_change_rider_for_template(&unit.template_name)
+                    .is_none()
+            {
+                return false;
+            }
+        }
+
+        let Some(available) = self.normal_enter_available_capacity_for(unit_id, target_id) else {
+            return false;
+        };
+        if available == usize::MAX {
+            return true;
+        }
+        if target.normal_enter_uses_transport_slots() {
+            available >= unit.transport_slot_count()
+        } else {
+            available > 0
+        }
+    }
+
+    /// Whether both objects have exact player provenance. Only this condition
+    /// may override a legacy faction relationship: a player-owned object facing
+    /// a neutral/map object must retain its existing neutral handling.
+    #[inline]
+    pub fn has_object_ownership_provenance(&self, source: &Object, target: &Object) -> bool {
+        source.owner_player_id.is_some() && target.owner_player_id.is_some()
+    }
+
+    /// Whether this host world is an old, wholly ownerless snapshot.  Faction
+    /// may stand in for a controlling player only in this compatibility case;
+    /// a mixed owner-aware world must never turn two same-faction slots into
+    /// the same controller.
+    #[inline]
+    pub fn uses_legacy_team_ownership_fallback(&self) -> bool {
+        self.objects
+            .values()
+            .all(|object| object.owner_player_id.is_none())
     }
 
     /// Get current frame number
@@ -391,6 +838,22 @@ impl GameLogic {
         } else {
             None
         }
+    }
+
+    /// Exact constructor provenance for player-issued construction. Returning
+    /// both values preserves the faction data the template path needs while
+    /// keeping billing and ownership with the actual player slot.
+    #[inline]
+    pub fn unit_owner_if_can_construct(&self, id: ObjectId) -> Option<(u32, Team)> {
+        let obj = self.objects.get(&id)?;
+        let player_id = obj.owner_player_id?;
+        if !obj.can_construct() {
+            return None;
+        }
+        self.players
+            .get(&player_id)
+            .filter(|player| player.is_alive && player.team == obj.team)
+            .map(|player| (player.id, player.team))
     }
 
     /// Get mutable player by ID
@@ -629,6 +1092,109 @@ impl GameLogic {
             .any(|upgrade| player.has_unlocked_upgrade(upgrade))
     }
 
+    /// C++ `ActionManager::canCaptureBuilding` authority slice.
+    ///
+    /// This is intentionally shared by physical RMB classification, command
+    /// execution, and the in-progress capture state.  It retains the exact
+    /// Object INI semantic inputs (SpecialPower, CAPTURABLE,
+    /// IMMUNE_TO_CAPTURE, GarrisonContain) rather than deriving permission
+    /// from Infantry/Hero/template spelling.
+    pub fn can_unit_capture_building(
+        &self,
+        source_id: ObjectId,
+        target_id: ObjectId,
+        require_power_ready: bool,
+    ) -> bool {
+        use gamelogic::common::Relationship;
+
+        if source_id == target_id {
+            return false;
+        }
+        let Some(source) = self.objects.get(&source_id) else {
+            return false;
+        };
+        let Some(target) = self.objects.get(&target_id) else {
+            return false;
+        };
+
+        let Some(power) = source.thing.template.capture_power.special_power_type() else {
+            return false;
+        };
+        if !source.is_alive()
+            || !source.can_move()
+            || !target.is_alive()
+            || !target.is_kind_of(KindOf::Structure)
+            || target.status.under_construction
+            || target.status.sold
+            || target.thing.template.immune_to_capture
+            // C++ ActionManager rejects a pure-stealth target before the
+            // relationship/capturable tests.  A disguise is intentionally
+            // not pure stealth for this purpose.
+            || (target.status.stealthed && !target.status.detected && !target.status.disguised)
+        {
+            return false;
+        }
+        if require_power_ready && !self.is_special_power_ready_for(source_id, &power) {
+            return false;
+        }
+
+        // Player ownership is authoritative whenever both objects have it.
+        // Map/unowned objects keep the old faction/Neutral fallback rather
+        // than being fabricated into a player relation.
+        let relation = if self.has_object_ownership_provenance(source, target) {
+            self.object_relationship(source, target)
+        } else if source.team == target.team {
+            Relationship::Allies
+        } else if source.team == Team::Neutral || target.team == Team::Neutral {
+            Relationship::Neutral
+        } else {
+            Relationship::Enemies
+        };
+        if !(relation == Relationship::Enemies
+            || (target.thing.template.capturable && relation != Relationship::Allies))
+        {
+            return false;
+        }
+
+        // C++ rejects a garrisonable target containing any non-stealthed
+        // occupant, and *separately* rejects an apparent friendly occupant.
+        // The latter is not conditional on a GarrisonContain module, so do
+        // not accidentally authorize a structure whose runtime occupant list
+        // still contains a friendly child. Missing objects are conservatively
+        // rejected so stale links cannot make a defended building capturable.
+        let target_is_garrisonable = target.thing.template.garrison_contain_max.is_some();
+        for contained_id in target.contained_units() {
+            let Some(contained) = self.objects.get(&contained_id) else {
+                return false;
+            };
+            if target_is_garrisonable && !contained.status.stealthed {
+                return false;
+            }
+            let contained_relation = if self.has_object_ownership_provenance(source, contained) {
+                self.object_relationship(source, contained)
+            } else if source.team == contained.team {
+                Relationship::Allies
+            } else if source.team == Team::Neutral || contained.team == Team::Neutral {
+                Relationship::Neutral
+            } else {
+                Relationship::Enemies
+            };
+            if contained_relation == Relationship::Allies {
+                return false;
+            }
+        }
+        true
+    }
+
+    /// Exact Object INI capture range for an already-issued capture order.
+    /// A missing `SpecialAbilityUpdate` fails closed rather than silently
+    /// granting the old generic infantry/hero radius.
+    pub fn unit_capture_start_ability_range(&self, object_id: ObjectId) -> Option<f32> {
+        self.objects
+            .get(&object_id)
+            .and_then(|obj| obj.thing.template.capture_start_ability_range)
+    }
+
     pub fn local_player_id(&self) -> Option<u32> {
         self.players
             .values()
@@ -747,16 +1313,41 @@ impl GameLogic {
                 }
                 self.upgrade_module_residuals.record_locomotor_set(upgrade);
             }
-            // C++ UnpauseSpecialPowerUpgrade residual.
-            if let Some(power) =
+            // C++ UnpauseSpecialPowerUpgrade residual.  Capture uses its
+            // exact module-local `TriggeredBy` field; do not turn an upgrade
+            // spelling that merely contains "capture" into an ability on a
+            // Ranger/RedGuard/Rebel-named object.
+            let capture_unpause = obj
+                .thing
+                .template
+                .capture_power
+                .special_power_type()
+                .filter(|_| {
+                    obj.thing
+                        .template
+                        .capture_upgrade_trigger
+                        .as_deref()
+                        .is_some_and(|trigger| trigger.trim().eq_ignore_ascii_case(upgrade.trim()))
+                });
+            if let Some(power) = capture_unpause {
+                obj.pause_special_power_countdown(&power, false);
+                self.upgrade_module_residuals.record_unpause(upgrade);
+            } else if let Some(power) =
                 crate::game_logic::host_upgrade_module_residuals::unpause_power_for_upgrade(upgrade)
             {
-                for p in
-                    crate::game_logic::host_upgrade_module_residuals::unpause_power_family(power)
+                // Capture-family values are handled only above by exact INI
+                // metadata.  The remaining non-capture residual remains
+                // compatible with its existing module peel.
+                if crate::game_logic::CapturePowerKind::from_special_power_type(&power)
+                    == crate::game_logic::CapturePowerKind::None
                 {
-                    obj.pause_special_power_countdown(&p, false);
+                    for p in crate::game_logic::host_upgrade_module_residuals::unpause_power_family(
+                        power,
+                    ) {
+                        obj.pause_special_power_countdown(&p, false);
+                    }
+                    self.upgrade_module_residuals.record_unpause(upgrade);
                 }
-                self.upgrade_module_residuals.record_unpause(upgrade);
             }
             // C++ CommandSetUpgrade residual.
             if let Some(cs) =

@@ -12,9 +12,18 @@ impl GameWorldShadow {
         frame: u32,
         snaps: &StatusTimerSnapshots,
     ) -> bool {
+        // The entity is mutably borrowed for the whole timer pass, so capture
+        // the reverse player map before borrowing it.  Event consumers need
+        // the exact host owner, not merely the faction ordinal.
+        let host_player_to_gw = self.host_player_to_gw.clone();
         let Some(e) = self.world.world_mut().entity_mut(eid) else {
             return false;
         };
+        let owner_player_id = e.owner.and_then(|owner| {
+            host_player_to_gw.iter().find_map(|(&host_player_id, &gw_player_id)| {
+                (gw_player_id == owner).then_some(host_player_id)
+            })
+        });
         let mut changed = false;
         let fire_spread_candidates = &snaps.fire_spread_candidates;
         // Wave 815: ACTIVELY_CONSTRUCTING model condition residual.
@@ -216,6 +225,7 @@ impl GameWorldShadow {
                                     id: crate::game_logic::ObjectId(hid),
                                     kind: crate::game_logic::host_auto_deposit_log::AutoDepositKind::BlackMarket,
                                     team: Self::entity_team_from_ordinal(e.team_ordinal),
+                                    owner_player_id,
                                     pos: glam::Vec3::new(pos.x, pos.y, pos.z),
                                     amount: BLACK_MARKET_DEPOSIT_AMOUNT,
                                     next_deposit_frame: e.black_market_next_deposit_frame,
@@ -254,6 +264,7 @@ impl GameWorldShadow {
                                     id: crate::game_logic::ObjectId(hid),
                                     kind: crate::game_logic::host_auto_deposit_log::AutoDepositKind::OilDerrick,
                                     team: Self::entity_team_from_ordinal(e.team_ordinal),
+                                    owner_player_id,
                                     pos: glam::Vec3::new(pos.x, pos.y, pos.z),
                                     amount,
                                     next_deposit_frame: e.oil_derrick_next_deposit_frame,
@@ -297,6 +308,7 @@ impl GameWorldShadow {
                             crate::game_logic::host_hacker_income_log::HackerIncomeEvent {
                                 id: crate::game_logic::ObjectId(hid),
                                 team: Self::entity_team_from_ordinal(e.team_ordinal),
+                                owner_player_id,
                                 pos: glam::Vec3::new(pos.x, pos.y, pos.z),
                                 amount,
                                 next_deposit_frame: e.hacker_next_deposit_frame,

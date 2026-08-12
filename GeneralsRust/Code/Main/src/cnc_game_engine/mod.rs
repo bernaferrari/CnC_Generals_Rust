@@ -103,6 +103,10 @@ mod host;
 mod host_authority;
 mod hotkeys;
 mod input;
+#[cfg(feature = "game_client")]
+mod minimap_bridge;
+#[cfg(feature = "game_client")]
+mod quit_menu_bridge;
 mod mouse;
 mod run_loop;
 mod runtime;
@@ -172,6 +176,8 @@ pub const ENGINE_SRC: &str = concat!(
     include_str!("hotkeys.rs"),
     include_str!("input.rs"),
     include_str!("mouse.rs"),
+    include_str!("minimap_bridge.rs"),
+    include_str!("quit_menu_bridge.rs"),
     include_str!("run_loop.rs"),
     include_str!("runtime.rs"),
     include_str!("selection.rs"),

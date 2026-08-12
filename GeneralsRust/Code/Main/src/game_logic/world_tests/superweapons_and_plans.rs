@@ -3441,18 +3441,11 @@ fn can_make_hero_maxed_out_at_one_residual() {
 
 #[test]
 fn can_make_aircraft_blocked_when_airfield_parking_full() {
-    use crate::game_logic::buildings::BuildingType;
-    use crate::game_logic::host_dock_contain_exit_heal_residual::{
-        airfield_parking_place_capacity, PARKING_PLACE_AIRFIELD_NUM_COLS,
-        PARKING_PLACE_AIRFIELD_NUM_ROWS,
-    };
+    use crate::game_logic::buildings::{BuildingType, DEFAULT_PRODUCTION_QUEUE_LIMIT};
     use crate::game_logic::host_production_buildable_command_residual::{
         CANMAKE_OK, CANMAKE_PARKING_PLACES_FULL,
     };
-    use crate::game_logic::{KindOf, Team, ThingTemplate};
-    assert_eq!(airfield_parking_place_capacity(), 4);
-    assert_eq!(PARKING_PLACE_AIRFIELD_NUM_ROWS, 2);
-    assert_eq!(PARKING_PLACE_AIRFIELD_NUM_COLS, 2);
+    use crate::game_logic::{KindOf, ParkingPlaceMetadata, Team, ThingTemplate};
 
     let mut logic = GameLogic::new();
     ensure_test_player_for_team(&mut logic, Team::USA);
@@ -3460,6 +3453,15 @@ fn can_make_aircraft_blocked_when_airfield_parking_full() {
     af_t.add_kind_of(KindOf::Structure)
         .add_kind_of(KindOf::FSAirfield)
         .set_health(2000.0);
+    af_t.parking_place = Some(ParkingPlaceMetadata {
+        num_rows: 2,
+        num_cols: 2,
+        approach_height: 50.0,
+        landing_deck_height_offset: 0.0,
+        has_runways: true,
+        park_in_hangars: true,
+        heal_amount_per_second: 10.0,
+    });
     logic.templates.insert("TestAirfield".into(), af_t);
     let mut jet_t = ThingTemplate::new("TestRaptor");
     jet_t
@@ -3477,7 +3479,9 @@ fn can_make_aircraft_blocked_when_airfield_parking_full() {
     }
     assert_eq!(logic.can_make_unit(af, "TestRaptor"), CANMAKE_OK);
 
-    // Fill 4 hangar slots with docked jets residual.
+    // Fill the authored four `ParkingPlaceBehavior::m_spaces` entries.  A
+    // building garrison is unrelated containment state and must not affect
+    // airfield capacity.
     for i in 0..4 {
         let j = logic
             .create_object(
@@ -3490,11 +3494,7 @@ fn can_make_aircraft_blocked_when_airfield_parking_full() {
             jet.set_contained_by(Some(af));
             jet.set_ai_state(AIState::Docked);
             jet.producer_id = Some(af);
-        }
-        if let Some(a) = logic.host_object_mut(af) {
-            if let Some(b) = a.building_data.as_mut() {
-                b.garrisoned_units.push(j);
-            }
+            jet.airfield_parking_space_index = Some(i);
         }
     }
     assert_eq!(logic.airfield_parking_occupied_or_queued(af), 4);
@@ -3503,6 +3503,46 @@ fn can_make_aircraft_blocked_when_airfield_parking_full() {
         CANMAKE_PARKING_PLACES_FULL
     );
     assert!(!logic.enqueue_production(af, "TestRaptor".into()));
+
+    // C++ `ProductionUpdate::canQueueCreateUnit` tests ParkingPlaceBehavior
+    // before the generic queue-limit branch.  A 3×3 authored airfield can
+    // naturally hold nine queued aircraft, so the tenth request reaches both
+    // limits and must still report parking full.
+    let mut queue_only_airfield = ThingTemplate::new("TestQueuePriorityAirfield");
+    queue_only_airfield
+        .add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::FSAirfield)
+        .set_health(2000.0);
+    queue_only_airfield.parking_place = Some(ParkingPlaceMetadata {
+        num_rows: 3,
+        num_cols: 3,
+        approach_height: 50.0,
+        landing_deck_height_offset: 0.0,
+        has_runways: true,
+        park_in_hangars: true,
+        heal_amount_per_second: 10.0,
+    });
+    logic
+        .templates
+        .insert("TestQueuePriorityAirfield".into(), queue_only_airfield);
+    let queued_airfield = logic
+        .create_object(
+            "TestQueuePriorityAirfield",
+            Team::USA,
+            glam::Vec3::new(200.0, 0.0, 0.0),
+        )
+        .expect("queue-priority airfield");
+    if let Some(object) = logic.host_object_mut(queued_airfield) {
+        object.building_data = Some(crate::game_logic::BuildingData::new(BuildingType::Airfield));
+    }
+    for _ in 0..DEFAULT_PRODUCTION_QUEUE_LIMIT {
+        assert!(logic.enqueue_production(queued_airfield, "TestRaptor".into()));
+    }
+    assert_eq!(
+        logic.can_make_unit(queued_airfield, "TestRaptor"),
+        CANMAKE_PARKING_PLACES_FULL,
+        "ParkingPlaceBehavior must win over the generic queue-full status"
+    );
 }
 
 #[test]

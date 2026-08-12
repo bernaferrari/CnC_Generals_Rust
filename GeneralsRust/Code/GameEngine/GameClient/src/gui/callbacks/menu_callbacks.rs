@@ -12,9 +12,10 @@ use crate::gui::gadgets::ListBoxItemData;
 use crate::gui::header_template::get_header_template_manager;
 use crate::gui::shell::main_menu::{get_main_menu, DisplaySettings};
 use crate::gui::{
-    get_shell, show_shell_map_if_available, try_with_shell_mut, with_window_manager,
-    write_input_focus_response, AnimationType, GameWindow, WindowLayout, WindowMessage,
-    WindowMsgData, WindowMsgHandled, WindowWidget, GLM_DOUBLE_CLICKED,
+    queue_shell_operation, queue_shell_pop, queue_shell_push, queue_shell_reverse_animate_window,
+    queue_shell_shutdown_complete, queue_shell_window_animation, show_shell_map_if_available,
+    try_with_shell_mut, with_window_manager, write_input_focus_response, AnimationType, GameWindow,
+    WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled, WindowWidget, GLM_DOUBLE_CLICKED,
 };
 use crate::helpers::TheInGameUI;
 use crate::map_util::{get_map_cache_manager, populate_map_listbox};
@@ -205,7 +206,7 @@ impl SinglePlayerMenu {
         layout.hide(true);
         self.initialized = false;
         self.parent = None;
-        let _ = try_with_shell_mut(|shell| shell.shutdown_complete(None, false));
+        queue_shell_shutdown_complete(false);
     }
 }
 
@@ -244,34 +245,13 @@ impl MenuCallbacks for SinglePlayerMenu {
                 let _ = manager.set_focus(Some(parent));
             }
             if let Some(button_new) = manager.get_window_by_id(self.button_new_id) {
-                let _ = try_with_shell_mut(|shell| {
-                    shell.register_with_animate_manager(
-                        button_new,
-                        AnimationType::SlideLeft,
-                        true,
-                        1,
-                    )
-                });
+                queue_shell_window_animation(button_new, AnimationType::SlideLeft, true, 1);
             }
             if let Some(button_load) = manager.get_window_by_id(self.button_load_id) {
-                let _ = try_with_shell_mut(|shell| {
-                    shell.register_with_animate_manager(
-                        button_load,
-                        AnimationType::SlideLeft,
-                        true,
-                        200,
-                    )
-                });
+                queue_shell_window_animation(button_load, AnimationType::SlideLeft, true, 200);
             }
             if let Some(button_back) = manager.get_window_by_id(self.button_back_id) {
-                let _ = try_with_shell_mut(|shell| {
-                    shell.register_with_animate_manager(
-                        button_back,
-                        AnimationType::SlideRight,
-                        true,
-                        1,
-                    )
-                });
+                queue_shell_window_animation(button_back, AnimationType::SlideRight, true, 1);
             }
         });
 
@@ -310,7 +290,7 @@ impl MenuCallbacks for SinglePlayerMenu {
             self.shutdown_complete(layout);
             return Ok(());
         }
-        let _ = try_with_shell_mut(|shell| shell.reverse_animate_window());
+        queue_shell_reverse_animate_window();
         Ok(())
     }
 
@@ -331,13 +311,12 @@ impl MenuCallbacks for SinglePlayerMenu {
 
                 let control_id = data1 as i32;
                 if control_id == self.button_new_id {
-                    let _ =
-                        try_with_shell_mut(|shell| shell.push("Menus/MapSelectMenu.wnd", false));
+                    queue_shell_push("Menus/MapSelectMenu.wnd", false);
                     self.button_pushed = true;
                     return WindowMsgHandled::Handled;
                 }
                 if control_id == self.button_back_id {
-                    let _ = try_with_shell_mut(|shell| shell.pop());
+                    queue_shell_pop();
                     self.button_pushed = true;
                     return WindowMsgHandled::Handled;
                 }
@@ -1103,7 +1082,7 @@ impl OptionsMenu {
         if options_overlay_open {
             close_options_overlay();
         } else {
-            let _ = try_with_shell_mut(|shell| shell.destroy_options_layout());
+            queue_shell_operation(|shell| shell.destroy_options_layout());
         }
         self.parent = None;
         self.initialized = false;
@@ -1277,9 +1256,7 @@ impl MenuCallbacks for OptionsMenu {
                     Self::set_combo_selected(self.combo_detail_id, self.initial_detail_index);
                     Self::set_window_hidden(self.advanced_window_id, true);
                 } else if control_id == self.button_keyboard_options_id {
-                    let _ = try_with_shell_mut(|shell| {
-                        shell.push("Menus/KeyboardOptionsMenu.wnd", false)
-                    });
+                    queue_shell_push("Menus/KeyboardOptionsMenu.wnd", false);
                 } else if control_id == self.combo_detail_id
                     && Self::combo_selected_index(self.combo_detail_id) == Some(3)
                 {
@@ -1460,7 +1437,7 @@ impl MapSelectMenu {
             let mut data = data.write();
             data.pending_file = map_name;
         }
-        let _ = try_with_shell_mut(|shell| shell.reverse_animate_window());
+        queue_shell_reverse_animate_window();
     }
 
     fn do_game_start(&mut self) {
@@ -1485,7 +1462,7 @@ impl MapSelectMenu {
         self.initialized = false;
         self.parent = None;
         self.listbox_map = None;
-        let _ = try_with_shell_mut(|shell| shell.shutdown_complete(None, false));
+        queue_shell_shutdown_complete(false);
     }
 
     fn write_use_system_maps_preference(&self) {
@@ -1558,24 +1535,10 @@ impl MenuCallbacks for MapSelectMenu {
                 let _ = manager.set_focus(Some(parent));
             }
             if let Some(button_back) = manager.get_window_by_id(self.button_back_id) {
-                let _ = try_with_shell_mut(|shell| {
-                    shell.register_with_animate_manager(
-                        button_back,
-                        AnimationType::SlideRight,
-                        true,
-                        0,
-                    )
-                });
+                queue_shell_window_animation(button_back, AnimationType::SlideRight, true, 0);
             }
             if let Some(button_ok) = manager.get_window_by_id(self.button_ok_id) {
-                let _ = try_with_shell_mut(|shell| {
-                    shell.register_with_animate_manager(
-                        button_ok,
-                        AnimationType::SlideLeft,
-                        true,
-                        0,
-                    )
-                });
+                queue_shell_window_animation(button_ok, AnimationType::SlideLeft, true, 0);
             }
         });
 
@@ -1647,7 +1610,7 @@ impl MenuCallbacks for MapSelectMenu {
         }
         if !self.start_game {
             self.is_shutting_down = true;
-            let _ = try_with_shell_mut(|shell| shell.reverse_animate_window());
+            queue_shell_reverse_animate_window();
         }
         Ok(())
     }
@@ -1680,7 +1643,7 @@ impl MenuCallbacks for MapSelectMenu {
                 }
                 if control_id == self.button_back_id {
                     self.button_pushed = true;
-                    let _ = try_with_shell_mut(|shell| shell.pop());
+                    queue_shell_pop();
                     return WindowMsgHandled::Handled;
                 }
                 if control_id == self.button_single_player_id {
@@ -1871,10 +1834,10 @@ impl MenuCallbacks for CreditsMenu {
         if let Some(credits) = self.credits.as_mut() {
             credits.update();
             if credits.is_finished() {
-                let _ = try_with_shell_mut(|shell| shell.pop());
+                queue_shell_pop();
             }
         } else {
-            let _ = try_with_shell_mut(|shell| shell.pop());
+            queue_shell_pop();
         }
         Ok(())
     }
@@ -1895,7 +1858,7 @@ impl MenuCallbacks for CreditsMenu {
 
         show_shell_map_if_available(true);
         layout.hide(true);
-        let _ = try_with_shell_mut(|shell| shell.shutdown_complete(None, false));
+        queue_shell_shutdown_complete(false);
 
         if let Some(audio) = TheAudio::get() {
             audio.remove_audio_event(0xFFFF_FFF1);
@@ -1933,7 +1896,7 @@ impl MenuCallbacks for CreditsMenu {
     ) -> WindowMsgHandled {
         if msg == WindowMessage::Char && data1 == 0x1B {
             if (data2 & 0x0001) != 0 {
-                let _ = try_with_shell_mut(|shell| shell.pop());
+                queue_shell_pop();
             }
             return WindowMsgHandled::Handled;
         }
@@ -3127,16 +3090,16 @@ mod menu_callbacks_shell_borrow_residual_tests {
     fn single_player_menu_avoids_nested_get_shell_on_shutdown() {
         let src = include_str!("menu_callbacks.rs");
         assert!(
-            src.contains("try_with_shell_mut(|shell| shell.shutdown_complete(None, false))"),
-            "SinglePlayerMenu::shutdown_complete must use try_with_shell_mut"
+            src.contains("queue_shell_shutdown_complete(false);"),
+            "SinglePlayerMenu::shutdown_complete must queue the lifecycle completion"
         );
         assert!(
             src.contains("show_shell_map_if_available(true)"),
             "SinglePlayerMenu init must use show_shell_map_if_available"
         );
         assert!(
-            src.contains("try_with_shell_mut(|shell| shell.reverse_animate_window())"),
-            "reverse_animate_window must be try_with_shell_mut"
+            src.contains("queue_shell_reverse_animate_window();"),
+            "reverse_animate_window must queue at the shell lifecycle boundary"
         );
         assert!(
             !src.contains("get_shell().pop()")

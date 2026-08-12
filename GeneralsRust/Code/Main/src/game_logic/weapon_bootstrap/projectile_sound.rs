@@ -157,17 +157,17 @@ pub(super) fn seed_fire_sound_loop_frames_for(name: &str) -> u32 {
 /// FireFX (C++ Weapon::fireWeaponTemplate handleWeaponFireFX gate). Mines always
 /// play FX. When true, FX plays even while stealthed.
 pub fn host_play_fx_when_stealthed_for_weapon_name(name: &str) -> bool {
-    seed_play_fx_when_stealthed_for(name)
-}
+    use gamelogic::weapon::with_weapon_store;
 
-pub(super) fn seed_play_fx_when_stealthed_for(name: &str) -> bool {
-    let n = name.to_ascii_lowercase();
-    // Retail weapons that keep muzzle FX while cloaked (subset residual).
-    n.contains("stinger")
-        || n.contains("scudstorm")
-        || n.contains("tunnel")
-        || n.contains("demotrap")
-        || n.contains("booby")
+    let _ = ensure_host_weapon_store();
+    with_weapon_store(|store| {
+        store
+            .find_weapon_template(name)
+            .map(|weapon| weapon.play_fx_when_stealthed)
+    })
+    .ok()
+    .flatten()
+    .unwrap_or(false)
 }
 
 /// C++ Weapon.ini AllowAttackGarrisonedBldgs residual.

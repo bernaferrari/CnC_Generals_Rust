@@ -445,6 +445,7 @@ impl GameClient {
     /// Sets the current frame number
     pub fn set_frame(&mut self, frame: u32) {
         self.frame = frame;
+        publish_live_game_client_frame(self);
     }
 
     /// Sets the local player identifier used for command routing.
@@ -606,6 +607,30 @@ impl GameClient {
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .preload_common_textures()?;
+        }
+
+        // C++ `GameClient::preloadAssets` finishes the client preloading pass
+        // with `TheParticleSystemManager->preloadAssets(timeOfDay)`.  Gather
+        // the exact authored texture names while holding the simulation-side
+        // manager, then release it before touching WGPU resources.
+        let particle_textures = {
+            match crate::effects::particle_manager::get_particle_system_manager_mut() {
+                Ok(mut manager_guard) => match manager_guard.as_mut() {
+                    Some(manager) => {
+                        manager.preload_assets();
+                        manager.preloaded_texture_assets().to_vec()
+                    }
+                    None => Vec::new(),
+                },
+                Err(_) => Vec::new(),
+            }
+        };
+        if !particle_textures.is_empty() {
+            crate::effects::particle_renderer::with_particle_renderer(|renderer| {
+                if let Ok(mut renderer) = renderer.lock() {
+                    renderer.preload_authored_textures(&particle_textures);
+                }
+            });
         }
 
         if let Some(ref asset_manager) = self.subsystem_manager.asset_manager {
@@ -1378,6 +1403,7 @@ impl Snapshotable for GameClient {
         xfer.xfer_unsigned_int(&mut frame)
             .map_err(|e| e.to_string())?;
         self.frame = frame;
+        publish_live_game_client_frame(self);
 
         self.xfer_drawable_toc(xfer)?;
 

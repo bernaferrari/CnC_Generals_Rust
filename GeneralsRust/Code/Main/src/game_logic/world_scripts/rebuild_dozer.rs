@@ -149,6 +149,13 @@ impl GameLogic {
         if old_team == new_team {
             return;
         }
+        // Capture has already changed this object's owner by the time the
+        // C++-style post-capture hooks run.  Credit that concrete owner rather
+        // than whichever same-faction player happens to be first in the map.
+        let captured_owner_player_id = self
+            .objects
+            .get(&object_id)
+            .and_then(|object| self.player_owner_for_host_object(object));
         // Contain kick residual.
         self.on_capture_kick_passengers(object_id, old_team, new_team);
         // TunnelContain::onCapture entrance transfer / last-entrance eject residual.
@@ -184,7 +191,9 @@ impl GameLogic {
             crate::game_logic::host_ai_decision_log::record_set_state(object_id, ordinal);
         }
         // C++ ScoreKeeper::addObjectCaptured residual for new owner.
-        if let Some(p) = self.get_player_mut_by_team(new_team) {
+        if let Some(p) =
+            captured_owner_player_id.and_then(|player_id| self.get_player_mut(player_id))
+        {
             p.record_object_captured();
         }
 
@@ -623,19 +632,21 @@ impl GameLogic {
         self.sell_list = still;
         for id in finished {
             // Refund structure sell value then destroy.
-            let (team, refund) = if let Some(obj) = self.objects.get(&id) {
-                let sell_percentage = game_engine::common::global_data::read().sell_percentage;
-                let refund = ((obj.thing.template.build_cost.supplies as f32) * sell_percentage)
-                    .max(0.0) as u32;
-                (obj.team, refund)
+            let (team, owner_player_id, refund) = if let Some(obj) = self.objects.get(&id) {
+                let owner_player_id = self.player_owner_for_host_object(obj);
+                (
+                    obj.team,
+                    owner_player_id,
+                    self.sell_refund_for_object(obj, owner_player_id),
+                )
             } else {
                 continue;
             };
             if refund > 0 {
-                if let Some(player) = self.get_player_mut_by_team(team) {
-                    player.apply_supply_gain(refund);
-                } else if let Some(player) = self.players.values_mut().find(|p| p.team == team) {
-                    player.apply_supply_gain(refund);
+                if let Some(player_id) = owner_player_id {
+                    if let Some(player) = self.get_player_mut(player_id) {
+                        player.apply_supply_gain(refund);
+                    }
                 }
             }
             // Cancel any leftover production (C++ cancel again at finish).
@@ -677,14 +688,13 @@ impl GameLogic {
                 continue;
             }
             let team = obj.team;
-            let sell_percentage = game_engine::common::global_data::read().sell_percentage;
-            let refund =
-                ((obj.thing.template.build_cost.supplies as f32) * sell_percentage).max(0.0) as u32;
+            let owner_player_id = self.player_owner_for_host_object(obj);
+            let refund = self.sell_refund_for_object(obj, owner_player_id);
             if refund > 0 {
-                if let Some(player) = self.get_player_mut_by_team(team) {
-                    player.apply_supply_gain(refund);
-                } else if let Some(player) = self.players.values_mut().find(|p| p.team == team) {
-                    player.apply_supply_gain(refund);
+                if let Some(player_id) = owner_player_id {
+                    if let Some(player) = self.get_player_mut(player_id) {
+                        player.apply_supply_gain(refund);
+                    }
                 }
             }
             self.cancel_all_production(id);
@@ -693,6 +703,29 @@ impl GameLogic {
             let msg = crate::localization::localize("hud.sell.complete", "Structure sold");
             self.queue_radar_message_for_team(team, msg);
         }
+    }
+
+    /// C++ `BuildAssistant::update`: a non-zero Object INI `RefundValue`
+    /// overrides the ordinary `calcCostToBuild(player) * SellPercentage`
+    /// calculation.  The completion paths (normal host tick and coupled
+    /// GameWorld writeback) deliberately share this one calculation.
+    fn sell_refund_for_object(&self, object: &Object, owner_player_id: Option<u32>) -> u32 {
+        let authored_refund = object.thing.template.refund_value;
+        if authored_refund != 0 {
+            return authored_refund as u32;
+        }
+
+        let build_cost = owner_player_id
+            .map(|player_id| {
+                self.modified_build_cost_supplies(
+                    player_id,
+                    &object.template_name,
+                    object.thing.template.build_cost.supplies,
+                )
+            })
+            .unwrap_or(object.thing.template.build_cost.supplies);
+        let sell_percentage = game_engine::common::global_data::read().sell_percentage;
+        ((build_cost as f32) * sell_percentage).max(0.0) as u32
     }
 
     pub fn honesty_sell_process_ok(&self) -> bool {
@@ -704,8 +737,29 @@ impl GameLogic {
     /// Dozers targeting `structure_id` (or actively Constructing nearby same team)
     /// go Idle and clear ACTIVELY_CONSTRUCTING model residual.
     pub fn cancel_dozers_building(&mut self, structure_id: ObjectId) {
-        let team = self.objects.get(&structure_id).map(|o| o.team);
-        let build_pos = self.objects.get(&structure_id).map(|o| o.get_position());
+        let (build_pos, structure_owner) = match self.objects.get(&structure_id) {
+            Some(structure) => (
+                Some(structure.get_position()),
+                self.player_owner_for_host_object(structure),
+            ),
+            None => (None, None),
+        };
+        // An active builder belongs to the same controller, not simply the
+        // same faction.  Build this immutable set before mutably clearing
+        // dozer orders below.
+        let nearby_owner_builders: std::collections::HashSet<ObjectId> = structure_owner
+            .map(|owner_player_id| {
+                self.objects
+                    .iter()
+                    .filter(|(_, object)| {
+                        object.is_alive()
+                            && object.can_construct()
+                            && self.player_owner_for_host_object(object) == Some(owner_player_id)
+                    })
+                    .map(|(id, _)| *id)
+                    .collect()
+            })
+            .unwrap_or_default();
         let ids: Vec<ObjectId> = self.objects.keys().copied().collect();
         let mut cancelled = 0u32;
         for id in ids {
@@ -717,8 +771,10 @@ impl GameLogic {
             }
             let targeting = obj.target == Some(structure_id);
             let constructing = matches!(obj.ai_state, AIState::Constructing);
-            let nearby = match (team, build_pos) {
-                (Some(t), Some(bp)) => obj.team == t && obj.get_position().distance(bp) <= 40.0,
+            let nearby = match build_pos {
+                Some(bp) => {
+                    nearby_owner_builders.contains(&id) && obj.get_position().distance(bp) <= 40.0
+                }
                 _ => false,
             };
             if targeting || (constructing && nearby) {
@@ -757,7 +813,13 @@ impl GameLogic {
         if !structure.is_alive() || !structure.is_kind_of(KindOf::Structure) {
             return false;
         }
-        if structure.team != dozer.team {
+        let Some(dozer_owner_player_id) = self.player_owner_for_host_object(dozer) else {
+            return false;
+        };
+        let Some(structure_owner_player_id) = self.player_owner_for_host_object(structure) else {
+            return false;
+        };
+        if structure_owner_player_id != dozer_owner_player_id {
             return false;
         }
         if !structure.status.under_construction || structure.status.sold {
@@ -768,7 +830,7 @@ impl GameLogic {
             if *id == dozer_id || !obj.is_alive() || !obj.can_construct() {
                 continue;
             }
-            if obj.team != structure.team {
+            if self.player_owner_for_host_object(obj) != Some(dozer_owner_player_id) {
                 continue;
             }
             if matches!(obj.ai_state, AIState::Constructing) && obj.target == Some(structure_id) {
@@ -826,6 +888,7 @@ impl GameLogic {
         }
         let pos = dozer.get_position();
         let team = dozer.team;
+        let dozer_owner_player_id = self.player_owner_for_host_object(dozer)?;
         let range = crate::game_logic::host_repair::DOZER_BORED_RANGE;
         // Pure residual service acquire (2D/XZ bored range).
         let candidates: Vec<_> = self
@@ -833,7 +896,7 @@ impl GameLogic {
             .iter()
             .filter_map(|(&id, obj)| {
                 if !obj.is_alive()
-                    || obj.team != team
+                    || self.player_owner_for_host_object(obj) != Some(dozer_owner_player_id)
                     || !obj.is_kind_of(KindOf::Structure)
                     || obj.status.under_construction
                     || obj.status.sold
@@ -879,13 +942,29 @@ impl GameLogic {
         }
         let pos = dozer.get_position();
         let team = dozer.team;
+        let dozer_owner_player_id = self.player_owner_for_host_object(dozer);
         let range = crate::game_logic::host_repair::DOZER_BORED_RANGE;
         // Pure residual acquire (enemy/neutral mines in BoredRange, XZ).
         let candidates: Vec<_> = self
             .objects
             .iter()
             .filter_map(|(&id, obj)| {
-                if !obj.is_alive() || obj.team == team {
+                if !obj.is_alive() {
+                    return None;
+                }
+                let allied_or_same_owner = match (
+                    dozer_owner_player_id,
+                    self.player_owner_for_host_object(obj),
+                ) {
+                    (Some(dozer_owner), Some(mine_owner)) => {
+                        self.player_relationship(dozer_owner, mine_owner)
+                            == gamelogic::common::Relationship::Allies
+                    }
+                    // Preserve team behavior for genuinely unowned legacy
+                    // mines, which do not carry player relationship data.
+                    _ => obj.team == team,
+                };
+                if allied_or_same_owner {
                     return None;
                 }
                 // C++ ALLOW_ENEMIES | ALLOW_NEUTRAL only (not allies / own mines).
@@ -953,10 +1032,11 @@ impl GameLogic {
             if let Some(obj) = self.objects.get_mut(&id) {
                 obj.idle_since_frame = 0;
             }
-            self.apply_engagement_decision_aware(id, mine_id);
-            self.path_approach_with_state(id, mine_pos, AIState::Attacking);
-            self.dozer_bored_mine_clear_events =
-                self.dozer_bored_mine_clear_events.saturating_add(1);
+            if self.apply_engagement_decision_aware(id, mine_id) {
+                self.path_approach_with_state(id, mine_pos, AIState::Attacking);
+                self.dozer_bored_mine_clear_events =
+                    self.dozer_bored_mine_clear_events.saturating_add(1);
+            }
         }
     }
 
@@ -1010,11 +1090,12 @@ impl GameLogic {
                     obj.idle_since_frame = 0;
                 }
                 // Combat engagement via decision authority; path_approach logs Attacking too.
-                self.apply_engagement_decision_aware(id, mine_id);
-                // Approach residual — attack resolution happens in combat update.
-                self.path_approach_with_state(id, mine_pos, AIState::Attacking);
-                self.dozer_bored_mine_clear_events =
-                    self.dozer_bored_mine_clear_events.saturating_add(1);
+                if self.apply_engagement_decision_aware(id, mine_id) {
+                    // Approach residual — attack resolution happens in combat update.
+                    self.path_approach_with_state(id, mine_pos, AIState::Attacking);
+                    self.dozer_bored_mine_clear_events =
+                        self.dozer_bored_mine_clear_events.saturating_add(1);
+                }
             }
         }
     }
@@ -1135,10 +1216,20 @@ impl GameLogic {
 
     /// C++ RebuildHoleExposeDie::onDie residual — spawn hole for GLA structures.
     pub fn maybe_spawn_rebuild_hole(&mut self, destroyed_id: ObjectId) -> Option<ObjectId> {
-        let (team, pos, orient, template_name, under_construction, is_structure, is_hole) = {
+        let (
+            team,
+            owner_player_id,
+            pos,
+            orient,
+            template_name,
+            under_construction,
+            is_structure,
+            is_hole,
+        ) = {
             let o = self.objects.get(&destroyed_id)?;
             (
                 o.team,
+                self.player_owner_for_host_object(o),
                 o.get_position(),
                 o.get_orientation(),
                 o.template_name.clone(),
@@ -1176,6 +1267,10 @@ impl GameLogic {
         };
         let hole_id = self.host_spawn_rebuild_bound_object(hole_name, team, pos, gw_raw)?;
         if let Some(h) = self.objects.get_mut(&hole_id) {
+            // A rebuild hole is a continuation of the destroyed building, not
+            // a new team-level object.  Preserve exact ownership for the
+            // later worker and reconstruction spawn chain.
+            h.set_team_and_owner(team, owner_player_id);
             h.set_orientation(orient);
             h.set_status_under_construction(false);
             // Defer percent only when shadow sole-ticks construction; host-only
@@ -1364,6 +1459,7 @@ impl GameLogic {
                 continue;
             }
             let team = h.team;
+            let owner_player_id = self.player_owner_for_host_object(h);
             let pos = h.get_position();
             let orient = h.get_orientation();
             let rebuild_name = match h.rebuild_template_name.clone() {
@@ -1398,6 +1494,7 @@ impl GameLogic {
                 continue;
             };
             if let Some(w) = self.objects.get_mut(&worker_id) {
+                w.set_team_and_owner(team, owner_player_id);
                 w.set_status_unselectable(true);
                 w.set_status_masked(false);
                 if let Some(ev) = ready_ev {
@@ -1419,6 +1516,7 @@ impl GameLogic {
                 continue;
             };
             if let Some(o) = self.objects.get_mut(&new_id) {
+                o.set_team_and_owner(team, owner_player_id);
                 o.set_orientation(orient);
                 o.set_status_under_construction(true);
                 o.set_status_reconstructing(true);

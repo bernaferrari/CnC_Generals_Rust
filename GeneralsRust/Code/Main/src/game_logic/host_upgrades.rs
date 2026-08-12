@@ -13,12 +13,12 @@
 //!   (SupplyLines 800/30s, FlashBang 800/30s, TOW 800/30s, Capture 1000/30s,
 //!   CompositeArmor 2000/60s, Camouflage 2000/60s, CamoNetting 500/5s,
 //!   NeutronShells 2500/60s, NuclearTanks 2000/60s, …)
-//! - Host research frames remain fail-closed **1** (observable queue) while
-//!   `retail_research_frames` documents Upgrade.ini BuildTime → frames
+//! - Live ControlBar research uses the parsed Upgrade.ini BuildTime; the
+//!   built-in table remains the no-archive fallback
 //! - StealthForbiddenConditions residual: Camouflage Rebel = ATTACKING
 //!   USING_ABILITY; CamoNetting structures = ATTACKING USING_ABILITY TAKING_DAMAGE
 //!
-//! Fail-closed: not full science tree, ProductionUpdate build-time parity,
+//! Fail-closed: not full science tree / prerequisite matrix,
 //! WeaponSetUpgrade module matrix, full per-unit INI `UpgradedSupplyBoost`
 //! matrix (Chinook 60), or multiplayer upgrade replication.
 //! WorkerShoes residual lives in `host_gla_worker` (speed + supply boost 8).
@@ -395,66 +395,24 @@ impl HostUpgradeKind {
         }
     }
 
-    /// Residual research frames before complete (host path).
-    /// `0` / `1` ⇒ complete on the next `GameLogic::update` (queue still observable).
-    /// Fail-closed host path: not retail Upgrade.ini BuildTime (see
-    /// [`Self::retail_research_frames`] for honesty pack).
+    /// Built-in research duration when no parsed Upgrade.ini entry is
+    /// available.  Live ControlBar commands prefer the parsed template, but
+    /// this table keeps headless/map tests and archive-miss fallback aligned
+    /// with retail rather than completing known research in one frame.
+    pub fn default_research_frames(self) -> u32 {
+        self.retail_research_frames().max(1)
+    }
+
+    /// Compatibility spelling retained for residual callers.  It now returns
+    /// the retail fallback duration; live commands may use a modded parsed
+    /// template duration instead.
     pub fn residual_research_frames(self) -> u32 {
-        match self {
-            // One logic update of research so QueueUpgrade is observably pending.
-            HostUpgradeKind::CaptureBuilding
-            | HostUpgradeKind::FlashBangGrenade
-            | HostUpgradeKind::TowMissile
-            | HostUpgradeKind::SupplyLines
-            | HostUpgradeKind::NeutronShells
-            | HostUpgradeKind::BunkerBusters
-            | HostUpgradeKind::ComancheRocketPods
-            | HostUpgradeKind::SentryDroneGun
-            | HostUpgradeKind::Camouflage
-            | HostUpgradeKind::CamoNetting
-            | HostUpgradeKind::CompositeArmor
-            | HostUpgradeKind::WorkerShoes
-            | HostUpgradeKind::NuclearTanks
-            | HostUpgradeKind::BoobyTrap
-            | HostUpgradeKind::AnthraxGamma
-            | HostUpgradeKind::SuicideBomb
-            | HostUpgradeKind::AdvancedControlRods
-            | HostUpgradeKind::SubliminalMessaging
-            | HostUpgradeKind::ScorpionRocket
-            | HostUpgradeKind::ApRockets
-            | HostUpgradeKind::LaserMissiles
-            | HostUpgradeKind::Nationalism
-            | HostUpgradeKind::ChainGuns
-            | HostUpgradeKind::UraniumShells
-            | HostUpgradeKind::BlackNapalm
-            | HostUpgradeKind::ApBullets
-            | HostUpgradeKind::AnthraxBeta
-            | HostUpgradeKind::ToxinShells
-            | HostUpgradeKind::AdvancedTraining
-            | HostUpgradeKind::TacticalNukeMig
-            | HostUpgradeKind::DroneArmor
-            | HostUpgradeKind::AircraftArmor
-            | HostUpgradeKind::ChinaMines
-            | HostUpgradeKind::EmpMines
-            | HostUpgradeKind::FortifiedStructure
-            | HostUpgradeKind::Radar
-            | HostUpgradeKind::RadarVanScan
-            | HostUpgradeKind::ChemicalSuits
-            | HostUpgradeKind::Moab
-            | HostUpgradeKind::SatelliteHack
-            | HostUpgradeKind::Countermeasures
-            | HostUpgradeKind::SlaveDrone
-            | HostUpgradeKind::CashBounty
-            | HostUpgradeKind::HelixNapalmBomb
-            | HostUpgradeKind::HelixNukeBomb => 1,
-            HostUpgradeKind::Other => 1,
-        }
+        self.default_research_frames()
     }
 
     /// Retail Upgrade.ini BuildCost residual (cash).
     ///
-    /// Fail-closed: `Other` / unknown → **0**. Host research path still uses
-    /// short residual frames; this is honesty of retail cost matrix.
+    /// Fail-closed: `Other` / unknown → **0**.
     pub fn retail_build_cost(self) -> u32 {
         match self {
             HostUpgradeKind::CaptureBuilding => 1000, // Upgrade_AmericaRangerCaptureBuilding
@@ -591,10 +549,12 @@ pub struct HostUpgradeResearch {
     /// Wave 79: cash supplies paid at QueueUpgrade (retail cost residual application).
     #[serde(default)]
     pub build_cost_paid: u32,
-    /// Wave 79: retail Upgrade.ini BuildTime → frames residual bookkeeping.
+    /// Resolved Upgrade.ini BuildTime → frames for this queued research.
+    /// The command path overwrites the fallback with the parsed template
+    /// value whenever asset loading provided one.
     #[serde(default)]
     pub retail_research_frames: u32,
-    /// Wave 79: host residual research frames (still **1** for observable queue).
+    /// Actual duration supplied to the producer queue (minimum one frame).
     #[serde(default = "default_residual_research_frames")]
     pub residual_research_frames: u32,
 }
@@ -751,6 +711,21 @@ impl HostUpgradeRegistry {
         if let Some(&id) = self.pending_index.get(&key) {
             if let Some(entry) = self.entries.get_mut(&id) {
                 entry.build_cost_paid = cost;
+            }
+        }
+    }
+
+    /// Record the duration actually queued after resolving the live parsed
+    /// Upgrade.ini template.  This keeps saved/presented queue metadata in
+    /// sync with the ProductionItem rather than preserving the old one-frame
+    /// placeholder.
+    pub fn set_resolved_research_frames(&mut self, name: &str, player_id: u32, frames: u32) {
+        let key = (player_id, normalize_upgrade_identity(name));
+        if let Some(&id) = self.pending_index.get(&key) {
+            if let Some(entry) = self.entries.get_mut(&id) {
+                let frames = frames.max(1);
+                entry.retail_research_frames = frames;
+                entry.residual_research_frames = frames;
             }
         }
     }
@@ -1730,9 +1705,10 @@ pub fn honesty_upgrades_time_residual_ok() -> bool {
         && HostUpgradeKind::NeutronShells.retail_research_frames() == 1800
         && (HostUpgradeKind::BunkerBusters.retail_build_time_secs() - 40.0).abs() < 0.01
         && HostUpgradeKind::BunkerBusters.retail_research_frames() == 1200
-        // Host path remains short residual (observable queue).
-        && HostUpgradeKind::SupplyLines.residual_research_frames() == 1
-        && HostUpgradeKind::Camouflage.residual_research_frames() == 1
+        // No-archive fallback must preserve the same retail durations; the
+        // live command path may replace them with parsed/modded values.
+        && HostUpgradeKind::SupplyLines.default_research_frames() == 900
+        && HostUpgradeKind::Camouflage.default_research_frames() == 1800
 }
 
 /// StealthForbiddenConditions residual honesty (Camouflage + CamoNetting).

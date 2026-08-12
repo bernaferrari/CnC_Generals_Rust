@@ -18,12 +18,15 @@ pub mod shell_menu_scheme;
 
 // Re-export base shell types
 pub use base::{
-    get_shell, request_shell_menu_scheme, residual_shell_map_is_on, residual_shell_map_last_action,
-    show_shell_map_if_available, simulate_shell_map_hide, simulate_shell_map_prepare_cycle,
-    simulate_shell_map_show, simulate_shell_map_toggle, try_with_shell_mut, AnimateWindowManager,
-    AnimationType, BasicWindowLayout, Color, Coord2D, LayoutState, ResidualShellMapAction, Shell,
-    ShellError, ShellMenuScheme, ShellMenuSchemeImage, ShellMenuSchemeLine, ShellMenuSchemeManager,
-    WindowLayout, WindowRect,
+    get_shell, queue_shell_hide, queue_shell_operation, queue_shell_pop, queue_shell_push,
+    queue_shell_reverse_animate_window, queue_shell_show, queue_shell_shutdown_complete,
+    queue_shell_window_animation, request_shell_menu_scheme, residual_shell_map_is_on,
+    residual_shell_map_last_action, show_shell_map_if_available, simulate_shell_map_hide,
+    simulate_shell_map_prepare_cycle, simulate_shell_map_show, simulate_shell_map_toggle,
+    try_with_shell_mut, with_shell_mut, with_shell_ref, AnimateWindowManager, AnimationType,
+    BasicWindowLayout, Color, Coord2D, LayoutState, ResidualShellMapAction, Shell, ShellError,
+    ShellHandle, ShellMenuScheme, ShellMenuSchemeImage, ShellMenuSchemeLine,
+    ShellMenuSchemeManager, WindowLayout, WindowRect,
 };
 
 // Re-export main menu types

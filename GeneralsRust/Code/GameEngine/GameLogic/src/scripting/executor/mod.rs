@@ -69,6 +69,17 @@ static TRANSPORT_STATUSES: Lazy<RwLock<HashMap<ObjectID, (u32, usize)>>> =
     Lazy::new(|| RwLock::new(HashMap::new()));
 static SCRIPT_TEMP_GROUP_ID: AtomicU32 = AtomicU32::new(1);
 
+/// Take an owned handler snapshot before crossing into host/UI code.
+///
+/// Script actions can run from `ScriptEngine::update`, which installs the
+/// active lexical engine. A global ScriptEngine lock is therefore not
+/// available there. More importantly, host callbacks may synchronously enter
+/// script execution again, so the scoped engine access must end before the
+/// callback is invoked.
+fn current_script_action_handler() -> Option<Arc<dyn crate::scripting::engine::ScriptActionHandler>> {
+    with_script_engine_ref(|script_engine| script_engine.action_handler()).flatten()
+}
+
 /// Script execution error
 #[derive(Debug, Clone)]
 pub enum ScriptError {
