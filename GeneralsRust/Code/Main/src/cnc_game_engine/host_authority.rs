@@ -213,6 +213,9 @@ impl CnCGameEngine {
     /// Wave 871: clear all host_match_* residuals (reset/load/start boundaries).
     #[inline]
     pub(super) fn host_clear_match_residuals(&mut self) {
+        // Carrier provenance cannot cross reset/load/new-match boundaries: an
+        // object ID from an earlier world must never qualify a later deposit.
+        self.physical_gather_carrier_ids.clear();
         self.host_match_map_name = None;
         self.host_match_local_player_id = None;
         self.host_match_ai_difficulty = None;

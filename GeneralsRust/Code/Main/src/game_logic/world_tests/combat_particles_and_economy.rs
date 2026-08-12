@@ -2676,6 +2676,62 @@ fn black_market_residual_skips_fake_market() {
     assert!(!game_logic.honesty_black_market_ok());
 }
 
+/// An accepted Gather observation carries only the selected workers whose
+/// executor path assignment succeeded; another locally selected unit must not
+/// leak into the carrier evidence set.
+#[test]
+fn accepted_gather_event_contains_only_executor_accepted_carriers() {
+    use crate::command_system::{CommandType, GameCommand, ModifierKeys};
+
+    let mut game_logic = GameLogic::new();
+    ensure_test_player_for_team(&mut game_logic, Team::USA);
+    ensure_test_dozer_template(&mut game_logic);
+    ensure_test_tank_template(&mut game_logic);
+
+    let mut resource = ThingTemplate::new("TestGatherSupply");
+    resource
+        .add_kind_of(KindOf::Harvestable)
+        .add_kind_of(KindOf::Resource)
+        .set_health(100.0);
+    game_logic
+        .templates
+        .insert("TestGatherSupply".to_string(), resource);
+
+    let worker_id = game_logic
+        .create_object("TestDozer", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("worker");
+    let non_worker_id = game_logic
+        .create_object("TestTank", Team::USA, Vec3::new(2.0, 0.0, 0.0))
+        .expect("non-worker");
+    let target_id = game_logic
+        .create_object("TestGatherSupply", Team::Neutral, Vec3::new(20.0, 0.0, 0.0))
+        .expect("resource target");
+    let issued_at = std::time::SystemTime::now();
+
+    game_logic.queue_command(GameCommand {
+        command_type: CommandType::Gather { target_id },
+        player_id: 0,
+        command_id: 97,
+        timestamp: issued_at.clone(),
+        selected_units: vec![worker_id, non_worker_id],
+        modifier_keys: ModifierKeys::default(),
+    });
+    game_logic.process_commands();
+
+    let accepted = game_logic.take_accepted_gather_commands();
+    assert_eq!(accepted.len(), 1, "Gather must be accepted exactly once");
+    let event = &accepted[0];
+    assert_eq!(event.command_id, 97);
+    assert_eq!(event.issued_at, issued_at);
+    assert_eq!(event.player_id, 0);
+    assert_eq!(event.target_id, target_id);
+    assert_eq!(
+        event.carrier_ids,
+        vec![worker_id],
+        "only the local selected worker with an accepted Gather path may be tracked"
+    );
+}
+
 /// Residual: with SupplyLines unlocked, drop-off credits more cash than without.
 ///
 /// Matches C++ SupplyCenterDockUpdate::action + Chinook getUpgradedSupplyBoost
@@ -2751,6 +2807,19 @@ fn supply_lines_drop_off_yields_more_cash_than_without() {
         let cash_before = game_logic.get_player(0).unwrap().resources.supplies;
         // One logic frame: ReturningResources deposits when in INTERACT_RANGE.
         game_logic.update();
+        let dropoffs = game_logic.take_supply_dropoff_events();
+        assert_eq!(
+            dropoffs.len(),
+            1,
+            "only the real ReturningResources carrier deposit emits an event"
+        );
+        let dropoff = dropoffs[0];
+        assert_eq!(dropoff.carrier_id, dozer_id);
+        assert_eq!(dropoff.player_id, 0);
+        assert_eq!(
+            dropoff.carried_amount, CARGO,
+            "event reports carried cargo, not passive income or upgrade bonus"
+        );
         let cash_after = game_logic.get_player(0).unwrap().resources.supplies;
         let gained = cash_after.saturating_sub(cash_before);
         let bonus = game_logic.supply_lines_bonus_cash_total();

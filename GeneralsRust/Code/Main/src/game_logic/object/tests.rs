@@ -39,12 +39,43 @@ fn stop_attack_clears_force_attack_and_targets() {
     object.set_target(Some(ObjectId(99)));
     object.set_force_attack(true);
     object.set_target_location(Some(Vec3::new(1.0, 0.0, 2.0)));
+    assert!(object.set_weapon_lock(0, WeaponLockType::LockedTemporarily));
     object.stop_attack();
 
     assert!(object.target.is_none());
     assert!(object.target_location.is_none());
     assert!(!object.force_attack);
     assert!(!object.status.attacking);
+    assert_eq!(object.weapon_lock_type, WeaponLockType::NotLocked);
+}
+
+#[test]
+fn temporary_tertiary_lock_releases_after_its_auto_clip_reloads() {
+    let mut object = make_test_object();
+    object.tertiary_weapon = Some(Weapon {
+        damage: 73.0,
+        range: 100.0,
+        reload_time: 0.1,
+        clip_reload_time: 1.0,
+        clip_size: 1,
+        ammo: Some(1),
+        last_fire_time: -10.0,
+        ..Weapon::default()
+    });
+    assert!(object.set_weapon_lock(2, WeaponLockType::LockedTemporarily));
+
+    assert!(object.fire_at(ObjectId(99), 1.0));
+
+    assert_eq!(object.last_fire_slot, 2);
+    assert_eq!(
+        object
+            .tertiary_weapon
+            .as_ref()
+            .and_then(|weapon| weapon.ammo),
+        Some(0),
+        "the host keeps an auto-reloading clip empty until its reload window finishes"
+    );
+    assert_eq!(object.weapon_lock_type, WeaponLockType::NotLocked);
 }
 
 #[test]

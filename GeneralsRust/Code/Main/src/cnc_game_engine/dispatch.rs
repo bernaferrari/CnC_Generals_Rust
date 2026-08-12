@@ -525,6 +525,7 @@ impl CnCGameEngine {
             wnd_widget_tree_nav: self.interactive_playability.wnd_menu_to_match_complete(),
             interactive_gameplay: self.interactive_playability.gameplay_complete(),
             physical_build_and_produce: self.interactive_playability.build_and_produce_complete(),
+            physical_gather_resources: self.interactive_playability.gather_resources_complete(),
             physical_save_load_continue: self.interactive_playability.save_load_continue_complete(),
             pending_capture: self.runtime_host_pending_capture,
             render_alive_objects: self.render_pipeline.debug_last_alive_objects() as u32,

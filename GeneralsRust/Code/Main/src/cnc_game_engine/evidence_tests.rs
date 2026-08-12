@@ -396,3 +396,78 @@ fn handle_mouse_button_input_must_not_forge_wnd_used_or_skip_right_click() {
         "must not keep inject-only RMB evidence stub"
     );
 }
+
+#[test]
+fn physical_gather_dropoff_latch_rejects_unvalidated_input() {
+    let mut evidence = InteractivePlayabilityEvidence::default();
+
+    // Runtime-host/injected/background paths must reach the setter with false
+    // after failing provenance, carrier, player, amount, or match checks.
+    evidence.note_physical_gather_resources(false);
+    assert!(!evidence.gather_resources_complete());
+
+    // The sticky evidence type accepts only the already-validated edge from
+    // Main's tracked-carrier ReturningResources drain.
+    evidence.note_physical_gather_resources(true);
+    assert!(evidence.gather_resources_complete());
+}
+
+#[test]
+fn physical_gather_proof_requires_physical_accepted_order_and_real_dropoff() {
+    let input = include_str!("input.rs");
+    assert!(
+        input.contains("rmb_scroll_started_physically")
+            && input.contains("self.handle_right_click(origin, physical_rmb_gesture)"),
+        "Gather proof must carry actual press+release mouse provenance into the RMB command"
+    );
+
+    let mouse = include_str!("mouse.rs");
+    assert!(
+        mouse.contains("PhysicalGatherAttempt")
+            && mouse.contains("MouseInputOrigin::Physical")
+            && mouse.contains("take_accepted_gather_commands"),
+        "only a physical RMB command may bind to executor-confirmed Gather carriers"
+    );
+    assert!(
+        mouse.contains("event.carrier_ids")
+            && mouse.contains("attempt.player_id != self.local_player_id_for_ui()")
+            && mouse.contains("self.physical_gather_carrier_ids.extend"),
+        "only the accepted local selected carrier subset may be tracked"
+    );
+    assert!(
+        mouse.contains("dropoff.carried_amount > 0")
+            && mouse.contains("dropoff.player_id == local_player_id")
+            && mouse.contains("contains(&dropoff.carrier_id)")
+            && mouse.contains("host_physical_gather_evidence_eligible"),
+        "latch requires positive local tracked-carrier deposit in a visible offline match"
+    );
+    assert!(
+        mouse.contains("runtime_host_window_visible()")
+            && mouse.contains("GameMode::SinglePlayer")
+            && mouse.contains("GameMode::Skirmish"),
+        "headless/hidden/network paths must fail closed"
+    );
+
+    let deposit = include_str!("../game_logic/world_objects/support_states.rs");
+    let returning = deposit
+        .find("AIState::ReturningResources")
+        .expect("ReturningResources deposit branch");
+    let credit = deposit[returning..]
+        .find("player.credit_supplies(credited)")
+        .map(|offset| returning + offset)
+        .expect("concrete player credit");
+    let event = deposit[returning..]
+        .find("record_supply_dropoff_event")
+        .map(|offset| returning + offset)
+        .expect("typed dropoff event");
+    assert!(
+        credit < event,
+        "dropoff evidence event must be emitted after the real player credit, not from passive income"
+    );
+
+    let runtime = include_str!("runtime.rs");
+    assert!(
+        runtime.contains("physical_gather_resources={}"),
+        "runtime status must publish the exact physical_gather_resources field"
+    );
+}

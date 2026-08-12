@@ -2106,8 +2106,31 @@ impl GameLogic {
                             let boost = supply_lines_boost.saturating_add(worker_shoes_boost);
                             let credited = deposit_amount.saturating_add(boost);
                             // Credit the player (carried supplies + optional economy boost).
-                            if let Some(player) = self.get_player_mut_by_team(team) {
-                                player.credit_supplies(credited);
+                            // Capture the concrete owner before the mutable
+                            // credit so the typed event below is tied to this
+                            // real ReturningResources deposit, not a later
+                            // resource-total observation or passive income.
+                            let credited_player_id =
+                                self.players.iter().find_map(|(&player_id, player)| {
+                                    (player.team == team).then_some(player_id)
+                                });
+                            if let Some(player_id) = credited_player_id {
+                                let credited_player =
+                                    if let Some(player) = self.get_player_mut(player_id) {
+                                        player.credit_supplies(credited);
+                                        true
+                                    } else {
+                                        false
+                                    };
+                                if credited_player {
+                                    self.record_supply_dropoff_event(
+                                        crate::game_logic::SupplyDropoffEvent {
+                                            carrier_id: object_id,
+                                            player_id,
+                                            carried_amount: deposit_amount,
+                                        },
+                                    );
+                                }
                             }
                             if supply_lines_boost > 0 {
                                 self.supply_lines_bonus_cash_total = self

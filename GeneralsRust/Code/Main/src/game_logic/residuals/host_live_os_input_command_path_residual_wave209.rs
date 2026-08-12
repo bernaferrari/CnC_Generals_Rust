@@ -88,7 +88,7 @@ pub fn honesty_window_event_mouse_to_handle_click_source() -> bool {
     eng.contains("MouseButton::Left, ElementState::Pressed")
         && eng.contains("self.handle_left_click()")
         && eng.contains("MouseButton::Right, ElementState::Pressed")
-        && eng.contains("self.handle_right_click()")
+        && eng.contains("self.handle_right_click(origin, physical_rmb_gesture)")
 }
 
 /// Source residual: right-click builds context commands via CommandSystem.

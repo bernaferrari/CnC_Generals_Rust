@@ -89,6 +89,12 @@ pub struct CommandButton {
     max_shots_to_fire: i32,
     special_power_template:
         Option<Arc<crate::object::special_power_template::SpecialPowerTemplate>>,
+    /// Exact `Object =` identity from the parsed CommandButton definition.
+    ///
+    /// Keep this independently of the resolved template pointer: a parsed
+    /// CommandSet can still be queried safely while object references are
+    /// being refreshed during startup.
+    object_template_name: Option<String>,
     thing_template: Option<Arc<dyn crate::common::ThingTemplate>>,
     upgrade_template: Option<Arc<UpgradeTemplate>>,
     options_bits: u32,
@@ -138,6 +144,7 @@ impl CommandButton {
             weapon_slot: crate::weapon::WeaponSlotType::Primary,
             max_shots_to_fire: i32::MAX,
             special_power_template: None,
+            object_template_name: None,
             thing_template: None,
             upgrade_template: None,
             options_bits: 0,
@@ -146,7 +153,10 @@ impl CommandButton {
     }
 
     /// Override the mapped GUI command type (tests and synthetic buttons).
-    pub fn with_command_type(mut self, command_type: crate::commands::command::CommandType) -> Self {
+    pub fn with_command_type(
+        mut self,
+        command_type: crate::commands::command::CommandType,
+    ) -> Self {
         self.command_type = command_type;
         self
     }
@@ -175,11 +185,10 @@ impl CommandButton {
             .special_power_template
             .as_ref()
             .map(|name| find_or_create_special_power_template(&AsciiString::from(name.as_str())));
-        let thing_template = if button.object.is_empty() {
-            None
-        } else {
-            TheThingFactory::find_template(button.object.as_str())
-        };
+        let object_template_name = (!button.object.is_empty()).then(|| button.object.clone());
+        let thing_template = object_template_name
+            .as_deref()
+            .and_then(TheThingFactory::find_template);
         let upgrade_template = if button.upgrade.is_empty() {
             None
         } else {
@@ -191,6 +200,7 @@ impl CommandButton {
         out.weapon_slot = weapon_slot;
         out.max_shots_to_fire = button.max_shots_to_fire;
         out.special_power_template = special_power_template;
+        out.object_template_name = object_template_name;
         out.thing_template = thing_template;
         out.upgrade_template = upgrade_template;
         out.options_bits = button.options_bits;
@@ -240,6 +250,13 @@ impl CommandButton {
     /// Get the thing template for unit/build commands.
     pub fn get_thing_template(&self) -> Option<&Arc<dyn crate::common::ThingTemplate>> {
         self.thing_template.as_ref()
+    }
+
+    /// Get the exact parsed `Object =` identity for commands that name an
+    /// object template.  Unlike [`Self::get_thing_template`], this remains
+    /// available if the shared template pointer has not resolved yet.
+    pub fn get_object_template_name(&self) -> Option<&str> {
+        self.object_template_name.as_deref()
     }
 
     /// Get the upgrade template for upgrade commands.

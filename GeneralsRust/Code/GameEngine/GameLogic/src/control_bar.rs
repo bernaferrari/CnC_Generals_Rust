@@ -127,12 +127,9 @@ impl ControlBarBridge {
     ) -> Option<bool> {
         let command_set = self.command_sets.get(command_set_name)?;
         Some(command_set.buttons.iter().flatten().any(|button| {
-            let object_template = button
-                .get_thing_template()
-                .map(|template| template.get_name().as_str());
             is_exact_unit_build_identity(
                 button.get_command_type(),
-                object_template,
+                button.get_object_template_name(),
                 requested_template,
             )
         }))
@@ -480,5 +477,47 @@ mod tests {
             Some("AmericaInfantryRanger"),
             "AmericaInfantryRanger",
         ));
+    }
+
+    #[test]
+    fn retail_unit_build_button_keeps_the_parsed_object_identity() {
+        use game_engine::common::ini::ini_command_button::CommandButton as ParsedCommandButton;
+
+        // These are the retail CommandButton.ini identities used by
+        // AmericaBarracksCommandSet.  Build the GameLogic bridge shape from
+        // the parsed operation/object pair, rather than a button-name rule.
+        let mut parsed =
+            ParsedCommandButton::new("Command_ConstructAmericaInfantryRanger".to_string());
+        parsed.command = "UNIT_BUILD".to_string();
+        parsed.object = "AmericaInfantryRanger".to_string();
+        let ranger = CommandButton::from_common(1, &parsed);
+
+        assert_eq!(ranger.get_command_type(), CommandType::QueueUnitCreate);
+        assert_eq!(
+            ranger.get_object_template_name(),
+            Some("AmericaInfantryRanger")
+        );
+
+        let mut command_set = CommandSet::new("AmericaBarracksCommandSet".to_string());
+        assert!(command_set.set_command_button(0, Some(ranger.clone())));
+        let bridge = ControlBarBridge {
+            buttons_by_id: HashMap::from([(ranger.get_id(), ranger)]),
+            command_sets: HashMap::from([("AmericaBarracksCommandSet".to_string(), command_set)]),
+        };
+
+        assert_eq!(
+            bridge.exact_unit_build_authorization(
+                "AmericaBarracksCommandSet",
+                "AmericaInfantryRanger"
+            ),
+            Some(true)
+        );
+        assert_eq!(
+            bridge.exact_unit_build_authorization(
+                "AmericaBarracksCommandSet",
+                "AmericaInfantryRangerPrototype"
+            ),
+            Some(false)
+        );
     }
 }

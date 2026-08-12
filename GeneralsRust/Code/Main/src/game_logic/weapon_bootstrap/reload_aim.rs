@@ -34,7 +34,6 @@ pub(super) fn seed_reload_type_for(name: &str) -> HostReloadType {
         || n.contains("jetmissile")
         || n.contains("stealthfighter")
         || (n.contains("aurora") && (n.contains("bomb") || n.contains("weapon")))
-        || (n.contains("comanche") && n.contains("rocket"))
     {
         return HostReloadType::ReturnToBase;
     }
