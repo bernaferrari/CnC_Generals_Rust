@@ -57,9 +57,10 @@ impl PresentationFrame {
             let is_unit = obj.is_kind_of(KindOf::Infantry)
                 || obj.is_kind_of(KindOf::Vehicle)
                 || obj.is_kind_of(KindOf::Aircraft);
-            // Prefer explicit template model name so mesh resolve matches live collect path.
-            // Alias remap (airanger → airanger_s) keeps PresentationFrame model_key aligned
-            // with shipped W3D basenames for the residual mesh asset resolve path.
+            // Prefer the explicitly authored template model only when the
+            // loaded Object INI has no retained ConditionState table.  A
+            // source-authored Draw state below takes precedence; the render
+            // collector must receive that exact W3D key untouched.
             let base_model_key =
                 crate::assets::mesh_asset_resolve::model_key_from_template(obj.get_template());
             let destroyed_for_mesh = obj.status.destroyed || auth_health <= 0.01;
@@ -74,19 +75,58 @@ impl PresentationFrame {
                 };
                 state as u8
             };
-            // Wave 491: sold model-condition forces rubble/dying mesh branch.
-            let sold_for_mesh = obj.status.sold
-                || crate::game_logic::host_enum_table_residual::host_model_condition_has(
-                    obj.model_condition_bits,
-                    crate::game_logic::host_enum_table_residual::sold_model_bit(),
-                );
-            let model_key = Some(
-                crate::assets::mesh_asset_resolve::model_key_with_presentation_state(
-                    &base_model_key,
-                    body_ord,
-                    destroyed_for_mesh,
-                    sold_for_mesh,
-                ),
+            let model_condition_bits = {
+                // Preserve the same frozen condition bank used by the mesh
+                // pass.  C++ W3DModelDraw selects an authored ConditionState
+                // from these bits, rather than forming a basename suffix.
+                let mut bits = obj.model_condition_bits;
+                use crate::game_logic::host_enum_table_residual::{
+                    host_apply_body_damage_model_bits, host_calc_body_damage_state,
+                    HostBodyDamageType, MC_BIT_ATTACKING, MC_BIT_DYING, MC_BIT_MOVING,
+                };
+                use crate::game_logic::host_neutron_missile_slow_death::{
+                    MC_BIT_BACKCRUSHED, MC_BIT_FRONTCRUSHED,
+                };
+                let state = if destroyed_for_mesh {
+                    HostBodyDamageType::Rubble
+                } else {
+                    host_calc_body_damage_state(auth_health, obj.health.maximum.max(0.0))
+                };
+                bits = host_apply_body_damage_model_bits(bits, state);
+
+                if obj.front_crushed {
+                    bits |= 1u128 << MC_BIT_FRONTCRUSHED;
+                }
+                if obj.back_crushed {
+                    bits |= 1u128 << MC_BIT_BACKCRUSHED;
+                }
+                if obj.status.moving {
+                    bits |= 1u128 << MC_BIT_MOVING;
+                } else {
+                    bits &= !(1u128 << MC_BIT_MOVING);
+                }
+                if obj.status.attacking {
+                    bits |= 1u128 << MC_BIT_ATTACKING;
+                } else {
+                    bits &= !(1u128 << MC_BIT_ATTACKING);
+                }
+                if destroyed_for_mesh {
+                    bits |= 1u128 << MC_BIT_DYING;
+                } else {
+                    bits &= !(1u128 << MC_BIT_DYING);
+                }
+                use crate::game_logic::host_enum_table_residual::MC_BIT_DISGUISED;
+                if obj.status.disguised {
+                    bits |= 1u128 << MC_BIT_DISGUISED;
+                } else {
+                    bits &= !(1u128 << MC_BIT_DISGUISED);
+                }
+                bits
+            };
+            let model_key = crate::assets::resolve_presentation_model_key_for_conditions(
+                &obj.template_name,
+                &base_model_key,
+                model_condition_bits,
             );
             // Wave 75: freeze mesh scale residual (common combat = 1.0; CINE/weapon peels).
             let mesh_scale =
@@ -212,68 +252,11 @@ impl PresentationFrame {
                 is_deployed: obj.status.deployed,
                 selection_flash_remaining: obj.selection_flash_remaining,
                 destroyed: obj.status.destroyed || auth_health <= 0.01,
-                model_condition_bits: {
-                    // Prefer live residual bits; recompute if pristine-zero and damaged.
-                    let mut bits = obj.model_condition_bits;
-                    use crate::game_logic::host_enum_table_residual::{
-                        host_apply_body_damage_model_bits, host_calc_body_damage_state,
-                        HostBodyDamageType, MC_BIT_ATTACKING, MC_BIT_DYING, MC_BIT_MOVING,
-                    };
-                    use crate::game_logic::host_neutron_missile_slow_death::{
-                        MC_BIT_BACKCRUSHED, MC_BIT_FRONTCRUSHED,
-                    };
-                    let destroyed = obj.status.destroyed || auth_health <= 0.01;
-                    let state = if destroyed {
-                        HostBodyDamageType::Rubble
-                    } else {
-                        host_calc_body_damage_state(auth_health, obj.health.maximum.max(0.0))
-                    };
-                    bits = host_apply_body_damage_model_bits(bits, state);
-
-                    if obj.front_crushed {
-                        bits |= 1u128 << MC_BIT_FRONTCRUSHED;
-                    }
-                    if obj.back_crushed {
-                        bits |= 1u128 << MC_BIT_BACKCRUSHED;
-                    }
-                    if obj.status.moving {
-                        bits |= 1u128 << MC_BIT_MOVING;
-                    } else {
-                        bits &= !(1u128 << MC_BIT_MOVING);
-                    }
-                    if obj.status.attacking {
-                        bits |= 1u128 << MC_BIT_ATTACKING;
-                    } else {
-                        bits &= !(1u128 << MC_BIT_ATTACKING);
-                    }
-                    if destroyed {
-                        bits |= 1u128 << MC_BIT_DYING;
-                    } else {
-                        bits &= !(1u128 << MC_BIT_DYING);
-                    }
-                    use crate::game_logic::host_enum_table_residual::MC_BIT_DISGUISED;
-                    if obj.status.disguised {
-                        bits |= 1u128 << MC_BIT_DISGUISED;
-                    } else {
-                        bits &= !(1u128 << MC_BIT_DISGUISED);
-                    }
-                    bits
-                },
+                model_condition_bits,
                 radar_active: obj.radar_active,
                 radar_extend_complete: obj.radar_extend_complete,
                 production_door_phase: obj.production_door_phase,
-                body_damage_state: {
-                    use crate::game_logic::host_enum_table_residual::{
-                        host_calc_body_damage_state, HostBodyDamageType,
-                    };
-                    let destroyed = obj.status.destroyed || auth_health <= 0.01;
-                    let state = if destroyed {
-                        HostBodyDamageType::Rubble
-                    } else {
-                        host_calc_body_damage_state(auth_health, obj.health.maximum.max(0.0))
-                    };
-                    state as u8
-                },
+                body_damage_state: { body_ord },
                 damage_fx_name: obj
                     .pending_transition_damage_fx
                     .last()
@@ -541,6 +524,9 @@ impl PresentationFrame {
                         KindOf::Powered,
                         // Wave 982: IgnoredInGui for host mouseover slaver remap.
                         KindOf::IgnoredInGui,
+                        // Appended so existing presentation bit positions stay stable.
+                        KindOf::Dozer,
+                        KindOf::Harvester,
                     ];
                     let set = &obj.get_template().kind_of;
                     let mut v: Vec<KindOf> =

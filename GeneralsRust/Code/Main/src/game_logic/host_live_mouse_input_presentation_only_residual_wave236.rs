@@ -266,6 +266,7 @@ mod tests {
             selected_presentation: vec![PresentationSelectedUnitHint {
                 id: attacker,
                 is_alive: true,
+                is_resource_collector: false,
                 is_worker: false,
                 can_attack: true,
                 can_move: true,

@@ -149,7 +149,7 @@ impl<'a> CommandExecutor<'a> {
         }
     }
 
-    /// Send worker/harvester units to gather from a resource target.
+    /// Send C++ `KINDOF_HARVESTER` units to gather from a resource target.
     pub(super) fn execute_gather(
         &mut self,
         units: &[ObjectId],
@@ -179,7 +179,7 @@ impl<'a> CommandExecutor<'a> {
                 .host_object(unit_id)
                 .map(|unit| {
                     unit.is_alive()
-                        && unit.is_worker()
+                        && unit.is_resource_collector()
                         && unit.can_move()
                         && unit.team == player_team
                 })

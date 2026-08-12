@@ -1355,6 +1355,14 @@ impl CnCGameEngine {
                     || n.contains("worker")
                     || n.contains("supplytruck")
                     || n.contains("supply_truck");
+            // Gather authorization is an authored capability, not a template
+            // naming convention.  C++ marks Chinooks, Supply Trucks, and GLA
+            // Workers with KINDOF_HARVESTER.
+            let is_resource_collector =
+                crate::presentation_frame::PresentationFrame::object_has_kind(
+                    o,
+                    crate::game_logic::KindOf::Harvester,
+                );
             let can_attack = o.has_weapon;
             let can_move = o.is_mobile;
             let is_lotus =
@@ -1394,6 +1402,7 @@ impl CnCGameEngine {
             out.push(crate::command_system::PresentationSelectedUnitHint {
                 id,
                 is_alive: true,
+                is_resource_collector,
                 is_worker,
                 can_attack,
                 can_move,

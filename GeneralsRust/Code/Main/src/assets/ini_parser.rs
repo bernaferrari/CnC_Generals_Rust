@@ -11,6 +11,109 @@ use anyhow::Result;
 use log::{debug, trace};
 use std::collections::HashMap;
 
+/// The source-authored model payload of one `W3D*Draw` condition state.
+///
+/// `None` in an Object INI is distinct from a state which did not provide a
+/// `Model` line at all.  The former deliberately suppresses a drawable; the
+/// latter is malformed/incomplete data and must not be turned into a guessed
+/// model at presentation time.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AuthoredConditionModel {
+    Unspecified,
+    None,
+    Named(String),
+}
+
+/// A single source-authored `DefaultConditionState`, `ConditionState`, or
+/// `TransitionState` block.  `condition_sets` retains the initial token list
+/// and each following `AliasConditionState` in source order.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DrawConditionStateDefinition {
+    pub is_default: bool,
+    pub is_transition: bool,
+    pub condition_sets: Vec<Vec<String>>,
+    pub model: AuthoredConditionModel,
+}
+
+impl DrawConditionStateDefinition {
+    fn default_state() -> Self {
+        Self {
+            is_default: true,
+            is_transition: false,
+            condition_sets: vec![Vec::new()],
+            model: AuthoredConditionModel::Unspecified,
+        }
+    }
+
+    fn condition_state(condition_tokens: Vec<String>) -> Self {
+        Self {
+            is_default: false,
+            is_transition: false,
+            condition_sets: vec![condition_tokens],
+            model: AuthoredConditionModel::Unspecified,
+        }
+    }
+
+    fn transition_state(transition_tokens: Vec<String>) -> Self {
+        Self {
+            is_default: false,
+            is_transition: true,
+            condition_sets: vec![transition_tokens],
+            model: AuthoredConditionModel::Unspecified,
+        }
+    }
+
+    fn set_model(&mut self, value: &str) {
+        let value = value.trim();
+        self.model = if value.is_empty() {
+            AuthoredConditionModel::Unspecified
+        } else if value.eq_ignore_ascii_case("none") {
+            AuthoredConditionModel::None
+        } else {
+            AuthoredConditionModel::Named(value.to_string())
+        };
+    }
+}
+
+/// One `Draw = ...` module, kept in Object INI order.  The active WGPU path
+/// currently renders only the first model-bearing module, but retaining every
+/// module and its raw condition lists avoids reparsing source data when the
+/// multi-module bridge is completed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DrawModuleDefinition {
+    pub declaration: String,
+    pub ignored_condition_tokens: Vec<String>,
+    pub condition_states: Vec<DrawConditionStateDefinition>,
+}
+
+impl DrawModuleDefinition {
+    fn new(declaration: String) -> Self {
+        Self {
+            declaration,
+            ignored_condition_tokens: Vec::new(),
+            condition_states: Vec::new(),
+        }
+    }
+
+    fn has_selectable_condition_states(&self) -> bool {
+        self.condition_states.iter().any(|state| !state.is_transition)
+    }
+}
+
+/// Result of matching the first source-authored model-bearing Draw module.
+///
+/// `NoAuthoredState` permits the caller to retain its separately authored
+/// template model.  `Suppressed` and `Unresolved` intentionally do not: the
+/// Object INI did provide a state, so drawing a different model would be a
+/// visual substitution rather than a fallback.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AuthoredConditionModelSelection {
+    NoAuthoredState,
+    Model(String),
+    Suppressed,
+    Unresolved,
+}
+
 /// Represents a drawable object definition from INI files
 /// Matches C++ ObjectDefinition structure
 #[derive(Debug, Clone)]
@@ -36,6 +139,10 @@ pub struct ObjectDefinition {
 
     /// Draw module (rendering behavior)
     pub draw_module: Option<String>,
+
+    /// Source-authored Draw modules in declaration order.  This preserves the
+    /// ConditionState table which C++ W3DModelDraw selects at runtime.
+    pub draw_modules: Vec<DrawModuleDefinition>,
 
     /// Armor type
     pub armor_type: Option<String>,
@@ -80,6 +187,7 @@ impl ObjectDefinition {
             model_name: None,
             textures: HashMap::new(),
             draw_module: None,
+            draw_modules: Vec::new(),
             armor_type: None,
             hit_points: None,
             scale: 1.0,
@@ -97,6 +205,85 @@ impl ObjectDefinition {
             .get("0")
             .map(|s| s.as_str())
             .or_else(|| self.textures.values().next().map(|s| s.as_str()))
+    }
+
+    /// Match the first source-authored model-bearing Draw module using the
+    /// C++ `SparseMatchFinder` ordering used by `W3DModelDraw`.
+    ///
+    /// The matcher maximizes common condition bits, then minimizes condition
+    /// bits requested by the state but absent from the object.  It deliberately
+    /// keeps source/module order as the final tie-breaker.  Alias sets are
+    /// inspected in reverse order just like C++.
+    pub fn select_primary_model_for_conditions(
+        &self,
+        condition_bits: u128,
+    ) -> AuthoredConditionModelSelection {
+        let Some(module) = self
+            .draw_modules
+            .iter()
+            .find(|module| module.has_selectable_condition_states())
+        else {
+            return AuthoredConditionModelSelection::NoAuthoredState;
+        };
+
+        let Some(ignored_bits) = Self::condition_tokens_mask(&module.ignored_condition_tokens)
+        else {
+            return AuthoredConditionModelSelection::Unresolved;
+        };
+        let query_bits = condition_bits & !ignored_bits;
+
+        let mut best_state: Option<&DrawConditionStateDefinition> = None;
+        let mut best_yes_match = 0u32;
+        let mut best_yes_extraneous = u32::MAX;
+
+        for state in &module.condition_states {
+            if state.is_transition {
+                continue;
+            }
+            for condition_tokens in state.condition_sets.iter().rev() {
+                let Some(yes_bits) = Self::condition_tokens_mask(condition_tokens) else {
+                    // C++ parses every condition token into the shared enum
+                    // before it can reach SparseMatchFinder.  A token our
+                    // port does not understand must not silently discard a
+                    // source-authored state and pick a different model.
+                    return AuthoredConditionModelSelection::Unresolved;
+                };
+                let yes_match = (query_bits & yes_bits).count_ones();
+                let yes_extraneous = ((!query_bits) & yes_bits).count_ones();
+                if yes_match > best_yes_match
+                    || (yes_match >= best_yes_match && yes_extraneous < best_yes_extraneous)
+                {
+                    best_state = Some(state);
+                    best_yes_match = yes_match;
+                    best_yes_extraneous = yes_extraneous;
+                }
+            }
+        }
+
+        match best_state.map(|state| &state.model) {
+            Some(AuthoredConditionModel::Named(model)) => {
+                AuthoredConditionModelSelection::Model(model.clone())
+            }
+            Some(AuthoredConditionModel::None | AuthoredConditionModel::Unspecified) => {
+                AuthoredConditionModelSelection::Suppressed
+            }
+            None => AuthoredConditionModelSelection::Unresolved,
+        }
+    }
+
+    fn condition_tokens_mask(tokens: &[String]) -> Option<u128> {
+        let mut mask = 0u128;
+        for token in tokens {
+            let token = token.trim().trim_matches(',');
+            if token.is_empty() || token.eq_ignore_ascii_case("none") {
+                continue;
+            }
+            let bit_index =
+                crate::game_logic::host_enum_table_residual::model_condition_bit_name_index(token)?;
+            let shift = u32::try_from(bit_index).ok()?;
+            mask |= 1u128.checked_shl(shift)?;
+        }
+        Some(mask)
     }
 }
 
@@ -120,7 +307,11 @@ impl IniParser {
 
         let lines: Vec<&str> = content.lines().collect();
         let mut current_object: Option<ObjectDefinition> = None;
-        let mut current_condition_state = String::new();
+        // This parser intentionally remains lightweight, but Draw blocks have
+        // a regular enough shape to preserve their authored ConditionState
+        // table without mistaking nested Behavior/Body `End`s for Object ends.
+        let mut active_draw_module: Option<usize> = None;
+        let mut active_condition_state: Option<usize> = None;
         let mut object_count = 0;
         for (index, line) in lines.iter().enumerate() {
             let trimmed = line.trim();
@@ -153,7 +344,8 @@ impl IniParser {
                 let mut object = ObjectDefinition::new(class_name);
                 object.parent_name = parent_name;
                 current_object = Some(object);
-                current_condition_state.clear();
+                active_draw_module = None;
+                active_condition_state = None;
                 trace!("Found object: {}", current_object.as_ref().unwrap().name);
                 continue;
             }
@@ -165,18 +357,53 @@ impl IniParser {
                         self.definitions.insert(obj.name.clone(), obj);
                         object_count += 1;
                     }
-                    current_condition_state.clear();
+                    active_draw_module = None;
+                    active_condition_state = None;
                 } else {
-                    // Nested block terminator (Draw/Behavior/Body/etc.).
-                    current_condition_state.clear();
+                    // Nested block terminator.  A condition-state block closes
+                    // before its Draw module; other nested Object blocks do
+                    // not affect the currently retained Draw data.
+                    if active_condition_state.take().is_none() {
+                        active_draw_module = None;
+                    }
                 }
                 continue;
             }
 
             // Parse key = value pairs within an object
             if let Some(obj) = &mut current_object {
-                if trimmed.eq_ignore_ascii_case("DefaultConditionState") {
-                    current_condition_state = "default".to_string();
+                if let Some((condition_state_key, condition_state_value)) =
+                    Self::parse_condition_state_declaration(trimmed)
+                {
+                    if condition_state_key.eq_ignore_ascii_case("DefaultConditionState") {
+                        active_condition_state = Self::start_draw_condition_state(
+                            obj,
+                            active_draw_module,
+                            DrawConditionStateDefinition::default_state(),
+                        );
+                    } else if condition_state_key.eq_ignore_ascii_case("ConditionState") {
+                        active_condition_state = Self::start_draw_condition_state(
+                            obj,
+                            active_draw_module,
+                            DrawConditionStateDefinition::condition_state(
+                                Self::condition_tokens(condition_state_value),
+                            ),
+                        );
+                    } else if condition_state_key.eq_ignore_ascii_case("AliasConditionState") {
+                        Self::append_draw_condition_alias(
+                            obj,
+                            active_draw_module,
+                            Self::condition_tokens(condition_state_value),
+                        );
+                    } else if condition_state_key.eq_ignore_ascii_case("TransitionState") {
+                        active_condition_state = Self::start_draw_condition_state(
+                            obj,
+                            active_draw_module,
+                            DrawConditionStateDefinition::transition_state(
+                                Self::condition_tokens(condition_state_value),
+                            ),
+                        );
+                    }
                     continue;
                 }
 
@@ -195,16 +422,35 @@ impl IniParser {
 
                     // Parse specific fields
                     let lower_key = key.to_lowercase();
+
                     match lower_key.as_str() {
                         "type" => obj.object_type = value.to_string(),
                         "displayname" => obj.display_name = value.to_string(),
-                        "conditionstate" => {
-                            current_condition_state = value.to_ascii_lowercase();
-                        }
                         "model" | "modelname" | "w3dmodel" => {
-                            Self::assign_model_name(obj, value, &current_condition_state);
+                            Self::assign_model_name(obj, value);
+                            Self::assign_draw_condition_model(
+                                obj,
+                                active_draw_module,
+                                active_condition_state,
+                                value,
+                            );
                         }
-                        "drawmodule" | "draw" => obj.draw_module = Some(value.to_string()),
+                        "draw" => {
+                            obj.draw_module = Some(value.to_string());
+                            obj.draw_modules
+                                .push(DrawModuleDefinition::new(value.to_string()));
+                            active_draw_module = obj.draw_modules.len().checked_sub(1);
+                            active_condition_state = None;
+                        }
+                        "drawmodule" => obj.draw_module = Some(value.to_string()),
+                        "ignoreconditionstates" => {
+                            if let Some(draw_module) = active_draw_module
+                                .and_then(|index| obj.draw_modules.get_mut(index))
+                            {
+                                draw_module.ignored_condition_tokens = Self::condition_tokens(value);
+                            }
+                            obj.attributes.insert(key.to_string(), value.to_string());
+                        }
                         "armortype" => obj.armor_type = Some(value.to_string()),
                         "hitpoints" | "health" | "maxhealth" => {
                             obj.hit_points = value.parse().ok();
@@ -317,7 +563,104 @@ impl IniParser {
         value
     }
 
-    fn assign_model_name(obj: &mut ObjectDefinition, value: &str, _condition_state: &str) {
+    fn condition_tokens(value: &str) -> Vec<String> {
+        value
+            .split_whitespace()
+            .map(|token| token.trim().trim_matches(',').to_string())
+            .filter(|token| !token.is_empty())
+            .collect()
+    }
+
+    /// Recognize both retail spellings accepted by C++ INI: the usual
+    /// `ConditionState = DAMAGED` and the compact
+    /// `AliasConditionState WEAPONSET_PLAYER_UPGRADE` form.  We do this
+    /// before generic key/value parsing so aliases without `=` do not vanish.
+    fn parse_condition_state_declaration(line: &str) -> Option<(&str, &str)> {
+        let (key, value) = if let Some(eq) = line.find('=') {
+            (line[..eq].trim(), line[eq + 1..].trim())
+        } else {
+            let mut parts = line.splitn(2, char::is_whitespace);
+            let key = parts.next()?.trim();
+            let value = parts.next().unwrap_or_default().trim();
+            (key, value)
+        };
+        if key.eq_ignore_ascii_case("DefaultConditionState")
+            || key.eq_ignore_ascii_case("ConditionState")
+            || key.eq_ignore_ascii_case("AliasConditionState")
+            || key.eq_ignore_ascii_case("TransitionState")
+        {
+            Some((key, value))
+        } else {
+            None
+        }
+    }
+
+    fn start_draw_condition_state(
+        obj: &mut ObjectDefinition,
+        active_draw_module: Option<usize>,
+        mut state: DrawConditionStateDefinition,
+    ) -> Option<usize> {
+        let module = active_draw_module.and_then(|index| obj.draw_modules.get_mut(index))?;
+        // `W3DModelDrawModuleData::parseConditionState` starts both normal
+        // and transition states as a copy of DefaultConditionState before it
+        // reads the new block.  Keep that source-authored inherited Model so
+        // a valid ConditionState which changes only animation/bones still
+        // resolves to its default mesh rather than disappearing.
+        if !state.is_default {
+            if let Some(default) = module
+                .condition_states
+                .iter()
+                .find(|candidate| candidate.is_default)
+            {
+                state.model = default.model.clone();
+            }
+        }
+        module.condition_states.push(state);
+        module.condition_states.len().checked_sub(1)
+    }
+
+    fn append_draw_condition_alias(
+        obj: &mut ObjectDefinition,
+        active_draw_module: Option<usize>,
+        condition_tokens: Vec<String>,
+    ) {
+        let Some(module) = active_draw_module.and_then(|index| obj.draw_modules.get_mut(index))
+        else {
+            return;
+        };
+        // C++ does not insert a TransitionState into m_conditionStates, so an
+        // AliasConditionState after a transition still aliases the most recent
+        // selectable state.  Preserve that behavior while retaining the
+        // transition in source order for diagnostics.
+        let Some(state) = module
+            .condition_states
+            .iter_mut()
+            .rev()
+            .find(|candidate| !candidate.is_transition)
+        else {
+            return;
+        };
+        state.condition_sets.push(condition_tokens);
+    }
+
+    fn assign_draw_condition_model(
+        obj: &mut ObjectDefinition,
+        active_draw_module: Option<usize>,
+        active_condition_state: Option<usize>,
+        value: &str,
+    ) {
+        let Some(module) = active_draw_module.and_then(|index| obj.draw_modules.get_mut(index))
+        else {
+            return;
+        };
+        let Some(state) = active_condition_state.and_then(|index| module.condition_states.get_mut(index))
+        else {
+            return;
+        };
+        state.set_model(value);
+    }
+
+    fn assign_model_name(obj: &mut ObjectDefinition, value: &str) {
         if value.is_empty() || value.eq_ignore_ascii_case("none") {
             return;
         }
@@ -461,6 +804,119 @@ End
         assert_eq!(
             def.attributes.get("KindOf").map(|s| s.as_str()),
             Some("STRUCTURE SELECTABLE")
+        );
+    }
+
+    fn model_condition_bit(name: &str) -> u128 {
+        let index = crate::game_logic::host_enum_table_residual::model_condition_bit_name_index(
+            name,
+        )
+        .expect("known C++ ModelCondition flag");
+        let shift = u32::try_from(index).expect("condition bit fits u32");
+        1u128.checked_shl(shift)
+            .expect("condition bit fits retained u128 bank")
+    }
+
+    #[test]
+    fn retained_draw_states_select_source_models_with_default_inheritance_and_aliases() {
+        let ini_content = r#"
+Object ConditionStateProbe
+  Draw = W3DModelDraw ModuleTag_01
+    DefaultConditionState
+      Model = ProbePristine
+    End
+    ConditionState = DAMAGED MOVING
+      Model = ProbeDamagedMoving
+    End
+    AliasConditionState REALLYDAMAGED MOVING
+    ConditionState = DAMAGED
+    End
+    ConditionState = RUBBLE
+      Model = NONE
+    End
+    TransitionState = TRANS_Standing TRANS_Moving
+      Model = ProbeTransitionOnly
+    End
+  End
+End
+"#;
+
+        let mut parser = IniParser::new();
+        parser
+            .parse_ini_content(ini_content, "condition_state_probe.ini")
+            .expect("parse source Draw state table");
+        let definition = parser
+            .get_definition("ConditionStateProbe")
+            .expect("parsed object definition");
+
+        assert_eq!(definition.draw_modules.len(), 1);
+        let module = &definition.draw_modules[0];
+        assert_eq!(module.condition_states.len(), 5);
+        assert_eq!(
+            module.condition_states[1].condition_sets,
+            vec![
+                vec!["DAMAGED".to_string(), "MOVING".to_string()],
+                vec!["REALLYDAMAGED".to_string(), "MOVING".to_string()],
+            ],
+            "the compact AliasConditionState spelling must retain raw source order"
+        );
+
+        assert_eq!(
+            definition.select_primary_model_for_conditions(0),
+            AuthoredConditionModelSelection::Model("ProbePristine".to_string())
+        );
+        assert_eq!(
+            definition.select_primary_model_for_conditions(model_condition_bit("DAMAGED")),
+            AuthoredConditionModelSelection::Model("ProbePristine".to_string()),
+            "normal states inherit DefaultConditionState Model exactly like C++"
+        );
+        assert_eq!(
+            definition.select_primary_model_for_conditions(
+                model_condition_bit("DAMAGED") | model_condition_bit("MOVING"),
+            ),
+            AuthoredConditionModelSelection::Model("ProbeDamagedMoving".to_string()),
+            "more matching source bits win"
+        );
+        assert_eq!(
+            definition.select_primary_model_for_conditions(
+                model_condition_bit("REALLYDAMAGED") | model_condition_bit("MOVING"),
+            ),
+            AuthoredConditionModelSelection::Model("ProbeDamagedMoving".to_string()),
+            "an alias selects its preceding source state"
+        );
+        assert_eq!(
+            definition.select_primary_model_for_conditions(model_condition_bit("RUBBLE")),
+            AuthoredConditionModelSelection::Suppressed,
+            "Model = NONE must not fall through to a guessed pristine model"
+        );
+    }
+
+    #[test]
+    fn unknown_source_condition_token_fails_closed_instead_of_selecting_default() {
+        let ini_content = r#"
+Object UnsupportedConditionProbe
+  Draw = W3DModelDraw ModuleTag_01
+    DefaultConditionState
+      Model = ProbePristine
+    End
+    ConditionState = PORT_ONLY_CONDITION
+      Model = WouldBeWrongToGuess
+    End
+  End
+End
+"#;
+
+        let mut parser = IniParser::new();
+        parser
+            .parse_ini_content(ini_content, "unsupported_condition_probe.ini")
+            .expect("parse source Draw state table");
+        let definition = parser
+            .get_definition("UnsupportedConditionProbe")
+            .expect("parsed object definition");
+        assert_eq!(
+            definition.select_primary_model_for_conditions(0),
+            AuthoredConditionModelSelection::Unresolved,
+            "unsupported source state must not silently disappear during matching"
         );
     }
 

@@ -1,5 +1,46 @@
 use super::*;
 
+fn always_true_condition() -> Box<OrCondition> {
+    let mut condition = OrCondition::new();
+    condition.set_first_and_condition(Some(Box::new(Condition::new(ConditionType::ConditionTrue))));
+    Box::new(condition)
+}
+
+fn set_flag_action(flag_name: &str) -> Box<ScriptAction> {
+    let mut action = ScriptAction::new(ScriptActionType::SetFlag);
+    action
+        .add_parameter(Parameter::with_string(
+            ParameterType::Flag,
+            flag_name.to_string(),
+        ))
+        .unwrap();
+    action
+        .add_parameter(Parameter::with_int(ParameterType::Boolean, 1))
+        .unwrap();
+    Box::new(action)
+}
+
+fn call_subroutine_action(name: &str) -> Box<ScriptAction> {
+    let mut action = ScriptAction::new(ScriptActionType::CallSubroutine);
+    action
+        .add_parameter(Parameter::with_string(
+            ParameterType::Script,
+            name.to_string(),
+        ))
+        .unwrap();
+    Box::new(action)
+}
+
+fn subroutine(name: &str, action: Box<ScriptAction>) -> Script {
+    let mut script = Script::new();
+    script.script_name = name.to_string();
+    script.is_subroutine = true;
+    script.is_one_shot = true;
+    script.condition = Some(always_true_condition());
+    script.action = Some(action);
+    script
+}
+
 #[test]
 fn test_script_engine_creation() {
     let engine = ScriptEngine::new().unwrap();
@@ -537,6 +578,155 @@ fn nested_call_subroutine_reenters_immediately_through_scoped_tls() {
         Some((true, Some(true))),
         "C++ CALL_SUBROUTINE must execute its callee before the outer action returns"
     );
+}
+
+#[test]
+fn nested_call_subroutine_finds_callee_on_a_different_side_in_cxx_order() {
+    let _lock = crate::test_sync::lock();
+    initialize_script_engine().unwrap();
+
+    {
+        let global = get_script_engine();
+        let mut engine = global.write().unwrap();
+        engine
+            .as_mut()
+            .expect("global ScriptEngine must be initialized")
+            .clear_script_lists();
+    }
+
+    let mut outer_list = ScriptList::new();
+    outer_list.append_script(Box::new(subroutine(
+        "DifferentSideOuter",
+        call_subroutine_action("DifferentSideInner"),
+    )));
+
+    let mut inner_list = ScriptList::new();
+    inner_list.append_script(Box::new(subroutine(
+        "DifferentSideInner",
+        set_flag_action("different_side_subroutine_ran"),
+    )));
+
+    let result = with_script_engine_mut(|engine| {
+        engine
+            .set_script_list_for_player(0, Some(Box::new(outer_list)))
+            .unwrap();
+        engine
+            .set_script_list_for_player(1, Some(Box::new(inner_list)))
+            .unwrap();
+        let found = engine.execute_subroutine_by_name("DifferentSideOuter")?;
+        Ok::<_, GameLogicError>((
+            found,
+            engine
+                .get_flag("different_side_subroutine_ran")
+                .map(|flag| flag.value),
+        ))
+    });
+
+    assert!(matches!(result, Some(Ok((true, Some(true))))));
+}
+
+#[test]
+fn detached_script_is_reinserted_in_original_order_after_unwind() {
+    let engine = ScriptEngine::new().unwrap();
+    let mut list = ScriptList::new();
+
+    let mut first = Script::new();
+    first.script_name = "UnwindFirst".to_string();
+    let mut second = Script::new();
+    second.script_name = "UnwindSecond".to_string();
+    list.append_script(Box::new(first));
+    list.append_script(Box::new(second));
+    engine
+        .set_script_list_for_player(0, Some(Box::new(list)))
+        .unwrap();
+
+    let unwind = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        engine.with_active(|| {
+            engine.with_active_script_lists(|| {
+                engine
+                    .with_detached_script(
+                        ScriptLocation {
+                            side_index: 0,
+                            container: ScriptContainer::Root,
+                            script_index: 0,
+                        },
+                        |_script| -> GameLogicResult<()> {
+                            panic!("force Script execution stack unwind")
+                        },
+                    )
+                    .unwrap();
+            })
+        });
+    }));
+
+    assert!(unwind.is_err());
+    assert!(
+        !ACTIVE_SCRIPT_LISTS.is_set(),
+        "the active list scope must be cleared after unwinding"
+    );
+    let restored_names = engine.with_inner(|inner| {
+        let first = inner.side_script_lists[0]
+            .as_deref()
+            .and_then(|list| list.first_script.as_deref())
+            .expect("first Script must be restored");
+        let second = first
+            .next_script
+            .as_deref()
+            .expect("second Script must remain after restored first Script");
+        (
+            first.script_name.clone(),
+            second.script_name.clone(),
+            second.next_script.is_none(),
+        )
+    });
+    assert_eq!(
+        restored_names,
+        ("UnwindFirst".to_string(), "UnwindSecond".to_string(), true)
+    );
+}
+
+#[test]
+fn same_script_reentry_is_explicit_and_restores_the_live_node() {
+    let _lock = crate::test_sync::lock();
+    initialize_script_engine().unwrap();
+
+    {
+        let global = get_script_engine();
+        let mut engine = global.write().unwrap();
+        engine
+            .as_mut()
+            .expect("global ScriptEngine must be initialized")
+            .clear_script_lists();
+    }
+
+    let mut list = ScriptList::new();
+    list.append_script(Box::new(subroutine(
+        "SafeRecursiveSubroutine",
+        call_subroutine_action("SafeRecursiveSubroutine"),
+    )));
+
+    let result = with_script_engine_mut(|engine| {
+        engine
+            .set_script_list_for_player(0, Some(Box::new(list)))
+            .unwrap();
+        engine.execute_subroutine_by_name("SafeRecursiveSubroutine")
+    });
+
+    assert!(matches!(
+        result,
+        Some(Err(GameLogicError::Configuration(message)))
+            if message.contains("recursive CALL_SUBROUTINE")
+    ));
+
+    let global = get_script_engine();
+    let engine = global.read().unwrap();
+    let stored = engine
+        .as_ref()
+        .expect("global ScriptEngine must be initialized")
+        .find_script_clone_by_name("SafeRecursiveSubroutine")
+        .expect("the recursive Script node must be restored after the error");
+    assert!(stored.is_active);
+    assert!(stored.is_subroutine);
 }
 
 #[test]

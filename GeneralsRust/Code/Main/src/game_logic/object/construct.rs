@@ -1514,10 +1514,22 @@ impl Object {
 
     pub fn is_worker(&self) -> bool {
         self.is_kind_of(KindOf::Worker)
+            || self.is_kind_of(KindOf::Dozer)
             || self.template_name.contains("Dozer")
             || self.template_name.contains("Worker")
             || self.template_name.contains("Harvester")
             || self.template_name.contains("Collector")
+    }
+
+    /// C++ `KINDOF_HARVESTER`: semantic permission to collect supplies.
+    ///
+    /// Builders (`DOZER`) and the host's legacy `Worker` capability remain
+    /// separate because neither one authorizes a resource Gather order on its
+    /// own.  This intentionally avoids template-name classification on the
+    /// live Gather path.
+    #[inline]
+    pub fn is_resource_collector(&self) -> bool {
+        self.is_kind_of(KindOf::Harvester)
     }
 
     pub fn is_hero(&self) -> bool {

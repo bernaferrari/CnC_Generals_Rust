@@ -2676,7 +2676,7 @@ fn black_market_residual_skips_fake_market() {
     assert!(!game_logic.honesty_black_market_ok());
 }
 
-/// An accepted Gather observation carries only the selected workers whose
+/// An accepted Gather observation carries only the selected harvesters whose
 /// executor path assignment succeeded; another locally selected unit must not
 /// leak into the carrier evidence set.
 #[test]
@@ -2686,7 +2686,16 @@ fn accepted_gather_event_contains_only_executor_accepted_carriers() {
     let mut game_logic = GameLogic::new();
     ensure_test_player_for_team(&mut game_logic, Team::USA);
     ensure_test_dozer_template(&mut game_logic);
-    ensure_test_tank_template(&mut game_logic);
+
+    let mut harvester = ThingTemplate::new("TestHarvester");
+    harvester
+        .add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Harvester)
+        .set_health(300.0);
+    game_logic
+        .templates
+        .insert("TestHarvester".to_string(), harvester);
 
     let mut resource = ThingTemplate::new("TestGatherSupply");
     resource
@@ -2697,12 +2706,12 @@ fn accepted_gather_event_contains_only_executor_accepted_carriers() {
         .templates
         .insert("TestGatherSupply".to_string(), resource);
 
-    let worker_id = game_logic
-        .create_object("TestDozer", Team::USA, Vec3::new(0.0, 0.0, 0.0))
-        .expect("worker");
-    let non_worker_id = game_logic
-        .create_object("TestTank", Team::USA, Vec3::new(2.0, 0.0, 0.0))
-        .expect("non-worker");
+    let harvester_id = game_logic
+        .create_object("TestHarvester", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("harvester");
+    let dozer_id = game_logic
+        .create_object("TestDozer", Team::USA, Vec3::new(2.0, 0.0, 0.0))
+        .expect("dozer");
     let target_id = game_logic
         .create_object("TestGatherSupply", Team::Neutral, Vec3::new(20.0, 0.0, 0.0))
         .expect("resource target");
@@ -2713,7 +2722,7 @@ fn accepted_gather_event_contains_only_executor_accepted_carriers() {
         player_id: 0,
         command_id: 97,
         timestamp: issued_at.clone(),
-        selected_units: vec![worker_id, non_worker_id],
+        selected_units: vec![harvester_id, dozer_id],
         modifier_keys: ModifierKeys::default(),
     });
     game_logic.process_commands();
@@ -2727,9 +2736,185 @@ fn accepted_gather_event_contains_only_executor_accepted_carriers() {
     assert_eq!(event.target_id, target_id);
     assert_eq!(
         event.carrier_ids,
-        vec![worker_id],
-        "only the local selected worker with an accepted Gather path may be tracked"
+        vec![harvester_id],
+        "only the local selected Harvester with an accepted Gather path may be tracked"
     );
+}
+
+/// The retail collector capability is `HARVESTER`, not a spelling convention
+/// or `HARVESTABLE` source flag.  Exercise the same presentation-frozen RMB
+/// classification and GameLogic executor path that physical input uses, then
+/// observe its accepted-carrier event (the edge consumed by physical evidence).
+#[test]
+fn retail_harvesters_parse_and_accept_gather_through_live_command_authority() {
+    use crate::assets::ini_parser::IniParser;
+    use crate::command_system::{
+        CommandSystem, CommandType, ModifierKeys, MouseButton, MouseCommandContext,
+        PresentationSelectedUnitHint, PresentationTargetHint,
+    };
+    use crate::presentation_frame::PresentationFrame;
+
+    fn retail_definition(
+        relative_path: &str,
+        object_name: &str,
+    ) -> crate::assets::ObjectDefinition {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../..")
+            .join(relative_path);
+        let contents = std::fs::read_to_string(&path)
+            .unwrap_or_else(|error| panic!("read retail Object INI {}: {error}", path.display()));
+        let mut parser = IniParser::new();
+        parser
+            .parse_ini_content(&contents, &path.display().to_string())
+            .unwrap_or_else(|error| panic!("parse retail Object INI {}: {error}", path.display()));
+        parser
+            .get_definition(object_name)
+            .cloned()
+            .unwrap_or_else(|| panic!("{object_name} missing from {}", path.display()))
+    }
+
+    let cases = [
+        (
+            "AmericaVehicleChinook",
+            "windows_game/extracted_big_files_v2/INIZH/Data/INI/Object/AmericaAir.ini",
+            Team::USA,
+            0,
+        ),
+        (
+            "ChinaVehicleSupplyTruck",
+            "windows_game/extracted_big_files_v2/INIZH/Data/INI/Object/ChinaVehicle.ini",
+            Team::China,
+            1,
+        ),
+    ];
+
+    for (object_name, source_path, team, player_id) in cases {
+        let definition = retail_definition(source_path, object_name);
+        let template =
+            GameLogic::build_template_from_object_definition(object_name, &definition, None);
+        assert!(
+            template.is_kind_of(KindOf::Harvester),
+            "{object_name} must preserve its retail HARVESTER capability"
+        );
+        assert!(
+            !template.is_kind_of(KindOf::Resource) && !template.is_kind_of(KindOf::Harvestable),
+            "{object_name} is a collector, not a harvestable supply source"
+        );
+
+        let mut game_logic = GameLogic::new();
+        ensure_test_player_for_team(&mut game_logic, team);
+        game_logic
+            .templates
+            .insert(object_name.to_string(), template);
+
+        let mut resource = ThingTemplate::new("RetailGatherSupply");
+        resource
+            .add_kind_of(KindOf::Resource)
+            .add_kind_of(KindOf::Harvestable)
+            .set_health(100.0);
+        game_logic
+            .templates
+            .insert("RetailGatherSupply".to_string(), resource);
+
+        let collector_id = game_logic
+            .create_object(object_name, team, Vec3::ZERO)
+            .unwrap_or_else(|| panic!("spawn retail collector {object_name}"));
+        let target_id = game_logic
+            .create_object(
+                "RetailGatherSupply",
+                Team::Neutral,
+                Vec3::new(20.0, 0.0, 0.0),
+            )
+            .expect("spawn gather supply");
+
+        // The visible game path freezes capability into the presentation frame
+        // before classifying the right click.  Prove the parsed capability
+        // survives that boundary rather than injecting a Gather command.
+        let frame = PresentationFrame::build_from_logic(&game_logic, player_id);
+        let collector = frame
+            .objects
+            .iter()
+            .find(|object| object.id == collector_id)
+            .expect("local collector in presentation frame");
+        assert!(
+            PresentationFrame::object_has_kind(collector, KindOf::Harvester),
+            "{object_name} HARVESTER must reach the presentation freeze"
+        );
+
+        let context = MouseCommandContext {
+            world_position: Vec3::new(20.0, 0.0, 0.0),
+            target_object: Some(target_id),
+            target_presentation: Some(PresentationTargetHint {
+                id: target_id,
+                is_alive: true,
+                is_structure: false,
+                is_resource: true,
+                under_construction: false,
+                sold: false,
+                team: Team::Neutral,
+                is_enemy_of_local: false,
+                is_neutral: true,
+                template_name: "RetailGatherSupply".to_string(),
+                can_be_entered: false,
+                is_damaged: false,
+                is_friendly_of_local: false,
+                provides_vehicle_repair: false,
+                provides_aircraft_repair: false,
+                provides_heal: false,
+            }),
+            selected_presentation: vec![PresentationSelectedUnitHint {
+                id: collector_id,
+                is_alive: true,
+                // Keep legacy Worker false: Gather must depend only on the
+                // authored Harvester capability frozen above.
+                is_resource_collector: true,
+                is_worker: false,
+                can_attack: false,
+                can_move: collector.is_mobile,
+                can_capture: false,
+                template_name: object_name.to_string(),
+                can_repair: false,
+                is_damaged: false,
+                is_vehicle: true,
+                is_aircraft: collector.object_type
+                    == crate::presentation_frame::PresentationObjectType::Aircraft,
+                is_infantry: false,
+            }],
+            presentation_box_select_units: Vec::new(),
+            presentation_select_similar_units: Vec::new(),
+            screen_position: glam::Vec2::ZERO,
+            viewport_size: None,
+            world_min: None,
+            world_max: None,
+            mouse_button: MouseButton::Right,
+            modifier_keys: ModifierKeys::default(),
+            is_drag: false,
+            drag_start: None,
+            drag_end: None,
+            drag_start_world: None,
+            drag_end_world: None,
+        };
+
+        let mut commands = CommandSystem::new();
+        let command = commands
+            .process_mouse_input(&context, &[collector_id], player_id, Some(&game_logic))
+            .expect("presentation-frozen RMB must produce a command");
+        assert!(
+            matches!(command.command_type, CommandType::Gather { target_id: id } if id == target_id),
+            "{object_name} right click must classify as Gather"
+        );
+
+        // This is the real GameLogic command authority, not a fabricated
+        // successful result.  Its accepted carrier event feeds the physical
+        // input provenance latch in Main.
+        game_logic.queue_command(command);
+        game_logic.process_commands();
+        let accepted = game_logic.take_accepted_gather_commands();
+        assert_eq!(accepted.len(), 1, "{object_name} Gather acceptance");
+        assert_eq!(accepted[0].carrier_ids, vec![collector_id]);
+        assert_eq!(accepted[0].player_id, player_id);
+        assert_eq!(accepted[0].target_id, target_id);
+    }
 }
 
 /// Residual: with SupplyLines unlocked, drop-off credits more cash than without.

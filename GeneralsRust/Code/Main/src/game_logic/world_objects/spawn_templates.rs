@@ -169,16 +169,26 @@ impl GameLogic {
             }
         }
 
-        // Retail SupplyDock/SupplyPile carry SUPPLY_SOURCE (not "resource"/"harvest")
-        // KindOf bits; map props must still be gatherable by dozer/chinook paths.
+        // Retail SupplyDock/SupplyPile carry SUPPLY_SOURCE (not "resource")
+        // KindOf bits.  These are token comparisons: `HARVESTER` denotes a
+        // collector unit and must never turn that unit into a supply source.
+        let has_kind = |token: &str| {
+            kind_of
+                .split(|character: char| {
+                    character.is_ascii_whitespace() || matches!(character, ',' | '|')
+                })
+                .any(|candidate| candidate.eq_ignore_ascii_case(token))
+        };
         let kind_compact = kind_of.replace('_', "");
         let is_resource = lower.contains("supplypile")
             || lower.contains("supplydock")
             || lower.contains("tempsupplydock")
             || lower.contains("crate")
-            || kind_of.contains("resource")
-            || kind_of.contains("harvest")
+            || has_kind("resource")
+            || has_kind("harvestable")
             || kind_compact.contains("supplysource");
+        let is_dozer = has_kind("dozer");
+        let is_harvester = has_kind("harvester");
         let is_structure = kind_of.contains("structure")
             || kind_of.contains("immobile")
             || (Self::should_spawn_fallback_template(template_name) && !is_resource);
@@ -187,6 +197,12 @@ impl GameLogic {
             template
                 .add_kind_of(KindOf::Resource)
                 .add_kind_of(KindOf::Harvestable);
+        }
+        if is_dozer {
+            template.add_kind_of(KindOf::Dozer);
+        }
+        if is_harvester {
+            template.add_kind_of(KindOf::Harvester);
         }
         if is_structure {
             template
@@ -1535,9 +1551,10 @@ mod tests {
         retail_unit.object_type = "Vehicle".to_string();
         retail_unit.hit_points = Some(480);
         retail_unit.model_name = Some("AVCrusader".to_string());
-        retail_unit
-            .attributes
-            .insert("KindOf".to_string(), "VEHICLE SELECTABLE CAN_ATTACK".to_string());
+        retail_unit.attributes.insert(
+            "KindOf".to_string(),
+            "VEHICLE SELECTABLE CAN_ATTACK".to_string(),
+        );
         retail_unit
             .attributes
             .insert("BuildCost".to_string(), "900".to_string());
@@ -1548,9 +1565,10 @@ mod tests {
         retail_new.model_name = Some("AVPaladin".to_string());
         retail_new.primary_weapon = Some("PaladinTankGun".to_string());
         retail_new.secondary_weapon = Some("PaladinPointDefenseLaser".to_string());
-        retail_new
-            .attributes
-            .insert("KindOf".to_string(), "VEHICLE SELECTABLE CAN_ATTACK".to_string());
+        retail_new.attributes.insert(
+            "KindOf".to_string(),
+            "VEHICLE SELECTABLE CAN_ATTACK".to_string(),
+        );
         retail_new
             .attributes
             .insert("BuildCost".to_string(), "1100".to_string());
@@ -1572,7 +1590,10 @@ mod tests {
             .get("AmericaTankCrusader")
             .expect("curated template retained");
         assert_eq!(curated_after.max_health, 777.0);
-        assert_eq!(curated_after.model_name.as_deref(), Some("CuratedExactModel"));
+        assert_eq!(
+            curated_after.model_name.as_deref(),
+            Some("CuratedExactModel")
+        );
 
         let added = logic
             .templates

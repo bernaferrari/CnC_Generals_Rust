@@ -30,6 +30,13 @@ pub struct PresentationTargetHint {
 pub struct PresentationSelectedUnitHint {
     pub id: ObjectId,
     pub is_alive: bool,
+    /// C++ `KINDOF_HARVESTER`, frozen from the presentation snapshot for
+    /// resource Gather classification.  Missing data must not grant gather
+    /// permission when loading an older serialized input context.
+    #[serde(default)]
+    pub is_resource_collector: bool,
+    /// Legacy builder/worker capability used by construction and repair
+    /// classification.  It is deliberately not used for resource Gather.
     pub is_worker: bool,
     pub can_attack: bool,
     pub can_move: bool,

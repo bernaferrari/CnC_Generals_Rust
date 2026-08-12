@@ -60,6 +60,8 @@ impl ScriptEngine {
 
     pub fn new() -> GameLogicResult<Self> {
         let mut engine = Self {
+            instance_id: NEXT_SCRIPT_ENGINE_INSTANCE_ID
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed),
             inner: std::cell::RefCell::new(ScriptEngineInner {
                 action_templates: Vec::with_capacity(ScriptActionType::NumItems as usize),
                 condition_templates: Vec::with_capacity(ConditionType::NumItems as usize),
@@ -290,11 +292,29 @@ impl ScriptEngine {
         if let Some(list) = script_list.as_deref_mut() {
             self.initialize_script_runtime_fields_in_list(list);
         }
+        if self
+            .with_current_active_script_lists(|active_lists| {
+                active_lists.lists[player_index] = script_list.take();
+            })
+            .is_some()
+        {
+            return Ok(());
+        }
         self.lock_inner_mut().side_script_lists[player_index] = script_list;
         Ok(())
     }
 
     pub fn clear_script_lists(&mut self) {
+        if self
+            .with_current_active_script_lists(|active_lists| {
+                for slot in &mut active_lists.lists {
+                    *slot = None;
+                }
+            })
+            .is_some()
+        {
+            return;
+        }
         let inner = self.inner.get_mut();
         for slot in &mut inner.side_script_lists {
             *slot = None;
@@ -379,6 +399,23 @@ impl ScriptEngine {
     ///
     /// Matches the behavior of C++ `ENABLE_SCRIPT` / `DISABLE_SCRIPT` actions.
     pub fn set_script_active_by_name(&self, script_name: &str, active: bool) -> bool {
+        if let Some(updated) = self.with_current_active_script_lists(|active_lists| {
+            let mut updated = false;
+            for slot in &mut active_lists.lists {
+                let Some(list) = slot.as_deref_mut() else {
+                    continue;
+                };
+                updated |= Self::set_script_active_in_list(list, script_name, active);
+            }
+            updated
+        }) {
+            let handler = self.with_inner(|inner| inner.action_handler.clone());
+            if let Some(handler) = handler {
+                let _ = handler.enable_script(script_name, active);
+            }
+            return updated;
+        }
+
         let mut updated = false;
         let handler = {
             let mut inner = self.lock_inner_mut();
@@ -400,6 +437,20 @@ impl ScriptEngine {
 
     /// Find a subroutine script by name and return a clone for immediate execution.
     pub fn get_subroutine_clone_by_name(&self, name: &str) -> Option<Script> {
+        if let Some(found) = self.with_current_active_script_lists(|active_lists| {
+            for slot in &active_lists.lists {
+                let Some(list) = slot.as_deref() else {
+                    continue;
+                };
+                if let Some(found) = Self::find_script_clone_in_list(list, name, true) {
+                    return Some(found);
+                }
+            }
+            None
+        }) {
+            return found;
+        }
+
         self.with_inner(|inner| {
             for slot in &inner.side_script_lists {
                 let Some(list) = slot.as_deref() else {
@@ -413,86 +464,416 @@ impl ScriptEngine {
         })
     }
 
-    fn execute_named_subroutine_in_chain(
-        &self,
-        script_head: &mut Script,
-        name: &str,
-        condition_evaluator: &mut crate::scripting::executor::ScriptConditionEvaluator,
-        action_dispatcher: &mut crate::scripting::executor::ScriptActionDispatcher,
-    ) -> GameLogicResult<bool> {
-        let mut current: Option<&mut Script> = Some(script_head);
-        while let Some(script_ref) = current {
-            if script_ref.script_name == name {
-                if script_ref.is_subroutine {
-                    self.execute_script(script_ref, condition_evaluator, action_dispatcher)?;
-                } else {
-                    log::warn!(
-                        "CALL_SUBROUTINE: script '{}' exists but is not a subroutine",
-                        name
-                    );
-                }
-                return Ok(true);
-            }
-            current = script_ref.next_script.as_deref_mut();
+    fn group_at_in_list(list: &ScriptList, group_index: usize) -> Option<&ScriptGroup> {
+        let mut group = list.first_group.as_deref();
+        for _ in 0..group_index {
+            group = group?.next_group.as_deref();
         }
-        Ok(false)
+        group
     }
 
-    fn execute_named_subroutine_in_list(
-        &self,
+    fn group_at_in_list_mut(list: &mut ScriptList, group_index: usize) -> Option<&mut ScriptGroup> {
+        let mut group = list.first_group.as_deref_mut();
+        for _ in 0..group_index {
+            group = group?.next_group.as_deref_mut();
+        }
+        group
+    }
+
+    fn script_head_in_container(list: &ScriptList, container: ScriptContainer) -> Option<&Script> {
+        match container {
+            ScriptContainer::Root => list.first_script.as_deref(),
+            ScriptContainer::Group(group_index) => Self::group_at_in_list(list, group_index)?
+                .first_script
+                .as_deref(),
+        }
+    }
+
+    fn script_head_in_container_mut(
         list: &mut ScriptList,
+        container: ScriptContainer,
+    ) -> Option<&mut Option<Box<Script>>> {
+        match container {
+            ScriptContainer::Root => Some(&mut list.first_script),
+            ScriptContainer::Group(group_index) => {
+                Some(&mut Self::group_at_in_list_mut(list, group_index)?.first_script)
+            }
+        }
+    }
+
+    fn script_at_in_chain(mut script: Option<&Script>, script_index: usize) -> Option<&Script> {
+        for _ in 0..script_index {
+            script = script?.next_script.as_deref();
+        }
+        script
+    }
+
+    fn script_link_at_mut(
+        head: &mut Option<Box<Script>>,
+        script_index: usize,
+    ) -> Option<&mut Option<Box<Script>>> {
+        let mut link = head;
+        for _ in 0..script_index {
+            link = &mut link.as_deref_mut()?.next_script;
+        }
+        Some(link)
+    }
+
+    fn script_count_in_chain(mut script: Option<&Script>) -> usize {
+        let mut count = 0;
+        while let Some(current) = script {
+            count += 1;
+            script = current.next_script.as_deref();
+        }
+        count
+    }
+
+    fn detached_before(active_lists: &ActiveScriptLists, location: ScriptLocation) -> usize {
+        active_lists
+            .executing_scripts
+            .iter()
+            .filter(|executing| {
+                executing.location.side_index == location.side_index
+                    && executing.location.container == location.container
+                    && executing.location.script_index < location.script_index
+            })
+            .count()
+    }
+
+    fn is_script_detached(active_lists: &ActiveScriptLists, location: ScriptLocation) -> bool {
+        active_lists
+            .executing_scripts
+            .iter()
+            .any(|executing| executing.location == location)
+    }
+
+    fn stored_script_at_location<'a>(
+        active_lists: &'a ActiveScriptLists,
+        location: ScriptLocation,
+    ) -> Option<&'a Script> {
+        if Self::is_script_detached(active_lists, location) {
+            return None;
+        }
+        let list = active_lists.lists.get(location.side_index)?.as_deref()?;
+        let script_index = location
+            .script_index
+            .checked_sub(Self::detached_before(active_lists, location))?;
+        Self::script_at_in_chain(
+            Self::script_head_in_container(list, location.container),
+            script_index,
+        )
+    }
+
+    fn script_count_in_container(
+        active_lists: &ActiveScriptLists,
+        side_index: usize,
+        container: ScriptContainer,
+    ) -> usize {
+        let stored = active_lists
+            .lists
+            .get(side_index)
+            .and_then(|slot| slot.as_deref())
+            .map(|list| {
+                Self::script_count_in_chain(Self::script_head_in_container(list, container))
+            })
+            .unwrap_or(0);
+        let detached = active_lists
+            .executing_scripts
+            .iter()
+            .filter(|executing| {
+                executing.location.side_index == side_index
+                    && executing.location.container == container
+            })
+            .count();
+        stored + detached
+    }
+
+    fn take_script_at_location(
+        active_lists: &mut ActiveScriptLists,
+        location: ScriptLocation,
+    ) -> Option<Box<Script>> {
+        if Self::is_script_detached(active_lists, location) {
+            return None;
+        }
+        let stored_index = location
+            .script_index
+            .checked_sub(Self::detached_before(active_lists, location))?;
+        let list = active_lists
+            .lists
+            .get_mut(location.side_index)?
+            .as_deref_mut()?;
+        let link = Self::script_link_at_mut(
+            Self::script_head_in_container_mut(list, location.container)?,
+            stored_index,
+        )?;
+        let mut script = link.take()?;
+        *link = script.next_script.take();
+        Some(script)
+    }
+
+    fn restore_script_at_location(
+        active_lists: &mut ActiveScriptLists,
+        location: ScriptLocation,
+        mut script: Box<Script>,
+    ) -> bool {
+        let Some(stored_index) = location
+            .script_index
+            .checked_sub(Self::detached_before(active_lists, location))
+        else {
+            return false;
+        };
+        let Some(list) = active_lists
+            .lists
+            .get_mut(location.side_index)
+            .and_then(|slot| slot.as_deref_mut())
+        else {
+            return false;
+        };
+        let Some(link) = Self::script_link_at_mut(
+            match Self::script_head_in_container_mut(list, location.container) {
+                Some(head) => head,
+                None => return false,
+            },
+            stored_index,
+        ) else {
+            return false;
+        };
+        script.next_script = link.take();
+        *link = Some(script);
+        true
+    }
+
+    fn find_script_in_chain(
+        active_lists: &ActiveScriptLists,
+        side_index: usize,
+        container: ScriptContainer,
         name: &str,
+    ) -> Option<SubroutineLookup> {
+        let script_count = Self::script_count_in_container(active_lists, side_index, container);
+        for script_index in 0..script_count {
+            let location = ScriptLocation {
+                side_index,
+                container,
+                script_index,
+            };
+            if let Some(executing) = active_lists
+                .executing_scripts
+                .iter()
+                .find(|executing| executing.location == location)
+            {
+                if executing.name == name {
+                    return Some(SubroutineLookup::ReentrantScript {
+                        location,
+                        is_subroutine: executing.is_subroutine,
+                    });
+                }
+                continue;
+            }
+            let Some(script) = Self::stored_script_at_location(active_lists, location) else {
+                continue;
+            };
+            if script.script_name == name {
+                return Some(SubroutineLookup::Script {
+                    location,
+                    is_subroutine: script.is_subroutine,
+                });
+            }
+        }
+        None
+    }
+
+    fn find_subroutine_lookup(&self, name: &str) -> GameLogicResult<SubroutineLookup> {
+        self.with_current_active_script_lists(|active_lists| {
+            // C++ `findGroup` scans all sides before `callSubroutine` ever
+            // calls `findScript`; retain that global precedence exactly.
+            for side_index in 0..active_lists.lists.len() {
+                let Some(list) = active_lists.lists[side_index].as_deref() else {
+                    continue;
+                };
+                let mut group = list.first_group.as_deref();
+                let mut group_index = 0;
+                while let Some(current) = group {
+                    if current.group_name == name {
+                        return SubroutineLookup::Group {
+                            location: GroupLocation {
+                                side_index,
+                                group_index,
+                            },
+                            is_subroutine: current.is_group_subroutine,
+                            is_active: current.is_group_active,
+                        };
+                    }
+                    group = current.next_group.as_deref();
+                    group_index += 1;
+                }
+            }
+
+            // C++ `findScript` scans root scripts then group scripts for each
+            // side, with sides in ascending index order.
+            for side_index in 0..active_lists.lists.len() {
+                let Some(list) = active_lists.lists[side_index].as_deref() else {
+                    continue;
+                };
+                if let Some(found) = Self::find_script_in_chain(
+                    active_lists,
+                    side_index,
+                    ScriptContainer::Root,
+                    name,
+                ) {
+                    return found;
+                }
+
+                let mut group = list.first_group.as_deref();
+                let mut group_index = 0;
+                while let Some(current) = group {
+                    if let Some(found) = Self::find_script_in_chain(
+                        active_lists,
+                        side_index,
+                        ScriptContainer::Group(group_index),
+                        name,
+                    ) {
+                        return found;
+                    }
+                    group = current.next_group.as_deref();
+                    group_index += 1;
+                }
+            }
+
+            SubroutineLookup::Missing
+        })
+        .ok_or_else(|| {
+            GameLogicError::Configuration(
+                "CALL_SUBROUTINE was invoked without this ScriptEngine's active list scope"
+                    .to_string(),
+            )
+        })
+    }
+
+    fn with_detached_script<R>(
+        &self,
+        location: ScriptLocation,
+        f: impl FnOnce(&mut Script) -> GameLogicResult<R>,
+    ) -> GameLogicResult<R> {
+        if !ACTIVE_SCRIPT_LISTS.is_set() {
+            return Err(GameLogicError::Configuration(
+                "immediate Script execution has no active list scope".to_string(),
+            ));
+        }
+        ACTIVE_SCRIPT_LISTS.with(|active_lists| {
+            if active_lists.borrow().owner_id != self.instance_id {
+                return Err(GameLogicError::Configuration(
+                    "immediate Script execution reached a different ScriptEngine's list scope"
+                        .to_string(),
+                ));
+            }
+            let mut script = DetachedScript::take(active_lists, location).ok_or_else(|| {
+                GameLogicError::Configuration(format!(
+                    "Script at side {}, location {:?} disappeared during immediate execution",
+                    location.side_index, location
+                ))
+            })?;
+            f(script.script_mut())
+        })
+    }
+
+    fn with_executing_subroutine_group<R>(
+        &self,
+        location: GroupLocation,
+        f: impl FnOnce() -> GameLogicResult<R>,
+    ) -> GameLogicResult<R> {
+        if !ACTIVE_SCRIPT_LISTS.is_set() {
+            return Err(GameLogicError::Configuration(
+                "subroutine group execution has no active list scope".to_string(),
+            ));
+        }
+        ACTIVE_SCRIPT_LISTS.with(|active_lists| {
+            let mut active_lists_mut = active_lists.borrow_mut();
+            if active_lists_mut.owner_id != self.instance_id {
+                return Err(GameLogicError::Configuration(
+                    "subroutine group execution reached a different ScriptEngine's list scope"
+                        .to_string(),
+                ));
+            }
+            if active_lists_mut.executing_groups.contains(&location) {
+                return Err(GameLogicError::Configuration(format!(
+                    "recursive CALL_SUBROUTINE group at side {}, group {} is rejected by the safe re-entry boundary",
+                    location.side_index, location.group_index
+                )));
+            }
+            active_lists_mut.executing_groups.push(location);
+            drop(active_lists_mut);
+            let _executing_group = ExecutingGroupGuard {
+                active_lists,
+                location,
+            };
+            f()
+        })
+    }
+
+    fn script_slot_at(&self, location: ScriptLocation) -> Option<(bool, bool)> {
+        self.with_current_active_script_lists(|active_lists| {
+            if let Some(executing) = active_lists
+                .executing_scripts
+                .iter()
+                .find(|executing| executing.location == location)
+            {
+                return Some((executing.is_subroutine, true));
+            }
+            Self::stored_script_at_location(active_lists, location)
+                .map(|script| (script.is_subroutine, false))
+        })
+        .flatten()
+    }
+
+    fn group_state_at(&self, location: GroupLocation) -> Option<(bool, bool)> {
+        self.with_current_active_script_lists(|active_lists| {
+            let list = active_lists.lists.get(location.side_index)?.as_deref()?;
+            let group = Self::group_at_in_list(list, location.group_index)?;
+            Some((group.is_group_active, group.is_group_subroutine))
+        })
+        .flatten()
+    }
+
+    /// Executes an entire linked Script chain without borrowing the chain over
+    /// dispatch.  Each Script is detached/reinserted before its action chain,
+    /// so sibling and other-side subroutines stay visible immediately.
+    fn execute_non_subroutine_scripts_in_container(
+        &self,
+        side_index: usize,
+        container: ScriptContainer,
         condition_evaluator: &mut crate::scripting::executor::ScriptConditionEvaluator,
         action_dispatcher: &mut crate::scripting::executor::ScriptActionDispatcher,
-    ) -> GameLogicResult<bool> {
-        // C++ parity: look up a subroutine group by name first.
-        let mut group_opt = list.first_group.as_deref_mut();
-        while let Some(group) = group_opt {
-            if group.group_name == name {
-                if !group.is_group_subroutine {
-                    log::warn!(
-                        "CALL_SUBROUTINE: group '{}' exists but is not a subroutine group",
-                        name
-                    );
-                    return Ok(true);
-                }
-                if group.is_group_active {
-                    if let Some(script_head) = group.first_script.as_deref_mut() {
-                        self.execute_scripts(script_head, condition_evaluator, action_dispatcher)?;
-                    }
-                }
-                return Ok(true);
+    ) -> GameLogicResult<()> {
+        let mut script_index = 0;
+        while let Some((is_subroutine, is_executing)) = self.script_slot_at(ScriptLocation {
+            side_index,
+            container,
+            script_index,
+        }) {
+            if !is_subroutine && !is_executing {
+                self.with_detached_script(
+                    ScriptLocation {
+                        side_index,
+                        container,
+                        script_index,
+                    },
+                    |script| self.execute_script(script, condition_evaluator, action_dispatcher),
+                )?;
             }
-            group_opt = group.next_group.as_deref_mut();
+            script_index += 1;
         }
+        Ok(())
+    }
 
-        if let Some(script_head) = list.first_script.as_deref_mut() {
-            if self.execute_named_subroutine_in_chain(
-                script_head,
-                name,
-                condition_evaluator,
-                action_dispatcher,
-            )? {
-                return Ok(true);
-            }
-        }
-
-        let mut group_opt = list.first_group.as_deref_mut();
-        while let Some(group) = group_opt {
-            if let Some(script_head) = group.first_script.as_deref_mut() {
-                if self.execute_named_subroutine_in_chain(
-                    script_head,
-                    name,
-                    condition_evaluator,
-                    action_dispatcher,
-                )? {
-                    return Ok(true);
-                }
-            }
-            group_opt = group.next_group.as_deref_mut();
-        }
-
-        Ok(false)
+    fn execute_script_at_location(
+        &self,
+        location: ScriptLocation,
+        condition_evaluator: &mut crate::scripting::executor::ScriptConditionEvaluator,
+        action_dispatcher: &mut crate::scripting::executor::ScriptActionDispatcher,
+    ) -> GameLogicResult<()> {
+        self.with_detached_script(location, |script| {
+            self.execute_script(script, condition_evaluator, action_dispatcher)
+        })
     }
 
     /// Execute a subroutine script or subroutine group by name.
@@ -507,6 +888,10 @@ impl ScriptEngine {
     }
 
     fn execute_subroutine_by_name_active(&self, name: &str) -> GameLogicResult<bool> {
+        self.with_active_script_lists(|| self.execute_subroutine_by_name_from_active_lists(name))
+    }
+
+    fn execute_subroutine_by_name_from_active_lists(&self, name: &str) -> GameLogicResult<bool> {
         let Some(_depth_guard) = SubroutineDepthGuard::enter() else {
             return Ok(false);
         };
@@ -529,28 +914,88 @@ impl ScriptEngine {
         let mut condition_evaluator =
             crate::scripting::executor::ScriptConditionEvaluator::new(exec_context);
 
-        for i in 0..Self::MAX_PLAYER_COUNT {
-            let Some(mut script_list) = self.lock_inner_mut().side_script_lists[i].take() else {
-                continue;
-            };
-
-            let found = self.execute_named_subroutine_in_list(
-                &mut script_list,
-                name,
-                &mut condition_evaluator,
-                &mut action_dispatcher,
-            )?;
-            self.lock_inner_mut().side_script_lists[i] = Some(script_list);
-            if found {
-                return Ok(true);
+        match self.find_subroutine_lookup(name)? {
+            SubroutineLookup::Group {
+                location,
+                is_subroutine,
+                is_active,
+            } => {
+                if !is_subroutine {
+                    log::warn!(
+                        "CALL_SUBROUTINE: group '{}' exists but is not a subroutine group",
+                        name
+                    );
+                    return Ok(true);
+                }
+                if is_active {
+                    self.with_executing_subroutine_group(location, || {
+                        self.execute_non_subroutine_scripts_in_container(
+                            location.side_index,
+                            ScriptContainer::Group(location.group_index),
+                            &mut condition_evaluator,
+                            &mut action_dispatcher,
+                        )
+                    })?;
+                }
+                Ok(true)
+            }
+            SubroutineLookup::Script {
+                location,
+                is_subroutine,
+            } => {
+                if !is_subroutine {
+                    log::warn!(
+                        "CALL_SUBROUTINE: script '{}' exists but is not a subroutine",
+                        name
+                    );
+                    return Ok(true);
+                }
+                self.execute_script_at_location(
+                    location,
+                    &mut condition_evaluator,
+                    &mut action_dispatcher,
+                )?;
+                Ok(true)
+            }
+            SubroutineLookup::ReentrantScript {
+                location,
+                is_subroutine,
+            } => {
+                if !is_subroutine {
+                    log::warn!(
+                        "CALL_SUBROUTINE: active script '{}' exists but is not a subroutine",
+                        name
+                    );
+                    return Ok(true);
+                }
+                Err(GameLogicError::Configuration(format!(
+                    "recursive CALL_SUBROUTINE '{}' at side {}, script {} is rejected by the safe re-entry boundary",
+                    name, location.side_index, location.script_index
+                )))
+            }
+            SubroutineLookup::Missing => {
+                log::warn!("CALL_SUBROUTINE: script '{}' is not defined", name);
+                Ok(false)
             }
         }
-
-        Ok(false)
     }
 
     /// Find a script by name and return a clone (non-subroutine allowed).
     pub fn find_script_clone_by_name(&self, name: &str) -> Option<Script> {
+        if let Some(found) = self.with_current_active_script_lists(|active_lists| {
+            for slot in &active_lists.lists {
+                let Some(list) = slot.as_deref() else {
+                    continue;
+                };
+                if let Some(found) = Self::find_script_clone_in_list(list, name, false) {
+                    return Some(found);
+                }
+            }
+            None
+        }) {
+            return found;
+        }
+
         self.with_inner(|inner| {
             for slot in &inner.side_script_lists {
                 let Some(list) = slot.as_deref() else {

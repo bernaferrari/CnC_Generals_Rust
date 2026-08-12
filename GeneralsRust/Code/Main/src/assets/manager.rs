@@ -13,6 +13,7 @@ use crate::assets::{
     textures::{GPUTexture, RawTexture, TextureManager},
     ww3d_asset_manager::WW3DAssetManager,
 };
+use crate::assets::ini_parser::AuthoredConditionModelSelection;
 use crate::localization;
 use anyhow::{anyhow, Result};
 use log::{debug, error, info, warn};
@@ -818,6 +819,21 @@ impl AssetManager {
         self.ww3d_manager.get_model_for_object(object_name)
     }
 
+    /// Select the first source-authored Draw model for this exact Object INI
+    /// identity and the frozen ModelConditionFlags bit bank.
+    ///
+    /// This intentionally does not route through `get_model_for_object`: that
+    /// cache holds the pristine/default model and would overwrite a condition
+    /// model such as `AVPaladin_D`.
+    pub fn select_model_for_object_conditions(
+        &self,
+        object_name: &str,
+        condition_bits: u128,
+    ) -> Option<AuthoredConditionModelSelection> {
+        self.ww3d_manager
+            .select_model_for_object_conditions(object_name, condition_bits)
+    }
+
     /// Get full object definition from WW3D Asset Manager
     pub fn get_object_definition(
         &self,
@@ -1442,6 +1458,42 @@ fn begin_background_music_startup() {
 /// Get reference to global asset manager
 pub fn get_asset_manager() -> Option<Arc<Mutex<AssetManager>>> {
     ASSET_MANAGER.get().cloned()
+}
+
+/// Resolve the source-authored W3D model key for a frozen presentation object.
+///
+/// A separately authored fallback is valid only when no catalogue is active or
+/// the exact Object identity has no retained ConditionState table.  Once an
+/// Object INI state table was found, `Model = None` and an unsupported source
+/// token fail closed rather than rendering a pristine/suffix-guessed mesh.
+pub fn resolve_presentation_model_key_for_conditions(
+    object_name: &str,
+    fallback_model_key: &str,
+    condition_bits: u128,
+) -> Option<String> {
+    let fallback = || {
+        let value = fallback_model_key.trim();
+        (!value.is_empty()).then(|| value.to_string())
+    };
+
+    let Some(asset_manager) = get_asset_manager() else {
+        return fallback();
+    };
+    let Ok(asset_manager) = asset_manager.lock() else {
+        // The catalogue exists but cannot be queried reliably.  Rendering a
+        // potentially pristine fallback here would be a condition-model
+        // substitution, so leave this object without a mesh for this frame.
+        return None;
+    };
+
+    match asset_manager.select_model_for_object_conditions(object_name, condition_bits) {
+        Some(AuthoredConditionModelSelection::Model(model)) => Some(model),
+        Some(
+            AuthoredConditionModelSelection::Suppressed
+            | AuthoredConditionModelSelection::Unresolved,
+        ) => None,
+        Some(AuthoredConditionModelSelection::NoAuthoredState) | None => fallback(),
+    }
 }
 
 /// Warm up optional caustic animation textures outside startup critical path.
