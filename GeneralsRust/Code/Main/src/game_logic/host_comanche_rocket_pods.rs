@@ -7,19 +7,18 @@
 //! - SECONDARY `ComancheAntiTankMissileWeapon` residual at spawn:
 //!   Primary **50**/r**5** + Secondary **30**/r**25**, range **200**,
 //!   Delay **500**ms → 15 frames, ClipSize **4** honesty (ClipReload 15000ms fail-closed).
-//! - `Upgrade_ComancheRocketPods` research replaces residual SECONDARY with
-//!   `ComancheRocketPodWeapon` (retail WeaponSet TERTIARY + WeaponSetUpgrade):
+//! - `Upgrade_ComancheRocketPods` research equips the real TERTIARY
+//!   `ComancheRocketPodWeapon` while preserving the SECONDARY anti-tank missile:
 //!   Primary **30**/r**5** + Secondary **10**/r**40**, ClipSize **20**, Delay **200**ms,
 //!   ClipReloadTime **30000**ms → **900** frames, ScatterTargetScalar **50**,
 //!   **20** ScatterTarget residual clip offsets.
-//!   Host residual collapses TERTIARY into secondary slot (fail-closed vs full 3-slot).
 //! - Retail command button `Command_AmericaVehicleComancheFireRocketPods` is
-//!   FIRE_WEAPON at position (NEED_TARGET_POS); host residual uses secondary
+//!   FIRE_WEAPON at position (NEED_TARGET_POS); host residual uses tertiary
 //!   slot + AttackingGround / active_weapon_slot lock.
 //!
 //! Fail-closed honesty:
-//! - Not full WeaponSet PRIMARY/SECONDARY/TERTIARY chooser matrix (host only
-//!   carries primary + secondary; rocket pods occupy secondary residual when upgraded)
+//! - Not full WeaponSet condition/auto-choose matrix beyond explicit primary,
+//!   secondary, and tertiary host slots
 //! - ComancheRocketPodRocket projectile + ScatterTarget offset residual closed
 //!   (deterministic clip ordinal; not full C++ GameLogicRandom shuffle)
 //! - Not full JetAIUpdate turret move-and-fire matrix
@@ -202,26 +201,26 @@ pub fn should_apply_comanche_residual(is_comanche: bool) -> bool {
 
 /// Whether combat should apply rocket-pod area residual instead of single-target HP.
 ///
-/// Host residual: Comanche + upgrade tag + secondary slot (1).
+/// Host residual: Comanche + upgrade tag + tertiary slot (2).
 /// Retail AutoChooseSources = NONE — only fires when player locks slot / FIRE_WEAPON.
 pub fn should_apply_rocket_pod_area_attack(
     is_comanche: bool,
     has_upgrade: bool,
     fired_slot: u8,
 ) -> bool {
-    is_comanche && has_upgrade && fired_slot == 1
+    is_comanche && has_upgrade && fired_slot == 2
 }
 
 /// Whether combat should apply anti-tank dual-radius residual on secondary fire.
 ///
-/// Active when secondary slot fires and rocket pods are **not** equipped (or not
-/// the weapon occupying the secondary residual slot).
+/// Active when the independent secondary slot fires.  Rocket pods no longer
+/// displace this retail anti-tank weapon.
 pub fn should_apply_comanche_antitank_residual(
     is_comanche: bool,
     fired_slot: u8,
-    rocket_pods_active: bool,
+    _rocket_pods_active: bool,
 ) -> bool {
-    is_comanche && fired_slot == 1 && !rocket_pods_active
+    is_comanche && fired_slot == 1
 }
 
 /// Whether combat should apply primary 20mm intended residual.
@@ -229,7 +228,7 @@ pub fn should_apply_comanche_cannon_residual(is_comanche: bool, fired_slot: u8) 
     is_comanche && fired_slot == 0
 }
 
-/// Whether residual auto weapon-chooser may pick rocket-pod secondary.
+/// Whether residual auto weapon-chooser may pick rocket-pod tertiary.
 /// Always false (retail AutoChooseSources TERTIARY NONE).
 pub fn rocket_pods_auto_choose_allowed() -> bool {
     false
@@ -237,14 +236,14 @@ pub fn rocket_pods_auto_choose_allowed() -> bool {
 
 /// True when residual force-fire / FIRE_WEAPON ground path should use rocket pods.
 ///
-/// active_weapon_slot == 1 locks residual tertiary fire (host secondary).
+/// active_weapon_slot == 2 locks real tertiary fire.
 pub fn rocket_pod_ground_fire_active(
     is_comanche: bool,
     has_upgrade: bool,
-    has_secondary: bool,
+    has_tertiary: bool,
     active_weapon_slot: u8,
 ) -> bool {
-    is_comanche && has_upgrade && has_secondary && active_weapon_slot == 1
+    is_comanche && has_upgrade && has_tertiary && active_weapon_slot == 2
 }
 
 /// Reload time seconds residual for delay frames @ 30 FPS.
@@ -291,7 +290,7 @@ pub fn comanche_antitank_weapon() -> Weapon {
     }
 }
 
-/// Build residual Comanche rocket-pod secondary Weapon (after upgrade).
+/// Build residual Comanche rocket-pod tertiary Weapon (after upgrade).
 pub fn comanche_rocket_pod_weapon() -> Weapon {
     Weapon {
         damage: ROCKET_POD_PRIMARY_DAMAGE,
@@ -414,10 +413,11 @@ mod tests {
 
     #[test]
     fn should_apply_area_gate() {
-        assert!(should_apply_rocket_pod_area_attack(true, true, 1));
+        assert!(should_apply_rocket_pod_area_attack(true, true, 2));
+        assert!(!should_apply_rocket_pod_area_attack(true, true, 1));
         assert!(!should_apply_rocket_pod_area_attack(true, true, 0));
-        assert!(!should_apply_rocket_pod_area_attack(true, false, 1));
-        assert!(!should_apply_rocket_pod_area_attack(false, true, 1));
+        assert!(!should_apply_rocket_pod_area_attack(true, false, 2));
+        assert!(!should_apply_rocket_pod_area_attack(false, true, 2));
     }
 
     #[test]
@@ -425,16 +425,16 @@ mod tests {
         assert!(should_apply_comanche_cannon_residual(true, 0));
         assert!(!should_apply_comanche_cannon_residual(true, 1));
         assert!(should_apply_comanche_antitank_residual(true, 1, false));
-        assert!(!should_apply_comanche_antitank_residual(true, 1, true));
+        assert!(should_apply_comanche_antitank_residual(true, 1, true));
         assert!(!should_apply_comanche_antitank_residual(true, 0, false));
     }
 
     #[test]
     fn ground_fire_gate() {
-        assert!(rocket_pod_ground_fire_active(true, true, true, 1));
-        assert!(!rocket_pod_ground_fire_active(true, true, true, 0));
-        assert!(!rocket_pod_ground_fire_active(true, true, false, 1));
-        assert!(!rocket_pod_ground_fire_active(true, false, true, 1));
+        assert!(rocket_pod_ground_fire_active(true, true, true, 2));
+        assert!(!rocket_pod_ground_fire_active(true, true, true, 1));
+        assert!(!rocket_pod_ground_fire_active(true, true, false, 2));
+        assert!(!rocket_pod_ground_fire_active(true, false, true, 2));
     }
 
     #[test]

@@ -846,6 +846,18 @@ impl AssetManager {
         self.ww3d_manager.object_count()
     }
 
+    /// Return an owned, deterministically ordered snapshot of the resolved
+    /// retail Object INI definitions.
+    ///
+    /// GameLogic uses this at world initialization to seed exact template
+    /// identities without holding the global asset-manager lock while it
+    /// constructs gameplay state.
+    pub fn object_definitions_snapshot(
+        &self,
+    ) -> Vec<(String, crate::assets::ObjectDefinition)> {
+        self.ww3d_manager.object_definitions_snapshot()
+    }
+
     /// Get all texture filenames from WW3D Asset Manager for preloading
     pub fn get_all_texture_filenames(&self) -> Vec<String> {
         self.ww3d_manager.get_all_texture_filenames()

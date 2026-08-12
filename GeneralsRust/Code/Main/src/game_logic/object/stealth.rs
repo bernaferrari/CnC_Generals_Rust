@@ -323,14 +323,7 @@ impl Object {
         }
         // C++ DAMAGE_DISARM estimate residual: only mines/demo/booby are valid.
         {
-            let wname = match slot {
-                Some(1) => self.thing.template.secondary_weapon_name.as_deref().or(self
-                    .thing
-                    .template
-                    .primary_weapon_name
-                    .as_deref()),
-                _ => self.thing.template.primary_weapon_name.as_deref(),
-            };
+            let wname = slot.and_then(|weapon_slot| self.weapon_name_for_slot(weapon_slot));
             if wname
                 .map(crate::game_logic::weapon_bootstrap::host_weapon_is_disarm_damage)
                 .unwrap_or(false)
@@ -361,7 +354,10 @@ impl Object {
         // for the remainder of the attack cycle.
         let leech = match slot {
             Some(1) => self.leech_range_active_secondary,
-            Some(_) => self.leech_range_active_primary,
+            Some(0) => self.leech_range_active_primary,
+            // There is no persisted tertiary leech state yet.  It must not
+            // inherit primary's range waiver.
+            Some(_) => false,
             None => self.leech_range_active_primary || self.leech_range_active_secondary,
         };
         if leech {
@@ -384,6 +380,11 @@ impl Object {
         }
         if let Some(weapon) = &self.secondary_weapon {
             if self.can_target_with_slot(target, weapon, Some(1)) {
+                return true;
+            }
+        }
+        if let Some(weapon) = &self.tertiary_weapon {
+            if self.can_target_with_slot(target, weapon, Some(2)) {
                 return true;
             }
         }

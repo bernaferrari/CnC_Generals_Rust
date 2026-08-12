@@ -310,6 +310,22 @@ impl WW3DAssetManager {
         &self.object_definitions
     }
 
+    /// Take a stable, owned view of the resolved retail Object INI catalogue.
+    ///
+    /// Callers which seed gameplay templates must not retain a borrow through
+    /// the asset-manager mutex.  Sorting also makes a complete seed
+    /// deterministic, which matters for reproducible offline saves and
+    /// diagnostics.
+    pub fn object_definitions_snapshot(&self) -> Vec<(String, ObjectDefinition)> {
+        let mut definitions: Vec<_> = self
+            .object_definitions
+            .iter()
+            .map(|(name, definition)| (name.clone(), definition.clone()))
+            .collect();
+        definitions.sort_unstable_by(|(left, _), (right, _)| left.cmp(right));
+        definitions
+    }
+
     /// Check if an object is defined
     pub fn has_object(&self, object_name: &str) -> bool {
         self.resolve_object_definition(object_name, None).is_some()
@@ -470,5 +486,28 @@ mod tests {
         let texture =
             manager.get_texture_for_object_with_model("NotInDefinitions", Some("avhummer"));
         assert_eq!(texture, Some("avhummer.tga".to_string()));
+    }
+
+    #[test]
+    fn object_definition_snapshot_is_owned_and_name_sorted() {
+        let mut manager = WW3DAssetManager::new();
+        manager.object_definitions.insert(
+            "ZuluUnit".to_string(),
+            ObjectDefinition::new("ZuluUnit".to_string()),
+        );
+        manager.object_definitions.insert(
+            "AlphaUnit".to_string(),
+            ObjectDefinition::new("AlphaUnit".to_string()),
+        );
+
+        let mut snapshot = manager.object_definitions_snapshot();
+        assert_eq!(
+            snapshot.iter().map(|(name, _)| name.as_str()).collect::<Vec<_>>(),
+            ["AlphaUnit", "ZuluUnit"]
+        );
+        snapshot[0].1.display_name = "owned copy".to_string();
+        assert!(manager
+            .get_object_definition("AlphaUnit")
+            .is_some_and(|definition| definition.display_name.is_empty()));
     }
 }

@@ -24,9 +24,11 @@ impl Object {
         if self.status.weapons_jammed || self.is_disabled() {
             return false;
         }
-        // Prefer the locked/active slot when ready; else primary; else secondary.
+        // Prefer an explicit locked/active slot when ready.  The normal
+        // fallback remains PRIMARY then SECONDARY; TERTIARY is deliberately
+        // excluded from autonomous selection (retail Comanche rocket pods
+        // declare `AutoChooseSources = TERTIARY NONE`).
         let slot = {
-            let prefer_secondary = self.active_weapon_slot == 1;
             let mut rof = self.weapon_bonus_fields().2;
             if target_has_faerie_fire {
                 rof *= crate::game_logic::host_avenger::FAERIE_FIRE_ROF_MULTIPLIER;
@@ -41,7 +43,27 @@ impl Object {
                 let reload = (w.reload_time / rof).max(0.0);
                 Self::weapon_ready_named(w, current_time, secondary_name.as_deref(), reload)
             });
-            if prefer_secondary && secondary_ready {
+            let tertiary_name = self.tertiary_weapon_name().map(str::to_owned);
+            let tertiary_ready = self.tertiary_weapon.as_ref().is_some_and(|w| {
+                let reload = (w.reload_time / rof).max(0.0);
+                Self::weapon_ready_named(w, current_time, tertiary_name.as_deref(), reload)
+            });
+
+            if self.weapon_lock_type != WeaponLockType::NotLocked {
+                match self.active_weapon_slot {
+                    0 if primary_ready => 0u8,
+                    1 if secondary_ready => 1u8,
+                    2 if tertiary_ready => 2u8,
+                    // A lock must not silently redirect an explicit manual
+                    // weapon command to PRIMARY when the requested slot is
+                    // unavailable or still reloading.
+                    _ => return false,
+                }
+            } else if self.active_weapon_slot == 2 && tertiary_ready {
+                // Active TERTIARY is an explicit weapon toggle, not an auto
+                // candidate.  Preserve that user selection.
+                2u8
+            } else if self.active_weapon_slot == 1 && secondary_ready {
                 1u8
             } else if primary_ready {
                 0u8
@@ -61,15 +83,7 @@ impl Object {
             base * self.weapon_bonus_fields().3
         };
         let prefire = {
-            let name = if slot == 1 {
-                self.thing.template.secondary_weapon_name.as_deref().or(self
-                    .thing
-                    .template
-                    .primary_weapon_name
-                    .as_deref())
-            } else {
-                self.thing.template.primary_weapon_name.as_deref()
-            };
+            let name = self.weapon_name_for_slot(slot);
             name.map(crate::game_logic::weapon_bootstrap::host_prefire_type_for_weapon_name)
                 .unwrap_or(crate::game_logic::weapon_bootstrap::HostPrefireType::PerShot)
         };
@@ -111,484 +125,206 @@ impl Object {
             self.record_host_combat_attack();
         }
 
-        let fire_weapon_name = if slot == 1 {
-            self.secondary_weapon_name().map(|s| s.to_string())
-        } else {
-            self.primary_weapon_name().map(|s| s.to_string())
-        };
-        let base_damage = self.weapon_slot(slot).map(|w| w.damage).unwrap_or(0.0);
+        let fire_weapon_name = self.weapon_name_for_slot(slot).map(str::to_owned);
+        let name = fire_weapon_name.as_deref();
+        let (base_damage, fallback_range, fallback_min_range) = self
+            .weapon_slot(slot)
+            .map(|weapon| (weapon.damage, weapon.range, weapon.min_range))
+            .unwrap_or((0.0, 0.0, 0.0));
         let weapon_damage = self.effective_weapon_damage(base_damage);
-        if let Some(weapon) = self.weapon_slot_mut(slot) {
-            Self::consume_ammo_on_fire_named(weapon, current_time, fire_weapon_name.as_deref());
-            let weapon_speed = weapon.projectile_speed;
-            let weapon_splash = weapon.splash_radius;
-            // AA residual: air-only weapons home on live target (missile track).
-            let weapon_homing = weapon.can_target_air && !weapon.can_target_ground;
-            let shooter_id = self.id;
-            let shooter_pos = self.get_position();
-            self.target = Some(target_id);
 
-            // Prefer Weapon.ini DamageType via store name; shape residual if store empty.
-            let weapon_dtype = {
-                let slot = self.active_weapon_slot;
-                let name = if slot == 1 {
-                    self.thing.template.secondary_weapon_name.as_deref().or(self
-                        .thing
-                        .template
-                        .primary_weapon_name
-                        .as_deref())
-                } else {
-                    self.thing.template.primary_weapon_name.as_deref()
-                };
-                if let Some(n) = name {
-                    let _ = crate::game_logic::weapon_bootstrap::ensure_host_weapon_store();
-                    if crate::game_logic::thing::ThingTemplate::weapon_from_store(n).is_some() {
-                        crate::game_logic::host_armor_residual::host_damage_type_for_weapon_name(n)
-                    } else if weapon_speed <= 0.0 || weapon_speed >= 999_000.0 {
-                        super::combat::DamageType::Laser
-                    } else if weapon_splash > 0.0 {
-                        super::combat::DamageType::Explosive
-                    } else {
-                        super::combat::DamageType::Bullet
-                    }
-                } else if weapon_speed <= 0.0 || weapon_speed >= 999_000.0 {
-                    super::combat::DamageType::Laser
-                } else if weapon_splash > 0.0 {
-                    super::combat::DamageType::Explosive
-                } else {
-                    super::combat::DamageType::Bullet
-                }
-            };
-            super::combat::queue_projectile(super::combat::PendingProjectile {
-                shooter_id,
-                shooter_pos,
-                target_id: Some(target_id),
-                target_pos: None,
-                damage: weapon_damage,
-                speed: weapon_speed,
-                splash_radius: weapon_splash,
-                is_homing: weapon_homing,
-                damage_type: weapon_dtype,
-                death_type: {
-                    let slot = self.active_weapon_slot;
-                    let name = if slot == 1 {
-                        self.thing.template.secondary_weapon_name.as_deref().or(self
-                            .thing
-                            .template
-                            .primary_weapon_name
-                            .as_deref())
-                    } else {
-                        self.thing.template.primary_weapon_name.as_deref()
-                    };
-                    crate::game_logic::host_armor_residual::resolve_host_death_type(
-                        name,
-                        weapon_dtype,
-                    )
-                },
-                projectile_object_name:
-                    crate::game_logic::weapon_bootstrap::host_projectile_name_for_unit_slot(
-                        self.template_name.as_str(),
-                        self.thing.template.primary_weapon_name.as_deref(),
-                        self.thing.template.secondary_weapon_name.as_deref(),
-                        slot,
-                    ),
-                detonation_fx_name: {
-                    let name = if slot == 1 {
-                        self.thing.template.secondary_weapon_name.as_deref().or(self
-                            .thing
-                            .template
-                            .primary_weapon_name
-                            .as_deref())
-                    } else {
-                        self.thing.template.primary_weapon_name.as_deref()
-                    };
-                    name.map(
-                        crate::game_logic::weapon_bootstrap::host_detonation_fx_for_weapon_name,
-                    )
-                    .unwrap_or_default()
-                },
-                detonation_ocl_name: {
-                    let name = if slot == 1 {
-                        self.thing.template.secondary_weapon_name.as_deref().or(self
-                            .thing
-                            .template
-                            .primary_weapon_name
-                            .as_deref())
-                    } else {
-                        self.thing.template.primary_weapon_name.as_deref()
-                    };
-                    name.map(
-                        crate::game_logic::weapon_bootstrap::host_detonation_ocl_for_weapon_name,
-                    )
-                    .unwrap_or_default()
-                },
-                exhaust_name:
-                    crate::game_logic::weapon_bootstrap::host_projectile_exhaust_for_unit_slot(
-                        self.template_name.as_str(),
-                        self.thing.template.primary_weapon_name.as_deref(),
-                        self.thing.template.secondary_weapon_name.as_deref(),
-                        slot,
-                    ),
-                secondary_damage: {
-                    let name = if slot == 1 {
-                        self.thing.template.secondary_weapon_name.as_deref().or(self
-                            .thing
-                            .template
-                            .primary_weapon_name
-                            .as_deref())
-                    } else {
-                        self.thing.template.primary_weapon_name.as_deref()
-                    };
-                    name.map(
-                        crate::game_logic::weapon_bootstrap::host_secondary_damage_for_weapon_name,
-                    )
-                    .unwrap_or(0.0)
-                },
-                secondary_damage_radius: {
-                    let name = if slot == 1 {
-                        self.thing.template.secondary_weapon_name.as_deref().or(self
-                            .thing
-                            .template
-                            .primary_weapon_name
-                            .as_deref())
-                    } else {
-                        self.thing.template.primary_weapon_name.as_deref()
-                    };
-                    name.map(
-                        crate::game_logic::weapon_bootstrap::host_secondary_damage_radius_for_weapon_name,
-                    )
-                    .unwrap_or(0.0)
-                },
-                shock_wave_amount: {
-                    let name = if slot == 1 {
-                        self.thing.template.secondary_weapon_name.as_deref().or(self
-                            .thing
-                            .template
-                            .primary_weapon_name
-                            .as_deref())
-                    } else {
-                        self.thing.template.primary_weapon_name.as_deref()
-                    };
-                    name.map(
-                        crate::game_logic::weapon_bootstrap::host_shock_wave_amount_for_weapon_name,
-                    )
-                    .unwrap_or(0.0)
-                },
-                shock_wave_radius: {
-                    let name = if slot == 1 {
-                        self.thing.template.secondary_weapon_name.as_deref().or(self
-                            .thing
-                            .template
-                            .primary_weapon_name
-                            .as_deref())
-                    } else {
-                        self.thing.template.primary_weapon_name.as_deref()
-                    };
-                    name.map(
-                        crate::game_logic::weapon_bootstrap::host_shock_wave_radius_for_weapon_name,
-                    )
-                    .unwrap_or(0.0)
-                },
-                shock_wave_taper_off: {
-                    let name = if slot == 1 {
-                        self.thing.template.secondary_weapon_name.as_deref().or(self
-                            .thing
-                            .template
-                            .primary_weapon_name
-                            .as_deref())
-                    } else {
-                        self.thing.template.primary_weapon_name.as_deref()
-                    };
-                    name.map(
-                        crate::game_logic::weapon_bootstrap::host_shock_wave_taper_for_weapon_name,
-                    )
-                    .unwrap_or(0.0)
-                },
-                radius_damage_affects: {
-                    let name = if slot == 1 {
-                        self.thing.template.secondary_weapon_name.as_deref().or(self
-                            .thing
-                            .template
-                            .primary_weapon_name
-                            .as_deref())
-                    } else {
-                        self.thing.template.primary_weapon_name.as_deref()
-                    };
-                    name.map(
-                        crate::game_logic::weapon_bootstrap::host_radius_damage_affects_for_weapon_name,
-                    )
-                    .unwrap_or(
-                        crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_ENEMIES
-                            | crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_NEUTRALS,
-                    )
-                },
-                projectile_collides: {
-                    let name = if slot == 1 {
-                        self.thing.template.secondary_weapon_name.as_deref().or(self
-                            .thing
-                            .template
-                            .primary_weapon_name
-                            .as_deref())
-                    } else {
-                        self.thing.template.primary_weapon_name.as_deref()
-                    };
-                    name.map(
-                        crate::game_logic::weapon_bootstrap::host_projectile_collides_for_weapon_name,
-                    )
-                    .unwrap_or(crate::game_logic::weapon_bootstrap::PROJECTILE_COLLIDE_DEFAULT)
-                },
-                // C++ ScatterRadius + ScatterRadiusVsInfantry residual.
-                // fire_at cannot query peer KindOf; apply VsInfantry peel whenever a
-                // target id is set (infantry-common residual). Ground attacks use base only.
-                scatter_radius: {
-                    let name = if slot == 1 {
-                        self.thing.template.secondary_weapon_name.as_deref().or(self
-                            .thing
-                            .template
-                            .primary_weapon_name
-                            .as_deref())
-                    } else {
-                        self.thing.template.primary_weapon_name.as_deref()
-                    };
-                    // C++: base ScatterRadius + ScatterRadiusVsInfantry only vs infantry.
-                    name.map(|n| {
-                        crate::game_logic::weapon_bootstrap::host_effective_scatter_radius(
-                            n,
-                            target_is_infantry,
-                        )
-                    })
-                    .unwrap_or(0.0)
-                },
-                min_weapon_speed: {
-                    let name = if slot == 1 {
-                        self.thing.template.secondary_weapon_name.as_deref().or(self
-                            .thing
-                            .template
-                            .primary_weapon_name
-                            .as_deref())
-                    } else {
-                        self.thing.template.primary_weapon_name.as_deref()
-                    };
-                    name.map(|n| {
-                        crate::game_logic::weapon_bootstrap::host_weapon_speed_peel_for_weapon_name(
-                            n,
-                        )
-                        .min_weapon_speed
-                    })
-                    .unwrap_or(0.0)
-                },
-                scale_weapon_speed: {
-                    let name = if slot == 1 {
-                        self.thing.template.secondary_weapon_name.as_deref().or(self
-                            .thing
-                            .template
-                            .primary_weapon_name
-                            .as_deref())
-                    } else {
-                        self.thing.template.primary_weapon_name.as_deref()
-                    };
-                    name.map(|n| {
-                        crate::game_logic::weapon_bootstrap::host_weapon_speed_peel_for_weapon_name(
-                            n,
-                        )
-                        .scale_weapon_speed
-                    })
-                    .unwrap_or(false)
-                },
-                attack_range: {
-                    let name = if slot == 1 {
-                        self.thing.template.secondary_weapon_name.as_deref().or(self
-                            .thing
-                            .template
-                            .primary_weapon_name
-                            .as_deref())
-                    } else {
-                        self.thing.template.primary_weapon_name.as_deref()
-                    };
-                    name.map(|n| {
-                        crate::game_logic::weapon_bootstrap::host_weapon_speed_peel_for_weapon_name(
-                            n,
-                        )
-                        .attack_range
-                    })
-                    .or_else(|| self.weapon_slot(slot).map(|w| w.range))
-                    .unwrap_or(0.0)
-                },
-                min_attack_range: {
-                    let name = if slot == 1 {
-                        self.thing.template.secondary_weapon_name.as_deref().or(self
-                            .thing
-                            .template
-                            .primary_weapon_name
-                            .as_deref())
-                    } else {
-                        self.thing.template.primary_weapon_name.as_deref()
-                    };
-                    name.map(|n| {
-                        crate::game_logic::weapon_bootstrap::host_weapon_speed_peel_for_weapon_name(
-                            n,
-                        )
-                        .min_attack_range
-                    })
-                    .or_else(|| self.weapon_slot(slot).map(|w| w.min_range))
-                    .unwrap_or(0.0)
-                },
-                historic_weapon_key: {
-                    let name = if slot == 1 {
-                        self.thing.template.secondary_weapon_name.as_deref().or(self
-                            .thing
-                            .template
-                            .primary_weapon_name
-                            .as_deref())
-                    } else {
-                        self.thing.template.primary_weapon_name.as_deref()
-                    };
-                    name.unwrap_or("").to_string()
-                },
-                historic_bonus_time_frames: {
-                    let name = if slot == 1 {
-                        self.thing.template.secondary_weapon_name.as_deref().or(self
-                            .thing
-                            .template
-                            .primary_weapon_name
-                            .as_deref())
-                    } else {
-                        self.thing.template.primary_weapon_name.as_deref()
-                    };
-                    name.map(|n| {
-                        crate::game_logic::weapon_bootstrap::host_historic_bonus_for_weapon_name(n)
-                            .time_frames
-                    })
-                    .unwrap_or(0)
-                },
-                historic_bonus_count: {
-                    let name = if slot == 1 {
-                        self.thing.template.secondary_weapon_name.as_deref().or(self
-                            .thing
-                            .template
-                            .primary_weapon_name
-                            .as_deref())
-                    } else {
-                        self.thing.template.primary_weapon_name.as_deref()
-                    };
-                    name.map(|n| {
-                        crate::game_logic::weapon_bootstrap::host_historic_bonus_for_weapon_name(n)
-                            .count
-                    })
-                    .unwrap_or(0)
-                },
-                historic_bonus_radius: {
-                    let name = if slot == 1 {
-                        self.thing.template.secondary_weapon_name.as_deref().or(self
-                            .thing
-                            .template
-                            .primary_weapon_name
-                            .as_deref())
-                    } else {
-                        self.thing.template.primary_weapon_name.as_deref()
-                    };
-                    name.map(|n| {
-                        crate::game_logic::weapon_bootstrap::host_historic_bonus_for_weapon_name(n)
-                            .radius
-                    })
-                    .unwrap_or(0.0)
-                },
-                historic_bonus_weapon: {
-                    let name = if slot == 1 {
-                        self.thing.template.secondary_weapon_name.as_deref().or(self
-                            .thing
-                            .template
-                            .primary_weapon_name
-                            .as_deref())
-                    } else {
-                        self.thing.template.primary_weapon_name.as_deref()
-                    };
-                    name.map(|n| {
-                        crate::game_logic::weapon_bootstrap::host_historic_bonus_for_weapon_name(n)
-                            .bonus_weapon
-                    })
-                    .unwrap_or_default()
-                },
-                die_on_detonate: {
-                    let name = if slot == 1 {
-                        self.thing.template.secondary_weapon_name.as_deref().or(self
-                            .thing
-                            .template
-                            .primary_weapon_name
-                            .as_deref())
-                    } else {
-                        self.thing.template.primary_weapon_name.as_deref()
-                    };
-                    name.map(
-                        crate::game_logic::weapon_bootstrap::host_die_on_detonate_for_weapon_name,
-                    )
-                    .unwrap_or(false)
-                },
-            });
-            // C++ fireWeaponTemplate LeechRange activate residual.
-            self.activate_leech_range_for_slot(slot);
-            self.record_shot_at_target(target_id);
-            // C++ Weapon::m_numShotsForCurBarrel / m_curBarrel residual.
-            self.advance_weapon_barrel_after_shot();
-            // C++ --m_maxShotCount residual.
-            self.consume_max_shot_count();
-            self.refresh_weapon_fire_status(current_time);
-            {
-                let frame = crate::game_logic::host_historic_bonus::logic_frame();
-                let wname_owned = if slot == 1 {
-                    self.thing
-                        .template
-                        .secondary_weapon_name
-                        .clone()
-                        .or_else(|| self.thing.template.primary_weapon_name.clone())
-                } else {
-                    self.thing.template.primary_weapon_name.clone()
-                };
-                self.stamp_fire_sound_loop_after_shot(frame, wname_owned.as_deref());
-            }
-            {
-                let (dmg, rng) = self
-                    .weapon_slot(slot)
-                    .map(|w| (w.damage, w.range))
-                    .unwrap_or((0.0, 0.0));
-                let frame = crate::game_logic::host_historic_bonus::logic_frame();
-                let next_count = self.fire_intent_count.saturating_add(1);
-                // When AI attack authority is on, GameWorld SetFireIntent writeback is
-                // last-writer — log the intent without dual-writing host last_fire_*.
-                if crate::gameworld_shadow::gameworld_ai_attack_authority_live() {
-                    crate::game_logic::host_fire_intent_log::record(
-                        self.id,
-                        target_id.0,
-                        slot,
-                        dmg,
-                        rng,
-                        current_time,
-                        frame,
-                        next_count,
-                    );
-                    // Keep counter monotonic for subsequent shots this frame.
-                    self.fire_intent_count = next_count;
-                } else {
-                    self.last_fire_victim_host = target_id.0;
-                    self.last_fire_slot = slot;
-                    self.last_fire_damage = dmg;
-                    self.last_fire_range = rng;
-                    self.last_fire_sim_time = current_time;
-                    self.last_fire_frame = frame;
-                    self.fire_intent_count = next_count;
-                    self.record_host_fire_intent();
-                }
-            }
+        // Resolve immutable Weapon.ini peels before borrowing the live slot.
+        // Keeping the selected slot's name here prevents tertiary fire from
+        // borrowing primary/secondary presentation and damage data.
+        let projectile_object_name = name
+            .map(crate::game_logic::weapon_bootstrap::host_projectile_name_for_weapon_name)
+            .unwrap_or_default();
+        let detonation_fx_name = name
+            .map(crate::game_logic::weapon_bootstrap::host_detonation_fx_for_weapon_name)
+            .unwrap_or_default();
+        let detonation_ocl_name = name
+            .map(crate::game_logic::weapon_bootstrap::host_detonation_ocl_for_weapon_name)
+            .unwrap_or_default();
+        let exhaust_name = name
+            .map(crate::game_logic::weapon_bootstrap::host_projectile_exhaust_for_weapon_name)
+            .unwrap_or_default();
+        let secondary_damage = name
+            .map(crate::game_logic::weapon_bootstrap::host_secondary_damage_for_weapon_name)
+            .unwrap_or(0.0);
+        let secondary_damage_radius = name
+            .map(crate::game_logic::weapon_bootstrap::host_secondary_damage_radius_for_weapon_name)
+            .unwrap_or(0.0);
+        let shock_wave_amount = name
+            .map(crate::game_logic::weapon_bootstrap::host_shock_wave_amount_for_weapon_name)
+            .unwrap_or(0.0);
+        let shock_wave_radius = name
+            .map(crate::game_logic::weapon_bootstrap::host_shock_wave_radius_for_weapon_name)
+            .unwrap_or(0.0);
+        let shock_wave_taper_off = name
+            .map(crate::game_logic::weapon_bootstrap::host_shock_wave_taper_for_weapon_name)
+            .unwrap_or(0.0);
+        let radius_damage_affects = name
+            .map(crate::game_logic::weapon_bootstrap::host_radius_damage_affects_for_weapon_name)
+            .unwrap_or(
+                crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_ENEMIES
+                    | crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_NEUTRALS,
+            );
+        let projectile_collides = name
+            .map(crate::game_logic::weapon_bootstrap::host_projectile_collides_for_weapon_name)
+            .unwrap_or(crate::game_logic::weapon_bootstrap::PROJECTILE_COLLIDE_DEFAULT);
+        let scatter_radius = name
+            .map(|weapon_name| {
+                crate::game_logic::weapon_bootstrap::host_effective_scatter_radius(
+                    weapon_name,
+                    target_is_infantry,
+                )
+            })
+            .unwrap_or(0.0);
+        let speed_peel = name
+            .map(crate::game_logic::weapon_bootstrap::host_weapon_speed_peel_for_weapon_name)
+            .unwrap_or_default();
+        let historic_bonus = name
+            .map(crate::game_logic::weapon_bootstrap::host_historic_bonus_for_weapon_name)
+            .unwrap_or_default();
 
-            // C++ STEALTH_NOT_WHILE_ATTACKING / IS_FIRING_WEAPON residual:
-            // firing breaks stealth (default host residual).
-            if self.stealth_breaks_on_attack && self.status.stealthed {
-                self.break_stealth();
+        let (weapon_speed, weapon_splash, weapon_homing) = match self.weapon_slot_mut(slot) {
+            Some(weapon) => {
+                Self::consume_ammo_on_fire_named(weapon, current_time, name);
+                (
+                    weapon.projectile_speed,
+                    weapon.splash_radius,
+                    // AA residual: air-only weapons home on the live target.
+                    weapon.can_target_air && !weapon.can_target_ground,
+                )
             }
-            true
+            None => return false,
+        };
+        let shooter_id = self.id;
+        let shooter_pos = self.get_position();
+        self.target = Some(target_id);
+
+        // Prefer Weapon.ini DamageType via store name; shape residual if the
+        // source name has no usable host store entry.
+        let weapon_dtype = if let Some(weapon_name) = name {
+            let _ = crate::game_logic::weapon_bootstrap::ensure_host_weapon_store();
+            if crate::game_logic::thing::ThingTemplate::weapon_from_store(weapon_name).is_some() {
+                crate::game_logic::host_armor_residual::host_damage_type_for_weapon_name(
+                    weapon_name,
+                )
+            } else if weapon_speed <= 0.0 || weapon_speed >= 999_000.0 {
+                super::combat::DamageType::Laser
+            } else if weapon_splash > 0.0 {
+                super::combat::DamageType::Explosive
+            } else {
+                super::combat::DamageType::Bullet
+            }
+        } else if weapon_speed <= 0.0 || weapon_speed >= 999_000.0 {
+            super::combat::DamageType::Laser
+        } else if weapon_splash > 0.0 {
+            super::combat::DamageType::Explosive
         } else {
-            false
+            super::combat::DamageType::Bullet
+        };
+        super::combat::queue_projectile(super::combat::PendingProjectile {
+            shooter_id,
+            shooter_pos,
+            target_id: Some(target_id),
+            target_pos: None,
+            damage: weapon_damage,
+            speed: weapon_speed,
+            splash_radius: weapon_splash,
+            is_homing: weapon_homing,
+            damage_type: weapon_dtype,
+            death_type: crate::game_logic::host_armor_residual::resolve_host_death_type(
+                name,
+                weapon_dtype,
+            ),
+            projectile_object_name,
+            detonation_fx_name,
+            detonation_ocl_name,
+            exhaust_name,
+            secondary_damage,
+            secondary_damage_radius,
+            shock_wave_amount,
+            shock_wave_radius,
+            shock_wave_taper_off,
+            radius_damage_affects,
+            projectile_collides,
+            // C++ ScatterRadius + ScatterRadiusVsInfantry residual.
+            scatter_radius,
+            min_weapon_speed: speed_peel.min_weapon_speed,
+            scale_weapon_speed: speed_peel.scale_weapon_speed,
+            attack_range: if speed_peel.attack_range > 0.0 {
+                speed_peel.attack_range
+            } else {
+                fallback_range
+            },
+            min_attack_range: if speed_peel.min_attack_range > 0.0 {
+                speed_peel.min_attack_range
+            } else {
+                fallback_min_range
+            },
+            historic_weapon_key: fire_weapon_name.clone().unwrap_or_default(),
+            historic_bonus_time_frames: historic_bonus.time_frames,
+            historic_bonus_count: historic_bonus.count,
+            historic_bonus_radius: historic_bonus.radius,
+            historic_bonus_weapon: historic_bonus.bonus_weapon,
+            die_on_detonate: name
+                .map(crate::game_logic::weapon_bootstrap::host_die_on_detonate_for_weapon_name)
+                .unwrap_or(false),
+        });
+        // C++ fireWeaponTemplate LeechRange activate residual.
+        self.activate_leech_range_for_slot(slot);
+        self.record_shot_at_target(target_id);
+        // C++ Weapon::m_numShotsForCurBarrel / m_curBarrel residual.
+        self.advance_weapon_barrel_after_shot();
+        // C++ --m_maxShotCount residual.
+        self.consume_max_shot_count();
+        self.refresh_weapon_fire_status(current_time);
+        {
+            let frame = crate::game_logic::host_historic_bonus::logic_frame();
+            self.stamp_fire_sound_loop_after_shot(frame, fire_weapon_name.as_deref());
         }
+        {
+            let (dmg, rng) = self
+                .weapon_slot(slot)
+                .map(|w| (w.damage, w.range))
+                .unwrap_or((0.0, 0.0));
+            let frame = crate::game_logic::host_historic_bonus::logic_frame();
+            let next_count = self.fire_intent_count.saturating_add(1);
+            // When AI attack authority is on, GameWorld SetFireIntent writeback is
+            // last-writer — log the intent without dual-writing host last_fire_*.
+            if crate::gameworld_shadow::gameworld_ai_attack_authority_live() {
+                crate::game_logic::host_fire_intent_log::record(
+                    self.id,
+                    target_id.0,
+                    slot,
+                    dmg,
+                    rng,
+                    current_time,
+                    frame,
+                    next_count,
+                );
+                // Keep counter monotonic for subsequent shots this frame.
+                self.fire_intent_count = next_count;
+            } else {
+                self.last_fire_victim_host = target_id.0;
+                self.last_fire_slot = slot;
+                self.last_fire_damage = dmg;
+                self.last_fire_range = rng;
+                self.last_fire_sim_time = current_time;
+                self.last_fire_frame = frame;
+                self.fire_intent_count = next_count;
+                self.record_host_fire_intent();
+            }
+        }
+
+        // C++ STEALTH_NOT_WHILE_ATTACKING / IS_FIRING_WEAPON residual:
+        // firing breaks stealth (default host residual).
+        if self.stealth_breaks_on_attack && self.status.stealthed {
+            self.break_stealth();
+        }
+        true
     }
 
     pub fn move_to(&mut self, position: Vec3) {
@@ -712,27 +448,26 @@ impl Object {
     }
 
     pub fn activate_leech_range_for_slot(&mut self, slot: u8) {
-        let name = if slot == 1 {
-            self.thing.template.secondary_weapon_name.as_deref().or(self
-                .thing
-                .template
-                .primary_weapon_name
-                .as_deref())
-        } else {
-            self.thing.template.primary_weapon_name.as_deref()
-        };
+        let name = self.weapon_name_for_slot(slot);
         let is_leech = name
             .map(crate::game_logic::weapon_bootstrap::host_leech_range_weapon_for_weapon_name)
             .unwrap_or(false);
         if !is_leech {
             return;
         }
-        if slot == 1 {
-            self.leech_range_active_secondary = true;
-            self.record_host_weapon_stats();
-        } else {
-            self.leech_range_active_primary = true;
-            self.record_host_weapon_stats();
+        match slot {
+            0 => {
+                self.leech_range_active_primary = true;
+                self.record_host_weapon_stats();
+            }
+            1 => {
+                self.leech_range_active_secondary = true;
+                self.record_host_weapon_stats();
+            }
+            // The host only has persisted leech flags for A/B.  Do not alias
+            // a tertiary leech weapon to primary; it would alter a different
+            // slot's targeting range.
+            _ => {}
         }
     }
 

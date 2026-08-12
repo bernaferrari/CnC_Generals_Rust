@@ -119,6 +119,12 @@ impl Object {
             .as_deref())
     }
 
+    /// TERTIARY has no primary fallback: a missing third WeaponSet entry must
+    /// remain unavailable rather than masquerading as the unit's main gun.
+    pub(super) fn tertiary_weapon_name(&self) -> Option<&str> {
+        self.thing.template.tertiary_weapon_name.as_deref()
+    }
+
     /// Max ClipReload frames among empty RETURN_TO_BASE weapons (C++ airfield rearm).
     pub fn airfield_rearm_clip_reload_frames(&self) -> u32 {
         let mut frames = 0u32;
@@ -136,6 +142,9 @@ impl Object {
             consider(w, &mut frames);
         }
         if let Some(w) = self.secondary_weapon.as_ref() {
+            consider(w, &mut frames);
+        }
+        if let Some(w) = self.tertiary_weapon.as_ref() {
             consider(w, &mut frames);
         }
         frames
@@ -158,6 +167,10 @@ impl Object {
                 .secondary_weapon
                 .as_ref()
                 .is_some_and(|w| empty_rtb(w, self.secondary_weapon_name()))
+            || self
+                .tertiary_weapon
+                .as_ref()
+                .is_some_and(|w| empty_rtb(w, self.tertiary_weapon_name()))
     }
 
     pub fn rearm_return_to_base_weapons(&mut self) -> bool {
@@ -167,6 +180,7 @@ impl Object {
         let mut any = false;
         let pri = self.primary_weapon_name().map(|s| s.to_string());
         let sec = self.secondary_weapon_name().map(|s| s.to_string());
+        let ter = self.tertiary_weapon_name().map(str::to_owned);
         if let Some(w) = self.weapon.as_mut() {
             let rt = pri
                 .as_deref()
@@ -179,6 +193,16 @@ impl Object {
         }
         if let Some(w) = self.secondary_weapon.as_mut() {
             let rt = sec
+                .as_deref()
+                .map(host_reload_type_for_weapon_name)
+                .unwrap_or(HostReloadType::Auto);
+            if rt == HostReloadType::ReturnToBase {
+                Self::rearm_weapon_full(w);
+                any = true;
+            }
+        }
+        if let Some(w) = self.tertiary_weapon.as_mut() {
+            let rt = ter
                 .as_deref()
                 .map(host_reload_type_for_weapon_name)
                 .unwrap_or(HostReloadType::Auto);
@@ -267,6 +291,16 @@ impl Object {
                 }
             }
         }
+        if let Some(w) = &self.tertiary_weapon {
+            if w.min_range > 0.0 && dist + 1e-4 < w.min_range {
+                // min range still enforced
+            } else {
+                let range = self.effective_weapon_range(w.range);
+                if dist <= range + 1e-3 {
+                    return true;
+                }
+            }
+        }
         false
     }
 
@@ -288,6 +322,16 @@ impl Object {
             if w.min_range > 0.0 && dist + 1e-4 < w.min_range {
             } else if self.leech_range_active_secondary {
                 return true;
+            } else {
+                let range = self.effective_weapon_range(w.range);
+                if dist <= range + 1e-3 {
+                    return true;
+                }
+            }
+        }
+        if let Some(w) = &self.tertiary_weapon {
+            if w.min_range > 0.0 && dist + 1e-4 < w.min_range {
+                // min range still enforced
             } else {
                 let range = self.effective_weapon_range(w.range);
                 if dist <= range + 1e-3 {

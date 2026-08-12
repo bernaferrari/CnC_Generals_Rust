@@ -527,12 +527,13 @@ End
     }
 
     #[test]
-    fn parses_primary_weapon_without_secondary_overwrite() {
+    fn parses_each_concrete_weapon_slot_without_overwrite() {
         let ini_content = r#"
 Object USA_Ranger
   Type = Infantry
   Weapon = PRIMARY AmericaRangerMachineGun
   Weapon = SECONDARY AmericaRangerFlashBangGrenade
+  Weapon = TERTIARY AmericaRangerTertiaryTest
   HitPoints = 120
 End
 "#;
@@ -551,6 +552,11 @@ End
             Some("AmericaRangerFlashBangGrenade"),
             "SECONDARY must be recorded independently of PRIMARY"
         );
+        assert_eq!(
+            def.tertiary_weapon.as_deref(),
+            Some("AmericaRangerTertiaryTest"),
+            "TERTIARY must remain a concrete third slot"
+        );
     }
 
     #[test]
@@ -560,6 +566,7 @@ Object GLA_Scorpion
   Type = Vehicle
   Weapon = PRIMARY ScorpionTankGun
   Weapon = SECONDARY None
+  Weapon = TERTIARY None
 End
 "#;
         let mut parser = IniParser::new();
@@ -571,6 +578,10 @@ End
         assert!(
             def.secondary_weapon.is_none(),
             "SECONDARY None must fail-closed (no name)"
+        );
+        assert!(
+            def.tertiary_weapon.is_none(),
+            "TERTIARY None must fail-closed (no name)"
         );
     }
 }

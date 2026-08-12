@@ -1,6 +1,27 @@
 use super::*;
 
 impl Object {
+    /// Resolve a concrete C++ WeaponSet slot to its source Weapon.ini name.
+    ///
+    /// This deliberately has no fallback for TERTIARY.  A missing third slot
+    /// is not a primary weapon, and treating it as one makes a `FIRE_WEAPON
+    /// TERTIARY` command silently discharge the wrong weapon.
+    pub fn weapon_name_for_slot(&self, slot: u8) -> Option<&str> {
+        match slot {
+            0 => self.primary_weapon_name(),
+            1 => self.secondary_weapon_name(),
+            2 => self.tertiary_weapon_name(),
+            _ => None,
+        }
+    }
+
+    /// First concrete WeaponSet slot currently bound on this object.
+    pub fn first_available_weapon_slot(&self) -> Option<u8> {
+        [0u8, 1u8, 2u8]
+            .into_iter()
+            .find(|slot| self.weapon_slot(*slot).is_some())
+    }
+
     /// C++ WeaponSet model-condition residual for PREATTACK/FIRING/BETWEEN/RELOADING A/B/C.
     ///
     /// Maps `weapon_fire_status` + active slot onto ModelConditionFlags bits
@@ -15,15 +36,7 @@ impl Object {
         let Some(weapon) = self.weapon_slot(slot) else {
             return 0.0;
         };
-        let name = if slot == 1 {
-            self.thing.template.secondary_weapon_name.as_deref().or(self
-                .thing
-                .template
-                .primary_weapon_name
-                .as_deref())
-        } else {
-            self.thing.template.primary_weapon_name.as_deref()
-        };
+        let name = self.weapon_name_for_slot(slot);
         // Prefer live WeaponFireStatus when this is the active slot.
         let status = if slot == self.active_weapon_slot {
             self.weapon_fire_status
@@ -73,7 +86,7 @@ impl Object {
     /// C++ Object::getMostPercentReadyToFireAnyWeapon residual (0..100).
     pub fn get_most_percent_ready_to_fire_any_weapon(&self, current_time: f32) -> u32 {
         let mut most = 0u32;
-        for slot in [0u8, 1u8] {
+        for slot in [0u8, 1u8, 2u8] {
             if self.weapon_slot(slot).is_none() {
                 continue;
             }
@@ -90,19 +103,11 @@ impl Object {
 
     pub fn get_ammo_pip_showing_info(&self) -> Option<(u32, u32)> {
         use crate::game_logic::weapon_bootstrap::host_shows_ammo_pips_for_weapon_name;
-        for slot in [0u8, 1u8] {
+        for slot in [0u8, 1u8, 2u8] {
             let Some(w) = self.weapon_slot(slot) else {
                 continue;
             };
-            let name = if slot == 1 {
-                self.thing.template.secondary_weapon_name.as_deref().or(self
-                    .thing
-                    .template
-                    .primary_weapon_name
-                    .as_deref())
-            } else {
-                self.thing.template.primary_weapon_name.as_deref()
-            };
+            let name = self.weapon_name_for_slot(slot);
             let Some(n) = name else {
                 continue;
             };
@@ -125,22 +130,14 @@ impl Object {
 
     /// C++ Object::findWaypointFollowingCapableWeapon residual (slot index).
     ///
-    /// Scans SECONDARY then PRIMARY (C++ WEAPONSLOT_COUNT-1 .. PRIMARY).
+    /// Scans TERTIARY, SECONDARY then PRIMARY (C++ WEAPONSLOT_COUNT-1 .. PRIMARY).
     pub fn find_waypoint_following_capable_weapon_slot(&self) -> Option<u8> {
         use crate::game_logic::weapon_bootstrap::host_capable_of_following_waypoint_for_weapon_name;
-        for slot in [1u8, 0u8] {
+        for slot in [2u8, 1u8, 0u8] {
             let Some(_w) = self.weapon_slot(slot) else {
                 continue;
             };
-            let name = if slot == 1 {
-                self.thing.template.secondary_weapon_name.as_deref().or(self
-                    .thing
-                    .template
-                    .primary_weapon_name
-                    .as_deref())
-            } else {
-                self.thing.template.primary_weapon_name.as_deref()
-            };
+            let name = self.weapon_name_for_slot(slot);
             if name
                 .map(host_capable_of_following_waypoint_for_weapon_name)
                 .unwrap_or(false)
@@ -213,20 +210,12 @@ impl Object {
             return;
         }
         let slot = self.active_weapon_slot;
-        let Some(weapon) = self.weapon_slot(slot).or_else(|| self.weapon.as_ref()) else {
+        let Some(weapon) = self.weapon_slot(slot) else {
             self.weapon_fire_status = WeaponFireStatus::OutOfAmmo;
             self.sync_weapon_model_conditions_from_status();
             return;
         };
-        let name = if slot == 1 {
-            self.thing.template.secondary_weapon_name.as_deref().or(self
-                .thing
-                .template
-                .primary_weapon_name
-                .as_deref())
-        } else {
-            self.thing.template.primary_weapon_name.as_deref()
-        };
+        let name = self.weapon_name_for_slot(slot);
         let reload = self.effective_weapon_reload(weapon.reload_time);
         if !Self::weapon_has_ammo_for_shot(weapon, name) {
             self.weapon_fire_status = WeaponFireStatus::OutOfAmmo;
@@ -269,6 +258,7 @@ impl Object {
         }
         let primary_name = self.thing.template.primary_weapon_name.clone();
         let secondary_name = self.thing.template.secondary_weapon_name.clone();
+        let tertiary_name = self.thing.template.tertiary_weapon_name.clone();
         if let Some(weapon) = &self.weapon {
             let reload = self.effective_weapon_reload(weapon.reload_time);
             if Self::weapon_ready_named(weapon, current_time, primary_name.as_deref(), reload) {
@@ -282,14 +272,20 @@ impl Object {
                 return true;
             }
         }
+        if let Some(weapon) = &self.tertiary_weapon {
+            let reload = self.effective_weapon_reload(weapon.reload_time);
+            if Self::weapon_ready_named(weapon, current_time, tertiary_name.as_deref(), reload) {
+                return true;
+            }
+        }
         false
     }
 
     /// Fail-closed residual combat weapon choice (not full AutoChoose/PreferredAgainst).
     ///
-    /// Slot: `0` = primary, `1` = secondary.
+    /// Slot: `0` = primary, `1` = secondary, `2` = tertiary.
     /// Rules:
-    /// - Player lock (`active_weapon_slot == 1`): prefer secondary when ready + in range.
+    /// - Explicit player lock wins when its concrete slot is ready + in range.
     /// - PreferredAgainst residual (damage + kind heuristic, not full INI matrix):
     ///   - Structures: prefer secondary when damage ≥ primary (or primary cannot fire).
     ///   - Infantry: prefer secondary when damage > primary (FlashBang residual).
@@ -305,7 +301,7 @@ impl Object {
             if let Some(w) = self.weapon_slot(slot) {
                 let target_faerie = target.is_faerie_fire();
                 if self.weapon_ready_vs_target_bonused(w, current_time, target_faerie)
-                    && self.can_target_with(target, w)
+                    && self.can_target_with_slot(target, w, Some(slot))
                 {
                     return Some(slot);
                 }
@@ -318,18 +314,31 @@ impl Object {
         let target_faerie = target.is_faerie_fire();
         let primary_ok = self.weapon.as_ref().is_some_and(|w| {
             self.weapon_ready_vs_target_bonused(w, current_time, target_faerie)
-                && self.can_target_with(target, w)
+                && self.can_target_with_slot(target, w, Some(0))
         });
         let secondary_ok = self.secondary_weapon.as_ref().is_some_and(|w| {
             self.weapon_ready_vs_target_bonused(w, current_time, target_faerie)
-                && self.can_target_with(target, w)
+                && self.can_target_with_slot(target, w, Some(1))
         });
+
+        // Manual weapon-slot toggle (command residual).
+        if self.active_weapon_slot == 2 {
+            // TERTIARY is intentionally not an auto-choice candidate.  This
+            // handles an explicit selected/locked manual weapon only.
+            let tertiary_ok = self.tertiary_weapon.as_ref().is_some_and(|w| {
+                self.weapon_ready_vs_target_bonused(w, current_time, target_faerie)
+                    && self.can_target_with_slot(target, w, Some(2))
+            });
+            if tertiary_ok {
+                return Some(2);
+            }
+            return None;
+        }
 
         if !primary_ok && !secondary_ok {
             return None;
         }
 
-        // Manual weapon-slot toggle (command residual).
         if self.active_weapon_slot == 1 {
             if secondary_ok {
                 return Some(1);
@@ -339,15 +348,6 @@ impl Object {
             }
             return None;
         }
-
-        // Comanche Rocket Pods residual: retail AutoChooseSources = TERTIARY NONE.
-        // Host secondary carries pods after upgrade; never auto-choose unless
-        // player locks active_weapon_slot == 1 (FIRE_WEAPON residual).
-        let rocket_pods_manual_only =
-            crate::game_logic::host_comanche_rocket_pods::is_comanche_template(&self.template_name)
-                && (self.has_upgrade_tag(
-                    crate::game_logic::host_comanche_rocket_pods::UPGRADE_COMANCHE_ROCKET_PODS,
-                ) || self.has_upgrade_tag("Upgrade_ComancheRocketPods"));
 
         let target_is_structure =
             target.object_type == ObjectType::Building || target.is_kind_of(KindOf::Structure);
@@ -392,7 +392,7 @@ impl Object {
             target_is_air,
         );
 
-        if secondary_ok && !rocket_pods_manual_only {
+        if secondary_ok {
             if scud_prefer_toxin || quad_prefer_aa || avenger_prefer_aa || humvee_prefer_aa {
                 return Some(1);
             }
@@ -412,10 +412,11 @@ impl Object {
         }
 
         // Default / alternate: primary first, then secondary if only it is ready.
-        // Rocket pods: never fall back to secondary without slot lock.
+        // TERTIARY intentionally is never chosen here: retail Comanche rocket
+        // pods declare `AutoChooseSources = TERTIARY NONE`.
         if primary_ok {
             Some(0)
-        } else if secondary_ok && !rocket_pods_manual_only {
+        } else if secondary_ok {
             Some(1)
         } else {
             None
@@ -424,15 +425,19 @@ impl Object {
 
     pub fn weapon_slot(&self, slot: u8) -> Option<&Weapon> {
         match slot {
+            0 => self.weapon.as_ref(),
             1 => self.secondary_weapon.as_ref(),
-            _ => self.weapon.as_ref(),
+            2 => self.tertiary_weapon.as_ref(),
+            _ => None,
         }
     }
 
     pub fn weapon_slot_mut(&mut self, slot: u8) -> Option<&mut Weapon> {
         match slot {
+            0 => self.weapon.as_mut(),
             1 => self.secondary_weapon.as_mut(),
-            _ => self.weapon.as_mut(),
+            2 => self.tertiary_weapon.as_mut(),
+            _ => None,
         }
     }
 
@@ -552,15 +557,7 @@ impl Object {
 
     /// Resolve AcceptableAimDelta for the active/named weapon slot (radians).
     pub fn aim_delta_for_slot(&self, slot: u8) -> f32 {
-        let name = if slot == 1 {
-            self.thing.template.secondary_weapon_name.as_deref().or(self
-                .thing
-                .template
-                .primary_weapon_name
-                .as_deref())
-        } else {
-            self.thing.template.primary_weapon_name.as_deref()
-        };
+        let name = self.weapon_name_for_slot(slot);
         name.map(crate::game_logic::weapon_bootstrap::host_aim_delta_for_weapon_name)
             .unwrap_or(crate::game_logic::weapon_bootstrap::AIM_DELTA_REL_THRESH_RAD)
     }
@@ -731,9 +728,9 @@ impl Object {
         }
     }
 
-    /// C++ Object::reloadAllAmmo(TRUE) residual — refill primary/secondary clips.
+    /// C++ Object::reloadAllAmmo(TRUE) residual — refill all concrete WeaponSet clips.
     pub fn reload_all_ammo(&mut self) {
-        for slot in [0u8, 1u8] {
+        for slot in [0u8, 1u8, 2u8] {
             if let Some(w) = self.weapon_slot_mut(slot) {
                 if w.clip_size > 0 {
                     w.ammo = Some(w.clip_size);
@@ -753,6 +750,8 @@ impl Object {
             self.weapon.as_ref().is_some_and(|w| {
                 w.clip_size > 0 && w.ammo.map(|a| a < w.clip_size).unwrap_or(true)
             }) || self.secondary_weapon.as_ref().is_some_and(|w| {
+                w.clip_size > 0 && w.ammo.map(|a| a < w.clip_size).unwrap_or(true)
+            }) || self.tertiary_weapon.as_ref().is_some_and(|w| {
                 w.clip_size > 0 && w.ammo.map(|a| a < w.clip_size).unwrap_or(true)
             });
         if needs {

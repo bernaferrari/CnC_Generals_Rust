@@ -13,7 +13,10 @@ impl GameLogic {
                     continue;
                 };
                 // Need at least one weapon slot bound.
-                if attacker.weapon.is_none() && attacker.secondary_weapon.is_none() {
+                if attacker.weapon.is_none()
+                    && attacker.secondary_weapon.is_none()
+                    && attacker.tertiary_weapon.is_none()
+                {
                     continue;
                 }
                 // ECM jam residual: C++ canFireWeapon DISABLED_SUBDUED — no fire while jammed.
@@ -181,11 +184,16 @@ impl GameLogic {
                 .unwrap_or(false);
 
             // Any slot ready on reload timer? If all reloading, skip (no chase).
+            let tertiary_explicit = attacker.active_weapon_slot == 2
+                || (attacker.weapon_lock_type != WeaponLockType::NotLocked
+                    && attacker.weapon_lock_slot == 2);
             let any_ready = attacker.weapon.as_ref().is_some_and(|w| {
                 Object::weapon_ready_vs_target(w, current_time, target_has_faerie)
             }) || attacker.secondary_weapon.as_ref().is_some_and(|w| {
                 Object::weapon_ready_vs_target(w, current_time, target_has_faerie)
-            });
+            }) || (tertiary_explicit && attacker.tertiary_weapon.as_ref().is_some_and(|w| {
+                Object::weapon_ready_vs_target(w, current_time, target_has_faerie)
+            }));
             if !any_ready {
                 continue;
             }
@@ -220,7 +228,7 @@ impl GameLogic {
                     continue;
                 }
 
-                // Choose primary/secondary, then fire if legal target.
+                // Choose a legal explicit/automatic combat slot, then fire.
                 // Stealthed + undetected: drop the engagement (C++ AIStates residual).
                 let (selected_slot, enemy_or_forced, target_stealthed_hidden) = {
                     if let (Some(attacker), Some(target)) =
@@ -312,16 +320,7 @@ impl GameLogic {
                     // whose elevation angle is outside the weapon loft window.
                     {
                         let pitch_ok = if let Some(attacker) = self.objects.get(&attacker_id) {
-                            let wname = if slot == 1 {
-                                attacker
-                                    .thing
-                                    .template
-                                    .secondary_weapon_name
-                                    .as_deref()
-                                    .or(attacker.thing.template.primary_weapon_name.as_deref())
-                            } else {
-                                attacker.thing.template.primary_weapon_name.as_deref()
-                            };
+                            let wname = attacker.weapon_name_for_slot(slot);
                             let limits = wname
                                 .map(crate::game_logic::weapon_bootstrap::host_target_pitch_limits_for_weapon_name)
                                 .unwrap_or_default();
@@ -385,15 +384,7 @@ impl GameLogic {
                                 .map(|w| w.pre_attack_delay.max(0.0))
                                 .unwrap_or(0.0);
                             let prefire = {
-                                let name =
-                                    if slot == 1 {
-                                        attacker.thing.template.secondary_weapon_name.as_deref().or(
-                                            attacker.thing.template.primary_weapon_name.as_deref(),
-                                        )
-                                    } else {
-                                        attacker.thing.template.primary_weapon_name.as_deref()
-                                    };
-                                name.map(
+                                attacker.weapon_name_for_slot(slot).map(
                                     crate::game_logic::weapon_bootstrap::host_prefire_type_for_weapon_name,
                                 )
                                 .unwrap_or(
@@ -758,7 +749,8 @@ impl GameLogic {
                                     }
                                 }
                             } else if {
-                                // Comanche residual: 20mm primary / anti-tank secondary / rocket pods secondary.
+                                // Comanche residual: 20mm primary / anti-tank secondary /
+                                // manual rocket pods tertiary.
                                 use crate::game_logic::host_comanche_rocket_pods::{
                                     is_comanche_template, should_apply_comanche_antitank_residual,
                                     should_apply_comanche_cannon_residual,
@@ -2171,15 +2163,7 @@ impl GameLogic {
                                                 );
                                             let carrier =
                                                 is_bunker_buster_carrier(&a.template_name);
-                                            let wname = if slot == 1 {
-                                                a.thing
-                                                    .template
-                                                    .secondary_weapon_name
-                                                    .as_deref()
-                                                    .or(a.thing.template.primary_weapon_name.as_deref())
-                                            } else {
-                                                a.thing.template.primary_weapon_name.as_deref()
-                                            };
+                                            let wname = a.weapon_name_for_slot(slot);
                                             let clearer = is_kill_garrisoned_clearer(
                                                 &a.template_name,
                                             ) || wname
@@ -2242,22 +2226,13 @@ impl GameLogic {
                                     if sc_miss {
                                         // C++ ScatterRadius residual: miss intended; splash at offset.
                                         if sc_splash > 0.0 {
-                                            let wname_splash =
-                                                self.objects.get(&attacker_id).and_then(|a| {
-                                                    if slot == 1 {
-                                                        a.thing
-                                                            .template
-                                                            .secondary_weapon_name
-                                                            .clone()
-                                                            .or_else(|| {
-                                                                a.thing
-                                                                    .template
-                                                                    .primary_weapon_name
-                                                                    .clone()
-                                                            })
-                                                    } else {
-                                                        a.thing.template.primary_weapon_name.clone()
-                                                    }
+                                            let wname_splash = self
+                                                .objects
+                                                .get(&attacker_id)
+                                                .and_then(|attacker| {
+                                                    attacker
+                                                        .weapon_name_for_slot(slot)
+                                                        .map(str::to_owned)
                                                 });
                                             let hits = self.apply_scatter_miss_splash_at(
                                                 sc_impact,
@@ -2334,19 +2309,13 @@ impl GameLogic {
                                             host_secondary_damage_for_weapon_name,
                                             host_secondary_damage_radius_for_weapon_name,
                                         };
-                                        let wname = self.objects.get(&attacker_id).and_then(|a| {
-                                            if slot == 1 {
-                                                a.thing
-                                                    .template
-                                                    .secondary_weapon_name
-                                                    .clone()
-                                                    .or_else(|| {
-                                                        a.thing.template.primary_weapon_name.clone()
-                                                    })
-                                            } else {
-                                                a.thing.template.primary_weapon_name.clone()
-                                            }
-                                        });
+                                        let wname = self.objects.get(&attacker_id).and_then(
+                                            |attacker| {
+                                                attacker
+                                                    .weapon_name_for_slot(slot)
+                                                    .map(str::to_owned)
+                                            },
+                                        );
                                         let (pr, sr, sd) = if let Some(ref n) = wname {
                                             (
                                                 host_primary_damage_radius_for_weapon_name(n),
@@ -2561,8 +2530,21 @@ impl GameLogic {
             } else if let Some(target_location) = target_location {
                 // Force-attack-ground: consume a shot when the location is in range and apply damage
                 // to the nearest hittable object around the designated impact point.
-                // Comanche Rocket Pods residual: secondary ground AOE when slot-locked.
-                // Fail-closed residual: other units still use primary for ground fire.
+                // A manually selected/locked slot is authoritative here.  Normal
+                // ground fire stays primary, while an explicit tertiary command
+                // can fire the real Comanche rocket pods.
+                let ground_slot = self.objects.get(&attacker_id).and_then(|attacker| {
+                    let requested = if attacker.weapon_lock_type != WeaponLockType::NotLocked {
+                        attacker.weapon_lock_slot
+                    } else {
+                        attacker.active_weapon_slot
+                    };
+                    if attacker.weapon_slot(requested).is_some() {
+                        Some(requested)
+                    } else {
+                        attacker.weapon_slot(0).is_some().then_some(0)
+                    }
+                });
                 let rocket_pod_ground = {
                     use crate::game_logic::host_comanche_rocket_pods::{
                         is_comanche_template, rocket_pod_ground_fire_active,
@@ -2575,44 +2557,32 @@ impl GameLogic {
                                 is_comanche_template(&a.template_name),
                                 a.has_upgrade_tag(UPGRADE_COMANCHE_ROCKET_PODS)
                                     || a.has_upgrade_tag("Upgrade_ComancheRocketPods"),
-                                a.secondary_weapon.is_some(),
-                                a.active_weapon_slot,
+                                a.tertiary_weapon.is_some(),
+                                ground_slot.unwrap_or(0),
                             )
                         })
                         .unwrap_or(false)
                 };
 
                 let can_fire_at_location = {
-                    if let Some(attacker) = self.objects.get(&attacker_id) {
-                        if rocket_pod_ground {
-                            attacker
-                                .secondary_weapon
-                                .as_ref()
-                                .map(|w| {
-                                    Object::weapon_ready(w, current_time)
-                                        && w.can_target_ground
-                                        && attacker.position.distance(target_location) <= w.range
+                    ground_slot
+                        .and_then(|slot| {
+                            self.objects.get(&attacker_id).and_then(|attacker| {
+                                attacker.weapon_slot(slot).map(|weapon| {
+                                    Object::weapon_ready(weapon, current_time)
+                                        && weapon.can_target_ground
+                                        && attacker.position.distance(target_location) <= weapon.range
                                 })
-                                .unwrap_or(false)
-                        } else {
-                            attacker
-                                .weapon
-                                .as_ref()
-                                .map(|w| {
-                                    Object::weapon_ready(w, current_time)
-                                        && w.can_target_ground
-                                        && attacker.position.distance(target_location) <= w.range
-                                })
-                                .unwrap_or(false)
-                        }
-                    } else {
-                        false
-                    }
+                            })
+                        })
+                        .unwrap_or(false)
                 };
 
                 if can_fire_at_location {
                     // AcceptableAimDelta residual for force-attack-ground.
-                    let ground_slot: u8 = if rocket_pod_ground { 1 } else { 0 };
+                    let Some(ground_slot) = ground_slot else {
+                        continue;
+                    };
                     let aim_ok = if let Some(attacker) = self.objects.get_mut(&attacker_id) {
                         attacker.set_ai_state(AIState::AttackingGround);
                         if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
@@ -2638,16 +2608,7 @@ impl GameLogic {
                     // Pitch window residual for ground fire.
                     {
                         let pitch_ok = if let Some(attacker) = self.objects.get(&attacker_id) {
-                            let wname = if ground_slot == 1 {
-                                attacker
-                                    .thing
-                                    .template
-                                    .secondary_weapon_name
-                                    .as_deref()
-                                    .or(attacker.thing.template.primary_weapon_name.as_deref())
-                            } else {
-                                attacker.thing.template.primary_weapon_name.as_deref()
-                            };
+                            let wname = attacker.weapon_name_for_slot(ground_slot);
                             let limits = wname
                                 .map(crate::game_logic::weapon_bootstrap::host_target_pitch_limits_for_weapon_name)
                                 .unwrap_or_default();
@@ -2663,19 +2624,12 @@ impl GameLogic {
                             continue;
                         }
                     }
-                    let mut weapon_damage = if rocket_pod_ground {
-                        self.objects
-                            .get(&attacker_id)
-                            .and_then(|a| a.secondary_weapon.as_ref())
-                            .map(|w| w.damage)
-                            .unwrap_or(0.0)
-                    } else {
-                        self.objects
-                            .get(&attacker_id)
-                            .and_then(|a| a.weapon.as_ref())
-                            .map(|w| w.damage)
-                            .unwrap_or(0.0)
-                    };
+                    let mut weapon_damage = self
+                        .objects
+                        .get(&attacker_id)
+                        .and_then(|attacker| attacker.weapon_slot(ground_slot))
+                        .map(|weapon| weapon.damage)
+                        .unwrap_or(0.0);
                     if overcharge {
                         weapon_damage *= 1.1;
                     }
@@ -2686,7 +2640,7 @@ impl GameLogic {
                         weapon_damage *= attacker.battle_plan_damage_multiplier();
                     }
 
-                    fired_slot = Some(if rocket_pod_ground { 1 } else { 0 });
+                    fired_slot = Some(ground_slot);
 
                     // Aurora dive bomb residual on force-attack-ground.
                     let aurora_ground_queued = {
@@ -2823,7 +2777,9 @@ impl GameLogic {
                                 use crate::game_logic::host_scud_launcher::scud_toxin_warhead_for_slot;
                                 self.objects
                                     .get(&attacker_id)
-                                    .map(|a| scud_toxin_warhead_for_slot(&a.template_name, 0))
+                                    .map(|a| {
+                                        scud_toxin_warhead_for_slot(&a.template_name, ground_slot)
+                                    })
                                     .unwrap_or(false)
                             };
                             let from = self
@@ -3009,34 +2965,36 @@ impl GameLogic {
                     .or(target_location);
                 let fire_frame = self.frame;
                 let (fire_fx, det_fx) = {
-                    let a = self.objects.get(&attacker_id);
-                    let (tname, pwn, swn) = a
-                        .map(|o| {
+                    self.objects
+                        .get(&attacker_id)
+                        .and_then(|attacker| attacker.weapon_name_for_slot(slot))
+                        .map(|weapon_name| {
                             (
-                                o.template_name.as_str(),
-                                o.thing.template.primary_weapon_name.as_deref(),
-                                o.thing.template.secondary_weapon_name.as_deref(),
+                                crate::game_logic::weapon_bootstrap::host_fire_fx_for_weapon_name(
+                                    weapon_name,
+                                ),
+                                crate::game_logic::weapon_bootstrap::host_detonation_fx_for_weapon_name(
+                                    weapon_name,
+                                ),
                             )
                         })
-                        .unwrap_or(("", None, None));
-                    crate::game_logic::weapon_bootstrap::host_weapon_fx_for_unit_slot(
-                        tname, pwn, swn, slot,
-                    )
+                        .unwrap_or_default()
                 };
                 let (fire_ocl, det_ocl) = {
-                    let a = self.objects.get(&attacker_id);
-                    let (tname, pwn, swn) = a
-                        .map(|o| {
+                    self.objects
+                        .get(&attacker_id)
+                        .and_then(|attacker| attacker.weapon_name_for_slot(slot))
+                        .map(|weapon_name| {
                             (
-                                o.template_name.as_str(),
-                                o.thing.template.primary_weapon_name.as_deref(),
-                                o.thing.template.secondary_weapon_name.as_deref(),
+                                crate::game_logic::weapon_bootstrap::host_fire_ocl_for_weapon_name(
+                                    weapon_name,
+                                ),
+                                crate::game_logic::weapon_bootstrap::host_detonation_ocl_for_weapon_name(
+                                    weapon_name,
+                                ),
                             )
                         })
-                        .unwrap_or(("", None, None));
-                    crate::game_logic::weapon_bootstrap::host_weapon_ocl_for_unit_slot(
-                        tname, pwn, swn, slot,
-                    )
+                        .unwrap_or_default()
                 };
                 // C++ Weapon::fireWeaponTemplate FireFX stealth gate residual:
                 // stealthed+undetected+non-disguised suppress muzzle FX unless
@@ -3057,15 +3015,7 @@ impl GameLogic {
                         if !hidden {
                             return false;
                         }
-                        let wname = if slot == 1 {
-                            o.thing
-                                .template
-                                .secondary_weapon_name
-                                .as_deref()
-                                .or(o.thing.template.primary_weapon_name.as_deref())
-                        } else {
-                            o.thing.template.primary_weapon_name.as_deref()
-                        };
+                        let wname = o.weapon_name_for_slot(slot);
                         let play = wname
                             .map(
                                 crate::game_logic::weapon_bootstrap::host_play_fx_when_stealthed_for_weapon_name,
@@ -3093,25 +3043,17 @@ impl GameLogic {
                 // C++ Weapon.ini LaserName residual: short-lived combat beam for
                 // presentation / laser_segment_upload observe path.
                 {
-                    let a = self.objects.get(&attacker_id);
-                    let (tname, pwn, swn) = a
-                        .map(|o| {
-                            (
-                                o.template_name.as_str(),
-                                o.thing.template.primary_weapon_name.as_deref(),
-                                o.thing.template.secondary_weapon_name.as_deref(),
-                            )
-                        })
-                        .unwrap_or(("", None, None));
-                    let laser_name =
-                        crate::game_logic::weapon_bootstrap::host_laser_name_for_unit_slot(
-                            tname, pwn, swn, slot,
-                        );
+                    let weapon_name = self
+                        .objects
+                        .get(&attacker_id)
+                        .and_then(|attacker| attacker.weapon_name_for_slot(slot));
+                    let laser_name = weapon_name
+                        .map(crate::game_logic::weapon_bootstrap::host_laser_name_for_weapon_name)
+                        .unwrap_or_default();
                     if !laser_name.is_empty() {
-                        let laser_bone =
-                            crate::game_logic::weapon_bootstrap::host_laser_bone_name_for_unit_slot(
-                                tname, pwn, swn, slot,
-                            );
+                        let laser_bone = weapon_name
+                            .map(crate::game_logic::weapon_bootstrap::host_laser_bone_name_for_weapon_name)
+                            .unwrap_or_default();
                         let to = impact_pos.unwrap_or(muzzle_pos);
                         let laser_name_owned = laser_name.clone();
                         self.weapon_lasers.push(
@@ -3138,19 +3080,12 @@ impl GameLogic {
                 // Audio residual (hq-7zxm slice): weapon fire → real AudioEventRequest.
                 // Prefer Weapon.ini FireSound via store name; fallback "WeaponFire".
                 let fire_sound = {
-                    let a = self.objects.get(&attacker_id);
-                    let (tname, pwn, swn) = a
-                        .map(|o| {
-                            (
-                                o.template_name.as_str(),
-                                o.thing.template.primary_weapon_name.as_deref(),
-                                o.thing.template.secondary_weapon_name.as_deref(),
-                            )
-                        })
-                        .unwrap_or(("", None, None));
-                    crate::game_logic::weapon_bootstrap::host_fire_sound_for_unit_slot(
-                        tname, pwn, swn, slot,
-                    )
+                    self.objects
+                        .get(&attacker_id)
+                        .and_then(|attacker| attacker.weapon_name_for_slot(slot))
+                        .map(crate::game_logic::weapon_bootstrap::host_fire_sound_for_weapon_name)
+                        .filter(|sound| !sound.is_empty())
+                        .unwrap_or_else(|| "WeaponFire".to_string())
                 };
                 self.queue_audio_event(
                     AudioEventRequest::new(fire_sound.as_str())
@@ -3160,16 +3095,8 @@ impl GameLogic {
                 );
 
                 // Capture weapon name before mut borrow for RETURN_TO_BASE peels.
-                let fire_wname = self.objects.get(&attacker_id).and_then(|a| {
-                    if slot == 1 {
-                        a.thing
-                            .template
-                            .secondary_weapon_name
-                            .clone()
-                            .or_else(|| a.thing.template.primary_weapon_name.clone())
-                    } else {
-                        a.thing.template.primary_weapon_name.clone()
-                    }
+                let fire_wname = self.objects.get(&attacker_id).and_then(|attacker| {
+                    attacker.weapon_name_for_slot(slot).map(str::to_owned)
                 });
                 if let Some(attacker) = self.objects.get_mut(&attacker_id) {
                     if let Some(weapon) = attacker.weapon_slot_mut(slot) {

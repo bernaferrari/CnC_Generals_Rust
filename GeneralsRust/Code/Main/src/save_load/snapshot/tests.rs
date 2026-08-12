@@ -683,19 +683,58 @@ fn snapshot_weapon_layout_helpers_round_trip() {
     obj.weapon = Some(primary.clone());
     obj.secondary_weapon = Some(secondary.clone());
     let weapons = SnapshotBuilder::snapshot_object_weapons(&obj);
-    let (p, s) = SnapshotBuilder::restore_object_weapons(&weapons);
+    let (p, s, t) = SnapshotBuilder::restore_object_weapons(&weapons);
     assert!((p.unwrap().damage - 10.0).abs() < f32::EPSILON);
     assert!((s.unwrap().damage - 99.0).abs() < f32::EPSILON);
+    assert!(t.is_none());
 
     // Primary only (legacy)
     let weapons = vec![primary.clone()];
-    let (p, s) = SnapshotBuilder::restore_object_weapons(&weapons);
+    let (p, s, t) = SnapshotBuilder::restore_object_weapons(&weapons);
     assert!(p.is_some());
     assert!(s.is_none());
+    assert!(t.is_none());
 
     // Empty
-    let (p, s) = SnapshotBuilder::restore_object_weapons(&[]);
-    assert!(p.is_none() && s.is_none());
+    let (p, s, t) = SnapshotBuilder::restore_object_weapons(&[]);
+    assert!(p.is_none() && s.is_none() && t.is_none());
+}
+
+#[test]
+fn snapshot_weapon_layout_preserves_tertiary_slot_and_active_identity() {
+    let primary = Weapon {
+        damage: 10.0,
+        range: 100.0,
+        ..Weapon::default()
+    };
+    let secondary = Weapon {
+        damage: 20.0,
+        range: 120.0,
+        ..Weapon::default()
+    };
+    let tertiary = Weapon {
+        damage: 30.0,
+        range: 200.0,
+        last_fire_time: 4.0,
+        ammo: Some(19),
+        ..Weapon::default()
+    };
+    let mut object = Object::new(ThingTemplate::new("ThreeSlotUnit"), ObjectId(7), Team::USA);
+    object.weapon = Some(primary);
+    object.secondary_weapon = Some(secondary);
+    object.tertiary_weapon = Some(tertiary.clone());
+    object.active_weapon_slot = 2;
+
+    let weapons = SnapshotBuilder::snapshot_object_weapons(&object);
+    assert_eq!(weapons.len(), 3);
+    let (restored_primary, restored_secondary, restored_tertiary) =
+        SnapshotBuilder::restore_object_weapons(&weapons);
+    assert!(restored_primary.is_some());
+    assert!(restored_secondary.is_some());
+    let restored_tertiary = restored_tertiary.expect("tertiary must stay at index 2");
+    assert!((restored_tertiary.damage - tertiary.damage).abs() < f32::EPSILON);
+    assert_eq!(restored_tertiary.ammo, tertiary.ammo);
+    assert!((restored_tertiary.last_fire_time - tertiary.last_fire_time).abs() < f32::EPSILON);
 }
 
 /// End-to-end SaveFileManager path: secondary stays bound after save → load.

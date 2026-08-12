@@ -86,11 +86,17 @@ impl SnapshotBuilder {
         object.movement = snapshot.movement.clone();
         object.experience = snapshot.experience.clone();
 
-        // weapons[0] = primary, weapons[1] = secondary (host residual layout).
-        // Zero-damage pad at [0] means "no primary" (secondary-only objects).
-        let (primary, secondary) = Self::restore_object_weapons(&snapshot.weapons);
+        // Concrete WeaponSet layout: [0]=primary, [1]=secondary,
+        // [2]=tertiary.  Zero-value pads preserve a later slot's identity.
+        let (primary, secondary, tertiary) = Self::restore_object_weapons(&snapshot.weapons);
         object.weapon = primary;
         object.secondary_weapon = secondary;
+        object.tertiary_weapon = tertiary;
+        // Old saves can contain an active slot whose backing weapon did not
+        // exist in that snapshot.  Do not let it fall through to primary.
+        if object.weapon_slot(object.active_weapon_slot).is_none() {
+            object.active_weapon_slot = object.first_available_weapon_slot().unwrap_or(0);
+        }
         object.occupants = snapshot.contained_objects.clone();
 
         self.restore_object_type_data(&snapshot.object_type, &mut object)?;
@@ -100,32 +106,39 @@ impl SnapshotBuilder {
         Ok(())
     }
 
-    /// Decode snapshot weapons vec into primary / secondary slots.
+    /// Decode snapshot weapons vec into concrete primary / secondary / tertiary slots.
     ///
     /// Fail-closed residual layout:
     /// - empty → neither
     /// - [primary] → primary only (legacy saves)
-    /// - [primary, secondary] → both
-    /// - [zero-damage pad, secondary] → secondary only
-    pub(crate) fn restore_object_weapons(weapons: &[Weapon]) -> (Option<Weapon>, Option<Weapon>) {
-        match weapons.len() {
-            0 => (None, None),
-            1 => (Some(weapons[0].clone()), None),
-            _ => {
-                let primary = &weapons[0];
-                let secondary = Some(weapons[1].clone());
-                let primary_is_pad = primary.damage <= 0.0
-                    && primary.range <= 0.0
-                    && primary.reload_time <= 0.0
-                    && !primary.can_target_air
-                    && !primary.can_target_ground;
-                if primary_is_pad {
-                    (None, secondary)
-                } else {
-                    (Some(primary.clone()), secondary)
-                }
-            }
-        }
+    /// - [primary, secondary] → legacy two-slot save
+    /// - [pad, secondary, tertiary] → missing primary with later slots intact
+    pub(crate) fn restore_object_weapons(
+        weapons: &[Weapon],
+    ) -> (Option<Weapon>, Option<Weapon>, Option<Weapon>) {
+        let slot = |index: usize| {
+            weapons
+                .get(index)
+                .filter(|weapon| !Self::is_empty_weapon_slot_pad(weapon))
+                .cloned()
+        };
+        (slot(0), slot(1), slot(2))
+    }
+
+    fn is_empty_weapon_slot_pad(weapon: &Weapon) -> bool {
+        weapon.damage <= 0.0
+            && weapon.range <= 0.0
+            && weapon.min_range <= 0.0
+            && weapon.reload_time <= 0.0
+            && weapon.last_fire_time <= 0.0
+            && weapon.ammo.is_none()
+            && weapon.clip_size == 0
+            && weapon.clip_reload_time <= 0.0
+            && !weapon.can_target_air
+            && !weapon.can_target_ground
+            && weapon.projectile_speed <= 0.0
+            && weapon.pre_attack_delay <= 0.0
+            && weapon.splash_radius <= 0.0
     }
 
     pub(super) fn restore_object_status(&self, status: &ObjectStatusSnapshot, object: &mut Object) {

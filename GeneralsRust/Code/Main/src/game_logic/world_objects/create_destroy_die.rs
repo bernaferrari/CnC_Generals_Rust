@@ -94,6 +94,7 @@ impl GameLogic {
             // Resolve weapons / locomotor before move into Object.
             let weapon = template.resolve_primary_weapon();
             let secondary_weapon = template.resolve_secondary_weapon();
+            let tertiary_weapon = template.resolve_tertiary_weapon();
             let movement_stats = template.resolve_movement();
             // Sentry residual: detect explicit template primary before move.
             let sentry_had_explicit_primary =
@@ -116,6 +117,12 @@ impl GameLogic {
             // Secondary slot: fail-closed (only when template names/stats resolve).
             if let Some(secondary) = secondary_weapon {
                 object.secondary_weapon = Some(secondary);
+            }
+            // Tertiary is a separate WeaponSet storage slot.  Conditional
+            // templates may strip/rebind it below (for example Comanche pods),
+            // but it must never overwrite SECONDARY on creation.
+            if let Some(tertiary) = tertiary_weapon {
+                object.tertiary_weapon = Some(tertiary);
             }
 
             // Strategy Center residual: PRIMARY StrategyCenterGun exists in retail but
@@ -616,22 +623,33 @@ impl GameLogic {
                 object.weapon = Some(stealth_fighter_weapon());
             }
 
-            // Host residual: USA Comanche PRIMARY 20mm + SECONDARY anti-tank residual.
-            // Rocket pods PLAYER_UPGRADE replaces secondary (retail TERTIARY collapse).
-            // Fail-closed: not full 3-slot WeaponSet / JetAIUpdate turret matrix.
+            // Host residual: USA Comanche PRIMARY 20mm + SECONDARY anti-tank.
+            // Retail rocket pods are a PLAYER_UPGRADE TERTIARY weapon; keep
+            // anti-tank bound in SECONDARY and only expose pods after the team
+            // owns the real upgrade.
             if crate::game_logic::host_comanche_rocket_pods::is_comanche_template(template_name) {
                 use crate::game_logic::host_comanche_rocket_pods::{
                     comanche_antitank_weapon, comanche_cannon_weapon, comanche_rocket_pod_weapon,
                     UPGRADE_COMANCHE_ROCKET_PODS,
                 };
                 object.weapon = Some(comanche_cannon_weapon());
+                object.secondary_weapon = Some(comanche_antitank_weapon());
                 let has_pods = object.has_upgrade_tag(UPGRADE_COMANCHE_ROCKET_PODS)
-                    || object.has_upgrade_tag("Upgrade_ComancheRocketPods");
-                object.secondary_weapon = Some(if has_pods {
-                    comanche_rocket_pod_weapon()
+                    || object.has_upgrade_tag("Upgrade_ComancheRocketPods")
+                    || self.players.values().any(|player| {
+                        player.team == team
+                            && player.has_unlocked_upgrade(UPGRADE_COMANCHE_ROCKET_PODS)
+                    });
+                if has_pods {
+                    object.tertiary_weapon = Some(comanche_rocket_pod_weapon());
+                    object.apply_upgrade_tag(UPGRADE_COMANCHE_ROCKET_PODS);
+                    object.weapon_set_player_upgrade = true;
                 } else {
-                    comanche_antitank_weapon()
-                });
+                    // The simple ObjectDefinition parser preserves the source
+                    // name but does not evaluate full WeaponSet Conditions.
+                    // Do not grant a condition-gated pod declaration early.
+                    object.tertiary_weapon = None;
+                }
             }
 
             // Host residual: USA Battle Drone PRIMARY machine gun.

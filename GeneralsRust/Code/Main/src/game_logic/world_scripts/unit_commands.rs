@@ -822,10 +822,9 @@ impl GameLogic {
 
     /// Select a concrete weapon slot for a player-issued `FIRE_WEAPON` command.
     ///
-    /// The current host object represents PRIMARY and SECONDARY storage only.
-    /// Check those fields directly instead of using `Object::weapon_slot`, whose
-    /// primary fallback is useful for legacy combat reads but would make an
-    /// unrepresented TERTIARY request fire the wrong weapon.
+    /// Every accepted ordinal must map to a real concrete WeaponSet slot.
+    /// Unknown slots fail closed; in particular, TERTIARY never falls through
+    /// to PRIMARY.
     pub fn unit_command_select_weapon_slot(&mut self, id: ObjectId, slot: u8) -> bool {
         let Some(unit) = self.objects.get_mut(&id) else {
             return false;
@@ -836,7 +835,8 @@ impl GameLogic {
         let has_requested_slot = match slot {
             0 => unit.weapon.is_some(),
             1 => unit.secondary_weapon.is_some(),
-            _ => false,
+            2 => unit.tertiary_weapon.is_some(),
+            _ => return false,
         };
         if !has_requested_slot {
             return false;
@@ -943,12 +943,19 @@ impl GameLogic {
         let Some(unit) = self.objects.get_mut(&id) else {
             return false;
         };
-        let next = unit.active_weapon_slot ^ 1;
-        if unit.weapon_slot(next).is_some() {
-            let _ = unit.set_weapon_lock(next, WeaponLockType::LockedPermanently);
-        } else {
-            unit.set_active_weapon_slot(next);
-        }
+        let candidates = match unit.active_weapon_slot {
+            0 => [1u8, 2u8, 0u8],
+            1 => [2u8, 0u8, 1u8],
+            2 => [0u8, 1u8, 2u8],
+            _ => [0u8, 1u8, 2u8],
+        };
+        let next = candidates
+            .into_iter()
+            .find(|slot| unit.weapon_slot(*slot).is_some());
+        let Some(next) = next else {
+            return false;
+        };
+        let _ = unit.set_weapon_lock(next, WeaponLockType::LockedPermanently);
         unit.set_ai_state(AIState::SpecialAbility);
         true
     }
@@ -1143,5 +1150,71 @@ impl GameLogic {
             obj.guard_radius = (cur + delta).clamp(30.0, 400.0);
         }
         Some(obj.guard_radius)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn three_slot_logic() -> (GameLogic, ObjectId) {
+        let mut logic = GameLogic::new();
+        logic
+            .templates
+            .insert("ThreeSlotTest".to_string(), ThingTemplate::new("ThreeSlotTest"));
+        let id = logic
+            .create_object("ThreeSlotTest", Team::USA, glam::Vec3::ZERO)
+            .expect("test object");
+        let object = logic.host_object_mut(id).expect("test object mut");
+        object.weapon = Some(Weapon {
+            damage: 1.0,
+            range: 100.0,
+            ..Weapon::default()
+        });
+        object.secondary_weapon = Some(Weapon {
+            damage: 2.0,
+            range: 100.0,
+            ..Weapon::default()
+        });
+        object.tertiary_weapon = Some(Weapon {
+            damage: 3.0,
+            range: 100.0,
+            ..Weapon::default()
+        });
+        (logic, id)
+    }
+
+    #[test]
+    fn select_tertiary_slot_is_concrete_and_temporary_locked() {
+        let (mut logic, id) = three_slot_logic();
+        assert!(logic.unit_command_select_weapon_slot(id, 2));
+        let object = logic.host_object(id).expect("selected object");
+        assert_eq!(object.active_weapon_slot, 2);
+        assert_eq!(object.weapon_lock_slot, 2);
+        assert_eq!(object.weapon_lock_type, WeaponLockType::LockedTemporarily);
+        assert_eq!(object.weapon_slot(2).map(|weapon| weapon.damage), Some(3.0));
+        assert!(object.weapon_slot(3).is_none(), "unknown slots fail closed");
+    }
+
+    #[test]
+    fn absent_or_unknown_tertiary_selection_cannot_fall_back_to_primary() {
+        let (mut logic, id) = three_slot_logic();
+        logic.host_object_mut(id).expect("object").tertiary_weapon = None;
+        assert!(!logic.unit_command_select_weapon_slot(id, 2));
+        assert!(!logic.unit_command_select_weapon_slot(id, 7));
+        let object = logic.host_object(id).expect("object");
+        assert_eq!(object.weapon_slot(0).map(|weapon| weapon.damage), Some(1.0));
+        assert!(object.weapon_slot(2).is_none());
+    }
+
+    #[test]
+    fn switch_weapons_cycles_to_tertiary_when_it_is_next_available_slot() {
+        let (mut logic, id) = three_slot_logic();
+        logic.host_object_mut(id).expect("object").active_weapon_slot = 1;
+        assert!(logic.unit_command_switch_weapons(id));
+        let object = logic.host_object(id).expect("object");
+        assert_eq!(object.active_weapon_slot, 2);
+        assert_eq!(object.weapon_lock_slot, 2);
+        assert_eq!(object.weapon_lock_type, WeaponLockType::LockedPermanently);
     }
 }

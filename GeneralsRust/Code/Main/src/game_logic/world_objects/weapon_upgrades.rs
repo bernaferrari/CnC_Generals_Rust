@@ -1328,20 +1328,22 @@ impl GameLogic {
         affected
     }
 
-    /// Equip Comanche Rocket Pods secondary + apply upgrade tag.
+    /// Equip Comanche Rocket Pods tertiary + apply upgrade tag.
     ///
     /// Retail: WeaponSetUpgrade TriggeredBy = Upgrade_ComancheRocketPods unlocks
-    /// TERTIARY ComancheRocketPodWeapon. Host residual binds secondary slot.
+    /// TERTIARY ComancheRocketPodWeapon.  SECONDARY remains the independent
+    /// ComancheAntiTankMissileWeapon slot.
     pub(in super::super) fn apply_comanche_rocket_pods_unlock_to_team(
         &mut self,
         team: Team,
         upgrade_name: &str,
     ) -> u32 {
         use crate::game_logic::host_comanche_rocket_pods::{
-            comanche_rocket_pod_weapon, is_comanche_template, UPGRADE_COMANCHE_ROCKET_PODS,
+            comanche_antitank_weapon, comanche_rocket_pod_weapon, is_comanche_template,
+            UPGRADE_COMANCHE_ROCKET_PODS,
         };
 
-        let secondary = comanche_rocket_pod_weapon();
+        let tertiary = comanche_rocket_pod_weapon();
         let mut affected = 0u32;
         for obj in self.objects.values_mut() {
             if obj.team != team || !obj.is_alive() {
@@ -1350,7 +1352,13 @@ impl GameLogic {
             if !is_comanche_template(&obj.template_name) {
                 continue;
             }
-            obj.secondary_weapon = Some(secondary.clone());
+            // Preserve the retail anti-tank SECONDARY.  Rebind it only when
+            // an older host object lacked that slot, never by guessing a
+            // substitute from the pod weapon.
+            if obj.secondary_weapon.is_none() {
+                obj.secondary_weapon = Some(comanche_antitank_weapon());
+            }
+            obj.tertiary_weapon = Some(tertiary.clone());
             obj.apply_upgrade_tag(upgrade_name);
             obj.apply_upgrade_tag(UPGRADE_COMANCHE_ROCKET_PODS);
             // Host residual: PLAYER_UPGRADE weapon set flag for presentation honesty.

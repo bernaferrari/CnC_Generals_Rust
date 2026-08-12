@@ -703,7 +703,7 @@ impl GameLogic {
             };
             (
                 u.is_alive(),
-                u.weapon.is_some() || u.secondary_weapon.is_some(),
+                u.weapon.is_some() || u.secondary_weapon.is_some() || u.tertiary_weapon.is_some(),
                 u.target,
             )
         };
@@ -1026,7 +1026,7 @@ impl GameLogic {
                 u.movement.path.is_empty(),
                 u.approach_timestamp,
                 u.prev_victim_pos,
-                u.weapon.is_some() || u.secondary_weapon.is_some(),
+                u.weapon.is_some() || u.secondary_weapon.is_some() || u.tertiary_weapon.is_some(),
                 u.get_position(),
             )
         };
