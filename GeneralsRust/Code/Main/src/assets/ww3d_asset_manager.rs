@@ -502,7 +502,10 @@ mod tests {
 
         let mut snapshot = manager.object_definitions_snapshot();
         assert_eq!(
-            snapshot.iter().map(|(name, _)| name.as_str()).collect::<Vec<_>>(),
+            snapshot
+                .iter()
+                .map(|(name, _)| name.as_str())
+                .collect::<Vec<_>>(),
             ["AlphaUnit", "ZuluUnit"]
         );
         snapshot[0].1.display_name = "owned copy".to_string();

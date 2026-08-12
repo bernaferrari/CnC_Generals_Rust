@@ -97,6 +97,20 @@ impl SnapshotBuilder {
         if object.weapon_slot(object.active_weapon_slot).is_none() {
             object.active_weapon_slot = object.first_available_weapon_slot().unwrap_or(0);
         }
+        // Persisted lock state is only valid when it names a real restored
+        // WeaponSet slot.  Unknown/old slot ordinals fail closed.
+        if snapshot.status.weapon_lock_type != WeaponLockType::NotLocked
+            && object
+                .weapon_slot(snapshot.status.weapon_lock_slot)
+                .is_some()
+        {
+            object.weapon_lock_type = snapshot.status.weapon_lock_type;
+            object.weapon_lock_slot = snapshot.status.weapon_lock_slot;
+            object.active_weapon_slot = snapshot.status.weapon_lock_slot;
+        } else {
+            object.weapon_lock_type = WeaponLockType::NotLocked;
+            object.weapon_lock_slot = object.active_weapon_slot;
+        }
         object.occupants = snapshot.contained_objects.clone();
 
         self.restore_object_type_data(&snapshot.object_type, &mut object)?;

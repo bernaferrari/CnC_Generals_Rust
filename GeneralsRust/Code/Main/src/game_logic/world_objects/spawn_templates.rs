@@ -100,18 +100,18 @@ impl GameLogic {
             || lower.contains("crate")
     }
 
-    pub(in super::super) fn build_template_from_asset_definition(template_name: &str) -> Option<ThingTemplate> {
+    pub(in super::super) fn build_template_from_asset_definition(
+        template_name: &str,
+    ) -> Option<ThingTemplate> {
         let manager_arc = get_asset_manager()?;
-        let remapped_model = Self::remap_known_model_alias(template_name);
         let (definition, texture_hint) = {
             let manager = manager_arc.lock().ok()?;
             let definition = manager
-                .resolve_object_definition(template_name, Some(remapped_model.as_str()))
-                .or_else(|| manager.resolve_object_definition(template_name, None))
+                // Object name is the retail identity.  A model lookup can
+                // select a different faction or ConditionState definition.
+                .resolve_object_definition(template_name, None)
                 .cloned()?;
-            let texture_hint = manager
-                .get_texture_for_object(template_name)
-                .or_else(|| manager.get_texture_for_object(remapped_model.as_str()));
+            let texture_hint = manager.get_texture_for_object(template_name);
             (definition, texture_hint)
         };
 
@@ -154,9 +154,10 @@ impl GameLogic {
         if let Some(model_name) = definition.model_name.as_deref() {
             let model_name = model_name.trim();
             if !model_name.is_empty() && !model_name.eq_ignore_ascii_case("none") {
-                let resolved_model_name = Self::resolve_spawn_model_name(model_name)
-                    .unwrap_or_else(|| Self::remap_known_model_alias(model_name));
-                template.set_model(&resolved_model_name);
+                // Retain the exact authored basename.  The WGPU collection
+                // path resolves it against archives and skips a genuine miss;
+                // it must not draw a guessed damage/snow/faction variant.
+                template.set_model(model_name);
             }
         }
 
@@ -334,7 +335,122 @@ impl GameLogic {
         template
     }
 
-    pub(in super::super) fn add_faction_structure_kind_bits(template: &mut ThingTemplate, kind_of: &str) {
+    /// Seed templates for retail Object INI entries that the hand-authored
+    /// bootstrap does not already cover.
+    ///
+    /// The starter templates intentionally win: they contain host behavior
+    /// that has not yet been represented by generic Object INI fields.  The
+    /// additions use only the exact object identity and authored attributes;
+    /// they do not imply that an unavailable mesh or an unsupported behavior
+    /// module has been ported.
+    pub(in super::super) fn seed_asset_definition_templates(&mut self) -> usize {
+        let Some(manager_arc) = get_asset_manager() else {
+            return 0;
+        };
+        let (definitions, available_models) = match manager_arc.lock() {
+            Ok(manager) => {
+                let definitions = manager.object_definitions_snapshot();
+                let available_models = manager
+                    .list_available_models()
+                    .into_iter()
+                    .map(|model| Self::normalize_model_lookup_key(&model))
+                    .collect();
+                (definitions, available_models)
+            }
+            Err(error) => {
+                log::warn!(
+                    "Skipping retail Object INI seed because AssetManager is poisoned: {error}"
+                );
+                return 0;
+            }
+        };
+        self.seed_asset_definition_templates_from_snapshot_with_models(
+            definitions,
+            Some(&available_models),
+        )
+    }
+
+    /// Catalogue seeding core with no global state, used to characterize the
+    /// exact-data-only policy in tests.
+    pub(in super::super) fn seed_asset_definition_templates_from_snapshot<I>(
+        &mut self,
+        definitions: I,
+    ) -> usize
+    where
+        I: IntoIterator<Item = (String, ObjectDefinition)>,
+    {
+        self.seed_asset_definition_templates_from_snapshot_with_models(definitions, None)
+    }
+
+    /// As [`Self::seed_asset_definition_templates_from_snapshot`], with the
+    /// exact archive W3D names available to the active asset manager.
+    ///
+    /// `Some` is required in production: a visual gameplay template whose
+    /// pristine basename is absent must remain unavailable rather than being
+    /// spawned with a proxy mesh.  `None` is reserved for pure data tests,
+    /// where no asset archive exists to prove or disprove the exact name.
+    fn seed_asset_definition_templates_from_snapshot_with_models<I>(
+        &mut self,
+        definitions: I,
+        available_models: Option<&HashSet<String>>,
+    ) -> usize
+    where
+        I: IntoIterator<Item = (String, ObjectDefinition)>,
+    {
+        let mut inserted = 0usize;
+        for (name, definition) in definitions {
+            let name = name.trim();
+            if name.is_empty()
+                || self.templates.contains_key(name)
+                // Cinematics/effect anchors have dedicated execution paths;
+                // a global template seed must not make them map-spawnable.
+                || Self::should_skip_map_object_template(name)
+                // The host does not yet have SoundAmbient behavior.  Retain
+                // the lazy path's existing exclusion instead of adding
+                // invisible, silent proxy objects.
+                || (definition.model_name.is_none()
+                    && Self::object_definition_attr(&definition, "soundambient").is_some())
+            {
+                continue;
+            }
+
+            let Some(model_name) = definition
+                .model_name
+                .as_deref()
+                .map(str::trim)
+                .filter(|model| !model.is_empty() && !model.eq_ignore_ascii_case("none"))
+            else {
+                // The generic host template cannot represent an object whose
+                // only identity is a behavior/draw module.  Keep it out of
+                // broad production seeding until that module is ported.
+                continue;
+            };
+            if let Some(available_models) = available_models {
+                let exact_key = Self::normalize_model_lookup_key(model_name);
+                if !available_models.contains(&exact_key) {
+                    log::debug!(
+                        "Not seeding retail template '{name}': exact W3D '{model_name}' is unavailable"
+                    );
+                    continue;
+                }
+            }
+
+            let texture_hint = definition.get_primary_texture().map(str::to_string);
+            let template = Self::build_template_from_object_definition(
+                name,
+                &definition,
+                texture_hint.as_deref(),
+            );
+            self.templates.insert(name.to_string(), template);
+            inserted = inserted.saturating_add(1);
+        }
+        inserted
+    }
+
+    pub(in super::super) fn add_faction_structure_kind_bits(
+        template: &mut ThingTemplate,
+        kind_of: &str,
+    ) {
         let compact_kind_of = kind_of.replace('_', "");
         let mappings = [
             ("fsbarracks", KindOf::FSBarracks),
@@ -360,7 +476,10 @@ impl GameLogic {
         }
     }
 
-    pub(in super::super) fn object_definition_attr(definition: &ObjectDefinition, key: &str) -> Option<String> {
+    pub(in super::super) fn object_definition_attr(
+        definition: &ObjectDefinition,
+        key: &str,
+    ) -> Option<String> {
         definition
             .attributes
             .iter()
@@ -466,7 +585,9 @@ impl GameLogic {
         .as_str()
     }
 
-    pub(in super::super) fn remap_pt_vegetation_alias(model_name_lower: &str) -> Option<&'static str> {
+    pub(in super::super) fn remap_pt_vegetation_alias(
+        model_name_lower: &str,
+    ) -> Option<&'static str> {
         let tree_target = match Self::pt_vegetation_alias_mode() {
             "trees_birch" | "all_birch" => Some("PTXBirch06"),
             "trees_oak" | "all_oak" => Some("PTXOak06"),
@@ -587,12 +708,20 @@ impl GameLogic {
     }
 
     pub(in super::super) fn resolve_spawn_model_name(model_name: &str) -> Option<String> {
-        let remapped = Self::remap_known_model_alias(model_name);
-        if Self::is_model_asset_available(&remapped) {
-            return Some(remapped);
+        if Self::is_model_asset_available(model_name) {
+            return Some(
+                model_name
+                    .rsplit(['/', '\\'])
+                    .next()
+                    .unwrap_or(model_name)
+                    .trim()
+                    .trim_end_matches(".w3d")
+                    .trim_end_matches(".W3D")
+                    .to_string(),
+            );
         }
 
-        let requested_key = Self::normalize_model_lookup_key(&remapped);
+        let requested_key = Self::normalize_model_lookup_key(model_name);
         let manager_arc = get_asset_manager()?;
         let manager = manager_arc.lock().ok()?;
         Self::find_exact_available_model_name(
@@ -643,21 +772,20 @@ impl GameLogic {
             .to_ascii_lowercase()
     }
 
-    pub(in super::super) fn build_fallback_template(template_name: &str) -> ThingTemplate {
+    /// Build a visual-only fallback only when the object's own exact basename
+    /// exists in the mounted archive.  C++ ConditionState/faction resolution
+    /// belongs to W3DModelDraw; this generic path may not substitute a nearby
+    /// mesh when the authored one is absent.
+    pub(in super::super) fn build_fallback_template(template_name: &str) -> Option<ThingTemplate> {
         let lower = template_name.to_ascii_lowercase();
         let mut template = ThingTemplate::new(template_name);
         template.set_health(250.0);
-        let fallback_model_name = Self::resolve_spawn_model_name(template_name)
-            .unwrap_or_else(|| Self::remap_known_model_alias(template_name));
+        let fallback_model_name = Self::resolve_spawn_model_name(template_name)?;
         template.set_model(&fallback_model_name);
 
         if let Some(manager_arc) = get_asset_manager() {
             if let Ok(manager) = manager_arc.lock() {
-                let remapped_model = Self::remap_known_model_alias(template_name);
-                if let Some(texture_name) = manager
-                    .get_texture_for_object(template_name)
-                    .or_else(|| manager.get_texture_for_object(remapped_model.as_str()))
-                {
+                if let Some(texture_name) = manager.get_texture_for_object(template_name) {
                     if !texture_name.is_empty() && !texture_name.eq_ignore_ascii_case("none") {
                         template.texture_name = Some(texture_name);
                     }
@@ -697,11 +825,13 @@ impl GameLogic {
             template.add_kind_of(KindOf::SupplyCenter);
         }
 
-        template
+        Some(template)
     }
 
-    pub(in super::super) fn build_visual_fallback_template(template_name: &str) -> Option<ThingTemplate> {
-        let template = Self::build_fallback_template(template_name);
+    pub(in super::super) fn build_visual_fallback_template(
+        template_name: &str,
+    ) -> Option<ThingTemplate> {
+        let template = Self::build_fallback_template(template_name)?;
         let model_name = template.model_name.as_deref()?.trim();
         if model_name.is_empty() || !Self::is_model_asset_available(model_name) {
             return None;
@@ -980,7 +1110,9 @@ impl GameLogic {
             .set_health(100.0)
             .set_cost(300, 0)
             .set_model("aimissletm") // USA Missile Defender
-            .set_primary_weapon_name(super::super::weapon_bootstrap::MISSILE_DEFENDER_MISSILE_WEAPON)
+            .set_primary_weapon_name(
+                super::super::weapon_bootstrap::MISSILE_DEFENDER_MISSILE_WEAPON,
+            )
             .set_secondary_weapon_name(
                 super::super::weapon_bootstrap::MISSILE_DEFENDER_LASER_GUIDED_WEAPON,
             );
@@ -1539,6 +1671,74 @@ impl GameLogic {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn exact_retail_catalogue_seed_preserves_data_and_never_overwrites_curated_templates() {
+        let mut logic = GameLogic::new();
+        let mut curated = ThingTemplate::new("AmericaTankCrusader");
+        curated.set_health(777.0).set_model("CuratedExactModel");
+        logic
+            .templates
+            .insert("AmericaTankCrusader".to_string(), curated);
+
+        let mut retail_unit = ObjectDefinition::new("AmericaTankCrusader".to_string());
+        retail_unit.object_type = "Vehicle".to_string();
+        retail_unit.hit_points = Some(480);
+        retail_unit.model_name = Some("AVCrusader".to_string());
+        retail_unit
+            .attributes
+            .insert("KindOf".to_string(), "VEHICLE SELECTABLE CAN_ATTACK".to_string());
+        retail_unit
+            .attributes
+            .insert("BuildCost".to_string(), "900".to_string());
+
+        let mut retail_new = ObjectDefinition::new("AmericaTankPaladin".to_string());
+        retail_new.object_type = "Vehicle".to_string();
+        retail_new.hit_points = Some(600);
+        retail_new.model_name = Some("AVPaladin".to_string());
+        retail_new.primary_weapon = Some("PaladinTankGun".to_string());
+        retail_new.secondary_weapon = Some("PaladinPointDefenseLaser".to_string());
+        retail_new
+            .attributes
+            .insert("KindOf".to_string(), "VEHICLE SELECTABLE CAN_ATTACK".to_string());
+        retail_new
+            .attributes
+            .insert("BuildCost".to_string(), "1100".to_string());
+
+        let mut sound_anchor = ObjectDefinition::new("AmbientOnlyRetailAnchor".to_string());
+        sound_anchor
+            .attributes
+            .insert("SoundAmbient".to_string(), "AmbientWind".to_string());
+
+        let inserted = logic.seed_asset_definition_templates_from_snapshot(vec![
+            ("AmericaTankPaladin".to_string(), retail_new),
+            ("AmericaTankCrusader".to_string(), retail_unit),
+            ("AmbientOnlyRetailAnchor".to_string(), sound_anchor),
+        ]);
+
+        assert_eq!(inserted, 1);
+        let curated_after = logic
+            .templates
+            .get("AmericaTankCrusader")
+            .expect("curated template retained");
+        assert_eq!(curated_after.max_health, 777.0);
+        assert_eq!(curated_after.model_name.as_deref(), Some("CuratedExactModel"));
+
+        let added = logic
+            .templates
+            .get("AmericaTankPaladin")
+            .expect("retail definition seeded");
+        assert_eq!(added.max_health, 600.0);
+        assert_eq!(added.build_cost.supplies, 1100);
+        assert_eq!(added.model_name.as_deref(), Some("AVPaladin"));
+        assert_eq!(added.primary_weapon_name.as_deref(), Some("PaladinTankGun"));
+        assert_eq!(
+            added.secondary_weapon_name.as_deref(),
+            Some("PaladinPointDefenseLaser")
+        );
+        assert!(added.is_kind_of(KindOf::Vehicle));
+        assert!(!logic.templates.contains_key("AmbientOnlyRetailAnchor"));
+    }
 
     #[test]
     fn pristine_models_do_not_match_condition_or_faction_variants() {

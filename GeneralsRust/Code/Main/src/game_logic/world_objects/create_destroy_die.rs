@@ -69,20 +69,22 @@ impl GameLogic {
                             model_name
                         );
                     }
-                } else if !should_spawn_fallback {
-                    log::debug!(
-                        "Skipping unsupported decorative map object template '{}'",
-                        template_name
-                    );
-                    return None;
                 } else {
-                    let fallback_template = Self::build_fallback_template(template_name);
-                    self.templates
-                        .insert(template_name.to_string(), fallback_template);
-                    log::warn!(
-                        "Injected fallback template for unresolved object '{}'",
-                        template_name
-                    );
+                    // Do not invent a proxy for an unresolved gameplay or map
+                    // object.  A visible but wrong faction/condition mesh is
+                    // less faithful than an explicit unsupported-object miss.
+                    if should_spawn_fallback {
+                        log::warn!(
+                            "Skipping unresolved object '{}' because no exact retail W3D is available",
+                            template_name
+                        );
+                    } else {
+                        log::debug!(
+                            "Skipping unsupported decorative map object template '{}'",
+                            template_name
+                        );
+                    }
+                    return None;
                 }
             }
         }

@@ -497,7 +497,8 @@ pub fn secondary_weapon_name_for_unit(template_name: &str) -> Option<&'static st
         // Neutron shells are PLAYER_UPGRADE residual (Upgrade_ChinaNeutronShells) —
         // not bound at create; research equips secondary (parity with rocket pods).
         // Rocket pods are PLAYER_UPGRADE residual — not bound at create; research equips.
-        // Comanche residual SECONDARY anti-tank until rocket-pods upgrade replaces slot.
+        // Comanche residual SECONDARY anti-tank.  Rocket-pods upgrade adds an
+        // independent TERTIARY slot rather than replacing this one.
         "AmericaVehicleComanche"
         | "USA_Comanche"
         | "TestComanche"
@@ -572,7 +573,8 @@ pub fn secondary_weapon_name_for_unit(template_name: &str) -> Option<&'static st
             } else if crate::game_logic::host_comanche_rocket_pods::is_comanche_template(
                 template_name,
             ) {
-                // Comanche residual SECONDARY anti-tank; rocket pods replace after upgrade.
+                // Comanche residual SECONDARY anti-tank; rocket pods are added
+                // as an independent TERTIARY after upgrade.
                 Some(COMANCHE_ANTITANK_WEAPON)
             } else if crate::game_logic::host_gattling_tank::is_gattling_tank_template(
                 template_name,

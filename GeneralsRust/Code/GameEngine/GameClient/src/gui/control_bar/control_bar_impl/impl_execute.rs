@@ -23,7 +23,14 @@ impl ControlBar {
                     .map(|template| template.get_id())
             })
         };
-        let weapon_slot = if button.command_type == CommandType::FireWeapon {
+        // Both C++ FIRE_WEAPON and SWITCH_WEAPON carry a concrete
+        // WeaponSlotType in the CommandButton INI.  Do not fall back to a
+        // default slot: Main must reject a missing/invalid payload rather
+        // than changing a different weapon set.
+        let weapon_slot = if matches!(
+            button.command_type,
+            CommandType::FireWeapon | CommandType::SwitchWeapons
+        ) {
             Some(button.weapon_slot_number())
         } else {
             None
@@ -578,5 +585,74 @@ mod host_bridge_execution_tests {
                 ..
             }]
         ));
+    }
+
+    #[test]
+    fn parsed_retail_switch_weapon_slot_reaches_host_direct_command_without_logic_button() {
+        let _guard = crate::gui::control_bar::acquire_host_control_bar_bridge_test_guard();
+        crate::gui::control_bar::set_host_control_bar_bridge_enabled(true);
+
+        // Retail CommandButton.ini: the Demo Trap manual fuse is a tertiary
+        // SWITCH_WEAPON command.  Keep the slot sourced from the parsed live
+        // definition, not the legacy GameLogic command-button mirror.
+        let mut definition = IniCommandButton::default();
+        definition.name = "Command_SetDemoTrapManualDetonation".to_string();
+        definition.command = "SWITCH_WEAPON".to_string();
+        definition.weapon_slot = WeaponSlotType::Tertiary;
+        let button = ControlBar::command_from_definition(&definition);
+        assert_eq!(button.command_type, CommandType::SwitchWeapons);
+        assert_eq!(button.weapon_slot, WeaponSlotType::Tertiary);
+        assert_eq!(button.weapon_slot_number(), 2);
+
+        let context = ControlBarContext {
+            player_id: 3,
+            selected_objects: vec![17],
+            ..ControlBarContext::default()
+        };
+        ControlBar::new()
+            .execute_command(&button, CommandSourceType::FromUser, &context)
+            .expect("host bridge request from parsed retail switch button");
+
+        let requests = crate::gui::control_bar::take_host_control_bar_requests();
+        assert!(
+            matches!(
+                requests.as_slice(),
+                [crate::gui::control_bar::HostControlBarRequest::DirectCommand {
+                    command_name,
+                    command_type: CommandType::SwitchWeapons,
+                    weapon_slot: Some(2),
+                    ..
+                }] if command_name == "Command_SetDemoTrapManualDetonation"
+            ),
+            "unexpected host bridge requests: {requests:#?}"
+        );
+    }
+
+    #[test]
+    fn parsed_fire_weapon_buttons_keep_distinct_retail_keys() {
+        // These are two distinct retail CommandButton.ini entries with the
+        // same FIRE_WEAPON operation.  Collapsing them to the operation text
+        // makes exact host mappings impossible and aliases their UI state.
+        let mut rocket_pods = IniCommandButton::default();
+        rocket_pods.name = "Command_AmericaVehicleComancheFireRocketPods".to_string();
+        rocket_pods.command = "FIRE_WEAPON".to_string();
+        rocket_pods.weapon_slot = WeaponSlotType::Tertiary;
+
+        let mut demo_suicide = IniCommandButton::default();
+        demo_suicide.name = "Demo_Command_TertiarySuicide".to_string();
+        demo_suicide.command = "FIRE_WEAPON".to_string();
+        demo_suicide.weapon_slot = WeaponSlotType::Tertiary;
+
+        let rocket_pods = ControlBar::command_from_definition(&rocket_pods);
+        let demo_suicide = ControlBar::command_from_definition(&demo_suicide);
+
+        assert_eq!(
+            rocket_pods.command_name,
+            "Command_AmericaVehicleComancheFireRocketPods"
+        );
+        assert_eq!(demo_suicide.command_name, "Demo_Command_TertiarySuicide");
+        assert_ne!(rocket_pods.command_name, demo_suicide.command_name);
+        assert_eq!(rocket_pods.command_type, CommandType::FireWeapon);
+        assert_eq!(demo_suicide.command_type, CommandType::FireWeapon);
     }
 }

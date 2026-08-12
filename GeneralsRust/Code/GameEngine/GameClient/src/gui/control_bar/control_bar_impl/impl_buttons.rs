@@ -204,12 +204,23 @@ impl ControlBar {
     pub(super) fn command_from_definition(definition: &IniCommandButton) -> CommandButton {
         let mut button = CommandButton::default();
 
-        button.command_name = if !definition.command.is_empty() {
-            definition.command.clone()
+        // `name` is the retail CommandButton identity (for example,
+        // `Command_SetDemoTrapManualDetonation`); `command` is only the C++
+        // operation shared by many distinct buttons (`SWITCH_WEAPON`).  Keep
+        // both facts: callers need the identity for exact host translation,
+        // while command_type must be parsed from the operation.
+        let command_identity = if definition.name.trim().is_empty() {
+            &definition.command
         } else {
-            definition.name.clone()
+            &definition.name
         };
-        button.command_type = map_gui_command_to_command_type(&button.command_name);
+        let command_operation = if definition.command.trim().is_empty() {
+            command_identity
+        } else {
+            &definition.command
+        };
+        button.command_name = command_identity.clone();
+        button.command_type = map_gui_command_to_command_type(command_operation);
 
         button.button_image = definition.button_image.clone();
         button.button_border_type = definition.button_border_type.clone();

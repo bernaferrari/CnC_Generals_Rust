@@ -4,7 +4,7 @@ use super::*;
 use crate::ai::AIDifficulty;
 use crate::game_logic::{
     AIState, Experience, GameLogic, HostStrikePhase, HostSuperweaponKind, KindOf, Object, ObjectId,
-    Player, Team, ThingTemplate, VeterancyLevel, Weapon,
+    Player, Team, ThingTemplate, VeterancyLevel, Weapon, WeaponLockType,
 };
 use glam::Vec3;
 
@@ -737,6 +737,57 @@ fn snapshot_weapon_layout_preserves_tertiary_slot_and_active_identity() {
     assert!((restored_tertiary.last_fire_time - tertiary.last_fire_time).abs() < f32::EPSILON);
 }
 
+#[test]
+fn snapshot_restore_preserves_tertiary_weapon_and_permanent_lock() {
+    let mut source = GameLogic::new();
+    source.templates.insert(
+        "ThreeSlotSave".to_string(),
+        ThingTemplate::new("ThreeSlotSave"),
+    );
+    let id = source
+        .create_object("ThreeSlotSave", Team::USA, Vec3::ZERO)
+        .expect("create three-slot source");
+    let tertiary = Weapon {
+        damage: 73.0,
+        range: 220.0,
+        last_fire_time: 3.5,
+        ammo: Some(18),
+        ..Weapon::default()
+    };
+    {
+        let object = source.host_object_mut(id).expect("source object");
+        object.weapon = Some(Weapon {
+            damage: 7.0,
+            range: 100.0,
+            ..Weapon::default()
+        });
+        object.secondary_weapon = Some(Weapon {
+            damage: 17.0,
+            range: 100.0,
+            ..Weapon::default()
+        });
+        object.tertiary_weapon = Some(tertiary.clone());
+        assert!(object.set_weapon_lock(2, WeaponLockType::LockedPermanently));
+    }
+
+    let builder = SnapshotBuilder::new();
+    let snapshot = builder.create_world_snapshot(&source).expect("snapshot");
+    let mut restored = GameLogic::new();
+    restored.templates = source.templates.clone();
+    builder
+        .restore_from_snapshot(&snapshot, &mut restored)
+        .expect("restore");
+
+    let object = restored.host_object(id).expect("restored object");
+    assert_eq!(object.active_weapon_slot, 2);
+    assert_eq!(object.weapon_lock_slot, 2);
+    assert_eq!(object.weapon_lock_type, WeaponLockType::LockedPermanently);
+    let restored_tertiary = object.tertiary_weapon.as_ref().expect("third slot");
+    assert!((restored_tertiary.damage - tertiary.damage).abs() < f32::EPSILON);
+    assert_eq!(restored_tertiary.ammo, tertiary.ammo);
+    assert!((restored_tertiary.last_fire_time - tertiary.last_fire_time).abs() < f32::EPSILON);
+}
+
 /// End-to-end SaveFileManager path: secondary stays bound after save → load.
 #[test]
 fn save_file_roundtrip_preserves_secondary_weapon() {
@@ -1433,9 +1484,7 @@ fn popup_and_host_write_common_sav_chunks_and_restore_authority() {
 
     let mut source = GameLogic::new();
     let mut template = ThingTemplate::new("AuthTank");
-    template
-        .add_kind_of(KindOf::Vehicle)
-        .set_health(200.0);
+    template.add_kind_of(KindOf::Vehicle).set_health(200.0);
     source.templates.insert("AuthTank".into(), template);
     source.add_player(Player::new(1, Team::USA, "P1", true));
     let id = source
@@ -1460,9 +1509,7 @@ fn popup_and_host_write_common_sav_chunks_and_restore_authority() {
         difficulty: GameDifficulty::Medium,
         save_type: SaveFileType::Normal,
     };
-    manager
-        .save_game("auth_rt", &source, &info)
-        .expect("save");
+    manager.save_game("auth_rt", &source, &info).expect("save");
 
     let path = manager.get_save_path("auth_rt");
     assert!(
@@ -1472,7 +1519,9 @@ fn popup_and_host_write_common_sav_chunks_and_restore_authority() {
     let bytes = fs::read(&path).expect("read sav");
     let text = String::from_utf8_lossy(&bytes);
     assert!(
-        text.contains("CHUNK_GameState") && text.contains("CHUNK_GameLogic") && text.contains("SG_EOF"),
+        text.contains("CHUNK_GameState")
+            && text.contains("CHUNK_GameLogic")
+            && text.contains("SG_EOF"),
         "host file must use the same Common .sav chunk tokens as Popup"
     );
 
@@ -1483,7 +1532,10 @@ fn popup_and_host_write_common_sav_chunks_and_restore_authority() {
     let hp = loaded
         .host_authoritative_health(id)
         .expect("authoritative HP");
-    assert!((hp - 77.0).abs() < 0.01, "restored HP must be host_authoritative, got {hp}");
+    assert!(
+        (hp - 77.0).abs() < 0.01,
+        "restored HP must be host_authoritative, got {hp}"
+    );
     let pose = loaded
         .host_authoritative_pose(id)
         .expect("authoritative pose");

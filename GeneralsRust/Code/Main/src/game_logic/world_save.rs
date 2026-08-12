@@ -1027,6 +1027,12 @@ impl GameLogic {
             );
         }
         self.setup_templates();
+        let asset_template_count = self.seed_asset_definition_templates();
+        if asset_template_count > 0 {
+            log::info!(
+                "Seeded {asset_template_count} missing templates from resolved retail Object INI data"
+            );
+        }
         self.create_default_players();
         log::info!("New game started successfully");
     }

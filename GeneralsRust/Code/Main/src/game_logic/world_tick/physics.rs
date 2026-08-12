@@ -675,7 +675,8 @@ impl GameLogic {
         }
         // Ground attack residual: any ready weapon is enough.
         let Some(vid) = victim_id else {
-            let has = u.weapon.is_some() || u.secondary_weapon.is_some() || u.tertiary_weapon.is_some();
+            let has =
+                u.weapon.is_some() || u.secondary_weapon.is_some() || u.tertiary_weapon.is_some();
             return has;
         };
         let Some(v) = self.objects.get(&vid) else {
