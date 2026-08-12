@@ -34,9 +34,9 @@ impl GameLogic {
             })
             .collect();
 
-        let mut completed_superweapon_detects: Vec<(Team, String)> = Vec::new();
+        let mut completed_superweapon_detects: Vec<ObjectId> = Vec::new();
         let mut completed_structures: Vec<ObjectId> = Vec::new();
-        let mut ready_superweapons: Vec<(ObjectId, Team, String)> = Vec::new();
+        let mut ready_superweapons: Vec<ObjectId> = Vec::new();
         let mut radar_extend_done: Vec<ObjectId> = Vec::new();
         // Wave 617: under sole-tick, GameWorld writeback records ready structures;
         // host applies completion after writeback same frame (Wave 715; not mid-update drain).
@@ -134,7 +134,7 @@ impl GameLogic {
                             obj.template_name.clone(),
                         );
                         // C++ onStructureConstructionComplete SuperweaponDetected residual.
-                        completed_superweapon_detects.push((obj.team, obj.template_name.clone()));
+                        completed_superweapon_detects.push(id);
                         completed_structures.push(id);
                     } else if !(construction_sole && gw_mapped) {
                         // GW owns HP while mapped sole-tick; do not heal-log HashMap percent.
@@ -148,10 +148,8 @@ impl GameLogic {
                     }
                 }
                 if obj.tick_timers(dt) {
-                    let team = obj.team;
-                    let name = obj.template_name.clone();
                     // Defer EVA until after borrow ends.
-                    ready_superweapons.push((id, team, name));
+                    ready_superweapons.push(id);
                 }
                 // Wave 744: under coupled GameWorld shadow, radar-extend complete
                 // is owned by writeback + host_apply_radar_extend_ready_completions.
@@ -183,8 +181,8 @@ impl GameLogic {
         // C++ Player sharedNSync timers advance with the logic frame.
         self.tick_shared_special_power_timers(dt);
 
-        for (id, team, name) in ready_superweapons {
-            self.try_eva_superweapon_ready(id, team, &name);
+        for id in ready_superweapons {
+            self.try_eva_superweapon_ready_for_source(id);
         }
         // Wave 618: under sole-tick, GameWorld writeback records SP ready flips;
         // Wave 717: host EVA drain runs after writeback same frame (not mid-update).
@@ -193,8 +191,8 @@ impl GameLogic {
             self.radar_extend_completes = self.radar_extend_completes.saturating_add(1);
         }
 
-        for (team, name) in completed_superweapon_detects {
-            self.try_eva_superweapon_detected(team, &name);
+        for id in completed_superweapon_detects {
+            self.try_eva_superweapon_detected_for_source(id);
         }
 
         // C++ parity: when a structure finishes construction, release any dozers
@@ -247,12 +245,12 @@ impl GameLogic {
             return;
         }
         for ev in crate::game_logic::host_special_power_ready_log::drain() {
-            if let Some(obj) = self.objects.get(&ev.object) {
-                if obj.is_alive() {
-                    let team = obj.team;
-                    let name = obj.template_name.clone();
-                    self.try_eva_superweapon_ready(ev.object, team, &name);
-                }
+            if self
+                .objects
+                .get(&ev.object)
+                .is_some_and(|obj| obj.is_alive())
+            {
+                self.try_eva_superweapon_ready_for_source(ev.object);
             }
         }
     }
@@ -268,7 +266,7 @@ impl GameLogic {
         if ready.is_empty() {
             return;
         }
-        let mut completed_superweapon_detects: Vec<(Team, String)> = Vec::new();
+        let mut completed_superweapon_detects: Vec<ObjectId> = Vec::new();
         let mut completed_structures: Vec<ObjectId> = Vec::new();
         for id in ready {
             let Some(obj) = self.objects.get_mut(&id) else {
@@ -290,11 +288,11 @@ impl GameLogic {
             }
             crate::game_logic::host_construction_progress_log::record(id, 1.0, false, 0.0);
             crate::game_logic::host_construction_log::record(id, obj.template_name.clone());
-            completed_superweapon_detects.push((obj.team, obj.template_name.clone()));
+            completed_superweapon_detects.push(id);
             completed_structures.push(id);
         }
-        for (team, name) in completed_superweapon_detects {
-            self.try_eva_superweapon_detected(team, &name);
+        for id in completed_superweapon_detects {
+            self.try_eva_superweapon_detected_for_source(id);
         }
         for &completed_id in &completed_structures {
             self.on_supply_center_build_complete(completed_id);

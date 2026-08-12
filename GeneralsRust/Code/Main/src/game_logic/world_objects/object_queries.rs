@@ -3,6 +3,24 @@
 #![allow(unused_imports, non_snake_case)]
 use super::super::*;
 
+/// The structure-bound powers whose authority historically came from a
+/// superweapon-looking template name.  They now require a parsed source
+/// `SpecialPowerModule`; other legacy command paths retain their own staged
+/// module ports.
+fn is_structure_superweapon_power(power: &crate::command_system::SpecialPowerType) -> bool {
+    use crate::command_system::SpecialPowerType as P;
+    matches!(
+        power,
+        P::ParticleCannon
+            | P::SuperweaponParticleCannon
+            | P::LaserCannon
+            | P::ScudStorm
+            | P::NuclearMissile
+            | P::NukeNeutronMissile
+            | P::SuperweaponNeutronMissile
+    )
+}
+
 impl GameLogic {
     /// Wave 958: legacy alias — prefer [`Self::host_object`].
     #[inline]
@@ -33,25 +51,22 @@ impl GameLogic {
                 if !obj.is_alive() || obj.status.destroyed {
                     return None;
                 }
-                let name = obj.template_name.to_ascii_lowercase();
-                let harvestable = obj.is_kind_of(KindOf::Harvestable)
+                let harvestable = obj.is_kind_of(KindOf::SupplySource)
+                    || obj.is_kind_of(KindOf::Harvestable)
                     || obj.is_kind_of(KindOf::Resource)
-                    || obj.object_type == ObjectType::Supply
-                    || (name.contains("supply")
-                        && !name.contains("center")
-                        && !name.contains("dock")
-                        && !name.contains("dropzone"));
+                    || obj.object_type == ObjectType::Supply;
                 if !harvestable {
                     return None;
                 }
                 // Prefer piles that still have stored supplies when tracked.
                 if obj.stored_resources.supplies == 0
-                    && (obj.is_kind_of(KindOf::Harvestable)
+                    && (obj.is_kind_of(KindOf::SupplySource)
+                        || obj.is_kind_of(KindOf::Harvestable)
                         || obj.object_type == ObjectType::Supply)
                 {
                     // Some piles use infinite residual; only skip if explicitly zero and
                     // Harvestable with supplies field used as stock. Fail-open if never depleted.
-                    if name.contains("warehouse") || name.contains("dock") {
+                    if obj.thing.template.dock_kind == DockKind::SupplyWarehouse {
                         return None;
                     }
                 }
@@ -438,18 +453,21 @@ impl GameLogic {
         let source_owner = self.player_owner_for_host_object(source);
         let target_owner = match target.owner_player_id {
             Some(_) => self.player_owner_for_host_object(target),
-            None if target.is_unmanned() => target
-                .status
-                .unmanned_owner_player_id
-                .filter(|player_id| {
+            None if target.is_unmanned() => {
+                target.status.unmanned_owner_player_id.filter(|player_id| {
                     target
                         .status
                         .unmanned_owner_team
-                        .and_then(|owner_team| self.players.get(player_id).map(|player| (player, owner_team)))
+                        .and_then(|owner_team| {
+                            self.players
+                                .get(player_id)
+                                .map(|player| (player, owner_team))
+                        })
                         .is_some_and(|(player, owner_team)| {
                             player.is_alive && player.team == owner_team
                         })
-                }),
+                })
+            }
             None => None,
         };
 
@@ -485,8 +503,8 @@ impl GameLogic {
     #[inline]
     pub fn can_execute_pilot_recrew(&self, pilot_id: ObjectId, vehicle_id: ObjectId) -> bool {
         use crate::game_logic::host_usa_pilot::{
-            is_recrewable_unmanned_vehicle, is_significantly_above_terrain,
-            pilot_levels_to_gain, vehicle_can_gain_exp_for_levels,
+            is_recrewable_unmanned_vehicle, is_significantly_above_terrain, pilot_levels_to_gain,
+            vehicle_can_gain_exp_for_levels,
         };
 
         if pilot_id == vehicle_id {
@@ -512,14 +530,13 @@ impl GameLogic {
 
         // `RequiredKindOf`/`ForbiddenKindOf` are exact authored KindOf masks;
         // do not fall back to ObjectType, Worker, or a template basename.
-        let is_airborne_locomotor = vehicle.is_kind_of(KindOf::Aircraft)
-            || vehicle.status.airborne_target;
+        let is_airborne_locomotor =
+            vehicle.is_kind_of(KindOf::Aircraft) || vehicle.status.airborne_target;
         let terrain_y = self
             .terrain_height_at(vehicle.get_position())
             .unwrap_or(0.0);
-        let significantly_above_terrain = is_significantly_above_terrain(
-            vehicle.get_position().y - terrain_y,
-        );
+        let significantly_above_terrain =
+            is_significantly_above_terrain(vehicle.get_position().y - terrain_y);
         let recrewable = is_recrewable_unmanned_vehicle(
             vehicle.is_alive(),
             vehicle.is_kind_of(KindOf::Vehicle),
@@ -1065,12 +1082,24 @@ impl GameLogic {
         if obj.is_disabled() {
             return false;
         }
-        // C++ SpecialPowerStore::canUseSpecialPower science residual.
-        if let Some(required) =
-            crate::game_logic::host_special_power_enum_residual::special_power_required_science(
-                power,
-            )
-        {
+        let parsed_module = obj.thing.template.special_power_module_for_command(power);
+        if is_structure_superweapon_power(power) && parsed_module.is_none() {
+            return false;
+        }
+        // A parsed module's loaded SpecialPowerTemplate owns science and
+        // SharedSyncedTimer policy.  Fall back only for command families not
+        // yet represented by a source module record.
+        let required_science = parsed_module
+            .and_then(|module| module.required_science.as_deref())
+            .or_else(|| {
+                (parsed_module.is_none()).then(|| {
+                    crate::game_logic::host_special_power_enum_residual::special_power_required_science(
+                        power,
+                    )
+                })
+                .flatten()
+            });
+        if let Some(required) = required_science {
             match self.get_player_by_team(obj.team) {
                 Some(player) if player.has_unlocked_science(required) => {}
                 Some(_) => return false,
@@ -1078,9 +1107,14 @@ impl GameLogic {
                 None => return false,
             }
         }
-        if crate::game_logic::host_special_power_enum_residual::special_power_uses_shared_synced_timer(
-            power,
-        ) {
+        let shared_n_sync = parsed_module
+            .map(|module| module.shared_n_sync)
+            .unwrap_or_else(|| {
+                crate::game_logic::host_special_power_enum_residual::special_power_uses_shared_synced_timer(
+                    power,
+                )
+            });
+        if shared_n_sync {
             // C++ getReadyFrame via Player::getOrStartSpecialPowerReadyFrame.
             if let Some(player) = self.get_player_by_team(obj.team) {
                 if !player.is_shared_special_power_ready(power) {
@@ -1101,23 +1135,42 @@ impl GameLogic {
         if !self.is_special_power_ready_for(object_id, power) {
             return false;
         }
-        let team = match self.host_object(object_id) {
-            Some(o) => o.team,
+        let (team, parsed_module) = match self.host_object(object_id) {
+            Some(o) => (
+                o.team,
+                o.thing
+                    .template
+                    .special_power_module_for_command(power)
+                    .cloned(),
+            ),
             None => return false,
         };
-        let reload =
-            crate::game_logic::host_special_power_enum_residual::special_power_reload_seconds(
-                power,
-            )
+        if is_structure_superweapon_power(power) && parsed_module.is_none() {
+            return false;
+        }
+        let reload = parsed_module
+            .as_ref()
+            .map(|module| module.reload_time_frames as f32 / 30.0)
             .unwrap_or_else(|| {
-                self.host_object(object_id)
-                    .map(|o| o.special_power_cooldown)
-                    .unwrap_or(10.0)
+                crate::game_logic::host_special_power_enum_residual::special_power_reload_seconds(
+                    power,
+                )
+                .unwrap_or_else(|| {
+                    self.host_object(object_id)
+                        .map(|o| o.special_power_cooldown)
+                        .unwrap_or(10.0)
+                })
             });
 
-        if crate::game_logic::host_special_power_enum_residual::special_power_uses_shared_synced_timer(
-            power,
-        ) {
+        let shared_n_sync = parsed_module
+            .as_ref()
+            .map(|module| module.shared_n_sync)
+            .unwrap_or_else(|| {
+                crate::game_logic::host_special_power_enum_residual::special_power_uses_shared_synced_timer(
+                    power,
+                )
+            });
+        if shared_n_sync {
             if let Some(player) = self.get_player_mut_by_team(team) {
                 player.reset_shared_special_power_timer(power, reload);
             }
@@ -1134,7 +1187,12 @@ impl GameLogic {
                 obj.refresh_special_power_aggregate_cooldown();
             }
         } else if let Some(obj) = self.host_object_mut(object_id) {
-            obj.consume_special_power_charge(power);
+            if let Some(module) = parsed_module.as_ref() {
+                obj.start_power_recharge_with_frames(power, module.reload_time_frames);
+                obj.set_ai_state(AIState::Idle);
+            } else {
+                obj.consume_special_power_charge(power);
+            }
         }
         true
     }
@@ -1375,7 +1433,9 @@ impl GameLogic {
             || metadata.scripted_special_power_only
             || !source.is_alive()
             || source.is_disabled()
-            || source.special_power_paused.contains(&SpecialPowerType::HackerDisableBuilding)
+            || source
+                .special_power_paused
+                .contains(&SpecialPowerType::HackerDisableBuilding)
         {
             return false;
         }
@@ -1397,12 +1457,9 @@ impl GameLogic {
             let Some(owner_id) = owner_id else {
                 return false;
             };
-            return self
-                .players
-                .get(&owner_id)
-                .is_some_and(|player| {
-                    player.is_shared_special_power_ready(&SpecialPowerType::HackerDisableBuilding)
-                });
+            return self.players.get(&owner_id).is_some_and(|player| {
+                player.is_shared_special_power_ready(&SpecialPowerType::HackerDisableBuilding)
+            });
         }
         source.is_special_power_ready(&SpecialPowerType::HackerDisableBuilding)
     }
@@ -1495,7 +1552,11 @@ impl GameLogic {
         // closed rather than turning an unseen enemy into a valid target.
         if require_power_ready {
             if let Some(owner_id) = self.player_owner_for_host_object(source) {
-                if self.players.get(&owner_id).is_some_and(|player| player.is_local) {
+                if self
+                    .players
+                    .get(&owner_id)
+                    .is_some_and(|player| player.is_local)
+                {
                     let visible = gamelogic::system::shroud_manager::get_shroud_manager()
                         .lock()
                         .map(|shroud| shroud.can_see_object(owner_id, target_id.0))
@@ -1533,8 +1594,8 @@ impl GameLogic {
         // exception.  The exception has to remain separate: a technology
         // structure is legal even if it lacks CAPTURABLE, but not if immune.
         let capturable = target.thing.template.capturable && !target.is_rebuild_hole;
-        let technology_exception = target.is_kind_of(KindOf::FSTechnology)
-            && !target.thing.template.immune_to_capture;
+        let technology_exception =
+            target.is_kind_of(KindOf::FSTechnology) && !target.thing.template.immune_to_capture;
         if !(capturable || technology_exception) {
             return false;
         }
@@ -1549,7 +1610,8 @@ impl GameLogic {
             let contained_relation = match (source.owner_player_id, contained.owner_player_id) {
                 (Some(source_owner), Some(contained_owner))
                     if self.player_owner_for_host_object(source) == Some(source_owner)
-                        && self.player_owner_for_host_object(contained) == Some(contained_owner) =>
+                        && self.player_owner_for_host_object(contained)
+                            == Some(contained_owner) =>
                 {
                     self.player_relationship(source_owner, contained_owner)
                 }

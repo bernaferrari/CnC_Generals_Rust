@@ -575,12 +575,22 @@ fn supply_center_placement_rejects_too_close_to_supplies_residual() {
     ensure_test_player_for_team(&mut logic, Team::USA);
     logic.override_world_size(2000.0, 2000.0); // LegalBuild edge residual room
 
-    let mut pile = ThingTemplate::new("SupplyWarehouse");
+    let mut pile = ThingTemplate::new("ArbitraryRetailSupplyIdentity");
     pile.add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::SupplySource)
         .add_kind_of(KindOf::Harvestable)
         .add_kind_of(KindOf::Resource)
         .set_health(1.0);
-    logic.templates.insert("SupplyWarehouse".into(), pile);
+    logic
+        .templates
+        .insert("ArbitraryRetailSupplyIdentity".into(), pile);
+    // Its spelling is deliberately supply-like, but without the exact C++
+    // capability it must not create a CANNOT_BUILD_NEAR_SUPPLIES exclusion.
+    let mut name_only = ThingTemplate::new("SupplyWarehouseNamedButNotAuthored");
+    name_only.set_health(1.0);
+    logic
+        .templates
+        .insert("SupplyWarehouseNamedButNotAuthored".into(), name_only);
     let mut sc = ThingTemplate::new("AmericaSupplyCenter");
     sc.add_kind_of(KindOf::Structure)
         .add_kind_of(KindOf::SupplyCenter)
@@ -602,11 +612,18 @@ fn supply_center_placement_rejects_too_close_to_supplies_residual() {
 
     let _ = logic
         .create_object(
-            "SupplyWarehouse",
+            "ArbitraryRetailSupplyIdentity",
             Team::Neutral,
             glam::Vec3::new(0.0, 0.0, 0.0),
         )
         .expect("pile");
+    let _ = logic
+        .create_object(
+            "SupplyWarehouseNamedButNotAuthored",
+            Team::Neutral,
+            glam::Vec3::new(500.0, 0.0, 0.0),
+        )
+        .expect("name-only lookalike");
 
     // Outside structure pad clearance (~40) but inside SupplyBuildBorder band
     // so residual returns LBC_TOO_CLOSE_TO_SUPPLIES (not OBJECTS_IN_THE_WAY).
@@ -617,6 +634,15 @@ fn supply_center_placement_rejects_too_close_to_supplies_residual() {
             "AmericaSupplyCenter"
         ),
         LBC_TOO_CLOSE_TO_SUPPLIES
+    );
+    assert_eq!(
+        logic.legal_build_code_at(
+            Team::USA,
+            glam::Vec3::new(550.0, 0.0, 0.0),
+            "AmericaSupplyCenter"
+        ),
+        LBC_OK,
+        "a Supply-looking basename without KINDOF_SUPPLY_SOURCE is not a retail exclusion source"
     );
     assert!(logic
         .create_object_under_construction(

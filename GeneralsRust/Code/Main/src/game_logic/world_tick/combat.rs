@@ -13,9 +13,9 @@ impl GameLogic {
                     continue;
                 };
                 // Need at least one weapon slot bound.
-                if attacker.weapon.is_none()
-                    && attacker.secondary_weapon.is_none()
-                    && attacker.tertiary_weapon.is_none()
+                if ![0u8, 1, 2]
+                    .into_iter()
+                    .any(|slot| attacker.weapon_slot(slot).is_some())
                 {
                     continue;
                 }
@@ -187,7 +187,7 @@ impl GameLogic {
             let tertiary_explicit = attacker.active_weapon_slot == 2
                 || (attacker.weapon_lock_type != WeaponLockType::NotLocked
                     && attacker.weapon_lock_slot == 2);
-            let any_ready = attacker.weapon.as_ref().is_some_and(|w| {
+            let any_ready = attacker.weapon_slot(0).is_some_and(|w| {
                 Object::weapon_ready_vs_target(w, current_time, target_has_faerie)
             }) || attacker.secondary_weapon.as_ref().is_some_and(|w| {
                 Object::weapon_ready_vs_target(w, current_time, target_has_faerie)
@@ -2862,9 +2862,20 @@ impl GameLogic {
                         } else if let Some(ground_target_id) =
                             self.find_ground_attack_victim(attacker_id, target_location)
                         {
+                            let damage_type = self
+                                .objects
+                                .get(&attacker_id)
+                                .and_then(|attacker| attacker.weapon_name_for_slot(ground_slot))
+                                .map(
+                                    crate::game_logic::host_armor_residual::host_damage_type_for_weapon_name,
+                                )
+                                .unwrap_or(crate::game_logic::combat::DamageType::Bullet);
                             if let Some(target) = self.objects.get_mut(&ground_target_id) {
-                                let destroyed =
-                                    target.take_damage_from(weapon_damage, Some(attacker_id));
+                                let destroyed = target.take_damage_from_typed(
+                                    weapon_damage,
+                                    Some(attacker_id),
+                                    damage_type,
+                                );
                                 if destroyed {
                                     let kill_xp = target.thing.template.experience_value
                                         * Self::veterancy_xp_multiplier(target.experience.level);
@@ -3233,7 +3244,7 @@ impl GameLogic {
             .filter_map(|(&candidate_id, candidate)| {
                 if candidate_id == attacker_id
                     || !candidate.is_alive()
-                    || !candidate.is_attackable()
+                    || (!candidate.is_attackable() && !candidate.is_disarmable_mine())
                 {
                     return None;
                 }

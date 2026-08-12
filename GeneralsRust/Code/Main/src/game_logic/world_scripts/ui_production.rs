@@ -519,7 +519,7 @@ impl GameLogic {
         };
         use crate::game_logic::host_structure_economy_residual::{
             is_legal_build_distance_from_map_edge, is_legal_build_height_variation,
-            is_supply_warehouse_template, MIN_DIST_FROM_EDGE_OF_MAP_FOR_BUILD, SUPPLY_BUILD_BORDER,
+            MIN_DIST_FROM_EDGE_OF_MAP_FOR_BUILD, SUPPLY_BUILD_BORDER,
         };
         use crate::game_logic::host_upgrades::is_supply_center_template;
         let (min, max) = self.world_bounds();
@@ -554,11 +554,11 @@ impl GameLogic {
             if obj.is_kind_of(KindOf::Structure) {
                 blockers.push((p.x, p.z, r));
             }
-            // C++ KINDOF_SUPPLY_SOURCE residual (docks/piles/warehouses).
-            if is_supply_warehouse_template(&obj.template_name)
-                || obj.is_kind_of(KindOf::Harvestable)
-                || obj.is_kind_of(KindOf::Resource)
-            {
+            // C++ CANNOT_BUILD_NEAR_SUPPLIES asks only for
+            // KINDOF_SUPPLY_SOURCE.  Resource/Harvestable are host bridge
+            // kinds (and can describe crates), so a source-looking basename
+            // or either bridge kind may not create this exclusion zone.
+            if obj.is_kind_of(KindOf::SupplySource) {
                 supply_sources.push((p.x, p.z, r.max(10.0)));
             }
         }
@@ -764,11 +764,12 @@ impl GameLogic {
 
     /// Count living/under-construction Superweapon-link-key objects for a team residual.
     pub fn count_superweapon_link_key_owned(&self, team: Team) -> u32 {
-        use crate::game_logic::host_superweapon_kindof::is_superweapon_link_key_template;
         self.objects
             .values()
             .filter(|o| {
-                o.team == team && o.is_alive() && is_superweapon_link_key_template(&o.template_name)
+                o.team == team
+                    && o.is_alive()
+                    && o.thing.template.has_superweapon_restriction_link_key()
             })
             .count() as u32
     }
@@ -777,13 +778,66 @@ impl GameLogic {
     /// still used to identify the template, but each skirmish slot has its own
     /// quota and must not consume a same-faction opponent's allowance.
     pub fn count_superweapon_link_key_owned_by_player(&self, player_id: u32) -> u32 {
-        use crate::game_logic::host_superweapon_kindof::is_superweapon_link_key_template;
         self.objects
             .values()
             .filter(|obj| {
                 obj.owner_player_id == Some(player_id)
                     && obj.is_alive()
-                    && is_superweapon_link_key_template(&obj.template_name)
+                    && obj.thing.template.has_superweapon_restriction_link_key()
+            })
+            .count() as u32
+    }
+
+    fn count_superweapon_link_key_owned_for_template(
+        &self,
+        team: Team,
+        requested_template: &str,
+    ) -> u32 {
+        let Some(requested) = self.templates.get(requested_template) else {
+            return 0;
+        };
+        let Some(link_key) = requested.max_simultaneous_link_key.as_deref() else {
+            return 0;
+        };
+        self.objects
+            .values()
+            .filter(|obj| {
+                obj.team == team
+                    && obj.is_alive()
+                    && obj.thing.template.has_superweapon_restriction_link_key()
+                    && obj
+                        .thing
+                        .template
+                        .max_simultaneous_link_key
+                        .as_deref()
+                        .is_some_and(|candidate| candidate.eq_ignore_ascii_case(link_key))
+            })
+            .count() as u32
+    }
+
+    fn count_superweapon_link_key_owned_by_player_for_template(
+        &self,
+        player_id: u32,
+        requested_template: &str,
+    ) -> u32 {
+        let Some(requested) = self.templates.get(requested_template) else {
+            return 0;
+        };
+        let Some(link_key) = requested.max_simultaneous_link_key.as_deref() else {
+            return 0;
+        };
+        self.objects
+            .values()
+            .filter(|obj| {
+                obj.owner_player_id == Some(player_id)
+                    && obj.is_alive()
+                    && obj.thing.template.has_superweapon_restriction_link_key()
+                    && obj
+                        .thing
+                        .template
+                        .max_simultaneous_link_key
+                        .as_deref()
+                        .is_some_and(|candidate| candidate.eq_ignore_ascii_case(link_key))
             })
             .count() as u32
     }
@@ -849,10 +903,11 @@ impl GameLogic {
 
     /// C++ MaxSimultaneousOfType Superweapon residual gate.
     pub fn can_start_superweapon_building(&self, team: Team, template_name: &str) -> bool {
-        use crate::game_logic::host_superweapon_kindof::{
-            is_superweapon_link_key_template, superweapon_max_simultaneous_allowed,
+        use crate::game_logic::host_superweapon_kindof::superweapon_max_simultaneous_allowed;
+        let Some(template) = self.templates.get(template_name) else {
+            return true;
         };
-        if !is_superweapon_link_key_template(template_name) {
+        if !template.has_superweapon_restriction_link_key() {
             return true;
         }
         let Some(max) =
@@ -860,7 +915,7 @@ impl GameLogic {
         else {
             return true;
         };
-        self.count_superweapon_link_key_owned(team) < max
+        self.count_superweapon_link_key_owned_for_template(team, template_name) < max
     }
 
     /// Player-scoped superweapon restriction used where a command has exact
@@ -870,10 +925,11 @@ impl GameLogic {
         player_id: u32,
         template_name: &str,
     ) -> bool {
-        use crate::game_logic::host_superweapon_kindof::{
-            is_superweapon_link_key_template, superweapon_max_simultaneous_allowed,
+        use crate::game_logic::host_superweapon_kindof::superweapon_max_simultaneous_allowed;
+        let Some(template) = self.templates.get(template_name) else {
+            return true;
         };
-        if !is_superweapon_link_key_template(template_name) {
+        if !template.has_superweapon_restriction_link_key() {
             return true;
         }
         let Some(max) =
@@ -881,7 +937,7 @@ impl GameLogic {
         else {
             return true;
         };
-        self.count_superweapon_link_key_owned_by_player(player_id) < max
+        self.count_superweapon_link_key_owned_by_player_for_template(player_id, template_name) < max
     }
 
     /// Enqueue unit production on a building if permitted.
@@ -963,7 +1019,10 @@ impl GameLogic {
                 && obj.producer_id == Some(airfield_id)
             {
                 if let Some(slot) = obj.airfield_parking_space_index {
-                    if usize::try_from(slot).ok().is_some_and(|slot| slot < capacity) {
+                    if usize::try_from(slot)
+                        .ok()
+                        .is_some_and(|slot| slot < capacity)
+                    {
                         occupied_slots.insert(slot);
                     }
                 }
@@ -1055,10 +1114,11 @@ impl GameLogic {
         let parking_full = {
             let is_aircraft = template.is_kind_of(KindOf::Aircraft);
             if producer.is_kind_of(KindOf::FSAirfield) && is_aircraft {
-                self.airfield_parking_capacity(producer_id).map_or(true, |capacity| {
-                    let capacity = u32::try_from(capacity).unwrap_or(u32::MAX);
-                    self.airfield_parking_occupied_or_queued(producer_id) >= capacity
-                })
+                self.airfield_parking_capacity(producer_id)
+                    .map_or(true, |capacity| {
+                        let capacity = u32::try_from(capacity).unwrap_or(u32::MAX);
+                        self.airfield_parking_occupied_or_queued(producer_id) >= capacity
+                    })
             } else {
                 false
             }
@@ -1125,7 +1185,9 @@ impl GameLogic {
                 .map(|player_id| {
                     self.count_player_units_of_template_owned_or_queued(player_id, template_name)
                 })
-                .unwrap_or_else(|| self.count_team_units_of_template_owned_or_queued(team, template_name));
+                .unwrap_or_else(|| {
+                    self.count_team_units_of_template_owned_or_queued(team, template_name)
+                });
             unit_maxed_out_for_player_residual(owned, max)
         };
         // C++ `ProductionUpdate::canQueueCreateUnit` asks the parking-place

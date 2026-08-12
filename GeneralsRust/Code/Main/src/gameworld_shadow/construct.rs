@@ -7,6 +7,38 @@ use gamelogic::world::{GameWorld, PlayerId, WorldMutation, WorldSnapshot};
 use std::collections::{HashMap, HashSet};
 
 impl GameWorldShadow {
+    fn host_ready_structure_special_power_template(
+        logic: &GameLogic,
+        obj: &crate::game_logic::Object,
+    ) -> Option<(String, u32)> {
+        use crate::command_system::SpecialPowerType as P;
+
+        obj.thing
+            .template
+            .special_power_modules
+            .iter()
+            .find(|module| {
+                module.command_power.as_ref().is_some_and(|power| {
+                    matches!(
+                        power,
+                        &P::ParticleCannon
+                            | &P::SuperweaponParticleCannon
+                            | &P::LaserCannon
+                            | &P::ScudStorm
+                            | &P::NuclearMissile
+                            | &P::NukeNeutronMissile
+                            | &P::SuperweaponNeutronMissile
+                    ) && logic.is_special_power_ready_for(obj.id, power)
+                })
+            })
+            .map(|module| {
+                (
+                    module.special_power_template.clone(),
+                    module.special_power_template_id,
+                )
+            })
+    }
+
     pub fn new(max_entities: usize) -> Self {
         Self {
             world: GameWorld::new(8),
@@ -317,6 +349,15 @@ impl GameWorldShadow {
                         .is_some();
                     e.hacker_disable_building_ready =
                         logic.is_hacker_disable_building_ready(oid);
+                    if let Some((template_name, template_id)) =
+                        Self::host_ready_structure_special_power_template(logic, obj)
+                    {
+                        e.special_power_ready_template_name = template_name;
+                        e.special_power_ready_template_id = template_id;
+                    } else {
+                        e.special_power_ready_template_name.clear();
+                        e.special_power_ready_template_id = 0;
+                    }
                     e.disguised = obj.status.disguised;
                     e.disabled_subdued = obj.status.disabled_subdued;
                     e.subdual_damage = obj.subdual_damage;
@@ -1791,6 +1832,15 @@ impl GameWorldShadow {
                     .hacker_disable_building
                     .is_some();
                 e.hacker_disable_building_ready = logic.is_hacker_disable_building_ready(oid);
+                if let Some((template_name, template_id)) =
+                    Self::host_ready_structure_special_power_template(logic, obj)
+                {
+                    e.special_power_ready_template_name = template_name;
+                    e.special_power_ready_template_id = template_id;
+                } else {
+                    e.special_power_ready_template_name.clear();
+                    e.special_power_ready_template_id = 0;
+                }
                 e.disguised = obj.status.disguised;
                 e.disabled_subdued = obj.status.disabled_subdued;
                 e.subdual_damage = obj.subdual_damage;

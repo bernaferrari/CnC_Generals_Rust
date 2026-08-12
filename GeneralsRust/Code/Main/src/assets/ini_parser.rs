@@ -1601,4 +1601,39 @@ End
             "TERTIARY None must fail-closed (no name)"
         );
     }
+
+    #[test]
+    fn nested_weapon_sets_preserve_the_retail_mine_detail_row_without_flattening_it() {
+        let ini_content = r#"
+Object AmericaVehicleDozer
+  WeaponSet
+    Conditions = None
+    Weapon = PRIMARY None
+  End
+  WeaponSet
+    Conditions = MINE_CLEARING_DETAIL
+    Weapon = PRIMARY DozerMineDisarmingWeapon
+  End
+End
+"#;
+        let mut parser = IniParser::new();
+        parser
+            .parse_ini_content(ini_content, "dozer_mine_weapon_set.ini")
+            .expect("parse mine detail WeaponSet");
+        let definition = parser
+            .get_definition("AmericaVehicleDozer")
+            .expect("dozer definition");
+
+        assert_eq!(definition.weapon_sets.len(), 2);
+        assert!(definition.base_weapon_name(0).is_none());
+        assert_eq!(
+            definition.mine_clearing_primary_weapon_name(),
+            Some("DozerMineDisarmingWeapon")
+        );
+        assert!(
+            definition.primary_weapon.is_none()
+                && !definition.attributes.contains_key("Weapon"),
+            "nested Weapon rows must not overwrite the legacy top-level view"
+        );
+    }
 }

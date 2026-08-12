@@ -385,7 +385,7 @@ impl Object {
         if target.is_effectively_stealthed() && target.team != self.team {
             return false;
         }
-        if let Some(weapon) = &self.weapon {
+        if let Some(weapon) = self.weapon_slot(0) {
             if self.can_target_with_slot(target, weapon, Some(0)) {
                 return true;
             }

@@ -610,9 +610,9 @@ impl Object {
         // shock stun: C++ Physics IS_STUNNED residual — cannot acquire/fire while stunned.
         let parked_aircraft = self.is_parked_at_airfield();
         self.is_alive()
-            && (self.weapon.is_some()
-                || self.secondary_weapon.is_some()
-                || self.tertiary_weapon.is_some())
+            && [0u8, 1, 2]
+                .into_iter()
+                .any(|slot| self.weapon_slot(slot).is_some())
             && !self.is_disabled()
             && !self.is_shock_stunned()
             && !self.status.weapons_jammed

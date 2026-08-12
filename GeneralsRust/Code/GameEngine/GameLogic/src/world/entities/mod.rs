@@ -363,6 +363,12 @@ pub struct Entity {
     pub hacker_disable_building_capable: bool,
     /// Frozen source readiness for the paired Hacker Disable Building module.
     pub hacker_disable_building_ready: bool,
+    /// Canonical parsed SpecialPowerTemplate name for a ready structure
+    /// module.  Kept as text because GameLogic cannot depend on Main's host
+    /// command enum; an empty value represents no ready source module.
+    pub special_power_ready_template_name: String,
+    /// Parsed SpecialPowerTemplate ID paired with the canonical name above.
+    pub special_power_ready_template_id: u32,
     /// Host Object::status.disguised residual.
     pub disguised: bool,
     /// Host Object::status.disabled_subdued residual.
@@ -1578,6 +1584,8 @@ impl EntityStore {
             capture_power_ready: false,
             hacker_disable_building_capable: false,
             hacker_disable_building_ready: false,
+            special_power_ready_template_name: String::new(),
+            special_power_ready_template_id: 0,
             disguised: false,
             disabled_subdued: false,
             subdual_damage: 0.0,

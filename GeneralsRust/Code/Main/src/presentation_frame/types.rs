@@ -328,6 +328,14 @@ pub struct RenderableObject {
     /// Frozen HDB module readiness for the same presentation frame.
     #[serde(default)]
     pub hacker_disable_building_ready: bool,
+    /// Exact parsed SpecialPowerTemplate identity for the ready structure
+    /// module.  UI maps this canonical source name through the explicit
+    /// command adapter; it must not reclassify `template_name` by substring.
+    #[serde(default)]
+    pub special_power_ready_template_name: Option<String>,
+    /// Stable loaded SpecialPowerTemplate id paired with the canonical name.
+    #[serde(default)]
+    pub special_power_ready_template_id: Option<u32>,
     pub health_current: f32,
     pub health_max: f32,
     pub selected: bool,

@@ -967,12 +967,12 @@ impl CnCGameEngine {
     ) -> Option<crate::command_system::SpecialPowerType> {
         // Presentation-only identity for InGame UI residual.
         let o = self.presentation_ro(id)?;
-        if !o.special_power_ready || o.destroyed || o.health_current <= 0.0 {
+        if o.destroyed || o.health_current <= 0.0 {
             return None;
         }
-        crate::game_logic::host_superweapon_kindof::special_power_for_superweapon_structure(
-            &o.template_name,
-        )
+        o.special_power_ready_template_name
+            .as_deref()
+            .and_then(crate::command_system::special_power_type_from_template_name)
     }
 
     /// Wave 610: via `host_ui_selected_ids`.

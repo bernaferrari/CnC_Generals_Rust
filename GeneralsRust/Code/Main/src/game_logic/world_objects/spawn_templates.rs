@@ -1603,9 +1603,7 @@ impl GameLogic {
         use crate::command_system::special_power_type_from_template_name;
         use crate::game_logic::{SpecialPowerModuleKind, SpecialPowerModuleMetadata};
         use game_engine::common::ini::ini_science::{get_science_store, ScienceType};
-        use game_engine::common::rts::special_power::{
-            get_special_power_store, SCIENCE_INVALID,
-        };
+        use game_engine::common::rts::special_power::{get_special_power_store, SCIENCE_INVALID};
 
         fn stripped_value(value: &str) -> &str {
             value.split(';').next().unwrap_or_default().trim()
@@ -1644,14 +1642,13 @@ impl GameLogic {
             Self::object_definition_attr(definition, "maxsimultaneouslinkkey")
                 .map(|value| stripped_value(&value).to_string())
                 .filter(|value| !value.is_empty());
-        template.max_simultaneous_determined_by_superweapon_restriction = Self::object_definition_attr(
-            definition,
-            "maxsimultaneousoftype",
-        )
-        .is_some_and(|value| {
-            stripped_value(&value)
-                .eq_ignore_ascii_case("DeterminedBySuperweaponRestriction")
-        });
+        template.max_simultaneous_determined_by_superweapon_restriction =
+            Self::object_definition_attr(definition, "maxsimultaneousoftype").is_some_and(
+                |value| {
+                    stripped_value(&value)
+                        .eq_ignore_ascii_case("DeterminedBySuperweaponRestriction")
+                },
+            );
 
         template.special_power_modules.clear();
         let power_store = get_special_power_store();
@@ -1695,8 +1692,7 @@ impl GameLogic {
                     public_timer: power.public_timer,
                     shared_n_sync: power.shared_n_sync,
                     shortcut_power: power.shortcut_power,
-                    update_module_starts_attack: match module
-                        .attribute("UpdateModuleStartsAttack")
+                    update_module_starts_attack: match module.attribute("UpdateModuleStartsAttack")
                     {
                         Some(value) => parse_bool(value)?,
                         None => false,
@@ -1705,8 +1701,7 @@ impl GameLogic {
                         Some(value) => parse_bool(value)?,
                         None => false,
                     },
-                    scripted_special_power_only: match module
-                        .attribute("ScriptedSpecialPowerOnly")
+                    scripted_special_power_only: match module.attribute("ScriptedSpecialPowerOnly")
                     {
                         Some(value) => parse_bool(value)?,
                         None => false,
@@ -1731,11 +1726,10 @@ impl GameLogic {
         template: &mut ThingTemplate,
         definition: &ObjectDefinition,
     ) {
-        use crate::game_logic::HackerDisableBuildingMetadata;
         use crate::command_system::{
-            special_power_type_from_template_name,
-            SpecialPowerType as HostSpecialPowerType,
+            special_power_type_from_template_name, SpecialPowerType as HostSpecialPowerType,
         };
+        use crate::game_logic::HackerDisableBuildingMetadata;
         use game_engine::common::ini::ini_science::{get_science_store, ScienceType};
         use game_engine::common::rts::special_power::{
             get_special_power_store, SpecialPowerType, SCIENCE_INVALID,
@@ -1797,7 +1791,7 @@ impl GameLogic {
                         (power.power_type == SpecialPowerType::HackerDisableBuilding
                             && special_power_type_from_template_name(&power.name)
                                 == Some(HostSpecialPowerType::HackerDisableBuilding))
-                            .then_some((module, power))
+                        .then_some((module, power))
                     })
             })
             .collect();
@@ -1810,7 +1804,11 @@ impl GameLogic {
         let updates: Vec<_> = definition
             .behavior_modules
             .iter()
-            .filter(|module| module.class_name.eq_ignore_ascii_case("SpecialAbilityUpdate"))
+            .filter(|module| {
+                module
+                    .class_name
+                    .eq_ignore_ascii_case("SpecialAbilityUpdate")
+            })
             .filter(|module| {
                 module
                     .attribute("SpecialPowerTemplate")
@@ -1884,8 +1882,7 @@ impl GameLogic {
                     Some(value) => parse_duration_ms(value)?,
                     None => 0,
                 },
-                persistence_requires_recharge: match update
-                    .attribute("PersistenceRequiresRecharge")
+                persistence_requires_recharge: match update.attribute("PersistenceRequiresRecharge")
                 {
                     Some(value) => parse_bool(value)?,
                     None => false,
@@ -3597,6 +3594,128 @@ mod tests {
     }
 
     #[test]
+    fn retail_hacker_disable_pair_uses_exact_power_identity_not_microwave_alias() {
+        use std::collections::HashMap;
+        use std::path::Path;
+
+        // The live boot path owns this global store.  Focused unit tests do
+        // not run the shell bootstrap, so seed only the two actual retail
+        // records if they are absent.  Both deliberately share Common's C++
+        // enum; the parser below must still admit HDB alone by canonical
+        // SpecialPowerTemplate identity.
+        {
+            use game_engine::common::rts::special_power::get_special_power_store_mut;
+
+            let mut powers = get_special_power_store_mut();
+            for (name, reload) in [
+                ("SpecialAbilityHackerDisableBuilding", "500"),
+                ("SpecialAbilityMicrowaveDisableBuilding", "4000"),
+            ] {
+                if powers.find_template(name).is_none() {
+                    let mut fields = HashMap::new();
+                    fields.insert(
+                        "Enum".to_string(),
+                        "SPECIAL_HACKER_DISABLE_BUILDING".to_string(),
+                    );
+                    fields.insert("ReloadTime".to_string(), reload.to_string());
+                    fields.insert("PublicTimer".to_string(), "No".to_string());
+                    powers
+                        .parse_special_power_definition(name, &fields)
+                        .unwrap_or_else(|error| {
+                            panic!("seed required retail special power {name}: {error}")
+                        });
+                }
+            }
+        }
+
+        let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .ancestors()
+            .nth(3)
+            .expect("Main crate must remain three levels below repository root");
+        let special_power = std::fs::read_to_string(
+            repo_root.join("windows_game/extracted_big_files_v2/INIZH/Data/INI/SpecialPower.ini"),
+        )
+        .expect("retail SpecialPower.ini");
+        assert!(special_power.contains("SpecialPower SpecialAbilityHackerDisableBuilding"));
+        assert!(special_power.contains("SpecialPower SpecialAbilityMicrowaveDisableBuilding"));
+        assert!(special_power.contains("ReloadTime        = 500"));
+        assert!(special_power.contains("ReloadTime        = 4000"));
+
+        let china_infantry =
+            std::fs::read_to_string(repo_root.join(
+                "windows_game/extracted_big_files_v2/INIZH/Data/INI/Object/ChinaInfantry.ini",
+            ))
+            .expect("retail ChinaInfantry.ini");
+        let mut parser = crate::assets::IniParser::new();
+        parser
+            .parse_ini_content(&china_infantry, "ChinaInfantry.ini")
+            .expect("parse retail China hacker");
+        // This synthetic probe intentionally gives Microwave the same Common
+        // enum/module shape as HDB.  It is the collision the exact template
+        // lookup protects against; a real Microwave runtime stays separately
+        // unsupported rather than borrowing HDB's persistent channel.
+        parser
+            .parse_ini_content(
+                r#"
+Object MicrowaveAliasProbe
+  Type = Vehicle
+  KindOf = VEHICLE SELECTABLE
+  Behavior = SpecialAbility ModuleTag_Microwave
+    SpecialPowerTemplate = SpecialAbilityMicrowaveDisableBuilding
+    UpdateModuleStartsAttack = Yes
+  End
+  Behavior = SpecialAbilityUpdate ModuleTag_MicrowaveUpdate
+    SpecialPowerTemplate = SpecialAbilityMicrowaveDisableBuilding
+    StartAbilityRange = 150.0
+    UnpackTime = 1
+    PreparationTime = 1
+    PersistentPrepTime = 1
+    EffectDuration = 1
+    PackTime = 1
+  End
+End
+"#,
+                "microwave_alias_probe.ini",
+            )
+            .expect("parse microwave alias probe");
+
+        let hacker = GameLogic::build_template_from_object_definition(
+            "ChinaInfantryHacker",
+            parser
+                .get_definition("ChinaInfantryHacker")
+                .expect("retail China hacker"),
+            None,
+        );
+        let hdb = hacker
+            .hacker_disable_building
+            .expect("retail HDB pair must survive parser");
+        assert_eq!(
+            hdb.special_power_template,
+            "SpecialAbilityHackerDisableBuilding"
+        );
+        assert_eq!(hdb.reload_time_frames, 15);
+        assert_eq!(hdb.start_ability_range, 150.0);
+        assert_eq!(hdb.unpack_time_ms, 7_300);
+        assert_eq!(hdb.preparation_time_ms, 3_000);
+        assert_eq!(hdb.persistent_prep_time_ms, 333);
+        assert_eq!(hdb.effect_duration_ms, 2_000);
+        assert_eq!(hdb.pack_time_ms, 5_133);
+        assert!(!hdb.persistence_requires_recharge);
+
+        let microwave = GameLogic::build_template_from_object_definition(
+            "MicrowaveAliasProbe",
+            parser
+                .get_definition("MicrowaveAliasProbe")
+                .expect("microwave alias probe"),
+            None,
+        );
+        assert!(
+            microwave.hacker_disable_building.is_none(),
+            "a Common SPECIAL_HACKER_DISABLE_BUILDING enum alias must not expose the Hacker channel"
+        );
+    }
+
+    #[test]
     fn parsed_parking_place_behavior_keeps_authored_shape_without_name_fallback() {
         let mut parser = crate::assets::IniParser::new();
         parser
@@ -4018,6 +4137,78 @@ End
             !ferry.is_kind_of(KindOf::Vehicle),
             "the test proves RailedTransportContain is not inferred from VEHICLE"
         );
+    }
+
+    #[test]
+    fn authored_supply_source_kindof_drives_gather_bridge_not_template_name() {
+        let mut parser = crate::assets::IniParser::new();
+        parser
+            .parse_ini_content(
+                r#"
+Object ArbitraryRetailSupplyIdentity
+  Type = Structure
+  Model = SupplySourceModel
+  KindOf = STRUCTURE SELECTABLE SUPPLY_SOURCE
+End
+Object SupplyNamedButNotAuthored
+  Type = Structure
+  Model = SupplyLookingModel
+  KindOf = STRUCTURE SELECTABLE
+End
+"#,
+                "supply_source_kindof_probe.ini",
+            )
+            .expect("parse supply source metadata probe");
+
+        let source = GameLogic::build_template_from_object_definition(
+            "ArbitraryRetailSupplyIdentity",
+            parser
+                .get_definition("ArbitraryRetailSupplyIdentity")
+                .expect("authored supply source definition"),
+            None,
+        );
+        assert!(source.is_kind_of(KindOf::SupplySource));
+        assert!(source.is_kind_of(KindOf::Resource));
+        assert!(source.is_kind_of(KindOf::Harvestable));
+
+        let lookalike = GameLogic::build_template_from_object_definition(
+            "SupplyNamedButNotAuthored",
+            parser
+                .get_definition("SupplyNamedButNotAuthored")
+                .expect("supply-looking definition"),
+            None,
+        );
+        assert!(!lookalike.is_kind_of(KindOf::SupplySource));
+        assert!(!lookalike.is_kind_of(KindOf::Resource));
+        assert!(!lookalike.is_kind_of(KindOf::Harvestable));
+
+        // Actual retail map supply objects declare the same capability.  The
+        // parser must retain it rather than relying on their familiar names.
+        let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .ancestors()
+            .nth(3)
+            .expect("Main crate must remain three levels below repository root");
+        let retail = std::fs::read_to_string(repo_root.join(
+            "windows_game/extracted_big_files_v2/INIZH/Data/INI/Object/CivilianBuilding.ini",
+        ))
+        .expect("retail CivilianBuilding.ini");
+        let mut retail_parser = crate::assets::IniParser::new();
+        retail_parser
+            .parse_ini_content(&retail, "CivilianBuilding.ini")
+            .expect("parse retail CivilianBuilding.ini");
+        for template_name in ["SupplyDock", "SupplyPile", "SupplyPileSmall"] {
+            let template = GameLogic::build_template_from_object_definition(
+                template_name,
+                retail_parser
+                    .get_definition(template_name)
+                    .expect("retail supply source definition"),
+                None,
+            );
+            assert!(
+                template.is_kind_of(KindOf::SupplySource),
+                "{template_name} must retain retail KINDOF_SUPPLY_SOURCE"
+            );
+        }
     }
 
     #[test]
