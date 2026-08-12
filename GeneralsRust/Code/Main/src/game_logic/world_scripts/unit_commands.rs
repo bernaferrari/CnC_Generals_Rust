@@ -1159,9 +1159,10 @@ mod tests {
 
     fn three_slot_logic() -> (GameLogic, ObjectId) {
         let mut logic = GameLogic::new();
-        logic
-            .templates
-            .insert("ThreeSlotTest".to_string(), ThingTemplate::new("ThreeSlotTest"));
+        logic.templates.insert(
+            "ThreeSlotTest".to_string(),
+            ThingTemplate::new("ThreeSlotTest"),
+        );
         let id = logic
             .create_object("ThreeSlotTest", Team::USA, glam::Vec3::ZERO)
             .expect("test object");
@@ -1210,7 +1211,10 @@ mod tests {
     #[test]
     fn switch_weapons_cycles_to_tertiary_when_it_is_next_available_slot() {
         let (mut logic, id) = three_slot_logic();
-        logic.host_object_mut(id).expect("object").active_weapon_slot = 1;
+        logic
+            .host_object_mut(id)
+            .expect("object")
+            .active_weapon_slot = 1;
         assert!(logic.unit_command_switch_weapons(id));
         let object = logic.host_object(id).expect("object");
         assert_eq!(object.active_weapon_slot, 2);

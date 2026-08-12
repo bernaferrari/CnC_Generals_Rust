@@ -191,9 +191,10 @@ impl GameLogic {
                 Object::weapon_ready_vs_target(w, current_time, target_has_faerie)
             }) || attacker.secondary_weapon.as_ref().is_some_and(|w| {
                 Object::weapon_ready_vs_target(w, current_time, target_has_faerie)
-            }) || (tertiary_explicit && attacker.tertiary_weapon.as_ref().is_some_and(|w| {
-                Object::weapon_ready_vs_target(w, current_time, target_has_faerie)
-            }));
+            }) || (tertiary_explicit
+                && attacker.tertiary_weapon.as_ref().is_some_and(|w| {
+                    Object::weapon_ready_vs_target(w, current_time, target_has_faerie)
+                }));
             if !any_ready {
                 continue;
             }
@@ -2309,13 +2310,12 @@ impl GameLogic {
                                             host_secondary_damage_for_weapon_name,
                                             host_secondary_damage_radius_for_weapon_name,
                                         };
-                                        let wname = self.objects.get(&attacker_id).and_then(
-                                            |attacker| {
+                                        let wname =
+                                            self.objects.get(&attacker_id).and_then(|attacker| {
                                                 attacker
                                                     .weapon_name_for_slot(slot)
                                                     .map(str::to_owned)
-                                            },
-                                        );
+                                            });
                                         let (pr, sr, sd) = if let Some(ref n) = wname {
                                             (
                                                 host_primary_damage_radius_for_weapon_name(n),
@@ -2571,7 +2571,8 @@ impl GameLogic {
                                 attacker.weapon_slot(slot).map(|weapon| {
                                     Object::weapon_ready(weapon, current_time)
                                         && weapon.can_target_ground
-                                        && attacker.position.distance(target_location) <= weapon.range
+                                        && attacker.position.distance(target_location)
+                                            <= weapon.range
                                 })
                             })
                         })
@@ -3095,9 +3096,10 @@ impl GameLogic {
                 );
 
                 // Capture weapon name before mut borrow for RETURN_TO_BASE peels.
-                let fire_wname = self.objects.get(&attacker_id).and_then(|attacker| {
-                    attacker.weapon_name_for_slot(slot).map(str::to_owned)
-                });
+                let fire_wname = self
+                    .objects
+                    .get(&attacker_id)
+                    .and_then(|attacker| attacker.weapon_name_for_slot(slot).map(str::to_owned));
                 if let Some(attacker) = self.objects.get_mut(&attacker_id) {
                     if let Some(weapon) = attacker.weapon_slot_mut(slot) {
                         Object::consume_ammo_on_fire_named(

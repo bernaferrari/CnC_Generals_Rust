@@ -335,6 +335,70 @@ fn asset_template_preserves_cpp_fs_kind_tokens() {
 }
 
 #[test]
+fn asset_template_catalogue_seed_keeps_curated_templates_and_uses_exact_retail_fields() {
+    let mut logic = GameLogic::new();
+    let mut curated = ThingTemplate::new("AmericaTankCrusader");
+    curated.set_health(777.0).set_model("CuratedExactModel");
+    logic
+        .templates
+        .insert("AmericaTankCrusader".to_string(), curated);
+
+    let mut existing = ObjectDefinition::new("AmericaTankCrusader".to_string());
+    existing.object_type = "Vehicle".to_string();
+    existing.hit_points = Some(480);
+    existing.model_name = Some("AVCrusader".to_string());
+
+    let mut added = ObjectDefinition::new("AmericaTankPaladin".to_string());
+    added.object_type = "Vehicle".to_string();
+    added.hit_points = Some(600);
+    added.model_name = Some("AVPaladin".to_string());
+    added.primary_weapon = Some("PaladinTankGun".to_string());
+    added.secondary_weapon = Some("PaladinPointDefenseLaser".to_string());
+    added
+        .attributes
+        .insert("KindOf".to_string(), "VEHICLE SELECTABLE CAN_ATTACK".to_string());
+    added
+        .attributes
+        .insert("BuildCost".to_string(), "1100".to_string());
+
+    let mut ambient_only = ObjectDefinition::new("AmbientOnlyRetailAnchor".to_string());
+    ambient_only
+        .attributes
+        .insert("SoundAmbient".to_string(), "AmbientWind".to_string());
+
+    assert_eq!(
+        logic.seed_asset_definition_templates_from_snapshot(vec![
+            ("AmericaTankPaladin".to_string(), added),
+            ("AmericaTankCrusader".to_string(), existing),
+            ("AmbientOnlyRetailAnchor".to_string(), ambient_only),
+        ]),
+        1
+    );
+
+    let curated_after = logic
+        .templates
+        .get("AmericaTankCrusader")
+        .expect("curated template retained");
+    assert_eq!(curated_after.max_health, 777.0);
+    assert_eq!(curated_after.model_name.as_deref(), Some("CuratedExactModel"));
+
+    let seeded = logic
+        .templates
+        .get("AmericaTankPaladin")
+        .expect("retail definition seeded");
+    assert_eq!(seeded.max_health, 600.0);
+    assert_eq!(seeded.build_cost.supplies, 1100);
+    assert_eq!(seeded.model_name.as_deref(), Some("AVPaladin"));
+    assert_eq!(seeded.primary_weapon_name.as_deref(), Some("PaladinTankGun"));
+    assert_eq!(
+        seeded.secondary_weapon_name.as_deref(),
+        Some("PaladinPointDefenseLaser")
+    );
+    assert!(seeded.is_kind_of(KindOf::Vehicle));
+    assert!(!logic.templates.contains_key("AmbientOnlyRetailAnchor"));
+}
+
+#[test]
 fn shell_game_state_tracks_in_game_status() {
     let mut game_logic = GameLogic::new();
     assert!(!game_logic.isInGame());

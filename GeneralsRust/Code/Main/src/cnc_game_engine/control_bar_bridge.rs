@@ -634,6 +634,7 @@ impl CnCGameEngine {
     fn host_control_bar_evidence_eligible(&self, physical_os_input: bool) -> bool {
         physical_os_input
             && !self.runtime_host_headless
+            && self.runtime_host_window_visible()
             && matches!(self.current_state, GameState::InGame)
             && matches!(
                 self.host_match_game_mode,

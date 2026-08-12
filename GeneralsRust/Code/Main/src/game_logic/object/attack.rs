@@ -50,7 +50,12 @@ impl Object {
             });
 
             if self.weapon_lock_type != WeaponLockType::NotLocked {
-                match self.active_weapon_slot {
+                // The lock owns its own concrete slot identity.  Do not use
+                // `active_weapon_slot` here: an asynchronous UI/writeback
+                // update can change the displayed slot while a permanent
+                // lock is still in effect, and must not redirect a tertiary
+                // command into PRIMARY or SECONDARY.
+                match self.weapon_lock_slot {
                     0 if primary_ready => 0u8,
                     1 if secondary_ready => 1u8,
                     2 if tertiary_ready => 2u8,
@@ -511,5 +516,51 @@ impl Object {
             building.garrisoned_units.clear();
         }
         self.occupants.clear();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn explicit_tertiary_fire_uses_the_real_third_slot() {
+        let mut attacker = Object::new(
+            ThingTemplate::new("ThreeSlotAttacker"),
+            ObjectId(1),
+            Team::USA,
+        );
+        attacker.weapon = Some(Weapon {
+            damage: 5.0,
+            range: 100.0,
+            ..Weapon::default()
+        });
+        attacker.tertiary_weapon = Some(Weapon {
+            damage: 37.0,
+            range: 250.0,
+            last_fire_time: -10.0,
+            ..Weapon::default()
+        });
+        assert!(attacker.set_weapon_lock(2, WeaponLockType::LockedPermanently));
+
+        // Simulate a stale displayed active slot.  The stored weapon lock is
+        // authoritative and must retain tertiary identity while firing.
+        attacker.set_active_weapon_slot(0);
+
+        assert!(attacker.fire_at(ObjectId(2), 1.0));
+        assert_eq!(attacker.last_fire_slot, 2);
+        assert!((attacker.last_fire_damage - 37.0).abs() < f32::EPSILON);
+        assert_eq!(
+            attacker
+                .tertiary_weapon
+                .as_ref()
+                .map(|weapon| weapon.last_fire_time),
+            Some(1.0)
+        );
+        assert_eq!(
+            attacker.weapon.as_ref().map(|weapon| weapon.last_fire_time),
+            Some(0.0),
+            "primary must not be consumed by an explicit tertiary fire"
+        );
     }
 }

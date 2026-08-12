@@ -87,10 +87,16 @@ pub struct ObjectStatusSnapshot {
     pub special_power_ready: bool,
     pub special_power_cooldown: f32,
     pub special_power_cooldown_remaining: f32,
-    /// Host residual: player weapon-slot lock (`0` primary, `1` secondary).
-    /// Fail-closed: not full C++ WeaponSet chooser state.
+    /// Active concrete WeaponSet slot (`0` primary, `1` secondary, `2` tertiary).
     #[serde(default)]
     pub active_weapon_slot: u8,
+    /// C++ WeaponSet lock mode.  Defaults for save files created before lock
+    /// state was persisted.
+    #[serde(default)]
+    pub weapon_lock_type: WeaponLockType,
+    /// Concrete slot guarded by `weapon_lock_type`.
+    #[serde(default)]
+    pub weapon_lock_slot: u8,
     /// Wave 79 Drawable residual: CamoNetting / Camouflage `StealthLookType` ordinal
     /// (`Object::camo_stealth_look` / C++ `Drawable::m_stealthLook`).
     /// Serde default for older snapshots.
@@ -129,6 +135,8 @@ impl Default for ObjectStatusSnapshot {
             special_power_cooldown: 0.0,
             special_power_cooldown_remaining: 0.0,
             active_weapon_slot: 0,
+            weapon_lock_type: WeaponLockType::NotLocked,
+            weapon_lock_slot: 0,
             camo_stealth_look: 0,
         }
     }
@@ -427,7 +435,32 @@ impl XferData for ObjectStatusSnapshot {
         // Wave 79: Drawable residual StealthLook ordinal (appended).
         xfer.xfer_marker_label("CamoStealthLook")?;
         xfer.xfer_u8(&mut self.camo_stealth_look)?;
+        // Appended concrete WeaponSet lock state.  Map explicitly rather than
+        // relying on a Rust enum discriminant for serialized compatibility.
+        let mut weapon_lock_type = weapon_lock_type_to_snapshot_value(self.weapon_lock_type);
+        xfer.xfer_marker_label("WeaponLockType")?;
+        xfer.xfer_u8(&mut weapon_lock_type)?;
+        self.weapon_lock_type = weapon_lock_type_from_snapshot_value(weapon_lock_type);
+        xfer.xfer_marker_label("WeaponLockSlot")?;
+        xfer.xfer_u8(&mut self.weapon_lock_slot)?;
         Ok(())
+    }
+}
+
+fn weapon_lock_type_to_snapshot_value(lock_type: WeaponLockType) -> u8 {
+    match lock_type {
+        WeaponLockType::NotLocked => 0,
+        WeaponLockType::LockedTemporarily => 1,
+        WeaponLockType::LockedPermanently => 2,
+    }
+}
+
+fn weapon_lock_type_from_snapshot_value(value: u8) -> WeaponLockType {
+    match value {
+        0 => WeaponLockType::NotLocked,
+        1 => WeaponLockType::LockedTemporarily,
+        2 => WeaponLockType::LockedPermanently,
+        _ => WeaponLockType::NotLocked,
     }
 }
 

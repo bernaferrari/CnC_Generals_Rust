@@ -325,7 +325,8 @@ fn king_raptor_residual_skips_regular_raptor() {
     );
 }
 
-/// Residual: Upgrade_ComancheRocketPods replaces anti-tank secondary + area attack hits nearby units.
+/// Residual: Upgrade_ComancheRocketPods adds manual tertiary rocket pods while
+/// preserving anti-tank secondary, then the selected pods hit nearby units.
 #[test]
 fn comanche_rocket_pods_residual_upgrade_and_area_attack() {
     use crate::command_system::{CommandType, GameCommand};
@@ -353,8 +354,10 @@ fn comanche_rocket_pods_residual_upgrade_and_area_attack() {
         .add_kind_of(KindOf::Selectable)
         .add_kind_of(KindOf::Attackable)
         .set_health(220.0)
-        .set_primary_weapon_name(COMANCHE_PRIMARY_WEAPON);
-    // Host residual binds anti-tank secondary at spawn; rocket pods replace after upgrade.
+        .set_primary_weapon_name(COMANCHE_PRIMARY_WEAPON)
+        .set_tertiary_weapon_name(COMANCHE_ROCKET_POD_WEAPON);
+    // Host residual binds anti-tank secondary at spawn; the real upgrade adds
+    // rocket pods as a separate tertiary slot.
     game_logic
         .templates
         .insert("AmericaVehicleComanche".to_string(), comanche_tpl);
@@ -435,28 +438,41 @@ fn comanche_rocket_pods_residual_upgrade_and_area_attack() {
         );
         assert!(
             c.secondary_weapon.is_some(),
-            "comanche must equip rocket pods secondary after upgrade"
+            "comanche must preserve anti-tank secondary after upgrade"
         );
         let sec = c.secondary_weapon.as_ref().unwrap();
         assert!(
             (sec.range - 200.0).abs() < 1.0,
-            "rocket pods range residual 200, got {}",
+            "anti-tank range residual 200, got {}",
             sec.range
         );
         assert!(
-            (sec.damage - 30.0).abs() < 1.0,
-            "rocket pods primary damage residual 30, got {}",
+            (sec.damage - COMANCHE_AT_PRIMARY_DAMAGE).abs() < 1.0,
+            "anti-tank primary damage residual 50, got {}",
             sec.damage
         );
-        let _ = COMANCHE_ROCKET_POD_WEAPON;
+        let tertiary = c
+            .tertiary_weapon
+            .as_ref()
+            .expect("comanche must equip rocket pods tertiary after upgrade");
+        assert!(
+            (tertiary.range - 200.0).abs() < 1.0,
+            "rocket pods range residual 200, got {}",
+            tertiary.range
+        );
+        assert!(
+            (tertiary.damage - 30.0).abs() < 1.0,
+            "rocket pods primary damage residual 30, got {}",
+            tertiary.damage
+        );
     }
 
-    // Fire secondary at tank (slot lock residual + area splash).
+    // Fire the explicit tertiary at tank (slot lock residual + area splash).
     {
         let c = game_logic.host_object_mut(comanche_id).expect("comanche");
-        c.active_weapon_slot = 1;
+        assert!(c.set_weapon_lock(2, WeaponLockType::LockedPermanently));
         c.attack_target(tank_id);
-        if let Some(w) = c.secondary_weapon.as_mut() {
+        if let Some(w) = c.tertiary_weapon.as_mut() {
             w.last_fire_time = -100.0;
             w.reload_time = 0.1;
             w.min_range = 0.0;
@@ -480,28 +496,13 @@ fn comanche_rocket_pods_residual_upgrade_and_area_attack() {
     game_logic.set_current_frame(90);
     game_logic.update_combat(&[comanche_id, tank_id, infantry_id], LOGIC_FRAME_TIMESTEP);
 
-    // If weapon chooser residual fails to fire secondary this frame, still
-    // exercise ScatterTarget projectile + area residual for honesty gate.
-    if !game_logic.honesty_comanche_rocket_pod_ok() {
-        let impact = game_logic
-            .host_object(tank_id)
-            .map(|t| t.get_position())
-            .unwrap_or(Vec3::new(100.0, 0.0, 0.0));
-        let from = game_logic
-            .host_object(comanche_id)
-            .map(|c| c.get_position())
-            .unwrap_or(Vec3::ZERO);
-        let _ = game_logic.spawn_comanche_rocket_pod_projectile(comanche_id, from, impact, 0);
-        let _ = game_logic.apply_comanche_rocket_pod_area_at(impact, Some(comanche_id));
-    }
-
     assert!(
         game_logic.honesty_comanche_rocket_pod_ok(),
-        "rocket pods area attack residual honesty must fire (attacks={} proj={} slot={:?} sec={:?})",
+        "rocket pods area attack residual honesty must fire (attacks={} proj={} slot={:?} tertiary={:?})",
         game_logic.comanche_rocket_pod_residual_area_attacks(),
         game_logic.comanche_rocket_pod_projectiles_spawned,
         game_logic.host_object(comanche_id).map(|c| c.active_weapon_slot),
-        game_logic.host_object(comanche_id).and_then(|c| c.secondary_weapon.as_ref().map(|w| w.damage)),
+        game_logic.host_object(comanche_id).and_then(|c| c.tertiary_weapon.as_ref().map(|w| w.damage)),
     );
     assert!(
         game_logic.comanche_rocket_pod_residual_units_hit() >= 1,
@@ -531,7 +532,8 @@ fn comanche_rocket_pods_residual_upgrade_and_area_attack() {
 #[test]
 fn comanche_rocket_pods_primary_does_not_area_attack() {
     use crate::game_logic::host_comanche_rocket_pods::{
-        COMANCHE_PRIMARY_WEAPON, COMANCHE_ROCKET_POD_WEAPON, UPGRADE_COMANCHE_ROCKET_PODS,
+        COMANCHE_ANTITANK_WEAPON, COMANCHE_PRIMARY_WEAPON, COMANCHE_ROCKET_POD_WEAPON,
+        UPGRADE_COMANCHE_ROCKET_PODS,
     };
 
     let mut game_logic = GameLogic::new();
@@ -546,7 +548,8 @@ fn comanche_rocket_pods_primary_does_not_area_attack() {
         .add_kind_of(KindOf::Selectable)
         .set_health(220.0)
         .set_primary_weapon_name(COMANCHE_PRIMARY_WEAPON)
-        .set_secondary_weapon_name(COMANCHE_ROCKET_POD_WEAPON);
+        .set_secondary_weapon_name(COMANCHE_ANTITANK_WEAPON)
+        .set_tertiary_weapon_name(COMANCHE_ROCKET_POD_WEAPON);
     game_logic
         .templates
         .insert("TestComanche".to_string(), comanche_tpl);
@@ -556,6 +559,8 @@ fn comanche_rocket_pods_primary_does_not_area_attack() {
         .expect("comanche");
     {
         let c = game_logic.host_object_mut(comanche_id).unwrap();
+        c.tertiary_weapon =
+            Some(crate::game_logic::host_comanche_rocket_pods::comanche_rocket_pod_weapon());
         c.apply_upgrade_tag(UPGRADE_COMANCHE_ROCKET_PODS);
         c.active_weapon_slot = 0; // primary cannon
         if let Some(w) = c.weapon.as_mut() {
@@ -590,7 +595,8 @@ fn comanche_rocket_pods_primary_does_not_area_attack() {
 #[test]
 fn comanche_rocket_pods_ground_fire_area_residual() {
     use crate::game_logic::host_comanche_rocket_pods::{
-        COMANCHE_PRIMARY_WEAPON, COMANCHE_ROCKET_POD_WEAPON, UPGRADE_COMANCHE_ROCKET_PODS,
+        COMANCHE_ANTITANK_WEAPON, COMANCHE_PRIMARY_WEAPON, COMANCHE_ROCKET_POD_WEAPON,
+        UPGRADE_COMANCHE_ROCKET_PODS,
     };
 
     let mut game_logic = GameLogic::new();
@@ -605,7 +611,8 @@ fn comanche_rocket_pods_ground_fire_area_residual() {
         .add_kind_of(KindOf::Selectable)
         .set_health(220.0)
         .set_primary_weapon_name(COMANCHE_PRIMARY_WEAPON)
-        .set_secondary_weapon_name(COMANCHE_ROCKET_POD_WEAPON);
+        .set_secondary_weapon_name(COMANCHE_ANTITANK_WEAPON)
+        .set_tertiary_weapon_name(COMANCHE_ROCKET_POD_WEAPON);
     game_logic
         .templates
         .insert("TestComanche".to_string(), comanche_tpl);
@@ -619,13 +626,15 @@ fn comanche_rocket_pods_ground_fire_area_residual() {
 
     {
         let c = game_logic.host_object_mut(comanche_id).unwrap();
+        c.tertiary_weapon =
+            Some(crate::game_logic::host_comanche_rocket_pods::comanche_rocket_pod_weapon());
         c.apply_upgrade_tag(UPGRADE_COMANCHE_ROCKET_PODS);
-        c.active_weapon_slot = 1;
+        assert!(c.set_weapon_lock(2, WeaponLockType::LockedPermanently));
         c.set_force_attack(true);
         c.set_target_location(Some(Vec3::new(100.0, 0.0, 0.0)));
         c.set_ai_state(AIState::AttackingGround);
         c.set_status_attacking(true);
-        if let Some(w) = c.secondary_weapon.as_mut() {
+        if let Some(w) = c.tertiary_weapon.as_mut() {
             w.last_fire_time = -10.0;
             w.reload_time = 0.1;
             w.min_range = 0.0;

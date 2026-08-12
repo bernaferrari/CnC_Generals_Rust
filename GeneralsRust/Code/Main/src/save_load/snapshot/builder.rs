@@ -251,6 +251,8 @@ impl SnapshotBuilder {
             special_power_cooldown: object.special_power_cooldown,
             special_power_cooldown_remaining: object.special_power_cooldown_remaining,
             active_weapon_slot: object.active_weapon_slot,
+            weapon_lock_type: object.weapon_lock_type,
+            weapon_lock_slot: object.weapon_lock_slot,
             camo_stealth_look: object.camo_stealth_look,
         }
     }

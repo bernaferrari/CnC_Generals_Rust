@@ -714,11 +714,10 @@ impl GameLogic {
                     obj.is_kind_of(KindOf::Aircraft) || obj.object_type == ObjectType::Aircraft;
                 let is_dozer = is_dozer_template_name(&obj.template_name) || obj.is_worker();
                 let is_drone = is_drone_template_name(&obj.template_name);
-                let can_attack =
-                    obj.can_attack()
-                        || obj.weapon.is_some()
-                        || obj.secondary_weapon.is_some()
-                        || obj.tertiary_weapon.is_some();
+                let can_attack = obj.can_attack()
+                    || obj.weapon.is_some()
+                    || obj.secondary_weapon.is_some()
+                    || obj.tertiary_weapon.is_some();
                 let under_construction =
                     obj.status.under_construction || obj.construction_percent + 0.001 < 1.0;
                 let same_team = obj.team == team;
@@ -877,11 +876,10 @@ impl GameLogic {
                 let is_structure = obj.is_kind_of(KindOf::Structure);
                 let same_team = obj.team == caster_team;
                 // Residual CAN_ATTACK: has weapon binding or can_attack residual path.
-                let can_attack =
-                    obj.can_attack()
-                        || obj.weapon.is_some()
-                        || obj.secondary_weapon.is_some()
-                        || obj.tertiary_weapon.is_some();
+                let can_attack = obj.can_attack()
+                    || obj.weapon.is_some()
+                    || obj.secondary_weapon.is_some()
+                    || obj.tertiary_weapon.is_some();
                 let under_construction =
                     obj.status.under_construction || obj.construction_percent + 0.001 < 1.0;
                 Some((*id, is_structure, same_team, can_attack, under_construction))

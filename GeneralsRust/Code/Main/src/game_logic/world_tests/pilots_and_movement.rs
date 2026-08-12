@@ -283,9 +283,9 @@ fn comanche_rocket_pod_spawns_scatter_projectiles() {
         let o = logic.host_object_mut(heli).unwrap();
         o.applied_upgrades
             .insert(UPGRADE_COMANCHE_ROCKET_PODS.to_string());
-        o.secondary_weapon =
+        o.tertiary_weapon =
             Some(crate::game_logic::host_comanche_rocket_pods::comanche_rocket_pod_weapon());
-        o.set_active_weapon_slot(1);
+        o.set_active_weapon_slot(2);
     }
     let tgt = logic
         .create_object(

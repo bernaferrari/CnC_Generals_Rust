@@ -631,7 +631,7 @@ pub(super) fn seed_known_host_weapons() -> usize {
             clip_size: 4,
             weapon_speed: 99999.0,
         },
-        // ComancheRocketPodWeapon residual SECONDARY after upgrade (retail TERTIARY).
+        // ComancheRocketPodWeapon residual TERTIARY after upgrade.
         // PrimaryDamage 30, AttackRange 200, Delay 200ms → 6 frames.
         // Area damage applied by host residual (primary/secondary rings).
         SeedWeapon {

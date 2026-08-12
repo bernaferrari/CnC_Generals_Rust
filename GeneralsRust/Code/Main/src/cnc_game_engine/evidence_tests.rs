@@ -119,6 +119,10 @@ fn control_bar_physical_proof_is_carried_by_request_provenance_not_from_user() {
             && src.contains("local live dozer or worker"),
         "a stale generic selection must not count as a DozerConstruct arm"
     );
+    assert!(
+        src.contains("self.runtime_host_window_visible()"),
+        "physical Control Bar evidence requires a real visible window, not merely a non-headless host"
+    );
 }
 
 #[test]

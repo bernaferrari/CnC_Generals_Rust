@@ -1614,6 +1614,68 @@ fn do_weapon_locks_the_requested_secondary_slot_before_targeting() {
 }
 
 #[test]
+fn do_weapon_uses_the_real_tertiary_slot_without_secondary_aliasing() {
+    use super::CommandExecutor;
+    use crate::command_system::{CommandResult, WeaponSlot, WeaponTarget};
+    use crate::game_logic::{
+        GameLogic, KindOf, ObjectId, Team, ThingTemplate, Weapon, WeaponLockType,
+    };
+    use glam::Vec3;
+
+    let mut logic = GameLogic::new();
+    let mut template = ThingTemplate::new("DW_TERTIARY");
+    template.add_kind_of(KindOf::Vehicle);
+    template.add_kind_of(KindOf::Selectable);
+    template.set_health(200.0);
+    logic.templates.insert("DW_TERTIARY".to_string(), template);
+    let unit_id = logic
+        .create_object("DW_TERTIARY", Team::USA, Vec3::ZERO)
+        .expect("unit");
+    {
+        let unit = logic.host_object_mut(unit_id).expect("unit");
+        unit.weapon = Some(Weapon {
+            damage: 10.0,
+            range: 100.0,
+            ..Weapon::default()
+        });
+        unit.secondary_weapon = Some(Weapon {
+            damage: 20.0,
+            range: 100.0,
+            ..Weapon::default()
+        });
+        unit.tertiary_weapon = Some(Weapon {
+            damage: 73.0,
+            range: 300.0,
+            last_fire_time: -10.0,
+            ..Weapon::default()
+        });
+    }
+
+    let target = ObjectId(999);
+    let result = CommandExecutor::new(&mut logic, 0).execute_weapon(
+        &[unit_id],
+        &WeaponSlot::Tertiary,
+        &WeaponTarget::Object(target),
+    );
+    assert_eq!(result, CommandResult::Success);
+
+    let unit = logic.host_object_mut(unit_id).expect("unit");
+    assert_eq!(unit.active_weapon_slot, 2);
+    assert_eq!(unit.weapon_lock_type, WeaponLockType::LockedTemporarily);
+    assert_eq!(unit.weapon_lock_slot, 2);
+    assert!(unit.fire_at(target, 1.0));
+    assert_eq!(unit.last_fire_slot, 2);
+    assert!((unit.last_fire_damage - 73.0).abs() < f32::EPSILON);
+    assert_eq!(
+        unit.secondary_weapon
+            .as_ref()
+            .map(|weapon| weapon.last_fire_time),
+        Some(0.0),
+        "the secondary weapon must remain untouched"
+    );
+}
+
+#[test]
 fn do_weapon_rejects_unrepresented_slots_without_primary_fallback() {
     use super::CommandExecutor;
     use crate::command_system::{CommandResult, WeaponSlot, WeaponTarget};

@@ -90,8 +90,8 @@ pub enum HostControlBarRequest {
         command_name: String,
         command_type: CommandType,
         options: u32,
-        /// Fire-weapon slot (primary/secondary/tertiary) when the command is
-        /// a legacy FIRE_WEAPON button.
+        /// Weapon slot (primary/secondary/tertiary) when the command is a
+        /// legacy FIRE_WEAPON or SWITCH_WEAPON button.
         weapon_slot: Option<u32>,
         /// The raw CommandButton `Object=` identity when one was supplied.
         ///
@@ -355,7 +355,8 @@ pub(crate) fn host_request_from_button(
     )
 }
 
-/// As [`host_request_from_button`], with a resolved FIRE_WEAPON slot.
+/// As [`host_request_from_button`], with a resolved FIRE_WEAPON or
+/// SWITCH_WEAPON slot.
 pub(crate) fn host_request_from_button_with_weapon_slot(
     button: &CommandButton,
     context: &ControlBarContext,

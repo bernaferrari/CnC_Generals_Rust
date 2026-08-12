@@ -761,3 +761,55 @@ impl Object {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn weapon(damage: f32) -> Weapon {
+        Weapon {
+            damage,
+            range: 200.0,
+            last_fire_time: -10.0,
+            ..Weapon::default()
+        }
+    }
+
+    #[test]
+    fn auto_chooser_never_promotes_a_tertiary_weapon() {
+        let mut attacker = Object::new(
+            ThingTemplate::new("ThreeSlotAttacker"),
+            ObjectId(1),
+            Team::USA,
+        );
+        attacker.weapon = Some(weapon(5.0));
+        attacker.tertiary_weapon = Some(weapon(999.0));
+        let mut target = Object::new(ThingTemplate::new("Target"), ObjectId(2), Team::GLA);
+        target.set_position(glam::Vec3::new(50.0, 0.0, 0.0));
+
+        assert_eq!(attacker.select_combat_weapon_slot(&target, 1.0), Some(0));
+
+        attacker.weapon = None;
+        assert_eq!(
+            attacker.select_combat_weapon_slot(&target, 1.0),
+            None,
+            "a tertiary-only unit needs an explicit player slot selection"
+        );
+
+        attacker.set_active_weapon_slot(2);
+        assert_eq!(attacker.select_combat_weapon_slot(&target, 1.0), Some(2));
+    }
+
+    #[test]
+    fn unknown_weapon_slot_fails_closed() {
+        let mut object = Object::new(
+            ThingTemplate::new("ThreeSlotAttacker"),
+            ObjectId(1),
+            Team::USA,
+        );
+        object.weapon = Some(weapon(5.0));
+        assert!(object.weapon_slot(99).is_none());
+        assert!(object.weapon_slot_mut(99).is_none());
+        assert!(!object.set_weapon_lock(99, WeaponLockType::LockedPermanently));
+    }
+}

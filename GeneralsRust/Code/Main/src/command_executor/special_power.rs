@@ -22,16 +22,16 @@ use std::collections::{HashMap, HashSet};
 
 /// Translate the public command slot into the host object's indexed weapon set.
 ///
-/// The host object currently carries PRIMARY and SECONDARY weapon storage only.
-/// Keep the conversion explicit so an unrepresented TERTIARY/AntiAir request can
-/// never silently fall through to PRIMARY (the old `Object::weapon_slot` helper
-/// intentionally has a primary fallback for some read-only combat callers).
+/// Keep the conversion explicit so an unrepresented `AntiAir` request, or an
+/// arbitrary slot value, can never silently fall through to PRIMARY.  The host
+/// carries three concrete WeaponSet slots; their presence is validated by
+/// `unit_command_select_weapon_slot` before an attack is issued.
 fn host_weapon_slot_index(weapon_slot: &WeaponSlot) -> Option<u8> {
     match weapon_slot {
         WeaponSlot::Primary => Some(0),
         WeaponSlot::Secondary => Some(1),
-        // Preserve the C++ ordinal for validation. `unit_command_select_weapon_slot`
-        // rejects it until the host has real tertiary storage.
+        // Preserve the C++ ordinal; the target unit must actually carry a
+        // tertiary weapon before the command is accepted.
         WeaponSlot::Tertiary => Some(2),
         // This is a target capability, not an Object weapon-set ordinal.
         WeaponSlot::AntiAir => None,
