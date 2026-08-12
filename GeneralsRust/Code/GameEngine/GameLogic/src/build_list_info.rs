@@ -83,7 +83,7 @@ impl BuildListInfo {
     /// This deliberately uses a scoped callback instead of exposing a mutable
     /// iterator: a linked node cannot safely yield `&mut self` while retaining
     /// a mutable borrow of its `next` field for the iterator's next step.
-    pub fn for_each_mut(&mut self, mut visit: impl FnMut(&mut BuildListInfo)) {
+    pub(crate) fn for_each_mut(&mut self, mut visit: impl FnMut(&mut BuildListInfo)) {
         self.visit_chain_mut(&mut visit);
     }
 
@@ -406,7 +406,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn iter_mut_visits_and_mutates_the_entire_linked_list_in_order() {
+    fn for_each_mut_visits_and_mutates_the_entire_linked_list_in_order() {
         let mut third = BuildListInfo::new();
         third.set_building_name(AsciiString::from("third"));
 

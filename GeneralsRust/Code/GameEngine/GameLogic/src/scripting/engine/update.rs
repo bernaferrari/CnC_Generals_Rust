@@ -6,12 +6,15 @@
 impl ScriptEngine {
     /// Update script engine
     pub fn update(&self) -> GameLogicResult<()> {
+        self.with_active(|| self.update_active())
+    }
+
+    fn update_active(&self) -> GameLogicResult<()> {
         #[cfg(feature = "script_profiling")]
         let start_time = Instant::now();
 
-        // Shared `&self` + TLS so nested CALL_SUBROUTINE can re-enter immediately
-        // without a second `&mut ScriptEngine`.
-        let _active = self.enter_active();
+        // `update` has installed a lexical active engine, so nested
+        // CALL_SUBROUTINE re-enters immediately without a second `&mut` borrow.
 
         let first_update = {
             let mut inner = self.lock_inner_mut();
@@ -573,239 +576,243 @@ impl ScriptEngine {
     /// Evaluate and progress sequential scripts
     fn evaluate_and_progress_all_sequential_scripts(&self) -> GameLogicResult<()> {
         self.with_inner(|inner| {
-        // Wave 348: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
-
-        let (saved_current_player, saved_condition_team, saved_condition_object) = {
-            let inner = self.lock_inner_mut();
-            (
-                inner.current_player.clone(),
-                inner.condition_team.clone(),
-                inner.condition_object,
-            )
-        };
-
-        let result = (|| -> GameLogicResult<()> {
-            let current_frame = crate::helpers::TheGameLogic::get_frame();
-            let exec_context = Arc::new(RwLock::new(crate::scripting::executor::ScriptContext {
-                game_logic_id: 0,
-                object_manager_id: 0,
-                player_manager_id: 0,
-                event_system_id: 0,
-                camera_system_id: 0,
-                audio_system_id: 0,
-                partition_manager_id: 0,
-                special_powers_id: 0,
-                current_frame,
-                suppress_new_windows: false,
-            }));
-            let mut dispatcher =
-                crate::scripting::executor::ScriptActionDispatcher::new(exec_context);
-
-            let mut i: usize = 0;
-            let mut last_i: Option<usize> = None;
-            let mut spin_count: i32 = 0;
-
-            while i < inner.sequential_scripts.len() {
-                if last_i == Some(i) {
-                    spin_count += 1;
-                } else {
-                    spin_count = 0;
-                }
-                last_i = Some(i);
-
-                if spin_count > MAX_SEQUENTIAL_SPIN_COUNT {
-                    if let Some(seq_name) = inner.sequential_scripts[i]
-                        .script_to_execute_sequentially
-                        .as_ref()
-                        .map(|s| s.script_name.clone())
-                    {
-                        log::warn!(
-                            "Sequential script '{}' appears to be in an infinite loop",
-                            seq_name
-                        );
-                    }
-                    i += 1;
-                    continue;
-                }
-
-                if inner.sequential_scripts[i]
-                    .script_to_execute_sequentially
-                    .is_none()
-                {
-                    self.cleanup_sequential_script_at(i, false);
-                    continue;
-                }
-
-                let mut it_advanced = false;
-                let team_name = inner.sequential_scripts[i].team_to_exec_on.clone();
-                let object_id = inner.sequential_scripts[i].object_id;
-
-                let team_arc = team_name.as_ref().and_then(|name| {
-                    get_team_factory()
-                        .lock()
-                        .ok()
-                        .and_then(|mut factory| factory.find_team(name))
-                });
-                let object_arc = if object_id != INVALID_ID {
-                    TheGameLogic::find_object_by_id(object_id)
-                } else {
-                    None
-                };
-
-                if object_arc.is_none() && team_arc.is_none() {
-                    self.cleanup_sequential_script_at(i, false);
-                    continue;
-                }
-
-                self.lock_inner_mut().current_player =
-                    self.resolve_sequential_current_player(object_arc.as_ref(), team_arc.as_ref());
-
-                let (obj_has_ai, obj_idle, _) = object_arc
-                    .as_ref()
-                    .map(Self::object_ai_status)
-                    .unwrap_or((false, false, false));
-                let (team_has_group, team_idle, _) = team_arc
-                    .as_ref()
-                    .map(|team| {
-                        let (idle, dead) = Self::team_ai_status(team);
-                        (true, idle, dead)
-                    })
-                    .unwrap_or((false, false, false));
-
-                if obj_has_ai || team_has_group {
-                    let frames_to_wait = inner.sequential_scripts[i].frames_to_wait;
-                    let should_progress = (((obj_has_ai && obj_idle)
-                        || (team_has_group && team_idle))
-                        && frames_to_wait < 1)
-                        || (frames_to_wait == 0);
-
-                    if should_progress {
-                        {
-                            let mut inner = self.lock_inner_mut();
-                            if inner.sequential_scripts[i].dont_advance_instruction {
-                                inner.sequential_scripts[i].dont_advance_instruction = false;
-                            } else {
-                                inner.sequential_scripts[i].current_instruction += 1;
-                            }
-                        }
-
-                        let instruction = inner.sequential_scripts[i].current_instruction;
-                        let action = Self::script_action_at_instruction(
-                            &inner.sequential_scripts[i],
-                            instruction,
-                        );
-
-                        if let Some(action) = action {
-                            {
-                                let mut inner = self.lock_inner_mut();
-                                inner.condition_team = team_name;
-                                inner.condition_object = object_arc.as_ref().map(|_| object_id);
-                                inner.sequential_scripts[i].frames_to_wait = -1;
-                            }
-
-                            let result = dispatcher.execute_action(&action).map_err(|e| {
-                                GameLogicError::Configuration(format!(
-                                    "Sequential script action error: {}",
-                                    e
-                                ))
-                            })?;
-
-                            match result {
-                                crate::scripting::executor::ScriptActionResult::Success => {}
-                                crate::scripting::executor::ScriptActionResult::Pending(frames) => {
-                                    let repeats_instruction =
-                                        Self::pending_repeats_current_sequential_instruction(
-                                            action.action_type,
-                                        );
-                                    let wait_frames = Self::pending_to_sequential_wait_frames(
-                                        frames,
-                                        repeats_instruction,
-                                    );
-                                    let mut inner = self.lock_inner_mut();
-                                    inner.sequential_scripts[i].dont_advance_instruction =
-                                        repeats_instruction;
-                                    inner.sequential_scripts[i].frames_to_wait = wait_frames;
-                                }
-                                crate::scripting::executor::ScriptActionResult::Failed(msg) => {
-                                    return Err(GameLogicError::Configuration(format!(
-                                        "Sequential script action failed: {}",
-                                        msg
-                                    )));
-                                }
-                            }
-
-                            if inner.sequential_scripts[i].dont_advance_instruction {
-                                i += 1;
-                                let _it_advanced = true;
-                                continue;
-                            }
-
-                            let obj_idle_now = object_arc
-                                .as_ref()
-                                .map(|obj| Self::object_ai_status(obj).1)
-                                .unwrap_or(false);
-                            let team_idle_now = team_arc
-                                .as_ref()
-                                .map(|team| Self::team_ai_status(team).0)
-                                .unwrap_or(false);
-
-                            if (obj_has_ai && obj_idle_now) || (team_has_group && team_idle_now) {
-                                it_advanced = true;
-                            }
-
-                            if it_advanced {
-                                let obj_dead_now = object_arc
-                                    .as_ref()
-                                    .map(|obj| Self::object_ai_status(obj).2)
-                                    .unwrap_or(false);
-                                let team_dead_now = team_arc
-                                    .as_ref()
-                                    .map(|team| Self::team_ai_status(team).1)
-                                    .unwrap_or(false);
-
-                                if obj_dead_now || team_dead_now {
-                                    self.cleanup_sequential_script_at(i, true);
-                                    continue;
-                                }
-                            }
-                        } else {
-                            let times_to_loop = inner.sequential_scripts[i].times_to_loop;
-                            if times_to_loop != 0 {
-                                let mut loop_script = inner.sequential_scripts[i].clone();
-                                if loop_script.times_to_loop != -1 {
-                                    loop_script.times_to_loop -= 1;
-                                }
-                                loop_script.frames_to_wait = -1;
-                                self.append_sequential_script(loop_script);
-                            }
-                            self.cleanup_sequential_script_at(i, false);
-                            it_advanced = true;
-                        }
-                    } else if inner.sequential_scripts[i].frames_to_wait > 0 {
-                        self.lock_inner_mut().sequential_scripts[i].frames_to_wait -= 1;
-                    }
-                }
-
-                if !it_advanced {
-                    i += 1;
-                }
+            // Wave 348: empty dual-world → Ok(()).
+            if dual_world_registry_unavailable() {
+                return Ok(());
             }
 
-            Ok(())
-        })();
+            let (saved_current_player, saved_condition_team, saved_condition_object) = {
+                let inner = self.lock_inner_mut();
+                (
+                    inner.current_player.clone(),
+                    inner.condition_team.clone(),
+                    inner.condition_object,
+                )
+            };
 
-        {
-            let mut inner = self.lock_inner_mut();
-            inner.current_player = saved_current_player;
-            inner.condition_team = saved_condition_team;
-            inner.condition_object = saved_condition_object;
-        }
+            let result = (|| -> GameLogicResult<()> {
+                let current_frame = crate::helpers::TheGameLogic::get_frame();
+                let exec_context =
+                    Arc::new(RwLock::new(crate::scripting::executor::ScriptContext {
+                        game_logic_id: 0,
+                        object_manager_id: 0,
+                        player_manager_id: 0,
+                        event_system_id: 0,
+                        camera_system_id: 0,
+                        audio_system_id: 0,
+                        partition_manager_id: 0,
+                        special_powers_id: 0,
+                        current_frame,
+                        suppress_new_windows: false,
+                    }));
+                let mut dispatcher =
+                    crate::scripting::executor::ScriptActionDispatcher::new(exec_context);
 
-        result
-            })
+                let mut i: usize = 0;
+                let mut last_i: Option<usize> = None;
+                let mut spin_count: i32 = 0;
+
+                while i < inner.sequential_scripts.len() {
+                    if last_i == Some(i) {
+                        spin_count += 1;
+                    } else {
+                        spin_count = 0;
+                    }
+                    last_i = Some(i);
+
+                    if spin_count > MAX_SEQUENTIAL_SPIN_COUNT {
+                        if let Some(seq_name) = inner.sequential_scripts[i]
+                            .script_to_execute_sequentially
+                            .as_ref()
+                            .map(|s| s.script_name.clone())
+                        {
+                            log::warn!(
+                                "Sequential script '{}' appears to be in an infinite loop",
+                                seq_name
+                            );
+                        }
+                        i += 1;
+                        continue;
+                    }
+
+                    if inner.sequential_scripts[i]
+                        .script_to_execute_sequentially
+                        .is_none()
+                    {
+                        self.cleanup_sequential_script_at(i, false);
+                        continue;
+                    }
+
+                    let mut it_advanced = false;
+                    let team_name = inner.sequential_scripts[i].team_to_exec_on.clone();
+                    let object_id = inner.sequential_scripts[i].object_id;
+
+                    let team_arc = team_name.as_ref().and_then(|name| {
+                        get_team_factory()
+                            .lock()
+                            .ok()
+                            .and_then(|mut factory| factory.find_team(name))
+                    });
+                    let object_arc = if object_id != INVALID_ID {
+                        TheGameLogic::find_object_by_id(object_id)
+                    } else {
+                        None
+                    };
+
+                    if object_arc.is_none() && team_arc.is_none() {
+                        self.cleanup_sequential_script_at(i, false);
+                        continue;
+                    }
+
+                    self.lock_inner_mut().current_player = self
+                        .resolve_sequential_current_player(object_arc.as_ref(), team_arc.as_ref());
+
+                    let (obj_has_ai, obj_idle, _) = object_arc
+                        .as_ref()
+                        .map(Self::object_ai_status)
+                        .unwrap_or((false, false, false));
+                    let (team_has_group, team_idle, _) = team_arc
+                        .as_ref()
+                        .map(|team| {
+                            let (idle, dead) = Self::team_ai_status(team);
+                            (true, idle, dead)
+                        })
+                        .unwrap_or((false, false, false));
+
+                    if obj_has_ai || team_has_group {
+                        let frames_to_wait = inner.sequential_scripts[i].frames_to_wait;
+                        let should_progress = (((obj_has_ai && obj_idle)
+                            || (team_has_group && team_idle))
+                            && frames_to_wait < 1)
+                            || (frames_to_wait == 0);
+
+                        if should_progress {
+                            {
+                                let mut inner = self.lock_inner_mut();
+                                if inner.sequential_scripts[i].dont_advance_instruction {
+                                    inner.sequential_scripts[i].dont_advance_instruction = false;
+                                } else {
+                                    inner.sequential_scripts[i].current_instruction += 1;
+                                }
+                            }
+
+                            let instruction = inner.sequential_scripts[i].current_instruction;
+                            let action = Self::script_action_at_instruction(
+                                &inner.sequential_scripts[i],
+                                instruction,
+                            );
+
+                            if let Some(action) = action {
+                                {
+                                    let mut inner = self.lock_inner_mut();
+                                    inner.condition_team = team_name;
+                                    inner.condition_object = object_arc.as_ref().map(|_| object_id);
+                                    inner.sequential_scripts[i].frames_to_wait = -1;
+                                }
+
+                                let result = dispatcher.execute_action(&action).map_err(|e| {
+                                    GameLogicError::Configuration(format!(
+                                        "Sequential script action error: {}",
+                                        e
+                                    ))
+                                })?;
+
+                                match result {
+                                    crate::scripting::executor::ScriptActionResult::Success => {}
+                                    crate::scripting::executor::ScriptActionResult::Pending(
+                                        frames,
+                                    ) => {
+                                        let repeats_instruction =
+                                            Self::pending_repeats_current_sequential_instruction(
+                                                action.action_type,
+                                            );
+                                        let wait_frames = Self::pending_to_sequential_wait_frames(
+                                            frames,
+                                            repeats_instruction,
+                                        );
+                                        let mut inner = self.lock_inner_mut();
+                                        inner.sequential_scripts[i].dont_advance_instruction =
+                                            repeats_instruction;
+                                        inner.sequential_scripts[i].frames_to_wait = wait_frames;
+                                    }
+                                    crate::scripting::executor::ScriptActionResult::Failed(msg) => {
+                                        return Err(GameLogicError::Configuration(format!(
+                                            "Sequential script action failed: {}",
+                                            msg
+                                        )));
+                                    }
+                                }
+
+                                if inner.sequential_scripts[i].dont_advance_instruction {
+                                    i += 1;
+                                    let _it_advanced = true;
+                                    continue;
+                                }
+
+                                let obj_idle_now = object_arc
+                                    .as_ref()
+                                    .map(|obj| Self::object_ai_status(obj).1)
+                                    .unwrap_or(false);
+                                let team_idle_now = team_arc
+                                    .as_ref()
+                                    .map(|team| Self::team_ai_status(team).0)
+                                    .unwrap_or(false);
+
+                                if (obj_has_ai && obj_idle_now) || (team_has_group && team_idle_now)
+                                {
+                                    it_advanced = true;
+                                }
+
+                                if it_advanced {
+                                    let obj_dead_now = object_arc
+                                        .as_ref()
+                                        .map(|obj| Self::object_ai_status(obj).2)
+                                        .unwrap_or(false);
+                                    let team_dead_now = team_arc
+                                        .as_ref()
+                                        .map(|team| Self::team_ai_status(team).1)
+                                        .unwrap_or(false);
+
+                                    if obj_dead_now || team_dead_now {
+                                        self.cleanup_sequential_script_at(i, true);
+                                        continue;
+                                    }
+                                }
+                            } else {
+                                let times_to_loop = inner.sequential_scripts[i].times_to_loop;
+                                if times_to_loop != 0 {
+                                    let mut loop_script = inner.sequential_scripts[i].clone();
+                                    if loop_script.times_to_loop != -1 {
+                                        loop_script.times_to_loop -= 1;
+                                    }
+                                    loop_script.frames_to_wait = -1;
+                                    self.append_sequential_script(loop_script);
+                                }
+                                self.cleanup_sequential_script_at(i, false);
+                                it_advanced = true;
+                            }
+                        } else if inner.sequential_scripts[i].frames_to_wait > 0 {
+                            self.lock_inner_mut().sequential_scripts[i].frames_to_wait -= 1;
+                        }
+                    }
+
+                    if !it_advanced {
+                        i += 1;
+                    }
+                }
+
+                Ok(())
+            })();
+
+            {
+                let mut inner = self.lock_inner_mut();
+                inner.current_player = saved_current_player;
+                inner.condition_team = saved_condition_team;
+                inner.condition_object = saved_condition_object;
+            }
+
+            result
+        })
     }
 
     fn script_action_at_instruction(
