@@ -109,6 +109,7 @@ pub mod load_screen;
 pub mod loading_screen;
 pub mod menu_flags;
 pub mod menus;
+pub mod options_host_bridge;
 pub mod process_animate_window;
 pub mod shell;
 pub mod skirmish_preferences;

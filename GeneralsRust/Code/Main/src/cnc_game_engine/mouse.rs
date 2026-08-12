@@ -793,7 +793,15 @@ impl CnCGameEngine {
 
             // Right-mouse-button drag scrolling (C++ LookAtXlat.cpp:378-406)
             if self.is_rmb_scrolling {
-                if let Some(anchor) = self.rmb_scroll_anchor {
+                if let Some(mut anchor) = self.rmb_scroll_anchor {
+                    let size = self.window.inner_size();
+                    crate::cnc_game_engine::options_bridge::clamp_move_rmb_scroll_anchor(
+                        &mut anchor,
+                        self.mouse_position,
+                        (size.width as f32, size.height as f32),
+                        self.move_rmb_scroll_anchor,
+                    );
+                    self.rmb_scroll_anchor = Some(anchor);
                     let dx = self.mouse_position.0 - anchor.0;
                     let dy = self.mouse_position.1 - anchor.1;
                     let mut offset = Vec2::new(

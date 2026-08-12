@@ -1,17 +1,21 @@
-//! Wave 494 residual peels: unit mesh pass applies turret yaw/pitch from presentation.
+//! Wave 494 residual peels: unit mesh pass freezes turret yaw/pitch from presentation.
 //! - `UnitRenderInput` carries `turret_angle_deg` / `turret_pitch_deg`
 //! - `from_renderable` freezes turret residuals
-//! - `world_matrix` combines hull orientation + turret for non-structures
+//! - `world_matrix` retains the hull only; source-authored HLOD bone control
+//!   consumes the frozen primary turret binding after selected animation sample
 //! Never flips shell `playable_claim`.
 //!
 //! Orthogonal to Wave 491 sold mesh keys / Wave 493 ground bridge.
-//! Architecture residual - presentation turret channels must affect mesh facing.
+//! Architecture residual - presentation turret channels must affect only their
+//! exact source-authored HTree pivots, never a vehicle's entire hull.
 //!
 //! Sources:
-//! - presentation_frame.rs UnitRenderInput + world_matrix Wave 494
+//! - presentation_frame UnitRenderInput + world_matrix
+//! - graphics/render_pipeline/pipeline_collect primary HLOD control
 //!
 //! Fail-closed:
-//! - Full multi-mesh turret subobject hierarchy still deferred
+//! - Alternate/secondary/recoil/tires and unsupported HLOD topologies stay
+//!   bind-pose/hull-only until their exact C++ paths exist
 //! - Shell `playable_claim` stays false; network deferred
 
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
@@ -25,23 +29,24 @@ pub const PRESENTATION_MESH_TURRET_METHOD_NAMES_WAVE494: &[&str] = &[
     "turret_angle_deg",
     "turret_pitch_deg",
     "world_matrix",
-    "to_radians",
+    "mesh_local_transform_and_visibility_for_primary_turret",
     "playable_claim = false",
 ];
 
 pub const PRESENTATION_MESH_TURRET_SOURCE_MARKERS_WAVE494: &[&str] = &[
-    "Wave 494: host turret yaw residual (degrees) for mesh facing",
-    "Wave 494: non-structure meshes face turret yaw residual when aimed",
+    "Frozen host primary-turret yaw (degrees)",
+    "must never alter the hull world matrix",
+    "mesh_local_transform_and_visibility_for_primary_turret",
+    "authored_primary_turret",
     "turret_angle_deg: ro.turret_angle_deg",
-    "turret_pitch_deg: ro.turret_pitch_deg",
 ];
 
 pub const PRESENTATION_MESH_TURRET_NAV_STEPS_WAVE494: &[&str] = &[
     "FREEZE_TURRET_ON_UNIT_INPUT",
-    "WORLD_MATRIX_READS_TURRET",
-    "COMBINE_HULL_AND_TURRET_YAW",
-    "APPLY_TURRET_PITCH",
-    "MESH_PASS_USES_WORLD_MATRIX",
+    "WORLD_MATRIX_EXCLUDES_TURRET",
+    "DRAW_STATE_PRIMARY_TURRET_BINDING",
+    "HLOD_CONTROL_AFTER_ANIMATION",
+    "MESH_PASS_USES_HLOD_CONTROL",
     "PLAYABLE_CLAIM_FALSE",
 ];
 
@@ -92,6 +97,10 @@ fn pf_source() -> &'static str {
     crate::presentation_frame::PRESENTATION_FRAME_SRC
 }
 
+fn pipeline_collect_source() -> &'static str {
+    include_str!("../../graphics/render_pipeline/pipeline_collect.rs")
+}
+
 pub fn honesty_presentation_mesh_turret_method_names_residual_wave494() -> bool {
     PRESENTATION_MESH_TURRET_METHOD_NAMES_WAVE494.len() == 6
         && residual_name_index(
@@ -105,23 +114,23 @@ pub fn honesty_presentation_mesh_turret_method_names_residual_wave494() -> bool 
 }
 
 pub fn honesty_presentation_mesh_turret_source_markers_residual_wave494() -> bool {
-    PRESENTATION_MESH_TURRET_SOURCE_MARKERS_WAVE494.len() == 4
+    PRESENTATION_MESH_TURRET_SOURCE_MARKERS_WAVE494.len() == 5
         && residual_name_index(
             PRESENTATION_MESH_TURRET_SOURCE_MARKERS_WAVE494,
-            "Wave 494: non-structure meshes face turret yaw residual when aimed",
+            "must never alter the hull world matrix",
         ) == Some(1)
         && residual_name_index(
             PRESENTATION_MESH_TURRET_SOURCE_MARKERS_WAVE494,
             "turret_angle_deg: ro.turret_angle_deg",
-        ) == Some(2)
+        ) == Some(4)
 }
 
 pub fn honesty_presentation_mesh_turret_nav_commands_residual_wave494() -> bool {
     PRESENTATION_MESH_TURRET_NAV_STEPS_WAVE494.len() == 6
         && residual_name_index(
             PRESENTATION_MESH_TURRET_NAV_STEPS_WAVE494,
-            "COMBINE_HULL_AND_TURRET_YAW",
-        ) == Some(2)
+            "HLOD_CONTROL_AFTER_ANIMATION",
+        ) == Some(3)
         && residual_name_index(
             PRESENTATION_MESH_TURRET_NAV_STEPS_WAVE494,
             "PLAYABLE_CLAIM_FALSE",
@@ -132,7 +141,7 @@ pub fn honesty_presentation_mesh_turret_nav_commands_residual_wave494() -> bool 
 pub fn simulate_presentation_mesh_turret_input_source() -> bool {
     let pf = pf_source();
     let ok = pf.contains("struct UnitRenderInput")
-        && pf.contains("Wave 494: host turret yaw residual (degrees) for mesh facing")
+        && pf.contains("Frozen host primary-turret yaw (degrees)")
         && pf.contains("turret_angle_deg: ro.turret_angle_deg")
         && pf.contains("turret_pitch_deg: ro.turret_pitch_deg");
     residual_action_store(ResidualPresentationMeshTurretAction::InputSource);
@@ -141,9 +150,14 @@ pub fn simulate_presentation_mesh_turret_input_source() -> bool {
 
 pub fn simulate_presentation_mesh_turret_matrix_source() -> bool {
     let pf = pf_source();
-    let ok = pf.contains("Wave 494: non-structure meshes face turret yaw residual when aimed")
-        && pf.contains("self.orientation + self.turret_angle_deg.to_radians()")
-        && pf.contains("lean + self.turret_pitch_deg.to_radians()");
+    let pipeline = pipeline_collect_source();
+    let ok = pf.contains("must never alter the hull world matrix")
+        && !pf.contains("self.orientation + self.turret_angle_deg.to_radians()")
+        && !pf.contains("lean + self.turret_pitch_deg.to_radians()")
+        && pipeline.contains("mesh_local_transform_and_visibility_for_primary_turret")
+        && pipeline.contains("&authored_primary_turret")
+        && pipeline.contains("u.turret_angle_deg")
+        && pipeline.contains("u.turret_pitch_deg");
     residual_action_store(ResidualPresentationMeshTurretAction::MatrixSource);
     ok
 }

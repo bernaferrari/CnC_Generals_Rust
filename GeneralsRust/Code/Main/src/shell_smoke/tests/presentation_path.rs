@@ -189,22 +189,29 @@ fn presentation_popup_music_fps_residual() {
         env!("CARGO_MANIFEST_DIR"),
         "/src/game_logic/world_scripts/scripts_camera.rs"
     ));
+    let popup_dismiss = popup_bridge
+        .find("fn host_dismiss_in_game_popup_message")
+        .map(|start| &popup_bridge[start..])
+        .unwrap_or("");
+    let matching_ack_precedes_active_clear = popup_dismiss
+        .find("popup_acknowledgement_matches_active_generation")
+        .zip(popup_dismiss.find("self.game_logic.take_popup_message_requests();"))
+        .is_some_and(|(guard, take)| guard < take);
     assert!(
         pf.contains("struct PresentationPopupMessage")
             && pf.contains("pause_music: p.pause_music")
-            && eng.contains("Prefer presentation script FPS residual")
-            && eng.contains("p.script_fps_limit")
+            && eng.contains("fn apply_ingame_script_fps_limit_residual")
+            && eng.contains(".and_then(|p| p.script_fps_limit)")
             && camera_drain.contains("pres.pending_popup_messages.last()")
             && camera_drain.contains("self.host_reconcile_active_popup_pause(Some(popup.pause))")
             && camera_drain.contains("self.host_reconcile_active_popup_pause(None)")
             && camera_drain.contains("pres.pending_music_stop")
             && scripts_camera.contains("let active_popup = popup_messages.last().cloned()")
             && scripts_camera.contains("self.pending_popup_messages.clear();")
-            && popup_bridge.contains("fn host_dismiss_in_game_popup_message")
-            && popup_bridge.contains("popup_acknowledgement_matches_active_generation")
-            && popup_bridge.contains("self.host_clear_active_popup_presentation_residual();")
-            && popup_bridge.contains("self.host_reconcile_active_popup_pause(None);"),
-        "popup/music/fps must freeze only the newest C++ popup, reconcile its owned pause, and clear that frozen residual on acknowledgement"
+            && matching_ack_precedes_active_clear
+            && popup_dismiss.contains("self.host_clear_active_popup_presentation_residual();")
+            && popup_dismiss.contains("self.host_reconcile_active_popup_pause(None);"),
+        "popup/music/fps must freeze only the newest C++ popup, reconcile its owned pause, and clear it only after a matching acknowledgement"
     );
 }
 

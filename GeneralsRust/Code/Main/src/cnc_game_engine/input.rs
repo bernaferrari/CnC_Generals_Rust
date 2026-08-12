@@ -1098,6 +1098,11 @@ impl CnCGameEngine {
         // the authoritative world underneath it.
         #[cfg(feature = "game_client")]
         self.host_tick_control_bar_bridge();
+        // OptionsMenu owns its retail checkbox WND; Main owns the live camera
+        // input path. Drain preference updates after the callback unwinds and
+        // before state-specific camera work observes them.
+        #[cfg(feature = "game_client")]
+        self.host_tick_options_bridge();
         // `ControlBar.wnd:LeftHUD` is also part of the retail Control Bar.
         // Its WND callback queues typed geometry/provenance, while Main owns
         // the WGPU minimap/FOW conversion and the authoritative world order.

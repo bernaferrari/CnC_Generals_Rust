@@ -23,9 +23,12 @@ pub struct UnitRenderInput {
     pub orientation: f32,
     /// C++ ToppleUpdate lean residual for mesh tilt.
     pub topple_lean_radians: f32,
-    /// Wave 494: host turret yaw residual (degrees) for mesh facing.
+    /// Frozen host primary-turret yaw (degrees). The active collector applies
+    /// it only to an exact source-authored HLOD `Turret` pivot; this field
+    /// must never alter the hull world matrix.
     pub turret_angle_deg: f32,
-    /// Wave 494: host turret pitch residual (degrees).
+    /// Frozen host primary-turret pitch (degrees), consumed only by an exact
+    /// source-authored HLOD `TurretPitch` pivot.
     pub turret_pitch_deg: f32,
     pub selected: bool,
     pub selection_radius: f32,
@@ -331,27 +334,14 @@ impl UnitRenderInput {
         } else {
             0.0
         };
-        // Wave 494: non-structure meshes face turret yaw residual when aimed.
-        let yaw = if !self.is_structure
-            && self.turret_angle_deg.is_finite()
-            && self.turret_angle_deg.abs() > 0.01
-        {
-            self.orientation + self.turret_angle_deg.to_radians()
-        } else {
-            self.orientation
-        };
-        let pitch = if !self.is_structure
-            && self.turret_pitch_deg.is_finite()
-            && self.turret_pitch_deg.abs() > 0.01
-        {
-            lean + self.turret_pitch_deg.to_radians()
-        } else {
-            lean
-        };
-        // C++ ToppleUpdate tilts mesh while falling; residual pitch about local X.
+        // C++ applies turret yaw/pitch through ModelConditionInfo's exact
+        // HTree bones after it has positioned the Drawable. Do not fold those
+        // gameplay residuals into this hull matrix: a missing/unsupported
+        // HLOD binding must keep the chassis orientation intact.
+        // C++ ToppleUpdate still tilts the whole mesh while falling.
         glam::Mat4::from_translation(self.position)
-            * glam::Mat4::from_rotation_y(yaw)
-            * glam::Mat4::from_rotation_x(pitch)
+            * glam::Mat4::from_rotation_y(self.orientation)
+            * glam::Mat4::from_rotation_x(lean)
             * glam::Mat4::from_scale(glam::Vec3::splat(scale))
     }
 

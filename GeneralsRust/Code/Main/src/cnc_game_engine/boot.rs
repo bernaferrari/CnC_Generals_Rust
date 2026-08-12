@@ -360,6 +360,7 @@ impl CnCGameEngine {
                 // separate legacy GameLogic global queue.
                 game_client::gui::control_bar::clear_host_control_bar_requests();
                 game_client::gui::control_bar::set_host_control_bar_bridge_enabled(true);
+                game_client::gui::options_host_bridge::set_host_options_bridge_enabled(true);
                 game_client::render_bridge::init_render_bridge();
                 let _ = gamelogic::helpers::register_scene_submission(std::sync::Arc::new(
                     game_client::render_bridge::RenderBridge::new(),
@@ -474,6 +475,7 @@ impl CnCGameEngine {
             is_windowed: window.fullscreen().is_none(),
             rmb_scroll_anchor: None,
             is_rmb_scrolling: false,
+            move_rmb_scroll_anchor: false,
             rmb_scroll_started_physically: false,
             is_mmb_rotating: false,
             mmb_anchor: None,

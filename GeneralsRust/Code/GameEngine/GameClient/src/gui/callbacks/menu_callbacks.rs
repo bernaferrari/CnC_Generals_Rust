@@ -10,6 +10,7 @@ use crate::gui::campaign_manager::get_campaign_manager;
 use crate::gui::gadgets::ComboBoxItem;
 use crate::gui::gadgets::ListBoxItemData;
 use crate::gui::header_template::get_header_template_manager;
+use crate::gui::options_host_bridge::publish_host_move_rmb_scroll_anchor;
 use crate::gui::shell::main_menu::{get_main_menu, DisplaySettings};
 use crate::gui::{
     queue_shell_operation, queue_shell_pop, queue_shell_push, queue_shell_reverse_animate_window,
@@ -638,6 +639,10 @@ impl OptionsMenu {
         }
         if control_id == self.check_move_anchor_id {
             TheInGameUI::set_move_rmb_scroll_anchor(checked);
+            // Main owns live camera input for AuthorityOnly. Preserve this
+            // standalone GameClient update, then send the same typed checkbox
+            // choice to Main only while its host bridge is installed.
+            let _ = publish_host_move_rmb_scroll_anchor(checked);
             return true;
         }
         if control_id == self.check_save_camera_id {
@@ -1433,9 +1438,17 @@ impl MapSelectMenu {
             return;
         };
         self.start_game = true;
-        if let Some(data) = game_engine::common::ini::get_global_data() {
-            let mut data = data.write();
-            data.pending_file = map_name;
+        // Menus retain the authored INI/GameData Arc, while Main's AuthorityOnly
+        // MSG_NEW_GAME drain reads the runtime GlobalData singleton.  Keep the
+        // chosen map in both residences before the reverse animation can emit
+        // the NewGame request (same ownership bridge as SkirmishGameOptions).
+        {
+            let pending = map_name;
+            if let Some(data) = game_engine::common::ini::get_global_data() {
+                let mut data = data.write();
+                data.pending_file = pending.clone();
+            }
+            runtime_global_data::write().pending_file = pending;
         }
         queue_shell_reverse_animate_window();
     }
@@ -2918,6 +2931,18 @@ pub fn simulate_map_select_menu_prepare_ok(map_path: &str) -> bool {
 mod tests {
     use super::*;
 
+    fn with_map_select_global_data_restored(f: impl FnOnce()) {
+        runtime_global_data::with_global_data_restored(|| {
+            let ini_global = game_engine::common::ini::ini_game_data::ensure_global_data();
+            let ini_snapshot = ini_global.read().clone();
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f));
+            *ini_global.write() = ini_snapshot;
+            if let Err(payload) = result {
+                std::panic::resume_unwind(payload);
+            }
+        });
+    }
+
     #[test]
     fn test_main_menu_lifecycle() {
         let mut main_menu = MainMenu::new();
@@ -3039,6 +3064,37 @@ mod tests {
     }
 
     #[test]
+    fn options_move_rmb_scroll_anchor_publishes_only_to_an_enabled_host() {
+        use crate::gui::options_host_bridge::{
+            acquire_host_options_bridge_test_guard, set_host_options_bridge_enabled,
+            take_host_options_requests, HostOptionsRequest,
+        };
+
+        let _bridge_guard = acquire_host_options_bridge_test_guard();
+        let original_move_anchor = TheInGameUI::get_move_rmb_scroll_anchor();
+        let mut menu = OptionsMenu::new();
+        menu.check_move_anchor_id = 12;
+
+        set_host_options_bridge_enabled(true);
+        assert!(menu.apply_immediate_checkbox_effect(menu.check_move_anchor_id, true));
+        assert_eq!(
+            take_host_options_requests(),
+            vec![HostOptionsRequest::MoveRmbScrollAnchor { enabled: true }]
+        );
+        assert!(TheInGameUI::get_move_rmb_scroll_anchor());
+
+        set_host_options_bridge_enabled(false);
+        assert!(menu.apply_immediate_checkbox_effect(menu.check_move_anchor_id, false));
+        assert!(take_host_options_requests().is_empty());
+        assert!(
+            !TheInGameUI::get_move_rmb_scroll_anchor(),
+            "disabled host delivery must retain the standalone legacy callback"
+        );
+
+        TheInGameUI::set_move_rmb_scroll_anchor(original_move_anchor);
+    }
+
+    #[test]
     fn map_select_double_click_uses_event_row_selection_like_cpp() {
         let mut menu = MapSelectMenu::new();
         menu.listbox_map_id = 42;
@@ -3081,6 +3137,43 @@ mod tests {
                 _ => None,
             });
         assert_eq!(selected, Some(0));
+    }
+
+    #[test]
+    fn map_select_start_game_mirrors_selected_map_to_both_global_data_residences() {
+        with_map_select_global_data_restored(|| {
+            let selected_map = "Maps\\Official\\MapSelectExact.map".to_string();
+            let ini_global = game_engine::common::ini::ini_game_data::ensure_global_data();
+            ini_global.write().pending_file = "Maps\\Legacy\\Ini.map".to_string();
+            runtime_global_data::write().pending_file = "Maps\\Legacy\\Runtime.map".to_string();
+
+            let mut menu = MapSelectMenu::new();
+            menu.selected_map = Some(selected_map.clone());
+            menu.start_game();
+
+            assert!(menu.start_game);
+            assert_eq!(ini_global.read().pending_file, selected_map);
+            assert_eq!(runtime_global_data::read().pending_file, selected_map);
+        });
+    }
+
+    #[test]
+    fn map_select_start_game_without_selection_preserves_both_pending_maps() {
+        with_map_select_global_data_restored(|| {
+            let ini_global = game_engine::common::ini::ini_game_data::ensure_global_data();
+            ini_global.write().pending_file = "Maps\\Legacy\\Ini.map".to_string();
+            runtime_global_data::write().pending_file = "Maps\\Legacy\\Runtime.map".to_string();
+
+            let mut menu = MapSelectMenu::new();
+            menu.start_game();
+
+            assert!(!menu.start_game);
+            assert_eq!(ini_global.read().pending_file, "Maps\\Legacy\\Ini.map");
+            assert_eq!(
+                runtime_global_data::read().pending_file,
+                "Maps\\Legacy\\Runtime.map"
+            );
+        });
     }
 }
 
