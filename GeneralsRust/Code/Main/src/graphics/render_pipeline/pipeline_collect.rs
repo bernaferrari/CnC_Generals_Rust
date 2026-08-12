@@ -265,7 +265,10 @@ impl RenderPipeline {
                                         if let Some(obj_def) = asset_manager
                                             .resolve_object_definition(
                                                 &template_name_owned,
-                                                model_hint,
+                                                // A W3D basename is not an Object INI identity:
+                                                // sharing it must never borrow a different
+                                                // faction/condition-state texture definition.
+                                                None,
                                             )
                                         {
                                             if let Some(texture_from_ini) =

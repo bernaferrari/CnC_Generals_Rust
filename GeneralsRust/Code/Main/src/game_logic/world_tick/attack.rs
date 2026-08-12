@@ -41,7 +41,7 @@ impl GameLogic {
             if !u.is_alive() || u.status.under_construction {
                 return AttackMachineResult::Failure;
             }
-            if u.weapon.is_none() && u.secondary_weapon.is_none() {
+            if u.weapon.is_none() && u.secondary_weapon.is_none() && u.tertiary_weapon.is_none() {
                 return AttackMachineResult::Failure;
             }
             if u.is_kind_of(crate::game_logic::KindOf::Projectile) {
@@ -172,20 +172,27 @@ impl GameLogic {
         let Some(victim) = self.objects.get(&victim_id) else {
             return true;
         };
-        if obj.weapon.is_none() && obj.secondary_weapon.is_none() {
+        if obj.weapon.is_none() && obj.secondary_weapon.is_none() && obj.tertiary_weapon.is_none() {
             return true;
         }
-        // Leech range residual: temporarily unlimited while engaged.
-        let leech = obj.leech_range_active();
-        if leech {
+        // C++ AIAttackState queries the *current* weapon, not whichever
+        // weapon happens to have the longest range.  A lock owns that
+        // identity, including TERTIARY, and invalid restored slots fail
+        // closed instead of becoming PRIMARY.
+        let Some(slot) = obj.selected_weapon_slot() else {
+            return true;
+        };
+        let Some(weapon) = obj.weapon_slot(slot) else {
+            return true;
+        };
+        // Leech range residual: temporarily unlimited while engaged, but
+        // only for the selected concrete slot.
+        if obj.leech_range_active_for_slot(slot) {
             return false;
         }
         // Contact weapon residual: skip LOS false positives at tiny ranges.
-        let contact = obj
-            .weapon
-            .as_ref()
-            .map(|w| w.range <= 5.0 || w.min_range > 0.0 && w.range <= w.min_range * 2.0)
-            .unwrap_or(false);
+        let contact =
+            weapon.range <= 5.0 || weapon.min_range > 0.0 && weapon.range <= weapon.min_range * 2.0;
         // Ground LOS residual.
         let on_ground = !obj.status.airborne_target
             || obj.is_kind_of(crate::game_logic::KindOf::Structure)
@@ -201,7 +208,7 @@ impl GameLogic {
                 return true;
             }
         }
-        !obj.is_within_attack_range(victim)
+        !obj.is_within_attack_range_for_slot(slot, victim)
     }
 
     /// C++ wantToSquishTarget state condition residual.
@@ -263,7 +270,7 @@ impl GameLogic {
             if !u.is_alive() || u.status.under_construction {
                 return AttackMachineResult::Failure;
             }
-            if u.weapon.is_none() && u.secondary_weapon.is_none() {
+            if u.weapon.is_none() && u.secondary_weapon.is_none() && u.tertiary_weapon.is_none() {
                 return AttackMachineResult::Failure;
             }
             if u.max_shots_to_fire == 0 {
@@ -302,7 +309,8 @@ impl GameLogic {
             let Some(v) = self.objects.get(&victim_id) else {
                 return AttackMachineResult::Success;
             };
-            u.is_within_attack_range(v)
+            u.selected_weapon_slot()
+                .is_some_and(|slot| u.is_within_attack_range_for_slot(slot, v))
         };
         // C++ outOfWeaponRangeObject condition (range + LOS, leech-aware).
         let out_of_wr = self.out_of_weapon_range_object(unit_id, victim_id);
@@ -764,7 +772,7 @@ impl GameLogic {
             if !u.is_alive() {
                 return AttackAimResult::Failure;
             }
-            if u.weapon.is_none() && u.secondary_weapon.is_none() {
+            if u.weapon.is_none() && u.secondary_weapon.is_none() && u.tertiary_weapon.is_none() {
                 return AttackAimResult::Failure;
             }
             u.set_status_aiming_weapon(true);
@@ -772,20 +780,11 @@ impl GameLogic {
             if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                 crate::game_logic::host_ai_decision_log::record_attack(unit_id, victim_id);
             }
-            let slot = u.active_weapon_slot;
+            let Some(slot) = u.selected_weapon_slot() else {
+                return AttackAimResult::Failure;
+            };
             let body_aimed = u.turn_toward_position(victim_pos, slot, max_turn_rad.max(0.05));
-            let us = u.get_position();
-            let dx = victim_pos.x - us.x;
-            let dz = victim_pos.z - us.z;
-            let dist = (dx * dx + dz * dz).sqrt();
-            let range = u
-                .weapon
-                .as_ref()
-                .map(|w| w.range)
-                .or_else(|| u.secondary_weapon.as_ref().map(|w| w.range))
-                .unwrap_or(0.0)
-                * u.battle_plan_range_multiplier();
-            let range_ok = dist <= range + 1e-3;
+            let range_ok = u.is_within_attack_range_pos_for_slot(slot, victim_pos);
             (body_aimed, range_ok, u.turret_enabled)
         };
 
@@ -863,7 +862,10 @@ impl GameLogic {
             let pre_continue = atk.pre_attack_target == Some(victim_id)
                 && atk.pre_attack_ready_at > current_time + 1e-6;
             let can = atk.can_fire(current_time);
-            let range_ok = atk.is_within_attack_range(vic);
+            let Some(slot) = atk.selected_weapon_slot() else {
+                return AttackFireResult::Failure;
+            };
+            let range_ok = atk.is_within_attack_range_for_slot(slot, vic);
             (true, can, pre_continue, range_ok)
         };
         let _ = alive;
@@ -943,7 +945,10 @@ impl GameLogic {
         if !atk.has_max_shots_remaining() {
             return false;
         }
-        if !atk.is_within_attack_range(vic) {
+        let Some(slot) = atk.selected_weapon_slot() else {
+            return false;
+        };
+        if !atk.is_within_attack_range_for_slot(slot, vic) {
             return false;
         }
         if require_los {

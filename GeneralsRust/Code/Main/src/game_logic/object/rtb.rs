@@ -262,87 +262,62 @@ impl Object {
         self.get_position().distance(pos)
     }
 
-    /// C++ Weapon::isWithinAttackRange residual (primary then secondary).
+    /// C++ Weapon::isWithinAttackRange residual for one concrete WeaponSet slot.
+    ///
+    /// Unknown or unbound slots fail closed.  Tertiary deliberately has no
+    /// inherited leech-range state: the host only persists the retail A/B
+    /// leech flags, and aliasing C to either one would change another
+    /// weapon's targeting behaviour.
+    pub fn is_within_attack_range_for_slot(&self, slot: u8, other: &Object) -> bool {
+        self.is_within_attack_range_at_distance(slot, self.distance_to_object(other))
+    }
+
+    /// C++ Weapon::isWithinAttackRange residual for a world position and one
+    /// concrete WeaponSet slot.
+    pub fn is_within_attack_range_pos_for_slot(&self, slot: u8, pos: glam::Vec3) -> bool {
+        self.is_within_attack_range_at_distance(slot, self.distance_to_pos(pos))
+    }
+
+    fn is_within_attack_range_at_distance(&self, slot: u8, dist: f32) -> bool {
+        let Some(weapon) = self.weapon_slot(slot) else {
+            return false;
+        };
+        if weapon.min_range > 0.0 && dist + 1e-4 < weapon.min_range {
+            return false;
+        }
+        if self.leech_range_active_for_slot(slot) {
+            return true;
+        }
+        dist <= self.effective_weapon_range(weapon.range) + 1e-3
+    }
+
+    /// C++ Weapon::isWithinAttackRange residual across all concrete slots.
     /// When LeechRange is active for a slot, max range is waived (C++ hasLeechRange).
     /// Max range includes WeaponBonus RANGE field (garrison / SearchAndDestroy / …).
     pub fn is_within_attack_range(&self, other: &Object) -> bool {
-        let dist = self.distance_to_object(other);
-        if let Some(w) = &self.weapon {
-            if w.min_range > 0.0 && dist + 1e-4 < w.min_range {
-                // min range still enforced under leech
-            } else if self.leech_range_active_primary {
-                return true;
-            } else {
-                let range = self.effective_weapon_range(w.range);
-                if dist <= range + 1e-3 {
-                    return true;
-                }
-            }
-        }
-        if let Some(w) = &self.secondary_weapon {
-            if w.min_range > 0.0 && dist + 1e-4 < w.min_range {
-                // min range still enforced
-            } else if self.leech_range_active_secondary {
-                return true;
-            } else {
-                let range = self.effective_weapon_range(w.range);
-                if dist <= range + 1e-3 {
-                    return true;
-                }
-            }
-        }
-        if let Some(w) = &self.tertiary_weapon {
-            if w.min_range > 0.0 && dist + 1e-4 < w.min_range {
-                // min range still enforced
-            } else {
-                let range = self.effective_weapon_range(w.range);
-                if dist <= range + 1e-3 {
-                    return true;
-                }
-            }
-        }
-        false
+        [0u8, 1u8, 2u8]
+            .into_iter()
+            .any(|slot| self.is_within_attack_range_for_slot(slot, other))
     }
 
     /// C++ Weapon::isWithinAttackRange for a position.
     pub fn is_within_attack_range_pos(&self, pos: glam::Vec3) -> bool {
-        let dist = self.distance_to_pos(pos);
-        if let Some(w) = &self.weapon {
-            if w.min_range > 0.0 && dist + 1e-4 < w.min_range {
-            } else if self.leech_range_active_primary {
-                return true;
-            } else {
-                let range = self.effective_weapon_range(w.range);
-                if dist <= range + 1e-3 {
-                    return true;
-                }
-            }
-        }
-        if let Some(w) = &self.secondary_weapon {
-            if w.min_range > 0.0 && dist + 1e-4 < w.min_range {
-            } else if self.leech_range_active_secondary {
-                return true;
-            } else {
-                let range = self.effective_weapon_range(w.range);
-                if dist <= range + 1e-3 {
-                    return true;
-                }
-            }
-        }
-        if let Some(w) = &self.tertiary_weapon {
-            if w.min_range > 0.0 && dist + 1e-4 < w.min_range {
-                // min range still enforced
-            } else {
-                let range = self.effective_weapon_range(w.range);
-                if dist <= range + 1e-3 {
-                    return true;
-                }
-            }
-        }
-        false
+        [0u8, 1u8, 2u8]
+            .into_iter()
+            .any(|slot| self.is_within_attack_range_pos_for_slot(slot, pos))
     }
 
     /// C++ canPursue residual (simplified — no turret matrix).
+
+    /// C++ Weapon::hasLeechRange residual for one concrete slot.
+    pub fn leech_range_active_for_slot(&self, slot: u8) -> bool {
+        match slot {
+            0 => self.leech_range_active_primary,
+            1 => self.leech_range_active_secondary,
+            // There is no persisted tertiary leech state.  Do not alias it.
+            _ => false,
+        }
+    }
 
     /// C++ Weapon::hasLeechRange residual (primary or secondary active).
     pub fn leech_range_active(&self) -> bool {

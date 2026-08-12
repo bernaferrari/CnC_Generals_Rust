@@ -21,8 +21,6 @@ pub struct WW3DAssetManager {
     object_definitions: HashMap<String, ObjectDefinition>,
     /// Lowercase -> canonical name lookup for case-insensitive matches
     normalized_name_lookup: HashMap<String, String>,
-    /// Normalized model name -> object names that reference that model
-    model_lookup: HashMap<String, Vec<String>>,
 
     /// INI parser instance
     ini_parser: IniParser,
@@ -43,7 +41,6 @@ impl WW3DAssetManager {
         Self {
             object_definitions: HashMap::new(),
             normalized_name_lookup: HashMap::new(),
-            model_lookup: HashMap::new(),
             ini_parser: IniParser::new(),
             texture_cache: HashMap::new(),
             model_cache: HashMap::new(),
@@ -281,11 +278,17 @@ impl WW3DAssetManager {
         self.object_definitions.get(object_name)
     }
 
-    /// Resolve an object definition by name with optional model hint fallback.
+    /// Resolve an object definition by its authored Object INI identity.
+    ///
+    /// `model_hint` is retained at this boundary for callers that carry W3D
+    /// context, but it is deliberately not an identity fallback.  A single
+    /// W3D basename can be used by distinct faction, condition-state, or
+    /// reskin definitions; choosing the first matching definition would
+    /// borrow the wrong texture/state rather than reproduce C++ rendering.
     pub fn resolve_object_definition(
         &self,
         object_name: &str,
-        model_hint: Option<&str>,
+        _model_hint: Option<&str>,
     ) -> Option<&ObjectDefinition> {
         if let Some(def) = self.object_definitions.get(object_name) {
             return Some(def);
@@ -296,10 +299,6 @@ impl WW3DAssetManager {
             if let Some(def) = self.object_definitions.get(canonical) {
                 return Some(def);
             }
-        }
-
-        if let Some(model) = model_hint {
-            return self.find_definition_by_model(Some(object_name), model);
         }
 
         None
@@ -367,19 +366,11 @@ impl Default for WW3DAssetManager {
 }
 
 impl WW3DAssetManager {
-    fn register_definition_indices(&mut self, name: &str, def: &ObjectDefinition) {
+    fn register_definition_indices(&mut self, name: &str, _def: &ObjectDefinition) {
         self.normalized_name_lookup
             .entry(Self::normalize_object_key(name))
             .or_insert_with(|| name.to_string());
 
-        if let Some(model_name) = &def.model_name {
-            for key in Self::normalized_model_keys(model_name) {
-                self.model_lookup
-                    .entry(key)
-                    .or_default()
-                    .push(name.to_string());
-            }
-        }
     }
 
     fn get_texture_for_object_with_model(
@@ -397,16 +388,6 @@ impl WW3DAssetManager {
             }
         }
 
-        // Fallback: try using the model hint directly (matches behavior observed in
-        // GeneralsMD/Code/GameEngineDevice/Source/W3DDevice/GameClient/W3DAssetManager.cpp)
-        if let Some(model) = model_hint {
-            if let Some(def) = self.find_definition_by_model(Some(object_name), model) {
-                if let Some(texture) = def.get_primary_texture() {
-                    return Some(texture.to_string());
-                }
-            }
-        }
-
         None
     }
 
@@ -415,29 +396,6 @@ impl WW3DAssetManager {
         name.trim().to_ascii_lowercase()
     }
 
-    fn normalized_model_keys(model_name: &str) -> Vec<String> {
-        let mut key = model_name.trim().to_ascii_lowercase();
-        if let Some(stripped) = key.strip_suffix(".w3d") {
-            key = stripped.to_string();
-        }
-        vec![key]
-    }
-
-    fn find_definition_by_model(
-        &self,
-        object_name: Option<&str>,
-        model_hint: &str,
-    ) -> Option<&ObjectDefinition> {
-        let _ = object_name;
-        for key in Self::normalized_model_keys(model_hint) {
-            if let Some(entries) = self.model_lookup.get(&key) {
-                if let Some(candidate) = entries.first() {
-                    return self.object_definitions.get(candidate);
-                }
-            }
-        }
-        None
-    }
 }
 
 #[cfg(test)]
@@ -471,7 +429,7 @@ mod tests {
     }
 
     #[test]
-    fn test_model_hint_resolution() {
+    fn model_hint_does_not_substitute_a_different_object_definition() {
         let mut manager = WW3DAssetManager::new();
         let mut def = ObjectDefinition::new("AmericaVehicleHumvee".to_string());
         def.model_name = Some("AVHUMMER".to_string());
@@ -483,9 +441,10 @@ mod tests {
             .insert("AmericaVehicleHumvee".to_string(), def.clone());
         manager.register_definition_indices("AmericaVehicleHumvee", &def);
 
-        let texture =
-            manager.get_texture_for_object_with_model("NotInDefinitions", Some("avhummer"));
-        assert_eq!(texture, Some("avhummer.tga".to_string()));
+        assert_eq!(
+            manager.get_texture_for_object_with_model("NotInDefinitions", Some("avhummer")),
+            None
+        );
     }
 
     #[test]

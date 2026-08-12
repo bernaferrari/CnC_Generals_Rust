@@ -673,6 +673,13 @@ impl GameLogic {
         if !u.is_alive() {
             return false;
         }
+        // C++ WeaponSet::chooseBestWeaponForTarget immediately accepts the
+        // current slot while locked.  In particular, do not auto-choose
+        // PRIMARY/SECONDARY over an explicitly requested TERTIARY while its
+        // clip is reloading or the target is currently out of range.
+        if u.weapon_lock_type != WeaponLockType::NotLocked {
+            return u.weapon_slot(u.weapon_lock_slot).is_some();
+        }
         // Ground attack residual: any ready weapon is enough.
         let Some(vid) = victim_id else {
             let has =
