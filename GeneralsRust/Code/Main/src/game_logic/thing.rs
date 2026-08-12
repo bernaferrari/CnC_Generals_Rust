@@ -33,6 +33,16 @@ pub struct ThingTemplate {
     pub secondary_weapon: Option<Weapon>,
     /// Weapon.ini / Object INI secondary weapon template name (resolved via WeaponStore).
     pub secondary_weapon_name: Option<String>,
+    /// Host tertiary weapon stats (`Weapon = TERTIARY Name`).
+    ///
+    /// Kept separate from SECONDARY because C++ WeaponSet has three concrete
+    /// slots. In particular, Comanche rocket pods must not replace its
+    /// anti-tank SECONDARY weapon.
+    #[serde(default)]
+    pub tertiary_weapon: Option<Weapon>,
+    /// Weapon.ini / Object INI tertiary weapon template name (resolved via WeaponStore).
+    #[serde(default)]
+    pub tertiary_weapon_name: Option<String>,
     /// Locomotor.ini SET_NORMAL template name (resolved via Common LocomotorStore).
     /// Fail-closed residual: single primary locomotor only (not multi-set / surface matrix).
     pub locomotor_name: Option<String>,
@@ -61,6 +71,8 @@ impl ThingTemplate {
             primary_weapon_name: None,
             secondary_weapon: None,
             secondary_weapon_name: None,
+            tertiary_weapon: None,
+            tertiary_weapon_name: None,
             locomotor_name: None,
             create_crate_data: Vec::new(),
         }
@@ -102,6 +114,22 @@ impl ThingTemplate {
         let n = name.trim();
         if !n.is_empty() && !n.eq_ignore_ascii_case("none") {
             self.secondary_weapon_name = Some(n.to_string());
+        }
+        self
+    }
+
+    /// Attach host tertiary weapon stats (damage/range/reload) to this template.
+    pub fn set_tertiary_weapon(&mut self, weapon: Weapon) -> &mut Self {
+        self.tertiary_weapon = Some(weapon);
+        self
+    }
+
+    /// Record the Weapon.ini tertiary template name for store lookup at create time.
+    /// Fail-closed: "None"/empty does not register a tertiary slot.
+    pub fn set_tertiary_weapon_name(&mut self, name: &str) -> &mut Self {
+        let n = name.trim();
+        if !n.is_empty() && !n.eq_ignore_ascii_case("none") {
+            self.tertiary_weapon_name = Some(n.to_string());
         }
         self
     }
@@ -187,6 +215,22 @@ impl ThingTemplate {
             if let Some(w) = Self::weapon_from_store(wname) {
                 return Some(w);
             }
+        }
+        None
+    }
+
+    /// Resolve tertiary weapon for a newly created combat unit.
+    ///
+    /// TERTIARY has no template-name or KindOf fallback: it is generally a
+    /// manual/conditional WeaponSet slot, so inventing one would turn an
+    /// unavailable ability into a primary shot.
+    pub fn resolve_tertiary_weapon(&self) -> Option<Weapon> {
+        if let Some(w) = &self.tertiary_weapon {
+            return Some(w.clone());
+        }
+        if let Some(name) = self.tertiary_weapon_name.as_deref() {
+            let _ = super::weapon_bootstrap::ensure_host_weapon_store();
+            return Self::weapon_from_store(name);
         }
         None
     }

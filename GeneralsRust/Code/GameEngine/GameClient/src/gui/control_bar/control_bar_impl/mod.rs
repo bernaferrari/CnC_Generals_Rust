@@ -31,7 +31,7 @@ use game_engine::common::ini::ini_command_button::{
     get_control_bar as get_ini_control_bar, CommandButton as IniCommandButton,
 };
 use game_engine::common::ini::ini_multiplayer::with_multiplayer_settings;
-use game_engine::common::rts::{get_science_store, ScienceType, SCIENCE_INVALID};
+use game_engine::common::rts::{get_science_store, ScienceType, WeaponSlotType, SCIENCE_INVALID};
 use gamelogic::command_button::map_gui_command_to_command_type;
 use gamelogic::commands::command::CommandType;
 use gamelogic::commands::{get_command_queue_manager, Command, CommandPriority, QueuedCommand};

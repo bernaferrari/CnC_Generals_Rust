@@ -250,8 +250,13 @@ impl ControlBar {
         if events.set_scheme_by_player.is_some() {
             self.set_control_bar_scheme_by_player();
         }
-        for (control_id, msg) in events.clicks {
-            self.process_context_sensitive_button_click(control_id, msg);
+        for click in events.clicks {
+            // A WND callback is deferred through LiveControlBarEvents. Replay
+            // its captured origin only while publishing this exact command;
+            // it must not leak to a later unrelated request.
+            super::with_host_control_bar_input_provenance(click.input_provenance, || {
+                self.process_context_sensitive_button_click(click.control_id, click.msg);
+            });
         }
         let _ = events.transitions;
     }

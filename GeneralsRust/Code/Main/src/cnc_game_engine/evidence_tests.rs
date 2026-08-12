@@ -79,6 +79,49 @@ fn gameplay_order_without_selection_or_menu_match_does_not_latch() {
 }
 
 #[test]
+fn physical_build_and_produce_requires_construct_then_production() {
+    let mut evidence = InteractivePlayabilityEvidence::default();
+
+    // A valid production request alone is insufficient: the proof is about a
+    // real build-and-produce sequence, not generic factory interaction.
+    evidence.note_control_bar_production(true);
+    assert!(!evidence.build_and_produce_complete());
+
+    // Injected/non-physical events cannot arm either half of the sequence.
+    evidence.note_control_bar_construct_arm(false);
+    evidence.note_control_bar_production(false);
+    assert!(!evidence.build_and_produce_complete());
+
+    evidence.note_control_bar_construct_arm(true);
+    assert!(!evidence.build_and_produce_complete());
+
+    // The physical production request must follow the physical construct arm.
+    evidence.note_control_bar_production(true);
+    assert!(evidence.build_and_produce_complete());
+}
+
+#[test]
+fn control_bar_physical_proof_is_carried_by_request_provenance_not_from_user() {
+    let src = include_str!("control_bar_bridge.rs");
+    assert!(
+        src.contains("take_host_control_bar_published_requests")
+            && src.contains("is_physical_window_mouse_input"),
+        "Main must consume the detailed request provenance rather than infer physical input"
+    );
+    assert!(
+        src.contains("host_control_bar_evidence_eligible(physical_os_input)")
+            && src.contains("note_control_bar_construct_arm")
+            && src.contains("note_control_bar_production"),
+        "only validated physical Control Bar actions may advance the build-and-produce proof"
+    );
+    assert!(
+        src.contains("ui_object_is_dozer")
+            && src.contains("local live dozer or worker"),
+        "a stale generic selection must not count as a DozerConstruct arm"
+    );
+}
+
+#[test]
 fn options_chrome_is_not_skirmish_path_and_cannot_complete_wnd_nav() {
     let mut evidence = InteractivePlayabilityEvidence::default();
     evidence.note_menu_wnd_click(true, true, true);

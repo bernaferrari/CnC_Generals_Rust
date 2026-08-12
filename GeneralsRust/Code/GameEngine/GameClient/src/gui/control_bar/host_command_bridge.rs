@@ -38,6 +38,30 @@ pub enum HostControlBarTarget {
     Generic,
 }
 
+/// Provenance carried with a host Control Bar request.
+///
+/// `CommandSourceType::FromUser` describes the C++ gameplay source, but it
+/// does not prove that a real OS event produced the click: runtime-host input
+/// injection legitimately uses the same source type.  This separate value is
+/// set only by the synchronous WND-dispatch scope owned by Main.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HostControlBarInputProvenance {
+    /// The request was published while handling a real
+    /// `winit::WindowEvent::MouseInput`.
+    PhysicalWindowMouseInput,
+    /// There was no physical WND-dispatch scope, or the current scope was an
+    /// injected/test input path.  This intentionally fails closed.
+    InjectedOrUnknown,
+}
+
+impl HostControlBarInputProvenance {
+    /// Whether this request came directly from a real OS mouse-input event.
+    #[inline]
+    pub fn is_physical_window_mouse_input(self) -> bool {
+        matches!(self, Self::PhysicalWindowMouseInput)
+    }
+}
+
 /// A gameplay request issued by a Control Bar interaction.
 ///
 /// Names are preserved alongside the legacy [`CommandType`] so the Main host
@@ -125,15 +149,124 @@ pub enum HostControlBarRequest {
     },
 }
 
+/// A request plus the input provenance captured at publication time.
+///
+/// Main must use this detailed form at its single-authority boundary.  The
+/// legacy request-only drain is retained for standalone GameClient callers,
+/// where provenance is intentionally irrelevant.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HostControlBarPublishedRequest {
+    pub request: HostControlBarRequest,
+    pub input_provenance: HostControlBarInputProvenance,
+}
+
 #[derive(Default)]
 struct HostControlBarBridgeState {
     enabled: bool,
-    requests: VecDeque<HostControlBarRequest>,
+    requests: VecDeque<HostControlBarPublishedRequest>,
 }
 
 fn host_control_bar_bridge_state() -> &'static Mutex<HostControlBarBridgeState> {
     static STATE: OnceLock<Mutex<HostControlBarBridgeState>> = OnceLock::new();
     STATE.get_or_init(|| Mutex::new(HostControlBarBridgeState::default()))
+}
+
+/// A safe, stack-scoped input context for synchronous WND dispatch.
+///
+/// This deliberately is not a thread-local pointer or a lifetime-erased
+/// callback.  The context is process-global only so GameClient's existing
+/// singleton callback path can read it, while each entry is bound to the
+/// dispatching thread and removed by RAII before it can leak to later input.
+#[derive(Debug, Clone, Copy)]
+struct HostControlBarInputScopeEntry {
+    id: u64,
+    thread_id: std::thread::ThreadId,
+    provenance: HostControlBarInputProvenance,
+}
+
+#[derive(Default)]
+struct HostControlBarInputContextState {
+    next_id: u64,
+    scopes: Vec<HostControlBarInputScopeEntry>,
+}
+
+fn host_control_bar_input_context_state() -> &'static Mutex<HostControlBarInputContextState> {
+    static STATE: OnceLock<Mutex<HostControlBarInputContextState>> = OnceLock::new();
+    STATE.get_or_init(|| Mutex::new(HostControlBarInputContextState::default()))
+}
+
+struct HostControlBarInputScope {
+    id: u64,
+    thread_id: std::thread::ThreadId,
+}
+
+impl HostControlBarInputScope {
+    fn enter(provenance: HostControlBarInputProvenance) -> Self {
+        let thread_id = std::thread::current().id();
+        let mut state = host_control_bar_input_context_state()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let id = state.next_id;
+        state.next_id = state.next_id.wrapping_add(1);
+        state.scopes.push(HostControlBarInputScopeEntry {
+            id,
+            thread_id: thread_id.clone(),
+            provenance,
+        });
+        Self { id, thread_id }
+    }
+}
+
+impl Drop for HostControlBarInputScope {
+    fn drop(&mut self) {
+        let mut state = host_control_bar_input_context_state()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if let Some(index) = state
+            .scopes
+            .iter()
+            .rposition(|entry| entry.id == self.id && entry.thread_id == self.thread_id)
+        {
+            state.scopes.remove(index);
+        }
+    }
+}
+
+/// Capture the current synchronous WND-dispatch provenance for an event that
+/// will be processed later by the live Control Bar tick.
+///
+/// The WND callback first lands in `LiveControlBarEvents`; it does not publish
+/// the host request until that deferred event is replayed.  Carrying this
+/// value across that queue preserves the real physical/injected distinction
+/// without extending the scope beyond its original OS dispatch.
+pub(crate) fn host_control_bar_input_provenance_for_current_dispatch(
+) -> HostControlBarInputProvenance {
+    let thread_id = std::thread::current().id();
+    host_control_bar_input_context_state()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .scopes
+        .iter()
+        .rev()
+        .find(|entry| entry.thread_id == thread_id)
+        .map(|entry| entry.provenance)
+        .unwrap_or(HostControlBarInputProvenance::InjectedOrUnknown)
+}
+
+/// Publish WND-driven work with explicit input provenance for this synchronous
+/// dispatch only.
+///
+/// Main calls this around the exact WindowManager dispatch that originated
+/// from `WindowEvent::MouseInput`; its injected path enters
+/// `InjectedOrUnknown`.  The scope is thread-bound, nest-safe, and dropped
+/// even when the callback unwinds, so a provenance mark cannot be reused by a
+/// later request.
+pub fn with_host_control_bar_input_provenance<R>(
+    provenance: HostControlBarInputProvenance,
+    callback: impl FnOnce() -> R,
+) -> R {
+    let _scope = HostControlBarInputScope::enter(provenance);
+    callback()
 }
 
 /// Enable or disable authoritative-host delivery for Control Bar interactions.
@@ -171,12 +304,24 @@ pub fn host_control_bar_bridge_enabled() -> bool {
         .enabled
 }
 
-/// Drain every typed request emitted since the previous host tick.
-pub fn take_host_control_bar_requests() -> Vec<HostControlBarRequest> {
+/// Drain typed requests together with the exact input provenance captured at
+/// their publication point.
+pub fn take_host_control_bar_published_requests() -> Vec<HostControlBarPublishedRequest> {
     let mut state = host_control_bar_bridge_state()
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     state.requests.drain(..).collect()
+}
+
+/// Drain only request payloads for legacy standalone callers.
+///
+/// The Main executable must call [`take_host_control_bar_published_requests`]
+/// instead so it cannot accidentally discard physical-input provenance.
+pub fn take_host_control_bar_requests() -> Vec<HostControlBarRequest> {
+    take_host_control_bar_published_requests()
+        .into_iter()
+        .map(|published| published.request)
+        .collect()
 }
 
 /// Discard typed requests that have not yet been consumed by the host.
@@ -328,7 +473,10 @@ pub(crate) fn publish_host_control_bar_request(request: HostControlBarRequest) -
         return false;
     }
 
-    state.requests.push_back(request);
+    state.requests.push_back(HostControlBarPublishedRequest {
+        request,
+        input_provenance: host_control_bar_input_provenance_for_current_dispatch(),
+    });
     true
 }
 
@@ -441,6 +589,65 @@ mod tests {
                 player_id: 7,
                 source: CommandSourceType::FromUser,
             }]
+        );
+    }
+
+    #[test]
+    fn publication_captures_scoped_physical_provenance_and_fails_closed_otherwise() {
+        let _guard = acquire();
+        set_host_control_bar_bridge_enabled(true);
+
+        let request = HostControlBarRequest::Production {
+            command_name: "Command_ConstructAmericaTank".to_string(),
+            template_name: "AmericaTankCrusader".to_string(),
+            producer_ids: vec![41],
+            player_id: 7,
+            source: CommandSourceType::FromUser,
+        };
+
+        // `FromUser` without Main's physical WND scope must never imply a
+        // physical mouse click. This covers direct/test/runtime-host paths.
+        assert!(publish_host_control_bar_request(request.clone()));
+        with_host_control_bar_input_provenance(
+            HostControlBarInputProvenance::InjectedOrUnknown,
+            || assert!(publish_host_control_bar_request(request.clone())),
+        );
+        with_host_control_bar_input_provenance(
+            HostControlBarInputProvenance::PhysicalWindowMouseInput,
+            || assert!(publish_host_control_bar_request(request)),
+        );
+
+        let published = take_host_control_bar_published_requests();
+        assert_eq!(published.len(), 3);
+        assert_eq!(
+            published[0].input_provenance,
+            HostControlBarInputProvenance::InjectedOrUnknown,
+            "unscoped FromUser request must fail closed"
+        );
+        assert_eq!(
+            published[1].input_provenance,
+            HostControlBarInputProvenance::InjectedOrUnknown,
+            "injected scope must remain non-physical"
+        );
+        assert_eq!(
+            published[2].input_provenance,
+            HostControlBarInputProvenance::PhysicalWindowMouseInput,
+            "only Main's real WND mouse scope may mark a request physical"
+        );
+
+        // Scope cleanup is RAII: the next request must not inherit physical
+        // provenance after the synchronous callback returns.
+        assert!(publish_host_control_bar_request(HostControlBarRequest::Production {
+            command_name: "Command_ConstructAmericaTank".to_string(),
+            template_name: "AmericaTankCrusader".to_string(),
+            producer_ids: vec![41],
+            player_id: 7,
+            source: CommandSourceType::FromUser,
+        }));
+        assert_eq!(
+            take_host_control_bar_published_requests()[0].input_provenance,
+            HostControlBarInputProvenance::InjectedOrUnknown,
+            "a finished physical scope must not leak to a later request"
         );
     }
 

@@ -465,6 +465,7 @@ impl Object {
             experience: Experience::default(),
             weapon: None,
             secondary_weapon: None,
+            tertiary_weapon: None,
             target: None,
             construction_percent: 1.0, // Fully constructed by default
             building_data,
@@ -1085,6 +1086,7 @@ impl Object {
             experience: Experience::default(),
             weapon: None,
             secondary_weapon: None,
+            tertiary_weapon: None,
             target: None,
             construction_percent: 1.0,
             building_data: None,

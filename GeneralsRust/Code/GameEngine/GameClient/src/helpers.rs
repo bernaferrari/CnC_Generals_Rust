@@ -13,6 +13,9 @@
 use crate::display::view::{with_tactical_view, with_tactical_view_ref, Point3};
 use crate::game_text::GameText;
 use crate::gui::campaign_manager::get_campaign_manager;
+use crate::gui::control_bar::{
+    host_control_bar_input_provenance_for_current_dispatch, HostControlBarInputProvenance,
+};
 use crate::gui::load_screen::{
     init_load_screen, pump_load_screen_presentation, reset_load_screen, select_load_screen,
     update_load_screen as update_game_load_screen, LoadScreenGameMode, LoadScreenInitContext,
@@ -243,11 +246,23 @@ pub fn register_control_bar_backend(hooks: Arc<dyn ControlBarHooks>) {
     *slot = Some(hooks);
 }
 
+/// A WND click awaiting the live Control Bar tick.
+///
+/// The actual command request is published during the later tick, not inside
+/// the WND callback.  Capture the callback's input provenance here so that a
+/// runtime-host injected click cannot be mistaken for an OS mouse event.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LiveControlBarClick {
+    pub control_id: u32,
+    pub msg: u32,
+    pub input_provenance: HostControlBarInputProvenance,
+}
+
 /// Pending WND clicks / UI dirty bits for the live `ControlBar` (not Send).
 #[derive(Debug, Default)]
 pub struct LiveControlBarEvents {
     pub ui_dirty: bool,
-    pub clicks: Vec<(u32, u32)>,
+    pub clicks: Vec<LiveControlBarClick>,
     pub transitions: Vec<(u32, bool)>,
     pub hide_purchase_science: bool,
     pub toggle_purchase_science: bool,
@@ -306,7 +321,13 @@ impl ControlBarHooks for LiveControlBarBackend {
     }
 
     fn process_context_sensitive_button_click(&self, control_id: u32, msg: u32) {
-        with_live_control_bar_events(|events| events.clicks.push((control_id, msg)));
+        with_live_control_bar_events(|events| {
+            events.clicks.push(LiveControlBarClick {
+                control_id,
+                msg,
+                input_provenance: host_control_bar_input_provenance_for_current_dispatch(),
+            });
+        });
     }
 
     fn process_context_sensitive_button_transition(&self, control_id: u32, entering: bool) {

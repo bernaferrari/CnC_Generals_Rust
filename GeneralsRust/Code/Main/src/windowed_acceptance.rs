@@ -84,7 +84,7 @@
 //! injected fake asset roots.
 
 use crate::executable_smoke::{
-    lone_eagle_map_on_disk, ExecutableSmokeLaunch, ExecutableSmokeResult, LONE_EAGLE_CANDIDATES,
+    lone_eagle_map_on_disk, ExecutableSmokeResult, LONE_EAGLE_CANDIDATES,
 };
 use std::path::{Path, PathBuf};
 
@@ -240,8 +240,8 @@ const MAPSZH_CANDIDATES: &[&str] = &[
 /// display only. They do not gate [`Self::passed`]; `windowed_launch` does.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WindowedAcceptanceReport {
-    /// Provenance guard: only [`ExecutableSmokeLaunch::Windowed`] results may
-    /// satisfy acceptance, never a headless/synthetic result with copied flags.
+    /// Provenance guard: only a `-runtime_host=windowed` result may satisfy
+    /// acceptance, never a headless/synthetic result with copied flags.
     pub windowed_launch: bool,
     pub visible_window: bool,
     pub physical_main_menu_skirmish_nav: bool,

@@ -1,5 +1,6 @@
 #![allow(unused_imports, unused_variables, dead_code, non_snake_case)]
 use super::*;
+use super::input::MouseInputOrigin;
 impl CnCGameEngine {
     pub(super) fn handle_left_click(&mut self) {
         self.is_dragging = true;
@@ -1059,9 +1060,13 @@ impl CnCGameEngine {
         pressed: bool,
         x: i32,
         y: i32,
+        origin: MouseInputOrigin,
     ) -> bool {
         #[cfg(feature = "game_client")]
         {
+            use game_client::gui::control_bar::{
+                with_host_control_bar_input_provenance, HostControlBarInputProvenance,
+            };
             use game_client::gui::game_window::{WindowInputReturnCode, WindowMessage};
             let msg = match (button, pressed) {
                 (MouseButton::Left, true) => WindowMessage::LeftDown,
@@ -1072,12 +1077,24 @@ impl CnCGameEngine {
                 (MouseButton::Middle, false) => WindowMessage::MiddleUp,
                 _ => return false,
             };
-            game_client::gui::dispatch_os_mouse_to_window_manager(msg, x, y)
-                == WindowInputReturnCode::Used
+            // `CommandSourceType::FromUser` alone cannot distinguish a real
+            // winit event from `inject_winit_equivalent_*`: both deliberately
+            // follow the same WND callback path. Scope the actual origin over
+            // this synchronous dispatch so publication captures it exactly.
+            let provenance = match origin {
+                MouseInputOrigin::Physical => {
+                    HostControlBarInputProvenance::PhysicalWindowMouseInput
+                }
+                MouseInputOrigin::Injected => HostControlBarInputProvenance::InjectedOrUnknown,
+            };
+            with_host_control_bar_input_provenance(provenance, || {
+                game_client::gui::dispatch_os_mouse_to_window_manager(msg, x, y)
+                    == WindowInputReturnCode::Used
+            })
         }
         #[cfg(not(feature = "game_client"))]
         {
-            let _ = (button, pressed, x, y);
+            let _ = (button, pressed, x, y, origin);
             false
         }
     }

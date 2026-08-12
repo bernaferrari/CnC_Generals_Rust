@@ -69,6 +69,9 @@ pub(super) struct RuntimeHostSnapshot {
     pub(super) wnd_widget_tree_nav: bool,
     /// Physical in-game command after a physical WND menu→match transition.
     pub(super) interactive_gameplay: bool,
+    /// Physical Control Bar DozerConstruct arm followed by a physical, valid
+    /// production queue request in this visible offline session.
+    pub(super) physical_build_and_produce: bool,
     /// Host requested capture this frame (bridge should force screenshot).
     pub(super) pending_capture: bool,
     /// Last unit-pass collect honesty (presentation residual).
@@ -265,6 +268,7 @@ impl RuntimeHostBridge {
             window_visible: false,
             wnd_widget_tree_nav: false,
             interactive_gameplay: false,
+            physical_build_and_produce: false,
             pending_capture: false,
             render_alive_objects: 0,
             render_fow_filtered: 0,
@@ -392,6 +396,10 @@ impl RuntimeHostBridge {
         payload.push_str(&format!(
             "interactive_menu_wnd_match={}\n",
             snapshot.wnd_widget_tree_nav
+        ));
+        payload.push_str(&format!(
+            "physical_build_and_produce={}\n",
+            snapshot.physical_build_and_produce
         ));
         payload.push_str(&format!(
             "retail_sit_through_missing={sit_through_missing}\n"

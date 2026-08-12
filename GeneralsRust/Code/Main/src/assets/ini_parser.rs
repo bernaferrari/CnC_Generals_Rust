@@ -56,6 +56,15 @@ pub struct ObjectDefinition {
     /// Fail-closed residual: not full WeaponSet upgrade matrices.
     pub secondary_weapon: Option<String>,
 
+    /// Tertiary weapon template name from Object INI (`Weapon = TERTIARY Name`).
+    ///
+    /// This is deliberately a distinct slot rather than an alias of SECONDARY:
+    /// retail objects such as the Comanche keep their anti-tank weapon in
+    /// SECONDARY while their player-triggered rocket pods live in TERTIARY.
+    /// WeaponSet condition selection remains the responsibility of the gameplay
+    /// layer; this parser only preserves the source declaration.
+    pub tertiary_weapon: Option<String>,
+
     /// Other attributes from INI
     pub attributes: HashMap<String, String>,
 }
@@ -77,6 +86,7 @@ impl ObjectDefinition {
             owner: None,
             primary_weapon: None,
             secondary_weapon: None,
+            tertiary_weapon: None,
             attributes: HashMap::new(),
         }
     }
@@ -203,8 +213,9 @@ impl IniParser {
                             obj.scale = value.parse().unwrap_or(1.0);
                         }
                         "owner" => obj.owner = Some(value.to_string()),
-                        // Object INI: Weapon = PRIMARY / SECONDARY / TERTIARY Name
-                        // PRIMARY and SECONDARY are independent slots; later lines must not wipe earlier ones.
+                        // Object INI: Weapon = PRIMARY / SECONDARY / TERTIARY Name.
+                        // Each slot is independent; later lines must not wipe a
+                        // different slot's declaration.
                         "weapon" => {
                             let mut parts = value.split_whitespace();
                             if let Some(slot) = parts.next() {
@@ -214,8 +225,9 @@ impl IniParser {
                                             obj.primary_weapon = Some(wname.to_string());
                                         } else if slot.eq_ignore_ascii_case("SECONDARY") {
                                             obj.secondary_weapon = Some(wname.to_string());
+                                        } else if slot.eq_ignore_ascii_case("TERTIARY") {
+                                            obj.tertiary_weapon = Some(wname.to_string());
                                         }
-                                        // TERTIARY intentionally ignored (fail-closed residual).
                                     }
                                 }
                             }
