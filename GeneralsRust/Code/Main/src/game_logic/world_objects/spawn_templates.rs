@@ -1620,4 +1620,48 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn hand_authored_unit_templates_keep_their_verified_retail_w3d_identity() {
+        let mut logic = GameLogic::new();
+        logic.setup_templates();
+
+        // Each value is the DefaultConditionState `Model` for the named
+        // retail Object INI identity and an exact W3DZH.big basename.  Keep
+        // this table explicit: a visual fallback must be unavailable rather
+        // than silently turning one game unit into another.
+        let expected_models = [
+            ("USA_Ranger", "airngr_skn"),
+            ("USA_MissileDefender", "nithnt_skn"),
+            ("USA_CrusaderTank", "avleopard"),
+            ("USA_PaladinTank", "avpaladin"),
+            ("USA_Raptor", "avraptor"),
+            ("GLA_Soldier", "uirgrd_skn"),
+            ("GLA_RPGTrooper", "uitunf_skn"),
+            ("GLA_Technical", "uvtechtrck"),
+            ("GLA_ScorpionTank", "uvlitetank"),
+            ("GLA_MarauderTank", "uvmarauder"),
+            ("GLAInfantryTerrorist", "uitrst_skn"),
+            ("GLAVehicleCombatBike", "uvcombike"),
+            ("China_RedGuard", "nicnsc_skn"),
+            ("China_TankHunter", "nimsst_skn"),
+            ("China_BattlemasterTank", "nvbtmstr"),
+            ("China_OverlordTank", "nvovrlrd"),
+            ("China_InfernoCannon", "nvinferno"),
+            ("China_MiG", "nvmig"),
+            ("China_Helix", "nvhelix"),
+        ];
+
+        for (template_name, expected_model) in expected_models {
+            let template = logic
+                .templates
+                .get(template_name)
+                .unwrap_or_else(|| panic!("missing curated template {template_name}"));
+            assert_eq!(
+                template.model_name.as_deref(),
+                Some(expected_model),
+                "{template_name} must keep its own retail visual identity"
+            );
+        }
+    }
 }

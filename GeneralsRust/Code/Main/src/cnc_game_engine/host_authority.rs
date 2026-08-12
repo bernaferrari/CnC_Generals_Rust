@@ -1255,7 +1255,14 @@ impl CnCGameEngine {
                 // first post-load frame so UI, terrain, and WGPU cannot retain
                 // the map that was active before the load attempt.
                 let loaded_map_name = self.game_logic.get_current_map_name().to_string();
+                // The staging authority has already validated this world. Keep
+                // its authoritative mode so clearing stale presentation state
+                // cannot turn a successfully restored offline match into an
+                // unclassified session.  Failed loads return before this point
+                // and therefore retain the fail-closed clear behavior.
+                let loaded_match_mode = self.game_logic.game_mode();
                 self.host_clear_match_residuals();
+                self.host_match_game_mode = Some(loaded_match_mode);
                 self.host_match_map_name = Some(loaded_map_name.clone());
                 self.last_presentation_frame = None;
                 self.last_ui_state = None;

@@ -67,7 +67,7 @@ pub fn honesty_host_match_game_mode_nav_commands_residual_wave842() -> bool {
 pub fn honesty_host_match_game_mode_residual_pack_wave842() -> bool {
     let cnc = cnc_source();
     let ok = cnc.contains("host_match_game_mode: Option<GameMode>")
-        && cnc.contains("Wave 842: stamp host-owned match mode before map load")
+        && cnc.contains("Wave 842: retain the selected host-owned match mode")
         && cnc.contains("self.host_match_game_mode = Some(mode)")
         && cnc.contains("Wave 609/842: host UI/presentation residual helper")
         && cnc.contains("if let Some(mode) = self.host_match_game_mode");

@@ -471,3 +471,80 @@ fn physical_gather_proof_requires_physical_accepted_order_and_real_dropoff() {
         "runtime status must publish the exact physical_gather_resources field"
     );
 }
+
+#[test]
+fn configured_skirmish_start_restamps_mode_after_map_clear_before_physical_evidence() {
+    // The full CnCGameEngine constructor owns a live WGPU window, so this
+    // regression locks the production authority sequence itself.  It must
+    // remain a real configured Skirmish start, not a runtime-host simulation.
+    let start_game = include_str!("start_game.rs");
+    let start = start_game
+        .find("pub(super) fn host_start_game_from_ui")
+        .expect("host start-game authority");
+    let after_start = &start_game[start..];
+    let end = after_start[1..]
+        .find("\n    pub(super) fn ")
+        .map(|offset| offset + 1)
+        .unwrap_or(after_start.len());
+    let body = &after_start[..end];
+
+    let skirmish_config = body
+        .find("host_apply_skirmish_config_authority(config)")
+        .expect("configured Skirmish authority branch");
+    let map_load = body
+        .find("host_load_map_or_default(&map_name)")
+        .expect("normal map-load authority");
+    let successful_mode_stamp = body[map_load..]
+        .find("self.host_match_game_mode = Some(mode);")
+        .map(|offset| map_load + offset)
+        .expect("mode re-stamped after successful map load");
+    let ingame = body[successful_mode_stamp..]
+        .find("transition_to_state(GameState::InGame)")
+        .map(|offset| successful_mode_stamp + offset)
+        .expect("InGame transition");
+
+    assert!(
+        skirmish_config < map_load
+            && map_load < successful_mode_stamp
+            && successful_mode_stamp < ingame,
+        "a configured Skirmish must retain GameMode::Skirmish after the map-clear boundary and before InGame"
+    );
+    assert!(
+        body[map_load..successful_mode_stamp].contains("let Some(loaded_map_name)")
+            && body[map_load..successful_mode_stamp].contains("return_to_main_menu_after_match"),
+        "only a successful map load may re-stamp the selected mode"
+    );
+
+    let residuals = include_str!("host_authority.rs");
+    let clear_start = residuals
+        .find("pub(super) fn host_clear_match_residuals")
+        .expect("match residual clear authority");
+    let clear_after_start = &residuals[clear_start..];
+    let clear_end = clear_after_start[1..]
+        .find("\n    pub(super) fn ")
+        .map(|offset| offset + 1)
+        .unwrap_or(clear_after_start.len());
+    assert!(
+        clear_after_start[..clear_end].contains("self.host_match_game_mode = None;"),
+        "reset and failed-load paths must still clear match mode rather than preserve stale eligibility"
+    );
+
+    for (source, gate) in [
+        (
+            include_str!("control_bar_bridge.rs"),
+            "host_control_bar_evidence_eligible",
+        ),
+        (include_str!("mouse.rs"), "host_physical_gather_evidence_eligible"),
+        (
+            include_str!("runtime_host/gameplay.rs"),
+            "host_popup_save_load_evidence_eligible",
+        ),
+    ] {
+        assert!(
+            source.contains(gate)
+                && source.contains("self.host_match_game_mode")
+                && source.contains("GameMode::Skirmish"),
+            "{gate} must accept the authoritative Skirmish mode after a physical input reaches it"
+        );
+    }
+}
