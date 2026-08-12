@@ -134,6 +134,10 @@ impl ScriptEngine {
     }
 
     fn execute_side_scripts(&self) -> GameLogicResult<()> {
+        self.with_active_script_lists(|| self.execute_side_scripts_from_active_lists())
+    }
+
+    fn execute_side_scripts_from_active_lists(&self) -> GameLogicResult<()> {
         let current_frame = crate::helpers::TheGameLogic::get_frame();
 
         // Prepare executor context for this frame (shared by action/condition evaluation).
@@ -155,72 +159,60 @@ impl ScriptEngine {
         let mut condition_evaluator =
             crate::scripting::executor::ScriptConditionEvaluator::new(exec_context);
 
-        let player_list = crate::player::player_list();
-        let Ok(list_guard) = player_list.read() else {
-            return Err(GameLogicError::Threading(
-                "Failed to lock PlayerList for ScriptEngine::update".to_string(),
-            ));
+        // Snapshot player names before dispatch.  A script action may change
+        // player state or call a subroutine; no PlayerList lock may survive
+        // into that immediate nested path.
+        let player_names = {
+            let player_list = crate::player::player_list();
+            let Ok(list_guard) = player_list.read() else {
+                return Err(GameLogicError::Threading(
+                    "Failed to lock PlayerList for ScriptEngine::update".to_string(),
+                ));
+            };
+            let player_count = list_guard.get_player_count().min(Self::MAX_PLAYER_COUNT);
+            (0..player_count)
+                .map(|index| {
+                    list_guard.get_player(index as i32).and_then(|player| {
+                        player.read().ok().and_then(|player| {
+                            NameKeyGenerator::key_to_name(player.get_player_name_key())
+                        })
+                    })
+                })
+                .collect::<Vec<_>>()
         };
 
-        let player_count = list_guard.get_player_count().min(Self::MAX_PLAYER_COUNT);
-        for i in 0..player_count {
+        for (i, player_name) in player_names.into_iter().enumerate() {
             // Match C++: `m_currentPlayer` is the nth player for the side index.
-            let player_name = list_guard.get_player(i as i32).and_then(|p| {
-                p.read()
-                    .ok()
-                    .and_then(|p| NameKeyGenerator::key_to_name(p.get_player_name_key()))
-            });
             self.lock_inner_mut().current_player = player_name;
 
-            // Take the list out so dispatch can re-enter the engine.
-            let Some(mut script_list) = self.lock_inner_mut().side_script_lists[i].take() else {
-                continue;
-            };
-
-            // Execute root scripts (not in a group).
-            if let Some(script_head) = script_list.first_script.as_deref_mut() {
-                self.execute_scripts(
-                    script_head,
-                    &mut condition_evaluator,
-                    &mut action_dispatcher,
-                )?;
-            }
+            // Every side list remains searchable through the lexical active
+            // store while an individual script is detached for dispatch.
+            self.execute_non_subroutine_scripts_in_container(
+                i,
+                ScriptContainer::Root,
+                &mut condition_evaluator,
+                &mut action_dispatcher,
+            )?;
 
             // Execute active non-subroutine groups.
-            let mut group_opt = script_list.first_group.as_deref_mut();
-            while let Some(group) = group_opt {
-                if group.is_group_active && !group.is_group_subroutine {
-                    if let Some(script_head) = group.first_script.as_deref_mut() {
-                        self.execute_scripts(
-                            script_head,
-                            &mut condition_evaluator,
-                            &mut action_dispatcher,
-                        )?;
-                    }
+            let mut group_index = 0;
+            while let Some((is_active, is_subroutine)) = self.group_state_at(GroupLocation {
+                side_index: i,
+                group_index,
+            }) {
+                if is_active && !is_subroutine {
+                    self.execute_non_subroutine_scripts_in_container(
+                        i,
+                        ScriptContainer::Group(group_index),
+                        &mut condition_evaluator,
+                        &mut action_dispatcher,
+                    )?;
                 }
-                group_opt = group.next_group.as_deref_mut();
+                group_index += 1;
             }
-
-            self.lock_inner_mut().side_script_lists[i] = Some(script_list);
         }
 
         self.lock_inner_mut().current_player = None;
-        Ok(())
-    }
-
-    fn execute_scripts(
-        &self,
-        script_head: &mut Script,
-        condition_evaluator: &mut crate::scripting::executor::ScriptConditionEvaluator,
-        action_dispatcher: &mut crate::scripting::executor::ScriptActionDispatcher,
-    ) -> GameLogicResult<()> {
-        let mut cur: Option<&mut Script> = Some(script_head);
-        while let Some(script) = cur {
-            if !script.is_subroutine {
-                self.execute_script(script, condition_evaluator, action_dispatcher)?;
-            }
-            cur = script.next_script.as_deref_mut();
-        }
         Ok(())
     }
 

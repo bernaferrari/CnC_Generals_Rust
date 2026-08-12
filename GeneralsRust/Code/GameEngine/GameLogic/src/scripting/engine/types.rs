@@ -792,6 +792,10 @@ pub struct ScriptStats {
 /// `RefCell` enforces exclusive/shared borrows; `with_inner` cannot alias a
 /// live `lock_inner_mut` (that used to be a comment-only rule over `UnsafeCell`).
 pub struct ScriptEngine {
+    /// Stable identity for lexical active-list ownership.  Unlike the old TLS
+    /// raw pointer this is never dereferenced; it only prevents a nested,
+    /// different `ScriptEngine` from borrowing the outer engine's lists.
+    instance_id: u64,
     inner: std::cell::RefCell<ScriptEngineInner>,
 }
 
@@ -988,6 +992,173 @@ lazy_static::lazy_static! {
 // immediately; we retain that order rather than queueing work.
 scoped_tls::scoped_thread_local!(static ACTIVE_SCRIPT_ENGINE: ScriptEngine);
 
+/// A location in the C++ `ScriptList` linked-list layout.  Keeping the
+/// location rather than a pointer lets a script be removed temporarily while
+/// its action chain is dispatched, then reinserted at exactly the same spot.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ScriptLocation {
+    side_index: usize,
+    container: ScriptContainer,
+    script_index: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ScriptContainer {
+    Root,
+    Group(usize),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct GroupLocation {
+    side_index: usize,
+    group_index: usize,
+}
+
+/// Metadata retained while a Script is detached for immediate execution.
+/// The script itself remains owned by the executing stack frame, so this
+/// record never manufactures a second mutable reference to it.
+#[derive(Debug)]
+struct ExecutingScript {
+    location: ScriptLocation,
+    name: String,
+    is_subroutine: bool,
+}
+
+/// Lexically owned copy of every side's ScriptList during script execution.
+///
+/// C++ searches all side lists while an action is running.  Moving every list
+/// into this scoped store keeps that lookup visible without holding a
+/// `RefCell` borrow across `ScriptActionDispatcher::execute_action`.
+#[derive(Debug)]
+struct ActiveScriptLists {
+    owner_id: u64,
+    lists: Vec<Option<Box<ScriptList>>>,
+    executing_scripts: Vec<ExecutingScript>,
+    executing_groups: Vec<GroupLocation>,
+}
+
+/// Result of an exact C++ `findGroup` then `findScript` lookup.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SubroutineLookup {
+    Group {
+        location: GroupLocation,
+        is_subroutine: bool,
+        is_active: bool,
+    },
+    Script {
+        location: ScriptLocation,
+        is_subroutine: bool,
+    },
+    /// The matching script is currently executing in this immediate call
+    /// stack.  It is deliberately distinguished from `Missing`: C++ would
+    /// recurse through the same object, which cannot be represented with two
+    /// safe mutable borrows of this linked-list node.
+    ReentrantScript {
+        location: ScriptLocation,
+        is_subroutine: bool,
+    },
+    Missing,
+}
+
+// The active list store is lexical just like the active engine. Nested calls
+// for the same engine share this store; a different engine installs its own
+// nested store and restores the outer one automatically.
+scoped_tls::scoped_thread_local!(static ACTIVE_SCRIPT_LISTS: std::cell::RefCell<ActiveScriptLists>);
+
+/// Restores all side-list ownership even when a script action unwinds.  The
+/// invariants are deliberately narrow: all list borrows and detached-script
+/// guards must be dropped before this guard, and neither may span dispatch.
+struct ActiveScriptListsRestore<'a> {
+    engine: &'a ScriptEngine,
+    active_lists: &'a std::cell::RefCell<ActiveScriptLists>,
+}
+
+/// Temporarily owns one executing Script.  Dropping it reinstalls the node at
+/// the original linked-list position before its enclosing list store restores
+/// to `ScriptEngineInner`.
+struct DetachedScript<'a> {
+    active_lists: &'a std::cell::RefCell<ActiveScriptLists>,
+    location: ScriptLocation,
+    script: Option<Box<Script>>,
+}
+
+impl<'a> DetachedScript<'a> {
+    fn take(
+        active_lists: &'a std::cell::RefCell<ActiveScriptLists>,
+        location: ScriptLocation,
+    ) -> Option<Self> {
+        let mut active_lists_mut = active_lists.borrow_mut();
+        let script = ScriptEngine::take_script_at_location(&mut active_lists_mut, location)?;
+        let executing = ExecutingScript {
+            location,
+            name: script.script_name.clone(),
+            is_subroutine: script.is_subroutine,
+        };
+        active_lists_mut.executing_scripts.push(executing);
+        drop(active_lists_mut);
+        Some(Self {
+            active_lists,
+            location,
+            script: Some(script),
+        })
+    }
+
+    fn script_mut(&mut self) -> &mut Script {
+        self.script
+            .as_deref_mut()
+            .expect("DetachedScript always owns its Script until Drop")
+    }
+}
+
+impl Drop for DetachedScript<'_> {
+    fn drop(&mut self) {
+        let Some(script) = self.script.take() else {
+            return;
+        };
+        let mut active_lists = self.active_lists.borrow_mut();
+        if !ScriptEngine::restore_script_at_location(&mut active_lists, self.location, script) {
+            // Replacing/clearing a side list while one of its scripts is on the
+            // native-style execution stack is invalid in C++ as well.  Keep it
+            // loud rather than pretending the script was never present.
+            log::error!(
+                "lost detached Script at side {}, location {:?} while restoring immediate execution",
+                self.location.side_index,
+                self.location
+            );
+        }
+        active_lists
+            .executing_scripts
+            .retain(|executing| executing.location != self.location);
+    }
+}
+
+/// Marks a subroutine group as executing without borrowing the group over an
+/// action dispatch.  A nested call to that exact group is reported explicitly
+/// instead of being accidentally invisible.
+struct ExecutingGroupGuard<'a> {
+    active_lists: &'a std::cell::RefCell<ActiveScriptLists>,
+    location: GroupLocation,
+}
+
+impl Drop for ExecutingGroupGuard<'_> {
+    fn drop(&mut self) {
+        self.active_lists
+            .borrow_mut()
+            .executing_groups
+            .retain(|location| *location != self.location);
+    }
+}
+
+impl Drop for ActiveScriptListsRestore<'_> {
+    fn drop(&mut self) {
+        let lists = std::mem::take(&mut self.active_lists.borrow_mut().lists);
+        self.engine.lock_inner_mut().side_script_lists = lists;
+    }
+}
+
+static NEXT_SCRIPT_ENGINE_INSTANCE_ID: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(1);
+
 thread_local! {
     /// Depth of nested CALL_SUBROUTINE / execute_subroutine_by_name on this thread.
     /// Campaign random-number scripts can re-enter; unbounded nesting hangs the host.
@@ -1030,6 +1201,53 @@ impl ScriptEngine {
     /// `scoped_tls` restores an outer active engine even if `f` panics.
     fn with_active<R>(&self, f: impl FnOnce() -> R) -> R {
         ACTIVE_SCRIPT_ENGINE.set(self, f)
+    }
+
+    /// Run a short, non-dispatching operation against this engine's lexical
+    /// side-list store, if one is active.  The closure must return an owned
+    /// result; its `RefCell` borrow never crosses an action dispatch.
+    fn with_current_active_script_lists<R>(
+        &self,
+        f: impl FnOnce(&mut ActiveScriptLists) -> R,
+    ) -> Option<R> {
+        if !ACTIVE_SCRIPT_LISTS.is_set() {
+            return None;
+        }
+        ACTIVE_SCRIPT_LISTS.with(|active_lists| {
+            let mut active_lists = active_lists.borrow_mut();
+            (active_lists.owner_id == self.instance_id).then(|| f(&mut active_lists))
+        })
+    }
+
+    /// Move all side lists into lexical storage for an immediate action stack.
+    /// Nested calls on this engine reuse the existing store, so C++ global
+    /// `findGroup` / `findScript` ordering remains observable at every depth.
+    fn with_active_script_lists<R>(&self, f: impl FnOnce() -> R) -> R {
+        if self
+            .with_current_active_script_lists(|_active_lists| ())
+            .is_some()
+        {
+            return f();
+        }
+
+        let lists = {
+            let mut inner = self.lock_inner_mut();
+            std::mem::take(&mut inner.side_script_lists)
+        };
+        let active_lists = std::cell::RefCell::new(ActiveScriptLists {
+            owner_id: self.instance_id,
+            lists,
+            executing_scripts: Vec::new(),
+            executing_groups: Vec::new(),
+        });
+
+        ACTIVE_SCRIPT_LISTS.set(&active_lists, || {
+            let _restore = ActiveScriptListsRestore {
+                engine: self,
+                active_lists: &active_lists,
+            };
+            f()
+        })
     }
 }
 

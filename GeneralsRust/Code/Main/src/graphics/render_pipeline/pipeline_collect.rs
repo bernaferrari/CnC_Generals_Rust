@@ -107,10 +107,11 @@ impl RenderPipeline {
                 crate::assets::mesh_asset_resolve::mesh_scale_for_unit(&u.template_name);
             let world_matrix = gameplay_to_render_transform(u.world_matrix())
                 * Mat4::from_scale(Vec3::splat(mesh_scale.max(0.01)));
-            // Wave 491: mesh pass honors sold model-condition residual from presentation.
-            // Wave 495: stamp moving/attacking/firing bits then honor sold residual.
-            // Wave 496: stamp production-door phase bits into model-condition bank.
-            // Wave 497: full stamped bits + body damage drive mesh key variants.
+            // Presentation has already selected the exact source-authored
+            // ConditionState model.  Keep the frozen bit bank for animation
+            // selection, but never run a second suffix-based mesh selection
+            // here: doing so can turn an exact damaged/construction W3D key
+            // back into a guessed variant.
             // Wave 501: deployed + radar dish bits included in stamp helper.
             // Wave 503: construction scaffold bits included in stamp helper.
             // Wave 504: GARRISONED bit included in stamp helper.
@@ -126,20 +127,7 @@ impl RenderPipeline {
             // Wave 515: RAISING_FLAG (surrendered) bit included in stamp helper.
             let model_bits = u.model_condition_bits_with_combat_flags();
             let _ = u.model_condition_bits; // residual source marker (bits via stamp helper)
-            let sold_for_mesh =
-                crate::game_logic::host_enum_table_residual::host_model_condition_has(
-                    model_bits,
-                    crate::game_logic::host_enum_table_residual::sold_model_bit(),
-                );
-            let _combat_model_bits = model_bits; // residual: combat/door bits available for mesh variants
-            let model_name_owned =
-                crate::assets::mesh_asset_resolve::model_key_with_presentation_conditions(
-                    &u.model_key,
-                    u.body_damage_state,
-                    false,
-                    model_bits,
-                );
-            let _sold_for_mesh = sold_for_mesh; // residual: sold still derived for honesty
+            let model_name_owned = u.model_key.clone();
             let template_name_owned = u.template_name.clone();
             let selection_radius = u.selection_radius;
             let model_hint_owned = Some(model_name_owned.clone());
@@ -149,6 +137,13 @@ impl RenderPipeline {
             let team_color = u.team_color;
 
             alive_objects += 1;
+
+            if model_name_owned.trim().is_empty() {
+                // Source selection deliberately suppressed this state.  It is
+                // not a missing template that may borrow a pristine cache.
+                model_missing += 1;
+                continue;
+            }
 
             // FOW never-explored skip: presentation path uses snapshot only.
             // Wave 213: unit inputs always carry presentation FOW snapshot.
@@ -575,9 +570,11 @@ impl RenderPipeline {
     ) -> (Vec3, f32) {
         let mut model_bounds = self.model_cull_bounds_cache.get(model_name).copied();
         if model_bounds.is_none() {
-            let source = graphics_system
-                .get_model(model_name)
-                .or_else(|| graphics_system.get_model(template_name));
+            // Bounds are cached under the resolved presentation model.  Using
+            // a pristine template cache entry here would make a damaged or
+            // construction state inherit the wrong cull sphere before its
+            // exact mesh is loaded.
+            let source = graphics_system.get_model(model_name);
             if let Some(model) = source {
                 model_bounds = Self::model_local_cull_bounds(model.as_ref());
                 if let Some(bounds) = model_bounds {
@@ -674,8 +671,7 @@ impl RenderPipeline {
         deferred_model_load_budget: &mut usize,
     ) -> RenderModelLoadResult {
         use crate::assets::mesh_asset_resolve::{
-            remap_model_key_alias, resolve_mesh_for_model_key, MeshResolveResult,
-            PLACEHOLDER_MODEL_KEY,
+            canonical_model_key, resolve_mesh_for_model_key, MeshResolveResult, PLACEHOLDER_MODEL_KEY,
         };
 
         static STARTUP_MODEL_TRACE_COUNT: AtomicUsize = AtomicUsize::new(0);
@@ -686,8 +682,13 @@ impl RenderPipeline {
                 })
                 .is_ok();
 
-        // Canonical key from presentation model_key / get_model_name (airanger → airanger_s).
-        let resolved_key = remap_model_key_alias(model_name);
+        // `model_name` is an opaque, already-selected presentation key.  Only
+        // normalize its filename spelling; never remap it through a template
+        // alias or condition suffix table at render time.
+        let resolved_key = canonical_model_key(model_name);
+        if resolved_key.is_empty() {
+            return RenderModelLoadResult::Failed;
+        }
 
         if let Some(model) = graphics_system.get_model(&resolved_key).cloned() {
             if trace_this_attempt {
@@ -704,19 +705,6 @@ impl RenderPipeline {
                 return RenderModelLoadResult::Ready(model);
             }
         }
-        if let Some(model) = graphics_system.get_model(template_name).cloned() {
-            if resolved_key != template_name {
-                graphics_system.cache_model(resolved_key.clone(), model.as_ref().clone());
-            }
-            if trace_this_attempt {
-                info!(
-                    "Startup model load: cache hit template='{}' model='{}' (aliased from template cache)",
-                    template_name, resolved_key
-                );
-            }
-            return RenderModelLoadResult::Ready(model);
-        }
-
         if !allow_sync_model_loads && *deferred_model_load_budget == 0 {
             if trace_this_attempt {
                 info!(
@@ -731,16 +719,13 @@ impl RenderPipeline {
             *deferred_model_load_budget -= 1;
         }
 
-        let mut requested_model_name = resolved_key.clone();
+        let requested_model_name = resolved_key.clone();
         if let Some(asset_manager_arc) = crate::assets::get_asset_manager() {
             let loaded_model = match asset_manager_arc.lock() {
                 Ok(mut asset_manager) => {
-                    if let Some(mapped_name) = asset_manager.get_model_for_object(template_name) {
-                        requested_model_name = remap_model_key_alias(&mapped_name);
-                    }
                     if trace_this_attempt {
                         info!(
-                            "Startup model load: template='{}' model='{}' requested='{}'",
+                            "Startup model load: template='{}' exact_model='{}' requested='{}'",
                             template_name, model_name, requested_model_name
                         );
                     }
@@ -779,12 +764,6 @@ impl RenderPipeline {
                 if requested_model_name != model_name {
                     graphics_system.cache_model(model_name.to_string(), model.clone());
                 }
-                if template_name != requested_model_name
-                    && template_name != model_name
-                    && template_name != resolved_key
-                {
-                    graphics_system.cache_model(template_name.to_string(), model);
-                }
                 if trace_this_attempt {
                     info!(
                         "Startup model load: success template='{}' requested='{}'",
@@ -801,17 +780,9 @@ impl RenderPipeline {
                 graphics_system.cache_model(resolved_key.clone(), model.as_ref().clone());
             }
             Some(model)
-        } else if let Some(model) = graphics_system.get_model(template_name).cloned() {
-            if resolved_key != template_name {
-                graphics_system.cache_model(resolved_key.clone(), model.as_ref().clone());
-            }
-            Some(model)
         } else if let Some(model) = graphics_system.get_model(&requested_model_name).cloned() {
             if requested_model_name != resolved_key {
                 graphics_system.cache_model(resolved_key.clone(), model.as_ref().clone());
-            }
-            if requested_model_name != template_name {
-                graphics_system.cache_model(template_name.to_string(), model.as_ref().clone());
             }
             Some(model)
         } else {
@@ -835,8 +806,8 @@ impl RenderPipeline {
                     if model_key != model_name {
                         graphics_system.cache_model(model_name.to_string(), model.clone());
                     }
-                    if model_key != template_name {
-                        graphics_system.cache_model(template_name.to_string(), model.clone());
+                    if model_key != resolved_key {
+                        graphics_system.cache_model(resolved_key.clone(), model.clone());
                     }
                     Some(std::sync::Arc::new(model))
                 }

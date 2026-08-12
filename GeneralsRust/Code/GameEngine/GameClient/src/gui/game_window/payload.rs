@@ -204,18 +204,6 @@ pub fn with_payload_mut<R>(
     (result, pop_payload(token))
 }
 
-/// FFI escape hatch: encode a raw pointer as integer message data.
-///
-/// This does **not** register a typed payload token. Handlers never dereference
-/// this value. Safe gadget code must use [`push_payload`] / [`with_payload`].
-/// Not part of the public GUI API — leftover C++ `WindowMsgData = UnsignedInt`
-/// pointer packing stays crate-private.
-#[inline]
-#[allow(dead_code)]
-pub(crate) unsafe fn window_msg_from_raw_ptr<T>(ptr: *const T) -> WindowMsgData {
-    ptr as usize
-}
-
 pub(crate) fn write_bool_payload(data: WindowMsgData, value: bool) -> bool {
     replace_payload(data, WindowMsgPayload::Bool(value))
 }

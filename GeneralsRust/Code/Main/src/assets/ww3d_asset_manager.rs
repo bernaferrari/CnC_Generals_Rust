@@ -9,7 +9,9 @@
 // Reference: /GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/assetmgr.cpp
 
 use crate::assets::archive::ArchiveFileSystem;
-use crate::assets::ini_parser::{IniParser, ObjectDefinition};
+use crate::assets::ini_parser::{
+    AuthoredConditionModelSelection, IniParser, ObjectDefinition,
+};
 use anyhow::Result;
 use log::{debug, info, warn};
 use std::collections::{HashMap, HashSet};
@@ -207,6 +209,13 @@ impl WW3DAssetManager {
         if child.draw_module.is_some() {
             parent.draw_module = child.draw_module;
         }
+        // C++ ObjectReskin/ChildObject draw data replaces the inherited module
+        // only when the child actually declares Draw data.  Do not merge
+        // unrelated state lists: that would fabricate a hybrid model table
+        // which never existed in the Object INIs.
+        if !child.draw_modules.is_empty() {
+            parent.draw_modules = child.draw_modules;
+        }
         if child.armor_type.is_some() {
             parent.armor_type = child.armor_type;
         }
@@ -271,6 +280,19 @@ impl WW3DAssetManager {
 
         self.resolve_object_definition(object_name, None)
             .and_then(|def| def.model_name.clone())
+    }
+
+    /// Select an exact source-authored model for the supplied C++
+    /// ModelConditionFlags bit bank.  `None` means this Object identity is not
+    /// present in the loaded catalogue; callers may then keep their separately
+    /// authored template model, but must never synthesize a suffix variant.
+    pub fn select_model_for_object_conditions(
+        &self,
+        object_name: &str,
+        condition_bits: u128,
+    ) -> Option<AuthoredConditionModelSelection> {
+        self.resolve_object_definition(object_name, None)
+            .map(|definition| definition.select_primary_model_for_conditions(condition_bits))
     }
 
     /// Get the full object definition

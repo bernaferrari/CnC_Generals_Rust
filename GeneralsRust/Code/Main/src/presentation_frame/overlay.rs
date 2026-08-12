@@ -183,12 +183,19 @@ impl PresentationFrame {
                 obj.building_type = building_type;
                 dirty = true;
             }
-            // Mesh identity residual (model_key / scale) — no live template dual-read.
-            let model_key = if ent.model_key.is_empty() {
-                None
-            } else {
-                Some(ent.model_key.clone())
-            };
+            // Resolve by exact Object INI identity plus the GameWorld-frozen
+            // condition bank.  Do not carry an older pristine `model_key`
+            // over a damaged/construction state, and do not synthesize a
+            // suffix after the source state resolver has chosen a model.
+            let fallback_model_key = crate::assets::mesh_asset_resolve::model_key_from_presentation(
+                (!ent.model_key.is_empty()).then_some(ent.model_key.as_str()),
+                &ent.template.name,
+            );
+            let model_key = crate::assets::resolve_presentation_model_key_for_conditions(
+                &ent.template.name,
+                &fallback_model_key,
+                ent.model_condition_bits,
+            );
             if obj.model_key != model_key {
                 obj.model_key = model_key;
                 dirty = true;
@@ -1076,6 +1083,10 @@ impl PresentationFrame {
                     KindOf::FSAdvancedTech,
                     KindOf::Harvestable,
                     KindOf::Powered,
+                    KindOf::IgnoredInGui,
+                    // Must remain aligned with Object::presentation_kind_of_bits.
+                    KindOf::Dozer,
+                    KindOf::Harvester,
                 ];
                 let mut v: Vec<KindOf> = ORDER
                     .iter()
@@ -1217,6 +1228,10 @@ impl PresentationFrame {
             KindOf::FSAdvancedTech,
             KindOf::Harvestable,
             KindOf::Powered,
+            KindOf::IgnoredInGui,
+            // Must remain aligned with Object::presentation_kind_of_bits.
+            KindOf::Dozer,
+            KindOf::Harvester,
         ];
         let mut out = Vec::new();
         for (i, k) in ORDER.iter().enumerate() {
@@ -1558,25 +1573,20 @@ impl PresentationFrame {
             can_produce: ent.is_building && !ent.under_construction,
             // Wave 490: building type from GW entity ordinal.
             building_type: PresentationBuildingType::from_ordinal(ent.building_type_ordinal),
-            // Wave 491: body damage + sold → mesh key (not bare template name).
+            // GameWorld-primary path: select the exact source-authored Draw
+            // state by Object identity.  `model_key` remains opaque after
+            // this point; later presentation/render code must not apply a
+            // suffix-based second selection.
             model_key: {
-                let base = crate::assets::mesh_asset_resolve::model_key_from_presentation(
-                    Some(ent.template.name.as_str()),
-                    &ent.template.name,
-                );
-                let dying = ent.destroyed || ent.health <= 0.0;
-                let sold = ent.sold
-                    || crate::game_logic::host_enum_table_residual::host_model_condition_has(
-                        ent.model_condition_bits,
-                        crate::game_logic::host_enum_table_residual::sold_model_bit(),
+                let fallback_model_key =
+                    crate::assets::mesh_asset_resolve::model_key_from_presentation(
+                        Some(ent.template.name.as_str()),
+                        &ent.template.name,
                     );
-                Some(
-                    crate::assets::mesh_asset_resolve::model_key_with_presentation_state(
-                        &base,
-                        ent.body_damage_state,
-                        dying,
-                        sold,
-                    ),
+                crate::assets::resolve_presentation_model_key_for_conditions(
+                    &ent.template.name,
+                    &fallback_model_key,
+                    ent.model_condition_bits,
                 )
             },
             // Wave 492: mesh scale + FOW from GW entity residual (not hard defaults).

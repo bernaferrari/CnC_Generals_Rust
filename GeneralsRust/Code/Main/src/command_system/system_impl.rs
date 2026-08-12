@@ -1041,17 +1041,17 @@ impl CommandSystem {
         if !hint.is_alive {
             return None;
         }
-        let any_worker = || {
+        let any_resource_collector = || {
             if !selected_presentation.is_empty() {
                 return selected_presentation
                     .iter()
-                    .any(|u| u.is_alive && u.is_worker);
+                    .any(|u| u.is_alive && u.is_resource_collector);
             }
-            // Wave 244: boot residual via unit probes (no get_object dual-read).
+            // Boot residual via unit probes (no get_object dual-read).
             game_logic.is_some_and(|gl| {
-                units
-                    .iter()
-                    .any(|&unit_id| gl.unit_is_alive(unit_id) && gl.unit_is_worker(unit_id))
+                units.iter().any(|&unit_id| {
+                    gl.unit_is_alive(unit_id) && gl.unit_is_resource_collector(unit_id)
+                })
             })
         };
         let any_attacker = || {
@@ -1107,7 +1107,7 @@ impl CommandSystem {
 
         // Gather
         // Wave 1099: sold residual fail-closed on gather target.
-        if hint.is_resource && !hint.sold && any_worker() {
+        if hint.is_resource && !hint.sold && any_resource_collector() {
             return Some(CommandType::Gather { target_id });
         }
         // Capture neutral structure
@@ -1215,7 +1215,7 @@ impl CommandSystem {
             return false;
         };
         for &unit_id in units {
-            if game_logic.unit_is_worker(unit_id)
+            if game_logic.unit_is_resource_collector(unit_id)
                 && game_logic.unit_is_alive(unit_id)
                 && game_logic.unit_can_move(unit_id)
                 && game_logic

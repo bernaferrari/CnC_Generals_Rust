@@ -197,6 +197,11 @@ fn write_kind_of_variant(kind_of: KindOf) -> u8 {
         KindOf::ArmorSalvager => 37,
         KindOf::WaveGuide => 38,
         KindOf::IgnoredInGui => 39,
+        // Append-only Main save identifiers.  They retain the C++ semantic
+        // KindOf ordinals (DOZER=12, HARVESTER=13) without changing any
+        // existing on-disk Main mapping above.
+        KindOf::Dozer => 40,
+        KindOf::Harvester => 41,
     }
 }
 
@@ -242,6 +247,8 @@ fn read_kind_of_variant(variant: u8) -> SaveLoadResult<KindOf> {
         37 => Ok(KindOf::ArmorSalvager),
         38 => Ok(KindOf::WaveGuide),
         39 => Ok(KindOf::IgnoredInGui),
+        40 => Ok(KindOf::Dozer),
+        41 => Ok(KindOf::Harvester),
         _ => Err(SaveLoadError::Corrupted(format!(
             "Invalid KindOf variant: {variant}"
         ))),

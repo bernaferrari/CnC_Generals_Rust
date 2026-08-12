@@ -88,6 +88,9 @@ impl Object {
             KindOf::Harvestable,
             KindOf::Powered,
             KindOf::IgnoredInGui,
+            // Appended to preserve every pre-existing presentation bit index.
+            KindOf::Dozer,
+            KindOf::Harvester,
         ];
         let set = &self.get_template().kind_of;
         let mut bits = 0u32;

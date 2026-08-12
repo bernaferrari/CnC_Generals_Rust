@@ -164,10 +164,11 @@ pub struct UnitRenderInput {
 
 impl UnitRenderInput {
     pub fn from_renderable(ro: &RenderableObject) -> Self {
-        let model_key = ro
-            .model_key
-            .clone()
-            .unwrap_or_else(|| ro.template_name.clone());
+        // `None` is an intentional fail-closed result from the retained
+        // Object INI ConditionState table (for example `Model = None` or an
+        // unsupported source token).  Do not turn it back into a bare
+        // template name here; that would render a pristine proxy instead.
+        let model_key = ro.model_key.clone().unwrap_or_default();
         Self {
             id: ro.id,
             template_name: ro.template_name.clone(),

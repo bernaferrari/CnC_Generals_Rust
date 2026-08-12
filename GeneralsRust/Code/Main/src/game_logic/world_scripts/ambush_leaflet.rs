@@ -874,6 +874,16 @@ impl GameLogic {
         self.objects.get(&id).is_some_and(|o| o.is_worker())
     }
 
+    /// C++ `KINDOF_HARVESTER` probe used by the Gather authority path.
+    /// Keep it distinct from the builder/worker probe above: a Dozer can
+    /// construct or repair without being allowed to collect resources.
+    #[inline]
+    pub fn unit_is_resource_collector(&self, id: ObjectId) -> bool {
+        self.objects
+            .get(&id)
+            .is_some_and(|o| o.is_resource_collector())
+    }
+
     /// Wave 244: repair/dozer probe without exposing `&Object`.
     #[inline]
     pub fn unit_can_repair(&self, id: ObjectId) -> bool {

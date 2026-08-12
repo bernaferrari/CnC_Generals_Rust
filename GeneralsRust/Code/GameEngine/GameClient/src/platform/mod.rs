@@ -15,7 +15,6 @@
 //! * [`wgpu`] for cross-platform graphics.
 //! * [`kira`] for high level audio playback.
 
-use std::mem;
 use std::sync::Arc;
 
 use thiserror::Error;
@@ -51,14 +50,16 @@ pub struct GraphicsContext {
 }
 
 impl GraphicsContext {
-    fn new(window: &Window) -> Result<Self, PlatformError> {
+    fn new(window: Arc<Window>) -> Result<Self, PlatformError> {
         let size = window.inner_size();
 
         let instance = wgpu::Instance::default();
         let surface = instance
+            // Passing an owned window handle makes the surface's lifetime
+            // genuinely `'static`: wgpu retains the Arc for as long as the
+            // surface exists.  Do not fabricate that lifetime from `&Window`.
             .create_surface(window)
             .map_err(|e| PlatformError::DeviceCreation(e.to_string()))?;
-        let surface: wgpu::Surface<'static> = unsafe { mem::transmute(surface) };
         let surface = Arc::new(surface);
 
         let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
@@ -180,7 +181,8 @@ impl AudioContext {
 /// Bundles together the window, graphics, and audio systems.
 pub struct PlatformContext {
     pub event_loop: EventLoop<()>,
-    pub window: Window,
+    /// Kept in an Arc so the WGPU surface can own a clone safely.
+    pub window: Arc<Window>,
     pub graphics: GraphicsContext,
     pub audio: AudioContext,
 }
@@ -190,13 +192,15 @@ impl PlatformContext {
     pub fn new(title: &str, width: u32, height: u32) -> Result<Self, PlatformError> {
         let event_loop =
             EventLoop::new().map_err(|e| PlatformError::WindowCreation(e.to_string()))?;
-        let window = WindowBuilder::new()
-            .with_title(title)
-            .with_inner_size(LogicalSize::new(width as f64, height as f64))
-            .build(&event_loop)
-            .map_err(|e| PlatformError::WindowCreation(e.to_string()))?;
+        let window = Arc::new(
+            WindowBuilder::new()
+                .with_title(title)
+                .with_inner_size(LogicalSize::new(width as f64, height as f64))
+                .build(&event_loop)
+                .map_err(|e| PlatformError::WindowCreation(e.to_string()))?,
+        );
 
-        let graphics = GraphicsContext::new(&window)?;
+        let graphics = GraphicsContext::new(Arc::clone(&window))?;
         let audio = AudioContext::new()?;
 
         Ok(Self {

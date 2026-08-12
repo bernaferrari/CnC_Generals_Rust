@@ -125,6 +125,13 @@ pub enum KindOf {
     AircraftPathAround,
     /// C++ KINDOF_WAVEGUIDE — flood wave objects enabled by DamDie.
     WaveGuide,
+    /// C++ `KINDOF_DOZER` (KindOfType ordinal 12).  Kept distinct from
+    /// `Worker`: a builder is not necessarily a resource collector.
+    Dozer,
+    /// C++ `KINDOF_HARVESTER` (KindOfType ordinal 13).  Retail Chinooks,
+    /// Supply Trucks, and GLA Workers carry this capability and may gather
+    /// supplies; it is not the same as a `Harvestable` supply source.
+    Harvester,
 }
 
 /// Object status flags
