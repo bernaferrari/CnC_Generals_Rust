@@ -233,6 +233,7 @@ pub struct MeshRenderManager {
     empty_vertex_color_buffer: Arc<wgpu::Buffer>,
     decal_queue: Vec<Arc<MeshClass>>,
     fvf_containers: Vec<Arc<DX8FVFCategoryContainer>>,
+    live_csm: crate::rendering::shadow_system::live_cascade_shadow::LiveCascadeShadowMap,
 }
 
 impl MeshRenderManager {
@@ -259,6 +260,10 @@ impl MeshRenderManager {
                 usage: wgpu::BufferUsages::STORAGE,
             },
         ));
+        let live_csm =
+            crate::rendering::shadow_system::live_cascade_shadow::LiveCascadeShadowMap::new(
+                device,
+            );
 
         Self {
             gpu_device,
@@ -273,6 +278,7 @@ impl MeshRenderManager {
             empty_vertex_color_buffer,
             decal_queue: Vec::new(),
             fvf_containers: Vec::new(),
+            live_csm,
         }
     }
 
@@ -611,6 +617,7 @@ impl MeshRenderManager {
             None, // visibility_alpha
             None, // visibility_falloff
             None, // is_explored
+            Some(&self.live_csm),
         )?;
         resources.set_pipeline(render_pass, Arc::clone(&pipeline));
 

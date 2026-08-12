@@ -70,7 +70,7 @@ fn ready_source() -> &'static str {
     include_str!("../host_radar_extend_ready_log.rs")
 }
 fn shadow_source() -> &'static str {
-    include_str!("../../gameworld_shadow.rs")
+    crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC
 }
 pub fn honesty_host_radar_extend_no_dual_complete_method_names_residual_wave744() -> bool {
     let names = LIVE_HOST_RADAR_EXTEND_NO_DUAL_COMPLETE_METHOD_NAMES_WAVE744;

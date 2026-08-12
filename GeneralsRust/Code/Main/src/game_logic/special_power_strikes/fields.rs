@@ -973,4 +973,3 @@ pub struct HostParticleRemnantTickPlan {
     pub position: Vec3,
     pub hits: Vec<HostParticleRemnantDamageHit>,
 }
-

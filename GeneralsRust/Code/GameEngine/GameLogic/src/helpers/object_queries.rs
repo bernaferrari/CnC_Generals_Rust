@@ -100,6 +100,18 @@ impl ThePartitionManager {
             .collect()
     }
 
+    /// C++ `PartitionManager::iteratePotentialCollisions`.
+    /// Uses the query geometry's 2D bounding circle (not the 3D sphere).
+    pub fn iterate_potential_collisions(
+        &self,
+        pos: &Coord3D,
+        geometry: &GeometryInfo,
+        _orientation: Real,
+    ) -> Vec<crate::common::ObjectID> {
+        let radius = geometry.get_bounding_circle_radius().max(1.0);
+        self.get_objects_in_range(pos, radius)
+    }
+
     /// Find a legal position around a point (matching C++ PartitionManager::findPositionAround).
     pub fn find_position_around(
         &self,

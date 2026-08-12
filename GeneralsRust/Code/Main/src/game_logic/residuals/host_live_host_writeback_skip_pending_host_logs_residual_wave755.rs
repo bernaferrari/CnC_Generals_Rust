@@ -67,7 +67,7 @@ pub fn residual_host_writeback_skip_pending_host_logs_last_action(
     ResidualHostWritebackSkipPendingHostLogsAction::from_u8(RESIDUAL_ACTION.load(Ordering::SeqCst))
 }
 fn sh_source() -> &'static str {
-    include_str!("../../gameworld_shadow.rs")
+    crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC
 }
 fn cf_log() -> &'static str {
     include_str!("../host_continuous_fire_log.rs")

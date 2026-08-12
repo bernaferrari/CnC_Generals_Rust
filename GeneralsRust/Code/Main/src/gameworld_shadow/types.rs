@@ -52,4 +52,3 @@ impl GameWorldShadowProbe {
         self.counts_match && self.economy_match && self.health_match
     }
 }
-

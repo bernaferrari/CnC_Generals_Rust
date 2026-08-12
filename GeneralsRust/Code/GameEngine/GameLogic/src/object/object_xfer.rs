@@ -420,6 +420,18 @@ impl Snapshot for Object {
         let _ = xfer.xfer_unsigned_int(&mut self.contained_by_frame);
         let _ = xfer.xfer_real(&mut self.construction_percent);
 
+        // C++ Object::xfer → xferSnapshot(getBodyModule()). ActiveBody writes the payload.
+        if let Some(body) = &self.body {
+            if let Ok(mut body_guard) = body.lock() {
+                if let Err(err) = body_guard.snapshot_xfer(xfer) {
+                    warn!(
+                        "Object::xfer body Snapshot failed for object {}: {}",
+                        self.id, err
+                    );
+                }
+            }
+        }
+
         let mut upgrade_mask_bits = self.object_upgrades_completed.bits();
         xfer_u128_bits(xfer, &mut upgrade_mask_bits);
         self.object_upgrades_completed = UpgradeMaskType::from_bits_retain(upgrade_mask_bits);
@@ -545,6 +557,38 @@ impl Snapshot for Object {
                     let _ = xfer.skip(data_size);
                 }
                 let _ = xfer.end_block();
+            }
+        }
+
+        // C++ helpers sit on m_behaviors and serialize as tagged modules.
+        if let Some(helper) = &self.smc_helper {
+            if let Ok(mut guard) = helper.lock() {
+                if let Err(err) = EngineSnapshotable::xfer(&mut *guard, xfer) {
+                    warn!(
+                        "Object::xfer ObjectSMCHelper failed for object {}: {}",
+                        self.id, err
+                    );
+                }
+            }
+        }
+        if let Some(helper) = &self.status_damage_helper {
+            if let Ok(mut guard) = helper.lock() {
+                if let Err(err) = EngineSnapshotable::xfer(&mut *guard, xfer) {
+                    warn!(
+                        "Object::xfer StatusDamageHelper failed for object {}: {}",
+                        self.id, err
+                    );
+                }
+            }
+        }
+        if let Some(helper) = &self.subdual_damage_helper {
+            if let Ok(mut guard) = helper.lock() {
+                if let Err(err) = EngineSnapshotable::xfer(&mut *guard, xfer) {
+                    warn!(
+                        "Object::xfer SubdualDamageHelper failed for object {}: {}",
+                        self.id, err
+                    );
+                }
             }
         }
 

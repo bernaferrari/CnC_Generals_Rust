@@ -20,7 +20,6 @@ use glam::Vec3;
 use log::{debug, warn};
 use std::collections::{HashMap, HashSet};
 
-
 impl<'a> CommandExecutor<'a> {
     /// Direct camera jump to requested radar location (e.g., from replay/HUD ping).
     pub(super) fn execute_view_radar_at(&mut self, position: Vec3) -> CommandResult {

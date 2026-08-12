@@ -110,8 +110,9 @@ fn fn_body<'a>(src: &'a str, name: &str) -> Option<&'a str> {
 
 /// Source residual: A10 strike empty dual-world short-circuits.
 pub fn honesty_a10_strike_dual_world_empty_gate_source() -> bool {
-    let g =
-        include_str!("../../../../GameEngine/GameLogic/src/special_power_module/a10_strike_power.rs");
+    let g = include_str!(
+        "../../../../GameEngine/GameLogic/src/special_power_module/a10_strike_power.rs"
+    );
     if !(g.contains("Wave 330")
         && g.contains("fn dual_world_registry_unavailable")
         && g.contains("OBJECT_REGISTRY.is_empty()"))

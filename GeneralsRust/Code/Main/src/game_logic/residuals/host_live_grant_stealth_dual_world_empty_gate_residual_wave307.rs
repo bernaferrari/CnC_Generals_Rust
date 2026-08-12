@@ -111,8 +111,9 @@ fn fn_body<'a>(src: &'a str, name: &str) -> Option<&'a str> {
 
 /// Source residual: grant stealth empty dual-world short-circuits.
 pub fn honesty_grant_stealth_dual_world_empty_gate_source() -> bool {
-    let g =
-        include_str!("../../../../GameEngine/GameLogic/src/object/behavior/grant_stealth_behavior.rs");
+    let g = include_str!(
+        "../../../../GameEngine/GameLogic/src/object/behavior/grant_stealth_behavior.rs"
+    );
     if !(g.contains("Wave 307")
         && g.contains("fn dual_world_registry_unavailable")
         && g.contains("OBJECT_REGISTRY.is_empty()"))

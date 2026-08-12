@@ -205,57 +205,56 @@
 //! not full SpectreGunshipUpdate OCL aircraft / HazardousMaterialArmor cleanup
 //! stack / SupW ThingFactory Object.
 
-
 use crate::command_system::SpecialPowerType;
 use crate::game_logic::ObjectId;
 use glam::Vec3;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-mod types;
-mod radiation;
-mod toxin;
-mod spectre;
-mod particle_uplink;
-mod carpet_bomb;
-mod artillery_barrage;
-mod cruise_missile;
 mod a10_strike;
-mod scud_storm;
-mod spectre_science;
-mod superweapon_kind;
-mod strike;
+mod artillery_barrage;
+mod carpet_bomb;
+mod cruise_missile;
 mod fields;
 mod honesty;
+mod particle_uplink;
+mod radiation;
 mod registry;
-mod registry_impact;
 mod registry_fields;
 mod registry_honesty;
+mod registry_impact;
+mod scud_storm;
+mod spectre;
+mod spectre_science;
+mod strike;
+mod superweapon_kind;
+mod toxin;
+mod types;
 
-pub use types::{duration_ms_to_logic_frames, lifetime_update_fixed_frames, SP_LOGIC_FPS};
-pub(crate) use types::horizontal_distance;
-pub use radiation::*;
-pub use toxin::*;
-pub use spectre::*;
-pub use particle_uplink::*;
-pub use carpet_bomb::*;
-pub use artillery_barrage::*;
-pub use cruise_missile::*;
 pub use a10_strike::*;
-pub use scud_storm::*;
-pub use spectre_science::*;
-pub use superweapon_kind::*;
-pub use strike::*;
+pub use artillery_barrage::*;
+pub use carpet_bomb::*;
+pub use cruise_missile::*;
 pub use fields::*;
 pub use honesty::*;
+pub use particle_uplink::*;
+pub use radiation::*;
 pub use registry::*;
-pub use registry_impact::*;
 pub use registry_fields::*;
 pub use registry_honesty::*;
+pub use registry_impact::*;
+pub use scud_storm::*;
+pub use spectre::*;
+pub use spectre_science::*;
+pub use strike::*;
+pub use superweapon_kind::*;
+pub use toxin::*;
+pub(crate) use types::horizontal_distance;
+pub use types::{duration_ms_to_logic_frames, lifetime_update_fixed_frames, SP_LOGIC_FPS};
 
 #[cfg(test)]
 mod tests_core;
 #[cfg(test)]
-mod tests_residuals;
-#[cfg(test)]
 mod tests_honesty;
+#[cfg(test)]
+mod tests_residuals;

@@ -1,14 +1,7 @@
 //! .wnd parse helpers: path resolve, style/widget mapping, text/tooltip apply.
 #![allow(unused_imports)]
 
-use std::cell::{Cell, RefCell};
-use std::collections::{HashMap, VecDeque};
-use std::fs;
-use std::path::{Path, PathBuf};
-use std::rc::{Rc, Weak};
-use std::sync::atomic::{AtomicI32, Ordering};
-use std::sync::Arc;
-use std::time::Instant;
+use crate::game_text::GameText;
 use crate::gui::gadgets::{
     CheckBox, ComboBox, HorizontalSlider, ListBox, ProgressBar, PushButton, RadioButton,
     RadioButtonGroup, StaticText, TabControl, TextEntry, VerticalSlider,
@@ -18,7 +11,14 @@ use crate::gui::window_script::{
     parse_window_script, TabControlData as ScriptTabControlData, WindowDefinition,
     WindowLayoutDefinition,
 };
-use crate::game_text::GameText;
+use std::cell::{Cell, RefCell};
+use std::collections::{HashMap, VecDeque};
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::rc::{Rc, Weak};
+use std::sync::atomic::{AtomicI32, Ordering};
+use std::sync::Arc;
+use std::time::Instant;
 
 use super::*;
 
@@ -48,6 +48,18 @@ pub(crate) fn resolve_window_script_path(filename: &str) -> WindowResult<PathBuf
                 base.join("windows_game/extracted_big_files/WindowZH/Window/Menus")
                     .join(filename),
             );
+            if let Some(bare) = filename.rsplit(['/', '\\']).next() {
+                if bare != filename {
+                    candidates.push(
+                        base.join("windows_game/extracted_big_files_v2/WindowZH/Window/Menus")
+                            .join(bare),
+                    );
+                    candidates.push(
+                        base.join("windows_game/extracted_big_files/WindowZH/Window/Menus")
+                            .join(bare),
+                    );
+                }
+            }
         }
     }
     candidates

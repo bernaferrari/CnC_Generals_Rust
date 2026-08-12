@@ -1,6 +1,4 @@
 use super::*;
-use std::error::Error;
-use std::sync::Arc;
 use crate::display::image::{ensure_client_mapped_image, get_mapped_image_collection};
 use crate::display::view::{with_tactical_view_ref, Point3};
 use crate::draw_group_info::get_draw_group_info;
@@ -26,6 +24,8 @@ use gamelogic::helpers::{BoneOverrideState, ModelDrawState, TheGameClient};
 use gamelogic::object::registry::OBJECT_REGISTRY;
 use gamelogic::player::{Player, NO_HOTKEY_SQUAD, NUM_HOTKEY_SQUADS};
 use parking_lot::Mutex;
+use std::error::Error;
+use std::sync::Arc;
 
 impl BasicDrawable {
     // -----------------------------------------------------------------------

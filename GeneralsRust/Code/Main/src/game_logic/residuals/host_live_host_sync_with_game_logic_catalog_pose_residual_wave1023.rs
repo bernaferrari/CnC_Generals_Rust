@@ -45,13 +45,13 @@ fn residual_action_store(a: ResidualHostSyncWithGameLogicCatalogPoseResidualActi
 }
 
 fn cnc_source() -> &'static str {
-    include_str!("../../cnc_game_engine.rs")
+    crate::cnc_game_engine::ENGINE_SRC
 }
 fn gl_source() -> &'static str {
     include_str!("../game_logic.rs")
 }
 fn gc_source() -> &'static str {
-    include_str!("../../../../GameEngine/GameClient/src/core/game_client.rs")
+    game_client::core::game_client::GAME_CLIENT_SRC
 }
 
 pub fn honesty_host_sync_with_game_logic_catalog_pose_residual_method_names_residual_wave1023(

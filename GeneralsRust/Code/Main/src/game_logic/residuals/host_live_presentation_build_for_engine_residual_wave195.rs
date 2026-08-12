@@ -82,7 +82,7 @@ pub fn honesty_live_presentation_build_for_engine_residual_pack_wave195() -> boo
 
 /// Source residual: build_for_engine APIs exist.
 pub fn honesty_build_for_engine_api_source() -> bool {
-    let src = include_str!("../../presentation_frame.rs");
+    let src = crate::presentation_frame::PRESENTATION_FRAME_SRC;
     src.contains("pub fn build_for_engine")
         && src.contains("pub fn build_with_victory_for_engine")
         && src.contains("build_from_gameworld(shadow, local_player_id, Some(logic))")
@@ -90,7 +90,7 @@ pub fn honesty_build_for_engine_api_source() -> bool {
 
 /// Source residual: engine seed/tick use helpers (not manual overlay chain).
 pub fn honesty_engine_build_for_engine_call_sites_source() -> bool {
-    let src = include_str!("../../cnc_game_engine.rs");
+    let src = crate::cnc_game_engine::ENGINE_SRC;
     let seed_hits = src.matches("build_for_engine(").count();
     let victory_hits = src.matches("build_with_victory_for_engine(").count();
     seed_hits >= 2

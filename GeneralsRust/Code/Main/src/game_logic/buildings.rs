@@ -156,6 +156,9 @@ impl BuildingData {
 
     pub fn can_produce(&self, template: &ThingTemplate) -> bool {
         match self.building_type {
+            // C++ isPossibleToMakeUnit: command-set UNIT_BUILD of that
+            // ThingTemplate. Barracks command sets only list infantry
+            // (KINDOF_INFANTRY). Name-contains is not a C++ gate.
             BuildingType::Barracks => template.is_kind_of(KindOf::Infantry),
             BuildingType::WarFactory => template.is_kind_of(KindOf::Vehicle),
             BuildingType::Airfield => template.is_kind_of(KindOf::Aircraft),
@@ -366,7 +369,7 @@ pub fn create_building_templates() -> HashMap<String, ThingTemplate> {
         .add_kind_of(KindOf::CommandCenter)
         .set_health(2500.0)
         .set_cost(2000, -3)
-        .set_model("ubarfrccmd"); // GLA command center model
+        .set_model("ubcmdhq"); // FactionBuilding.ini pristine GLA command center
     templates.insert("GLA_Command".to_string(), gla_command);
 
     let mut gla_barracks = ThingTemplate::new("GLA_Barracks");
@@ -375,7 +378,7 @@ pub fn create_building_templates() -> HashMap<String, ThingTemplate> {
         .add_kind_of(KindOf::Selectable)
         .set_health(1000.0)
         .set_cost(500, -1)
-        .set_model("ubbarracksf"); // GLA barracks model
+        .set_model("ubbarracks"); // FactionBuilding.ini pristine GLA barracks
     templates.insert("GLA_Barracks".to_string(), gla_barracks);
 
     let mut gla_supply = ThingTemplate::new("GLA_SupplyStash");
@@ -385,7 +388,7 @@ pub fn create_building_templates() -> HashMap<String, ThingTemplate> {
         .add_kind_of(KindOf::SupplyCenter)
         .set_health(600.0)
         .set_cost(800, -1)
-        .set_model("ubsupply_f"); // GLA supply stash model
+        .set_model("ubsupply"); // FactionBuilding.ini pristine GLA supply stash
     templates.insert("GLA_SupplyStash".to_string(), gla_supply);
 
     let mut gla_arms_dealer = ThingTemplate::new("GLA_ArmsDealer");
@@ -394,7 +397,7 @@ pub fn create_building_templates() -> HashMap<String, ThingTemplate> {
         .add_kind_of(KindOf::Selectable)
         .set_health(1200.0)
         .set_cost(800, -2)
-        .set_model("ubarmdealf"); // GLA arms dealer model
+        .set_model("ubarmdeal"); // FactionBuilding.ini pristine GLA arms dealer
     templates.insert("GLA_ArmsDealer".to_string(), gla_arms_dealer);
 
     // USA Buildings
@@ -414,7 +417,7 @@ pub fn create_building_templates() -> HashMap<String, ThingTemplate> {
         .add_kind_of(KindOf::Selectable)
         .set_health(1000.0)
         .set_cost(600, -1)
-        .set_model("abbarracks_fa"); // USA barracks model
+        .set_model("abbarracks"); // FactionBuilding.ini pristine USA barracks
     templates.insert("USA_Barracks".to_string(), usa_barracks);
 
     let mut usa_supply = ThingTemplate::new("USA_SupplyCenter");
@@ -424,7 +427,7 @@ pub fn create_building_templates() -> HashMap<String, ThingTemplate> {
         .add_kind_of(KindOf::SupplyCenter)
         .set_health(1000.0)
         .set_cost(1000, -1)
-        .set_model("absupplyct_a2"); // USA supply center model
+        .set_model("absupplyct"); // FactionBuilding.ini pristine USA supply center
     templates.insert("USA_SupplyCenter".to_string(), usa_supply);
 
     let mut usa_war_factory = ThingTemplate::new("USA_WarFactory");
@@ -433,7 +436,7 @@ pub fn create_building_templates() -> HashMap<String, ThingTemplate> {
         .add_kind_of(KindOf::Selectable)
         .set_health(1500.0)
         .set_cost(1000, -2)
-        .set_model("abwarfact_e"); // USA war factory model
+        .set_model("abwarfact"); // FactionBuilding.ini pristine USA war factory
     templates.insert("USA_WarFactory".to_string(), usa_war_factory);
 
     let mut usa_power = ThingTemplate::new("USA_PowerPlant");
@@ -443,7 +446,7 @@ pub fn create_building_templates() -> HashMap<String, ThingTemplate> {
         .add_kind_of(KindOf::PowerPlant)
         .set_health(800.0)
         .set_cost(800, 0) // Provides power, doesn't consume
-        .set_model("abpwrplant_d06"); // USA power plant model
+        .set_model("abpwrplant"); // FactionBuilding.ini pristine USA power plant
     templates.insert("USA_PowerPlant".to_string(), usa_power);
 
     let mut usa_patriot = ThingTemplate::new("USA_Patriot");
@@ -454,7 +457,7 @@ pub fn create_building_templates() -> HashMap<String, ThingTemplate> {
         .add_kind_of(KindOf::FSBaseDefense)
         .set_health(600.0)
         .set_cost(1000, -2)
-        .set_model("abpatriotsw") // USA patriot missile system model
+        .set_model("abpatriot") // FactionBuilding.ini pristine USA Patriot battery
         // Residual auto-fire: bind retail Patriot primary + AA secondary.
         .set_primary_weapon_name(super::weapon_bootstrap::PATRIOT_PRIMARY_WEAPON)
         .set_secondary_weapon_name(super::weapon_bootstrap::PATRIOT_SECONDARY_WEAPON);
@@ -468,7 +471,7 @@ pub fn create_building_templates() -> HashMap<String, ThingTemplate> {
         .add_kind_of(KindOf::CommandCenter)
         .set_health(2200.0)
         .set_cost(2000, -3)
-        .set_model("nbconyard_fa"); // China command center model
+        .set_model("nbconyard"); // FactionBuilding.ini pristine China command center
     templates.insert("China_CommandCenter".to_string(), china_command);
 
     let mut china_barracks = ThingTemplate::new("China_Barracks");
@@ -477,7 +480,7 @@ pub fn create_building_templates() -> HashMap<String, ThingTemplate> {
         .add_kind_of(KindOf::Selectable)
         .set_health(1100.0)
         .set_cost(500, -1)
-        .set_model("nbintcnt"); // China infantry center model
+        .set_model("nbbarracks"); // FactionBuilding.ini pristine China barracks
     templates.insert("China_Barracks".to_string(), china_barracks);
 
     let mut china_supply = ThingTemplate::new("China_SupplyCenter");
@@ -487,7 +490,7 @@ pub fn create_building_templates() -> HashMap<String, ThingTemplate> {
         .add_kind_of(KindOf::SupplyCenter)
         .set_health(1000.0)
         .set_cost(1000, -1)
-        .set_model("cxsupcent"); // Supply center model used by China build flow
+        .set_model("nbsupcent"); // FactionBuilding.ini pristine China supply center
     templates.insert("China_SupplyCenter".to_string(), china_supply);
 
     let mut china_war_factory = ThingTemplate::new("China_WarFactory");
@@ -496,7 +499,7 @@ pub fn create_building_templates() -> HashMap<String, ThingTemplate> {
         .add_kind_of(KindOf::Selectable)
         .set_health(1400.0)
         .set_cost(1000, -2)
-        .set_model("nbweapfact"); // China war factory model
+        .set_model("nbwarfact"); // FactionBuilding.ini pristine China war factory
     templates.insert("China_WarFactory".to_string(), china_war_factory);
 
     let mut china_power = ThingTemplate::new("China_PowerPlant");
@@ -506,7 +509,7 @@ pub fn create_building_templates() -> HashMap<String, ThingTemplate> {
         .add_kind_of(KindOf::PowerPlant)
         .set_health(900.0)
         .set_cost(800, 0) // Provides power
-        .set_model("nbnreactr"); // China nuclear reactor model
+        .set_model("nbpwrplant"); // FactionBuilding.ini pristine China power plant
     templates.insert("China_PowerPlant".to_string(), china_power);
 
     let mut china_gattling = ThingTemplate::new("China_GattlingCannon");
@@ -517,7 +520,7 @@ pub fn create_building_templates() -> HashMap<String, ThingTemplate> {
         .add_kind_of(KindOf::FSBaseDefense)
         .set_health(500.0)
         .set_cost(800, -2)
-        .set_model("nbgattling_a1") // China gattling cannon model
+        .set_model("nbgattling") // FactionBuilding.ini pristine China Gattling cannon
         // Residual auto-fire: bind retail Gattling building primary + AA secondary.
         .set_primary_weapon_name(super::weapon_bootstrap::GATTLING_BUILDING_PRIMARY_WEAPON)
         .set_secondary_weapon_name(super::weapon_bootstrap::GATTLING_BUILDING_SECONDARY_WEAPON);
@@ -544,7 +547,7 @@ pub fn create_building_templates() -> HashMap<String, ThingTemplate> {
         .add_kind_of(KindOf::Selectable)
         .set_health(600.0)
         .set_cost(800, -1)
-        .set_model("ubhole_a4"); // GLA tunnel network model
+        .set_model("ubundtunn"); // FactionBuilding.ini pristine GLA tunnel network
     templates.insert("GLA_TunnelNetwork".to_string(), gla_tunnel);
 
     templates
@@ -771,6 +774,39 @@ mod tests {
     use super::*;
 
     #[test]
+    fn building_factory_uses_pristine_retail_model_names() {
+        let templates = create_building_templates();
+        let expected = [
+            ("GLA_Command", "ubcmdhq"),
+            ("GLA_Barracks", "ubbarracks"),
+            ("GLA_SupplyStash", "ubsupply"),
+            ("GLA_ArmsDealer", "ubarmdeal"),
+            ("USA_Barracks", "abbarracks"),
+            ("USA_SupplyCenter", "absupplyct"),
+            ("USA_WarFactory", "abwarfact"),
+            ("USA_PowerPlant", "abpwrplant"),
+            ("USA_Patriot", "abpatriot"),
+            ("China_CommandCenter", "nbconyard"),
+            ("China_Barracks", "nbbarracks"),
+            ("China_SupplyCenter", "nbsupcent"),
+            ("China_WarFactory", "nbwarfact"),
+            ("China_PowerPlant", "nbpwrplant"),
+            ("China_GattlingCannon", "nbgattling"),
+            ("GLA_TunnelNetwork", "ubundtunn"),
+        ];
+
+        for (template_name, expected_model) in expected {
+            assert_eq!(
+                templates
+                    .get(template_name)
+                    .and_then(|template| template.model_name.as_deref()),
+                Some(expected_model),
+                "{template_name} must retain its pristine FactionBuilding.ini W3D model"
+            );
+        }
+    }
+
+    #[test]
     fn production_progress_is_clamped_to_valid_percent() {
         let mut building = BuildingData::new(BuildingType::Barracks);
         building.production_queue.push(ProductionItem {
@@ -822,6 +858,31 @@ mod tests {
         assert!(
             bd.can_produce(&technical),
             "ArmsDealer must produce vehicles"
+        );
+    }
+
+    /// C++ BuildAssistant::isPossibleToMakeUnit only allows UNIT_BUILD
+    /// templates on the barracks command set (KINDOF_INFANTRY). A unit whose
+    /// name contains "Ranger" but is not infantry must not queue.
+    #[test]
+    fn barracks_can_produce_requires_infantry_kindof() {
+        let bd = BuildingData::new(BuildingType::Barracks);
+        let mut ranger = ThingTemplate::new("USA_Ranger");
+        ranger.add_kind_of(KindOf::Infantry);
+        assert!(
+            bd.can_produce(&ranger),
+            "shipped can_produce must accept infantry ranger"
+        );
+        let mut named_tank = ThingTemplate::new("AmericaRangerTank");
+        named_tank.add_kind_of(KindOf::Vehicle);
+        assert!(
+            !bd.can_produce(&named_tank),
+            "name-contains ranger is not a C++ factory gate"
+        );
+        let mut rebel = ThingTemplate::new("GLARebel");
+        assert!(
+            !bd.can_produce(&rebel),
+            "missing KINDOF_INFANTRY must fail can_produce"
         );
     }
 }

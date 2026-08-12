@@ -12,45 +12,46 @@ use game_engine::common::audio::dynamic_audio_event_info::DynamicAudioEventInfo;
 use game_engine::common::bit_flags::{create_model_condition_flags, ModelConditionBitFlags};
 use gamelogic::object::registry::OBJECT_REGISTRY;
 
-mod types;
-mod icons;
-mod tint_envelope;
+mod basic_core;
+mod basic_drawable_trait;
+mod basic_modules;
+mod basic_overlay;
+mod basic_visual;
 mod draw_module;
 mod drawable_trait;
-mod xfer;
+mod icons;
 mod leftover;
-mod basic_core;
-mod basic_visual;
-mod basic_overlay;
-mod basic_modules;
-mod basic_drawable_trait;
 mod snapshot;
+mod tint_envelope;
+mod types;
+mod xfer;
 
 #[cfg(test)]
 mod tests;
 
+pub(crate) use types::{xfer_vector3, DEFAULT_STEALTH_FRIENDLY_OPACITY};
 pub use types::{
     Color, DrawableId, DrawableOverlayData, DrawableStatus, ICoord2D, IRegion2D, Matrix4,
-    StealthLook, TintStatus, Vector3, DARK_GRAY_DISABLED_COLOR, FRENZY_COLOR,
-    INVALID_DRAWABLE_ID, RED_IRRADIATED_COLOR, SICKLY_GREEN_POISONED_COLOR,
-    SUBDUAL_DAMAGE_COLOR,
+    StealthLook, TintStatus, Vector3, DARK_GRAY_DISABLED_COLOR, FRENZY_COLOR, INVALID_DRAWABLE_ID,
+    RED_IRRADIATED_COLOR, SICKLY_GREEN_POISONED_COLOR, SUBDUAL_DAMAGE_COLOR,
 };
-pub(crate) use types::{xfer_vector3, DEFAULT_STEALTH_FRIENDLY_OPACITY};
 
 pub use icons::{Anim2DIcon, Icon, IconInfo, IconType};
 
+pub(crate) use tint_envelope::{envelope_state_from_u8, envelope_state_to_u8, snap_denorm};
 pub use tint_envelope::{
     EnvelopeState, FadingMode, LocoInfo, TintEnvelope, WheelInfo, DEFAULT_TINT_COLOR_FADE_RATE,
     DEF_ATTACK_FRAMES, DEF_DECAY_FRAMES, DEF_SUSTAIN_FRAMES, DRAWABLE_FRAMES_PER_FLASH,
     MATERIAL_PASS_OPACITY_FADE_SCALAR, SUSTAIN_INDEFINITELY,
     VERY_TRANSPARENT_MATERIAL_PASS_OPACITY,
 };
-pub(crate) use tint_envelope::{envelope_state_from_u8, envelope_state_to_u8, snap_denorm};
 
-pub use draw_module::{BoneData, DrawModule, FXListRef, LogicDrawModuleSnapshotAdapter, TerrainDecalType};
+pub use draw_module::{
+    BoneData, DrawModule, FXListRef, LogicDrawModuleSnapshotAdapter, TerrainDecalType,
+};
 pub use drawable_trait::{Drawable, DrawableDowncast, DrawableExt};
-pub(crate) use xfer::*;
 pub use leftover::DrawableType;
+pub(crate) use xfer::*;
 
 /// Wave 270: host-only path has no dual-world factory objects.
 #[inline]
@@ -273,3 +274,21 @@ impl BasicDrawable {
         }
     }
 }
+
+/// Concatenated live sources for residual `include_str!` scans.
+pub const DRAWABLE_SRC: &str = concat!(
+    include_str!("mod.rs"),
+    include_str!("types.rs"),
+    include_str!("icons.rs"),
+    include_str!("tint_envelope.rs"),
+    include_str!("draw_module.rs"),
+    include_str!("drawable_trait.rs"),
+    include_str!("xfer.rs"),
+    include_str!("leftover.rs"),
+    include_str!("basic_core.rs"),
+    include_str!("basic_visual.rs"),
+    include_str!("basic_overlay.rs"),
+    include_str!("basic_modules.rs"),
+    include_str!("basic_drawable_trait.rs"),
+    include_str!("snapshot.rs"),
+);

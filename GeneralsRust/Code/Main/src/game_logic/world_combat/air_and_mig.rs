@@ -4,7 +4,6 @@
 use super::super::*;
 
 impl GameLogic {
-
     /// Apply Stealth Fighter residual fire (intended + primary splash) + bunker-buster structure path.
     /// C++ StealthJetMissile ProjectileObject residual (KillSelfDelay 2000ms).
     pub fn spawn_stealth_jet_missile_projectile(

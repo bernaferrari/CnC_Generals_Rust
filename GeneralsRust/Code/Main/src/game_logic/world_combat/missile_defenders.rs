@@ -4,7 +4,6 @@
 use super::super::*;
 
 impl GameLogic {
-
     /// C++ SpecialAbilityUpdate SpecialObject = LaserBeam residual for MD laser lock.
     pub fn spawn_missile_defender_laser_beam(
         &mut self,

@@ -206,7 +206,7 @@ mod tests {
 
     #[test]
     fn flush_team_scripts_use_run_script_like_cpp() {
-        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/team.rs"));
+        let src = crate::team::TEAM_SRC;
         let i = src
             .find("pub fn flush_pending_team_script_events")
             .expect("flush");
@@ -221,7 +221,7 @@ mod tests {
 
     #[test]
     fn team_scripts_use_friend_execute_like_cpp() {
-        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/team.rs"));
+        let src = crate::team::TEAM_SRC;
         let create = src
             .find("fn execute_pending_team_create_action_scripts")
             .expect("create scripts");

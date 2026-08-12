@@ -76,7 +76,7 @@ pub fn residual_host_writeback_skip_pending_move_transform_logs_last_action(
     )
 }
 fn sh_source() -> &'static str {
-    include_str!("../../gameworld_shadow.rs")
+    crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC
 }
 pub fn honesty_host_writeback_skip_pending_move_transform_logs_method_names_residual_wave759(
 ) -> bool {

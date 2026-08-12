@@ -137,6 +137,10 @@ impl StatusDamageHelper {
         self.frame_to_heal
     }
 
+    pub fn set_frame_to_heal_for_test(&mut self, frame: u32) {
+        self.frame_to_heal = frame;
+    }
+
     /// Check if a status is currently being tracked
     pub fn has_active_status(&self) -> bool {
         self.status_to_heal != ObjectStatusTypes::None

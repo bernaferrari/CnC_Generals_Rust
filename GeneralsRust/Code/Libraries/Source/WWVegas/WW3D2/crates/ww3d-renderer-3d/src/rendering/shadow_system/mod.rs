@@ -14,11 +14,13 @@
 //! - Shadow acne and peter panning reduction
 
 pub mod cascaded_shadow_map;
+pub mod live_cascade_shadow;
 pub mod point_shadow_map;
 pub mod shadow_map;
 pub mod shadow_renderer;
 
 pub use cascaded_shadow_map::*;
+pub use live_cascade_shadow::*;
 pub use point_shadow_map::*;
 pub use shadow_map::*;
 pub use shadow_renderer::*;

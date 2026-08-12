@@ -42,7 +42,7 @@ fn residual_action_store(a: ResidualHostGwFlightOverAssignAction) {
 }
 
 fn gw_source() -> &'static str {
-    include_str!("../../gameworld_shadow.rs")
+    crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC
 }
 
 pub fn honesty_host_gw_flight_over_assign_method_names_residual_wave877() -> bool {

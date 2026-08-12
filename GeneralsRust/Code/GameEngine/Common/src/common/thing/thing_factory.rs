@@ -129,6 +129,7 @@ fn consume_ini_properties(ini: &mut INI) -> HashMap<String, String> {
     let mut block_depth = 0u32;
     let mut weapon_set_counter = 0u32;
     let mut armor_set_counter = 0u32;
+    let mut module_body_lines: Vec<String> = Vec::new();
 
     loop {
         ini.read_line().ok();
@@ -146,8 +147,16 @@ fn consume_ini_properties(ini: &mut INI) -> HashMap<String, String> {
         // Handle block nesting
         if first_token.eq_ignore_ascii_case("End") {
             if block_depth > 0 {
+                if block_depth > 1 {
+                    append_module_body_line(&mut module_body_lines, "End");
+                }
                 block_depth -= 1;
                 if block_depth == 0 {
+                    flush_module_body(
+                        &mut properties,
+                        block_key_prefix.as_deref(),
+                        &mut module_body_lines,
+                    );
                     block_key_prefix = None;
                 }
                 continue;
@@ -164,8 +173,10 @@ fn consume_ini_properties(ini: &mut INI) -> HashMap<String, String> {
                         key,
                         &mut weapon_set_counter,
                         &mut armor_set_counter,
+                        &properties,
                     );
                     block_depth = 1;
+                    module_body_lines.clear();
                     continue;
                 }
 
@@ -178,37 +189,34 @@ fn consume_ini_properties(ini: &mut INI) -> HashMap<String, String> {
                     first_token,
                     &mut weapon_set_counter,
                     &mut armor_set_counter,
+                    &properties,
                 );
                 block_depth = 1;
+                module_body_lines.clear();
             }
             continue;
         }
 
         // Inside a sub-block
         if block_depth > 0 {
+            store_subblock_line(
+                &mut properties,
+                block_key_prefix.as_deref(),
+                &mut module_body_lines,
+                &line,
+                first_token,
+            );
             if let Some((key, _value)) = split_ini_assignment(&line) {
                 if object_field_starts_subblock(key)
                     || object_module_assignment_starts_subblock(key)
                 {
                     block_depth += 1;
-                    continue;
                 }
             } else if object_field_starts_subblock(first_token)
                 || object_module_field_starts_subblock(first_token)
             {
                 block_depth += 1;
-                continue;
             }
-
-            // Store with prefix if we have one (WeaponSet/ArmorSet)
-            if let Some(ref prefix) = block_key_prefix {
-                if let Some(eq_pos) = line.find('=') {
-                    let key = format!("{}.{}", prefix, line[..eq_pos].trim());
-                    let value = line[eq_pos + 1..].trim().to_string();
-                    insert_repeated_property(&mut properties, key, value);
-                }
-            }
-            // Other sub-blocks are silently consumed
             continue;
         }
 
@@ -287,6 +295,7 @@ fn object_prefixed_subblock_key(
     block_name: &str,
     weapon_set_counter: &mut u32,
     armor_set_counter: &mut u32,
+    properties: &HashMap<String, String>,
 ) -> Option<String> {
     if block_name.eq_ignore_ascii_case("WeaponSet") {
         let key = format!("WeaponSet{}", *weapon_set_counter);
@@ -302,8 +311,75 @@ fn object_prefixed_subblock_key(
         Some("UnitSpecificFX".to_string())
     } else if block_name.eq_ignore_ascii_case("Prerequisites") {
         Some("Prerequisites".to_string())
+    } else if object_field_is_repeatable_property(block_name) {
+        Some(current_repeatable_key(properties, block_name))
     } else {
         None
+    }
+}
+
+fn current_repeatable_key(properties: &HashMap<String, String>, field: &str) -> String {
+    let mut last = field.to_string();
+    for index in 1.. {
+        let repeated = format!("{}#{}", field, index);
+        if properties.contains_key(&repeated) {
+            last = repeated;
+        } else {
+            break;
+        }
+    }
+    last
+}
+
+fn is_object_module_prefix(prefix: &str) -> bool {
+    let head = prefix.split(['#', '.']).next().unwrap_or(prefix);
+    matches!(
+        head.to_ascii_lowercase().as_str(),
+        "behavior" | "body" | "draw" | "clientupdate"
+    )
+}
+
+fn append_module_body_line(body_lines: &mut Vec<String>, line: &str) {
+    let trimmed = line.trim();
+    if !trimmed.is_empty() {
+        body_lines.push(trimmed.to_string());
+    }
+}
+
+fn flush_module_body(
+    properties: &mut HashMap<String, String>,
+    prefix: Option<&str>,
+    body_lines: &mut Vec<String>,
+) {
+    if let Some(prefix) = prefix {
+        if is_object_module_prefix(prefix) && !body_lines.is_empty() {
+            properties.insert(format!("{}.__body", prefix), body_lines.join("\n"));
+        }
+    }
+    body_lines.clear();
+}
+
+fn store_subblock_line(
+    properties: &mut HashMap<String, String>,
+    prefix: Option<&str>,
+    body_lines: &mut Vec<String>,
+    line: &str,
+    first_token: &str,
+) {
+    let Some(prefix) = prefix else {
+        return;
+    };
+    if is_object_module_prefix(prefix) {
+        append_module_body_line(body_lines, line);
+    }
+    if let Some((key, value)) = split_ini_assignment(line) {
+        insert_repeated_property(properties, format!("{}.{}", prefix, key), value.to_string());
+    } else if !first_token.is_empty() {
+        insert_repeated_property(
+            properties,
+            format!("{}.<raw>", prefix),
+            line.trim().to_string(),
+        );
     }
 }
 
@@ -542,12 +618,18 @@ impl ThingFactory {
 
         // Handle reskinning
         if !reskin_from.is_empty() {
-            if let Some(_reskin_template) = self.find_template(reskin_from, false) {
-                // Note: This would require mutable access to thing_template
-                // thing_template.copy_from(&reskin_template);
-                // thing_template.set_copied_from_default();
-                // thing_template.set_reskinned_from(&reskin_template);
-                // ini.init_from_ini(&mut thing_template, thing_template.get_reskin_field_parse());
+            if let Some(reskin_template) = self.find_template(reskin_from, false) {
+                // C++ ThingFactory::parseObjectDefinition: copyFrom + setCopiedFromDefault
+                // + setReskinnedFrom, then initFromINI(getReskinFieldParse()).
+                // Consume the block even if we later fail, so the INI cursor stays aligned.
+                let properties = consume_ini_properties(ini);
+                let tmpl = Arc::make_mut(&mut thing_template);
+                tmpl.copy_from(&reskin_template);
+                tmpl.set_copied_from_default();
+                tmpl.set_reskinned_from(reskin_template);
+                tmpl.parse_object_fields_from_ini(&properties)?;
+                self.template_hash_map
+                    .insert(AsciiString::from(name), thing_template.clone());
             } else {
                 return Err(format!(
                     "ObjectReskin must come after the original Object ({}, {})",
@@ -1018,6 +1100,7 @@ fn parse_object_block_properties(lines: &[&str], start: usize) -> (HashMap<Strin
     let mut index = start;
     let mut weapon_set_counter = 0u32;
     let mut armor_set_counter = 0u32;
+    let mut module_body_lines: Vec<String> = Vec::new();
 
     while index < lines.len() {
         let line = strip_ini_comment(lines[index]).trim();
@@ -1029,8 +1112,16 @@ fn parse_object_block_properties(lines: &[&str], start: usize) -> (HashMap<Strin
         let first_token = line.split_whitespace().next().unwrap_or("");
         if first_token.eq_ignore_ascii_case("End") {
             if depth > 0 {
+                if depth > 1 {
+                    append_module_body_line(&mut module_body_lines, "End");
+                }
                 depth -= 1;
                 if depth == 0 {
+                    flush_module_body(
+                        &mut properties,
+                        block_key_prefix.as_deref(),
+                        &mut module_body_lines,
+                    );
                     block_key_prefix = None;
                 }
                 index += 1;
@@ -1047,8 +1138,10 @@ fn parse_object_block_properties(lines: &[&str], start: usize) -> (HashMap<Strin
                         key,
                         &mut weapon_set_counter,
                         &mut armor_set_counter,
+                        &properties,
                     );
                     depth += 1;
+                    module_body_lines.clear();
                 }
                 index += 1;
                 continue;
@@ -1059,29 +1152,29 @@ fn parse_object_block_properties(lines: &[&str], start: usize) -> (HashMap<Strin
                     first_token,
                     &mut weapon_set_counter,
                     &mut armor_set_counter,
+                    &properties,
                 );
                 depth += 1;
+                module_body_lines.clear();
             }
             index += 1;
             continue;
         }
 
+        // W3D draw modules contain nested, End-terminated condition and
+        // transition blocks whose declaration itself uses `=`.  Missing
+        // this extra depth closes the Draw block at the first condition's
+        // End and leaks Model/Animation/etc. into the Object field table.
+        store_subblock_line(
+            &mut properties,
+            block_key_prefix.as_deref(),
+            &mut module_body_lines,
+            line,
+            first_token,
+        );
         if let Some((key, _value)) = split_ini_assignment(line) {
-            // W3D draw modules contain nested, End-terminated condition and
-            // transition blocks whose declaration itself uses `=`.  Missing
-            // this extra depth closes the Draw block at the first condition's
-            // End and leaks Model/Animation/etc. into the Object field table.
             if object_field_starts_subblock(key) || object_module_assignment_starts_subblock(key) {
                 depth += 1;
-            } else if let Some(ref prefix) = block_key_prefix {
-                let value = split_ini_assignment(line)
-                    .map(|(_, value)| value)
-                    .unwrap_or_default();
-                insert_repeated_property(
-                    &mut properties,
-                    format!("{}.{}", prefix, key),
-                    value.to_string(),
-                );
             }
         } else if object_field_starts_subblock(first_token)
             || object_module_field_starts_subblock(first_token)
@@ -1689,6 +1782,99 @@ mod tests {
     }
 
     #[test]
+    fn parse_object_block_properties_stores_module_body_fields() {
+        let contents = r#"
+            Object TestBodyObject
+              Body = ActiveBody Tag
+                MaxHealth = 4000
+                InitialHealth = 4000
+              End
+              Behavior = ProductionUpdate ModuleTag_04
+                NumDoorAnimations = 1
+              End
+            End
+        "#;
+        let lines: Vec<&str> = contents.lines().collect();
+        let start = lines
+            .iter()
+            .position(|line| line.trim_start().starts_with("Object TestBodyObject"))
+            .expect("object declaration")
+            + 1;
+
+        let (properties, _) = parse_object_block_properties(&lines, start);
+        assert_eq!(
+            properties.get("Body").map(String::as_str),
+            Some("ActiveBody Tag")
+        );
+        assert_eq!(
+            properties.get("Body.MaxHealth").map(String::as_str),
+            Some("4000")
+        );
+        assert_eq!(
+            properties.get("Body.InitialHealth").map(String::as_str),
+            Some("4000")
+        );
+        let body = properties.get("Body.__body").expect("body buffer");
+        assert!(body.contains("MaxHealth = 4000"));
+        assert_eq!(
+            properties.get("Behavior").map(String::as_str),
+            Some("ProductionUpdate ModuleTag_04")
+        );
+        assert_eq!(
+            properties
+                .get("Behavior.NumDoorAnimations")
+                .map(String::as_str),
+            Some("1")
+        );
+    }
+
+    #[test]
+    fn load_ini_text_parses_active_body_and_production_update_fields() {
+        use crate::common::thing::module::{BaseModuleData, CapturedModuleData, ModuleData};
+
+        let contents = r#"
+            Object TestBodyObject
+              Body = ActiveBody Tag
+                MaxHealth = 4000
+                InitialHealth = 4000
+              End
+              Behavior = ProductionUpdate ModuleTag_04
+                NumDoorAnimations = 1
+              End
+            End
+        "#;
+        let mut factory = ThingFactory::new();
+        assert!(factory.load_ini_text(contents) >= 1);
+        let template = factory
+            .find_template("TestBodyObject", false)
+            .expect("parsed template");
+
+        let body = template
+            .get_behavior_module_info()
+            .iter()
+            .find(|entry| entry.name.as_str() == "ActiveBody")
+            .expect("ActiveBody module");
+        assert!(
+            body.data.downcast_ref::<BaseModuleData>().is_none(),
+            "ActiveBody must not be empty BaseModuleData"
+        );
+        assert_eq!(body.data.get_ini_real("MaxHealth"), Some(4000.0));
+        assert_eq!(body.data.get_ini_real("InitialHealth"), Some(4000.0));
+        let captured = body
+            .data
+            .downcast_ref::<CapturedModuleData>()
+            .expect("captured ActiveBody fields");
+        assert_eq!(captured.field("MaxHealth"), Some("4000"));
+
+        let production = template
+            .get_behavior_module_info()
+            .iter()
+            .find(|entry| entry.name.as_str() == "ProductionUpdate")
+            .expect("ProductionUpdate module");
+        assert_eq!(production.data.get_ini_int("NumDoorAnimations"), Some(1));
+    }
+
+    #[test]
     fn thing_factory_links_templates_newest_first_for_id_lookup() {
         let mut factory = ThingFactory::new();
 
@@ -1731,6 +1917,43 @@ mod tests {
                 .find_by_template_id(third.get_template_id())
                 .map(|template| template.get_name().as_str().to_string()),
             Some("ThirdObject".to_string())
+        );
+    }
+
+    #[test]
+    fn object_reskin_copies_parent_then_applies_block() {
+        use crate::common::ini::{INIError, INI};
+
+        let mut factory = ThingFactory::new();
+        let mut parent_ini = INI::new();
+        parent_ini
+            .with_inline_source("BuildCost = 800\nBuildTime = 10.0\nEnd\n", |ini| {
+                factory
+                    .parse_object_definition(ini, "ParentTank", "")
+                    .map_err(|_| INIError::InvalidData)
+            })
+            .expect("parent object");
+
+        let mut reskin_ini = INI::new();
+        reskin_ini
+            .with_inline_source("BuildTime = 5.0\nEnd\n", |ini| {
+                factory
+                    .parse_object_definition(ini, "ChildTank", "ParentTank")
+                    .map_err(|_| INIError::InvalidData)
+            })
+            .expect("reskin object");
+
+        let parent = factory.find_template("ParentTank", false).expect("parent");
+        let child = factory.find_template("ChildTank", false).expect("child");
+        assert_eq!(child.get_build_cost(), parent.get_build_cost());
+        assert_eq!(child.get_build_cost(), 800);
+        assert_eq!(child.get_build_time(), 5.0);
+        assert_eq!(
+            child
+                .get_reskinned_from()
+                .map(|t| t.get_name().as_str().to_string())
+                .as_deref(),
+            Some("ParentTank")
         );
     }
 }

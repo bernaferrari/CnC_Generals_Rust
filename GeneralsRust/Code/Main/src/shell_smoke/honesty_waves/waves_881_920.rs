@@ -132,125 +132,231 @@ pub(super) struct Waves881920 {
 
 pub(super) fn evaluate() -> Waves881920 {
     Waves881920 {
-        host_ui_framework_clippy_method_names_wave881_ok: honesty_host_ui_framework_clippy_method_names_residual_wave881(),
-        host_ui_framework_clippy_nav_commands_wave881_ok: honesty_host_ui_framework_clippy_nav_commands_residual_wave881(),
+        host_ui_framework_clippy_method_names_wave881_ok:
+            honesty_host_ui_framework_clippy_method_names_residual_wave881(),
+        host_ui_framework_clippy_nav_commands_wave881_ok:
+            honesty_host_ui_framework_clippy_nav_commands_residual_wave881(),
         host_ui_framework_clippy_live_wave881_ok: simulate_live_host_ui_framework_clippy_honesty(),
-        host_assets_big_unpack_method_names_wave882_ok: honesty_host_assets_big_unpack_method_names_residual_wave882(),
-        host_assets_big_unpack_nav_commands_wave882_ok: honesty_host_assets_big_unpack_nav_commands_residual_wave882(),
+        host_assets_big_unpack_method_names_wave882_ok:
+            honesty_host_assets_big_unpack_method_names_residual_wave882(),
+        host_assets_big_unpack_nav_commands_wave882_ok:
+            honesty_host_assets_big_unpack_nav_commands_residual_wave882(),
         host_assets_big_unpack_live_wave882_ok: simulate_live_host_assets_big_unpack_honesty(),
-        host_wwshade_clippy_method_names_wave883_ok: honesty_host_wwshade_clippy_method_names_residual_wave883(),
-        host_wwshade_clippy_nav_commands_wave883_ok: honesty_host_wwshade_clippy_nav_commands_residual_wave883(),
+        host_wwshade_clippy_method_names_wave883_ok:
+            honesty_host_wwshade_clippy_method_names_residual_wave883(),
+        host_wwshade_clippy_nav_commands_wave883_ok:
+            honesty_host_wwshade_clippy_nav_commands_residual_wave883(),
         host_wwshade_clippy_live_wave883_ok: simulate_live_host_wwshade_clippy_honesty(),
-        host_zlib_asset_debug_method_names_wave884_ok: honesty_host_zlib_asset_debug_method_names_residual_wave884(),
-        host_zlib_asset_debug_nav_commands_wave884_ok: honesty_host_zlib_asset_debug_nav_commands_residual_wave884(),
+        host_zlib_asset_debug_method_names_wave884_ok:
+            honesty_host_zlib_asset_debug_method_names_residual_wave884(),
+        host_zlib_asset_debug_nav_commands_wave884_ok:
+            honesty_host_zlib_asset_debug_nav_commands_residual_wave884(),
         host_zlib_asset_debug_live_wave884_ok: simulate_live_host_zlib_asset_debug_honesty(),
-        host_profile_clippy_method_names_wave885_ok: honesty_host_profile_clippy_method_names_residual_wave885(),
-        host_profile_clippy_nav_commands_wave885_ok: honesty_host_profile_clippy_nav_commands_residual_wave885(),
+        host_profile_clippy_method_names_wave885_ok:
+            honesty_host_profile_clippy_method_names_residual_wave885(),
+        host_profile_clippy_nav_commands_wave885_ok:
+            honesty_host_profile_clippy_nav_commands_residual_wave885(),
         host_profile_clippy_live_wave885_ok: simulate_live_host_profile_clippy_honesty(),
-        host_ww3d_particles_anim_gui_method_names_wave886_ok: honesty_host_ww3d_particles_anim_gui_method_names_residual_wave886(),
-        host_ww3d_particles_anim_gui_nav_commands_wave886_ok: honesty_host_ww3d_particles_anim_gui_nav_commands_residual_wave886(),
-        host_ww3d_particles_anim_gui_live_wave886_ok: simulate_live_host_ww3d_particles_anim_gui_honesty(),
-        host_particle_world_builder_method_names_wave887_ok: honesty_host_particle_world_builder_method_names_residual_wave887(),
-        host_particle_world_builder_nav_commands_wave887_ok: honesty_host_particle_world_builder_nav_commands_residual_wave887(),
-        host_particle_world_builder_live_wave887_ok: simulate_live_host_particle_world_builder_honesty(),
-        host_wwlib_map_cache_method_names_wave888_ok: honesty_host_wwlib_map_cache_method_names_residual_wave888(),
-        host_wwlib_map_cache_nav_commands_wave888_ok: honesty_host_wwlib_map_cache_nav_commands_residual_wave888(),
+        host_ww3d_particles_anim_gui_method_names_wave886_ok:
+            honesty_host_ww3d_particles_anim_gui_method_names_residual_wave886(),
+        host_ww3d_particles_anim_gui_nav_commands_wave886_ok:
+            honesty_host_ww3d_particles_anim_gui_nav_commands_residual_wave886(),
+        host_ww3d_particles_anim_gui_live_wave886_ok:
+            simulate_live_host_ww3d_particles_anim_gui_honesty(),
+        host_particle_world_builder_method_names_wave887_ok:
+            honesty_host_particle_world_builder_method_names_residual_wave887(),
+        host_particle_world_builder_nav_commands_wave887_ok:
+            honesty_host_particle_world_builder_nav_commands_residual_wave887(),
+        host_particle_world_builder_live_wave887_ok:
+            simulate_live_host_particle_world_builder_honesty(),
+        host_wwlib_map_cache_method_names_wave888_ok:
+            honesty_host_wwlib_map_cache_method_names_residual_wave888(),
+        host_wwlib_map_cache_nav_commands_wave888_ok:
+            honesty_host_wwlib_map_cache_nav_commands_residual_wave888(),
         host_wwlib_map_cache_live_wave888_ok: simulate_live_host_wwlib_map_cache_honesty(),
-        host_wp_audio_clippy_method_names_wave889_ok: honesty_host_wp_audio_clippy_method_names_residual_wave889(),
-        host_wp_audio_clippy_nav_commands_wave889_ok: honesty_host_wp_audio_clippy_nav_commands_residual_wave889(),
+        host_wp_audio_clippy_method_names_wave889_ok:
+            honesty_host_wp_audio_clippy_method_names_residual_wave889(),
+        host_wp_audio_clippy_nav_commands_wave889_ok:
+            honesty_host_wp_audio_clippy_nav_commands_residual_wave889(),
         host_wp_audio_clippy_live_wave889_ok: simulate_live_host_wp_audio_clippy_honesty(),
-        host_remaining_clippy_method_names_wave890_ok: honesty_host_remaining_clippy_method_names_residual_wave890(),
-        host_remaining_clippy_nav_commands_wave890_ok: honesty_host_remaining_clippy_nav_commands_residual_wave890(),
+        host_remaining_clippy_method_names_wave890_ok:
+            honesty_host_remaining_clippy_method_names_residual_wave890(),
+        host_remaining_clippy_nav_commands_wave890_ok:
+            honesty_host_remaining_clippy_nav_commands_residual_wave890(),
         host_remaining_clippy_live_wave890_ok: simulate_live_host_remaining_clippy_honesty(),
-        host_override_camera_follow_method_names_wave891_ok: honesty_host_override_camera_follow_method_names_residual_wave891(),
-        host_override_camera_follow_nav_commands_wave891_ok: honesty_host_override_camera_follow_nav_commands_residual_wave891(),
-        host_override_camera_follow_live_wave891_ok: simulate_live_host_override_camera_follow_honesty(),
-        host_pause_boot_player_method_names_wave892_ok: honesty_host_pause_boot_player_method_names_residual_wave892(),
-        host_pause_boot_player_nav_commands_wave892_ok: honesty_host_pause_boot_player_nav_commands_residual_wave892(),
+        host_override_camera_follow_method_names_wave891_ok:
+            honesty_host_override_camera_follow_method_names_residual_wave891(),
+        host_override_camera_follow_nav_commands_wave891_ok:
+            honesty_host_override_camera_follow_nav_commands_residual_wave891(),
+        host_override_camera_follow_live_wave891_ok:
+            simulate_live_host_override_camera_follow_honesty(),
+        host_pause_boot_player_method_names_wave892_ok:
+            honesty_host_pause_boot_player_method_names_residual_wave892(),
+        host_pause_boot_player_nav_commands_wave892_ok:
+            honesty_host_pause_boot_player_nav_commands_residual_wave892(),
         host_pause_boot_player_live_wave892_ok: simulate_live_host_pause_boot_player_honesty(),
-        host_sim_timing_presentation_method_names_wave893_ok: honesty_host_sim_timing_presentation_method_names_residual_wave893(),
-        host_sim_timing_presentation_nav_commands_wave893_ok: honesty_host_sim_timing_presentation_nav_commands_residual_wave893(),
-        host_sim_timing_presentation_live_wave893_ok: simulate_live_host_sim_timing_presentation_honesty(),
-        host_sciences_ai_method_names_wave894_ok: honesty_host_sciences_ai_method_names_residual_wave894(),
-        host_sciences_ai_nav_commands_wave894_ok: honesty_host_sciences_ai_nav_commands_residual_wave894(),
+        host_sim_timing_presentation_method_names_wave893_ok:
+            honesty_host_sim_timing_presentation_method_names_residual_wave893(),
+        host_sim_timing_presentation_nav_commands_wave893_ok:
+            honesty_host_sim_timing_presentation_nav_commands_residual_wave893(),
+        host_sim_timing_presentation_live_wave893_ok:
+            simulate_live_host_sim_timing_presentation_honesty(),
+        host_sciences_ai_method_names_wave894_ok:
+            honesty_host_sciences_ai_method_names_residual_wave894(),
+        host_sciences_ai_nav_commands_wave894_ok:
+            honesty_host_sciences_ai_nav_commands_residual_wave894(),
         host_sciences_ai_live_wave894_ok: simulate_live_host_sciences_ai_honesty(),
-        host_pob_failclosed_boot_method_names_wave895_ok: honesty_host_pob_failclosed_boot_method_names_residual_wave895(),
-        host_pob_failclosed_boot_nav_commands_wave895_ok: honesty_host_pob_failclosed_boot_nav_commands_residual_wave895(),
+        host_pob_failclosed_boot_method_names_wave895_ok:
+            honesty_host_pob_failclosed_boot_method_names_residual_wave895(),
+        host_pob_failclosed_boot_nav_commands_wave895_ok:
+            honesty_host_pob_failclosed_boot_nav_commands_residual_wave895(),
         host_pob_failclosed_boot_live_wave895_ok: simulate_live_host_pob_failclosed_boot_honesty(),
-        host_map_shell_failclosed_method_names_wave896_ok: honesty_host_map_shell_failclosed_method_names_residual_wave896(),
-        host_map_shell_failclosed_nav_commands_wave896_ok: honesty_host_map_shell_failclosed_nav_commands_residual_wave896(),
-        host_map_shell_failclosed_live_wave896_ok: simulate_live_host_map_shell_failclosed_honesty(),
-        host_boot_player_alive_science_method_names_wave897_ok: honesty_host_boot_player_alive_science_method_names_residual_wave897(),
-        host_boot_player_alive_science_nav_commands_wave897_ok: honesty_host_boot_player_alive_science_nav_commands_residual_wave897(),
-        host_boot_player_alive_science_live_wave897_ok: simulate_live_host_boot_player_alive_science_honesty(),
-        host_observe_failclosed_method_names_wave898_ok: honesty_host_observe_failclosed_method_names_residual_wave898(),
-        host_observe_failclosed_nav_commands_wave898_ok: honesty_host_observe_failclosed_nav_commands_residual_wave898(),
+        host_map_shell_failclosed_method_names_wave896_ok:
+            honesty_host_map_shell_failclosed_method_names_residual_wave896(),
+        host_map_shell_failclosed_nav_commands_wave896_ok:
+            honesty_host_map_shell_failclosed_nav_commands_residual_wave896(),
+        host_map_shell_failclosed_live_wave896_ok: simulate_live_host_map_shell_failclosed_honesty(
+        ),
+        host_boot_player_alive_science_method_names_wave897_ok:
+            honesty_host_boot_player_alive_science_method_names_residual_wave897(),
+        host_boot_player_alive_science_nav_commands_wave897_ok:
+            honesty_host_boot_player_alive_science_nav_commands_residual_wave897(),
+        host_boot_player_alive_science_live_wave897_ok:
+            simulate_live_host_boot_player_alive_science_honesty(),
+        host_observe_failclosed_method_names_wave898_ok:
+            honesty_host_observe_failclosed_method_names_residual_wave898(),
+        host_observe_failclosed_nav_commands_wave898_ok:
+            honesty_host_observe_failclosed_nav_commands_residual_wave898(),
         host_observe_failclosed_live_wave898_ok: simulate_live_host_observe_failclosed_honesty(),
-        host_boot_camera_ui_failclosed_method_names_wave899_ok: honesty_host_boot_camera_ui_failclosed_method_names_residual_wave899(),
-        host_boot_camera_ui_failclosed_nav_commands_wave899_ok: honesty_host_boot_camera_ui_failclosed_nav_commands_residual_wave899(),
-        host_boot_camera_ui_failclosed_live_wave899_ok: simulate_live_host_boot_camera_ui_failclosed_honesty(),
-        host_event_drain_failclosed_method_names_wave900_ok: honesty_host_event_drain_failclosed_method_names_residual_wave900(),
-        host_event_drain_failclosed_nav_commands_wave900_ok: honesty_host_event_drain_failclosed_nav_commands_residual_wave900(),
-        host_event_drain_failclosed_live_wave900_ok: simulate_live_host_event_drain_failclosed_honesty(),
-        host_refresh_sim_failclosed_method_names_wave901_ok: honesty_host_refresh_sim_failclosed_method_names_residual_wave901(),
-        host_refresh_sim_failclosed_nav_commands_wave901_ok: honesty_host_refresh_sim_failclosed_nav_commands_residual_wave901(),
-        host_refresh_sim_failclosed_live_wave901_ok: simulate_live_host_refresh_sim_failclosed_honesty(),
-        host_selection_stamp_train_method_names_wave902_ok: honesty_host_selection_stamp_train_method_names_residual_wave902(),
-        host_selection_stamp_train_nav_commands_wave902_ok: honesty_host_selection_stamp_train_nav_commands_residual_wave902(),
-        host_selection_stamp_train_live_wave902_ok: simulate_live_host_selection_stamp_train_honesty(),
-        host_camera_focus_failclosed_method_names_wave903_ok: honesty_host_camera_focus_failclosed_method_names_residual_wave903(),
-        host_camera_focus_failclosed_nav_commands_wave903_ok: honesty_host_camera_focus_failclosed_nav_commands_residual_wave903(),
-        host_camera_focus_failclosed_live_wave903_ok: simulate_live_host_camera_focus_failclosed_honesty(),
-        host_single_authority_camera_method_names_wave904_ok: honesty_host_single_authority_camera_method_names_residual_wave904(),
-        host_single_authority_camera_nav_commands_wave904_ok: honesty_host_single_authority_camera_nav_commands_residual_wave904(),
-        host_single_authority_camera_live_wave904_ok: simulate_live_host_single_authority_camera_honesty(),
-        host_ui_observe_failclosed_method_names_wave905_ok: honesty_host_ui_observe_failclosed_method_names_residual_wave905(),
-        host_ui_observe_failclosed_nav_commands_wave905_ok: honesty_host_ui_observe_failclosed_nav_commands_residual_wave905(),
-        host_ui_observe_failclosed_live_wave905_ok: simulate_live_host_ui_observe_failclosed_honesty(),
-        host_mouse_presentation_only_method_names_wave906_ok: honesty_host_mouse_presentation_only_method_names_residual_wave906(),
-        host_mouse_presentation_only_nav_commands_wave906_ok: honesty_host_mouse_presentation_only_nav_commands_residual_wave906(),
-        host_mouse_presentation_only_live_wave906_ok: simulate_live_host_mouse_presentation_only_honesty(),
-        host_victory_fps_failclosed_method_names_wave907_ok: honesty_host_victory_fps_failclosed_method_names_residual_wave907(),
-        host_victory_fps_failclosed_nav_commands_wave907_ok: honesty_host_victory_fps_failclosed_nav_commands_residual_wave907(),
-        host_victory_fps_failclosed_live_wave907_ok: simulate_live_host_victory_fps_failclosed_honesty(),
-        host_sim_timing_snapshot_method_names_wave908_ok: honesty_host_sim_timing_snapshot_method_names_residual_wave908(),
-        host_sim_timing_snapshot_nav_commands_wave908_ok: honesty_host_sim_timing_snapshot_nav_commands_residual_wave908(),
+        host_boot_camera_ui_failclosed_method_names_wave899_ok:
+            honesty_host_boot_camera_ui_failclosed_method_names_residual_wave899(),
+        host_boot_camera_ui_failclosed_nav_commands_wave899_ok:
+            honesty_host_boot_camera_ui_failclosed_nav_commands_residual_wave899(),
+        host_boot_camera_ui_failclosed_live_wave899_ok:
+            simulate_live_host_boot_camera_ui_failclosed_honesty(),
+        host_event_drain_failclosed_method_names_wave900_ok:
+            honesty_host_event_drain_failclosed_method_names_residual_wave900(),
+        host_event_drain_failclosed_nav_commands_wave900_ok:
+            honesty_host_event_drain_failclosed_nav_commands_residual_wave900(),
+        host_event_drain_failclosed_live_wave900_ok:
+            simulate_live_host_event_drain_failclosed_honesty(),
+        host_refresh_sim_failclosed_method_names_wave901_ok:
+            honesty_host_refresh_sim_failclosed_method_names_residual_wave901(),
+        host_refresh_sim_failclosed_nav_commands_wave901_ok:
+            honesty_host_refresh_sim_failclosed_nav_commands_residual_wave901(),
+        host_refresh_sim_failclosed_live_wave901_ok:
+            simulate_live_host_refresh_sim_failclosed_honesty(),
+        host_selection_stamp_train_method_names_wave902_ok:
+            honesty_host_selection_stamp_train_method_names_residual_wave902(),
+        host_selection_stamp_train_nav_commands_wave902_ok:
+            honesty_host_selection_stamp_train_nav_commands_residual_wave902(),
+        host_selection_stamp_train_live_wave902_ok:
+            simulate_live_host_selection_stamp_train_honesty(),
+        host_camera_focus_failclosed_method_names_wave903_ok:
+            honesty_host_camera_focus_failclosed_method_names_residual_wave903(),
+        host_camera_focus_failclosed_nav_commands_wave903_ok:
+            honesty_host_camera_focus_failclosed_nav_commands_residual_wave903(),
+        host_camera_focus_failclosed_live_wave903_ok:
+            simulate_live_host_camera_focus_failclosed_honesty(),
+        host_single_authority_camera_method_names_wave904_ok:
+            honesty_host_single_authority_camera_method_names_residual_wave904(),
+        host_single_authority_camera_nav_commands_wave904_ok:
+            honesty_host_single_authority_camera_nav_commands_residual_wave904(),
+        host_single_authority_camera_live_wave904_ok:
+            simulate_live_host_single_authority_camera_honesty(),
+        host_ui_observe_failclosed_method_names_wave905_ok:
+            honesty_host_ui_observe_failclosed_method_names_residual_wave905(),
+        host_ui_observe_failclosed_nav_commands_wave905_ok:
+            honesty_host_ui_observe_failclosed_nav_commands_residual_wave905(),
+        host_ui_observe_failclosed_live_wave905_ok:
+            simulate_live_host_ui_observe_failclosed_honesty(),
+        host_mouse_presentation_only_method_names_wave906_ok:
+            honesty_host_mouse_presentation_only_method_names_residual_wave906(),
+        host_mouse_presentation_only_nav_commands_wave906_ok:
+            honesty_host_mouse_presentation_only_nav_commands_residual_wave906(),
+        host_mouse_presentation_only_live_wave906_ok:
+            simulate_live_host_mouse_presentation_only_honesty(),
+        host_victory_fps_failclosed_method_names_wave907_ok:
+            honesty_host_victory_fps_failclosed_method_names_residual_wave907(),
+        host_victory_fps_failclosed_nav_commands_wave907_ok:
+            honesty_host_victory_fps_failclosed_nav_commands_residual_wave907(),
+        host_victory_fps_failclosed_live_wave907_ok:
+            simulate_live_host_victory_fps_failclosed_honesty(),
+        host_sim_timing_snapshot_method_names_wave908_ok:
+            honesty_host_sim_timing_snapshot_method_names_residual_wave908(),
+        host_sim_timing_snapshot_nav_commands_wave908_ok:
+            honesty_host_sim_timing_snapshot_nav_commands_residual_wave908(),
         host_sim_timing_snapshot_live_wave908_ok: simulate_live_host_sim_timing_snapshot_honesty(),
-        host_cold_stamp_supplies_failclosed_method_names_wave909_ok: honesty_host_cold_stamp_supplies_failclosed_method_names_residual_wave909(),
-        host_cold_stamp_supplies_failclosed_nav_commands_wave909_ok: honesty_host_cold_stamp_supplies_failclosed_nav_commands_residual_wave909(),
-        host_cold_stamp_supplies_failclosed_live_wave909_ok: simulate_live_host_cold_stamp_supplies_failclosed_honesty(),
-        host_victory_fps_legal_failclosed_method_names_wave910_ok: honesty_host_victory_fps_legal_failclosed_method_names_residual_wave910(),
-        host_victory_fps_legal_failclosed_nav_commands_wave910_ok: honesty_host_victory_fps_legal_failclosed_nav_commands_residual_wave910(),
-        host_victory_fps_legal_failclosed_live_wave910_ok: simulate_live_host_victory_fps_legal_failclosed_honesty(),
-        host_legal_build_cache_method_names_wave911_ok: honesty_host_legal_build_cache_method_names_residual_wave911(),
-        host_legal_build_cache_nav_commands_wave911_ok: honesty_host_legal_build_cache_nav_commands_residual_wave911(),
+        host_cold_stamp_supplies_failclosed_method_names_wave909_ok:
+            honesty_host_cold_stamp_supplies_failclosed_method_names_residual_wave909(),
+        host_cold_stamp_supplies_failclosed_nav_commands_wave909_ok:
+            honesty_host_cold_stamp_supplies_failclosed_nav_commands_residual_wave909(),
+        host_cold_stamp_supplies_failclosed_live_wave909_ok:
+            simulate_live_host_cold_stamp_supplies_failclosed_honesty(),
+        host_victory_fps_legal_failclosed_method_names_wave910_ok:
+            honesty_host_victory_fps_legal_failclosed_method_names_residual_wave910(),
+        host_victory_fps_legal_failclosed_nav_commands_wave910_ok:
+            honesty_host_victory_fps_legal_failclosed_nav_commands_residual_wave910(),
+        host_victory_fps_legal_failclosed_live_wave910_ok:
+            simulate_live_host_victory_fps_legal_failclosed_honesty(),
+        host_legal_build_cache_method_names_wave911_ok:
+            honesty_host_legal_build_cache_method_names_residual_wave911(),
+        host_legal_build_cache_nav_commands_wave911_ok:
+            honesty_host_legal_build_cache_nav_commands_residual_wave911(),
         host_legal_build_cache_live_wave911_ok: simulate_live_host_legal_build_cache_honesty(),
-        host_destroy_list_if_needed_method_names_wave912_ok: honesty_host_destroy_list_if_needed_method_names_residual_wave912(),
-        host_destroy_list_if_needed_nav_commands_wave912_ok: honesty_host_destroy_list_if_needed_nav_commands_residual_wave912(),
-        host_destroy_list_if_needed_live_wave912_ok: simulate_live_host_destroy_list_if_needed_honesty(),
-        host_redundant_authority_write_skip_method_names_wave913_ok: honesty_host_redundant_authority_write_skip_method_names_residual_wave913(),
-        host_redundant_authority_write_skip_nav_commands_wave913_ok: honesty_host_redundant_authority_write_skip_nav_commands_residual_wave913(),
-        host_redundant_authority_write_skip_live_wave913_ok: simulate_live_host_redundant_authority_write_skip_honesty(),
-        host_process_commands_if_needed_method_names_wave914_ok: honesty_host_process_commands_if_needed_method_names_residual_wave914(),
-        host_process_commands_if_needed_nav_commands_wave914_ok: honesty_host_process_commands_if_needed_nav_commands_residual_wave914(),
-        host_process_commands_if_needed_live_wave914_ok: simulate_live_host_process_commands_if_needed_honesty(),
-        host_process_sfx_world_template_peels_method_names_wave915_ok: honesty_host_process_sfx_world_template_peels_method_names_residual_wave915(),
-        host_process_sfx_world_template_peels_nav_commands_wave915_ok: honesty_host_process_sfx_world_template_peels_nav_commands_residual_wave915(),
-        host_process_sfx_world_template_peels_live_wave915_ok: simulate_live_host_process_sfx_world_template_peels_honesty(),
-        host_dual_tick_queue_destroy_peels_method_names_wave916_ok: honesty_host_dual_tick_queue_destroy_peels_method_names_residual_wave916(),
-        host_dual_tick_queue_destroy_peels_nav_commands_wave916_ok: honesty_host_dual_tick_queue_destroy_peels_nav_commands_residual_wave916(),
-        host_dual_tick_queue_destroy_peels_live_wave916_ok: simulate_live_host_dual_tick_queue_destroy_peels_honesty(),
-        host_command_barracks_complete_peels_method_names_wave917_ok: honesty_host_command_barracks_complete_peels_method_names_residual_wave917(),
-        host_command_barracks_complete_peels_nav_commands_wave917_ok: honesty_host_command_barracks_complete_peels_nav_commands_residual_wave917(),
-        host_command_barracks_complete_peels_live_wave917_ok: simulate_live_host_command_barracks_complete_peels_honesty(),
-        host_load_path_stamp_peels_method_names_wave918_ok: honesty_host_load_path_stamp_peels_method_names_residual_wave918(),
-        host_load_path_stamp_peels_nav_commands_wave918_ok: honesty_host_load_path_stamp_peels_nav_commands_residual_wave918(),
-        host_load_path_stamp_peels_live_wave918_ok: simulate_live_host_load_path_stamp_peels_honesty(),
-        host_paused_tick_guard_refresh_peels_method_names_wave919_ok: honesty_host_paused_tick_guard_refresh_peels_method_names_residual_wave919(),
-        host_paused_tick_guard_refresh_peels_nav_commands_wave919_ok: honesty_host_paused_tick_guard_refresh_peels_nav_commands_residual_wave919(),
-        host_paused_tick_guard_refresh_peels_live_wave919_ok: simulate_live_host_paused_tick_guard_refresh_peels_honesty(),
-        host_producer_refresh_freeze_peels_method_names_wave920_ok: honesty_host_producer_refresh_freeze_peels_method_names_residual_wave920(),
-        host_producer_refresh_freeze_peels_nav_commands_wave920_ok: honesty_host_producer_refresh_freeze_peels_nav_commands_residual_wave920(),
-        host_producer_refresh_freeze_peels_live_wave920_ok: simulate_live_host_producer_refresh_freeze_peels_honesty(),
+        host_destroy_list_if_needed_method_names_wave912_ok:
+            honesty_host_destroy_list_if_needed_method_names_residual_wave912(),
+        host_destroy_list_if_needed_nav_commands_wave912_ok:
+            honesty_host_destroy_list_if_needed_nav_commands_residual_wave912(),
+        host_destroy_list_if_needed_live_wave912_ok:
+            simulate_live_host_destroy_list_if_needed_honesty(),
+        host_redundant_authority_write_skip_method_names_wave913_ok:
+            honesty_host_redundant_authority_write_skip_method_names_residual_wave913(),
+        host_redundant_authority_write_skip_nav_commands_wave913_ok:
+            honesty_host_redundant_authority_write_skip_nav_commands_residual_wave913(),
+        host_redundant_authority_write_skip_live_wave913_ok:
+            simulate_live_host_redundant_authority_write_skip_honesty(),
+        host_process_commands_if_needed_method_names_wave914_ok:
+            honesty_host_process_commands_if_needed_method_names_residual_wave914(),
+        host_process_commands_if_needed_nav_commands_wave914_ok:
+            honesty_host_process_commands_if_needed_nav_commands_residual_wave914(),
+        host_process_commands_if_needed_live_wave914_ok:
+            simulate_live_host_process_commands_if_needed_honesty(),
+        host_process_sfx_world_template_peels_method_names_wave915_ok:
+            honesty_host_process_sfx_world_template_peels_method_names_residual_wave915(),
+        host_process_sfx_world_template_peels_nav_commands_wave915_ok:
+            honesty_host_process_sfx_world_template_peels_nav_commands_residual_wave915(),
+        host_process_sfx_world_template_peels_live_wave915_ok:
+            simulate_live_host_process_sfx_world_template_peels_honesty(),
+        host_dual_tick_queue_destroy_peels_method_names_wave916_ok:
+            honesty_host_dual_tick_queue_destroy_peels_method_names_residual_wave916(),
+        host_dual_tick_queue_destroy_peels_nav_commands_wave916_ok:
+            honesty_host_dual_tick_queue_destroy_peels_nav_commands_residual_wave916(),
+        host_dual_tick_queue_destroy_peels_live_wave916_ok:
+            simulate_live_host_dual_tick_queue_destroy_peels_honesty(),
+        host_command_barracks_complete_peels_method_names_wave917_ok:
+            honesty_host_command_barracks_complete_peels_method_names_residual_wave917(),
+        host_command_barracks_complete_peels_nav_commands_wave917_ok:
+            honesty_host_command_barracks_complete_peels_nav_commands_residual_wave917(),
+        host_command_barracks_complete_peels_live_wave917_ok:
+            simulate_live_host_command_barracks_complete_peels_honesty(),
+        host_load_path_stamp_peels_method_names_wave918_ok:
+            honesty_host_load_path_stamp_peels_method_names_residual_wave918(),
+        host_load_path_stamp_peels_nav_commands_wave918_ok:
+            honesty_host_load_path_stamp_peels_nav_commands_residual_wave918(),
+        host_load_path_stamp_peels_live_wave918_ok:
+            simulate_live_host_load_path_stamp_peels_honesty(),
+        host_paused_tick_guard_refresh_peels_method_names_wave919_ok:
+            honesty_host_paused_tick_guard_refresh_peels_method_names_residual_wave919(),
+        host_paused_tick_guard_refresh_peels_nav_commands_wave919_ok:
+            honesty_host_paused_tick_guard_refresh_peels_nav_commands_residual_wave919(),
+        host_paused_tick_guard_refresh_peels_live_wave919_ok:
+            simulate_live_host_paused_tick_guard_refresh_peels_honesty(),
+        host_producer_refresh_freeze_peels_method_names_wave920_ok:
+            honesty_host_producer_refresh_freeze_peels_method_names_residual_wave920(),
+        host_producer_refresh_freeze_peels_nav_commands_wave920_ok:
+            honesty_host_producer_refresh_freeze_peels_nav_commands_residual_wave920(),
+        host_producer_refresh_freeze_peels_live_wave920_ok:
+            simulate_live_host_producer_refresh_freeze_peels_honesty(),
     }
 }

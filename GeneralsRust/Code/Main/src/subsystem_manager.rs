@@ -63,7 +63,11 @@ pub fn initialize_shell_ui_schemes() {
     game_engine::common::ini::ini_shell_menu_scheme::init_shell_menu_scheme_manager();
 }
 
-fn resolve_save_directory() -> PathBuf {
+/// One save folder for host list/save/load **and** Popup / Common TheGameState.
+///
+/// C++ writes `UserData/Save` (GlobalData path + `Save`). Host `SaveFileManager`
+/// and Popup must share this directory so `list_saves` sees both writers.
+pub fn resolve_save_directory() -> PathBuf {
     let user_data = game_engine::common::ini::ini_game_data::get_global_data()
         .map(|global| global.read().get_path_user_data().trim().to_string());
 

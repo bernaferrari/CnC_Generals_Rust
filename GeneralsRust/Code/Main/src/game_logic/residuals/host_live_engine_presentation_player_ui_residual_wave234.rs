@@ -102,7 +102,7 @@ fn fn_body<'a>(src: &'a str, name: &str) -> Option<&'a str> {
 
 /// Source residual: helpers + InGame consumers prefer presentation freeze.
 pub fn honesty_engine_presentation_player_ui_source() -> bool {
-    let eng = include_str!("../../cnc_game_engine.rs");
+    let eng = crate::cnc_game_engine::ENGINE_SRC;
     for api in [
         "fn ui_player_info(",
         "fn host_ui_player_info(",

@@ -335,7 +335,11 @@ impl GameLogic {
     }
 
     /// Absolute HP write honoring damage authority (heal channel last-writer).
-    pub(in super::super) fn set_health_absolute_authority_aware(&mut self, object_id: ObjectId, health: f32) {
+    pub(in super::super) fn set_health_absolute_authority_aware(
+        &mut self,
+        object_id: ObjectId,
+        health: f32,
+    ) {
         let hp = health.max(0.0);
         if crate::gameworld_shadow::gameworld_damage_authority_live() {
             crate::game_logic::host_heal_log::record(object_id, hp);
@@ -348,7 +352,10 @@ impl GameLogic {
     }
 
     /// Absolute HP write while holding `&mut Object` (avoid re-borrow).
-    pub(in super::super) fn write_object_health_authority_aware(obj: &mut crate::game_logic::Object, health: f32) {
+    pub(in super::super) fn write_object_health_authority_aware(
+        obj: &mut crate::game_logic::Object,
+        health: f32,
+    ) {
         let hp = health.max(0.0);
         if crate::gameworld_shadow::gameworld_damage_authority_live() {
             crate::game_logic::host_heal_log::record(obj.id, hp);
@@ -360,7 +367,11 @@ impl GameLogic {
 
     /// Consume/suicide destroy residual: log lethal HP under damage authority.
     /// Destroy flag stays host for process_destroy_list bookkeeping.
-    pub(in super::super) fn mark_destroyed_authority_aware(&mut self, object_id: ObjectId, source: Option<ObjectId>) {
+    pub(in super::super) fn mark_destroyed_authority_aware(
+        &mut self,
+        object_id: ObjectId,
+        source: Option<ObjectId>,
+    ) {
         if let Some(obj) = self.objects.get_mut(&object_id) {
             if crate::gameworld_shadow::gameworld_damage_authority_live() {
                 let hp = obj.health.current.max(1.0);
@@ -508,7 +519,11 @@ impl GameLogic {
     /// GameWorld apply/writeback is last-writer when authority is on. Does not
     /// invoke full [`Object::attack_target`] (avoids takeoff/force-attack side effects).
     /// Set AI state, honoring AI decision authority (log-only when GameWorld applies).
-    pub(in super::super) fn set_ai_state_decision_aware(&mut self, unit_id: ObjectId, state: AIState) {
+    pub(in super::super) fn set_ai_state_decision_aware(
+        &mut self,
+        unit_id: ObjectId,
+        state: AIState,
+    ) {
         // Host applies immediately so residual FSM/combat sees the new state
         // same-frame. Decision authority still logs for GameWorld last-write.
         let ordinal = crate::gameworld_shadow::GameWorldShadow::host_ai_state_ordinal(&state);
@@ -525,7 +540,11 @@ impl GameLogic {
         self.set_ai_state_decision_aware(unit_id, state);
     }
 
-    pub(in super::super) fn apply_engagement_decision_aware(&mut self, unit_id: ObjectId, target_id: ObjectId) {
+    pub(in super::super) fn apply_engagement_decision_aware(
+        &mut self,
+        unit_id: ObjectId,
+        target_id: ObjectId,
+    ) {
         // Host engagement is same-frame so residual auto-fire / continue-after-kill
         // can shoot without waiting for shadow writeback.
         if let Some(u) = self.objects.get_mut(&unit_id) {
@@ -564,7 +583,11 @@ impl GameLogic {
         self.set_ai_state_decision_aware(unit_id, state);
     }
 
-    pub(in super::super) fn engage_target_decision_aware(&mut self, unit_id: ObjectId, target_id: ObjectId) {
+    pub(in super::super) fn engage_target_decision_aware(
+        &mut self,
+        unit_id: ObjectId,
+        target_id: ObjectId,
+    ) {
         // Full host attack_target residual (weapon arming / force-attack clear).
         if let Some(obj) = self.objects.get_mut(&unit_id) {
             obj.set_force_attack(false);

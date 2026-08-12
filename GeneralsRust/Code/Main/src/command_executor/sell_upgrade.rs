@@ -20,7 +20,6 @@ use glam::Vec3;
 use log::{debug, warn};
 use std::collections::{HashMap, HashSet};
 
-
 impl<'a> CommandExecutor<'a> {
     pub(super) fn execute_sell(&mut self, object_id: ObjectId, player_id: u32) -> CommandResult {
         let player_team = self.player_team(player_id);
@@ -128,7 +127,11 @@ impl<'a> CommandExecutor<'a> {
         }
     }
 
-    pub(super) fn execute_purchase_science(&mut self, player_id: u32, science_name: &str) -> CommandResult {
+    pub(super) fn execute_purchase_science(
+        &mut self,
+        player_id: u32,
+        science_name: &str,
+    ) -> CommandResult {
         if science_name.trim().is_empty() {
             return CommandResult::InvalidCommand;
         }
@@ -168,7 +171,11 @@ impl<'a> CommandExecutor<'a> {
         CommandResult::InvalidCommand
     }
 
-    pub(super) fn execute_queue_upgrade(&mut self, units: &[ObjectId], upgrade_name: &str) -> CommandResult {
+    pub(super) fn execute_queue_upgrade(
+        &mut self,
+        units: &[ObjectId],
+        upgrade_name: &str,
+    ) -> CommandResult {
         if upgrade_name.trim().is_empty() {
             return CommandResult::InvalidCommand;
         }
@@ -266,7 +273,11 @@ impl<'a> CommandExecutor<'a> {
         }
     }
 
-    pub(super) fn execute_cancel_upgrade(&mut self, units: &[ObjectId], upgrade_name: &str) -> CommandResult {
+    pub(super) fn execute_cancel_upgrade(
+        &mut self,
+        units: &[ObjectId],
+        upgrade_name: &str,
+    ) -> CommandResult {
         // C++ cancel queue head residual: Command_CancelUpgrade may omit the name;
         // resolve from the first selected producer's PRODUCTION_UPGRADE head.
         let resolved_name = if upgrade_name.trim().is_empty() {
@@ -340,5 +351,4 @@ impl<'a> CommandExecutor<'a> {
     pub(super) fn can_source_queue_upgrade(source: &crate::game_logic::Object) -> bool {
         source.building_data.is_some() && source.is_alive() && source.is_constructed()
     }
-
 }

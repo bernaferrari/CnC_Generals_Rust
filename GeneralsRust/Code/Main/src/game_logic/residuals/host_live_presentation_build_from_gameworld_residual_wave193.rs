@@ -84,7 +84,7 @@ pub fn honesty_live_presentation_build_from_gameworld_residual_pack_wave193() ->
 
 /// Source residual: build/rebuild APIs exist on PresentationFrame.
 pub fn honesty_build_from_gameworld_api_source() -> bool {
-    let src = include_str!("../../presentation_frame.rs");
+    let src = crate::presentation_frame::PRESENTATION_FRAME_SRC;
     src.contains("pub fn build_from_gameworld")
         && src.contains("pub fn rebuild_objects_from_gameworld")
         && src.contains("pub gameworld_rebuilt: usize")
@@ -92,7 +92,7 @@ pub fn honesty_build_from_gameworld_api_source() -> bool {
 
 /// Source residual: engine opt-in env gate after overlay/append.
 pub fn honesty_engine_presentation_from_gameworld_opt_in_source() -> bool {
-    let src = include_str!("../../cnc_game_engine.rs");
+    let src = crate::cnc_game_engine::ENGINE_SRC;
     // Wave 195: engine presentation helpers fold rebuild; status still exports rebuilt.
     (src.contains("build_for_engine(") || src.contains("build_with_victory_for_engine("))
         && src.contains("gameworld_rebuilt")

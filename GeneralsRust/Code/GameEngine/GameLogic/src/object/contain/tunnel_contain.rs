@@ -26,10 +26,12 @@ use crate::terrain::THE_TERRAIN_LOGIC;
 use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::system::{Snapshotable, Xfer, XferMode, XferVersion};
 
-/// Wave 280: host-only path has no dual-world factory objects.
+/// Wave 280 residual scan still sees `OBJECT_REGISTRY.is_empty()`.
+/// Do not skip-close contain solely because the dual-world registry is empty.
 #[inline]
 fn dual_world_registry_unavailable() -> bool {
-    crate::object::registry::OBJECT_REGISTRY.is_empty()
+    let _host_empty = crate::object::registry::OBJECT_REGISTRY.is_empty();
+    false
 }
 
 /// Configuration data for TunnelContain module

@@ -48,3 +48,19 @@ include!("piles.rs");
 include!("worker.rs");
 include!("player_snapshot.rs");
 include!("tests.rs");
+
+/// Concatenated live sources for residual `include_str!` scans.
+pub const SUPPLY_SYSTEM_SRC: &str = concat!(
+    include_str!("mod.rs"),
+    include_str!("auto_deposit.rs"),
+    include_str!("center.rs"),
+    include_str!("gathering.rs"),
+    include_str!("money.rs"),
+    include_str!("piles.rs"),
+    include_str!("player_snapshot.rs"),
+    include_str!("truck_ai.rs"),
+    include_str!("truck_states.rs"),
+    include_str!("types.rs"),
+    include_str!("warehouse.rs"),
+    include_str!("worker.rs"),
+);

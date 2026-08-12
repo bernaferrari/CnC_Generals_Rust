@@ -101,7 +101,7 @@ mod tests {
     }
 
     fn contain_ext_impl_source() -> &'static str {
-        const SRC: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/modules.rs"));
+        const SRC: &str = crate::modules::MODULES_SRC;
         const MARKER: &str =
             "impl ContainModuleInterfaceExt for Arc<Mutex<dyn ContainModuleInterface>> {";
         let start = SRC

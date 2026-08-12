@@ -1497,4 +1497,3 @@ impl XferData for HostUpgradeRegistrySnapshot {
         Ok(())
     }
 }
-

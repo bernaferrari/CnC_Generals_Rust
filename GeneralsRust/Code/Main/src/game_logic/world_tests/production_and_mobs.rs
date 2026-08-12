@@ -3,7 +3,6 @@
 use super::super::*;
 use super::helpers::*;
 
-
 // -----------------------------------------------------------------------
 // China Overlord / Helix / Emperor portable gattling + propaganda residual
 // Fail-closed: not full OverlordContain portable-structure spawn / W3D draw.
@@ -13,8 +12,8 @@ use super::helpers::*;
 #[test]
 fn overlord_gattling_addon_residual_install_and_fire() {
     use crate::game_logic::host_overlord_addons::{
-        is_overlord_tank_template, OVERLORD_GATTLING_AIR_DAMAGE,
-        OVERLORD_GATTLING_GROUND_DAMAGE, UPGRADE_OVERLORD_GATTLING,
+        is_overlord_tank_template, OVERLORD_GATTLING_AIR_DAMAGE, OVERLORD_GATTLING_GROUND_DAMAGE,
+        UPGRADE_OVERLORD_GATTLING,
     };
 
     let mut game_logic = GameLogic::new();
@@ -80,9 +79,7 @@ fn overlord_gattling_addon_residual_install_and_fire() {
         );
         assert!(
             !o.has_overlord_propaganda_residual()
-                || crate::game_logic::host_overlord_addons::is_emperor_template(
-                    &o.template_name
-                )
+                || crate::game_logic::host_overlord_addons::is_emperor_template(&o.template_name)
         );
     }
     assert!(
@@ -156,12 +153,8 @@ fn overlord_gattling_addon_residual_install_and_fire() {
         .host_object(air_id)
         .map(|a| a.get_position())
         .unwrap_or(Vec3::new(40.0, 20.0, 0.0));
-    let (aa_hits, _) = game_logic.apply_overlord_gattling_residual_at(
-        air_pos,
-        Some(overlord_id),
-        Some(air_id),
-        1,
-    );
+    let (aa_hits, _) =
+        game_logic.apply_overlord_gattling_residual_at(air_pos, Some(overlord_id), Some(air_id), 1);
     let air_hp_after = game_logic
         .host_object(air_id)
         .map(|a| a.health.current)
@@ -2185,11 +2178,7 @@ fn chem_scud_storm_anthrax_primary_impact() {
         .create_object("AmericaTankCrusader", Team::USA, Vec3::new(80.0, 0.0, 0.0))
         .unwrap();
     let hp0 = logic.host_object(foe).unwrap().health.current;
-    assert!(logic.execute_ocl_attack(
-        "SUPERWEAPON_ScudStorm",
-        storm_id,
-        Vec3::new(80.0, 0.0, 0.0)
-    ));
+    assert!(logic.execute_ocl_attack("SUPERWEAPON_ScudStorm", storm_id, Vec3::new(80.0, 0.0, 0.0)));
     for f in 0..900 {
         logic.frame = f;
         logic.update_scud_storm_missile_flights();
@@ -2478,11 +2467,7 @@ fn ocl_attack_scud_storm_shots() {
     let id = logic
         .create_object("GLAScudStorm", Team::GLA, Vec3::new(10.0, 0.0, 10.0))
         .expect("storm");
-    assert!(logic.execute_ocl_attack(
-        "SUPERWEAPON_ScudStorm",
-        id,
-        Vec3::new(300.0, 0.0, 300.0)
-    ));
+    assert!(logic.execute_ocl_attack("SUPERWEAPON_ScudStorm", id, Vec3::new(300.0, 0.0, 300.0)));
     assert_eq!(logic.ocl_fire_weapon_attack_reg.last_attack_shots, 9);
     let o = logic.host_object(id).unwrap();
     assert!(o
@@ -2621,8 +2606,7 @@ fn passengers_fire_upgrade_helix_battle_bunker() {
         o.is_helix_transport = true;
         o.passengers_allowed_to_fire = false;
     }
-    let n =
-        logic.apply_passengers_fire_upgrade_to_team(Team::China, UPGRADE_HELIX_BATTLE_BUNKER);
+    let n = logic.apply_passengers_fire_upgrade_to_team(Team::China, UPGRADE_HELIX_BATTLE_BUNKER);
     assert!(n >= 1);
     assert!(logic.host_object(id).unwrap().passengers_allowed_to_fire);
     assert!(logic.passengers_fire_upgrade_reg.applies >= 1);
@@ -2678,8 +2662,7 @@ fn enemy_near_wall_sets_model_condition_on_scan() {
 #[test]
 fn base_regenerate_structure_heals_after_delay() {
     use crate::game_logic::host_base_regenerate::{
-        honesty_base_regenerate_residual_ok, BASE_REGEN_DELAY_FRAMES,
-        BASE_REGEN_HEAL_RATE_FRAMES,
+        honesty_base_regenerate_residual_ok, BASE_REGEN_DELAY_FRAMES, BASE_REGEN_HEAL_RATE_FRAMES,
     };
     use crate::game_logic::KindOf;
     assert!(honesty_base_regenerate_residual_ok());
@@ -2889,13 +2872,11 @@ fn toxin_fire_ocl_spawns_field_after_min_shots_and_coast() {
     // Fire secondary spray MinShots times.
     for f in 0..TOXIN_SPRAY_MIN_SHOTS_TO_CREATE_OCL {
         logic.frame = f;
-        let _ =
-            logic.apply_toxin_tractor_spray_at(Vec3::new(10.0, 0.0, 0.0), Some(id), Team::GLA);
+        let _ = logic.apply_toxin_tractor_spray_at(Vec3::new(10.0, 0.0, 0.0), Some(id), Team::GLA);
     }
     assert_eq!(logic.toxin_tractor.fire_ocl_spawns, 0, "no OCL until coast");
     // Advance past coast without more shots.
-    logic.frame =
-        TOXIN_SPRAY_MIN_SHOTS_TO_CREATE_OCL + TOXIN_SPRAY_CONTINUOUS_FIRE_COAST_FRAMES;
+    logic.frame = TOXIN_SPRAY_MIN_SHOTS_TO_CREATE_OCL + TOXIN_SPRAY_CONTINUOUS_FIRE_COAST_FRAMES;
     logic.tick_fire_ocl_after_weapon_cooldown();
     assert!(
         logic.toxin_tractor.fire_ocl_spawns > 0,
@@ -2929,9 +2910,9 @@ fn upgrade_die_removes_producer_drone_upgrade() {
         .expect("scout drone");
     {
         let m = game_logic.host_object(master_id).unwrap();
-        assert!(m.has_upgrade_tag(
-            crate::game_logic::host_slave_drones::UPGRADE_AMERICA_SCOUT_DRONE
-        ));
+        assert!(
+            m.has_upgrade_tag(crate::game_logic::host_slave_drones::UPGRADE_AMERICA_SCOUT_DRONE)
+        );
     }
     {
         let d = game_logic.host_object(drone_id).unwrap();
@@ -3336,8 +3317,7 @@ fn combat_chinook_residual_load_two_unload_both_free() {
 
     let chinook = game_logic.host_object(chinook_id).expect("chinook loaded");
     assert!(
-        chinook.contained_units().contains(&unit_a)
-            && chinook.contained_units().contains(&unit_b),
+        chinook.contained_units().contains(&unit_a) && chinook.contained_units().contains(&unit_b),
         "both infantry must be loaded into Combat Chinook residual"
     );
     assert_eq!(chinook.transport_count(), 2);
@@ -3719,4 +3699,3 @@ fn listening_outpost_residual_detect_stealth_in_range() {
         );
     }
 }
-

@@ -180,7 +180,12 @@ pub(super) fn text_entry_password_composition_is_masked(entry: &TextEntry) -> bo
     entry.is_password() && !entry.ime_composition().is_empty()
 }
 
-pub(super) fn text_entry_text_draw_x(draw_from_start: bool, start_x: i32, width: i32, text_width: i32) -> i32 {
+pub(super) fn text_entry_text_draw_x(
+    draw_from_start: bool,
+    start_x: i32,
+    width: i32,
+    text_width: i32,
+) -> i32 {
     if draw_from_start {
         return start_x + 5;
     }
@@ -224,7 +229,12 @@ pub(super) fn text_entry_clip_region(
     }
 }
 
-pub(super) fn text_entry_start_y(origin_y: i32, size_y: i32, font_height: i32, one_line: bool) -> i32 {
+pub(super) fn text_entry_start_y(
+    origin_y: i32,
+    size_y: i32,
+    font_height: i32,
+    one_line: bool,
+) -> i32 {
     if one_line {
         size_y / 2 - font_height / 2
     } else {

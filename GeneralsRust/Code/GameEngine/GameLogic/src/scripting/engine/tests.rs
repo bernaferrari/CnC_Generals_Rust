@@ -4,9 +4,9 @@
     fn test_script_engine_creation() {
         let engine = ScriptEngine::new().unwrap();
         // Slot 0 is reserved, matching runtime reset semantics.
-        assert_eq!(engine.num_counters, 1);
-        assert_eq!(engine.num_flags, 1);
-        assert_eq!(engine.fade, TFade::None);
+        assert_eq!(engine.with_inner(|i| i.num_counters), 1);
+        assert_eq!(engine.with_inner(|i| i.num_flags), 1);
+        assert_eq!(engine.with_inner(|i| i.fade), TFade::None);
         assert!(!engine.is_game_ending());
     }
 
@@ -16,7 +16,7 @@
 
         // Set a counter
         engine.set_counter("test_counter", 42).unwrap();
-        assert_eq!(engine.num_counters, 2);
+        assert_eq!(engine.with_inner(|i| i.num_counters), 2);
 
         // Get the counter
         let counter = engine.get_counter("test_counter").unwrap();
@@ -30,7 +30,7 @@
 
         // Set a flag
         engine.set_flag("test_flag", true).unwrap();
-        assert_eq!(engine.num_flags, 2);
+        assert_eq!(engine.with_inner(|i| i.num_flags), 2);
 
         // Get the flag
         let flag = engine.get_flag("test_flag").unwrap();
@@ -45,7 +45,7 @@
 
         engine.start_end_game_timer();
         assert!(engine.is_game_ending());
-        assert_eq!(engine.end_game_timer, 300);
+        assert_eq!(engine.with_inner(|i| i.end_game_timer), 300);
     }
 
     #[test]
@@ -169,11 +169,15 @@
             .set_script_list_for_player(0, Some(Box::new(script_list)))
             .unwrap();
 
-        let script = engine.side_script_lists[0]
-            .as_ref()
-            .and_then(|list| list.first_script.as_deref())
+        let frame = engine
+            .with_inner(|i| {
+                i.side_script_lists[0]
+                    .as_ref()
+                    .and_then(|list| list.first_script.as_ref())
+                    .map(|s| s.frame_to_evaluate_at)
+            })
             .expect("script should be present");
-        assert!(script.frame_to_evaluate_at <= (2 * LOGICFRAMES_PER_SECOND as u32));
+        assert!(frame <= (2 * LOGICFRAMES_PER_SECOND as u32));
     }
 
     #[test]
@@ -206,11 +210,15 @@
             .set_script_list_for_player(0, Some(Box::new(script_list)))
             .unwrap();
 
-        let stored_script = engine.side_script_lists[0]
-            .as_ref()
-            .and_then(|list| list.first_script.as_deref())
+        let condition_team = engine
+            .with_inner(|i| {
+                i.side_script_lists[0]
+                    .as_ref()
+                    .and_then(|list| list.first_script.as_ref())
+                    .map(|s| s.condition_team_name.clone())
+            })
             .expect("script should be present");
-        assert_eq!(stored_script.condition_team_name, team_name);
+        assert_eq!(condition_team, team_name);
     }
 
     #[test]
@@ -237,11 +245,15 @@
             .execute_subroutine_by_name("SubroutinePersist")
             .unwrap());
 
-        let stored = engine.side_script_lists[0]
-            .as_ref()
-            .and_then(|list| list.first_script.as_deref())
+        let is_active = engine
+            .with_inner(|i| {
+                i.side_script_lists[0]
+                    .as_ref()
+                    .and_then(|list| list.first_script.as_ref())
+                    .map(|s| s.is_active)
+            })
             .expect("subroutine should still exist");
-        assert!(!stored.is_active);
+        assert!(!is_active);
     }
 
     #[test]
@@ -274,12 +286,16 @@
             .execute_subroutine_by_name("NamedSubroutineGroup")
             .unwrap());
 
-        let grouped_script = engine.side_script_lists[0]
-            .as_ref()
-            .and_then(|list| list.first_group.as_deref())
-            .and_then(|grp| grp.first_script.as_deref())
+        let grouped_active = engine
+            .with_inner(|i| {
+                i.side_script_lists[0]
+                    .as_ref()
+                    .and_then(|list| list.first_group.as_ref())
+                    .and_then(|grp| grp.first_script.as_ref())
+                    .map(|s| s.is_active)
+            })
             .expect("grouped subroutine should exist");
-        assert!(!grouped_script.is_active);
+        assert!(!grouped_active);
     }
 
     #[test]
@@ -290,7 +306,9 @@
             .unwrap();
 
         let index = engine.allocate_counter("shell_camera").unwrap();
-        let counter = engine.counters[index].as_ref().unwrap();
+        let counter = engine
+            .with_inner(|i| i.counters[index].clone())
+            .expect("timer counter");
         assert_eq!(counter.value, 4);
         assert!(counter.is_countdown_timer);
     }
@@ -302,7 +320,9 @@
         engine.stop_timer("pause_test").unwrap();
 
         let index = engine.allocate_counter("pause_test").unwrap();
-        let counter = engine.counters[index].as_ref().unwrap();
+        let counter = engine
+            .with_inner(|i| i.counters[index].clone())
+            .expect("pause counter");
         assert_eq!(counter.value, 17);
         assert!(!counter.is_countdown_timer);
     }
@@ -316,7 +336,9 @@
             .unwrap();
 
         let index = engine.allocate_counter("negative_test").unwrap();
-        let counter = engine.counters[index].as_ref().unwrap();
+        let counter = engine
+            .with_inner(|i| i.counters[index].clone())
+            .expect("negative counter");
         assert_eq!(counter.value, -2);
     }
 
@@ -461,13 +483,36 @@
         {
             let _guard = engine.lock_inner_mut();
             assert!(
-                with_active_script_engine_ref(|e| e.num_counters).is_none(),
+                with_active_script_engine_ref(|e| e.with_inner(|i| i.num_counters)).is_none(),
                 "shared TLS ref must skip while exclusive inner borrow is live"
             );
         }
 
         assert_eq!(
-            with_active_script_engine_ref(|e| e.num_counters),
+            with_active_script_engine_ref(|e| e.with_inner(|i| i.num_counters)),
             Some(1)
         );
+    }
+
+    #[test]
+    fn breeze_and_track_getters_return_owned_snapshots() {
+        let mut engine = ScriptEngine::new().unwrap();
+        engine.set_current_track_name("intro".into());
+        engine.set_breeze_info(0.5, 0.1, 0.0, 30, 0.0);
+
+        let breeze = engine.get_breeze_info();
+        let track = engine.get_current_track_name();
+        assert_eq!(track, "intro");
+        assert!((breeze.intensity - 0.1).abs() < f32::EPSILON);
+
+        engine.set_current_track_name("combat".into());
+        engine.set_breeze_info(1.0, 0.9, 0.0, 30, 0.0);
+
+        assert_eq!(track, "intro", "owned snapshot must not alias inner");
+        assert!(
+            (breeze.intensity - 0.1).abs() < f32::EPSILON,
+            "owned breeze snapshot must not alias inner"
+        );
+        assert_eq!(engine.get_current_track_name(), "combat");
+        assert!((engine.get_breeze_info().intensity - 0.9).abs() < f32::EPSILON);
     }

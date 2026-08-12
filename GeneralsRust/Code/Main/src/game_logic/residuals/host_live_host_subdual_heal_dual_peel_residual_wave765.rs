@@ -64,7 +64,7 @@ pub fn residual_host_subdual_heal_dual_peel_last_action() -> ResidualHostSubdual
     ResidualHostSubdualHealDualPeelAction::from_u8(RESIDUAL_ACTION.load(Ordering::SeqCst))
 }
 fn sh_source() -> &'static str {
-    include_str!("../../gameworld_shadow.rs")
+    crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC
 }
 fn gl_source() -> &'static str {
     include_str!("../game_logic.rs")
@@ -90,7 +90,7 @@ pub fn honesty_host_subdual_heal_dual_peel_source_markers_residual_wave765() -> 
         && sh.contains("e.subdual_heal_countdown")
         && gl.contains("Wave 765")
         && !gl.contains("obj.tick_subdual_damage();")
-        && include_str!("../object.rs").contains("fn tick_subdual_damage");
+        && crate::game_logic::object::OBJECT_SRC.contains("fn tick_subdual_damage");
     residual_action_store(ResidualHostSubdualHealDualPeelAction::SourceMarkers);
     ok
 }
@@ -117,7 +117,7 @@ pub fn simulate_host_subdual_heal_dual_peel_dispatch_source() -> bool {
         && sh_source().contains("obj.subdual_damage = ent.subdual_damage")
         && gl_source().contains("tick_continuous_fire_coast")
         && !gl_source().contains("obj.tick_subdual_damage();")
-        && include_str!("../object.rs").contains("tick_subdual_damage();");
+        && crate::game_logic::object::OBJECT_SRC.contains("tick_subdual_damage();");
     residual_action_store(ResidualHostSubdualHealDualPeelAction::DispatchSource);
     ok
 }

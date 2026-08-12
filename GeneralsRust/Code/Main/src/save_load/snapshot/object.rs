@@ -1,8 +1,6 @@
 //! Object snapshot types and Xfer residual.
 
-use super::xfer_helpers::{
-    xfer_hashmap_default, xfer_option, xfer_vec_default, xfer_vec_vec3,
-};
+use super::xfer_helpers::{xfer_hashmap_default, xfer_option, xfer_vec_default, xfer_vec_vec3};
 use super::*;
 use crate::game_logic::*;
 use crate::save_load::{SaveLoadError, SaveLoadResult, Xfer, XferData, XferMode};
@@ -982,4 +980,3 @@ impl XferData for ObjectTypeSnapshot {
         Ok(())
     }
 }
-

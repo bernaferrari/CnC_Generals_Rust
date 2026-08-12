@@ -83,7 +83,7 @@ pub fn honesty_gameworld_sole_tick_coupling_residual_pack_wave178() -> bool {
 
 /// Source residual: coupled tick enter/exit + sole-tick predicate.
 pub fn honesty_coupled_tick_api_source() -> bool {
-    let src = include_str!("../../gameworld_shadow.rs");
+    let src = crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC;
     src.contains("pub fn begin_shadow_coupled_tick")
         && src.contains("pub fn end_shadow_coupled_tick")
         && src.contains("pub fn shadow_coupled_tick_active")
@@ -92,7 +92,7 @@ pub fn honesty_coupled_tick_api_source() -> bool {
 
 /// Source residual: sole-tick requires shadow enabled + coupled depth + production auth.
 pub fn honesty_sole_tick_requires_coupling_source() -> bool {
-    let src = include_str!("../../gameworld_shadow.rs");
+    let src = crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC;
     let i = match src.find("pub fn gameworld_production_sole_tick_enabled") {
         Some(i) => i,
         None => return false,
@@ -105,7 +105,7 @@ pub fn honesty_sole_tick_requires_coupling_source() -> bool {
 
 /// Source residual: movement authority defaults on.
 pub fn honesty_movement_authority_default_on_source() -> bool {
-    let src = include_str!("../../gameworld_shadow.rs");
+    let src = crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC;
     let i = match src.find("pub fn gameworld_movement_authority_enabled") {
         Some(i) => i,
         None => return false,

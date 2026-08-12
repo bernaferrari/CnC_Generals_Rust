@@ -215,4 +215,3 @@ impl GameMessageTranslator for CommandTranslator {
         disposition
     }
 }
-

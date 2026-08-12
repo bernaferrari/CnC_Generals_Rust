@@ -950,6 +950,21 @@ impl TriggerArea {
     }
 }
 
+fn trigger_area_aabb(area: &TriggerArea) -> Option<(f32, f32, f32, f32)> {
+    if !area.active {
+        return None;
+    }
+    if let Some([min_x, min_y, max_x, max_y]) = area.bounds {
+        return Some((min_x, min_y, max_x, max_y));
+    }
+    if let Some(radius) = area.radius {
+        let cx = area.center[0];
+        let cz = area.center[1];
+        return Some((cx - radius, cz - radius, cx + radius, cz + radius));
+    }
+    None
+}
+
 /// Area tracker for enter/exit events
 pub struct AreaTracker {
     /// Registered trigger areas
@@ -1210,6 +1225,26 @@ impl AreaTracker {
             .unwrap_or_default())
     }
 
+    /// Host-path AABB for a named area: `(min_x, min_z, max_x, max_z)`.
+    /// Circular areas become a conservative AABB. Unresolved polygon-only
+    /// areas (no radius/bounds) return `None`.
+    pub fn get_area_aabb(&self, area_name: &str) -> Option<(f32, f32, f32, f32)> {
+        let areas = self.areas.read().ok()?;
+        trigger_area_aabb(areas.get(area_name)?)
+    }
+
+    /// All named areas that have resolvable AABB geometry.
+    /// Must not re-lock `self.areas` (std `RwLock` is not re-entrant).
+    pub fn all_area_aabbs(&self) -> Vec<(String, (f32, f32, f32, f32))> {
+        let Ok(areas) = self.areas.read() else {
+            return Vec::new();
+        };
+        areas
+            .iter()
+            .filter_map(|(name, area)| trigger_area_aabb(area).map(|aabb| (name.clone(), aabb)))
+            .collect()
+    }
+
     /// Check if a trigger area is registered.
     pub fn has_area(&self, area_name: &str) -> GameLogicResult<bool> {
         let areas = self.areas.read().map_err(|e| {
@@ -1281,6 +1316,23 @@ mod tests {
         fn get_name(&self) -> String {
             self.name.clone()
         }
+    }
+
+    #[test]
+    fn all_area_aabbs_does_not_deadlock_when_an_area_is_registered() {
+        let tracker = AreaTracker::new();
+        tracker
+            .register_area(TriggerArea::new_circular(
+                "ScoutPad".into(),
+                [10.0, 20.0, 0.0],
+                5.0,
+            ))
+            .unwrap();
+        let aabbs = tracker.all_area_aabbs();
+        assert_eq!(aabbs.len(), 1);
+        assert_eq!(aabbs[0].0, "ScoutPad");
+        assert_eq!(aabbs[0].1, (5.0, 15.0, 15.0, 25.0));
+        assert_eq!(tracker.get_area_aabb("ScoutPad"), Some((5.0, 15.0, 15.0, 25.0)));
     }
 
     #[tokio::test]

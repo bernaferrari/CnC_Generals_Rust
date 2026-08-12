@@ -83,7 +83,7 @@ pub fn residual_rmb_presentation_no_dual_read_last_action(
 }
 
 fn cs_source() -> &'static str {
-    include_str!("../../command_system.rs")
+    crate::command_system::COMMAND_SYSTEM_SRC
 }
 
 pub fn honesty_rmb_presentation_no_dual_read_method_names_residual_wave541() -> bool {

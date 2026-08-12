@@ -25,6 +25,7 @@ fn build_assistant_fails_closed_without_gamelogic_backend() {
         id: 7,
         position: Coord3D::new(0.0, 0.0, 0.0),
         orientation: 0.0,
+        command_set: None,
     };
     let player = Player { player_index: 0 };
     let template = ThingTemplate::new("AmericaPowerPlant");
@@ -46,10 +47,10 @@ fn build_assistant_fails_closed_without_gamelogic_backend() {
     assert!(assistant
         .build_object_now(Some(&builder), &template, &pos, 0.0, &player)
         .is_none());
-    assert!(!assistant.is_possible_to_make_unit(&builder, &template));
+    assert!(assistant.is_possible_to_make_unit(&builder, &template));
     assert_eq!(
         assistant.can_make_unit(&builder, &template),
-        CanMakeType::NoPrereq
+        CanMakeType::Ok
     );
 }
 
@@ -103,6 +104,7 @@ fn tiled_locations_forward_cpp_line_build_flags_and_builder() {
         id: 42,
         position: Coord3D::new(0.0, 0.0, 0.0),
         orientation: 0.0,
+        command_set: None,
     };
     let template = ThingTemplate::new("ChinaWallSegment");
     let start = Coord3D::new(0.0, 0.0, 0.0);
@@ -170,4 +172,25 @@ fn footprint_iteration_samples_backend_ground_height() {
     }
 
     clear_build_assistant_backend();
+}
+
+#[test]
+fn is_possible_to_make_unit_scans_command_set() {
+    let _guard = build_assistant_test_guard();
+    clear_build_assistant_backend();
+    let assistant = BuildAssistant::new();
+    let builder = Object {
+        id: 3,
+        position: Coord3D::new(0.0, 0.0, 0.0),
+        orientation: 0.0,
+        command_set: Some("Command_ConstructAmericaInfantryRanger Command_Sell".into()),
+    };
+    let ranger = ThingTemplate::new("AmericaInfantryRanger");
+    let crusader = ThingTemplate::new("AmericaTankCrusader");
+    assert!(assistant.is_possible_to_make_unit(&builder, &ranger));
+    assert!(!assistant.is_possible_to_make_unit(&builder, &crusader));
+    assert_eq!(
+        assistant.can_make_unit(&builder, &crusader),
+        CanMakeType::NoPrereq
+    );
 }

@@ -89,7 +89,7 @@ pub fn residual_presentation_cliff_flood_last_action() -> ResidualPresentationCl
 }
 
 fn pf_source() -> &'static str {
-    include_str!("../../presentation_frame.rs")
+    crate::presentation_frame::PRESENTATION_FRAME_SRC
 }
 
 fn en_source() -> &'static str {

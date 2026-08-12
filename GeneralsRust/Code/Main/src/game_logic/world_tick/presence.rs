@@ -109,9 +109,9 @@ impl GameLogic {
             self.ensure_ai_faction_templates(team);
 
             let primary_template = match team {
-                Team::USA => "USA_CommandCenter",
-                Team::GLA => "GLA_CommandCenter",
-                Team::China => "China_CommandCenter",
+                Team::USA => "AmericaCommandCenter",
+                Team::GLA => "GLACommandCenter",
+                Team::China => "ChinaCommandCenter",
                 Team::Neutral => "CommandCenter",
             };
 
@@ -170,7 +170,10 @@ impl GameLogic {
         );
     }
 
-    pub(in super::super) fn convert_script_event(&self, event: &ScriptEvent) -> Option<MissionScriptEvent> {
+    pub(in super::super) fn convert_script_event(
+        &self,
+        event: &ScriptEvent,
+    ) -> Option<MissionScriptEvent> {
         use ScriptValue as Val;
         let mut params = HashMap::new();
         let event_type = match event {

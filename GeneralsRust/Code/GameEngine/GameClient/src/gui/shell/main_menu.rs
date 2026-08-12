@@ -44,6 +44,7 @@ use crate::gui::shell::{get_shell, show_shell_map_if_available, try_with_shell_m
 use crate::gui::window_manager::{
     with_window_manager, with_window_manager_ref, WindowLayout as ManagerWindowLayout,
 };
+use crate::gui::write_input_focus_response;
 use crate::gui::WindowMsgData;
 use crate::helpers::set_mouse_cursor_visibility;
 use crate::helpers::{TheControlBar, TheInGameUI};
@@ -450,7 +451,7 @@ impl MainMenu {
         hide: bool,
     ) {
         if let Some(window) = self.find_live_window(state, Some(id), fallback_name) {
-            let _ = window.borrow_mut().hide(hide);
+            crate::gui::hide_window_rc(&window, hide);
         }
     }
 
@@ -458,7 +459,7 @@ impl MainMenu {
         if let Some(window) =
             self.find_live_window(state, Some(NameKeyGenerator::name_to_key(name)), Some(name))
         {
-            let _ = window.borrow_mut().hide(hide);
+            crate::gui::hide_window_rc(&window, hide);
         }
     }
 
@@ -519,16 +520,20 @@ impl MainMenu {
         log::info!("MainMenuInit: Initializing main menu");
 
         let mut state = self.state.write().unwrap_or_else(|e| e.into_inner());
+        log::info!("MainMenuInit: state write lock acquired");
 
         if let Some(global) = get_global_data() {
             global.write().break_the_movie = false;
         }
+        log::info!("MainMenuInit: global data updated");
 
         // C++ MainMenuInit calls TheShell->showShellMap while TheShell may already
         // be on the stack for push/do_push. Use the re-entrancy-safe helper so we
         // never panic on RefCell double-borrow during smoke-test menu entry.
         crate::gui::shell::base::show_shell_map_if_available(true);
+        log::info!("MainMenuInit: show_shell_map_if_available done");
         set_main_menu_cursor_visibility(true);
+        log::info!("MainMenuInit: cursor visibility set");
 
         // Reset state - matches C++ lines 431-442
         state.button_pushed = false;
@@ -546,6 +551,7 @@ impl MainMenu {
         state.mouse_anchor_initialized = false;
         state.last_mouse_pos = (0, 0);
         state.pending_actions.clear();
+        log::info!("MainMenuInit: state fields reset");
 
         // Initialize dropdown windows array - matches C++ lines 441-442
         for i in 0..(DropdownType::Count as usize) {
@@ -555,6 +561,7 @@ impl MainMenu {
         }
         // Initialize window IDs - matches C++ lines 444-480
         state.window_ids = build_window_ids();
+        log::info!("MainMenuInit: window ids built");
 
         state.dropdown_windows.insert(
             DropdownType::Single,
@@ -576,32 +583,33 @@ impl MainMenu {
             DropdownType::Difficulty,
             Some(NameKeyGenerator::name_to_key("MainMenu.wnd:MapBorder4")),
         );
-        // Hide dropdown windows except main - matches C++ lines 525-526
-        for i in 1..(DropdownType::Count as i32) {
-            if let Some(dropdown_type) = DropdownType::from_i32(i) {
-                if let Some(Some(window_id)) = state.dropdown_windows.get(&dropdown_type) {
-                    self.hide_window_by_id(&state, *window_id, None, true);
-                }
-            }
-        }
+        log::info!("MainMenuInit: hiding dropdown windows");
+        // Hide dropdown windows / faction gadgets / selective buttons is C++
+        // MainMenuInit work, but doing it *inside* Shell::push has been observed
+        // to stall the main thread for minutes on this port (windowed status never
+        // reaches Menu; inject never runs). Defer the hide/show side effects to the
+        // first MainMenu update tick via `pending_actions` / just_entered path.
         state.drop_down = DropdownType::None;
-        // Initial hide of faction windows - matches C++ initialHide() lines 360-425
-        self.initial_hide(&state);
-
-        // Hide selective buttons - matches C++ line 530
-        self.show_selective_buttons(&state, ShowSide::None);
+        // Stash intent: first update applies initial_hide + selective buttons.
+        state.just_entered = true;
+        state.initial_gadget_delay = 2;
 
         // Set up the version number and debug buttons would go here (lines 532-570)
 
-        // Show the layout - matches C++ line 579
+        log::info!("MainMenuInit: show layout (deferred hide loops)");
+        // Show the layout - matches C++ line 579. Skip bring_layout_forward during
+        // push; the shell stack already owns the layout after create.
         if let Some(layout) = layout.downcast_ref::<ManagerWindowLayout>() {
             layout.hide(false);
-            with_window_manager(|manager| manager.bring_layout_forward(layout));
         }
+        log::info!("MainMenuInit: layout shown");
 
-        if let Ok(mut map_cache) = get_map_cache_manager().lock() {
-            map_cache.update_cache();
-        }
+        // Map-cache rebuild off the main thread (was a multi-minute stall).
+        std::thread::spawn(|| {
+            if let Ok(mut map_cache) = get_map_cache_manager().lock() {
+                map_cache.update_cache();
+            }
+        });
 
         if get_peer_message_queue()
             .and_then(|queue| queue.lock().ok().map(|queue| !queue.is_connected()))
@@ -614,27 +622,22 @@ impl MainMenu {
         // Campaign not selected - matches C++ line 630
         state.campaign_selected = false;
 
-        self.hide_window_by_name(&state, "MainMenu.wnd:MainMenuRuler", true);
-        self.sync_cpp_startup_visibility(&state);
-
+        // Skip hide_window_by_name / focus_window during push (same stall class).
         // Handle first time running - matches C++ lines 632-646
         if state.first_time_running_the_game {
             log::debug!("First time running the game - hiding mouse and fading");
             state.not_shown = true;
             set_main_menu_cursor_visibility(false);
-            self.transition_reverse("FadeWholeScreen");
+            // Defer reverse fade to first update; transition_reverse can re-enter WM.
         } else {
             state.show_fade = true;
             // Match C++ MainMenuUpdate startup cadence: set justEntered and tick down to 1
             // before applying the default logo fade transition group.
             state.just_entered = true;
             state.initial_gadget_delay = 2;
-            self.hide_window_by_name(&state, "MainMenu.wnd:MainMenuRuler", false);
         }
 
-        let focus_id = state.window_ids.main_menu_id as i32;
         drop(state);
-        self.focus_window(focus_id);
 
         log::info!("MainMenuInit: Initialization complete");
         Ok(())
@@ -905,11 +908,16 @@ impl MainMenu {
             }
 
             // GWM_INPUT_FOCUS - matches C++ lines 1049-1058
+            // data2 is a WindowMsgPayload token (from set_focus push_payload), NOT a
+            // raw *mut bool. Dereferencing data2 as a pointer caused Menu SIGSEGV
+            // (EXC_BAD_ACCESS / PAC failure at 0x8000000001000000) during WM update.
             GWM_INPUT_FOCUS => {
                 if window != build_window_ids().main_menu_id {
                     return false;
                 }
-                return Self::write_input_focus_response(data1 as u32, data2);
+                // Accept focus when gaining (data1 != 0); write via payload arena.
+                let _ = write_input_focus_response(data1, data2, true);
+                return true;
             }
 
             // GBM_MOUSE_ENTERING - matches C++ lines 1060-1176
@@ -970,16 +978,12 @@ impl MainMenu {
         for action in actions {
             match action {
                 PendingMainMenuAction::PushShellScreen(screen) => {
-                    match try_with_shell_mut(|shell| shell.push(screen.clone(), false)) {
-                        Some(Err(err)) => {
-                            log::warn!("Main menu push failed for {}: {}", screen, err)
-                        }
-                        None => log::debug!(
-                            "Main menu push skipped for {} (shell already borrowed)",
-                            screen
-                        ),
-                        Some(Ok(())) => {}
-                    }
+                    // Defer shell layout push off the process_mouse_event stack.
+                    // Synchronous shell.push during LeftUp has hung windowed host
+                    // inject (MainMenuInit / layout create mid control-drain).
+                    // Evidence still latches Used from process_mouse_event; the
+                    // push runs on the next menu tick via drain_deferred_shell_pushes.
+                    queue_deferred_shell_push(screen);
                 }
                 PendingMainMenuAction::ReverseTransitionGroup(group) => {
                     self.transition_reverse(group);
@@ -2066,16 +2070,6 @@ impl MainMenu {
         log::info!("Patch check completed - entering online handoff");
     }
 
-    fn write_input_focus_response(data1: u32, data2: usize) -> bool {
-        if data1 == 1 && data2 != 0 {
-            // SAFETY: this mirrors the legacy callback contract where mData2 is a Bool*.
-            unsafe {
-                *(data2 as *mut bool) = true;
-            }
-        }
-        true
-    }
-
     fn http_think_wrapper(&self, state: &mut MainMenuState) {
         if !state.checking_for_patch_before_gamespy {
             return;
@@ -2525,12 +2519,82 @@ pub fn reveal_main_menu_first_input_like_cpp() -> bool {
             .not_shown
 }
 
-fn tick_main_menu_transitions(times: u32) {
+/// Host inject residual: flip `not_shown` so menu→match gadgets are eligible
+/// for under-cursor hit tests. Intentionally avoids `transition_set_group` and
+/// hide/show WM drains (op-queue hang class mid control-command apply).
+pub fn soft_reveal_main_menu_for_host_inject() -> bool {
+    let menu = get_main_menu();
+    let mut state = menu.state.write().unwrap_or_else(|e| e.into_inner());
+    if !state.not_shown {
+        return true;
+    }
+    state.initial_gadget_delay = 1;
+    state.drop_down = DropdownType::Main;
+    state.not_shown = false;
+    true
+}
+
+static DEFERRED_SHELL_PUSHES: OnceLock<Mutex<Vec<String>>> = OnceLock::new();
+
+fn deferred_shell_push_queue() -> &'static Mutex<Vec<String>> {
+    DEFERRED_SHELL_PUSHES.get_or_init(|| Mutex::new(Vec::new()))
+}
+
+fn queue_deferred_shell_push(screen: &str) {
+    if let Ok(mut q) = deferred_shell_push_queue().lock() {
+        if !q.iter().any(|s| s == screen) {
+            log::info!("MainMenu: defer shell push {screen}");
+            q.push(screen.to_string());
+        }
+    }
+}
+
+/// Apply shell pushes deferred from MainMenu system callbacks (see
+/// `execute_pending_actions` PushShellScreen). Call from menu tick / after
+/// host inject so process_mouse_event can return Used without hanging on
+/// synchronous `Shell::push` / layout init.
+pub fn drain_deferred_shell_pushes() {
+    let screens = deferred_shell_push_queue()
+        .lock()
+        .map(|mut q| std::mem::take(&mut *q))
+        .unwrap_or_default();
+    for screen in screens {
+        match try_with_shell_mut(|shell| shell.push(screen.as_str(), false)) {
+            Some(Err(err)) => log::warn!("deferred shell push failed for {screen}: {err}"),
+            None => log::debug!("deferred shell push skipped for {screen} (shell borrowed)"),
+            Some(Ok(())) => log::info!("deferred shell push ok: {screen}"),
+        }
+    }
+}
+
+/// Drop deferred shell pushes without applying (host `start_game` owns match start;
+/// pushing SkirmishGameOptions mid inject was RefCell-panicing layout init).
+pub fn clear_deferred_shell_pushes() {
+    if let Ok(mut q) = deferred_shell_push_queue().lock() {
+        if !q.is_empty() {
+            log::info!("MainMenu: clear {} deferred shell push(es)", q.len());
+            q.clear();
+        }
+    }
+}
+
+/// Advance MainMenu transition timers (used by drive_os_wnd_* and winit inject).
+pub fn tick_main_menu_transitions(times: u32) {
     for _ in 0..times {
         with_window_manager(|manager| manager.update());
         let dummy = ();
         let _ = get_main_menu().update(&dummy, None);
+        drain_deferred_shell_pushes();
     }
+}
+
+/// Host `start_game` residual: mark MainMenu as starting a match so
+/// `MainMenuShutdown` skips reverse-animate (avoids shell re-borrow /
+/// post-shutdown SIGSEGV on the windowed runtime-host path).
+pub fn mark_host_match_start() {
+    let menu = get_main_menu();
+    let mut state = menu.state.write().unwrap_or_else(|e| e.into_inner());
+    state.start_game = true;
 }
 
 static LAST_OS_WND_WIDGET_TREE_CLICK_OK: AtomicBool = AtomicBool::new(false);
@@ -2551,19 +2615,60 @@ pub fn os_wnd_widget_tree_nav_ok() -> bool {
 /// Record a live OS mouse hit on the WND tree (C++ WindowXlat getWindowUnderCursor).
 /// Sets sticky `os_wnd_widget_tree_nav_ok` when an enabled gadget is under the cursor.
 pub fn note_os_wnd_widget_tree_hit(x: i32, y: i32) -> bool {
-    use crate::gui::window_manager::with_window_manager;
-    let hit = with_window_manager(|manager| {
+    // Use shared ref borrow (not with_window_manager) so hit-test cannot enter
+    // the op-drain loop. A stuck drain was hanging windowed winit_menu_nav after
+    // control drain, so Menu never advanced and start_game never ran.
+    use crate::gui::window_manager::with_window_manager_ref;
+    let hit = with_window_manager_ref(|manager| {
         manager
             .get_window_under_cursor(x, y, false)
             .is_some_and(|window| {
-                let guard = window.borrow();
-                !guard.is_hidden() && guard.is_enabled()
+                match window.try_borrow() {
+                    Ok(guard) => {
+                        if guard.is_hidden() || !guard.is_enabled() {
+                            return false;
+                        }
+                        // Shell::hide marks layout.hidden immediately, but individual
+                        // window hide may still be queued. Residual MainMenu parents
+                        // must not steal InGame RMB / world hits after match start.
+                        if let Some(layout) = guard.get_layout() {
+                            if layout.borrow().is_hidden() {
+                                return false;
+                            }
+                        }
+                        true
+                    }
+                    Err(_) => false,
+                }
             })
     });
     if hit {
         OS_WND_WIDGET_TREE_NAV_OK.store(true, Ordering::SeqCst);
     }
     hit
+}
+
+/// Name of the enabled, visible gadget under the cursor, if any.
+pub fn os_wnd_widget_under_cursor_name(x: i32, y: i32) -> Option<String> {
+    use crate::gui::window_manager::with_window_manager_ref;
+    with_window_manager_ref(|manager| {
+        let window = manager.get_window_under_cursor(x, y, false)?;
+        let guard = window.try_borrow().ok()?;
+        if guard.is_hidden() || !guard.is_enabled() {
+            return None;
+        }
+        if let Some(layout) = guard.get_layout() {
+            if layout.borrow().is_hidden() {
+                return None;
+            }
+        }
+        let name = guard.get_name().to_string();
+        if name.is_empty() {
+            None
+        } else {
+            Some(name)
+        }
+    })
 }
 
 #[cfg(test)]
@@ -3117,20 +3222,22 @@ mod tests {
 
     #[test]
     fn test_input_focus_writeback_sets_keyboard_focus() {
-        let mut focus = false;
+        use crate::gui::{
+            pop_payload, push_payload, write_input_focus_response as safe_focus, WindowMsgPayload,
+        };
 
-        assert!(MainMenu::write_input_focus_response(
-            1,
-            (&mut focus as *mut bool) as usize
-        ));
-        assert!(focus);
+        // Production path: set_focus pushes a Bool payload token, never a raw ptr.
+        let token = push_payload(WindowMsgPayload::Bool(false));
+        let _ = safe_focus(1, token, true);
+        assert_eq!(pop_payload(token), Some(WindowMsgPayload::Bool(true)));
 
-        focus = false;
-        assert!(MainMenu::write_input_focus_response(
-            0,
-            (&mut focus as *mut bool) as usize
-        ));
-        assert!(!focus);
+        // Losing focus (data1 == 0) must not clobber payload.
+        let lose = push_payload(WindowMsgPayload::Bool(false));
+        let _ = safe_focus(0, lose, true);
+        assert_eq!(pop_payload(lose), Some(WindowMsgPayload::Bool(false)));
+
+        // Garbage data2 must not SIGSEGV (fail closed).
+        let _ = safe_focus(1, 0xDEAD_BEEF, true);
     }
 
     #[test]

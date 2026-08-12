@@ -1,21 +1,27 @@
-#![allow(unused_imports, unused_variables, dead_code, non_snake_case, unreachable_patterns)]
+#![allow(
+    unused_imports,
+    unused_variables,
+    dead_code,
+    non_snake_case,
+    unreachable_patterns
+)]
 use super::*;
 
-mod shell_core;
-mod dialogs;
 mod campaign_menus;
+mod dialogs;
+mod gameplay;
+mod gameplay_orders;
+mod gameplay_select;
 mod hud_bar;
-mod overlay_clicks;
-mod skirmish;
-mod live_presentation;
 mod live_commands;
 mod live_gates_a;
 mod live_gates_b;
 mod live_gates_c;
+mod live_presentation;
 mod live_probes;
-mod gameplay;
-mod gameplay_orders;
-mod gameplay_select;
+mod overlay_clicks;
+mod shell_core;
+mod skirmish;
 
 impl CnCGameEngine {
     pub(super) fn apply_runtime_host_command(&mut self, raw_command: &str) {
@@ -407,6 +413,8 @@ impl CnCGameEngine {
             "save_game" | "quicksave" => self.runtime_host_cmd_save_game(&args),
             "quickload" => self.runtime_host_cmd_quickload(&args),
             "load_game" => self.runtime_host_cmd_load_game(&args),
+            "pause_save" => self.runtime_host_cmd_pause_save(&args),
+            "pause_load" => self.runtime_host_cmd_pause_load(&args),
             "replay" => self.runtime_host_cmd_replay(&args),
             "enqueue_production" | "train_unit" => self.runtime_host_cmd_enqueue_production(&args),
             "select_local_unit" => self.runtime_host_cmd_select_local_unit(&args),
@@ -468,6 +476,12 @@ impl CnCGameEngine {
             "auto_attack" | "sticky_auto_attack" | "toggle_auto_attack" => self.runtime_host_cmd_auto_attack(&args),
             "request_capture" | "screenshot" => self.runtime_host_cmd_request_capture(&args),
             "construct" | "dozer_construct" | "place_structure" => self.runtime_host_cmd_construct(&args),
+            // Windowed sit-through inject: shared WM path, Injected origin
+            // (does not latch playable_claim evidence).
+            // Headless always fails closed; drive_os_wnd_* is deliberately NOT used.
+            "winit_click_named" => self.runtime_host_cmd_winit_click_named(&args),
+            "winit_menu_nav" => self.runtime_host_cmd_winit_menu_nav(&args),
+            "winit_gameplay_order" => self.runtime_host_cmd_winit_gameplay_order(&args),
             _ => {
                 debug!(
                     "Ignoring unknown runtime host command '{}'",

@@ -81,7 +81,7 @@ pub fn honesty_live_command_deploy_status_log_residual_pack_wave203() -> bool {
 
 /// Source residual: set_deployed routes through set_status_deployed.
 pub fn honesty_set_deployed_logs_status_source() -> bool {
-    let src = include_str!("../object.rs");
+    let src = crate::game_logic::object::OBJECT_SRC;
     let i = match src.find("fn set_deployed") {
         Some(i) => i,
         None => return false,
@@ -92,7 +92,7 @@ pub fn honesty_set_deployed_logs_status_source() -> bool {
 
 /// Source residual: execute_deploy calls set_deployed.
 pub fn honesty_execute_deploy_uses_set_deployed_source() -> bool {
-    let ce = include_str!("../../command_executor.rs");
+    let ce = crate::command_executor::COMMAND_EXECUTOR_SRC;
     let i = match ce.find("fn execute_deploy") {
         Some(i) => i,
         None => return false,

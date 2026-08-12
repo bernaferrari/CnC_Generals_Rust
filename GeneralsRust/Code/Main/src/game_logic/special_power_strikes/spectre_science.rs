@@ -1,6 +1,6 @@
 //! SpectreGunship science-tier OrbitTime residual.
-use super::types::*;
 use super::spectre::*;
+use super::types::*;
 // --- Spectre science-tier OrbitTime residual ---
 
 /// Residual Spectre Gunship science tier (OrbitTime 10s / 15s / 20s).

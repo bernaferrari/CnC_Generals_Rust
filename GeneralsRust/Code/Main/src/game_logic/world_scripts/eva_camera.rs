@@ -960,7 +960,10 @@ impl GameLogic {
     }
 
     /// Execute a single command
-    pub(in super::super) fn execute_command(&mut self, command: crate::command_system::GameCommand) {
+    pub(in super::super) fn execute_command(
+        &mut self,
+        command: crate::command_system::GameCommand,
+    ) {
         let command_type = command.command_type.clone();
         let mut executor = crate::command_executor::CommandExecutor::new(self, command.player_id);
 

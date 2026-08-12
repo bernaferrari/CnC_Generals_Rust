@@ -93,7 +93,7 @@ pub fn residual_camera_bootstrap_presentation_only_last_action(
 }
 
 fn cnc_source() -> &'static str {
-    include_str!("../../cnc_game_engine.rs")
+    crate::cnc_game_engine::ENGINE_SRC
 }
 
 fn function_body<'a>(src: &'a str, sig: &str) -> Option<&'a str> {

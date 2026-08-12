@@ -19,7 +19,6 @@ impl Wake for NoopWake {
     fn wake(self: Arc<Self>) {}
 }
 
-
 /// Run the actual C&C game
 pub async fn run_cnc_game(
     event_loop: EventLoop<()>,
@@ -77,12 +76,21 @@ pub async fn run_cnc_game(
             render_frame: bool,
         | {
             if let Some(bridge) = runtime_host_bridge.as_mut() {
+                let mut applied = 0u32;
                 for command in bridge.drain_commands() {
+                    let cmd_label = command.clone();
                     engine.apply_runtime_host_command(&command);
+                    applied = applied.saturating_add(1);
+                    log::info!("runtime_host command applied: {cmd_label}");
+                    // Publish after *each* command so menu_click + match_started
+                    // land in status.txt before a later SIGSEGV.
+                    let snapshot = engine.runtime_host_status_snapshot();
+                    bridge.publish_status(&snapshot);
                 }
                 if engine.take_runtime_host_pending_capture() {
                     bridge.force_capture_request();
                 }
+                let _ = applied;
             }
 
             let frame_started = Instant::now();
@@ -92,6 +100,9 @@ pub async fn run_cnc_game(
                 GameState::Loading | GameState::Menu | GameState::InGame | GameState::Paused
             ) {
                 let ww3d_started = Instant::now();
+                if matches!(engine.get_state(), GameState::Menu) {
+                    log::trace!("drive_frame: pre ww3d_engine::update Menu");
+                }
                 let timing = match ww3d_engine::update() {
                     Ok(_) => match ww3d_engine::timing() {
                         Ok(timing) => {
@@ -146,7 +157,17 @@ pub async fn run_cnc_game(
                     info!("drive_frame #{} calling render()", dfn);
                 }
                 match engine.render() {
-                    Ok(_) => {}
+                    Ok(_) => {
+                        // Honest live_frame residual: a successful windowed render
+                        // presented a wgpu surface (end_render present_surface_texture).
+                        // Headless keeps capture-only promotion so headless smoke
+                        // cannot forge playable_claim via live_frame_ok alone.
+                        if !runtime_headless_mode {
+                            if let Some(bridge) = runtime_host_bridge.as_mut() {
+                                bridge.note_windowed_surface_presented();
+                            }
+                        }
+                    }
                     Err(e) => {
                         error!("❌ RENDER ERROR: {:?}", e);
                         if let Some(source_err) = e.source() {
@@ -627,7 +648,6 @@ pub async fn run_cnc_game(
     info!("C&C Game ended successfully");
     Ok(())
 }
-
 
 /// Map HUD structure cameo labels to ThingTemplate residual names.
 pub(super) fn resolve_ui_structure_template_name(name: &str) -> String {

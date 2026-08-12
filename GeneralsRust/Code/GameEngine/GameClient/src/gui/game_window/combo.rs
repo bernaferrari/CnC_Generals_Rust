@@ -7,9 +7,7 @@ use super::messages::{
     WindowMessage, GCM_DEL_ALL, GCM_GET_ITEM_DATA, GCM_GET_SELECTION, GCM_SET_ITEM_DATA,
     GCM_SET_SELECTION, GCM_SET_TEXT,
 };
-use super::payload::{
-    pop_payload, push_payload, with_payload, WindowMsgData, WindowMsgPayload,
-};
+use super::payload::{pop_payload, push_payload, with_payload, WindowMsgData, WindowMsgPayload};
 use super::window_struct::{GameWindow, WindowWidget};
 use crate::gui::gadgets::ComboBoxItem;
 

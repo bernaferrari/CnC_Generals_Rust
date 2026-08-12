@@ -851,7 +851,6 @@ impl GameWorldShadow {
         n
     }
 
-
     /// Under SPECIAL_POWER_AUTHORITY: advance entity SP cooldown remaining by dt.
     /// Host completes ready flip after writeback when remaining hits 0.
     pub fn tick_special_power_cooldowns(&mut self, dt: f32) -> usize {

@@ -175,6 +175,7 @@ pub(super) fn draw_push_button_image_one(window: &GameWindow, inst_data: &Window
     let image = button_draw_entry_image(draw_data, index);
 
     let Some(image) = image else {
+        draw_push_button_solid_base(window, inst_data);
         return;
     };
 
@@ -186,6 +187,7 @@ pub(super) fn draw_push_button_image_one(window: &GameWindow, inst_data: &Window
     with_window_manager_ref(|manager| {
         manager.win_draw_image(image, start_x, start_y, end_x, end_y, WIN_COLOR_UNDEFINED);
     });
+    note_shipped_ui_draw_commands(1);
 }
 
 pub(super) fn resolve_push_button_three_piece_images<'a>(
@@ -322,21 +324,26 @@ pub(super) fn draw_push_button_solid_base(window: &GameWindow, inst_data: &Windo
     let (draw_data, text_colors) = current_push_button_draw_data(window, inst_data);
     let (_, color_index) =
         push_button_color_entry_index(window.get_status(), inst_data.state, window.is_enabled());
-    let _ = with_ui_renderer_mut(|renderer| {
-        if let Some(entry) = draw_data.get(color_index) {
-            if entry.color != WIN_COLOR_UNDEFINED {
-                renderer.draw_rect(rect, crate::gui::game_window::color_to_rgba(entry.color), 0.0);
-            }
-            if entry.border_color != WIN_COLOR_UNDEFINED {
-                renderer.draw_rect_outline(
-                    rect,
-                    1.0,
-                    crate::gui::game_window::color_to_rgba(entry.border_color),
-                    0.1,
-                );
-            }
-        }
-    });
+    let entry = draw_data.get(color_index);
+    let fill = entry
+        .map(|e| e.color)
+        .filter(|&c| c != WIN_COLOR_UNDEFINED && color_alpha(c) > 16)
+        .unwrap_or(visible_enabled_color(
+            window,
+            inst_data,
+            FALLBACK_BUTTON_FILL,
+        ));
+    let border = entry
+        .map(|e| e.border_color)
+        .filter(|&c| c != WIN_COLOR_UNDEFINED);
+    draw_visible_fill(
+        rect.x.round() as i32,
+        rect.y.round() as i32,
+        rect.width.round() as i32,
+        rect.height.round() as i32,
+        fill,
+        border.or(Some(FALLBACK_BORDER)),
+    );
 
     let _ = text_colors;
 }
@@ -387,4 +394,3 @@ pub fn w3d_gadget_push_button_image_draw(window: &GameWindow, inst_data: &Window
     }
     draw_button_overlays(window, inst_data);
 }
-

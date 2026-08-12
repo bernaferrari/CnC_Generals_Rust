@@ -4,14 +4,14 @@
 #![allow(unused_imports, non_snake_case)]
 
 mod ai_authority;
-mod support_states;
-mod object_ai_combat;
-mod weapon_upgrades;
-mod resources_income;
 mod crates_radar_power;
 mod create_destroy_die;
-mod object_queries;
-mod host_ops_writeback;
-mod ready_completions;
 mod destroy_list_bounty;
+mod host_ops_writeback;
+mod object_ai_combat;
+mod object_queries;
+mod ready_completions;
+mod resources_income;
 mod spawn_templates;
+mod support_states;
+mod weapon_upgrades;

@@ -89,20 +89,30 @@ fn collect_registered_modules(repo_root: &Path) -> Result<BTreeMap<ModuleKind, B
         registered.entry(kind).or_default();
     }
 
-    let files = [
-        repo_root.join("GeneralsRust/Code/GameEngine/GameLogic/src/contain_module_overrides.rs"),
-        repo_root.join("GeneralsRust/Code/GameEngine/Common/src/common/thing/module_factory.rs"),
-    ];
-
-    for path in files {
-        let content = std::fs::read_to_string(&path)
-            .with_context(|| format!("failed to read {}", path.display()))?;
-        let include_builtin_behavior_tuples = path
-            .file_name()
-            .and_then(|name| name.to_str())
-            .is_some_and(|name| name == "module_factory.rs");
-        collect_registered_from_source(&content, include_builtin_behavior_tuples, &mut registered);
+    let override_dir =
+        repo_root.join("GeneralsRust/Code/GameEngine/GameLogic/src/contain_module_overrides");
+    let mut override_src = String::new();
+    let mut override_files: Vec<_> = std::fs::read_dir(&override_dir)
+        .with_context(|| format!("failed to read {}", override_dir.display()))?
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some("rs"))
+        .collect();
+    override_files.sort();
+    for path in override_files {
+        override_src.push_str(
+            &std::fs::read_to_string(&path)
+                .with_context(|| format!("failed to read {}", path.display()))?,
+        );
+        override_src.push('\n');
     }
+    collect_registered_from_source(&override_src, false, &mut registered);
+
+    let factory_path =
+        repo_root.join("GeneralsRust/Code/GameEngine/Common/src/common/thing/module_factory.rs");
+    let factory_src = std::fs::read_to_string(&factory_path)
+        .with_context(|| format!("failed to read {}", factory_path.display()))?;
+    collect_registered_from_source(&factory_src, true, &mut registered);
 
     Ok(registered)
 }

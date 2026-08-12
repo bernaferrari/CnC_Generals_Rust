@@ -59,28 +59,32 @@ impl ScriptEngine {
         ))
     }
 
-    /// Get counter by name
-    pub fn get_counter(&self, name: &str) -> Option<&TCounter> {
-        for counter in &self.counters {
+    /// Get counter by name (owned snapshot — never a borrow into `UnsafeCell`).
+    pub fn get_counter(&self, name: &str) -> Option<TCounter> {
+        self.with_inner(|inner| {
+        for counter in &inner.counters {
             if let Some(counter) = counter {
                 if counter.name == name {
-                    return Some(counter);
+                    return Some(counter.clone());
                 }
             }
         }
         None
+            })
     }
 
-    /// Get flag by name
-    pub fn get_flag(&self, name: &str) -> Option<&TFlag> {
-        for flag in &self.flags {
+    /// Get flag by name (owned snapshot — never a borrow into `UnsafeCell`).
+    pub fn get_flag(&self, name: &str) -> Option<TFlag> {
+        self.with_inner(|inner| {
+        for flag in &inner.flags {
             if let Some(flag) = flag {
                 if flag.name == name {
-                    return Some(flag);
+                    return Some(flag.clone());
                 }
             }
         }
         None
+            })
     }
 
     /// Set counter value
@@ -210,62 +214,77 @@ impl ScriptEngine {
 
     /// Start end game timer
     pub fn start_end_game_timer(&mut self) {
-        self.end_game_timer = 300; // 5 seconds at 60fps
+        let inner = self.inner.get_mut();
+        inner.end_game_timer = 300; // 5 seconds at 60fps
         log::info!("End game timer started");
     }
 
     /// Start quick end game timer
     pub fn start_quick_end_game_timer(&mut self) {
-        self.end_game_timer = 60; // 1 second at 60fps
+        let inner = self.inner.get_mut();
+        inner.end_game_timer = 60; // 1 second at 60fps
         log::info!("Quick end game timer started");
     }
 
     /// Start close window timer
     pub fn start_close_window_timer(&mut self) {
-        self.close_window_timer = 180; // 3 seconds at 60fps
+        let inner = self.inner.get_mut();
+        inner.close_window_timer = 180; // 3 seconds at 60fps
         log::info!("Close window timer started");
     }
 
     /// Set whether the multiplayer local defeat window has been shown.
     pub fn set_shown_mp_local_defeat_window(&mut self, shown: bool) {
-        self.shown_mp_local_defeat_window = shown;
+        let inner = self.inner.get_mut();
+        inner.shown_mp_local_defeat_window = shown;
     }
 
     /// Return whether the multiplayer local defeat window has been shown.
     pub fn has_shown_mp_local_defeat_window(&self) -> bool {
-        self.shown_mp_local_defeat_window
+        self.with_inner(|inner| {
+        inner.shown_mp_local_defeat_window
+            })
     }
 
     /// Check if game is ending
     pub fn is_game_ending(&self) -> bool {
-        self.end_game_timer >= 0
+        self.with_inner(|inner| {
+        inner.end_game_timer >= 0
+            })
     }
 
     /// Freeze time
     pub fn do_freeze_time(&mut self) {
-        self.freeze_by_script = true;
+        let inner = self.inner.get_mut();
+        inner.freeze_by_script = true;
         log::info!("Time frozen by script");
     }
 
     /// Unfreeze time
     pub fn do_unfreeze_time(&mut self) {
-        self.freeze_by_script = false;
+        let inner = self.inner.get_mut();
+        inner.freeze_by_script = false;
         log::info!("Time unfrozen by script");
     }
 
     /// Check if time is frozen by script
     pub fn is_time_frozen_script(&self) -> bool {
-        self.freeze_by_script
+        self.with_inner(|inner| {
+        inner.freeze_by_script
+            })
     }
 
     /// Set debug freeze state.
     pub fn set_time_frozen_debug(&mut self, frozen: bool) {
-        self.freeze_by_debug = frozen;
+        let inner = self.inner.get_mut();
+        inner.freeze_by_debug = frozen;
     }
 
     /// Check if time is frozen by debug controls.
     pub fn is_time_frozen_debug(&self) -> bool {
-        self.freeze_by_debug
+        self.with_inner(|inner| {
+        inner.freeze_by_debug
+            })
     }
 
     /// Check if time is frozen by any mechanism (script or debug).
@@ -275,17 +294,20 @@ impl ScriptEngine {
     ///        TheScriptEngine->isTimeFrozenDebug() ||
     ///        TheScriptEngine->isTimeFrozenScript();`
     pub fn is_time_frozen(&self) -> bool {
-        self.freeze_by_debug || self.freeze_by_script
+        self.with_inner(|inner| {
+        inner.freeze_by_debug || inner.freeze_by_script
+            })
     }
 
-    /// Get breeze info
-    pub fn get_breeze_info(&self) -> &BreezeInfo {
-        &self.breeze_info
+    /// Get breeze info (owned snapshot — never a borrow into `UnsafeCell`).
+    pub fn get_breeze_info(&self) -> BreezeInfo {
+        self.with_inner(|inner| inner.breeze_info.clone())
     }
 
     /// Turn off breeze
     pub fn turn_breeze_off(&mut self) {
-        self.breeze_info.intensity = 0.0;
+        let inner = self.inner.get_mut();
+        inner.breeze_info.intensity = 0.0;
     }
 
     /// Mirrors C++ ScriptEngine::setSway.
@@ -297,14 +319,15 @@ impl ScriptEngine {
         breeze_period: i32,
         randomness: f32,
     ) {
-        self.breeze_info.breeze_version = self.breeze_info.breeze_version.wrapping_add(1);
-        self.breeze_info.direction = direction;
-        self.breeze_info.direction_vec[0] = direction.sin();
-        self.breeze_info.direction_vec[1] = direction.cos();
-        self.breeze_info.intensity = intensity;
-        self.breeze_info.lean = lean;
-        self.breeze_info.breeze_period = breeze_period.max(1).clamp(1, i16::MAX as i32) as i16;
-        self.breeze_info.randomness = randomness;
+        let inner = self.inner.get_mut();
+        inner.breeze_info.breeze_version = inner.breeze_info.breeze_version.wrapping_add(1);
+        inner.breeze_info.direction = direction;
+        inner.breeze_info.direction_vec[0] = direction.sin();
+        inner.breeze_info.direction_vec[1] = direction.cos();
+        inner.breeze_info.intensity = intensity;
+        inner.breeze_info.lean = lean;
+        inner.breeze_info.breeze_period = breeze_period.max(1).clamp(1, i16::MAX as i32) as i16;
+        inner.breeze_info.randomness = randomness;
     }
 
     /// Mirrors C++ ScriptEngine::setFade.
@@ -317,50 +340,60 @@ impl ScriptEngine {
         fade_frames_hold: i32,
         fade_frames_decrease: i32,
     ) {
-        self.fade = fade;
-        self.cur_fade_frame = 0;
-        self.min_fade = min_fade;
-        self.max_fade = max_fade;
-        self.fade_frames_increase = fade_frames_increase;
-        self.fade_frames_hold = fade_frames_hold;
-        self.fade_frames_decrease = fade_frames_decrease;
-        self.cur_fade_value = self.min_fade;
+        let inner = self.inner.get_mut();
+        inner.fade = fade;
+        inner.cur_fade_frame = 0;
+        inner.min_fade = min_fade;
+        inner.max_fade = max_fade;
+        inner.fade_frames_increase = fade_frames_increase;
+        inner.fade_frames_hold = fade_frames_hold;
+        inner.fade_frames_decrease = fade_frames_decrease;
+        inner.cur_fade_value = inner.min_fade;
 
-        if self.fade_frames_increase == 0 {
+        if inner.fade_frames_increase == 0 {
             self.update_fades();
         }
     }
 
     /// Get fade type
     pub fn get_fade(&self) -> TFade {
-        self.fade
+        self.with_inner(|inner| {
+        inner.fade
+            })
     }
 
     /// Get fade value
     pub fn get_fade_value(&self) -> f32 {
-        self.cur_fade_value
+        self.with_inner(|inner| {
+        inner.cur_fade_value
+            })
     }
 
-    /// Get current track name
-    pub fn get_current_track_name(&self) -> &str {
-        &self.current_track_name
+    /// Get current track name (owned snapshot — never a borrow into `UnsafeCell`).
+    pub fn get_current_track_name(&self) -> String {
+        self.with_inner(|inner| inner.current_track_name.clone())
     }
 
     /// Set current track name
     pub fn set_current_track_name(&mut self, name: String) {
-        self.current_track_name = name;
+        let inner = self.inner.get_mut();
+        inner.current_track_name = name;
     }
 
     pub fn set_global_difficulty(&mut self, difficulty: crate::player::GameDifficulty) {
-        self.game_difficulty = difficulty;
+        let inner = self.inner.get_mut();
+        inner.game_difficulty = difficulty;
     }
 
     pub fn get_global_difficulty(&self) -> crate::player::GameDifficulty {
-        self.game_difficulty
+        self.with_inner(|inner| {
+        inner.game_difficulty
+            })
     }
 
     pub fn set_objects_should_receive_difficulty_bonus(&mut self, enable: bool) {
-        self.objects_should_receive_difficulty_bonus = enable;
+        let inner = self.inner.get_mut();
+        inner.objects_should_receive_difficulty_bonus = enable;
         // Wave 348: empty dual-world → flag only.
         if dual_world_registry_unavailable() {
             return;
@@ -381,11 +414,14 @@ impl ScriptEngine {
     }
 
     pub fn set_choose_victim_always_uses_normal(&mut self, enable: bool) {
-        self.choose_victim_always_uses_normal = enable;
+        let inner = self.inner.get_mut();
+        inner.choose_victim_always_uses_normal = enable;
     }
 
     pub fn get_choose_victim_always_uses_normal(&self) -> bool {
-        self.choose_victim_always_uses_normal
+        self.with_inner(|inner| {
+        inner.choose_victim_always_uses_normal
+            })
     }
 
     /// Mirrors C++ `ScriptEngine::setEnableVTune`.
@@ -416,18 +452,23 @@ impl ScriptEngine {
         get_skate_distance_override()
     }
 
-    /// Get action template
-    pub fn get_action_template(&self, index: usize) -> Option<&ActionTemplate> {
-        self.action_templates.get(index)
+    /// Get action template (owned snapshot — never a borrow into `UnsafeCell`).
+    pub fn get_action_template(&self, index: usize) -> Option<ActionTemplate> {
+        self.with_inner(|inner| {
+        inner.action_templates.get(index).cloned()
+            })
     }
 
-    /// Get condition template
-    pub fn get_condition_template(&self, index: usize) -> Option<&ConditionTemplate> {
-        self.condition_templates.get(index)
+    /// Get condition template (owned snapshot — never a borrow into `UnsafeCell`).
+    pub fn get_condition_template(&self, index: usize) -> Option<ConditionTemplate> {
+        self.with_inner(|inner| {
+        inner.condition_templates.get(index).cloned()
+            })
     }
 
     pub fn find_condition_type_by_name_key(&self, name_key: u32) -> Option<ConditionType> {
-        self.condition_templates
+        self.with_inner(|inner| {
+        inner.condition_templates
             .iter()
             .enumerate()
             .find_map(|(idx, template)| {
@@ -437,10 +478,12 @@ impl ScriptEngine {
                     None
                 }
             })
+            })
     }
 
     pub fn find_action_type_by_name_key(&self, name_key: u32) -> Option<ScriptActionType> {
-        self.action_templates
+        self.with_inner(|inner| {
+        inner.action_templates
             .iter()
             .enumerate()
             .find_map(|(idx, template)| {
@@ -449,6 +492,7 @@ impl ScriptEngine {
                 } else {
                     None
                 }
+            })
             })
     }
 
@@ -488,7 +532,8 @@ impl ScriptEngine {
 
     /// Remove all sequential scripts bound to a specific object.
     pub fn remove_all_sequential_scripts_for_object(&mut self, object_id: ObjectID) {
-        self.sequential_scripts
+        let inner = self.inner.get_mut();
+        inner.sequential_scripts
             .retain(|script| script.object_id != object_id);
     }
 
@@ -497,27 +542,33 @@ impl ScriptEngine {
     /// in its evaluateCondition switch (hits default DEBUG_CRASH returning false). This provides
     /// the intended semantics: returns false if scripts are still active, true if none remain.
     pub fn has_active_sequential_script_for_object(&self, object_id: ObjectID) -> bool {
-        self.sequential_scripts
+        self.with_inner(|inner| {
+        inner.sequential_scripts
             .iter()
             .any(|script| script.object_id == object_id)
+            })
     }
 
     /// Check if a specific team has any active sequential scripts running.
     pub fn has_active_sequential_script_for_team(&self, team_name: &str) -> bool {
-        self.sequential_scripts
+        self.with_inner(|inner| {
+        inner.sequential_scripts
             .iter()
             .any(|script| script.team_to_exec_on.as_deref() == Some(team_name))
+            })
     }
 
     /// Remove all sequential scripts bound to a specific team.
     pub fn remove_all_sequential_scripts_for_team(&mut self, team_name: &str) {
-        self.sequential_scripts
+        let inner = self.inner.get_mut();
+        inner.sequential_scripts
             .retain(|script| script.team_to_exec_on.as_deref() != Some(team_name));
     }
 
     /// Set frame wait timer for all sequential scripts running on an object.
     pub fn set_sequential_timer_for_object(&mut self, object_id: ObjectID, frame_count: i32) {
-        for script in &mut self.sequential_scripts {
+        let inner = self.inner.get_mut();
+        for script in &mut inner.sequential_scripts {
             if script.object_id == object_id {
                 script.frames_to_wait = frame_count;
                 return;
@@ -527,7 +578,8 @@ impl ScriptEngine {
 
     /// Set frame wait timer for all sequential scripts running on a team.
     pub fn set_sequential_timer_for_team(&mut self, team_name: &str, frame_count: i32) {
-        for script in &mut self.sequential_scripts {
+        let inner = self.inner.get_mut();
+        for script in &mut inner.sequential_scripts {
             if script.team_to_exec_on.as_deref() == Some(team_name) {
                 script.frames_to_wait = frame_count;
                 return;
@@ -537,7 +589,8 @@ impl ScriptEngine {
 
     /// Notify of completed video
     pub fn notify_of_completed_video(&mut self, video_name: &str) {
-        self.completed_video.push(video_name.to_string());
+        let inner = self.inner.get_mut();
+        inner.completed_video.push(video_name.to_string());
         log::debug!("Video completed: {}", video_name);
     }
 
@@ -548,6 +601,7 @@ impl ScriptEngine {
         power_name: &str,
         source_obj: ObjectId,
     ) {
+        let inner = self.inner.get_mut();
         if player_index >= Self::MAX_PLAYER_COUNT {
             log::warn!(
                 "notify_of_triggered_special_power: player index {} out of range",
@@ -555,7 +609,7 @@ impl ScriptEngine {
             );
             return;
         }
-        self.triggered_special_powers[player_index].push((power_name.to_string(), source_obj));
+        inner.triggered_special_powers[player_index].push((power_name.to_string(), source_obj));
     }
 
     /// Notify the script engine that a special power reached its midway trigger.
@@ -565,6 +619,7 @@ impl ScriptEngine {
         power_name: &str,
         source_obj: ObjectId,
     ) {
+        let inner = self.inner.get_mut();
         if player_index >= Self::MAX_PLAYER_COUNT {
             log::warn!(
                 "notify_of_midway_special_power: player index {} out of range",
@@ -572,7 +627,7 @@ impl ScriptEngine {
             );
             return;
         }
-        self.midway_special_powers[player_index].push((power_name.to_string(), source_obj));
+        inner.midway_special_powers[player_index].push((power_name.to_string(), source_obj));
     }
 
     /// Notify the script engine that a special power finished executing.
@@ -582,6 +637,7 @@ impl ScriptEngine {
         power_name: &str,
         source_obj: ObjectId,
     ) {
+        let inner = self.inner.get_mut();
         if player_index >= Self::MAX_PLAYER_COUNT {
             log::warn!(
                 "notify_of_completed_special_power: player index {} out of range",
@@ -589,7 +645,7 @@ impl ScriptEngine {
             );
             return;
         }
-        self.finished_special_powers[player_index].push((power_name.to_string(), source_obj));
+        inner.finished_special_powers[player_index].push((power_name.to_string(), source_obj));
     }
 
     /// Notify the script engine that an upgrade completed.
@@ -599,6 +655,7 @@ impl ScriptEngine {
         upgrade_name: &str,
         source_obj: ObjectId,
     ) {
+        let inner = self.inner.get_mut();
         if player_index >= Self::MAX_PLAYER_COUNT {
             log::warn!(
                 "notify_of_completed_upgrade: player index {} out of range",
@@ -606,7 +663,7 @@ impl ScriptEngine {
             );
             return;
         }
-        self.completed_upgrades[player_index].push((upgrade_name.to_string(), source_obj));
+        inner.completed_upgrades[player_index].push((upgrade_name.to_string(), source_obj));
     }
 
     fn is_named_event_in_list(
@@ -640,7 +697,8 @@ impl ScriptEngine {
         remove_from_list: bool,
         source_obj: ObjectId,
     ) -> bool {
-        let Some(list) = self.triggered_special_powers.get_mut(player_index) else {
+        let inner = self.inner.get_mut();
+        let Some(list) = inner.triggered_special_powers.get_mut(player_index) else {
             return false;
         };
         Self::is_named_event_in_list(list, power_name, remove_from_list, source_obj)
@@ -653,7 +711,8 @@ impl ScriptEngine {
         remove_from_list: bool,
         source_obj: ObjectId,
     ) -> bool {
-        let Some(list) = self.midway_special_powers.get_mut(player_index) else {
+        let inner = self.inner.get_mut();
+        let Some(list) = inner.midway_special_powers.get_mut(player_index) else {
             return false;
         };
         Self::is_named_event_in_list(list, power_name, remove_from_list, source_obj)
@@ -666,7 +725,8 @@ impl ScriptEngine {
         remove_from_list: bool,
         source_obj: ObjectId,
     ) -> bool {
-        let Some(list) = self.finished_special_powers.get_mut(player_index) else {
+        let inner = self.inner.get_mut();
+        let Some(list) = inner.finished_special_powers.get_mut(player_index) else {
             return false;
         };
         Self::is_named_event_in_list(list, power_name, remove_from_list, source_obj)
@@ -679,7 +739,8 @@ impl ScriptEngine {
         remove_from_list: bool,
         source_obj: ObjectId,
     ) -> bool {
-        let Some(list) = self.completed_upgrades.get_mut(player_index) else {
+        let inner = self.inner.get_mut();
+        let Some(list) = inner.completed_upgrades.get_mut(player_index) else {
             return false;
         };
         Self::is_named_event_in_list(list, upgrade_name, remove_from_list, source_obj)
@@ -687,9 +748,10 @@ impl ScriptEngine {
 
     /// Check if video is complete
     pub fn is_video_complete(&mut self, video_name: &str, remove_from_list: bool) -> bool {
-        if let Some(pos) = self.completed_video.iter().position(|v| v == video_name) {
+        let inner = self.inner.get_mut();
+        if let Some(pos) = inner.completed_video.iter().position(|v| v == video_name) {
             if remove_from_list {
-                self.completed_video.remove(pos);
+                inner.completed_video.remove(pos);
             }
             true
         } else {
@@ -732,16 +794,19 @@ impl ScriptEngine {
     }
 
     pub fn is_speech_complete(&mut self, speech_name: &str, remove_from_list: bool) -> bool {
-        Self::is_timed_audio_complete(&mut self.testing_speech, speech_name, remove_from_list)
+        let inner = self.inner.get_mut();
+        Self::is_timed_audio_complete(&mut inner.testing_speech, speech_name, remove_from_list)
     }
 
     pub fn is_audio_complete(&mut self, audio_name: &str, remove_from_list: bool) -> bool {
-        Self::is_timed_audio_complete(&mut self.testing_audio, audio_name, remove_from_list)
+        let inner = self.inner.get_mut();
+        Self::is_timed_audio_complete(&mut inner.testing_audio, audio_name, remove_from_list)
     }
 
     /// Signal UI interaction
     pub fn signal_ui_interact(&mut self, hook_name: &str) {
-        self.ui_interactions.push(hook_name.to_string());
+        let inner = self.inner.get_mut();
+        inner.ui_interactions.push(hook_name.to_string());
         log::debug!("UI interaction: {}", hook_name);
     }
 
@@ -753,7 +818,8 @@ impl ScriptEngine {
         radius: f32,
         player_name: &str,
     ) {
-        if self
+        let inner = self.inner.get_mut();
+        if inner
             .named_reveals
             .iter()
             .any(|reveal| reveal.reveal_name == reveal_name)
@@ -771,16 +837,19 @@ impl ScriptEngine {
             radius_to_reveal: radius,
             player_name: player_name.to_string(),
         };
-        self.named_reveals.push(reveal);
+        inner.named_reveals.push(reveal);
         log::debug!("Created named map reveal: {}", reveal_name);
     }
 
     /// Apply a named map reveal (matches C++ ScriptEngine::doNamedMapReveal).
     pub fn do_named_map_reveal(&self, reveal_name: &str) {
-        let reveal = self
-            .named_reveals
-            .iter()
-            .find(|entry| entry.reveal_name == reveal_name);
+        let reveal = self.with_inner(|inner| {
+            inner
+                .named_reveals
+                .iter()
+                .find(|entry| entry.reveal_name == reveal_name)
+                .cloned()
+        });
         let Some(reveal) = reveal else {
             return;
         };
@@ -817,10 +886,13 @@ impl ScriptEngine {
 
     /// Undo a named map reveal (matches C++ ScriptEngine::undoNamedMapReveal).
     pub fn undo_named_map_reveal(&self, reveal_name: &str) {
-        let reveal = self
-            .named_reveals
-            .iter()
-            .find(|entry| entry.reveal_name == reveal_name);
+        let reveal = self.with_inner(|inner| {
+            inner
+                .named_reveals
+                .iter()
+                .find(|entry| entry.reveal_name == reveal_name)
+                .cloned()
+        });
         let Some(reveal) = reveal else {
             return;
         };
@@ -857,12 +929,13 @@ impl ScriptEngine {
 
     /// Remove a named map reveal (matches C++ ScriptEngine::removeNamedMapReveal).
     pub fn remove_named_map_reveal(&mut self, reveal_name: &str) {
-        if let Some(index) = self
+        let inner = self.inner.get_mut();
+        if let Some(index) = inner
             .named_reveals
             .iter()
             .position(|entry| entry.reveal_name == reveal_name)
         {
-            self.named_reveals.remove(index);
+            inner.named_reveals.remove(index);
         }
     }
 
@@ -873,25 +946,26 @@ impl ScriptEngine {
         object_name: &str,
         direction: Option<crate::common::Coord3D>,
     ) {
+        let inner = self.inner.get_mut();
         if object_name.is_empty() {
             return;
         }
 
-        if let Some(index) = self
+        if let Some(index) = inner
             .topple_directions
             .iter()
             .position(|(name, _)| name == object_name)
         {
             if let Some(dir) = direction {
-                self.topple_directions[index].1 = Coord3D::new(dir.x, dir.y, dir.z);
+                inner.topple_directions[index].1 = Coord3D::new(dir.x, dir.y, dir.z);
             } else {
-                self.topple_directions.remove(index);
+                inner.topple_directions.remove(index);
             }
             return;
         }
 
         if let Some(dir) = direction {
-            self.topple_directions.insert(
+            inner.topple_directions.insert(
                 0,
                 (object_name.to_string(), Coord3D::new(dir.x, dir.y, dir.z)),
             );
@@ -905,12 +979,13 @@ impl ScriptEngine {
         object: &crate::object::Object,
         direction: &mut crate::common::Coord3D,
     ) {
+        self.with_inner(|inner| {
         let name = object.get_name();
         if name.is_empty() {
             return;
         }
 
-        for (entry_name, entry_direction) in &self.topple_directions {
+        for (entry_name, entry_direction) in &inner.topple_directions {
             if entry_name == name.as_str() {
                 let mut new_dir = crate::common::Coord3D::new(
                     entry_direction.x,
@@ -924,25 +999,28 @@ impl ScriptEngine {
                 return;
             }
         }
+            })
     }
 
     /// Get statistics string
     #[cfg(feature = "script_profiling")]
     pub fn get_stats(&self) -> String {
-        let avg_time = if self.stats.num_frames > 0.0 {
-            self.stats.total_update_time / self.stats.num_frames
+        self.with_inner(|inner| {
+        let avg_time = if inner.stats.num_frames > 0.0 {
+            inner.stats.total_update_time / inner.stats.num_frames
         } else {
             0.0
         };
 
         format!(
             "ScriptEngine Stats: Frames: {:.0}, Total Time: {:.6}s, Avg Time: {:.6}s, Max Time: {:.6}s, Current: {:.6}s",
-            self.stats.num_frames,
-            self.stats.total_update_time,
+            inner.stats.num_frames,
+            inner.stats.total_update_time,
             avg_time,
-            self.stats.max_update_time,
-            self.stats.cur_update_time
+            inner.stats.max_update_time,
+            inner.stats.cur_update_time
         )
+            })
     }
 
     /// Get statistics (no profiling version)
@@ -952,15 +1030,19 @@ impl ScriptEngine {
     }
 
     pub fn set_action_handler(&mut self, handler: Option<Arc<dyn ScriptActionHandler>>) {
-        self.action_handler = handler;
+        let inner = self.inner.get_mut();
+        inner.action_handler = handler;
     }
 
     pub fn action_handler(&self) -> Option<Arc<dyn ScriptActionHandler>> {
-        self.action_handler.clone()
+        self.with_inner(|inner| {
+        inner.action_handler.clone()
+            })
     }
     pub fn notify_of_acquired_science(&mut self, player_index: usize, science: ScienceType) {
-        if player_index < self.acquired_sciences.len() {
-            self.acquired_sciences[player_index].push(science);
+        let inner = self.inner.get_mut();
+        if player_index < inner.acquired_sciences.len() {
+            inner.acquired_sciences[player_index].push(science);
             log::debug!("Player {} acquired science: {:?}", player_index, science);
         }
     }
@@ -972,7 +1054,8 @@ impl ScriptEngine {
         science: ScienceType,
         remove: bool,
     ) -> bool {
-        let Some(list) = self.acquired_sciences.get_mut(player_index) else {
+        let inner = self.inner.get_mut();
+        let Some(list) = inner.acquired_sciences.get_mut(player_index) else {
             return false;
         };
 
@@ -992,6 +1075,7 @@ impl ScriptEngine {
 
     // PARITY_NOTE: C++ ScriptEngine::notifyOfObjectDestruction
     pub fn notify_of_object_destruction(&mut self, object_id: ObjectID) {
+        let inner = self.inner.get_mut();
         let tracker = get_named_object_tracker();
         let name = tracker.get_object_name(object_id).ok().flatten();
         if let Some(name) = name {
@@ -1000,11 +1084,11 @@ impl ScriptEngine {
             }
         }
 
-        if self.condition_object == Some(object_id) {
-            self.condition_object = None;
+        if inner.condition_object == Some(object_id) {
+            inner.condition_object = None;
         }
-        if self.calling_object == Some(object_id) {
-            self.calling_object = None;
+        if inner.calling_object == Some(object_id) {
+            inner.calling_object = None;
         }
     }
 
@@ -1015,12 +1099,13 @@ impl ScriptEngine {
         }
 
         self.remove_all_sequential_scripts_for_team(team_name);
+        let inner = self.inner.get_mut();
 
-        if self.calling_team.as_deref() == Some(team_name) {
-            self.calling_team = None;
+        if inner.calling_team.as_deref() == Some(team_name) {
+            inner.calling_team = None;
         }
-        if self.condition_team.as_deref() == Some(team_name) {
-            self.condition_team = None;
+        if inner.condition_team.as_deref() == Some(team_name) {
+            inner.condition_team = None;
         }
     }
 
@@ -1029,10 +1114,11 @@ impl ScriptEngine {
 
     // PARITY_NOTE: C++ ScriptEngine::clearFlag
     pub fn clear_flag(&mut self, name: &str) {
+        let inner = self.inner.get_mut();
         for j in 0..Self::MAX_PLAYER_COUNT {
             let mod_name = format!("{}{}", name, j);
-            for i in 1..self.num_flags {
-                if let Some(flag) = &mut self.flags[i] {
+            for i in 1..inner.num_flags {
+                if let Some(flag) = &mut inner.flags[i] {
                     if flag.name == mod_name {
                         flag.value = false;
                     }
@@ -1065,38 +1151,45 @@ impl ScriptEngine {
             return;
         }
 
-        let saved_current_player = self.current_player.clone();
-        let saved_calling_team = self.calling_team.take();
+        let (saved_current_player, saved_calling_team) = {
+            let inner = self.inner.get_mut();
+            let saved_current_player = inner.current_player.clone();
+            let saved_calling_team = inner.calling_team.take();
+            inner.condition_team = None;
+            inner.current_player = None;
 
-        self.condition_team = None;
-        self.current_player = None;
-
-        if let Some(team_name_str) = team_name {
-            self.calling_team = Some(team_name_str.to_string());
-            if let Ok(mut factory) = get_team_factory().lock() {
-                if let Some(team_arc) = factory.find_team(team_name_str) {
-                    if let Ok(team_guard) = team_arc.read() {
-                        if let Some(player_id) = team_guard.get_controlling_player_id() {
-                            self.current_player =
-                                crate::player::player_list().read().ok().and_then(|list| {
-                                    list.get_player(player_id as i32).cloned()
-                                }).and_then(|p| {
-                                    p.read().ok().and_then(|p| {
-                                        game_engine::common::name_key_generator::NameKeyGenerator::key_to_name(p.get_player_name_key())
-                                    })
-                                });
+            if let Some(team_name_str) = team_name {
+                inner.calling_team = Some(team_name_str.to_string());
+                if let Ok(mut factory) = get_team_factory().lock() {
+                    if let Some(team_arc) = factory.find_team(team_name_str) {
+                        if let Ok(team_guard) = team_arc.read() {
+                            if let Some(player_id) = team_guard.get_controlling_player_id() {
+                                inner.current_player = crate::player::player_list()
+                                    .read()
+                                    .ok()
+                                    .and_then(|list| list.get_player(player_id as i32).cloned())
+                                    .and_then(|p| {
+                                        p.read().ok().and_then(|p| {
+                                            game_engine::common::name_key_generator::NameKeyGenerator::key_to_name(
+                                                p.get_player_name_key(),
+                                            )
+                                        })
+                                    });
+                            }
                         }
                     }
                 }
             }
-        }
+            (saved_current_player, saved_calling_team)
+        };
 
         let _found = self
             .execute_subroutine_by_name(script_name)
             .unwrap_or(false);
 
-        self.calling_team = saved_calling_team;
-        self.current_player = saved_current_player;
+        let inner = self.inner.get_mut();
+        inner.calling_team = saved_calling_team;
+        inner.current_player = saved_current_player;
     }
 
     // PARITY_NOTE: C++ ScriptEngine::runObjectScript
@@ -1105,14 +1198,18 @@ impl ScriptEngine {
             return;
         }
 
-        let saved_calling_object = self.calling_object;
-        self.calling_object = Some(object_id);
+        let saved_calling_object = {
+            let inner = self.inner.get_mut();
+            let saved = inner.calling_object;
+            inner.calling_object = Some(object_id);
+            saved
+        };
 
         let _found = self
             .execute_subroutine_by_name(script_name)
             .unwrap_or(false);
 
-        self.calling_object = saved_calling_object;
+        self.inner.get_mut().calling_object = saved_calling_object;
     }
 
     // PARITY_NOTE: C++ ScriptEngine::evaluateConditions
@@ -1122,31 +1219,38 @@ impl ScriptEngine {
         team_name: Option<&str>,
         player_name: Option<&str>,
     ) -> bool {
-        let saved_calling_team = self.calling_team.take();
-        let saved_current_player = self.current_player.clone();
+        let (saved_calling_team, saved_current_player) = {
+            let inner = self.inner.get_mut();
+            let saved_calling_team = inner.calling_team.take();
+            let saved_current_player = inner.current_player.clone();
 
-        self.calling_team = team_name.map(|s| s.to_string());
+            inner.calling_team = team_name.map(|s| s.to_string());
 
-        if player_name.is_some() {
-            self.current_player = player_name.map(|s| s.to_string());
-        } else if let Some(ref tname) = self.calling_team {
-            if let Ok(mut factory) = get_team_factory().lock() {
-                if let Some(team_arc) = factory.find_team(tname) {
-                    if let Ok(team_guard) = team_arc.read() {
-                        if let Some(pid) = team_guard.get_controlling_player_id() {
-                            self.current_player =
-                                crate::player::player_list().read().ok().and_then(|list| {
-                                    list.get_player(pid as i32).cloned()
-                                }).and_then(|p| {
-                                    p.read().ok().and_then(|p| {
-                                        game_engine::common::name_key_generator::NameKeyGenerator::key_to_name(p.get_player_name_key())
-                                    })
-                                });
+            if player_name.is_some() {
+                inner.current_player = player_name.map(|s| s.to_string());
+            } else if let Some(ref tname) = inner.calling_team {
+                if let Ok(mut factory) = get_team_factory().lock() {
+                    if let Some(team_arc) = factory.find_team(tname) {
+                        if let Ok(team_guard) = team_arc.read() {
+                            if let Some(pid) = team_guard.get_controlling_player_id() {
+                                inner.current_player = crate::player::player_list()
+                                    .read()
+                                    .ok()
+                                    .and_then(|list| list.get_player(pid as i32).cloned())
+                                    .and_then(|p| {
+                                        p.read().ok().and_then(|p| {
+                                            game_engine::common::name_key_generator::NameKeyGenerator::key_to_name(
+                                                p.get_player_name_key(),
+                                            )
+                                        })
+                                    });
+                            }
                         }
                     }
                 }
             }
-        }
+            (saved_calling_team, saved_current_player)
+        };
 
         let result = if let Some(or_cond) = script.condition.as_deref_mut() {
             let mut test_value = false;
@@ -1185,8 +1289,9 @@ impl ScriptEngine {
             false
         };
 
-        self.calling_team = saved_calling_team;
-        self.current_player = saved_current_player;
+        let inner = self.inner.get_mut();
+        inner.calling_team = saved_calling_team;
+        inner.current_player = saved_current_player;
         result
     }
 
@@ -1252,7 +1357,8 @@ impl ScriptEngine {
         add: bool,
     ) -> GameLogicResult<()> {
         let index = self.allocate_counter(counter_name)?;
-        let Some(counter) = &mut self.counters[index] else {
+        let inner = self.inner.get_mut();
+        let Some(counter) = &mut inner.counters[index] else {
             return Ok(());
         };
         if millisecond_timer {
@@ -1270,7 +1376,9 @@ impl ScriptEngine {
     pub fn get_stats_detailed(&self) -> (String, f32, f32, f32) {
         #[cfg(feature = "script_profiling")]
         {
-            (self.get_stats(), self.stats.cur_update_time, 0.0, 0.0)
+            let stats = self.get_stats();
+            let cur = self.with_inner(|inner| inner.stats.cur_update_time);
+            (stats, cur, 0.0, 0.0)
         }
         #[cfg(not(feature = "script_profiling"))]
         {
@@ -1316,7 +1424,8 @@ impl ScriptEngine {
     // PARITY_NOTE: C++ ScriptEngine::restartTimer (only restarts if value > 0)
     pub fn restart_timer_if_positive(&mut self, name: &str) -> GameLogicResult<()> {
         let index = self.allocate_counter(name)?;
-        if let Some(counter) = &mut self.counters[index] {
+        let inner = self.inner.get_mut();
+        if let Some(counter) = &mut inner.counters[index] {
             if counter.value > 0 {
                 counter.is_countdown_timer = true;
             }
@@ -1334,7 +1443,8 @@ impl ScriptEngine {
         random_max: Option<f32>,
     ) -> GameLogicResult<()> {
         let index = self.allocate_counter(name)?;
-        let Some(counter) = &mut self.counters[index] else {
+        let inner = self.inner.get_mut();
+        let Some(counter) = &mut inner.counters[index] else {
             return Ok(());
         };
 
@@ -1374,16 +1484,19 @@ impl ScriptEngine {
 
     /// PARITY_NOTE: C++ FRAMES_TO_SHOW_WIN_LOSE_MESSAGE = 120
     pub fn start_end_game_timer_cxx(&mut self) {
-        self.end_game_timer = 120;
+        let inner = self.inner.get_mut();
+        inner.end_game_timer = 120;
     }
 
     /// PARITY_NOTE: C++ FRAMES_TO_SHOW_WIN_LOSE_MESSAGE = 120
     pub fn start_close_window_timer_cxx(&mut self) {
-        self.close_window_timer = 120;
+        let inner = self.inner.get_mut();
+        inner.close_window_timer = 120;
     }
 
     /// PARITY_NOTE: C++ startQuickEndGameTimer = 1 frame
     pub fn start_quick_end_game_timer_cxx(&mut self) {
-        self.end_game_timer = 1;
+        let inner = self.inner.get_mut();
+        inner.end_game_timer = 1;
     }
 }

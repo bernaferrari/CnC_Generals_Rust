@@ -114,8 +114,9 @@ fn fn_body<'a>(src: &'a str, name: &str) -> Option<&'a str> {
 
 /// Source residual: special ability empty dual-world short-circuits.
 pub fn honesty_special_ability_dual_world_empty_gate_source() -> bool {
-    let g =
-        include_str!("../../../../GameEngine/GameLogic/src/object/behavior/special_ability_update.rs");
+    let g = include_str!(
+        "../../../../GameEngine/GameLogic/src/object/behavior/special_ability_update.rs"
+    );
     if !(g.contains("Wave 296")
         && g.contains("fn dual_world_registry_unavailable")
         && g.contains("OBJECT_REGISTRY.is_empty()"))

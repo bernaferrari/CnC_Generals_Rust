@@ -43,4 +43,3 @@ impl Clone for ModalWindow {
         }
     }
 }
-

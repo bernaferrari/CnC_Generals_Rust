@@ -2,7 +2,12 @@ use super::*;
 
 pub(super) const DOUBLE_CLICK_THRESHOLD: Duration = Duration::from_millis(250);
 
-pub(super) fn screen_to_world(screen: Vec2, viewport_size: Vec2, world_min: Vec3, world_max: Vec3) -> Vec3 {
+pub(super) fn screen_to_world(
+    screen: Vec2,
+    viewport_size: Vec2,
+    world_min: Vec3,
+    world_max: Vec3,
+) -> Vec3 {
     let viewport_width = viewport_size.x.max(1.0);
     let viewport_height = viewport_size.y.max(1.0);
     let normalized_x = (screen.x / viewport_width).clamp(0.0, 1.0);
@@ -20,4 +25,3 @@ pub(super) fn screen_to_world(screen: Vec2, viewport_size: Vec2, world_min: Vec3
 pub(super) fn default_max_shots_cmd() -> i32 {
     -1
 }
-

@@ -92,7 +92,7 @@ pub fn residual_entity_presentation_combat_ui_last_action(
 }
 
 fn pf_source() -> &'static str {
-    include_str!("../../presentation_frame.rs")
+    crate::presentation_frame::PRESENTATION_FRAME_SRC
 }
 
 fn function_body<'a>(src: &'a str, sig: &str) -> Option<&'a str> {

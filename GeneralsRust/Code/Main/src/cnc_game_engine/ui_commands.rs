@@ -363,7 +363,11 @@ impl CnCGameEngine {
     /// Wave 579: host selection residual — keep GameLogic selection and engine
     /// `selected_objects` in lockstep.
     #[inline]
-    pub(super) fn host_set_selection(&mut self, player_id: u32, ids: Vec<crate::game_logic::ObjectId>) {
+    pub(super) fn host_set_selection(
+        &mut self,
+        player_id: u32,
+        ids: Vec<crate::game_logic::ObjectId>,
+    ) {
         // Wave 579/866/913/933: selection residual via session-control authority.
         // Skip authority select_objects when residual already matches.
         let already =
@@ -377,7 +381,18 @@ impl CnCGameEngine {
             );
         }
         self.selected_objects = ids.clone();
-        self.host_match_selected_ids = Some(ids);
+        self.host_match_selected_ids = Some(ids.clone());
+        // Keep presentation freeze selection residual in lockstep. Otherwise
+        // `host_ui_selected_ids_from_residuals` (presentation-first) returns empty
+        // until the next dual-tick rebuild, so host select → RMB order fails closed
+        // with selected_count>0 but ui_selected_ids empty.
+        if let Some(pres) = self.last_presentation_frame.as_mut() {
+            let selected_set: std::collections::HashSet<_> = ids.iter().copied().collect();
+            for o in &mut pres.objects {
+                o.selected = selected_set.contains(&o.id);
+            }
+            pres.selected = ids;
+        }
         let _ = player_id;
     }
 
@@ -401,7 +416,10 @@ impl CnCGameEngine {
         self.host_stamp_sim_timing_residuals();
     }
 
-    pub(super) fn host_center_camera_and_request_focus(&mut self, world_pos: glam::Vec3) -> glam::Vec3 {
+    pub(super) fn host_center_camera_and_request_focus(
+        &mut self,
+        world_pos: glam::Vec3,
+    ) -> glam::Vec3 {
         // Wave 577/868/903: host camera target residual only (no request_camera_focus dual-read).
         // Presentation freeze / Main camera_target own observe path.
         let clamped = self.clamp_to_world_bounds(world_pos);
@@ -464,7 +482,10 @@ impl CnCGameEngine {
 
     /// Wave 576: queue a GameCommand then flush with Command SFX.
     #[inline]
-    pub(super) fn host_queue_and_process_command(&mut self, command: crate::command_system::GameCommand) {
+    pub(super) fn host_queue_and_process_command(
+        &mut self,
+        command: crate::command_system::GameCommand,
+    ) {
         // Wave 576/874: queue + process + Command SFX residual via host helpers.
         self.host_queue_command(command);
         self.host_process_commands_with_command_sound();
@@ -813,7 +834,10 @@ impl CnCGameEngine {
     }
 
     #[inline]
-    pub(super) fn ui_production_queue_head(&self, id: crate::game_logic::ObjectId) -> Option<String> {
+    pub(super) fn ui_production_queue_head(
+        &self,
+        id: crate::game_logic::ObjectId,
+    ) -> Option<String> {
         // Presentation-only identity for InGame UI residual.
         self.presentation_ro(id)
             .and_then(|o| o.production_queue.first().map(|p| p.template_name.clone()))
@@ -850,7 +874,8 @@ impl CnCGameEngine {
     }
 
     pub(super) fn host_ui_selected_ids(&self, player_id: u32) -> Vec<crate::game_logic::ObjectId> {
-        // Wave 215: presentation freeze owns InGame selection residual (fail-closed
+        // Wave 610: host residual helper.
+        // Wave 215: presentation freeze owns InGame selection residual (fail-closed)
         // even if empty). No GameLogic get_player / player_selected_objects dual-read.
         let _ = player_id;
         crate::game_logic::host_ui_selected_ids_from_residuals(
@@ -963,7 +988,12 @@ impl CnCGameEngine {
         });
     }
 
-    pub(super) fn place_wall_line_from_ui(&mut self, template_name: &str, start: glam::Vec3, end: glam::Vec3) {
+    pub(super) fn place_wall_line_from_ui(
+        &mut self,
+        template_name: &str,
+        start: glam::Vec3,
+        end: glam::Vec3,
+    ) {
         let template = template_name.to_string();
         let player_id = self.current_player_id;
         // Wave 219: selection via presentation-first ui_selected_ids.

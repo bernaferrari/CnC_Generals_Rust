@@ -48,7 +48,10 @@ pub(super) fn is_check_box_checked(window: &GameWindow) -> bool {
     window.instance_data().state.contains(WindowState::SELECTED)
 }
 
-pub(super) fn check_box_image_source(state: WindowState, enabled: bool) -> (PushButtonDrawBank, usize) {
+pub(super) fn check_box_image_source(
+    state: WindowState,
+    enabled: bool,
+) -> (PushButtonDrawBank, usize) {
     let bank = if !enabled || state.contains(WindowState::DISABLED) {
         PushButtonDrawBank::Disabled
     } else if state.contains(WindowState::HILITED) {
@@ -228,7 +231,10 @@ pub(super) fn radio_button_image_sources(
     }
 }
 
-pub(super) fn radio_button_solid_box_source(state: WindowState, enabled: bool) -> (PushButtonDrawBank, usize) {
+pub(super) fn radio_button_solid_box_source(
+    state: WindowState,
+    enabled: bool,
+) -> (PushButtonDrawBank, usize) {
     let bank = if !enabled || state.contains(WindowState::DISABLED) {
         PushButtonDrawBank::Disabled
     } else if state.contains(WindowState::HILITED) {
@@ -434,4 +440,3 @@ pub fn w3d_gadget_radio_button_image_draw(window: &GameWindow, inst_data: &Windo
     );
     draw_radio_button_text(window, inst_data);
 }
-

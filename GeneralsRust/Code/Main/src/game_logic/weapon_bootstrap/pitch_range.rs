@@ -353,4 +353,3 @@ pub fn is_pitch_within_limits_geom(
         || (max_pitch >= wmin && max_pitch <= wmax)
         || (min_pitch <= wmin && max_pitch >= wmax)
 }
-

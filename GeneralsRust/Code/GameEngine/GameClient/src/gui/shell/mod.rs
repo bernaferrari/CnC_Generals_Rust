@@ -28,11 +28,12 @@ pub use base::{
 
 // Re-export main menu types
 pub use main_menu::{
-    dispatch_os_click_named_window, drive_os_wnd_open_challenge_menu_like_cpp,
-    drive_os_wnd_open_skirmish_like_cpp, drive_os_wnd_start_campaign_like_cpp,
-    drive_os_wnd_start_china_campaign_like_cpp, drive_os_wnd_start_gla_campaign_like_cpp,
-    drive_os_wnd_start_usa_campaign_like_cpp, last_os_wnd_widget_tree_click_ok,
-    note_os_wnd_widget_tree_hit, os_wnd_widget_tree_nav_ok, residual_last_campaign_difficulty,
+    clear_deferred_shell_pushes, dispatch_os_click_named_window, drain_deferred_shell_pushes,
+    drive_os_wnd_open_challenge_menu_like_cpp, drive_os_wnd_open_skirmish_like_cpp,
+    drive_os_wnd_start_campaign_like_cpp, drive_os_wnd_start_china_campaign_like_cpp,
+    drive_os_wnd_start_gla_campaign_like_cpp, drive_os_wnd_start_usa_campaign_like_cpp,
+    last_os_wnd_widget_tree_click_ok, mark_host_match_start, note_os_wnd_widget_tree_hit,
+    os_wnd_widget_tree_nav_ok, os_wnd_widget_under_cursor_name, residual_last_campaign_difficulty,
     reveal_main_menu_first_input_like_cpp, simulate_main_menu_campaign_side_button_gadget_selected,
     simulate_main_menu_campaign_start_residual,
     simulate_main_menu_challenge_button_gadget_selected,
@@ -44,8 +45,9 @@ pub use main_menu::{
     simulate_main_menu_replay_button_gadget_selected,
     simulate_main_menu_single_player_button_gadget_selected,
     simulate_main_menu_skirmish_button_gadget_selected,
-    simulate_main_menu_skirmish_button_latch_only, DisplaySettings, DropdownType, GameDifficulty,
-    MainMenu, MainMenuError, MainMenuResult, MainMenuState, ShowSide,
+    simulate_main_menu_skirmish_button_latch_only, soft_reveal_main_menu_for_host_inject,
+    tick_main_menu_transitions, DisplaySettings, DropdownType, GameDifficulty, MainMenu,
+    MainMenuError, MainMenuResult, MainMenuState, ShowSide,
 };
 
 // Re-export replay menu types

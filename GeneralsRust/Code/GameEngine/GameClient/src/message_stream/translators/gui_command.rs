@@ -189,4 +189,3 @@ impl GameMessageTranslator for GUICommandTranslator {
         }
     }
 }
-

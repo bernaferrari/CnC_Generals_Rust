@@ -97,7 +97,8 @@ impl PoolConfig {
             }
         }
 
-        // Ensure type alignment is compatible
+        // Ensure type alignment is compatible. `Slab::new` also raises the
+        // allocation align to `align_of::<SlotEntry<T>>()` and pads stride.
         let type_align = std::mem::align_of::<T>();
         if align < type_align {
             return Err(format!(

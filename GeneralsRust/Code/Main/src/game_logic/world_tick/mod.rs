@@ -3,16 +3,16 @@
 //! matches the previous `pub(super)` visibility on the flat file.
 #![allow(unused_imports, non_snake_case)]
 
-mod step;
-mod production;
-mod presence;
-mod movement;
 mod ai;
-mod physics;
-mod teams;
+mod airfield;
+mod attack;
+mod combat;
 mod crates;
 mod mood;
-mod attack;
+mod movement;
+mod physics;
+mod presence;
+mod production;
 mod shock;
-mod airfield;
-mod combat;
+mod step;
+mod teams;

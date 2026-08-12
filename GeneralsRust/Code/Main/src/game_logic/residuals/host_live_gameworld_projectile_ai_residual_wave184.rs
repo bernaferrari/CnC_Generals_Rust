@@ -83,7 +83,7 @@ pub fn honesty_live_gameworld_projectile_ai_residual_pack_wave184() -> bool {
 
 /// Source residual: projectile + AI decision channel APIs.
 pub fn honesty_projectile_ai_channel_api_source() -> bool {
-    let src = include_str!("../../gameworld_shadow.rs");
+    let src = crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC;
     let proj = include_str!("../host_projectile_log.rs");
     let ai = include_str!("../host_ai_decision_log.rs");
     src.contains("pub fn apply_host_projectile_events")
@@ -96,7 +96,7 @@ pub fn honesty_projectile_ai_channel_api_source() -> bool {
 
 /// Source residual: projectile + AI decision authorities default on.
 pub fn honesty_projectile_ai_authority_default_on_source() -> bool {
-    let src = include_str!("../../gameworld_shadow.rs");
+    let src = crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC;
     let proj_ok = {
         let i = match src.find("pub fn gameworld_projectile_authority_enabled") {
             Some(i) => i,

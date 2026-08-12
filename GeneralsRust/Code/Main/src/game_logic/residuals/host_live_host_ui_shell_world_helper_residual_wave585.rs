@@ -91,7 +91,7 @@ pub fn residual_host_ui_shell_world_helper_last_action() -> ResidualHostUiShellW
 }
 
 fn eng_source() -> &'static str {
-    include_str!("../../cnc_game_engine.rs")
+    crate::cnc_game_engine::ENGINE_SRC
 }
 
 fn fn_body<'a>(src: &'a str, sig: &str) -> Option<&'a str> {

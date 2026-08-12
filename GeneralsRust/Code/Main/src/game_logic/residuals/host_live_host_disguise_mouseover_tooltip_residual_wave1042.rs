@@ -42,13 +42,13 @@ fn residual_action_store(a: ResidualHostDisguiseMouseoverTooltipResidualAction) 
 }
 
 fn cnc_source() -> &'static str {
-    include_str!("../../cnc_game_engine.rs")
+    crate::cnc_game_engine::ENGINE_SRC
 }
 fn gl_source() -> &'static str {
     include_str!("../game_logic.rs")
 }
 fn ui_source() -> &'static str {
-    include_str!("../../../../GameEngine/GameClient/src/gui/ingame_ui.rs")
+    game_client::gui::ingame_ui::INGAME_UI_SRC
 }
 
 pub fn honesty_host_disguise_mouseover_tooltip_residual_method_names_residual_wave1042() -> bool {

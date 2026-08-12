@@ -1,7 +1,7 @@
-// Script-engine types, UnsafeCell inner state, and re-entrancy accessors.
+// Script-engine types, RefCell inner state, and re-entrancy accessors.
 //
 // Included into `engine/mod.rs` so private fields and the current
-// UnsafeCell / TLS re-entrancy pattern stay in the parent module.
+// RefCell / TLS re-entrancy pattern stay in the parent module.
 
 pub const MAX_COUNTERS: usize = 256;
 pub const MAX_FLAGS: usize = 256;
@@ -786,31 +786,14 @@ pub struct ScriptStats {
 
 /// Main Script Engine matching C++ ScriptEngine.
 ///
-/// Mutable state lives in `UnsafeCell<ScriptEngineInner>` so nested
+/// Mutable state lives in `RefCell<ScriptEngineInner>` so nested
 /// `CALL_SUBROUTINE` (C++ runs the callee immediately) can re-enter through
 /// `&ScriptEngine` + `lock_inner_mut` without minting a second `&mut ScriptEngine`.
+/// `RefCell` enforces exclusive/shared borrows; `with_inner` cannot alias a
+/// live `lock_inner_mut` (that used to be a comment-only rule over `UnsafeCell`).
 pub struct ScriptEngine {
-    inner: UnsafeCell<ScriptEngineInner>,
-    /// Mini-RefCell exclusive flag. True while an `InnerMutGuard` is live.
-    mut_live: AtomicBool,
+    inner: std::cell::RefCell<ScriptEngineInner>,
 }
-
-// SAFETY: `inner` is `UnsafeCell<ScriptEngineInner>`. `UnsafeCell<T>` is
-// `Send` iff `T: Send` and is never automatically `Sync`.
-//
-// Send: `ScriptEngineInner` is Send (plain data + `Arc<dyn ScriptActionHandler:
-// Send + Sync>`). Moving the engine is safe when no other alias exists.
-//
-// Sync: the only interior mutation is `lock_inner_mut`, which uses `mut_live`
-// as a same-thread mini-RefCell. Cross-thread exclusive access is provided by
-// the outer `Arc<RwLock<Option<ScriptEngine>>>`. `lock_inner_mut` / `mut_live`
-// run only on the thread that holds that write lock, or on the TLS
-// active-engine thread installed under that write lock. Shared `&ScriptEngine`
-// from other threads is either behind a read lock with no inner mutation, or
-// is not constructed. Same-thread nested CALL_SUBROUTINE is the only interior
-// mutation path.
-unsafe impl Send for ScriptEngine {}
-unsafe impl Sync for ScriptEngine {}
 
 /// Mutable script-engine body. Field layout matches the previous `ScriptEngine`.
 ///
@@ -899,80 +882,92 @@ pub struct ScriptEngineInner {
 
 /// RAII exclusive borrow of `ScriptEngineInner` from a shared `&ScriptEngine`.
 ///
-/// Sibling-field split: this guard holds `&Cell<bool>` (the flag) and
-/// `&mut ScriptEngineInner` (the cell contents). Dropping it clears `mut_live`
-/// so nested `lock_inner_mut` can run after the outer section finishes.
+/// Dropping the `RefMut` ends the exclusive borrow so nested `lock_inner_mut`
+/// can run after the outer section finishes.
 struct InnerMutGuard<'a> {
-    flag: &'a AtomicBool,
-    inner: &'a mut ScriptEngineInner,
-}
-
-impl Drop for InnerMutGuard<'_> {
-    fn drop(&mut self) {
-        self.flag.store(false, Ordering::Release);
-    }
+    inner: std::cell::RefMut<'a, ScriptEngineInner>,
 }
 
 impl Deref for InnerMutGuard<'_> {
     type Target = ScriptEngineInner;
     fn deref(&self) -> &ScriptEngineInner {
-        self.inner
+        &self.inner
     }
 }
 
 impl DerefMut for InnerMutGuard<'_> {
     fn deref_mut(&mut self) -> &mut ScriptEngineInner {
-        self.inner
-    }
-}
-
-impl Deref for ScriptEngine {
-    type Target = ScriptEngineInner;
-    fn deref(&self) -> &ScriptEngineInner {
-        if self.mut_live.load(Ordering::Acquire) {
-            panic!(
-                "ScriptEngine already mutably borrowed (nested exclusive access). \
-                 C++ CALL_SUBROUTINE runs immediately; drop lock_inner_mut before dispatch."
-            );
-        }
-        // SAFETY: mut_live is false, so no InnerMutGuard is live. Shared reads of
-        // the UnsafeCell payload are allowed.
-        unsafe { &*self.inner.get() }
-    }
-}
-
-impl DerefMut for ScriptEngine {
-    fn deref_mut(&mut self) -> &mut ScriptEngineInner {
-        // Exclusive `&mut ScriptEngine` — no other references exist.
-        self.inner.get_mut()
+        &mut self.inner
     }
 }
 
 impl ScriptEngine {
+    /// Scoped shared read of inner state. The `&ScriptEngineInner` cannot escape `f`.
+    ///
+    /// Panics if an `InnerMutGuard` is live (`RefCell` already borrowed).
+    pub fn with_inner<R>(&self, f: impl FnOnce(&ScriptEngineInner) -> R) -> R {
+        f(&self.inner.borrow())
+    }
+
+    /// Exclusive inner access from `&mut ScriptEngine`. Safe: no other alias exists.
+    pub fn with_inner_mut<R>(&mut self, f: impl FnOnce(&mut ScriptEngineInner) -> R) -> R {
+        f(self.inner.get_mut())
+    }
+
     /// Exclusive inner borrow from `&ScriptEngine` (nested CALL_SUBROUTINE path).
     ///
-    /// Panics if another `InnerMutGuard` is live (AlreadyBorrowed). Callers must
-    /// drop the guard before `dispatcher.execute_action` / nested
+    /// Panics if another `InnerMutGuard` or `with_inner` borrow is live.
+    /// Callers must drop the guard before `dispatcher.execute_action` / nested
     /// `with_script_engine_mut`, matching C++ immediate nested execution.
     fn lock_inner_mut(&self) -> InnerMutGuard<'_> {
-        if self.mut_live.swap(true, Ordering::AcqRel) {
-            panic!(
-                "ScriptEngine::lock_inner_mut: already borrowed. Nested CALL_SUBROUTINE \
-                 must not hold inner mut across dispatcher / with_script_engine_mut."
-            );
-        }
         InnerMutGuard {
-            flag: &self.mut_live,
-            // SAFETY: mut_live was false; this is the unique exclusive borrow of Inner.
-            // `flag` is a sibling field of `inner`, not an alias of Inner.
-            inner: unsafe { &mut *self.inner.get() },
+            inner: self.inner.borrow_mut(),
         }
+    }
+}
+
+/// Exclusive handle to the process-global script engine.
+///
+/// `read`/`write` are both exclusive (`Mutex`) so `ScriptEngine` does not
+/// need to be `Sync`. Call sites keep `.read()` / `.write()`.
+#[derive(Clone)]
+pub struct ScriptEngineHandle {
+    inner: Arc<Mutex<Option<ScriptEngine>>>,
+}
+
+impl ScriptEngineHandle {
+    pub fn from_engine(engine: ScriptEngine) -> Self {
+        Self {
+            inner: Arc::new(Mutex::new(Some(engine))),
+        }
+    }
+
+    pub fn write(&self) -> std::sync::LockResult<std::sync::MutexGuard<'_, Option<ScriptEngine>>> {
+        self.inner.lock()
+    }
+
+    pub fn read(&self) -> std::sync::LockResult<std::sync::MutexGuard<'_, Option<ScriptEngine>>> {
+        self.inner.lock()
+    }
+
+    pub fn try_write(
+        &self,
+    ) -> std::sync::TryLockResult<std::sync::MutexGuard<'_, Option<ScriptEngine>>> {
+        self.inner.try_lock()
+    }
+
+    pub fn try_read(
+        &self,
+    ) -> std::sync::TryLockResult<std::sync::MutexGuard<'_, Option<ScriptEngine>>> {
+        self.inner.try_lock()
     }
 }
 
 // Static instances (in real implementation these would be proper singletons)
 lazy_static::lazy_static! {
-    static ref SCRIPT_ENGINE: Arc<RwLock<Option<ScriptEngine>>> = Arc::new(RwLock::new(None));
+    static ref SCRIPT_ENGINE: ScriptEngineHandle = ScriptEngineHandle {
+        inner: Arc::new(Mutex::new(None)),
+    };
     static ref EVENT_MANAGER: Arc<EventManager> = Arc::new(EventManager::new());
     static ref NAMED_OBJECT_TRACKER: Arc<NamedObjectTracker> = Arc::new(NamedObjectTracker::new());
     static ref AREA_TRACKER: Arc<AreaTracker> = Arc::new(AreaTracker::new());
@@ -988,7 +983,7 @@ lazy_static::lazy_static! {
 //
 // TLS stores `*const ScriptEngine` only. Nested accessors mint `&ScriptEngine`,
 // never a second `&mut ScriptEngine`. Mutations go through `lock_inner_mut`
-// (UnsafeCell + mini-RefCell). C++ `callSubroutine` → `executeScript` runs
+// (`RefCell`). C++ `callSubroutine` → `executeScript` runs
 // immediately; we match that order rather than deferring nested work.
 thread_local! {
     static ACTIVE_SCRIPT_ENGINE: Cell<*const ScriptEngine> =
@@ -1083,7 +1078,7 @@ pub fn with_active_script_engine_ref<R>(f: impl FnOnce(&ScriptEngine) -> R) -> O
         } else {
             // SAFETY: same provenance as with_active_script_engine_mut.
             let engine = unsafe { &*ptr };
-            if engine.mut_live.load(Ordering::Acquire) {
+            if engine.inner.try_borrow().is_err() {
                 return None;
             }
             Some(f(engine))
@@ -1138,7 +1133,7 @@ pub fn initialize_script_engine() -> GameLogicResult<()> {
 }
 
 /// Get reference to global script engine
-pub fn get_script_engine() -> Arc<RwLock<Option<ScriptEngine>>> {
+pub fn get_script_engine() -> ScriptEngineHandle {
     SCRIPT_ENGINE.clone()
 }
 

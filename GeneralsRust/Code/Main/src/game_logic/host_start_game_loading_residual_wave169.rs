@@ -98,7 +98,7 @@ pub fn honesty_start_game_loading_residual_pack_wave169() -> bool {
 
 /// Source residual: start_game_from_ui Loading → load_map → InGame path.
 pub fn honesty_start_game_from_ui_loading_source() -> bool {
-    let src = include_str!("../cnc_game_engine.rs");
+    let src = crate::cnc_game_engine::ENGINE_SRC;
     // Wave 611: logic lives in host helper; thin wrapper delegates.
     let i = match src
         .find("fn host_start_game_from_ui(")

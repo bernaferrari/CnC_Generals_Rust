@@ -210,7 +210,7 @@ fn current_breeze_info() -> Option<BreezeInfo> {
     let guard = engine.read().ok()?;
     guard
         .as_ref()
-        .map(|engine| engine.get_breeze_info().clone())
+        .map(|engine| engine.get_breeze_info())
 }
 
 #[cfg(test)]

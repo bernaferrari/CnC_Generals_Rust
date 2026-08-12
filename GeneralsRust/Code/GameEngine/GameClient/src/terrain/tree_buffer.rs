@@ -532,11 +532,10 @@ impl W3DTreeBuffer {
         for i in 0..self.tree_types.len() {
             self.tree_types[i].num_tiles = 0;
             let texture_name = self.tree_types[i].data.texture_name.clone();
-            let Some(spec) = images.iter().find(|image| {
-                image
-                    .texture_name
-                    .eq_ignore_ascii_case(&texture_name)
-            }) else {
+            let Some(spec) = images
+                .iter()
+                .find(|image| image.texture_name.eq_ignore_ascii_case(&texture_name))
+            else {
                 self.tree_types[i].first_tile = 0;
                 self.tree_types[i].tile_width = 0;
                 self.tree_types[i].num_tiles = 0;
@@ -599,7 +598,11 @@ impl W3DTreeBuffer {
                 self.source_tiles[ndx] = tile;
             }
         }
-        pack_tree_atlas(&mut self.tree_types, &mut self.tile_locations, self.num_tiles);
+        pack_tree_atlas(
+            &mut self.tree_types,
+            &mut self.tile_locations,
+            self.num_tiles,
+        );
         self.ensure_source_tile_pixels();
         self.need_to_update_texture = false;
         self.anything_changed = true;
@@ -1279,10 +1282,7 @@ impl W3DTreeBuffer {
     ///
     /// Fills the CPU VB/IB with `doLighting` on every vertex when `doVertexLighting`
     /// is true (live C++ path; POINT dynamic lights stay `#if 0`).
-    pub fn load_trees_in_vertex_and_index_buffers(
-        &mut self,
-        object_lighting: &[TreeObjectLight],
-    ) {
+    pub fn load_trees_in_vertex_and_index_buffers(&mut self, object_lighting: &[TreeObjectLight]) {
         if !self.initialized {
             return;
         }
@@ -1342,12 +1342,10 @@ impl W3DTreeBuffer {
                 let num_vertex = mesh.positions.len();
                 let num_index = mesh.polygons.len();
 
-                if self.cur_num_tree_vertices[b_ndx] as usize + num_vertex + 2 >= MAX_TREE_VERTEX
-                {
+                if self.cur_num_tree_vertices[b_ndx] as usize + num_vertex + 2 >= MAX_TREE_VERTEX {
                     break;
                 }
-                if self.cur_num_tree_indices[b_ndx] as usize + 3 * num_index + 6 >= MAX_TREE_INDEX
-                {
+                if self.cur_num_tree_indices[b_ndx] as usize + 3 * num_index + 6 >= MAX_TREE_INDEX {
                     break;
                 }
 
@@ -1355,23 +1353,16 @@ impl W3DTreeBuffer {
                 let mut shared_diffuse = 0u32;
                 if mesh.normals.is_none() {
                     do_vertex_lighting = false;
-                    shared_diffuse = do_lighting(
-                        [0.0, 0.0, 1.0],
-                        object_lighting,
-                        emissive,
-                        0xFFFF_FFFF,
-                        1.0,
-                    );
+                    shared_diffuse =
+                        do_lighting([0.0, 0.0, 1.0], object_lighting, emissive, 0xFFFF_FFFF, 1.0);
                 }
 
                 let start_vertex = self.cur_num_tree_vertices[b_ndx];
                 self.trees[cur_tree].first_index = start_vertex;
                 self.trees[cur_tree].buffer_ndx = b_ndx as i32;
 
-                let mut u_scale =
-                    tile_width as f32 * TILE_PIXEL_EXTENT as f32 / tex_w;
-                let mut v_scale =
-                    tile_width as f32 * TILE_PIXEL_EXTENT as f32 / tex_h;
+                let mut u_scale = tile_width as f32 * TILE_PIXEL_EXTENT as f32 / tex_w;
+                let mut v_scale = tile_width as f32 * TILE_PIXEL_EXTENT as f32 / tex_h;
                 let u_offset = texture_origin.0 as f32 / tex_w;
                 let mut v_offset = texture_origin.1 as f32 / tex_h;
                 if half_tile {
@@ -1945,7 +1936,8 @@ pub fn blit_tree_tile_into_atlas(
             continue;
         }
         let src_off = (src_row as usize) * TILE_PIXEL_EXTENT as usize * TILE_BYTES_PER_PIXEL;
-        let dest_off = (dest_row as usize) * stride + (dest_x.max(0) as usize) * TILE_BYTES_PER_PIXEL;
+        let dest_off =
+            (dest_row as usize) * stride + (dest_x.max(0) as usize) * TILE_BYTES_PER_PIXEL;
         for i in 0..TILE_PIXEL_EXTENT {
             let column = dest_x + i;
             if column < 0 || column >= atlas_width {
@@ -2058,9 +2050,8 @@ pub fn do_lighting(
             -light.light_pos[1] * inv,
             -light.light_pos[2] * inv,
         ];
-        let mut shade = light_ray[0] * normal[0]
-            + light_ray[1] * normal[1]
-            + light_ray[2] * normal[2];
+        let mut shade =
+            light_ray[0] * normal[0] + light_ray[1] * normal[1] + light_ray[2] * normal[2];
         shade = shade.clamp(0.0, 1.0);
         shade_r += shade * light.diffuse[0];
         shade_g += shade * light.diffuse[1];
@@ -2136,18 +2127,18 @@ mod tests {
         assert_eq!(lit & 0xFF, 0);
         assert_eq!(lit >> 24, 0xFF);
 
-        let back = do_lighting([0.0, 0.0, -1.0], &lights, [0.05, 0.0, 0.0], 0xFFFF_FFFF, 1.0);
+        let back = do_lighting(
+            [0.0, 0.0, -1.0],
+            &lights,
+            [0.05, 0.0, 0.0],
+            0xFFFF_FFFF,
+            1.0,
+        );
         let back_r = ((0.2_f32 + 0.05).clamp(0.0, 1.0) * 255.0 + 0.5) as u32;
         assert_eq!((back >> 16) & 0xFF, back_r);
         assert_eq!((back >> 8) & 0xFF, (0.1 * 255.0 + 0.5) as u32);
 
-        let tinted = do_lighting(
-            [0.0, 0.0, 1.0],
-            &lights,
-            [0.0, 0.0, 0.0],
-            0xFF80_0000,
-            1.0,
-        );
+        let tinted = do_lighting([0.0, 0.0, 1.0], &lights, [0.0, 0.0, 0.0], 0xFF80_0000, 1.0);
         // red * 128/255 after clamp-to-1
         let tint_r = (((0.2 + 0.8) * (0x80 as f32 / 255.0)) * 255.0 + 0.5) as u32;
         assert_eq!((tinted >> 16) & 0xFF, tint_r);
@@ -2180,11 +2171,7 @@ mod tests {
             type_idx,
             TreeTypeMesh {
                 positions: vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
-                normals: Some(vec![
-                    [0.0, 0.0, 1.0],
-                    [0.0, 0.0, 1.0],
-                    [1.0, 0.0, 0.0],
-                ]),
+                normals: Some(vec![[0.0, 0.0, 1.0], [0.0, 0.0, 1.0], [1.0, 0.0, 0.0]]),
                 uvs: vec![[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]],
                 colors: Some(vec![0xFFFF_FFFF, 0xFF80_0000, 0xFFFF_FFFF]),
                 polygons: vec![[0, 1, 2]],
@@ -2462,7 +2449,10 @@ mod tests {
             texture_name: "Oak.tga".into(),
             header: TreeTgaHeader::truecolor(64, 64),
         }]);
-        assert_eq!(&buffer.source_tile_bgra(0).unwrap()[0..4], &[11, 22, 33, 44]);
+        assert_eq!(
+            &buffer.source_tile_bgra(0).unwrap()[0..4],
+            &[11, 22, 33, 44]
+        );
         assert!(buffer.atlas_mips().is_empty());
 
         let height = buffer.sync_tree_atlas_for_draw(1);

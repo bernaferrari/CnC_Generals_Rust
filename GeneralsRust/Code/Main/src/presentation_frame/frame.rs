@@ -227,6 +227,10 @@ pub struct PresentationFrame {
     /// Frozen so WGPU laser segment pack does not re-read live host mid-render.
     /// Fail-closed: not full SegLineRenderer GPU texture draw.
     pub laser_beams: Vec<PresentationLaserBeam>,
+    /// W3DLaserDraw / Tracer / Rope scene lines frozen from the client RenderBridge.
+    /// Fail-closed: packed through the existing LaserSegmentUpload line path.
+    #[serde(default)]
+    pub scene_lines: Vec<PresentationSceneLine>,
     /// C++ ProjectileStreamUpdate residual trails.
     pub projectile_streams: Vec<PresentationProjectileStream>,
     /// In-flight combat projectiles frozen from host CombatSystem.

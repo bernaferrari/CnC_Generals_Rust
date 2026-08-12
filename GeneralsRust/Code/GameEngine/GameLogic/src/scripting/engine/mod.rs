@@ -23,10 +23,9 @@ use game_engine::common::rts::ScienceType;
 use game_engine::common::system::{Xfer, XferMode, XferStatus, XferVersion};
 use game_engine::common::thing::thing_factory::get_thing_factory;
 use game_engine::common::thing::thing_template::ThingTemplate as EngineThingTemplate;
-use std::cell::{Cell, UnsafeCell};
+use std::cell::Cell;
 use std::collections::HashMap;
-use std::ops::{Deref, DerefMut};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::ops::{Deref, DerefMut}; // InnerMutGuard only; ScriptEngine has no Deref.
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
@@ -45,3 +44,13 @@ include!("leftover.rs");
 
 #[cfg(test)]
 mod tests;
+
+/// Concatenated live sources for residual `include_str!` scans.
+pub const SCRIPT_ENGINE_SRC: &str = concat!(
+    include_str!("mod.rs"),
+    include_str!("init.rs"),
+    include_str!("leftover.rs"),
+    include_str!("named_trackers.rs"),
+    include_str!("types.rs"),
+    include_str!("update.rs"),
+);

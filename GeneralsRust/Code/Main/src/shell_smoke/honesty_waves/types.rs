@@ -51,8 +51,10 @@ pub struct WaveHonesty {
     pub live_transition_damage_fx_dual_world_empty_gate_method_names_wave416_ok: bool,
     pub live_transition_damage_fx_dual_world_empty_gate_nav_commands_wave416_ok: bool,
     pub live_transition_damage_fx_dual_world_empty_gate_live_wave416_ok: bool,
-    pub live_spawn_point_production_exit_behavior_dual_world_empty_gate_method_names_wave417_ok: bool,
-    pub live_spawn_point_production_exit_behavior_dual_world_empty_gate_nav_commands_wave417_ok: bool,
+    pub live_spawn_point_production_exit_behavior_dual_world_empty_gate_method_names_wave417_ok:
+        bool,
+    pub live_spawn_point_production_exit_behavior_dual_world_empty_gate_nav_commands_wave417_ok:
+        bool,
     pub live_spawn_point_production_exit_behavior_dual_world_empty_gate_live_wave417_ok: bool,
     pub live_build_placement_dual_world_empty_gate_method_names_wave418_ok: bool,
     pub live_build_placement_dual_world_empty_gate_nav_commands_wave418_ok: bool,

@@ -101,7 +101,7 @@ fn fn_body<'a>(src: &'a str, name: &str) -> Option<&'a str> {
 
 /// Source residual: Team empty dual-world short-circuits.
 pub fn honesty_team_dual_world_empty_gate_source() -> bool {
-    let g = include_str!("../../../../GameEngine/GameLogic/src/team.rs");
+    let g = gamelogic::team::TEAM_SRC;
     if !(g.contains("Wave 256")
         && g.contains("fn dual_world_registry_unavailable")
         && g.contains("OBJECT_REGISTRY.is_empty()"))

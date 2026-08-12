@@ -300,8 +300,6 @@ impl HostSpecialPowerStrikeRegistry {
             .any(|f| f.model_condition_slow_sets > 0)
     }
 
-
-
     /// True if at least one strike of `kind` is currently queued.
     pub fn honesty_queue_ok(&self, kind: HostSuperweaponKind) -> bool {
         !self.pending_of_kind(kind).is_empty()

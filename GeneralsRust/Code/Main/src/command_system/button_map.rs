@@ -363,4 +363,3 @@ pub fn command_type_from_button_name(name: &str) -> Option<CommandType> {
         }
     }
 }
-

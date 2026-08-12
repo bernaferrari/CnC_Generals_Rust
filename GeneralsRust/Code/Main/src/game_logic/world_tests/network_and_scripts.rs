@@ -3,6 +3,88 @@
 use super::super::*;
 use super::helpers::*;
 
+#[test]
+fn host_named_unit_found_with_empty_object_registry() {
+    use gamelogic::object::registry::OBJECT_REGISTRY;
+    use gamelogic::scripting::{
+        clear_host_script_query_snapshot, host_script_named_unit_id, host_script_team_unit_ids,
+    };
+
+    assert!(
+        OBJECT_REGISTRY.is_empty(),
+        "host path must not populate OBJECT_REGISTRY"
+    );
+
+    let mut logic = GameLogic::new();
+    let mut t = ThingTemplate::new("NamedScout");
+    t.set_health(100.0);
+    logic.templates.insert("NamedScout".into(), t);
+    let id = logic
+        .create_object("NamedScout", Team::USA, Vec3::new(10.0, 0.0, 20.0))
+        .expect("unit");
+    if let Some(o) = logic.host_object_mut(id) {
+        o.name = "MapNamedScout".into();
+    }
+
+    assert!(OBJECT_REGISTRY.is_empty());
+    assert_eq!(logic.host_named_unit_id("MapNamedScout"), Some(id));
+    assert!(logic.host_team_unit_ids(Team::USA).contains(&id));
+    assert!(!logic
+        .host_area_unit_ids(Vec3::new(0.0, 0.0, 0.0), Vec3::new(15.0, 0.0, 25.0))
+        .is_empty());
+
+    logic.inject_host_script_query_snapshot();
+    assert_eq!(host_script_named_unit_id("MapNamedScout"), Some(id.0));
+    assert_eq!(
+        gamelogic::scripting::host_script_named_unit_alive("MapNamedScout"),
+        Some(true)
+    );
+    assert!(gamelogic::scripting::host_script_query_has_any());
+    assert!(!host_script_team_unit_ids(Team::USA as u32).is_empty());
+    assert!(OBJECT_REGISTRY.is_empty());
+    // Existence is not inside-area when bounds are unknown.
+    assert_eq!(
+        gamelogic::scripting::host_script_named_unit_in_named_area(
+            "MapNamedScout",
+            "NoSuchTriggerArea"
+        ),
+        None
+    );
+    {
+        use gamelogic::scripting::{set_host_script_query_snapshot, HostScriptQuerySnapshot};
+        let mut snap = HostScriptQuerySnapshot::default();
+        snap.named.insert("MapNamedScout".into(), id.0);
+        snap.objects
+            .push(gamelogic::scripting::HostScriptQueryObject {
+                id: id.0,
+                name: "MapNamedScout".into(),
+                team: Team::USA as u32,
+                x: 10.0,
+                z: 20.0,
+                alive: true,
+            });
+        snap.areas.insert("ScoutPad".into(), (0.0, 0.0, 15.0, 25.0));
+        snap.areas
+            .insert("FarPad".into(), (100.0, 100.0, 110.0, 110.0));
+        set_host_script_query_snapshot(snap);
+        assert_eq!(
+            gamelogic::scripting::host_script_named_unit_in_named_area("MapNamedScout", "ScoutPad"),
+            Some(true)
+        );
+        assert_eq!(
+            gamelogic::scripting::host_script_named_unit_in_named_area("MapNamedScout", "FarPad"),
+            Some(false)
+        );
+        assert_eq!(
+            gamelogic::scripting::host_script_named_unit_in_named_area(
+                "MapNamedScout",
+                "NoSuchTriggerArea"
+            ),
+            None
+        );
+    }
+    clear_host_script_query_snapshot();
+}
 
 #[test]
 fn network_mode_helpers_match_lan_internet_multiplayer() {
@@ -3248,4 +3330,3 @@ fn pilot_recrew_unmanned_vehicle_after_enter_reach() {
         "pilot infantry consumed after recrew"
     );
 }
-

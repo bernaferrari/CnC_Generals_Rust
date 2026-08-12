@@ -43,7 +43,7 @@ fn residual_action_store(a: ResidualHostMatchShellTeamResidualsAction) {
 }
 
 fn cnc_source() -> &'static str {
-    include_str!("../../cnc_game_engine.rs")
+    crate::cnc_game_engine::ENGINE_SRC
 }
 
 pub fn honesty_host_match_shell_team_residuals_method_names_residual_wave845() -> bool {

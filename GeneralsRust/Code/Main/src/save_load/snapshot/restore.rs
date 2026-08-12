@@ -37,6 +37,8 @@ impl SnapshotBuilder {
         }
 
         game_logic.set_next_object_id_for_restore(ObjectId(max_id.saturating_add(1)));
+        // Loaded objects live in the host HashMap `host_authoritative_*` reads
+        // when GameWorld is not coupled.
         Ok(())
     }
 

@@ -1,7 +1,8 @@
 //! Gate: production `generals` binary via runtime host bridge.
 //!
 //! Default NewGame queue path (Menu drain). Opt out with EXECUTABLE_SMOKE_NEW_GAME=0.
-//! `playable_claim` must stay false.
+//! Headless `playable_claim` must stay false. Windowed results may be true when
+//! all five retail flags are observed.
 
 use generals_main::executable_smoke::{format_executable_smoke_report, run_executable_smoke};
 use std::time::Duration;
@@ -27,9 +28,10 @@ fn main() {
     let r = run_executable_smoke(Duration::from_secs(timeout_secs), use_new_game);
     println!("{}", format_executable_smoke_report(&r));
 
-    // Fail-closed retail claim.
-    if r.playable_claim {
-        eprintln!("executable_smoke_gate: FAIL playable_claim must stay false");
+    // Headless: playable_claim must stay false.
+    // Windowed: allow true only when the five retail flags are all observed.
+    if let Err(reason) = r.playable_claim_gate_ok() {
+        eprintln!("executable_smoke_gate: FAIL {reason}");
         std::process::exit(2);
     }
 

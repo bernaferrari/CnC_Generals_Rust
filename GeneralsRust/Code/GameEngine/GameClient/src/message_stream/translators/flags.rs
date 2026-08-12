@@ -85,4 +85,3 @@ pub(super) fn context_pick_profile(
 
     profile
 }
-

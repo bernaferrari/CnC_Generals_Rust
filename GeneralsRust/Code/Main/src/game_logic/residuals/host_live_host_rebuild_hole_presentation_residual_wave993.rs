@@ -45,19 +45,19 @@ fn residual_action_store(a: ResidualHostRebuildHolePresentationResidualAction) {
 }
 
 fn cnc_source() -> &'static str {
-    include_str!("../../cnc_game_engine.rs")
+    crate::cnc_game_engine::ENGINE_SRC
 }
 fn gl_source() -> &'static str {
     include_str!("../game_logic.rs")
 }
 fn pf_source() -> &'static str {
-    include_str!("../../presentation_frame.rs")
+    crate::presentation_frame::PRESENTATION_FRAME_SRC
 }
 fn entity_source() -> &'static str {
     include_str!("../../../../GameEngine/GameLogic/src/world/entities/mod.rs")
 }
 fn object_source() -> &'static str {
-    include_str!("../object.rs")
+    crate::game_logic::object::OBJECT_SRC
 }
 
 pub fn honesty_host_rebuild_hole_presentation_residual_method_names_residual_wave993() -> bool {

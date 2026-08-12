@@ -1,8 +1,8 @@
 //! Post-logic stealth residuals: detector, flags, disguise, vision/camo, delay, faerie, hijacker.
 
+use super::*;
 use crate::game_logic::GameLogic;
 use crate::gameworld_shadow::GameWorldShadow;
-use super::*;
 
 // Wave 693: post-logic target-location / detector / continuous-fire batch handoff.
 thread_local! {

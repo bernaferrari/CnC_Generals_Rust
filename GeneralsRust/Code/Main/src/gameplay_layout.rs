@@ -12,6 +12,64 @@
 
 use std::path::{Path, PathBuf};
 
+/// Live ControlBar parent name (C++ ShowControlBar tree). Never infer liveness
+/// from leftover MainMenu/Skirmish `window_count`.
+pub const CONTROL_BAR_PARENT_NAME: &str = "ControlBar.wnd:ControlBarParent";
+
+/// True only when TheWindowManager has the retail ControlBar parent gadget.
+#[cfg(feature = "game_client")]
+pub fn control_bar_parent_is_live() -> bool {
+    game_client::gui::with_window_manager_ref(|wm| {
+        wm.find_window_by_name(CONTROL_BAR_PARENT_NAME).is_some()
+    })
+}
+
+#[cfg(not(feature = "game_client"))]
+pub fn control_bar_parent_is_live() -> bool {
+    false
+}
+
+/// Load ControlBar.wnd into TheWindowManager if the parent is missing, then
+/// `begin_frame` + `draw_all` and require a real tree + draw commands from
+/// that pass. Local honesty parse counts do not count.
+pub fn materialise_live_control_bar() -> bool {
+    #[cfg(feature = "game_client")]
+    {
+        if !control_bar_parent_is_live() {
+            if let Some(path) = resolve_control_bar_path() {
+                let _ = game_client::gui::with_window_manager(|wm| {
+                    wm.load_window(path.to_str().unwrap_or("ControlBar.wnd"))
+                });
+            }
+        }
+        if !control_bar_parent_is_live() {
+            return false;
+        }
+        let wm_count = game_client::gui::with_window_manager_ref(|wm| wm.window_count());
+        if wm_count == 0 {
+            return false;
+        }
+        game_client::gui::with_ui_renderer(|arc| {
+            if let Ok(mut renderer) = arc.write() {
+                renderer.begin_frame();
+            }
+        });
+        game_client::gui::with_window_manager(|wm| wm.draw_all());
+        let draw_cmds = game_client::gui::with_ui_renderer(|arc| {
+            arc.read()
+                .ok()
+                .map(|r| r.queued_draw_command_count())
+                .unwrap_or(0)
+        })
+        .unwrap_or(0);
+        control_bar_parent_is_live() && wm_count > 0 && draw_cmds > 0
+    }
+    #[cfg(not(feature = "game_client"))]
+    {
+        false
+    }
+}
+
 /// Candidate locations for ControlBar.wnd (extracted BIG / WindowZH trees).
 pub const CONTROL_BAR_CANDIDATES: &[&str] = &[
     "windows_game/extracted_big_files/WindowZH/Window/ControlBar.wnd",
@@ -1068,6 +1126,34 @@ mod tests {
             report.contains("window_loaded="),
             "honesty report must surface load flag: {report}"
         );
+    }
+
+    #[test]
+    #[cfg(feature = "game_client")]
+    fn leftover_main_menu_skirmish_tree_is_not_live_control_bar() {
+        use game_client::gui::{with_window_manager, with_window_manager_ref};
+        with_window_manager(|wm| {
+            wm.destroy_all_windows();
+            wm.update();
+            for i in 0..98 {
+                let win = wm.create_window(None, 0, 0, 8, 8).unwrap();
+                win.borrow_mut()
+                    .set_name(&format!("MainMenu.wnd:Leftover{i}"));
+            }
+        });
+        let count = with_window_manager_ref(|wm| wm.window_count());
+        assert!(
+            count >= 98,
+            "leftover MainMenu/Skirmish-sized tree should exist, got {count}"
+        );
+        assert!(
+            !control_bar_parent_is_live(),
+            "leftover MainMenu windows must not count as ControlBar.wnd:ControlBarParent"
+        );
+        with_window_manager(|wm| {
+            wm.destroy_all_windows();
+            wm.update();
+        });
     }
 
     /// Wave 76 residual: ControlBar window-count / named-child / font table pack.

@@ -83,7 +83,7 @@ pub fn honesty_live_gameworld_construction_writeback_residual_pack_wave181() -> 
 
 /// Source residual: construction progress channel + tick/writeback APIs.
 pub fn honesty_construction_progress_channel_source() -> bool {
-    let src = include_str!("../../gameworld_shadow.rs");
+    let src = crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC;
     src.contains("pub fn apply_host_construction_progress_events")
         && src.contains("pub fn tick_construction_progress")
         && src.contains("pub fn writeback_construction_to_host")
@@ -92,7 +92,7 @@ pub fn honesty_construction_progress_channel_source() -> bool {
 
 /// Source residual: construction sole-tick requires coupling + auth + shadow.
 pub fn honesty_construction_sole_tick_requires_coupling_source() -> bool {
-    let src = include_str!("../../gameworld_shadow.rs");
+    let src = crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC;
     let i = match src.find("pub fn gameworld_construction_sole_tick_enabled") {
         Some(i) => i,
         None => return false,

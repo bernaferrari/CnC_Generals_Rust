@@ -353,8 +353,15 @@ impl CnCGameEngine {
             shell_menu_active: false,
 
             #[cfg(feature = "game_client")]
-            game_client: game_client::core::game_client::GameClient::new()
-                .map_err(|e| anyhow::anyhow!("Failed to create GameClient: {e}"))?,
+            game_client: {
+                game_client::helpers::register_live_control_bar_hooks();
+                game_client::render_bridge::init_render_bridge();
+                let _ = gamelogic::helpers::register_scene_submission(std::sync::Arc::new(
+                    game_client::render_bridge::RenderBridge::new(),
+                ));
+                game_client::core::game_client::GameClient::new()
+                    .map_err(|e| anyhow::anyhow!("Failed to create GameClient: {e}"))?
+            },
             #[cfg(feature = "game_client")]
             control_bar: game_client::gui::control_bar::ControlBar::new(),
 
@@ -775,9 +782,51 @@ impl CnCGameEngine {
         ]
     }
 
+    /// Disk roots that hold extracted `Data/INI/...` trees (INIZH).
+    pub(super) fn startup_ini_disk_roots() -> [&'static str; 6] {
+        [
+            ".",
+            "windows_game/extracted_big_files/INIZH",
+            "windows_game/extracted_big_files_v2/INIZH",
+            "../windows_game/extracted_big_files/INIZH",
+            "../windows_game/extracted_big_files_v2/INIZH",
+            "../../windows_game/extracted_big_files/INIZH",
+        ]
+    }
+
+    /// Read a virtual INI path from extracted disk. Fail-open (None) — never hang.
+    pub(super) fn read_startup_ini_from_disk(virtual_path: &str) -> Option<String> {
+        let virtual_path = virtual_path.replace('\\', "/");
+        for root in Self::startup_ini_disk_roots() {
+            let candidate = if root == "." {
+                std::path::PathBuf::from(&virtual_path)
+            } else {
+                std::path::Path::new(root).join(&virtual_path)
+            };
+            match std::fs::read_to_string(&candidate) {
+                Ok(text) => return Some(text),
+                Err(_) => continue,
+            }
+        }
+        None
+    }
+
     pub(super) fn preload_startup_water_weather_inis() {
-        let mut ini = game_engine::common::ini::INI::new();
         for path in Self::startup_water_weather_ini_paths() {
+            // Disk first (extracted INIZH). Archive `INI::load` can block on
+            // FileSystem/asset locks held by the main thread during Loading.
+            if let Some(text) = Self::read_startup_ini_from_disk(path) {
+                let mut ini = game_engine::common::ini::INI::new();
+                match ini.with_inline_source(&text, |ini| ini.parse_current_file()) {
+                    Ok(()) => info!("Preloaded startup INI from disk: {}", path),
+                    Err(err) => warn!(
+                        "Failed to parse startup INI '{}' from disk; continuing: {}",
+                        path, err
+                    ),
+                }
+                continue;
+            }
+            let mut ini = game_engine::common::ini::INI::new();
             match ini.load(path, game_engine::common::ini::INILoadType::Overwrite) {
                 Ok(()) => info!("Preloaded startup INI: {}", path),
                 Err(err) => warn!(
@@ -1314,7 +1363,9 @@ impl CnCGameEngine {
     }
 
     /// Pre-load all unit models that will be used in the game
-    pub(super) async fn preload_unit_models(loaded_models: &mut HashMap<String, Arc<W3DModel>>) -> Result<()> {
+    pub(super) async fn preload_unit_models(
+        loaded_models: &mut HashMap<String, Arc<W3DModel>>,
+    ) -> Result<()> {
         info!("🎮 Pre-loading C&C unit models...");
 
         // Initialize a temporary game logic instance to get the templates

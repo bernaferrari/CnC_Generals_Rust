@@ -43,7 +43,7 @@ fn residual_action_store(a: ResidualHostSpecialPowerScanUnifyAction) {
 }
 
 fn cnc_source() -> &'static str {
-    include_str!("../../cnc_game_engine.rs")
+    crate::cnc_game_engine::ENGINE_SRC
 }
 
 pub fn honesty_host_special_power_scan_unify_method_names_residual_wave857() -> bool {

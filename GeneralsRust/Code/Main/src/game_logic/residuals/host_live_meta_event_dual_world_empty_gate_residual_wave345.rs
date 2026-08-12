@@ -112,7 +112,7 @@ fn fn_body<'a>(src: &'a str, name: &str) -> Option<&'a str> {
 /// Source residual: meta_event empty dual-world short-circuits.
 /// Source residual: meta_event empty dual-world short-circuits / TheGameLogic peels.
 pub fn honesty_meta_event_dual_world_empty_gate_source() -> bool {
-    let g = include_str!("../../../../GameEngine/GameClient/src/message_stream/meta_event.rs");
+    let g = game_client::message_stream::meta_event::META_EVENT_SRC;
     if !(g.contains("fn dual_world_registry_unavailable")
         && g.contains("OBJECT_REGISTRY.is_empty()"))
     {

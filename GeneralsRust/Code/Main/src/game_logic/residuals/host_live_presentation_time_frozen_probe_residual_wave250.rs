@@ -83,8 +83,8 @@ pub fn honesty_live_presentation_time_frozen_probe_residual_pack_wave250() -> bo
 
 /// Source residual: engine timing prefers presentation freeze residual.
 pub fn honesty_presentation_time_frozen_probe_source() -> bool {
-    let eng = include_str!("../../cnc_game_engine.rs");
-    let pf = include_str!("../../presentation_frame.rs");
+    let eng = crate::cnc_game_engine::ENGINE_SRC;
+    let pf = crate::presentation_frame::PRESENTATION_FRAME_SRC;
     if !pf.contains("pub time_frozen_for_simulation: bool") {
         return false;
     }

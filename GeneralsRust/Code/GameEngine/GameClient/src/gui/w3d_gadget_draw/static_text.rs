@@ -74,7 +74,40 @@ pub(super) fn draw_static_text(
         );
         display.draw(text_x, text_y, text_color, drop);
         display.set_clip_region(None);
+        note_shipped_ui_draw_commands(1);
+        return;
     }
+
+    let font_size = inst_data.font.as_ref().map(|font| font.size).unwrap_or(12) as f32;
+    let text_w = (text.chars().count() as f32 * font_size * 0.6).round() as i32;
+    let text_h = font_size.round() as i32;
+    (text_x, text_y) = static_text_text_position(
+        origin_x,
+        origin_y,
+        width,
+        height,
+        text_w,
+        text_h,
+        left_margin,
+        top_margin,
+        align,
+        valign,
+    );
+    let _ = with_ui_renderer_mut(|renderer| {
+        let _ = renderer.draw_text_simple(
+            &text,
+            glam::Vec2::new((text_x + 1) as f32, (text_y + 1) as f32),
+            font_size,
+            crate::gui::game_window::color_to_rgba(drop),
+        );
+        let _ = renderer.draw_text_simple(
+            &text,
+            glam::Vec2::new(text_x as f32, text_y as f32),
+            font_size,
+            crate::gui::game_window::color_to_rgba(text_color),
+        );
+    });
+    note_shipped_ui_draw_commands(1);
 }
 
 pub(super) fn static_text_text_position(
@@ -128,7 +161,10 @@ pub(super) fn static_text_text_colors(
     }
 }
 
-pub(super) fn draw_static_text_solid_background(window: &GameWindow, inst_data: &WindowInstanceData) {
+pub(super) fn draw_static_text_solid_background(
+    window: &GameWindow,
+    inst_data: &WindowInstanceData,
+) {
     let (draw_data, _) = static_text_draw_data(window, inst_data);
     let Some(entry) = draw_data.first() else {
         return;
@@ -147,8 +183,9 @@ pub(super) fn draw_static_text_solid_background(window: &GameWindow, inst_data: 
                 origin_y + size_y,
             );
         });
+        note_shipped_ui_draw_commands(1);
     }
-    if entry.color != WIN_COLOR_UNDEFINED {
+    if entry.color != WIN_COLOR_UNDEFINED && color_alpha(entry.color) > 16 {
         with_window_manager_ref(|manager| {
             manager.win_fill_rect(
                 entry.color,
@@ -159,29 +196,17 @@ pub(super) fn draw_static_text_solid_background(window: &GameWindow, inst_data: 
                 origin_y + size_y - 1,
             );
         });
+        note_shipped_ui_draw_commands(1);
     }
 }
 
-pub(super) fn draw_static_text_image_background(window: &GameWindow, inst_data: &WindowInstanceData) {
+pub(super) fn draw_static_text_image_background(
+    window: &GameWindow,
+    inst_data: &WindowInstanceData,
+) {
     let (draw_data, _) = static_text_draw_data(window, inst_data);
-    let Some(image) = draw_data.first().and_then(|entry| entry.image.as_ref()) else {
-        return;
-    };
-
-    let (origin_x, origin_y) = window.get_screen_position();
-    let (size_x, size_y) = window.get_size();
-    let start_x = origin_x + inst_data.image_offset.x;
-    let start_y = origin_y + inst_data.image_offset.y;
-    with_window_manager_ref(|manager| {
-        manager.win_draw_image(
-            image,
-            start_x,
-            start_y,
-            start_x + size_x,
-            start_y + size_y,
-            WIN_COLOR_UNDEFINED,
-        );
-    });
+    let image = draw_data.first().and_then(|entry| entry.image.as_ref());
+    draw_window_image_or_fallback(window, inst_data, image, FALLBACK_FILL);
 }
 
 pub fn w3d_gadget_static_text_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
@@ -197,4 +222,3 @@ pub fn w3d_gadget_static_text_image_draw(window: &GameWindow, inst_data: &Window
         draw_static_text(window, inst_data, text_color, drop);
     }
 }
-

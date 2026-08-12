@@ -4,7 +4,6 @@
 use super::super::*;
 
 impl GameLogic {
-
     pub fn update_anthrax_bomb_flights(&mut self) {
         use crate::game_logic::combat::DamageType;
         use crate::game_logic::host_anthrax_bomb_flight::AnthraxBombPayloadTier;

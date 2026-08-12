@@ -46,7 +46,7 @@ fn residual_action_store(a: ResidualHostMainHostObjectMutSealAction) {
 }
 
 fn cnc_source() -> &'static str {
-    include_str!("../../cnc_game_engine.rs")
+    crate::cnc_game_engine::ENGINE_SRC
 }
 
 fn gl_source() -> &'static str {
@@ -54,11 +54,11 @@ fn gl_source() -> &'static str {
 }
 
 fn pf_source() -> &'static str {
-    include_str!("../../presentation_frame.rs")
+    crate::presentation_frame::PRESENTATION_FRAME_SRC
 }
 
 fn shadow_source() -> &'static str {
-    include_str!("../../gameworld_shadow.rs")
+    crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC
 }
 
 fn non_comment_code(window: &str) -> String {

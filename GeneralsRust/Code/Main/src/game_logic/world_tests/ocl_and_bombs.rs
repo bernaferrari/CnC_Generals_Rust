@@ -3,7 +3,6 @@
 use super::super::*;
 use super::helpers::*;
 
-
 /// Residual: evacuate InitialPayload then load 2 infantry → unload both free.
 #[test]
 fn listening_outpost_residual_transport_load_unload() {
@@ -67,8 +66,7 @@ fn listening_outpost_residual_transport_load_unload() {
 
     let outpost = game_logic.host_object(outpost_id).expect("outpost loaded");
     assert!(
-        outpost.contained_units().contains(&unit_a)
-            && outpost.contained_units().contains(&unit_b),
+        outpost.contained_units().contains(&unit_a) && outpost.contained_units().contains(&unit_b),
         "both infantry must load into Listening Outpost residual"
     );
     assert_eq!(outpost.transport_count(), LISTENING_OUTPOST_TRANSPORT_SLOTS);
@@ -264,8 +262,7 @@ fn mine_residual_place_enemy_triggers_damage() {
     // Mine marked detonated / destroyed residual.
     if let Some(mine) = game_logic.host_object(mine_id) {
         assert!(
-            mine.mine_data.as_ref().map(|d| d.detonated).unwrap_or(true)
-                || mine.status.destroyed
+            mine.mine_data.as_ref().map(|d| d.detonated).unwrap_or(true) || mine.status.destroyed
         );
     }
 }
@@ -429,8 +426,7 @@ fn cluster_mines_special_power_places_mines() {
             o.mine_data
                 .as_ref()
                 .map(|d| {
-                    d.kind == crate::game_logic::host_mines::HostMineKind::LandMine
-                        && d.is_active()
+                    d.kind == crate::game_logic::host_mines::HostMineKind::LandMine && d.is_active()
                 })
                 .unwrap_or(false)
         })
@@ -580,15 +576,13 @@ fn dozer_mine_clear_residual_approaches_then_clears() {
         // AI state last-write under AI_DECISION_AUTHORITY (default on).
         if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
             assert_eq!(dozer.ai_state, AIState::Idle);
-            let moving = crate::gameworld_shadow::GameWorldShadow::host_ai_state_ordinal(
-                &AIState::Moving,
-            );
+            let moving =
+                crate::gameworld_shadow::GameWorldShadow::host_ai_state_ordinal(&AIState::Moving);
             let events = crate::game_logic::host_ai_decision_log::snapshot();
             assert!(
                 events.iter().any(|e| {
                     e.host_object == dozer_id
-                        && e.kind
-                            == crate::game_logic::host_ai_decision_log::AI_DECISION_SET_STATE
+                        && e.kind == crate::game_logic::host_ai_decision_log::AI_DECISION_SET_STATE
                         && e.ai_state_ordinal == moving
                 }),
                 "mine approach must log SetAIState(Moving) under decision authority"
@@ -725,8 +719,7 @@ fn stealth_residual_not_auto_targeted_until_detected() {
         "stealthed+undetected must not be auto-targeted"
     );
     assert!(
-        AIDecisionSystem::find_nearest_enemy(&game_logic, Vec3::ZERO, Team::China, 200.0)
-            .is_none(),
+        AIDecisionSystem::find_nearest_enemy(&game_logic, Vec3::ZERO, Team::China, 200.0).is_none(),
         "nearest-enemy must ignore stealthed+undetected"
     );
 
@@ -993,8 +986,7 @@ fn residual_auto_fire_ai_decision_writeback_sets_host_target() {
     assert!(logic.host_object(attacker).unwrap().target.is_none());
     let weapon = logic.host_object(attacker).and_then(|o| o.weapon.clone());
     let pos = logic.host_object(attacker).unwrap().get_position();
-    let _ =
-        logic.residual_auto_fire_apply_damage(attacker, victim, 10.0, pos, weapon.as_ref(), 0);
+    let _ = logic.residual_auto_fire_apply_damage(attacker, victim, 10.0, pos, weapon.as_ref(), 0);
     // Decision channel logged; host target still empty until shadow writeback.
     let events = host_ai_decision_log::drain();
     assert!(
@@ -1181,9 +1173,7 @@ fn stinger_site_residual_dual_fire_and_ap_rockets() {
             prim.damage
         );
         let sec = s.secondary_weapon.as_ref().expect("air");
-        assert!(
-            (sec.damage - STINGER_AIR_DAMAGE * STINGER_AP_ROCKETS_DAMAGE_MULT).abs() < 0.01
-        );
+        assert!((sec.damage - STINGER_AIR_DAMAGE * STINGER_AP_ROCKETS_DAMAGE_MULT).abs() < 0.01);
     }
     assert!(game_logic.stinger_site_residual_ap_rockets_upgrades() > 0);
 
@@ -1195,8 +1185,7 @@ fn stinger_site_residual_dual_fire_and_ap_rockets() {
             "SpawnNumber residual must start with 3 soldiers"
         );
         assert!(
-            (s.hive_slave_hp
-                - crate::game_logic::host_base_defense::STINGER_SOLDIER_MAX_HEALTH)
+            (s.hive_slave_hp - crate::game_logic::host_base_defense::STINGER_SOLDIER_MAX_HEALTH)
                 .abs()
                 < 0.01
         );
@@ -1243,11 +1232,8 @@ fn stinger_hive_structure_body_and_spawn_respawn_residual() {
         .unwrap_or(0.0);
 
     // Propagate residual: SMALL_ARMS-like damages slaves, not structure.
-    let (destroyed, blocked) = game_logic.apply_host_hive_damage(
-        stinger_id,
-        60.0,
-        HostHiveDamageClass::PropagateToSlaves,
-    );
+    let (destroyed, blocked) =
+        game_logic.apply_host_hive_damage(stinger_id, 60.0, HostHiveDamageClass::PropagateToSlaves);
     assert!(!destroyed && !blocked);
     {
         let s = game_logic.host_object(stinger_id).unwrap();
@@ -1258,11 +1244,8 @@ fn stinger_hive_structure_body_and_spawn_respawn_residual() {
     assert!(game_logic.stinger_hive_residual_slave_hits() >= 1);
 
     // Kill active slave residual.
-    let _ = game_logic.apply_host_hive_damage(
-        stinger_id,
-        50.0,
-        HostHiveDamageClass::PropagateToSlaves,
-    );
+    let _ =
+        game_logic.apply_host_hive_damage(stinger_id, 50.0, HostHiveDamageClass::PropagateToSlaves);
     {
         let s = game_logic.host_object(stinger_id).unwrap();
         assert_eq!(s.hive_slave_count, 2);
@@ -1323,8 +1306,7 @@ fn stinger_hive_structure_body_and_spawn_respawn_residual() {
         s.hive_slave_hp = h.max(STINGER_SOLDIER_MAX_HEALTH);
         s.health.current = 1000.0;
     }
-    let _ =
-        game_logic.apply_host_hive_damage(stinger_id, 100.0, HostHiveDamageClass::HitStructure);
+    let _ = game_logic.apply_host_hive_damage(stinger_id, 100.0, HostHiveDamageClass::HitStructure);
     {
         let s = game_logic.host_object(stinger_id).unwrap();
         assert!((s.health.current - 900.0).abs() < 0.01);
@@ -1874,8 +1856,8 @@ fn camo_netting_structure_attack_and_damage_reveal_residual() {
 #[test]
 fn patriot_residual_aa_secondary_auto_fires() {
     use crate::game_logic::host_base_defense::{
-        is_patriot_battery_structure, PATRIOT_AIR_DAMAGE, PATRIOT_AIR_RANGE,
-        PATRIOT_GROUND_DAMAGE, PATRIOT_PRIMARY_WEAPON, PATRIOT_SECONDARY_WEAPON,
+        is_patriot_battery_structure, PATRIOT_AIR_DAMAGE, PATRIOT_AIR_RANGE, PATRIOT_GROUND_DAMAGE,
+        PATRIOT_PRIMARY_WEAPON, PATRIOT_SECONDARY_WEAPON,
     };
     use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
 
@@ -2131,10 +2113,9 @@ fn patriot_assist_binary_data_stream_laser_residual() {
     use crate::game_logic::host_base_defense::{
         patriot_laser_arc_peak_boost, sample_patriot_laser_arc_point,
         sample_patriot_laser_arc_segment, PatriotAssistLaserKind,
-        PATRIOT_ASSIST_LASER_LIFETIME_FRAMES, PATRIOT_BINARY_DATA_STREAM,
-        PATRIOT_LASER_ARC_HEIGHT, PATRIOT_LASER_NUM_BEAMS, PATRIOT_LASER_SCROLL_RATE,
-        PATRIOT_LASER_SEGMENTS, PATRIOT_PRIMARY_WEAPON, PATRIOT_REQUEST_ASSIST_RANGE,
-        PATRIOT_SECONDARY_WEAPON,
+        PATRIOT_ASSIST_LASER_LIFETIME_FRAMES, PATRIOT_BINARY_DATA_STREAM, PATRIOT_LASER_ARC_HEIGHT,
+        PATRIOT_LASER_NUM_BEAMS, PATRIOT_LASER_SCROLL_RATE, PATRIOT_LASER_SEGMENTS,
+        PATRIOT_PRIMARY_WEAPON, PATRIOT_REQUEST_ASSIST_RANGE, PATRIOT_SECONDARY_WEAPON,
     };
     use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
 
@@ -2796,9 +2777,7 @@ fn base_defense_residual_barracks_does_not_auto_fire() {
 /// Residual: Paladin PointDefenseLaser intercepts enemy missile without AttackObject.
 #[test]
 fn point_defense_laser_residual_intercepts_missile() {
-    use crate::game_logic::host_point_defense::{
-        is_point_defense_carrier, PALADIN_PDL_FIRE_RANGE,
-    };
+    use crate::game_logic::host_point_defense::{is_point_defense_carrier, PALADIN_PDL_FIRE_RANGE};
 
     let mut game_logic = GameLogic::new();
     ensure_test_tank_template(&mut game_logic);
@@ -3114,8 +3093,7 @@ fn neutron_shell_residual_upgrade_and_blast() {
     game_logic.process_destroy_list();
 
     assert!(
-        game_logic.honesty_neutron_shell_ok()
-            || game_logic.honesty_neutron_shell_projectile_ok(),
+        game_logic.honesty_neutron_shell_ok() || game_logic.honesty_neutron_shell_projectile_ok(),
         "neutron blast residual honesty must fire"
     );
     assert!(
@@ -3705,4 +3683,3 @@ fn microwave_emitter_damages_nearby_enemy_infantry() {
     );
     assert!(logic.honesty_microwave_emitter_ok());
 }
-

@@ -13,16 +13,46 @@ impl PresentationFrame {
         // Local force residual: always present own-team objects fully visible.
         // C++ always draws the controlling player's units; host FOW membership can
         // miss builders when sight_range / ObjectManager dual-world is incomplete.
-        let local_team = logic
+        let mut local_team = logic
             .get_player(local_player_id)
             .map(|p| p.team)
             .unwrap_or(Team::Neutral);
+        // If the requested slot is missing or Neutral, own-team objects would
+        // fall through to shroud HIDDEN. Prefer the first is_local non-Neutral
+        // player so builders/CCs stay FULLY_VISIBLE (FOW still applies to
+        // Neutral/unexplored enemies).
+        if local_team == Team::Neutral {
+            if let Some(team) = logic
+                .get_players()
+                .values()
+                .find(|p| p.is_local && p.team != Team::Neutral)
+                .map(|p| p.team)
+            {
+                local_team = team;
+            }
+        }
         // Freeze team base proximity once (camera snap / host residual).
         let local_team_base_position = logic.team_base_position(local_team);
         // Freeze terrain FOW grid once for this presentation frame (local player only).
         let fow_grid = FOWRenderingBridge::snapshot_terrain_grid(local_player_id, fow_shell_bypass);
         let mut objects = Vec::with_capacity(logic.host_objects().len());
         for obj in logic.host_objects().values() {
+            // Coupled GameWorld is truth for sit-through HP / pose / dest / target /
+            // ammo / occupants. HashMap poke without commit must not win.
+            let auth_health = logic
+                .host_authoritative_health(obj.id)
+                .unwrap_or(obj.health.current);
+            let auth_pose = logic.host_authoritative_pose(obj.id);
+            let auth_dest = logic
+                .host_authoritative_move_dest(obj.id)
+                .map(glam::Vec3::from);
+            let auth_target = logic.host_authoritative_target(obj.id);
+            let auth_ammo = logic.host_authoritative_weapon_ammo(obj.id);
+            let auth_occupants = logic.host_authoritative_occupant_count(obj.id);
+            let _auth_attack_sub = logic.host_authoritative_attack_substate(obj.id);
+            let (auth_construction_percent, auth_under_construction) = logic
+                .host_authoritative_construction(obj.id)
+                .unwrap_or((obj.construction_percent, obj.status.under_construction));
             let is_structure = obj.is_kind_of(KindOf::Structure);
             let is_unit = obj.is_kind_of(KindOf::Infantry)
                 || obj.is_kind_of(KindOf::Vehicle)
@@ -32,7 +62,7 @@ impl PresentationFrame {
             // with shipped W3D basenames for the residual mesh asset resolve path.
             let base_model_key =
                 crate::assets::mesh_asset_resolve::model_key_from_template(obj.get_template());
-            let destroyed_for_mesh = obj.status.destroyed || !obj.is_alive();
+            let destroyed_for_mesh = obj.status.destroyed || auth_health <= 0.01;
             let body_ord = {
                 use crate::game_logic::host_enum_table_residual::{
                     host_calc_body_damage_state, HostBodyDamageType,
@@ -40,7 +70,7 @@ impl PresentationFrame {
                 let state = if destroyed_for_mesh {
                     HostBodyDamageType::Rubble
                 } else {
-                    host_calc_body_damage_state(obj.health.current, obj.health.maximum.max(0.0))
+                    host_calc_body_damage_state(auth_health, obj.health.maximum.max(0.0))
                 };
                 state as u8
             };
@@ -91,7 +121,9 @@ impl PresentationFrame {
                 },
                 // Use accessors so presentation matches authoritative transform state.
                 position: {
-                    let mut p = pos;
+                    let mut p = auth_pose
+                        .map(|a| glam::Vec3::new(a[0], a[1], a[2]))
+                        .unwrap_or(pos);
                     p.y += obj.presentation_collapse_height_offset();
                     p.y += obj.presentation_slow_death_sink_offset();
                     let (sx, sz) = obj.presentation_collapse_shudder();
@@ -101,7 +133,7 @@ impl PresentationFrame {
                 },
                 orientation: obj.get_orientation(),
                 topple_lean_radians: obj.presentation_topple_lean_radians(),
-                move_destination: obj.movement.target_position,
+                move_destination: auth_dest,
                 target_location: obj.target_location,
                 guard_target: obj.guard_target,
                 using_ability: obj.status.using_ability,
@@ -138,11 +170,12 @@ impl PresentationFrame {
                 ai_state_ordinal: crate::gameworld_shadow::GameWorldShadow::host_ai_state_ordinal(
                     &obj.ai_state,
                 ),
-                attack_target: obj.target,
+                attack_target: auth_target,
                 path_waypoints: obj.movement.path.iter().copied().take(16).collect(),
                 path_len: obj.movement.path.len().min(u16::MAX as usize) as u16,
                 path_index: obj.movement.current_path_index.min(u16::MAX as usize) as u16,
-                occupant_count: obj.occupants.len().min(u16::MAX as usize) as u16,
+                occupant_count: auth_occupants
+                    .unwrap_or(obj.occupants.len().min(u16::MAX as usize) as u16),
                 production_queue: obj
                     .building_data
                     .as_ref()
@@ -173,12 +206,12 @@ impl PresentationFrame {
                 power_provided: obj.power_provided,
                 power_consumed: obj.power_consumed,
                 stored_supplies: obj.stored_resources.supplies,
-                health_current: obj.health.current,
+                health_current: auth_health,
                 health_max: obj.health.maximum,
                 selected: obj.selected || obj.status.selected,
                 is_deployed: obj.status.deployed,
                 selection_flash_remaining: obj.selection_flash_remaining,
-                destroyed: obj.status.destroyed || !obj.is_alive(),
+                destroyed: obj.status.destroyed || auth_health <= 0.01,
                 model_condition_bits: {
                     // Prefer live residual bits; recompute if pristine-zero and damaged.
                     let mut bits = obj.model_condition_bits;
@@ -189,11 +222,11 @@ impl PresentationFrame {
                     use crate::game_logic::host_neutron_missile_slow_death::{
                         MC_BIT_BACKCRUSHED, MC_BIT_FRONTCRUSHED,
                     };
-                    let destroyed = obj.status.destroyed || !obj.is_alive();
+                    let destroyed = obj.status.destroyed || auth_health <= 0.01;
                     let state = if destroyed {
                         HostBodyDamageType::Rubble
                     } else {
-                        host_calc_body_damage_state(obj.health.current, obj.health.maximum.max(0.0))
+                        host_calc_body_damage_state(auth_health, obj.health.maximum.max(0.0))
                     };
                     bits = host_apply_body_damage_model_bits(bits, state);
 
@@ -233,11 +266,11 @@ impl PresentationFrame {
                     use crate::game_logic::host_enum_table_residual::{
                         host_calc_body_damage_state, HostBodyDamageType,
                     };
-                    let destroyed = obj.status.destroyed || !obj.is_alive();
+                    let destroyed = obj.status.destroyed || auth_health <= 0.01;
                     let state = if destroyed {
                         HostBodyDamageType::Rubble
                     } else {
-                        host_calc_body_damage_state(obj.health.current, obj.health.maximum.max(0.0))
+                        host_calc_body_damage_state(auth_health, obj.health.maximum.max(0.0))
                     };
                     state as u8
                 },
@@ -254,13 +287,13 @@ impl PresentationFrame {
                     .map(|d| d.flash_this_frame || d.final_white_flash)
                     .unwrap_or(false),
                 death_fx_name: obj.pending_death_fx.clone(),
-                death_type_name: if obj.status.destroyed || !obj.is_alive() {
+                death_type_name: if obj.status.destroyed || auth_health <= 0.01 {
                     obj.status.death_type.as_name().to_string()
                 } else {
                     String::new()
                 },
-                under_construction: obj.status.under_construction,
-                construction_percent: obj.construction_percent.clamp(0.0, 1.0),
+                under_construction: auth_under_construction,
+                construction_percent: auth_construction_percent.clamp(0.0, 1.0),
                 // Wave 1031: OCL timer residual for dual-world ControlBar OclTimer context.
                 ocl_timer_seconds:
                     if crate::game_logic::host_supply_drop_zone::is_supply_drop_zone_template(
@@ -304,11 +337,12 @@ impl PresentationFrame {
                 weapon_damage: obj.weapon.as_ref().map(|w| w.damage).unwrap_or(0.0),
                 weapon_min_range: obj.weapon.as_ref().map(|w| w.min_range).unwrap_or(0.0),
                 weapon_reload_time: obj.weapon.as_ref().map(|w| w.reload_time).unwrap_or(0.0),
-                weapon_ammo: obj
-                    .weapon
-                    .as_ref()
-                    .map(|w| w.ammo.unwrap_or(u32::MAX))
-                    .unwrap_or(u32::MAX),
+                weapon_ammo: auth_ammo.unwrap_or_else(|| {
+                    obj.weapon
+                        .as_ref()
+                        .map(|w| w.ammo.unwrap_or(u32::MAX))
+                        .unwrap_or(u32::MAX)
+                }),
                 ammo_pip_total: obj.get_ammo_pip_showing_info().map(|(t, _)| t).unwrap_or(0),
                 ammo_pip_full: obj.get_ammo_pip_showing_info().map(|(_, f)| f).unwrap_or(0),
                 weapon_ready_percent: {
@@ -520,8 +554,8 @@ impl PresentationFrame {
                 // Vehicle KindOf still count as local_mobile_units / selectables.
                 is_mobile: obj.is_mobile(),
                 can_produce: obj.building_data.is_some()
-                    && !obj.status.under_construction
-                    && obj.construction_percent >= 1.0
+                    && !auth_under_construction
+                    && auth_construction_percent >= 1.0
                     && !obj.status.destroyed
                     && obj.is_alive(),
                 building_type: obj
@@ -541,9 +575,13 @@ impl PresentationFrame {
         objects.sort_by_key(|o| o.id.0);
 
         let local = logic.get_player(local_player_id);
-        // local_team already resolved above for FOW residual.
+        // local_team already resolved above for FOW residual (may fall back to
+        // the first is_local non-Neutral team when the slot is Neutral/missing).
         let _local_team_check = local.map(|p| p.team).unwrap_or(Team::Neutral);
-        debug_assert_eq!(_local_team_check, local_team);
+        debug_assert!(
+            _local_team_check == local_team || _local_team_check == Team::Neutral,
+            "local_team FOW residual drifted from player slot"
+        );
         let mut players: Vec<PresentationPlayerInfo> = logic
             .get_players()
             .iter()
@@ -736,11 +774,15 @@ impl PresentationFrame {
         if let Some(p) = local {
             use crate::game_logic::host_ui_presentation_residual::can_make_type_help_box_message_residual;
             let is_producer = |o: &crate::game_logic::Object| {
+                let under = logic
+                    .host_authoritative_construction(o.id)
+                    .map(|(_, uc)| uc)
+                    .unwrap_or(o.status.under_construction);
                 o.team == p.team
                     && o.is_alive()
                     && !o.status.destroyed
                     && o.building_data.is_some()
-                    && !o.status.under_construction
+                    && !under
             };
             // Prefer first selected producer residual; fall back to any local factory.
             let producer = p
@@ -853,6 +895,22 @@ impl PresentationFrame {
                 from_terrain,
             ));
         }
+
+        #[cfg(feature = "game_client")]
+        let scene_lines: Vec<PresentationSceneLine> =
+            game_client::render_bridge::snapshot_visible_scene_lines()
+                .into_iter()
+                .map(|line| PresentationSceneLine {
+                    start: (line.start[0], line.start[1], line.start[2]),
+                    end: (line.end[0], line.end[1], line.end[2]),
+                    width: line.width,
+                    color: (line.color[0], line.color[1], line.color[2], line.color[3]),
+                    texture_name: line.texture_name,
+                    tile_factor: line.tile_factor,
+                })
+                .collect();
+        #[cfg(not(feature = "game_client"))]
+        let scene_lines: Vec<PresentationSceneLine> = Vec::new();
 
         let projectile_streams: Vec<PresentationProjectileStream> = logic
             .projectile_stream_snapshot()
@@ -1255,6 +1313,7 @@ impl PresentationFrame {
             fow_grid,
             particle_systems,
             laser_beams,
+            scene_lines,
             projectile_streams,
             projectiles,
             floating_texts,
@@ -1355,6 +1414,17 @@ impl PresentationFrame {
             beam.to_id.0.hash(&mut h);
             beam.segments.len().hash(&mut h);
             beam.scroll_offset.to_bits().hash(&mut h);
+        }
+        self.scene_lines.len().hash(&mut h);
+        for line in &self.scene_lines {
+            line.start.0.to_bits().hash(&mut h);
+            line.start.1.to_bits().hash(&mut h);
+            line.start.2.to_bits().hash(&mut h);
+            line.end.0.to_bits().hash(&mut h);
+            line.end.1.to_bits().hash(&mut h);
+            line.end.2.to_bits().hash(&mut h);
+            line.width.to_bits().hash(&mut h);
+            line.texture_name.hash(&mut h);
         }
         self.floating_texts.len().hash(&mut h);
         for ft in &self.floating_texts {

@@ -46,7 +46,7 @@ fn residual_action_store(a: ResidualHostTemplateUiAction) {
 }
 
 fn cnc_source() -> &'static str {
-    include_str!("../../cnc_game_engine.rs")
+    crate::cnc_game_engine::ENGINE_SRC
 }
 
 pub fn honesty_host_template_ui_method_names_residual_wave872() -> bool {

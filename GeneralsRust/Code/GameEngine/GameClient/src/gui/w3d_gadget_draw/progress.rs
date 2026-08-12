@@ -243,9 +243,11 @@ pub fn w3d_gadget_progress_bar_draw(window: &GameWindow, inst_data: &WindowInsta
     };
     let (back_index, bar_index) = progress_bar_solid_sources();
     let (Some(back), Some(bar)) = (draw_data.get(back_index), draw_data.get(bar_index)) else {
+        draw_progress_bar_fallback(window, inst_data);
         return;
     };
     draw_progress_bar_solid(window, inst_data, back, bar);
+    note_shipped_ui_draw_commands(1);
 }
 
 pub fn w3d_gadget_progress_bar_image_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
@@ -277,6 +279,7 @@ pub fn w3d_gadget_progress_bar_image_draw(window: &GameWindow, inst_data: &Windo
     let (Some(back_left), Some(back_right), Some(back_center), Some(bar_right), Some(bar_center)) =
         (back_left, back_right, back_center, bar_right, bar_center)
     else {
+        w3d_gadget_progress_bar_draw(window, inst_data);
         return;
     };
     draw_progress_bar_image(
@@ -288,6 +291,7 @@ pub fn w3d_gadget_progress_bar_image_draw(window: &GameWindow, inst_data: &Windo
         bar_right,
         bar_center,
     );
+    note_shipped_ui_draw_commands(1);
 }
 
 pub fn w3d_gadget_progress_bar_image_draw_a(window: &GameWindow, inst_data: &WindowInstanceData) {
@@ -315,6 +319,7 @@ pub fn w3d_gadget_progress_bar_image_draw_a(window: &GameWindow, inst_data: &Win
     let (Some(bar_center), Some(_bar_right), Some(_left), Some(_right), Some(_center)) =
         (bar_center, bar_right, left, right, center)
     else {
+        draw_progress_bar_fallback(window, inst_data);
         return;
     };
 
@@ -338,5 +343,24 @@ pub fn w3d_gadget_progress_bar_image_draw_a(window: &GameWindow, inst_data: &Win
         });
         x += width;
     }
+    if pieces == 0 {
+        draw_progress_bar_fallback(window, inst_data);
+    } else {
+        note_shipped_ui_draw_commands(pieces.max(1) as usize);
+    }
 }
 
+pub(super) fn draw_progress_bar_fallback(window: &GameWindow, inst_data: &WindowInstanceData) {
+    let (x, y) = window.get_screen_position();
+    let (width, height) = window.get_size();
+    if width <= 0 || height <= 0 {
+        return;
+    }
+    let track = visible_enabled_color(window, inst_data, 0xFF1B242C);
+    draw_visible_fill(x, y, width, height, track, Some(FALLBACK_BORDER));
+    let progress = progress_percent(window).clamp(0, 100);
+    if progress > 0 {
+        let fill_w = progress_bar_solid_width(width, progress).clamp(1, width);
+        draw_visible_fill(x, y, fill_w, height, 0xFF3D8C40, None);
+    }
+}

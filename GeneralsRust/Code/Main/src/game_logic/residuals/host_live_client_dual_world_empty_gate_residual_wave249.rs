@@ -102,8 +102,8 @@ fn fn_body<'a>(src: &'a str, name: &str) -> Option<&'a str> {
 
 /// Source residual: translators + control_bar host empty gates present.
 pub fn honesty_client_dual_world_empty_gate_source() -> bool {
-    let tr = include_str!("../../../../GameEngine/GameClient/src/message_stream/translators.rs");
-    let cb = include_str!("../../../../GameEngine/GameClient/src/gui/control_bar/control_bar.rs");
+    let tr = game_client::message_stream::translators::TRANSLATORS_SRC;
+    let cb = game_client::gui::control_bar::control_bar::CONTROL_BAR_SRC;
     if !(tr.contains("fn dual_world_registry_unavailable(")
         && tr.contains("Wave 249")
         && cb.contains("fn dual_world_registry_unavailable(")

@@ -255,22 +255,24 @@ fn ensure_terrain_roads_loaded() {
             if let Some(default_path) =
                 resolve_runtime_ini_path(Path::new("Data/INI/Default/Roads.ini"))
             {
-                ini.load(&default_path, INILoadType::Overwrite).map_err(|err| {
-                    format!("failed loading '{}': {}", default_path.display(), err)
-                })?;
+                ini.load(&default_path, INILoadType::Overwrite)
+                    .map_err(|err| {
+                        format!("failed loading '{}': {}", default_path.display(), err)
+                    })?;
             }
 
             if let Some(override_path) = resolve_runtime_ini_path(Path::new("Data/INI/Roads.ini")) {
-                ini.load(&override_path, INILoadType::MultiFile).map_err(|err| {
-                    format!("failed loading '{}': {}", override_path.display(), err)
-                })?;
+                ini.load(&override_path, INILoadType::MultiFile)
+                    .map_err(|err| {
+                        format!("failed loading '{}': {}", override_path.display(), err)
+                    })?;
             }
 
             Ok(())
         })();
         if let Err(err) = &result {
-        // The result is cached for the process lifetime; report a failure once
-        // rather than once per object placement that asks whether it is a road.
+            // The result is cached for the process lifetime; report a failure once
+            // rather than once per object placement that asks whether it is a road.
             warn!("Terrain roads registry unavailable: {}", err);
         }
         result
@@ -656,6 +658,8 @@ pub struct HeightMapData {
 pub struct BlendTileData {
     pub tile_ndxes: Vec<i16>,
     pub blend_tile_ndxes: Vec<i16>,
+    /// C++ `m_extraBlendTileNdxes` (v6+). Parallel to `blend_tile_ndxes`.
+    pub extra_blend_tile_ndxes: Vec<i16>,
     pub texture_classes: Vec<BlendTileTextureClass>,
 }
 
@@ -1139,9 +1143,11 @@ pub fn parse_blend_tile_data_from_chunky(
     let mut tile_ndxes = reader.read_i16_vec(data_size)?;
     let mut blend_tile_ndxes = reader.read_i16_vec(data_size)?;
 
-    if version >= 6 {
-        let _extra_blend_tile_ndxes = reader.read_i16_vec(data_size)?;
-    }
+    let mut extra_blend_tile_ndxes = if version >= 6 {
+        reader.read_i16_vec(data_size)?
+    } else {
+        vec![0i16; data_size]
+    };
     if version >= 5 {
         let _cliff_info_ndxes = reader.read_i16_vec(data_size)?;
     }
@@ -1195,11 +1201,13 @@ pub fn parse_blend_tile_data_from_chunky(
         }
         tile_ndxes = resized_tiles;
         blend_tile_ndxes = resized_blends;
+        extra_blend_tile_ndxes = vec![0i16; tile_ndxes.len()];
     }
 
     Ok(Some(BlendTileData {
         tile_ndxes,
         blend_tile_ndxes,
+        extra_blend_tile_ndxes,
         texture_classes,
     }))
 }
@@ -2788,37 +2796,21 @@ fn count_scripts(lists: &[ScriptList]) -> usize {
 // -------------------------------------------------------------------------------------------------
 
 fn convert_parameter_type(value: u32) -> LoaderResult<ParameterType> {
-    if value <= ParameterType::NumItems as u32 {
-        let param = unsafe { std::mem::transmute(value) };
-        Ok(param)
-    } else {
-        Err(configuration_error(format!(
-            "Unknown ParameterType value {}",
-            value
-        )))
-    }
+    ParameterType::from_u32(value).ok_or_else(|| {
+        configuration_error(format!("Unknown ParameterType value {}", value))
+    })
 }
 
 fn convert_condition_type(value: u32) -> LoaderResult<ConditionType> {
-    if value <= ConditionType::NumItems as u32 {
-        Ok(unsafe { std::mem::transmute(value) })
-    } else {
-        Err(configuration_error(format!(
-            "Unknown ConditionType value {}",
-            value
-        )))
-    }
+    ConditionType::from_u32(value).ok_or_else(|| {
+        configuration_error(format!("Unknown ConditionType value {}", value))
+    })
 }
 
 fn convert_action_type(value: u32) -> LoaderResult<ScriptActionType> {
-    if value <= ScriptActionType::NumItems as u32 {
-        Ok(unsafe { std::mem::transmute(value) })
-    } else {
-        Err(configuration_error(format!(
-            "Unknown ScriptActionType value {}",
-            value
-        )))
-    }
+    ScriptActionType::from_u32(value).ok_or_else(|| {
+        configuration_error(format!("Unknown ScriptActionType value {}", value))
+    })
 }
 
 fn configuration_error(message: impl Into<String>) -> GameLogicError {
@@ -3074,11 +3066,81 @@ mod tests {
 
         assert_eq!(blend.tile_ndxes, vec![0, 4, 8, 12]);
         assert_eq!(blend.blend_tile_ndxes, vec![1, 2, 3, 4]);
+        assert_eq!(blend.extra_blend_tile_ndxes, vec![0, 0, 0, 0]);
         assert_eq!(blend.texture_classes.len(), 1);
         assert_eq!(blend.texture_classes[0].first_tile, 4);
         assert_eq!(blend.texture_classes[0].num_tiles, 4);
         assert_eq!(blend.texture_classes[0].width, 2);
         assert_eq!(blend.texture_classes[0].name, "Grass");
+    }
+
+    #[test]
+    fn extra_blend_tile_ndxes_are_stored_on_parse_and_assign() {
+        let mut toc = HashMap::new();
+        toc.insert(1, "HeightMapData".to_string());
+        toc.insert(2, "BlendTileData".to_string());
+
+        let mut height_payload = Vec::new();
+        height_payload.extend_from_slice(&2i32.to_le_bytes());
+        height_payload.extend_from_slice(&2i32.to_le_bytes());
+        height_payload.extend_from_slice(&0i32.to_le_bytes());
+        height_payload.extend_from_slice(&1i32.to_le_bytes());
+        height_payload.extend_from_slice(&2i32.to_le_bytes());
+        height_payload.extend_from_slice(&2i32.to_le_bytes());
+        height_payload.extend_from_slice(&4i32.to_le_bytes());
+        height_payload.extend_from_slice(&[1, 2, 3, 4]);
+
+        let mut blend_payload = Vec::new();
+        blend_payload.extend_from_slice(&4i32.to_le_bytes());
+        for value in [0i16, 4, 8, 12] {
+            blend_payload.extend_from_slice(&value.to_le_bytes());
+        }
+        for value in [1i16, 2, 3, 4] {
+            blend_payload.extend_from_slice(&value.to_le_bytes());
+        }
+        for value in [5i16, 6, 7, 8] {
+            blend_payload.extend_from_slice(&value.to_le_bytes());
+        }
+        blend_payload.extend_from_slice(&[0u8; 8]);
+        blend_payload.extend_from_slice(&[0u8; 2]);
+        blend_payload.extend_from_slice(&16i32.to_le_bytes());
+        blend_payload.extend_from_slice(&1i32.to_le_bytes());
+        blend_payload.extend_from_slice(&1i32.to_le_bytes());
+        blend_payload.extend_from_slice(&1i32.to_le_bytes());
+        blend_payload.extend_from_slice(&4i32.to_le_bytes());
+        blend_payload.extend_from_slice(&4i32.to_le_bytes());
+        blend_payload.extend_from_slice(&2i32.to_le_bytes());
+        blend_payload.extend_from_slice(&0i32.to_le_bytes());
+        ascii("Grass", &mut blend_payload);
+
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&chunk(1, 4, &height_payload));
+        bytes.extend_from_slice(&chunk(2, 8, &blend_payload));
+
+        let chunky = ChunkyMap {
+            source: PathBuf::from("SyntheticExtraBlend.map"),
+            toc,
+            body_offset: 0,
+            bytes,
+        };
+
+        let heightmap = parse_heightmap_data_from_chunky(&chunky)
+            .unwrap()
+            .expect("heightmap should parse");
+        let blend = parse_blend_tile_data_from_chunky(&chunky, &heightmap)
+            .unwrap()
+            .expect("blend data should parse");
+
+        assert_eq!(blend.extra_blend_tile_ndxes, vec![5, 6, 7, 8]);
+
+        #[cfg(feature = "game_client")]
+        {
+            let mut hm = game_client::terrain::height_map::HeightMap::new(2, 2, 100.0, 1.0);
+            hm.assign_extra_blend_tile_ndxes(blend.extra_blend_tile_ndxes.clone());
+            assert_eq!(hm.extra_blend_tile_ndxes, vec![5, 6, 7, 8]);
+            assert_eq!(hm.get_extra_blend_tile_index(0, 0), 5);
+            assert_eq!(hm.get_extra_blend_tile_index(1, 1), 8);
+        }
     }
 }
 

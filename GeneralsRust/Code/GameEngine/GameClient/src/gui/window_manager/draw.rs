@@ -1,14 +1,6 @@
 //! Repaint passes, transitions, and default gadget draw callbacks.
 #![allow(unused_imports)]
 
-use std::cell::{Cell, RefCell};
-use std::collections::{HashMap, VecDeque};
-use std::fs;
-use std::path::{Path, PathBuf};
-use std::rc::{Rc, Weak};
-use std::sync::atomic::{AtomicI32, Ordering};
-use std::sync::Arc;
-use std::time::Instant;
 use crate::gui::game_window::*;
 use crate::gui::w3d_gadget_draw::{
     w3d_cameo_movie_draw, w3d_clock_draw, w3d_command_bar_background_draw,
@@ -32,6 +24,14 @@ use crate::gui::w3d_gadget_draw::{
     w3d_thin_border_draw,
 };
 use crate::gui::{MAX_DRAW_DATA, MAX_WINDOWS};
+use std::cell::{Cell, RefCell};
+use std::collections::{HashMap, VecDeque};
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::rc::{Rc, Weak};
+use std::sync::atomic::{AtomicI32, Ordering};
+use std::sync::Arc;
+use std::time::Instant;
 
 use super::*;
 
@@ -61,10 +61,9 @@ impl WindowManager {
             }
         }
 
-        // Draw modal windows on top
-        if let Some(modal) = &self.modal_stack {
-            self.draw_window_hierarchy(&modal.window);
-        }
+        // C++ WinRepaint is BELOW / normal / ABOVE + transitions only.
+        // Modal windows stay in root_windows (usually ABOVE); drawing them
+        // again from modal_stack double-submits verts and can z-fight.
         self.transitions.draw();
     }
 

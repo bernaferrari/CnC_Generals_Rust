@@ -105,7 +105,7 @@ pub fn honesty_executable_vertical_presentation_gate_source() -> bool {
 
 /// Source residual: execute remains presentation-only (no live GameLogic arg).
 pub fn honesty_execute_presentation_only_source_wave176() -> bool {
-    let src = include_str!("../../graphics/render_pipeline.rs");
+    let src = crate::graphics::render_pipeline::RENDER_PIPELINE_SRC;
     let i = match src.find("pub fn execute(") {
         Some(i) => i,
         None => return false,

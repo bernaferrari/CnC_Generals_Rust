@@ -84,7 +84,7 @@ pub fn honesty_shell_skirmish_nav_residual_pack_wave164() -> bool {
 
 /// Source residual: runtime-host open_skirmish_menu pushes Skirmish options layout.
 pub fn honesty_open_skirmish_menu_pushes_options_layout_source() -> bool {
-    let src = include_str!("../../cnc_game_engine.rs");
+    let src = crate::cnc_game_engine::ENGINE_SRC;
     // Prefer the runtime-host match arm, not the earlier field-doc mention.
     let needle = "\"open_skirmish_menu\" =>";
     let i = match src.find(needle) {

@@ -70,10 +70,10 @@ pub fn residual_host_eager_btype_identity_ground_helper_last_action(
     )
 }
 fn eng_source() -> &'static str {
-    include_str!("../../cnc_game_engine.rs")
+    crate::cnc_game_engine::ENGINE_SRC
 }
 fn shadow_source() -> &'static str {
-    include_str!("../../gameworld_shadow.rs")
+    crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC
 }
 pub fn honesty_host_eager_btype_identity_ground_helper_method_names_residual_wave699() -> bool {
     let names = LIVE_HOST_EAGER_BTYPE_IDENTITY_GROUND_HELPER_METHOD_NAMES_WAVE699;

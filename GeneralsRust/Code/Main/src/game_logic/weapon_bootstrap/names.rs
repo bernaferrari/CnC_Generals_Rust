@@ -180,4 +180,3 @@ pub const MINIGUNNER_GUN_AIR: &str = "Infa_MiniGunnerGunAir";
 
 /// Retail GLA RPG Trooper / Tunnel Defender residual rocket.
 pub const TUNNEL_DEFENDER_ROCKET_WEAPON: &str = "TunnelDefenderRocketWeapon";
-

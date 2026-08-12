@@ -89,7 +89,7 @@ fn eng_helper_body<'a>(eng: &'a str, sig: &str) -> Option<&'a str> {
 
 /// Source residual: can_produce / under_construction / special_power_ready are presentation-only.
 pub fn honesty_ui_helpers_presentation_only_source() -> bool {
-    let eng = include_str!("../cnc_game_engine.rs");
+    let eng = crate::cnc_game_engine::ENGINE_SRC;
     for sig in [
         "fn ui_object_can_produce(&self, id: crate::game_logic::ObjectId) -> bool",
         "fn ui_object_under_construction(&self, id: crate::game_logic::ObjectId) -> bool",
@@ -141,7 +141,7 @@ pub fn host_ui_selected_ids_from_residuals(
 /// Source residual: ui_selected_ids prefers presentation freeze; no GameLogic dual-read.
 pub fn honesty_ui_selected_prefers_presentation_source() -> bool {
     let helper = include_str!("host_live_ui_helpers_presentation_only_residual_wave215.rs");
-    let eng = include_str!("../cnc_game_engine.rs");
+    let eng = crate::cnc_game_engine::ENGINE_SRC;
     let Some(i) = helper.find("pub fn host_ui_selected_ids_from_residuals(") else {
         return false;
     };

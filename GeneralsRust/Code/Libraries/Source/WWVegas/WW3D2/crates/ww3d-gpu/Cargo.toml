@@ -24,3 +24,5 @@ features = ["bytemuck"]
 default = ["winit"]
 winit = ["dep:winit"]
 gpu-integration-tests = []
+# Opt-in native DirectX loader. Default Windows builds stay WGPU-only.
+d3d = []

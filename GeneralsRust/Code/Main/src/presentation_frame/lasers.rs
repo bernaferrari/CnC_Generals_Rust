@@ -1,5 +1,16 @@
 use super::*;
 
+/// Frozen W3DLaserDraw / Tracer / Rope line from GameClient RenderBridge.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PresentationSceneLine {
+    pub start: (f32, f32, f32),
+    pub end: (f32, f32, f32),
+    pub width: f32,
+    pub color: (f32, f32, f32, f32),
+    pub texture_name: String,
+    pub tile_factor: f32,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct PresentationLaserSegment {
     pub start: (f32, f32, f32),

@@ -82,7 +82,7 @@ pub fn honesty_live_local_team_presentation_only_residual_pack_wave220() -> bool
 
 /// Source residual: host command team resolution uses local_team_for_ui.
 pub fn honesty_local_team_presentation_only_source() -> bool {
-    let eng = include_str!("../../cnc_game_engine.rs");
+    let eng = crate::cnc_game_engine::ENGINE_SRC;
     let wave_marks = eng
         .matches("Wave 220: team via presentation-first local_team_for_ui")
         .count();

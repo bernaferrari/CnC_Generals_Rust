@@ -1,13 +1,13 @@
 //! Drawable icon types, Anim2D-backed icons, and icon snapshot/xfer.
 
 use super::*;
-use std::collections::HashMap;
-use std::sync::Arc;
 use crate::system::{Anim2D, Anim2DCollection};
 use game_engine::common::ascii_string::AsciiString;
 use game_engine::common::ini::{get_anim2d_collection, Anim2DTemplate};
 use game_engine::common::system::{Snapshotable, Xfer, XferMode, XferVersion};
 use parking_lot::{Mutex, RwLock};
+use std::collections::HashMap;
+use std::sync::Arc;
 
 /// Types of drawable icons (converted from C++ DrawableIconType)
 #[derive(Debug, Clone, Copy, PartialEq, Hash, Eq)]

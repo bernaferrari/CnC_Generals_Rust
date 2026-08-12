@@ -15,7 +15,7 @@ mod tests {
         let mut machine = AIStateMachine::new(123, "TestMachine".to_string());
 
         // Test move to state
-        machine.set_goal_position([100.0, 200.0, 0.0]);
+        machine.set_goal_position(Coord3D::new(100.0, 200.0, 0.0));
         machine.set_state(AIStateType::MoveTo);
         assert_eq!(machine.get_current_state_type(), Some(AIStateType::MoveTo));
 
@@ -36,7 +36,7 @@ mod tests {
         // Test move command
         let mut params =
             AiCommandParams::new(AiCommandType::MoveToPosition, CommandSourceType::FromAi);
-        params.pos = [150.0, 250.0, 0.0];
+        params.pos = Coord3D::new(150.0, 250.0, 0.0);
 
         assert!(machine.ai_do_command(&params).is_ok());
         assert_eq!(machine.get_current_state_type(), Some(AIStateType::MoveTo));
@@ -95,7 +95,7 @@ mod tests {
         assert_eq!(tighten_state.get_state_type(), AIStateType::MoveAndTighten);
 
         let mut context = AIStateMachineContext::default();
-        context.goal_position = Some([100.0, 200.0, 0.0]);
+        context.goal_position = Some(Coord3D::new(100.0, 200.0, 0.0));
 
         let result = tighten_state.on_enter(&mut context);
         assert_eq!(result, StateReturnType::Continue);
@@ -110,11 +110,19 @@ mod tests {
         let tighten_state = AIMoveAndTightenState::new();
 
         // Tight formation - should not need tightening
-        let tight_positions = vec![[0.0, 0.0, 0.0], [5.0, 0.0, 0.0], [0.0, 5.0, 0.0]];
+        let tight_positions = vec![
+            Coord3D::new(0.0, 0.0, 0.0),
+            Coord3D::new(5.0, 0.0, 0.0),
+            Coord3D::new(0.0, 5.0, 0.0),
+        ];
         assert!(!tighten_state.needs_tightening(&tight_positions));
 
         // Spread formation - should need tightening
-        let spread_positions = vec![[0.0, 0.0, 0.0], [100.0, 0.0, 0.0], [0.0, 100.0, 0.0]];
+        let spread_positions = vec![
+            Coord3D::new(0.0, 0.0, 0.0),
+            Coord3D::new(100.0, 0.0, 0.0),
+            Coord3D::new(0.0, 100.0, 0.0),
+        ];
         assert!(tighten_state.needs_tightening(&spread_positions));
     }
 
@@ -122,7 +130,11 @@ mod tests {
     fn test_move_and_tighten_spread_calculation() {
         let tighten_state = AIMoveAndTightenState::new();
 
-        let positions = vec![[0.0, 0.0, 0.0], [10.0, 0.0, 0.0], [0.0, 10.0, 0.0]];
+        let positions = vec![
+            Coord3D::new(0.0, 0.0, 0.0),
+            Coord3D::new(10.0, 0.0, 0.0),
+            Coord3D::new(0.0, 10.0, 0.0),
+        ];
 
         let spread = tighten_state.get_group_spread(&positions);
 
@@ -137,7 +149,7 @@ mod tests {
         let mut machine = AIStateMachine::new(123, "TestMachine".to_string());
 
         // Set goal position and switch to MoveAndTighten state
-        machine.set_goal_position([100.0, 200.0, 0.0]);
+        machine.set_goal_position(Coord3D::new(100.0, 200.0, 0.0));
         machine.set_state(AIStateType::MoveAndTighten);
 
         assert_eq!(
@@ -151,7 +163,7 @@ mod tests {
         let mut machine = AIStateMachine::new(123, "TestMachine".to_string());
 
         // Set a temporary MoveAndTighten state
-        machine.set_goal_position([50.0, 50.0, 0.0]);
+        machine.set_goal_position(Coord3D::new(50.0, 50.0, 0.0));
         let result = machine.set_temporary_state(AIStateType::MoveAndTighten, 100);
         assert_eq!(result, StateReturnType::Continue);
 

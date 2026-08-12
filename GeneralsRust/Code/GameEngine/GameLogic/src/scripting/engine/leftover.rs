@@ -217,13 +217,14 @@ impl XferSnapshot for ScriptEngine {
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
+        let inner = self.inner.get_mut();
         let current_version: XferVersion = 6;
         let mut version = current_version;
         xfer.xfer_version(&mut version, current_version)?;
 
         let mut sequential_script_count: u16 =
             if matches!(xfer.get_xfer_mode(), XferMode::Save | XferMode::Crc) {
-                self.sequential_scripts.len() as u16
+                inner.sequential_scripts.len() as u16
             } else {
                 0
             };
@@ -231,19 +232,19 @@ impl XferSnapshot for ScriptEngine {
 
         match xfer.get_xfer_mode() {
             XferMode::Save | XferMode::Crc => {
-                for script in self.sequential_scripts.iter_mut() {
+                for script in inner.sequential_scripts.iter_mut() {
                     script.xfer(xfer)?;
                 }
             }
             XferMode::Load => {
-                if !self.sequential_scripts.is_empty() {
+                if !inner.sequential_scripts.is_empty() {
                     return Err(XferStatus::ListNotEmpty);
                 }
-                self.sequential_scripts.clear();
+                inner.sequential_scripts.clear();
                 for _ in 0..sequential_script_count {
                     let mut script = SequentialScript::new();
                     script.xfer(xfer)?;
-                    self.sequential_scripts.push(script);
+                    inner.sequential_scripts.push(script);
                 }
             }
             XferMode::Invalid => return Err(XferStatus::ModeUnknown),
@@ -251,7 +252,7 @@ impl XferSnapshot for ScriptEngine {
 
         let mut counters_size: u16 =
             if matches!(xfer.get_xfer_mode(), XferMode::Save | XferMode::Crc) {
-                self.num_counters as u16
+                inner.num_counters as u16
             } else {
                 0
             };
@@ -260,10 +261,10 @@ impl XferSnapshot for ScriptEngine {
             return Err(XferStatus::InvalidParameters);
         }
         for i in 0..counters_size as usize {
-            if xfer.get_xfer_mode() == XferMode::Load && self.counters[i].is_none() {
-                self.counters[i] = Some(TCounter::new(String::new()));
+            if xfer.get_xfer_mode() == XferMode::Load && inner.counters[i].is_none() {
+                inner.counters[i] = Some(TCounter::new(String::new()));
             }
-            let Some(counter) = self.counters[i].as_mut() else {
+            let Some(counter) = inner.counters[i].as_mut() else {
                 return Err(XferStatus::InvalidParameters);
             };
             xfer.xfer_int(&mut counter.value)?;
@@ -271,15 +272,15 @@ impl XferSnapshot for ScriptEngine {
             xfer.xfer_bool(&mut counter.is_countdown_timer)?;
         }
 
-        let mut num_counters = self.num_counters as i32;
+        let mut num_counters = inner.num_counters as i32;
         xfer.xfer_int(&mut num_counters)?;
         if xfer.get_xfer_mode() == XferMode::Load {
-            self.num_counters = num_counters as usize;
+            inner.num_counters = num_counters as usize;
         }
 
         let mut flags_size: u16 = if matches!(xfer.get_xfer_mode(), XferMode::Save | XferMode::Crc)
         {
-            self.num_flags as u16
+            inner.num_flags as u16
         } else {
             0
         };
@@ -288,25 +289,25 @@ impl XferSnapshot for ScriptEngine {
             return Err(XferStatus::InvalidParameters);
         }
         for i in 0..flags_size as usize {
-            if xfer.get_xfer_mode() == XferMode::Load && self.flags[i].is_none() {
-                self.flags[i] = Some(TFlag::new(String::new()));
+            if xfer.get_xfer_mode() == XferMode::Load && inner.flags[i].is_none() {
+                inner.flags[i] = Some(TFlag::new(String::new()));
             }
-            let Some(flag) = self.flags[i].as_mut() else {
+            let Some(flag) = inner.flags[i].as_mut() else {
                 return Err(XferStatus::InvalidParameters);
             };
             xfer.xfer_bool(&mut flag.value)?;
             xfer.xfer_ascii_string(&mut flag.name)?;
         }
 
-        let mut num_flags = self.num_flags as i32;
+        let mut num_flags = inner.num_flags as i32;
         xfer.xfer_int(&mut num_flags)?;
         if xfer.get_xfer_mode() == XferMode::Load {
-            self.num_flags = num_flags as usize;
+            inner.num_flags = num_flags as usize;
         }
 
         let mut attack_priority_size: u16 =
             if matches!(xfer.get_xfer_mode(), XferMode::Save | XferMode::Crc) {
-                self.num_attack_info as u16
+                inner.num_attack_info as u16
             } else {
                 0
             };
@@ -315,24 +316,24 @@ impl XferSnapshot for ScriptEngine {
             return Err(XferStatus::InvalidParameters);
         }
         if xfer.get_xfer_mode() == XferMode::Load {
-            self.attack_priority_info.clear();
-            self.attack_priority_info
+            inner.attack_priority_info.clear();
+            inner.attack_priority_info
                 .resize_with(attack_priority_size as usize, AttackPriorityInfo::new);
         }
         for i in 0..attack_priority_size as usize {
-            self.attack_priority_info[i].xfer(xfer)?;
+            inner.attack_priority_info[i].xfer(xfer)?;
         }
 
-        let mut num_attack_info = self.num_attack_info as i32;
+        let mut num_attack_info = inner.num_attack_info as i32;
         xfer.xfer_int(&mut num_attack_info)?;
         if xfer.get_xfer_mode() == XferMode::Load {
-            self.num_attack_info = num_attack_info as usize;
+            inner.num_attack_info = num_attack_info as usize;
         }
 
         if version >= 6 {
             let mut object_priority_count: u16 =
                 if matches!(xfer.get_xfer_mode(), XferMode::Save | XferMode::Crc) {
-                    self.object_attack_priority_sets
+                    inner.object_attack_priority_sets
                         .len()
                         .min(u16::MAX as usize) as u16
                 } else {
@@ -342,7 +343,7 @@ impl XferSnapshot for ScriptEngine {
 
             match xfer.get_xfer_mode() {
                 XferMode::Save | XferMode::Crc => {
-                    let mut entries: Vec<(ObjectID, String)> = self
+                    let mut entries: Vec<(ObjectID, String)> = inner
                         .object_attack_priority_sets
                         .iter()
                         .map(|(object_id, set_name)| (*object_id, set_name.clone()))
@@ -355,7 +356,7 @@ impl XferSnapshot for ScriptEngine {
                     }
                 }
                 XferMode::Load => {
-                    self.object_attack_priority_sets.clear();
+                    inner.object_attack_priority_sets.clear();
                     for _ in 0..object_priority_count {
                         let mut object_id: ObjectID = crate::common::INVALID_ID;
                         let mut set_name = String::new();
@@ -364,17 +365,17 @@ impl XferSnapshot for ScriptEngine {
                         if object_id == crate::common::INVALID_ID || set_name.is_empty() {
                             continue;
                         }
-                        self.object_attack_priority_sets.insert(object_id, set_name);
+                        inner.object_attack_priority_sets.insert(object_id, set_name);
                     }
                 }
                 XferMode::Invalid => return Err(XferStatus::ModeUnknown),
             }
         } else if xfer.get_xfer_mode() == XferMode::Load {
-            self.object_attack_priority_sets.clear();
+            inner.object_attack_priority_sets.clear();
         }
 
-        xfer.xfer_int(&mut self.end_game_timer)?;
-        xfer.xfer_int(&mut self.close_window_timer)?;
+        xfer.xfer_int(&mut inner.end_game_timer)?;
+        xfer.xfer_int(&mut inner.close_window_timer)?;
 
         let named_object_tracker = get_named_object_tracker();
         let named_objects: Vec<(String, ObjectID)> =
@@ -426,9 +427,9 @@ impl XferSnapshot for ScriptEngine {
             XferMode::Invalid => return Err(XferStatus::ModeUnknown),
         }
 
-        xfer.xfer_bool(&mut self.first_update)?;
+        xfer.xfer_bool(&mut inner.first_update)?;
 
-        let mut fade_value: i32 = match self.fade {
+        let mut fade_value: i32 = match inner.fade {
             TFade::None => 0,
             TFade::Subtract => 1,
             TFade::Add => 2,
@@ -437,7 +438,7 @@ impl XferSnapshot for ScriptEngine {
         };
         xfer.xfer_int(&mut fade_value)?;
         if xfer.get_xfer_mode() == XferMode::Load {
-            self.fade = match fade_value {
+            inner.fade = match fade_value {
                 0 => TFade::None,
                 1 => TFade::Subtract,
                 2 => TFade::Add,
@@ -447,18 +448,18 @@ impl XferSnapshot for ScriptEngine {
             };
         }
 
-        xfer.xfer_real(&mut self.min_fade)?;
-        xfer.xfer_real(&mut self.max_fade)?;
-        xfer.xfer_real(&mut self.cur_fade_value)?;
-        xfer.xfer_int(&mut self.cur_fade_frame)?;
-        xfer.xfer_int(&mut self.fade_frames_increase)?;
-        xfer.xfer_int(&mut self.fade_frames_hold)?;
-        xfer.xfer_int(&mut self.fade_frames_decrease)?;
+        xfer.xfer_real(&mut inner.min_fade)?;
+        xfer.xfer_real(&mut inner.max_fade)?;
+        xfer.xfer_real(&mut inner.cur_fade_value)?;
+        xfer.xfer_int(&mut inner.cur_fade_frame)?;
+        xfer.xfer_int(&mut inner.fade_frames_increase)?;
+        xfer.xfer_int(&mut inner.fade_frames_hold)?;
+        xfer.xfer_int(&mut inner.fade_frames_decrease)?;
 
-        xfer_list_ascii_string(xfer, &mut self.completed_video)?;
-        xfer_list_ascii_string_uint(xfer, &mut self.testing_speech)?;
-        xfer_list_ascii_string_uint(xfer, &mut self.testing_audio)?;
-        xfer_list_ascii_string(xfer, &mut self.ui_interactions)?;
+        xfer_list_ascii_string(xfer, &mut inner.completed_video)?;
+        xfer_list_ascii_string_uint(xfer, &mut inner.testing_speech)?;
+        xfer_list_ascii_string_uint(xfer, &mut inner.testing_audio)?;
+        xfer_list_ascii_string(xfer, &mut inner.ui_interactions)?;
 
         let mut triggered_special_powers_size: u16 = Self::MAX_PLAYER_COUNT as u16;
         xfer.xfer_unsigned_short(&mut triggered_special_powers_size)?;
@@ -466,7 +467,7 @@ impl XferSnapshot for ScriptEngine {
             return Err(XferStatus::InvalidParameters);
         }
         for i in 0..triggered_special_powers_size as usize {
-            xfer_list_ascii_string_object_id(xfer, &mut self.triggered_special_powers[i])?;
+            xfer_list_ascii_string_object_id(xfer, &mut inner.triggered_special_powers[i])?;
         }
 
         let mut midway_special_powers_size: u16 = Self::MAX_PLAYER_COUNT as u16;
@@ -475,7 +476,7 @@ impl XferSnapshot for ScriptEngine {
             return Err(XferStatus::InvalidParameters);
         }
         for i in 0..midway_special_powers_size as usize {
-            xfer_list_ascii_string_object_id(xfer, &mut self.midway_special_powers[i])?;
+            xfer_list_ascii_string_object_id(xfer, &mut inner.midway_special_powers[i])?;
         }
 
         let mut finished_special_powers_size: u16 = Self::MAX_PLAYER_COUNT as u16;
@@ -484,7 +485,7 @@ impl XferSnapshot for ScriptEngine {
             return Err(XferStatus::InvalidParameters);
         }
         for i in 0..finished_special_powers_size as usize {
-            xfer_list_ascii_string_object_id(xfer, &mut self.finished_special_powers[i])?;
+            xfer_list_ascii_string_object_id(xfer, &mut inner.finished_special_powers[i])?;
         }
 
         let mut completed_upgrades_size: u16 = Self::MAX_PLAYER_COUNT as u16;
@@ -493,7 +494,7 @@ impl XferSnapshot for ScriptEngine {
             return Err(XferStatus::InvalidParameters);
         }
         for i in 0..completed_upgrades_size as usize {
-            xfer_list_ascii_string_object_id(xfer, &mut self.completed_upgrades[i])?;
+            xfer_list_ascii_string_object_id(xfer, &mut inner.completed_upgrades[i])?;
         }
 
         let mut acquired_sciences_size: u16 = Self::MAX_PLAYER_COUNT as u16;
@@ -502,21 +503,21 @@ impl XferSnapshot for ScriptEngine {
             return Err(XferStatus::InvalidParameters);
         }
         for i in 0..acquired_sciences_size as usize {
-            xfer_science_vec(xfer, &mut self.acquired_sciences[i])?;
+            xfer_science_vec(xfer, &mut inner.acquired_sciences[i])?;
         }
 
-        xfer_list_ascii_string_coord3d(xfer, &mut self.topple_directions)?;
+        xfer_list_ascii_string_coord3d(xfer, &mut inner.topple_directions)?;
 
-        xfer.xfer_real(&mut self.breeze_info.direction)?;
-        xfer.xfer_real(&mut self.breeze_info.direction_vec[0])?;
-        xfer.xfer_real(&mut self.breeze_info.direction_vec[1])?;
-        xfer.xfer_real(&mut self.breeze_info.intensity)?;
-        xfer.xfer_real(&mut self.breeze_info.lean)?;
-        xfer.xfer_real(&mut self.breeze_info.randomness)?;
-        xfer.xfer_short(&mut self.breeze_info.breeze_period)?;
-        xfer.xfer_short(&mut self.breeze_info.breeze_version)?;
+        xfer.xfer_real(&mut inner.breeze_info.direction)?;
+        xfer.xfer_real(&mut inner.breeze_info.direction_vec[0])?;
+        xfer.xfer_real(&mut inner.breeze_info.direction_vec[1])?;
+        xfer.xfer_real(&mut inner.breeze_info.intensity)?;
+        xfer.xfer_real(&mut inner.breeze_info.lean)?;
+        xfer.xfer_real(&mut inner.breeze_info.randomness)?;
+        xfer.xfer_short(&mut inner.breeze_info.breeze_period)?;
+        xfer.xfer_short(&mut inner.breeze_info.breeze_version)?;
 
-        let mut difficulty_value: i32 = match self.game_difficulty {
+        let mut difficulty_value: i32 = match inner.game_difficulty {
             crate::player::GameDifficulty::Easy => 0,
             crate::player::GameDifficulty::Normal => 1,
             crate::player::GameDifficulty::Hard => 2,
@@ -524,7 +525,7 @@ impl XferSnapshot for ScriptEngine {
         };
         xfer.xfer_int(&mut difficulty_value)?;
         if xfer.get_xfer_mode() == XferMode::Load {
-            self.game_difficulty = match difficulty_value {
+            inner.game_difficulty = match difficulty_value {
                 0 => crate::player::GameDifficulty::Easy,
                 1 => crate::player::GameDifficulty::Normal,
                 2 => crate::player::GameDifficulty::Hard,
@@ -533,19 +534,19 @@ impl XferSnapshot for ScriptEngine {
             };
         }
 
-        xfer.xfer_bool(&mut self.freeze_by_script)?;
+        xfer.xfer_bool(&mut inner.freeze_by_script)?;
 
         if version >= 2 {
             let mut named_reveal_count: u16 =
                 if matches!(xfer.get_xfer_mode(), XferMode::Save | XferMode::Crc) {
-                    self.named_reveals.len() as u16
+                    inner.named_reveals.len() as u16
                 } else {
                     0
                 };
             xfer.xfer_unsigned_short(&mut named_reveal_count)?;
             match xfer.get_xfer_mode() {
                 XferMode::Save | XferMode::Crc => {
-                    for reveal in self.named_reveals.iter_mut() {
+                    for reveal in inner.named_reveals.iter_mut() {
                         xfer.xfer_ascii_string(&mut reveal.reveal_name)?;
                         xfer.xfer_ascii_string(&mut reveal.waypoint_name)?;
                         xfer.xfer_real(&mut reveal.radius_to_reveal)?;
@@ -553,10 +554,10 @@ impl XferSnapshot for ScriptEngine {
                     }
                 }
                 XferMode::Load => {
-                    if !self.named_reveals.is_empty() {
+                    if !inner.named_reveals.is_empty() {
                         return Err(XferStatus::ListNotEmpty);
                     }
-                    self.named_reveals.clear();
+                    inner.named_reveals.clear();
                     for _ in 0..named_reveal_count {
                         let mut reveal = NamedReveal {
                             reveal_name: String::new(),
@@ -568,7 +569,7 @@ impl XferSnapshot for ScriptEngine {
                         xfer.xfer_ascii_string(&mut reveal.waypoint_name)?;
                         xfer.xfer_real(&mut reveal.radius_to_reveal)?;
                         xfer.xfer_ascii_string(&mut reveal.player_name)?;
-                        self.named_reveals.push(reveal);
+                        inner.named_reveals.push(reveal);
                     }
                 }
                 XferMode::Invalid => return Err(XferStatus::ModeUnknown),
@@ -576,7 +577,7 @@ impl XferSnapshot for ScriptEngine {
 
             let mut all_object_types_count: u16 =
                 if matches!(xfer.get_xfer_mode(), XferMode::Save | XferMode::Crc) {
-                    self.object_types.len() as u16
+                    inner.object_types.len() as u16
                 } else {
                     0
                 };
@@ -584,7 +585,7 @@ impl XferSnapshot for ScriptEngine {
 
             match xfer.get_xfer_mode() {
                 XferMode::Save | XferMode::Crc => {
-                    let mut ordered_lists: Vec<&ObjectTypes> = self.object_types.values().collect();
+                    let mut ordered_lists: Vec<&ObjectTypes> = inner.object_types.values().collect();
                     ordered_lists
                         .sort_by(|a, b| a.list_name().as_str().cmp(b.list_name().as_str()));
                     for entry in ordered_lists.iter() {
@@ -604,10 +605,10 @@ impl XferSnapshot for ScriptEngine {
                     }
                 }
                 XferMode::Load => {
-                    if !self.object_types.is_empty() {
+                    if !inner.object_types.is_empty() {
                         return Err(XferStatus::ListNotEmpty);
                     }
-                    self.object_types.clear();
+                    inner.object_types.clear();
                     for _ in 0..all_object_types_count {
                         let current_version: XferVersion = 1;
                         let mut obj_version = current_version;
@@ -628,7 +629,7 @@ impl XferSnapshot for ScriptEngine {
                         }
 
                         let key = list.list_name().as_str().to_string();
-                        self.object_types.insert(key, list);
+                        inner.object_types.insert(key, list);
                     }
                 }
                 XferMode::Invalid => return Err(XferStatus::ModeUnknown),
@@ -636,30 +637,30 @@ impl XferSnapshot for ScriptEngine {
         }
 
         if version >= 3 {
-            xfer.xfer_bool(&mut self.objects_should_receive_difficulty_bonus)?;
+            xfer.xfer_bool(&mut inner.objects_should_receive_difficulty_bonus)?;
         } else {
-            self.objects_should_receive_difficulty_bonus = true;
+            inner.objects_should_receive_difficulty_bonus = true;
         }
 
         if version >= 4 {
-            xfer.xfer_ascii_string(&mut self.current_track_name)?;
+            xfer.xfer_ascii_string(&mut inner.current_track_name)?;
         }
 
         if version >= 5 {
-            xfer.xfer_bool(&mut self.choose_victim_always_uses_normal)?;
+            xfer.xfer_bool(&mut inner.choose_victim_always_uses_normal)?;
         } else {
-            self.choose_victim_always_uses_normal = false;
+            inner.choose_victim_always_uses_normal = false;
         }
 
-        if xfer.get_xfer_mode() == XferMode::Load && self.fade == TFade::None {
-            self.fade = TFade::Multiply;
-            self.cur_fade_frame = 0;
-            self.min_fade = 1.0;
-            self.max_fade = 0.0;
-            self.fade_frames_increase = 0;
-            self.fade_frames_hold = 0;
-            self.fade_frames_decrease = FRAMES_TO_FADE_IN_AT_START;
-            self.cur_fade_value = 0.0;
+        if xfer.get_xfer_mode() == XferMode::Load && inner.fade == TFade::None {
+            inner.fade = TFade::Multiply;
+            inner.cur_fade_frame = 0;
+            inner.min_fade = 1.0;
+            inner.max_fade = 0.0;
+            inner.fade_frames_increase = 0;
+            inner.fade_frames_hold = 0;
+            inner.fade_frames_decrease = FRAMES_TO_FADE_IN_AT_START;
+            inner.cur_fade_value = 0.0;
         }
 
         Ok(())

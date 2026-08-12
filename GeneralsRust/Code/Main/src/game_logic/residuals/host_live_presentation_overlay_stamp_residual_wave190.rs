@@ -78,7 +78,7 @@ pub fn honesty_live_presentation_overlay_stamp_residual_pack_wave190() -> bool {
 
 /// Source residual: PresentationFrame field + overlay assignment.
 pub fn honesty_overlay_stamp_field_source() -> bool {
-    let src = include_str!("../../presentation_frame.rs");
+    let src = crate::presentation_frame::PRESENTATION_FRAME_SRC;
     src.contains("pub gameworld_overlay_stamped: usize")
         && src.contains("self.gameworld_overlay_stamped = updated")
         && src.contains("fn overlay_gameworld_shadow")
@@ -86,7 +86,7 @@ pub fn honesty_overlay_stamp_field_source() -> bool {
 
 /// Source residual: engine status exports stamp count.
 pub fn honesty_engine_exports_overlay_stamp_source() -> bool {
-    let eng = include_str!("../../cnc_game_engine.rs");
+    let eng = crate::cnc_game_engine::ENGINE_SRC;
     eng.contains("gameworld_overlay_stamped")
         && eng.contains("gameworld_overlay_stamped={}")
         && eng.contains("last_presentation_frame")

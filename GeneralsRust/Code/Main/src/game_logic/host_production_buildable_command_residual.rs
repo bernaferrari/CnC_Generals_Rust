@@ -173,6 +173,224 @@ pub const BC_PLACED_BY_PLAYER: u32 = 2;
 
 /// C++ CONSTRUCTION_COMPLETE residual (BuildAssistant.h / Object construction percent).
 pub const CONSTRUCTION_COMPLETE_PERCENT: i32 = -1;
+/// C++ sell construction percent residual (BuildAssistant sell −50).
+pub const CONSTRUCTION_SELL_PERCENT: i32 = -50;
+
+/// Convert host/GW 0–1 fraction to C++ construction percent (0–100, −1 complete, −50 sell).
+pub fn host_fraction_to_cpp_construction_percent(
+    frac: f32,
+    under_construction: bool,
+    selling: bool,
+) -> i32 {
+    if selling {
+        return CONSTRUCTION_SELL_PERCENT;
+    }
+    if !under_construction && frac + 1e-4 >= 1.0 {
+        return CONSTRUCTION_COMPLETE_PERCENT;
+    }
+    (frac.clamp(0.0, 1.0) * 100.0).round() as i32
+}
+
+/// Convert C++ construction percent to host/GW 0–1. Complete (−1) and sell (−50) map to 1.0 / 0.0.
+pub fn cpp_construction_percent_to_host_fraction(pct: i32) -> f32 {
+    if pct == CONSTRUCTION_COMPLETE_PERCENT {
+        return 1.0;
+    }
+    if pct == CONSTRUCTION_SELL_PERCENT || pct < 0 {
+        return 0.0;
+    }
+    (pct as f32 / 100.0).clamp(0.0, 1.0)
+}
+
+/// Factory CommandSet UNIT_BUILD buttons (C++ isPossibleToMakeUnit scan).
+#[derive(Debug, Clone, Copy)]
+pub struct FactoryCommandSet {
+    pub command_set_name: &'static str,
+    pub object_template: &'static str,
+    pub slots: &'static [(u8, &'static str)],
+}
+
+pub const AMERICA_BARRACKS_COMMAND_SET: FactoryCommandSet = FactoryCommandSet {
+    command_set_name: "AmericaBarracksCommandSet",
+    object_template: "AmericaBarracks",
+    slots: &[
+        (1, "Command_ConstructAmericaInfantryRanger"),
+        (2, "Command_ConstructAmericaInfantryMissileDefender"),
+        (3, "Command_ConstructAmericaInfantryColonelBurton"),
+        (4, "Command_ConstructAmericaInfantryPathfinder"),
+        (6, "Command_ConstructAmericaInfantryBiohazardTech"),
+    ],
+};
+
+pub const CHINA_BARRACKS_COMMAND_SET: FactoryCommandSet = FactoryCommandSet {
+    command_set_name: "ChinaBarracksCommandSet",
+    object_template: "ChinaBarracks",
+    slots: &[
+        (1, "Command_ConstructChinaInfantryRedguard"),
+        (2, "Command_ConstructChinaInfantryTankHunter"),
+        (3, "Command_ConstructChinaInfantryHacker"),
+        (4, "Command_ConstructChinaInfantryBlackLotus"),
+    ],
+};
+
+pub const AMERICA_WAR_FACTORY_COMMAND_SET: FactoryCommandSet = FactoryCommandSet {
+    command_set_name: "AmericaWarFactoryCommandSet",
+    object_template: "AmericaWarFactory",
+    slots: &[
+        (1, "Command_ConstructAmericaTankCrusader"),
+        (2, "Command_ConstructAmericaVehicleTomahawk"),
+        (3, "Command_ConstructAmericaVehicleHumvee"),
+        (4, "Command_ConstructAmericaVehicleMedic"),
+        (5, "Command_ConstructAmericaVehiclePaladin"),
+        (6, "Command_ConstructAmericaVehicleSentryDrone"),
+        (7, "Command_ConstructAmericaVehicleAvenger"),
+        (8, "Command_ConstructAmericaVehicleMicrowave"),
+    ],
+};
+
+pub const AMERICA_AIRFIELD_COMMAND_SET: FactoryCommandSet = FactoryCommandSet {
+    command_set_name: "AmericaAirfieldCommandSet",
+    object_template: "AmericaAirfield",
+    slots: &[
+        (1, "Command_ConstructAmericaJetRaptor"),
+        (2, "Command_ConstructAmericaVehicleComanche"),
+        (3, "Command_ConstructAmericaJetAurora"),
+        (4, "Command_ConstructAmericaJetStealthFighter"),
+    ],
+};
+
+pub const CHINA_WAR_FACTORY_COMMAND_SET: FactoryCommandSet = FactoryCommandSet {
+    command_set_name: "ChinaWarFactoryCommandSet",
+    object_template: "ChinaWarFactory",
+    slots: &[
+        (1, "Command_ConstructChinaTankBattleMaster"),
+        (2, "Command_ConstructChinaTankOverlord"),
+        (3, "Command_ConstructChinaVehicleTroopCrawler"),
+        (4, "Command_ConstructChinaVehicleListeningOutpost"),
+        (5, "Command_ConstructChinaTankGattling"),
+        (7, "Command_ConstructChinaTankDragon"),
+        (9, "Command_ConstructChinaVehicleInfernoCannon"),
+        (10, "Command_ConstructChinaVehicleNukeLauncher"),
+        (11, "Command_ConstructChinaTankECM"),
+    ],
+};
+
+pub const CHINA_AIRFIELD_COMMAND_SET: FactoryCommandSet = FactoryCommandSet {
+    command_set_name: "ChinaAirfieldCommandSet",
+    object_template: "ChinaAirfield",
+    slots: &[
+        (1, "Command_ConstructChinaJetMIG"),
+        (3, "Command_ConstructChinaVehicleHelix"),
+    ],
+};
+
+pub const GLA_BARRACKS_COMMAND_SET: FactoryCommandSet = FactoryCommandSet {
+    command_set_name: "GLABarracksCommandSet",
+    object_template: "GLABarracks",
+    slots: &[
+        (1, "Command_ConstructGLAInfantryRebel"),
+        (2, "Command_ConstructGLAInfantryRPGTrooper"),
+        (3, "Command_ConstructGLAInfantryTerrorist"),
+        (4, "Command_ConstructGLAInfantryAngryMob"),
+        (5, "Command_ConstructGLAInfantryHijacker"),
+        (6, "Command_ConstructGLAInfantryJarmenKell"),
+        (7, "Command_ConstructGLAInfantrySaboteur"),
+    ],
+};
+
+pub const GLA_ARMS_DEALER_COMMAND_SET: FactoryCommandSet = FactoryCommandSet {
+    command_set_name: "GLAArmsDealerCommandSet",
+    object_template: "GLAArmsDealer",
+    slots: &[
+        (1, "Command_ConstructGLATankScorpion"),
+        (2, "Command_ConstructGLAVehicleTechnical"),
+        (3, "Command_ConstructGLAVehicleRadarVan"),
+        (4, "Command_ConstructGLAVehicleQuadCannon"),
+        (5, "Command_ConstructGLAVehicleToxinTruck"),
+        (6, "Command_ConstructGLAVehicleRocketBuggy"),
+        (7, "Command_ConstructGLATankMarauder"),
+        (8, "Command_ConstructGLAVehicleBombTruck"),
+        (9, "Command_ConstructGLAVehicleScudLauncher"),
+        (11, "Command_ConstructGLAVehicleCombatBike"),
+        (12, "Command_ConstructGLAVehicleBattleBus"),
+    ],
+};
+
+/// Factory CommandSets used by host `can_make_unit`.
+pub const FACTORY_COMMAND_SET_PACKS: &[FactoryCommandSet] = &[
+    AMERICA_BARRACKS_COMMAND_SET,
+    CHINA_BARRACKS_COMMAND_SET,
+    AMERICA_WAR_FACTORY_COMMAND_SET,
+    AMERICA_AIRFIELD_COMMAND_SET,
+    CHINA_WAR_FACTORY_COMMAND_SET,
+    CHINA_AIRFIELD_COMMAND_SET,
+    GLA_BARRACKS_COMMAND_SET,
+    GLA_ARMS_DEALER_COMMAND_SET,
+];
+
+/// ThingTemplate named by a `Command_Construct*` button.
+pub fn construct_button_thing_template(button: &str) -> Option<&str> {
+    const PREFIXES: &[&str] = &[
+        "Command_Construct",
+        "AirF_Command_Construct",
+        "SupW_Command_Construct",
+        "Lazr_Command_Construct",
+    ];
+    for prefix in PREFIXES {
+        if let Some(rest) = button.strip_prefix(prefix) {
+            if !rest.is_empty() {
+                return Some(rest);
+            }
+        }
+    }
+    None
+}
+
+/// Look up the retail factory CommandSet for a producer template.
+pub fn factory_command_set_for_producer(
+    producer_template: &str,
+) -> Option<&'static FactoryCommandSet> {
+    let p = producer_template.to_ascii_lowercase();
+    if p.starts_with("test") {
+        return None;
+    }
+    FACTORY_COMMAND_SET_PACKS.iter().find(|pack| {
+        p == pack.object_template.to_ascii_lowercase()
+            || p.ends_with(&pack.object_template.to_ascii_lowercase())
+    })
+}
+
+/// C++ isPossibleToMakeUnit CommandSet scan.
+/// `None` = no retail CommandSet for this producer (KindOf / test fallback).
+pub fn command_set_allows_unit(producer_template: &str, unit_template: &str) -> Option<bool> {
+    let pack = factory_command_set_for_producer(producer_template)?;
+    let allowed = pack.slots.iter().any(|(_, button)| {
+        construct_button_thing_template(button)
+            .is_some_and(|thing| thing.eq_ignore_ascii_case(unit_template))
+    });
+    Some(allowed)
+}
+
+/// Retail ProductionUpdate `NumDoorAnimations` for a producer template.
+/// Test templates stay 0 so existing spawn harnesses are not door-gated.
+pub fn producer_num_door_animations(template_name: &str) -> i32 {
+    let n = template_name.to_ascii_lowercase();
+    if n.starts_with("test") {
+        return 0;
+    }
+    if n.contains("airfield") {
+        return 4;
+    }
+    if n.contains("barracks") || n.contains("warfactory") || n.contains("commandcenter") {
+        return 1;
+    }
+    0
+}
+
+/// C++ ProductionUpdate: spawn waits for WAITING_OPEN (phase 2) when doors exist.
+pub fn production_door_allows_spawn(num_door_animations: i32, door_phase: u8) -> bool {
+    num_door_animations <= 0 || door_phase == 2
+}
 
 /// calcTimeToBuild residual: buildTime seconds × LOGIC_FPS, then / power_factor.
 #[inline]

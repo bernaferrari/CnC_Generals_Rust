@@ -42,6 +42,7 @@ pub mod object_creation_list;
 pub mod object_factory;
 pub mod object_types;
 pub mod partition_manager;
+pub mod crate_registry_bind;
 pub mod registry;
 pub mod simple_object;
 pub mod simple_object_iterator;

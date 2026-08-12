@@ -16,6 +16,7 @@ use crate::common::{
 };
 use std::{
     any::Any,
+    collections::HashMap,
     sync::{Arc, OnceLock, RwLock},
 };
 
@@ -128,6 +129,19 @@ pub trait ModuleData: Snapshotable + Send + Sync + std::fmt::Debug + Any {
     }
 
     fn as_any(&self) -> &dyn Any;
+
+    /// Captured INI body field (module-local). Default: none.
+    fn get_ini_field(&self, _key: &str) -> Option<&str> {
+        None
+    }
+
+    fn get_ini_real(&self, key: &str) -> Option<f32> {
+        self.get_ini_field(key)?.parse().ok()
+    }
+
+    fn get_ini_int(&self, key: &str) -> Option<i32> {
+        self.get_ini_field(key)?.parse().ok()
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -229,6 +243,82 @@ impl ModuleData for BaseModuleData {
 impl Snapshotable for BaseModuleData {
     fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
         // C++ BaseModuleData::crc() is intentionally empty
+        Ok(())
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: u8 = 0;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    fn load_post_process(&mut self) -> Result<(), String> {
+        Ok(())
+    }
+}
+
+/// Fail-closed capture of a module INI body when the factory has no data_proc.
+///
+/// Stores `key=value` fields so MaxHealth / NumDoorAnimations remain readable
+/// without requiring GameLogic typed module data.
+#[derive(Debug, Clone)]
+pub struct CapturedModuleData {
+    module_tag_name_key: NameKeyType,
+    fields: HashMap<String, String>,
+    raw_body: String,
+}
+
+impl CapturedModuleData {
+    pub fn new(tag: &str, raw_body: String, fields: HashMap<String, String>) -> Self {
+        Self {
+            module_tag_name_key: crate::common::name_key_generator::NameKeyGenerator::name_to_key(
+                tag,
+            ),
+            fields,
+            raw_body,
+        }
+    }
+
+    pub fn raw_body(&self) -> &str {
+        &self.raw_body
+    }
+
+    pub fn field(&self, key: &str) -> Option<&str> {
+        if let Some(value) = self.fields.get(key) {
+            return Some(value.as_str());
+        }
+        self.fields
+            .iter()
+            .find(|(k, _)| k.eq_ignore_ascii_case(key))
+            .map(|(_, value)| value.as_str())
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.fields.is_empty() && self.raw_body.trim().is_empty()
+    }
+}
+
+impl ModuleData for CapturedModuleData {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn set_module_tag_name_key(&mut self, key: NameKeyType) {
+        self.module_tag_name_key = key;
+    }
+
+    fn get_module_tag_name_key(&self) -> NameKeyType {
+        self.module_tag_name_key
+    }
+
+    fn get_ini_field(&self, key: &str) -> Option<&str> {
+        self.field(key)
+    }
+}
+
+impl Snapshotable for CapturedModuleData {
+    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
         Ok(())
     }
 

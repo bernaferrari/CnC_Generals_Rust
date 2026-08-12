@@ -84,7 +84,7 @@ pub fn honesty_gameworld_production_authority_residual_pack_wave177() -> bool {
 
 /// Source residual: production authority defaults on via env cache.
 pub fn honesty_production_authority_default_on_source() -> bool {
-    let src = include_str!("../../gameworld_shadow.rs");
+    let src = crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC;
     let i = match src.find("pub fn gameworld_production_authority_enabled") {
         Some(i) => i,
         None => return false,
@@ -107,7 +107,7 @@ pub fn honesty_host_production_sole_tick_source() -> bool {
 
 /// Source residual: writeback path exists for production last-writer.
 pub fn honesty_production_writeback_source() -> bool {
-    let src = include_str!("../../gameworld_shadow.rs");
+    let src = crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC;
     src.contains("pub fn writeback_production_to_host")
         && src.contains("pub fn tick_production_queues")
         && src.contains("ensure_gate_production_authority")

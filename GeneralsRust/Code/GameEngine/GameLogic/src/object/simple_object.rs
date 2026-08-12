@@ -218,7 +218,7 @@ impl SimpleObject {
                     .unwrap_or(crate::common::INVALID_ID);
 
                 if id != crate::common::INVALID_ID {
-                    crate::object::registry::OBJECT_REGISTRY.register_object(id, &base_object);
+                    crate::object::crate_registry_bind::bind_crate_object(id, &base_object);
                 }
 
                 id

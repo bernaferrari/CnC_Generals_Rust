@@ -107,11 +107,11 @@ impl Object {
         weapon.last_fire_time = -1.0e6;
     }
 
-    pub(in super) fn primary_weapon_name(&self) -> Option<&str> {
+    pub(super) fn primary_weapon_name(&self) -> Option<&str> {
         self.thing.template.primary_weapon_name.as_deref()
     }
 
-    pub(in super) fn secondary_weapon_name(&self) -> Option<&str> {
+    pub(super) fn secondary_weapon_name(&self) -> Option<&str> {
         self.thing.template.secondary_weapon_name.as_deref().or(self
             .thing
             .template

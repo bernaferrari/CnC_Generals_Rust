@@ -90,4 +90,3 @@ pub enum CommandMode {
     BuildMode { template_name: String },
     SpecialPower { power_type: SpecialPowerType },
 }
-

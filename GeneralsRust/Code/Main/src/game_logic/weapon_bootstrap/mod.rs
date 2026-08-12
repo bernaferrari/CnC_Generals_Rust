@@ -30,10 +30,12 @@
 
 // Restricted re-exports so impl submodules can `use super::*;`
 // without dumping the parent crate surface through `pub use`.
-pub(in crate::game_logic::weapon_bootstrap) use gamelogic::weapon::{with_weapon_store, with_weapon_store_mut, WeaponAntiMask, WeaponTemplate};
+pub(in crate::game_logic::weapon_bootstrap) use gamelogic::weapon::{
+    with_weapon_store, with_weapon_store_mut, WeaponAntiMask, WeaponTemplate,
+};
+use glam::Vec3;
 pub(in crate::game_logic::weapon_bootstrap) use std::path::{Path, PathBuf};
 pub(in crate::game_logic::weapon_bootstrap) use std::sync::atomic::{AtomicBool, Ordering};
-use glam::Vec3;
 
 mod names;
 pub use names::*;
@@ -64,3 +66,21 @@ pub use store::*;
 
 #[cfg(test)]
 mod tests;
+
+/// Concatenated live weapon_bootstrap sources for residual `include_str` scans.
+pub const WEAPON_BOOTSTRAP_SRC: &str = concat!(
+    include_str!("mod.rs"),
+    include_str!("collide.rs"),
+    include_str!("damage_kinds.rs"),
+    include_str!("fx.rs"),
+    include_str!("historic_speed.rs"),
+    include_str!("honesty.rs"),
+    include_str!("names.rs"),
+    include_str!("pitch_range.rs"),
+    include_str!("projectile_sound.rs"),
+    include_str!("reload_aim.rs"),
+    include_str!("scatter.rs"),
+    include_str!("shock_damage.rs"),
+    include_str!("store.rs"),
+    include_str!("unit_map.rs"),
+);

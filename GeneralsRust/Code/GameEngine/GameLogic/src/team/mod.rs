@@ -59,3 +59,19 @@ include!("prototype.rs");
 include!("factory.rs");
 include!("factory_access.rs");
 include!("tests.rs");
+
+/// Concatenated live sources for residual `include_str!` scans.
+pub const TEAM_SRC: &str = concat!(
+    include_str!("mod.rs"),
+    include_str!("factory.rs"),
+    include_str!("factory_access.rs"),
+    include_str!("ids.rs"),
+    include_str!("prototype.rs"),
+    include_str!("snapshot.rs"),
+    include_str!("team_actions.rs"),
+    include_str!("team_areas.rs"),
+    include_str!("team_identity.rs"),
+    include_str!("team_members.rs"),
+    include_str!("team_state.rs"),
+    include_str!("team_struct.rs"),
+);

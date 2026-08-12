@@ -30,19 +30,37 @@ pub(crate) struct Slab<T> {
     layout: Layout,
     /// Number of slots in this slab.
     capacity: usize,
+    /// Byte stride between slots. At least `size_of::<SlotEntry<T>>()`,
+    /// padded up to the slab alignment so every slot is well-aligned.
+    slot_stride: usize,
     /// Marker for type safety.
     _marker: PhantomData<T>,
 }
 
 impl<T> Slab<T> {
+    /// Alignment and padded stride for `SlotEntry<T>` at `requested` align.
+    ///
+    /// Low-alignment `T` (e.g. `u8`) must still host `FreeListEntry` and
+    /// honour a caller-requested cache-line align. `ptr.add(i)` is not used
+    /// for indexing: it would step by `size_of` and skip the pad.
+    pub(crate) fn slot_layout(requested: usize) -> Result<(usize, usize), String> {
+        let align = requested.max(mem::align_of::<SlotEntry<T>>()).max(1);
+        if !align.is_power_of_two() {
+            return Err(format!("Slab alignment {align} is not a power of 2"));
+        }
+        let raw_size = mem::size_of::<SlotEntry<T>>().max(1);
+        let stride = raw_size.next_multiple_of(align);
+        Ok((align, stride))
+    }
+
     /// Allocate a new slab with the given capacity and alignment.
     pub fn new(capacity: usize, alignment: usize) -> Result<Self, String> {
         if capacity == 0 {
             return Err("Slab capacity cannot be zero".to_string());
         }
 
-        let slot_size = mem::size_of::<SlotEntry<T>>();
-        let layout = Layout::from_size_align(slot_size * capacity, alignment)
+        let (align, slot_stride) = Self::slot_layout(alignment)?;
+        let layout = Layout::from_size_align(slot_stride * capacity, align)
             .map_err(|e| format!("Invalid slab layout: {}", e))?;
 
         // SAFETY: We just validated the layout
@@ -58,6 +76,7 @@ impl<T> Slab<T> {
             ptr,
             layout,
             capacity,
+            slot_stride,
             _marker: PhantomData,
         })
     }
@@ -66,7 +85,9 @@ impl<T> Slab<T> {
     #[inline]
     pub unsafe fn slot_ptr(&self, index: usize) -> *mut SlotEntry<T> {
         debug_assert!(index < self.capacity);
-        self.ptr.as_ptr().add(index)
+        (self.ptr.as_ptr() as *mut u8)
+            .add(index.saturating_mul(self.slot_stride))
+            .cast()
     }
 
     /// Initialize a slot with a free list entry.

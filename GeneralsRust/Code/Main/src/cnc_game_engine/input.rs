@@ -1,5 +1,17 @@
 #![allow(unused_imports, unused_variables, dead_code, non_snake_case)]
 use super::*;
+
+/// Origin of a mouse-button event that reaches [`CnCGameEngine::handle_mouse_button_input`].
+///
+/// `Physical` is a real OS `WindowEvent::MouseInput`. `Injected` is a host
+/// control-file / `inject_winit_equivalent_*` re-entry. Both share WM dispatch
+/// and world orders; only `Physical` may latch playable_claim evidence.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum MouseInputOrigin {
+    Physical,
+    Injected,
+}
+
 impl CnCGameEngine {
     pub fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
         if new_size.width > 0 && new_size.height > 0 {
@@ -76,6 +88,11 @@ impl CnCGameEngine {
                     self.inject_game_client_key(physical_key, pressed);
                 }
                 let pressed = matches!(state, ElementState::Pressed);
+                #[cfg(feature = "game_client")]
+                if pressed && self.current_state == GameState::Menu && !self.runtime_host_headless {
+                    // C++ MainMenuInput GWM_CHAR first-run reveal on first real key.
+                    let _ = game_client::gui::reveal_main_menu_first_input_like_cpp();
+                }
                 let wnd_used = self.dispatch_os_key_to_window_manager(physical_key, pressed);
                 let route_keyboard_to_legacy_ui = !wnd_used
                     && matches!(
@@ -165,107 +182,19 @@ impl CnCGameEngine {
                 true
             }
             WindowEvent::MouseInput { state, button, .. } => {
-                let x = self.mouse_position.0 as i32;
-                let y = self.mouse_position.1 as i32;
+                // OS window event — the only origin that may latch physical
+                // playability evidence. Injected control-file clicks use
+                // MouseInputOrigin::Injected and must not set those flags.
                 let pressed = matches!(state, ElementState::Pressed);
-                #[cfg(feature = "game_client")]
-                {
-                    self.inject_game_client_mouse_button(*button, pressed);
-                }
-                let wnd_used = self.dispatch_os_mouse_to_window_manager(*button, pressed, x, y);
-                #[cfg(feature = "game_client")]
-                let hit_wnd_widget = game_client::gui::note_os_wnd_widget_tree_hit(x, y);
-                #[cfg(not(feature = "game_client"))]
-                let hit_wnd_widget = false;
-
-                // This path is entered only for a physical winit mouse event.  The
-                // shell marks every click as Used while it is active, so require an
-                // enabled gadget hit as well before counting menu navigation.
-                if pressed
-                    && matches!(*button, MouseButton::Left)
-                    && self.current_state == GameState::Menu
-                {
-                    self.interactive_playability.note_menu_wnd_click(
-                        !self.runtime_host_headless && !self.runtime_host_active,
-                        wnd_used,
-                        hit_wnd_widget,
-                    );
-                }
-                // Main-owned screens (HUD/pause/skirmish fallback) plus Menu when overlay
-                // is not the only UI. Clicks on a None overlay screen no-op.
-                if let Some(ui_button) = Self::to_ui_mouse_button(*button) {
-                    if pressed {
-                        let _ = self.ui_manager.handle_mouse_click(x, y, ui_button);
-                    }
-                    self.ui_manager.handle_mouse_move(x, y);
-                }
-
-                if matches!(self.current_state, GameState::InGame | GameState::Paused)
-                    && !wnd_used
-                {
-                    match (button, state) {
-                        (MouseButton::Left, ElementState::Pressed) => {
-                            self.handle_left_click();
-                        }
-                        (MouseButton::Left, ElementState::Released) => {
-                            self.handle_left_release();
-                        }
-                        (MouseButton::Right, ElementState::Pressed) => {
-                            // Set anchor for drag-scroll; the actual right-click
-                            // command is deferred to release if the mouse didn't
-                            // move significantly (C++ LookAtXlat.cpp).
-                            self.rmb_scroll_anchor = Some(self.mouse_position);
-                            self.is_rmb_scrolling = true;
-                        }
-                        (MouseButton::Right, ElementState::Released) => {
-                            if self.is_rmb_scrolling {
-                                // If the mouse barely moved since the anchor,
-                                // treat it as a normal right-click command.
-                                const DRAG_THRESHOLD_SQ: f32 = 9.0; // 3px squared
-                                if let Some(anchor) = self.rmb_scroll_anchor {
-                                    let dx = self.mouse_position.0 - anchor.0;
-                                    let dy = self.mouse_position.1 - anchor.1;
-                                    if dx * dx + dy * dy < DRAG_THRESHOLD_SQ {
-                                        let had_selection = !self
-                                            .ui_selected_ids(self.current_player_id)
-                                            .is_empty();
-                                        self.handle_right_click();
-                                        self.interactive_playability.note_gameplay_order(
-                                            !self.runtime_host_headless
-                                                && !self.runtime_host_active,
-                                            had_selection,
-                                        );
-                                    }
-                                }
-                            }
-                            self.rmb_scroll_anchor = None;
-                            self.is_rmb_scrolling = false;
-                        }
-                        (MouseButton::Middle, ElementState::Pressed) => {
-                            self.is_mmb_rotating = true;
-                            self.mmb_anchor = Some(self.mouse_position);
-                        }
-                        (MouseButton::Middle, ElementState::Released) => {
-                            self.is_mmb_rotating = false;
-                            self.mmb_anchor = None;
-                        }
-                        _ => {}
-                    }
-                }
+                self.handle_mouse_button_input(
+                    *button,
+                    pressed,
+                    MouseInputOrigin::Physical,
+                );
                 true
             }
             WindowEvent::CursorMoved { position, .. } => {
-                self.mouse_position = (position.x as f32, position.y as f32);
-                #[cfg(feature = "game_client")]
-                self.inject_game_client_mouse_move(position.x as f32, position.y as f32);
-                let mx = position.x as i32;
-                let my = position.y as i32;
-                let _ = self.dispatch_os_mouse_move(mx, my);
-                self.ui_manager.handle_mouse_move(mx, my);
-                if matches!(self.current_state, GameState::InGame | GameState::Paused) {
-                    self.update_mouse_world_position();
-                    self.sync_context_mouse_cursor();
-                }
+                self.apply_cursor_position(position.x as f32, position.y as f32);
                 true
             }
             WindowEvent::MouseWheel { delta, .. } => {
@@ -280,6 +209,350 @@ impl CnCGameEngine {
             }
             _ => false,
         }
+    }
+
+    /// Shared cursor move path for physical winit `CursorMoved` and host inject.
+    pub(super) fn apply_cursor_position(&mut self, x: f32, y: f32) {
+        self.mouse_position = (x, y);
+        #[cfg(feature = "game_client")]
+        self.inject_game_client_mouse_move(x, y);
+        let mx = x as i32;
+        let my = y as i32;
+        let _ = self.dispatch_os_mouse_move(mx, my);
+        self.ui_manager.handle_mouse_move(mx, my);
+        if matches!(self.current_state, GameState::InGame | GameState::Paused) {
+            self.update_mouse_world_position();
+            self.sync_context_mouse_cursor();
+        }
+    }
+
+    /// Shared mouse-button path for physical winit `MouseInput` and host inject.
+    ///
+    /// Both origins run real WM dispatch + under-cursor hit + (InGame) world
+    /// orders. Playability evidence (`note_menu_wnd_click` /
+    /// `note_skirmish_path_gadget` / `note_gameplay_order`) latches only when
+    /// `origin == Physical` and the runtime is not headless. Injected
+    /// `winit_menu_nav` / `winit_gameplay_order` drive the same handler so
+    /// automation can click, but they do **not** prove a human mouse
+    /// playthrough.
+    pub(super) fn handle_mouse_button_input(
+        &mut self,
+        button: MouseButton,
+        pressed: bool,
+        origin: MouseInputOrigin,
+    ) {
+        let x = self.mouse_position.0 as i32;
+        let y = self.mouse_position.1 as i32;
+        #[cfg(feature = "game_client")]
+        {
+            self.inject_game_client_mouse_button(button, pressed);
+        }
+        #[cfg(feature = "game_client")]
+        if pressed && self.current_state == GameState::Menu && !self.runtime_host_headless {
+            // C++ first-run reveal on first real mouse (CHAR path).
+            let _ = game_client::gui::reveal_main_menu_first_input_like_cpp();
+        }
+        // Real WM process_mouse_event residual (Used / NotUsed) — never forged.
+        let wnd_used_raw = self.dispatch_os_mouse_to_window_manager(button, pressed, x, y);
+        #[cfg(feature = "game_client")]
+        let live_hit = game_client::gui::note_os_wnd_widget_tree_hit(x, y);
+        #[cfg(not(feature = "game_client"))]
+        let live_hit = false;
+        let hit_wnd_widget = live_hit;
+        let in_world = matches!(self.current_state, GameState::InGame | GameState::Paused);
+        // InGame RMB: shell/HUD may soft-report Used without a live gadget under the
+        // cursor (fullscreen residual). World orders require a real gadget hit to
+        // steal the click — same honesty as physical: empty world → handle_right_click.
+        let wnd_used = if in_world && matches!(button, MouseButton::Right) {
+            wnd_used_raw && live_hit
+        } else {
+            wnd_used_raw
+        };
+        if matches!(button, MouseButton::Right) && in_world {
+            log::info!(
+                "RMB input pressed={pressed} wnd_used_raw={wnd_used_raw} live_hit={live_hit} wnd_used={wnd_used} pos=({x},{y})"
+            );
+        }
+
+        // Shell marks every click as Used while active, so require an enabled
+        // gadget hit as well before counting menu navigation.
+        if pressed && matches!(button, MouseButton::Left) && self.current_state == GameState::Menu {
+            // Physical OS mouse only. Injected control-file clicks must not
+            // latch wnd_widget_tree_nav / playable_claim.
+            let physical = matches!(origin, MouseInputOrigin::Physical) && !self.runtime_host_headless;
+            self.interactive_playability
+                .note_menu_wnd_click(physical, wnd_used, hit_wnd_widget);
+            #[cfg(feature = "game_client")]
+            if let Some(name) = game_client::gui::os_wnd_widget_under_cursor_name(x, y) {
+                self.interactive_playability
+                    .note_skirmish_path_gadget(physical, &name);
+            }
+        }
+        // One input path:
+        // - Shell/modal WND: WindowManager only (do not also soft UI).
+        // - InGame world: handle_left/right_click + presentation picks.
+        //   GameHUD cameo fallback only when WND did not consume.
+        #[cfg(feature = "game_client")]
+        let shell_active = game_client::gui::get_shell().is_shell_active();
+        #[cfg(not(feature = "game_client"))]
+        let shell_active = self.shell_menu_active;
+        let mut hud_cameo_consumed = false;
+        if let Some(ui_button) = Self::to_ui_mouse_button(button) {
+            if shell_active {
+                // Exclusive WND while shell is up.
+            } else if in_world && !wnd_used {
+                if pressed {
+                    hud_cameo_consumed = self.ui_manager.handle_mouse_click(x, y, ui_button);
+                }
+                self.ui_manager.handle_mouse_move(x, y);
+            } else if !in_world && !wnd_used {
+                if pressed {
+                    let _ = self.ui_manager.handle_mouse_click(x, y, ui_button);
+                }
+                self.ui_manager.handle_mouse_move(x, y);
+            }
+        }
+
+        if in_world && !wnd_used && !hud_cameo_consumed {
+            match (button, pressed) {
+                (MouseButton::Left, true) => {
+                    self.handle_left_click();
+                }
+                (MouseButton::Left, false) => {
+                    self.handle_left_release();
+                }
+                (MouseButton::Right, true) => {
+                    // Set anchor for drag-scroll; the actual right-click command
+                    // is deferred to release if the mouse didn't move
+                    // significantly (C++ LookAtXlat.cpp).
+                    self.rmb_scroll_anchor = Some(self.mouse_position);
+                    self.is_rmb_scrolling = true;
+                }
+                (MouseButton::Right, false) => {
+                    if self.is_rmb_scrolling {
+                        const DRAG_THRESHOLD_SQ: f32 = 9.0; // 3px squared
+                        if let Some(anchor) = self.rmb_scroll_anchor {
+                            let dx = self.mouse_position.0 - anchor.0;
+                            let dy = self.mouse_position.1 - anchor.1;
+                            if dx * dx + dy * dy < DRAG_THRESHOLD_SQ {
+                                let had_selection = !self.selected_objects.is_empty()
+                                    || !self.ui_selected_ids(self.current_player_id).is_empty();
+                                // Physical + inject share this order residual.
+                                log::info!(
+                                    "RMB world order: had_sel={had_selection} match={} headless={}",
+                                    self.interactive_playability.match_started_from_menu_wnd,
+                                    self.runtime_host_headless
+                                );
+                                self.handle_right_click();
+                                self.interactive_playability.note_gameplay_order(
+                                    matches!(origin, MouseInputOrigin::Physical)
+                                        && !self.runtime_host_headless,
+                                    had_selection,
+                                );
+                                log::info!(
+                                    "RMB world order latched gameplay_order={}",
+                                    self.interactive_playability.gameplay_order
+                                );
+                            }
+                        }
+                    }
+                    self.rmb_scroll_anchor = None;
+                    self.is_rmb_scrolling = false;
+                }
+                (MouseButton::Middle, true) => {
+                    self.is_mmb_rotating = true;
+                    self.mmb_anchor = Some(self.mouse_position);
+                }
+                (MouseButton::Middle, false) => {
+                    self.is_mmb_rotating = false;
+                    self.mmb_anchor = None;
+                }
+                _ => {}
+            }
+        }
+    }
+
+    /// Move the logical cursor as if a physical winit `CursorMoved` arrived.
+    /// Used by windowed sit-through inject only — not by `drive_os_wnd_*`.
+    ///
+    /// Sets engine cursor residual + GameClient soft mouse. Does **not** send
+    /// `MousePos` through `process_mouse_event` (op-drain hang class on shell).
+    /// Button inject still hits WM at these coordinates with full LeftDown/Up
+    /// dispatch + under-cursor residual.
+    pub(super) fn inject_winit_equivalent_cursor_at(&mut self, x: f32, y: f32) {
+        self.mouse_position = (x, y);
+        #[cfg(feature = "game_client")]
+        self.inject_game_client_mouse_move(x, y);
+        self.ui_manager.handle_mouse_move(x as i32, y as i32);
+    }
+
+    /// Press/release a mouse button through the shared WM path as **injected**
+    /// (control-file) input. Same dispatch as physical; does **not** latch
+    /// playable_claim evidence.
+    pub(super) fn inject_winit_equivalent_mouse_button(
+        &mut self,
+        button: MouseButton,
+        pressed: bool,
+    ) {
+        self.handle_mouse_button_input(button, pressed, MouseInputOrigin::Injected);
+    }
+
+    /// Resolve screen center of a live named WND gadget that is **under-cursor
+    /// hit-tested** at that center (enabled, not hidden, positive size).
+    ///
+    /// Returns `None` when the gadget is missing, hidden, disabled, zero-sized,
+    /// or `get_window_under_cursor` does not hit the named window (or a
+    /// descendant). Geometry-only residual is **not** enough.
+    #[cfg(feature = "game_client")]
+    pub(super) fn named_gadget_center_if_hittable(&self, name: &str) -> Option<(i32, i32)> {
+        use game_client::gui::window_manager::with_window_manager_ref;
+        use std::rc::Rc;
+
+        with_window_manager_ref(|manager| {
+            let window = manager.find_window_by_name(name)?;
+            let (sx, sy, w, h) = {
+                let guard = window.try_borrow().ok()?;
+                if guard.is_hidden() || !guard.is_enabled() {
+                    return None;
+                }
+                let (sx, sy) = guard.get_screen_position();
+                let (w, h) = guard.get_size();
+                if w <= 0 || h <= 0 {
+                    return None;
+                }
+                (sx, sy, w, h)
+            };
+            let x = sx + w / 2;
+            let y = sy + h / 2;
+            let hit = manager.get_window_under_cursor(x, y, false)?;
+            // Named gadget or a descendant under its own center (C++ hit residual).
+            let is_named_or_desc = {
+                if Rc::ptr_eq(&window, &hit) {
+                    true
+                } else {
+                    let mut current = hit.try_borrow().ok()?.get_parent();
+                    let mut found = false;
+                    while let Some(parent) = current {
+                        if Rc::ptr_eq(&parent, &window) {
+                            found = true;
+                            break;
+                        }
+                        current = parent.try_borrow().ok().and_then(|g| g.get_parent());
+                    }
+                    found
+                }
+            };
+            if !is_named_or_desc {
+                return None;
+            }
+            Some((x, y))
+        })
+    }
+
+    #[cfg(not(feature = "game_client"))]
+    pub(super) fn named_gadget_center_if_hittable(&self, _name: &str) -> Option<(i32, i32)> {
+        None
+    }
+
+    /// Left-click a live named WND gadget center through the winit-equivalent path.
+    ///
+    /// Returns true only when:
+    /// 1. the named window is found, enabled, and under-cursor hit-tested at center, and
+    /// 2. the click went through [`Self::handle_mouse_button_input`] as
+    ///    [`MouseInputOrigin::Injected`] (real WM dispatch).
+    ///
+    /// Does **not** use `drive_os_wnd_*`, does **not** call `note_*` directly,
+    /// and does **not** latch `menu_wnd_click` / playable_claim (inject ≠ physical).
+    pub(super) fn inject_winit_equivalent_named_gadget_click(&mut self, name: &str) -> bool {
+        let Some((x, y)) = self.named_gadget_center_if_hittable(name) else {
+            return false;
+        };
+        self.inject_winit_equivalent_cursor_at(x as f32, y as f32);
+        self.inject_winit_equivalent_mouse_button(MouseButton::Left, true);
+        self.inject_winit_equivalent_mouse_button(MouseButton::Left, false);
+        log::info!(
+            "inject_named_gadget_click({name}): state={:?} dispatched=true (inject, not physical)",
+            self.current_state
+        );
+        true
+    }
+
+    /// Right-click (press+release, no drag) through the **same** path as physical
+    /// RMB: world branch requires `!wnd_used`, calls `handle_right_click()`, then
+    /// may latch `note_gameplay_order` when selection is present and menu→match
+    /// already completed.
+    pub(super) fn inject_winit_equivalent_gameplay_order_click(&mut self) {
+        // Ensure shell layouts are marked hidden before RMB (match start already
+        // called hide, but ticks can leave residual MainMenu hit-testable).
+        #[cfg(feature = "game_client")]
+        {
+            let _ = game_client::gui::try_with_shell_mut(|shell| {
+                shell.hide(true);
+                shell.set_shell_active(false);
+            });
+            self.shell_menu_active = false;
+        }
+        // Aim at a world point the shell/HUD does not own. Fullscreen residual
+        // often reports Used + live hit at center; probe several view points and
+        // pick the first without a live under-cursor gadget so RMB reaches
+        // handle_right_click + note_gameplay_order (fifth claim flag).
+        let size = self.window.inner_size();
+        let w = size.width.max(2) as f32;
+        let h = size.height.max(2) as f32;
+        // Prefer mid-world / lower thirds (away from top menu chrome and bottom HUD).
+        let candidates: [(f32, f32); 8] = [
+            (0.50, 0.42),
+            (0.55, 0.35),
+            (0.45, 0.38),
+            (0.60, 0.45),
+            (0.40, 0.48),
+            (0.50, 0.55),
+            (0.70, 0.40),
+            (0.30, 0.40),
+        ];
+        let mut cx = w * candidates[0].0;
+        let mut cy = h * candidates[0].1;
+        #[cfg(feature = "game_client")]
+        {
+            let mut found_clear = false;
+            for (fx, fy) in candidates {
+                let x = w * fx;
+                let y = h * fy;
+                if !game_client::gui::note_os_wnd_widget_tree_hit(x as i32, y as i32) {
+                    cx = x;
+                    cy = y;
+                    found_clear = true;
+                    break;
+                }
+            }
+            if !found_clear {
+                // Last resort: deep into lower-right world residual.
+                cx = w * 0.72;
+                cy = h * 0.58;
+                log::info!(
+                    "inject_gameplay_order_click: no clear gadget-free point; last-resort ({cx:.0},{cy:.0})"
+                );
+            } else {
+                log::info!("inject_gameplay_order_click: clear world cursor=({cx:.0},{cy:.0})");
+            }
+        }
+        #[cfg(not(feature = "game_client"))]
+        {
+            log::info!("inject_gameplay_order_click: cursor=({cx:.0},{cy:.0})");
+        }
+        self.inject_winit_equivalent_cursor_at(cx, cy);
+        // If still gadget-owned after probe, force a second nudge (honest live residual).
+        #[cfg(feature = "game_client")]
+        {
+            if game_client::gui::note_os_wnd_widget_tree_hit(cx as i32, cy as i32) {
+                cx = w * 0.78;
+                cy = h * 0.62;
+                log::info!("inject_gameplay_order_click: still hit, force nudge ({cx:.0},{cy:.0})");
+                self.inject_winit_equivalent_cursor_at(cx, cy);
+            }
+        }
+        self.inject_winit_equivalent_mouse_button(MouseButton::Right, true);
+        self.inject_winit_equivalent_mouse_button(MouseButton::Right, false);
     }
 
     pub(super) fn to_ui_mouse_button(button: MouseButton) -> Option<crate::ui::MouseButton> {
@@ -539,6 +812,11 @@ impl CnCGameEngine {
         match new_state {
             GameState::Menu => {
                 info!("Entering Menu state — transition_to_state start");
+                // Latch Menu *before* show_shell_menu so status/control can observe
+                // Menu even if MainMenu.wnd init / map-cache work is slow. Without
+                // this, a hang inside MainMenuInit leaves state stuck at Loading and
+                // windowed inject never runs.
+                self.current_state = GameState::Menu;
                 // C++ shell menus keep the shell map simulation alive behind the UI.
                 self.host_set_paused(false);
                 self.active_menu_shell_hook = None;
@@ -759,6 +1037,13 @@ impl CnCGameEngine {
         // State-based update logic - matches C++ GameEngine::update() conditional updates
         match self.current_state {
             GameState::Menu => {
+                // First-run C++ hides the dropdown until CHAR/mouse. If the
+                // player is staring at terrain with no chrome, reveal after
+                // ~1.5s so Single Player / Skirmish become visible.
+                #[cfg(feature = "game_client")]
+                if self.menu_world_frames_rendered == 45 {
+                    let _ = game_client::gui::reveal_main_menu_first_input_like_cpp();
+                }
                 // Wave 605: Menu client residual via host helper.
                 if self.host_tick_menu_client_residuals(visual_dt, dt) {
                     return;
@@ -828,7 +1113,9 @@ impl CnCGameEngine {
     }
 
     /// Wave 542: mouse command classification is presentation-only when freeze installed.
-    pub(super) fn host_presentation_mouse_game_logic(&self) -> Option<&crate::game_logic::GameLogic> {
+    pub(super) fn host_presentation_mouse_game_logic(
+        &self,
+    ) -> Option<&crate::game_logic::GameLogic> {
         // Wave 609/841/906: always presentation-only mouse classification.
         // No live GameLogic dual-read for cursor/command classification.
         let _ = self;
@@ -855,6 +1142,9 @@ impl CnCGameEngine {
         #[cfg(feature = "game_client")]
         {
             pres.apply_to_control_bar(&mut self.control_bar);
+            let _ = self
+                .control_bar
+                .update(std::time::Duration::from_millis(33));
         }
         true
     }
@@ -875,6 +1165,15 @@ impl CnCGameEngine {
 
     pub fn render(&mut self) -> Result<()> {
         let render_started = Instant::now();
+        #[cfg(feature = "game_client")]
+        {
+            let size = self.window.inner_size();
+            if size.width > 0 && size.height > 0 {
+                let _ = game_client::gui::ui_globals::with_ui_renderer_mut(|renderer| {
+                    renderer.set_screen_size(size.width, size.height);
+                });
+            }
+        }
         static RENDER_CALL_COUNT: std::sync::atomic::AtomicU32 =
             std::sync::atomic::AtomicU32::new(0);
         let render_call = RENDER_CALL_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -952,7 +1251,10 @@ impl CnCGameEngine {
         // Keep match camera orbit→view_matrix coherent every draw. Shell→InGame
         // residual: update_camera may skip apply when no input, leaving a stale
         // view_matrix from the shell map.
-        if matches!(self.current_state, GameState::InGame | GameState::Paused) {
+        if matches!(
+            self.current_state,
+            GameState::InGame | GameState::Paused | GameState::Menu
+        ) {
             self.apply_camera_orbit_transform();
         }
 
@@ -961,6 +1263,17 @@ impl CnCGameEngine {
         // never dual-reads live GameLogic (immutable presentation boundary).
         // Wave 590: boot/render presentation seed via helper.
         self.host_ensure_presentation_frame_for_render();
+        // First InGame frames: boot camera still stares at the origin while
+        // Lone Eagle / ZH maps live hundreds of world units away.
+        if matches!(self.current_state, GameState::InGame | GameState::Paused) {
+            let at_origin = {
+                let t = self.camera_target;
+                t.x * t.x + t.z * t.z < 80.0 * 80.0
+            };
+            if at_origin {
+                self.snap_camera_to_local_units_if_needed();
+            }
+        }
         self.render_pipeline
             .set_presentation_frame(self.last_presentation_frame.clone());
         if let Some(pres) = self.last_presentation_frame.as_ref() {
@@ -1270,7 +1583,11 @@ impl CnCGameEngine {
     /// Wave 566/603: boot residual radar + GUIMessageReceived via host GameLogic.
     /// Presentation freeze must use `notify_presentation_ui_message` instead
     /// (no mid-frame GameLogic dual-write).
-    pub(super) fn notify_boot_ui_message(&mut self, message: &str, team: Option<crate::game_logic::Team>) {
+    pub(super) fn notify_boot_ui_message(
+        &mut self,
+        message: &str,
+        team: Option<crate::game_logic::Team>,
+    ) {
         // Wave 603: thin wrapper.
         self.host_notify_boot_ui_message(message, team);
     }
@@ -1414,7 +1731,10 @@ impl CnCGameEngine {
         let _ = self;
     }
 
-    pub(super) fn apply_presentation_to_huds(&mut self, pres: &crate::presentation_frame::PresentationFrame) {
+    pub(super) fn apply_presentation_to_huds(
+        &mut self,
+        pres: &crate::presentation_frame::PresentationFrame,
+    ) {
         // Dual GameHUD residual: engine HUD + interactive UIManager HUD.
         pres.apply_to_game_hud(&mut self.game_hud);
         pres.apply_to_game_hud(self.ui_manager.game_hud_mut());

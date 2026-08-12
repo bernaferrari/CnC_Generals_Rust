@@ -1,6 +1,8 @@
 //! Mouse/key dispatch, capture, grab, lone-window, and hit testing.
 #![allow(unused_imports)]
 
+use crate::gui::game_window::*;
+use crate::input::with_mouse;
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, VecDeque};
 use std::fs;
@@ -9,8 +11,6 @@ use std::rc::{Rc, Weak};
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
-use crate::gui::game_window::*;
-use crate::input::with_mouse;
 
 use super::*;
 
@@ -374,7 +374,11 @@ impl WindowManager {
         }
     }
 
-    pub(crate) fn find_tooltip_window_at_point(&self, x: i32, y: i32) -> Option<Rc<RefCell<GameWindow>>> {
+    pub(crate) fn find_tooltip_window_at_point(
+        &self,
+        x: i32,
+        y: i32,
+    ) -> Option<Rc<RefCell<GameWindow>>> {
         if let Some(modal) = &self.modal_stack {
             return Some(self.find_child_at_point_or_self(&modal.window, x, y, true));
         }
@@ -478,7 +482,7 @@ impl WindowManager {
                 if !matches_pass(window.borrow().get_status()) {
                     continue;
                 }
-                if let Some(found) = self.find_window_at_point(window, x, y, ignore_enabled) {
+                if let Some(found) = self.find_window_at_point_raw(window, x, y, ignore_enabled) {
                     return Self::filter_window_under_cursor(Some(found), ignore_enabled);
                 }
             }
@@ -502,7 +506,11 @@ impl WindowManager {
         }
     }
 
-    pub(crate) fn get_input_window_under_cursor(&self, x: i32, y: i32) -> Option<Rc<RefCell<GameWindow>>> {
+    pub(crate) fn get_input_window_under_cursor(
+        &self,
+        x: i32,
+        y: i32,
+    ) -> Option<Rc<RefCell<GameWindow>>> {
         if let Some(modal) = &self.modal_stack {
             return self.normalize_input_hit(self.find_window_at_point_raw(
                 &modal.window,

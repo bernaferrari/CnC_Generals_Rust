@@ -48,3 +48,22 @@ include!("kind_indices.rs");
 include!("partition.rs");
 include!("update_context.rs");
 include!("leftover.rs");
+
+/// Concatenated live sources for residual `include_str!` scans.
+pub const COMMON_TYPES_SRC: &str = concat!(
+    include_str!("mod.rs"),
+    include_str!("default_template.rs"),
+    include_str!("enums.rs"),
+    include_str!("geometry.rs"),
+    include_str!("ids.rs"),
+    include_str!("kind_indices.rs"),
+    include_str!("kindof.rs"),
+    include_str!("leftover.rs"),
+    include_str!("model_condition.rs"),
+    include_str!("partition.rs"),
+    include_str!("primitives.rs"),
+    include_str!("status_masks.rs"),
+    include_str!("thing_template.rs"),
+    include_str!("update_context.rs"),
+    include_str!("weapon_upgrade_masks.rs"),
+);

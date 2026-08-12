@@ -4,14 +4,16 @@
 use super::super::*;
 
 impl GameLogic {
-
     /// Residual Strategy Center Bombardment turret fire (StrategyCenterGun).
     ///
     /// C++ BattlePlanUpdate::enableTurret(true) residual path:
     /// PrimaryDamage **200** / radius **25**, range **400**, min **100**,
     /// Delay **7000**ms (210 frames). Fail-closed: not full turret recenter /
     /// ScatterRadius / projectile lob matrix.
-    pub(in super::super) fn try_strategy_center_bombardment_turret_fire(&mut self, center_id: ObjectId) {
+    pub(in super::super) fn try_strategy_center_bombardment_turret_fire(
+        &mut self,
+        center_id: ObjectId,
+    ) {
         use crate::game_logic::host_strategy_center::{
             is_legal_strategy_center_gun_target, strategy_center_gun_damage_at,
             strategy_center_gun_in_range, STRATEGY_CENTER_GUN_FIRE_AUDIO,
@@ -782,7 +784,11 @@ impl GameLogic {
     ///
     /// Same-team equivalent Patriots within **200** that are free to assist accept
     /// a clip of **4** assist-weapon shots (range **450**).
-    pub(in super::super) fn process_patriot_assist_request(&mut self, requester_id: ObjectId, victim_id: ObjectId) {
+    pub(in super::super) fn process_patriot_assist_request(
+        &mut self,
+        requester_id: ObjectId,
+        victim_id: ObjectId,
+    ) {
         use crate::game_logic::host_base_defense::{
             is_patriot_battery_structure, is_patriot_free_to_assist,
             is_within_patriot_assist_weapon_range, is_within_patriot_request_assist_range,

@@ -42,4 +42,3 @@ pub struct ModifierKeys {
     pub ctrl: bool,
     pub alt: bool,
 }
-

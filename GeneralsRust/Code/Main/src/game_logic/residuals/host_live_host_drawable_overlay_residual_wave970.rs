@@ -46,7 +46,7 @@ fn residual_action_store(a: ResidualHostDrawableOverlayResidualAction) {
 }
 
 fn cnc_source() -> &'static str {
-    include_str!("../../cnc_game_engine.rs")
+    crate::cnc_game_engine::ENGINE_SRC
 }
 
 fn gl_source() -> &'static str {
@@ -54,11 +54,11 @@ fn gl_source() -> &'static str {
 }
 
 fn drawable_source() -> &'static str {
-    include_str!("../../../../GameEngine/GameClient/src/drawable/drawable.rs")
+    game_client::drawable::drawable::DRAWABLE_SRC
 }
 
 fn client_source() -> &'static str {
-    include_str!("../../../../GameEngine/GameClient/src/core/game_client.rs")
+    game_client::core::game_client::GAME_CLIENT_SRC
 }
 
 pub fn honesty_host_drawable_overlay_residual_method_names_residual_wave970() -> bool {

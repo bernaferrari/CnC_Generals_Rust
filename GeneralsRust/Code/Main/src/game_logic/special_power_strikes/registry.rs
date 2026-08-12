@@ -247,7 +247,9 @@ impl HostSpecialPowerStrikeRegistry {
         &self.howitzer_shell_spawns_this_frame
     }
 
-    pub fn take_howitzer_shell_spawns_this_frame(&mut self) -> Vec<(ObjectId, crate::game_logic::Team, Vec3)> {
+    pub fn take_howitzer_shell_spawns_this_frame(
+        &mut self,
+    ) -> Vec<(ObjectId, crate::game_logic::Team, Vec3)> {
         std::mem::take(&mut self.howitzer_shell_spawns_this_frame)
     }
 
@@ -939,5 +941,4 @@ impl HostSpecialPowerStrikeRegistry {
         self.activated_this_frame.push(id);
         id
     }
-
 }

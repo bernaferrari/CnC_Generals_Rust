@@ -1,6 +1,7 @@
 //! Window lookup, z-order, hide/enable, and enabled/hidden ancestry.
 #![allow(unused_imports)]
 
+use crate::gui::game_window::*;
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, VecDeque};
 use std::fs;
@@ -9,7 +10,6 @@ use std::rc::{Rc, Weak};
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
-use crate::gui::game_window::*;
 
 use super::*;
 
@@ -393,7 +393,18 @@ impl WindowManager {
             self.capture_flags &= !CaptureFlags::MOUSE;
         }
 
-        let children = window.borrow().children().to_vec();
+        let children = match window.try_borrow() {
+            Ok(win) => win.children().to_vec(),
+            Err(_) => {
+                // Nested RefCell during MainMenu hide / Start callback.
+                // Queue instead of panic or fail-closed no-op.
+                let window = window.clone();
+                queue_window_manager_op(move |manager| {
+                    manager.window_hiding(&window);
+                });
+                return;
+            }
+        };
         for child in children {
             self.window_hiding(&child);
         }

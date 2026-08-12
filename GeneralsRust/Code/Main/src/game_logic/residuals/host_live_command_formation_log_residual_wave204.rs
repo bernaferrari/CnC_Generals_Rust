@@ -82,7 +82,7 @@ pub fn honesty_live_command_formation_log_residual_pack_wave204() -> bool {
 
 /// Source residual: execute_create_formation uses set_formation (no direct field writes).
 pub fn honesty_create_formation_uses_set_formation_source() -> bool {
-    let ce = include_str!("../../command_executor.rs");
+    let ce = crate::command_executor::COMMAND_EXECUTOR_SRC;
     let i = match ce.find("fn execute_create_formation") {
         Some(i) => i,
         None => return false,
@@ -96,7 +96,7 @@ pub fn honesty_create_formation_uses_set_formation_source() -> bool {
 
 /// Source residual: set_formation records host_formation_log.
 pub fn honesty_set_formation_logs_source() -> bool {
-    let src = include_str!("../object.rs");
+    let src = crate::game_logic::object::OBJECT_SRC;
     let i = match src.find("fn set_formation") {
         Some(i) => i,
         None => return false,

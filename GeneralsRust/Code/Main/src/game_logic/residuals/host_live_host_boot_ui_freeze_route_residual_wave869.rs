@@ -46,7 +46,7 @@ fn residual_action_store(a: ResidualHostBootUiFreezeRouteAction) {
 }
 
 fn cnc_source() -> &'static str {
-    include_str!("../../cnc_game_engine.rs")
+    crate::cnc_game_engine::ENGINE_SRC
 }
 
 pub fn honesty_host_boot_ui_freeze_route_method_names_residual_wave869() -> bool {

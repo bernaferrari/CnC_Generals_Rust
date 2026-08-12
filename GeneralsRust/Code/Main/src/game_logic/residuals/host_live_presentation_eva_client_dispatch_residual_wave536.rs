@@ -85,7 +85,7 @@ pub fn residual_presentation_eva_client_dispatch_last_action(
 }
 
 fn eng_source() -> &'static str {
-    include_str!("../../cnc_game_engine.rs")
+    crate::cnc_game_engine::ENGINE_SRC
 }
 
 fn log_source() -> &'static str {
@@ -93,7 +93,7 @@ fn log_source() -> &'static str {
 }
 
 fn pf_source() -> &'static str {
-    include_str!("../../presentation_frame.rs")
+    crate::presentation_frame::PRESENTATION_FRAME_SRC
 }
 
 pub fn honesty_presentation_eva_client_dispatch_method_names_residual_wave536() -> bool {

@@ -85,7 +85,7 @@ pub fn honesty_live_gameworld_entity_view_deepen_residual_pack_wave191() -> bool
 
 /// Source residual: GameWorldEntityView carries deepened fields.
 pub fn honesty_enriched_entity_view_source() -> bool {
-    let src = include_str!("../../gameworld_shadow.rs");
+    let src = crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC;
     let i = match src.find("pub struct GameWorldEntityView") {
         Some(i) => i,
         None => return false,
@@ -102,7 +102,7 @@ pub fn honesty_enriched_entity_view_source() -> bool {
 
 /// Source residual: presentation_view builds from live entities().
 pub fn honesty_view_from_live_entities_source() -> bool {
-    let src = include_str!("../../gameworld_shadow.rs");
+    let src = crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC;
     let i = match src.find("pub fn presentation_view_from_gameworld") {
         Some(i) => i,
         None => return false,

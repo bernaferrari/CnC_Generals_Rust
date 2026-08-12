@@ -111,7 +111,7 @@ fn fn_body<'a>(src: &'a str, name: &str) -> Option<&'a str> {
 
 /// Source residual: script evaluator empty dual-world short-circuits.
 pub fn honesty_script_evaluator_dual_world_empty_gate_source() -> bool {
-    let g = include_str!("../../../../GameEngine/GameLogic/src/scripting/evaluator.rs");
+    let g = gamelogic::scripting::evaluator::EVALUATOR_SRC;
     if !(g.contains("Wave 343")
         && g.contains("fn dual_world_registry_unavailable")
         && g.contains("OBJECT_REGISTRY.is_empty()"))

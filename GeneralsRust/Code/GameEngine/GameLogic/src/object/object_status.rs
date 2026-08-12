@@ -150,34 +150,32 @@ impl Object {
             }
         }
 
-        // Stealth/Detection status side effects (C++ lines 972-980)
-        // When any of the three key status bits for stealth go on or off,
-        // then handle partition updates for vision.
+        // Stealth/Detection status side effects (C++ lines 972-980).
+        // Partition vision only when shroud-reveal-to-all is actually used.
         if object_status.test_status(ObjectStatusTypes::Stealthed)
             || object_status.test_status(ObjectStatusTypes::Detected)
             || object_status.test_status(ObjectStatusTypes::Disguised)
         {
-            // Always update partition for stealth changes (C++ checks shroud reveal range)
-            self.handle_partition_cell_maintenance();
-            self.refresh_radar_object_from_state();
+            if self.get_template().get_shroud_reveal_to_all_range() > 0.0 {
+                self.handle_partition_cell_maintenance();
+            }
         }
 
-        // Under construction status side effects (C++ lines 985-1031)
-        // When an object's construction status changes, it needs to have its partition data updated,
-        // in order to maintain the shroud correctly.
+        // Under construction status side effects (C++ lines 985-1031).
+        // Potential-collision iterate; enemies detonate; allies/neutrals silent destroy.
         if self
             .status
             .test_status(ObjectStatusTypes::UnderConstruction)
             != old_status.test_status(ObjectStatusTypes::UnderConstruction)
         {
-            let radius = self
-                .get_geometry_info()
-                .get_bounding_sphere_radius()
-                .max(1.0);
             let position = *self.get_position();
+            let geometry = self.get_geometry_info().clone();
+            let orientation = self.get_orientation();
 
             if let Some(partition) = crate::helpers::ThePartitionManager::get() {
-                for object_id in partition.get_objects_in_range(&position, radius) {
+                for object_id in
+                    partition.iterate_potential_collisions(&position, &geometry, orientation)
+                {
                     if object_id == self.id {
                         continue;
                     }
@@ -187,7 +185,7 @@ impl Object {
                         continue;
                     };
 
-                    let (is_mine, relationship, behaviors) = {
+                    let (is_mine, relationship) = {
                         let Ok(obj_guard) = obj_arc.read() else {
                             continue;
                         };
@@ -197,7 +195,6 @@ impl Object {
                         (
                             obj_guard.is_kind_of(KindOf::Mine),
                             self.relationship_to(&obj_guard),
-                            obj_guard.get_behavior_modules(),
                         )
                     };
 
@@ -206,41 +203,20 @@ impl Object {
                     }
 
                     match relationship {
-                        Relationship::Allies => {
-                            let mut disarmed = false;
-                            for behavior in behaviors {
-                                if let Ok(mut behavior_guard) = behavior.lock() {
-                                    if let Some(land_mine) =
-                                        behavior_guard.get_land_mine_interface()
-                                    {
-                                        land_mine.disarm();
-                                        disarmed = true;
-                                        break;
-                                    }
-                                }
-                            }
-
-                            if !disarmed {
-                                if let Ok(mut obj_guard) = obj_arc.write() {
-                                    obj_guard.kill(
-                                        Some(DamageType::LandMine),
-                                        Some(DeathType::Exploded),
-                                    );
-                                }
-                            }
-                        }
                         Relationship::Enemies => {
                             if let Ok(mut obj_guard) = obj_arc.write() {
                                 obj_guard
                                     .kill(Some(DamageType::LandMine), Some(DeathType::Exploded));
                             }
                         }
-                        Relationship::Neutral => {}
+                        Relationship::Allies | Relationship::Neutral => {
+                            let _ = crate::helpers::TheGameLogic::destroy_object_by_id(object_id);
+                        }
                     }
                 }
             }
 
-            // Update partition for shroud changes (C++ line 1031)
+            // Update partition for shroud changes (C++ line 1010-1011)
             self.handle_partition_cell_maintenance();
         }
     }

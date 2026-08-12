@@ -63,6 +63,7 @@ pub fn create_model_binds_with_fow(
         Some(visibility.visibility_alpha),
         Some(visibility.visibility_falloff),
         Some(visibility.is_explored),
+        None, // live CSM: dummy empty map (projected fallback)
     )
 }
 

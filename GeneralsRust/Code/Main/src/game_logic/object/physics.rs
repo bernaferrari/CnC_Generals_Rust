@@ -1071,7 +1071,7 @@ impl Object {
     }
 
     /// Apply forward motive force to close speedDelta (C++ legs/other residual).
-    pub(in super) fn apply_forward_speed_force(&mut self, goal_speed: f32, dt: f32) {
+    pub(super) fn apply_forward_speed_force(&mut self, goal_speed: f32, dt: f32) {
         let actual = self.forward_speed_2d();
         // When moving backwards residual, treat signed speed.
         let actual = if self.moving_backwards {

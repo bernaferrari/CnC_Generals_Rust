@@ -12,12 +12,12 @@ impl GameLogic {
         // construction as to production queue speed.
         let team_power_factor = self.compute_team_power_factors();
 
-        // Pre-scan all dozer positions/teams so we don't borrow-conflict.
-        let dozer_info: Vec<(Vec3, Team)> = self
+        // Pre-scan dozers: exclusive dock = assigned to this building (C++ DozerAIUpdate).
+        let dozer_info: Vec<(Vec3, Team, Option<ObjectId>)> = self
             .objects
             .values()
             .filter(|obj| obj.is_alive() && obj.can_construct())
-            .map(|obj| (obj.get_position(), obj.team))
+            .map(|obj| (obj.get_position(), obj.team, obj.target))
             .collect();
 
         let mut completed_superweapon_detects: Vec<(Team, String)> = Vec::new();
@@ -29,6 +29,7 @@ impl GameLogic {
         let construction_sole = crate::gameworld_shadow::gameworld_construction_sole_tick_enabled();
         // Empty mid-update ready set: sole completes only via post-writeback helper (Wave 715).
         // Non-sole completes via projected percent (may_complete=true).
+        // Unmapped sole-tick also uses projected (no writeback entity).
         let ready_structures: std::collections::HashSet<ObjectId> =
             std::collections::HashSet::new();
         for &id in object_ids {
@@ -36,14 +37,18 @@ impl GameLogic {
                 if obj.status.under_construction {
                     let build_pos = obj.get_position();
                     let build_team = obj.team;
-                    // True nearby dozer count (0 allowed) for model-condition residual.
+                    // Exclusive dock: only dozers targeting this building contribute.
+                    // Nearby idle dozers do not ghost-progress (no max(1)).
                     let nearby_dozers = dozer_info
                         .iter()
-                        .filter(|(pos, t)| {
-                            *t == build_team && pos.distance(build_pos) <= BUILDER_RANGE
+                        .filter(|(pos, t, target)| {
+                            *t == build_team
+                                && *target == Some(id)
+                                && pos.distance(build_pos) <= BUILDER_RANGE
                         })
                         .count();
-                    let dozer_count = nearby_dozers.max(1); // At least 1 so AI-built structures still progress.
+                    // C++ DozerAIUpdate: no docked dozer ⇒ no progress. Do not invent a ghost builder.
+                    let dozer_count = nearby_dozers;
                     let actively_built = nearby_dozers > 0;
                     obj.set_under_construction_model_conditions(actively_built);
                     self.construction_model_condition_updates =
@@ -57,13 +62,18 @@ impl GameLogic {
                     // (Wave 617: readiness gated by host_construction_ready_log).
                     // Prior freeze without rate residual stalled builds — rate is logged.
                     let sole = crate::gameworld_shadow::gameworld_construction_sole_tick_enabled();
-                    let projected = if sole {
-                        // Last writeback percent (GW sole-ticks); host does not advance.
+                    let gw_mapped = crate::gameworld_shadow::coupled_host_mapped(id);
+                    // Sole-tick only when this object is actually in GameWorld.
+                    // Unmapped barracks (eager spawn miss) must keep host-advancing
+                    // *and storing* percent or they stay at 0 forever
+                    // (train_fail_no_ready_barracks).
+                    let projected = if sole && gw_mapped {
                         obj.construction_percent
                     } else {
                         (obj.construction_percent + effective_rate * dt).min(1.0)
                     };
-                    if !sole {
+                    if !sole || !gw_mapped {
+                        // Host-owned percent: no coupled entity, or sole-tick off.
                         obj.construction_percent = projected;
                         crate::game_logic::host_construction_progress_log::record(
                             id,
@@ -80,9 +90,10 @@ impl GameLogic {
                         );
                     }
 
-                    // Wave 617/713: under sole-tick, only complete ready-log IDs.
-                    // Empty ready log ⇒ no host percent-complete scan (GW readiness authority).
-                    let may_complete = if construction_sole {
+                    // Wave 617/713: mapped sole-tick completes only via ready-log.
+                    // Unmapped objects never appear in writeback, so host must
+                    // complete them when projected hits 1.0.
+                    let may_complete = if construction_sole && gw_mapped {
                         ready_structures.contains(&id)
                     } else {
                         true
@@ -109,7 +120,8 @@ impl GameLogic {
                         // C++ onStructureConstructionComplete SuperweaponDetected residual.
                         completed_superweapon_detects.push((obj.team, obj.template_name.clone()));
                         completed_structures.push(id);
-                    } else {
+                    } else if !(construction_sole && gw_mapped) {
+                        // GW owns HP while mapped sole-tick; do not heal-log HashMap percent.
                         let build_hp = obj.health.maximum * (0.1 + 0.9 * projected);
                         if crate::gameworld_shadow::gameworld_damage_authority_live() {
                             crate::game_logic::host_heal_log::record(id, build_hp);
@@ -135,11 +147,13 @@ impl GameLogic {
                         radar_extend_done.push(id);
                     }
                 }
-                // Wave 743: under production sole-tick, GameWorld owns door phase
-                // advance + writeback; host must not dual-tick door residual.
-                if !crate::gameworld_shadow::gameworld_production_sole_tick_enabled() {
-                    let _ = obj.tick_production_door(self.frame);
-                }
+                // C++ `ProductionUpdate::updateDoors` owns the visual door
+                // state.  GameWorld sole-ticks queue progress, but has no door
+                // phase timer; skipping this host tick freezes a factory before
+                // WAITING_OPEN and causes speculative shadow spawns to leak.
+                // The resulting host event is mirrored into GameWorld at the
+                // coupled boundary, so there is no second door timer.
+                let _ = obj.tick_production_door(self.frame);
                 // Wave 626: under construction sole-tick, GW ready-log owns clear
                 // residual; host tick still advances non-sole path.
                 if !crate::gameworld_shadow::gameworld_construction_sole_tick_enabled() {
@@ -299,6 +313,20 @@ impl GameLogic {
         }
     }
 
+    fn publish_production_power_factors(&self) {
+        let team_power_factor = self.compute_team_power_factors();
+        for (&id, obj) in self.objects.iter() {
+            if !obj.is_constructed() || !obj.is_alive() || obj.is_disabled() {
+                continue;
+            }
+            if obj.building_data.is_none() {
+                continue;
+            }
+            let pf = team_power_factor.get(&obj.team).copied().unwrap_or(1.0);
+            crate::game_logic::host_production_progress_log::record_power_factor_only(id, pf);
+        }
+    }
+
     pub(in super::super) fn update_production(&mut self, dt: f32) {
         // Wave 613: production complete collect + apply via host helpers.
         // Under PRODUCTION_AUTHORITY sole-tick, GameWorld advances queue progress
@@ -306,6 +334,7 @@ impl GameLogic {
         // shadow writeback same frame (Wave 714) so ready-log is not a frame late.
         // Wave 875: sole-tick early-return honesty — no host dual-advance.
         if crate::gameworld_shadow::gameworld_production_sole_tick_enabled() {
+            self.publish_production_power_factors();
             return;
         }
         let (upgrade_completions, unit_completions) = self.host_collect_production_completions(dt);
@@ -384,6 +413,26 @@ impl GameLogic {
             }
             if let Some(building) = obj.building_data.as_mut() {
                 let pf = team_power_factor.get(&obj.team).copied().unwrap_or(1.0);
+                // C++ ProductionUpdate: when NumDoorAnimations > 0, hold complete
+                // until the door is WAITING_OPEN. Start the cycle when the head is ready.
+                let doors = crate::game_logic::host_production_buildable_command_residual::producer_num_door_animations(
+                    &obj.template_name,
+                );
+                let head_ready = building
+                    .production_queue
+                    .first()
+                    .is_some_and(|item| item.progress >= item.total_time);
+                if head_ready
+                    && !crate::game_logic::host_production_buildable_command_residual::production_door_allows_spawn(
+                        doors,
+                        obj.production_door_phase,
+                    )
+                {
+                    if obj.production_door_phase == 0 {
+                        obj.start_production_door_cycle(self.frame);
+                    }
+                    continue;
+                }
                 // Under PRODUCTION_AUTHORITY, GameWorld ticks queue progress;
                 // host only exits delay + completes when writeback already finished the head.
                 let completed_prod = if sole {
@@ -1004,13 +1053,17 @@ impl GameLogic {
                     );
                 } else if i == 0 {
                     // Fallback retail short names for unit0 only.
-                    let fallback = match player.team {
-                        Team::USA => "AmericaVehicleDozer",
-                        Team::China => "ChinaVehicleDozer",
-                        Team::GLA => "GLAInfantryWorker",
-                        Team::Neutral => "",
+                    // USA: ThingFactory AmericaVehicleDozer, then host USA_Dozer.
+                    let fallbacks: &[&str] = match player.team {
+                        Team::USA => &["AmericaVehicleDozer", "USA_Dozer"],
+                        Team::China => &["ChinaVehicleDozer", "China_Dozer"],
+                        Team::GLA => &["GLAInfantryWorker", "GLA_Worker"],
+                        Team::Neutral => &[],
                     };
-                    if !fallback.is_empty() {
+                    for fallback in fallbacks {
+                        if fallback.eq_ignore_ascii_case(unit_name) {
+                            continue;
+                        }
                         if let Some(id) = self.create_object(fallback, player.team, unit_pos) {
                             log::info!(
                                 "Wave 832: starting unit fallback player={} {} id={:?}",
@@ -1018,6 +1071,7 @@ impl GameLogic {
                                 fallback,
                                 id
                             );
+                            break;
                         }
                     }
                 }

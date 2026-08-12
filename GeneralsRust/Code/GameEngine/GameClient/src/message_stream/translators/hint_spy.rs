@@ -182,7 +182,10 @@ pub(super) fn hint_visual_for_message(msg: &GameMessageType) -> Option<HintVisua
         true
     }
 
-    pub(super) fn pending_command_hint_cursor(pending: &PendingCommand, valid: bool) -> &'static str {
+    pub(super) fn pending_command_hint_cursor(
+        pending: &PendingCommand,
+        valid: bool,
+    ) -> &'static str {
         let cursor_name = if valid {
             pending.cursor_name.as_str()
         } else if pending_command_uses_context_cursor_behavior(pending) {
@@ -396,4 +399,3 @@ impl GameMessageTranslator for HintSpy {
         }
     }
 }
-

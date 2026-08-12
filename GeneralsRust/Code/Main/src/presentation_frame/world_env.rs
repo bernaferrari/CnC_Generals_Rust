@@ -40,8 +40,73 @@ pub struct PresentationTerrainTextureClass {
     pub name: String,
 }
 
+/// Serializable copy of the per-blend metadata used by a runtime heightmap.
+///
+/// `BlendTileInfo` belongs to the optional GameClient crate, while a
+/// `PresentationRuntimeHeightmap` must also be representable without that
+/// feature.  Keep the snapshot-owned form here so a presentation frame does
+/// not discard the alpha/flip metadata needed to rebuild its terrain mesh.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PresentationBlendTileInfo {
+    pub blend_ndx: i32,
+    pub horiz: u8,
+    pub vert: u8,
+    pub right_diagonal: u8,
+    pub left_diagonal: u8,
+    pub inverted: u8,
+    pub long_diagonal: u8,
+    pub custom_blend_edge_class: i32,
+}
+
+impl Default for PresentationBlendTileInfo {
+    fn default() -> Self {
+        // Match `game_client::terrain::textures::BlendTileInfo::new()`.
+        Self {
+            blend_ndx: 0,
+            horiz: 0,
+            vert: 0,
+            right_diagonal: 0,
+            left_diagonal: 0,
+            inverted: 0,
+            long_diagonal: 0,
+            custom_blend_edge_class: -1,
+        }
+    }
+}
+
+impl PresentationBlendTileInfo {
+    #[cfg(feature = "game_client")]
+    fn from_game_client(tile: &game_client::terrain::textures::BlendTileInfo) -> Self {
+        Self {
+            blend_ndx: tile.blend_ndx,
+            horiz: tile.horiz,
+            vert: tile.vert,
+            right_diagonal: tile.right_diagonal,
+            left_diagonal: tile.left_diagonal,
+            inverted: tile.inverted,
+            long_diagonal: tile.long_diagonal,
+            custom_blend_edge_class: tile.custom_blend_edge_class,
+        }
+    }
+
+    #[cfg(feature = "game_client")]
+    fn to_game_client(&self) -> game_client::terrain::textures::BlendTileInfo {
+        game_client::terrain::textures::BlendTileInfo {
+            blend_ndx: self.blend_ndx,
+            horiz: self.horiz,
+            vert: self.vert,
+            right_diagonal: self.right_diagonal,
+            left_diagonal: self.left_diagonal,
+            inverted: self.inverted,
+            long_diagonal: self.long_diagonal,
+            custom_blend_edge_class: self.custom_blend_edge_class,
+        }
+    }
+}
+
 /// Frozen runtime heightmap for terrain-visual bake without live GameLogic.
-/// Mirrors `game_client::terrain::height_map::HeightMap` POD fields.
+/// Mirrors all `game_client::terrain::height_map::HeightMap` data used by the
+/// terrain bake, including secondary blend metadata.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct PresentationRuntimeHeightmap {
     pub width: u32,
@@ -54,6 +119,15 @@ pub struct PresentationRuntimeHeightmap {
     pub border_size: i32,
     pub tile_ndxes: Vec<i16>,
     pub blend_tile_ndxes: Vec<i16>,
+    #[serde(default)]
+    pub extra_blend_tile_ndxes: Vec<i16>,
+    /// C++ `m_blendedTiles`, required to recover normal extra-blend alpha and
+    /// winding information after the immutable presentation hand-off.
+    #[serde(default)]
+    pub blended_tiles: Vec<PresentationBlendTileInfo>,
+    /// C++ `m_extraBlendedTiles`, the fallback metadata bank for extra blend.
+    #[serde(default)]
+    pub extra_blended_tiles: Vec<PresentationBlendTileInfo>,
     pub draw_origin_x: i32,
     pub draw_origin_y: i32,
     pub draw_width: i32,
@@ -74,6 +148,17 @@ impl PresentationRuntimeHeightmap {
             border_size: hm.border_size,
             tile_ndxes: hm.tile_ndxes.clone(),
             blend_tile_ndxes: hm.blend_tile_ndxes.clone(),
+            extra_blend_tile_ndxes: hm.extra_blend_tile_ndxes.clone(),
+            blended_tiles: hm
+                .blended_tiles
+                .iter()
+                .map(PresentationBlendTileInfo::from_game_client)
+                .collect(),
+            extra_blended_tiles: hm
+                .extra_blended_tiles
+                .iter()
+                .map(PresentationBlendTileInfo::from_game_client)
+                .collect(),
             draw_origin_x: hm.draw_origin_x,
             draw_origin_y: hm.draw_origin_y,
             draw_width: hm.draw_width,
@@ -94,6 +179,17 @@ impl PresentationRuntimeHeightmap {
             border_size: self.border_size,
             tile_ndxes: self.tile_ndxes.clone(),
             blend_tile_ndxes: self.blend_tile_ndxes.clone(),
+            extra_blend_tile_ndxes: self.extra_blend_tile_ndxes.clone(),
+            blended_tiles: self
+                .blended_tiles
+                .iter()
+                .map(PresentationBlendTileInfo::to_game_client)
+                .collect(),
+            extra_blended_tiles: self
+                .extra_blended_tiles
+                .iter()
+                .map(PresentationBlendTileInfo::to_game_client)
+                .collect(),
             draw_origin_x: self.draw_origin_x,
             draw_origin_y: self.draw_origin_y,
             draw_width: self.draw_width,
@@ -105,6 +201,25 @@ impl PresentationRuntimeHeightmap {
         self.width > 0
             && self.height > 0
             && self.heights.len() == (self.width as usize).saturating_mul(self.height as usize)
+    }
+
+    /// C++ `m_extraBlendTilePositions`: `i | (j << 16)` for cells with extra blend.
+    pub fn extra_blend_tile_positions(&self) -> Vec<u32> {
+        let width = self.width as i32;
+        let height = self.height as i32;
+        if width < 2 || height < 2 {
+            return Vec::new();
+        }
+        let mut positions = Vec::new();
+        for j in 0..(height - 1) {
+            for i in 0..(width - 1) {
+                let ndx = (j * width + i) as usize;
+                if self.extra_blend_tile_ndxes.get(ndx).copied().unwrap_or(0) > 0 {
+                    positions.push((i as u32) | ((j as u32) << 16));
+                }
+            }
+        }
+        positions
     }
 }
 

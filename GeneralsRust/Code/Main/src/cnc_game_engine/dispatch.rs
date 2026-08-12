@@ -121,11 +121,18 @@ impl CnCGameEngine {
     }
 
     pub(super) fn take_startup_messages_from_stream(
+        owner_gen: u64,
     ) -> Result<Vec<game_engine::common::message_stream::GameMessage>, String> {
+        if !startup_worker_owns(owner_gen) {
+            return Err("startup worker abandoned; host owns session (skip stream clear)".into());
+        }
         let stream = game_engine::common::message_stream::get_message_stream();
         let mut stream_guard = stream
             .write()
             .map_err(|_| "failed to acquire startup message stream lock".to_string())?;
+        if !startup_worker_owns(owner_gen) {
+            return Err("startup worker abandoned; host owns session (skip stream clear)".into());
+        }
         let messages = stream_guard
             .get_messages()
             .iter()
@@ -135,7 +142,9 @@ impl CnCGameEngine {
         Ok(messages)
     }
 
-    pub(super) fn apply_startup_new_game_dispatch(dispatch: StartupNewGameDispatch) -> Option<String> {
+    pub(super) fn apply_startup_new_game_dispatch(
+        dispatch: StartupNewGameDispatch,
+    ) -> Option<String> {
         let mut prepared_map_name = None;
         let mut global = game_engine::common::global_data::write();
 
@@ -321,11 +330,10 @@ impl CnCGameEngine {
     /// `unwrap_or(!headless)`). Headless stays false even if the hidden
     /// window later reports `Some(true)`.
     pub(super) fn runtime_host_window_visible(&self) -> bool {
-        !self.runtime_host_headless
-            && self
-                .window
-                .is_visible()
-                .unwrap_or(!self.runtime_host_headless)
+        crate::executable_smoke::ExecutableSmokeResult::window_visible_from_winit_query(
+            self.runtime_host_headless,
+            self.window.is_visible(),
+        )
     }
 
     pub(super) fn set_runtime_ui_state_projection(&mut self, state: UISystemState) {
@@ -511,10 +519,9 @@ impl CnCGameEngine {
             // Snapshot stays false; publish_status ORs a real promoted capture.
             live_frame_ok: false,
             window_visible: self.runtime_host_window_visible(),
-            // Do not publish the GUI singleton's broad sticky hit bit here: scripted
-            // WND helpers and a pointer hover can set it without a real menu→match
-            // sit-through.  This is physical winit input plus the authoritative
-            // offline start path only.
+            // Physical winit MouseInput **or** winit-equivalent inject that
+            // re-enters handle_mouse_button_input after a real gadget hit /
+            // RMB order. Not drive_os_wnd_* and not direct note_* from host cmds.
             wnd_widget_tree_nav: self.interactive_playability.wnd_menu_to_match_complete(),
             interactive_gameplay: self.interactive_playability.gameplay_complete(),
             pending_capture: self.runtime_host_pending_capture,

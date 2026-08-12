@@ -187,4 +187,3 @@ pub fn scatter_aim_offset(seed: u32, scatter_radius: f32) -> glam::Vec3 {
     // Gameplay XZ plane residual (Y up).
     glam::Vec3::new(r * ang.cos(), 0.0, r * ang.sin())
 }
-

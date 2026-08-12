@@ -80,4 +80,3 @@ pub(super) fn is_pending_gui_non_context_command(pending: &PendingCommand) -> bo
             | CommandType::Evacuate
     )
 }
-

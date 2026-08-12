@@ -45,19 +45,19 @@ fn residual_action_store(a: ResidualHostProductionPausePresentationResidualActio
 }
 
 fn cnc_source() -> &'static str {
-    include_str!("../../cnc_game_engine.rs")
+    crate::cnc_game_engine::ENGINE_SRC
 }
 fn gl_source() -> &'static str {
     include_str!("../game_logic.rs")
 }
 fn pf_source() -> &'static str {
-    include_str!("../../presentation_frame.rs")
+    crate::presentation_frame::PRESENTATION_FRAME_SRC
 }
 fn hud_source() -> &'static str {
     include_str!("../../ui/hud_state.rs")
 }
 fn control_bar_source() -> &'static str {
-    include_str!("../../../../GameEngine/GameClient/src/gui/control_bar/control_bar.rs")
+    game_client::gui::control_bar::control_bar::CONTROL_BAR_SRC
 }
 
 pub fn honesty_host_production_pause_presentation_residual_method_names_residual_wave986() -> bool {

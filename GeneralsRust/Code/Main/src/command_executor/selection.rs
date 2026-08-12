@@ -20,7 +20,6 @@ use glam::Vec3;
 use log::{debug, warn};
 use std::collections::{HashMap, HashSet};
 
-
 impl<'a> CommandExecutor<'a> {
     // === Selection Commands ===
 
@@ -99,5 +98,4 @@ impl<'a> CommandExecutor<'a> {
             CommandResult::InvalidCommand
         }
     }
-
 }

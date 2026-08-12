@@ -135,4 +135,3 @@ impl CommandableObject for Object {
         Object::stop(self);
     }
 }
-

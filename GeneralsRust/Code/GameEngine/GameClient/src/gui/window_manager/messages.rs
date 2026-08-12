@@ -1,6 +1,7 @@
 //! System and input message forwarding.
 #![allow(unused_imports)]
 
+use crate::gui::game_window::*;
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, VecDeque};
 use std::fs;
@@ -9,7 +10,6 @@ use std::rc::{Rc, Weak};
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
-use crate::gui::game_window::*;
 
 use super::*;
 

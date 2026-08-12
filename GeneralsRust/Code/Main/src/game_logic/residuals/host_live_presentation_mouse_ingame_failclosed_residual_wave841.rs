@@ -41,7 +41,7 @@ fn residual_action_store(a: ResidualPresentationMouseIngameFailclosedAction) {
 }
 
 fn cnc_source() -> &'static str {
-    include_str!("../../cnc_game_engine.rs")
+    crate::cnc_game_engine::ENGINE_SRC
 }
 
 pub fn honesty_presentation_mouse_ingame_failclosed_method_names_residual_wave841() -> bool {

@@ -114,8 +114,9 @@ fn fn_body<'a>(src: &'a str, name: &str) -> Option<&'a str> {
 
 /// Source residual: bunker buster empty dual-world short-circuits.
 pub fn honesty_bunker_buster_dual_world_empty_gate_source() -> bool {
-    let g =
-        include_str!("../../../../GameEngine/GameLogic/src/object/behavior/bunker_buster_behavior.rs");
+    let g = include_str!(
+        "../../../../GameEngine/GameLogic/src/object/behavior/bunker_buster_behavior.rs"
+    );
     if !(g.contains("Wave 334")
         && g.contains("fn dual_world_registry_unavailable")
         && g.contains("OBJECT_REGISTRY.is_empty()"))

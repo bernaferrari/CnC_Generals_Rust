@@ -561,6 +561,12 @@ pub trait Xfer {
         self.xfer_implementation(data, data_size)
     }
 
+    /// Safe wrapper around `xfer_user` for a Rust slice (C++ `xferUser` over a buffer).
+    fn xfer_user_bytes(&mut self, data: &mut [u8]) -> io::Result<()> {
+        // SAFETY: `data` is a live exclusive slice of `data.len()` bytes.
+        unsafe { self.xfer_user(data.as_mut_ptr(), data.len()) }
+    }
+
     /// Xfer object ID (ObjectID is serialized as unsigned int in modern paths)
     /// Matches C++ Xfer.cpp lines 357-362
     fn xfer_object_id(&mut self, object_id: &mut u32) -> io::Result<()> {

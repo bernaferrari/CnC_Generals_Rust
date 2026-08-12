@@ -93,12 +93,19 @@ pub mod download_debug;
 pub mod downloaddefs;
 pub mod ftp;
 pub mod ftpdefs;
+#[cfg(windows)]
 pub mod registry;
 pub use config::{ConfigManager, DownloadConfig};
 pub use download::{ConsoleDownloadListener, DownloadListener, DownloadManager, ProgressInfo};
 pub use error::{DownloadError, DownloadEvent, DownloadResult, DownloadStatus};
 pub use ftp_client::{FtpClient, FtpConfig, FtpProgressCallback};
+#[cfg(windows)]
 pub use registry::{
+    get_string_from_registry, get_unsigned_int_from_registry, set_string_in_registry,
+    set_unsigned_int_in_registry,
+};
+#[cfg(not(windows))]
+pub use config::{
     get_string_from_registry, get_unsigned_int_from_registry, set_string_in_registry,
     set_unsigned_int_in_registry,
 };

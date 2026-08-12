@@ -80,7 +80,7 @@ pub fn honesty_live_command_attack_log_residual_pack_wave197() -> bool {
 
 /// Source residual: execute_attack records host_attack_log (directly or via unit_command_attack).
 pub fn honesty_execute_attack_records_source() -> bool {
-    let src = include_str!("../../command_executor.rs");
+    let src = crate::command_executor::COMMAND_EXECUTOR_SRC;
     let i = match src.find("fn execute_attack(") {
         Some(i) => i,
         None => return false,
@@ -102,7 +102,7 @@ pub fn honesty_execute_attack_records_source() -> bool {
 
 /// Source residual: shadow drains host_attack_log.
 pub fn honesty_shadow_drains_attack_log_source() -> bool {
-    let src = include_str!("../../gameworld_shadow.rs");
+    let src = crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC;
     src.contains("host_attack_log::drain") && src.contains("queue_set_attack_target_for_host")
 }
 

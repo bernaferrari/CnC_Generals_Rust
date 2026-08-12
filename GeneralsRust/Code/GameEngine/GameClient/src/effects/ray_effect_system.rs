@@ -112,10 +112,11 @@ pub fn delete_ray_effect(drawable_id: u32) -> bool {
 /// C++ `RayEffectSystem::getRayEffectData`.
 pub fn get_ray_effect_data(drawable_id: u32) -> Option<LiveRayEffect> {
     let store = global_rays().lock().unwrap_or_else(|e| e.into_inner());
-    store
-        .slots
-        .iter()
-        .find_map(|slot| slot.as_ref().filter(|e| e.drawable_id == drawable_id).cloned())
+    store.slots.iter().find_map(|slot| {
+        slot.as_ref()
+            .filter(|e| e.drawable_id == drawable_id)
+            .cloned()
+    })
 }
 
 pub fn live_ray_effects() -> Vec<LiveRayEffect> {
@@ -171,11 +172,8 @@ mod tests {
         let secondary_offset = [-1.0_f32, 0.0, 1.0];
 
         let mut nugget = RayEffectFXNugget::new("GenericLaser".to_string());
-        nugget.primary_offset = Vector3::new(
-            primary_offset[0],
-            primary_offset[1],
-            primary_offset[2],
-        );
+        nugget.primary_offset =
+            Vector3::new(primary_offset[0], primary_offset[1], primary_offset[2]);
         nugget.secondary_offset = Vector3::new(
             secondary_offset[0],
             secondary_offset[1],
@@ -202,7 +200,11 @@ mod tests {
         );
 
         let rays = live_ray_effects();
-        assert_eq!(rays.len(), 1, "RayEffectFXNugget must call create_ray_effect_by_template");
+        assert_eq!(
+            rays.len(),
+            1,
+            "RayEffectFXNugget must call create_ray_effect_by_template"
+        );
 
         let exp_start = [
             primary[0] + primary_offset[0],

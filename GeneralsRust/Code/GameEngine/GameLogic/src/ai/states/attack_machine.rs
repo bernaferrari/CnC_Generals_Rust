@@ -93,16 +93,13 @@ pub(crate) fn in_weapon_range_object_state(base: &State) -> Result<bool, String>
 /// aim when the weapon is in range.
 /// C++ Reference: AIStates.cpp:314-316 portableStructureChaseConditions
 pub(crate) fn in_weapon_range_object_chase(
-    _state: &AIAttackPursueTargetState,
+    state: &AIAttackPursueTargetState,
     _user_data: &StateTransitionUserData,
 ) -> Result<bool, String> {
-    // Portable structure riders use a ContinueState in C++, which means
-    // they just fall through to the next state. The condition check here
-    // delegates to the base state check.
-    // Note: The actual portable structure chase in C++ uses a ContinueState
-    // that always transitions back to AIM when in range. This function
-    // provides the inWeaponRangeObject condition for that transition.
-    Ok(true) // ContinueState always passes through; range is checked by aim state
+    // C++ AIStates.cpp:313-326 portableStructureChaseConditions uses
+    // inWeaponRangeObject — not a permanent true. Riders stay in AIM/FIRE
+    // only when the current weapon can already reach the goal object.
+    in_weapon_range_object_state(&state.base.base)
 }
 
 
@@ -112,10 +109,11 @@ pub(crate) fn in_weapon_range_object_chase(
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AttackSubStateId {
-    AimAtTarget = 1,
-    FireWeapon = 2,
-    PursueTarget = 3,
-    ApproachTarget = 4,
+    // C++ AIStateMachine.h AttackStateMachine::StateType
+    PursueTarget = 0,   // CHASE_TARGET
+    ApproachTarget = 1, // APPROACH_TARGET
+    AimAtTarget = 2,    // AIM_AT_TARGET
+    FireWeapon = 3,     // FIRE_WEAPON
 }
 
 

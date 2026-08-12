@@ -3,7 +3,6 @@
 use super::super::*;
 use super::helpers::*;
 
-
 /// Residual: TurretAI mood matrix Sleep/Passive + bone pitch drawable.
 ///
 /// C++ AttitudeType / getMoodMatrixActionAdjustment(MM_Action_Idle):
@@ -124,8 +123,7 @@ fn strategy_center_turret_mood_matrix_sleep_passive_residual() {
             sc.turret_pitch_deg
         );
         // Bone pitch drawable residual from TurretAI angles.
-        let bone =
-            strategy_center_turret_bone_drawable(sc.turret_angle_deg, sc.turret_pitch_deg);
+        let bone = strategy_center_turret_bone_drawable(sc.turret_angle_deg, sc.turret_pitch_deg);
         assert!((bone.pitch_deg - STRATEGY_CENTER_FIRE_PITCH_DEG).abs() < 0.01);
         assert!(!bone.is_natural || bone.yaw_deg.abs() < 5.0);
     }
@@ -931,8 +929,7 @@ fn strategy_center_stealth_detector_detection_rate_residual() {
 #[test]
 fn strategy_center_battle_plan_door_animation_residual() {
     use crate::game_logic::host_strategy_center::{
-        HostBattlePlan, HostBattlePlanDoor, HostBattlePlanTransition,
-        BATTLE_PLAN_ANIMATION_FRAMES,
+        HostBattlePlan, HostBattlePlanDoor, HostBattlePlanTransition, BATTLE_PLAN_ANIMATION_FRAMES,
     };
 
     let mut game_logic = GameLogic::new();
@@ -1211,11 +1208,10 @@ fn strategy_center_delayed_set_battle_plan_and_turret_recenter_residual() {
                 .unwrap_or(false);
             assert!(centering, "must still be recentering at step {step}");
             if let Some(sc) = game_logic.host_object_mut(sc_id) {
-                let (a, p) =
-                    crate::game_logic::host_strategy_center::step_turret_toward_natural(
-                        sc.turret_angle_deg,
-                        sc.turret_pitch_deg,
-                    );
+                let (a, p) = crate::game_logic::host_strategy_center::step_turret_toward_natural(
+                    sc.turret_angle_deg,
+                    sc.turret_pitch_deg,
+                );
                 sc.turret_angle_deg = a;
                 sc.turret_pitch_deg = p;
             }
@@ -1395,8 +1391,7 @@ fn emergency_repair_residual_heals_damaged_ally_vehicles() {
     assert!(
         (restored - HostEmergencyRepairLevel::One.heal_amount()).abs() < 0.05
             || restored > 0.0
-                && ally_hp_after
-                    >= game_logic.host_object(ally_id).unwrap().health.maximum - 0.01,
+                && ally_hp_after >= game_logic.host_object(ally_id).unwrap().health.maximum - 0.01,
         "in-radius damaged ally vehicle must receive Level1 heal (+100), restored={restored}"
     );
     assert!(
@@ -1966,9 +1961,7 @@ fn leaflet_drop_residual_disables_enemy_infantry_and_vehicles() {
 
 #[test]
 fn radar_scan_spawns_radar_van_ping_object() {
-    use crate::game_logic::host_radar_scan::{
-        RADAR_SCAN_DURATION_FRAMES, RADAR_VAN_PING_TEMPLATE,
-    };
+    use crate::game_logic::host_radar_scan::{RADAR_SCAN_DURATION_FRAMES, RADAR_VAN_PING_TEMPLATE};
     use crate::game_logic::KindOf;
     let mut logic = GameLogic::new();
     ensure_test_player_for_team(&mut logic, Team::GLA);
@@ -1978,12 +1971,7 @@ fn radar_scan_spawns_radar_van_ping_object() {
     let van_id = logic
         .create_object("GLAVehicleRadarVan", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
         .unwrap();
-    assert!(logic.activate_radar_scan(
-        0,
-        Team::GLA,
-        Vec3::new(100.0, 0.0, 100.0),
-        Some(van_id),
-    ));
+    assert!(logic.activate_radar_scan(0, Team::GLA, Vec3::new(100.0, 0.0, 100.0), Some(van_id),));
     assert!(logic.radar_scans.pings_spawned >= 1);
     assert!(logic.radar_scans.honesty_ping_ok());
     let ping = logic
@@ -2018,12 +2006,7 @@ fn spy_satellite_spawns_ping_object() {
     let cc_id = logic
         .create_object("AmericaCommandCenter", Team::USA, Vec3::new(0.0, 0.0, 0.0))
         .unwrap();
-    assert!(logic.activate_spy_satellite(
-        0,
-        Team::USA,
-        Vec3::new(100.0, 0.0, 100.0),
-        Some(cc_id),
-    ));
+    assert!(logic.activate_spy_satellite(0, Team::USA, Vec3::new(100.0, 0.0, 100.0), Some(cc_id),));
     assert!(logic.spy_satellites.pings_spawned >= 1);
     assert!(logic.spy_satellites.honesty_ping_ok());
     let ping = logic
@@ -3666,6 +3649,119 @@ fn enqueue_production_requires_player_money_state() {
 }
 
 #[test]
+fn enqueue_infantry_on_command_center_fails_barracks_succeeds() {
+    let mut game_logic = GameLogic::new();
+    ensure_test_player_for_team(&mut game_logic, Team::USA);
+    ensure_test_barracks_template(&mut game_logic);
+    ensure_test_command_center_template(&mut game_logic);
+    ensure_test_infantry_template(&mut game_logic);
+
+    let cc_id = game_logic
+        .create_object("TestCommandCenter", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("cc");
+    assert!(
+        !game_logic.enqueue_production(cc_id, "TestInfantry".to_string()),
+        "Command Center must not produce infantry (the train_fail_enqueue weasel)"
+    );
+
+    let barracks_id = game_logic
+        .create_object("TestBarracks", Team::USA, Vec3::new(40.0, 0.0, 0.0))
+        .expect("barracks");
+    assert!(
+        game_logic.enqueue_production(barracks_id, "TestInfantry".to_string()),
+        "completed barracks with money must enqueue infantry"
+    );
+    assert_eq!(
+        game_logic
+            .host_object(barracks_id)
+            .and_then(|b| b.building_data.as_ref())
+            .map(|b| b.production_queue.len())
+            .unwrap_or(0),
+        1
+    );
+}
+
+#[test]
+fn host_construction_completes_without_coupled_shadow() {
+    let mut game_logic = GameLogic::new();
+    ensure_test_player_for_team(&mut game_logic, Team::USA);
+    ensure_test_barracks_template(&mut game_logic);
+    ensure_test_infantry_template(&mut game_logic);
+    if let Some(t) = game_logic.templates.get_mut("TestBarracks") {
+        t.build_time = 1.0;
+    }
+    let id = game_logic
+        .create_object_under_construction(
+            "TestBarracks",
+            Team::USA,
+            Vec3::new(40.0, 0.0, 40.0),
+        )
+        .expect("uc barracks");
+    assert!(
+        game_logic
+            .host_object(id)
+            .is_some_and(|o| o.status.under_construction)
+    );
+    for _ in 0..80 {
+        game_logic.update_with_dt(1.0 / 30.0);
+    }
+    let obj = game_logic.host_object(id).expect("still exists");
+    assert!(
+        !obj.status.under_construction,
+        "host-only construction must finish (percent={})",
+        obj.construction_percent
+    );
+    assert!(
+        game_logic.enqueue_production(id, "TestInfantry".to_string()),
+        "completed host barracks must accept infantry enqueue"
+    );
+}
+
+#[test]
+fn host_construction_completes_when_sole_tick_unmapped() {
+    // Coupled sole-tick with no live shadow map: host must store percent and
+    // complete. The previous hole computed `projected` then discarded it
+    // (`if !sole` never assigned), so barracks stayed UC forever.
+    crate::gameworld_shadow::begin_shadow_coupled_tick();
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        assert!(crate::gameworld_shadow::gameworld_construction_sole_tick_enabled());
+        let mut game_logic = GameLogic::new();
+        ensure_test_player_for_team(&mut game_logic, Team::USA);
+        ensure_test_barracks_template(&mut game_logic);
+        ensure_test_infantry_template(&mut game_logic);
+        if let Some(t) = game_logic.templates.get_mut("TestBarracks") {
+            t.build_time = 1.0;
+        }
+        let id = game_logic
+            .create_object_under_construction(
+                "TestBarracks",
+                Team::USA,
+                Vec3::new(40.0, 0.0, 40.0),
+            )
+            .expect("uc barracks");
+        assert!(
+            !crate::gameworld_shadow::coupled_host_mapped(id),
+            "this test is the unmapped fail-open path"
+        );
+        for _ in 0..80 {
+            game_logic.update_with_dt(1.0 / 30.0);
+        }
+        let obj = game_logic.host_object(id).expect("still exists");
+        assert!(
+            !obj.status.under_construction,
+            "unmapped sole-tick construction must finish (percent={})",
+            obj.construction_percent
+        );
+        assert!(
+            game_logic.enqueue_production(id, "TestInfantry".to_string()),
+            "completed unmapped barracks must accept infantry enqueue"
+        );
+    }));
+    crate::gameworld_shadow::end_shadow_coupled_tick();
+    result.expect("unmapped sole-tick construction test");
+}
+
+#[test]
 fn cancel_production_requires_player_money_state_for_refund() {
     let mut game_logic = GameLogic::new();
     ensure_test_player_for_team(&mut game_logic, Team::USA);
@@ -3777,4 +3873,3 @@ fn attack_ground_damages_enemy_near_impact_point() {
         "ground attack should damage units near impact point"
     );
 }
-

@@ -66,10 +66,10 @@ pub fn residual_host_eager_loco_bounce_helper_last_action(
     ResidualHostEagerLocoBounceHelperAction::from_u8(RESIDUAL_ACTION.load(Ordering::SeqCst))
 }
 fn eng_source() -> &'static str {
-    include_str!("../../cnc_game_engine.rs")
+    crate::cnc_game_engine::ENGINE_SRC
 }
 fn shadow_source() -> &'static str {
-    include_str!("../../gameworld_shadow.rs")
+    crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC
 }
 pub fn honesty_host_eager_loco_bounce_helper_method_names_residual_wave703() -> bool {
     let names = LIVE_HOST_EAGER_LOCO_BOUNCE_HELPER_METHOD_NAMES_WAVE703;

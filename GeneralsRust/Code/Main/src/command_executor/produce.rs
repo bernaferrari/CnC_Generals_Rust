@@ -20,7 +20,6 @@ use glam::Vec3;
 use log::{debug, warn};
 use std::collections::{HashMap, HashSet};
 
-
 impl<'a> CommandExecutor<'a> {
     // === Production Commands ===
 
@@ -48,7 +47,11 @@ impl<'a> CommandExecutor<'a> {
         }
     }
 
-    pub(super) fn execute_cancel_unit(&mut self, units: &[ObjectId], template_name: &str) -> CommandResult {
+    pub(super) fn execute_cancel_unit(
+        &mut self,
+        units: &[ObjectId],
+        template_name: &str,
+    ) -> CommandResult {
         // Resolve empty name → unit production head residual (not PRODUCTION_UPGRADE).
         let resolved = if template_name.trim().is_empty() {
             units.iter().find_map(|&unit_id| {
@@ -82,5 +85,4 @@ impl<'a> CommandExecutor<'a> {
             CommandResult::InvalidCommand
         }
     }
-
 }

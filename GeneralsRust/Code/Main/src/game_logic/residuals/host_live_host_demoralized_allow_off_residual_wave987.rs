@@ -46,13 +46,13 @@ fn residual_action_store(a: ResidualHostDemoralizedAllowOffResidualAction) {
 }
 
 fn cnc_source() -> &'static str {
-    include_str!("../../cnc_game_engine.rs")
+    crate::cnc_game_engine::ENGINE_SRC
 }
 fn gl_source() -> &'static str {
     include_str!("../game_logic.rs")
 }
 fn drawable_source() -> &'static str {
-    include_str!("../../../../GameEngine/GameClient/src/drawable/drawable.rs")
+    game_client::drawable::drawable::DRAWABLE_SRC
 }
 fn enum_table_source() -> &'static str {
     include_str!("../host_enum_table_residual.rs")

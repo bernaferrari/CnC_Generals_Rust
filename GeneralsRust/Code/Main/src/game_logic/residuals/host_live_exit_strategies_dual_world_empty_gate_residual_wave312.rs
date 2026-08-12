@@ -86,7 +86,8 @@ fn count_spawn_gates(src: &str) -> usize {
 
 /// Source residual: exit strategies empty dual-world short-circuits.
 pub fn honesty_exit_strategies_dual_world_empty_gate_source() -> bool {
-    let g = include_str!("../../../../GameEngine/GameLogic/src/object/production/exit_strategies.rs");
+    let g =
+        include_str!("../../../../GameEngine/GameLogic/src/object/production/exit_strategies.rs");
     if !(g.contains("Wave 312")
         && g.contains("fn dual_world_registry_unavailable")
         && g.contains("OBJECT_REGISTRY.is_empty()"))

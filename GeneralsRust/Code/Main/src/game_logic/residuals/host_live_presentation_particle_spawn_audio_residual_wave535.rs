@@ -82,7 +82,7 @@ pub fn residual_presentation_particle_spawn_audio_last_action(
 }
 
 fn pf_source() -> &'static str {
-    include_str!("../../presentation_frame.rs")
+    crate::presentation_frame::PRESENTATION_FRAME_SRC
 }
 
 pub fn honesty_presentation_particle_spawn_audio_method_names_residual_wave535() -> bool {

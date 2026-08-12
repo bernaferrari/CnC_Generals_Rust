@@ -177,5 +177,4 @@ impl<'a> CommandExecutor<'a> {
             Err(_) => CommandResult::InvalidCommand,
         }
     }
-
 }

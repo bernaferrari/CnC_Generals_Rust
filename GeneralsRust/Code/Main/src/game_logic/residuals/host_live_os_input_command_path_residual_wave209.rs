@@ -84,7 +84,7 @@ pub fn honesty_live_os_input_command_path_residual_pack_wave209() -> bool {
 
 /// Source residual: WindowEvent mouse pressed routes to handle_*_click.
 pub fn honesty_window_event_mouse_to_handle_click_source() -> bool {
-    let eng = include_str!("../../cnc_game_engine.rs");
+    let eng = crate::cnc_game_engine::ENGINE_SRC;
     eng.contains("MouseButton::Left, ElementState::Pressed")
         && eng.contains("self.handle_left_click()")
         && eng.contains("MouseButton::Right, ElementState::Pressed")
@@ -93,7 +93,7 @@ pub fn honesty_window_event_mouse_to_handle_click_source() -> bool {
 
 /// Source residual: right-click builds context commands via CommandSystem.
 pub fn honesty_right_click_context_commands_source() -> bool {
-    let eng = include_str!("../../cnc_game_engine.rs");
+    let eng = crate::cnc_game_engine::ENGINE_SRC;
     let i = match eng.find("fn handle_right_click") {
         Some(i) => i,
         None => return false,
@@ -108,7 +108,7 @@ pub fn honesty_right_click_context_commands_source() -> bool {
 
 /// Source residual: left-click owns selection / force-attack residual.
 pub fn honesty_left_click_selection_source() -> bool {
-    let eng = include_str!("../../cnc_game_engine.rs");
+    let eng = crate::cnc_game_engine::ENGINE_SRC;
     let i = match eng.find("fn handle_left_click") {
         Some(i) => i,
         None => return false,
@@ -122,7 +122,7 @@ pub fn honesty_left_click_selection_source() -> bool {
 
 /// Source residual: GameClient::update OS-input remains disconnected (Main owns intake).
 pub fn honesty_gameclient_update_os_input_disconnected_source() -> bool {
-    let eng = include_str!("../../cnc_game_engine.rs");
+    let eng = crate::cnc_game_engine::ENGINE_SRC;
     (eng.contains("Full GameClient::update() OS-input path") && eng.contains("Main owns input"))
         || (eng.contains("GameClient::update")
             && eng.contains("OS-input")

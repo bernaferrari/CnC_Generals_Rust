@@ -4,7 +4,6 @@
 use super::super::*;
 
 impl GameLogic {
-
     pub fn update_technical_rpg_missile_projectiles(&mut self) {
         use crate::game_logic::host_technical::{
             technical_rpg_missile_step_speed, TECH_RPG_MISSILE_SEEK, TECH_RPG_MISSILE_TURN_DISTANCE,

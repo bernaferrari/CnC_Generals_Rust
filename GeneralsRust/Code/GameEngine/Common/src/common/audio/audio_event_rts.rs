@@ -14,7 +14,7 @@ use crate::common::random_value::{
 use crate::common::system::file_system::get_file_system;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{
     atomic::{AtomicU32, Ordering},
     Arc, OnceLock, RwLock,
@@ -618,6 +618,9 @@ impl AudioEventRts {
             let mut localized = self.filename_to_load.clone();
             self.adjust_for_localization(&mut localized, sound_type);
             self.filename_to_load = localized;
+            if let Some(resolved) = resolve_extracted_audiozh_path(&self.filename_to_load) {
+                self.filename_to_load = resolved;
+            }
             return;
         }
 
@@ -653,6 +656,9 @@ impl AudioEventRts {
         let mut localized = self.filename_to_load.clone();
         self.adjust_for_localization(&mut localized, sound_type);
         self.filename_to_load = localized;
+        if let Some(resolved) = resolve_extracted_audiozh_path(&self.filename_to_load) {
+            self.filename_to_load = resolved;
+        }
 
         self.delay = get_game_audio_random_value_real(event_info.delay_min, event_info.delay_max);
     }
@@ -1485,6 +1491,50 @@ impl Default for DynamicAudioEventRts {
 
 // Copy trait is now derived above with Clone
 
+/// Resolve WAV/MP3 under `windows_game/extracted_big_files/AudioZH` when present.
+/// No Miles 3D — this only remaps the filename the mixer will open.
+pub fn resolve_extracted_audiozh_path(filename: &str) -> Option<String> {
+    if filename.is_empty() {
+        return None;
+    }
+    let native = filename.replace('\\', "/");
+    let leaf = Path::new(&native)
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or(&native);
+    let stem = Path::new(leaf)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or(leaf);
+    const ROOTS: &[&str] = &[
+        "windows_game/extracted_big_files/AudioZH",
+        "windows_game/extracted_big_files_v2/AudioZH",
+        "../windows_game/extracted_big_files/AudioZH",
+        "../../windows_game/extracted_big_files/AudioZH",
+    ];
+    const SUBS: &[&str] = &["", "Sounds", "Music", "Speech", "Streams"];
+    const EXTS: &[&str] = &[".wav", ".mp3", ".WAV", ".MP3"];
+    let mut candidates: Vec<PathBuf> = Vec::new();
+    for root in ROOTS {
+        candidates.push(PathBuf::from(root).join(&native));
+        for sub in SUBS {
+            let dir = if sub.is_empty() {
+                PathBuf::from(root)
+            } else {
+                PathBuf::from(root).join(sub)
+            };
+            candidates.push(dir.join(leaf));
+            for ext in EXTS {
+                candidates.push(dir.join(format!("{stem}{ext}")));
+            }
+        }
+    }
+    candidates.into_iter().find(|p| p.is_file()).map(|p| {
+        p.to_string_lossy()
+            .replace('/', std::path::MAIN_SEPARATOR_STR)
+    })
+}
+
 // Tests module
 #[cfg(test)]
 mod tests {
@@ -1801,6 +1851,13 @@ mod tests {
 
         // Give it time to fail
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+
+    #[test]
+    fn resolve_extracted_audiozh_empty_is_none() {
+        assert!(resolve_extracted_audiozh_path("").is_none());
+        // Missing extract tree stays fail-closed (None), no Miles 3D invent.
+        assert!(resolve_extracted_audiozh_path("NoSuchEvent.wav").is_none());
     }
 
     #[test]

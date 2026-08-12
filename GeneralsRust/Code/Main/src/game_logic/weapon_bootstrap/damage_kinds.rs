@@ -165,4 +165,3 @@ pub fn host_damage_status_type_for_weapon_name(name: &str) -> Option<&'static st
 pub fn host_status_damage_frames_from_primary_damage(primary_damage_msec: f32) -> u32 {
     ((primary_damage_msec.max(0.0) * 30.0) / 1000.0).ceil() as u32
 }
-

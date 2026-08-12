@@ -17,32 +17,34 @@ impl GameLogic {
         // Get player associated with the current viewport/camera
         let player = self.players.get(&player_id);
 
-        let (credits, power_generated, power_used, max_power, credits_per_second) = if let Some(p) =
-            player
-        {
-            let (produced, consumed) =
-                super::super::buildings::BuildingBehavior::calculate_power_for_team(p.team, &self.objects);
-            let supply_centers = self
-                .objects
-                .values()
-                .filter(|obj| {
-                    obj.team == p.team
-                        && obj.is_constructed()
-                        && obj.is_alive()
-                        && obj.is_kind_of(KindOf::SupplyCenter)
-                })
-                .count();
-            let income = 5.0 + supply_centers as f32 * 25.0;
-            (
-                p.resources.supplies as i32,
-                produced,
-                consumed,
-                produced,
-                income,
-            )
-        } else {
-            (10000, 100, 60, 100, 5.0)
-        };
+        let (credits, power_generated, power_used, max_power, credits_per_second) =
+            if let Some(p) = player {
+                let (produced, consumed) =
+                    super::super::buildings::BuildingBehavior::calculate_power_for_team(
+                        p.team,
+                        &self.objects,
+                    );
+                let supply_centers = self
+                    .objects
+                    .values()
+                    .filter(|obj| {
+                        obj.team == p.team
+                            && obj.is_constructed()
+                            && obj.is_alive()
+                            && obj.is_kind_of(KindOf::SupplyCenter)
+                    })
+                    .count();
+                let income = 5.0 + supply_centers as f32 * 25.0;
+                (
+                    p.resources.supplies as i32,
+                    produced,
+                    consumed,
+                    produced,
+                    income,
+                )
+            } else {
+                (10000, 100, 60, 100, 5.0)
+            };
 
         // Get selected units
         let mut selected_units = Vec::new();
@@ -646,7 +648,11 @@ impl GameLogic {
     ///
     /// Walks a coarse line of cells; blocked if any cell is impassable structure
     /// footprint residual. Fail-open when grid unavailable.
-    pub(in super::super) fn quick_path_available_residual(&self, start: glam::Vec3, goal: glam::Vec3) -> bool {
+    pub(in super::super) fn quick_path_available_residual(
+        &self,
+        start: glam::Vec3,
+        goal: glam::Vec3,
+    ) -> bool {
         use crate::game_logic::pathfinding::GridPos;
         let grid = &self.pathfinding_system.grid;
         let gs = grid.world_to_grid(start);
@@ -678,7 +684,11 @@ impl GameLogic {
     }
 
     /// C++ BuildAssistant footprint hiZ-loZ residual vs AllowedHeightVariationForBuilding.
-    pub(in super::super) fn footprint_not_flat_enough(&self, position: glam::Vec3, place_radius: f32) -> bool {
+    pub(in super::super) fn footprint_not_flat_enough(
+        &self,
+        position: glam::Vec3,
+        place_radius: f32,
+    ) -> bool {
         use crate::game_logic::host_production_buildable_command_residual::footprint_height_delta_residual;
         use crate::game_logic::host_structure_economy_residual::is_legal_build_height_variation;
         let r = place_radius.max(1.0);
@@ -711,7 +721,11 @@ impl GameLogic {
     /// C++ PartitionManager::getShroudStatusForPlayer == CELLSHROUD_CLEAR residual.
     ///
     /// Fail-open when shroud grid is not initialized (synthetic/host tests).
-    pub(in super::super) fn is_build_location_shroud_clear(&self, player_id: u32, position: glam::Vec3) -> bool {
+    pub(in super::super) fn is_build_location_shroud_clear(
+        &self,
+        player_id: u32,
+        position: glam::Vec3,
+    ) -> bool {
         use gamelogic::common::Coord3D;
         use gamelogic::system::shroud_manager::{get_shroud_manager, ShroudState};
         let Ok(shroud) = get_shroud_manager().lock() else {
@@ -917,9 +931,23 @@ impl GameLogic {
         let Some(building) = producer.building_data.as_ref() else {
             return crate::game_logic::host_production_buildable_command_residual::CANMAKE_FACTORY_IS_DISABLED;
         };
-        // Wrong factory type residual → treat as no prereq/unavailable.
-        if !building.can_produce(template) {
-            return crate::game_logic::host_production_buildable_command_residual::CANMAKE_NO_PREREQ;
+        // C++ BuildAssistant::isPossibleToMakeUnit: CommandSet UNIT_BUILD scan.
+        // Known retail producers must list the unit; test/unknown producers
+        // keep KindOf factory-type fallback.
+        let producer_template = producer.template_name.as_str();
+        match crate::game_logic::host_production_buildable_command_residual::command_set_allows_unit(
+            producer_template,
+            template_name,
+        ) {
+            Some(false) => {
+                return crate::game_logic::host_production_buildable_command_residual::CANMAKE_NO_PREREQ;
+            }
+            Some(true) => {}
+            None => {
+                if !building.can_produce(template) {
+                    return crate::game_logic::host_production_buildable_command_residual::CANMAKE_NO_PREREQ;
+                }
+            }
         }
         let queue_full = building.production_queue.len() >= DEFAULT_PRODUCTION_QUEUE_LIMIT;
         // C++ ParkingPlaceBehavior hangar capacity residual for aircraft at airfields.

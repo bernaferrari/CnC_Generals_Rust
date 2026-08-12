@@ -210,21 +210,29 @@ impl GameWorldShadow {
 
             if let Some(&eid) = self.host_to_entity.get(&oid.0) {
                 if let Some(e) = self.world.world_mut().entity_mut(eid) {
-                    if write_health {
+                    let skip_sole_channels =
+                        crate::gameworld_shadow::gameworld_construction_sole_tick_enabled()
+                            || crate::gameworld_shadow::gameworld_production_sole_tick_enabled()
+                            || crate::gameworld_shadow::gameworld_damage_authority_live();
+                    if write_health && !skip_sole_channels {
                         e.health = health;
                     }
                     e.transform = transform;
                     e.owner = owner;
-                    e.attack_target = obj
-                        .target
-                        .and_then(|tid| self.host_to_entity.get(&tid.0).copied());
+                    if !skip_sole_channels {
+                        e.attack_target = obj
+                            .target
+                            .and_then(|tid| self.host_to_entity.get(&tid.0).copied());
+                    }
                     e.move_target = obj.movement.target_position.map(|p| [p.x, p.y, p.z]);
                     e.max_health = obj.max_health.max(obj.health.current).max(1.0);
                     e.body_damage_state = obj.body_damage_state.ordinal();
                     e.selected = obj.selected;
                     e.destroyed = obj.status.destroyed;
                     e.death_type = obj.status.death_type.ordinal();
-                    e.construction_percent = obj.construction_percent.clamp(-1.0, 1.0);
+                    if !skip_sole_channels {
+                        e.construction_percent = obj.construction_percent.clamp(-1.0, 1.0);
+                    }
                     e.is_rebuild_hole = obj.is_rebuild_hole;
                     e.rebuild_template_name = obj.rebuild_template_name.clone().unwrap_or_default();
                     e.rebuild_ready_frame = obj.rebuild_ready_frame;
@@ -250,7 +258,9 @@ impl GameWorldShadow {
                     e.back_crushed = obj.back_crushed;
                     e.vision_range = obj.vision_range;
                     e.shroud_clearing_range = obj.shroud_clearing_range;
-                    e.under_construction = obj.status.under_construction;
+                    if !skip_sole_channels {
+                        e.under_construction = obj.status.under_construction;
+                    }
                     e.sold = obj.status.sold;
                     e.reconstructing = obj.status.reconstructing;
                     e.unselectable = obj.status.unselectable;
@@ -615,35 +625,39 @@ impl GameWorldShadow {
                     if let Some(bd) = obj.building_data.as_ref() {
                         e.building_type_ordinal =
                             Self::host_building_type_ordinal(bd.building_type);
-                        e.production_queue_len = bd.production_queue.len().min(255) as u8;
-                        {
-                            const MAX_QUEUE: usize = 16;
-                            e.production_queue_items = bd
-                                .production_queue
-                                .iter()
-                                .take(MAX_QUEUE)
-                                .map(|p| EntityProductionItem {
-                                    template_name: p.template_name.clone(),
-                                    progress: p.progress,
-                                    total_time: p.total_time,
-                                    cost_supplies: p.cost.supplies,
-                                    is_upgrade: p.is_upgrade(),
-                                    quantity_total: p.quantity_total.max(1),
-                                    quantity_produced: p.quantity_produced,
-                                })
-                                .collect();
-                            e.production_paused = bd.production_paused;
-                        }
-                        if let Some(head) = bd.production_queue.first() {
-                            e.production_progress = head.progress;
-                            e.exit_delay_remaining = bd.exit_delay_remaining;
-                            e.production_door_phase = obj.production_door_phase;
-                            e.production_door_phase_end_frame = obj.production_door_phase_end_frame;
-                            e.production_door_hold_open = obj.production_door_hold_open;
-                            e.production_template = head.template_name.clone();
-                        } else {
-                            e.production_progress = 0.0;
-                            e.production_template.clear();
+                        let skip_production =
+                            crate::gameworld_shadow::gameworld_production_sole_tick_enabled();
+                        if !skip_production {
+                            e.production_queue_len = bd.production_queue.len().min(255) as u8;
+                            {
+                                const MAX_QUEUE: usize = 16;
+                                e.production_queue_items = bd
+                                    .production_queue
+                                    .iter()
+                                    .take(MAX_QUEUE)
+                                    .map(|p| EntityProductionItem {
+                                        template_name: p.template_name.clone(),
+                                        progress: p.progress,
+                                        total_time: p.total_time,
+                                        cost_supplies: p.cost.supplies,
+                                        is_upgrade: p.is_upgrade(),
+                                        quantity_total: p.quantity_total.max(1),
+                                        quantity_produced: p.quantity_produced,
+                                    })
+                                    .collect();
+                                e.production_paused = bd.production_paused;
+                            }
+                            if let Some(head) = bd.production_queue.first() {
+                                e.production_progress = head.progress;
+                                e.exit_delay_remaining = bd.exit_delay_remaining;
+                                e.production_door_phase = obj.production_door_phase;
+                                e.production_door_phase_end_frame = obj.production_door_phase_end_frame;
+                                e.production_door_hold_open = obj.production_door_hold_open;
+                                e.production_template = head.template_name.clone();
+                            } else {
+                                e.production_progress = 0.0;
+                                e.production_template.clear();
+                            }
                         }
                         e.rally_point = bd.rally_point.map(|p| [p.x, p.y, p.z]);
                         e.garrison_count = bd.garrisoned_units.len().min(u16::MAX as usize) as u16;
@@ -1654,19 +1668,25 @@ impl GameWorldShadow {
                 .target
                 .and_then(|tid| self.host_to_entity.get(&tid.0).copied());
             if let Some(e) = self.world.world_mut().entity_mut(eid) {
+                let skip_construction =
+                    crate::gameworld_shadow::gameworld_construction_sole_tick_enabled();
+                let skip_production =
+                    crate::gameworld_shadow::gameworld_production_sole_tick_enabled();
                 e.attack_target = at;
                 e.move_target = obj.movement.target_position.map(|p| [p.x, p.y, p.z]);
                 e.max_health = obj.max_health.max(obj.health.current).max(1.0);
                 e.selected = obj.selected;
                 e.destroyed = obj.status.destroyed;
-                e.construction_percent = obj.construction_percent.clamp(-1.0, 1.0);
+                if !skip_construction {
+                    e.construction_percent = obj.construction_percent.clamp(-1.0, 1.0);
+                    e.under_construction = obj.status.under_construction;
+                }
                 e.team_ordinal = Self::host_team_ordinal(obj.team);
                 e.selection_radius = obj.selection_radius.max(5.0);
                 e.crusher_level = obj.crusher_level;
                 e.crushable_level = obj.crushable_level;
                 e.vision_range = obj.vision_range;
                 e.shroud_clearing_range = obj.shroud_clearing_range;
-                e.under_construction = obj.status.under_construction;
                 e.sold = obj.status.sold;
                 e.reconstructing = obj.status.reconstructing;
                 e.unselectable = obj.status.unselectable;
@@ -1782,31 +1802,33 @@ impl GameWorldShadow {
                 e.is_building = obj.building_data.is_some();
                 if let Some(bd) = obj.building_data.as_ref() {
                     e.building_type_ordinal = Self::host_building_type_ordinal(bd.building_type);
-                    e.production_queue_len = bd.production_queue.len().min(255) as u8;
-                    {
-                        const MAX_QUEUE: usize = 16;
-                        e.production_queue_items = bd
-                            .production_queue
-                            .iter()
-                            .take(MAX_QUEUE)
-                            .map(|p| EntityProductionItem {
-                                template_name: p.template_name.clone(),
-                                progress: p.progress,
-                                total_time: p.total_time,
-                                cost_supplies: p.cost.supplies,
-                                is_upgrade: p.is_upgrade(),
-                                quantity_total: p.quantity_total.max(1),
-                                quantity_produced: p.quantity_produced,
-                            })
-                            .collect();
-                        e.production_paused = bd.production_paused;
-                    }
-                    if let Some(head) = bd.production_queue.first() {
-                        e.production_progress = head.progress;
-                        e.production_template = head.template_name.clone();
-                    } else {
-                        e.production_progress = 0.0;
-                        e.production_template.clear();
+                    if !skip_production {
+                        e.production_queue_len = bd.production_queue.len().min(255) as u8;
+                        {
+                            const MAX_QUEUE: usize = 16;
+                            e.production_queue_items = bd
+                                .production_queue
+                                .iter()
+                                .take(MAX_QUEUE)
+                                .map(|p| EntityProductionItem {
+                                    template_name: p.template_name.clone(),
+                                    progress: p.progress,
+                                    total_time: p.total_time,
+                                    cost_supplies: p.cost.supplies,
+                                    is_upgrade: p.is_upgrade(),
+                                    quantity_total: p.quantity_total.max(1),
+                                    quantity_produced: p.quantity_produced,
+                                })
+                                .collect();
+                            e.production_paused = bd.production_paused;
+                        }
+                        if let Some(head) = bd.production_queue.first() {
+                            e.production_progress = head.progress;
+                            e.production_template = head.template_name.clone();
+                        } else {
+                            e.production_progress = 0.0;
+                            e.production_template.clear();
+                        }
                     }
                     e.rally_point = bd.rally_point.map(|p| [p.x, p.y, p.z]);
                     e.garrison_count = bd.garrisoned_units.len().min(u16::MAX as usize) as u16;
@@ -2425,7 +2447,11 @@ impl GameWorldShadow {
     }
 
     /// Reverse map GameWorld owner → host Team (for TransferOwner writeback).
-    pub(super) fn host_team_for_gw_owner(&self, logic: &GameLogic, owner: Option<PlayerId>) -> Option<Team> {
+    pub(super) fn host_team_for_gw_owner(
+        &self,
+        logic: &GameLogic,
+        owner: Option<PlayerId>,
+    ) -> Option<Team> {
         let Some(pid) = owner else {
             return Some(Team::Neutral);
         };

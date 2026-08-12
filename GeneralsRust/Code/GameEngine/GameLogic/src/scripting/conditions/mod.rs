@@ -22,6 +22,12 @@ pub use registry::ConditionRegistry;
 pub(crate) use helpers::{
     get_player_arc, get_str_param, lookup_named_object_id, perform_comparison,
 };
+pub use helpers::{
+    clear_host_script_query_snapshot, host_script_area_bounds, host_script_area_unit_ids,
+    host_script_named_unit_alive, host_script_named_unit_id, host_script_named_unit_in_area,
+    host_script_named_unit_in_named_area, host_script_query_has_any, host_script_team_unit_ids,
+    set_host_script_query_snapshot, HostScriptQueryObject, HostScriptQuerySnapshot,
+};
 
 use async_trait::async_trait;
 use std::collections::HashMap;

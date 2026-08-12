@@ -44,11 +44,11 @@ fn residual_action_store(a: ResidualPresentationEmptyShadowFailopenAction) {
 }
 
 fn cnc_source() -> &'static str {
-    include_str!("../../cnc_game_engine.rs")
+    crate::cnc_game_engine::ENGINE_SRC
 }
 
 fn pf_source() -> &'static str {
-    include_str!("../../presentation_frame.rs")
+    crate::presentation_frame::PRESENTATION_FRAME_SRC
 }
 
 pub fn honesty_presentation_empty_shadow_failopen_method_names_residual_wave838() -> bool {

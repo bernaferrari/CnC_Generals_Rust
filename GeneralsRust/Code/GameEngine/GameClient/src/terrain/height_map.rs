@@ -11,7 +11,7 @@ use gamelogic::common::types::MAP_HEIGHT_SCALE;
 use glam::Vec3;
 use image::{DynamicImage, ImageBuffer, Luma};
 
-use super::textures::TileData;
+use super::textures::{BlendTileInfo, TileData, FLIPPED_MASK, INVERTED_MASK};
 use super::utils::calculate_normal;
 use super::{TerrainError, TerrainResult};
 
@@ -29,6 +29,58 @@ const K_LRDIAG: usize = 5;
 const K_DIR_MOD: u8 = 0x05;
 const K_INV: usize = 6;
 const NUM_ALPHA_TILES: usize = 12;
+
+/// Result of C++ `WorldHeightMap::getExtraAlphaUVData`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ExtraAlphaUvData {
+    pub u: [f32; 4],
+    pub v: [f32; 4],
+    pub alpha: [u8; 4],
+    pub need_flip: bool,
+    pub cliff: bool,
+}
+
+impl Default for ExtraAlphaUvData {
+    fn default() -> Self {
+        Self {
+            u: [0.0, 1.0, 1.0, 0.0],
+            v: [0.0, 0.0, 1.0, 1.0],
+            alpha: [0; 4],
+            need_flip: false,
+            cliff: false,
+        }
+    }
+}
+
+/// One GPU extra-blend vertex (Y-up: x, height, z).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ExtraBlendDrawVertex {
+    pub position: [f32; 3],
+    pub tex_coords: [f32; 2],
+    pub color: [f32; 4],
+}
+
+/// Two-triangle extra-blend overlay mesh (C++ second 3-way pass).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct ExtraBlendDrawMesh {
+    pub vertices: Vec<ExtraBlendDrawVertex>,
+    pub indices: Vec<u32>,
+    pub tile_count: usize,
+}
+
+impl ExtraBlendDrawMesh {
+    pub fn is_empty(&self) -> bool {
+        self.vertices.is_empty() || self.indices.is_empty()
+    }
+
+    pub fn vertex_count(&self) -> usize {
+        self.vertices.len()
+    }
+
+    pub fn index_count(&self) -> usize {
+        self.indices.len()
+    }
+}
 
 /// Height map data structure
 #[derive(Debug, Clone)]
@@ -58,6 +110,12 @@ pub struct HeightMap {
 
     pub tile_ndxes: Vec<i16>,
     pub blend_tile_ndxes: Vec<i16>,
+    /// C++ `m_extraBlendTileNdxes` — second blend overlay, parallel to `blend_tile_ndxes`.
+    pub extra_blend_tile_ndxes: Vec<i16>,
+    /// C++ `m_blendedTiles` used by extra-blend UV/alpha/flip.
+    pub blended_tiles: Vec<BlendTileInfo>,
+    /// C++ `m_extraBlendedTiles` fallback for extra-blend info.
+    pub extra_blended_tiles: Vec<BlendTileInfo>,
     pub draw_origin_x: i32,
     pub draw_origin_y: i32,
     pub draw_width: i32,
@@ -79,6 +137,9 @@ impl HeightMap {
             border_size: 0,
             tile_ndxes: vec![0i16; sample_count],
             blend_tile_ndxes: vec![0i16; sample_count],
+            extra_blend_tile_ndxes: vec![0i16; sample_count],
+            blended_tiles: Vec::new(),
+            extra_blended_tiles: Vec::new(),
             draw_origin_x: 0,
             draw_origin_y: 0,
             draw_width: width as i32,
@@ -157,6 +218,9 @@ impl HeightMap {
             border_size: 0,
             tile_ndxes: vec![0i16; sample_count],
             blend_tile_ndxes: vec![0i16; sample_count],
+            extra_blend_tile_ndxes: vec![0i16; sample_count],
+            blended_tiles: Vec::new(),
+            extra_blended_tiles: Vec::new(),
             draw_origin_x: 0,
             draw_origin_y: 0,
             draw_width: width as i32,
@@ -205,6 +269,9 @@ impl HeightMap {
             border_size: 0,
             tile_ndxes: vec![0i16; sample_count],
             blend_tile_ndxes: vec![0i16; sample_count],
+            extra_blend_tile_ndxes: vec![0i16; sample_count],
+            blended_tiles: Vec::new(),
+            extra_blended_tiles: Vec::new(),
             draw_origin_x: 0,
             draw_origin_y: 0,
             draw_width: width as i32,
@@ -274,6 +341,9 @@ impl HeightMap {
             border_size: 0,
             tile_ndxes: vec![0i16; sample_count],
             blend_tile_ndxes: vec![0i16; sample_count],
+            extra_blend_tile_ndxes: vec![0i16; sample_count],
+            blended_tiles: Vec::new(),
+            extra_blended_tiles: Vec::new(),
             draw_origin_x: 0,
             draw_origin_y: 0,
             draw_width: dimension as i32,
@@ -520,10 +590,236 @@ impl HeightMap {
         }
     }
 
+    pub fn get_extra_blend_tile_index(&self, x_index: i32, y_index: i32) -> i16 {
+        let ndx = y_index * (self.width as i32) + x_index;
+        if ndx >= 0 && (ndx as usize) < self.extra_blend_tile_ndxes.len() {
+            self.extra_blend_tile_ndxes[ndx as usize]
+        } else {
+            0
+        }
+    }
+
+    /// Assign parsed map extra-blend indices (must match sample count).
+    pub fn assign_extra_blend_tile_ndxes(&mut self, ndxes: Vec<i16>) {
+        self.extra_blend_tile_ndxes = ndxes;
+    }
+
+    pub fn assign_blended_tiles(&mut self, tiles: Vec<BlendTileInfo>) {
+        self.blended_tiles = tiles;
+    }
+
+    pub fn assign_extra_blended_tiles(&mut self, tiles: Vec<BlendTileInfo>) {
+        self.extra_blended_tiles = tiles;
+    }
+
+    /// C++ `WorldHeightMap::getExtraAlphaUVData`.
+    /// Returns `Some` when the extra-blend ndx is non-zero. Missing blend-tile
+    /// records still produce unit UVs so the GPU second pass can emit geometry.
+    pub fn get_extra_alpha_uv_data(&self, x_index: i32, y_index: i32) -> Option<ExtraAlphaUvData> {
+        let ndx = y_index * (self.width as i32) + x_index;
+        if ndx < 0 || (ndx as usize) >= self.extra_blend_tile_ndxes.len() {
+            return None;
+        }
+        let blend_ndx = self.extra_blend_tile_ndxes[ndx as usize];
+        if blend_ndx == 0 {
+            return None;
+        }
+
+        let mut data = ExtraAlphaUvData::default();
+        let blend = if (blend_ndx as usize) < self.blended_tiles.len() {
+            Some(&self.blended_tiles[blend_ndx as usize])
+        } else if (blend_ndx as usize) < self.extra_blended_tiles.len() {
+            Some(&self.extra_blended_tiles[blend_ndx as usize])
+        } else {
+            None
+        };
+        let Some(blend) = blend else {
+            return Some(data);
+        };
+
+        if blend.horiz != 0 {
+            data.need_flip = (blend.inverted & FLIPPED_MASK) != 0;
+            if (blend.inverted & INVERTED_MASK) != 0 {
+                data.alpha[0] = 255;
+                data.alpha[3] = 255;
+            } else {
+                data.alpha[1] = 255;
+                data.alpha[2] = 255;
+            }
+        }
+        if blend.vert != 0 {
+            data.need_flip = (blend.inverted & FLIPPED_MASK) != 0;
+            if (blend.inverted & INVERTED_MASK) != 0 {
+                data.alpha[0] = 255;
+                data.alpha[1] = 255;
+            } else {
+                data.alpha[2] = 255;
+                data.alpha[3] = 255;
+            }
+        }
+        if blend.right_diagonal != 0 {
+            if (blend.inverted & INVERTED_MASK) != 0 {
+                data.alpha[1] = 255;
+                if blend.long_diagonal != 0 {
+                    data.alpha[0] = 255;
+                    data.alpha[2] = 255;
+                }
+            } else {
+                data.need_flip = true;
+                data.alpha[2] = 255;
+                if blend.long_diagonal != 0 {
+                    data.alpha[1] = 255;
+                    data.alpha[3] = 255;
+                }
+            }
+        }
+        if blend.left_diagonal != 0 {
+            if (blend.inverted & INVERTED_MASK) != 0 {
+                data.need_flip = true;
+                data.alpha[0] = 255;
+                if blend.long_diagonal != 0 {
+                    data.alpha[1] = 255;
+                    data.alpha[3] = 255;
+                }
+            } else {
+                data.alpha[3] = 255;
+                if blend.long_diagonal != 0 {
+                    data.alpha[0] = 255;
+                    data.alpha[2] = 255;
+                }
+            }
+        }
+        if blend.custom_blend_edge_class >= 0 {
+            data.alpha = [0, 0, 0, 0];
+            data.need_flip = false;
+        }
+        Some(data)
+    }
+
+    /// C++ `HeightMapRenderObjClass` packs extra-blend cells as `i | (j << 16)`.
+    /// Scans cells (not vertices): `0..width-1` × `0..height-1`.
+    pub fn collect_extra_blend_tile_positions(&self) -> Vec<u32> {
+        collect_extra_blend_tile_positions(
+            self.width as i32,
+            self.height as i32,
+            &self.extra_blend_tile_ndxes,
+        )
+    }
+
+    /// Build the extra-blend overlay mesh for packed `i | (j << 16)` tiles.
+    /// Two triangles per tile (6 verts), honoring `need_flip`.
+    pub fn build_extra_blend_draw_mesh(&self, positions: &[u32]) -> ExtraBlendDrawMesh {
+        self.build_extra_blend_draw_mesh_for_window(
+            positions,
+            self.draw_origin_x,
+            self.draw_origin_y,
+            self.draw_width,
+            self.draw_height,
+        )
+    }
+
+    pub fn build_extra_blend_draw_mesh_for_window(
+        &self,
+        positions: &[u32],
+        draw_origin_x: i32,
+        draw_origin_y: i32,
+        draw_width: i32,
+        draw_height: i32,
+    ) -> ExtraBlendDrawMesh {
+        let owned_positions;
+        let positions = if positions.is_empty() {
+            owned_positions = self.collect_extra_blend_tile_positions();
+            owned_positions.as_slice()
+        } else {
+            positions
+        };
+
+        let x_extent = self.width as i32;
+        let y_extent = self.height as i32;
+        let mut draw_edge_x = draw_origin_x + draw_width - 1;
+        let mut draw_edge_y = draw_origin_y + draw_height - 1;
+        if draw_edge_x > x_extent - 1 {
+            draw_edge_x = x_extent - 1;
+        }
+        if draw_edge_y > y_extent - 1 {
+            draw_edge_y = y_extent - 1;
+        }
+
+        let mut mesh = ExtraBlendDrawMesh::default();
+        let scale = self.scale;
+        let border = self.border_size as f32;
+
+        for packed in positions {
+            let x = (packed & 0xffff) as i32;
+            let y = (packed >> 16) as i32;
+            if x < draw_origin_x || x >= draw_edge_x || y < draw_origin_y || y >= draw_edge_y {
+                continue;
+            }
+            if x < 0 || y < 0 || x + 1 >= x_extent || y + 1 >= y_extent {
+                continue;
+            }
+            let Some(uv) = self.get_extra_alpha_uv_data(x, y) else {
+                continue;
+            };
+
+            let x0 = (x as f32 - border) * scale;
+            let z0 = (y as f32 - border) * scale;
+            let x1 = ((x + 1) as f32 - border) * scale;
+            let z1 = ((y + 1) as f32 - border) * scale;
+            let p0 = self.world_height_at_index(x as u32, y as u32);
+            let p1 = self.world_height_at_index((x + 1) as u32, y as u32);
+            let p2 = self.world_height_at_index((x + 1) as u32, (y + 1) as u32);
+            let p3 = self.world_height_at_index(x as u32, (y + 1) as u32);
+
+            let mut flip = uv.need_flip;
+            if uv.cliff && (p0 - p2).abs() > (p1 - p3).abs() {
+                flip = true;
+            }
+
+            let corners = [
+                ExtraBlendDrawVertex {
+                    position: [x0, p0, z0],
+                    tex_coords: [uv.u[0], uv.v[0]],
+                    color: [1.0, 1.0, 1.0, uv.alpha[0] as f32 / 255.0],
+                },
+                ExtraBlendDrawVertex {
+                    position: [x1, p1, z0],
+                    tex_coords: [uv.u[1], uv.v[1]],
+                    color: [1.0, 1.0, 1.0, uv.alpha[1] as f32 / 255.0],
+                },
+                ExtraBlendDrawVertex {
+                    position: [x1, p2, z1],
+                    tex_coords: [uv.u[2], uv.v[2]],
+                    color: [1.0, 1.0, 1.0, uv.alpha[2] as f32 / 255.0],
+                },
+                ExtraBlendDrawVertex {
+                    position: [x0, p3, z1],
+                    tex_coords: [uv.u[3], uv.v[3]],
+                    color: [1.0, 1.0, 1.0, uv.alpha[3] as f32 / 255.0],
+                },
+            ];
+
+            // C++ HeightMap.cpp extra-blend IB: flip uses 1,3,0 / 1,2,3 else 0,2,3 / 0,1,2.
+            let order: [usize; 6] = if flip {
+                [1, 3, 0, 1, 2, 3]
+            } else {
+                [0, 2, 3, 0, 1, 2]
+            };
+            let base = mesh.vertices.len() as u32;
+            for (i, corner) in order.into_iter().enumerate() {
+                mesh.vertices.push(corners[corner]);
+                mesh.indices.push(base + i as u32);
+            }
+            mesh.tile_count += 1;
+        }
+
+        mesh
+    }
+
     /// Matches C++ WorldHeightMap::getPointerToTileData. Given a tile data
     /// source (callback for get_raw_tile_data) and blend tiles, returns the
     /// BGRA pixel data for the tile at (x_index, y_index) blended with any
-    /// overlay tiles.
+    /// overlay tiles, then the extra-blend (3-way) overlay when present.
     pub fn get_pointer_to_tile_data<F>(
         &self,
         x_index: i32,
@@ -559,34 +855,70 @@ impl HeightMap {
                 .get(ndx as usize)
                 .copied()
                 .unwrap_or(0);
-            if blend_ndx > 0 && (blend_ndx as usize) < NUM_BLEND_TILES {
-                let blend = &blend_tiles[blend_ndx as usize];
-                let mut blend_buffer = vec![0u8; data_len];
-                if get_raw_tile_data(blend.blend_ndx as i16, width, &mut blend_buffer) {
-                    let alpha_data = Self::get_rgb_alpha_data_for_width(width, blend, alpha_tiles);
-                    let pixel_count = (width * width) as usize;
-                    for i in 0..pixel_count {
-                        let base = i * 4;
-                        let a = alpha_data.get(base + 3).copied().unwrap_or(0);
-                        let b_blend = blend_buffer[base] as i32;
-                        let g_blend = blend_buffer[base + 1] as i32;
-                        let r_blend = blend_buffer[base + 2] as i32;
-                        let a_i = a as i32;
-                        let inv_a = 255 - a_i;
-                        buffer[base] =
-                            ((b_blend * a_i) / 255 + (buffer[base] as i32 * inv_a) / 255) as u8;
-                        buffer[base + 1] =
-                            ((g_blend * a_i) / 255 + (buffer[base + 1] as i32 * inv_a) / 255) as u8;
-                        buffer[base + 2] =
-                            ((r_blend * a_i) / 255 + (buffer[base + 2] as i32 * inv_a) / 255) as u8;
-                        buffer[base + 3] = 255;
-                    }
-                }
-            }
+            Self::apply_blend_overlay(
+                &mut buffer,
+                blend_ndx,
+                width,
+                blend_tiles,
+                alpha_tiles,
+                get_raw_tile_data,
+            );
+            // C++ 3-way extra blend: second alpha composite after first overlay.
+            let extra_ndx = self
+                .extra_blend_tile_ndxes
+                .get(ndx as usize)
+                .copied()
+                .unwrap_or(0);
+            Self::apply_blend_overlay(
+                &mut buffer,
+                extra_ndx,
+                width,
+                blend_tiles,
+                alpha_tiles,
+                get_raw_tile_data,
+            );
             return Some(buffer);
         }
 
         None
+    }
+
+    /// Alpha-composite one blend overlay into `buffer` when `blend_ndx > 0`.
+    fn apply_blend_overlay<F>(
+        buffer: &mut [u8],
+        blend_ndx: i16,
+        width: i32,
+        blend_tiles: &[super::textures::BlendTileInfo; NUM_BLEND_TILES],
+        alpha_tiles: &[Option<Vec<u8>>; NUM_ALPHA_TILES],
+        get_raw_tile_data: &F,
+    ) where
+        F: Fn(i16, i32, &mut [u8]) -> bool,
+    {
+        if blend_ndx <= 0 || (blend_ndx as usize) >= NUM_BLEND_TILES {
+            return;
+        }
+        let blend = &blend_tiles[blend_ndx as usize];
+        let mut blend_buffer = vec![0u8; buffer.len()];
+        if !get_raw_tile_data(blend.blend_ndx as i16, width, &mut blend_buffer) {
+            return;
+        }
+        let alpha_data = Self::get_rgb_alpha_data_for_width(width, blend, alpha_tiles);
+        let pixel_count = (width * width) as usize;
+        for i in 0..pixel_count {
+            let base = i * 4;
+            let a = alpha_data.get(base + 3).copied().unwrap_or(0);
+            let b_blend = blend_buffer[base] as i32;
+            let g_blend = blend_buffer[base + 1] as i32;
+            let r_blend = blend_buffer[base + 2] as i32;
+            let a_i = a as i32;
+            let inv_a = 255 - a_i;
+            buffer[base] = ((b_blend * a_i) / 255 + (buffer[base] as i32 * inv_a) / 255) as u8;
+            buffer[base + 1] =
+                ((g_blend * a_i) / 255 + (buffer[base + 1] as i32 * inv_a) / 255) as u8;
+            buffer[base + 2] =
+                ((r_blend * a_i) / 255 + (buffer[base + 2] as i32 * inv_a) / 255) as u8;
+            buffer[base + 3] = 255;
+        }
     }
 
     /// Matches C++ WorldHeightMap::getRGBAlphaDataForWidth.
@@ -842,6 +1174,27 @@ pub struct HeightMapStats {
     pub memory_usage: usize,
 }
 
+/// C++ `m_extraBlendTilePositions[n] = i | (j << 16)` for cells with extra blend.
+pub fn collect_extra_blend_tile_positions(
+    width: i32,
+    height: i32,
+    extra_blend_tile_ndxes: &[i16],
+) -> Vec<u32> {
+    if width < 2 || height < 2 {
+        return Vec::new();
+    }
+    let mut positions = Vec::new();
+    for j in 0..(height - 1) {
+        for i in 0..(width - 1) {
+            let ndx = (j * width + i) as usize;
+            if extra_blend_tile_ndxes.get(ndx).copied().unwrap_or(0) > 0 {
+                positions.push((i as u32) | ((j as u32) << 16));
+            }
+        }
+    }
+    positions
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -854,6 +1207,178 @@ mod tests {
         assert_eq!(heightmap.height, 64);
         assert_eq!(heightmap.max_height, 100.0);
         assert_eq!(heightmap.heights.len(), 64 * 64);
+        assert_eq!(heightmap.extra_blend_tile_ndxes.len(), 64 * 64);
+    }
+
+    #[test]
+    fn extra_blend_tile_ndxes_survive_assign_and_read_back() {
+        let mut heightmap = HeightMap::new(2, 2, 100.0, 1.0);
+        heightmap.assign_extra_blend_tile_ndxes(vec![0, 7, 0, 3]);
+        assert_eq!(heightmap.extra_blend_tile_ndxes, vec![0, 7, 0, 3]);
+        assert_eq!(heightmap.get_extra_blend_tile_index(1, 0), 7);
+        assert_eq!(heightmap.get_extra_blend_tile_index(1, 1), 3);
+        assert_eq!(heightmap.get_extra_blend_tile_index(0, 0), 0);
+    }
+
+    #[test]
+    fn extra_blend_tile_positions_pack_i_or_j_shift_16_like_cpp() {
+        let mut heightmap = HeightMap::new(3, 3, 100.0, 1.0);
+        // 3x3 samples → 2x2 cells. Extra blend at (1,0) and (0,1).
+        let mut ndxes = vec![0i16; 9];
+        ndxes[1] = 4; // x=1,y=0
+        ndxes[3] = 2; // x=0,y=1
+        heightmap.assign_extra_blend_tile_ndxes(ndxes);
+        let positions = heightmap.collect_extra_blend_tile_positions();
+        assert_eq!(positions, vec![1 | (0 << 16), 0 | (1 << 16)]);
+    }
+
+    #[test]
+    fn extra_blend_alpha_uv_sets_horiz_alphas_and_flip() {
+        let mut heightmap = HeightMap::new(2, 2, 100.0, 1.0);
+        heightmap.assign_extra_blend_tile_ndxes(vec![1, 0, 0, 0]);
+        let mut tiles = vec![BlendTileInfo::new(); 2];
+        tiles[1].horiz = 1;
+        tiles[1].inverted = FLIPPED_MASK | INVERTED_MASK;
+        heightmap.assign_blended_tiles(tiles);
+
+        let data = heightmap
+            .get_extra_alpha_uv_data(0, 0)
+            .expect("extra blend cell");
+        assert!(data.need_flip);
+        assert_eq!(data.alpha, [255, 0, 0, 255]);
+        assert!(heightmap.get_extra_alpha_uv_data(1, 0).is_none());
+    }
+
+    #[test]
+    fn extra_blend_draw_mesh_has_two_triangles_per_tile() {
+        let mut heightmap = HeightMap::new(3, 3, 100.0, 1.0);
+        let mut ndxes = vec![0i16; 9];
+        ndxes[0] = 1;
+        heightmap.assign_extra_blend_tile_ndxes(ndxes);
+        let mesh = heightmap.build_extra_blend_draw_mesh(&[]);
+        assert!(
+            mesh.vertex_count() >= 6,
+            "one extra-blend tile must emit two triangles"
+        );
+        assert_eq!(mesh.index_count(), 6);
+        assert_eq!(mesh.tile_count, 1);
+    }
+
+    #[test]
+    fn extra_blend_draw_mesh_honors_need_flip() {
+        let mut heightmap = HeightMap::new(3, 3, 100.0, 1.0);
+        let mut ndxes = vec![0i16; 9];
+        ndxes[0] = 1;
+        heightmap.assign_extra_blend_tile_ndxes(ndxes);
+
+        let unflipped = heightmap.build_extra_blend_draw_mesh(&[]);
+        assert!(unflipped.vertex_count() >= 6);
+
+        let mut tiles = vec![BlendTileInfo::new(); 2];
+        tiles[1].right_diagonal = 1; // uninverted right diagonal forces flip
+        heightmap.assign_blended_tiles(tiles);
+        let flipped = heightmap.build_extra_blend_draw_mesh(&[]);
+        assert!(flipped.vertex_count() >= 6);
+        assert_ne!(
+            unflipped.vertices[0].position, flipped.vertices[0].position,
+            "need_flip must change the first triangle winding"
+        );
+        assert!(
+            heightmap
+                .get_extra_alpha_uv_data(0, 0)
+                .expect("tile")
+                .need_flip
+        );
+    }
+
+    #[test]
+    fn extra_blend_overlay_changes_composed_pixels_vs_first_blend_only() {
+        let mut heightmap = HeightMap::new(1, 1, 255.0, 1.0);
+        heightmap.tile_ndxes[0] = 0;
+        heightmap.blend_tile_ndxes[0] = 1;
+        heightmap.extra_blend_tile_ndxes[0] = 0;
+
+        let source_tiles: Box<[Option<crate::terrain::textures::TileData>; NUM_SOURCE_TILES]> =
+            vec![None; NUM_SOURCE_TILES]
+                .into_boxed_slice()
+                .try_into()
+                .expect("source tile array size");
+        let mut blend_tiles: Box<[crate::terrain::textures::BlendTileInfo; NUM_BLEND_TILES]> =
+            vec![
+                crate::terrain::textures::BlendTileInfo::new();
+                NUM_BLEND_TILES
+            ]
+            .into_boxed_slice()
+            .try_into()
+            .expect("blend tile array size");
+        blend_tiles[1].blend_ndx = 4;
+        blend_tiles[1].horiz = 1;
+        blend_tiles[2].blend_ndx = 8;
+        blend_tiles[2].vert = 1;
+
+        let alpha_tiles: [Option<Vec<u8>>; NUM_ALPHA_TILES] = std::array::from_fn(|index| {
+            let mut pixel = vec![0, 0, 0, 0];
+            if index == K_HORIZ {
+                pixel[3] = 255;
+            }
+            if index == K_VERT {
+                pixel[3] = 128;
+            }
+            Some(pixel)
+        });
+
+        let get_raw_tile_data = |tile_ndx: i16, _width: i32, buffer: &mut [u8]| match tile_ndx {
+            0 => {
+                buffer[..4].copy_from_slice(&[10, 20, 30, 255]);
+                true
+            }
+            4 => {
+                buffer[..4].copy_from_slice(&[110, 120, 130, 255]);
+                true
+            }
+            8 => {
+                buffer[..4].copy_from_slice(&[200, 10, 10, 255]);
+                true
+            }
+            _ => false,
+        };
+
+        let first_only = heightmap
+            .get_pointer_to_tile_data(
+                0,
+                0,
+                1,
+                &source_tiles,
+                &blend_tiles,
+                &alpha_tiles,
+                &get_raw_tile_data,
+            )
+            .expect("first-blend compose");
+
+        heightmap.extra_blend_tile_ndxes[0] = 2;
+        let with_extra = heightmap
+            .get_pointer_to_tile_data(
+                0,
+                0,
+                1,
+                &source_tiles,
+                &blend_tiles,
+                &alpha_tiles,
+                &get_raw_tile_data,
+            )
+            .expect("extra-blend compose");
+
+        assert_ne!(
+            &first_only[..4],
+            &with_extra[..4],
+            "extra_blend_tile_ndxes must change composed atlas pixels"
+        );
+        assert_eq!(&first_only[..4], &[110, 120, 130, 255]);
+        // second overlay: 128 alpha of [200,10,10] over [110,120,130]
+        let expected_b = ((200 * 128) / 255 + (110 * 127) / 255) as u8;
+        let expected_g = ((10 * 128) / 255 + (120 * 127) / 255) as u8;
+        let expected_r = ((10 * 128) / 255 + (130 * 127) / 255) as u8;
+        assert_eq!(&with_extra[..4], &[expected_b, expected_g, expected_r, 255]);
     }
 
     #[test]

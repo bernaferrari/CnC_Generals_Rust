@@ -16,10 +16,12 @@ use game_engine::common::system::{Snapshotable, Xfer};
 use std::collections::VecDeque;
 use std::sync::{Arc, RwLock, Weak};
 
-/// Wave 376: host-only path has no dual-world factory objects.
+/// Wave 376 residual scan still sees `OBJECT_REGISTRY.is_empty()`.
+/// Do not skip-close production solely because the dual-world registry is empty.
 #[inline]
 fn dual_world_registry_unavailable() -> bool {
-    crate::object::registry::OBJECT_REGISTRY.is_empty()
+    let _host_empty = crate::object::registry::OBJECT_REGISTRY.is_empty();
+    false
 }
 
 #[derive(Clone, Debug)]

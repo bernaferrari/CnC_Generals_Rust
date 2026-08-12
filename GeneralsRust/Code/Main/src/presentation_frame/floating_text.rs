@@ -300,7 +300,9 @@ impl PresentationWorldAnim {
 }
 
 /// Collect host residual floating texts into a stable presentation list.
-pub(crate) fn collect_presentation_floating_texts(logic: &GameLogic) -> Vec<PresentationFloatingText> {
+pub(crate) fn collect_presentation_floating_texts(
+    logic: &GameLogic,
+) -> Vec<PresentationFloatingText> {
     let mut out = Vec::new();
 
     for t in &logic.oil_derricks().floating_texts {

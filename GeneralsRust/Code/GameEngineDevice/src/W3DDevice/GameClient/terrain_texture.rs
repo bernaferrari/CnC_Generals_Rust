@@ -256,6 +256,21 @@ impl TerrainTextureManager {
         self.texture_classes.push(class);
     }
 
+    /// Extra blend tiles for 3-way terrain (C++ `m_extraBlendedTiles`).
+    pub fn extra_blend_tiles(&self) -> &[BlendTileInfo] {
+        &self.extra_blend_tiles
+    }
+
+    pub fn extra_blend_tiles_mut(&mut self) -> &mut Vec<BlendTileInfo> {
+        &mut self.extra_blend_tiles
+    }
+
+    pub fn add_extra_blend_tile(&mut self, info: BlendTileInfo) {
+        if self.extra_blend_tiles.len() < NUM_BLEND_TILES {
+            self.extra_blend_tiles.push(info);
+        }
+    }
+
     /// Update the base texture atlas
     /// Corresponds to C++ TerrainTextureClass::update
     pub fn update_base_atlas(&mut self) -> Result<()> {

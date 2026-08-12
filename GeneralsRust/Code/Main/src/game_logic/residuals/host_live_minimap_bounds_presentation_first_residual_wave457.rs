@@ -92,11 +92,11 @@ pub fn residual_minimap_bounds_presentation_first_last_action(
 }
 
 fn cnc_source() -> &'static str {
-    include_str!("../../cnc_game_engine.rs")
+    crate::cnc_game_engine::ENGINE_SRC
 }
 
 fn pipeline_source() -> &'static str {
-    include_str!("../../graphics/render_pipeline.rs")
+    crate::graphics::render_pipeline::RENDER_PIPELINE_SRC
 }
 
 pub fn honesty_minimap_bounds_presentation_first_method_names_residual_wave457() -> bool {

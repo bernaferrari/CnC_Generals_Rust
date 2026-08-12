@@ -1,6 +1,7 @@
 use crate::game_logic::GameLogic;
 use crate::save_load::*;
 use game_engine::common::system::save_game::GameState as CommonGameState;
+use game_engine::common::system::xfer::Xfer as CommonXfer;
 use game_engine::common::system::xfer_load::XferLoad as CommonXferLoad;
 use game_engine::common::system::xfer_save::XferSave as CommonXferSave;
 use serde::{Deserialize, Serialize};
@@ -25,6 +26,15 @@ pub struct SaveFileHeader {
 
 const SAVE_MAGIC: [u8; 4] = *b"GZHS";
 const SAVE_HEADER_SIZE: usize = std::mem::size_of::<SaveFileHeader>();
+/// Same tokens Popup / Common TheGameState write (`SG_EOF`, CHUNK_*).
+///
+/// Honest host path (Phase N5): this is **not** the C++ 17-block TheGameState
+/// snapshot table and **not** crate `GameLogic::xfer`. Host pause-save writes
+/// `CHUNK_GameState` (header metadata) + `CHUNK_GameLogic` + `SG_EOF`.
+/// `CHUNK_GameLogic` payload bytes are `bincode::serialize(WorldSnapshot)`.
+const CHUNK_GAME_STATE: &str = "CHUNK_GameState";
+const CHUNK_GAME_LOGIC: &str = "CHUNK_GameLogic";
+const SAVE_FILE_EOF: &str = "SG_EOF";
 
 impl SaveFileHeader {
     pub fn new() -> Self {
@@ -109,6 +119,11 @@ impl SaveFileManager {
         }
     }
 
+    /// Directory used for list/save/load. Default is `UserData/Save` (Popup + host).
+    pub fn save_directory(&self) -> &Path {
+        &self.save_directory
+    }
+
     pub fn init(&mut self) -> SaveLoadResult<()> {
         // Create directories if they don't exist
         std::fs::create_dir_all(&self.save_directory)?;
@@ -154,10 +169,16 @@ impl SaveFileManager {
         filename: &str,
         game_logic: &mut GameLogic,
     ) -> SaveLoadResult<SaveGameInfo> {
-        let save_path = self.get_save_path(filename);
+        let mut save_path = self.get_save_path(filename);
 
         if !save_path.exists() {
-            return Err(SaveLoadError::FileNotFound(filename.to_string()));
+            let mut legacy = self.save_directory.clone();
+            legacy.push(format!("{}.{}", filename, LEGACY_SAVE_EXTENSION));
+            if legacy.exists() {
+                save_path = legacy;
+            } else {
+                return Err(SaveLoadError::FileNotFound(filename.to_string()));
+            }
         }
 
         // Load from file
@@ -252,16 +273,28 @@ impl SaveFileManager {
     /// Get save file info without loading the entire file
     pub fn get_save_info(&self, filename: &str) -> SaveLoadResult<SaveGameInfo> {
         let save_path = self.get_save_path(filename);
-        let file = File::open(&save_path)?;
-        let mut reader = BufReader::new(file);
+        if !save_path.exists() {
+            let mut legacy = self.save_directory.clone();
+            legacy.push(format!("{}.{}", filename, LEGACY_SAVE_EXTENSION));
+            if legacy.exists() {
+                return self.get_save_info_from_path(&legacy);
+            }
+        }
+        self.get_save_info_from_path(&save_path)
+    }
 
-        // Read and validate header
+    fn get_save_info_from_path(&self, save_path: &Path) -> SaveLoadResult<SaveGameInfo> {
+        let mut file = File::open(save_path)?;
+        let mut all = Vec::new();
+        file.read_to_end(&mut all)?;
+        if Self::looks_like_common_sav_chunks(&all) {
+            return Self::read_common_sav_chunks(&all).map(|(_, info)| info);
+        }
+        let mut reader = Cursor::new(all);
         let header = self.read_header(&mut reader)?;
         if !header.is_valid() {
             return Err(SaveLoadError::InvalidFormat);
         }
-
-        // Read save info section
         self.read_save_info(&mut reader, &header)
     }
 
@@ -276,7 +309,7 @@ impl SaveFileManager {
             let path = entry.path();
 
             if let Some(extension) = path.extension() {
-                if extension == SAVE_EXTENSION {
+                if extension == SAVE_EXTENSION || extension == LEGACY_SAVE_EXTENSION {
                     if let Some(filename) = path.file_stem().and_then(|s| s.to_str()) {
                         match self.get_save_info(filename) {
                             Ok(save_info) => {
@@ -304,7 +337,7 @@ impl SaveFileManager {
         Ok(saves)
     }
 
-    /// Save data to file with compression
+    /// Save data to file as Common `.sav` chunks (same tokens as Popup).
     fn save_to_file(
         &self,
         path: &Path,
@@ -317,59 +350,23 @@ impl SaveFileManager {
             .truncate(true)
             .open(path)?;
         let mut writer = BufWriter::new(file);
-
-        // Canonical save payload now goes through Common SaveGame + Xfer.
-        let encoded_state = Self::encode_common_game_state(world_snapshot, save_info)?;
-
-        // Compress data
-        let compressed = compression::compress(&encoded_state)?;
-        let is_compressed = compressed.len() < encoded_state.len();
-
-        // Create header
-        let mut header = SaveFileHeader::new();
-        header.set_compressed(is_compressed);
-        header.uncompressed_size = encoded_state.len() as u64;
-        header.compressed_size = if is_compressed {
-            compressed.len()
-        } else {
-            encoded_state.len()
-        } as u64;
-        header.checksum = crc32fast::hash(if is_compressed {
-            &compressed
-        } else {
-            &encoded_state
-        });
-
-        // Write header
-        let header_bytes =
-            bincode::serialize(&header).map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
-        writer.write_all(&header_bytes)?;
-
-        // Write save info
-        let save_info_bytes = bincode::serialize(save_info)
-            .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
-        let save_info_size = save_info_bytes.len() as u32;
-        writer.write_all(&save_info_size.to_le_bytes())?;
-        writer.write_all(&save_info_bytes)?;
-
-        // Write world data
-        writer.write_all(if is_compressed {
-            &compressed
-        } else {
-            &encoded_state
-        })?;
-
+        let encoded = Self::write_common_sav_chunks(world_snapshot, save_info)?;
+        writer.write_all(&encoded)?;
         writer.flush()?;
-
         Ok(())
     }
 
-    /// Load data from file with decompression
+    /// Load data from file. Prefers Common `.sav` chunks; falls back to GZHS `.gen`.
     fn load_from_file(&self, path: &Path) -> SaveLoadResult<(WorldSnapshot, SaveGameInfo)> {
-        let file = File::open(path)?;
-        let mut reader = BufReader::new(file);
+        let mut file = File::open(path)?;
+        let mut all = Vec::new();
+        file.read_to_end(&mut all)?;
 
-        // Read and validate header
+        if Self::looks_like_common_sav_chunks(&all) {
+            return Self::read_common_sav_chunks(&all);
+        }
+
+        let mut reader = Cursor::new(all);
         let header = self.read_header(&mut reader)?;
         if !header.is_valid() {
             return Err(SaveLoadError::InvalidFormat);
@@ -382,14 +379,10 @@ impl SaveFileManager {
             });
         }
 
-        // Read save info
         let save_info = self.read_save_info(&mut reader, &header)?;
-
-        // Read world data
         let mut world_data = Vec::with_capacity(header.compressed_size as usize);
         reader.read_to_end(&mut world_data)?;
 
-        // Verify checksum
         let actual_checksum = crc32fast::hash(&world_data);
         if actual_checksum != header.checksum {
             return Err(SaveLoadError::Corrupted(format!(
@@ -398,14 +391,12 @@ impl SaveFileManager {
             )));
         }
 
-        // Decompress if needed
         let decompressed = if header.is_compressed() {
             compression::decompress(&world_data)?
         } else {
             world_data
         };
 
-        // Prefer canonical Common SaveGame payload; fall back to legacy payload.
         let world_snapshot = match Self::decode_common_game_state(&decompressed) {
             Ok(common_state) => bincode::deserialize::<WorldSnapshot>(&common_state.data)
                 .map_err(|e| SaveLoadError::Serialization(e.to_string()))?,
@@ -420,6 +411,172 @@ impl SaveFileManager {
         };
 
         Ok((world_snapshot, save_info))
+    }
+
+    fn looks_like_common_sav_chunks(data: &[u8]) -> bool {
+        data.windows(CHUNK_GAME_STATE.len())
+            .any(|w| w == CHUNK_GAME_STATE.as_bytes())
+            || data
+                .windows(SAVE_FILE_EOF.len())
+                .any(|w| w == SAVE_FILE_EOF.as_bytes())
+    }
+
+    /// Popup + host container: CHUNK_GameState / CHUNK_GameLogic / SG_EOF.
+    ///
+    /// `CHUNK_GameLogic` is a Common `GameState` block whose `data` field is a
+    /// **bincode `WorldSnapshot`**, not crate `GameLogic::xfer` and not the
+    /// full C++ 17 named-chunk TheGameState table.
+    fn write_common_sav_chunks(
+        world_snapshot: &WorldSnapshot,
+        save_info: &SaveGameInfo,
+    ) -> SaveLoadResult<Vec<u8>> {
+        let mut header = Self::common_state_from_save_info(save_info, world_snapshot);
+        header.data.clear();
+        let mut logic = CommonGameState::new(SAVE_FILE_VERSION);
+        logic.data = bincode::serialize(world_snapshot)
+            .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
+
+        let mut cursor = Cursor::new(Vec::<u8>::new());
+        {
+            let mut xfer = CommonXferSave::new(&mut cursor, SAVE_FILE_VERSION);
+            let mut name = CHUNK_GAME_STATE.to_string();
+            xfer.xfer_ascii_string(&mut name)
+                .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
+            xfer.begin_block()
+                .map_err(|e| SaveLoadError::Serialization(format!("{e:?}")))?;
+            header
+                .xfer(&mut xfer)
+                .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
+            xfer.end_block()
+                .map_err(|e| SaveLoadError::Serialization(format!("{e:?}")))?;
+
+            let mut name = CHUNK_GAME_LOGIC.to_string();
+            xfer.xfer_ascii_string(&mut name)
+                .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
+            xfer.begin_block()
+                .map_err(|e| SaveLoadError::Serialization(format!("{e:?}")))?;
+            logic
+                .xfer(&mut xfer)
+                .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
+            xfer.end_block()
+                .map_err(|e| SaveLoadError::Serialization(format!("{e:?}")))?;
+
+            let mut eof = SAVE_FILE_EOF.to_string();
+            xfer.xfer_ascii_string(&mut eof)
+                .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
+        }
+        Ok(cursor.into_inner())
+    }
+
+    fn read_common_sav_chunks(data: &[u8]) -> SaveLoadResult<(WorldSnapshot, SaveGameInfo)> {
+        let mut cursor = Cursor::new(data);
+        let mut xfer = CommonXferLoad::new(&mut cursor, SAVE_FILE_VERSION);
+        let mut header_state = CommonGameState::default();
+        let mut logic_data: Option<Vec<u8>> = None;
+        loop {
+            let mut token = String::new();
+            xfer.xfer_ascii_string(&mut token)
+                .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
+            if token.eq_ignore_ascii_case(SAVE_FILE_EOF) {
+                break;
+            }
+            let _ = xfer
+                .begin_block()
+                .map_err(|e| SaveLoadError::Serialization(format!("{e:?}")))?;
+            let mut block = CommonGameState::default();
+            block
+                .xfer(&mut xfer)
+                .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
+            let _ = xfer.end_block();
+            if token.eq_ignore_ascii_case(CHUNK_GAME_STATE) {
+                header_state = block;
+            } else if token.eq_ignore_ascii_case(CHUNK_GAME_LOGIC) {
+                logic_data = Some(block.data);
+            }
+        }
+        let payload = logic_data.ok_or_else(|| {
+            SaveLoadError::Corrupted("CHUNK_GameLogic missing from Common .sav".to_string())
+        })?;
+        let world_snapshot = bincode::deserialize::<WorldSnapshot>(&payload)
+            .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
+        let save_info = Self::save_info_from_common_state(&header_state, &world_snapshot);
+        Ok((world_snapshot, save_info))
+    }
+
+    fn common_state_from_save_info(
+        save_info: &SaveGameInfo,
+        world_snapshot: &WorldSnapshot,
+    ) -> CommonGameState {
+        let mut state = CommonGameState::new(SAVE_FILE_VERSION);
+        state.timestamp = save_info
+            .save_date
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        state.map_name = save_info.map_name.clone();
+        state.game_mode = format!("{:?}", save_info.save_type);
+        state.player_count = world_snapshot.players.len() as u32;
+        state.current_frame = u32::try_from(world_snapshot.frame_number).unwrap_or(u32::MAX);
+        state.elapsed_time = save_info.play_time.as_secs_f32();
+        state.set_metadata("display_name".to_string(), save_info.display_name.clone());
+        state.set_metadata("description".to_string(), save_info.description.clone());
+        state.set_metadata("game_version".to_string(), save_info.game_version.clone());
+        state.set_metadata(
+            "difficulty".to_string(),
+            format!("{:?}", save_info.difficulty),
+        );
+        if let Some(side) = &save_info.campaign_side {
+            state.set_metadata("campaign_side".to_string(), side.clone());
+        }
+        if let Some(mission_number) = save_info.mission_number {
+            state.set_metadata("mission_number".to_string(), mission_number.to_string());
+        }
+        state
+    }
+
+    fn save_info_from_common_state(
+        state: &CommonGameState,
+        _world_snapshot: &WorldSnapshot,
+    ) -> SaveGameInfo {
+        let difficulty = match state
+            .get_metadata("difficulty")
+            .map(|s| s.as_str())
+            .unwrap_or("Medium")
+        {
+            "Easy" => GameDifficulty::Easy,
+            "Hard" => GameDifficulty::Hard,
+            _ => GameDifficulty::Medium,
+        };
+        let save_type = match state.game_mode.as_str() {
+            "Mission" => SaveFileType::Mission,
+            "QuickSave" => SaveFileType::QuickSave,
+            "AutoSave" => SaveFileType::AutoSave,
+            _ => SaveFileType::Normal,
+        };
+        SaveGameInfo {
+            filename: String::new(),
+            display_name: state
+                .get_metadata("display_name")
+                .cloned()
+                .unwrap_or_default(),
+            description: state
+                .get_metadata("description")
+                .cloned()
+                .unwrap_or_default(),
+            map_name: state.map_name.clone(),
+            campaign_side: state.get_metadata("campaign_side").cloned(),
+            mission_number: state
+                .get_metadata("mission_number")
+                .and_then(|s| s.parse().ok()),
+            save_date: UNIX_EPOCH + std::time::Duration::from_secs(state.timestamp),
+            game_version: state
+                .get_metadata("game_version")
+                .cloned()
+                .unwrap_or_default(),
+            play_time: std::time::Duration::from_secs_f32(state.elapsed_time.max(0.0)),
+            difficulty,
+            save_type,
+        }
     }
 
     fn encode_common_game_state(
@@ -638,5 +795,18 @@ mod tests {
         let temp_path = manager.get_temp_path("test_temp");
         assert!(temp_path.to_string_lossy().contains("test_temp"));
         assert!(temp_path.to_string_lossy().ends_with(".tmp"));
+    }
+
+    #[test]
+    fn default_save_directory_is_user_data_save_like_popup() {
+        let host = SaveLoadManager::default_save_directory();
+        let popup = crate::subsystem_manager::resolve_save_directory();
+        assert_eq!(
+            host, popup,
+            "host SaveFileManager and Popup TheGameState must share UserData/Save"
+        );
+        assert_eq!(host.file_name().and_then(|s| s.to_str()), Some("Save"));
+        let manager = SaveFileManager::new();
+        assert_eq!(manager.save_directory(), host.as_path());
     }
 }

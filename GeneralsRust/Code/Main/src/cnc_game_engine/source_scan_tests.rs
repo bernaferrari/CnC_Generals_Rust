@@ -1,5 +1,5 @@
 // Mechanical extract of file-level source-scan tests from cnc_game_engine.rs.
-// Child module via `#[path]`. crate::cnc_game_engine::ENGINE_SRC stays sibling-relative.
+// ENGINE_SRC concatenates live split files (including runtime_host/*).
 
 use super::*;
 
@@ -588,7 +588,7 @@ fn deploy_d_key_not_shadowed_by_debug_defeat_residual() {
 
 #[test]
 fn deployed_blocks_can_move_and_guard_ring_residual() {
-    let obj = include_str!("../game_logic/object.rs");
+    let obj = crate::game_logic::object::OBJECT_SRC;
     let start = obj.find("pub fn can_move").expect("can_move");
     let body = &obj[start..start + 700];
     assert!(
@@ -723,12 +723,12 @@ fn patrol_and_sell_hotkey_residual() {
             && src.contains("NamedKey::Shift"),
         "Ctrl+Shift+S must sell selection residual"
     );
-    let cmd = include_str!("../command_system.rs");
+    let cmd = crate::command_system::COMMAND_SYSTEM_SRC;
     assert!(
         cmd.contains("Patrol") && cmd.contains("\"patrol\""),
         "Patrol command residual must exist"
     );
-    let ex = include_str!("../command_executor.rs");
+    let ex = crate::command_executor::COMMAND_EXECUTOR_SRC;
     assert!(
         ex.contains("fn execute_patrol") && ex.contains("AIState::Patrolling"),
         "execute_patrol must set Patrolling residual"
@@ -753,7 +753,7 @@ fn evacuate_and_repair_hotkey_residual() {
             && src.contains("PendingUnitAbility::Repair"),
         "R must arm Repair residual"
     );
-    let cs = include_str!("../command_system.rs");
+    let cs = crate::command_system::COMMAND_SYSTEM_SRC;
     assert!(
         cs.contains("\"repair\"") && cs.contains("CommandType::Repair"),
         "repair button name must map residual"
@@ -840,7 +840,7 @@ fn special_power_v_key_residual() {
 
 #[test]
 fn strategy_center_battle_plan_residual() {
-    let cs = include_str!("../command_system.rs");
+    let cs = crate::command_system::COMMAND_SYSTEM_SRC;
     assert!(
         cs.contains("BattlePlanBombardment")
             && cs.contains("initiatebattleplanbombardment")
@@ -862,7 +862,7 @@ fn strategy_center_battle_plan_residual() {
 
 #[test]
 fn named_superweapon_button_residual() {
-    let cs = include_str!("../command_system.rs");
+    let cs = crate::command_system::COMMAND_SYSTEM_SRC;
     assert!(
         cs.contains("spysatellitescan")
             && cs.contains("ciaintelligence")
@@ -938,14 +938,14 @@ fn unit_attitude_hotkey_residual() {
             && src.contains("NamedKey::Alt"),
         "Alt+A/S/D must set unit attitude residual"
     );
-    let cs = include_str!("../command_system.rs");
+    let cs = crate::command_system::COMMAND_SYSTEM_SRC;
     assert!(
         cs.contains("AttitudeAggressive")
             && cs.contains("AttitudeSleep")
             && cs.contains("\"aggressive\""),
         "attitude commands must map residual"
     );
-    let ex = include_str!("../command_executor.rs");
+    let ex = crate::command_executor::COMMAND_EXECUTOR_SRC;
     assert!(
         ex.contains("fn execute_set_attitude") && ex.contains("set_ai_attitude"),
         "execute_set_attitude residual"
@@ -1016,7 +1016,7 @@ fn switch_weapons_and_demo_suicide_residual() {
         src.contains("Command_DemoTertiarySuicide") && src.contains("eq_ignore_ascii_case(\"b\")"),
         "Alt+B must DemoTertiarySuicide residual"
     );
-    let cs = include_str!("../command_system.rs");
+    let cs = crate::command_system::COMMAND_SYSTEM_SRC;
     assert!(
         cs.contains("\"switchweapons\"") || cs.contains("SwitchWeapons"),
         "switchweapons button map residual"
@@ -1053,12 +1053,12 @@ fn hack_internet_and_cleanup_area_residual() {
         src.contains("Command_CleanupArea") && src.contains("eq_ignore_ascii_case(\"m\")"),
         "Alt+M must CleanupArea residual"
     );
-    let cs = include_str!("../command_system.rs");
+    let cs = crate::command_system::COMMAND_SYSTEM_SRC;
     assert!(
         cs.contains("HackInternet") && cs.contains("\"hackinternet\""),
         "HackInternet command map residual"
     );
-    let ex = include_str!("../command_executor.rs");
+    let ex = crate::command_executor::COMMAND_EXECUTOR_SRC;
     assert!(
         ex.contains("fn execute_hack_internet") && ex.contains("start_hacker_internet_hack"),
         "execute_hack_internet residual"
@@ -1079,12 +1079,12 @@ fn return_to_base_aircraft_residual() {
             && src.contains("NamedKey::Alt"),
         "Alt+R must ReturnToBase residual"
     );
-    let cs = include_str!("../command_system.rs");
+    let cs = crate::command_system::COMMAND_SYSTEM_SRC;
     assert!(
         cs.contains("ReturnToBase") && cs.contains("\"returntobase\""),
         "ReturnToBase command map residual"
     );
-    let ex = include_str!("../command_executor.rs");
+    let ex = crate::command_executor::COMMAND_EXECUTOR_SRC;
     assert!(
         ex.contains("fn execute_return_to_base")
             && ex.contains("is_friendly_airfield")
@@ -1140,12 +1140,12 @@ fn return_supplies_and_select_structures_residual() {
             && src.contains("No structures found"),
         "Ctrl+Alt+S must select all structures residual"
     );
-    let cs = include_str!("../command_system.rs");
+    let cs = crate::command_system::COMMAND_SYSTEM_SRC;
     assert!(
         cs.contains("ReturnSupplies") && cs.contains("\"returnsupplies\""),
         "ReturnSupplies command map residual"
     );
-    let ex = include_str!("../command_executor.rs");
+    let ex = crate::command_executor::COMMAND_EXECUTOR_SRC;
     assert!(
         ex.contains("fn execute_return_supplies") && ex.contains("ReturningResources"),
         "execute_return_supplies residual"
@@ -1167,12 +1167,12 @@ fn clear_mines_and_unfinished_construction_residual() {
             && src.contains("cycle_unfinished_construction(1)"),
         "Ctrl+Alt+Home/End must cycle unfinished construction residual"
     );
-    let cs = include_str!("../command_system.rs");
+    let cs = crate::command_system::COMMAND_SYSTEM_SRC;
     assert!(
         cs.contains("ClearMines") && cs.contains("\"clearmines\""),
         "ClearMines command map residual"
     );
-    let ex = include_str!("../command_executor.rs");
+    let ex = crate::command_executor::COMMAND_EXECUTOR_SRC;
     assert!(
         ex.contains("fn execute_clear_mines") && ex.contains("is_mine_clearer"),
         "execute_clear_mines residual"
@@ -1194,7 +1194,7 @@ fn resume_construction_hotkey_residual() {
         pf.contains("Command_ResumeConstruction"),
         "unfinished structure strip must expose ResumeConstruction residual"
     );
-    let cs = include_str!("../command_system.rs");
+    let cs = crate::command_system::COMMAND_SYSTEM_SRC;
     assert!(
         cs.contains("\"resumeconstruction\"") || cs.contains("ResumeConstruction"),
         "resumeconstruction button map residual"
@@ -1733,8 +1733,65 @@ fn runtime_host_live_frame_residual() {
         .unwrap_or(status_fn + 3_200);
     let status_body = &src[status_fn..status_end];
     assert!(
-        status_body.contains("snapshot.live_frame_ok || self.has_published_live_frame"),
-        "live_frame_ok must stay capture-promoted, not fallback PNG"
+        status_body.contains("live_frame_ok_from_windowed_present")
+            && status_body.contains("has_published_live_frame"),
+        "live_frame_ok must stay capture-promoted or windowed present, not fallback PNG"
+    );
+    assert!(
+        src.contains("note_windowed_surface_presented")
+            && src.contains("has_published_live_frame = true"),
+        "windowed surface present must also latch has_published_live_frame"
+    );
+    // Call-graph residual (not mere symbol co-presence): winit_menu_nav body must
+    // call named-gadget inject and must not forge note_menu_wnd_click.
+    let shell = include_str!("runtime_host/shell_core.rs");
+    let nav_i = shell
+        .find("fn runtime_host_cmd_winit_menu_nav")
+        .expect("winit_menu_nav");
+    let nav_end = shell[nav_i..]
+        .find("fn runtime_host_cmd_winit_gameplay_order")
+        .map(|i| nav_i + i)
+        .unwrap_or(nav_i + 2500);
+    let nav_body = &shell[nav_i..nav_end];
+    assert!(
+        nav_body.contains("inject_winit_equivalent_named_gadget_click")
+            && !nav_body.contains("note_menu_wnd_click"),
+        "winit_menu_nav must inject named gadgets, not forge note_menu_wnd_click"
+    );
+    assert!(
+        nav_body.contains("ButtonSinglePlayer")
+            && nav_body.contains("ButtonSkirmish")
+            && !nav_body.contains("MainMenuParent")
+            && !nav_body.contains("MainMenuRuler"),
+        "winit_menu_nav must be menu→match gadgets only (not Parent/Ruler)"
+    );
+    let gp_i = shell
+        .find("fn runtime_host_cmd_winit_gameplay_order")
+        .expect("winit_gameplay_order");
+    let gp_body = &shell[gp_i..shell.len().min(gp_i + 1800)];
+    assert!(
+        gp_body.contains("inject_winit_equivalent_gameplay_order_click")
+            && !gp_body.contains("note_gameplay_order"),
+        "winit_gameplay_order must inject RMB, not forge note_gameplay_order"
+    );
+    assert!(
+        src.contains("handle_mouse_button_input")
+            && src.contains("inject_winit_equivalent_named_gadget_click"),
+        "windowed sit-through must share handle_mouse_button_input with inject"
+    );
+    // Honesty: under-cursor hit residual + no skip-WM forge parameters.
+    let input = include_str!("input.rs");
+    assert!(
+        input.contains("get_window_under_cursor"),
+        "named gadget inject must under-cursor hit-test"
+    );
+    assert!(
+        !input.contains("skip_wm_dispatch") && !input.contains("preverified_gadget_hit"),
+        "inject path must not forge wnd_used/hit via skip_wm / preverified"
+    );
+    assert!(
+        input.contains("handle_right_click"),
+        "RMB evidence path must call handle_right_click"
     );
     assert!(
         status_body.contains("retail_sit_through_missing"),
@@ -1826,10 +1883,13 @@ mod world_scene_skip_residual_tests {
             .find("fn should_skip_world_scene_for_shell_menu")
             .expect("skip fn");
         let body = &src[start..src.len().min(start + 900)];
-        assert!(body.contains("GameState::Menu =>"), "Menu branch required");
         assert!(
-            body.contains("_ => false"),
-            "InGame and other states must not skip via menu warmup counter"
+            body.contains("GameState::Loading"),
+            "only Loading may skip the 3D world"
+        );
+        assert!(
+            !body.contains("GameState::Menu => self.menu_world_frames_rendered"),
+            "Menu must keep drawing the shell-map world (C++ W3DDisplay::draw)"
         );
     }
 }
@@ -1904,12 +1964,10 @@ mod runtime_host_windowed_bridge_tests {
             .expect("window_visible helper");
         let body = &src[start..src.len().min(start + 420)];
         assert!(
-            body.contains("!self.runtime_host_headless"),
-            "window_visible must stay false in headless"
-        );
-        assert!(
-            body.contains("is_visible()") && body.contains("unwrap_or(!self.runtime_host_headless)"),
-            "window_visible must use winit is_visible Some(true) or unwrap_or(!headless)"
+            body.contains("window_visible_from_winit_query")
+                && body.contains("self.runtime_host_headless")
+                && body.contains("is_visible()"),
+            "window_visible must use shipped winit query helper (headless stays false)"
         );
         assert!(
             src.contains("window_visible: self.runtime_host_window_visible()"),
@@ -1947,6 +2005,216 @@ mod runtime_host_windowed_bridge_tests {
         assert!(
             src[headless_init..window_init].contains("} else if"),
             "windowed runtime_host must not call init_headless"
+        );
+    }
+
+    #[test]
+    fn ui_render_pass_drops_write_lock_before_draw_all() {
+        let src = include_str!("../graphics/ui_render_pass.rs");
+        assert!(
+            !src.contains("*mut UIRenderer"),
+            "must not reintroduce TLS *mut UIRenderer"
+        );
+        let begin = src
+            .find("renderer.begin_frame()")
+            .expect("flush_ui_to_frame must begin_frame");
+        let draw = src
+            .find("wm.draw_all()")
+            .expect("flush_ui_to_frame must call draw_all");
+        assert!(begin < draw);
+        let between = &src[begin..draw];
+        assert!(
+            between.contains('}'),
+            "UI write lock must drop before wm.draw_all()"
+        );
+        assert!(
+            !between.contains("set_active_ui_renderer(Some"),
+            "must not hold in-draw flag across draw_all"
+        );
+    }
+
+    #[test]
+    fn windowed_executable_smoke_construct_train_without_cheats() {
+        let src = include_str!("../executable_smoke.rs");
+        let windowed_writes = windowed_write_control_args(src);
+        assert!(
+            !windowed_writes.is_empty(),
+            "must find Windowed write_control argument lists"
+        );
+        assert!(
+            windowed_writes.contains("construct|template=USA_Barracks|auto_target=1"),
+            "windowed construct write_control must be cheat-free: {windowed_writes}"
+        );
+        assert!(
+            windowed_writes.contains("train_unit|template=AmericaInfantryRanger|auto_target=1"),
+            "windowed train write_control must be cheat-free"
+        );
+        assert!(
+            !windowed_writes.contains("train_unit|template=USA_Ranger|auto_target=1"),
+            "windowed must issue one train template so train_ok is not overwritten"
+        );
+        assert!(
+            src.contains("saw_construct_under_construction"),
+            "windowed must wait for a real under_construction pulse before train"
+        );
+        assert!(
+            include_str!("runtime_host/gameplay.rs").contains("train_fail_no_ready_barracks"),
+            "infantry train must fail closed without a completed barracks"
+        );
+        assert!(
+            windowed_writes
+                .contains("upgrade|name=UpgradeAmericaRangerCaptureBuilding|auto_target=1"),
+            "windowed upgrade write_control must be cheat-free"
+        );
+        for cheat in ["spawn_dozer=", "force_complete=", "grant_supplies="] {
+            assert!(
+                !windowed_writes.contains(cheat),
+                "Windowed write_control arm must not contain {cheat}"
+            );
+        }
+        assert!(src.contains("snap.under_construction == 0"));
+        assert!(src.contains("spawn_dozer=1") && src.contains("force_complete=1"));
+        assert!(
+            !windowed_writes.contains("spawn_dozer="),
+            "windowed construct command must have no spawn_dozer="
+        );
+        assert!(
+            windowed_writes.contains("pause_save|slot=wnd_pause|via=PopupSaveLoad.wnd"),
+            "windowed step 8 must drive Pause Save/Load WND: {windowed_writes}"
+        );
+        assert!(
+            windowed_writes.contains("pause_load|slot=wnd_pause|via=PopupSaveLoad.wnd"),
+            "windowed step 8 must drive Pause load WND"
+        );
+        assert!(
+            !windowed_writes.contains("quicksave") && !windowed_writes.contains("quickload"),
+            "windowed step 8 must not use host quicksave/quickload"
+        );
+    }
+
+    /// Collect `write_control(...)` argument-list slices from Windowed launch arms only.
+    fn windowed_write_control_args(src: &str) -> String {
+        let marker = "if launch == ExecutableSmokeLaunch::Windowed";
+        fn brace_block(after_if: &str) -> &str {
+            let Some(open) = after_if.find('{') else {
+                return "";
+            };
+            let mut depth = 0i32;
+            for (i, ch) in after_if[open..].char_indices() {
+                match ch {
+                    '{' => depth += 1,
+                    '}' => {
+                        depth -= 1;
+                        if depth == 0 {
+                            return &after_if[open..=open + i];
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            &after_if[open..]
+        }
+        fn write_control_args(block: &str) -> String {
+            let mut out = String::new();
+            let mut rest = block;
+            while let Some(i) = rest.find("write_control(") {
+                let after = &rest[i + "write_control(".len()..];
+                let mut depth = 1i32;
+                let mut end = after.len();
+                for (j, ch) in after.char_indices() {
+                    match ch {
+                        '(' => depth += 1,
+                        ')' => {
+                            depth -= 1;
+                            if depth == 0 {
+                                end = j;
+                                break;
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                out.push_str(&after[..end]);
+                out.push('\n');
+                rest = &after[end..];
+            }
+            out
+        }
+        let mut windowed_writes = String::new();
+        let mut rest = src;
+        while let Some(i) = rest.find(marker) {
+            let after = &rest[i + marker.len()..];
+            windowed_writes.push_str(&write_control_args(brace_block(after)));
+            rest = after;
+        }
+        windowed_writes
+    }
+
+    #[test]
+    fn windowed_step_8_pause_save_load_uses_wnd_gadgets() {
+        let host = include_str!("runtime_host/gameplay.rs");
+        assert!(
+            host.contains("fn runtime_host_cmd_pause_save"),
+            "pause_save must be a shipped host command"
+        );
+        assert!(host.contains("fn runtime_host_cmd_pause_load"));
+        let pause_save = {
+            let i = host
+                .find("fn runtime_host_cmd_pause_save")
+                .expect("pause_save");
+            &host[i..]
+        };
+        let pause_save = pause_save
+            .split("fn runtime_host_cmd_pause_load")
+            .next()
+            .unwrap_or(pause_save);
+        assert!(pause_save.contains("drive_os_wnd_quit_menu_save_load_like_cpp"));
+        assert!(pause_save.contains("ensure_live_quit_menu_layout"));
+        assert!(pause_save.contains("ensure_live_popup_save_load_layout"));
+        assert!(pause_save.contains("drive_os_wnd_popup_save_load_save_like_cpp"));
+        assert!(
+            !pause_save.contains("simulate_quit_menu")
+                && !pause_save.contains("simulate_save_load"),
+            "pause_save must not call residual gadget latches"
+        );
+        assert!(host.contains("save_fail_wnd_missing"));
+        assert!(host.contains("load_fail_wnd_missing"));
+        assert!(
+            host.contains("save_game_from_ui"),
+            "WND save must call the live save_game_from_ui path"
+        );
+        assert!(
+            host.contains("load_game_from_ui"),
+            "WND load must call the live load_game_from_ui path"
+        );
+        let dispatch = include_str!("runtime_host/mod.rs");
+        assert!(dispatch.contains("\"pause_save\""));
+        assert!(dispatch.contains("\"pause_load\""));
+    }
+
+    #[test]
+    fn windowed_open_skirmish_does_not_simulate_main_menu_skirmish_button() {
+        let src = include_str!("runtime_host/skirmish.rs");
+        let interactive = src
+            .find("Interactive windowed: WND is the only menu owner")
+            .or_else(|| src.find("// Interactive:"))
+            .expect("interactive open_skirmish branch");
+        let rest = &src[interactive..];
+        let end = rest
+            .find("pub(super) fn runtime_host_cmd_click_skirmish_start")
+            .unwrap_or(rest.len());
+        let body = &rest[..end];
+        assert!(
+            !body.contains("simulate_main_menu_skirmish_button_gadget_selected()"),
+            "windowed path must not call simulate_main_menu_skirmish_button_*"
+        );
+        assert!(
+            !body.contains("ui_manager.transition_to_screen(Screen::Skirmish)"),
+            "windowed exclusive WND must not soft-transition to Screen::Skirmish"
+        );
+        assert!(
+            body.contains("Menus/SkirmishGameOptionsMenu.wnd"),
+            "interactive must still push/parse Skirmish WND"
         );
     }
 

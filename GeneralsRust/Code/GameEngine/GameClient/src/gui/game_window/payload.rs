@@ -48,7 +48,8 @@ pub(crate) const WINDOW_MSG_TOKEN_TAG: usize = 1usize << (usize::BITS - 1);
 pub(crate) const WINDOW_MSG_INDEX_BITS: u32 = 24;
 pub(crate) const WINDOW_MSG_INDEX_MASK: usize = (1usize << WINDOW_MSG_INDEX_BITS) - 1;
 pub(crate) const WINDOW_MSG_GEN_SHIFT: u32 = WINDOW_MSG_INDEX_BITS;
-pub(crate) const WINDOW_MSG_GEN_MASK: usize = (1usize << (usize::BITS - 1 - WINDOW_MSG_INDEX_BITS)) - 1;
+pub(crate) const WINDOW_MSG_GEN_MASK: usize =
+    (1usize << (usize::BITS - 1 - WINDOW_MSG_INDEX_BITS)) - 1;
 
 pub(crate) struct WindowMsgPayloadSlot {
     generation: u32,
@@ -232,4 +233,3 @@ pub struct ListBoxCellPosition {
     pub x: i32,
     pub y: i32,
 }
-

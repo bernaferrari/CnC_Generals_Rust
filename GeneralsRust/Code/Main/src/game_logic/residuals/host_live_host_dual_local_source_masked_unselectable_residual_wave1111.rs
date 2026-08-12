@@ -45,7 +45,7 @@ fn residual_action_store(a: ResidualHostDualLocalSourceMaskedUnselectableAction)
 }
 
 fn tr_source() -> &'static str {
-    include_str!("../../../../GameEngine/GameClient/src/message_stream/translators.rs")
+    game_client::message_stream::translators::TRANSLATORS_SRC
 }
 fn es_source() -> &'static str {
     include_str!("../../executable_smoke.rs")

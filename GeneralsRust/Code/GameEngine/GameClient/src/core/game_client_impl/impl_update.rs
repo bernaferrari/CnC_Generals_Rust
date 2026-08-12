@@ -1203,8 +1203,10 @@ impl GameClient {
         {
             if let Some(manager) = manager_guard.as_mut() {
                 manager.set_local_player_index(self.local_player_id);
+                manager.update(self.local_player_id as i32, self.frame);
             }
         }
+        crate::effects::update_tracer_fx(self.frame);
         Ok(())
     }
 

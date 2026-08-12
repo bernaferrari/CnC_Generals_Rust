@@ -4,7 +4,7 @@
 // Observable behavior is unchanged.
 
 impl ScriptEvaluator {
-    pub fn new(engine: Arc<RwLock<Option<ScriptEngine>>>) -> Self {
+    pub fn new(engine: ScriptEngineHandle) -> Self {
         Self { engine }
     }
 

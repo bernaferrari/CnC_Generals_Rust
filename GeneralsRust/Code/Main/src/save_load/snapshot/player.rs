@@ -177,4 +177,3 @@ impl XferData for TeamSnapshot {
         Ok(())
     }
 }
-

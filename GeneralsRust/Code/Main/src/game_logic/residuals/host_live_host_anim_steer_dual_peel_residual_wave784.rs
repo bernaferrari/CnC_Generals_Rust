@@ -64,7 +64,7 @@ pub fn residual_host_anim_steer_dual_peel_last_action() -> ResidualHostAnimSteer
     ResidualHostAnimSteerDualPeelAction::from_u8(RESIDUAL_ACTION.load(Ordering::SeqCst))
 }
 fn sh_source() -> &'static str {
-    include_str!("../../gameworld_shadow.rs")
+    crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC
 }
 fn gl_source() -> &'static str {
     include_str!("../game_logic.rs")

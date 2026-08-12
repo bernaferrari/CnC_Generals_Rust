@@ -498,7 +498,11 @@ impl GameLogic {
         }
     }
 
-    pub(in super::super) fn record_destruction(&mut self, destroyed_object: &Object, killer: Option<Team>) {
+    pub(in super::super) fn record_destruction(
+        &mut self,
+        destroyed_object: &Object,
+        killer: Option<Team>,
+    ) {
         let destroyed_is_structure = destroyed_object.is_kind_of(KindOf::Structure);
         let victim_team = destroyed_object.team;
         let victim_id = destroyed_object.id;

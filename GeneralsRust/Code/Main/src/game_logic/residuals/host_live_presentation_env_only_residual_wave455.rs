@@ -80,7 +80,7 @@ pub fn honesty_live_presentation_env_only_residual_pack_wave455() -> bool {
 
 /// Source residual: apply_*_hint are presentation-only.
 pub fn honesty_presentation_env_only_source() -> bool {
-    let g = include_str!("../../cnc_game_engine.rs");
+    let g = crate::cnc_game_engine::ENGINE_SRC;
     if !(g.contains("Wave 455")
         && g.contains("fn ensure_presentation_env_for_hints")
         && g.contains("fn apply_heightmap_hint(render_pipeline: &mut RenderPipeline)")

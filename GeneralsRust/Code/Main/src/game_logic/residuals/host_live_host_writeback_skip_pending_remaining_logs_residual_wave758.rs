@@ -71,7 +71,7 @@ pub fn residual_host_writeback_skip_pending_remaining_logs_last_action(
     )
 }
 fn sh_source() -> &'static str {
-    include_str!("../../gameworld_shadow.rs")
+    crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC
 }
 pub fn honesty_host_writeback_skip_pending_remaining_logs_method_names_residual_wave758() -> bool {
     let names = LIVE_HOST_WRITEBACK_SKIP_PENDING_REMAINING_LOGS_METHOD_NAMES_WAVE758;

@@ -68,7 +68,7 @@ fn gl_source() -> &'static str {
     include_str!("../game_logic.rs")
 }
 fn shadow_source() -> &'static str {
-    include_str!("../../gameworld_shadow.rs")
+    crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC
 }
 pub fn honesty_host_eager_destroy_unmap_helper_method_names_residual_wave681() -> bool {
     let names = LIVE_HOST_EAGER_DESTROY_UNMAP_HELPER_METHOD_NAMES_WAVE681;

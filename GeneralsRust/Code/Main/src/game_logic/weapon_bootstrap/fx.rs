@@ -537,4 +537,3 @@ pub(super) fn seed_detonation_fx_for(name: &str) -> String {
     }
     String::new()
 }
-

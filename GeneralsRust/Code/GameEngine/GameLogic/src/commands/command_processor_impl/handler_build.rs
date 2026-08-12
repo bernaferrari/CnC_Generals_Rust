@@ -162,6 +162,7 @@ impl DefaultCommandHandler {
                 z: builder_guard.get_position().z,
             },
             orientation: builder_guard.get_orientation(),
+            command_set: None,
         };
         let owning_player = build_assistant::Player { player_index };
 
@@ -299,6 +300,7 @@ impl DefaultCommandHandler {
                     z: object_guard.get_position().z,
                 },
                 orientation: object_guard.get_orientation(),
+                command_set: None,
             };
             assistant.sell_object(&sell_object, current_frame);
         }

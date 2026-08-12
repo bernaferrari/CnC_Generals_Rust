@@ -669,7 +669,9 @@ impl CnCGameEngine {
         self.host_resolve_context_cursor_icon()
     }
 
-    pub(super) fn host_resolve_context_cursor_icon(&self) -> (&'static str, winit::window::CursorIcon) {
+    pub(super) fn host_resolve_context_cursor_icon(
+        &self,
+    ) -> (&'static str, winit::window::CursorIcon) {
         // Wave 612: host residual helper.
         use winit::window::CursorIcon;
 
@@ -829,7 +831,11 @@ impl CnCGameEngine {
     /// Main still owns command translation / hotkeys.
     /// Wave 606: via `host_inject_game_client_key`.
     #[cfg(feature = "game_client")]
-    pub(super) fn inject_game_client_key(&self, physical_key: &winit::keyboard::PhysicalKey, pressed: bool) {
+    pub(super) fn inject_game_client_key(
+        &self,
+        physical_key: &winit::keyboard::PhysicalKey,
+        pressed: bool,
+    ) {
         // Wave 606: thin wrapper — OS key inject via host helper.
         self.host_inject_game_client_key(physical_key, pressed);
     }
@@ -984,7 +990,9 @@ impl CnCGameEngine {
         }
     }
 
-    pub(super) fn winit_physical_key_to_wnd_vk(physical_key: &winit::keyboard::PhysicalKey) -> Option<u8> {
+    pub(super) fn winit_physical_key_to_wnd_vk(
+        physical_key: &winit::keyboard::PhysicalKey,
+    ) -> Option<u8> {
         use winit::keyboard::{KeyCode as Wk, PhysicalKey};
         let PhysicalKey::Code(code) = physical_key else {
             return None;
@@ -1330,7 +1338,11 @@ impl CnCGameEngine {
         })
     }
 
-    pub(super) fn find_object_at_position(&self, position: Vec3, command_context: bool) -> Option<ObjectId> {
+    pub(super) fn find_object_at_position(
+        &self,
+        position: Vec3,
+        command_context: bool,
+    ) -> Option<ObjectId> {
         const BASE_SELECTION_RADIUS: f32 = 20.0;
         // Wave 222: presentation-only pick (no GameLogic dual-read residual).
 
@@ -1373,7 +1385,11 @@ impl CnCGameEngine {
     /// RenderItem list and ForwardPass::prepare_mesh_instance() which creates actual
     /// MeshClass instances submitted to the WW3D Renderer.
     #[allow(dead_code)] // Legacy stub: superseded by RenderPipeline, retained for reference
-    pub(super) fn render_object<'a>(&'a self, obj: &Object, _render_pass: &mut wgpu::RenderPass<'a>) {
+    pub(super) fn render_object<'a>(
+        &'a self,
+        obj: &Object,
+        _render_pass: &mut wgpu::RenderPass<'a>,
+    ) {
         let model_name = obj.get_template().get_model_name();
 
         log::trace!(

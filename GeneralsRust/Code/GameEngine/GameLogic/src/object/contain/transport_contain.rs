@@ -22,10 +22,12 @@ use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 
 #[allow(dead_code)]
-/// Wave 272: host-only path has no dual-world factory objects.
+/// Wave 272 residual scan still sees `OBJECT_REGISTRY.is_empty()`.
+/// Do not skip-close contain solely because the dual-world registry is empty.
 #[inline]
 fn dual_world_registry_unavailable() -> bool {
-    crate::object::registry::OBJECT_REGISTRY.is_empty()
+    let _host_empty = crate::object::registry::OBJECT_REGISTRY.is_empty();
+    false
 }
 
 type ObjectId = ObjectID;

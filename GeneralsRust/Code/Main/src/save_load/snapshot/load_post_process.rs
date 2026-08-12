@@ -140,4 +140,3 @@ impl Snapshot for WorldSnapshot {
         Ok(())
     }
 }
-

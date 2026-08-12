@@ -47,7 +47,7 @@ fn residual_action_store(a: ResidualHostRmbGatherEnterServiceSoldAction) {
 }
 
 fn cs_source() -> &'static str {
-    include_str!("../../command_system.rs")
+    crate::command_system::COMMAND_SYSTEM_SRC
 }
 fn es_source() -> &'static str {
     include_str!("../../executable_smoke.rs")

@@ -12,9 +12,9 @@ use super::Team;
 use super::VeterancyLevel;
 use super::Weapon;
 
-use super::host_rng_residual;
 use super::host_gamedata_lobby_residual;
 use super::host_money_crate;
+use super::host_rng_residual;
 use super::host_slave_drones;
 
 #[path = "host_animation_steering.rs"]

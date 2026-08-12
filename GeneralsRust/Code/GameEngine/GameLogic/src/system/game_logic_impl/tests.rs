@@ -595,6 +595,13 @@ mod tests {
             1,
             "C++ GameLogic::xfer must not xfer m_nextObjectID"
         );
+        let xfer_src = include_str!("xfer_helpers.rs");
+        assert!(
+            xfer_src.contains("TheThingFactory::find_template")
+                && xfer_src.contains("Object::new_with_id")
+                && xfer_src.contains("new_for_xfer_load"),
+            "load must ThingFactory::newObject then xferSnapshot (fallback new_for_xfer_load)"
+        );
     }
 
     #[test]
@@ -611,6 +618,7 @@ mod tests {
                     id: 77,
                     position: Default::default(),
                     orientation: 0.0,
+                    command_set: None,
                 },
                 12,
             );

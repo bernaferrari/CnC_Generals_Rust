@@ -44,7 +44,7 @@ fn residual_action_store(a: ResidualHostHarnessHostObjectSealAction) {
 }
 
 fn cnc_source() -> &'static str {
-    include_str!("../../cnc_game_engine.rs")
+    crate::cnc_game_engine::ENGINE_SRC
 }
 
 fn gl_source() -> &'static str {
@@ -56,14 +56,7 @@ fn golden_source() -> &'static str {
 }
 
 fn shell_source() -> &'static str {
-    // Directory split: former single-file `shell_smoke.rs` lives under `shell_smoke/`.
-    concat!(
-        include_str!("../../shell_smoke/mod.rs"),
-        include_str!("../../shell_smoke/host.rs"),
-        include_str!("../../shell_smoke/claim.rs"),
-        include_str!("../../shell_smoke/helpers.rs"),
-        include_str!("../../shell_smoke/result.rs"),
-    )
+    crate::shell_smoke::SHELL_SMOKE_SRC
 }
 
 fn non_comment(src: &str) -> String {

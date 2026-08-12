@@ -44,7 +44,11 @@ impl GameLogic {
         n
     }
 
-    pub(in super::super) fn apply_cash_bounty_upgrade_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
+    pub(in super::super) fn apply_cash_bounty_upgrade_to_team(
+        &mut self,
+        team: Team,
+        upgrade_name: &str,
+    ) -> u32 {
         use crate::game_logic::host_cash_bounty::cash_bounty_percent_for_science;
 
         let pct = cash_bounty_percent_for_science(upgrade_name).unwrap_or(0.05);
@@ -76,7 +80,11 @@ impl GameLogic {
     ///
     /// Attaches the residual slave drone to each living master vehicle that does
     /// not already have the upgrade tag (ObjectCreationUpgrade attach residual).
-    pub(in super::super) fn apply_slave_drone_upgrade_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
+    pub(in super::super) fn apply_slave_drone_upgrade_to_team(
+        &mut self,
+        team: Team,
+        upgrade_name: &str,
+    ) -> u32 {
         use crate::game_logic::host_slave_drones::{
             is_slave_drone_master_template, SlaveDroneKind,
         };
@@ -114,7 +122,11 @@ impl GameLogic {
     }
 
     /// C++ Upgrade_AmericaChemicalSuits residual — ChemSuitHumanArmor on infantry.
-    pub(in super::super) fn apply_chemical_suits_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
+    pub(in super::super) fn apply_chemical_suits_to_team(
+        &mut self,
+        team: Team,
+        upgrade_name: &str,
+    ) -> u32 {
         use crate::game_logic::host_upgrades::UPGRADE_AMERICA_CHEMICAL_SUITS;
         let mut n =
             self.apply_player_unlock_upgrade(team, upgrade_name, UPGRADE_AMERICA_CHEMICAL_SUITS);
@@ -140,7 +152,11 @@ impl GameLogic {
     }
 
     /// C++ Upgrade_ChinaSatelliteHackOne/Two residual — player FOW/intel unlock.
-    pub(in super::super) fn apply_satellite_hack_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
+    pub(in super::super) fn apply_satellite_hack_to_team(
+        &mut self,
+        team: Team,
+        upgrade_name: &str,
+    ) -> u32 {
         use crate::game_logic::host_upgrades::{
             UPGRADE_CHINA_SATELLITE_HACK_ONE, UPGRADE_CHINA_SATELLITE_HACK_TWO,
         };
@@ -163,7 +179,11 @@ impl GameLogic {
     }
 
     /// C++ Upgrade_AmericaCountermeasures residual — tag aircraft for flare residual.
-    pub(in super::super) fn apply_countermeasures_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
+    pub(in super::super) fn apply_countermeasures_to_team(
+        &mut self,
+        team: Team,
+        upgrade_name: &str,
+    ) -> u32 {
         use crate::game_logic::host_upgrades::UPGRADE_AMERICA_COUNTERMEASURES;
         let mut n =
             self.apply_player_unlock_upgrade(team, upgrade_name, UPGRADE_AMERICA_COUNTERMEASURES);
@@ -208,7 +228,11 @@ impl GameLogic {
     }
 
     /// C++ Upgrade_GLAFortifiedStructure residual — +max health on GLA structures.
-    pub(in super::super) fn apply_fortified_structure_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
+    pub(in super::super) fn apply_fortified_structure_to_team(
+        &mut self,
+        team: Team,
+        upgrade_name: &str,
+    ) -> u32 {
         use crate::game_logic::host_upgrades::{
             FORTIFIED_STRUCTURE_ADD_MAX_HEALTH, UPGRADE_GLA_FORTIFIED_STRUCTURE,
         };
@@ -246,7 +270,11 @@ impl GameLogic {
     }
 
     /// C++ faction RadarUpgrade residual — unlock + tag radar providers.
-    pub(in super::super) fn apply_radar_research_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
+    pub(in super::super) fn apply_radar_research_to_team(
+        &mut self,
+        team: Team,
+        upgrade_name: &str,
+    ) -> u32 {
         use crate::game_logic::host_radar::{is_radar_provider_template, UPGRADE_GLA_RADAR};
         use crate::game_logic::host_structure_economy_residual::UPGRADE_AMERICA_RADAR;
 
@@ -288,7 +316,11 @@ impl GameLogic {
     }
 
     /// C++ Upgrade_AmericaDroneArmor residual — +max health on slave drones.
-    pub(in super::super) fn apply_drone_armor_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
+    pub(in super::super) fn apply_drone_armor_to_team(
+        &mut self,
+        team: Team,
+        upgrade_name: &str,
+    ) -> u32 {
         use crate::game_logic::host_slave_drones::{
             drone_armor_add_max_health, is_battle_drone_template, is_hellfire_drone_template,
             is_scout_drone_template, SlaveDroneKind, UPGRADE_AMERICA_DRONE_ARMOR,
@@ -338,7 +370,11 @@ impl GameLogic {
     }
 
     /// C++ Upgrade_ChinaAircraftArmor residual — +40 max health on MiGs.
-    pub(in super::super) fn apply_aircraft_armor_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
+    pub(in super::super) fn apply_aircraft_armor_to_team(
+        &mut self,
+        team: Team,
+        upgrade_name: &str,
+    ) -> u32 {
         use crate::game_logic::host_mig::{
             apply_mig_aircraft_armor_health, is_mig_template, UPGRADE_CHINA_AIRCRAFT_ARMOR,
         };
@@ -381,7 +417,11 @@ impl GameLogic {
     }
 
     /// C++ Upgrade_AmericaAdvancedTraining residual — 2× XP gain player unlock.
-    pub(in super::super) fn apply_advanced_training_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
+    pub(in super::super) fn apply_advanced_training_to_team(
+        &mut self,
+        team: Team,
+        upgrade_name: &str,
+    ) -> u32 {
         use crate::game_logic::host_unit_training::UPGRADE_AMERICA_ADVANCED_TRAINING;
         let mut n = 0u32;
         for p in self.players.values_mut() {
@@ -412,7 +452,11 @@ impl GameLogic {
     }
 
     /// C++ Upgrade_ChinaTacticalNukeMig residual — Nuke General MiG loadout.
-    pub(in super::super) fn apply_tactical_nuke_mig_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
+    pub(in super::super) fn apply_tactical_nuke_mig_to_team(
+        &mut self,
+        team: Team,
+        upgrade_name: &str,
+    ) -> u32 {
         use crate::game_logic::host_mig::{is_nuke_mig_template, UPGRADE_CHINA_TACTICAL_NUKE_MIG};
         let ids: Vec<ObjectId> = self
             .objects
@@ -443,7 +487,11 @@ impl GameLogic {
     }
 
     /// C++ Upgrade_GLAAnthraxBeta residual — toxin tractor + SCUD + scud storm tier.
-    pub(in super::super) fn apply_anthrax_beta_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
+    pub(in super::super) fn apply_anthrax_beta_to_team(
+        &mut self,
+        team: Team,
+        upgrade_name: &str,
+    ) -> u32 {
         use crate::game_logic::host_scud_launcher::{
             is_scud_launcher_template, UPGRADE_GLA_ANTHRAX_BETA,
         };
@@ -479,7 +527,11 @@ impl GameLogic {
     }
 
     /// C++ Upgrade_GLAToxinShells residual — enables SCUD toxin secondary path.
-    pub(in super::super) fn apply_toxin_shells_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
+    pub(in super::super) fn apply_toxin_shells_to_team(
+        &mut self,
+        team: Team,
+        upgrade_name: &str,
+    ) -> u32 {
         use crate::game_logic::host_scud_launcher::is_scud_launcher_template;
         use crate::game_logic::host_upgrades::UPGRADE_GLA_TOXIN_SHELLS;
 
@@ -512,7 +564,11 @@ impl GameLogic {
     }
 
     /// C++ Upgrade_GLAAPBullets residual — Rebel / Jarmen / Technical / Quad.
-    pub(in super::super) fn apply_ap_bullets_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
+    pub(in super::super) fn apply_ap_bullets_to_team(
+        &mut self,
+        team: Team,
+        upgrade_name: &str,
+    ) -> u32 {
         use crate::game_logic::host_gla_rebel::is_gla_rebel_template;
         use crate::game_logic::host_jarmen_kell::{
             is_jarmen_kell_template, UPGRADE_GLA_AP_BULLETS,
@@ -585,7 +641,11 @@ impl GameLogic {
     }
 
     /// C++ Upgrade_ChinaUraniumShells residual — Battlemaster / Overlord gun damage.
-    pub(in super::super) fn apply_uranium_shells_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
+    pub(in super::super) fn apply_uranium_shells_to_team(
+        &mut self,
+        team: Team,
+        upgrade_name: &str,
+    ) -> u32 {
         use crate::game_logic::host_battlemaster::{
             is_battlemaster_template, UPGRADE_CHINA_URANIUM_SHELLS,
         };
@@ -631,7 +691,11 @@ impl GameLogic {
     }
 
     /// C++ Upgrade_ChinaBlackNapalm residual — MiG / Inferno / Dragon fire field.
-    pub(in super::super) fn apply_black_napalm_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
+    pub(in super::super) fn apply_black_napalm_to_team(
+        &mut self,
+        team: Team,
+        upgrade_name: &str,
+    ) -> u32 {
         use crate::game_logic::host_dragon_tank::is_dragon_tank_template;
         use crate::game_logic::host_inferno_cannon::is_inferno_cannon_template;
         use crate::game_logic::host_mig::is_mig_template;
@@ -679,7 +743,11 @@ impl GameLogic {
     }
 
     /// C++ Upgrade_GLAScorpionRocket residual — equip SECONDARY on all Scorpions.
-    pub(in super::super) fn apply_scorpion_rocket_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
+    pub(in super::super) fn apply_scorpion_rocket_to_team(
+        &mut self,
+        team: Team,
+        upgrade_name: &str,
+    ) -> u32 {
         use crate::game_logic::host_scorpion::{is_scorpion_template, UPGRADE_GLA_SCORPION_ROCKET};
         let ids: Vec<ObjectId> = self
             .objects
@@ -704,7 +772,11 @@ impl GameLogic {
 
     /// C++ Upgrade_GLAAPRockets residual — AP damage on Scorpions (+ RPG if present).
     /// C++ Upgrade_GLAAPRockets residual — Scorpion / RPG / Stinger AP.
-    pub(in super::super) fn apply_ap_rockets_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
+    pub(in super::super) fn apply_ap_rockets_to_team(
+        &mut self,
+        team: Team,
+        upgrade_name: &str,
+    ) -> u32 {
         use crate::game_logic::host_base_defense::is_stinger_site_structure;
         use crate::game_logic::host_rpg_trooper::is_rpg_trooper_template;
         use crate::game_logic::host_scorpion::{is_scorpion_template, UPGRADE_GLA_AP_ROCKETS};
@@ -752,7 +824,11 @@ impl GameLogic {
     }
 
     /// C++ Upgrade_AmericaLaserMissiles residual — Raptor jet damage.
-    pub(in super::super) fn apply_laser_missiles_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
+    pub(in super::super) fn apply_laser_missiles_to_team(
+        &mut self,
+        team: Team,
+        upgrade_name: &str,
+    ) -> u32 {
         use crate::game_logic::host_raptor::{is_raptor_template, UPGRADE_AMERICA_LASER_MISSILES};
         let ids: Vec<ObjectId> = self
             .objects
@@ -774,7 +850,11 @@ impl GameLogic {
     }
 
     /// C++ Upgrade_ChinaNationalism residual — horde ROF tag on infantry/tanks.
-    pub(in super::super) fn apply_nationalism_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
+    pub(in super::super) fn apply_nationalism_to_team(
+        &mut self,
+        team: Team,
+        upgrade_name: &str,
+    ) -> u32 {
         use crate::game_logic::host_battlemaster::{is_battlemaster_template, UPGRADE_NATIONALISM};
         use crate::game_logic::host_minigunner::is_minigunner_template;
         use crate::game_logic::host_red_guard::is_red_guard_template;
@@ -826,7 +906,11 @@ impl GameLogic {
     }
 
     /// C++ Upgrade_ChinaChainGuns residual — gattling/minigun damage ×1.25.
-    pub(in super::super) fn apply_chain_guns_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
+    pub(in super::super) fn apply_chain_guns_to_team(
+        &mut self,
+        team: Team,
+        upgrade_name: &str,
+    ) -> u32 {
         use crate::game_logic::host_base_defense::is_gattling_cannon_structure;
         use crate::game_logic::host_gattling_tank::{
             is_gattling_tank_template, UPGRADE_CHINA_CHAIN_GUNS,
@@ -878,7 +962,11 @@ impl GameLogic {
     ///
     /// Tags propaganda towers and unlocks upgraded heal/buff rate path
     /// (player unlocked_sciences + tower upgrade tags).
-    pub(in super::super) fn apply_subliminal_messaging_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
+    pub(in super::super) fn apply_subliminal_messaging_to_team(
+        &mut self,
+        team: Team,
+        upgrade_name: &str,
+    ) -> u32 {
         use crate::game_logic::host_propaganda::{
             is_propaganda_tower, UPGRADE_CHINA_SUBLIMINAL_MESSAGING,
         };
@@ -918,7 +1006,11 @@ impl GameLogic {
     ///
     /// Tags America power plants and adds EnergyBonus to power_provided;
     /// sets POWER_PLANT_UPGRADED model condition (extendRods residual).
-    pub(in super::super) fn apply_advanced_control_rods_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
+    pub(in super::super) fn apply_advanced_control_rods_to_team(
+        &mut self,
+        team: Team,
+        upgrade_name: &str,
+    ) -> u32 {
         use crate::game_logic::host_structure_economy_residual::{
             is_power_plant_template, AMERICA_POWER_ENERGY_BONUS,
             UPGRADE_AMERICA_ADVANCED_CONTROL_RODS,
@@ -972,7 +1064,11 @@ impl GameLogic {
     }
 
     /// Apply WorkerShoes residual: speed 30 + upgrade tag on GLA workers.
-    pub(in super::super) fn apply_worker_shoes_unlock_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
+    pub(in super::super) fn apply_worker_shoes_unlock_to_team(
+        &mut self,
+        team: Team,
+        upgrade_name: &str,
+    ) -> u32 {
         use crate::game_logic::host_gla_worker::{
             is_gla_worker_template, worker_residual_speed, UPGRADE_GLA_WORKER_SHOES,
             WORKER_SHOES_AUDIO,
@@ -1009,7 +1105,11 @@ impl GameLogic {
     }
 
     /// Apply Nuclear Tanks residual: death-weapon tag + nuclear locomotor speed.
-    pub(in super::super) fn apply_nuclear_tanks_unlock_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
+    pub(in super::super) fn apply_nuclear_tanks_unlock_to_team(
+        &mut self,
+        team: Team,
+        upgrade_name: &str,
+    ) -> u32 {
         use crate::game_logic::host_nuclear_tanks::{
             has_nuclear_tanks_upgrade, is_nuclear_tanks_eligible, nuclear_tanks_residual_speed,
             NUCLEAR_TANKS_UPGRADE_AUDIO, UPGRADE_CHINA_NUCLEAR_TANKS,
@@ -1044,7 +1144,11 @@ impl GameLogic {
     }
 
     /// Apply BoobyTrap residual unlock tag on GLA Rebel infantry.
-    pub(in super::super) fn apply_booby_trap_unlock_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
+    pub(in super::super) fn apply_booby_trap_unlock_to_team(
+        &mut self,
+        team: Team,
+        upgrade_name: &str,
+    ) -> u32 {
         use crate::game_logic::host_booby_trap::{
             is_booby_trap_planter_template, UPGRADE_GLA_REBEL_BOOBY_TRAP,
         };
@@ -1073,7 +1177,11 @@ impl GameLogic {
     }
 
     /// Equip FlashBang secondary on team rangers + apply upgrade tag.
-    pub(in super::super) fn apply_flashbang_unlock_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
+    pub(in super::super) fn apply_flashbang_unlock_to_team(
+        &mut self,
+        team: Team,
+        upgrade_name: &str,
+    ) -> u32 {
         use crate::game_logic::host_upgrades::is_flashbang_unit_template;
         use crate::game_logic::weapon_bootstrap::{
             ensure_host_weapon_store, RANGER_SECONDARY_WEAPON,
@@ -1103,7 +1211,11 @@ impl GameLogic {
     }
 
     /// Equip TOW secondary on team Humvees + apply upgrade tag.
-    pub(in super::super) fn apply_tow_unlock_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
+    pub(in super::super) fn apply_tow_unlock_to_team(
+        &mut self,
+        team: Team,
+        upgrade_name: &str,
+    ) -> u32 {
         use crate::game_logic::host_upgrades::is_tow_unit_template;
         use crate::game_logic::weapon_bootstrap::{
             ensure_host_weapon_store, HUMVEE_SECONDARY_WEAPON,
@@ -1143,7 +1255,11 @@ impl GameLogic {
     }
 
     /// Apply Composite Armor MaxHealthUpgrade residual (+100 HP) to Crusader / Paladin.
-    pub(in super::super) fn apply_composite_armor_unlock_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
+    pub(in super::super) fn apply_composite_armor_unlock_to_team(
+        &mut self,
+        team: Team,
+        upgrade_name: &str,
+    ) -> u32 {
         use crate::game_logic::host_usa_tanks::{
             apply_composite_armor_health, is_composite_armor_unit_template,
             UPGRADE_AMERICA_COMPOSITE_ARMOR,
@@ -1180,7 +1296,11 @@ impl GameLogic {
     }
 
     /// Equip Neutron Shell secondary on team Nuke Cannons + apply upgrade tag.
-    pub(in super::super) fn apply_neutron_shells_unlock_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
+    pub(in super::super) fn apply_neutron_shells_unlock_to_team(
+        &mut self,
+        team: Team,
+        upgrade_name: &str,
+    ) -> u32 {
         use crate::game_logic::host_neutron_shell::UPGRADE_CHINA_NEUTRON_SHELLS;
         use crate::game_logic::host_upgrades::is_neutron_shell_unit_template;
         use crate::game_logic::weapon_bootstrap::{
@@ -1212,7 +1332,11 @@ impl GameLogic {
     ///
     /// Retail: WeaponSetUpgrade TriggeredBy = Upgrade_ComancheRocketPods unlocks
     /// TERTIARY ComancheRocketPodWeapon. Host residual binds secondary slot.
-    pub(in super::super) fn apply_comanche_rocket_pods_unlock_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
+    pub(in super::super) fn apply_comanche_rocket_pods_unlock_to_team(
+        &mut self,
+        team: Team,
+        upgrade_name: &str,
+    ) -> u32 {
         use crate::game_logic::host_comanche_rocket_pods::{
             comanche_rocket_pod_weapon, is_comanche_template, UPGRADE_COMANCHE_ROCKET_PODS,
         };
@@ -1241,7 +1365,11 @@ impl GameLogic {
     ///
     /// Retail: WeaponSetUpgrade TriggeredBy = Upgrade_AmericaSentryDroneGun unlocks
     /// PRIMARY SentryDroneGun. Host residual binds primary weapon for auto-fire.
-    pub(in super::super) fn apply_sentry_drone_gun_unlock_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
+    pub(in super::super) fn apply_sentry_drone_gun_unlock_to_team(
+        &mut self,
+        team: Team,
+        upgrade_name: &str,
+    ) -> u32 {
         use crate::game_logic::host_sentry_drone::{
             is_sentry_drone_template, SENTRY_DRONE_GUN_WEAPON, UPGRADE_AMERICA_SENTRY_DRONE_GUN,
         };
@@ -1273,7 +1401,11 @@ impl GameLogic {
     ///
     /// C++ BunkerBusterBehavior checks player upgrade on missile detonation;
     /// host residual tags carriers so combat can apply garrison kill + bunker mult.
-    pub(in super::super) fn apply_bunker_busters_unlock_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
+    pub(in super::super) fn apply_bunker_busters_unlock_to_team(
+        &mut self,
+        team: Team,
+        upgrade_name: &str,
+    ) -> u32 {
         use crate::game_logic::host_bunker_buster::{
             is_bunker_buster_carrier, UPGRADE_AMERICA_BUNKER_BUSTERS,
         };
@@ -1305,7 +1437,11 @@ impl GameLogic {
     }
 
     /// Tag capture-capable infantry so capture unlock is unit-observable.
-    pub(in super::super) fn apply_capture_unlock_tags_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
+    pub(in super::super) fn apply_capture_unlock_tags_to_team(
+        &mut self,
+        team: Team,
+        upgrade_name: &str,
+    ) -> u32 {
         use crate::game_logic::host_upgrades::{
             is_capture_capable_infantry_template, UPGRADE_INFANTRY_CAPTURE,
         };
@@ -1335,7 +1471,11 @@ impl GameLogic {
     /// STEALTHED + innate_stealth; breaks on attack (StealthForbiddenConditions
     /// = ATTACKING USING_ABILITY). Fail-closed: not full 2500ms StealthDelay
     /// re-cloak timer matrix / FriendlyOpacity pulse / workers (no StealthUpgrade).
-    pub(in super::super) fn apply_camouflage_unlock_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
+    pub(in super::super) fn apply_camouflage_unlock_to_team(
+        &mut self,
+        team: Team,
+        upgrade_name: &str,
+    ) -> u32 {
         use crate::game_logic::host_upgrades::{
             is_camouflage_unit_template, UPGRADE_GLA_CAMOUFLAGE,
         };
@@ -1374,7 +1514,11 @@ impl GameLogic {
     /// buildings + Tunnel Network / Stinger Site. Host residual sets STEALTHED +
     /// innate_stealth with StealthForbiddenConditions ATTACKING / TAKING_DAMAGE
     /// and StealthDelay **2500**ms re-cloak residual.
-    pub(in super::super) fn apply_camo_netting_unlock_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
+    pub(in super::super) fn apply_camo_netting_unlock_to_team(
+        &mut self,
+        team: Team,
+        upgrade_name: &str,
+    ) -> u32 {
         use crate::game_logic::host_upgrades::{
             is_camo_netting_structure_template, CAMO_NETTING_FRIENDLY_OPACITY_MIN,
             CAMO_NETTING_STEALTH_DELAY_FRAMES, UPGRADE_GLA_CAMO_NETTING,
@@ -1428,7 +1572,11 @@ impl GameLogic {
     /// Tag toxin combat units for Anthrax Gamma residual (Chem general).
     ///
     /// Fail-closed: not full WeaponSet PLAYER_UPGRADE module / particle gamma FX.
-    pub(in super::super) fn apply_anthrax_gamma_unlock_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
+    pub(in super::super) fn apply_anthrax_gamma_unlock_to_team(
+        &mut self,
+        team: Team,
+        upgrade_name: &str,
+    ) -> u32 {
         use crate::game_logic::host_toxin_tractor::{
             is_toxin_tractor_template, UPGRADE_GLA_ANTHRAX_GAMMA, UPGRADE_GLA_ANTHRAX_GAMMA_ALT,
         };
@@ -1457,7 +1605,11 @@ impl GameLogic {
 
     /// Apply Demo SuicideBomb residual: tag eligible Demo units/structures +
     /// CommandSetUpgrade residual override for TertiarySuicide.
-    pub(in super::super) fn apply_demo_suicide_bomb_unlock_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
+    pub(in super::super) fn apply_demo_suicide_bomb_unlock_to_team(
+        &mut self,
+        team: Team,
+        upgrade_name: &str,
+    ) -> u32 {
         use crate::game_logic::host_demo_suicide_bomb::{
             demo_command_set_upgrade_for_template, is_demo_suicide_bomb_eligible_template,
             UPGRADE_DEMO_SUICIDE_BOMB,
@@ -1499,7 +1651,11 @@ impl GameLogic {
     }
 
     /// Tag supply centers for Supply Lines residual observability.
-    pub(in super::super) fn apply_supply_lines_tags_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
+    pub(in super::super) fn apply_supply_lines_tags_to_team(
+        &mut self,
+        team: Team,
+        upgrade_name: &str,
+    ) -> u32 {
         use crate::game_logic::host_upgrades::is_supply_center_template;
 
         let mut affected = 0u32;

@@ -85,7 +85,7 @@ pub fn honesty_live_gameworld_damage_channel_residual_pack_wave182() -> bool {
 /// Source residual: damage log + apply/writeback APIs.
 pub fn honesty_damage_channel_api_source() -> bool {
     let log = include_str!("../host_damage_log.rs");
-    let src = include_str!("../../gameworld_shadow.rs");
+    let src = crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC;
     log.contains("pub fn record")
         && log.contains("pub struct HostDamageEvent")
         && src.contains("pub fn apply_host_damage_events")
@@ -95,7 +95,7 @@ pub fn honesty_damage_channel_api_source() -> bool {
 
 /// Source residual: damage authority defaults on.
 pub fn honesty_damage_authority_default_on_source() -> bool {
-    let src = include_str!("../../gameworld_shadow.rs");
+    let src = crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC;
     let i = match src.find("pub fn gameworld_damage_authority_enabled") {
         Some(i) => i,
         None => return false,

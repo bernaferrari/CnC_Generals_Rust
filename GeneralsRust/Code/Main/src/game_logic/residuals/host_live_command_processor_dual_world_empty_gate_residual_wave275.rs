@@ -103,7 +103,7 @@ fn fn_body<'a>(src: &'a str, name: &str) -> Option<&'a str> {
 
 /// Source residual: CommandProcessor empty dual-world short-circuits.
 pub fn honesty_command_processor_dual_world_empty_gate_source() -> bool {
-    let g = include_str!("../../../../GameEngine/GameLogic/src/commands/command_processor.rs");
+    let g = gamelogic::commands::command_processor::COMMAND_PROCESSOR_SRC;
     if !(g.contains("Wave 275")
         && g.contains("fn dual_world_registry_unavailable")
         && g.contains("OBJECT_REGISTRY.is_empty()"))

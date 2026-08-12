@@ -92,6 +92,10 @@ impl ControlBar {
 
     /// Main update loop. Mirrors C++ ControlBar::update().
     pub fn update(&mut self, delta_time: Duration) -> Result<(), Box<dyn std::error::Error>> {
+        self.apply_live_hook_events();
+        crate::gui::w3d_gadget_draw::ensure_scheme_draw_registered();
+        crate::gui::w3d_gadget_draw::ensure_control_bar_wnd_draw_callbacks();
+
         if self.is_animating {
             let elapsed = self.animation_start_time.elapsed();
             if elapsed >= self.animation_duration {
@@ -212,7 +216,44 @@ impl ControlBar {
 
         self.update_special_power_shortcut_availability();
 
+        set_live_control_bar_observer_look_at(self.get_observer_look_at_player_index());
+
         Ok(())
+    }
+
+    fn apply_live_hook_events(&mut self) {
+        let events = drain_live_control_bar_events();
+        if events.ui_dirty {
+            self.mark_ui_dirty();
+        }
+        if events.hide_purchase_science {
+            self.hide_purchase_science();
+        }
+        if events.toggle_purchase_science {
+            self.toggle_purchase_science();
+        }
+        if events.show_special_power_shortcut {
+            self.show_special_power_shortcut();
+        }
+        if events.hide_special_power_shortcut {
+            self.hide_special_power_shortcut();
+        }
+        if let Some(enabled) = events.animate_special_power_shortcut {
+            self.animate_special_power_shortcut(enabled);
+        }
+        if events.toggle_control_bar_stage {
+            self.toggle_control_bar_stage();
+        }
+        if events.init_special_power_shortcut_for_player.is_some() {
+            self.init_special_power_shortcut_bar();
+        }
+        if events.set_scheme_by_player.is_some() {
+            self.set_control_bar_scheme_by_player();
+        }
+        for (control_id, msg) in events.clicks {
+            self.process_context_sensitive_button_click(control_id, msg);
+        }
+        let _ = events.transitions;
     }
 
     // ---------------------------------------------------------------------------

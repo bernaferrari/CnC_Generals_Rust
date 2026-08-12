@@ -749,6 +749,76 @@ impl Default for W3DLoader {
     }
 }
 
+/// Strip directory + extension from a W3D model request (keeps original casing).
+fn w3d_model_basename(model_name: &str) -> &str {
+    model_name
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or(model_name)
+        .trim()
+        .trim_end_matches(".w3d")
+        .trim_end_matches(".W3D")
+}
+
+/// Archive path candidates for `W3DLoader::load_model`.
+///
+/// Retail ZH BIG archives store mixed-case paths such as
+/// `Art/W3D/ABBtCmdHQ.W3D`. Linux extract trees are case-sensitive, so
+/// both `art/w3d/*.w3d` and `Art/W3D/*.W3D` (plus remapped / retail
+/// basenames) must be tried. BIG lookup is already case-insensitive;
+/// variants exist so a case-sensitive overlay / extract tree still hits.
+pub fn w3d_archive_path_variants(model_name: &str) -> Vec<String> {
+    use crate::assets::mesh_asset_resolve::{
+        remap_model_key_alias, retail_w3d_basename_for_key, w3d_filename_variants,
+    };
+
+    let base = w3d_model_basename(model_name);
+    let remapped = remap_model_key_alias(base);
+    let retail = retail_w3d_basename_for_key(base);
+
+    let mut stems = Vec::new();
+    let mut push_stem = |stem: &str| {
+        if stem.is_empty() {
+            return;
+        }
+        if !stems.iter().any(|existing: &String| existing == stem) {
+            stems.push(stem.to_string());
+        }
+    };
+    // Requested basename first (preserves the original two load_model paths).
+    push_stem(base);
+    // Retail archive casing (AIRanger_S, ABBtCmdHQ, AvHummer, …).
+    push_stem(&retail);
+    // Remapped alias (AmericaCommandCenter → abbtcmdhq).
+    push_stem(&remapped);
+
+    let mut out = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    let mut push_path = |path: String| {
+        if seen.insert(path.clone()) {
+            out.push(path);
+        }
+    };
+
+    for stem in &stems {
+        // Existing load_model candidates, then retail BIG / extract mixed-case.
+        push_path(format!("art/w3d/{stem}.w3d"));
+        push_path(format!("{stem}.w3d"));
+        push_path(format!("Art/W3D/{stem}.w3d"));
+        push_path(format!("Art/W3D/{stem}.W3D"));
+        push_path(format!("art/w3d/{stem}.W3D"));
+
+        // Extra filename casings from mesh residual tables.
+        for name in w3d_filename_variants(stem) {
+            push_path(format!("art/w3d/{name}"));
+            push_path(name.clone());
+            push_path(format!("Art/W3D/{name}"));
+        }
+    }
+
+    out
+}
+
 impl W3DLoader {
     /// Create new W3D loader
     pub fn new() -> Self {
@@ -763,16 +833,11 @@ impl W3DLoader {
     ) -> Result<W3DModel> {
         debug!("Loading W3D model: {}", model_name);
 
-        // C++ parity: deterministic model lookup (requested file and canonical Art/W3D location).
-        let base_name = model_name
-            .rsplit(['/', '\\'])
-            .next()
-            .unwrap_or(model_name)
-            .trim()
-            .trim_end_matches(".w3d")
-            .trim_end_matches(".W3D");
+        // C++ parity: deterministic model lookup (requested file, remapped alias,
+        // and retail Art/W3D mixed-case archive location).
+        let base_name = w3d_model_basename(model_name);
         let w3d_filename = format!("{base_name}.w3d");
-        let path_variations = [format!("art/w3d/{w3d_filename}"), w3d_filename.clone()];
+        let path_variations = w3d_archive_path_variants(model_name);
 
         let mut last_error = None;
         for path_variant in path_variations {
@@ -3922,5 +3987,75 @@ mod tests {
             .expect("stage 1 mapping missing");
         assert_eq!(stage1.texture_name.as_deref(), Some("detail.dds"));
         assert!(matches!(stage1.uv_source, UVSource::UV2));
+    }
+
+    #[test]
+    fn w3d_archive_path_variants_include_retail_art_w3d_casing() {
+        for name in ["AmericaCommandCenter", "airanger_s"] {
+            let paths = w3d_archive_path_variants(name);
+            assert!(
+                paths.iter().any(|p| p.contains("Art/W3D/")),
+                "{name} must include Art/W3D/: {paths:?}"
+            );
+            assert!(
+                paths.iter().any(|p| p.ends_with(".W3D")),
+                "{name} must include .W3D: {paths:?}"
+            );
+        }
+
+        let cmd = w3d_archive_path_variants("AmericaCommandCenter");
+        assert_eq!(cmd[0], "art/w3d/AmericaCommandCenter.w3d");
+        assert_eq!(cmd[1], "AmericaCommandCenter.w3d");
+        assert!(
+            cmd.iter().any(|p| p == "Art/W3D/ABBtCmdHQ.W3D"),
+            "AmericaCommandCenter must include Art/W3D/ABBtCmdHQ.W3D: {cmd:?}"
+        );
+        assert!(
+            cmd.iter().any(|p| p.contains("ABBtCmdHQ")),
+            "AmericaCommandCenter must include retail ABBtCmdHQ: {cmd:?}"
+        );
+
+        let ranger = w3d_archive_path_variants("airanger_s");
+        assert_eq!(ranger[0], "art/w3d/airanger_s.w3d");
+        assert_eq!(ranger[1], "airanger_s.w3d");
+        assert!(
+            ranger.iter().any(|p| p == "Art/W3D/AIRanger_S.W3D"),
+            "airanger_s must include Art/W3D/AIRanger_S.W3D: {ranger:?}"
+        );
+        assert!(
+            ranger.iter().any(|p| p.contains("AIRanger_S")),
+            "airanger_s must include retail AIRanger_S: {ranger:?}"
+        );
+    }
+
+    #[test]
+    fn load_model_from_bytes_rejects_empty() {
+        let loader = W3DLoader::new();
+        assert!(loader.load_model_from_bytes(&[], "empty").is_err());
+        assert!(loader
+            .load_model_from_bytes(&[], "AmericaCommandCenter")
+            .is_err());
+    }
+
+    #[test]
+    fn sample_w3d_still_loads_via_from_path_when_present() {
+        let path = crate::assets::mesh_asset_resolve::find_filesystem_w3d("AmericaCommandCenter")
+            .or_else(|| crate::assets::mesh_asset_resolve::find_filesystem_w3d("ABBtCmdHQ"))
+            .or_else(|| crate::assets::mesh_asset_resolve::find_filesystem_w3d("airanger_s"));
+        let Some(path) = path else {
+            eprintln!("skip: no sample W3D on disk");
+            // Candidate list is still the archive contract when bytes are absent.
+            let paths = w3d_archive_path_variants("AmericaCommandCenter");
+            assert!(paths.iter().any(|p| p == "Art/W3D/ABBtCmdHQ.W3D"));
+            return;
+        };
+        let model = W3DLoader::new()
+            .load_model_from_path(&path)
+            .expect("sample W3D should parse");
+        assert!(
+            !model.meshes.is_empty(),
+            "sample W3D at {} parsed with zero meshes",
+            path.display()
+        );
     }
 }

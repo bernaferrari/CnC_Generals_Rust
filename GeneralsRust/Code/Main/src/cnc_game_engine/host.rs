@@ -12,7 +12,9 @@ use std::sync::Arc;
 
 impl CnCGameEngine {
     /// Preload textures from all cached models using C++ approach - material names as texture files
-    pub(super) async fn preload_model_textures(graphics_system: &mut GraphicsSystem) -> anyhow::Result<()> {
+    pub(super) async fn preload_model_textures(
+        graphics_system: &mut GraphicsSystem,
+    ) -> anyhow::Result<()> {
         use std::collections::HashSet;
 
         log::info!(
@@ -170,7 +172,10 @@ impl CnCGameEngine {
         Ok(())
     }
 
-    pub(super) fn collect_material_textures(model: &Arc<W3DModel>, texture_names: &mut HashSet<String>) {
+    pub(super) fn collect_material_textures(
+        model: &Arc<W3DModel>,
+        texture_names: &mut HashSet<String>,
+    ) {
         for (material_name, material) in &model.materials {
             if Self::is_valid_texture_name(material_name) {
                 texture_names.insert(material_name.clone());
@@ -212,7 +217,9 @@ impl CnCGameEngine {
 
     /// Preload textures using WW3D Asset Manager definitions
     /// This loads textures defined in INI object definitions from INIZH.big
-    pub(super) async fn preload_ww3d_textures(graphics_system: &mut GraphicsSystem) -> anyhow::Result<()> {
+    pub(super) async fn preload_ww3d_textures(
+        graphics_system: &mut GraphicsSystem,
+    ) -> anyhow::Result<()> {
         info!("🎨 TEXTURE: Preloading textures from WW3D Asset Manager definitions...");
 
         if let Some(asset_manager_arc) = crate::assets::get_asset_manager() {

@@ -2185,6 +2185,13 @@ impl BodyModuleInterface for ActiveBody {
 
         Ok(())
     }
+
+    fn snapshot_xfer(
+        &mut self,
+        xfer: &mut dyn game_engine::common::system::Xfer,
+    ) -> Result<(), String> {
+        Snapshotable::xfer(self, xfer)
+    }
 }
 
 impl Snapshotable for ActiveBody {

@@ -112,7 +112,7 @@ fn fn_body<'a>(src: &'a str, name: &str) -> Option<&'a str> {
 
 /// Source residual: modules empty dual-world short-circuits.
 pub fn honesty_modules_dual_world_empty_gate_source() -> bool {
-    let g = include_str!("../../../../GameEngine/GameLogic/src/modules.rs");
+    let g = gamelogic::modules::MODULES_SRC;
     if !(g.contains("Wave 340")
         && g.contains("fn dual_world_registry_unavailable")
         && g.contains("OBJECT_REGISTRY.is_empty()"))

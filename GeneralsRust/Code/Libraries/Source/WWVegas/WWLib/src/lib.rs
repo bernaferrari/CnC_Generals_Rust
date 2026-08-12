@@ -1,4 +1,18 @@
 #![allow(clippy::all)]
+
+#[cfg(test)]
+mod win32_compile_out_tests {
+    #[test]
+    fn registry_keyboard_not_compiled_on_non_windows() {
+        #[cfg(not(windows))]
+        {
+            let src = include_str!("lib.rs");
+            assert!(src.contains("#[cfg(windows)]\npub mod keyboard"));
+            assert!(src.contains("#[cfg(windows)]\npub mod registry"));
+        }
+        assert!(cfg!(not(windows)) || cfg!(windows));
+    }
+}
 #![allow(dead_code)]
 #![allow(unused_imports)]
 #![allow(unused_variables)]
@@ -103,6 +117,7 @@ pub mod index;
 pub mod inisup;
 pub mod int;
 pub mod iostruct;
+#[cfg(windows)]
 pub mod keyboard;
 pub mod launch_web;
 pub mod lcwpipe;
@@ -144,6 +159,7 @@ pub mod realcrc;
 pub mod ref_ptr;
 pub mod refcount;
 pub mod regexpr;
+#[cfg(windows)]
 pub mod registry;
 pub mod rgb;
 pub mod rle;
@@ -184,10 +200,12 @@ pub mod trig;
 pub mod trim;
 pub mod uarray;
 pub mod vector;
+#[cfg(windows)]
 pub mod verchk;
 pub mod visualc;
 pub mod watcom;
 pub mod widestring;
+#[cfg(windows)]
 pub mod win;
 pub mod wwcomutil;
 pub mod wwfont;
@@ -196,10 +214,7 @@ pub mod xmouse;
 pub mod xpipe;
 pub mod xstraw;
 pub mod xsurface;
-pub use always::{
-    allocate_from_w3d_mem_pool, allocate_from_w3d_mem_pool_with_msg, create_w3d_mem_pool,
-    free_from_w3d_mem_pool, ww_max, ww_min, W3dMemPool, W3dMpo,
-};
+pub use always::{ww_max, ww_min, W3dMpo};
 pub use b64pipe::{Base64Pipe, CodeControl};
 pub use base64::{base64_decode, base64_encode};
 pub use base_types::*;
@@ -227,6 +242,7 @@ pub use hashcalc::HashCalculator;
 pub use hsv::*;
 pub use ini::{INIClass, INIEntry, INIError, INIResult, INISection};
 pub use iostruct::*;
+#[cfg(windows)]
 pub use keyboard::{KeyboardClass, WWKeyboardClass};
 pub use lcw::{compress, decompress, LcwError, LcwResult};
 pub use lcwpipe::{CompControl, LcwPipe};
@@ -256,6 +272,7 @@ pub use random::{
 pub use rawfile::*;
 pub use realcrc::{crc_memory, crc_string, crc_stringi};
 pub use ref_ptr::{RefCountPtr, RefCounted};
+#[cfg(windows)]
 pub use registry::RegistryClass;
 pub use rgb::*;
 pub use rlerle::{

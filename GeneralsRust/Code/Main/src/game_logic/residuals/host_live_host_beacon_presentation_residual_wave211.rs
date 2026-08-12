@@ -91,7 +91,7 @@ pub fn honesty_host_beacons_api_source() -> bool {
 
 /// Source residual: presentation prefers host_beacons when non-empty.
 pub fn honesty_presentation_prefers_host_beacons_source() -> bool {
-    let pf = include_str!("../../presentation_frame.rs");
+    let pf = crate::presentation_frame::PRESENTATION_FRAME_SRC;
     pf.contains("logic.host_beacons()")
         && pf.contains("Wave 211")
         && pf.contains("snapshot_beacons")
@@ -99,7 +99,7 @@ pub fn honesty_presentation_prefers_host_beacons_source() -> bool {
 
 /// Source residual: remove path notes host list.
 pub fn honesty_remove_beacon_notes_host_source() -> bool {
-    let ce = include_str!("../../command_executor.rs");
+    let ce = crate::command_executor::COMMAND_EXECUTOR_SRC;
     let i = match ce.find("fn execute_remove_beacon") {
         Some(i) => i,
         None => return false,

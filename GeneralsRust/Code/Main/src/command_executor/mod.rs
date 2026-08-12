@@ -1,6 +1,5 @@
 //! Wave 955: CommandExecutor host_object seal.
 //! Wave 958: host_object dual-read seal (tests + residual).
-//! Compiled module; `../command_executor.rs` is the source-scan dump.
 #![allow(
     unused_imports,
     unused_variables,
@@ -42,20 +41,20 @@ pub struct CommandExecutor<'a> {
     commands_failed: usize,
 }
 
-mod movement;
-mod attack;
-mod produce;
-mod construct;
-mod special_power;
-mod sell_upgrade;
-mod selection;
-mod group;
-mod command_button;
-mod transport;
 mod abilities;
-mod leftover;
-mod validate;
+mod attack;
 mod cheat_debug;
+mod command_button;
+mod construct;
+mod group;
+mod leftover;
+mod movement;
+mod produce;
+mod selection;
+mod sell_upgrade;
+mod special_power;
+mod transport;
+mod validate;
 
 #[cfg(test)]
 mod tests;
@@ -77,7 +76,6 @@ impl<'a> CommandExecutor<'a> {
             .map(|player| player.team)
             .unwrap_or_else(|| Team::from_player_id(player_id))
     }
-
 
     /// Execute a game command and return result
     pub fn execute_command(&mut self, command: GameCommand) -> Result<CommandResult, String> {
@@ -407,7 +405,6 @@ impl<'a> CommandExecutor<'a> {
         Ok(result)
     }
 
-
     // === Validation Helpers ===
 
     fn validate_player_ownership(&self, command: &GameCommand) -> bool {
@@ -428,10 +425,27 @@ impl<'a> CommandExecutor<'a> {
         true
     }
 
-
     /// Get execution statistics
     pub fn get_stats(&self) -> (usize, usize) {
         (self.commands_executed, self.commands_failed)
     }
-
 }
+
+/// Concatenated live command_executor sources for residual `include_str` scans.
+pub const COMMAND_EXECUTOR_SRC: &str = concat!(
+    include_str!("mod.rs"),
+    include_str!("abilities.rs"),
+    include_str!("attack.rs"),
+    include_str!("cheat_debug.rs"),
+    include_str!("command_button.rs"),
+    include_str!("construct.rs"),
+    include_str!("group.rs"),
+    include_str!("leftover.rs"),
+    include_str!("movement.rs"),
+    include_str!("produce.rs"),
+    include_str!("selection.rs"),
+    include_str!("sell_upgrade.rs"),
+    include_str!("special_power.rs"),
+    include_str!("transport.rs"),
+    include_str!("validate.rs"),
+);

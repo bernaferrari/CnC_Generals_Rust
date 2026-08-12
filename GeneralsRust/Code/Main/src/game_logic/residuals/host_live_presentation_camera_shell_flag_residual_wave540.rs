@@ -84,7 +84,7 @@ pub fn residual_presentation_camera_shell_flag_last_action(
 }
 
 fn eng_source() -> &'static str {
-    include_str!("../../cnc_game_engine.rs")
+    crate::cnc_game_engine::ENGINE_SRC
 }
 
 pub fn honesty_presentation_camera_shell_flag_method_names_residual_wave540() -> bool {

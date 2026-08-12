@@ -6,6 +6,7 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::f32::consts::PI;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 
 use glam::{Mat4, Vec2, Vec3, Vec4Swizzles};
@@ -23,26 +24,26 @@ use super::chunk::{ChunkId, ChunkManager, ViewFrustum};
 use super::roads::{
     RoadCondition, RoadMinimapSample, RoadSyntheticIntersectionKind, RoadType, StoneType,
 };
+use super::scorch_mesh::bake_terrain_scorch_gpu_mesh;
 use super::terrain_tracks::{TerrainTrackHeightProvider, TerrainTracksConfig};
 use super::textures::{
     TerrainTexture, TerrainTextures, TextureId, TextureKind, TextureRule, TileData,
     MAX_BLEND_WEIGHTS, NUM_SOURCE_TILES,
 };
-use super::scorch_mesh::bake_terrain_scorch_gpu_mesh;
 use super::tree_buffer::{
     fill_tree_gpu_upload_vertices, TreeGpuVertex, TreeObjectLight, W3DTreeBuffer,
     TREE_MAX_GLOBAL_LIGHTS,
 };
 use super::w3d_overlay_mesh::{
-    bake_bridge_span, bake_straight_road_segment, bake_water_patch_world,
+    bake_bridge_span, bake_straight_road_segment, bake_water_tiles_world,
     default_sectional_bridge_model, fill_bridge_gpu_upload_vertices, fill_road_gpu_upload_vertices,
     fill_water_gpu_upload_vertices, OverlayGpuVertex, WaterGpuVertex, BRIDGE_FLOAT_AMT,
     DEFAULT_ROAD_SCALE,
 };
 use super::{
-    calculate_terrain_lod, HeightMap, RoadSystem, TerrainConfig, TerrainError, TerrainLOD,
-    TerrainModification, TerrainResult, TerrainStats, TerrainTracksRenderObjClassSystem,
-    TerrainVertex, TerrainVisual, WaterSystem,
+    calculate_terrain_lod, ExtraBlendDrawMesh, HeightMap, RoadSystem, TerrainConfig, TerrainError,
+    TerrainLOD, TerrainModification, TerrainResult, TerrainStats,
+    TerrainTracksRenderObjClassSystem, TerrainVertex, TerrainVisual, WaterSystem,
 };
 use bytemuck::cast_slice;
 use game_engine::common::ascii_string::AsciiString;
@@ -59,9 +60,8 @@ use game_engine::common::system::file_system::paths::{
 use image::GenericImageView;
 use image::ImageFormat;
 
-// Dump+path split: `terrain/terrain_visual.rs` is the unused original dump.
-// This directory is the live `terrain_visual` module. `include!` keeps one logical
-// module so field privacy and the public API stay identical to the dump.
+// Live `terrain_visual` module. `include!` keeps one logical module so field
+// privacy and the public API stay identical to the former dump.
 
 include!("types.rs");
 include!("visual_struct.rs");
@@ -74,3 +74,18 @@ include!("impl_world.rs");
 include!("traits.rs");
 include!("tests.rs");
 include!("api.rs");
+
+/// Concatenated live sources for residual `include_str!` scans.
+pub const TERRAIN_VISUAL_SRC: &str = concat!(
+    include_str!("mod.rs"),
+    include_str!("types.rs"),
+    include_str!("visual_struct.rs"),
+    include_str!("impl_core.rs"),
+    include_str!("impl_roads.rs"),
+    include_str!("impl_lighting.rs"),
+    include_str!("impl_gpu.rs"),
+    include_str!("impl_pipelines.rs"),
+    include_str!("impl_world.rs"),
+    include_str!("traits.rs"),
+    include_str!("api.rs"),
+);

@@ -84,7 +84,7 @@ pub fn honesty_presentation_client_boundary_residual_pack_wave174() -> bool {
 
 /// Source residual: `execute` is presentation-only (no live GameLogic parameter).
 pub fn honesty_execute_presentation_only_source() -> bool {
-    let src = include_str!("../../graphics/render_pipeline.rs");
+    let src = crate::graphics::render_pipeline::RENDER_PIPELINE_SRC;
     let i = match src.find("pub fn execute(") {
         Some(i) => i,
         None => return false,
@@ -100,7 +100,7 @@ pub fn honesty_execute_presentation_only_source() -> bool {
 
 /// Source residual: full GameClient OS-input update path is deliberately unused.
 pub fn honesty_game_client_os_input_disconnected_source() -> bool {
-    let src = include_str!("../../cnc_game_engine.rs");
+    let src = crate::cnc_game_engine::ENGINE_SRC;
     src.contains("Full GameClient::update() OS-input path")
         && src.contains("is not used")
         && src.contains("Main owns input")
@@ -109,7 +109,9 @@ pub fn honesty_game_client_os_input_disconnected_source() -> bool {
 /// Source residual: host GameLogic owns objects by ObjectId HashMap.
 pub fn honesty_host_objectid_store_source() -> bool {
     let src = include_str!("../game_logic.rs");
-    src.contains("pub objects: HashMap<ObjectId, Object>")
+    src.contains("pub objects: HostObjectStore")
+        && src.contains("struct HostObjectStore")
+        && src.contains("HashMap<ObjectId, Object>")
         && src.contains("next_object_id: ObjectId")
 }
 

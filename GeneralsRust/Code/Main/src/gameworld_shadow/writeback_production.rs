@@ -24,6 +24,7 @@ impl GameWorldShadow {
             Option<PlayerId>,
             f32,
         )> = Vec::new();
+        let host_frame = logic.get_frame();
         for (&hid, &eid) in &self.host_to_entity {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
@@ -37,96 +38,123 @@ impl GameWorldShadow {
             {
                 continue;
             }
-            let Some(bd) = obj.building_data.as_mut() else {
+            // Keep the short `BuildingData` borrow separate from the door
+            // transition below.  Production queue progress is shadow-owned on
+            // a coupled frame, while C++ `ProductionUpdate` still owns the
+            // door animation and its model-condition side effects.
+            let completed_head = {
+                let Some(bd) = obj.building_data.as_mut() else {
+                    continue;
+                };
+                let mut dirty = false;
+                // Rally last-writer.
+                let rally = ent.rally_point.map(|p| glam::Vec3::new(p[0], p[1], p[2]));
+                if bd.rally_point != rally {
+                    bd.rally_point = rally;
+                    dirty = true;
+                }
+                // Production queue residual (template/progress/cost/upgrade).
+                let new_q: Vec<ProductionItem> = ent
+                    .production_queue_items
+                    .iter()
+                    .map(|it| ProductionItem {
+                        template_name: it.template_name.clone(),
+                        progress: it.progress,
+                        total_time: it.total_time,
+                        cost: Resources {
+                            supplies: it.cost_supplies,
+                            power: 0,
+                        },
+                        // Wave 463: preserve C++ production quantity residual through GW writeback.
+                        quantity_total: it.quantity_total.max(1),
+                        quantity_produced: it.quantity_produced,
+                        kind: if it.is_upgrade {
+                            ProductionKind::Upgrade
+                        } else {
+                            ProductionKind::Unit
+                        },
+                    })
+                    .collect();
+                let queue_differs = bd.production_queue.len() != new_q.len()
+                    || bd.production_queue.iter().zip(new_q.iter()).any(|(a, b)| {
+                        a.template_name != b.template_name
+                            || (a.progress - b.progress).abs() > 1e-5
+                            || (a.total_time - b.total_time).abs() > 1e-5
+                            || a.cost.supplies != b.cost.supplies
+                            || a.kind != b.kind
+                            || a.quantity_total != b.quantity_total
+                            || a.quantity_produced != b.quantity_produced
+                    });
+                if queue_differs {
+                    bd.production_queue = new_q;
+                    dirty = true;
+                }
+                // Wave 990: production_paused residual last-writer (GameWorld ↔ host).
+                if bd.production_paused != ent.production_paused {
+                    bd.production_paused = ent.production_paused;
+                    dirty = true;
+                }
+                // Host factory exit delay residual last-writer.
+                if (bd.exit_delay_remaining - ent.exit_delay_remaining).abs() > 1e-5 {
+                    bd.exit_delay_remaining = ent.exit_delay_remaining.max(0.0);
+                    dirty = true;
+                }
+                let completed = if crate::gameworld_shadow::gameworld_production_sole_tick_enabled()
+                {
+                    bd.production_queue.first().and_then(|head| {
+                        (head.progress + 1e-6 >= head.total_time.max(0.0)
+                            && bd.exit_delay_remaining <= 1e-6)
+                            .then(|| (head.template_name.clone(), head.is_upgrade()))
+                    })
+                } else {
+                    None
+                };
+                if dirty {
+                    updated += 1;
+                }
+                completed
+            };
+
+            let Some((template, is_upgrade)) = completed_head else {
                 continue;
             };
-            let mut dirty = false;
-            // Rally last-writer.
-            let rally = ent.rally_point.map(|p| glam::Vec3::new(p[0], p[1], p[2]));
-            if bd.rally_point != rally {
-                bd.rally_point = rally;
-                dirty = true;
+            let door_count = crate::game_logic::host_production_buildable_command_residual::producer_num_door_animations(
+                &obj.template_name,
+            );
+            if !crate::game_logic::host_production_buildable_command_residual::production_door_allows_spawn(
+                door_count,
+                obj.production_door_phase,
+            ) {
+                // The completed head is retained until C++ ProductionUpdate has
+                // opened its exit door.  Starting that animation here avoids a
+                // speculative GameWorld spawn whose ready event the host must
+                // defer while the door is closed.
+                if obj.production_door_phase == 0 {
+                    obj.start_production_door_cycle(host_frame);
+                    updated += 1;
+                }
+                continue;
             }
-            // Production queue residual (template/progress/cost/upgrade).
-            let new_q: Vec<ProductionItem> = ent
-                .production_queue_items
-                .iter()
-                .map(|it| ProductionItem {
-                    template_name: it.template_name.clone(),
-                    progress: it.progress,
-                    total_time: it.total_time,
-                    cost: Resources {
-                        supplies: it.cost_supplies,
-                        power: 0,
-                    },
-                    // Wave 463: preserve C++ production quantity residual through GW writeback.
-                    quantity_total: it.quantity_total.max(1),
-                    quantity_produced: it.quantity_produced,
-                    kind: if it.is_upgrade {
-                        ProductionKind::Upgrade
-                    } else {
-                        ProductionKind::Unit
-                    },
-                })
-                .collect();
-            let queue_differs = bd.production_queue.len() != new_q.len()
-                || bd.production_queue.iter().zip(new_q.iter()).any(|(a, b)| {
-                    a.template_name != b.template_name
-                        || (a.progress - b.progress).abs() > 1e-5
-                        || (a.total_time - b.total_time).abs() > 1e-5
-                        || a.cost.supplies != b.cost.supplies
-                        || a.kind != b.kind
-                        || a.quantity_total != b.quantity_total
-                        || a.quantity_produced != b.quantity_produced
-                });
-            if queue_differs {
-                bd.production_queue = new_q;
-                dirty = true;
-            }
-            // Wave 990: production_paused residual last-writer (GameWorld ↔ host).
-            if bd.production_paused != ent.production_paused {
-                bd.production_paused = ent.production_paused;
-                dirty = true;
-            }
-            // Host factory exit delay residual last-writer.
-            if (bd.exit_delay_remaining - ent.exit_delay_remaining).abs() > 1e-5 {
-                bd.exit_delay_remaining = ent.exit_delay_remaining.max(0.0);
-                dirty = true;
-            }
+
             // Wave 614: GameWorld sole-tick ready residual — finished heads
             // (progress complete + exit delay clear) are recorded for host collect.
             // Wave 735: GW spawn pose + rally ride the ready event.
             // Wave 736: collect sole-tick ready intents (pose + entity-first spawn
             // data). Entity Spawn + ready-log record happen after this loop so we
             // do not mutably borrow GameWorld while iterating host maps.
-            if crate::gameworld_shadow::gameworld_production_sole_tick_enabled() {
-                if let Some(head) = bd.production_queue.first() {
-                    if head.progress + 1e-6 >= head.total_time.max(0.0)
-                        && bd.exit_delay_remaining <= 1e-6
-                    {
-                        let p = ent.transform.position;
-                        let yaw = ent.transform.orientation;
-                        let radius = ent.selection_radius.max(10.0);
-                        let spawn_pos = [p.x + yaw.cos() * radius, p.y, p.z + yaw.sin() * radius];
-                        sole_ready_intents.push((
-                            hid,
-                            head.template_name.clone(),
-                            head.is_upgrade(),
-                            if head.is_upgrade() {
-                                None
-                            } else {
-                                Some(spawn_pos)
-                            },
-                            ent.rally_point,
-                            ent.owner,
-                            obj.health.maximum.max(1.0),
-                        ));
-                    }
-                }
-            }
-            if dirty {
-                updated += 1;
-            }
+            let p = ent.transform.position;
+            let yaw = ent.transform.orientation;
+            let radius = ent.selection_radius.max(10.0);
+            let spawn_pos = [p.x + yaw.cos() * radius, p.y, p.z + yaw.sin() * radius];
+            sole_ready_intents.push((
+                hid,
+                template,
+                is_upgrade,
+                if is_upgrade { None } else { Some(spawn_pos) },
+                ent.rally_point,
+                ent.owner,
+                obj.health.maximum.max(1.0),
+            ));
         }
         // Wave 736: entity-first production spawn + ready-log after host queue writeback.
         for (hid, template, is_upgrade, spawn_pos, rally, owner, health) in sole_ready_intents {
@@ -157,6 +185,13 @@ impl GameWorldShadow {
     }
 
     pub fn writeback_production_door_to_host(&self, logic: &mut GameLogic) -> usize {
+        // `ProductionUpdate::updateDoors` remains the single live owner of
+        // door phases during a coupled game frame.  The shadow receives those
+        // host events for presentation, but must not overwrite a newly-started
+        // or newly-advanced host door after production completion.
+        if shadow_coupled_tick_active() {
+            return 0;
+        }
         let mut updated = 0usize;
         let mut transitions: Vec<(ObjectId, u8, u8, u32, bool)> = Vec::new();
         for (&hid, &eid) in &self.host_to_entity {
@@ -749,17 +784,6 @@ impl GameWorldShadow {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
             };
-            if !ent.under_construction && ent.construction_percent >= 0.0 {
-                // Sell path uses under_construction false with decreasing percent — still tick if rate < 0
-                let rate = self
-                    .construction_rate_by_host
-                    .get(&hid)
-                    .copied()
-                    .unwrap_or(0.0);
-                if rate >= 0.0 {
-                    continue;
-                }
-            }
             let rate = self
                 .construction_rate_by_host
                 .get(&hid)
@@ -768,9 +792,16 @@ impl GameWorldShadow {
             if rate.abs() < 1e-12 {
                 continue;
             }
-            let mut pct = ent.construction_percent;
-            let uc = ent.under_construction;
-            if rate > 0.0 && uc {
+            // Positive rate is host "this object is being built" even if the
+            // entity UC bit was never stamped (rate-only progress events skip
+            // SetConstruction). Without this, barracks stay unfinished forever.
+            // Do not keep mutating already-complete buildings every frame.
+            if rate > 0.0 && ent.construction_percent + 1e-6 >= 1.0 && !ent.under_construction {
+                continue;
+            }
+            let mut pct = ent.construction_percent.max(0.0);
+            let uc = ent.under_construction || rate > 0.0;
+            if rate > 0.0 {
                 pct = (pct + rate * dt).min(1.0);
             } else if rate < 0.0 {
                 pct = (pct + rate * dt).max(-1.0);

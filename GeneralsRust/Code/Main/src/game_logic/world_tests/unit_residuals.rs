@@ -3,7 +3,6 @@
 use super::super::*;
 use super::helpers::*;
 
-
 /// Residual: USA Ranger rifle + FlashBang dual-radius splash polish.
 /// Fail-closed: not full SURRENDER surrender-AI / garrison clear matrix.
 #[test]
@@ -509,8 +508,8 @@ fn rpg_trooper_residual_rocket_and_ap_rockets() {
 #[test]
 fn terrorist_residual_suicide_dynamite_pack() {
     use crate::game_logic::host_terrorist::{
-        is_terrorist_template, SUICIDE_DYNAMITE_PRIMARY_DAMAGE,
-        SUICIDE_DYNAMITE_PRIMARY_RADIUS, TERRORIST_SUICIDE_WEAPON,
+        is_terrorist_template, SUICIDE_DYNAMITE_PRIMARY_DAMAGE, SUICIDE_DYNAMITE_PRIMARY_RADIUS,
+        TERRORIST_SUICIDE_WEAPON,
     };
     use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
 
@@ -1019,8 +1018,7 @@ fn troop_crawler_residual_transport_load_unload() {
 
     let crawler = game_logic.host_object(crawler_id).expect("crawler loaded");
     assert!(
-        crawler.contained_units().contains(&unit_a)
-            && crawler.contained_units().contains(&unit_b),
+        crawler.contained_units().contains(&unit_a) && crawler.contained_units().contains(&unit_b),
         "both infantry must load into Troop Crawler residual"
     );
     assert_eq!(crawler.transport_count(), 2);
@@ -1092,11 +1090,8 @@ fn fire_weapon_when_damaged_reaction_splash() {
         b.fire_weapon_when_damaged =
             Some(HostFireWeaponWhenDamagedData::battleship_target_residual());
         b.health.current = 500.0;
-        let _ = b.take_damage_from_typed(
-            50.0,
-            None,
-            crate::game_logic::combat::DamageType::Explosive,
-        );
+        let _ =
+            b.take_damage_from_typed(50.0, None, crate::game_logic::combat::DamageType::Explosive);
         assert!(
             b.pending_fire_when_damaged_weapon.is_some(),
             "reaction should queue"
@@ -1679,8 +1674,7 @@ fn water_edge_damage_on_dry_to_wet_transition() {
         let was = o.cell_is_underwater;
         o.cell_is_underwater = true;
         assert!(!was);
-        let _ =
-            o.take_damage_from_typed(25.0, None, crate::game_logic::combat::DamageType::Water);
+        let _ = o.take_damage_from_typed(25.0, None, crate::game_logic::combat::DamageType::Water);
     }
     let hp = logic.objects.get(&id).unwrap().health.current;
     assert!((hp - 75.0).abs() < 1e-3, "hp={hp}");
@@ -2112,8 +2106,7 @@ fn dragon_tank_residual_flame_and_black_napalm() {
         &[dragon_id, enemy, splash_close, splash_outer],
         LOGIC_FRAME_TIMESTEP,
     );
-    if game_logic.dragon_flame_missiles_spawned == 0
-        && game_logic.dragon_tank_residual_fires() == 0
+    if game_logic.dragon_flame_missiles_spawned == 0 && game_logic.dragon_tank_residual_fires() == 0
     {
         let from = game_logic
             .host_object(dragon_id)
@@ -2740,8 +2733,7 @@ fn avenger_residual_air_laser_damages_aircraft() {
 #[test]
 fn lazr_tank_residual_laser_guns() {
     use crate::game_logic::host_usa_tanks::{
-        is_laser_general_tank_template, LAZR_CRUSADER_TANK_GUN_DAMAGE,
-        LAZR_PALADIN_TANK_GUN_DAMAGE,
+        is_laser_general_tank_template, LAZR_CRUSADER_TANK_GUN_DAMAGE, LAZR_PALADIN_TANK_GUN_DAMAGE,
     };
     use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
 
@@ -3235,9 +3227,7 @@ fn humvee_tow_missile_projectile_flies_and_impacts() {
         .add_kind_of(KindOf::Attackable)
         .set_health(240.0)
         .set_primary_weapon_name(crate::game_logic::weapon_bootstrap::HUMVEE_PRIMARY_WEAPON)
-        .set_secondary_weapon_name(
-            crate::game_logic::weapon_bootstrap::HUMVEE_SECONDARY_WEAPON,
-        );
+        .set_secondary_weapon_name(crate::game_logic::weapon_bootstrap::HUMVEE_SECONDARY_WEAPON);
     logic
         .templates
         .insert("AmericaVehicleHumvee".to_string(), humvee_tpl);
@@ -3341,9 +3331,7 @@ fn humvee_residual_transport_and_air_tow() {
         .add_kind_of(KindOf::Attackable)
         .set_health(240.0)
         .set_primary_weapon_name(crate::game_logic::weapon_bootstrap::HUMVEE_PRIMARY_WEAPON)
-        .set_secondary_weapon_name(
-            crate::game_logic::weapon_bootstrap::HUMVEE_SECONDARY_WEAPON,
-        );
+        .set_secondary_weapon_name(crate::game_logic::weapon_bootstrap::HUMVEE_SECONDARY_WEAPON);
     game_logic
         .templates
         .insert("AmericaVehicleHumvee".to_string(), humvee_tpl);
@@ -3483,8 +3471,8 @@ fn minigunner_residual_gun_ramp_aa_horde_and_chain_guns() {
     use crate::game_logic::host_battlemaster::UPGRADE_NATIONALISM;
     use crate::game_logic::host_gattling_tank::GattlingFireLevel;
     use crate::game_logic::host_minigunner::{
-        is_minigunner_template, MINIGUNNER_GROUND_DAMAGE, MINIGUNNER_GROUND_RANGE,
-        MINIGUNNER_GUN, MINIGUNNER_GUN_AIR,
+        is_minigunner_template, MINIGUNNER_GROUND_DAMAGE, MINIGUNNER_GROUND_RANGE, MINIGUNNER_GUN,
+        MINIGUNNER_GUN_AIR,
     };
     use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
 
@@ -3688,4 +3676,3 @@ fn minigunner_residual_gun_ramp_aa_horde_and_chain_guns() {
         "minigunner residual host path honesty"
     );
 }
-

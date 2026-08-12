@@ -270,6 +270,33 @@ impl Object {
         ));
         self.modules.push(Arc::clone(&entry));
         self.update_module_handles.push(entry);
+        self.rebuild_behavior_list();
+    }
+
+    /// Install a module with an explicit interface mask (tests / internal harnesses).
+    #[cfg(any(test, feature = "internal"))]
+    pub fn install_module_for_test(
+        &mut self,
+        name: &str,
+        module: Box<dyn Module>,
+        module_data: Arc<dyn ModuleData>,
+        mask: ModuleInterfaceType,
+    ) {
+        let entry = Arc::new(ModuleEntry::new(
+            AsciiString::from(name),
+            AsciiString::new(),
+            mask,
+            module_data,
+            module,
+        ));
+        if (mask.0 & ModuleInterfaceType::DESTROY.0) != 0 {
+            self.die_module_handles.push(Arc::clone(&entry));
+        }
+        if (mask.0 & ModuleInterfaceType::DAMAGE.0) != 0 {
+            // Damage walks get_behavior_modules(); keep the entry on `modules`.
+        }
+        self.modules.push(entry);
+        self.rebuild_behavior_list();
     }
 
     /// Find a legacy behavior module by name (behavior list only).
@@ -370,6 +397,82 @@ impl Object {
 
     pub fn get_behavior_modules(&self) -> Vec<Arc<Mutex<dyn BehaviorModuleInterface>>> {
         self.behaviors.iter().cloned().collect()
+    }
+
+    pub fn status_damage_helper(
+        &self,
+    ) -> Option<Arc<Mutex<crate::object::helper::StatusDamageHelper>>> {
+        self.status_damage_helper.clone()
+    }
+
+    pub fn has_ctor_helpers(&self) -> bool {
+        self.smc_helper.is_some()
+            && self.status_damage_helper.is_some()
+            && self.subdual_damage_helper.is_some()
+    }
+
+    /// C++ Object ctor: helpers first on `m_behaviors`, then template modules.
+    pub(in super) fn install_ctor_helpers(&mut self) {
+        if self.smc_helper.is_none() {
+            self.smc_helper = Some(Arc::new(Mutex::new(
+                crate::object::helper::ObjectSMCHelper::new(
+                    crate::object::helper::ObjectSMCHelperModuleData::new(),
+                ),
+            )));
+        }
+
+        let inactive_body = self
+            .thing_template
+            .get_behavior_module_info()
+            .iter()
+            .any(|entry| entry.name.as_str().eq_ignore_ascii_case("InactiveBody"));
+        if !inactive_body {
+            if self.status_damage_helper.is_none() {
+                self.status_damage_helper = Some(Arc::new(Mutex::new(
+                    crate::object::helper::StatusDamageHelper::new(
+                        self.id,
+                        crate::object::helper::StatusDamageHelperModuleData::new(),
+                    ),
+                )));
+            }
+            if self.subdual_damage_helper.is_none() {
+                self.subdual_damage_helper = Some(Arc::new(Mutex::new(
+                    crate::object::helper::SubdualDamageHelper::new(
+                        self.id,
+                        crate::object::helper::SubdualDamageHelperModuleData::new(),
+                    ),
+                )));
+            }
+        }
+
+        self.rebuild_behavior_list();
+    }
+
+    /// `get_behavior_modules()` == helpers (SMC, StatusDamage, Subdual) then template modules.
+    pub(in super) fn rebuild_behavior_list(&mut self) {
+        let mut behaviors: Vec<Arc<Mutex<dyn BehaviorModuleInterface>>> = Vec::new();
+        if self.smc_helper.is_some() {
+            behaviors.push(Arc::new(Mutex::new(CtorHelperBehavior {
+                name: "ObjectSMCHelper",
+            })));
+        }
+        if self.status_damage_helper.is_some() {
+            behaviors.push(Arc::new(Mutex::new(CtorHelperBehavior {
+                name: "StatusDamageHelper",
+            })));
+        }
+        if self.subdual_damage_helper.is_some() {
+            behaviors.push(Arc::new(Mutex::new(CtorHelperBehavior {
+                name: "SubdualDamageHelper",
+            })));
+        }
+        for entry in &self.modules {
+            behaviors.push(Arc::new(Mutex::new(TemplateModuleBehavior {
+                name: entry.name().to_string(),
+                entry: Arc::clone(entry),
+            })));
+        }
+        self.behaviors = behaviors;
     }
 
     /// Borrow-first flammable module lookup (no outer Object Arc required).
@@ -726,6 +829,8 @@ impl Object {
                 }
                 guard.update_module_registrations.push(proxy);
             }
+
+            guard.install_ctor_helpers();
         }
 
         // C++ parity: after AI module construction, seed attitude from team prototype.
@@ -892,5 +997,58 @@ impl Object {
         for handle in SubObjectsUpgradeHandle::for_object(self.id) {
             handle.force_refresh();
         }
+    }
+}
+
+/// C++ helper modules live on `m_behaviors` so destroy/damage/xfer walk them.
+struct CtorHelperBehavior {
+    name: &'static str,
+}
+
+impl BehaviorModuleInterface for CtorHelperBehavior {
+    fn get_module_name(&self) -> &str {
+        self.name
+    }
+}
+
+/// Template `ModuleEntry` listed after helpers on `get_behavior_modules()`.
+struct TemplateModuleBehavior {
+    name: String,
+    entry: Arc<ModuleEntry>,
+}
+
+impl BehaviorModuleInterface for TemplateModuleBehavior {
+    fn get_module_name(&self) -> &str {
+        &self.name
+    }
+
+    fn get_destroy(&mut self) -> Option<&mut dyn crate::modules::DestroyModuleInterface> {
+        if (self.entry.mask().0 & ModuleInterfaceType::DESTROY.0) != 0 {
+            Some(self)
+        } else {
+            None
+        }
+    }
+
+    fn get_damage(&mut self) -> Option<&mut dyn crate::modules::DamageModuleInterface> {
+        if (self.entry.mask().0 & ModuleInterfaceType::DAMAGE.0) != 0 {
+            Some(self)
+        } else {
+            None
+        }
+    }
+}
+
+impl crate::modules::DestroyModuleInterface for TemplateModuleBehavior {
+    fn on_destroy(&mut self, object_id: ObjectID) {
+        let _ = object_id;
+        self.entry.with_module(|module| module.on_delete());
+    }
+}
+
+impl crate::modules::DamageModuleInterface for TemplateModuleBehavior {
+    fn receive_damage(&mut self, object_id: ObjectID, damage: &DamageInfo) -> Real {
+        let _ = (object_id, damage);
+        0.0
     }
 }

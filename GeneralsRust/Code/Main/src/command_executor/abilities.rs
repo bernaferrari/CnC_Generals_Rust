@@ -20,7 +20,6 @@ use glam::Vec3;
 use log::{debug, warn};
 use std::collections::{HashMap, HashSet};
 
-
 impl<'a> CommandExecutor<'a> {
     pub(super) fn execute_hack_internet(&mut self, units: &[ObjectId]) -> CommandResult {
         let mut any = false;
@@ -38,7 +37,11 @@ impl<'a> CommandExecutor<'a> {
 
     // === Special Unit Abilities ===
 
-    pub(super) fn execute_hijack(&mut self, units: &[ObjectId], target_id: ObjectId) -> CommandResult {
+    pub(super) fn execute_hijack(
+        &mut self,
+        units: &[ObjectId],
+        target_id: ObjectId,
+    ) -> CommandResult {
         // C++ ConvertToHijackedVehicleCrateCollide residual: enemy ground vehicle
         // only, not already HIJACKED, not neutral, not airborne.
         let (
@@ -106,7 +109,11 @@ impl<'a> CommandExecutor<'a> {
         }
     }
 
-    pub(super) fn execute_sabotage(&mut self, units: &[ObjectId], target_id: ObjectId) -> CommandResult {
+    pub(super) fn execute_sabotage(
+        &mut self,
+        units: &[ObjectId],
+        target_id: ObjectId,
+    ) -> CommandResult {
         // C++ Sabotage*CrateCollide residual: GLA Saboteur only → enemy structure.
         let (target_team, target_pos, target_alive, target_is_structure) =
             match self.game_logic.host_object(target_id) {
@@ -295,7 +302,11 @@ impl<'a> CommandExecutor<'a> {
         }
     }
 
-    pub(super) fn execute_snipe_vehicle(&mut self, units: &[ObjectId], target_id: ObjectId) -> CommandResult {
+    pub(super) fn execute_snipe_vehicle(
+        &mut self,
+        units: &[ObjectId],
+        target_id: ObjectId,
+    ) -> CommandResult {
         let (
             target_team,
             target_pos,
@@ -566,7 +577,10 @@ impl<'a> CommandExecutor<'a> {
 
     /// Colonel Burton residual: detonate all remote charges planted by selected units.
     /// Matches C++ SPECIAL_REMOTE_CHARGES no-target path (detonate special object list).
-    pub(super) fn execute_detonate_remote_demo_charges(&mut self, units: &[ObjectId]) -> CommandResult {
+    pub(super) fn execute_detonate_remote_demo_charges(
+        &mut self,
+        units: &[ObjectId],
+    ) -> CommandResult {
         let producers: Vec<ObjectId> = units
             .iter()
             .copied()
@@ -980,5 +994,4 @@ impl<'a> CommandExecutor<'a> {
             CommandResult::InvalidCommand
         }
     }
-
 }

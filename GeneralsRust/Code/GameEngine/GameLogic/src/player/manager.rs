@@ -510,6 +510,7 @@ impl AIManager for AIManagerBridge {
                         z: builder_guard.get_position().z,
                     },
                     orientation: builder_guard.get_orientation(),
+                    command_set: None,
                 },
                 build_assistant::Player { player_index },
                 builder_guard.get_controlling_player(),

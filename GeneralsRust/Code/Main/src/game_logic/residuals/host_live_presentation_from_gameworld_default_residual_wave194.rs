@@ -83,7 +83,7 @@ pub fn honesty_live_presentation_from_gameworld_default_residual_pack_wave194() 
 
 /// Source residual: helper defaults ON (Err => true; only 0/false/no/off disables).
 pub fn honesty_presentation_from_gameworld_enabled_default_source() -> bool {
-    let src = include_str!("../../presentation_frame.rs");
+    let src = crate::presentation_frame::PRESENTATION_FRAME_SRC;
     let i = match src.find("pub fn presentation_from_gameworld_enabled") {
         Some(i) => i,
         None => return false,
@@ -96,12 +96,14 @@ pub fn honesty_presentation_from_gameworld_enabled_default_source() -> bool {
 
 /// Source residual: engine uses helper (not env=1 opt-in).
 pub fn honesty_engine_default_rebuild_source() -> bool {
-    let src = include_str!("../../cnc_game_engine.rs");
+    let src = crate::cnc_game_engine::ENGINE_SRC;
     // Wave 195: engine uses build_for_engine / build_with_victory_for_engine;
     // rebuild lives inside those helpers when presentation_from_gameworld_enabled.
     (src.contains("build_for_engine(") || src.contains("build_with_victory_for_engine("))
-        && include_str!("../../presentation_frame.rs").contains("presentation_from_gameworld_enabled")
-        && include_str!("../../presentation_frame.rs").contains("rebuild_objects_from_gameworld")
+        && crate::presentation_frame::PRESENTATION_FRAME_SRC
+            .contains("presentation_from_gameworld_enabled")
+        && crate::presentation_frame::PRESENTATION_FRAME_SRC
+            .contains("rebuild_objects_from_gameworld")
 }
 
 /// Source residual: executable smoke tracks rebuilt status key.

@@ -3,7 +3,6 @@
 use super::super::*;
 use super::helpers::*;
 
-
 #[test]
 fn host_upgrade_complete_chain_guns_includes_gattling_tank() {
     use crate::game_logic::host_gattling_tank::UPGRADE_CHINA_CHAIN_GUNS;
@@ -311,8 +310,8 @@ fn subliminal_messaging_tags_propaganda_towers() {
             glam::Vec3::new(0.0, 0.0, 0.0),
         )
         .expect("tower");
-    let n = logic
-        .apply_subliminal_messaging_to_team(Team::China, UPGRADE_CHINA_SUBLIMINAL_MESSAGING);
+    let n =
+        logic.apply_subliminal_messaging_to_team(Team::China, UPGRADE_CHINA_SUBLIMINAL_MESSAGING);
     assert_eq!(n, 1);
     assert!(logic.subliminal_messaging_upgrades > 0);
     let t = logic.host_object(id).unwrap();
@@ -375,8 +374,8 @@ fn advanced_control_rods_boosts_america_power_plant_energy() {
         o.set_status_under_construction(false);
     }
 
-    let n = logic
-        .apply_advanced_control_rods_to_team(Team::USA, UPGRADE_AMERICA_ADVANCED_CONTROL_RODS);
+    let n =
+        logic.apply_advanced_control_rods_to_team(Team::USA, UPGRADE_AMERICA_ADVANCED_CONTROL_RODS);
     assert_eq!(n, 1);
     assert!(logic.control_rods_upgrades > 0);
     let usa = logic.host_object(aid).unwrap();
@@ -1153,8 +1152,7 @@ fn sell_process_scaffold_sold_model_and_refund() {
     // Advance past scaffold then through sell frames.
     // After scaffold: 0.999, need to go to -0.5 → ~1.499 decrement units.
     // decrement 1/90 per frame after scaffold → ~135 frames after scaffold.
-    for _ in 0..(FRAMES_TO_ALLOW_SCAFFOLD_RESIDUAL + TOTAL_FRAMES_TO_SELL_OBJECT_RESIDUAL + 60)
-    {
+    for _ in 0..(FRAMES_TO_ALLOW_SCAFFOLD_RESIDUAL + TOTAL_FRAMES_TO_SELL_OBJECT_RESIDUAL + 60) {
         logic.frame = logic.frame.saturating_add(1);
         logic.update_sell_list();
         // C++ processDestroyList residual after BuildAssistant::update.
@@ -2148,8 +2146,7 @@ fn black_lotus_cash_steal_records_score_and_floating_text() {
 fn sabotage_cash_steal_spawns_add_and_lose_floating_text() {
     use crate::game_logic::host_saboteur::{
         SABOTEUR_ADD_CASH_COLOR_RGBA, SABOTEUR_ADD_CASH_TEXT_KEY, SABOTEUR_ADD_CASH_Z_OFFSET,
-        SABOTEUR_LOSE_CASH_COLOR_RGBA, SABOTEUR_LOSE_CASH_TEXT_KEY,
-        SABOTEUR_LOSE_CASH_Z_OFFSET,
+        SABOTEUR_LOSE_CASH_COLOR_RGBA, SABOTEUR_LOSE_CASH_TEXT_KEY, SABOTEUR_LOSE_CASH_Z_OFFSET,
     };
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
@@ -2636,8 +2633,7 @@ fn internet_center_sabotage_disables_spy_vision_and_hackers() {
     }
 
     let until = logic.frame + SABOTEUR_INTERNET_DURATION_FRAMES;
-    let (centers, hackers) =
-        logic.apply_internet_center_sabotage_residual(c1, Team::USA, until);
+    let (centers, hackers) = logic.apply_internet_center_sabotage_residual(c1, Team::USA, until);
     assert!(centers >= 2, "both team internet centers spy-disabled");
     assert_eq!(hackers, 1, "contained hacker disabled");
     assert!(logic.objects[&c1].is_spy_vision_disabled(logic.frame));
@@ -3680,11 +3676,11 @@ fn guard_retaliate_ends_when_victim_dead() {
         e.set_position(glam::Vec3::new(15.0, 0.0, 0.0));
         e
     });
-    logic.objects.get_mut(&id).unwrap().begin_guard_retaliate(
-        vid,
-        Some(glam::Vec3::ZERO),
-        None,
-    );
+    logic
+        .objects
+        .get_mut(&id)
+        .unwrap()
+        .begin_guard_retaliate(vid, Some(glam::Vec3::ZERO), None);
     // Kill victim
     if let Some(e) = logic.objects.get_mut(&vid) {
         e.status.destroyed = true;
@@ -3801,4 +3797,3 @@ fn friends_retaliate_skipped_when_mode_off() {
     assert_eq!(logic.try_friends_retaliate(vid, eid), 0);
     assert!(logic.objects[&fid].target.is_none());
 }
-

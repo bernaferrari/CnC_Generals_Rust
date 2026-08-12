@@ -82,7 +82,7 @@ pub fn honesty_live_command_beacon_note_residual_pack_wave210() -> bool {
 
 /// Source residual: execute_place_beacon calls note_beacon_placed.
 pub fn honesty_place_beacon_notes_host_source() -> bool {
-    let ce = include_str!("../../command_executor.rs");
+    let ce = crate::command_executor::COMMAND_EXECUTOR_SRC;
     let i = match ce.find("fn execute_place_beacon") {
         Some(i) => i,
         None => return false,

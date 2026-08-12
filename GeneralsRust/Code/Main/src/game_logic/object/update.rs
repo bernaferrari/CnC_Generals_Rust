@@ -380,7 +380,7 @@ impl Object {
         crate::game_logic::host_experience_log::record(self.id, self.experience.current.max(0.0));
     }
 
-    pub(in super) fn record_host_veterancy_level(&self) {
+    pub(super) fn record_host_veterancy_level(&self) {
         let ordinal = match self.experience.level {
             crate::game_logic::VeterancyLevel::Rookie => 0u8,
             crate::game_logic::VeterancyLevel::Veteran => 1,

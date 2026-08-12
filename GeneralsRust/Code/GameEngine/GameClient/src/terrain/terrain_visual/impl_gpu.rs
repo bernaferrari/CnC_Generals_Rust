@@ -12,6 +12,7 @@ impl TerrainVisualImpl {
 
         // Create terrain render pipeline
         self.create_terrain_pipeline(device.as_ref())?;
+        self.create_extra_blend_pipeline(device.as_ref())?;
 
         // Create skybox background pipeline before terrain/water draws.
         self.create_skybox_background_pipeline(device.as_ref())?;
@@ -24,6 +25,7 @@ impl TerrainVisualImpl {
         self.create_tree_pipeline(device.as_ref())?;
 
         self.sync_global_water_plane(device.as_ref())?;
+        self.upload_extra_blend_overlay();
 
         // Create uniform buffer
         self.uniform_buffer = Some(device.create_buffer(&wgpu::BufferDescriptor {
@@ -262,6 +264,8 @@ impl TerrainVisualImpl {
 
         self.chunk_texture_bindings
             .retain(|id, _| self.chunk_manager.has_chunk(*id));
+
+        self.upload_extra_blend_overlay();
 
         self.stats.rendered_chunks = visible_chunk_ids.len();
         self.stats.triangles_rendered = visible_chunk_ids
@@ -570,6 +574,7 @@ impl TerrainVisualImpl {
             );
         }
 
+        self.record_extra_blend_pass(pass);
         self.record_road_draws(pass);
         self.record_tree_draws(pass);
         self.record_water_draws(pass);
@@ -620,7 +625,12 @@ impl TerrainVisualImpl {
         pass.draw(0..3, 0..1);
     }
 
-    fn record_water_draws<'pass>(&'pass self, pass: &mut RenderPass<'pass>) {
+    /// Ensure the GlobalData water mesh exists (honors `water_position_z` / extents).
+    pub fn ensure_global_water_plane(&mut self, device: &wgpu::Device) -> TerrainResult<()> {
+        self.sync_global_water_plane(device)
+    }
+
+    pub fn record_water_draws<'pass>(&'pass self, pass: &mut RenderPass<'pass>) {
         let (Some(water_plane), Some(water_pipeline), Some(camera_bg)) = (
             self.water_plane.as_ref(),
             self.water_pipeline.as_ref(),
@@ -846,8 +856,13 @@ impl TerrainVisualImpl {
         let max_x = global.water_position_x + half_extent_x;
         let max_y = global.water_position_y + half_extent_y;
 
-        let (patch_vertices, _strip, list_indices) =
-            bake_water_patch_world(min_x, min_y, max_x, max_y, water_z, 0xffff_ffff);
+        // Tile 15×15 patches across GlobalData extents (do not stretch one sheet).
+        let (patch_vertices, list_indices) =
+            bake_water_tiles_world(min_x, min_y, max_x, max_y, water_z, 0xffff_ffff);
+        if patch_vertices.is_empty() || list_indices.is_empty() {
+            self.water_plane = None;
+            return Ok(());
+        }
         let vertices = fill_water_gpu_upload_vertices(&patch_vertices);
 
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -868,5 +883,190 @@ impl TerrainVisualImpl {
         });
 
         Ok(())
+    }
+
+    /// Rebuild C++ extra-blend tile positions from the loaded heightmap.
+    pub fn rebuild_extra_blend_gpu_state(&mut self) {
+        self.extra_blend_tile_positions = self
+            .height_map
+            .as_ref()
+            .map(|height_map| height_map.collect_extra_blend_tile_positions())
+            .unwrap_or_default();
+    }
+
+    /// C++ extra-blend second pass: two triangles per packed tile, honoring
+    /// `getExtraAlphaUVData` U/V, per-corner alpha, and `need_flip`.
+    pub fn build_extra_blend_draw_mesh(&self) -> ExtraBlendDrawMesh {
+        let Some(height_map) = self.height_map.as_ref() else {
+            return ExtraBlendDrawMesh::default();
+        };
+        height_map.build_extra_blend_draw_mesh_for_window(
+            &self.extra_blend_tile_positions,
+            self.draw_origin_x,
+            self.draw_origin_y,
+            self.draw_width,
+            self.draw_height,
+        )
+    }
+
+    fn extra_blend_mesh_to_terrain_vertices(
+        &self,
+        mesh: &ExtraBlendDrawMesh,
+    ) -> Vec<TerrainVertex> {
+        mesh.vertices
+            .iter()
+            .map(|vertex| {
+                let position = Vec3::from_array(vertex.position);
+                let normal = self
+                    .height_map
+                    .as_ref()
+                    .map(|height_map| height_map.get_normal_at(position.x, position.z))
+                    .unwrap_or(Vec3::Y);
+                let mut color = Self::terrain_static_diffuse_from_normal(
+                    normal,
+                    self.sun_direction,
+                    self.sun_color,
+                    self.ambient_color,
+                );
+                color[3] = vertex.color[3];
+                TerrainVertex {
+                    position: vertex.position,
+                    normal: [normal.x, normal.y, normal.z],
+                    tex_coords: vertex.tex_coords,
+                    blend_indices: [0; 4],
+                    blend_weights: [1.0, 0.0, 0.0, 0.0],
+                    color,
+                }
+            })
+            .collect()
+    }
+
+    /// Stage extra-blend overlay data and upload packed positions + draw verts
+    /// when a GPU device is present. C++ draws these as a second 3-way blend pass.
+    pub fn upload_extra_blend_overlay(&mut self) {
+        self.rebuild_extra_blend_gpu_state();
+        let positions = self.extra_blend_tile_positions.clone();
+        let mesh = self.build_extra_blend_draw_mesh();
+        self.extra_blend_gpu_upload = ExtraBlendGpuUpload {
+            tile_count: positions.len(),
+            positions: positions.clone(),
+            vertex_count: mesh.vertex_count(),
+            index_count: mesh.index_count(),
+        };
+        self.extra_blend_draw_mesh = mesh;
+        self.extra_blend_vertex_count = self.extra_blend_draw_mesh.vertex_count() as u32;
+        self.extra_blend_index_count = self.extra_blend_draw_mesh.index_count() as u32;
+
+        let Some(device) = self.device.as_ref() else {
+            self.extra_blend_position_buffer = None;
+            self.extra_blend_vertex_buffer = None;
+            self.extra_blend_index_buffer = None;
+            return;
+        };
+        if positions.is_empty() {
+            self.extra_blend_position_buffer = None;
+            self.extra_blend_vertex_buffer = None;
+            self.extra_blend_index_buffer = None;
+            return;
+        }
+        self.extra_blend_position_buffer = Some(device.create_buffer_init(
+            &wgpu::util::BufferInitDescriptor {
+                label: Some("Terrain Extra Blend Positions"),
+                contents: cast_slice(&positions),
+                usage: wgpu::BufferUsages::VERTEX
+                    | wgpu::BufferUsages::STORAGE
+                    | wgpu::BufferUsages::COPY_DST,
+            },
+        ));
+
+        if self.extra_blend_draw_mesh.is_empty() {
+            self.extra_blend_vertex_buffer = None;
+            self.extra_blend_index_buffer = None;
+            return;
+        }
+        let gpu_vertices = self.extra_blend_mesh_to_terrain_vertices(&self.extra_blend_draw_mesh);
+        self.extra_blend_vertex_buffer = Some(device.create_buffer_init(
+            &wgpu::util::BufferInitDescriptor {
+                label: Some("Terrain Extra Blend Vertices"),
+                contents: cast_slice(&gpu_vertices),
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            },
+        ));
+        self.extra_blend_index_buffer = Some(device.create_buffer_init(
+            &wgpu::util::BufferInitDescriptor {
+                label: Some("Terrain Extra Blend Indices"),
+                contents: cast_slice(&self.extra_blend_draw_mesh.indices),
+                usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
+            },
+        ));
+    }
+
+    /// Increment the shipped extra-blend draw counter when overlay tiles exist.
+    /// Returns whether a draw was recorded.
+    pub fn extra_blend_draw(&self) -> bool {
+        if self.extra_blend_tile_count() == 0
+            && self.extra_blend_gpu_upload.is_empty()
+            && self.extra_blend_draw_mesh.is_empty()
+        {
+            return false;
+        }
+        self.extra_blend_draw_count
+            .fetch_add(1, Ordering::Relaxed);
+        true
+    }
+
+    /// Second extra-blend pass over the base terrain (alpha overlay, no Z write).
+    pub fn record_extra_blend_pass<'pass>(&'pass self, pass: &mut RenderPass<'pass>) {
+        if !self.extra_blend_draw() {
+            return;
+        }
+        let Some(vertex_buffer) = self.extra_blend_vertex_buffer.as_ref() else {
+            return;
+        };
+        let Some(index_buffer) = self.extra_blend_index_buffer.as_ref() else {
+            return;
+        };
+        if self.extra_blend_index_count == 0 {
+            return;
+        }
+        let Some(pipeline) = self
+            .extra_blend_pipeline
+            .as_ref()
+            .or(self.terrain_pipeline.as_ref())
+        else {
+            return;
+        };
+        let Some(texture_binding) = self.chunk_texture_bindings.values().next() else {
+            return;
+        };
+
+        pass.set_pipeline(pipeline);
+        if let Some(camera_bg) = &self.terrain_camera_bind_group {
+            pass.set_bind_group(0, camera_bg, &[]);
+        }
+        pass.set_bind_group(1, &texture_binding.bind_group, &[]);
+        pass.set_vertex_buffer(0, vertex_buffer.slice(..));
+        pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+        pass.draw_indexed(0..self.extra_blend_index_count, 0, 0..1);
+    }
+
+    pub fn extra_blend_tile_positions(&self) -> &[u32] {
+        &self.extra_blend_tile_positions
+    }
+
+    pub fn extra_blend_tile_count(&self) -> usize {
+        self.extra_blend_tile_positions.len()
+    }
+
+    pub fn last_extra_blend_gpu_upload(&self) -> &ExtraBlendGpuUpload {
+        &self.extra_blend_gpu_upload
+    }
+
+    pub fn last_extra_blend_draw_mesh(&self) -> &ExtraBlendDrawMesh {
+        &self.extra_blend_draw_mesh
+    }
+
+    pub fn extra_blend_draw_count(&self) -> u32 {
+        self.extra_blend_draw_count.load(Ordering::Relaxed)
     }
 }

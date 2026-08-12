@@ -296,18 +296,30 @@ fn xfer_game_logic_state(logic: &mut GameLogic, xfer: &mut dyn Xfer) -> Result<(
                 continue;
             }
 
-            #[cfg(any(test, feature = "internal"))]
             {
-                let created = Object::new_test(1, 100.0);
-                let arc = std::sync::Arc::new(std::sync::RwLock::new(created));
+                // C++ GameLogic::xfer: ThingFactory->newObject then xferSnapshot.
+                // Unknown templates fall back to new_for_xfer_load (id overwritten by xfer).
+                let arc = if let Some(template) =
+                    crate::helpers::TheThingFactory::find_template(&toc_name)
+                {
+                    Object::new_with_id(
+                        template,
+                        crate::common::INVALID_ID,
+                        crate::common::ObjectStatusMaskType::none(),
+                        None,
+                    )
+                    .unwrap_or_else(|_| {
+                        std::sync::Arc::new(std::sync::RwLock::new(Object::new_for_xfer_load(
+                            1, 100.0,
+                        )))
+                    })
+                } else {
+                    std::sync::Arc::new(std::sync::RwLock::new(Object::new_for_xfer_load(1, 100.0)))
+                };
                 if let Ok(mut obj) = arc.write() {
                     xfer_object_snapshot(&mut obj, xfer);
                 }
                 let _ = logic.register_object(arc);
-            }
-            #[cfg(not(any(test, feature = "internal")))]
-            {
-                let _ = (&toc_name, xfer.skip(block_size));
             }
             let _ = xfer.end_block();
         }
@@ -469,6 +481,7 @@ fn xfer_the_sell_list(xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
                     id,
                     position: Default::default(),
                     orientation: 0.0,
+                    command_set: None,
                 },
                 sell_frame,
             );

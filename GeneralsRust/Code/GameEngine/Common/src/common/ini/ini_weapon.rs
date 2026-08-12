@@ -281,6 +281,10 @@ pub struct WeaponTemplate {
     pub damage_fx_template: AsciiString,
     pub prerequisites: Vec<AsciiString>,
     pub properties: HashMap<String, String>,
+    /// Repeated `WeaponBonus = CONDITION FIELD percent` lines (C++ appends).
+    pub weapon_bonuses: Vec<String>,
+    /// Repeated `ScatterTarget = x y` lines (C++ appends).
+    pub scatter_targets: Vec<String>,
 }
 
 impl WeaponTemplate {
@@ -314,6 +318,8 @@ impl WeaponTemplate {
             damage_fx_template: AsciiString::from(""),
             prerequisites: Vec::new(),
             properties: HashMap::new(),
+            weapon_bonuses: Vec::new(),
+            scatter_targets: Vec::new(),
         }
     }
 
@@ -341,28 +347,39 @@ impl WeaponTemplate {
         &mut self,
         properties: &HashMap<String, String>,
     ) -> WeaponResult<()> {
-        for (key, value) in properties {
-            match key.as_str() {
+        let mut entries: Vec<(&String, &String)> = properties.iter().collect();
+        entries.sort_by(|a, b| a.0.cmp(b.0));
+        for (key, value) in entries {
+            let base_key = if let Some((base, repeat)) = key.rsplit_once('#') {
+                if repeat.parse::<usize>().is_ok() {
+                    base
+                } else {
+                    key.as_str()
+                }
+            } else {
+                key.as_str()
+            };
+            match base_key {
                 "DamageType" => {
                     self.damage_type = DamageType::from_string(value);
                 }
                 "PrimaryDamage" => {
-                    self.primary_damage = parse_f32_field(key, value)?;
+                    self.primary_damage = parse_f32_field(base_key, value)?;
                 }
                 "SecondaryDamage" => {
-                    self.secondary_damage = parse_f32_field(key, value)?;
+                    self.secondary_damage = parse_f32_field(base_key, value)?;
                 }
                 "PrimaryDamageRadius" => {
-                    self.damage_radius = parse_f32_field(key, value)?;
+                    self.damage_radius = parse_f32_field(base_key, value)?;
                 }
                 "AttackRange" => {
-                    self.range = parse_f32_field(key, value)?;
+                    self.range = parse_f32_field(base_key, value)?;
                 }
                 "MinimumAttackRange" => {
-                    self.min_range = parse_f32_field(key, value)?;
+                    self.min_range = parse_f32_field(base_key, value)?;
                 }
                 "WeaponSpeed" => {
-                    self.projectile_speed = parse_f32_field(key, value)?;
+                    self.projectile_speed = parse_f32_field(base_key, value)?;
                 }
                 "ProjectileObject" => {
                     self.effects.projectile_object = AsciiString::from(value);
@@ -370,10 +387,18 @@ impl WeaponTemplate {
                 "FireSound" => {
                     self.effects.sound_effect = AsciiString::from(value);
                 }
+                "WeaponBonus" => {
+                    validate_unmodeled_cpp_weapon_field(base_key, value)?;
+                    self.weapon_bonuses.push(value.clone());
+                }
+                "ScatterTarget" => {
+                    validate_unmodeled_cpp_weapon_field(base_key, value)?;
+                    self.scatter_targets.push(value.clone());
+                }
                 _ => {
-                    if is_cpp_weapon_template_field(key) {
-                        validate_unmodeled_cpp_weapon_field(key, value)?;
-                        self.properties.insert(key.clone(), value.clone());
+                    if is_cpp_weapon_template_field(base_key) {
+                        validate_unmodeled_cpp_weapon_field(base_key, value)?;
+                        self.properties.insert(base_key.to_string(), value.clone());
                     } else {
                         return Err(WeaponError::ParseError(format!(
                             "Unknown weapon field '{}'",
@@ -987,6 +1012,35 @@ mod tests {
         assert!(template.can_target("air"));
         assert!(!template.can_target("ground"));
         assert_eq!(template.get_dps(), 50.0);
+    }
+
+    #[test]
+    fn repeated_weapon_bonus_and_scatter_lines_are_kept() {
+        let mut properties = HashMap::new();
+        properties.insert(
+            "WeaponBonus".to_string(),
+            "DRONE_SPOTTING RATE_OF_FIRE 200%".to_string(),
+        );
+        properties.insert(
+            "WeaponBonus#1".to_string(),
+            "DRONE_SPOTTING RANGE 200%".to_string(),
+        );
+        properties.insert(
+            "WeaponBonus#2".to_string(),
+            "DRONE_SPOTTING DAMAGE 200%".to_string(),
+        );
+        properties.insert("ScatterTarget".to_string(), "0.0 0.0".to_string());
+        properties.insert("ScatterTarget#1".to_string(), "1.0 0.5".to_string());
+
+        let mut template = WeaponTemplate::new(AsciiString::from("RangerACR"));
+        template
+            .update_from_properties(&properties)
+            .expect("weapon fields");
+        assert_eq!(template.weapon_bonuses.len(), 3);
+        assert!(template.weapon_bonuses[0].contains("RATE_OF_FIRE"));
+        assert!(template.weapon_bonuses[1].contains("RANGE"));
+        assert!(template.weapon_bonuses[2].contains("DAMAGE"));
+        assert_eq!(template.scatter_targets.len(), 2);
     }
 
     #[test]

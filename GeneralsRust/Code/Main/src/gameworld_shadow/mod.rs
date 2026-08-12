@@ -6,6 +6,12 @@
 //!
 //! Production default ON; opt out with `GENERALS_GAMEWORLD_SHADOW=0`.
 //!
+//! Dual-tick policy is **AuthorityOnly** (see `authoritative_world::dual_tick_policy`).
+//! When a shadow session is coupled, GameWorld is the mutation store for HP/pose/
+//! cash/target; Main `GameLogic.objects` HashMap is an ID map / read-through view
+//! written back after the session. Fail-open host fields only when shadow is off.
+//! Do not populate OBJECT_REGISTRY with host objects.
+//!
 //! Policy: borrow host for sync phases only; never store long-lived host references.
 
 //!
@@ -18,30 +24,29 @@ use gamelogic::world::entities::{EntityId, EntityProductionItem, TemplateRef, Tr
 use gamelogic::world::{GameWorld, PlayerId, WorldMutation, WorldSnapshot};
 use std::collections::{HashMap, HashSet};
 
-mod types;
-#[path = "tick/mod.rs"]
 mod tick;
-pub use types::*;
+mod types;
 pub use tick::*;
+pub use types::*;
 
-mod construct;
-mod writeback_core;
-mod writeback_production;
-mod counts;
-mod apply_host_events;
 mod apply_host_combat;
-mod apply_host_weapon_set;
-mod apply_host_stealth;
-mod apply_host_misc;
-mod writeback_misc;
-mod writeback_combat_status;
 mod apply_host_damage;
-mod session;
-mod presentation;
+mod apply_host_events;
+mod apply_host_misc;
+mod apply_host_stealth;
+mod apply_host_weapon_set;
+mod construct;
+mod counts;
 mod couple_guard;
-pub use session::*;
-pub use presentation::*;
+mod presentation;
+mod session;
+mod writeback_combat_status;
+mod writeback_core;
+mod writeback_misc;
+mod writeback_production;
 pub use couple_guard::*;
+pub use presentation::*;
+pub use session::*;
 
 /// Session holding GameWorld + stable host↔entity ID maps.
 #[derive(Debug)]
@@ -65,6 +70,50 @@ pub struct GameWorldShadow {
     carpet_pending_drops: Vec<crate::game_logic::host_carpet_bomb_flight::PendingCarpetBombDrop>,
 }
 
-
 #[cfg(test)]
 mod tests;
+
+/// Concatenated live gameworld_shadow sources for residual `include_str` scans.
+pub const GAMEWORLD_SHADOW_SRC: &str = concat!(
+    include_str!("mod.rs"),
+    include_str!("apply_host_combat.rs"),
+    include_str!("apply_host_damage.rs"),
+    include_str!("apply_host_events.rs"),
+    include_str!("apply_host_misc.rs"),
+    include_str!("apply_host_stealth.rs"),
+    include_str!("apply_host_weapon_set.rs"),
+    include_str!("construct.rs"),
+    include_str!("counts.rs"),
+    include_str!("couple_guard.rs"),
+    include_str!("presentation.rs"),
+    include_str!("session.rs"),
+    include_str!("types.rs"),
+    include_str!("writeback_combat_status.rs"),
+    include_str!("writeback_core.rs"),
+    include_str!("writeback_misc.rs"),
+    include_str!("writeback_production.rs"),
+    include_str!("tick/authority.rs"),
+    include_str!("tick/couple.rs"),
+    include_str!("tick/dispatch.rs"),
+    include_str!("tick/eager_ai.rs"),
+    include_str!("tick/eager_combat.rs"),
+    include_str!("tick/eager_contain.rs"),
+    include_str!("tick/eager_economy.rs"),
+    include_str!("tick/eager_identity.rs"),
+    include_str!("tick/eager_misc.rs"),
+    include_str!("tick/eager_orders.rs"),
+    include_str!("tick/eager_stealth.rs"),
+    include_str!("tick/eager_weapon.rs"),
+    include_str!("tick/env.rs"),
+    include_str!("tick/mod.rs"),
+    include_str!("tick/status_timers.rs"),
+    include_str!("tick/status_timers_death.rs"),
+    include_str!("tick/status_timers_economy.rs"),
+    include_str!("tick/status_timers_payload.rs"),
+    include_str!("tick/status_timers_post.rs"),
+    include_str!("tick/status_timers_projectiles.rs"),
+    include_str!("tick/status_timers_specials.rs"),
+    include_str!("tick/status_timers_stealth.rs"),
+    include_str!("tick/status_timers_structure.rs"),
+    include_str!("tick/status_timers_updates.rs"),
+);

@@ -22,7 +22,9 @@ pub(self) use super::partition_manager::PartitionManager;
 pub(self) use super::radar_notifications::{self, RadarEntry, RadarNotifications};
 pub(self) use super::script_events::{self, ScriptEvent};
 pub(self) use super::victory::{PlayerOutcome, PlayerResult, VictoryCondition, VictorySummary};
-pub(self) use super::victory_conditions::{victory_rules_for_map, AllianceNotification, VictoryConditions};
+pub(self) use super::victory_conditions::{
+    victory_rules_for_map, AllianceNotification, VictoryConditions,
+};
 pub(self) use super::*;
 pub(self) use crate::ai::*;
 pub(self) use crate::assets::{get_asset_manager, ObjectDefinition};
@@ -1047,6 +1049,70 @@ pub(self) struct ObjectSellInfo {
     sell_frame: u32,
 }
 
+/// Fat-object ID store as its **own field** so a tick can mut-borrow objects
+/// without `&mut self` on the whole [`GameLogic`] (`self.objects.get_mut` +
+/// `self.frame` split-borrow).
+///
+/// Deref to the inner `HashMap` so existing `self.objects.get_mut` call sites
+/// keep compiling. When a GameWorld session is coupled the map is a roster /
+/// write-through view — `host_authoritative_*` is truth.
+#[derive(Debug, Default)]
+pub struct HostObjectStore {
+    map: HashMap<ObjectId, Object>,
+}
+
+impl HostObjectStore {
+    #[inline]
+    pub fn new() -> Self {
+        Self {
+            map: HashMap::new(),
+        }
+    }
+
+    #[inline]
+    pub fn map(&self) -> &HashMap<ObjectId, Object> {
+        &self.map
+    }
+
+    #[inline]
+    pub fn map_mut(&mut self) -> &mut HashMap<ObjectId, Object> {
+        &mut self.map
+    }
+}
+
+impl std::ops::Deref for HostObjectStore {
+    type Target = HashMap<ObjectId, Object>;
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        &self.map
+    }
+}
+
+impl std::ops::DerefMut for HostObjectStore {
+    #[inline]
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.map
+    }
+}
+
+impl<'a> IntoIterator for &'a HostObjectStore {
+    type Item = (&'a ObjectId, &'a Object);
+    type IntoIter = std::collections::hash_map::Iter<'a, ObjectId, Object>;
+    #[inline]
+    fn into_iter(self) -> Self::IntoIter {
+        self.map.iter()
+    }
+}
+
+impl<'a> IntoIterator for &'a mut HostObjectStore {
+    type Item = (&'a ObjectId, &'a mut Object);
+    type IntoIter = std::collections::hash_map::IterMut<'a, ObjectId, Object>;
+    #[inline]
+    fn into_iter(self) -> Self::IntoIter {
+        self.map.iter_mut()
+    }
+}
+
 pub struct GameLogic {
     /// Named AttackPriorityInfo residual map (script sets).
     pub attack_priority_sets: std::collections::HashMap<String, AttackPriorityInfo>,
@@ -1056,8 +1122,18 @@ pub struct GameLogic {
     pub retaliate_friends_radius: f32,
     /// C++ TAiData::m_maxRetaliateDistance residual (default 210).
     pub max_retaliate_distance: f32,
-    /// Objects in the world
-    pub objects: HashMap<ObjectId, Object>,
+    /// Objects in the world.
+    ///
+    /// Own field (not a method on `&mut GameLogic`) so ticks can
+    /// `self.objects.get_mut` while still reading `self.frame`.
+    /// When a GameWorld shadow session is coupled this map is an ID roster /
+    /// read-through **view**. HP / pose / attack-target live in GameWorld;
+    /// [`Self::host_object_mut`] overlays those fields from GameWorld, marks the
+    /// id dirty, and [`Self::commit_dirty_host_objects_to_gameworld`] pushes
+    /// them back. Fail-open host fields only when shadow is off.
+    pub objects: HostObjectStore,
+    /// Host ids mutated this tick that must write through to GameWorld.
+    host_view_dirty: HashSet<ObjectId>,
 
     /// Players in the game
     players: HashMap<u32, Player>,
@@ -2646,7 +2722,9 @@ pub(self) fn localized_objective_string(id: &str, suffix: &str, fallback: &str) 
     localization::localize(&key, fallback)
 }
 
-pub(self) fn derive_objective_status(obj: &MissionObjective) -> (ObjectiveStatus, Option<(u32, u32)>) {
+pub(self) fn derive_objective_status(
+    obj: &MissionObjective,
+) -> (ObjectiveStatus, Option<(u32, u32)>) {
     if let Some(total) = obj.required_count {
         let current = obj.current_count.min(total);
         let status = if current >= total {
@@ -3534,7 +3612,8 @@ impl GameLogic {
             enable_repulsors: false,
             retaliate_friends_radius: 120.0,
             max_retaliate_distance: 210.0,
-            objects: HashMap::new(),
+            objects: HostObjectStore::new(),
+            host_view_dirty: HashSet::new(),
             players: HashMap::new(),
             next_object_id: ObjectId(1), // Start at 1, 0 is invalid
             next_formation_id: 1,
@@ -4128,6 +4207,7 @@ impl GameLogic {
     pub fn reset(&mut self) {
         log::debug!("GameLogic::reset() - resetting game state");
         self.objects.clear();
+        self.host_view_dirty.clear();
         self.players.clear();
         self.next_object_id = ObjectId(1);
         self.next_formation_id = 1;
@@ -4625,23 +4705,21 @@ impl GameLogic {
         self.ai_manager = AIManager::new();
         log::debug!("GameLogic::reset() complete");
     }
-
 }
 
 // Split `impl GameLogic` chunks as real child modules (type-checked separately).
 // Combat lives in world_combat/*.rs (#[path] because this file is game_logic.rs).
 // Sibling private methods use pub(super) / pub(in super::super).
-#[path = "world_save.rs"]
-mod world_save;
-#[path = "world_tick/mod.rs"]
-mod world_tick;
-#[path = "world_objects/mod.rs"]
-mod world_objects;
 #[path = "world_combat/mod.rs"]
 mod world_combat;
+#[path = "world_objects/mod.rs"]
+mod world_objects;
+#[path = "world_save.rs"]
+mod world_save;
 #[path = "world_scripts/mod.rs"]
 mod world_scripts;
-
+#[path = "world_tick/mod.rs"]
+mod world_tick;
 
 impl GameLogic {
     fn update_player_alive_state(&mut self) {

@@ -160,6 +160,25 @@ pub struct TerrainVisualImpl {
     /// Current terrain draw origin in map samples.
     draw_origin_x: i32,
     draw_origin_y: i32,
+
+    /// C++ `m_extraBlendTilePositions` packed as `i | (j << 16)`.
+    extra_blend_tile_positions: Vec<u32>,
+    /// Last extra-blend overlay staged/uploaded for the GPU terrain pass.
+    extra_blend_gpu_upload: ExtraBlendGpuUpload,
+    /// Last CPU extra-blend draw mesh (two triangles per tile).
+    extra_blend_draw_mesh: ExtraBlendDrawMesh,
+    /// GPU buffer of packed extra-blend tile positions (when a device exists).
+    extra_blend_position_buffer: Option<Buffer>,
+    /// GPU extra-blend overlay vertex buffer (second 3-way pass).
+    extra_blend_vertex_buffer: Option<Buffer>,
+    /// GPU extra-blend overlay index buffer.
+    extra_blend_index_buffer: Option<Buffer>,
+    extra_blend_index_count: u32,
+    extra_blend_vertex_count: u32,
+    /// Alpha-blend overlay pipeline (depth write off). Falls back to terrain.
+    extra_blend_pipeline: Option<wgpu::RenderPipeline>,
+    /// Shipped draw-counter incremented by `extra_blend_draw` / `record_extra_blend_pass`.
+    extra_blend_draw_count: AtomicU32,
 }
 
 struct GpuChunkMesh {

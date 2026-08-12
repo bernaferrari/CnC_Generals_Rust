@@ -1,8 +1,8 @@
 //! Post-logic AI residuals: state, fire-intent, attitude, mood, request, shock/stun, decision.
 
+use super::*;
 use crate::game_logic::GameLogic;
 use crate::gameworld_shadow::GameWorldShadow;
-use super::*;
 
 // Wave 687: post-logic AI-state / fire-intent batch handoff (avoid double-apply).
 thread_local! {

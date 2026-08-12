@@ -33,5 +33,20 @@ pub(super) fn evaluate_honesty_waves() -> WaveHonesty {
     let waves_841_880 = waves_841_880::evaluate();
     let waves_881_920 = waves_881_920::evaluate();
     let waves_921_941 = waves_921_941::evaluate();
-    WaveHonesty::from_parts(waves_401_440, waves_441_480, waves_481_520, waves_521_560, waves_561_600, waves_601_640, waves_641_680, waves_681_720, waves_721_760, waves_761_800, waves_801_840, waves_841_880, waves_881_920, waves_921_941)
+    WaveHonesty::from_parts(
+        waves_401_440,
+        waves_441_480,
+        waves_481_520,
+        waves_521_560,
+        waves_561_600,
+        waves_601_640,
+        waves_641_680,
+        waves_681_720,
+        waves_721_760,
+        waves_761_800,
+        waves_801_840,
+        waves_841_880,
+        waves_881_920,
+        waves_921_941,
+    )
 }

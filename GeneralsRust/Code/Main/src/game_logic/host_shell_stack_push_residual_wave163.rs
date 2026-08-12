@@ -76,7 +76,7 @@ pub fn honesty_shell_stack_push_residual_pack_wave163() -> bool {
 
 /// Residual: source-level show_shell_menu init-before-push honesty.
 pub fn honesty_show_shell_menu_init_before_push_source() -> bool {
-    let src = include_str!("../cnc_game_engine.rs");
+    let src = crate::cnc_game_engine::ENGINE_SRC;
     let i = match src.find("fn show_shell_menu(&mut self)") {
         Some(i) => i,
         None => return false,
@@ -92,7 +92,7 @@ pub fn honesty_show_shell_menu_init_before_push_source() -> bool {
 
 /// Residual: honest shell_top_wnd / shell_screen_count snapshot (no invented stack).
 pub fn honesty_shell_snapshot_no_invented_stack_source() -> bool {
-    let src = include_str!("../cnc_game_engine.rs");
+    let src = crate::cnc_game_engine::ENGINE_SRC;
     // Must not invent MainMenu.wnd when top is empty.
     let top_i = match src.find("shell_top_wnd:") {
         Some(i) => i,

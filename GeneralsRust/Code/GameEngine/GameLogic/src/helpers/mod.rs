@@ -12,10 +12,10 @@ use crate::common::types::{
 };
 use crate::common::Matrix3D;
 use crate::common::{
-    AsciiString, Bool, Color, Coord3D, DisabledMaskType, DisabledType, DistanceType, FXListId, Int,
-    KindOf, MessageType, NameKeyGenerator, NameKeyType, ObjectID, PathfindLayerEnum,
-    PlayerMaskType, Real, Relationship, UnsignedInt, VeterancyLevel, DISABLED_COUNT, INVALID_ID,
-    NEVER,
+    AsciiString, Bool, Color, Coord3D, DisabledMaskType, DisabledType, DistanceType, FXListId,
+    GeometryInfo, Int, KindOf, MessageType, NameKeyGenerator, NameKeyType, ObjectID,
+    PathfindLayerEnum, PlayerMaskType, Real, Relationship, UnsignedInt, VeterancyLevel,
+    DISABLED_COUNT, INVALID_ID, NEVER,
 };
 use crate::effects::{FXList, ObjectCreationList};
 use crate::error::GameLogicError as GameError;
@@ -87,3 +87,19 @@ include!("game_client.rs");
 include!("object_helpers.rs");
 include!("globals.rs");
 include!("leftover.rs");
+
+/// Concatenated live sources for residual `include_str!` scans.
+pub const HELPERS_SRC: &str = concat!(
+    include_str!("mod.rs"),
+    include_str!("audio.rs"),
+    include_str!("game_client.rs"),
+    include_str!("game_logic.rs"),
+    include_str!("globals.rs"),
+    include_str!("leftover.rs"),
+    include_str!("lookup.rs"),
+    include_str!("math.rs"),
+    include_str!("object_helpers.rs"),
+    include_str!("object_queries.rs"),
+    include_str!("particles.rs"),
+    include_str!("random.rs"),
+);

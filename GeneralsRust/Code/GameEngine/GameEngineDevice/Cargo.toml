@@ -9,10 +9,13 @@ repository = "https://github.com/EA/cnc-generals-zero-hour"
 
 [lib]
 name = "game_engine_device"
-crate-type = ["cdylib", "rlib"]
+# Quarantine: unused W3D C ABI is not a live cdylib success-stub.
+crate-type = ["rlib"]
 
 [features]
 default = ["platform-native", "debug"]
+# Off by default. DX8-shaped C exports that store handles and return success.
+w3d-c-abi = ["w3d"]
 audio = ["kira"]
 video = [
     "wgpu",

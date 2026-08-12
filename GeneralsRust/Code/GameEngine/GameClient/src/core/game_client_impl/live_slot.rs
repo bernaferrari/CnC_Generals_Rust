@@ -3,24 +3,26 @@
 // so this stays one logical `game_client` module (public API identical).
 
 static GLOBAL_NEXT_DRAWABLE_ID: AtomicU32 = AtomicU32::new(1);
-static LIVE_GAME_CLIENT_PTR: OnceLock<Mutex<Option<usize>>> = OnceLock::new();
+/// Address of the stack/engine GameClient. Not TLS `*mut` — `GameClient` is
+/// `!Send` (winit) so it cannot live in a `static Mutex<GameClient>`.
+static LIVE_GAME_CLIENT_ADDR: OnceLock<Mutex<Option<usize>>> = OnceLock::new();
 const TEXTURE_REDUCTION_MIN: i32 = 0;
 const TEXTURE_REDUCTION_MAX: i32 = 4;
 const WW3D_TEXTURE_REDUCTION_MIN_DIMENSION: u32 = 32;
 
 fn live_game_client_slot() -> &'static Mutex<Option<usize>> {
-    LIVE_GAME_CLIENT_PTR.get_or_init(|| Mutex::new(None))
+    LIVE_GAME_CLIENT_ADDR.get_or_init(|| Mutex::new(None))
 }
 
 pub(crate) fn register_live_game_client(client: &mut GameClient) {
     if let Ok(mut slot) = live_game_client_slot().lock() {
-        *slot = Some(client as *mut GameClient as usize);
+        *slot = Some(std::ptr::from_mut(client) as usize);
     }
 }
 
 pub(crate) fn clear_live_game_client(client: &mut GameClient) {
     if let Ok(mut slot) = live_game_client_slot().lock() {
-        let current = client as *mut GameClient as usize;
+        let current = std::ptr::from_mut(client) as usize;
         if slot.is_some_and(|stored| stored == current) {
             *slot = None;
         }
@@ -31,9 +33,10 @@ pub(crate) fn with_live_game_client_mut<R>(
     callback: impl FnOnce(&mut GameClient) -> R,
 ) -> Option<R> {
     let raw = live_game_client_slot().lock().ok().and_then(|slot| *slot)?;
-    // The pointer is set from GameClient::init and cleared in Drop. Snapshot operations
-    // occur while the owning GameClient is alive on the main thread.
-    let client = unsafe { (raw as *mut GameClient).as_mut()? };
+    let client = std::ptr::with_exposed_provenance_mut::<GameClient>(raw);
+    // Engine registers from GameClient::init and clears in Drop. Snapshot
+    // runs on the main thread while that client is alive.
+    let client = unsafe { client.as_mut()? };
     Some(callback(client))
 }
 

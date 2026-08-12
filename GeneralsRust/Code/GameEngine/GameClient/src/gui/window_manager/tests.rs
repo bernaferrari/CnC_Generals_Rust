@@ -2,7 +2,8 @@
 
 use super::*;
 use super::{
-    apply_window_widget_data, queue_window_manager_op, with_window_manager, with_window_manager_ref,
+    apply_window_widget_data, hide_window_rc, queue_create_layout, queue_set_focus,
+    queue_window_manager_op, with_window_manager, with_window_manager_ref,
 };
 use crate::gui::gadgets::{TextAlignment, VerticalAlignment};
 use crate::gui::game_window::*;
@@ -161,13 +162,7 @@ fn script_child_creation_sends_script_create_input_to_parent_like_cpp() {
     };
 
     manager
-        .create_window_from_definition(
-            &child_def,
-            Some(&parent),
-            &layout,
-            &layout_def,
-            &mut info,
-        )
+        .create_window_from_definition(&child_def, Some(&parent), &layout, &layout_def, &mut info)
         .unwrap();
 
     assert_eq!(
@@ -1683,13 +1678,8 @@ fn left_drag_moves_grabbed_draggable_window_like_cpp() {
     grabbed.borrow_mut().set_status(WindowStatus::DRAGABLE);
     manager.set_grab_window(Some(&grabbed));
 
-    let result = manager.process_mouse_event_with_delta(
-        WindowMessage::LeftDrag,
-        30,
-        40,
-        0,
-        Some((15, -5)),
-    );
+    let result =
+        manager.process_mouse_event_with_delta(WindowMessage::LeftDrag, 30, 40, 0, Some((15, -5)));
 
     assert_eq!(result, WindowInputReturnCode::Used);
     assert_eq!(grabbed.borrow().get_position(), (25, 15));
@@ -1828,14 +1818,16 @@ fn os_click_named_window_hit_tests_widget_tree_and_selects_owner() {
         manager.reset();
         let parent = manager.create_window(None, 0, 0, 200, 80).unwrap();
         let flag = Arc::clone(&selected);
-        parent.borrow_mut().set_system_callback(move |_, msg, _, _| {
-            if msg == WindowMessage::GadgetSelected {
-                flag.store(true, Ordering::SeqCst);
-                WindowMsgHandled::Handled
-            } else {
-                WindowMsgHandled::Ignored
-            }
-        });
+        parent
+            .borrow_mut()
+            .set_system_callback(move |_, msg, _, _| {
+                if msg == WindowMessage::GadgetSelected {
+                    flag.store(true, Ordering::SeqCst);
+                    WindowMsgHandled::Handled
+                } else {
+                    WindowMsgHandled::Ignored
+                }
+            });
         let id = manager
             .gogo_gadget_push_button(Some(&parent), (10, 10), (80, 30))
             .expect("push button");
@@ -1899,6 +1891,25 @@ fn os_click_named_window_rejects_when_another_window_covers_hit() {
     );
     assert!(!last_os_wnd_widget_tree_click_ok());
     crate::gui::shell::get_shell().set_shell_active(true);
+}
+
+#[test]
+#[test]
+fn os_wnd_widget_under_cursor_name_returns_enabled_gadget() {
+    use crate::gui::shell::main_menu::os_wnd_widget_under_cursor_name;
+
+    let _lock = lock_test_mouse();
+    crate::gui::shell::get_shell().set_shell_active(false);
+    with_window_manager(|manager| {
+        manager.reset();
+        let named = manager.create_window(None, 0, 0, 80, 30).unwrap();
+        named.borrow_mut().set_name("MainMenu.wnd:ButtonSkirmish");
+    });
+    assert_eq!(
+        os_wnd_widget_under_cursor_name(40, 15).as_deref(),
+        Some("MainMenu.wnd:ButtonSkirmish")
+    );
+    assert_eq!(os_wnd_widget_under_cursor_name(400, 400), None);
 }
 
 #[test]
@@ -2174,6 +2185,61 @@ fn no_input_combo_child_retargets_mouse_hit_to_combo_parent_like_cpp() {
     assert_eq!(result, WindowInputReturnCode::Used);
     assert!(*seen.borrow());
     assert!(Rc::ptr_eq(&manager.get_grab_window().unwrap(), &combo));
+}
+
+#[test]
+fn create_slider_thumb_child_is_enabled_dragable_not_no_input() {
+    let mut manager = WindowManager::new();
+    let slider = manager.create_window(None, 0, 0, 120, 20).unwrap();
+    slider
+        .borrow_mut()
+        .instance_data_mut()
+        .style |= GWS_HORZ_SLIDER;
+    slider
+        .borrow_mut()
+        .set_status_exact(WindowStatus::ENABLED | WindowStatus::ACTIVE);
+
+    manager
+        .create_slider_thumb_child(&slider, &WindowLayoutDefinition::default())
+        .unwrap();
+
+    let thumb_id = slider.borrow().slider_thumb().expect("thumb child");
+    let thumb = slider
+        .borrow()
+        .find_child_by_id(thumb_id)
+        .expect("thumb window");
+    let status = thumb.borrow().get_status();
+    assert!(
+        status.contains(WindowStatus::ENABLED),
+        "C++ slider thumb is ENABLED"
+    );
+    assert!(
+        status.contains(WindowStatus::DRAGABLE),
+        "C++ slider thumb is DRAGABLE"
+    );
+    assert!(
+        !status.contains(WindowStatus::NO_INPUT),
+        "C++ slider thumb is not NO_INPUT"
+    );
+}
+
+#[test]
+fn get_window_under_cursor_walks_no_input_parent_to_enabled_child() {
+    let mut manager = WindowManager::new();
+    let parent = manager.create_window(None, 0, 0, 100, 100).unwrap();
+    let child = manager
+        .create_window(Some(&parent), 10, 10, 40, 40)
+        .unwrap();
+    parent
+        .borrow_mut()
+        .set_status_exact(WindowStatus::ENABLED | WindowStatus::NO_INPUT);
+    child.borrow_mut().set_status_exact(WindowStatus::ENABLED);
+
+    let found = manager.get_window_under_cursor(20, 20, false).unwrap();
+    assert!(
+        Rc::ptr_eq(&child, &found),
+        "winPointInChild must walk NO_INPUT parents before post-filter"
+    );
 }
 
 #[test]
@@ -2574,7 +2640,7 @@ fn reentrant_with_window_manager_does_not_panic() {
 }
 
 #[test]
-fn reentrant_with_window_manager_unit_op_is_queued_then_flushed() {
+fn reentrant_with_window_manager_unit_op_is_fail_closed_not_aliased() {
     let _lock = lock_test_mouse();
     let hits = Rc::new(Cell::new(0));
     let hits_inner = Rc::clone(&hits);
@@ -2583,12 +2649,114 @@ fn reentrant_with_window_manager_unit_op_is_queued_then_flushed() {
         with_window_manager(move |_manager| {
             hits_inner.set(hits_inner.get() + 1);
         });
-        // Nested unit op is queued, not run under an overlapping `&mut`.
+        // Nested unit callback is dropped fail-closed, not transmuted into the queue.
         assert_eq!(hits.get(), 0);
     });
-    assert_eq!(hits.get(), 1);
+    assert_eq!(hits.get(), 0);
+
+    let queued = Rc::new(Cell::new(0));
+    let queued_inner = Rc::clone(&queued);
+    with_window_manager(|_manager| {
+        queue_window_manager_op(move |_manager| {
+            queued_inner.set(queued_inner.get() + 1);
+        });
+        assert_eq!(queued.get(), 0);
+    });
+    assert_eq!(queued.get(), 1);
     with_window_manager(|manager| {
         manager.destroy_all_windows();
+    });
+}
+
+#[test]
+fn hide_parent_during_outstanding_borrow_applies_after_drain() {
+    let _lock = lock_test_mouse();
+    let parent = with_window_manager(|manager| {
+        manager.destroy_all_windows();
+        manager.update();
+        manager.create_window(None, 0, 0, 100, 100).unwrap()
+    });
+    {
+        let _held = parent.borrow_mut();
+        with_window_manager(|_manager| {
+            hide_window_rc(&parent, true);
+        });
+        // Outstanding `&mut` still held; hide is deferred, not applied.
+    }
+    with_window_manager(|_manager| {});
+    assert!(
+        parent.borrow().is_hidden(),
+        "hide-parent must take effect after the outstanding borrow drains"
+    );
+    with_window_manager(|manager| {
+        manager.destroy_all_windows();
+        manager.update();
+    });
+}
+
+#[test]
+fn hide_and_enable_during_callback_do_not_panic() {
+    let _lock = lock_test_mouse();
+    let parent = with_window_manager(|manager| {
+        manager.destroy_all_windows();
+        manager.update();
+        let parent = manager.create_window(None, 0, 0, 100, 100).unwrap();
+        let _child = manager
+            .create_window(Some(&parent), 10, 10, 20, 20)
+            .unwrap();
+        parent
+    });
+    let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        with_window_manager(|_manager| {
+            parent.borrow_mut().enable(false).unwrap();
+            parent.borrow_mut().hide(true).unwrap();
+            parent.borrow_mut().enable(true).unwrap();
+            parent.borrow_mut().hide(false).unwrap();
+        });
+    }));
+    assert!(
+        panicked.is_ok(),
+        "enable/hide during with_window_manager must not panic"
+    );
+    assert!(!parent.borrow().is_hidden());
+    with_window_manager(|manager| {
+        manager.destroy_all_windows();
+        manager.update();
+    });
+}
+
+#[test]
+fn nested_create_and_focus_queue_instead_of_fail_closed_noop() {
+    let _lock = lock_test_mouse();
+    let created = Rc::new(Cell::new(false));
+    let created_flag = Rc::clone(&created);
+    with_window_manager(|manager| {
+        manager.destroy_all_windows();
+        manager.update();
+        let window = manager.create_window(None, 0, 0, 80, 24).unwrap();
+        window
+            .borrow_mut()
+            .set_system_callback(|_, msg, data1, data2| match msg {
+                WindowMessage::InputFocus if data1 != 0 => {
+                    write_input_focus_response(data1, data2, true)
+                }
+                _ => WindowMsgHandled::Ignored,
+            });
+        queue_set_focus(window);
+        queue_create_layout("Menus/DoesNotNeedToExistForQueue.wnd");
+        created_flag.set(true);
+        assert_eq!(
+            with_window_manager(|_m| true),
+            false,
+            "valued re-entry still fail-closes; create/focus must use queue"
+        );
+    });
+    assert!(created.get());
+    with_window_manager(|manager| {
+        // Queued set_focus flushed when the outer borrow ended.
+        assert!(manager.get_focus().is_some());
+        manager.destroy_all_windows();
+        manager.update();
     });
 }
 
@@ -2603,9 +2771,8 @@ fn reentrant_with_window_manager_value_is_fail_closed() {
         !result,
         "non-unit re-entry must fail-closed (bool default = false) without aliasing"
     );
-    let found = with_window_manager(|manager| {
-        with_window_manager(|manager| manager.get_window_by_id(1))
-    });
+    let found =
+        with_window_manager(|manager| with_window_manager(|manager| manager.get_window_by_id(1)));
     assert!(found.is_none());
     with_window_manager(|manager| {
         manager.destroy_all_windows();

@@ -249,6 +249,22 @@ impl RuntimeRoadIntersectionCandidate {
     }
 }
 
+/// CPU/GPU payload for C++ extra-blend (3-way) terrain tiles.
+/// Positions match `m_extraBlendTilePositions`: `i | (j << 16)`.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ExtraBlendGpuUpload {
+    pub tile_count: usize,
+    pub positions: Vec<u32>,
+    pub vertex_count: usize,
+    pub index_count: usize,
+}
+
+impl ExtraBlendGpuUpload {
+    pub fn is_empty(&self) -> bool {
+        self.tile_count == 0 || self.positions.is_empty()
+    }
+}
+
 /// Terrain LOD levels matching C++ implementation
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum TerrainVisualLOD {

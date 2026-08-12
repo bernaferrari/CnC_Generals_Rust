@@ -467,7 +467,11 @@ impl GameLogic {
     /// - enemy able-to-attack structure, OR  
     /// - enemy able-to-attack non-structure (C++ filter residual simplified)
     /// Fail-closed vs full PartitionManager filters / stealth reject.
-    pub(in super::super) fn find_closest_repulsor(&self, unit_id: ObjectId, range: f32) -> Option<(ObjectId, f32)> {
+    pub(in super::super) fn find_closest_repulsor(
+        &self,
+        unit_id: ObjectId,
+        range: f32,
+    ) -> Option<(ObjectId, f32)> {
         if !self.enable_repulsors {
             return None;
         }

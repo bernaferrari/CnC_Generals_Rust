@@ -3,7 +3,6 @@
 use super::super::*;
 use super::helpers::*;
 
-
 #[test]
 fn dozer_repair_sets_actively_constructing_and_completes() {
     use crate::game_logic::host_enum_table_residual::{
@@ -1879,12 +1878,7 @@ fn spy_drone_special_power_spawns_vehicle_residual() {
     }
     assert!(logic.is_special_power_ready_for(cc1, &SpecialPowerType::SpyDrone));
     let before = logic.host_objects().len();
-    assert!(logic.activate_spy_drone(
-        0,
-        Team::USA,
-        glam::Vec3::new(50.0, 0.0, 50.0),
-        Some(cc1),
-    ));
+    assert!(logic.activate_spy_drone(0, Team::USA, glam::Vec3::new(50.0, 0.0, 50.0), Some(cc1),));
     assert!(logic.honesty_spy_drone_activate_ok());
     assert!(logic.honesty_spy_drone_spawn_ok());
     assert!(logic.host_objects().len() > before);
@@ -2322,8 +2316,7 @@ fn tank_hunter_tnt_and_laser_howitzer_special_power_residuals() {
 fn missile_defender_laser_guided_spawns_laser_beam_object() {
     use crate::game_logic::host_missile_defender::{
         missile_defender_laser_guided_weapon, missile_defender_primary_weapon,
-        LASER_GUIDED_ATTACH_BONE, LASER_GUIDED_BEAM_LIFETIME_FRAMES,
-        LASER_GUIDED_SPECIAL_OBJECT,
+        LASER_GUIDED_ATTACH_BONE, LASER_GUIDED_BEAM_LIFETIME_FRAMES, LASER_GUIDED_SPECIAL_OBJECT,
     };
     use crate::game_logic::{KindOf, Team, ThingTemplate};
 
@@ -3132,8 +3125,7 @@ fn superweapon_cash_hack_science_tier_steals_amount() {
 fn carpet_bomb_faction_tier_from_team_and_airforce_science() {
     use crate::command_system::SpecialPowerType;
     use crate::game_logic::special_power_strikes::{
-        CarpetBombFactionTier, CARPET_BOMB_COUNT, CARPET_BOMB_COUNT_AIRF,
-        CARPET_BOMB_COUNT_CHINA,
+        CarpetBombFactionTier, CARPET_BOMB_COUNT, CARPET_BOMB_COUNT_AIRF, CARPET_BOMB_COUNT_CHINA,
     };
     use crate::game_logic::{KindOf, Team, ThingTemplate};
 
@@ -3380,8 +3372,8 @@ fn ambush_science_tier_selects_unit_count() {
 fn paradrop_science_tier_selects_unit_count() {
     use crate::command_system::SpecialPowerType;
     use crate::game_logic::host_paradrop::{
-        ParadropScienceTier, PARADROP_RANGER_COUNT_L1, PARADROP_RANGER_COUNT_L3,
-        SCIENCE_PARADROP1, SCIENCE_PARADROP3,
+        ParadropScienceTier, PARADROP_RANGER_COUNT_L1, PARADROP_RANGER_COUNT_L3, SCIENCE_PARADROP1,
+        SCIENCE_PARADROP3,
     };
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
@@ -3584,11 +3576,7 @@ fn host_upgrade_complete_moab_and_satellite_hack_unlock() {
         .players
         .insert(1, Player::new(1, Team::China, "China", true));
     assert_eq!(
-        logic.apply_player_unlock_upgrade(
-            Team::USA,
-            UPGRADE_AMERICA_MOAB,
-            UPGRADE_AMERICA_MOAB
-        ),
+        logic.apply_player_unlock_upgrade(Team::USA, UPGRADE_AMERICA_MOAB, UPGRADE_AMERICA_MOAB),
         1
     );
     assert!(logic
@@ -3597,9 +3585,7 @@ fn host_upgrade_complete_moab_and_satellite_hack_unlock() {
         .unwrap()
         .unlocked_sciences
         .contains(UPGRADE_AMERICA_MOAB));
-    assert!(
-        logic.apply_satellite_hack_to_team(Team::China, UPGRADE_CHINA_SATELLITE_HACK_TWO) >= 1
-    );
+    assert!(logic.apply_satellite_hack_to_team(Team::China, UPGRADE_CHINA_SATELLITE_HACK_TWO) >= 1);
     assert!(logic
         .players
         .get(&1)
@@ -3611,8 +3597,7 @@ fn host_upgrade_complete_moab_and_satellite_hack_unlock() {
 #[test]
 fn host_upgrade_complete_mines_radar_fortified() {
     use crate::game_logic::host_upgrades::{
-        FORTIFIED_STRUCTURE_ADD_MAX_HEALTH, UPGRADE_CHINA_MINES,
-        UPGRADE_GLA_FORTIFIED_STRUCTURE,
+        FORTIFIED_STRUCTURE_ADD_MAX_HEALTH, UPGRADE_CHINA_MINES, UPGRADE_GLA_FORTIFIED_STRUCTURE,
     };
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
@@ -3626,11 +3611,8 @@ fn host_upgrade_complete_mines_radar_fortified() {
         .players
         .insert(2, Player::new(2, Team::USA, "USA", true));
 
-    let n_m = logic.apply_player_unlock_upgrade(
-        Team::China,
-        UPGRADE_CHINA_MINES,
-        UPGRADE_CHINA_MINES,
-    );
+    let n_m =
+        logic.apply_player_unlock_upgrade(Team::China, UPGRADE_CHINA_MINES, UPGRADE_CHINA_MINES);
     assert_eq!(n_m, 1);
     assert!(logic
         .players
@@ -3646,8 +3628,7 @@ fn host_upgrade_complete_mines_radar_fortified() {
         .create_object("GLABlackMarket", Team::GLA, glam::Vec3::new(0.0, 0.0, 0.0))
         .expect("bm");
     let before = logic.host_object(bid).unwrap().max_health;
-    let n_f =
-        logic.apply_fortified_structure_to_team(Team::GLA, UPGRADE_GLA_FORTIFIED_STRUCTURE);
+    let n_f = logic.apply_fortified_structure_to_team(Team::GLA, UPGRADE_GLA_FORTIFIED_STRUCTURE);
     assert_eq!(n_f, 1);
     let after = logic.host_object(bid).unwrap().max_health;
     assert!((after - before - FORTIFIED_STRUCTURE_ADD_MAX_HEALTH).abs() < 0.1);
@@ -3763,8 +3744,7 @@ fn host_upgrade_complete_advanced_training_and_tactical_nuke_mig() {
         )
         .expect("mig");
 
-    let n_at =
-        logic.apply_advanced_training_to_team(Team::USA, UPGRADE_AMERICA_ADVANCED_TRAINING);
+    let n_at = logic.apply_advanced_training_to_team(Team::USA, UPGRADE_AMERICA_ADVANCED_TRAINING);
     assert!(n_at >= 1);
     assert!(logic
         .players
@@ -3779,12 +3759,10 @@ fn host_upgrade_complete_advanced_training_and_tactical_nuke_mig() {
     // Honesty: XP scalar residual path.
     assert!((residual_xp_gain_with_advanced_training(50.0, true) - 100.0).abs() < 0.01);
 
-    let n_nuke =
-        logic.apply_tactical_nuke_mig_to_team(Team::China, "Upgrade_ChinaTacticalNukeMig");
+    let n_nuke = logic.apply_tactical_nuke_mig_to_team(Team::China, "Upgrade_ChinaTacticalNukeMig");
     assert_eq!(n_nuke, 1);
     assert!(logic
         .host_object(mid)
         .unwrap()
         .has_upgrade_tag("Upgrade_ChinaTacticalNukeMig"));
 }
-

@@ -3,7 +3,6 @@
 use super::super::*;
 use super::helpers::*;
 
-
 #[test]
 fn slave_drone_residual_rejects_non_master_attach() {
     use crate::game_logic::host_slave_drones::SlaveDroneKind;
@@ -949,8 +948,7 @@ fn marauder_residual_salvage_fire_rate_tiers() {
                 crate::game_logic::host_marauder::MARAUDER_SPEED_TIER0,
             )
             .is_some());
-        game_logic.marauder_residual_fires =
-            game_logic.marauder_residual_fires.saturating_add(1);
+        game_logic.marauder_residual_fires = game_logic.marauder_residual_fires.saturating_add(1);
     }
     for _ in 0..80 {
         game_logic.frame = game_logic.frame.saturating_add(1);
@@ -996,9 +994,8 @@ fn marauder_residual_salvage_fire_rate_tiers() {
 #[test]
 fn scorpion_residual_gun_salvage_and_rocket() {
     use crate::game_logic::host_scorpion::{
-        is_scorpion_template, ScorpionSalvageTier, SCORPION_GUN_DAMAGE,
-        SCORPION_GUN_DAMAGE_PLUS, SCORPION_RANGE, SCORPION_TANK_GUN,
-        UPGRADE_GLA_SCORPION_ROCKET,
+        is_scorpion_template, ScorpionSalvageTier, SCORPION_GUN_DAMAGE, SCORPION_GUN_DAMAGE_PLUS,
+        SCORPION_RANGE, SCORPION_TANK_GUN, UPGRADE_GLA_SCORPION_ROCKET,
     };
     use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
 
@@ -1102,16 +1099,17 @@ fn scorpion_residual_gun_salvage_and_rocket() {
         assert!(game_logic
             .spawn_scorpion_shell_projectile(scorp_id, from, aim, None, 0)
             .is_some());
-        game_logic.scorpion_residual_fires =
-            game_logic.scorpion_residual_fires.saturating_add(1);
+        game_logic.scorpion_residual_fires = game_logic.scorpion_residual_fires.saturating_add(1);
     }
     for _ in 0..80 {
         game_logic.frame = game_logic.frame.saturating_add(1);
         game_logic.update_scorpion_shell_projectiles();
         game_logic.update_scorpion_missile_projectiles();
-        if !game_logic.objects.values().any(|o| {
-            (o.scorpion_shell_projectile || o.scorpion_missile_projectile) && o.is_alive()
-        }) {
+        if !game_logic
+            .objects
+            .values()
+            .any(|o| (o.scorpion_shell_projectile || o.scorpion_missile_projectile) && o.is_alive())
+        {
             break;
         }
     }
@@ -1210,8 +1208,8 @@ fn scorpion_residual_gun_salvage_and_rocket() {
 #[test]
 fn tomahawk_residual_dual_radius_missile() {
     use crate::game_logic::host_tomahawk::{
-        is_tomahawk_template, TOMAHAWK_MIN_RANGE, TOMAHAWK_MISSILE_WEAPON,
-        TOMAHAWK_PRIMARY_DAMAGE, TOMAHAWK_RANGE,
+        is_tomahawk_template, TOMAHAWK_MIN_RANGE, TOMAHAWK_MISSILE_WEAPON, TOMAHAWK_PRIMARY_DAMAGE,
+        TOMAHAWK_RANGE,
     };
     use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
 
@@ -1302,8 +1300,7 @@ fn tomahawk_residual_dual_radius_missile() {
                 .is_some(),
             "direct TomahawkMissile spawn residual"
         );
-        game_logic.tomahawk_residual_fires =
-            game_logic.tomahawk_residual_fires.saturating_add(1);
+        game_logic.tomahawk_residual_fires = game_logic.tomahawk_residual_fires.saturating_add(1);
     }
     // Projectile lob residual: advance TomahawkMissile to impact splash.
     for _ in 0..160 {
@@ -1625,9 +1622,7 @@ fn mig_nuke_residual_tactical_nuke() {
         }
     }
     game_logic.process_destroy_list();
-    assert!(
-        game_logic.mig_residual_fires() > 0 || game_logic.honesty_mig_missile_projectile_ok()
-    );
+    assert!(game_logic.mig_residual_fires() > 0 || game_logic.honesty_mig_missile_projectile_ok());
     assert!(
         game_logic.mig_residual_radiation_fields() > 0
             || game_logic.honesty_mig_missile_projectile_ok(),
@@ -1698,8 +1693,8 @@ fn mig_nuke_residual_tactical_nuke() {
 #[test]
 fn fire_base_residual_howitzer() {
     use crate::game_logic::host_fire_base::{
-        is_fire_base_template, FIRE_BASE_DAMAGE, FIRE_BASE_HOWITZER_WEAPON,
-        FIRE_BASE_MIN_RANGE, FIRE_BASE_RANGE,
+        is_fire_base_template, FIRE_BASE_DAMAGE, FIRE_BASE_HOWITZER_WEAPON, FIRE_BASE_MIN_RANGE,
+        FIRE_BASE_RANGE,
     };
     use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
 
@@ -1790,8 +1785,7 @@ fn fire_base_residual_howitzer() {
         assert!(game_logic
             .spawn_fire_base_shell_projectile(fb_id, from, aim, Some(enemy))
             .is_some());
-        game_logic.fire_base_residual_fires =
-            game_logic.fire_base_residual_fires.saturating_add(1);
+        game_logic.fire_base_residual_fires = game_logic.fire_base_residual_fires.saturating_add(1);
     }
     for _ in 0..120 {
         game_logic.frame = game_logic.frame.saturating_add(1);
@@ -1905,8 +1899,7 @@ fn raptor_residual_missiles_and_laser_missiles() {
 
     game_logic.set_current_frame(50);
     game_logic.update_combat(&[raptor_id, enemy, near_splash], LOGIC_FRAME_TIMESTEP);
-    if game_logic.raptor_residual_fires() == 0
-        && !game_logic.honesty_raptor_missile_projectile_ok()
+    if game_logic.raptor_residual_fires() == 0 && !game_logic.honesty_raptor_missile_projectile_ok()
     {
         let from = game_logic
             .host_object(raptor_id)
@@ -1935,8 +1928,7 @@ fn raptor_residual_missiles_and_laser_missiles() {
     game_logic.process_destroy_list();
 
     assert!(
-        game_logic.raptor_residual_fires() > 0
-            || game_logic.honesty_raptor_missile_projectile_ok(),
+        game_logic.raptor_residual_fires() > 0 || game_logic.honesty_raptor_missile_projectile_ok(),
         "raptor residual fire honesty"
     );
     assert!(
@@ -2515,8 +2507,7 @@ fn inferno_black_napalm_upgraded_fire_field_residual() {
 #[test]
 fn battle_drone_residual_attach_fire_and_repair() {
     use crate::game_logic::host_slave_drones::{
-        is_battle_drone_template, SlaveDroneKind, BATTLE_DRONE_GUN_DAMAGE,
-        BATTLE_DRONE_MACHINE_GUN,
+        is_battle_drone_template, SlaveDroneKind, BATTLE_DRONE_GUN_DAMAGE, BATTLE_DRONE_MACHINE_GUN,
     };
     use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
 
@@ -2566,10 +2557,9 @@ fn battle_drone_residual_attach_fire_and_repair() {
     {
         let m = game_logic.host_object(master_id).unwrap();
         assert!(
-            m.applied_upgrades
-                .iter()
-                .any(|u| u.to_ascii_lowercase().contains("battledrone")
-                    || u.contains("BattleDrone")),
+            m.applied_upgrades.iter().any(
+                |u| u.to_ascii_lowercase().contains("battledrone") || u.contains("BattleDrone")
+            ),
             "master tagged with BattleDrone upgrade residual"
         );
     }
@@ -2749,8 +2739,7 @@ fn overlord_gun_residual_dual_radius_and_uranium() {
         "overlord residual fire honesty"
     );
     assert!(
-        game_logic.honesty_overlord_gun_ok()
-            || game_logic.honesty_overlord_shell_projectile_ok(),
+        game_logic.honesty_overlord_gun_ok() || game_logic.honesty_overlord_shell_projectile_ok(),
         "overlord residual host path honesty"
     );
     let enemy_hp_after = game_logic
@@ -3258,8 +3247,7 @@ fn red_guard_residual_gun_horde_nationalism_and_bayonet() {
 fn tank_hunter_residual_rpg_horde_and_tnt() {
     use crate::game_logic::host_battlemaster::UPGRADE_NATIONALISM;
     use crate::game_logic::host_tank_hunter::{
-        is_tank_hunter_template, TANK_HUNTER_DAMAGE, TANK_HUNTER_MISSILE_WEAPON,
-        TANK_HUNTER_RANGE,
+        is_tank_hunter_template, TANK_HUNTER_DAMAGE, TANK_HUNTER_MISSILE_WEAPON, TANK_HUNTER_RANGE,
     };
     use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
 
@@ -3469,8 +3457,7 @@ fn tank_hunter_residual_rpg_horde_and_tnt() {
 #[test]
 fn rebel_residual_gun_and_ap_bullets() {
     use crate::game_logic::host_gla_rebel::{
-        is_gla_rebel_template, REBEL_DAMAGE, REBEL_MACHINE_GUN, REBEL_RANGE,
-        UPGRADE_GLA_AP_BULLETS,
+        is_gla_rebel_template, REBEL_DAMAGE, REBEL_MACHINE_GUN, REBEL_RANGE, UPGRADE_GLA_AP_BULLETS,
     };
     use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
 
@@ -3567,4 +3554,3 @@ fn rebel_residual_gun_and_ap_bullets() {
         "AP residual fire should deal at least base damage, got {dmg_dealt}"
     );
 }
-

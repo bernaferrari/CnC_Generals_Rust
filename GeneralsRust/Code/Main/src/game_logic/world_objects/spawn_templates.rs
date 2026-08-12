@@ -395,15 +395,7 @@ impl GameLogic {
             "pmwtrtwr" => "PMTower".to_string(),
             "pmwtrtwr02" => "PMTower2".to_string(),
             "pmctrslpy" => "PMDock08".to_string(),
-            // ZH-only archive set in this workspace ships ABSupplyCT as the _A2* family.
-            // Use a mesh-root variant instead of the animation-root ABSupplyCT_A2 file.
-            "absupplyct" => "ABSupplyCT_A2U".to_string(),
-            "absupplyct_a2" => "ABSupplyCT_A2U".to_string(),
-            "ubsupply" => "UBSupplyF".to_string(),
-            "ubcmdhq" => "UBCmdHQ_FA".to_string(),
             "absupdrop" => "PMWldCrate".to_string(),
-            "nbsupcent" => "ABSupplyCT_A2U".to_string(),
-            "nbconyard" => "NBConYard_FA".to_string(),
             "uvtechjeep" => "UVTechJeep_d4".to_string(),
             "uvtechvan" => "UVTechVan_d1".to_string(),
             "uvtechtrck" => "UVTechTrck_D4".to_string(),
@@ -588,93 +580,49 @@ impl GameLogic {
     }
 
     pub(in super::super) fn resolve_spawn_model_name(model_name: &str) -> Option<String> {
-        static MODEL_RESOLUTION_CACHE: OnceLock<Mutex<HashMap<String, Option<String>>>> =
-            OnceLock::new();
-
         let remapped = Self::remap_known_model_alias(model_name);
         if Self::is_model_asset_available(&remapped) {
             return Some(remapped);
         }
 
         let requested_key = Self::normalize_model_lookup_key(&remapped);
-        let cache = MODEL_RESOLUTION_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
-        if let Ok(cache) = cache.lock() {
-            if let Some(cached) = cache.get(&requested_key) {
-                return cached.clone();
-            }
-        }
-
-        let resolved = {
-            let manager_arc = get_asset_manager()?;
-            let manager = manager_arc.lock().ok()?;
-            let available_models = manager.list_available_models();
-            Self::best_available_model_match(&requested_key, available_models.into_iter())
-        };
-
-        if let Ok(mut cache) = cache.lock() {
-            cache.insert(requested_key, resolved.clone());
-        }
-
-        resolved
+        let manager_arc = get_asset_manager()?;
+        let manager = manager_arc.lock().ok()?;
+        Self::find_exact_available_model_name(
+            &requested_key,
+            manager.list_available_models().into_iter(),
+        )
     }
 
-    pub(in super::super) fn best_available_model_match<I>(requested_key: &str, available_models: I) -> Option<String>
+    /// Locate the requested retail W3D by canonical basename only.
+    ///
+    /// C++ W3DModelDraw selects damage, construction, snow, and faction state
+    /// meshes through its ConditionState graph.  A nearest-name heuristic here
+    /// would silently render the wrong state, so an unavailable pristine model
+    /// remains unavailable instead of being substituted.
+    pub(in super::super) fn find_exact_available_model_name<I>(
+        requested_key: &str,
+        mut available_models: I,
+    ) -> Option<String>
     where
         I: Iterator<Item = String>,
     {
-        let requested_trimmed = Self::trim_model_variant_suffixes(requested_key);
-        let requested_signature = Self::compact_model_signature(&requested_trimmed);
-        let mut best_match: Option<(i32, String)> = None;
-
-        for available_model in available_models {
+        let requested_key = Self::normalize_model_lookup_key(requested_key);
+        available_models.find_map(|available_model| {
             let candidate_key = Self::normalize_model_lookup_key(&available_model);
-            let candidate_trimmed = Self::trim_model_variant_suffixes(&candidate_key);
-            let candidate_signature = Self::compact_model_signature(&candidate_trimmed);
-            let score = if candidate_key == requested_key {
-                10_000
-            } else if candidate_key.starts_with(requested_key) {
-                9_000 - (candidate_key.len() as i32 - requested_key.len() as i32).abs()
-            } else if requested_key.starts_with(&candidate_key) {
-                8_800 - (requested_key.len() as i32 - candidate_key.len() as i32).abs()
-            } else if candidate_trimmed == requested_trimmed {
-                8_400 - (candidate_key.len() as i32 - requested_key.len() as i32).abs()
-            } else if candidate_trimmed.starts_with(&requested_trimmed)
-                || requested_trimmed.starts_with(&candidate_trimmed)
-            {
-                8_000 - (candidate_trimmed.len() as i32 - requested_trimmed.len() as i32).abs()
-            } else if !requested_signature.is_empty() && candidate_signature == requested_signature
-            {
-                7_600 - (candidate_key.len() as i32 - requested_key.len() as i32).abs()
-            } else if !requested_signature.is_empty()
-                && candidate_signature.contains(&requested_signature)
-            {
-                7_200 - (candidate_signature.len() as i32 - requested_signature.len() as i32).abs()
-            } else {
-                let distance =
-                    Self::levenshtein_distance(&requested_signature, &candidate_signature);
-                if distance <= 2 {
-                    6_000 - distance as i32 * 100
-                } else {
-                    continue;
-                }
-            };
-
-            match &best_match {
-                Some((best_score, _)) if *best_score >= score => {}
-                _ => {
-                    let canonical = available_model
-                        .rsplit(['/', '\\'])
-                        .next()
-                        .unwrap_or(&available_model)
-                        .trim_end_matches(".w3d")
-                        .trim_end_matches(".W3D")
-                        .to_string();
-                    best_match = Some((score, canonical));
-                }
+            if candidate_key != requested_key {
+                return None;
             }
-        }
-
-        best_match.map(|(_, model)| model)
+            Some(
+                available_model
+                    .rsplit(['/', '\\'])
+                    .next()
+                    .unwrap_or(&available_model)
+                    .trim_end_matches(".w3d")
+                    .trim_end_matches(".W3D")
+                    .to_string(),
+            )
+        })
     }
 
     pub(in super::super) fn normalize_model_lookup_key(model_name: &str) -> String {
@@ -686,61 +634,6 @@ impl GameLogic {
             .trim_end_matches(".w3d")
             .trim_end_matches(".W3D")
             .to_ascii_lowercase()
-    }
-
-    pub(in super::super) fn trim_model_variant_suffixes(model_key: &str) -> String {
-        let mut trimmed = model_key
-            .trim_end_matches(|ch: char| ch.is_ascii_digit())
-            .to_string();
-        for suffix in [
-            "_dsng", "_esn", "_rsn", "_dsn", "_sng", "_dsg", "_sg", "_sn", "_dn", "_en", "_rn",
-            "_ds", "_es", "_rs", "_ng", "_dg", "_ns", "_s", "_n", "_d", "_e", "_r", "_g", "_a",
-            "_b", "_c",
-        ] {
-            if let Some(stripped) = trimmed.strip_suffix(suffix) {
-                trimmed = stripped.to_string();
-                break;
-            }
-        }
-        trimmed
-    }
-
-    pub(in super::super) fn compact_model_signature(model_key: &str) -> String {
-        model_key
-            .chars()
-            .filter(|ch| ch.is_ascii_alphanumeric())
-            .collect::<String>()
-            .to_ascii_lowercase()
-    }
-
-    pub(in super::super) fn levenshtein_distance(left: &str, right: &str) -> usize {
-        if left == right {
-            return 0;
-        }
-        if left.is_empty() {
-            return right.len();
-        }
-        if right.is_empty() {
-            return left.len();
-        }
-
-        let left_chars: Vec<char> = left.chars().collect();
-        let right_chars: Vec<char> = right.chars().collect();
-        let mut previous: Vec<usize> = (0..=right_chars.len()).collect();
-        let mut current = vec![0usize; right_chars.len() + 1];
-
-        for (i, left_char) in left_chars.iter().enumerate() {
-            current[0] = i + 1;
-            for (j, right_char) in right_chars.iter().enumerate() {
-                let substitution_cost = usize::from(left_char != right_char);
-                current[j + 1] = (previous[j + 1] + 1)
-                    .min(current[j] + 1)
-                    .min(previous[j] + substitution_cost);
-            }
-            previous.clone_from_slice(&current);
-        }
-
-        previous[right_chars.len()]
     }
 
     pub(in super::super) fn build_fallback_template(template_name: &str) -> ThingTemplate {
@@ -1349,7 +1242,7 @@ impl GameLogic {
             .add_kind_of(KindOf::SupplyCenter)
             .set_health(1000.0)
             .set_cost(1000, 0)
-            .set_model("absupplyct_a2"); // USA supply center model
+            .set_model("absupplyct"); // FactionBuilding.ini pristine USA supply center
         self.templates
             .insert("SupplyCenter".to_string(), supply_center);
 
@@ -1360,7 +1253,7 @@ impl GameLogic {
             .add_kind_of(KindOf::PowerPlant)
             .set_health(800.0)
             .set_cost(800, 0)
-            .set_model("abpwrplant_d06"); // USA power plant model
+            .set_model("abpwrplant"); // FactionBuilding.ini pristine USA power plant
         self.templates.insert("PowerPlant".to_string(), power_plant);
 
         // CRITICAL: Add missing generic building templates that are referenced in the code
@@ -1373,7 +1266,7 @@ impl GameLogic {
             .add_kind_of(KindOf::Selectable)
             .set_health(1000.0)
             .set_cost(600, -1)
-            .set_model("abbarracks_fa"); // USA barracks model
+            .set_model("abbarracks"); // FactionBuilding.ini pristine USA barracks
         self.templates.insert("Barracks".to_string(), barracks);
 
         // Generic WarFactory template (matches what's expected by the engine)
@@ -1383,7 +1276,7 @@ impl GameLogic {
             .add_kind_of(KindOf::Selectable)
             .set_health(1500.0)
             .set_cost(1000, -2)
-            .set_model("abwarfact_e"); // USA war factory model
+            .set_model("abwarfact"); // FactionBuilding.ini pristine USA war factory
         self.templates.insert("WarFactory".to_string(), war_factory);
 
         // Add faction-specific building templates for complete C++ alignment
@@ -1632,6 +1525,47 @@ impl GameLogic {
             Team::Neutral => {
                 self.create_object("CommandCenter", team, origin);
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pristine_models_do_not_match_condition_or_faction_variants() {
+        let pairs = [
+            ("ABPWRPLANT", "ABPWRPLANT_d06"),
+            ("ABBarracks", "ABBarracks_FA"),
+            ("ABPatriot", "ABPatriotSW"),
+            ("NBConYard", "NBConYard_FA"),
+            ("UBCmdHQ", "UBArFrcCmd"),
+            ("PTDogwod01", "PTDogwod01_S"),
+        ];
+
+        for (pristine, wrong_variant) in pairs {
+            assert_eq!(
+                GameLogic::remap_known_model_alias(pristine),
+                pristine,
+                "{pristine} must not be remapped to a different retail state"
+            );
+            assert_eq!(
+                GameLogic::find_exact_available_model_name(
+                    pristine,
+                    vec![format!("{wrong_variant}.W3D")].into_iter(),
+                ),
+                None,
+                "{pristine} must not select distinct ConditionState/faction asset {wrong_variant}"
+            );
+            assert_eq!(
+                GameLogic::find_exact_available_model_name(
+                    pristine,
+                    vec![format!("Art/W3D/{pristine}.W3D")].into_iter(),
+                ),
+                Some(pristine.to_string()),
+                "{pristine} must retain exact retail basename lookup"
+            );
         }
     }
 }

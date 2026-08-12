@@ -264,8 +264,13 @@ pub fn attach_particle_system_to_object(name: &str, object_id: ObjectID) -> Opti
 
 #[cfg(test)]
 mod particle_attach_support {
-    use crate::common::types::ParticleSystemManagerInterface;
+    use crate::common::types::{
+        EmissionVolumeType, ParticleSystemManagerInterface,
+    };
+    use crate::common::{Coord3D, Matrix3D, ObjectID, Real};
+    use std::collections::HashMap;
     use std::sync::atomic::{AtomicU32, Ordering};
+    use std::sync::{Arc, Mutex, OnceLock};
 
     #[derive(Debug)]
     pub struct RecordingParticleManager {

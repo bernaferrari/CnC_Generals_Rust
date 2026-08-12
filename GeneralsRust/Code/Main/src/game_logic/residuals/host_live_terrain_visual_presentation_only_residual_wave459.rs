@@ -90,7 +90,7 @@ pub fn residual_terrain_visual_presentation_only_last_action(
 }
 
 fn cnc_source() -> &'static str {
-    include_str!("../../cnc_game_engine.rs")
+    crate::cnc_game_engine::ENGINE_SRC
 }
 
 pub fn honesty_terrain_visual_presentation_only_method_names_residual_wave459() -> bool {

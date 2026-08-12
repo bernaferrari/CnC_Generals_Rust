@@ -81,13 +81,13 @@ pub fn honesty_live_presentation_fow_only_residual_pack_wave213() -> bool {
 
 /// Source residual: unit pass uses snapshot_fow / fow_visibility.
 pub fn honesty_unit_pass_snapshot_fow_source() -> bool {
-    let rp = include_str!("../../graphics/render_pipeline.rs");
+    let rp = crate::graphics::render_pipeline::RENDER_PIPELINE_SRC;
     rp.contains("snapshot_fow") && rp.contains("u.fow_visibility") && rp.contains("Wave 213")
 }
 
 /// Source residual: no live FOW helper dual-read methods on RenderPipeline.
 pub fn honesty_no_live_fow_helpers_source() -> bool {
-    let rp = include_str!("../../graphics/render_pipeline.rs");
+    let rp = crate::graphics::render_pipeline::RENDER_PIPELINE_SRC;
     let prod = match rp.find("#[cfg(test)]") {
         Some(i) => &rp[..i],
         None => rp,

@@ -82,7 +82,6 @@ pub mod font;
 pub mod gadget;
 pub mod gadgets;
 pub mod game_font;
-#[path = "game_window/mod.rs"]
 pub mod game_window;
 pub mod game_window_global;
 pub mod game_window_manager;
@@ -102,12 +101,10 @@ pub use ime_manager::{
     simulate_ime_start_composition, simulate_ime_update_composition, ResidualImeAction,
 };
 pub mod challenge_game_info;
-#[path = "ingame_ui/mod.rs"]
 pub mod ingame_ui;
 pub mod integrated_ui_system;
 pub mod lan_preferences;
 pub mod lan_setup;
-#[path = "load_screen/mod.rs"]
 pub mod load_screen;
 pub mod loading_screen;
 pub mod menu_flags;
@@ -118,11 +115,9 @@ pub mod skirmish_preferences;
 pub mod skirmish_setup;
 pub mod ui_globals;
 pub mod ui_renderer;
-#[path = "w3d_gadget_draw/mod.rs"]
 pub mod w3d_gadget_draw;
 pub mod win_instance_data;
 pub mod window_layout;
-#[path = "window_manager/mod.rs"]
 pub mod window_manager;
 pub mod window_script;
 pub mod window_video_manager;
@@ -149,21 +144,22 @@ pub use game_window::{
     gadget_list_box_get_top_visible_entry, gadget_list_box_is_full,
     gadget_list_box_set_audio_feedback, gadget_list_box_set_bottom_visible_entry,
     gadget_list_box_set_colors, gadget_list_box_set_top_visible_entry, is_window_msg_payload,
-    payload, pop_payload, push_payload, replace_payload, with_payload,
-    with_payload_mut, write_input_focus_response, GameWindow, WindowCallbacks, WindowDrawData,
-    WindowError, WindowId, WindowInputReturnCode, WindowInstanceData, WindowMessage, WindowMsgData,
-    WindowMsgHandled, WindowMsgPayload, WindowRegion, WindowResult, WindowState, WindowStatus,
-    WindowTextColors, WindowWidget, GCM_ADD_ENTRY, GCM_DEL_ALL, GCM_DEL_ENTRY, GCM_EDIT_DONE,
-    GCM_GET_ITEM_DATA, GCM_GET_SELECTION, GCM_GET_TEXT, GCM_SELECTED, GCM_SET_ITEM_DATA,
-    GCM_SET_SELECTION, GCM_SET_TEXT, GCM_UPDATE_TEXT, GLM_DOUBLE_CLICKED, GLM_RIGHT_CLICKED,
-    GLM_SELECTED, GWS_PUSH_BUTTON, GWS_STATIC_TEXT, GWS_USER_WINDOW, WIN_COLOR_UNDEFINED,
+    payload, pop_payload, push_payload, replace_payload, with_payload, with_payload_mut,
+    write_input_focus_response, GameWindow, WindowCallbacks, WindowDrawData, WindowError, WindowId,
+    WindowInputReturnCode, WindowInstanceData, WindowMessage, WindowMsgData, WindowMsgHandled,
+    WindowMsgPayload, WindowRegion, WindowResult, WindowState, WindowStatus, WindowTextColors,
+    WindowWidget, GCM_ADD_ENTRY, GCM_DEL_ALL, GCM_DEL_ENTRY, GCM_EDIT_DONE, GCM_GET_ITEM_DATA,
+    GCM_GET_SELECTION, GCM_GET_TEXT, GCM_SELECTED, GCM_SET_ITEM_DATA, GCM_SET_SELECTION,
+    GCM_SET_TEXT, GCM_UPDATE_TEXT, GLM_DOUBLE_CLICKED, GLM_RIGHT_CLICKED, GLM_SELECTED,
+    GWS_PUSH_BUTTON, GWS_STATIC_TEXT, GWS_USER_WINDOW, WIN_COLOR_UNDEFINED,
 };
 pub use game_window_transitions::GameWindowTransitionsHandler;
 
 pub use window_manager::{
-    dispatch_os_key_to_window_manager, dispatch_os_mouse_to_window_manager, with_window_manager,
-    with_window_manager_ref, CaptureFlags, ModalWindow, TabDirection, WindowLayout,
-    WindowLayoutInfo, WindowManager,
+    dispatch_os_key_to_window_manager, dispatch_os_mouse_to_window_manager, hide_window_rc,
+    queue_create_layout, queue_set_focus, queue_window_manager_op,
+    queue_window_manager_op_deferred, with_window_manager, with_window_manager_ref, CaptureFlags,
+    ModalWindow, ReentryFallback, TabDirection, WindowLayout, WindowLayoutInfo, WindowManager,
 };
 
 // Re-export font system types for convenience
@@ -185,14 +181,15 @@ pub use custom_match_preferences::CustomMatchPreferencesStore;
 pub use lan_preferences::LanPreferences;
 pub use lan_setup::get_lan_setup;
 pub use shell::{
-    dispatch_os_click_named_window, drive_os_wnd_open_challenge_menu_like_cpp,
-    drive_os_wnd_open_skirmish_like_cpp, drive_os_wnd_start_campaign_like_cpp,
-    drive_os_wnd_start_china_campaign_like_cpp, drive_os_wnd_start_gla_campaign_like_cpp,
-    drive_os_wnd_start_usa_campaign_like_cpp, get_shell, last_os_wnd_widget_tree_click_ok,
-    note_os_wnd_widget_tree_hit, os_wnd_widget_tree_nav_ok, residual_last_campaign_difficulty,
-    residual_shell_map_is_on, residual_shell_map_last_action,
-    reveal_main_menu_first_input_like_cpp, show_shell_map_if_available,
-    simulate_main_menu_campaign_side_button_gadget_selected,
+    clear_deferred_shell_pushes, dispatch_os_click_named_window, drain_deferred_shell_pushes,
+    drive_os_wnd_open_challenge_menu_like_cpp, drive_os_wnd_open_skirmish_like_cpp,
+    drive_os_wnd_start_campaign_like_cpp, drive_os_wnd_start_china_campaign_like_cpp,
+    drive_os_wnd_start_gla_campaign_like_cpp, drive_os_wnd_start_usa_campaign_like_cpp, get_shell,
+    last_os_wnd_widget_tree_click_ok, mark_host_match_start, note_os_wnd_widget_tree_hit,
+    os_wnd_widget_tree_nav_ok, os_wnd_widget_under_cursor_name, residual_last_campaign_difficulty,
+    residual_shell_map_is_on,
+    residual_shell_map_last_action, reveal_main_menu_first_input_like_cpp,
+    show_shell_map_if_available, simulate_main_menu_campaign_side_button_gadget_selected,
     simulate_main_menu_campaign_start_residual,
     simulate_main_menu_challenge_button_gadget_selected,
     simulate_main_menu_credits_button_gadget_selected,
@@ -205,9 +202,10 @@ pub use shell::{
     simulate_main_menu_skirmish_button_gadget_selected,
     simulate_main_menu_skirmish_button_latch_only, simulate_shell_map_hide,
     simulate_shell_map_prepare_cycle, simulate_shell_map_show, simulate_shell_map_toggle,
-    try_with_shell_mut, AnimateWindowManager, AnimationType, Color, Coord2D, GameDifficulty,
-    LayoutState, ResidualShellMapAction, Shell, ShellError, ShellMenuScheme,
-    ShellMenuSchemeManager, ShowSide, WindowLayout as ShellWindowLayout, WindowRect,
+    soft_reveal_main_menu_for_host_inject, tick_main_menu_transitions, try_with_shell_mut,
+    AnimateWindowManager, AnimationType, Color, Coord2D, GameDifficulty, LayoutState,
+    ResidualShellMapAction, Shell, ShellError, ShellMenuScheme, ShellMenuSchemeManager, ShowSide,
+    WindowLayout as ShellWindowLayout, WindowRect,
 };
 pub use skirmish_preferences::SkirmishPreferences;
 pub use skirmish_setup::get_skirmish_setup;

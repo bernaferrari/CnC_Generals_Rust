@@ -60,7 +60,11 @@ impl GameLogic {
     ///
     /// Host residual: spawn AmericaParachute, dock rider inside, apply
     /// AmericaParachute freefall/open residual on both container and rider.
-    pub(in super::super) fn put_hijacker_in_airborne_parachute(&mut self, rider_id: ObjectId, eject_pos: glam::Vec3) {
+    pub(in super::super) fn put_hijacker_in_airborne_parachute(
+        &mut self,
+        rider_id: ObjectId,
+        eject_pos: glam::Vec3,
+    ) {
         use crate::game_logic::host_car_bomb::HIJACKER_PARACHUTE_NAME;
         use crate::game_logic::{KindOf, ThingTemplate};
 

@@ -334,4 +334,24 @@ mod tests {
         assert!(debug_cfg.zero_on_alloc);
         assert!(debug_cfg.zero_on_free);
     }
+
+    #[test]
+    fn slab_does_not_under_align_low_align_types() {
+        use crate::memory::allocator::{Slab, SlotEntry};
+        use std::mem;
+
+        let requested = 64;
+        let (align, stride) = Slab::<u8>::slot_layout(requested).unwrap();
+        assert!(align >= mem::align_of::<SlotEntry<u8>>());
+        assert_eq!(align, requested.max(mem::align_of::<SlotEntry<u8>>()));
+        assert_eq!(stride % align, 0);
+
+        let slab = Slab::<u8>::new(8, requested).unwrap();
+        unsafe {
+            for i in 0..8 {
+                let addr = slab.slot_ptr(i) as usize;
+                assert_eq!(addr % align, 0, "slot {i} must be aligned to {align}");
+            }
+        }
+    }
 }

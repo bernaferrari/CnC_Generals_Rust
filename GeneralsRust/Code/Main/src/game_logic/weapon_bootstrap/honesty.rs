@@ -196,4 +196,3 @@ pub fn honesty_weapon_store_deepen_residual_wave103() -> bool {
         && check(SCUD_GUN_TOXIN, 200.0, 350.0)
         && check(BLACK_NAPALM_MISSILE_WEAPON, 75.0, 320.0)
 }
-

@@ -176,11 +176,11 @@ pub struct TriggerSystem {
     /// Current difficulty
     difficulty: GameDifficulty,
     /// Script engine reference
-    engine: Arc<RwLock<Option<ScriptEngine>>>,
+    engine: crate::scripting::engine::ScriptEngineHandle,
 }
 
 impl TriggerSystem {
-    pub fn new(engine: Arc<RwLock<Option<ScriptEngine>>>) -> Self {
+    pub fn new(engine: crate::scripting::engine::ScriptEngineHandle) -> Self {
         Self {
             triggers: HashMap::new(),
             current_frame: 0,
@@ -582,9 +582,9 @@ impl TriggerSystem {
 mod tests {
     use super::*;
 
-    fn create_test_engine() -> Arc<RwLock<Option<ScriptEngine>>> {
+    fn create_test_engine() -> crate::scripting::engine::ScriptEngineHandle {
         let engine = ScriptEngine::new().unwrap();
-        Arc::new(RwLock::new(Some(engine)))
+        crate::scripting::engine::ScriptEngineHandle::from_engine(engine)
     }
 
     #[test]

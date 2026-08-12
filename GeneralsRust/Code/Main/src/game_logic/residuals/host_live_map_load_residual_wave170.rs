@@ -98,7 +98,9 @@ fn live_load_one(map_name: &str) -> Option<(u32, usize)> {
 /// Live residual: when MapsZH present, Defcon6 and Lone Eagle must load + advance.
 /// When absent, soft-ok (CI without maps).
 pub fn simulate_live_map_load_honesty() -> bool {
-    use crate::game_logic::{resolve_retail_map_path, DEFAULT_SKIRMISH_MAP_WAVE169, LONE_EAGLE_MAP_WAVE169};
+    use crate::game_logic::{
+        resolve_retail_map_path, DEFAULT_SKIRMISH_MAP_WAVE169, LONE_EAGLE_MAP_WAVE169,
+    };
 
     if !honesty_live_map_load_residual_pack_wave170() {
         return false;

@@ -4,8 +4,8 @@ use super::super::*;
 
 // Child module of game_logic.rs via `#[path]`.
 
-pub(super) static HOST_STATE_RESIDUAL_TEST_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
+pub(super) static HOST_STATE_RESIDUAL_TEST_ENV_LOCK: std::sync::Mutex<()> =
+    std::sync::Mutex::new(());
 
 pub(super) fn ensure_test_tank_template(game_logic: &mut GameLogic) {
     if game_logic.templates.contains_key("TestTank") {
@@ -170,7 +170,11 @@ pub(super) fn ensure_test_transport_template(game_logic: &mut GameLogic) {
 /// Spawn a residual transport with explicit infantry capacity.
 
 /// Spawn a residual transport with explicit infantry capacity.
-pub(super) fn create_test_transport(game_logic: &mut GameLogic, pos: Vec3, capacity: usize) -> ObjectId {
+pub(super) fn create_test_transport(
+    game_logic: &mut GameLogic,
+    pos: Vec3,
+    capacity: usize,
+) -> ObjectId {
     ensure_test_transport_template(game_logic);
     let id = game_logic
         .create_object("TestTransport", Team::USA, pos)
@@ -692,4 +696,3 @@ pub(super) fn ensure_test_helix_template(game_logic: &mut GameLogic) {
         .set_health(300.0);
     game_logic.templates.insert("TestHelix".to_string(), t);
 }
-

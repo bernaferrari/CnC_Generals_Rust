@@ -3,7 +3,6 @@
 use super::super::*;
 use super::helpers::*;
 
-
 #[test]
 fn unpause_special_power_upgrade_enables_capture() {
     use crate::command_system::SpecialPowerType;
@@ -199,8 +198,7 @@ fn spectre_orbit_spawns_howitzer_shell_objects() {
 #[test]
 fn scud_storm_anthrax_beta_spawns_poison_field_upgraded_large() {
     use crate::game_logic::special_power_strikes::{
-        ScudStormAnthraxTier, SCUD_POISON_UPGRADED_OBJECT_NAME,
-        SCUD_STORM_POISON_DURATION_FRAMES,
+        ScudStormAnthraxTier, SCUD_POISON_UPGRADED_OBJECT_NAME, SCUD_STORM_POISON_DURATION_FRAMES,
     };
     use crate::game_logic::KindOf;
     let mut logic = GameLogic::new();
@@ -1361,13 +1359,11 @@ fn strategy_center_battle_plan_residual_applies_unit_bonuses() {
     assert!(ally.weapon_bonus_battle_plan_hold_the_line);
     assert!(!ally.weapon_bonus_battle_plan_bombardment);
     assert!(
-        (ally.battle_plan_armor_damage_scalar() - HOLD_THE_LINE_ARMOR_DAMAGE_SCALAR).abs()
-            < 0.001
+        (ally.battle_plan_armor_damage_scalar() - HOLD_THE_LINE_ARMOR_DAMAGE_SCALAR).abs() < 0.001
     );
     let center = game_logic.host_object(center_id).expect("center");
     assert!(
-        (center.max_health
-            - center_max_before * STRATEGY_CENTER_HOLD_THE_LINE_MAX_HEALTH_SCALAR)
+        (center.max_health - center_max_before * STRATEGY_CENTER_HOLD_THE_LINE_MAX_HEALTH_SCALAR)
             .abs()
             < 0.5,
         "HoldTheLine residual must double Strategy Center max health after ACTIVE"
@@ -1419,18 +1415,12 @@ fn strategy_center_battle_plan_residual_applies_unit_bonuses() {
         center.set_special_power_ready(true);
         center.special_power_cooldown_remaining = 0.0;
     }
-    assert!(game_logic.activate_battle_plan(
-        0,
-        HostBattlePlan::SearchAndDestroy,
-        Some(center_id)
-    ));
+    assert!(game_logic.activate_battle_plan(0, HostBattlePlan::SearchAndDestroy, Some(center_id)));
     advance_battle_plan_switch_to_active(&mut game_logic);
     let ally = game_logic.host_object(ally_id).expect("ally");
     assert!(ally.weapon_bonus_battle_plan_search_and_destroy);
     assert!(!ally.weapon_bonus_battle_plan_hold_the_line);
-    assert!(
-        (ally.battle_plan_range_multiplier() - SEARCH_AND_DESTROY_RANGE_MULT).abs() < 0.001
-    );
+    assert!((ally.battle_plan_range_multiplier() - SEARCH_AND_DESTROY_RANGE_MULT).abs() < 0.001);
     let center = game_logic.host_object(center_id).expect("center");
     assert!(
         center.is_detector,
@@ -1488,9 +1478,7 @@ fn strategy_center_battle_plan_residual_applies_unit_bonuses() {
 /// changing plan (BeganPacking) does.
 #[test]
 fn strategy_center_battle_plan_paralyze_residual_on_plan_change() {
-    use crate::game_logic::host_strategy_center::{
-        HostBattlePlan, BATTLE_PLAN_PARALYZE_FRAMES,
-    };
+    use crate::game_logic::host_strategy_center::{HostBattlePlan, BATTLE_PLAN_PARALYZE_FRAMES};
 
     let mut game_logic = GameLogic::new();
     ensure_test_tank_template(&mut game_logic);
@@ -1716,9 +1704,7 @@ fn eject_pilot_die_spawns_pilot_on_vehicle_death_residual() {
     let pilots: Vec<_> = game_logic
         .objects
         .values()
-        .filter(|o| {
-            o.is_alive() && o.template_name == EJECT_PILOT_TEMPLATE && o.team == Team::USA
-        })
+        .filter(|o| o.is_alive() && o.template_name == EJECT_PILOT_TEMPLATE && o.team == Team::USA)
         .collect();
     assert_eq!(pilots.len(), 1, "exactly one pilot must eject");
     let pilot = pilots[0];
@@ -3329,9 +3315,8 @@ fn eject_pilot_parachute_open_fudge_and_free_fall_damage_residual() {
 fn strategy_center_turret_idle_scan_residual() {
     use crate::game_logic::host_strategy_center::{
         idle_scan_desired_angle_deg, turret_angles_are_natural, HostBattlePlan,
-        STRATEGY_CENTER_MIN_IDLE_SCAN_INTERVAL_FRAMES,
-        STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG, STRATEGY_CENTER_NATURAL_TURRET_PITCH_DEG,
-        STRATEGY_CENTER_TURRET_TURN_DEG_PER_FRAME,
+        STRATEGY_CENTER_MIN_IDLE_SCAN_INTERVAL_FRAMES, STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG,
+        STRATEGY_CENTER_NATURAL_TURRET_PITCH_DEG, STRATEGY_CENTER_TURRET_TURN_DEG_PER_FRAME,
     };
 
     let mut game_logic = GameLogic::new();
@@ -3584,8 +3569,7 @@ fn strategy_center_turret_hold_and_idle_recenter_residual() {
         if sc.turret_idle_recentering {
             assert!(
                 (sc.turret_angle_deg - desired).abs() > 0.5
-                    || (sc.turret_angle_deg - STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG).abs()
-                        < 0.5,
+                    || (sc.turret_angle_deg - STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG).abs() < 0.5,
                 "idle-recenter residual must step toward natural, got {}",
                 sc.turret_angle_deg
             );
@@ -3749,4 +3733,3 @@ fn strategy_center_turret_mood_target_residual() {
         "mood-target clear honesty residual"
     );
 }
-

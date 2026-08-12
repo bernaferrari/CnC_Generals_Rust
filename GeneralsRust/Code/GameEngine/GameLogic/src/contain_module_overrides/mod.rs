@@ -1,6 +1,5 @@
-//! Module-override factories split by family from `contain_module_overrides.rs`.
-//! Parent wiring: `#[path = "contain_module_overrides/mod.rs"]`.
-//! Public factory function names are unchanged.
+//! Module-override factories split by family from the former
+//! `contain_module_overrides.rs` dump. Public factory function names are unchanged.
 
 use std::any::Any;
 use std::sync::{Arc, Mutex, OnceLock, RwLock, Weak};
@@ -403,3 +402,19 @@ mod install;
 pub(crate) use helpers::ActiveBehaviorModule;
 pub use contain::{ContainModuleDataAdapter, ContainModuleDataKind};
 pub use install::ensure_module_overrides_installed;
+
+/// Concatenated live sources for residual `include_str!` scans.
+pub const CONTAIN_OVERRIDES_SRC: &str = concat!(
+    include_str!("mod.rs"),
+    include_str!("behavior.rs"),
+    include_str!("body.rs"),
+    include_str!("collide_crates.rs"),
+    include_str!("contain.rs"),
+    include_str!("death.rs"),
+    include_str!("draw_client.rs"),
+    include_str!("helpers.rs"),
+    include_str!("install.rs"),
+    include_str!("leftover.rs"),
+    include_str!("production.rs"),
+    include_str!("update_modules.rs"),
+);

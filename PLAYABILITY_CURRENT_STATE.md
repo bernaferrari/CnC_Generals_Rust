@@ -1,3 +1,5 @@
+**Golden / shell / executable_smoke `playable_claim` is false in current source.** Windowed sit-through is not claimed.
+
 ## Residual Host Playability — Wave 107: ParticleSystem / FXList entry / OCL Create / Audio residual peels (2026-07-14)
 
 **Closed (host-testable residual peels; orthogonal to Wave 88 name tables + Wave 93 emit-rate peels):**

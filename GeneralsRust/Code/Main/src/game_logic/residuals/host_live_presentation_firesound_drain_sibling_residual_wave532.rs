@@ -89,7 +89,7 @@ pub fn residual_presentation_firesound_drain_sibling_last_action(
 }
 
 fn pf_source() -> &'static str {
-    include_str!("../../presentation_frame.rs")
+    crate::presentation_frame::PRESENTATION_FRAME_SRC
 }
 
 pub fn honesty_presentation_firesound_drain_sibling_method_names_residual_wave532() -> bool {

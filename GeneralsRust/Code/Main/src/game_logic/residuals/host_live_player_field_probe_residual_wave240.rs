@@ -104,7 +104,7 @@ fn fn_body<'a>(src: &'a str, name: &str) -> Option<&'a str> {
 /// Source residual: field probes exist; UI helpers avoid get_player dual-read.
 pub fn honesty_player_field_probe_source() -> bool {
     let gl = include_str!("../game_logic.rs");
-    let eng = include_str!("../../cnc_game_engine.rs");
+    let eng = crate::cnc_game_engine::ENGINE_SRC;
     if !(gl.contains("pub fn player_exists(")
         && gl.contains("pub fn player_name(")
         && gl.contains("pub fn player_ids(")

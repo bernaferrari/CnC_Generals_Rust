@@ -3,7 +3,6 @@ pub mod compression;
 pub mod game_state;
 pub mod replay;
 pub mod save_file;
-#[path = "snapshot/mod.rs"]
 pub mod snapshot;
 pub mod xfer;
 
@@ -64,7 +63,10 @@ pub const SAVE_FILE_VERSION: u32 = 1;
 pub const MAX_SAVE_SLOTS: usize = 10;
 
 /// Save file extensions
-pub const SAVE_EXTENSION: &str = "gen";
+/// Popup and host both write Common CHUNK_*.sav (C++ TheGameState container).
+pub const SAVE_EXTENSION: &str = "sav";
+/// Legacy host GZHS wrapper. Load still accepts it.
+pub const LEGACY_SAVE_EXTENSION: &str = "gen";
 pub const REPLAY_EXTENSION: &str = "rep";
 pub const CAMPAIGN_EXTENSION: &str = "cam";
 
@@ -142,15 +144,12 @@ impl SaveLoadManager {
         }
     }
 
-    /// Get the default save directory
+    /// Shared host + Popup save directory (`UserData/Save`, same as Common TheGameState).
+    ///
+    /// Previously the host listed `Save Games` next to the exe while Popup wrote
+    /// `UserData/Save`. One directory so `SaveFileManager::list_saves` sees both.
     pub fn default_save_directory() -> PathBuf {
-        if let Ok(mut path) = std::env::current_exe() {
-            path.pop(); // Remove executable name
-            path.push("Save Games");
-            path
-        } else {
-            PathBuf::from("Save Games")
-        }
+        crate::subsystem_manager::resolve_save_directory()
     }
 
     /// Initialize save directory

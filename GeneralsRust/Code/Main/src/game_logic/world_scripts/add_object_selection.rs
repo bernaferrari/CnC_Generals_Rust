@@ -586,10 +586,13 @@ impl GameLogic {
             // Host combat: bind retail Weapon.ini name when known so create_object
             // resolves via WeaponStore (seed/INI). Do not set explicit
             // primary_weapon(Weapon::default()) — that short-circuits the store.
-            if let Some(wname) = super::super::weapon_bootstrap::primary_weapon_name_for_unit(name) {
+            if let Some(wname) = super::super::weapon_bootstrap::primary_weapon_name_for_unit(name)
+            {
                 t.set_primary_weapon_name(wname);
             }
-            if let Some(wname) = super::super::weapon_bootstrap::secondary_weapon_name_for_unit(name) {
+            if let Some(wname) =
+                super::super::weapon_bootstrap::secondary_weapon_name_for_unit(name)
+            {
                 t.set_secondary_weapon_name(wname);
             }
             // Host movement: bind SET_NORMAL Locomotor.ini name when known so
@@ -608,7 +611,24 @@ impl GameLogic {
                     2000,
                 ),
                 structure(
+                    "AmericaCommandCenter",
+                    &[KindOf::Structure, KindOf::CommandCenter, KindOf::Selectable],
+                    2000.0,
+                    2000,
+                ),
+                structure(
                     "USA_SupplyCenter",
+                    &[
+                        KindOf::Structure,
+                        KindOf::SupplyCenter,
+                        KindOf::Selectable,
+                        KindOf::Attackable,
+                    ],
+                    1000.0,
+                    1500,
+                ),
+                structure(
+                    "AmericaSupplyCenter",
                     &[
                         KindOf::Structure,
                         KindOf::SupplyCenter,
@@ -625,13 +645,36 @@ impl GameLogic {
                     800,
                 ),
                 structure(
+                    "AmericaPowerPlant",
+                    &[KindOf::Structure, KindOf::PowerPlant, KindOf::Selectable],
+                    800.0,
+                    800,
+                ),
+                structure(
                     "USA_Barracks",
                     &[KindOf::Structure, KindOf::FSBarracks, KindOf::Selectable],
                     1000.0,
                     500,
                 ),
                 structure(
+                    "AmericaBarracks",
+                    &[KindOf::Structure, KindOf::FSBarracks, KindOf::Selectable],
+                    1000.0,
+                    500,
+                ),
+                structure(
                     "USA_WarFactory",
+                    &[
+                        KindOf::Structure,
+                        KindOf::FSWarFactory,
+                        KindOf::Selectable,
+                        KindOf::Attackable,
+                    ],
+                    1200.0,
+                    1500,
+                ),
+                structure(
+                    "AmericaWarFactory",
                     &[
                         KindOf::Structure,
                         KindOf::FSWarFactory,
@@ -648,7 +691,19 @@ impl GameLogic {
                     100,
                 ),
                 unit(
+                    "AmericaInfantryRanger",
+                    &[KindOf::Infantry, KindOf::Selectable, KindOf::Attackable],
+                    120.0,
+                    100,
+                ),
+                unit(
                     "USA_Humvee",
+                    &[KindOf::Vehicle, KindOf::Selectable, KindOf::Attackable],
+                    300.0,
+                    400,
+                ),
+                unit(
+                    "AmericaVehicleHumvee",
                     &[KindOf::Vehicle, KindOf::Selectable, KindOf::Attackable],
                     300.0,
                     400,
@@ -667,10 +722,32 @@ impl GameLogic {
                     d.secondary_weapon_name = None;
                     d
                 },
+                {
+                    // Retail PlayerTemplate StartingUnit0 name (ThingFactory).
+                    // spawn_skirmish_starting_units uses this; Lone Eagle maps
+                    // keep buildings but omit the starting dozer.
+                    let mut d = unit(
+                        "AmericaVehicleDozer",
+                        &[KindOf::Vehicle, KindOf::Worker, KindOf::Selectable],
+                        300.0,
+                        1000,
+                    );
+                    d.primary_weapon = None;
+                    d.secondary_weapon = None;
+                    d.primary_weapon_name = None;
+                    d.secondary_weapon_name = None;
+                    d
+                },
             ],
             Team::China => vec![
                 structure(
                     "China_CommandCenter",
+                    &[KindOf::Structure, KindOf::CommandCenter, KindOf::Selectable],
+                    2000.0,
+                    2000,
+                ),
+                structure(
+                    "ChinaCommandCenter",
                     &[KindOf::Structure, KindOf::CommandCenter, KindOf::Selectable],
                     2000.0,
                     2000,
@@ -687,13 +764,36 @@ impl GameLogic {
                     1500,
                 ),
                 structure(
+                    "ChinaSupplyCenter",
+                    &[
+                        KindOf::Structure,
+                        KindOf::SupplyCenter,
+                        KindOf::Selectable,
+                        KindOf::Attackable,
+                    ],
+                    1000.0,
+                    1500,
+                ),
+                structure(
                     "China_PowerPlant",
                     &[KindOf::Structure, KindOf::PowerPlant, KindOf::Selectable],
                     800.0,
                     800,
                 ),
                 structure(
+                    "ChinaPowerPlant",
+                    &[KindOf::Structure, KindOf::PowerPlant, KindOf::Selectable],
+                    800.0,
+                    800,
+                ),
+                structure(
                     "China_Barracks",
+                    &[KindOf::Structure, KindOf::FSBarracks, KindOf::Selectable],
+                    1000.0,
+                    500,
+                ),
+                structure(
+                    "ChinaBarracks",
                     &[KindOf::Structure, KindOf::FSBarracks, KindOf::Selectable],
                     1000.0,
                     500,
@@ -709,8 +809,25 @@ impl GameLogic {
                     1200.0,
                     1500,
                 ),
+                structure(
+                    "ChinaWarFactory",
+                    &[
+                        KindOf::Structure,
+                        KindOf::FSWarFactory,
+                        KindOf::Selectable,
+                        KindOf::Attackable,
+                    ],
+                    1200.0,
+                    1500,
+                ),
                 unit(
                     "China_RedGuard",
+                    &[KindOf::Infantry, KindOf::Selectable, KindOf::Attackable],
+                    100.0,
+                    80,
+                ),
+                unit(
+                    "ChinaInfantryRedguard",
                     &[KindOf::Infantry, KindOf::Selectable, KindOf::Attackable],
                     100.0,
                     80,
@@ -719,6 +836,17 @@ impl GameLogic {
             Team::GLA => vec![
                 structure(
                     "GLA_CommandCenter",
+                    &[
+                        KindOf::Structure,
+                        KindOf::CommandCenter,
+                        KindOf::Selectable,
+                        KindOf::Attackable,
+                    ],
+                    1800.0,
+                    500,
+                ),
+                structure(
+                    "GLACommandCenter",
                     &[
                         KindOf::Structure,
                         KindOf::CommandCenter,
@@ -740,7 +868,29 @@ impl GameLogic {
                     300,
                 ),
                 structure(
+                    "GLASupplyStash",
+                    &[
+                        KindOf::Structure,
+                        KindOf::SupplyCenter,
+                        KindOf::Selectable,
+                        KindOf::Attackable,
+                    ],
+                    900.0,
+                    300,
+                ),
+                structure(
                     "GLA_ArmsDealer",
+                    &[
+                        KindOf::Structure,
+                        KindOf::FSWarFactory,
+                        KindOf::Selectable,
+                        KindOf::Attackable,
+                    ],
+                    1100.0,
+                    400,
+                ),
+                structure(
+                    "GLAArmsDealer",
                     &[
                         KindOf::Structure,
                         KindOf::FSWarFactory,
@@ -756,8 +906,20 @@ impl GameLogic {
                     900.0,
                     200,
                 ),
+                structure(
+                    "GLABarracks",
+                    &[KindOf::Structure, KindOf::FSBarracks, KindOf::Selectable],
+                    900.0,
+                    200,
+                ),
                 unit(
                     "GLA_Soldier",
+                    &[KindOf::Infantry, KindOf::Selectable, KindOf::Attackable],
+                    100.0,
+                    80,
+                ),
+                unit(
+                    "GLAInfantryRebel",
                     &[KindOf::Infantry, KindOf::Selectable, KindOf::Attackable],
                     100.0,
                     80,

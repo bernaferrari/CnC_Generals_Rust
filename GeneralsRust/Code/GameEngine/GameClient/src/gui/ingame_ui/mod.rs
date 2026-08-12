@@ -7,9 +7,8 @@
 //! Original C++ file: GameClient/InGameUI.cpp
 //! Original Author: Michael S. Booth, March 2001
 //!
-//! Dump+path split: `gui/ingame_ui.rs` is the unused original dump.
-//! This directory is the live `ingame_ui` module. `include!` keeps one logical
-//! module so field privacy and the public API stay identical to the dump.
+//! Live `ingame_ui` module. `include!` keeps one logical module so field
+//! privacy and the public API stay identical to the former dump.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -80,3 +79,19 @@ include!("impl_input.rs");
 include!("snapshot.rs");
 include!("leftover.rs");
 include!("tests.rs");
+
+/// Concatenated live sources for residual `include_str!` scans.
+pub const INGAME_UI_SRC: &str = concat!(
+    include_str!("mod.rs"),
+    include_str!("types.rs"),
+    include_str!("messages.rs"),
+    include_str!("floating_text.rs"),
+    include_str!("selection.rs"),
+    include_str!("radius_cursor.rs"),
+    include_str!("minimap.rs"),
+    include_str!("world_anim.rs"),
+    include_str!("impl_update.rs"),
+    include_str!("impl_input.rs"),
+    include_str!("snapshot.rs"),
+    include_str!("leftover.rs"),
+);

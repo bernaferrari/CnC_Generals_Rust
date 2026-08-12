@@ -4,7 +4,6 @@
 use super::super::*;
 
 impl GameLogic {
-
     /// C++ BattleMasterTankShell DumbProjectile residual.
     pub fn spawn_battlemaster_shell_projectile(
         &mut self,

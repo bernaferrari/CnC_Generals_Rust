@@ -145,6 +145,32 @@ mod tests {
     }
 
     #[test]
+    fn update_for_selection_runs_real_update_and_clears_dirty() {
+        crate::helpers::register_live_control_bar_hooks();
+        let mut control_bar = ControlBar::new();
+        control_bar
+            .update_for_selection(Vec::new())
+            .expect("update_for_selection");
+        assert!(
+            !control_bar.is_ui_dirty(),
+            "live update_for_selection must call update() and clear ui_dirty"
+        );
+    }
+
+    #[test]
+    fn live_ui_hooks_mark_control_bar_dirty_until_update() {
+        crate::helpers::register_live_control_bar_hooks();
+        gamelogic::control_bar::mark_ui_dirty();
+        let mut control_bar = ControlBar::new();
+        assert!(!control_bar.is_ui_dirty());
+        control_bar
+            .update(std::time::Duration::from_millis(33))
+            .expect("update");
+        // Dirty is applied then evaluate_context_ui clears it.
+        assert!(!control_bar.is_ui_dirty());
+    }
+
+    #[test]
     fn unknown_upgrade_cameo_keeps_fail_closed_name_placeholder() {
         const UPGRADE: &str = "Upgrade_UnknownCameoNoArtRegistered";
         let mut control_bar = ControlBar::new();
@@ -158,5 +184,22 @@ mod tests {
         assert_eq!(cameos.len(), 1);
         assert_eq!(cameos[0].upgrade_name, UPGRADE);
         assert_eq!(cameos[0].button_image, UPGRADE);
+    }
+
+    #[test]
+    fn control_bar_background_draw_queues_shipped_commands() {
+        crate::gui::w3d_gadget_draw::reset_shipped_ui_draw_command_count();
+        let mut window = GameWindow::new();
+        window.set_name("ControlBar.wnd:BackgroundMarker");
+        let _ = window.set_position(0, 460);
+        let _ = window.set_size(800, 140);
+        crate::gui::w3d_gadget_draw::w3d_command_bar_background_draw(
+            &window,
+            window.instance_data(),
+        );
+        assert!(
+            crate::gui::w3d_gadget_draw::shipped_ui_draw_command_count() > 0,
+            "ControlBar HUD fallback must queue draw commands without scheme art"
+        );
     }
 }

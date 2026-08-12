@@ -1,8 +1,5 @@
 //! ShellSmokeResult residual claim flags (live module).
 //!
-//! Scan dump remains at `shell_smoke/result.rs` for include_str residual tests.
-//! Field names/types are identical to that dump.
-//!
 //! rustc 1.96 does not allow `include!` / macros in struct field or struct-literal
 //! position. Field groups live in `fields_*.rs` and are concatenated into
 //! `struct_def.rs`. Assemble helpers fill `&mut ShellSmokeResult` by group.

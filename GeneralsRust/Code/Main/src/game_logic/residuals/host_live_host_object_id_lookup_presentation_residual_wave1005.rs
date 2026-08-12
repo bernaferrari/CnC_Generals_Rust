@@ -44,13 +44,13 @@ fn residual_action_store(a: ResidualHostObjectIdLookupPresentationResidualAction
 }
 
 fn cnc_source() -> &'static str {
-    include_str!("../../cnc_game_engine.rs")
+    crate::cnc_game_engine::ENGINE_SRC
 }
 fn gl_source() -> &'static str {
     include_str!("../game_logic.rs")
 }
 fn me_source() -> &'static str {
-    include_str!("../../../../GameEngine/GameClient/src/message_stream/meta_event.rs")
+    game_client::message_stream::meta_event::META_EVENT_SRC
 }
 fn tr_source() -> &'static str {
     include_str!("../../../../GameEngine/GameClient/src/presentation_translator_residual.rs")

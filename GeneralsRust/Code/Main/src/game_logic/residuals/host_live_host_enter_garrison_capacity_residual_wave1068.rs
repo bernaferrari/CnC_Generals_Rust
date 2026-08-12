@@ -43,13 +43,13 @@ fn residual_action_store(a: ResidualHostEnterGarrisonCapacityResidualAction) {
 }
 
 fn cnc_source() -> &'static str {
-    include_str!("../../cnc_game_engine.rs")
+    crate::cnc_game_engine::ENGINE_SRC
 }
 fn gl_source() -> &'static str {
     include_str!("../game_logic.rs")
 }
 fn tr_source() -> &'static str {
-    include_str!("../../../../GameEngine/GameClient/src/message_stream/translators.rs")
+    game_client::message_stream::translators::TRANSLATORS_SRC
 }
 
 pub fn honesty_host_enter_garrison_capacity_residual_method_names_residual_wave1068() -> bool {

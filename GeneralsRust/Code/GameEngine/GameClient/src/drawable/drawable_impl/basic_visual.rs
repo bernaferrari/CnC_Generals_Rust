@@ -1,6 +1,4 @@
 use super::*;
-use std::error::Error;
-use std::sync::Arc;
 use crate::display::image::{ensure_client_mapped_image, get_mapped_image_collection};
 use crate::display::view::{with_tactical_view_ref, Point3};
 use crate::draw_group_info::get_draw_group_info;
@@ -26,6 +24,8 @@ use gamelogic::helpers::{BoneOverrideState, ModelDrawState, TheGameClient};
 use gamelogic::object::registry::OBJECT_REGISTRY;
 use gamelogic::player::{Player, NO_HOTKEY_SQUAD, NUM_HOTKEY_SQUADS};
 use parking_lot::Mutex;
+use std::error::Error;
+use std::sync::Arc;
 
 impl BasicDrawable {
     /// Initialize static images shared by all drawables.
@@ -220,7 +220,9 @@ impl BasicDrawable {
 
     /// Compute render condition flags from drawable state.
     /// Maps drawable visual state to RenderBridge condition flags.
-    pub(super) fn compute_render_condition_flags(&self) -> crate::render_bridge::RenderConditionFlags {
+    pub(super) fn compute_render_condition_flags(
+        &self,
+    ) -> crate::render_bridge::RenderConditionFlags {
         use crate::render_bridge::RenderConditionFlags;
         let mut flags = RenderConditionFlags::empty();
 
@@ -308,7 +310,9 @@ impl BasicDrawable {
         crate::render_bridge::RenderConditionFlags::from_bits_truncate(condition_bits as u64)
     }
 
-    pub(super) fn animation_mode_from_model_draw(mode: i32) -> Option<ww3d_core::animation::AnimationMode> {
+    pub(super) fn animation_mode_from_model_draw(
+        mode: i32,
+    ) -> Option<ww3d_core::animation::AnimationMode> {
         match mode {
             0 => Some(ww3d_core::animation::AnimationMode::Manual),
             1 => Some(ww3d_core::animation::AnimationMode::Loop),

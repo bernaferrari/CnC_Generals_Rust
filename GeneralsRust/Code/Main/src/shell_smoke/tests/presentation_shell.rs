@@ -6,7 +6,7 @@ pub use super::*;
 mod presentation_shell_deepen_tests {
     #[test]
     fn presentation_shell_deepens_visual_speed_without_main_draw_ownership() {
-        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../GameEngine/GameClient/src/core/game_client.rs"));
+        let src = game_client::core::game_client::GAME_CLIENT_SRC;
         let idx = src
             .find("fn update_presentation_shell")
             .expect("presentation shell");
@@ -48,7 +48,7 @@ mod presentation_shell_deepen_tests {
 mod presentation_mouse_bounds_tests {
     #[test]
     fn mouse_world_position_prefers_presentation_bounds() {
-        let eng = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/cnc_game_engine.rs"));
+        let eng = crate::cnc_game_engine::ENGINE_SRC;
         let idx = eng
             .find("fn update_mouse_world_position")
             .expect("update_mouse_world_position");
@@ -68,7 +68,7 @@ mod presentation_mouse_bounds_tests {
 mod presentation_camera_bounds_tests {
     #[test]
     fn clamp_to_world_bounds_prefers_presentation() {
-        let eng = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/cnc_game_engine.rs"));
+        let eng = crate::cnc_game_engine::ENGINE_SRC;
         let idx = eng
             .find("fn clamp_to_world_bounds")
             .expect("clamp_to_world_bounds");
@@ -88,7 +88,7 @@ mod presentation_camera_bounds_tests {
 mod presentation_minimap_bounds_tests {
     #[test]
     fn minimap_viewport_prefers_presentation_bounds() {
-        let eng = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/cnc_game_engine.rs"));
+        let eng = crate::cnc_game_engine::ENGINE_SRC;
         let idx = eng
             .find("fn update_minimap_viewport")
             .expect("update_minimap_viewport");
@@ -116,7 +116,7 @@ mod presentation_minimap_bounds_tests {
 mod presentation_local_team_tests {
     #[test]
     fn selection_hotkeys_prefer_presentation_local_team() {
-        let eng = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/cnc_game_engine.rs"));
+        let eng = crate::cnc_game_engine::ENGINE_SRC;
         // Selection hotkeys / pick residual prefer presentation local_team when dual-scanning.
         // Right-click context path is command-system residual via current_player_id.
         for needle in [
@@ -168,7 +168,7 @@ mod presentation_local_team_tests {
 mod presentation_select_similar_tests {
     #[test]
     fn select_similar_units_prefers_presentation_local_team() {
-        let eng = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/cnc_game_engine.rs"));
+        let eng = crate::cnc_game_engine::ENGINE_SRC;
         let idx = eng
             .find("fn select_similar_units")
             .expect("select_similar_units");
@@ -197,7 +197,7 @@ mod presentation_select_similar_tests {
 mod presentation_player_roster_tests {
     #[test]
     fn defeat_ui_prefers_presentation_player_roster() {
-        let eng = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/cnc_game_engine.rs"));
+        let eng = crate::cnc_game_engine::ENGINE_SRC;
         let idx = eng
             .find("Broadcast defeat notifications")
             .expect("defeat notifications");

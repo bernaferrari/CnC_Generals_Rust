@@ -83,7 +83,7 @@ pub fn honesty_executable_gameworld_presentation_residual_pack_wave188() -> bool
 
 /// Source residual: engine status exports gameworld_presentation_entities.
 pub fn honesty_engine_status_exports_gw_presentation_entities_source() -> bool {
-    let eng = include_str!("../../cnc_game_engine.rs");
+    let eng = crate::cnc_game_engine::ENGINE_SRC;
     eng.contains("gameworld_presentation_entities")
         && eng.contains("last_gameworld_presentation_entity_count")
         && eng.contains("presentation_view_from_shadow")

@@ -1427,8 +1427,15 @@ impl Object {
         if self.status.destroyed
             || self.status.effectively_dead
             || self.status.keep_as_rubble
-            || !self.health.is_alive()
         {
+            return false;
+        }
+        // C++ Object::isEffectivelyDead is a status bit; HP comes from the
+        // BodyModule (single store). When GameWorld is coupled, HashMap
+        // health.current can lag writeback — use the mapped entity HP.
+        let hp = crate::gameworld_shadow::coupled_entity_health(self.id)
+            .unwrap_or(self.health.current);
+        if hp <= 0.0 {
             return false;
         }
         // C++ effectively-dead during SlowDeath / air crash sequences.
@@ -1460,10 +1467,20 @@ impl Object {
     }
 
     pub fn get_health_percentage(&self) -> f32 {
-        self.health.percentage()
+        // C++ BodyModule::getHealth() / getMaxHealth() — GW when coupled.
+        let current = crate::gameworld_shadow::coupled_entity_health(self.id)
+            .unwrap_or(self.health.current);
+        if self.health.maximum > 0.0 {
+            current / self.health.maximum
+        } else {
+            0.0
+        }
     }
 
     pub fn is_constructed(&self) -> bool {
+        if let Some((pct, uc)) = crate::gameworld_shadow::coupled_entity_construction(self.id) {
+            return !uc || pct + 1e-6 >= 1.0;
+        }
         !self.status.under_construction && self.construction_percent >= 1.0
     }
 

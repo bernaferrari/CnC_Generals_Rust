@@ -111,8 +111,9 @@ fn fn_body<'a>(src: &'a str, name: &str) -> Option<&'a str> {
 
 /// Source residual: stealth detector empty dual-world short-circuits.
 pub fn honesty_stealth_detector_dual_world_empty_gate_source() -> bool {
-    let g =
-        include_str!("../../../../GameEngine/GameLogic/src/object/update/stealth_detector_update.rs");
+    let g = include_str!(
+        "../../../../GameEngine/GameLogic/src/object/update/stealth_detector_update.rs"
+    );
     if !(g.contains("Wave 297")
         && g.contains("fn dual_world_registry_unavailable")
         && g.contains("OBJECT_REGISTRY.is_empty()"))

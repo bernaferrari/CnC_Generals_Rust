@@ -83,7 +83,7 @@ pub fn honesty_live_gameworld_production_writeback_residual_pack_wave180() -> bo
 
 /// Source residual: production progress channel + tick/writeback APIs.
 pub fn honesty_production_progress_channel_source() -> bool {
-    let src = include_str!("../../gameworld_shadow.rs");
+    let src = crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC;
     src.contains("pub fn apply_host_production_progress_events")
         && src.contains("pub fn tick_production_queues")
         && src.contains("pub fn writeback_production_to_host")
@@ -91,7 +91,7 @@ pub fn honesty_production_progress_channel_source() -> bool {
 
 /// Source residual: engine uses presentation shell, not full GameClient::update.
 pub fn honesty_presentation_shell_path_source() -> bool {
-    let eng = include_str!("../../cnc_game_engine.rs");
+    let eng = crate::cnc_game_engine::ENGINE_SRC;
     eng.contains("update_presentation_shell")
         && eng.contains("PRES_SHELL_ONLY_DRAWABLE_TICK")
         && !eng.contains("game_client.update(")

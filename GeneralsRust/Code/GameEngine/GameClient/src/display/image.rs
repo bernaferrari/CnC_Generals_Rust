@@ -536,6 +536,7 @@ impl Image {
             return Err(GameImageError::ImageNotFound(self.name.clone()));
         }
 
+        ensure_engine_filesystem_backends();
         for candidate in candidate_texture_resource_names(&self.filename) {
             if let Some(decoded) = try_load_image_from_engine_filesystem(&candidate) {
                 let (width, height) = decoded.dimensions();
@@ -850,11 +851,46 @@ fn candidate_texture_resource_names(filename: &str) -> Vec<String> {
             push_unique(&mut candidates, format!("Art/W3D/{bare}"));
         }
         Some("tga") | Some("dds") => {
+            let basename = Path::new(&bare)
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or(bare.as_str())
+                .to_string();
+
             push_unique(
                 &mut candidates,
                 format!("Data/{language}/Art/Textures/{bare}"),
             );
             push_unique(&mut candidates, format!("Art/Textures/{bare}"));
+            push_unique(&mut candidates, format!("art/textures/{bare}"));
+            push_unique(&mut candidates, format!("Data/Art/Textures/{bare}"));
+            push_unique(&mut candidates, bare.clone());
+            if basename != bare {
+                push_unique(
+                    &mut candidates,
+                    format!("Data/{language}/Art/Textures/{basename}"),
+                );
+                push_unique(&mut candidates, format!("Art/Textures/{basename}"));
+                push_unique(&mut candidates, format!("art/textures/{basename}"));
+                push_unique(&mut candidates, format!("Data/Art/Textures/{basename}"));
+                push_unique(&mut candidates, basename.clone());
+            }
+
+            let file = if basename != bare {
+                basename.as_str()
+            } else {
+                bare.as_str()
+            };
+            for prefix in extracted_texture_dir_prefixes() {
+                push_unique(&mut candidates, format!("{prefix}/{file}"));
+            }
+
+            let current = candidates.clone();
+            for candidate in current {
+                if let Some(swapped) = swapped_texture_extension(&candidate) {
+                    push_unique(&mut candidates, swapped);
+                }
+            }
         }
         _ => push_unique(&mut candidates, bare.clone()),
     }
@@ -890,9 +926,51 @@ fn candidate_texture_resource_names(filename: &str) -> Vec<String> {
     candidates
 }
 
-fn try_load_image_from_engine_filesystem(resource_name: &str) -> Option<DynamicImage> {
-    ensure_engine_filesystem_backends();
+fn swapped_texture_extension(name: &str) -> Option<String> {
+    let path = Path::new(name);
+    let ext = path.extension()?.to_str()?;
+    let stem = path
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .filter(|stem| !stem.is_empty())?;
+    let swapped = if ext.eq_ignore_ascii_case("tga") {
+        "dds"
+    } else if ext.eq_ignore_ascii_case("dds") {
+        "tga"
+    } else {
+        return None;
+    };
+    let parent = path
+        .parent()
+        .map(|parent| parent.to_string_lossy().replace('\\', "/"))
+        .filter(|parent| !parent.is_empty());
+    Some(match parent {
+        Some(parent) => format!("{parent}/{stem}.{swapped}"),
+        None => format!("{stem}.{swapped}"),
+    })
+}
 
+fn extracted_texture_dir_prefixes() -> Vec<String> {
+    // Proven extract-layout Texture roots only (no filesystem scan on every lookup).
+    const PROVEN_DIRS: &[&str] = &[
+        "windows_game/extracted_big_files/TexturesZH/Art/Textures",
+        "windows_game/extracted_big_files_v2/TexturesZH/Art/Textures",
+        "windows_game/extracted_big_files/EnglishZH/Data/English/Art/Textures",
+        "windows_game/extracted_big_files_v2/EnglishZH/Data/English/Art/Textures",
+        "../windows_game/extracted_big_files/TexturesZH/Art/Textures",
+        "../windows_game/extracted_big_files_v2/TexturesZH/Art/Textures",
+        "../windows_game/extracted_big_files/EnglishZH/Data/English/Art/Textures",
+        "../windows_game/extracted_big_files_v2/EnglishZH/Data/English/Art/Textures",
+        // cargo test -p cwd is the GameClient package directory
+        "../../../../windows_game/extracted_big_files/TexturesZH/Art/Textures",
+        "../../../../windows_game/extracted_big_files_v2/TexturesZH/Art/Textures",
+        "../../../../windows_game/extracted_big_files/EnglishZH/Data/English/Art/Textures",
+        "../../../../windows_game/extracted_big_files_v2/EnglishZH/Data/English/Art/Textures",
+    ];
+    PROVEN_DIRS.iter().map(|dir| (*dir).to_string()).collect()
+}
+
+fn try_load_image_from_engine_filesystem(resource_name: &str) -> Option<DynamicImage> {
     let fs = get_file_system();
     let bytes = {
         let mut fs_guard = fs.lock().ok()?;
@@ -1096,7 +1174,10 @@ fn import_common_mapped_image_into_client(name: &str) -> bool {
 
     let client_collection = ensure_mapped_image_collection();
     let mut client = client_collection.write();
-    if client.find_image_by_name(name).is_some() {
+    if let Some(existing) = client.find_image_by_name_mut(name) {
+        // Already registered by name; still try to decode TGA/DDS if the
+        // engine filesystem/BIG has the file. Failure stays honest.
+        let _ = existing.ensure_image_data_loaded();
         return true;
     }
 
@@ -1119,10 +1200,19 @@ fn import_common_mapped_image_into_client(name: &str) -> bool {
         image.set_status(ImageStatus::ROTATED_90_CLOCKWISE);
     }
 
-    client.add_image(image);
+    let _ = image.ensure_image_data_loaded();
     if is_startup_shell_image(name) {
-        log_startup_shell_image_once(name, "hydrated_from_common".to_string());
+        let loaded = image.get_image_data().is_some();
+        log_startup_shell_image_once(
+            name,
+            format!(
+                "hydrated_from_common file={} pixels_loaded={}",
+                image.get_filename(),
+                loaded
+            ),
+        );
     }
+    client.add_image(image);
     true
 }
 
@@ -1283,5 +1373,125 @@ mod tests {
     fn unknown_texture_type_keeps_raw_filename_candidate() {
         let candidates = candidate_texture_resource_names("UI/MyTexture.bin");
         assert_eq!(candidates, vec!["UI/MyTexture.bin".to_string()]);
+    }
+
+    #[test]
+    fn tga_candidates_include_lowercase_art_basename_and_extracted_roots() {
+        let candidates = candidate_texture_resource_names("MainMenuBackdrop.tga");
+        assert!(candidates.contains(&"Data/English/Art/Textures/MainMenuBackdrop.tga".to_string()));
+        assert!(candidates.contains(&"Art/Textures/MainMenuBackdrop.tga".to_string()));
+        assert!(candidates.contains(&"art/textures/MainMenuBackdrop.tga".to_string()));
+        assert!(candidates.contains(&"MainMenuBackdrop.tga".to_string()));
+        assert!(
+            candidates.iter().any(|c| c.contains("TexturesZH")
+                || c.contains("extracted_big_files")
+                || c.ends_with("Art/Textures/MainMenuBackdrop.tga")),
+            "expected extracted Texture roots among {candidates:?}"
+        );
+        assert!(candidates.iter().any(|c| c.ends_with(".dds")));
+    }
+
+    #[test]
+    fn hydrate_mapped_image_loads_pixels_or_still_registers() {
+        game_engine::common::ini::ini_mapped_image::init_global_mapped_image_collection();
+        CommonImageCollection::load_global(512);
+
+        let client = ensure_mapped_image_collection();
+        client.write().clear();
+
+        assert!(
+            ensure_client_mapped_image("MainMenuBackdrop"),
+            "shipped hydrate must register MainMenuBackdrop even if the TGA is absent"
+        );
+        assert!(ensure_client_mapped_image("MainMenuPulse"));
+        assert!(
+            client.read().find_image_by_name("MainMenuBackdrop").is_some(),
+            "MainMenuBackdrop must stay registered by name"
+        );
+
+        // Load extract/fixture pixels on a local Image so parallel global-collection
+        // tests cannot clear the data out from under us.
+        for candidate in candidate_texture_resource_names("SCShellUserInterface512_001.tga") {
+            if !Path::new(&candidate).is_file() {
+                continue;
+            }
+            let mut pulse = Image::with_name("StageEPulseFile");
+            pulse.set_filename(candidate);
+            assert!(
+                pulse.ensure_image_data_loaded().is_ok(),
+                "extracted MainMenuPulse TGA must decode when the file exists"
+            );
+            assert!(pulse.get_image_data().is_some());
+            break;
+        }
+
+        let mut missing = Image::with_name("StageEMissingFile");
+        missing.set_filename("stage_e_does_not_exist_zzz.tga");
+        assert!(missing.ensure_image_data_loaded().is_err());
+        assert!(missing.get_image_data().is_none());
+        client.write().add_image(missing);
+        assert!(
+            client.read().find_image_by_name("StageEMissingFile").is_some(),
+            "missing file still registers by name"
+        );
+
+        let path = std::env::temp_dir().join("stage_e_import_fixture.tga");
+        let fixture = DynamicImage::ImageRgba8(ImageBuffer::from_pixel(
+            2,
+            2,
+            image::Rgba([10, 20, 30, 255]),
+        ));
+        fixture
+            .save_with_format(&path, ImageFormat::Tga)
+            .expect("write TGA fixture");
+
+        let mut loaded = Image::with_name("StageEImportFixture");
+        loaded.set_filename(path.to_string_lossy().into_owned());
+        assert!(
+            loaded.ensure_image_data_loaded().is_ok(),
+            "fixture TGA must decode through shipped ensure_image_data_loaded"
+        );
+        assert!(loaded.get_image_data().is_some());
+    }
+
+    #[test]
+    fn win_draw_image_queues_command_when_gpu_texture_missing() {
+        let mut image = Image::with_name("StageENoGpu");
+        image.set_filename("stage_e_missing_no_gpu.tga");
+        let client = ensure_mapped_image_collection();
+        client.write().add_image(image);
+
+        crate::gui::w3d_gadget_draw::reset_shipped_ui_draw_command_count();
+        crate::gui::game_window_global::reset_win_draw_image_queued_count();
+
+        let manager = crate::gui::window_manager::WindowManager::new();
+        let gui_image = crate::gui::game_window::Image {
+            name: "StageENoGpu".to_string(),
+            width: 64,
+            height: 64,
+        };
+        manager.win_draw_image(
+            &gui_image,
+            0,
+            0,
+            64,
+            64,
+            crate::gui::game_window::WIN_COLOR_UNDEFINED,
+        );
+
+        let shipped = crate::gui::w3d_gadget_draw::shipped_ui_draw_command_count();
+        let queued = crate::gui::game_window_global::win_draw_image_queued_count();
+        let renderer_queued = crate::gui::ui_globals::with_ui_renderer(|arc| {
+            arc.try_read()
+                .ok()
+                .map(|renderer| renderer.queued_draw_command_count())
+                .unwrap_or(0)
+        })
+        .unwrap_or(0);
+
+        assert!(
+            shipped > 0 || queued > 0 || renderer_queued > 0,
+            "found-but-untextured win_draw_image must still queue a visible command; shipped={shipped} queued={queued} renderer={renderer_queued}"
+        );
     }
 }

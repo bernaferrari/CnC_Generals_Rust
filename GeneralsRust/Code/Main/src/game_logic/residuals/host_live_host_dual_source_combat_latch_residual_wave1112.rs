@@ -52,13 +52,13 @@ fn aw_source() -> &'static str {
     include_str!("../../authoritative_world.rs")
 }
 fn cnc_source() -> &'static str {
-    include_str!("../../cnc_game_engine.rs")
+    crate::cnc_game_engine::ENGINE_SRC
 }
 fn es_source() -> &'static str {
     include_str!("../../executable_smoke.rs")
 }
 fn tr_source() -> &'static str {
-    include_str!("../../../../GameEngine/GameClient/src/message_stream/translators.rs")
+    game_client::message_stream::translators::TRANSLATORS_SRC
 }
 
 pub fn honesty_host_dual_source_combat_latch_method_names_residual_wave1112() -> bool {

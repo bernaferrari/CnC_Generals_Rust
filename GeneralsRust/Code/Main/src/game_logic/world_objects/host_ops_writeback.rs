@@ -1013,16 +1013,385 @@ impl GameLogic {
     /// Wave 946: scoped host-object mutation authority.
     /// Shadow writebacks mutate host objects only through this boundary
     /// (no direct `get_objects_mut` dual-writes from the shadow crate).
+    ///
+    /// When a GameWorld shadow session is coupled, HP/pose/target writes are
+    /// also applied as `WorldMutation`s so the HashMap is a read-through view
+    /// (single source of truth after writeback). Shadow-off keeps the host field.
     pub fn with_host_object_mut<R>(
         &mut self,
         id: ObjectId,
         f: impl FnOnce(&mut crate::game_logic::object::Object) -> R,
     ) -> Option<R> {
-        let obj = self.host_objects_mut().get_mut(&id)?;
-        Some(f(obj))
+        let obj = self.host_object_mut(id)?;
+        let r = f(obj);
+        self.push_coupled_host_object_mutations(id);
+        self.host_view_dirty.remove(&id);
+        Some(r)
+    }
+
+    /// Copy GameWorld HP / pose / target / fat fields onto the HashMap view.
+    fn overlay_object_from_gameworld(&mut self, id: ObjectId) {
+        use crate::gameworld_shadow::{
+            coupled_entity_fat_view, coupled_entity_health, coupled_entity_pose,
+            coupled_entity_target_host, with_active_shadow,
+        };
+        let mapped = with_active_shadow(|s| s.entity_for_host(id).is_some()).unwrap_or(false);
+        if !mapped {
+            return;
+        }
+        let hp = coupled_entity_health(id);
+        let pose = coupled_entity_pose(id);
+        let target = coupled_entity_target_host(id);
+        let fat = coupled_entity_fat_view(id);
+        let skip_hp = crate::game_logic::host_damage_log::has_pending(id);
+        let skip_weapon = crate::game_logic::host_weapon_stats_log::has_pending(id);
+        let skip_ai = crate::game_logic::host_ai_state_log::has_pending(id)
+            || crate::game_logic::host_combat_attack_log::has_pending(id);
+        let skip_contain = crate::game_logic::host_contain_log::has_pending(id);
+        let skip_move = crate::game_logic::host_movement_log::has_pending(id);
+        let Some(obj) = self.objects.get_mut(&id) else {
+            return;
+        };
+        if !skip_hp {
+            if let Some(h) = hp {
+                obj.health.current = h;
+                if h <= 0.0 {
+                    obj.status.destroyed = true;
+                }
+            }
+        }
+        if let Some([x, y, z]) = pose {
+            obj.set_position(glam::Vec3::new(x, y, z));
+        }
+        obj.target = target;
+        if let Some(fat) = fat {
+            if !skip_weapon {
+                if let Some(w) = obj.weapon.as_mut() {
+                    if fat.weapon_ammo == u32::MAX {
+                        w.ammo = None;
+                    } else {
+                        w.ammo = Some(fat.weapon_ammo);
+                    }
+                    if fat.weapon_clip_size > 0 {
+                        w.clip_size = fat.weapon_clip_size;
+                    }
+                }
+            }
+            if !skip_ai {
+                obj.attack_substate =
+                    crate::game_logic::AttackSubState::from_ordinal(fat.attack_substate_ordinal);
+                obj.ai_state = crate::gameworld_shadow::GameWorldShadow::ai_state_from_ordinal(
+                    fat.ai_state_ordinal,
+                );
+            }
+            if !skip_contain {
+                obj.contained_by = if fat.contained_by_host == 0 {
+                    None
+                } else {
+                    Some(ObjectId(fat.contained_by_host))
+                };
+                if !fat.garrisoned_host_ids.is_empty() || !obj.occupants.is_empty() {
+                    obj.occupants = fat
+                        .garrisoned_host_ids
+                        .iter()
+                        .copied()
+                        .map(ObjectId)
+                        .collect();
+                }
+            }
+            if !skip_move {
+                obj.movement.target_position =
+                    fat.move_target.map(|p| glam::Vec3::new(p[0], p[1], p[2]));
+                if !fat.path_waypoints.is_empty() {
+                    obj.movement.path = fat
+                        .path_waypoints
+                        .iter()
+                        .map(|p| glam::Vec3::new(p[0], p[1], p[2]))
+                        .collect();
+                    obj.movement.current_path_index = fat.path_index as usize;
+                } else {
+                    obj.movement.path.clear();
+                    obj.movement.current_path_index = 0;
+                }
+            }
+        }
+    }
+
+    /// Refresh every mapped object from GameWorld so the HashMap is a view.
+    pub fn sync_authoritative_view_from_gameworld(&mut self) {
+        if !crate::gameworld_shadow::gameworld_shadow_enabled() {
+            return;
+        }
+        if crate::gameworld_shadow::with_active_shadow(|_| ()).is_none() {
+            return;
+        }
+        let ids: Vec<ObjectId> = self.objects.keys().copied().collect();
+        for id in ids {
+            self.overlay_object_from_gameworld(id);
+        }
+    }
+
+    /// Push dirty HashMap HP / pose / target into GameWorld (coupled only).
+    ///
+    /// Also writes through every mapped id so mid-frame `objects.get_mut`
+    /// (needed for split-borrow of `self.frame`) still lands in GameWorld.
+    pub fn commit_dirty_host_objects_to_gameworld(&mut self) {
+        let mut dirty = std::mem::take(&mut self.host_view_dirty);
+        // Overlay *or* commit: never re-push every mapped id after overlay.
+        for id in dirty {
+            self.push_coupled_host_object_mutations(id);
+        }
+    }
+
+    /// Push HP/pose/target from the host ID-map view into GameWorld (coupled only).
+    fn push_coupled_host_object_mutations(&self, id: ObjectId) {
+        use crate::gameworld_shadow::{push_coupled_world_mutation, with_active_shadow};
+        use gamelogic::world::WorldMutation;
+        let Some(obj) = self.host_objects().get(&id) else {
+            return;
+        };
+        let Some(eid) = with_active_shadow(|s| s.entity_for_host(id)).flatten() else {
+            return;
+        };
+        let pos = obj.get_position();
+        // Mid-frame damage logs own HP until writeback; do not stomp GameWorld.
+        if !crate::game_logic::host_damage_log::has_pending(id) {
+            let _ = push_coupled_world_mutation(WorldMutation::SetHealth {
+                target: eid,
+                health: obj.health.current,
+            });
+        }
+        let _ = push_coupled_world_mutation(WorldMutation::SetTransform {
+            target: eid,
+            position: [pos.x, pos.y, pos.z],
+            orientation: obj.get_orientation(),
+        });
+        let gw_target = obj
+            .target
+            .and_then(|tid| with_active_shadow(|s| s.entity_for_host(tid)).flatten());
+        let _ = push_coupled_world_mutation(WorldMutation::SetAttackTarget {
+            attacker: eid,
+            target: gw_target,
+        });
+        if !crate::game_logic::host_movement_log::has_pending(id) {
+            let _ = push_coupled_world_mutation(WorldMutation::SetMoveTarget {
+                unit: eid,
+                destination: obj
+                    .movement
+                    .target_position
+                    .map(|dest| [dest.x, dest.y, dest.z]),
+            });
+            let path_waypoints: Vec<[f32; 3]> =
+                obj.movement.path.iter().map(|p| [p.x, p.y, p.z]).collect();
+            let _ = push_coupled_world_mutation(WorldMutation::SetMovement {
+                target: eid,
+                velocity: [
+                    obj.movement.velocity.x,
+                    obj.movement.velocity.y,
+                    obj.movement.velocity.z,
+                ],
+                max_speed: obj.movement.max_speed,
+                path_index: obj.movement.current_path_index.min(u16::MAX as usize) as u16,
+                path_len: obj.movement.path.len().min(u16::MAX as usize) as u16,
+                path_waypoints,
+                waiting_for_path: obj.waiting_for_path,
+                locomotor_surfaces: obj.locomotor_surfaces,
+                is_attack_path: obj.is_attack_path,
+                is_blocked_and_stuck: obj.is_blocked_and_stuck,
+                is_braking: obj.is_braking,
+                is_safe_path: obj.is_safe_path,
+                queue_for_path_frames: obj.queue_for_path_frames,
+                path_timestamp: obj.path_timestamp,
+                cur_max_blocked_speed: obj.cur_max_blocked_speed,
+                num_frames_blocked: obj.num_frames_blocked,
+                is_blocked: obj.is_blocked,
+                move_away_from_id: obj.move_away_from.map(|i| i.0),
+                requested_victim_id: obj.requested_victim_id.map(|i| i.0),
+            });
+        }
+        if !crate::game_logic::host_weapon_stats_log::has_pending(id) {
+            if let Some(w) = obj.weapon.as_ref() {
+                let sec = obj.secondary_weapon.as_ref();
+                let _ = push_coupled_world_mutation(WorldMutation::SetWeaponStats {
+                    target: eid,
+                    has_weapon: true,
+                    weapon_damage: w.damage,
+                    weapon_range: w.range,
+                    weapon_min_range: w.min_range,
+                    weapon_reload_time: w.reload_time,
+                    weapon_last_fire_time: w.last_fire_time,
+                    weapon_clip_size: w.clip_size,
+                    weapon_clip_reload_time: w.clip_reload_time,
+                    weapon_ammo: w.ammo.unwrap_or(u32::MAX),
+                    weapon_can_target_air: w.can_target_air,
+                    weapon_can_target_ground: w.can_target_ground,
+                    weapon_projectile_speed: w.projectile_speed,
+                    has_secondary_weapon: sec.is_some(),
+                    secondary_weapon_damage: sec.map(|s| s.damage).unwrap_or(0.0),
+                    secondary_weapon_range: sec.map(|s| s.range).unwrap_or(0.0),
+                    leech_range_active_primary: obj.leech_range_active_primary,
+                    leech_range_active_secondary: obj.leech_range_active_secondary,
+                });
+            }
+        }
+        if !crate::game_logic::host_combat_attack_log::has_pending(id)
+            && !crate::game_logic::host_ai_state_log::has_pending(id)
+        {
+            let _ = push_coupled_world_mutation(WorldMutation::SetAiState {
+                target: eid,
+                ordinal: crate::gameworld_shadow::GameWorldShadow::host_ai_state_ordinal(
+                    &obj.ai_state,
+                ),
+            });
+            let _ = push_coupled_world_mutation(WorldMutation::SetCombatAttack {
+                target: eid,
+                pre_attack_target_host: obj.pre_attack_target.map(|t| t.0).unwrap_or(0),
+                pre_attack_ready_at: obj.pre_attack_ready_at,
+                consecutive_shots_at_target: obj.consecutive_shots_at_target,
+                max_shots_to_fire: obj.max_shots_to_fire,
+                attack_substate_ordinal: obj.attack_substate.to_ordinal(),
+                approach_timestamp: obj.approach_timestamp,
+                continuous_fire_victim: obj.continuous_fire_victim,
+                maintain_pos_valid: obj.maintain_pos_valid,
+                maintain_pos: obj.maintain_pos.map(|p| [p.x, p.y, p.z]),
+                temporary_move_frames: obj.temporary_move_frames,
+                group_speed_factor: obj.group_speed_factor,
+            });
+        }
+        if !crate::game_logic::host_contain_log::has_pending(id) {
+            let _ = push_coupled_world_mutation(WorldMutation::SetContain {
+                target: eid,
+                contained_by_host: obj.contained_by.map(|c| c.0).unwrap_or(0),
+                garrison_count: Some(obj.occupants.len().min(u16::MAX as usize) as u16),
+                garrisoned_host_ids: Some(obj.occupants.iter().map(|o| o.0).collect()),
+            });
+        }
+    }
+
+    /// Authoritative weapon clip ammo (GameWorld when coupled).
+    pub fn host_authoritative_weapon_ammo(&self, id: ObjectId) -> Option<u32> {
+        if let Some(a) = crate::gameworld_shadow::coupled_entity_weapon_ammo(id) {
+            if a != u32::MAX {
+                return Some(a);
+            }
+        }
+        self.host_object(id)
+            .and_then(|o| o.weapon.as_ref())
+            .and_then(|w| w.ammo)
+    }
+
+    /// Mutate attack substate via HashMap field borrow so `self.frame` stays readable.
+    pub fn host_stamp_attack_substate_at_frame(
+        &mut self,
+        id: ObjectId,
+        sub: crate::game_logic::AttackSubState,
+    ) -> Option<u32> {
+        let frame = self.frame;
+        let obj = self.objects.get_mut(&id)?;
+        obj.attack_substate = sub;
+        obj.approach_timestamp = frame;
+        self.host_view_dirty.insert(id);
+        Some(frame)
+    }
+
+    /// Authoritative AttackStateMachine substate ordinal (GameWorld when coupled).
+    pub fn host_authoritative_attack_substate(&self, id: ObjectId) -> Option<u8> {
+        if let Some(s) = crate::gameworld_shadow::coupled_entity_attack_substate(id) {
+            return Some(s);
+        }
+        self.host_object(id).map(|o| o.attack_substate.to_ordinal())
+    }
+
+    /// Authoritative occupant/garrison count (GameWorld when coupled).
+    pub fn host_authoritative_occupant_count(&self, id: ObjectId) -> Option<u16> {
+        if let Some(n) = crate::gameworld_shadow::coupled_entity_occupant_count(id) {
+            return Some(n);
+        }
+        self.host_object(id)
+            .map(|o| o.occupants.len().min(u16::MAX as usize) as u16)
+    }
+
+    /// Authoritative move destination (GameWorld when coupled).
+    ///
+    /// If a fat view is mapped, `None` dest is authoritative (stopped unit).
+    /// Do not fall back to a disagreeing HashMap dest.
+    pub fn host_authoritative_move_dest(&self, id: ObjectId) -> Option<[f32; 3]> {
+        if let Some(fat) = crate::gameworld_shadow::coupled_entity_fat_view(id) {
+            return fat.move_target;
+        }
+        self.host_object(id)
+            .and_then(|o| o.movement.target_position)
+            .map(|p| [p.x, p.y, p.z])
+    }
+
+    /// Authoritative HP: GameWorld when the coupled session is live, else host field.
+    pub fn host_authoritative_health(&self, id: ObjectId) -> Option<f32> {
+        if let Some(h) = crate::gameworld_shadow::coupled_entity_health(id) {
+            return Some(h);
+        }
+        self.host_object(id).map(|o| o.health.current)
+    }
+
+    /// Authoritative construction: `(percent, under_construction)`.
+    /// GameWorld when mapped, else host HashMap fields.
+    /// Fraction is host/GW 0–1; use `host_authoritative_construction_cpp` for 0–100.
+    pub fn host_authoritative_construction(&self, id: ObjectId) -> Option<(f32, bool)> {
+        if let Some(c) = crate::gameworld_shadow::coupled_entity_construction(id) {
+            return Some(c);
+        }
+        self.host_object(id)
+            .map(|o| (o.construction_percent, o.status.under_construction))
+    }
+
+    /// C++ construction percent (0–100, −1 complete, −50 sell). Converts at the GW 0–1 boundary.
+    pub fn host_authoritative_construction_cpp(&self, id: ObjectId) -> Option<(i32, bool)> {
+        let selling = self
+            .host_object(id)
+            .map(|o| o.status.sold)
+            .unwrap_or(false);
+        self.host_authoritative_construction(id).map(|(frac, uc)| {
+            (
+                crate::game_logic::host_production_buildable_command_residual::host_fraction_to_cpp_construction_percent(
+                    frac, uc, selling,
+                ),
+                uc,
+            )
+        })
+    }
+
+    /// Authoritative pose: GameWorld when the coupled session is live, else host field.
+    pub fn host_authoritative_pose(&self, id: ObjectId) -> Option<[f32; 3]> {
+        if let Some(p) = crate::gameworld_shadow::coupled_entity_pose(id) {
+            return Some(p);
+        }
+        self.host_object(id).map(|o| {
+            let p = o.get_position();
+            [p.x, p.y, p.z]
+        })
+    }
+
+    /// Authoritative cash: GameWorld when the coupled session is live, else host field.
+    pub fn host_authoritative_cash(&self, player_id: u32) -> Option<u32> {
+        if let Some(c) = crate::gameworld_shadow::coupled_player_cash(player_id) {
+            return Some(c);
+        }
+        self.get_player(player_id).map(|p| p.resources.supplies)
+    }
+
+    /// Authoritative attack target: GameWorld when coupled, else host field.
+    ///
+    /// If a fat view is mapped, `None` target is authoritative (no target).
+    /// Do not fall back to a disagreeing HashMap target.
+    pub fn host_authoritative_target(&self, id: ObjectId) -> Option<ObjectId> {
+        if crate::gameworld_shadow::coupled_entity_fat_view(id).is_some() {
+            return crate::gameworld_shadow::coupled_entity_target_host(id);
+        }
+        self.host_object(id).and_then(|o| o.target)
     }
 
     /// Wave 955/958: host-authority object borrow (preferred over get_object dual-read).
+    /// When shadow is coupled this HashMap is an ID map / read-through view of
+    /// GameWorld; use `host_authoritative_*` for HP/pose/cash/target.
     #[inline]
     pub fn host_object(&self, id: ObjectId) -> Option<&crate::game_logic::object::Object> {
         self.objects.get(&id)
@@ -1034,7 +1403,7 @@ impl GameLogic {
     pub fn host_objects(
         &self,
     ) -> &std::collections::HashMap<ObjectId, crate::game_logic::object::Object> {
-        &self.objects
+        self.objects.map()
     }
 
     /// Wave 955/958: host-authority mutable object map borrow.
@@ -1042,7 +1411,7 @@ impl GameLogic {
     pub fn host_objects_mut(
         &mut self,
     ) -> &mut std::collections::HashMap<ObjectId, crate::game_logic::object::Object> {
-        &mut self.objects
+        self.objects.map_mut()
     }
 
     /// Wave 950/958: host-authority mutable object borrow.
@@ -1051,6 +1420,10 @@ impl GameLogic {
         &mut self,
         id: ObjectId,
     ) -> Option<&mut crate::game_logic::object::Object> {
+        self.overlay_object_from_gameworld(id);
+        if self.objects.contains_key(&id) {
+            self.host_view_dirty.insert(id);
+        }
         self.objects.get_mut(&id)
     }
 

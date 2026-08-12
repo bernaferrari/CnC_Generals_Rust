@@ -114,7 +114,8 @@ fn fn_body<'a>(src: &'a str, name: &str) -> Option<&'a str> {
 
 /// Source residual: partition manager empty dual-world short-circuits.
 pub fn honesty_partition_manager_dual_world_empty_gate_source() -> bool {
-    let g = include_str!("../../../../GameEngine/GameLogic/src/object/collide/partition_manager.rs");
+    let g =
+        include_str!("../../../../GameEngine/GameLogic/src/object/collide/partition_manager.rs");
     if !(g.contains("Wave 324")
         && g.contains("fn dual_world_registry_unavailable")
         && g.contains("OBJECT_REGISTRY.is_empty()"))

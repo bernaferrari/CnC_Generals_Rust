@@ -100,8 +100,8 @@ fn fn_body<'a>(src: &'a str, name: &str) -> Option<&'a str> {
 
 /// Source residual: expanded presentation classify + optional GameLogic dual-read.
 pub fn honesty_rmb_presentation_full_classify_source() -> bool {
-    let cs = include_str!("../../command_system.rs");
-    let eng = include_str!("../../cnc_game_engine.rs");
+    let cs = crate::command_system::COMMAND_SYSTEM_SRC;
+    let eng = crate::cnc_game_engine::ENGINE_SRC;
     let Some(classify) = fn_body(cs, "fn classify_right_click_target_from_presentation(") else {
         return false;
     };

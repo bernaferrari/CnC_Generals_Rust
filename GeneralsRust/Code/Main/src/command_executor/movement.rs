@@ -20,7 +20,6 @@ use glam::Vec3;
 use log::{debug, warn};
 use std::collections::{HashMap, HashSet};
 
-
 impl<'a> CommandExecutor<'a> {
     // === Movement Commands ===
 
@@ -559,7 +558,11 @@ impl<'a> CommandExecutor<'a> {
         }
     }
 
-    pub(super) fn execute_force_move(&mut self, units: &[ObjectId], destination: Vec3) -> CommandResult {
+    pub(super) fn execute_force_move(
+        &mut self,
+        units: &[ObjectId],
+        destination: Vec3,
+    ) -> CommandResult {
         // Wave 232: force-move via GameLogic unit_command_force_move_to.
         let goals = self.group_move_destinations(units, destination);
         let mut moved: Vec<ObjectId> = Vec::new();
@@ -728,5 +731,4 @@ impl<'a> CommandExecutor<'a> {
             CommandResult::InvalidCommand
         }
     }
-
 }

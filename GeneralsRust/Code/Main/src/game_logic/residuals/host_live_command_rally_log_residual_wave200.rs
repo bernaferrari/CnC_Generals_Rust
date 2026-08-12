@@ -81,7 +81,7 @@ pub fn honesty_live_command_rally_log_residual_pack_wave200() -> bool {
 
 /// Source residual: execute_set_rally_point records host_rally_log.
 pub fn honesty_execute_rally_records_source() -> bool {
-    let src = include_str!("../../command_executor.rs");
+    let src = crate::command_executor::COMMAND_EXECUTOR_SRC;
     let i = match src.find("fn execute_set_rally_point") {
         Some(i) => i,
         None => return false,
@@ -103,7 +103,7 @@ pub fn honesty_execute_rally_records_source() -> bool {
 
 /// Source residual: mutation + shadow drain/apply exist.
 pub fn honesty_shadow_drains_rally_log_source() -> bool {
-    let gw = include_str!("../../gameworld_shadow.rs");
+    let gw = crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC;
     gw.contains("host_rally_log::drain")
         && gw.contains("apply_host_rally_events")
         && gw.contains("queue_set_rally_point_for_host")

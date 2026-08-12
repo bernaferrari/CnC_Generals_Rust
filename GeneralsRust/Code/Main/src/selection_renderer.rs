@@ -976,7 +976,7 @@ mod presentation_identity_tests {
     #[test]
     fn golden_skirmish_source_has_no_engine_object_id_force_clear() {
         // Dual-world host id field retired — Object has no engine_object_id to clear.
-        let obj = include_str!("game_logic/object.rs");
+        let obj = crate::game_logic::object::OBJECT_SRC;
         assert!(
             !obj.contains("pub engine_object_id"),
             "host Object must not expose engine_object_id dual-world field"

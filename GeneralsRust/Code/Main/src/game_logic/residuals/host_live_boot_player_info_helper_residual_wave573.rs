@@ -84,7 +84,7 @@ pub fn residual_boot_player_info_helper_last_action() -> ResidualBootPlayerInfoH
 }
 
 fn eng_source() -> &'static str {
-    include_str!("../../cnc_game_engine.rs")
+    crate::cnc_game_engine::ENGINE_SRC
 }
 
 fn fn_body<'a>(src: &'a str, sig: &str) -> Option<&'a str> {

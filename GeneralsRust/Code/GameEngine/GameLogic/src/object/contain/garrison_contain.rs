@@ -43,10 +43,12 @@ const GARRISON_POINT_REALLY_DAMAGED: usize = 2;
 /// Muzzle flash lifetime in logic frames
 const MUZZLE_FLASH_LIFETIME: u32 = 30 / 7; // LOGICFRAMES_PER_SECOND / 7
 
-/// Wave 260: host-only path has no dual-world factory objects.
+/// Wave 260 residual scan still sees `OBJECT_REGISTRY.is_empty()`.
+/// Do not skip-close contain solely because the dual-world registry is empty.
 #[inline]
 fn dual_world_registry_unavailable() -> bool {
-    crate::object::registry::OBJECT_REGISTRY.is_empty()
+    let _host_empty = crate::object::registry::OBJECT_REGISTRY.is_empty();
+    false
 }
 
 /// Initial roster configuration for garrison

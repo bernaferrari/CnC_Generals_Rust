@@ -43,7 +43,7 @@ fn residual_action_store(a: ResidualHostFowIshiddenMultiselectResidualAction) {
 }
 
 fn cnc_source() -> &'static str {
-    include_str!("../../cnc_game_engine.rs")
+    crate::cnc_game_engine::ENGINE_SRC
 }
 fn gl_source() -> &'static str {
     include_str!("../game_logic.rs")
@@ -52,7 +52,7 @@ fn sx_source() -> &'static str {
     include_str!("../../../../GameEngine/GameClient/src/message_stream/selection_xlat.rs")
 }
 fn cb_source() -> &'static str {
-    include_str!("../../../../GameEngine/GameClient/src/gui/control_bar/control_bar.rs")
+    game_client::gui::control_bar::control_bar::CONTROL_BAR_SRC
 }
 
 pub fn honesty_host_fow_ishidden_multiselect_residual_method_names_residual_wave1076() -> bool {

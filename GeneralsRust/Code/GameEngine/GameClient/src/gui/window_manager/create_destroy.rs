@@ -1,6 +1,11 @@
 //! Window create, destroy, parent/owner, and destroy-queue processing.
 #![allow(unused_imports)]
 
+use crate::gui::gadgets::{
+    CheckBox, ComboBox, HorizontalSlider, ListBox, ProgressBar, PushButton, RadioButton,
+    RadioButtonGroup, StaticText, TabControl, TextEntry, VerticalSlider,
+};
+use crate::gui::game_window::*;
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, VecDeque};
 use std::fs;
@@ -9,11 +14,6 @@ use std::rc::{Rc, Weak};
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
-use crate::gui::gadgets::{
-    CheckBox, ComboBox, HorizontalSlider, ListBox, ProgressBar, PushButton, RadioButton,
-    RadioButtonGroup, StaticText, TabControl, TextEntry, VerticalSlider,
-};
-use crate::gui::game_window::*;
 
 use super::*;
 
@@ -258,7 +258,10 @@ impl WindowManager {
         self.window_count = self.window_count.saturating_sub(1);
     }
 
-    pub(crate) fn clear_references_to_destroyed_window(&mut self, window: &Rc<RefCell<GameWindow>>) {
+    pub(crate) fn clear_references_to_destroyed_window(
+        &mut self,
+        window: &Rc<RefCell<GameWindow>>,
+    ) {
         if self
             .keyboard_focus
             .as_ref()

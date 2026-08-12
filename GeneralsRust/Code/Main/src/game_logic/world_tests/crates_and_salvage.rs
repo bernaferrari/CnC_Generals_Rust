@@ -3,7 +3,6 @@
 use super::super::*;
 use super::helpers::*;
 
-
 #[test]
 fn drones_do_not_trigger_or_join_retaliation() {
     use crate::game_logic::{AIState, KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
@@ -534,9 +533,7 @@ fn find_closest_enemy_skips_zero_priority() {
 
 #[test]
 fn find_closest_enemy_skips_pure_buildings_by_default() {
-    use crate::game_logic::{
-        KindOf, Object, ObjectId, ObjectType, Team, ThingTemplate, Weapon,
-    };
+    use crate::game_logic::{KindOf, Object, ObjectId, ObjectType, Team, ThingTemplate, Weapon};
     use glam::Vec3;
     let mut logic = GameLogic::new();
     let mut at = ThingTemplate::new("FceA");
@@ -953,8 +950,7 @@ fn able_to_attack_possible_in_range_enemy() {
         o.set_position(Vec3::new(20.0, 0.0, 0.0));
         o
     });
-    let r =
-        logic.get_able_to_attack_specific_object(aid, vid, AbleToAttackType::NewTarget, false);
+    let r = logic.get_able_to_attack_specific_object(aid, vid, AbleToAttackType::NewTarget, false);
     assert_eq!(r, CanAttackResult::Possible);
 }
 
@@ -987,8 +983,7 @@ fn able_to_attack_after_moving_when_oor() {
         o.set_position(Vec3::new(200.0, 0.0, 0.0));
         o
     });
-    let r =
-        logic.get_able_to_attack_specific_object(aid, vid, AbleToAttackType::NewTarget, false);
+    let r = logic.get_able_to_attack_specific_object(aid, vid, AbleToAttackType::NewTarget, false);
     assert_eq!(r, CanAttackResult::PossibleAfterMoving);
 }
 
@@ -1007,8 +1002,7 @@ fn able_to_attack_rejects_self() {
         });
         o
     });
-    let r =
-        logic.get_able_to_attack_specific_object(aid, aid, AbleToAttackType::NewTarget, false);
+    let r = logic.get_able_to_attack_specific_object(aid, aid, AbleToAttackType::NewTarget, false);
     assert_eq!(r, CanAttackResult::NotPossible);
 }
 
@@ -1049,12 +1043,7 @@ fn able_to_attack_stealth_blocks_unless_force() {
     // IGNORING_STEALTH or disguised. C++ force alone does not ignore stealth
     // for normal units.
     assert_eq!(
-        logic.get_able_to_attack_specific_object(
-            aid,
-            vid,
-            AbleToAttackType::NewTargetForced,
-            true
-        ),
+        logic.get_able_to_attack_specific_object(aid, vid, AbleToAttackType::NewTargetForced, true),
         CanAttackResult::NotPossible
     );
     logic.objects.get_mut(&aid).unwrap().status.ignoring_stealth = true;
@@ -1959,9 +1948,7 @@ fn wander_offset_oscillates() {
 
 #[test]
 fn wings_maintain_circles() {
-    use crate::game_logic::{
-        KindOf, LocomotorAppearance, Object, ObjectId, Team, ThingTemplate,
-    };
+    use crate::game_logic::{KindOf, LocomotorAppearance, Object, ObjectId, Team, ThingTemplate};
     use glam::Vec3;
     let mut t = ThingTemplate::new("Wing");
     t.add_kind_of(KindOf::Aircraft);
@@ -2002,9 +1989,7 @@ fn fix_invalid_position_pushes_off_cliff() {
 
 #[test]
 fn thrust_moves_toward_goal() {
-    use crate::game_logic::{
-        KindOf, LocomotorAppearance, Object, ObjectId, Team, ThingTemplate,
-    };
+    use crate::game_logic::{KindOf, LocomotorAppearance, Object, ObjectId, Team, ThingTemplate};
     use glam::Vec3;
     let mut t = ThingTemplate::new("Thr");
     t.add_kind_of(KindOf::Aircraft);
@@ -2020,9 +2005,7 @@ fn thrust_moves_toward_goal() {
 
 #[test]
 fn wheels_cap_speed_while_turning() {
-    use crate::game_logic::{
-        KindOf, LocomotorAppearance, Object, ObjectId, Team, ThingTemplate,
-    };
+    use crate::game_logic::{KindOf, LocomotorAppearance, Object, ObjectId, Team, ThingTemplate};
     use glam::Vec3;
     let mut t = ThingTemplate::new("Wheel");
     t.add_kind_of(KindOf::Vehicle);
@@ -2065,9 +2048,7 @@ fn ultra_accurate_adds_extra_friction() {
 
 #[test]
 fn rotate_towards_position_sets_turning() {
-    use crate::game_logic::{
-        KindOf, Object, ObjectId, PhysicsTurningType, Team, ThingTemplate,
-    };
+    use crate::game_logic::{KindOf, Object, ObjectId, PhysicsTurningType, Team, ThingTemplate};
     use glam::Vec3;
     let mut t = ThingTemplate::new("Rot");
     t.add_kind_of(KindOf::Vehicle);
@@ -2099,9 +2080,7 @@ fn maintain_position_scrubs_ground_velocity() {
 
 #[test]
 fn handle_behavior_z_sea_level_snaps() {
-    use crate::game_logic::{
-        KindOf, LocomotorBehaviorZ, Object, ObjectId, Team, ThingTemplate,
-    };
+    use crate::game_logic::{KindOf, LocomotorBehaviorZ, Object, ObjectId, Team, ThingTemplate};
     use glam::Vec3;
     let mut t = ThingTemplate::new("Sea");
     t.add_kind_of(KindOf::Vehicle);
@@ -2813,8 +2792,7 @@ fn shock_wave_impulse_applies_on_splash_impact() {
     if let Some(o) = logic.objects.get_mut(&v2) {
         o.movement.velocity = glam::Vec3::ZERO;
     }
-    let n =
-        logic.apply_shock_wave_at_impact(glam::Vec3::ZERO, Some("MOABDetonationWeapon"), None);
+    let n = logic.apply_shock_wave_at_impact(glam::Vec3::ZERO, Some("MOABDetonationWeapon"), None);
     assert!(n >= 1, "near victim shocked n={n}");
     let s1 = logic
         .objects
@@ -3339,8 +3317,7 @@ fn contact_weapon_approach_reaches_target_noncontact_stands_off() {
     let c_app =
         logic.approach_pos_for_attack(contact, tgt_pos, 5.0, Some("DozerMineDisarmingWeapon"));
     assert!((c_app - tgt_pos).length() < 1e-2, "contact → target");
-    let g_app =
-        logic.approach_pos_for_attack(gun, tgt_pos, 50.0, Some("AmericaTankCrusaderGun"));
+    let g_app = logic.approach_pos_for_attack(gun, tgt_pos, 50.0, Some("AmericaTankCrusaderGun"));
     let expected = compute_approach_target_pos(glam::Vec3::new(0.0, 0.0, 20.0), tgt_pos, 50.0);
     assert!(
         (g_app - expected).length() < 1.0,
@@ -3353,8 +3330,7 @@ fn contact_weapon_approach_reaches_target_noncontact_stands_off() {
 #[test]
 fn airfield_runway_reservation_limits_parallel_takeoff() {
     use crate::game_logic::host_dock_contain_exit_heal_residual::{
-        airfield_runway_count, PARKING_PLACE_AIRFIELD_HAS_RUNWAYS,
-        PARKING_PLACE_AIRFIELD_NUM_COLS,
+        airfield_runway_count, PARKING_PLACE_AIRFIELD_HAS_RUNWAYS, PARKING_PLACE_AIRFIELD_NUM_COLS,
     };
     assert!(PARKING_PLACE_AIRFIELD_HAS_RUNWAYS);
     assert_eq!(
@@ -3715,4 +3691,3 @@ fn target_pitch_gate_blocks_strategy_center_out_of_loft() {
         &lim
     ));
 }
-

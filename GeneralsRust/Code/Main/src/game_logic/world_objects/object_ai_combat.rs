@@ -366,7 +366,11 @@ impl GameLogic {
         true
     }
 
-    pub(in super::super) fn apply_active_shroud_upgrade_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
+    pub(in super::super) fn apply_active_shroud_upgrade_to_team(
+        &mut self,
+        team: Team,
+        upgrade_name: &str,
+    ) -> u32 {
         use crate::game_logic::host_active_shroud_upgrade::{
             peel_applies_to_template, peels_for_upgrade,
         };
@@ -398,7 +402,11 @@ impl GameLogic {
         n
     }
 
-    pub(in super::super) fn apply_passengers_fire_upgrade_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
+    pub(in super::super) fn apply_passengers_fire_upgrade_to_team(
+        &mut self,
+        team: Team,
+        upgrade_name: &str,
+    ) -> u32 {
         use crate::game_logic::host_passengers_fire_upgrade::should_enable_passengers_fire;
         if !crate::game_logic::host_passengers_fire_upgrade::is_passengers_fire_upgrade(
             upgrade_name,
@@ -425,7 +433,11 @@ impl GameLogic {
         n
     }
 
-    pub(in super::super) fn apply_status_bits_upgrade_to_team(&mut self, team: Team, upgrade_name: &str) -> u32 {
+    pub(in super::super) fn apply_status_bits_upgrade_to_team(
+        &mut self,
+        team: Team,
+        upgrade_name: &str,
+    ) -> u32 {
         use crate::game_logic::host_status_bits_upgrade::{
             peel_applies_to_template, peels_for_upgrade,
         };
@@ -461,7 +473,12 @@ impl GameLogic {
         touched
     }
 
-    pub(in super::super) fn apply_host_upgrade_complete(&mut self, team: Team, player_id: u32, upgrade_name: &str) {
+    pub(in super::super) fn apply_host_upgrade_complete(
+        &mut self,
+        team: Team,
+        player_id: u32,
+        upgrade_name: &str,
+    ) {
         use crate::game_logic::host_upgrades::HostUpgradeKind;
 
         let kind = HostUpgradeKind::from_name(upgrade_name);

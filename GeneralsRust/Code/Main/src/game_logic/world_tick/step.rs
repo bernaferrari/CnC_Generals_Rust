@@ -60,7 +60,11 @@ impl GameLogic {
         self.sim_timing_snapshot()
     }
 
-    pub(in super::super) fn step_simulation(&mut self, delta_time: f32, absolute_time: Option<f32>) {
+    pub(in super::super) fn step_simulation(
+        &mut self,
+        delta_time: f32,
+        absolute_time: Option<f32>,
+    ) {
         self.step_simulation_with_budget(delta_time, absolute_time, None);
     }
 
@@ -104,6 +108,7 @@ impl GameLogic {
             accumulated_time_seconds: self.accumulated_time,
         };
 
+        self.commit_dirty_host_objects_to_gameworld();
         self.process_destroy_list();
     }
 
@@ -132,6 +137,8 @@ impl GameLogic {
     /// Line 3799: m_frame++                            [increment]
     /// ```
     pub(in super::super) fn update_simulation(&mut self, dt: f32) {
+        // HashMap starts the tick as a GameWorld view (HP/pose/target/fat fields).
+        self.sync_authoritative_view_from_gameworld();
         // Pathfinding dynamic obstacles rebuild once per host logic frame.
         self.pathfinding_system.note_logic_frame(self.frame as u64);
         // -----------------------------------------------------------------------
@@ -857,23 +864,55 @@ impl GameLogic {
         // critical: objects update first, then AI observes new positions and
         // issues commands for the next frame.
         {
-            // 1. Update the legacy THE_AI singleton (pathfinder queue, groups).
-            if let Ok(mut ai) = THE_AI.write() {
-                if let Err(e) = ai.update(self.frame) {
-                    log::warn!("THE_AI update failed at frame {}: {:?}", self.frame, e);
+            // 1. THE_AI.update only drains the crate Pathfinder queue (it no
+            //    longer walks crate groups / ThePlayerList — that is AIManager).
+            // Host objects live in GameLogic.objects, not OBJECT_REGISTRY, so
+            // an empty crate world has no pathfinder work the host needs.
+            // Skip to avoid pretending this is the live AI tick. Host
+            // AIManager.update below remains the real TheAI residual.
+            let crate_world_empty = gamelogic::object::registry::OBJECT_REGISTRY.is_empty();
+            if !crate_world_empty {
+                if let Ok(mut ai) = THE_AI.write() {
+                    if let Err(e) = ai.update(self.frame) {
+                        log::warn!("THE_AI update failed at frame {}: {:?}", self.frame, e);
+                    }
                 }
+            } else {
+                static SKIP_THE_AI: std::sync::Once = std::sync::Once::new();
+                SKIP_THE_AI.call_once(|| {
+                    log::info!(
+                        "Skipping THE_AI.update: OBJECT_REGISTRY/crate world is empty; \
+                         crate pathfinder never sees host objects (host AIManager still runs)"
+                    );
+                });
             }
 
-            // 2. Update the AiIntegrationManager (per-player AIPlayer / SkirmishPlayer
-            //    updates including economy, construction, military decisions).
-            if let Some(result) = with_ai_integration_mut(|mgr| mgr.update_ai_players_only()) {
-                if let Err(e) = result {
-                    log::warn!(
-                        "AiIntegrationManager update failed at frame {}: {:?}",
-                        self.frame,
-                        e
-                    );
+            // 2. AiIntegrationManager (per-player crate AIPlayer / SkirmishPlayer).
+            // Skip when no host-registered crate AI players exist — an empty
+            // integration would dual-simulate nothing and must not replace
+            // host AIManager.update below.
+            let has_crate_ai_players = gamelogic::ai::integration::with_ai_integration(|mgr| {
+                mgr.get_ai_player_count() > 0
+            })
+            .unwrap_or(false);
+            if has_crate_ai_players {
+                if let Some(result) = with_ai_integration_mut(|mgr| mgr.update_ai_players_only()) {
+                    if let Err(e) = result {
+                        log::warn!(
+                            "AiIntegrationManager update failed at frame {}: {:?}",
+                            self.frame,
+                            e
+                        );
+                    }
                 }
+            } else {
+                static SKIP_AI_INTEGRATION: std::sync::Once = std::sync::Once::new();
+                SKIP_AI_INTEGRATION.call_once(|| {
+                    log::info!(
+                        "Skipping update_ai_players_only: no host-registered crate AI players \
+                         (host AIManager still runs)"
+                    );
+                });
             }
         }
 
@@ -913,9 +952,12 @@ impl GameLogic {
         {
             self.update_player_upgrades();
         }
-        if let Some(mut build_assistant) = get_build_assistant() {
-            build_assistant.update(self.frame);
-        }
+        // Skip crate BuildAssistant::update on the live tick. Its update() only
+        // walks an in-memory mock sell-list and never resolves host objects
+        // (Common/build_assistant.rs: "Mock object lookup - in real
+        // implementation this would find the object"). Host sell/production
+        // is update_production above. Keep the BuildAssistant type for C++
+        // parity / tests — do not delete it.
 
         // -----------------------------------------------------------------------
         // Phase 10: Player Resources

@@ -44,7 +44,7 @@ fn residual_action_store(a: ResidualHostSkirmishMapRejectShellAction) {
 }
 
 fn cnc_source() -> &'static str {
-    include_str!("../../cnc_game_engine.rs")
+    crate::cnc_game_engine::ENGINE_SRC
 }
 
 fn es_source() -> &'static str {
@@ -52,7 +52,9 @@ fn es_source() -> &'static str {
 }
 
 fn sm_source() -> &'static str {
-    include_str!("../../../../GameEngine/GameClient/src/gui/callbacks/skirmish_game_options_menu.rs")
+    include_str!(
+        "../../../../GameEngine/GameClient/src/gui/callbacks/skirmish_game_options_menu.rs"
+    )
 }
 
 pub fn honesty_host_skirmish_map_reject_shell_method_names_residual_wave840() -> bool {

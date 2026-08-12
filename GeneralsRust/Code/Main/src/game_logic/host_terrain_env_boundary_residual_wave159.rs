@@ -106,7 +106,7 @@ pub fn residual_terrain_env_boundary_ok() -> bool {
 }
 
 fn cnc_source() -> &'static str {
-    include_str!("../cnc_game_engine.rs")
+    crate::cnc_game_engine::ENGINE_SRC
 }
 
 /// Residual: heightmap helper is presentation-first (no or_else live dual-read).

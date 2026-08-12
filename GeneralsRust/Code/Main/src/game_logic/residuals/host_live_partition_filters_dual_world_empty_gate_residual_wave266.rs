@@ -103,7 +103,8 @@ fn fn_body<'a>(src: &'a str, name: &str) -> Option<&'a str> {
 
 /// Source residual: PartitionFilter empty dual-world short-circuits.
 pub fn honesty_partition_filters_dual_world_empty_gate_source() -> bool {
-    let g = include_str!("../../../../GameEngine/GameLogic/src/object/collide/partition_filters.rs");
+    let g =
+        include_str!("../../../../GameEngine/GameLogic/src/object/collide/partition_filters.rs");
     if !(g.contains("Wave 266")
         && g.contains("fn dual_world_registry_unavailable")
         && g.contains("OBJECT_REGISTRY.is_empty()"))

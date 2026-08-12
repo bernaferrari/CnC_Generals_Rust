@@ -44,22 +44,26 @@ impl HeaderTemplateManager {
 
     pub fn init(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         self.templates.clear();
-
-        let language = get_registry_language().as_str().to_string();
-        let mut path = format!("Data/{}/HeaderTemplate.ini", language);
-        let alt_path = format!("Data/{}/HeaderTemplate9x.ini", language);
-        if Path::new(&alt_path).exists() {
-            path = alt_path;
-        }
-
-        let mut ini = INI::new();
-        ini.load(path, INILoadType::Overwrite)?;
+        load_header_template_ini()?;
         self.populate_game_fonts();
         Ok(())
     }
 
+    /// Load INI into the global manager. Must not be called while that mutex is held.
+    pub fn load_ini_unlocked() -> Result<(), Box<dyn std::error::Error>> {
+        {
+            let mut manager = get_header_template_manager();
+            manager.templates.clear();
+        }
+        load_header_template_ini()?;
+        get_header_template_manager().populate_game_fonts();
+        Ok(())
+    }
+
     pub fn reset(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        self.init()
+        // Callers may hold the manager mutex. Clear here; INI reload is unlocked.
+        self.templates.clear();
+        Ok(())
     }
 
     pub fn find_header_template(&self, name: &str) -> Option<&HeaderTemplate> {
@@ -109,12 +113,25 @@ impl HeaderTemplateManager {
     }
 }
 
+fn header_template_ini_path() -> String {
+    let language = get_registry_language().as_str().to_string();
+    let path = format!("Data/{}/HeaderTemplate.ini", language);
+    let alt_path = format!("Data/{}/HeaderTemplate9x.ini", language);
+    if Path::new(&alt_path).exists() {
+        alt_path
+    } else {
+        path
+    }
+}
+
+fn load_header_template_ini() -> Result<(), Box<dyn std::error::Error>> {
+    let mut ini = INI::new();
+    ini.load(header_template_ini_path(), INILoadType::Overwrite)?;
+    Ok(())
+}
+
 static HEADER_TEMPLATE_MANAGER: OnceLock<Mutex<HeaderTemplateManager>> = OnceLock::new();
 static HEADER_TEMPLATE_PARSER: OnceLock<()> = OnceLock::new();
-
-thread_local! {
-    static ACTIVE_HEADER_TEMPLATE_MANAGER: std::cell::RefCell<Option<*mut HeaderTemplateManager>> = const { std::cell::RefCell::new(None) };
-}
 
 pub fn get_header_template_manager() -> std::sync::MutexGuard<'static, HeaderTemplateManager> {
     HEADER_TEMPLATE_MANAGER
@@ -129,18 +146,6 @@ pub fn register_parser() {
     });
 }
 
-pub fn set_active_manager(manager: *mut HeaderTemplateManager) {
-    ACTIVE_HEADER_TEMPLATE_MANAGER.with(|opt| {
-        *opt.borrow_mut() = Some(manager);
-    });
-}
-
-pub fn clear_active_manager() {
-    ACTIVE_HEADER_TEMPLATE_MANAGER.with(|opt| {
-        *opt.borrow_mut() = None;
-    });
-}
-
 fn parse_header_template_definition(ini: &mut INI) -> INIResult<()> {
     let tokens = ini.get_line_tokens();
     let name = tokens
@@ -149,26 +154,6 @@ fn parse_header_template_definition(ini: &mut INI) -> INIResult<()> {
         .find(|token| **token != "=")
         .ok_or(INIError::InvalidData)?
         .to_string();
-
-    let active_result: Option<INIResult<()>> = ACTIVE_HEADER_TEMPLATE_MANAGER.with(|opt| {
-        let borrowed = opt.borrow();
-        if let Some(ptr) = *borrowed {
-            let manager: &mut HeaderTemplateManager = unsafe { &mut *ptr };
-            if manager.find_header_template(&name).is_some() {
-                return Some(Err(INIError::InvalidData));
-            }
-            manager.add_template(HeaderTemplate::new(name.clone()));
-            let last_index = manager.templates.len().saturating_sub(1);
-            let template = &mut manager.templates[last_index];
-            Some(ini.init_from_ini_with_fields(template, HEADER_TEMPLATE_FIELD_PARSE_TABLE))
-        } else {
-            None
-        }
-    });
-
-    if let Some(result) = active_result {
-        return result;
-    }
 
     let mut manager = get_header_template_manager();
     if manager.find_header_template(&name).is_some() {

@@ -91,8 +91,8 @@ pub fn honesty_executable_rebuilt_vertical_gate_source() -> bool {
 
 /// Source residual: PresentationFrame primary flag + engine export.
 pub fn honesty_primary_objects_flag_source() -> bool {
-    let pf = include_str!("../../presentation_frame.rs");
-    let eng = include_str!("../../cnc_game_engine.rs");
+    let pf = crate::presentation_frame::PRESENTATION_FRAME_SRC;
+    let eng = crate::cnc_game_engine::ENGINE_SRC;
     pf.contains("pub gameworld_primary_objects: bool")
         && pf.contains("self.gameworld_primary_objects = n > 0")
         && eng.contains("gameworld_primary_objects")

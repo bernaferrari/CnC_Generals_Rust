@@ -4,7 +4,6 @@
 use super::super::*;
 
 impl GameLogic {
-
     /// Tick TurretAI idle-scan / HoldTurret / idle-recenter residual for
     /// Bombardment ACTIVE Strategy Centers.
     ///
@@ -368,7 +367,11 @@ impl GameLogic {
     }
 
     /// Apply FreeFallDamagePercent residual to one rider and leave freefalling.
-    pub(in super::super) fn apply_rider_free_fall_damage(&mut self, rider_id: ObjectId, eject_pos: glam::Vec3) -> bool {
+    pub(in super::super) fn apply_rider_free_fall_damage(
+        &mut self,
+        rider_id: ObjectId,
+        eject_pos: glam::Vec3,
+    ) -> bool {
         use crate::game_logic::host_usa_pilot::{
             free_fall_damage_amount, should_apply_parachute_free_fall_damage, HostDeathType,
             PILOT_FREE_FALL_DAMAGE_AUDIO,

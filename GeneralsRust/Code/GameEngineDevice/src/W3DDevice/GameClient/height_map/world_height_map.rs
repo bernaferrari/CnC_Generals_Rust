@@ -74,6 +74,32 @@ pub struct TBlendTileInfo {
     pub custom_blend_edge_class: i32,
 }
 
+/// C++ TileData.h inverted/flipped bits used by 3-way extra blend.
+pub const INVERTED_MASK: u8 = 0x1;
+pub const FLIPPED_MASK: u8 = 0x2;
+
+/// Result of C++ `WorldHeightMap::getExtraAlphaUVData`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ExtraAlphaUvData {
+    pub u: [f32; 4],
+    pub v: [f32; 4],
+    pub alpha: [u8; 4],
+    pub need_flip: bool,
+    pub cliff: bool,
+}
+
+impl Default for ExtraAlphaUvData {
+    fn default() -> Self {
+        Self {
+            u: [0.0; 4],
+            v: [0.0; 4],
+            alpha: [0; 4],
+            need_flip: false,
+            cliff: false,
+        }
+    }
+}
+
 // =============================================================================
 // CLIFF INFO
 // =============================================================================
@@ -685,6 +711,138 @@ impl WorldHeightMap {
             0
         }
     }
+    pub fn get_extra_blend_tile_ndx(&self, x_index: i32, y_index: i32) -> i16 {
+        let idx = (y_index * self.width + x_index) as usize;
+        if idx < self.extra_blend_tile_ndxes.len() {
+            self.extra_blend_tile_ndxes[idx]
+        } else {
+            0
+        }
+    }
+    pub fn extra_blend_tile_ndxes(&self) -> &[i16] {
+        &self.extra_blend_tile_ndxes
+    }
+    pub fn assign_extra_blend_tile_ndxes(&mut self, ndxes: Vec<i16>) {
+        self.extra_blend_tile_ndxes = ndxes;
+    }
+    pub fn extra_blended_tiles(&self) -> &[TBlendTileInfo] {
+        &self.extra_blended_tiles
+    }
+    pub fn extra_blended_tiles_mut(&mut self) -> &mut [TBlendTileInfo] {
+        &mut self.extra_blended_tiles
+    }
+    pub fn blended_tiles(&self) -> &[TBlendTileInfo] {
+        &self.blended_tiles
+    }
+    pub fn blended_tiles_mut(&mut self) -> &mut [TBlendTileInfo] {
+        &mut self.blended_tiles
+    }
+
+    /// C++ `WorldHeightMap::getExtraAlphaUVData` — true when extra blend ndx != 0.
+    pub fn get_extra_alpha_uv_data(
+        &self,
+        x_index: i32,
+        y_index: i32,
+    ) -> Option<ExtraAlphaUvData> {
+        let ndx = y_index * self.width + x_index;
+        if ndx < 0 || ndx >= self.data_size || self.tile_ndxes.is_empty() {
+            return None;
+        }
+        let blend_ndx = self
+            .extra_blend_tile_ndxes
+            .get(ndx as usize)
+            .copied()
+            .unwrap_or(0);
+        if blend_ndx == 0 {
+            return None;
+        }
+        let blend = if (blend_ndx as usize) < self.blended_tiles.len() {
+            self.blended_tiles[blend_ndx as usize]
+        } else if (blend_ndx as usize) < self.extra_blended_tiles.len() {
+            self.extra_blended_tiles[blend_ndx as usize]
+        } else {
+            return None;
+        };
+
+        let mut data = ExtraAlphaUvData::default();
+        // C++ getUVForTileIndex fills U/V; fallback is a unit cell.
+        data.u = [0.0, 1.0, 1.0, 0.0];
+        data.v = [0.0, 0.0, 1.0, 1.0];
+
+        if blend.horiz != 0 {
+            data.need_flip = (blend.inverted & FLIPPED_MASK) != 0;
+            if (blend.inverted & INVERTED_MASK) != 0 {
+                data.alpha[0] = 255;
+                data.alpha[3] = 255;
+            } else {
+                data.alpha[1] = 255;
+                data.alpha[2] = 255;
+            }
+        }
+        if blend.vert != 0 {
+            data.need_flip = (blend.inverted & FLIPPED_MASK) != 0;
+            if (blend.inverted & INVERTED_MASK) != 0 {
+                data.alpha[0] = 255;
+                data.alpha[1] = 255;
+            } else {
+                data.alpha[2] = 255;
+                data.alpha[3] = 255;
+            }
+        }
+        if blend.right_diagonal != 0 {
+            if (blend.inverted & INVERTED_MASK) != 0 {
+                data.alpha[1] = 255;
+                if blend.long_diagonal != 0 {
+                    data.alpha[0] = 255;
+                    data.alpha[2] = 255;
+                }
+            } else {
+                data.need_flip = true;
+                data.alpha[2] = 255;
+                if blend.long_diagonal != 0 {
+                    data.alpha[1] = 255;
+                    data.alpha[3] = 255;
+                }
+            }
+        }
+        if blend.left_diagonal != 0 {
+            if (blend.inverted & INVERTED_MASK) != 0 {
+                data.need_flip = true;
+                data.alpha[0] = 255;
+                if blend.long_diagonal != 0 {
+                    data.alpha[1] = 255;
+                    data.alpha[3] = 255;
+                }
+            } else {
+                data.alpha[3] = 255;
+                if blend.long_diagonal != 0 {
+                    data.alpha[0] = 255;
+                    data.alpha[2] = 255;
+                }
+            }
+        }
+        if blend.custom_blend_edge_class >= 0 {
+            data.alpha = [0, 0, 0, 0];
+            data.need_flip = false;
+        }
+        Some(data)
+    }
+
+    /// C++ `m_extraBlendTilePositions[n] = i | (j << 16)` for 3-way cells.
+    pub fn collect_extra_blend_tile_positions(&self) -> Vec<i32> {
+        if self.width < 2 || self.height < 2 {
+            return Vec::new();
+        }
+        let mut positions = Vec::new();
+        for j in 0..(self.height - 1) {
+            for i in 0..(self.width - 1) {
+                if self.get_extra_alpha_uv_data(i, j).is_some() {
+                    positions.push(i | (j << 16));
+                }
+            }
+        }
+        positions
+    }
     pub fn get_cliff_info_ndx(&self, x_index: i32, y_index: i32) -> i16 {
         let idx = (y_index * self.width + x_index) as usize;
         if idx < self.cliff_info_ndxes.len() {
@@ -809,5 +967,24 @@ impl WorldHeightMap {
 impl Default for WorldHeightMap {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn extra_blend_positions_pack_i_or_j_shift_16() {
+        let mut map = WorldHeightMap::with_dimensions(3, 3, 0);
+        let mut ndxes = vec![0i16; 9];
+        ndxes[0] = 1;
+        ndxes[4] = 1;
+        map.assign_extra_blend_tile_ndxes(ndxes);
+        map.blended_tiles_mut()[1].horiz = 1;
+        let positions = map.collect_extra_blend_tile_positions();
+        assert_eq!(positions, vec![0 | (0 << 16), 1 | (1 << 16)]);
+        assert!(map.get_extra_alpha_uv_data(0, 0).is_some());
+        assert!(map.get_extra_alpha_uv_data(1, 0).is_none());
     }
 }

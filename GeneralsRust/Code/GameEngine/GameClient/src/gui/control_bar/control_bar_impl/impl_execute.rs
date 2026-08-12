@@ -434,6 +434,23 @@ impl ControlBar {
             }
         }
 
+        self.bind_command_windows(context);
         Ok(())
+    }
+
+    /// C++ ControlBar.cpp:1086 — cache ButtonCommand01..14 and store the command
+    /// name on gadget user data (`GadgetButtonSetData`).
+    fn bind_command_windows(&self, context: &ControlBarContext) {
+        with_window_manager(|wm| {
+            for i in 0..14 {
+                let name = format!("ControlBar.wnd:ButtonCommand{:02}", i + 1);
+                let Some(win) = wm.find_window_by_name(&name) else {
+                    continue;
+                };
+                if let Some(cmd) = context.available_commands.get(i) {
+                    win.borrow_mut().set_user_data(cmd.command_name.clone());
+                }
+            }
+        });
     }
 }

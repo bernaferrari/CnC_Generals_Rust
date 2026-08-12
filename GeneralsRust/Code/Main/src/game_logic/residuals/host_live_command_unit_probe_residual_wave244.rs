@@ -106,7 +106,7 @@ fn fn_body<'a>(src: &'a str, name: &str) -> Option<&'a str> {
 /// Source residual: can_* / attack / classify use unit probes.
 pub fn honesty_command_unit_probe_source() -> bool {
     let gl = include_str!("../game_logic.rs");
-    let cs_full = include_str!("../../command_system.rs");
+    let cs_full = crate::command_system::COMMAND_SYSTEM_SRC;
     let cs = cs_full.split("#[cfg(test)]").next().unwrap_or(cs_full);
     if !(gl.contains("pub fn unit_team(")
         && gl.contains("pub fn unit_is_alive(")

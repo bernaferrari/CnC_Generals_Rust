@@ -1,6 +1,4 @@
 use super::*;
-use std::error::Error;
-use std::sync::Arc;
 use crate::display::image::{ensure_client_mapped_image, get_mapped_image_collection};
 use crate::display::view::{with_tactical_view_ref, Point3};
 use crate::draw_group_info::get_draw_group_info;
@@ -26,6 +24,8 @@ use gamelogic::helpers::{BoneOverrideState, ModelDrawState, TheGameClient};
 use gamelogic::object::registry::OBJECT_REGISTRY;
 use gamelogic::player::{Player, NO_HOTKEY_SQUAD, NUM_HOTKEY_SQUADS};
 use parking_lot::Mutex;
+use std::error::Error;
+use std::sync::Arc;
 
 impl BasicDrawable {
     /// Get mutable reference to icon info, creating if necessary
@@ -586,7 +586,7 @@ impl BasicDrawable {
         }
     }
 
-    fn is_object_kind_of(&self, kind: gamelogic::common::types::KindOf) -> bool {
+    pub(super) fn is_object_kind_of(&self, kind: gamelogic::common::types::KindOf) -> bool {
         // Wave 270/965: host empty dual-world → presentation kind residual.
         // Fail-closed when presentation kinds were never stamped.
         if dual_world_registry_unavailable() {
@@ -743,5 +743,4 @@ impl BasicDrawable {
         };
         Some((color.r, color.g, color.b))
     }
-
 }

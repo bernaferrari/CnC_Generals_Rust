@@ -2205,7 +2205,7 @@ mod tests {
                 && !w.contains("onStructureUndone residual deferred"),
             "adjust_build_list must call Player::onStructureUndone before pathfind remove + destroy"
         );
-        let player_src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/player.rs"));
+        let player_src = crate::player::PLAYER_SRC;
         assert!(
             player_src.contains("fn on_structure_undone")
                 && player_src.contains("remove_object_built_obj"),

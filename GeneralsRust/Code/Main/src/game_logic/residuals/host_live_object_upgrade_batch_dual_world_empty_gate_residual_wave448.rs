@@ -147,24 +147,31 @@ fn honesty_one(src: &str, fn_name: &str, expected_return_snip: &str) -> bool {
 pub fn honesty_object_upgrade_batch_dual_world_empty_gate_source() -> bool {
     let stealth =
         include_str!("../../../../GameEngine/GameLogic/src/object/upgrade/stealth_upgrade.rs");
-    let shroud =
-        include_str!("../../../../GameEngine/GameLogic/src/object/upgrade/active_shroud_upgrade.rs");
+    let shroud = include_str!(
+        "../../../../GameEngine/GameLogic/src/object/upgrade/active_shroud_upgrade.rs"
+    );
     let exp = include_str!(
         "../../../../GameEngine/GameLogic/src/object/upgrade/experience_scalar_upgrade.rs"
     );
-    let loco =
-        include_str!("../../../../GameEngine/GameLogic/src/object/upgrade/locomotor_set_upgrade.rs");
-    let science =
-        include_str!("../../../../GameEngine/GameLogic/src/object/upgrade/grant_science_upgrade.rs");
-    let cost =
-        include_str!("../../../../GameEngine/GameLogic/src/object/upgrade/cost_modifier_upgrade.rs");
-    let pax =
-        include_str!("../../../../GameEngine/GameLogic/src/object/upgrade/passengers_fire_upgrade.rs");
-    let model =
-        include_str!("../../../../GameEngine/GameLogic/src/object/upgrade/model_condition_upgrade.rs");
+    let loco = include_str!(
+        "../../../../GameEngine/GameLogic/src/object/upgrade/locomotor_set_upgrade.rs"
+    );
+    let science = include_str!(
+        "../../../../GameEngine/GameLogic/src/object/upgrade/grant_science_upgrade.rs"
+    );
+    let cost = include_str!(
+        "../../../../GameEngine/GameLogic/src/object/upgrade/cost_modifier_upgrade.rs"
+    );
+    let pax = include_str!(
+        "../../../../GameEngine/GameLogic/src/object/upgrade/passengers_fire_upgrade.rs"
+    );
+    let model = include_str!(
+        "../../../../GameEngine/GameLogic/src/object/upgrade/model_condition_upgrade.rs"
+    );
     let wbonus =
         include_str!("../../../../GameEngine/GameLogic/src/object/upgrade/weapon_bonus_upgrade.rs");
-    let radar = include_str!("../../../../GameEngine/GameLogic/src/object/upgrade/radar_upgrade.rs");
+    let radar =
+        include_str!("../../../../GameEngine/GameLogic/src/object/upgrade/radar_upgrade.rs");
     let cmd =
         include_str!("../../../../GameEngine/GameLogic/src/object/upgrade/command_set_upgrade.rs");
     let wset =

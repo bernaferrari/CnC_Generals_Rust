@@ -182,22 +182,18 @@
 
 //! Wave 957: host_object/host_objects authority dual-read seal.
 
+mod claim;
 mod helpers;
-#[path = "result/mod.rs"]
-mod result;
-#[path = "imports/mod.rs"]
+mod honesty;
+mod honesty_waves;
+mod host;
+mod hud;
 mod imports;
 mod maps;
-mod host;
 mod presentation;
-#[path = "honesty/mod.rs"]
-mod honesty;
-#[path = "honesty_waves/mod.rs"]
-mod honesty_waves;
-mod hud;
-mod shell;
-mod claim;
 mod report;
+mod result;
+mod shell;
 
 /// Concatenated shell_smoke sources for residual `include_str` scans.
 ///
@@ -206,18 +202,91 @@ mod report;
 #[cfg(any(test, feature = "host-residuals"))]
 pub const SHELL_SMOKE_SRC: &str = concat!(
     include_str!("mod.rs"),
-    include_str!("helpers.rs"),
-    include_str!("result.rs"),
-    include_str!("imports.rs"),
-    include_str!("maps.rs"),
-    include_str!("host.rs"),
-    include_str!("presentation.rs"),
-    include_str!("honesty.rs"),
-    include_str!("honesty_waves.rs"),
-    include_str!("hud.rs"),
-    include_str!("shell.rs"),
     include_str!("claim.rs"),
+    include_str!("helpers.rs"),
+    include_str!("host.rs"),
+    include_str!("hud.rs"),
+    include_str!("maps.rs"),
+    include_str!("presentation.rs"),
     include_str!("report.rs"),
+    include_str!("shell.rs"),
+    include_str!("honesty/mod.rs"),
+    include_str!("honesty/types.rs"),
+    include_str!("honesty/waves_121_160.rs"),
+    include_str!("honesty/waves_161_200.rs"),
+    include_str!("honesty/waves_201_240.rs"),
+    include_str!("honesty/waves_241_280.rs"),
+    include_str!("honesty/waves_281_320.rs"),
+    include_str!("honesty/waves_321_360.rs"),
+    include_str!("honesty/waves_361_400.rs"),
+    include_str!("honesty/waves_72_120.rs"),
+    include_str!("honesty_waves/mod.rs"),
+    include_str!("honesty_waves/types.rs"),
+    include_str!("honesty_waves/waves_401_440.rs"),
+    include_str!("honesty_waves/waves_441_480.rs"),
+    include_str!("honesty_waves/waves_481_520.rs"),
+    include_str!("honesty_waves/waves_521_560.rs"),
+    include_str!("honesty_waves/waves_561_600.rs"),
+    include_str!("honesty_waves/waves_601_640.rs"),
+    include_str!("honesty_waves/waves_641_680.rs"),
+    include_str!("honesty_waves/waves_681_720.rs"),
+    include_str!("honesty_waves/waves_721_760.rs"),
+    include_str!("honesty_waves/waves_761_800.rs"),
+    include_str!("honesty_waves/waves_801_840.rs"),
+    include_str!("honesty_waves/waves_841_880.rs"),
+    include_str!("honesty_waves/waves_881_920.rs"),
+    include_str!("honesty_waves/waves_921_941.rs"),
+    include_str!("imports/host_core.rs"),
+    include_str!("imports/host_waves_151_250.rs"),
+    include_str!("imports/host_waves_251_350.rs"),
+    include_str!("imports/host_waves_351_450.rs"),
+    include_str!("imports/host_waves_451_550.rs"),
+    include_str!("imports/host_waves_551_650.rs"),
+    include_str!("imports/host_waves_651_750.rs"),
+    include_str!("imports/host_waves_72_150.rs"),
+    include_str!("imports/host_waves_751_850.rs"),
+    include_str!("imports/host_waves_851_941.rs"),
+    include_str!("imports/mod.rs"),
+    include_str!("result/assemble.rs"),
+    include_str!("result/assign_claim.rs"),
+    include_str!("result/assign_core.rs"),
+    include_str!("result/assign_presentation.rs"),
+    include_str!("result/assign_waves_151_250.rs"),
+    include_str!("result/assign_waves_251_350.rs"),
+    include_str!("result/assign_waves_351_450.rs"),
+    include_str!("result/assign_waves_451_550.rs"),
+    include_str!("result/assign_waves_551_650.rs"),
+    include_str!("result/assign_waves_651_750.rs"),
+    include_str!("result/assign_waves_72_150.rs"),
+    include_str!("result/assign_waves_751_850.rs"),
+    include_str!("result/assign_waves_851_941.rs"),
+    include_str!("result/fields_claim.rs"),
+    include_str!("result/fields_core.rs"),
+    include_str!("result/fields_presentation.rs"),
+    include_str!("result/fields_waves_151_250.rs"),
+    include_str!("result/fields_waves_251_350.rs"),
+    include_str!("result/fields_waves_351_450.rs"),
+    include_str!("result/fields_waves_451_550.rs"),
+    include_str!("result/fields_waves_551_650.rs"),
+    include_str!("result/fields_waves_651_750.rs"),
+    include_str!("result/fields_waves_72_150.rs"),
+    include_str!("result/fields_waves_751_850.rs"),
+    include_str!("result/fields_waves_851_941.rs"),
+    include_str!("result/fill_claim.rs"),
+    include_str!("result/fill_core.rs"),
+    include_str!("result/fill_presentation.rs"),
+    include_str!("result/fill_waves_151_250.rs"),
+    include_str!("result/fill_waves_251_350.rs"),
+    include_str!("result/fill_waves_351_450.rs"),
+    include_str!("result/fill_waves_451_550.rs"),
+    include_str!("result/fill_waves_551_650.rs"),
+    include_str!("result/fill_waves_651_750.rs"),
+    include_str!("result/fill_waves_72_150.rs"),
+    include_str!("result/fill_waves_751_850.rs"),
+    include_str!("result/fill_waves_851_941.rs"),
+    include_str!("result/format_detail.rs"),
+    include_str!("result/mod.rs"),
+    include_str!("result/struct_def.rs"),
 );
 
 pub use report::format_shell_smoke_report;
@@ -234,7 +303,8 @@ mod tests;
 /// and exercises shell→InGame screen ownership (start_game_from_ui parity).
 pub fn run_shell_smoke(frames: u32) -> ShellSmokeResult {
     let host = host::run_host_session(frames);
-    let presentation = presentation::evaluate_presentation_residuals(&host.pres, host.presentation_ok);
+    let presentation =
+        presentation::evaluate_presentation_residuals(&host.pres, host.presentation_ok);
     let early = honesty::evaluate_early_honesty(&host.pres, host.presentation_ok);
     let waves = honesty_waves::evaluate_honesty_waves();
     let (hud_selection_ok, selection_consumers_ok) = hud::evaluate_selection_honesty(&host);

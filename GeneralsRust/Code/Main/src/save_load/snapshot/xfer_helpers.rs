@@ -8,7 +8,6 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::time::SystemTime;
 
-
 // ---------------------------------------------------------------------------
 // Helper functions for Vec/HashMap/Option xfer (dyn Xfer safe)
 // ---------------------------------------------------------------------------
@@ -394,4 +393,3 @@ impl XferData for Weapon {
 // ---------------------------------------------------------------------------
 // XferData implementations for snapshot types
 // ---------------------------------------------------------------------------
-

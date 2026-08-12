@@ -65,7 +65,7 @@ pub fn residual_host_fwwd_reaction_dual_peel_last_action() -> ResidualHostFwwdRe
     ResidualHostFwwdReactionDualPeelAction::from_u8(RESIDUAL_ACTION.load(Ordering::SeqCst))
 }
 fn sh_source() -> &'static str {
-    include_str!("../../gameworld_shadow.rs")
+    crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC
 }
 fn gl_source() -> &'static str {
     include_str!("../game_logic.rs")
@@ -83,7 +83,7 @@ pub fn honesty_host_fwwd_reaction_dual_peel_method_names_residual_wave779() -> b
 }
 pub fn honesty_host_fwwd_reaction_dual_peel_source_markers_residual_wave779() -> bool {
     let sh = sh_source();
-    let obj = include_str!("../object.rs");
+    let obj = crate::game_logic::object::OBJECT_SRC;
     let ent = include_str!("../../../../GameEngine/GameLogic/src/world/entities/mod.rs");
     let ok = ent.contains("fwwd_last_reaction_frame")
         && ent.contains("fwwd_reaction_damaged")
@@ -110,14 +110,14 @@ pub fn honesty_host_fwwd_reaction_dual_peel_nav_commands_residual_wave779() -> b
 pub fn simulate_host_fwwd_reaction_dual_peel_collect_source() -> bool {
     let ok = sh_source().contains("Wave 779")
         && sh_source().contains("fwwd_last_reaction_frame")
-        && include_str!("../object.rs").contains("Wave 779");
+        && crate::game_logic::object::OBJECT_SRC.contains("Wave 779");
     residual_action_store(ResidualHostFwwdReactionDualPeelAction::CollectSource);
     ok
 }
 pub fn simulate_host_fwwd_reaction_dual_peel_dispatch_source() -> bool {
     let ok = sh_source().contains("host_fwwd_reaction_log::record")
         && sh_source().contains("try_fwwd_reaction_for_host")
-        && include_str!("../object.rs").contains("gameworld_damage_authority_live")
+        && crate::game_logic::object::OBJECT_SRC.contains("gameworld_damage_authority_live")
         && sh_source().contains("apply_host_damage_events");
     residual_action_store(ResidualHostFwwdReactionDualPeelAction::DispatchSource);
     ok

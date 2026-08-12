@@ -2272,10 +2272,33 @@ mod rtb;
 mod status_bits;
 mod stealth;
 mod update;
-mod weapons;
 pub mod visual;
+mod weapons;
 
 pub use visual::ObjectVisualInfo;
 
 #[cfg(test)]
 mod tests;
+
+/// Concatenated live `object/*.rs` sources (excluding tests) for residual scans.
+pub const OBJECT_SRC: &str = concat!(
+    include_str!("mod.rs"),
+    include_str!("attack.rs"),
+    include_str!("bonuses.rs"),
+    include_str!("construct.rs"),
+    include_str!("damage.rs"),
+    include_str!("death.rs"),
+    include_str!("install.rs"),
+    include_str!("jets.rs"),
+    include_str!("orders.rs"),
+    include_str!("physics.rs"),
+    include_str!("physics_motion.rs"),
+    include_str!("pose.rs"),
+    include_str!("record.rs"),
+    include_str!("rtb.rs"),
+    include_str!("status_bits.rs"),
+    include_str!("stealth.rs"),
+    include_str!("update.rs"),
+    include_str!("visual.rs"),
+    include_str!("weapons.rs"),
+);

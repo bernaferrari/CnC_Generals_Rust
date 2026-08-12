@@ -98,7 +98,7 @@ fn ci_source() -> &'static str {
 }
 
 fn cs_source() -> &'static str {
-    include_str!("../../command_system.rs")
+    crate::command_system::COMMAND_SYSTEM_SRC
 }
 
 pub fn honesty_command_integration_presentation_fill_method_names_residual_wave531() -> bool {

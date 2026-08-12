@@ -132,125 +132,241 @@ pub(super) struct Waves481520 {
 
 pub(super) fn evaluate() -> Waves481520 {
     Waves481520 {
-        sell_deconstruction_sole_tick_no_stomp_method_names_wave481_ok: honesty_sell_deconstruction_sole_tick_no_stomp_method_names_residual_wave481(),
-        sell_deconstruction_sole_tick_no_stomp_nav_commands_wave481_ok: honesty_sell_deconstruction_sole_tick_no_stomp_nav_commands_residual_wave481(),
-        sell_deconstruction_sole_tick_no_stomp_live_wave481_ok: simulate_live_sell_deconstruction_sole_tick_no_stomp_honesty(),
-        sell_finish_skips_topple_destroy_method_names_wave482_ok: honesty_sell_finish_skips_topple_destroy_method_names_residual_wave482(),
-        sell_finish_skips_topple_destroy_nav_commands_wave482_ok: honesty_sell_finish_skips_topple_destroy_nav_commands_residual_wave482(),
-        sell_finish_skips_topple_destroy_live_wave482_ok: simulate_live_sell_finish_skips_topple_destroy_honesty(),
-        production_upgrade_complete_queue_refresh_method_names_wave483_ok: honesty_production_upgrade_complete_queue_refresh_method_names_residual_wave483(),
-        production_upgrade_complete_queue_refresh_nav_commands_wave483_ok: honesty_production_upgrade_complete_queue_refresh_nav_commands_residual_wave483(),
-        production_upgrade_complete_queue_refresh_live_wave483_ok: simulate_live_production_upgrade_complete_queue_refresh_honesty(),
-        cancel_all_production_queue_refresh_method_names_wave484_ok: honesty_cancel_all_production_queue_refresh_method_names_residual_wave484(),
-        cancel_all_production_queue_refresh_nav_commands_wave484_ok: honesty_cancel_all_production_queue_refresh_nav_commands_residual_wave484(),
-        cancel_all_production_queue_refresh_live_wave484_ok: simulate_live_cancel_all_production_queue_refresh_honesty(),
-        cancel_clears_exit_delay_method_names_wave485_ok: honesty_cancel_clears_exit_delay_method_names_residual_wave485(),
-        cancel_clears_exit_delay_nav_commands_wave485_ok: honesty_cancel_clears_exit_delay_nav_commands_residual_wave485(),
+        sell_deconstruction_sole_tick_no_stomp_method_names_wave481_ok:
+            honesty_sell_deconstruction_sole_tick_no_stomp_method_names_residual_wave481(),
+        sell_deconstruction_sole_tick_no_stomp_nav_commands_wave481_ok:
+            honesty_sell_deconstruction_sole_tick_no_stomp_nav_commands_residual_wave481(),
+        sell_deconstruction_sole_tick_no_stomp_live_wave481_ok:
+            simulate_live_sell_deconstruction_sole_tick_no_stomp_honesty(),
+        sell_finish_skips_topple_destroy_method_names_wave482_ok:
+            honesty_sell_finish_skips_topple_destroy_method_names_residual_wave482(),
+        sell_finish_skips_topple_destroy_nav_commands_wave482_ok:
+            honesty_sell_finish_skips_topple_destroy_nav_commands_residual_wave482(),
+        sell_finish_skips_topple_destroy_live_wave482_ok:
+            simulate_live_sell_finish_skips_topple_destroy_honesty(),
+        production_upgrade_complete_queue_refresh_method_names_wave483_ok:
+            honesty_production_upgrade_complete_queue_refresh_method_names_residual_wave483(),
+        production_upgrade_complete_queue_refresh_nav_commands_wave483_ok:
+            honesty_production_upgrade_complete_queue_refresh_nav_commands_residual_wave483(),
+        production_upgrade_complete_queue_refresh_live_wave483_ok:
+            simulate_live_production_upgrade_complete_queue_refresh_honesty(),
+        cancel_all_production_queue_refresh_method_names_wave484_ok:
+            honesty_cancel_all_production_queue_refresh_method_names_residual_wave484(),
+        cancel_all_production_queue_refresh_nav_commands_wave484_ok:
+            honesty_cancel_all_production_queue_refresh_nav_commands_residual_wave484(),
+        cancel_all_production_queue_refresh_live_wave484_ok:
+            simulate_live_cancel_all_production_queue_refresh_honesty(),
+        cancel_clears_exit_delay_method_names_wave485_ok:
+            honesty_cancel_clears_exit_delay_method_names_residual_wave485(),
+        cancel_clears_exit_delay_nav_commands_wave485_ok:
+            honesty_cancel_clears_exit_delay_nav_commands_residual_wave485(),
         cancel_clears_exit_delay_live_wave485_ok: simulate_live_cancel_clears_exit_delay_honesty(),
-        production_door_model_condition_log_method_names_wave486_ok: honesty_production_door_model_condition_log_method_names_residual_wave486(),
-        production_door_model_condition_log_nav_commands_wave486_ok: honesty_production_door_model_condition_log_nav_commands_residual_wave486(),
-        production_door_model_condition_log_live_wave486_ok: simulate_live_production_door_model_condition_log_honesty(),
-        combat_model_condition_channel_method_names_wave487_ok: honesty_combat_model_condition_channel_method_names_residual_wave487(),
-        combat_model_condition_channel_nav_commands_wave487_ok: honesty_combat_model_condition_channel_nav_commands_residual_wave487(),
-        combat_model_condition_channel_live_wave487_ok: simulate_live_combat_model_condition_channel_honesty(),
-        entity_presentation_model_condition_method_names_wave488_ok: honesty_entity_presentation_model_condition_method_names_residual_wave488(),
-        entity_presentation_model_condition_nav_commands_wave488_ok: honesty_entity_presentation_model_condition_nav_commands_residual_wave488(),
-        entity_presentation_model_condition_live_wave488_ok: simulate_live_entity_presentation_model_condition_honesty(),
-        entity_presentation_combat_ui_method_names_wave489_ok: honesty_entity_presentation_combat_ui_method_names_residual_wave489(),
-        entity_presentation_combat_ui_nav_commands_wave489_ok: honesty_entity_presentation_combat_ui_nav_commands_residual_wave489(),
-        entity_presentation_combat_ui_live_wave489_ok: simulate_live_entity_presentation_combat_ui_honesty(),
-        entity_presentation_structure_ui_method_names_wave490_ok: honesty_entity_presentation_structure_ui_method_names_residual_wave490(),
-        entity_presentation_structure_ui_nav_commands_wave490_ok: honesty_entity_presentation_structure_ui_nav_commands_residual_wave490(),
-        entity_presentation_structure_ui_live_wave490_ok: simulate_live_entity_presentation_structure_ui_honesty(),
-        presentation_mesh_sold_condition_method_names_wave491_ok: honesty_presentation_mesh_sold_condition_method_names_residual_wave491(),
-        presentation_mesh_sold_condition_nav_commands_wave491_ok: honesty_presentation_mesh_sold_condition_nav_commands_residual_wave491(),
-        presentation_mesh_sold_condition_live_wave491_ok: simulate_live_presentation_mesh_sold_condition_honesty(),
-        entity_presentation_mesh_fow_method_names_wave492_ok: honesty_entity_presentation_mesh_fow_method_names_residual_wave492(),
-        entity_presentation_mesh_fow_nav_commands_wave492_ok: honesty_entity_presentation_mesh_fow_nav_commands_residual_wave492(),
-        entity_presentation_mesh_fow_live_wave492_ok: simulate_live_entity_presentation_mesh_fow_honesty(),
-        entity_presentation_ground_bridge_method_names_wave493_ok: honesty_entity_presentation_ground_bridge_method_names_residual_wave493(),
-        entity_presentation_ground_bridge_nav_commands_wave493_ok: honesty_entity_presentation_ground_bridge_nav_commands_residual_wave493(),
-        entity_presentation_ground_bridge_live_wave493_ok: simulate_live_entity_presentation_ground_bridge_honesty(),
-        presentation_mesh_turret_method_names_wave494_ok: honesty_presentation_mesh_turret_method_names_residual_wave494(),
-        presentation_mesh_turret_nav_commands_wave494_ok: honesty_presentation_mesh_turret_nav_commands_residual_wave494(),
+        production_door_model_condition_log_method_names_wave486_ok:
+            honesty_production_door_model_condition_log_method_names_residual_wave486(),
+        production_door_model_condition_log_nav_commands_wave486_ok:
+            honesty_production_door_model_condition_log_nav_commands_residual_wave486(),
+        production_door_model_condition_log_live_wave486_ok:
+            simulate_live_production_door_model_condition_log_honesty(),
+        combat_model_condition_channel_method_names_wave487_ok:
+            honesty_combat_model_condition_channel_method_names_residual_wave487(),
+        combat_model_condition_channel_nav_commands_wave487_ok:
+            honesty_combat_model_condition_channel_nav_commands_residual_wave487(),
+        combat_model_condition_channel_live_wave487_ok:
+            simulate_live_combat_model_condition_channel_honesty(),
+        entity_presentation_model_condition_method_names_wave488_ok:
+            honesty_entity_presentation_model_condition_method_names_residual_wave488(),
+        entity_presentation_model_condition_nav_commands_wave488_ok:
+            honesty_entity_presentation_model_condition_nav_commands_residual_wave488(),
+        entity_presentation_model_condition_live_wave488_ok:
+            simulate_live_entity_presentation_model_condition_honesty(),
+        entity_presentation_combat_ui_method_names_wave489_ok:
+            honesty_entity_presentation_combat_ui_method_names_residual_wave489(),
+        entity_presentation_combat_ui_nav_commands_wave489_ok:
+            honesty_entity_presentation_combat_ui_nav_commands_residual_wave489(),
+        entity_presentation_combat_ui_live_wave489_ok:
+            simulate_live_entity_presentation_combat_ui_honesty(),
+        entity_presentation_structure_ui_method_names_wave490_ok:
+            honesty_entity_presentation_structure_ui_method_names_residual_wave490(),
+        entity_presentation_structure_ui_nav_commands_wave490_ok:
+            honesty_entity_presentation_structure_ui_nav_commands_residual_wave490(),
+        entity_presentation_structure_ui_live_wave490_ok:
+            simulate_live_entity_presentation_structure_ui_honesty(),
+        presentation_mesh_sold_condition_method_names_wave491_ok:
+            honesty_presentation_mesh_sold_condition_method_names_residual_wave491(),
+        presentation_mesh_sold_condition_nav_commands_wave491_ok:
+            honesty_presentation_mesh_sold_condition_nav_commands_residual_wave491(),
+        presentation_mesh_sold_condition_live_wave491_ok:
+            simulate_live_presentation_mesh_sold_condition_honesty(),
+        entity_presentation_mesh_fow_method_names_wave492_ok:
+            honesty_entity_presentation_mesh_fow_method_names_residual_wave492(),
+        entity_presentation_mesh_fow_nav_commands_wave492_ok:
+            honesty_entity_presentation_mesh_fow_nav_commands_residual_wave492(),
+        entity_presentation_mesh_fow_live_wave492_ok:
+            simulate_live_entity_presentation_mesh_fow_honesty(),
+        entity_presentation_ground_bridge_method_names_wave493_ok:
+            honesty_entity_presentation_ground_bridge_method_names_residual_wave493(),
+        entity_presentation_ground_bridge_nav_commands_wave493_ok:
+            honesty_entity_presentation_ground_bridge_nav_commands_residual_wave493(),
+        entity_presentation_ground_bridge_live_wave493_ok:
+            simulate_live_entity_presentation_ground_bridge_honesty(),
+        presentation_mesh_turret_method_names_wave494_ok:
+            honesty_presentation_mesh_turret_method_names_residual_wave494(),
+        presentation_mesh_turret_nav_commands_wave494_ok:
+            honesty_presentation_mesh_turret_nav_commands_residual_wave494(),
         presentation_mesh_turret_live_wave494_ok: simulate_live_presentation_mesh_turret_honesty(),
-        presentation_mesh_combat_flags_method_names_wave495_ok: honesty_presentation_mesh_combat_flags_method_names_residual_wave495(),
-        presentation_mesh_combat_flags_nav_commands_wave495_ok: honesty_presentation_mesh_combat_flags_nav_commands_residual_wave495(),
-        presentation_mesh_combat_flags_live_wave495_ok: simulate_live_presentation_mesh_combat_flags_honesty(),
-        presentation_mesh_door_phase_method_names_wave496_ok: honesty_presentation_mesh_door_phase_method_names_residual_wave496(),
-        presentation_mesh_door_phase_nav_commands_wave496_ok: honesty_presentation_mesh_door_phase_nav_commands_residual_wave496(),
-        presentation_mesh_door_phase_live_wave496_ok: simulate_live_presentation_mesh_door_phase_honesty(),
-        presentation_mesh_condition_resolve_method_names_wave497_ok: honesty_presentation_mesh_condition_resolve_method_names_residual_wave497(),
-        presentation_mesh_condition_resolve_nav_commands_wave497_ok: honesty_presentation_mesh_condition_resolve_nav_commands_residual_wave497(),
-        presentation_mesh_condition_resolve_live_wave497_ok: simulate_live_presentation_mesh_condition_resolve_honesty(),
-        presentation_host_fx_overlay_method_names_wave498_ok: honesty_presentation_host_fx_overlay_method_names_residual_wave498(),
-        presentation_host_fx_overlay_nav_commands_wave498_ok: honesty_presentation_host_fx_overlay_nav_commands_residual_wave498(),
-        presentation_host_fx_overlay_live_wave498_ok: simulate_live_presentation_host_fx_overlay_honesty(),
-        presentation_poison_defector_tint_method_names_wave499_ok: honesty_presentation_poison_defector_tint_method_names_residual_wave499(),
-        presentation_poison_defector_tint_nav_commands_wave499_ok: honesty_presentation_poison_defector_tint_nav_commands_residual_wave499(),
-        presentation_poison_defector_tint_live_wave499_ok: simulate_live_presentation_poison_defector_tint_honesty(),
-        presentation_object_fx_particles_method_names_wave500_ok: honesty_presentation_object_fx_particles_method_names_residual_wave500(),
-        presentation_object_fx_particles_nav_commands_wave500_ok: honesty_presentation_object_fx_particles_nav_commands_residual_wave500(),
-        presentation_object_fx_particles_live_wave500_ok: simulate_live_presentation_object_fx_particles_honesty(),
-        presentation_mesh_deploy_radar_method_names_wave501_ok: honesty_presentation_mesh_deploy_radar_method_names_residual_wave501(),
-        presentation_mesh_deploy_radar_nav_commands_wave501_ok: honesty_presentation_mesh_deploy_radar_nav_commands_residual_wave501(),
-        presentation_mesh_deploy_radar_live_wave501_ok: simulate_live_presentation_mesh_deploy_radar_honesty(),
-        presentation_stealth_mesh_method_names_wave502_ok: honesty_presentation_stealth_mesh_method_names_residual_wave502(),
-        presentation_stealth_mesh_nav_commands_wave502_ok: honesty_presentation_stealth_mesh_nav_commands_residual_wave502(),
-        presentation_stealth_mesh_live_wave502_ok: simulate_live_presentation_stealth_mesh_honesty(),
-        presentation_construction_disguise_method_names_wave503_ok: honesty_presentation_construction_disguise_method_names_residual_wave503(),
-        presentation_construction_disguise_nav_commands_wave503_ok: honesty_presentation_construction_disguise_nav_commands_residual_wave503(),
-        presentation_construction_disguise_live_wave503_ok: simulate_live_presentation_construction_disguise_honesty(),
-        presentation_garrison_contain_method_names_wave504_ok: honesty_presentation_garrison_contain_method_names_residual_wave504(),
-        presentation_garrison_contain_nav_commands_wave504_ok: honesty_presentation_garrison_contain_nav_commands_residual_wave504(),
-        presentation_garrison_contain_live_wave504_ok: simulate_live_presentation_garrison_contain_honesty(),
-        presentation_air_parachute_method_names_wave505_ok: honesty_presentation_air_parachute_method_names_residual_wave505(),
-        presentation_air_parachute_nav_commands_wave505_ok: honesty_presentation_air_parachute_nav_commands_residual_wave505(),
-        presentation_air_parachute_live_wave505_ok: simulate_live_presentation_air_parachute_honesty(),
-        presentation_weaponset_veterancy_method_names_wave506_ok: honesty_presentation_weaponset_veterancy_method_names_residual_wave506(),
-        presentation_weaponset_veterancy_nav_commands_wave506_ok: honesty_presentation_weaponset_veterancy_nav_commands_residual_wave506(),
-        presentation_weaponset_veterancy_live_wave506_ok: simulate_live_presentation_weaponset_veterancy_honesty(),
-        presentation_water_rider_method_names_wave507_ok: honesty_presentation_water_rider_method_names_residual_wave507(),
-        presentation_water_rider_nav_commands_wave507_ok: honesty_presentation_water_rider_nav_commands_residual_wave507(),
+        presentation_mesh_combat_flags_method_names_wave495_ok:
+            honesty_presentation_mesh_combat_flags_method_names_residual_wave495(),
+        presentation_mesh_combat_flags_nav_commands_wave495_ok:
+            honesty_presentation_mesh_combat_flags_nav_commands_residual_wave495(),
+        presentation_mesh_combat_flags_live_wave495_ok:
+            simulate_live_presentation_mesh_combat_flags_honesty(),
+        presentation_mesh_door_phase_method_names_wave496_ok:
+            honesty_presentation_mesh_door_phase_method_names_residual_wave496(),
+        presentation_mesh_door_phase_nav_commands_wave496_ok:
+            honesty_presentation_mesh_door_phase_nav_commands_residual_wave496(),
+        presentation_mesh_door_phase_live_wave496_ok:
+            simulate_live_presentation_mesh_door_phase_honesty(),
+        presentation_mesh_condition_resolve_method_names_wave497_ok:
+            honesty_presentation_mesh_condition_resolve_method_names_residual_wave497(),
+        presentation_mesh_condition_resolve_nav_commands_wave497_ok:
+            honesty_presentation_mesh_condition_resolve_nav_commands_residual_wave497(),
+        presentation_mesh_condition_resolve_live_wave497_ok:
+            simulate_live_presentation_mesh_condition_resolve_honesty(),
+        presentation_host_fx_overlay_method_names_wave498_ok:
+            honesty_presentation_host_fx_overlay_method_names_residual_wave498(),
+        presentation_host_fx_overlay_nav_commands_wave498_ok:
+            honesty_presentation_host_fx_overlay_nav_commands_residual_wave498(),
+        presentation_host_fx_overlay_live_wave498_ok:
+            simulate_live_presentation_host_fx_overlay_honesty(),
+        presentation_poison_defector_tint_method_names_wave499_ok:
+            honesty_presentation_poison_defector_tint_method_names_residual_wave499(),
+        presentation_poison_defector_tint_nav_commands_wave499_ok:
+            honesty_presentation_poison_defector_tint_nav_commands_residual_wave499(),
+        presentation_poison_defector_tint_live_wave499_ok:
+            simulate_live_presentation_poison_defector_tint_honesty(),
+        presentation_object_fx_particles_method_names_wave500_ok:
+            honesty_presentation_object_fx_particles_method_names_residual_wave500(),
+        presentation_object_fx_particles_nav_commands_wave500_ok:
+            honesty_presentation_object_fx_particles_nav_commands_residual_wave500(),
+        presentation_object_fx_particles_live_wave500_ok:
+            simulate_live_presentation_object_fx_particles_honesty(),
+        presentation_mesh_deploy_radar_method_names_wave501_ok:
+            honesty_presentation_mesh_deploy_radar_method_names_residual_wave501(),
+        presentation_mesh_deploy_radar_nav_commands_wave501_ok:
+            honesty_presentation_mesh_deploy_radar_nav_commands_residual_wave501(),
+        presentation_mesh_deploy_radar_live_wave501_ok:
+            simulate_live_presentation_mesh_deploy_radar_honesty(),
+        presentation_stealth_mesh_method_names_wave502_ok:
+            honesty_presentation_stealth_mesh_method_names_residual_wave502(),
+        presentation_stealth_mesh_nav_commands_wave502_ok:
+            honesty_presentation_stealth_mesh_nav_commands_residual_wave502(),
+        presentation_stealth_mesh_live_wave502_ok: simulate_live_presentation_stealth_mesh_honesty(
+        ),
+        presentation_construction_disguise_method_names_wave503_ok:
+            honesty_presentation_construction_disguise_method_names_residual_wave503(),
+        presentation_construction_disguise_nav_commands_wave503_ok:
+            honesty_presentation_construction_disguise_nav_commands_residual_wave503(),
+        presentation_construction_disguise_live_wave503_ok:
+            simulate_live_presentation_construction_disguise_honesty(),
+        presentation_garrison_contain_method_names_wave504_ok:
+            honesty_presentation_garrison_contain_method_names_residual_wave504(),
+        presentation_garrison_contain_nav_commands_wave504_ok:
+            honesty_presentation_garrison_contain_nav_commands_residual_wave504(),
+        presentation_garrison_contain_live_wave504_ok:
+            simulate_live_presentation_garrison_contain_honesty(),
+        presentation_air_parachute_method_names_wave505_ok:
+            honesty_presentation_air_parachute_method_names_residual_wave505(),
+        presentation_air_parachute_nav_commands_wave505_ok:
+            honesty_presentation_air_parachute_nav_commands_residual_wave505(),
+        presentation_air_parachute_live_wave505_ok:
+            simulate_live_presentation_air_parachute_honesty(),
+        presentation_weaponset_veterancy_method_names_wave506_ok:
+            honesty_presentation_weaponset_veterancy_method_names_residual_wave506(),
+        presentation_weaponset_veterancy_nav_commands_wave506_ok:
+            honesty_presentation_weaponset_veterancy_nav_commands_residual_wave506(),
+        presentation_weaponset_veterancy_live_wave506_ok:
+            simulate_live_presentation_weaponset_veterancy_honesty(),
+        presentation_water_rider_method_names_wave507_ok:
+            honesty_presentation_water_rider_method_names_residual_wave507(),
+        presentation_water_rider_nav_commands_wave507_ok:
+            honesty_presentation_water_rider_nav_commands_residual_wave507(),
         presentation_water_rider_live_wave507_ok: simulate_live_presentation_water_rider_honesty(),
-        presentation_body_disguise_stun_method_names_wave508_ok: honesty_presentation_body_disguise_stun_method_names_residual_wave508(),
-        presentation_body_disguise_stun_nav_commands_wave508_ok: honesty_presentation_body_disguise_stun_nav_commands_residual_wave508(),
-        presentation_body_disguise_stun_live_wave508_ok: simulate_live_presentation_body_disguise_stun_honesty(),
-        presentation_topple_freefall_weather_method_names_wave509_ok: honesty_presentation_topple_freefall_weather_method_names_residual_wave509(),
-        presentation_topple_freefall_weather_nav_commands_wave509_ok: honesty_presentation_topple_freefall_weather_nav_commands_residual_wave509(),
-        presentation_topple_freefall_weather_live_wave509_ok: simulate_live_presentation_topple_freefall_weather_honesty(),
-        presentation_capture_load_overcharge_method_names_wave510_ok: honesty_presentation_capture_load_overcharge_method_names_residual_wave510(),
-        presentation_capture_load_overcharge_nav_commands_wave510_ok: honesty_presentation_capture_load_overcharge_nav_commands_residual_wave510(),
-        presentation_capture_load_overcharge_live_wave510_ok: simulate_live_presentation_capture_load_overcharge_honesty(),
-        presentation_burn_cheer_carry_method_names_wave511_ok: honesty_presentation_burn_cheer_carry_method_names_residual_wave511(),
-        presentation_burn_cheer_carry_nav_commands_wave511_ok: honesty_presentation_burn_cheer_carry_nav_commands_residual_wave511(),
-        presentation_burn_cheer_carry_live_wave511_ok: simulate_live_presentation_burn_cheer_carry_honesty(),
-        presentation_fire_prone_turret_method_names_wave512_ok: honesty_presentation_fire_prone_turret_method_names_residual_wave512(),
-        presentation_fire_prone_turret_nav_commands_wave512_ok: honesty_presentation_fire_prone_turret_nav_commands_residual_wave512(),
-        presentation_fire_prone_turret_live_wave512_ok: simulate_live_presentation_fire_prone_turret_honesty(),
-        presentation_jam_die_reload_pack_method_names_wave513_ok: honesty_presentation_jam_die_reload_pack_method_names_residual_wave513(),
-        presentation_jam_die_reload_pack_nav_commands_wave513_ok: honesty_presentation_jam_die_reload_pack_nav_commands_residual_wave513(),
-        presentation_jam_die_reload_pack_live_wave513_ok: simulate_live_presentation_jam_die_reload_pack_honesty(),
-        presentation_emoticon_float_method_names_wave514_ok: honesty_presentation_emoticon_float_method_names_residual_wave514(),
-        presentation_emoticon_float_nav_commands_wave514_ok: honesty_presentation_emoticon_float_nav_commands_residual_wave514(),
-        presentation_emoticon_float_live_wave514_ok: simulate_live_presentation_emoticon_float_honesty(),
-        presentation_surrender_formation_method_names_wave515_ok: honesty_presentation_surrender_formation_method_names_residual_wave515(),
-        presentation_surrender_formation_nav_commands_wave515_ok: honesty_presentation_surrender_formation_nav_commands_residual_wave515(),
-        presentation_surrender_formation_live_wave515_ok: simulate_live_presentation_surrender_formation_honesty(),
-        presentation_formation_link_method_names_wave516_ok: honesty_presentation_formation_link_method_names_residual_wave516(),
-        presentation_formation_link_nav_commands_wave516_ok: honesty_presentation_formation_link_nav_commands_residual_wave516(),
-        presentation_formation_link_live_wave516_ok: simulate_live_presentation_formation_link_honesty(),
-        presentation_weapon_fire_slot_method_names_wave517_ok: honesty_presentation_weapon_fire_slot_method_names_residual_wave517(),
-        presentation_weapon_fire_slot_nav_commands_wave517_ok: honesty_presentation_weapon_fire_slot_nav_commands_residual_wave517(),
-        presentation_weapon_fire_slot_live_wave517_ok: simulate_live_presentation_weapon_fire_slot_honesty(),
-        presentation_weaponset_enemy_near_method_names_wave518_ok: honesty_presentation_weaponset_enemy_near_method_names_residual_wave518(),
-        presentation_weaponset_enemy_near_nav_commands_wave518_ok: honesty_presentation_weaponset_enemy_near_nav_commands_residual_wave518(),
-        presentation_weaponset_enemy_near_live_wave518_ok: simulate_live_presentation_weaponset_enemy_near_honesty(),
-        presentation_shock_power_jet_method_names_wave519_ok: honesty_presentation_shock_power_jet_method_names_residual_wave519(),
-        presentation_shock_power_jet_nav_commands_wave519_ok: honesty_presentation_shock_power_jet_nav_commands_residual_wave519(),
-        presentation_shock_power_jet_live_wave519_ok: simulate_live_presentation_shock_power_jet_honesty(),
-        presentation_anim_steer_method_names_wave520_ok: honesty_presentation_anim_steer_method_names_residual_wave520(),
-        presentation_anim_steer_nav_commands_wave520_ok: honesty_presentation_anim_steer_nav_commands_residual_wave520(),
+        presentation_body_disguise_stun_method_names_wave508_ok:
+            honesty_presentation_body_disguise_stun_method_names_residual_wave508(),
+        presentation_body_disguise_stun_nav_commands_wave508_ok:
+            honesty_presentation_body_disguise_stun_nav_commands_residual_wave508(),
+        presentation_body_disguise_stun_live_wave508_ok:
+            simulate_live_presentation_body_disguise_stun_honesty(),
+        presentation_topple_freefall_weather_method_names_wave509_ok:
+            honesty_presentation_topple_freefall_weather_method_names_residual_wave509(),
+        presentation_topple_freefall_weather_nav_commands_wave509_ok:
+            honesty_presentation_topple_freefall_weather_nav_commands_residual_wave509(),
+        presentation_topple_freefall_weather_live_wave509_ok:
+            simulate_live_presentation_topple_freefall_weather_honesty(),
+        presentation_capture_load_overcharge_method_names_wave510_ok:
+            honesty_presentation_capture_load_overcharge_method_names_residual_wave510(),
+        presentation_capture_load_overcharge_nav_commands_wave510_ok:
+            honesty_presentation_capture_load_overcharge_nav_commands_residual_wave510(),
+        presentation_capture_load_overcharge_live_wave510_ok:
+            simulate_live_presentation_capture_load_overcharge_honesty(),
+        presentation_burn_cheer_carry_method_names_wave511_ok:
+            honesty_presentation_burn_cheer_carry_method_names_residual_wave511(),
+        presentation_burn_cheer_carry_nav_commands_wave511_ok:
+            honesty_presentation_burn_cheer_carry_nav_commands_residual_wave511(),
+        presentation_burn_cheer_carry_live_wave511_ok:
+            simulate_live_presentation_burn_cheer_carry_honesty(),
+        presentation_fire_prone_turret_method_names_wave512_ok:
+            honesty_presentation_fire_prone_turret_method_names_residual_wave512(),
+        presentation_fire_prone_turret_nav_commands_wave512_ok:
+            honesty_presentation_fire_prone_turret_nav_commands_residual_wave512(),
+        presentation_fire_prone_turret_live_wave512_ok:
+            simulate_live_presentation_fire_prone_turret_honesty(),
+        presentation_jam_die_reload_pack_method_names_wave513_ok:
+            honesty_presentation_jam_die_reload_pack_method_names_residual_wave513(),
+        presentation_jam_die_reload_pack_nav_commands_wave513_ok:
+            honesty_presentation_jam_die_reload_pack_nav_commands_residual_wave513(),
+        presentation_jam_die_reload_pack_live_wave513_ok:
+            simulate_live_presentation_jam_die_reload_pack_honesty(),
+        presentation_emoticon_float_method_names_wave514_ok:
+            honesty_presentation_emoticon_float_method_names_residual_wave514(),
+        presentation_emoticon_float_nav_commands_wave514_ok:
+            honesty_presentation_emoticon_float_nav_commands_residual_wave514(),
+        presentation_emoticon_float_live_wave514_ok:
+            simulate_live_presentation_emoticon_float_honesty(),
+        presentation_surrender_formation_method_names_wave515_ok:
+            honesty_presentation_surrender_formation_method_names_residual_wave515(),
+        presentation_surrender_formation_nav_commands_wave515_ok:
+            honesty_presentation_surrender_formation_nav_commands_residual_wave515(),
+        presentation_surrender_formation_live_wave515_ok:
+            simulate_live_presentation_surrender_formation_honesty(),
+        presentation_formation_link_method_names_wave516_ok:
+            honesty_presentation_formation_link_method_names_residual_wave516(),
+        presentation_formation_link_nav_commands_wave516_ok:
+            honesty_presentation_formation_link_nav_commands_residual_wave516(),
+        presentation_formation_link_live_wave516_ok:
+            simulate_live_presentation_formation_link_honesty(),
+        presentation_weapon_fire_slot_method_names_wave517_ok:
+            honesty_presentation_weapon_fire_slot_method_names_residual_wave517(),
+        presentation_weapon_fire_slot_nav_commands_wave517_ok:
+            honesty_presentation_weapon_fire_slot_nav_commands_residual_wave517(),
+        presentation_weapon_fire_slot_live_wave517_ok:
+            simulate_live_presentation_weapon_fire_slot_honesty(),
+        presentation_weaponset_enemy_near_method_names_wave518_ok:
+            honesty_presentation_weaponset_enemy_near_method_names_residual_wave518(),
+        presentation_weaponset_enemy_near_nav_commands_wave518_ok:
+            honesty_presentation_weaponset_enemy_near_nav_commands_residual_wave518(),
+        presentation_weaponset_enemy_near_live_wave518_ok:
+            simulate_live_presentation_weaponset_enemy_near_honesty(),
+        presentation_shock_power_jet_method_names_wave519_ok:
+            honesty_presentation_shock_power_jet_method_names_residual_wave519(),
+        presentation_shock_power_jet_nav_commands_wave519_ok:
+            honesty_presentation_shock_power_jet_nav_commands_residual_wave519(),
+        presentation_shock_power_jet_live_wave519_ok:
+            simulate_live_presentation_shock_power_jet_honesty(),
+        presentation_anim_steer_method_names_wave520_ok:
+            honesty_presentation_anim_steer_method_names_residual_wave520(),
+        presentation_anim_steer_nav_commands_wave520_ok:
+            honesty_presentation_anim_steer_nav_commands_residual_wave520(),
         presentation_anim_steer_live_wave520_ok: simulate_live_presentation_anim_steer_honesty(),
     }
 }

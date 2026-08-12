@@ -13,8 +13,8 @@
 //! - Shadows and decals
 //!
 //! Split from the former monolithic `object/draw/w3d_model_draw.rs`.
-//! Public types and impls remain identical. The sibling `w3d_model_draw.rs`
-//! file is a scan dump only (not compiled).
+//! Public types and impls remain identical. Live module is `w3d_model_draw_impl/`
+//! via `#[path = "w3d_model_draw_impl/mod.rs"]`.
 
 #![allow(
     unused_imports,
@@ -53,3 +53,17 @@ include!("snapshot.rs");
 include!("parse.rs");
 include!("constants.rs");
 include!("tests.rs");
+
+/// Concatenated live sources for residual `include_str!` scans.
+pub const W3D_MODEL_DRAW_SRC: &str = concat!(
+    include_str!("mod.rs"),
+    include_str!("constants.rs"),
+    include_str!("draw.rs"),
+    include_str!("impl_anim.rs"),
+    include_str!("module_data.rs"),
+    include_str!("parse.rs"),
+    include_str!("recoil.rs"),
+    include_str!("snapshot.rs"),
+    include_str!("trait_impl.rs"),
+    include_str!("types.rs"),
+);

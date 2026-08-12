@@ -94,7 +94,7 @@ fn game_logic_source() -> &'static str {
 }
 
 fn shadow_source() -> &'static str {
-    include_str!("../../gameworld_shadow.rs")
+    crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC
 }
 
 pub fn honesty_projectile_authority_flare_host_method_names_residual_wave470() -> bool {

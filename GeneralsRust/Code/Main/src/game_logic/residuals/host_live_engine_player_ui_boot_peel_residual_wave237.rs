@@ -100,7 +100,7 @@ fn fn_body<'a>(src: &'a str, name: &str) -> Option<&'a str> {
 
 /// Source residual: defeat/load/reset use ui_player helpers (Wave 237 markers).
 pub fn honesty_engine_player_ui_boot_peel_source() -> bool {
-    let eng = include_str!("../../cnc_game_engine.rs");
+    let eng = crate::cnc_game_engine::ENGINE_SRC;
     if !(eng.contains("fn ui_player_info(") && eng.contains("fn ui_player_team(")) {
         return false;
     }

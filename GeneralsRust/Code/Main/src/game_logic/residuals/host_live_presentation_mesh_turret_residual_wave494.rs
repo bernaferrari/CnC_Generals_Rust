@@ -89,7 +89,7 @@ pub fn residual_presentation_mesh_turret_last_action() -> ResidualPresentationMe
 }
 
 fn pf_source() -> &'static str {
-    include_str!("../../presentation_frame.rs")
+    crate::presentation_frame::PRESENTATION_FRAME_SRC
 }
 
 pub fn honesty_presentation_mesh_turret_method_names_residual_wave494() -> bool {

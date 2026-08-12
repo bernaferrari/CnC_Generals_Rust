@@ -92,7 +92,7 @@ pub fn residual_entity_presentation_model_condition_last_action(
 }
 
 fn pf_source() -> &'static str {
-    include_str!("../../presentation_frame.rs")
+    crate::presentation_frame::PRESENTATION_FRAME_SRC
 }
 
 fn entity_source() -> &'static str {

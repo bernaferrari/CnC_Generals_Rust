@@ -59,26 +59,42 @@
 // Wave 956: host_object/host_objects authority dual-read seal.
 //! Wave 957: host_object/host_objects authority dual-read seal.
 
-mod types;
-mod xfer_helpers;
+mod ai;
+mod builder;
+mod game_state;
+mod load_post_process;
 mod object;
 mod player;
-mod terrain;
-mod game_state;
-mod ai;
-mod special_powers;
-mod load_post_process;
-mod builder;
 mod restore;
+mod special_powers;
+mod terrain;
+mod types;
+mod xfer_helpers;
 
 #[cfg(test)]
 mod tests;
 
-pub use types::*;
+pub use ai::*;
+pub use builder::*;
+pub use game_state::*;
 pub use object::*;
 pub use player::*;
-pub use terrain::*;
-pub use game_state::*;
-pub use ai::*;
 pub use special_powers::*;
-pub use builder::*;
+pub use terrain::*;
+pub use types::*;
+
+/// Concatenated live snapshot sources for residual `include_str` scans.
+pub const SNAPSHOT_SRC: &str = concat!(
+    include_str!("mod.rs"),
+    include_str!("ai.rs"),
+    include_str!("builder.rs"),
+    include_str!("game_state.rs"),
+    include_str!("load_post_process.rs"),
+    include_str!("object.rs"),
+    include_str!("player.rs"),
+    include_str!("restore.rs"),
+    include_str!("special_powers.rs"),
+    include_str!("terrain.rs"),
+    include_str!("types.rs"),
+    include_str!("xfer_helpers.rs"),
+);

@@ -113,7 +113,8 @@ fn fn_body<'a>(src: &'a str, name: &str) -> Option<&'a str> {
 
 /// Source residual: PowerPlantUpgrade empty dual-world short-circuits.
 pub fn honesty_power_plant_upgrade_dual_world_empty_gate_source() -> bool {
-    let g = include_str!("../../../../GameEngine/GameLogic/src/object/upgrade/power_plant_upgrade.rs");
+    let g =
+        include_str!("../../../../GameEngine/GameLogic/src/object/upgrade/power_plant_upgrade.rs");
     if !(g.contains("Wave 437")
         && g.contains("fn dual_world_registry_unavailable")
         && g.contains("OBJECT_REGISTRY.is_empty()"))
