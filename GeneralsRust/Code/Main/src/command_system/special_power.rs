@@ -226,8 +226,99 @@ pub enum SpecialPowerType {
     Invalid,
 }
 
+/// Resolve an exact retail `CommandButton.ini` `SpecialPower` name.
+///
+/// Command buttons carry the INI identity as text, whereas the authoritative
+/// host uses [`SpecialPowerType`].  Keeping this conversion in one explicit
+/// table avoids treating an arbitrary legacy numeric ID, condition suffix, or
+/// fuzzy name match as a valid power.  Separator/case differences are benign;
+/// every accepted key is otherwise a real retail name from CommandButton.ini.
+pub fn special_power_type_from_template_name(name: &str) -> Option<SpecialPowerType> {
+    let key: String = name
+        .chars()
+        .filter(|character| character.is_ascii_alphanumeric())
+        .map(|character| character.to_ascii_lowercase())
+        .collect();
+
+    use SpecialPowerType as Power;
+    Some(match key.as_str() {
+        "airfsuperweapona10thunderboltmissilestrike" => Power::AirForceAirstrike,
+        "airfsuperweaponcarpetbomb" => Power::AirForceCarpetBomb,
+        "airfsuperweaponspectregunship" => Power::AirForceSpectreGunship,
+        "demospecialabilitydemokelltimedcharges" => Power::DemoKellTimedCharges,
+        "demospecialabilitydemorebeltimedcharges" => Power::DemoRebelTimedCharges,
+        "demospecialabilitykellremotecharges" => Power::DemoKellRemoteCharges,
+        "earlysuperweaponchinacarpetbomb" => Power::EarlyChinaCarpetBomb,
+        "earlysuperweaponemergencyrepair" => Power::EarlyEmergencyRepair,
+        "earlysuperweaponfrenzy" => Power::EarlyFrenzy,
+        "earlysuperweaponleafletdrop" => Power::EarlyLeafletDrop,
+        "infasuperweaponinfantryparadrop" => Power::InfantryParadrop,
+        "lazrlasercannon" => Power::LaserCannon,
+        "lazrspecialabilitylaserguidedhowitzer" => Power::LaserGuidedHowitzer,
+        "nukespecialabilityhelixnukebomb" => Power::HelixNukeBomb,
+        "nukesuperweaponchinacarpetbomb" => Power::NukeChinaCarpetBomb,
+        "nukesuperweaponneutronmissile" => Power::NukeNeutronMissile,
+        "nukesuperweaponnukedrop" => Power::NukeDrop,
+        "slthsuperweapongpsscrambler" => Power::StealthGpsScrambler,
+        "specialabilityambulancecleanuparea" => Power::CleanupArea,
+        "specialabilityblacklotuscapturebuilding" => Power::BlackLotusCaptureBuilding,
+        "specialabilityblacklotusdisablevehiclehack" => Power::BlackLotusDisableVehicle,
+        "specialabilityblacklotusstealcashhack" => Power::BlackLotusStealCash,
+        "specialabilitycolonelburtonremotecharges" => Power::BurtonRemoteCharges,
+        "specialabilitycolonelburtontimedcharges" => Power::BurtonTimedCharges,
+        "specialabilitydisguiseasvehicle" => Power::DisguiseAsVehiclePower,
+        "specialabilityhackerdisablebuilding" => Power::HackerDisableBuilding,
+        "specialabilityhelixnapalmbomb" => Power::HelixNapalmBomb,
+        "specialabilitymicrowavedisablebuilding" => Power::MicrowaveDisableBuilding,
+        "specialabilitymissiledefenderlaserguidedmissiles" => {
+            Power::MissileDefenderLaserGuided
+        }
+        "specialabilityrangercapturebuilding" => Power::RangerCaptureBuilding,
+        "specialabilityrebelcapturebuilding" => Power::RebelCaptureBuilding,
+        "specialabilityredguardcapturebuilding" => Power::RedGuardCaptureBuilding,
+        "specialabilitytankhuntertntattack" => Power::TankHunterTnt,
+        "specialpowerbattleshipbombardment" => Power::BattleshipBombardment,
+        "specialpowercommunicationsdownload" => Power::CommunicationsDownload,
+        "specialpowerradarvanscan" => Power::RadarScan,
+        "specialpowerspydrone" => Power::SpyDrone,
+        "specialpowerspysatellite" => Power::SpySatellite,
+        "superweapona10thunderboltmissilestrike" => Power::Airstrike,
+        "superweaponanthraxbomb" => Power::AnthraxBomb,
+        "superweaponartillerybarrage" => Power::Artillery,
+        "superweaponcarpetbomb" | "superweaponchinacarpetbomb" => Power::CarpetBomb,
+        "superweaponcashhack" => Power::CashHack,
+        "superweaponciaintelligence" => Power::CiaIntelligence,
+        "superweaponclustermines" => Power::ClusterMines,
+        "superweaponcratedrop" => Power::CrateDrop,
+        "superweapondaisycutter" => Power::DaisyCutter,
+        "superweaponemergencyrepair" => Power::EmergencyRepair,
+        "superweaponemppulse" => Power::EmpPulse,
+        "superweaponfrenzy" => Power::Frenzy,
+        "superweapongpsscrambler" => Power::GpsScrambler,
+        "superweaponlaunchbaikonurrocket" => Power::BaikonurRocket,
+        "superweaponleafletdrop" => Power::LeafletDrop,
+        "superweaponnapalmstrike" => Power::NapalmStrike,
+        "superweaponneutronmissile" => Power::NuclearMissile,
+        "superweaponparadropamerica" => Power::Paradrop,
+        "superweaponparticleuplinkcannon" => Power::ParticleCannon,
+        "superweaponrebelambush" => Power::Ambush,
+        "superweaponscudstorm" => Power::ScudStorm,
+        "superweaponsneakattack" => Power::SneakAttack,
+        "superweaponspectregunship" => Power::SpectreGunship,
+        "superweaponterrorcell" => Power::TerrorCell,
+        "supwcruisemissile" => Power::CruiseMissile,
+        "supwsuperweaponneutronmissile" => Power::SuperweaponNeutronMissile,
+        "tanksuperweapontankparadrop" => Power::TankParadrop,
+        // These two retail names are represented by target-command variants
+        // rather than a SpecialPowerType.  The Control Bar host bridge handles
+        // them separately and must not guess a nearby power here.
+        "specialabilityboobytrap" | "specialabilitychangebattleplans" => return None,
+        _ => return None,
+    })
+}
+
 /// Weapon slot identifiers
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum WeaponSlot {
     Primary,
     Secondary,

@@ -2898,7 +2898,13 @@ fn locate_map_file(map_name: &str) -> Option<PathBuf> {
         }
     }
 
-    None
+    // The generic asset resolver covers mounted filesystems and common map
+    // paths.  A retail install extracted under `windows_game/MapsZH/Maps`
+    // stores a map in a same-named directory (including spaces), so use the
+    // shared offline retail resolver as the final exact-name lookup.  This is
+    // deliberately not a gameplay fallback: `None` still means the requested
+    // map cannot be loaded.
+    super::resolve_retail_map_path(trimmed)
 }
 
 fn build_relative_candidates(input: &str) -> Vec<PathBuf> {

@@ -146,6 +146,61 @@ pub struct TextLayout {
     pub single_line: bool,
 }
 
+/// Per-frame CPU-side UI command state.
+///
+/// The Main host updates some presentation UI (selection bars and drawable
+/// icon UI) before the WGPU post-scene overlay pass starts.  Those commands
+/// belong to the upcoming frame, not the previous one.  Keeping the frame
+/// state separate makes that distinction explicit without borrowing the
+/// renderer through a global/raw-pointer re-entry path.
+#[derive(Default)]
+struct UIFrameBuffers {
+    draw_commands: Vec<UIDrawCommand>,
+    vertex_data: Vec<UIVertex>,
+    index_data: Vec<u32>,
+    instance_data: Vec<UIInstance>,
+    open: bool,
+}
+
+impl UIFrameBuffers {
+    fn clear_scratch(&mut self) {
+        self.vertex_data.clear();
+        self.index_data.clear();
+        self.instance_data.clear();
+    }
+
+    fn clear_all(&mut self) {
+        self.draw_commands.clear();
+        self.clear_scratch();
+    }
+
+    /// Start a self-contained frame, dropping all previously queued work.
+    fn begin_fresh(&mut self) {
+        self.clear_all();
+        self.open = true;
+    }
+
+    /// Start Main's post-scene overlay frame.
+    ///
+    /// A closed frame may already contain presentation commands emitted during
+    /// the update phase.  Preserve those commands so the WND traversal can
+    /// append to them.  An already-open frame was abandoned (for example by a
+    /// prior UI failure), so discard it rather than leaking stale commands.
+    fn begin_overlay(&mut self) {
+        if self.open {
+            self.clear_all();
+        } else {
+            self.clear_scratch();
+        }
+        self.open = true;
+    }
+
+    fn end(&mut self) {
+        self.clear_all();
+        self.open = false;
+    }
+}
+
 /// Text alignment options
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TextAlignment {
@@ -210,10 +265,7 @@ pub struct UIRenderer {
     current_time: f32,
 
     // Command batching
-    draw_commands: Vec<UIDrawCommand>,
-    vertex_data: Vec<UIVertex>,
-    index_data: Vec<u32>,
-    instance_data: Vec<UIInstance>,
+    frame_buffers: UIFrameBuffers,
 
     // Performance statistics
     last_frame_stats: RenderStats,
@@ -574,10 +626,7 @@ impl UIRenderer {
             screen_size: (800, 600),
             view_projection: Mat4::IDENTITY,
             current_time: 0.0,
-            draw_commands: Vec::new(),
-            vertex_data: Vec::new(),
-            index_data: Vec::new(),
-            instance_data: Vec::new(),
+            frame_buffers: UIFrameBuffers::default(),
             last_frame_stats: RenderStats::default(),
         })
     }
@@ -587,16 +636,14 @@ impl UIRenderer {
         // previously requested multi-GB UI buffers and aborted the process
         // (wgpu Validation Error: Buffer size > max buffer size).
         const MAX_UI_INDICES: usize = 1 << 21;
-        let required_vertices = self.vertex_data.len();
+        let required_vertices = self.frame_buffers.vertex_data.len();
         if required_vertices > Self::MAX_UI_VERTICES {
             log::error!(
                 "UI vertex flood ({} > {}); clearing draw geometry to fail closed",
                 required_vertices,
                 Self::MAX_UI_VERTICES
             );
-            self.vertex_data.clear();
-            self.index_data.clear();
-            self.draw_commands.clear();
+            self.frame_buffers.clear_all();
             return;
         }
         if required_vertices > self.vertex_capacity {
@@ -613,16 +660,14 @@ impl UIRenderer {
             self.vertex_capacity = new_capacity;
         }
 
-        let required_indices = self.index_data.len();
+        let required_indices = self.frame_buffers.index_data.len();
         if required_indices > MAX_UI_INDICES {
             log::error!(
                 "UI index flood ({} > {}); clearing draw geometry to fail closed",
                 required_indices,
                 MAX_UI_INDICES
             );
-            self.vertex_data.clear();
-            self.index_data.clear();
-            self.draw_commands.clear();
+            self.frame_buffers.clear_all();
             return;
         }
         if required_indices > self.index_capacity {
@@ -656,10 +701,22 @@ impl UIRenderer {
 
     /// Begin a new frame
     pub fn begin_frame(&mut self) {
-        self.draw_commands.clear();
-        self.vertex_data.clear();
-        self.index_data.clear();
-        self.instance_data.clear();
+        self.frame_buffers.begin_fresh();
+    }
+
+    /// Begin Main's WGPU overlay pass without discarding presentation commands
+    /// queued earlier in this same app frame.
+    ///
+    /// The normal display path should use [`Self::begin_frame`].  This variant
+    /// is for Main's sole-present path, where GameClient updates selection and
+    /// drawable UI before the post-scene WND traversal happens.
+    pub fn begin_overlay_frame(&mut self) {
+        self.frame_buffers.begin_overlay();
+    }
+
+    /// Whether a UI frame is currently open and needs cleanup.
+    pub fn is_frame_open(&self) -> bool {
+        self.frame_buffers.open
     }
 
     /// GPU triangle list for a gadget fill rect (two triangles, C++ StretchRect).
@@ -689,15 +746,15 @@ impl UIRenderer {
     pub const MAX_UI_VERTICES: usize = 1 << 20;
 
     fn push_draw_command(&mut self, command: UIDrawCommand) {
-        if self.draw_commands.len() >= Self::MAX_DRAW_COMMANDS_PER_FRAME {
+        if self.frame_buffers.draw_commands.len() >= Self::MAX_DRAW_COMMANDS_PER_FRAME {
             return;
         }
-        self.draw_commands.push(command);
+        self.frame_buffers.draw_commands.push(command);
     }
 
     /// Add a rectangle draw command
     pub fn draw_rect(&mut self, rect: UIRect, color: [f32; 4], z_order: f32) {
-        if self.draw_commands.len() >= Self::MAX_DRAW_COMMANDS_PER_FRAME {
+        if self.frame_buffers.draw_commands.len() >= Self::MAX_DRAW_COMMANDS_PER_FRAME {
             return;
         }
         let (positions, uvs, colors, indices) =
@@ -732,7 +789,7 @@ impl UIRenderer {
         tex_rect: Option<UIRect>,
         z_order: f32,
     ) {
-        if self.draw_commands.len() >= Self::MAX_DRAW_COMMANDS_PER_FRAME {
+        if self.frame_buffers.draw_commands.len() >= Self::MAX_DRAW_COMMANDS_PER_FRAME {
             return;
         }
         let tex_rect = tex_rect.unwrap_or(UIRect::new(0.0, 0.0, 1.0, 1.0));
@@ -1138,7 +1195,7 @@ impl UIRenderer {
             .write_buffer(&self.uniform_buffer, 0, bytemuck::cast_slice(&[uniforms]));
 
         // Sort draw commands by z-order
-        self.draw_commands.sort_by(|a, b| {
+        self.frame_buffers.draw_commands.sort_by(|a, b| {
             a.z_order
                 .partial_cmp(&b.z_order)
                 .unwrap_or(std::cmp::Ordering::Equal)
@@ -1150,24 +1207,28 @@ impl UIRenderer {
 
         // Combine all vertex and index data and track per-command index spans.
         let mut vertex_offset = 0u32;
-        let mut command_ranges: Vec<(u32, u32)> = Vec::with_capacity(self.draw_commands.len());
-        for command in &self.draw_commands {
-            if self.vertex_data.len() + command.vertices.len() > Self::MAX_UI_VERTICES {
+        let mut command_ranges: Vec<(u32, u32)> =
+            Vec::with_capacity(self.frame_buffers.draw_commands.len());
+        for command in &self.frame_buffers.draw_commands {
+            if self.frame_buffers.vertex_data.len() + command.vertices.len() > Self::MAX_UI_VERTICES
+            {
                 log::error!(
                     "UI vertex flood ({} + {} > {}); dropping remaining commands",
-                    self.vertex_data.len(),
+                    self.frame_buffers.vertex_data.len(),
                     command.vertices.len(),
                     Self::MAX_UI_VERTICES
                 );
                 break;
             }
             let base_vertex = vertex_offset;
-            let start = self.index_data.len() as u32;
+            let start = self.frame_buffers.index_data.len() as u32;
 
-            self.vertex_data.extend_from_slice(&command.vertices);
+            self.frame_buffers
+                .vertex_data
+                .extend_from_slice(&command.vertices);
             vertex_offset += command.vertices.len() as u32;
             for &index in &command.indices {
-                self.index_data.push(base_vertex + index);
+                self.frame_buffers.index_data.push(base_vertex + index);
             }
 
             let count = command.indices.len() as u32;
@@ -1176,21 +1237,21 @@ impl UIRenderer {
             stats.triangles_rendered += count / 3;
         }
 
-        if !self.vertex_data.is_empty() {
+        if !self.frame_buffers.vertex_data.is_empty() {
             self.ensure_geometry_buffer_capacity();
 
             // Upload vertex data
             self.queue.write_buffer(
                 &self.vertex_buffer,
                 0,
-                bytemuck::cast_slice(&self.vertex_data),
+                bytemuck::cast_slice(&self.frame_buffers.vertex_data),
             );
 
             // Upload index data
             self.queue.write_buffer(
                 &self.index_buffer,
                 0,
-                bytemuck::cast_slice(&self.index_data),
+                bytemuck::cast_slice(&self.frame_buffers.index_data),
             );
 
             // Render batched geometry
@@ -1200,19 +1261,26 @@ impl UIRenderer {
             render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
 
             // Draw each command with exact index ranges (correct for non-quad primitives).
-            let mut current_pipeline: Option<*const RenderPipeline> = None;
+            // Keep a semantic pipeline tag rather than comparing raw pointers.
+            #[derive(Clone, Copy, PartialEq, Eq)]
+            enum PipelineKind {
+                Solid,
+                Textured,
+            }
+            let mut current_pipeline: Option<PipelineKind> = None;
             let mut current_texture: Option<Arc<TextureView>> = None;
 
-            for (command, (start, count)) in self.draw_commands.iter().zip(command_ranges) {
-                let pipeline = if command.texture.is_some() {
-                    &self.textured_pipeline
+            for (command, (start, count)) in
+                self.frame_buffers.draw_commands.iter().zip(command_ranges)
+            {
+                let (pipeline, pipeline_kind) = if command.texture.is_some() {
+                    (&self.textured_pipeline, PipelineKind::Textured)
                 } else {
-                    &self.solid_pipeline
+                    (&self.solid_pipeline, PipelineKind::Solid)
                 };
-                let pipeline_ptr = pipeline as *const _;
-                if current_pipeline != Some(pipeline_ptr) {
+                if current_pipeline != Some(pipeline_kind) {
                     render_pass.set_pipeline(pipeline);
-                    current_pipeline = Some(pipeline_ptr);
+                    current_pipeline = Some(pipeline_kind);
                 }
 
                 match &command.texture {
@@ -1285,11 +1353,7 @@ impl UIRenderer {
 
     /// End the current frame
     pub fn end_frame(&mut self) {
-        // Clear frame data
-        self.draw_commands.clear();
-        self.vertex_data.clear();
-        self.index_data.clear();
-        self.instance_data.clear();
+        self.frame_buffers.end();
     }
 
     /// Current screen size in pixels.
@@ -1323,7 +1387,7 @@ impl UIRenderer {
 
     /// Number of queued draw commands for the current frame before render().
     pub fn queued_draw_command_count(&self) -> usize {
-        self.draw_commands.len()
+        self.frame_buffers.draw_commands.len()
     }
 
     // Convenience methods for backward compatibility
@@ -1337,7 +1401,7 @@ impl UIRenderer {
     ) -> Result<()> {
         // Modify the last draw command if we just added one
         self.draw_rect(rect, color, 0.0);
-        if let Some(ref mut cmd) = self.draw_commands.last_mut() {
+        if let Some(ref mut cmd) = self.frame_buffers.draw_commands.last_mut() {
             cmd.scissor_rect = scissor;
         }
         Ok(())
@@ -1379,7 +1443,7 @@ impl UIRenderer {
         scissor: UIRect,
     ) -> Result<()> {
         self.draw_text_simple(text, position, font_size, color)?;
-        if let Some(cmd) = self.draw_commands.last_mut() {
+        if let Some(cmd) = self.frame_buffers.draw_commands.last_mut() {
             cmd.scissor_rect = Some(scissor);
         }
         Ok(())
@@ -1395,12 +1459,93 @@ impl UIRenderer {
     ) -> Result<()> {
         self.draw_rect_outline(rect, thickness, color, 0.0);
         // Apply scissor to the last 4 commands (the 4 edges)
-        let len = self.draw_commands.len();
+        let len = self.frame_buffers.draw_commands.len();
         if len >= 4 {
-            for cmd in &mut self.draw_commands[len - 4..] {
+            for cmd in &mut self.frame_buffers.draw_commands[len - 4..] {
                 cmd.scissor_rect = scissor;
             }
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn queued_command() -> UIDrawCommand {
+        UIDrawCommand {
+            vertices: vec![UIVertex {
+                position: [0.0, 0.0, 0.0],
+                tex_coord: [0.0, 0.0],
+                color: [1.0, 1.0, 1.0, 1.0],
+            }],
+            indices: vec![0],
+            texture: None,
+            blend_mode: UIBlendMode::Alpha,
+            scissor_rect: None,
+            z_order: 0.0,
+        }
+    }
+
+    #[test]
+    fn overlay_frame_preserves_presentation_commands_and_resets_render_scratch() {
+        let mut buffers = UIFrameBuffers::default();
+        buffers.draw_commands.push(queued_command());
+        buffers.vertex_data.push(UIVertex {
+            position: [1.0, 1.0, 0.0],
+            tex_coord: [1.0, 1.0],
+            color: [1.0, 1.0, 1.0, 1.0],
+        });
+        buffers.index_data.push(0);
+        buffers.instance_data.push(UIInstance {
+            transform: [[0.0; 4]; 4],
+            color_modifier: [1.0, 1.0, 1.0, 1.0],
+            texture_rect: [0.0, 0.0, 1.0, 1.0],
+        });
+
+        buffers.begin_overlay();
+
+        assert!(buffers.open);
+        assert_eq!(buffers.draw_commands.len(), 1);
+        assert!(buffers.vertex_data.is_empty());
+        assert!(buffers.index_data.is_empty());
+        assert!(buffers.instance_data.is_empty());
+    }
+
+    #[test]
+    fn overlay_frame_discards_an_abandoned_open_frame() {
+        let mut buffers = UIFrameBuffers::default();
+        buffers.begin_fresh();
+        buffers.draw_commands.push(queued_command());
+
+        buffers.begin_overlay();
+
+        assert!(buffers.open);
+        assert!(
+            buffers.draw_commands.is_empty(),
+            "an already-open frame is stale rather than new presentation work"
+        );
+    }
+
+    #[test]
+    fn frame_end_closes_and_clears_every_buffer() {
+        let mut buffers = UIFrameBuffers::default();
+        buffers.begin_fresh();
+        buffers.draw_commands.push(queued_command());
+        buffers.vertex_data.push(UIVertex {
+            position: [1.0, 1.0, 0.0],
+            tex_coord: [1.0, 1.0],
+            color: [1.0, 1.0, 1.0, 1.0],
+        });
+        buffers.index_data.push(0);
+
+        buffers.end();
+
+        assert!(!buffers.open);
+        assert!(buffers.draw_commands.is_empty());
+        assert!(buffers.vertex_data.is_empty());
+        assert!(buffers.index_data.is_empty());
+        assert!(buffers.instance_data.is_empty());
     }
 }

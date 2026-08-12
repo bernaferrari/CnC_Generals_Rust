@@ -1566,6 +1566,100 @@ fn weapon_lock_forces_slot_and_release() {
 }
 
 #[test]
+fn do_weapon_locks_the_requested_secondary_slot_before_targeting() {
+    use super::CommandExecutor;
+    use crate::command_system::{CommandResult, WeaponSlot, WeaponTarget};
+    use crate::game_logic::{
+        AIState, GameLogic, KindOf, Team, ThingTemplate, Weapon, WeaponLockType,
+    };
+    use glam::Vec3;
+
+    let mut logic = GameLogic::new();
+    let mut tpl = ThingTemplate::new("DW_SECONDARY");
+    tpl.add_kind_of(KindOf::Vehicle);
+    tpl.add_kind_of(KindOf::Selectable);
+    tpl.set_health(200.0);
+    logic.templates.insert("DW_SECONDARY".to_string(), tpl);
+    let unit_id = logic
+        .create_object("DW_SECONDARY", Team::USA, Vec3::ZERO)
+        .expect("unit");
+    {
+        let unit = logic.host_object_mut(unit_id).expect("unit");
+        unit.weapon = Some(Weapon {
+            damage: 10.0,
+            range: 100.0,
+            ..Weapon::default()
+        });
+        unit.secondary_weapon = Some(Weapon {
+            damage: 50.0,
+            range: 200.0,
+            ..Weapon::default()
+        });
+    }
+
+    let target = Vec3::new(75.0, 0.0, 25.0);
+    let result = CommandExecutor::new(&mut logic, 0).execute_weapon(
+        &[unit_id],
+        &WeaponSlot::Secondary,
+        &WeaponTarget::Location(target),
+    );
+    assert_eq!(result, CommandResult::Success);
+
+    let unit = logic.host_object(unit_id).expect("unit");
+    assert_eq!(unit.active_weapon_slot, 1);
+    assert_eq!(unit.weapon_lock_type, WeaponLockType::LockedTemporarily);
+    assert_eq!(unit.weapon_lock_slot, 1);
+    assert_eq!(unit.target_location, Some(target));
+    assert_eq!(unit.ai_state, AIState::AttackingGround);
+}
+
+#[test]
+fn do_weapon_rejects_unrepresented_slots_without_primary_fallback() {
+    use super::CommandExecutor;
+    use crate::command_system::{CommandResult, WeaponSlot, WeaponTarget};
+    use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate, Weapon, WeaponLockType};
+    use glam::Vec3;
+
+    let mut logic = GameLogic::new();
+    let mut tpl = ThingTemplate::new("DW_PRIMARY_ONLY");
+    tpl.add_kind_of(KindOf::Vehicle);
+    tpl.add_kind_of(KindOf::Selectable);
+    tpl.set_health(200.0);
+    logic.templates.insert("DW_PRIMARY_ONLY".to_string(), tpl);
+    let unit_id = logic
+        .create_object("DW_PRIMARY_ONLY", Team::USA, Vec3::ZERO)
+        .expect("unit");
+    logic.host_object_mut(unit_id).expect("unit").weapon = Some(Weapon {
+        damage: 10.0,
+        range: 100.0,
+        ..Weapon::default()
+    });
+
+    let result = CommandExecutor::new(&mut logic, 0).execute_weapon(
+        &[unit_id],
+        &WeaponSlot::Tertiary,
+        &WeaponTarget::Location(Vec3::new(75.0, 0.0, 25.0)),
+    );
+    assert_eq!(result, CommandResult::InvalidCommand);
+
+    let unit = logic.host_object(unit_id).expect("unit");
+    assert_eq!(unit.active_weapon_slot, 0);
+    assert_eq!(unit.weapon_lock_type, WeaponLockType::NotLocked);
+    assert_eq!(unit.target_location, None);
+
+    let result = CommandExecutor::new(&mut logic, 0).execute_weapon(
+        &[unit_id],
+        &WeaponSlot::Slot(u32::MAX),
+        &WeaponTarget::Location(Vec3::new(80.0, 0.0, 30.0)),
+    );
+    assert_eq!(result, CommandResult::InvalidCommand);
+    assert_eq!(
+        logic.host_object(unit_id).expect("unit").target_location,
+        None
+    );
+}
+
+#[test]
 fn set_emoticon_stores_name_and_duration() {
     use super::CommandExecutor;
     use crate::command_system::CommandResult;

@@ -96,6 +96,8 @@ thread_local! {
 mod audio;
 mod boot;
 mod camera_drain;
+#[cfg(feature = "game_client")]
+mod control_bar_bridge;
 mod dispatch;
 mod host;
 mod host_authority;

@@ -2016,8 +2016,8 @@ mod runtime_host_windowed_bridge_tests {
             "must not reintroduce TLS *mut UIRenderer"
         );
         let begin = src
-            .find("renderer.begin_frame()")
-            .expect("flush_ui_to_frame must begin_frame");
+            .find("renderer.begin_overlay_frame()")
+            .expect("flush_ui_to_frame must begin an overlay frame");
         let draw = src
             .find("wm.draw_all()")
             .expect("flush_ui_to_frame must call draw_all");

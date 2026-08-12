@@ -21,7 +21,9 @@ use super::{
     MAX_BUILD_QUEUE_BUTTONS,
 };
 use crate::gui::{with_window_manager, GameWindow, WindowManager};
-use crate::helpers::{drain_live_control_bar_events, set_live_control_bar_observer_look_at, TheInGameUI};
+use crate::helpers::{
+    drain_live_control_bar_events, set_live_control_bar_observer_look_at, TheInGameUI,
+};
 use crate::message_stream::game_message::GameMessageType;
 use crate::message_stream::message_stream::THE_MESSAGE_STREAM;
 use crate::system::SubsystemInterface;

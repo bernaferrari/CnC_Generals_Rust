@@ -982,14 +982,132 @@ impl CnCGameEngine {
             .map_err(|e| format!("{e}"))
     }
 
-    /// Wave 928: single load authority boundary.
-    #[inline]
-    pub(super) fn host_load_game_authority(&mut self, slot: &str) -> Result<SaveGameInfo, String> {
-        // Wave 928: single load authority boundary.
+    /// Select the only offline modes supported by the staged save restore.
+    ///
+    /// A save does not currently serialize an explicit `GameMode`.  Preserve a
+    /// live single-player/skirmish mode when there is one; from the shell, a
+    /// mission save is single-player and every other offline save is skirmish.
+    /// Network/replay modes remain deliberately rejected rather than silently
+    /// restoring them as an offline match with different semantics.
+    fn offline_restore_mode_for_save(
+        active_mode: crate::game_logic::GameMode,
+        save_info: &SaveGameInfo,
+    ) -> Result<crate::game_logic::GameMode, String> {
+        use crate::game_logic::GameMode;
 
-        self.save_file_manager
-            .load_game(slot, &mut self.game_logic)
-            .map_err(|e| format!("{e}"))
+        match active_mode {
+            GameMode::SinglePlayer | GameMode::Skirmish => Ok(active_mode),
+            GameMode::Multiplayer | GameMode::Internet | GameMode::Lan | GameMode::Replay => {
+                Err("network and replay save restore is deferred".to_string())
+            }
+            GameMode::Shell | GameMode::None => {
+                if matches!(save_info.save_type, SaveFileType::Mission)
+                    || save_info.mission_number.is_some()
+                {
+                    Ok(GameMode::SinglePlayer)
+                } else {
+                    Ok(GameMode::Skirmish)
+                }
+            }
+        }
+    }
+
+    /// Decode, map-load, and restore a save into a disposable world.
+    ///
+    /// C++ restores a game in the context of its saved map.  The previous Rust
+    /// path restored the snapshot directly into the live world, so it could
+    /// enter `InGame` with the old map's terrain/scripts or after a failed map
+    /// lookup.  This helper is transactional from the caller's perspective:
+    /// it never receives the live world and only returns a fully restored,
+    /// exact-map world on success.
+    fn stage_saved_world_for_restore(
+        save_file_manager: &mut SaveFileManager,
+        slot: &str,
+        active_mode: crate::game_logic::GameMode,
+        template_catalog: &std::collections::HashMap<String, crate::game_logic::ThingTemplate>,
+    ) -> Result<(crate::game_logic::GameLogic, SaveGameInfo), String> {
+        let (snapshot, save_info) = save_file_manager
+            .load_game_snapshot(slot)
+            .map_err(|err| format!("{err}"))?;
+
+        let saved_map = save_info.map_name.trim();
+        if saved_map.is_empty() || saved_map == "-" || saved_map.eq_ignore_ascii_case("unknown") {
+            return Err(format!(
+                "save '{slot}' has no usable saved map identity ({:?})",
+                save_info.map_name
+            ));
+        }
+
+        // Resolve before touching a staging GameLogic.  `load_map` permits a
+        // couple of development-only maps, but a player save must name an
+        // on-disk retail map; accepting a fallback here would make the restored
+        // snapshot look playable while its map-specific terrain/scripts differ.
+        let resolved_map = crate::game_logic::script_loader::find_map_file(saved_map)
+            .ok_or_else(|| format!("saved map '{saved_map}' is not available on disk"))?;
+        let resolved_map = resolved_map.canonicalize().unwrap_or(resolved_map);
+        let resolved_map_name = resolved_map
+            .to_str()
+            .ok_or_else(|| format!("saved map '{saved_map}' has a non-UTF-8 path"))?
+            .to_string();
+
+        let mode = Self::offline_restore_mode_for_save(active_mode, &save_info)?;
+        let mut staged = crate::game_logic::GameLogic::new();
+        staged.start_new_game(mode);
+        // Map object restoration needs the live INI/template catalog.  Keep
+        // custom/mod templates from the source match while retaining the fresh
+        // world's standard startup catalog.
+        staged.templates.extend(template_catalog.clone());
+
+        // Preserve the saved logical identity in `GameLogic::map_name`; the
+        // prior resolution above only proves that this exact identity maps to
+        // a real on-disk retail file rather than to a development fallback.
+        if !staged.load_map(saved_map) {
+            return Err(format!(
+                "failed to load saved map '{saved_map}' from '{resolved_map_name}'"
+            ));
+        }
+        if !staged.isInGame() || staged.get_current_map_name() != saved_map {
+            return Err(format!(
+                "saved map '{saved_map}' did not become the active staged map"
+            ));
+        }
+
+        save_file_manager
+            .restore_game_snapshot(&snapshot, &mut staged)
+            .map_err(|err| format!("{err}"))?;
+
+        // Snapshot restoration must not turn a successful map load into a
+        // false in-game claim.  It currently restores terrain/objects but not
+        // GameMode/map identity, so these checks also guard future changes.
+        if !staged.isInGame() || staged.get_current_map_name() != saved_map {
+            return Err(format!(
+                "saved map '{saved_map}' was lost while restoring the snapshot"
+            ));
+        }
+
+        Ok((staged, save_info))
+    }
+
+    /// Wave 928: single load authority boundary.
+    pub(super) fn host_load_game_authority(&mut self, slot: &str) -> Result<SaveGameInfo, String> {
+        // Keep the current world untouched until the save metadata, exact map,
+        // and snapshot all restore successfully in a staging world.
+        let active_mode = self.game_logic.game_mode();
+        let template_catalog = self.game_logic.templates.clone();
+        let (staged, save_info) = Self::stage_saved_world_for_restore(
+            &mut self.save_file_manager,
+            slot,
+            active_mode,
+            &template_catalog,
+        )?;
+
+        self.host_replace_game_logic(staged);
+        info!(
+            "Game loaded successfully from slot '{}' on map '{}'",
+            slot,
+            self.game_logic.get_current_map_name()
+        );
+        Ok(save_info)
     }
 
     /// Wave 928: single skirmish-config authority boundary.
@@ -1129,6 +1247,17 @@ impl CnCGameEngine {
                     slot, save_info.map_name, save_info.display_name
                 );
 
+                // The staged authority has installed a freshly decoded map.
+                // Drop every prior presentation/residual snapshot before the
+                // first post-load frame so UI, terrain, and WGPU cannot retain
+                // the map that was active before the load attempt.
+                let loaded_map_name = self.game_logic.get_current_map_name().to_string();
+                self.host_clear_match_residuals();
+                self.host_match_map_name = Some(loaded_map_name.clone());
+                self.last_presentation_frame = None;
+                self.last_ui_state = None;
+                self.render_pipeline.set_presentation_frame(None);
+
                 self.host_set_paused(false);
                 self.match_over = false;
                 self.victory_summary = None;
@@ -1144,7 +1273,7 @@ impl CnCGameEngine {
                     Self::sync_render_terrain_visual(
                         &mut self.render_pipeline,
                         &self.graphics_system,
-                        save_info.map_name.as_str(),
+                        loaded_map_name.as_str(),
                     );
                     if let Err(err) = self.reinitialize_minimap_renderer() {
                         warn!(
@@ -1167,5 +1296,135 @@ impl CnCGameEngine {
                 Err(err.to_string())
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod staged_restore_tests {
+    use super::*;
+    use crate::ai::AIDifficulty;
+    use crate::game_logic::{GameLogic, GameMode, Player, Team};
+    use crate::save_load::{GameDifficulty, SaveFileManager, SaveFileType};
+    use std::time::SystemTime;
+
+    fn retail_map_path_for_test() -> Option<String> {
+        // Keep this test portable for source-only CI while exercising a real
+        // extracted retail map whenever `windows_game` is available.  Return
+        // the original logical name so the test also proves the map resolver
+        // can load the saved identity rather than only an absolute test path.
+        for candidate in ["Lone Eagle", "ForgottenForestZH", "GC_ChinaBoss"] {
+            if crate::game_logic::script_loader::find_map_file(candidate).is_some() {
+                return Some(candidate.to_string());
+            }
+        }
+        None
+    }
+
+    fn save_info(slot: &str, map_name: String) -> SaveGameInfo {
+        SaveGameInfo {
+            filename: slot.to_string(),
+            display_name: slot.to_string(),
+            description: "staged restore test".to_string(),
+            map_name,
+            campaign_side: None,
+            mission_number: None,
+            save_date: SystemTime::now(),
+            game_version: env!("CARGO_PKG_VERSION").to_string(),
+            play_time: std::time::Duration::ZERO,
+            difficulty: GameDifficulty::Medium,
+            save_type: SaveFileType::Normal,
+        }
+    }
+
+    #[test]
+    fn staged_restore_rejects_unavailable_map_before_snapshot_restore() {
+        let temp = tempfile::tempdir().expect("temporary save directory");
+        let mut saves = SaveFileManager::with_save_directory(temp.path());
+        saves.init().expect("initialize temporary save directory");
+
+        // This deliberately needs no retail assets: map identity is validated
+        // before a staging world is started or any snapshot state is restored.
+        let source = GameLogic::new();
+        let catalog = source.templates.clone();
+        saves
+            .save_game(
+                "missing_map",
+                &source,
+                &save_info("missing_map", "Not A Retail Map".to_string()),
+            )
+            .expect("write invalid-map save metadata");
+
+        let err = match CnCGameEngine::stage_saved_world_for_restore(
+            &mut saves,
+            "missing_map",
+            GameMode::Shell,
+            &catalog,
+        ) {
+            Ok(_) => panic!("missing saved map must reject before a false InGame restore"),
+            Err(err) => err,
+        };
+        assert!(
+            err.contains("not available on disk"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn staged_restore_requires_the_saved_retail_map_before_snapshot_restore() {
+        let Some(map_name) = retail_map_path_for_test() else {
+            eprintln!("retail maps unavailable — skip staged restore map test");
+            return;
+        };
+
+        let temp = tempfile::tempdir().expect("temporary save directory");
+        let mut saves = SaveFileManager::with_save_directory(temp.path());
+        saves.init().expect("initialize temporary save directory");
+
+        let mut source = GameLogic::new();
+        source.start_new_game(GameMode::Skirmish);
+        assert!(source.load_map(&map_name), "load source retail map");
+        // Make the AI fixture explicit: map files do not all provide a
+        // configured skirmish roster, while save/load must preserve one when
+        // the source match has it.
+        source.add_player(Player::new(70, Team::USA, "Human", true));
+        source.add_player(Player::new(71, Team::China, "Computer", false));
+        source.add_ai_opponent(71, Team::China, AIDifficulty::Hard);
+        source.set_ai_active(71, false);
+        source.relocate_host_ai_base(71, glam::Vec3::new(47.0, 0.0, -31.0));
+        source.set_current_frame(321);
+        let catalog = source.templates.clone();
+        assert_eq!(source.host_ai_difficulty(71), Some(AIDifficulty::Hard));
+        assert!(!source.is_host_ai_active(71));
+        saves
+            .save_game(
+                "valid_map",
+                &source,
+                &save_info("valid_map", map_name.clone()),
+            )
+            .expect("write valid staged restore save");
+
+        let (restored, restored_info) = CnCGameEngine::stage_saved_world_for_restore(
+            &mut saves,
+            "valid_map",
+            GameMode::Shell,
+            &catalog,
+        )
+        .expect("saved map should load before restore");
+        assert_eq!(restored_info.map_name, map_name);
+        assert!(restored.isInGame());
+        assert_eq!(restored.get_current_map_name(), map_name);
+        assert_eq!(restored.get_current_frame(), 321);
+        assert_eq!(restored.host_ai_player_count(), 1);
+        assert_eq!(restored.host_ai_difficulty(71), Some(AIDifficulty::Hard));
+        assert!(!restored.is_host_ai_active(71));
+        let restored_ai = restored
+            .snapshot_host_ai_players_for_save()
+            .into_iter()
+            .find(|ai| ai.player_id == 71)
+            .expect("registered host AI must survive the on-disk restore");
+        assert_eq!(
+            restored_ai.base_center,
+            Some(glam::Vec3::new(47.0, 0.0, -31.0))
+        );
     }
 }

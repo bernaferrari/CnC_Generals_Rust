@@ -627,7 +627,17 @@ impl GameWorldShadow {
                             Self::host_building_type_ordinal(bd.building_type);
                         let skip_production =
                             crate::gameworld_shadow::gameworld_production_sole_tick_enabled();
-                        if !skip_production {
+                        // A sole-tick shadow normally owns queue progress and
+                        // must not be overwritten by the host every frame.
+                        // A fresh shadow (including a post-load rebuild),
+                        // however, has no queue at all.  Bootstrap exactly
+                        // once from the host so a completed saved factory can
+                        // still enter the C++ door/ready sequence instead of
+                        // becoming an inert empty GameWorld entity.
+                        let bootstrap_production = skip_production
+                            && e.production_queue_items.is_empty()
+                            && !bd.production_queue.is_empty();
+                        if !skip_production || bootstrap_production {
                             e.production_queue_len = bd.production_queue.len().min(255) as u8;
                             {
                                 const MAX_QUEUE: usize = 16;
@@ -650,15 +660,22 @@ impl GameWorldShadow {
                             if let Some(head) = bd.production_queue.first() {
                                 e.production_progress = head.progress;
                                 e.exit_delay_remaining = bd.exit_delay_remaining;
-                                e.production_door_phase = obj.production_door_phase;
-                                e.production_door_phase_end_frame = obj.production_door_phase_end_frame;
-                                e.production_door_hold_open = obj.production_door_hold_open;
                                 e.production_template = head.template_name.clone();
                             } else {
                                 e.production_progress = 0.0;
                                 e.production_template.clear();
                             }
                         }
+                        // Queue progress can be shadow-owned during a coupled
+                        // sole-tick, but C++ ProductionUpdate remains the sole
+                        // owner of the factory-door state.  Do not leave the
+                        // shadow at CLOSED after the host has reached
+                        // WAITING_OPEN: that makes a completed head look
+                        // perpetually blocked and invites repeated speculative
+                        // entity-first spawns.
+                        e.production_door_phase = obj.production_door_phase;
+                        e.production_door_phase_end_frame = obj.production_door_phase_end_frame;
+                        e.production_door_hold_open = obj.production_door_hold_open;
                         e.rally_point = bd.rally_point.map(|p| [p.x, p.y, p.z]);
                         e.garrison_count = bd.garrisoned_units.len().min(u16::MAX as usize) as u16;
                         e.max_garrison = bd.max_garrison.min(u16::MAX as usize) as u16;
@@ -1802,7 +1819,14 @@ impl GameWorldShadow {
                 e.is_building = obj.building_data.is_some();
                 if let Some(bd) = obj.building_data.as_ref() {
                     e.building_type_ordinal = Self::host_building_type_ordinal(bd.building_type);
-                    if !skip_production {
+                    // See the primary sync: sole ownership means do not
+                    // stomp a live GameWorld queue, except when this entity
+                    // has just been shadowed and needs its saved host queue
+                    // to bootstrap the first production tick.
+                    let bootstrap_production = skip_production
+                        && e.production_queue_items.is_empty()
+                        && !bd.production_queue.is_empty();
+                    if !skip_production || bootstrap_production {
                         e.production_queue_len = bd.production_queue.len().min(255) as u8;
                         {
                             const MAX_QUEUE: usize = 16;
@@ -1824,12 +1848,19 @@ impl GameWorldShadow {
                         }
                         if let Some(head) = bd.production_queue.first() {
                             e.production_progress = head.progress;
+                            e.exit_delay_remaining = bd.exit_delay_remaining;
                             e.production_template = head.template_name.clone();
                         } else {
                             e.production_progress = 0.0;
                             e.production_template.clear();
                         }
                     }
+                    // See the primary host sync above.  The lightweight flag
+                    // refresh also has to mirror host-owned door animation
+                    // state even while GameWorld owns queue progress.
+                    e.production_door_phase = obj.production_door_phase;
+                    e.production_door_phase_end_frame = obj.production_door_phase_end_frame;
+                    e.production_door_hold_open = obj.production_door_hold_open;
                     e.rally_point = bd.rally_point.map(|p| [p.x, p.y, p.z]);
                     e.garrison_count = bd.garrisoned_units.len().min(u16::MAX as usize) as u16;
                     e.max_garrison = bd.max_garrison.min(u16::MAX as usize) as u16;

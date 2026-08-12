@@ -11,17 +11,20 @@ use super::*;
 
 impl RenderPipeline {
     pub(super) fn missing_model_debug_cubes_enabled_from(value: Option<&std::ffi::OsStr>) -> bool {
-        // Default ON: missing W3D still produces a visible cube so InGame is not
-        // an empty field. Opt out with GENERALS_RENDER_MISSING_MODEL_CUBES=0.
+        // Production must never invent geometry for a missing retail W3D.
+        // An explicit developer opt-in keeps the diagnostic cube available
+        // without allowing a default game run to look playable for the wrong
+        // reason.  This is intentionally distinct from a failed W3D load:
+        // the collector records that miss and skips the object.
         value
             .and_then(|value| value.to_str())
             .map(|value| {
-                !matches!(
+                matches!(
                     value.to_ascii_lowercase().as_str(),
-                    "0" | "false" | "no" | "off"
+                    "1" | "true" | "yes" | "on"
                 )
             })
-            .unwrap_or(true)
+            .unwrap_or(false)
     }
 
     pub(super) fn missing_model_debug_cubes_enabled() -> bool {

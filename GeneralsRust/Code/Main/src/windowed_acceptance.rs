@@ -21,8 +21,9 @@
 //! Probe first with [`display_or_wgpu_adapter_available`]. If that is false the
 //! gate must **not** fake PASS — it reports `assets_or_display_unavailable`
 //! (exit 4). When a display or wgpu adapter can present, run the 900s windowed
-//! sit-through even if no human is watching; the report still records which of
-//! the eight steps are true.
+//! sit-through **with a human operating the visible game**. The runner is an
+//! observer: it does not write menu, game, production, gather, or save/load
+//! commands into the runtime-host control file.
 //!
 //! ```text
 //! # Machine with a GPU / window server (default 900s):
@@ -60,12 +61,18 @@
 //! 5. `select_move_attack` — physical winit command evidence
 //!    (`interactive_gameplay`). Host-command `gameplay_cmd_ok` /
 //!    `combat_damage_ok` are **not** sufficient.
-//! 6. `build_and_produce` — `construct_cmd_ok` **and** `train_cmd_ok`
-//! 7. `gather_resources` — `return_supplies_cmd_ok` (strongest gather flag on
-//!    the smoke result today)
-//! 8. `save_load_continue` — `save_cmd_ok` **and** `load_cmd_ok`
-//!    (windowed: Pause → `PopupSaveLoad.wnd` / quit-menu SaveLoad gadget;
-//!    headless host quicksave is **not** this step)
+//! 6. `build_and_produce` — physical UI evidence
+//!    (`physical_build_and_produce`), never the runtime-host
+//!    `construct_cmd_ok` / `train_cmd_ok` diagnostics
+//! 7. `gather_resources` — physical UI evidence
+//!    (`physical_gather_resources`), never `return_supplies_cmd_ok`
+//! 8. `save_load_continue` — physical PopupSaveLoad evidence
+//!    (`physical_save_load_continue`), never host `save_cmd_ok` / `load_cmd_ok`
+//!
+//! The live status publisher does not yet emit steps 6–8's physical evidence
+//! fields. Until it does, these steps intentionally remain false even when a
+//! runtime-host control command succeeded. That is a real remaining
+//! instrumentation gap, not permission to turn host diagnostics into a PASS.
 //!
 //! Plus `windows_game_assets` (Lone Eagle `.map` or MapsZH). Distinct exits:
 //! - `0` PASS all 8 + assets
@@ -77,7 +84,7 @@
 //! injected fake asset roots.
 
 use crate::executable_smoke::{
-    lone_eagle_map_on_disk, ExecutableSmokeResult, LONE_EAGLE_CANDIDATES,
+    lone_eagle_map_on_disk, ExecutableSmokeLaunch, ExecutableSmokeResult, LONE_EAGLE_CANDIDATES,
 };
 use std::path::{Path, PathBuf};
 
@@ -98,6 +105,11 @@ pub const WINDOWED_ACCEPTANCE_STEP_NAMES: &[&str] = &[
 
 /// Extra missing-list name when retail `windows_game` assets are absent.
 pub const WINDOWS_GAME_ASSETS_MISSING: &str = "windows_game_assets";
+
+/// The result must come from the separate non-headless windowed launcher.
+/// Otherwise a hand-built or headless `ExecutableSmokeResult` could satisfy
+/// booleans without proving an actual WGPU windowed session.
+pub const WINDOWED_LAUNCH_MISSING: &str = "windowed_launch";
 
 /// First-class status when the OS has no presentable display and wgpu finds
 /// no adapter. Distinct from sit-through failure; never a green PASS.
@@ -225,9 +237,12 @@ const MAPSZH_CANDIDATES: &[&str] = &[
 /// Per-step windowed sit-through report.
 ///
 /// `playable_claim` and `executable_host_ok` are copied from smoke for
-/// display only. They do not gate [`Self::passed`].
+/// display only. They do not gate [`Self::passed`]; `windowed_launch` does.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WindowedAcceptanceReport {
+    /// Provenance guard: only [`ExecutableSmokeLaunch::Windowed`] results may
+    /// satisfy acceptance, never a headless/synthetic result with copied flags.
+    pub windowed_launch: bool,
     pub visible_window: bool,
     pub physical_main_menu_skirmish_nav: bool,
     pub wgpu_presented_frame: bool,
@@ -242,6 +257,11 @@ pub struct WindowedAcceptanceReport {
     pub playable_claim: bool,
     /// Copied from smoke. Headless `host_ok` is never sufficient for PASS.
     pub executable_host_ok: bool,
+    /// Runtime-host workflow diagnostics. Kept visible to make it clear why
+    /// the corresponding physical acceptance step did *not* go green.
+    pub host_build_and_produce_diagnostic: bool,
+    pub host_gather_resources_diagnostic: bool,
+    pub host_save_load_continue_diagnostic: bool,
     /// Failed sit-through step names (and `windows_game_assets` when absent).
     pub missing: Vec<String>,
     /// `pass` / `binary_missing` / `assets_or_display_unavailable` /
@@ -249,7 +269,8 @@ pub struct WindowedAcceptanceReport {
     pub status: String,
     /// 0 / 1 / 3 / 4 — see module docs.
     pub exit_code: i32,
-    /// True only when all 8 steps hold **and** assets are present.
+    /// True only when this is a windowed launch, all 8 steps hold, and assets
+    /// are present.
     pub passed: bool,
     /// How many of the 8 sit-through steps are true (`0..=8`).
     pub steps_ok: u8,
@@ -332,19 +353,27 @@ pub fn evaluate_windowed_acceptance(r: &ExecutableSmokeResult) -> WindowedAccept
 /// Same rules as [`evaluate_windowed_acceptance`], with an injected asset flag.
 ///
 /// Does **not** require or mutate `r.playable_claim`. Does **not** treat
-/// `r.executable_host_ok` as a pass.
+/// `r.executable_host_ok` as a pass. It does require `r.windowed_launch` so
+/// copied/headless smoke booleans cannot produce a green acceptance result.
 pub fn evaluate_windowed_acceptance_with_assets(
     r: &ExecutableSmokeResult,
     assets_present: bool,
 ) -> WindowedAcceptanceReport {
+    let windowed_launch = r.windowed_launch;
     let visible_window = r.window_visible;
     let physical_main_menu_skirmish_nav = r.wnd_widget_tree_nav;
     let wgpu_presented_frame = r.live_frame_ok;
     let non_shell_map = r.reached_ingame && is_non_shell_map(&r.map_seen);
     let select_move_attack = r.interactive_gameplay;
-    let build_and_produce = r.construct_cmd_ok && r.train_cmd_ok;
-    let gather_resources = r.return_supplies_cmd_ok;
-    let save_load_continue = r.save_cmd_ok && r.load_cmd_ok;
+    // Runtime-host command results are diagnostics only. They have no physical
+    // input provenance, so accepting them here would let the smoke driver
+    // certify its own scripted activity as a playable session.
+    let host_build_and_produce_diagnostic = r.construct_cmd_ok && r.train_cmd_ok;
+    let host_gather_resources_diagnostic = r.return_supplies_cmd_ok;
+    let host_save_load_continue_diagnostic = r.save_cmd_ok && r.load_cmd_ok;
+    let build_and_produce = r.physical_build_and_produce;
+    let gather_resources = r.physical_gather_resources;
+    let save_load_continue = r.physical_save_load_continue;
 
     let steps = [
         (WINDOWED_ACCEPTANCE_STEP_NAMES[0], visible_window),
@@ -368,14 +397,18 @@ pub fn evaluate_windowed_acceptance_with_assets(
         .filter(|(_, ok)| !*ok)
         .map(|(name, _)| (*name).to_string())
         .collect();
+    if !windowed_launch {
+        missing.push(WINDOWED_LAUNCH_MISSING.to_string());
+    }
     if !assets_present {
         missing.push(WINDOWS_GAME_ASSETS_MISSING.to_string());
     }
 
     let (status, exit_code, passed) =
-        classify_windowed_acceptance(r.status.as_str(), all_eight, assets_present);
+        classify_windowed_acceptance(r.status.as_str(), windowed_launch, all_eight, assets_present);
 
     WindowedAcceptanceReport {
+        windowed_launch,
         visible_window,
         physical_main_menu_skirmish_nav,
         wgpu_presented_frame,
@@ -387,6 +420,9 @@ pub fn evaluate_windowed_acceptance_with_assets(
         assets_present,
         playable_claim: r.playable_claim,
         executable_host_ok: r.executable_host_ok,
+        host_build_and_produce_diagnostic,
+        host_gather_resources_diagnostic,
+        host_save_load_continue_diagnostic,
         missing,
         status,
         exit_code,
@@ -400,14 +436,15 @@ pub fn evaluate_windowed_acceptance_with_assets(
 
 /// Map smoke status + step/asset truth onto the distinct gate exits.
 ///
-/// A proven 8/8 + assets always wins (exit 0), even if smoke's status string
-/// is stale. `executable_host_ok` is intentionally unused.
+/// A proven *windowed* 8/8 + assets always wins (exit 0), even if smoke's
+/// status string is stale. `executable_host_ok` is intentionally unused.
 fn classify_windowed_acceptance(
     smoke_status: &str,
+    windowed_launch: bool,
     all_eight: bool,
     assets_present: bool,
 ) -> (String, i32, bool) {
-    if all_eight && assets_present {
+    if windowed_launch && all_eight && assets_present {
         return ("pass".into(), 0, true);
     }
     if smoke_status == "binary_missing" {
@@ -434,8 +471,10 @@ pub fn format_windowed_acceptance_report(report: &WindowedAcceptanceReport) -> S
     };
     format!(
         "windowed_acceptance status={} passed={} exit={} steps={}/{} missing={} \
+         windowed_launch={} (required; headless/synthetic results cannot pass) \
          playable_claim={} (reported only; not required; evaluate never sets it) \
          host_ok={} (never sufficient for PASS) assets={} map={} smoke_status={} detail={}\n\
+         host_workflow_diagnostic build_and_produce={} gather_resources={} save_load_continue={} (not acceptance evidence)\n\
          1 visible_window={}\n\
          2 physical_main_menu_skirmish_nav={}\n\
          3 wgpu_presented_frame={}\n\
@@ -450,12 +489,16 @@ pub fn format_windowed_acceptance_report(report: &WindowedAcceptanceReport) -> S
         report.steps_ok,
         WINDOWED_ACCEPTANCE_STEP_COUNT,
         missing,
+        report.windowed_launch,
         report.playable_claim,
         report.executable_host_ok,
         report.assets_present,
         report.map_seen,
         report.smoke_status,
         report.smoke_detail,
+        report.host_build_and_produce_diagnostic,
+        report.host_gather_resources_diagnostic,
+        report.host_save_load_continue_diagnostic,
         report.visible_window,
         report.physical_main_menu_skirmish_nav,
         report.wgpu_presented_frame,
@@ -488,11 +531,15 @@ mod tests {
         r.interactive_gameplay = true;
         r.construct_cmd_ok = true;
         r.train_cmd_ok = true;
+        r.physical_build_and_produce = true;
         r.return_supplies_cmd_ok = true;
+        r.physical_gather_resources = true;
         r.save_cmd_ok = true;
         r.load_cmd_ok = true;
+        r.physical_save_load_continue = true;
         r.executable_host_ok = true;
         r.playable_claim = false;
+        r.windowed_launch = true;
         r
     }
 
@@ -544,9 +591,9 @@ mod tests {
                 2 => r.live_frame_ok = false,
                 3 => r.reached_ingame = false,
                 4 => r.interactive_gameplay = false,
-                5 => r.train_cmd_ok = false,
-                6 => r.return_supplies_cmd_ok = false,
-                7 => r.load_cmd_ok = false,
+                5 => r.physical_build_and_produce = false,
+                6 => r.physical_gather_resources = false,
+                7 => r.physical_save_load_continue = false,
                 _ => unreachable!(),
             }
             let report = evaluate_windowed_acceptance_with_assets(&r, true);
@@ -604,85 +651,49 @@ mod tests {
     }
 
     #[test]
-    fn produce_step_requires_construct_and_train() {
+    fn produce_step_requires_physical_control_bar_evidence() {
         let mut r = passing_smoke();
-        r.construct_cmd_ok = false;
+        r.physical_build_and_produce = false;
         let report = evaluate_windowed_acceptance_with_assets(&r, true);
         assert_eq!(report.missing, vec!["build_and_produce".to_string()]);
     }
 
     #[test]
-    fn persist_step_requires_save_and_load() {
+    fn persist_step_requires_physical_popup_save_load_evidence() {
         let mut r = passing_smoke();
-        r.save_cmd_ok = false;
+        r.physical_save_load_continue = false;
         let report = evaluate_windowed_acceptance_with_assets(&r, true);
         assert_eq!(report.missing, vec!["save_load_continue".to_string()]);
     }
 
     #[test]
-    fn persist_step_eight_is_pause_wnd_not_host_quicksave() {
-        let smoke = include_str!("executable_smoke.rs");
-        let marker = "if launch == ExecutableSmokeLaunch::Windowed";
-        let mut writes = String::new();
-        let mut rest = smoke;
-        while let Some(i) = rest.find(marker) {
-            let after = &rest[i + marker.len()..];
-            let Some(open) = after.find('{') else {
-                rest = after;
-                continue;
-            };
-            let mut depth = 0i32;
-            let mut block = "";
-            for (j, ch) in after[open..].char_indices() {
-                match ch {
-                    '{' => depth += 1,
-                    '}' => {
-                        depth -= 1;
-                        if depth == 0 {
-                            block = &after[open..=open + j];
-                            break;
-                        }
-                    }
-                    _ => {}
-                }
-            }
-            let mut wrest = block;
-            while let Some(wi) = wrest.find("write_control(") {
-                let wa = &wrest[wi + "write_control(".len()..];
-                let mut d = 1i32;
-                let mut end = wa.len();
-                for (j, ch) in wa.char_indices() {
-                    match ch {
-                        '(' => d += 1,
-                        ')' => {
-                            d -= 1;
-                            if d == 0 {
-                                end = j;
-                                break;
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-                writes.push_str(&wa[..end]);
-                writes.push('\n');
-                wrest = &wa[end..];
-            }
-            rest = after;
-        }
-        assert!(
-            writes.contains("pause_save|slot=wnd_pause|via=PopupSaveLoad.wnd"),
-            "windowed write_control must drive PopupSaveLoad WND: {writes}"
+    fn host_workflow_diagnostics_never_satisfy_physical_steps() {
+        let mut r = passing_smoke();
+        r.physical_build_and_produce = false;
+        r.physical_gather_resources = false;
+        r.physical_save_load_continue = false;
+        // Leave all runtime-host command results green to prove they are
+        // report-only diagnostics, not a backdoor into the acceptance result.
+        r.construct_cmd_ok = true;
+        r.train_cmd_ok = true;
+        r.return_supplies_cmd_ok = true;
+        r.save_cmd_ok = true;
+        r.load_cmd_ok = true;
+
+        let report = evaluate_windowed_acceptance_with_assets(&r, true);
+        assert!(!report.passed);
+        assert_eq!(report.steps_ok, 5);
+        assert_eq!(
+            report.missing,
+            vec![
+                "build_and_produce".to_string(),
+                "gather_resources".to_string(),
+                "save_load_continue".to_string(),
+            ]
         );
-        assert!(writes.contains("pause_load|slot=wnd_pause|via=PopupSaveLoad.wnd"));
-        assert!(!writes.contains("quicksave"), "windowed writes: {writes}");
-        assert!(!writes.contains("quickload"), "windowed writes: {writes}");
-        let host = include_str!("cnc_game_engine/runtime_host/gameplay.rs");
-        assert!(host.contains("fn runtime_host_cmd_pause_save"));
-        assert!(host.contains("save_fail_wnd_missing"));
-        assert!(host.contains("ensure_live_quit_menu_layout"));
-        assert!(host.contains("ensure_live_popup_save_load_layout"));
-        assert!(host.contains("drive_os_wnd_popup_save_load_save_like_cpp"));
+        assert!(report.host_build_and_produce_diagnostic);
+        assert!(report.host_gather_resources_diagnostic);
+        assert!(report.host_save_load_continue_diagnostic);
     }
 
     #[test]
@@ -829,6 +840,22 @@ mod tests {
     }
 
     #[test]
+    fn copied_headless_or_synthetic_flags_can_never_pass() {
+        let mut r = passing_smoke();
+        r.windowed_launch = false;
+        let report = evaluate_windowed_acceptance_with_assets(&r, true);
+        assert_eq!(report.steps_ok, 8, "the individual flags may be copied");
+        assert!(!report.passed, "provenance is a separate mandatory guard");
+        assert_eq!(report.exit_code, 1);
+        assert_eq!(report.status, "sit_through_incomplete");
+        assert_eq!(
+            report.missing,
+            vec![WINDOWED_LAUNCH_MISSING.to_string()],
+            "a synthetic/headless result must disclose missing windowed provenance"
+        );
+    }
+
+    #[test]
     fn evaluate_does_not_mutate_or_require_playable_claim() {
         let mut r = passing_smoke();
         r.playable_claim = false;
@@ -855,8 +882,10 @@ mod tests {
         assert!(text.contains("passed=true"));
         assert!(text.contains("exit=0"));
         assert!(text.contains("steps=8/8"));
+        assert!(text.contains("windowed_launch=true (required; headless/synthetic"));
         assert!(text.contains("playable_claim=false (reported only; not required"));
         assert!(text.contains("host_ok=true (never sufficient for PASS)"));
+        assert!(text.contains("host_workflow_diagnostic build_and_produce=true"));
         assert!(text.contains("1 visible_window=true"));
         assert!(text.contains("8 save_load_continue=true"));
         assert!(text.contains("missing=-"));
@@ -978,28 +1007,23 @@ mod tests {
         );
 
         let smoke = include_str!("executable_smoke.rs");
-        let phase20 = smoke
-            .split("20 => {")
+        let observer = smoke
+            .split("pub fn run_windowed_acceptance_smoke")
             .nth(1)
-            .and_then(|s| s.split("10 => {").next())
-            .expect("windowed interactive phase 20");
+            .and_then(|s| s.split("fn run_executable_smoke_with_launch_and_driver").next())
+            .expect("windowed acceptance observer entrypoint");
         assert!(
-            phase20.contains("start_game|mode=skirmish|faction=USA|map="),
-            "windowed phase 20 must send shipped start_game: {phase20}"
+            observer.contains("SmokeDriver::ManualObserver"),
+            "the acceptance runner must observe physical play, not drive it"
         );
+        let manual_phase = smoke
+            .split("21 => {")
+            .nth(1)
+            .and_then(|s| s.split("20 => {").next())
+            .expect("manual observation phase");
         assert!(
-            phase20.contains("windowed_start_sent") && phase20.contains("!windowed_start_sent"),
-            "phase 20 must latch after the first start_game write"
-        );
-        for cheat in ["spawn_dozer=", "force_complete=", "grant_supplies="] {
-            assert!(
-                !phase20.contains(cheat),
-                "windowed phase 20 must not contain {cheat}"
-            );
-        }
-        assert!(
-            smoke.contains("windowed_start_game"),
-            "windowed smoke must record the shipped start_game send"
+            !manual_phase.contains("write_control"),
+            "manual observation must not send synthetic gameplay/control commands: {manual_phase}"
         );
 
         let abandon = include_str!("cnc_game_engine/shell.rs");

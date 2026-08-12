@@ -275,6 +275,52 @@ fn clear_game_data_scrubs_map_and_player_state() {
 }
 
 #[test]
+fn map_fallback_reports_the_map_that_actually_loaded() {
+    let mut game_logic = GameLogic::new();
+
+    let loaded = game_logic.load_map_or_fallback("__map_start_missing_requested_map__", "TestMap");
+
+    assert_eq!(loaded.as_deref(), Some("TestMap"));
+    assert_eq!(game_logic.get_current_map_name(), "TestMap");
+    assert!(game_logic.map_loaded);
+}
+
+#[test]
+fn corrupt_selected_map_uses_and_reports_the_loaded_fallback() {
+    let temp = tempfile::tempdir().expect("temporary map directory");
+    let corrupt_map = temp.path().join("corrupt.map");
+    std::fs::write(&corrupt_map, b"not a Generals map").expect("write corrupt map fixture");
+
+    let mut game_logic = GameLogic::new();
+    let loaded = game_logic.load_map_or_fallback(
+        corrupt_map.to_str().expect("UTF-8 temporary map path"),
+        "TestMap",
+    );
+
+    assert_eq!(loaded.as_deref(), Some("TestMap"));
+    assert_eq!(game_logic.get_current_map_name(), "TestMap");
+    assert!(game_logic.map_loaded);
+}
+
+#[test]
+fn map_fallback_failure_leaves_no_active_map_identity_or_playable_world() {
+    let mut game_logic = GameLogic::new();
+    game_logic.start_new_game(GameMode::Skirmish);
+    assert!(game_logic.load_map("TestMap"));
+    assert!(game_logic.isInGame());
+
+    let loaded = game_logic.load_map_or_fallback(
+        "__map_start_missing_requested_map__",
+        "__map_start_missing_fallback_map__",
+    );
+
+    assert_eq!(loaded, None);
+    assert!(game_logic.get_current_map_name().is_empty());
+    assert!(!game_logic.map_loaded);
+    assert!(!game_logic.isInGame());
+}
+
+#[test]
 fn asset_template_preserves_cpp_fs_kind_tokens() {
     let mut definition = ObjectDefinition::new("AmericaBarracks".to_string());
     definition

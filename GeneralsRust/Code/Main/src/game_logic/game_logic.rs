@@ -3134,6 +3134,15 @@ pub enum ObjectLifecycleOp {
         id: ObjectId,
         template_name: String,
     },
+    /// Cancel the exact queue slot selected by the Control Bar.
+    ///
+    /// The UI identifies queue entries by index, so collapsing this to a
+    /// template-name lookup can cancel an earlier duplicate instead of the
+    /// clicked item.
+    CancelProductionAtIndex {
+        id: ObjectId,
+        queue_index: usize,
+    },
 }
 
 /// Wave 931: heterogeneous result for [`ObjectLifecycleOp`].

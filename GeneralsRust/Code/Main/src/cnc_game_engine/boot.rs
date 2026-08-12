@@ -355,6 +355,11 @@ impl CnCGameEngine {
             #[cfg(feature = "game_client")]
             game_client: {
                 game_client::helpers::register_live_control_bar_hooks();
+                // Main owns the offline Rust simulation.  Route Control Bar
+                // interactions into its typed host bridge rather than the
+                // separate legacy GameLogic global queue.
+                game_client::gui::control_bar::clear_host_control_bar_requests();
+                game_client::gui::control_bar::set_host_control_bar_bridge_enabled(true);
                 game_client::render_bridge::init_render_bridge();
                 let _ = gamelogic::helpers::register_scene_submission(std::sync::Arc::new(
                     game_client::render_bridge::RenderBridge::new(),
@@ -507,6 +512,9 @@ impl CnCGameEngine {
             runtime_host_ui_screen_override: None,
             runtime_host_saw_skirmish_menu: false,
             runtime_host_last_gameplay_cmd: String::new(),
+            popup_save_load_bridge_initialized: false,
+            pending_popup_save_slot: None,
+            pending_popup_save_display_name: None,
             interactive_playability: InteractivePlayabilityEvidence::default(),
             match_damage_applied: 0.0,
             match_kills: 0,

@@ -231,6 +231,7 @@ impl ControlBar {
             .unwrap_or_default();
         button.radius_cursor_type = definition.radius_cursor_type.clone();
         button.max_shorable_instances = definition.max_shots_to_fire;
+        button.weapon_slot = definition.weapon_slot;
 
         if definition.purchase_cost != 0 {
             button
@@ -252,6 +253,11 @@ impl ControlBar {
         button.options = logic_button.get_options_bits();
         button.sciences_ids = logic_button.science_vec().to_vec();
         button.max_shorable_instances = logic_button.get_max_shots_to_fire();
+        button.weapon_slot = match logic_button.get_weapon_slot() {
+            gamelogic::weapon::WeaponSlotType::Primary => WeaponSlotType::Primary,
+            gamelogic::weapon::WeaponSlotType::Secondary => WeaponSlotType::Secondary,
+            gamelogic::weapon::WeaponSlotType::Tertiary => WeaponSlotType::Tertiary,
+        };
         if let Some(template) = logic_button.get_thing_template() {
             button.object = template.get_name().as_str().to_string();
         }

@@ -299,6 +299,9 @@ pub(super) enum PendingMapCommand {
     CombatDrop,
     /// Armed superweapon / special power residual awaiting map click.
     SpecialPower(crate::command_system::SpecialPowerType),
+    /// A `FIRE_WEAPON` CommandButton retains its exact selected weapon slot
+    /// until the player chooses an object or map position.
+    Weapon(crate::command_system::WeaponSlot),
     /// Retail PLACE_BEACON residual awaiting map click.
     PlaceBeacon,
     /// Unit special-ability residual awaiting object/map click.
@@ -660,6 +663,17 @@ pub struct CnCGameEngine {
     /// Sticky: open_skirmish_menu / Skirmish UI was entered this host session.
     pub(crate) runtime_host_saw_skirmish_menu: bool,
     pub(crate) runtime_host_last_gameplay_cmd: String,
+    /// Main owns Rust snapshot persistence, while PopupSaveLoad owns the retail
+    /// WND interaction.  This latches installation of the small typed bridge
+    /// between the two so a normal mouse-driven popup never writes Common's
+    /// separate GameState snapshot by accident.
+    pub(crate) popup_save_load_bridge_initialized: bool,
+    /// A runtime acceptance command chooses a deterministic slot/display name
+    /// before it drives the real "New Save Game" confirmation.  The WND only
+    /// supplies the description for that pseudo-row, so consume these once the
+    /// confirmed callback reaches Main's actual save authority.
+    pub(crate) pending_popup_save_slot: Option<String>,
+    pub(crate) pending_popup_save_display_name: Option<String>,
     /// Real-person, windowed input evidence for the retail playable claim.
     /// Deliberately separate from `runtime_host_last_gameplay_cmd`.
     pub(crate) interactive_playability: InteractivePlayabilityEvidence,

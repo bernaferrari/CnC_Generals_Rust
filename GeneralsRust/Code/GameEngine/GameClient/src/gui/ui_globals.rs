@@ -56,19 +56,25 @@ fn drain_ui_renderer_ops(renderer: &mut UIRenderer) {
     }
 }
 
-/// Clears `UI_DRAW_ACTIVE` on drop, including panic unwind.
-struct UiDrawActiveGuard;
+/// Restores the prior draw state on drop, including panic unwind.
+///
+/// A boolean guard must be nesting-aware: an inner renderer callback may
+/// finish while an outer callback still owns the write lock.  Restoring the
+/// previous state keeps subsequent nested work on the safe fail-closed path.
+struct UiDrawActiveGuard {
+    was_active: bool,
+}
 
 impl UiDrawActiveGuard {
     fn enter() -> Self {
-        UI_DRAW_ACTIVE.with(|flag| flag.set(true));
-        Self
+        let was_active = UI_DRAW_ACTIVE.with(|flag| flag.replace(true));
+        Self { was_active }
     }
 }
 
 impl Drop for UiDrawActiveGuard {
     fn drop(&mut self) {
-        UI_DRAW_ACTIVE.with(|flag| flag.set(false));
+        UI_DRAW_ACTIVE.with(|flag| flag.set(self.was_active));
     }
 }
 
@@ -260,6 +266,24 @@ mod tests {
             !ui_draw_active(),
             "panic in a draw callback must clear UI_DRAW_ACTIVE"
         );
+    }
+
+    #[test]
+    fn nested_draw_guard_restores_outer_active_state() {
+        set_active_ui_renderer(None);
+        let outer = UiDrawActiveGuard::enter();
+        assert!(ui_draw_active());
+        {
+            let inner = UiDrawActiveGuard::enter();
+            assert!(ui_draw_active());
+            drop(inner);
+        }
+        assert!(
+            ui_draw_active(),
+            "dropping an inner guard must not expose an outer live write guard"
+        );
+        drop(outer);
+        assert!(!ui_draw_active());
     }
 
     #[test]

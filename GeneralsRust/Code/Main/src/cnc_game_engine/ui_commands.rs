@@ -49,6 +49,17 @@ impl CnCGameEngine {
                 };
                 crate::command_system::CommandType::DoSpecialPower { power_type, target }
             }
+            PendingMapCommand::Weapon(weapon_slot) => {
+                let target = if let Some(tid) = target_object {
+                    crate::command_system::WeaponTarget::Object(tid)
+                } else {
+                    crate::command_system::WeaponTarget::Location(location)
+                };
+                crate::command_system::CommandType::DoWeapon {
+                    weapon_slot,
+                    target,
+                }
+            }
             PendingMapCommand::PlaceBeacon => crate::command_system::CommandType::PlaceBeacon {
                 location,
                 text: String::new(),
@@ -190,6 +201,7 @@ impl CnCGameEngine {
             PendingMapCommand::CombatDrop => "COMBATDROP",
             PendingMapCommand::PlaceBeacon => "RADAR",
             PendingMapCommand::SpecialPower(ref p) => Self::radius_cursor_type_for_special_power(p),
+            PendingMapCommand::Weapon(_) => "OFFENSIVE_SPECIALPOWER",
             PendingMapCommand::UnitAbility(_) => "OFFENSIVE_SPECIALPOWER",
         };
         // Ensure overlay exists (re-arm if missing).
@@ -360,6 +372,27 @@ impl CnCGameEngine {
         true
     }
 
+    /// Cancel the exact production-queue entry represented by a Control Bar
+    /// build-queue icon.  Duplicate unit/upgrade names are legal, so the
+    /// positional identity must survive the UI → host bridge.
+    #[inline]
+    pub(super) fn host_cancel_production_at_index(
+        &mut self,
+        id: crate::game_logic::ObjectId,
+        queue_index: usize,
+    ) -> bool {
+        let ok = matches!(
+            self.host_game_logic_mut().apply_object_lifecycle_op(
+                crate::game_logic::ObjectLifecycleOp::CancelProductionAtIndex { id, queue_index },
+            ),
+            crate::game_logic::ObjectLifecycleResult::Bool(true)
+        );
+        if ok && self.last_presentation_frame.is_none() {
+            self.host_refresh_local_train_producer_residuals();
+        }
+        ok
+    }
+
     /// Wave 579: host selection residual — keep GameLogic selection and engine
     /// `selected_objects` in lockstep.
     #[inline]
@@ -396,24 +429,44 @@ impl CnCGameEngine {
         let _ = player_id;
     }
 
-    /// Wave 579: host map-load residual with default fallback.
+    /// Load the requested map or the default fallback, returning only an
+    /// identity that actually reached GameLogic's successful map-load tail.
+    /// `None` means neither map could be loaded and callers must not enter a
+    /// match state.
     #[inline]
-    pub(super) fn host_load_map_or_default(&mut self, map_name: &str) {
+    pub(super) fn host_load_map_or_default(&mut self, map_name: &str) -> Option<String> {
         // Wave 579/871/918/922: load_map_or_fallback residual (single authority boundary).
-        // Skip reload dual-write when host residual already matches this map identity.
-        if self.host_match_map_name.as_deref() == Some(map_name) {
-            return;
+        // A warm residual alone is not proof that a world exists: a previous
+        // failed map attempt may have been interrupted between Loading and its
+        // cleanup. Skip only when the authoritative map is also playable and
+        // agrees with that identity.
+        if self.host_match_map_name.as_deref() == Some(map_name)
+            && self.game_logic.isInGame()
+            && self.game_logic.get_current_map_name() == map_name
+        {
+            return Some(map_name.to_string());
         }
         // Clear stale match residuals before map identity changes.
         self.host_clear_match_residuals();
         let loaded = self
             .game_logic
             .load_map_or_fallback(map_name, DEFAULT_SKIRMISH_MAP);
+        let Some(loaded) = loaded else {
+            warn!(
+                "Failed to load requested map '{}' and fallback '{}'",
+                map_name, DEFAULT_SKIRMISH_MAP
+            );
+            return None;
+        };
         if loaded != map_name {
-            warn!("Failed to load map '{}', falling back to default", map_name);
+            warn!(
+                "Failed to load requested map '{}'; loaded fallback '{}'",
+                map_name, loaded
+            );
         }
-        self.host_match_map_name = Some(loaded);
+        self.host_match_map_name = Some(loaded.clone());
         self.host_stamp_sim_timing_residuals();
+        Some(loaded)
     }
 
     pub(super) fn host_center_camera_and_request_focus(

@@ -820,6 +820,33 @@ impl GameLogic {
         true
     }
 
+    /// Select a concrete weapon slot for a player-issued `FIRE_WEAPON` command.
+    ///
+    /// The current host object represents PRIMARY and SECONDARY storage only.
+    /// Check those fields directly instead of using `Object::weapon_slot`, whose
+    /// primary fallback is useful for legacy combat reads but would make an
+    /// unrepresented TERTIARY request fire the wrong weapon.
+    pub fn unit_command_select_weapon_slot(&mut self, id: ObjectId, slot: u8) -> bool {
+        let Some(unit) = self.objects.get_mut(&id) else {
+            return false;
+        };
+        if !unit.is_alive() {
+            return false;
+        }
+        let has_requested_slot = match slot {
+            0 => unit.weapon.is_some(),
+            1 => unit.secondary_weapon.is_some(),
+            _ => false,
+        };
+        if !has_requested_slot {
+            return false;
+        }
+
+        // C++ Object::doCommandButton sets a temporary weapon lock before it
+        // starts the attack, so the command cannot be re-routed by auto-choose.
+        unit.set_weapon_lock(slot, WeaponLockType::LockedTemporarily)
+    }
+
     /// Wave 233: weapon fire at object/location residual.
     pub fn unit_command_fire_weapon(
         &mut self,

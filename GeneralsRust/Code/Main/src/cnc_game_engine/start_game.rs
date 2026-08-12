@@ -162,16 +162,29 @@ impl CnCGameEngine {
             info!("host_start_game_from_ui: host_start_new_game_with_faction(non-skirmish)");
             self.host_start_new_game_with_faction(mode, faction_team, false);
         }
-        info!("host_start_game_from_ui: new game started, loading map={map_name}");
+        info!("host_start_game_from_ui: new game started, loading requested map={map_name}");
 
-        // Wave 579: host map-load residual via helper.
-        self.host_load_map_or_default(&map_name);
-        info!("host_start_game_from_ui: map load done");
+        // A selected map may be absent or corrupt. Only continue when either
+        // that map or the explicit default reached GameLogic's successful load
+        // tail; otherwise a Loading screen must return to Menu instead of
+        // entering an empty/stale world as the requested map.
+        let Some(loaded_map_name) = self.host_load_map_or_default(&map_name) else {
+            error!(
+                "Cannot start {:?}: neither requested map '{}' nor fallback '{}' loaded",
+                mode, map_name, DEFAULT_SKIRMISH_MAP
+            );
+            self.return_to_main_menu_after_match();
+            return;
+        };
+        info!(
+            "host_start_game_from_ui: map load done (requested='{}', loaded='{}')",
+            map_name, loaded_map_name
+        );
         // Wave 840: drop shell presentation freeze so match seed cannot keep ShellMapMD.
         self.render_pipeline.set_presentation_frame(None);
         self.last_presentation_frame = None;
         // Wave 843/844: host-owned match residuals for presentation_or_boot peels.
-        self.host_match_map_name = Some(map_name.clone());
+        self.host_match_map_name = Some(loaded_map_name.clone());
         self.host_match_local_player_id = Some(self.current_player_id);
         // Wave 907: AI difficulty residual stays cold until presentation seed stamps it
         // (no get_difficulty dual-read). Fail-closed default covers interim probes.
@@ -213,7 +226,7 @@ impl CnCGameEngine {
         Self::sync_render_terrain_visual(
             &mut self.render_pipeline,
             &self.graphics_system,
-            map_name.as_str(),
+            loaded_map_name.as_str(),
         );
         if let Err(err) = self.reinitialize_minimap_renderer() {
             warn!("Failed to reinitialize minimap renderer: {}", err);
@@ -889,8 +902,8 @@ impl CnCGameEngine {
             if now.duration_since(previous) < limit {
                 // Cap the wait so a tight Sleep(0) spin cannot stall InGame
                 // event-loop frames (first-match mesh load / UI).
-                let remaining = (limit - now.duration_since(previous))
-                    .min(Duration::from_millis(8));
+                let remaining =
+                    (limit - now.duration_since(previous)).min(Duration::from_millis(8));
                 if remaining > Duration::ZERO {
                     std::thread::sleep(remaining);
                 }

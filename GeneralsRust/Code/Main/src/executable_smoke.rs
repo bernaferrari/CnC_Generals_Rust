@@ -68,6 +68,15 @@ pub struct ExecutableSmokeResult {
     pub construct_cmd_ok: bool,
     /// Runtime-host train_unit accepted (still not full playable_claim).
     pub train_cmd_ok: bool,
+    /// Physical ControlBar/UI interaction both began construction and queued a
+    /// unit in the same windowed session. This is deliberately separate from
+    /// the runtime-host `construct_cmd_ok` / `train_cmd_ok` diagnostics: a
+    /// control-file command must never satisfy the manual acceptance gate.
+    ///
+    /// The windowed status protocol does not publish this evidence yet, so it
+    /// remains fail-closed until the live input path emits
+    /// `physical_build_and_produce=true`.
+    pub physical_build_and_produce: bool,
     pub save_cmd_ok: bool,
     /// Runtime-host quickload after save accepted (still not full playable_claim).
     pub load_cmd_ok: bool,
@@ -87,6 +96,14 @@ pub struct ExecutableSmokeResult {
     pub formation_cmd_ok: bool,
     pub capture_cmd_ok: bool,
     pub return_supplies_cmd_ok: bool,
+    /// Physical UI/world input observed a completed gather/return-resources
+    /// workflow. Unlike `return_supplies_cmd_ok`, this cannot be inferred from
+    /// a runtime-host command result.
+    pub physical_gather_resources: bool,
+    /// Physical PopupSaveLoad UI input completed a save, load, and continued
+    /// in the same windowed session. Unlike `save_cmd_ok` / `load_cmd_ok`,
+    /// this is not set by runtime-host automation.
+    pub physical_save_load_continue: bool,
     pub evacuate_cmd_ok: bool,
     pub repair_cmd_ok: bool,
     pub return_to_base_cmd_ok: bool,
@@ -365,6 +382,7 @@ impl Default for ExecutableSmokeResult {
             gameplay_cmd_ok: false,
             construct_cmd_ok: false,
             train_cmd_ok: false,
+            physical_build_and_produce: false,
             save_cmd_ok: false,
             load_cmd_ok: false,
             stop_cmd_ok: false,
@@ -380,6 +398,8 @@ impl Default for ExecutableSmokeResult {
             formation_cmd_ok: false,
             capture_cmd_ok: false,
             return_supplies_cmd_ok: false,
+            physical_gather_resources: false,
+            physical_save_load_continue: false,
             evacuate_cmd_ok: false,
             repair_cmd_ok: false,
             return_to_base_cmd_ok: false,
@@ -484,6 +504,11 @@ struct StatusSnap {
     window_visible: bool,
     wnd_widget_tree_nav: bool,
     interactive_gameplay: bool,
+    /// Physical workflow evidence. These intentionally have no fallback to
+    /// `last_gameplay_cmd`, which is a runtime-host control-channel diagnostic.
+    physical_build_and_produce: bool,
+    physical_gather_resources: bool,
+    physical_save_load_continue: bool,
     retail_sit_through_missing: String,
     render_item_count: u32,
     render_alive_objects: u32,
@@ -583,6 +608,24 @@ fn parse_status(path: &Path) -> Option<StatusSnap> {
             }
             "gameplay" | "interactive_gameplay" => {
                 snap.interactive_gameplay = matches!(
+                    v.trim().to_ascii_lowercase().as_str(),
+                    "1" | "true" | "yes" | "on"
+                );
+            }
+            "physical_build_and_produce" => {
+                snap.physical_build_and_produce = matches!(
+                    v.trim().to_ascii_lowercase().as_str(),
+                    "1" | "true" | "yes" | "on"
+                );
+            }
+            "physical_gather_resources" => {
+                snap.physical_gather_resources = matches!(
+                    v.trim().to_ascii_lowercase().as_str(),
+                    "1" | "true" | "yes" | "on"
+                );
+            }
+            "physical_save_load_continue" => {
+                snap.physical_save_load_continue = matches!(
                     v.trim().to_ascii_lowercase().as_str(),
                     "1" | "true" | "yes" | "on"
                 );
@@ -788,34 +831,59 @@ pub enum ExecutableSmokeLaunch {
     Windowed,
 }
 
+/// Whether the smoke loop may write gameplay/menu commands into the runtime
+/// host's control file.
+///
+/// The regular headless smoke is deliberately automated. The windowed
+/// acceptance gate is deliberately an observer: it must not manufacture the
+/// menu, order, production, gather, or save/load evidence that it reports.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum SmokeDriver {
+    Automated,
+    ManualObserver,
+}
+
 /// Run the executable smoke with a timeout budget.
 ///
 /// `use_new_game_path`: when true, drive Start via `queue_new_game` (Menu drain).
 /// When false, use direct `start_game` runtime host command.
 pub fn run_executable_smoke(timeout: Duration, use_new_game_path: bool) -> ExecutableSmokeResult {
-    run_executable_smoke_with_launch(
+    run_executable_smoke_with_launch_and_driver(
         timeout,
         use_new_game_path,
         ExecutableSmokeLaunch::HeadlessHost,
+        SmokeDriver::Automated,
     )
 }
 
-/// Windowed sit-through runner. Never passes `-runtime_host=headless`.
+/// Windowed sit-through observer. Never passes `-runtime_host=headless`, and
+/// never drives the child through its control file. A person must operate the
+/// visible game; the runner only observes its status and terminates it at the
+/// timeout boundary.
+///
+/// `use_new_game_path` is retained for the shared API/report shape, but is
+/// intentionally ignored by the manual observer.
 pub fn run_windowed_acceptance_smoke(
     timeout: Duration,
     use_new_game_path: bool,
 ) -> ExecutableSmokeResult {
-    run_executable_smoke_with_launch(timeout, use_new_game_path, ExecutableSmokeLaunch::Windowed)
+    run_executable_smoke_with_launch_and_driver(
+        timeout,
+        use_new_game_path,
+        ExecutableSmokeLaunch::Windowed,
+        SmokeDriver::ManualObserver,
+    )
 }
 
-fn run_executable_smoke_with_launch(
+fn run_executable_smoke_with_launch_and_driver(
     timeout: Duration,
     use_new_game_path: bool,
     launch: ExecutableSmokeLaunch,
+    driver: SmokeDriver,
 ) -> ExecutableSmokeResult {
     // One automatic retry: Booting early-exit is commonly a stale GPU/lock race after
     // pkill -9 (no Drop cleanup). Second attempt after a fresh kill is usually green.
-    let first = run_executable_smoke_once(timeout, use_new_game_path, launch);
+    let first = run_executable_smoke_once(timeout, use_new_game_path, launch, driver);
     let retryable = matches!(
         first.status.as_str(),
         "process_exited" | "timeout" | "no_menu"
@@ -825,7 +893,7 @@ fn run_executable_smoke_with_launch(
         return first;
     }
     std::thread::sleep(Duration::from_millis(1500));
-    let second = run_executable_smoke_once(timeout, use_new_game_path, launch);
+    let second = run_executable_smoke_once(timeout, use_new_game_path, launch, driver);
     if second.executable_host_ok || second.reached_menu || second.reached_ingame {
         let mut out = second;
         out.detail = format!(
@@ -847,6 +915,7 @@ fn run_executable_smoke_once(
     timeout: Duration,
     use_new_game_path: bool,
     launch: ExecutableSmokeLaunch,
+    driver: SmokeDriver,
 ) -> ExecutableSmokeResult {
     let mut result = ExecutableSmokeResult {
         playable_claim: false,
@@ -1059,6 +1128,9 @@ fn run_executable_smoke_once(
     let mut saw_window_visible = false;
     let mut saw_wnd_widget_tree_nav = false;
     let mut saw_interactive_gameplay = false;
+    let mut saw_physical_build_and_produce = false;
+    let mut saw_physical_gather_resources = false;
+    let mut saw_physical_save_load_continue = false;
     let mut max_render_item_count: u32 = 0;
     let mut max_render_alive_objects: u32 = 0;
     let mut render_items_nonzero_polls: u32 = 0;
@@ -1259,6 +1331,15 @@ fn run_executable_smoke_once(
             if snap.interactive_gameplay {
                 saw_interactive_gameplay = true;
             }
+            if snap.physical_build_and_produce {
+                saw_physical_build_and_produce = true;
+            }
+            if snap.physical_gather_resources {
+                saw_physical_gather_resources = true;
+            }
+            if snap.physical_save_load_continue {
+                saw_physical_save_load_continue = true;
+            }
             if snap.match_damage_applied > 0.0 || snap.match_kills > 0 {
                 saw_combat_damage = true;
             }
@@ -1370,7 +1451,15 @@ fn run_executable_smoke_once(
                             && started.elapsed() > Duration::from_secs(8))
                         || started.elapsed() > Duration::from_secs(25)
                     {
-                        if launch == ExecutableSmokeLaunch::Windowed {
+                        if launch == ExecutableSmokeLaunch::Windowed
+                            && driver == SmokeDriver::ManualObserver
+                        {
+                            // The acceptance runner is an observer, not a bot.
+                            // Do not write Menu/Start/gameplay control commands:
+                            // physical input must create every acceptance latch.
+                            phase = 21;
+                            result.detail.push_str(" manual_windowed_observer;");
+                        } else if launch == ExecutableSmokeLaunch::Windowed {
                             // Phase 20 drives winit-equivalent inject (same
                             // handle_mouse_button_input as Injected — automation
                             // only; does not latch playable_claim physical flags)
@@ -1385,6 +1474,13 @@ fn run_executable_smoke_once(
                             phase = 10; // wait for Skirmish UI before start_game
                         }
                     }
+                }
+
+                21 => {
+                    // Manual windowed acceptance observation. All useful work
+                    // happens in the status-poll section above; this arm must
+                    // remain free of `write_control` calls other than the
+                    // timeout cleanup outside the state machine.
                 }
 
                 20 => {
@@ -3182,6 +3278,7 @@ fn run_executable_smoke_once(
                                 && (saw_attack_ok || saw_attack_move_ok || saw_construct_ok));
                         result.construct_cmd_ok = saw_construct_ok;
                         result.train_cmd_ok = saw_train_ok;
+                        result.physical_build_and_produce = saw_physical_build_and_produce;
                         result.save_cmd_ok = saw_save_ok;
                         result.load_cmd_ok = saw_load_ok;
                         result.stop_cmd_ok = saw_stop_ok;
@@ -3197,6 +3294,8 @@ fn run_executable_smoke_once(
                         result.formation_cmd_ok = saw_formation_ok;
                         result.capture_cmd_ok = saw_capture_ok;
                         result.return_supplies_cmd_ok = saw_return_supplies_ok;
+                        result.physical_gather_resources = saw_physical_gather_resources;
+                        result.physical_save_load_continue = saw_physical_save_load_continue;
                         result.evacuate_cmd_ok = saw_evacuate_ok;
                         result.repair_cmd_ok = saw_repair_ok;
                         result.return_to_base_cmd_ok = saw_return_to_base_ok;
@@ -3413,6 +3512,12 @@ fn run_executable_smoke_once(
     result.wnd_widget_tree_nav = result.wnd_widget_tree_nav || saw_wnd_widget_tree_nav;
     result.interactive_gameplay = result.interactive_gameplay || saw_interactive_gameplay;
     result.live_frame_ok = result.live_frame_ok || saw_live_frame_ok;
+    result.physical_build_and_produce =
+        result.physical_build_and_produce || saw_physical_build_and_produce;
+    result.physical_gather_resources =
+        result.physical_gather_resources || saw_physical_gather_resources;
+    result.physical_save_load_continue =
+        result.physical_save_load_continue || saw_physical_save_load_continue;
     // Fifth retail claim flag is interactive_gameplay alone (status `gameplay=` /
     // RMB latch). Host gameplay_cmd_ok remains a separate residual for the
     // vertical-slice / command chain and must NOT OR into playable_claim.

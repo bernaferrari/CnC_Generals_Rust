@@ -196,6 +196,18 @@ pub fn take_host_production_pause_requests() -> Vec<(u32, bool)> {
         .unwrap_or_default()
 }
 
+/// Discard legacy host-pause residuals without applying them.
+///
+/// This is used when Control Bar authority changes to the Main host: work
+/// queued for the legacy GameLogic path must never be replayed into a later
+/// authoritative-world session.
+pub fn clear_host_production_pause_requests() {
+    HOST_PRODUCTION_PAUSE_QUEUE
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .clear();
+}
+
 pub struct ControlBar {
     context: Arc<RwLock<ControlBarContext>>,
     window_manager: Option<Arc<WindowManager>>,

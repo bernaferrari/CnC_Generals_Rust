@@ -18,7 +18,7 @@
 
 use crate::gui::GameWindow;
 use crate::system::SubsystemInterface;
-use game_engine::common::rts::ScienceType;
+use game_engine::common::rts::{ScienceType, WeaponSlotType};
 use game_engine::ini::AudioEventRTS;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
@@ -31,6 +31,7 @@ pub mod control_bar_beacon;
 pub mod control_bar_command;
 pub mod control_bar_command_processing;
 pub mod control_bar_multi_select;
+mod host_command_bridge;
 pub use control_bar_multi_select::{
     residual_multi_select_actionable_count, residual_multi_select_attack_move_kept,
     residual_multi_select_common_command_count, residual_multi_select_last_action,
@@ -107,6 +108,17 @@ pub use beacon::*;
 pub use commands::*;
 pub use control_bar::*;
 pub use control_bar_print_positions::*;
+#[cfg(test)]
+pub(crate) use host_command_bridge::acquire_host_control_bar_bridge_test_guard;
+pub use host_command_bridge::{
+    clear_host_control_bar_requests, host_control_bar_bridge_enabled,
+    set_host_control_bar_bridge_enabled, take_host_control_bar_requests, HostControlBarRequest,
+    HostControlBarTarget,
+};
+pub(crate) use host_command_bridge::{
+    host_request_from_button, host_request_from_button_with_weapon_slot,
+    publish_host_control_bar_request, publish_host_production_pause, publish_host_queue_cancel,
+};
 pub use multi_select::*;
 pub use observer::*;
 pub use resizer::*;
@@ -236,6 +248,12 @@ pub struct CommandButton {
     pub invalid_cursor_name: String,
     pub unit_specific_sound: AudioEventRTS,
     pub max_shorable_instances: i32,
+    /// The exact `WeaponSlot =` parsed from the INI command button.
+    ///
+    /// This belongs to the live UI definition rather than the legacy
+    /// GameLogic command-button mirror, so host-owned input can preserve the
+    /// selected weapon without consulting a separate simulation.
+    pub weapon_slot: WeaponSlotType,
     pub options: u32, // CommandOption flags
     pub sciences: Vec<String>,
     pub sciences_ids: Vec<ScienceType>,
@@ -286,6 +304,7 @@ impl Default for CommandButton {
             invalid_cursor_name: String::new(),
             unit_specific_sound: AudioEventRTS::default(),
             max_shorable_instances: 1,
+            weapon_slot: WeaponSlotType::Primary,
             options: CommandOption::None as u32,
             sciences: Vec::new(),
             sciences_ids: Vec::new(),
@@ -294,6 +313,17 @@ impl Default for CommandButton {
             object: String::new(),
             radius_cursor_type: String::new(),
             purchase_cost: HashMap::new(),
+        }
+    }
+}
+
+impl CommandButton {
+    /// Stable C++ `WeaponSlotType` numbering without a lossy enum cast.
+    pub(crate) fn weapon_slot_number(&self) -> u32 {
+        match self.weapon_slot {
+            WeaponSlotType::Primary => 0,
+            WeaponSlotType::Secondary => 1,
+            WeaponSlotType::Tertiary => 2,
         }
     }
 }

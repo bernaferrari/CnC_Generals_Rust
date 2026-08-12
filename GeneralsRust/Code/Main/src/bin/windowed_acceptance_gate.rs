@@ -8,10 +8,12 @@
 //! cargo run -p generals_main --bin windowed_acceptance_gate -- 900
 //! ```
 //!
-//! Requires a **real display + GPU** and retail `windows_game` assets (Lone
-//! Eagle or MapsZH). This is **not** `executable_smoke_gate` and does **not**
-//! flip or require `playable_claim`. Headless `executable_host_ok` is never a
-//! pass.
+//! Requires a **real display + GPU**, retail `windows_game` assets (Lone Eagle
+//! or MapsZH), and a person operating the visible game during the timeout.
+//! This is **not** `executable_smoke_gate`: the windowed runner observes
+//! physical input and does not drive the menu/game through its control file.
+//! It does not flip or require `playable_claim`. Headless
+//! `executable_host_ok` is never a pass.
 //!
 //! Windowed intent is the child flag `-runtime_host=windowed` (never headless)
 //! plus `-windowed`. This process does not mutate parent environment.

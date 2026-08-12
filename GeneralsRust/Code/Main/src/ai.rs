@@ -3,7 +3,7 @@
 use crate::game_logic::host_rng_residual::HostRandomState;
 use crate::game_logic::*;
 use glam::Vec3;
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 const LOGIC_FRAMES_PER_SECOND: f32 = 30.0;
 
@@ -1384,6 +1384,254 @@ impl AIManager {
     pub fn set_ai_active(&mut self, player_id: u32, active: bool) {
         if let Some(ai_player) = self.ai_players.get_mut(&player_id) {
             ai_player.is_active = active;
+        }
+    }
+
+    /// Capture the bounded, decision-relevant host-AI state that can safely
+    /// survive a map/object restore.  Pathfinder jobs, production pointers,
+    /// and attack targets deliberately are not serialized: their object
+    /// references are transient and are rebuilt after the snapshot is loaded.
+    pub fn snapshot_players_for_save(&self) -> Vec<crate::save_load::AIPlayerSnapshot> {
+        let mut player_ids: Vec<u32> = self.ai_players.keys().copied().collect();
+        player_ids.sort_unstable();
+
+        player_ids
+            .into_iter()
+            .filter_map(|player_id| self.ai_players.get(&player_id))
+            .map(|ai| {
+                let defensive_groups = (!ai.defensive_units.is_empty())
+                    .then(|| crate::save_load::AIUnitGroupSnapshot {
+                        group_id: ai.player_id,
+                        units: ai.defensive_units.clone(),
+                        role: "Defensive".to_string(),
+                        current_task: "GuardBase".to_string(),
+                        formation: "Default".to_string(),
+                        target_position: Some(ai.base_center),
+                    })
+                    .into_iter()
+                    .collect();
+
+                crate::save_load::AIPlayerSnapshot {
+                    player_id: ai.player_id,
+                    difficulty: Self::difficulty_name(ai.difficulty).to_string(),
+                    personality: Self::personality_name(ai.personality).to_string(),
+                    current_strategy: Self::strategy_name(ai.current_strategy).to_string(),
+                    is_active: ai.is_active,
+                    base_center: Some(ai.base_center),
+                    base_radius: ai.base_radius,
+                    activity_count: ai.activity_count,
+                    strategic_state: crate::save_load::AIStrategicStateSnapshot {
+                        current_phase: Self::build_phase_name(ai.build_phase).to_string(),
+                        objectives: Vec::new(),
+                        threat_assessment: crate::save_load::ThreatAssessmentSnapshot {
+                            enemy_strengths: HashMap::new(),
+                            vulnerable_areas: Vec::new(),
+                            threat_level: 0.0,
+                        },
+                    },
+                    tactical_state: crate::save_load::AITacticalStateSnapshot {
+                        unit_groups: defensive_groups,
+                        active_attacks: Vec::new(),
+                        defensive_positions: vec![ai.base_center],
+                    },
+                    // The host AI rebuild queue carries live object/factory
+                    // references.  It is intentionally regenerated after a
+                    // load rather than persisted with stale IDs.
+                    economic_state: crate::save_load::AIEconomicStateSnapshot {
+                        build_priorities: Vec::new(),
+                        economic_focus: String::new(),
+                        resource_allocation: crate::save_load::ResourceAllocation {
+                            military_percentage: 0.0,
+                            economic_percentage: 0.0,
+                            defensive_percentage: 0.0,
+                        },
+                    },
+                }
+            })
+            .collect()
+    }
+
+    /// Recreate registered host-AI players from an offline snapshot.
+    ///
+    /// The caller supplies restored player teams because save rows identify an
+    /// AI by player id, while team ownership remains part of `PlayerSnapshot`.
+    /// Empty snapshots are handled by the caller as the legacy fallback case.
+    pub fn restore_players_from_save(
+        &mut self,
+        snapshots: &[crate::save_load::AIPlayerSnapshot],
+        player_teams: &HashMap<u32, Team>,
+    ) {
+        let mut rows: Vec<_> = snapshots.iter().collect();
+        rows.sort_by_key(|snapshot| snapshot.player_id);
+        self.ai_players.clear();
+        let mut restored_ids = HashSet::new();
+
+        for snapshot in rows {
+            if !restored_ids.insert(snapshot.player_id) {
+                log::warn!(
+                    "Ignoring duplicate host AI snapshot for player {}",
+                    snapshot.player_id
+                );
+                continue;
+            }
+            let Some(&team) = player_teams.get(&snapshot.player_id) else {
+                log::warn!(
+                    "Ignoring host AI snapshot for missing player {}",
+                    snapshot.player_id
+                );
+                continue;
+            };
+            if team == Team::Neutral {
+                log::warn!(
+                    "Ignoring host AI snapshot for neutral player {}",
+                    snapshot.player_id
+                );
+                continue;
+            }
+
+            let difficulty =
+                Self::difficulty_from_name(&snapshot.difficulty).unwrap_or(AIDifficulty::Medium);
+            self.add_ai_player(snapshot.player_id, team, difficulty);
+            let Some(ai) = self.ai_players.get_mut(&snapshot.player_id) else {
+                continue;
+            };
+
+            ai.personality = Self::personality_from_name(&snapshot.personality)
+                .unwrap_or_else(|| AIPersonality::for_team(team));
+            ai.is_active = snapshot.is_active;
+            // Legacy snapshot rows represented the same anchor only as the
+            // first tactical defensive position; prefer the dedicated field
+            // when a current-format save has it.
+            let saved_base_center = snapshot
+                .base_center
+                .or_else(|| snapshot.tactical_state.defensive_positions.first().copied());
+            if let Some(base_center) = saved_base_center.filter(|pos| pos.is_finite()) {
+                ai.relocate_base(base_center);
+            }
+            if snapshot.base_radius.is_finite() && snapshot.base_radius > 0.0 {
+                ai.base_radius = snapshot.base_radius;
+            }
+            ai.current_strategy = Self::strategy_from_name(&snapshot.current_strategy)
+                .unwrap_or(AIStrategy::EarlyGame);
+            ai.build_phase = Self::build_phase_from_name(&snapshot.strategic_state.current_phase)
+                .unwrap_or(AIBuildPhase::BaseConstruction);
+            ai.activity_count = snapshot.activity_count;
+            ai.defensive_units = snapshot
+                .tactical_state
+                .unit_groups
+                .iter()
+                .filter(|group| group.role.eq_ignore_ascii_case("defensive"))
+                .flat_map(|group| group.units.iter().copied())
+                .collect();
+
+            // A target can be destroyed/reused during object restoration.  Do
+            // not revive a half-resolved attack or production pointer; fresh
+            // host AI evaluation will issue legal actions on the next update.
+            ai.attack_in_progress = false;
+            ai.team_queue.clear();
+            ai.last_update_time = 0.0;
+            ai.resource_check_time = 0.0;
+            ai.enemy_check_time = 0.0;
+            ai.next_building_time = 0.0;
+            ai.next_team_time = 0.0;
+        }
+
+        // Let the first post-load logic frame rebuild actions immediately.
+        self.last_update_time = -1.0;
+    }
+
+    fn difficulty_name(value: AIDifficulty) -> &'static str {
+        match value {
+            AIDifficulty::Easy => "Easy",
+            AIDifficulty::Medium => "Medium",
+            AIDifficulty::Hard => "Hard",
+            AIDifficulty::Brutal => "Brutal",
+        }
+    }
+
+    fn difficulty_from_name(value: &str) -> Option<AIDifficulty> {
+        if value.eq_ignore_ascii_case("easy") {
+            Some(AIDifficulty::Easy)
+        } else if value.eq_ignore_ascii_case("medium") {
+            Some(AIDifficulty::Medium)
+        } else if value.eq_ignore_ascii_case("hard") {
+            Some(AIDifficulty::Hard)
+        } else if value.eq_ignore_ascii_case("brutal") {
+            Some(AIDifficulty::Brutal)
+        } else {
+            None
+        }
+    }
+
+    fn personality_name(value: AIPersonality) -> &'static str {
+        match value {
+            AIPersonality::Balanced => "Balanced",
+            AIPersonality::Aggressive => "Aggressive",
+            AIPersonality::Defensive => "Defensive",
+            AIPersonality::Economic => "Economic",
+            AIPersonality::Rush => "Rush",
+        }
+    }
+
+    fn personality_from_name(value: &str) -> Option<AIPersonality> {
+        if value.eq_ignore_ascii_case("balanced") {
+            Some(AIPersonality::Balanced)
+        } else if value.eq_ignore_ascii_case("aggressive") {
+            Some(AIPersonality::Aggressive)
+        } else if value.eq_ignore_ascii_case("defensive") {
+            Some(AIPersonality::Defensive)
+        } else if value.eq_ignore_ascii_case("economic") {
+            Some(AIPersonality::Economic)
+        } else if value.eq_ignore_ascii_case("rush") {
+            Some(AIPersonality::Rush)
+        } else {
+            None
+        }
+    }
+
+    fn strategy_name(value: AIStrategy) -> &'static str {
+        match value {
+            AIStrategy::EarlyGame => "EarlyGame",
+            AIStrategy::MidGame => "MidGame",
+            AIStrategy::LateGame => "LateGame",
+            AIStrategy::Desperate => "Desperate",
+        }
+    }
+
+    fn strategy_from_name(value: &str) -> Option<AIStrategy> {
+        if value.eq_ignore_ascii_case("earlygame") {
+            Some(AIStrategy::EarlyGame)
+        } else if value.eq_ignore_ascii_case("midgame") {
+            Some(AIStrategy::MidGame)
+        } else if value.eq_ignore_ascii_case("lategame") {
+            Some(AIStrategy::LateGame)
+        } else if value.eq_ignore_ascii_case("desperate") {
+            Some(AIStrategy::Desperate)
+        } else {
+            None
+        }
+    }
+
+    fn build_phase_name(value: AIBuildPhase) -> &'static str {
+        match value {
+            AIBuildPhase::BaseConstruction => "BaseConstruction",
+            AIBuildPhase::UnitProduction => "UnitProduction",
+            AIBuildPhase::Expansion => "Expansion",
+            AIBuildPhase::MassProduction => "MassProduction",
+        }
+    }
+
+    fn build_phase_from_name(value: &str) -> Option<AIBuildPhase> {
+        if value.eq_ignore_ascii_case("baseconstruction") {
+            Some(AIBuildPhase::BaseConstruction)
+        } else if value.eq_ignore_ascii_case("unitproduction") {
+            Some(AIBuildPhase::UnitProduction)
+        } else if value.eq_ignore_ascii_case("expansion") {
+            Some(AIBuildPhase::Expansion)
+        } else if value.eq_ignore_ascii_case("massproduction") {
+            Some(AIBuildPhase::MassProduction)
+        } else {
+            None
         }
     }
 
