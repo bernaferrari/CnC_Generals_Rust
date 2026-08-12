@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::sync::{RwLock, RwLockReadGuard};
 
 use crate::command_button::{CommandButton, CommandButtonId, CommandSet, MAX_COMMANDS_PER_SET};
+use crate::commands::command::CommandType;
 use crate::common::types::ControlBarInterface;
 use crate::common::KindOf;
 use crate::object_manager::get_object_manager;
@@ -20,6 +21,35 @@ use std::sync::{Arc, Mutex};
 pub struct ControlBarBridge {
     buttons_by_id: HashMap<CommandButtonId, CommandButton>,
     command_sets: HashMap<String, CommandSet>,
+}
+
+/// Result of resolving a `UNIT_BUILD` authorization through the live parsed
+/// CommandButton/CommandSet/Object catalog.
+///
+/// `Unavailable` deliberately means that the shared catalog has not supplied
+/// an identity for this producer yet.  Callers may use their legacy fallback
+/// in that one case.  Once a producer resolves to a parsed CommandSet,
+/// `Rejected` is fail-closed: no inferred factory family or button-name
+/// convention is consulted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ParsedUnitBuildAuthorization {
+    Unavailable,
+    Rejected,
+    Authorized,
+}
+
+/// Match the typed GameLogic operation and exact Object template identity of
+/// one parsed CommandButton.
+///
+/// The C++ GUI uses `UNIT_BUILD` as the operation and `Object = <template>`
+/// as the target.  Keeping that pair separate prevents a similarly named
+/// button, or a prefix/suffix of a template name, from granting production.
+fn is_exact_unit_build_identity(
+    command_type: CommandType,
+    object_template: Option<&str>,
+    requested_template: &str,
+) -> bool {
+    command_type == CommandType::QueueUnitCreate && object_template == Some(requested_template)
 }
 
 impl ControlBarBridge {
@@ -79,6 +109,33 @@ impl ControlBarBridge {
 
     pub fn find_command_set_by_name(&self, name: &str) -> Option<&CommandSet> {
         self.command_sets.get(name)
+    }
+
+    /// Whether this bridge was constructed from a non-empty parsed retail
+    /// CommandButton + CommandSet catalog.
+    fn has_resolved_command_set_catalog(&self) -> bool {
+        !self.buttons_by_id.is_empty() && !self.command_sets.is_empty()
+    }
+
+    /// Check one producer CommandSet against an exact requested Object
+    /// template.  `None` means the exact CommandSet identity is absent; it
+    /// does not perform a case fold or an alias lookup.
+    fn exact_unit_build_authorization(
+        &self,
+        command_set_name: &str,
+        requested_template: &str,
+    ) -> Option<bool> {
+        let command_set = self.command_sets.get(command_set_name)?;
+        Some(command_set.buttons.iter().flatten().any(|button| {
+            let object_template = button
+                .get_thing_template()
+                .map(|template| template.get_name().as_str());
+            is_exact_unit_build_identity(
+                button.get_command_type(),
+                object_template,
+                requested_template,
+            )
+        }))
     }
 
     pub fn set_command_set_slot_override(
@@ -143,6 +200,74 @@ pub fn refresh_control_bar_bridge_from_common() -> Result<(), String> {
 
 pub fn get_control_bar_bridge() -> Option<RwLockReadGuard<'static, ControlBarBridge>> {
     CONTROL_BAR_BRIDGE.get().and_then(|cell| cell.read().ok())
+}
+
+/// Authorize a producer/template pair from the parsed retail CommandSet
+/// catalog used by GameClient's ControlBar.
+///
+/// The lookup boundary is intentionally narrow and exact:
+/// `ThingTemplate::<producer>.CommandSet` -> resolved CommandSet -> typed
+/// `QueueUnitCreate` button -> `Object = <producible>`.  Missing catalog data
+/// is reported separately so Main can retain its compatibility fallback only
+/// while startup data is unavailable.
+pub fn parsed_unit_build_authorization(
+    producer_template: &str,
+    producible_template: &str,
+) -> ParsedUnitBuildAuthorization {
+    if producer_template.is_empty() || producible_template.is_empty() {
+        return ParsedUnitBuildAuthorization::Rejected;
+    }
+
+    enum ProducerCommandSet {
+        NoCommandSet,
+        Name(String),
+    }
+
+    // Do not use `TheThingFactory::find_template` here: that convenience API
+    // may initialize a fallback factory on a miss.  Production authorization
+    // must only read the currently loaded, exact retail template identity.
+    let producer_command_set = {
+        let Ok(factory_guard) = game_engine::common::thing::get_thing_factory() else {
+            return ParsedUnitBuildAuthorization::Unavailable;
+        };
+        let Some(factory) = factory_guard.as_ref() else {
+            return ParsedUnitBuildAuthorization::Unavailable;
+        };
+        if factory.first_template().is_none() {
+            return ParsedUnitBuildAuthorization::Unavailable;
+        }
+        let Some(producer) = factory.find_template(producer_template, false) else {
+            // The shared source has no exact identity for this producer (for
+            // example a test-only template), so it cannot supersede Main's
+            // compatibility path.
+            return ParsedUnitBuildAuthorization::Unavailable;
+        };
+        let name = producer.get_command_set_string().as_str();
+        if name.is_empty() {
+            ProducerCommandSet::NoCommandSet
+        } else {
+            ProducerCommandSet::Name(name.to_string())
+        }
+    };
+
+    let command_set_name = match producer_command_set {
+        ProducerCommandSet::NoCommandSet => return ParsedUnitBuildAuthorization::Rejected,
+        ProducerCommandSet::Name(name) => name,
+    };
+
+    let Some(bridge) = get_control_bar_bridge() else {
+        return ParsedUnitBuildAuthorization::Unavailable;
+    };
+    if !bridge.has_resolved_command_set_catalog() {
+        return ParsedUnitBuildAuthorization::Unavailable;
+    }
+
+    match bridge.exact_unit_build_authorization(&command_set_name, producible_template) {
+        Some(true) => ParsedUnitBuildAuthorization::Authorized,
+        // Once the producer supplied an exact CommandSet identity, a missing
+        // set or target is an explicit denial, never a guessed factory match.
+        Some(false) | None => ParsedUnitBuildAuthorization::Rejected,
+    }
 }
 
 /// Insert a synthetic command button + command-set slot for tests / internal harnesses.
@@ -336,5 +461,35 @@ impl ControlBarInterface for ControlBarBridge {
 
     fn get_command_button(&self, button_id: CommandButtonId) -> Option<&CommandButton> {
         self.buttons_by_id.get(&button_id)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn retail_unit_build_identity_is_typed_and_exact() {
+        // `AmericaBarracksCommandSet` references this retail button, whose
+        // CommandButton.ini definition is `Command = UNIT_BUILD` and
+        // `Object = AmericaInfantryRanger`.
+        assert!(is_exact_unit_build_identity(
+            CommandType::QueueUnitCreate,
+            Some("AmericaInfantryRanger"),
+            "AmericaInfantryRanger",
+        ));
+
+        // Neither a near template name nor a different parsed operation may
+        // authorize the request.
+        assert!(!is_exact_unit_build_identity(
+            CommandType::QueueUnitCreate,
+            Some("AmericaInfantryRanger"),
+            "AmericaInfantryRangerPrototype",
+        ));
+        assert!(!is_exact_unit_build_identity(
+            CommandType::QueueUpgrade,
+            Some("AmericaInfantryRanger"),
+            "AmericaInfantryRanger",
+        ));
     }
 }

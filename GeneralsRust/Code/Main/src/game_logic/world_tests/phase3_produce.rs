@@ -20,6 +20,16 @@ fn barracks_command_set_allows_ranger_rejects_crusader() {
         command_set_allows_unit("TestBarracks", "TestInfantry"),
         None
     );
+    assert_eq!(
+        command_set_allows_unit("Nuke_AmericaBarracks", "AmericaInfantryRanger"),
+        None,
+        "fallback must not authorize a general variant through a suffix match"
+    );
+    assert_eq!(
+        command_set_allows_unit("AmericaBarracks", "americainfantryranger"),
+        Some(false),
+        "fallback target identities stay exact as well"
+    );
 
     let mut logic = GameLogic::new();
     ensure_test_player_for_team(&mut logic, Team::USA);

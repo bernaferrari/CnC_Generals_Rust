@@ -932,20 +932,32 @@ impl GameLogic {
             return crate::game_logic::host_production_buildable_command_residual::CANMAKE_FACTORY_IS_DISABLED;
         };
         // C++ BuildAssistant::isPossibleToMakeUnit: CommandSet UNIT_BUILD scan.
-        // Known retail producers must list the unit; test/unknown producers
-        // keep KindOf factory-type fallback.
+        // Prefer the exact live catalog that also drives GameClient's
+        // ControlBar: Object CommandSet -> typed UNIT_BUILD -> Object target.
+        // The small residual table remains only while that catalog has not
+        // supplied a producer identity (for example test-only factories).
         let producer_template = producer.template_name.as_str();
-        match crate::game_logic::host_production_buildable_command_residual::command_set_allows_unit(
+        match gamelogic::control_bar::parsed_unit_build_authorization(
             producer_template,
             template_name,
         ) {
-            Some(false) => {
+            gamelogic::control_bar::ParsedUnitBuildAuthorization::Rejected => {
                 return crate::game_logic::host_production_buildable_command_residual::CANMAKE_NO_PREREQ;
             }
-            Some(true) => {}
-            None => {
-                if !building.can_produce(template) {
-                    return crate::game_logic::host_production_buildable_command_residual::CANMAKE_NO_PREREQ;
+            gamelogic::control_bar::ParsedUnitBuildAuthorization::Authorized => {}
+            gamelogic::control_bar::ParsedUnitBuildAuthorization::Unavailable => {
+                match crate::game_logic::host_production_buildable_command_residual::command_set_allows_unit(
+                    producer_template,
+                    template_name,
+                ) {
+                    Some(false) => {
+                        return crate::game_logic::host_production_buildable_command_residual::CANMAKE_NO_PREREQ;
+                    }
+                    Some(true) => {}
+                    None if !building.can_produce(template) => {
+                        return crate::game_logic::host_production_buildable_command_residual::CANMAKE_NO_PREREQ;
+                    }
+                    None => {}
                 }
             }
         }

@@ -494,7 +494,36 @@ fn comanche_rocket_pods_residual_upgrade_and_area_attack() {
         .unwrap_or(0.0);
 
     game_logic.set_current_frame(90);
+    {
+        let attacker = game_logic.host_object(comanche_id).expect("comanche");
+        let target = game_logic.host_object(tank_id).expect("tank");
+        eprintln!(
+            "tertiary debug: selected={:?} can_attack={} ai={:?} target={:?} pos={:?} orient={} tertiary={:?}",
+            attacker.select_combat_weapon_slot(target, 90.0 * LOGIC_FRAME_TIMESTEP),
+            attacker.can_attack(),
+            attacker.ai_state,
+            attacker.target,
+            attacker.get_position(),
+            attacker.get_orientation(),
+            attacker.tertiary_weapon,
+        );
+    }
     game_logic.update_combat(&[comanche_id, tank_id, infantry_id], LOGIC_FRAME_TIMESTEP);
+    {
+        let attacker = game_logic.host_object(comanche_id).expect("comanche");
+        eprintln!(
+            "tertiary after: ai={:?} target={:?} pos={:?} orient={} movement={:?} aim={} firing={} substate={:?} last={}",
+            attacker.ai_state,
+            attacker.target,
+            attacker.get_position(),
+            attacker.get_orientation(),
+            attacker.movement.target_position,
+            attacker.status.is_aiming_weapon,
+            attacker.status.is_firing_weapon,
+            attacker.attack_substate,
+            attacker.tertiary_weapon.as_ref().map(|weapon| weapon.last_fire_time).unwrap_or_default(),
+        );
+    }
 
     assert!(
         game_logic.honesty_comanche_rocket_pod_ok(),

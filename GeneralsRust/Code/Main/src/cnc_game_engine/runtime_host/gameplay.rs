@@ -70,7 +70,7 @@ impl CnCGameEngine {
     #[cfg(feature = "game_client")]
     pub(crate) fn host_tick_popup_save_load_bridge(&mut self) {
         use game_client::gui::callbacks::{
-            take_host_popup_save_load_requests, PopupSaveLoadRequest,
+            take_host_popup_save_load_published_requests, PopupSaveLoadRequest,
         };
 
         if !self.popup_save_load_bridge_initialized {
@@ -78,13 +78,19 @@ impl CnCGameEngine {
             self.popup_save_load_bridge_initialized = true;
         }
 
-        for request in take_host_popup_save_load_requests() {
-            match request {
+        for published in take_host_popup_save_load_published_requests() {
+            let physical_os_input = published.input_provenance.is_physical_window_mouse_input();
+            match published.request {
                 PopupSaveLoadRequest::Save {
                     filename,
                     description,
                     save_file_type,
                 } => {
+                    // Snapshot eligibility before serialization.  The save
+                    // authority itself remains unchanged; this is only a
+                    // fail-closed proof attached after it succeeds.
+                    let physical_evidence_eligible =
+                        self.host_popup_save_load_evidence_eligible(physical_os_input);
                     // A selected existing row carries its exact filename.  A
                     // `New Save Game` pseudo-row deliberately carries none,
                     // so use a runtime-provided acceptance slot if present or
@@ -124,6 +130,8 @@ impl CnCGameEngine {
                         Ok(()) => {
                             self.runtime_host_last_gameplay_cmd =
                                 format!("save_ok:wnd_popup:{slot}");
+                            self.interactive_playability
+                                .note_popup_save_confirmation_succeeded(physical_evidence_eligible);
                             self.host_publish_popup_save_load_inventory();
                         }
                         Err(err) => {
@@ -134,6 +142,11 @@ impl CnCGameEngine {
                     }
                 }
                 PopupSaveLoadRequest::Load { filename } => {
+                    // The post-load authority clears/rebuilds match residuals,
+                    // so prove that the physical confirmation occurred in the
+                    // visible offline match before starting restoration.
+                    let physical_evidence_eligible =
+                        self.host_popup_save_load_evidence_eligible(physical_os_input);
                     let slot = filename.trim();
                     if slot.is_empty() {
                         self.runtime_host_last_gameplay_cmd = "load_fail_wnd_no_slot".into();
@@ -148,6 +161,8 @@ impl CnCGameEngine {
                             }
                             self.runtime_host_last_gameplay_cmd =
                                 format!("load_ok:wnd_popup:{slot}");
+                            self.interactive_playability
+                                .note_popup_load_confirmation_succeeded(physical_evidence_eligible);
                             self.host_publish_popup_save_load_inventory();
                         }
                         Err(err) => {
@@ -159,6 +174,25 @@ impl CnCGameEngine {
                 }
             }
         }
+    }
+
+    /// A PopupSaveLoad proof is meaningful only for an explicit physical WND
+    /// confirmation in a visible offline match.  Runtime-host commands,
+    /// control-file injection, headless use, menu loads, and online modes all
+    /// fail closed before the sticky evidence can advance.
+    #[cfg(feature = "game_client")]
+    fn host_popup_save_load_evidence_eligible(&self, physical_os_input: bool) -> bool {
+        physical_os_input
+            && !self.runtime_host_headless
+            && self.runtime_host_window_visible()
+            && matches!(self.current_state, GameState::InGame | GameState::Paused)
+            && matches!(
+                self.host_match_game_mode,
+                Some(
+                    crate::game_logic::GameMode::SinglePlayer
+                        | crate::game_logic::GameMode::Skirmish
+                )
+            )
     }
 
     pub(super) fn runtime_host_cmd_save_game(&mut self, args: &HashMap<String, String>) {

@@ -360,6 +360,9 @@ fn asset_template_catalogue_seed_keeps_curated_templates_and_uses_exact_retail_f
     added
         .attributes
         .insert("BuildCost".to_string(), "1100".to_string());
+    added
+        .attributes
+        .insert("BuildTime".to_string(), "12.5".to_string());
 
     let mut ambient_only = ObjectDefinition::new("AmbientOnlyRetailAnchor".to_string());
     ambient_only
@@ -388,6 +391,7 @@ fn asset_template_catalogue_seed_keeps_curated_templates_and_uses_exact_retail_f
         .expect("retail definition seeded");
     assert_eq!(seeded.max_health, 600.0);
     assert_eq!(seeded.build_cost.supplies, 1100);
+    assert_eq!(seeded.build_time, 12.5);
     assert_eq!(seeded.model_name.as_deref(), Some("AVPaladin"));
     assert_eq!(seeded.primary_weapon_name.as_deref(), Some("PaladinTankGun"));
     assert_eq!(
@@ -418,38 +422,27 @@ fn shell_game_state_tracks_in_game_status() {
 }
 
 #[test]
-fn remap_known_model_alias_covers_shell_map_missing_models() {
-    assert_eq!(
-        GameLogic::remap_known_model_alias("PMRocks01b"),
-        "PMBoulders_D"
-    );
-    assert_eq!(
-        GameLogic::remap_known_model_alias("PMRocks02b"),
-        "PMBoulders_D"
-    );
-    assert_eq!(
-        GameLogic::remap_known_model_alias("PTCypress01"),
-        "PTXARBVT01"
-    );
-    assert_eq!(GameLogic::remap_known_model_alias("PTXPine03"), "PTXFIR07");
-    assert_eq!(GameLogic::remap_known_model_alias("PMSwing"), "PMBikeRack");
-    assert_eq!(
-        GameLogic::remap_known_model_alias("PMPlygdSt"),
-        "PMPavilion"
-    );
-    assert_eq!(GameLogic::remap_known_model_alias("AVAMPHIB"), "AVChinook");
-    assert_eq!(
-        GameLogic::remap_known_model_alias("AVChinook_A2"),
-        "AVChinook_A2MSH"
-    );
-    assert_eq!(
-        GameLogic::remap_known_model_alias("ABSupplyCT_A2"),
-        "ABSupplyCT_A2U"
-    );
-    assert_eq!(
-        GameLogic::remap_known_model_alias("AVPaladin"),
-        "AVCrusader_A"
-    );
+fn exact_model_lookup_rejects_legacy_proxy_meshes() {
+    let proxy_pairs = [
+        ("PMRocks01b", "PMBoulders_D"),
+        ("PTCypress01", "PTXARBVT01"),
+        ("PMSwing", "PMBikeRack"),
+        ("AVAMPHIB", "AVChinook"),
+        ("AVChinook_A2", "AVChinook_A2MSH"),
+        ("ABSupplyCT_A2", "ABSupplyCT_A2U"),
+        ("AVPaladin", "AVCrusader_A"),
+    ];
+
+    for (requested, proxy) in proxy_pairs {
+        assert_eq!(
+            GameLogic::find_exact_available_model_name(
+                requested,
+                vec![format!("Art/W3D/{proxy}.W3D")].into_iter(),
+            ),
+            None,
+            "a missing retail model must not be replaced with proxy mesh {proxy}"
+        );
+    }
 }
 
 #[test]
