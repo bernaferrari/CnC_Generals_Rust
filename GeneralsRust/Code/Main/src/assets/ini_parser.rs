@@ -91,6 +91,101 @@ pub struct AuthoredDrawSubobjectVisibility {
     pub hidden: bool,
 }
 
+/// The primary W3DModelDraw turret binding selected from one source condition
+/// state.
+///
+/// C++ stores the two source bone `NameKey`s and `parseAngleReal` outputs in
+/// `ModelConditionInfo::m_turrets[0]`.  Keep the parsed radians as raw `f32`
+/// bits so this presentation-only record remains `Eq` and serializable without
+/// introducing an approximate comparison into frozen draw-state identity.
+/// `alternate_*_bone_present` deliberately records only whether C++ would have
+/// an active second turret slot: Main has no second-turret runtime yet and must
+/// leave the whole primary control path untouched instead of guessing which
+/// gameplay angle belongs to it.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct AuthoredDrawPrimaryTurret {
+    /// Lowercased exact C++ `Turret` HTree pivot name, or `None` when the
+    /// source field is empty/`None`.
+    pub yaw_bone: Option<String>,
+    /// Lowercased exact C++ `TurretPitch` HTree pivot name, or `None` when
+    /// the source field is empty/`None`.
+    pub pitch_bone: Option<String>,
+    /// `TurretArtAngle` after C++ `INI::parseAngleReal` degree-to-radian
+    /// conversion.
+    pub yaw_art_angle_radians_bits: u32,
+    /// `TurretArtPitch` after C++ `INI::parseAngleReal` degree-to-radian
+    /// conversion.
+    pub pitch_art_angle_radians_bits: u32,
+    /// `AltTurret` has an active source bone. Main intentionally does not
+    /// substitute the primary gameplay angle for this unsupported slot.
+    pub alternate_yaw_bone_present: bool,
+    /// `AltTurretPitch` has an active source bone. Main intentionally does
+    /// not substitute the primary gameplay pitch for this unsupported slot.
+    pub alternate_pitch_bone_present: bool,
+    /// A malformed primary art-angle token makes this binding unavailable.
+    /// C++ would reject bad INI data during load; fail closed in Main rather
+    /// than rendering a silently invented zero-degree correction.
+    pub primary_fields_valid: bool,
+}
+
+impl Default for AuthoredDrawPrimaryTurret {
+    fn default() -> Self {
+        Self {
+            yaw_bone: None,
+            pitch_bone: None,
+            yaw_art_angle_radians_bits: 0.0f32.to_bits(),
+            pitch_art_angle_radians_bits: 0.0f32.to_bits(),
+            alternate_yaw_bone_present: false,
+            alternate_pitch_bone_present: false,
+            primary_fields_valid: true,
+        }
+    }
+}
+
+impl AuthoredDrawPrimaryTurret {
+    pub fn yaw_art_angle_radians(&self) -> f32 {
+        f32::from_bits(self.yaw_art_angle_radians_bits)
+    }
+
+    pub fn pitch_art_angle_radians(&self) -> f32 {
+        f32::from_bits(self.pitch_art_angle_radians_bits)
+    }
+
+    /// A second C++ turret slot is source-authored but deliberately unsupported
+    /// by the bounded primary-turret renderer.
+    pub fn has_unsupported_alternate_turret(&self) -> bool {
+        self.alternate_yaw_bone_present || self.alternate_pitch_bone_present
+    }
+
+    /// This does not require both primary bones: C++ independently controls
+    /// yaw and pitch when each exact validated pivot exists.
+    pub fn has_primary_bone(&self) -> bool {
+        self.yaw_bone.is_some() || self.pitch_bone.is_some()
+    }
+
+    fn set_yaw_art_angle_degrees(&mut self, value: &str) {
+        let Some(radians) = Self::parse_art_angle_radians(value) else {
+            self.primary_fields_valid = false;
+            return;
+        };
+        self.yaw_art_angle_radians_bits = radians.to_bits();
+    }
+
+    fn set_pitch_art_angle_degrees(&mut self, value: &str) {
+        let Some(radians) = Self::parse_art_angle_radians(value) else {
+            self.primary_fields_valid = false;
+            return;
+        };
+        self.pitch_art_angle_radians_bits = radians.to_bits();
+    }
+
+    fn parse_art_angle_radians(value: &str) -> Option<f32> {
+        let degrees = value.split_whitespace().next()?.parse::<f32>().ok()?;
+        let radians = degrees.to_radians();
+        radians.is_finite().then_some(radians)
+    }
+}
+
 /// A single source-authored `DefaultConditionState`, `ConditionState`, or
 /// `TransitionState` block.  `condition_sets` retains the initial token list
 /// and each following `AliasConditionState` in source order.
@@ -106,6 +201,10 @@ pub struct DrawConditionStateDefinition {
     /// copied wholesale from `DefaultConditionState` before local directives
     /// are parsed, just like model and animation state.
     pub subobject_visibility: Vec<AuthoredDrawSubobjectVisibility>,
+    /// Primary C++ `m_turrets[0]` fields. Normal and transition states copy
+    /// this complete record from `DefaultConditionState` before their local
+    /// directives are parsed.
+    pub primary_turret: AuthoredDrawPrimaryTurret,
     /// Parser-only counterpart of C++ `ANIMS_COPIED_FROM_DEFAULT_STATE`.
     /// A state starts with Default's animations but its first Animation or
     /// IdleAnimation field replaces that inherited list rather than appending.
@@ -122,6 +221,7 @@ impl DrawConditionStateDefinition {
             animations: Vec::new(),
             animation_mode: AuthoredDrawAnimationMode::Once,
             subobject_visibility: Vec::new(),
+            primary_turret: AuthoredDrawPrimaryTurret::default(),
             animations_copied_from_default: false,
         }
     }
@@ -135,6 +235,7 @@ impl DrawConditionStateDefinition {
             animations: Vec::new(),
             animation_mode: AuthoredDrawAnimationMode::Once,
             subobject_visibility: Vec::new(),
+            primary_turret: AuthoredDrawPrimaryTurret::default(),
             animations_copied_from_default: false,
         }
     }
@@ -148,6 +249,7 @@ impl DrawConditionStateDefinition {
             animations: Vec::new(),
             animation_mode: AuthoredDrawAnimationMode::Once,
             subobject_visibility: Vec::new(),
+            primary_turret: AuthoredDrawPrimaryTurret::default(),
             animations_copied_from_default: false,
         }
     }
@@ -233,6 +335,11 @@ pub struct AuthoredDrawModel {
     /// visible unless its animation says otherwise.
     #[serde(default)]
     pub subobject_visibility: Vec<AuthoredDrawSubobjectVisibility>,
+    /// Frozen source primary-turret binding. An absent/default binding keeps
+    /// the HLOD in its selected animation or bind pose; it never rotates the
+    /// entire vehicle hull.
+    #[serde(default)]
+    pub primary_turret: AuthoredDrawPrimaryTurret,
 }
 
 /// One source-authored `Behavior = ...` module, retained with its own block
@@ -570,6 +677,7 @@ impl ObjectDefinition {
                 animations: state.animations.clone(),
                 animation_mode: state.animation_mode.clone(),
                 subobject_visibility: state.subobject_visibility.clone(),
+                primary_turret: state.primary_turret.clone(),
             });
         }
 
@@ -941,6 +1049,62 @@ impl IniParser {
                             value,
                             true,
                         ),
+                        // C++ W3DModelDraw stores the primary `m_turrets[0]`
+                        // binding on every ModelConditionInfo. These fields
+                        // are presentation-only but must survive the exact
+                        // DefaultConditionState inheritance boundary before
+                        // the active HLOD collector may use them.
+                        "turret" => Self::assign_draw_condition_primary_turret_bone(
+                            obj,
+                            active_draw_module,
+                            active_condition_state,
+                            value,
+                            true,
+                        ),
+                        "turretpitch" => Self::assign_draw_condition_primary_turret_bone(
+                            obj,
+                            active_draw_module,
+                            active_condition_state,
+                            value,
+                            false,
+                        ),
+                        "turretartangle" => Self::assign_draw_condition_primary_turret_art(
+                            obj,
+                            active_draw_module,
+                            active_condition_state,
+                            value,
+                            true,
+                        ),
+                        "turretartpitch" => Self::assign_draw_condition_primary_turret_art(
+                            obj,
+                            active_draw_module,
+                            active_condition_state,
+                            value,
+                            false,
+                        ),
+                        // Preserve whether C++ has an active second turret
+                        // slot. The bounded Main renderer deliberately does
+                        // not route primary gameplay angles into it.
+                        "altturret" => Self::assign_draw_condition_alternate_turret_bone(
+                            obj,
+                            active_draw_module,
+                            active_condition_state,
+                            value,
+                            true,
+                        ),
+                        "altturretpitch" => Self::assign_draw_condition_alternate_turret_bone(
+                            obj,
+                            active_draw_module,
+                            active_condition_state,
+                            value,
+                            false,
+                        ),
+                        // AltTurretArtAngle/AltTurretArtPitch only affect an
+                        // active alternate bone, which already makes the
+                        // bounded primary-only renderer fail closed. Do not
+                        // manufacture a second-turret runtime by retaining
+                        // those offsets as primary values.
+                        "altturretartangle" | "altturretartpitch" => {}
                         "draw" => {
                             obj.draw_module = Some(value.to_string());
                             obj.draw_modules
@@ -1173,6 +1337,7 @@ impl IniParser {
                 state.animations = default.animations.clone();
                 state.animation_mode = default.animation_mode.clone();
                 state.subobject_visibility = default.subobject_visibility.clone();
+                state.primary_turret = default.primary_turret.clone();
                 state.animations_copied_from_default = true;
             }
         }
@@ -1337,6 +1502,84 @@ impl IniParser {
                     .subobject_visibility
                     .push(AuthoredDrawSubobjectVisibility { name, hidden });
             }
+        }
+    }
+
+    /// C++ `parseBoneNameKey` lowercases one token and clears it for empty or
+    /// `None`. Keep that behavior independent for the yaw and pitch entries.
+    fn parse_draw_turret_bone_name(value: &str) -> Option<String> {
+        let name = value.split_whitespace().next()?.trim();
+        (!name.is_empty() && !name.eq_ignore_ascii_case("none")).then(|| name.to_ascii_lowercase())
+    }
+
+    fn assign_draw_condition_primary_turret_bone(
+        obj: &mut ObjectDefinition,
+        active_draw_module: Option<usize>,
+        active_condition_state: Option<usize>,
+        value: &str,
+        is_yaw: bool,
+    ) {
+        let Some(module) = active_draw_module.and_then(|index| obj.draw_modules.get_mut(index))
+        else {
+            return;
+        };
+        let Some(state) =
+            active_condition_state.and_then(|index| module.condition_states.get_mut(index))
+        else {
+            return;
+        };
+        let bone = Self::parse_draw_turret_bone_name(value);
+        if is_yaw {
+            state.primary_turret.yaw_bone = bone;
+        } else {
+            state.primary_turret.pitch_bone = bone;
+        }
+    }
+
+    fn assign_draw_condition_primary_turret_art(
+        obj: &mut ObjectDefinition,
+        active_draw_module: Option<usize>,
+        active_condition_state: Option<usize>,
+        value: &str,
+        is_yaw: bool,
+    ) {
+        let Some(module) = active_draw_module.and_then(|index| obj.draw_modules.get_mut(index))
+        else {
+            return;
+        };
+        let Some(state) =
+            active_condition_state.and_then(|index| module.condition_states.get_mut(index))
+        else {
+            return;
+        };
+        if is_yaw {
+            state.primary_turret.set_yaw_art_angle_degrees(value);
+        } else {
+            state.primary_turret.set_pitch_art_angle_degrees(value);
+        }
+    }
+
+    fn assign_draw_condition_alternate_turret_bone(
+        obj: &mut ObjectDefinition,
+        active_draw_module: Option<usize>,
+        active_condition_state: Option<usize>,
+        value: &str,
+        is_yaw: bool,
+    ) {
+        let Some(module) = active_draw_module.and_then(|index| obj.draw_modules.get_mut(index))
+        else {
+            return;
+        };
+        let Some(state) =
+            active_condition_state.and_then(|index| module.condition_states.get_mut(index))
+        else {
+            return;
+        };
+        let active = Self::parse_draw_turret_bone_name(value).is_some();
+        if is_yaw {
+            state.primary_turret.alternate_yaw_bone_present = active;
+        } else {
+            state.primary_turret.alternate_pitch_bone_present = active;
         }
     }
 
@@ -1934,6 +2177,99 @@ End
                 },
             ],
             "TransitionState inherits Default too, then overwrites Door in place"
+        );
+    }
+
+    #[test]
+    fn w3d_hlod_turret_draw_states_inherit_primary_bones_and_art_offsets() {
+        let ini_content = r#"
+Object DrawTurretProbe
+  Draw = W3DTankDraw ModuleTag_01
+    DefaultConditionState
+      Model = TurretProbe
+      Turret = HullYaw
+      TurretArtAngle = 90
+      TurretPitch = BarrelPitch
+      TurretArtPitch = -30
+      AltTurret = None
+    End
+    ConditionState = DAMAGED
+      Turret = DamageYaw
+      AltTurretPitch = AlternatePitch
+    End
+    ConditionState = REALLYDAMAGED
+      Turret = None
+      TurretPitch = NONE
+    End
+    TransitionState = TRANS_Standing TRANS_Moving
+      TurretArtAngle = 45
+    End
+  End
+End
+"#;
+
+        let mut parser = IniParser::new();
+        parser
+            .parse_ini_content(ini_content, "draw_turret_probe.ini")
+            .expect("parse source Draw turret state table");
+        let definition = parser
+            .get_definition("DrawTurretProbe")
+            .expect("parsed Draw turret probe");
+
+        let default = definition
+            .select_draw_models_for_conditions(0)
+            .expect("select source DefaultConditionState");
+        let default_turret = &default[0].primary_turret;
+        assert_eq!(default_turret.yaw_bone.as_deref(), Some("hullyaw"));
+        assert_eq!(default_turret.pitch_bone.as_deref(), Some("barrelpitch"));
+        assert!(
+            (default_turret.yaw_art_angle_radians() - std::f32::consts::FRAC_PI_2).abs() < 1.0e-6,
+            "C++ INI::parseAngleReal converts source degrees to radians"
+        );
+        assert!(
+            (default_turret.pitch_art_angle_radians() + std::f32::consts::FRAC_PI_6).abs() < 1.0e-6
+        );
+        assert!(default_turret.primary_fields_valid);
+        assert!(!default_turret.has_unsupported_alternate_turret());
+
+        let damaged = definition
+            .select_draw_models_for_conditions(model_condition_bit("DAMAGED"))
+            .expect("select inherited damaged Draw state");
+        let damaged_turret = &damaged[0].primary_turret;
+        assert_eq!(damaged_turret.yaw_bone.as_deref(), Some("damageyaw"));
+        assert_eq!(damaged_turret.pitch_bone.as_deref(), Some("barrelpitch"));
+        assert!(
+            (damaged_turret.yaw_art_angle_radians() - default_turret.yaw_art_angle_radians()).abs()
+                < 1.0e-6,
+            "normal ConditionState inherits Default's primary art offset"
+        );
+        assert!(
+            damaged_turret.has_unsupported_alternate_turret(),
+            "an active AltTurretPitch must not be routed into primary control"
+        );
+
+        let really_damaged = definition
+            .select_draw_models_for_conditions(model_condition_bit("REALLYDAMAGED"))
+            .expect("select None-cleared turret state");
+        assert!(
+            !really_damaged[0].primary_turret.has_primary_bone(),
+            "C++ parseBoneNameKey clears each explicit None primary binding"
+        );
+
+        let transition = definition.draw_modules[0]
+            .condition_states
+            .iter()
+            .find(|state| state.is_transition)
+            .expect("retained transition state");
+        assert_eq!(
+            transition.primary_turret.yaw_bone.as_deref(),
+            Some("hullyaw"),
+            "TransitionState starts as a DefaultConditionState copy"
+        );
+        assert!(
+            (transition.primary_turret.yaw_art_angle_radians() - std::f32::consts::FRAC_PI_4).abs()
+                < 1.0e-6,
+            "TransitionState local art angle overwrites its inherited source value"
         );
     }
 

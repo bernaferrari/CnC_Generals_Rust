@@ -106,6 +106,7 @@ mod input;
 #[cfg(feature = "game_client")]
 mod minimap_bridge;
 mod mouse;
+mod options_bridge;
 mod presentation_terrain_cache;
 #[cfg(feature = "game_client")]
 mod quit_menu_bridge;
@@ -183,6 +184,7 @@ pub const ENGINE_SRC: &str = concat!(
     include_str!("input.rs"),
     include_str!("mouse.rs"),
     include_str!("minimap_bridge.rs"),
+    include_str!("options_bridge.rs"),
     include_str!("presentation_terrain_cache.rs"),
     include_str!("quit_menu_bridge.rs"),
     include_str!("run_loop.rs"),

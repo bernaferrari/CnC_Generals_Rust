@@ -346,6 +346,7 @@ impl RenderPipeline {
                 let authored_animations = draw_model.animations;
                 let authored_animation_mode = draw_model.animation_mode;
                 let authored_subobject_visibility = draw_model.subobject_visibility;
+                let authored_primary_turret = draw_model.primary_turret;
                 let model_name_owned = draw_model.model_key;
                 if model_name_owned.trim().is_empty() {
                     // An empty key cannot be an exact Draw submission.
@@ -459,11 +460,21 @@ impl RenderPipeline {
                                 // `HLOD.Name.MeshName -> BoneIndex` record.  Unsupported
                                 // multi-LOD/aggregate content returns None and remains
                                 // intentionally non-rendering rather than drawing every group.
+                                // C++ positions the Drawable/hull first, then
+                                // captures only its exact primary turret
+                                // HTree pivots after the selected HAnim has
+                                // sampled. The frozen Draw-state binding is
+                                // the sole authority here; unsupported/missing
+                                // bindings retain the normal HLOD pose rather
+                                // than rotating all vehicle geometry.
                                 let Some((mesh_local_transform, mesh_visible)) = w3d_model
-                                    .mesh_local_transform_and_visibility_for_binding(
+                                    .mesh_local_transform_and_visibility_for_primary_turret(
                                         mesh_idx,
                                         animation_binding.as_ref(),
                                         anim_frame,
+                                        &authored_primary_turret,
+                                        u.turret_angle_deg,
+                                        u.turret_pitch_deg,
                                     )
                                 else {
                                     continue;

@@ -7,7 +7,7 @@
 // W3D model loading system for real C&C 3D assets
 
 use crate::assets::archive::ArchiveFileSystem;
-use crate::assets::ini_parser::AuthoredDrawSubobjectVisibility;
+use crate::assets::ini_parser::{AuthoredDrawPrimaryTurret, AuthoredDrawSubobjectVisibility};
 use anyhow::{anyhow, Result};
 use crc32fast::Hasher;
 use glam::{Mat4, Vec3};
@@ -887,6 +887,164 @@ impl W3DModel {
         ))
     }
 
+    /// As [`Self::mesh_local_transform_and_visibility_for_binding`], with the
+    /// bounded C++ `W3DModelDraw::handleClientTurretPositioning` primary-bone
+    /// control applied after the frozen source HAnim has constructed its pose.
+    ///
+    /// The existing HLOD transform/visibility path remains the authority for
+    /// whether a mesh can render. A missing, malformed, alternate-turret, or
+    /// unresolved primary binding deliberately leaves that already selected
+    /// pose alone: it must never rotate the entire vehicle hull or infer a
+    /// turret from a mesh name. This helper only accepts Main's active
+    /// single-HLOD topology and converts the final source pose to render basis
+    /// exactly once.
+    pub fn mesh_local_transform_and_visibility_for_primary_turret(
+        &self,
+        mesh_index: usize,
+        animation_binding: Option<&W3dAnimationBinding>,
+        animation_frame: f32,
+        primary_turret: &AuthoredDrawPrimaryTurret,
+        turret_angle_degrees: f32,
+        turret_pitch_degrees: f32,
+    ) -> Option<(Mat4, bool)> {
+        let (fallback_transform, visible) = self.mesh_local_transform_and_visibility_for_binding(
+            mesh_index,
+            animation_binding,
+            animation_frame,
+        )?;
+
+        let Some(source_transform) = self.primary_turret_source_transform_for_mesh(
+            mesh_index,
+            animation_binding,
+            animation_frame,
+            primary_turret,
+            turret_angle_degrees,
+            turret_pitch_degrees,
+        ) else {
+            return Some((fallback_transform, visible));
+        };
+
+        Some((
+            Self::w3d_transform_to_render_basis(Mat4::from_cols_array(&source_transform)),
+            visible,
+        ))
+    }
+
+    /// Return the source-space HTree transform for one rigid HLOD mesh after
+    /// C++-ordered primary turret capture controls. `None` means no safe
+    /// primary control exists, not that the mesh itself is unavailable; the
+    /// caller uses its already validated selected-animation/bind-pose value.
+    fn primary_turret_source_transform_for_mesh(
+        &self,
+        mesh_index: usize,
+        animation_binding: Option<&W3dAnimationBinding>,
+        animation_frame: f32,
+        primary_turret: &AuthoredDrawPrimaryTurret,
+        turret_angle_degrees: f32,
+        turret_pitch_degrees: f32,
+    ) -> Option<[f32; 16]> {
+        if !primary_turret.primary_fields_valid
+            || primary_turret.has_unsupported_alternate_turret()
+            || !primary_turret.has_primary_bone()
+        {
+            return None;
+        }
+
+        // This is intentionally the same one-HLOD/one-LOD/compatible-HTree
+        // gate as the normal rigid-child transform path. A bare mesh or a
+        // flattened multi-LOD name cannot become an implicit turret target.
+        let mesh_bone_index = self.rigid_hlod_bone_index_for_mesh(mesh_index)?;
+        let (_hlod, hierarchy) = self.rigid_hlod_context()?;
+
+        let yaw_control = primary_turret
+            .yaw_bone
+            .as_deref()
+            .and_then(|bone_name| Self::primary_turret_pivot_index(hierarchy, bone_name))
+            .and_then(|bone_index| {
+                Self::primary_turret_angle_radians(
+                    turret_angle_degrees,
+                    primary_turret.yaw_art_angle_radians(),
+                )
+                .map(|angle| (bone_index, Mat4::from_rotation_z(angle).to_cols_array()))
+            });
+        let pitch_control = primary_turret
+            .pitch_bone
+            .as_deref()
+            .and_then(|bone_name| Self::primary_turret_pivot_index(hierarchy, bone_name))
+            .and_then(|bone_index| {
+                Self::primary_turret_angle_radians(
+                    turret_pitch_degrees,
+                    primary_turret.pitch_art_angle_radians(),
+                )
+                // C++ uses Rotate_Y(-turretPitch) after adding its authored
+                // `TurretArtPitch` offset.
+                .map(|angle| (bone_index, Mat4::from_rotation_y(-angle).to_cols_array()))
+            });
+
+        if yaw_control.is_none() && pitch_control.is_none() {
+            return None;
+        }
+
+        let local_transforms =
+            self.local_transforms_for_animation_binding(animation_binding, animation_frame)?;
+        let mut capture_controls = vec![None; hierarchy.pivots.len()];
+        if let Some((bone_index, transform)) = yaw_control {
+            capture_controls[bone_index] = Some(transform);
+        }
+        if let Some((bone_index, transform)) = pitch_control {
+            // `handleClientTurretPositioning` calls yaw then pitch. If an
+            // invalid source uses one exact bone for both, the latter
+            // Control_Bone call replaces the former capture transform.
+            capture_controls[bone_index] = Some(transform);
+        }
+
+        compute_global_transforms_from_locals_with_capture_controls(
+            hierarchy,
+            &local_transforms,
+            &capture_controls,
+        )?
+        .get(mesh_bone_index)
+        .copied()
+    }
+
+    /// Resolve a C++ `NameKey` only against an exact HTree pivot. Pivot zero
+    /// is C++'s "unresolved/no bone" sentinel in `validateTurretInfo`, so a
+    /// root-name match may not turn into a whole-model rotation.
+    fn primary_turret_pivot_index(hierarchy: &W3dHierarchy, bone_name: &str) -> Option<usize> {
+        hierarchy
+            .pivots
+            .iter()
+            .position(|pivot| pivot.name.eq_ignore_ascii_case(bone_name))
+            .filter(|bone_index| *bone_index != 0)
+    }
+
+    fn primary_turret_angle_radians(gameplay_degrees: f32, art_radians: f32) -> Option<f32> {
+        let angle = gameplay_degrees.to_radians() + art_radians;
+        (gameplay_degrees.is_finite() && art_radians.is_finite() && angle.is_finite())
+            .then_some(angle)
+    }
+
+    /// Build source-space local pivot matrices from either an explicitly
+    /// frozen compatible HAnim or the HTree bind pose. Absent binding is
+    /// deliberately bind pose; it must not select local animation zero.
+    fn local_transforms_for_animation_binding(
+        &self,
+        animation_binding: Option<&W3dAnimationBinding>,
+        animation_frame: f32,
+    ) -> Option<Vec<[f32; 16]>> {
+        let hierarchy = self.hierarchy.as_ref()?;
+        let animation = match animation_binding {
+            Some(binding) => {
+                if !self.animation_binding_is_compatible(binding) {
+                    return None;
+                }
+                binding.animation(self)?
+            }
+            None => return Some(hierarchy.pivots.iter().map(mat4_from_pivot).collect()),
+        };
+        sample_animation_local_transforms(hierarchy, animation, animation_frame)
+    }
+
     /// Apply the frozen active `W3DModelDraw` `ShowSubObject`/`HideSubObject`
     /// state to one already-resolved rigid HLOD mesh.
     ///
@@ -1249,45 +1407,7 @@ impl W3DModel {
 
     fn sample_animation_data(&self, anim: &W3dAnimation, frame: f32) -> Option<Vec<[f32; 16]>> {
         let hierarchy = self.hierarchy.as_ref()?;
-
-        let mut local_transforms: Vec<[f32; 16]> =
-            hierarchy.pivots.iter().map(mat4_from_pivot).collect();
-
-        for channel in &anim.channels {
-            let pivot_idx = channel.pivot as usize;
-            if pivot_idx >= local_transforms.len() {
-                continue;
-            }
-
-            let values = sample_channel(channel, frame);
-
-            match channel.flags {
-                0 => {
-                    if let Some(v) = values.first() {
-                        local_transforms[pivot_idx][12] = *v;
-                    }
-                }
-                1 => {
-                    if let Some(v) = values.first() {
-                        local_transforms[pivot_idx][13] = *v;
-                    }
-                }
-                2 => {
-                    if let Some(v) = values.first() {
-                        local_transforms[pivot_idx][14] = *v;
-                    }
-                }
-                6 if values.len() >= 4 => {
-                    let qx = values[0];
-                    let qy = values[1];
-                    let qz = values[2];
-                    let qw = values[3];
-                    apply_quat_to_transform(&mut local_transforms[pivot_idx], qx, qy, qz, qw);
-                }
-                _ => {}
-            }
-        }
-
+        let local_transforms = sample_animation_local_transforms(hierarchy, anim, frame)?;
         Some(compute_global_transforms_from_locals(
             hierarchy,
             &local_transforms,
@@ -1349,6 +1469,59 @@ fn apply_quat_to_transform(m: &mut [f32; 16], qx: f32, qy: f32, qz: f32, qw: f32
     m[8] = 2.0 * (xz + wy); // col2 row0
     m[9] = 2.0 * (yz - wx); // col2 row1
     m[10] = 1.0 - 2.0 * (xx + yy); // col2 row2
+}
+
+/// Build source-space HTree local transforms after the selected raw HAnim
+/// channels have updated the source pivots. The result remains local so C++
+/// Capture_Bone/Control_Bone callers can inject one exact pivot transform
+/// before its descendants' global matrices are evaluated.
+fn sample_animation_local_transforms(
+    hierarchy: &W3dHierarchy,
+    anim: &W3dAnimation,
+    frame: f32,
+) -> Option<Vec<[f32; 16]>> {
+    if !frame.is_finite() {
+        return None;
+    }
+    let mut local_transforms: Vec<[f32; 16]> =
+        hierarchy.pivots.iter().map(mat4_from_pivot).collect();
+
+    for channel in &anim.channels {
+        let pivot_idx = channel.pivot as usize;
+        if pivot_idx >= local_transforms.len() {
+            continue;
+        }
+
+        let values = sample_channel(channel, frame);
+
+        match channel.flags {
+            0 => {
+                if let Some(v) = values.first() {
+                    local_transforms[pivot_idx][12] = *v;
+                }
+            }
+            1 => {
+                if let Some(v) = values.first() {
+                    local_transforms[pivot_idx][13] = *v;
+                }
+            }
+            2 => {
+                if let Some(v) = values.first() {
+                    local_transforms[pivot_idx][14] = *v;
+                }
+            }
+            6 if values.len() >= 4 => {
+                let qx = values[0];
+                let qy = values[1];
+                let qz = values[2];
+                let qw = values[3];
+                apply_quat_to_transform(&mut local_transforms[pivot_idx], qx, qy, qz, qw);
+            }
+            _ => {}
+        }
+    }
+
+    Some(local_transforms)
 }
 
 /// Interpolate an animation channel at the given continuous frame value.
@@ -1446,6 +1619,44 @@ fn compute_global_transforms_from_locals(
         globals[i] = g;
     }
     globals
+}
+
+/// Source HTree global update with C++ `Capture_Bone`/`Control_Bone` ordering.
+///
+/// A control matrix post-multiplies the just-built global transform of its
+/// exact pivot. Later pivot indices that are descendants therefore inherit the
+/// controlled parent, matching HTree's Base/Anim_Update then Capture_Update
+/// traversal. Invalid parent ordering/cycles fail closed instead of reading a
+/// zero-filled not-yet-constructed parent transform.
+fn compute_global_transforms_from_locals_with_capture_controls(
+    hierarchy: &W3dHierarchy,
+    locals: &[[f32; 16]],
+    capture_controls: &[Option<[f32; 16]>],
+) -> Option<Vec<[f32; 16]>> {
+    if locals.len() != hierarchy.pivots.len() || capture_controls.len() != hierarchy.pivots.len() {
+        return None;
+    }
+
+    let mut globals: Vec<[f32; 16]> = vec![[0.0; 16]; hierarchy.pivots.len()];
+    for (pivot_index, pivot) in hierarchy.pivots.iter().enumerate() {
+        let mut global = if pivot.parent_idx != u32::MAX {
+            let parent_index = usize::try_from(pivot.parent_idx).ok()?;
+            // Source HTree stores parent pivots before children. Main has no
+            // separate recursive evaluator for malformed source ordering, so
+            // reject it rather than using a fabricated identity parent.
+            if parent_index >= pivot_index {
+                return None;
+            }
+            mat4_mul(&globals[parent_index], &locals[pivot_index])
+        } else {
+            locals[pivot_index]
+        };
+        if let Some(control) = capture_controls[pivot_index] {
+            global = mat4_mul(&global, &control);
+        }
+        globals[pivot_index] = global;
+    }
+    Some(globals)
 }
 
 /// Compute the HTree bind-pose globals from source W3D pivot data.
@@ -5351,6 +5562,91 @@ mod tests {
         model
     }
 
+    /// One exact supported HLOD tree for primary-turret control tests. Mesh
+    /// names deliberately differ from pivot names: only the source HLOD child
+    /// records and exact source `Turret`/`TurretPitch` pivot names may bind.
+    fn primary_turret_hlod_model() -> W3DModel {
+        fn test_pivot(name: &str, parent_idx: u32, translation: [f32; 3]) -> W3dPivot {
+            W3dPivot {
+                name: name.to_string(),
+                parent_idx,
+                translation,
+                euler_angles: [0.0; 3],
+                rotation: [0.0, 0.0, 0.0, 1.0],
+            }
+        }
+
+        let mut model = W3DModel::new("primary_turret_hlod".to_string());
+        model.hierarchy = Some(W3dHierarchy {
+            name: "TURRET_HIER".to_string(),
+            pivots: vec![
+                test_pivot("ROOT", u32::MAX, [0.0, 0.0, 0.0]),
+                test_pivot("HULL_PIVOT", 0, [-4.0, 0.0, 0.0]),
+                test_pivot("YAW_PIVOT", 0, [0.0, 10.0, 0.0]),
+                test_pivot("PITCH_PIVOT", 2, [5.0, 0.0, 0.0]),
+                test_pivot("MUZZLE_PIVOT", 3, [3.0, 0.0, 0.0]),
+            ],
+            pivot_fixups: Vec::new(),
+        });
+        model.hlods.push(W3dHlod {
+            version: 0x0001_0000,
+            name: "TURRET_HLOD".to_string(),
+            hierarchy_name: "TURRET_HIER".to_string(),
+            lods: vec![W3dHlodLod {
+                max_screen_size: f32::MAX,
+                subobjects: vec![
+                    W3dHlodSubObject {
+                        name: "TURRET_HLOD.ChassisMesh".to_string(),
+                        bone_index: 1,
+                    },
+                    W3dHlodSubObject {
+                        name: "TURRET_HLOD.GunHousingMesh".to_string(),
+                        bone_index: 2,
+                    },
+                    W3dHlodSubObject {
+                        name: "TURRET_HLOD.BarrelMesh".to_string(),
+                        bone_index: 3,
+                    },
+                    W3dHlodSubObject {
+                        name: "TURRET_HLOD.FlashMesh".to_string(),
+                        bone_index: 4,
+                    },
+                ],
+            }],
+            has_unsupported_attachments: false,
+        });
+        model.meshes = ["ChassisMesh", "GunHousingMesh", "BarrelMesh", "FlashMesh"]
+            .into_iter()
+            .map(|name| {
+                let mut mesh = W3DMesh::new(name.to_string());
+                mesh.container_name = "TURRET_HLOD".to_string();
+                mesh
+            })
+            .collect();
+        // A selected source HAnim changes YAW_PIVOT's X translation at frame
+        // one. The turret control must apply to that sampled pose and then
+        // propagate through PITCH_PIVOT and MUZZLE_PIVOT, not to a separate
+        // global hull matrix.
+        model.animations.push(W3dAnimation {
+            name: "TURRET_POSE".to_string(),
+            hierarchy_name: "TURRET_HIER".to_string(),
+            num_frames: 2,
+            frame_rate: 30,
+            source_is_compressed: false,
+            channels: vec![W3dAnimChannel {
+                first_frame: 0,
+                last_frame: 1,
+                vector_len: 1,
+                flags: 0,
+                pivot: 2,
+                data: vec![0.0, 2.0],
+            }],
+            raw_visibility_channels: Vec::new(),
+            unsupported_visibility_pivots: Vec::new(),
+        });
+        model
+    }
+
     /// An animation-only companion W3D, shaped like the raw HAnim files C++
     /// loads on a `Get_HAnim(Hierarchy.Animation)` miss.
     fn companion_animation_fixture(
@@ -5586,6 +5882,142 @@ mod tests {
         assert!(
             !model.mesh_visible_for_authored_subobject_directives(3, &directives),
             "the exact leaf directive resolves only its retained sibling record"
+        );
+    }
+
+    #[test]
+    fn w3d_hlod_turret_primary_controls_exact_bones_after_selected_animation() {
+        let model = primary_turret_hlod_model();
+        let binding = W3dAnimationBinding::local(0);
+        let primary_turret = AuthoredDrawPrimaryTurret {
+            // The synthetic HLOD child names are deliberately unrelated to
+            // these exact source pivot names.
+            yaw_bone: Some("yaw_pivot".to_string()),
+            pitch_bone: Some("pitch_pivot".to_string()),
+            yaw_art_angle_radians_bits: std::f32::consts::FRAC_PI_2.to_bits(),
+            pitch_art_angle_radians_bits: 0.0f32.to_bits(),
+            ..Default::default()
+        };
+
+        let normal_hull = model
+            .mesh_local_transform_and_visibility_for_binding(0, Some(&binding), 1.0)
+            .expect("selected raw HAnim should resolve the chassis");
+        let normal_muzzle = model
+            .mesh_local_transform_and_visibility_for_binding(3, Some(&binding), 1.0)
+            .expect("selected raw HAnim should resolve the muzzle");
+        let controlled_hull = model
+            .mesh_local_transform_and_visibility_for_primary_turret(
+                0,
+                Some(&binding),
+                1.0,
+                &primary_turret,
+                0.0,
+                90.0,
+            )
+            .expect("exact HLOD chassis remains renderable");
+        let controlled_barrel = model
+            .mesh_local_transform_and_visibility_for_primary_turret(
+                2,
+                Some(&binding),
+                1.0,
+                &primary_turret,
+                0.0,
+                90.0,
+            )
+            .expect("exact HLOD pitch child remains renderable");
+        let controlled_muzzle = model
+            .mesh_local_transform_and_visibility_for_primary_turret(
+                3,
+                Some(&binding),
+                1.0,
+                &primary_turret,
+                0.0,
+                90.0,
+            )
+            .expect("exact HLOD pitch descendant remains renderable");
+        let bind_controlled_hull = model
+            .mesh_local_transform_and_visibility_for_primary_turret(
+                0,
+                None,
+                1.0,
+                &primary_turret,
+                0.0,
+                90.0,
+            )
+            .expect("bind-pose chassis remains renderable under the same control");
+        let bind_controlled_muzzle = model
+            .mesh_local_transform_and_visibility_for_primary_turret(
+                3,
+                None,
+                1.0,
+                &primary_turret,
+                0.0,
+                90.0,
+            )
+            .expect("bind-pose muzzle remains renderable under the same control");
+
+        assert_eq!(normal_hull.1, controlled_hull.1);
+        assert!(
+            normal_hull
+                .0
+                .to_cols_array()
+                .iter()
+                .zip(controlled_hull.0.to_cols_array())
+                .all(|(before, after)| (*before - after).abs() < 1.0e-5),
+            "a source turret binding must not rotate the chassis/hull"
+        );
+        assert!(
+            (normal_muzzle.0.w_axis.truncate() - controlled_muzzle.0.w_axis.truncate()).length()
+                > 1.0e-3,
+            "yaw/pitch controls must affect only their exact HTree descendant path"
+        );
+        assert!(
+            (controlled_barrel.0.w_axis.truncate() - controlled_muzzle.0.w_axis.truncate())
+                .length()
+                > 1.0e-3,
+            "the pitch control is installed before the next source descendant is evaluated"
+        );
+        assert!(
+            (bind_controlled_hull.0.to_cols_array()
+                .iter()
+                .zip(controlled_hull.0.to_cols_array())
+                .map(|(bind, selected)| (bind - selected).abs())
+                .fold(0.0f32, f32::max))
+                < 1.0e-5,
+            "a selected HAnim that animates the yaw subtree must still leave its sibling hull equal to bind pose"
+        );
+        assert!(
+            (bind_controlled_muzzle.0.to_cols_array()
+                .iter()
+                .zip(controlled_muzzle.0.to_cols_array())
+                .map(|(bind, selected)| (bind - selected).abs())
+                .fold(0.0f32, f32::max))
+                > 1.0e-3,
+            "the controlled descendant must retain the selected frame-one HAnim pose rather than reverting to bind pose"
+        );
+
+        let alternate_turret = AuthoredDrawPrimaryTurret {
+            alternate_yaw_bone_present: true,
+            ..primary_turret.clone()
+        };
+        let alternate_fallback = model
+            .mesh_local_transform_and_visibility_for_primary_turret(
+                3,
+                Some(&binding),
+                1.0,
+                &alternate_turret,
+                0.0,
+                90.0,
+            )
+            .expect("unsupported alternate source retains normal HLOD pose");
+        assert!(
+            alternate_fallback
+                .0
+                .to_cols_array()
+                .iter()
+                .zip(normal_muzzle.0.to_cols_array())
+                .all(|(fallback, normal)| (*fallback - normal).abs() < 1.0e-5),
+            "an authored alternate turret must fail closed instead of borrowing the primary angle"
         );
     }
 
@@ -5840,6 +6272,78 @@ mod tests {
                 &upgraded_draw.subobject_visibility,
             ),
             "upgrade state shows that same source-authored rack child"
+        );
+    }
+
+    #[test]
+    fn w3d_hlod_turret_retail_scorpion_retains_exact_primary_turret_binding_when_available() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
+        let ini_path = root
+            .join("windows_game/extracted_big_files/INIZH/Data/INI/Object/GC_Chem_GLAUnits.ini");
+        let Some(w3d_path) = crate::assets::mesh_asset_resolve::find_filesystem_w3d("UVLiteTank")
+        else {
+            eprintln!("skip: retail UVLiteTank.W3D is not available on disk");
+            return;
+        };
+        let Ok(ini_content) = std::fs::read_to_string(&ini_path) else {
+            eprintln!(
+                "skip: retail Scorpion Object INI is not available at {}",
+                ini_path.display()
+            );
+            return;
+        };
+
+        let mut parser = crate::assets::IniParser::new();
+        parser
+            .parse_ini_content(&ini_content, "GC_Chem_GLAUnits.ini")
+            .expect("parse retail Chem Scorpion Draw states");
+        let scorpion = parser
+            .get_definition("GC_Chem_GLATankScorpion")
+            .expect("retail Chem Scorpion definition");
+        let draw = scorpion
+            .select_draw_models_for_conditions(0)
+            .expect("retail pristine Scorpion draw state")
+            .into_iter()
+            .find(|draw| draw.model_key.eq_ignore_ascii_case("UVLiteTank"))
+            .expect("retail pristine Scorpion selects UVLiteTank");
+        assert_eq!(draw.primary_turret.yaw_bone.as_deref(), Some("turret01"));
+        assert_eq!(draw.primary_turret.pitch_bone, None);
+        assert!(!draw.primary_turret.has_unsupported_alternate_turret());
+
+        let model = W3DLoader::new()
+            .load_model_from_path(&w3d_path)
+            .expect("retail UVLiteTank W3D should parse");
+        let (hlod, hierarchy) = model
+            .rigid_hlod_context()
+            .expect("retail Scorpion body must use the currently supported single HLOD path");
+        let turret_pivot_index = W3DModel::primary_turret_pivot_index(hierarchy, "turret01")
+            .expect("retail source Turret01 must resolve to a non-root exact HTree pivot");
+        let turret_child = hlod.lods[0]
+            .subobjects
+            .iter()
+            .find(|child| child.bone_index == turret_pivot_index as u32)
+            .expect("retail source HLOD must retain a child owned by Turret01");
+        let turret_mesh_index = model
+            .meshes
+            .iter()
+            .position(|mesh| {
+                mesh.container_name.eq_ignore_ascii_case(hlod.name.as_str())
+                    && format!("{}.{}", mesh.container_name, mesh.name)
+                        .eq_ignore_ascii_case(turret_child.name.as_str())
+            })
+            .expect("retail Turret01 HLOD child must map to an exact flattened Main mesh");
+        assert!(
+            model
+                .mesh_local_transform_and_visibility_for_primary_turret(
+                    turret_mesh_index,
+                    None,
+                    0.0,
+                    &draw.primary_turret,
+                    0.0,
+                    0.0,
+                )
+                .is_some(),
+            "retail Scorpion's exact Turret01 binding must carry through the active rigid-HLOD path"
         );
     }
 

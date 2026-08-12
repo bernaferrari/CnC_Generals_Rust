@@ -770,6 +770,9 @@ pub struct CnCGameEngine {
     pub(crate) is_windowed: bool,
     pub(crate) rmb_scroll_anchor: Option<(f32, f32)>,
     pub(crate) is_rmb_scrolling: bool,
+    /// C++ OptionsMenu `MoveScrollAnchor` preference, consumed by Main's
+    /// AuthorityOnly RMB camera drag path rather than legacy TheInGameUI.
+    pub(crate) move_rmb_scroll_anchor: bool,
     /// Evidence-only provenance for the active RMB gesture. A gather proof
     /// requires the press and release to both be real OS mouse input; injected
     /// press/release pairs still execute normal gameplay but cannot qualify.

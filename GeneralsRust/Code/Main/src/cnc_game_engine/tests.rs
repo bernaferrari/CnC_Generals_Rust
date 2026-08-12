@@ -432,6 +432,37 @@ fn startup_new_game_dispatch_requires_pending_file_for_startup_map_preparation()
 }
 
 #[test]
+fn map_select_new_game_dispatch_consumes_the_exact_runtime_pending_map() {
+    use game_engine::common::message_stream::{GameMessage, GameMessageType};
+
+    with_global_and_startup_state_snapshot_restored(|| {
+        let expected_map = "Maps\\Official\\MapSelectExact.map".to_string();
+        {
+            let mut global = game_engine::common::global_data::write();
+            global.writable.map_name = "Maps\\Stale\\Stale.map".to_string();
+            global.pending_file = expected_map.clone();
+        }
+
+        let mut message = GameMessage::new(GameMessageType::NewGame);
+        message.append_integer_argument(0); // GAME_SINGLE_PLAYER
+        message.append_integer_argument(1); // DIFFICULTY_NORMAL
+        message.append_integer_argument(0);
+        let dispatch = CnCGameEngine::startup_new_game_dispatch_from_message(&message)
+            .expect("MapSelect NewGame must decode");
+
+        assert_eq!(dispatch.game_mode, GameMode::SinglePlayer);
+        assert_eq!(
+            CnCGameEngine::apply_startup_new_game_dispatch(dispatch),
+            Some(expected_map.clone())
+        );
+
+        let global = game_engine::common::global_data::read();
+        assert_eq!(global.writable.map_name, expected_map);
+        assert!(global.pending_file.is_empty());
+    });
+}
+
+#[test]
 fn startup_new_game_dispatch_ignores_unrelated_messages() {
     use game_engine::common::message_stream::{GameMessage, GameMessageType};
 
