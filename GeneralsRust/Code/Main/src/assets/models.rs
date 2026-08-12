@@ -7,6 +7,7 @@
 // W3D model loading system for real C&C 3D assets
 
 use crate::assets::archive::ArchiveFileSystem;
+use crate::assets::ini_parser::AuthoredDrawSubobjectVisibility;
 use anyhow::{anyhow, Result};
 use crc32fast::Hasher;
 use glam::{Mat4, Vec3};
@@ -259,6 +260,10 @@ pub struct W3dAnimation {
     pub hierarchy_name: String,
     pub num_frames: u32,
     pub frame_rate: u32,
+    /// True when this record came from a compressed animation container.
+    /// Existing local support remains isolated, but hq-7x9 deliberately does
+    /// not claim external companion compressed-channel parity.
+    pub source_is_compressed: bool,
     pub channels: Vec<W3dAnimChannel>,
     /// Raw `BIT_CHANNEL_VIS` channels, in source chunk order.  If duplicate
     /// pivots occur, C++ overwrites the prior channel, so sampling walks this
@@ -882,6 +887,68 @@ impl W3DModel {
         ))
     }
 
+    /// Apply the frozen active `W3DModelDraw` `ShowSubObject`/`HideSubObject`
+    /// state to one already-resolved rigid HLOD mesh.
+    ///
+    /// C++ first looks up a full subobject name, then the exact substring after
+    /// its first dot, and applies the directive to that HTree bone plus all of
+    /// its descendants.  Main keeps that lookup strictly inside one supported
+    /// source HLOD's retained child records; it never guesses from an arbitrary
+    /// mesh, template, or suffix.  Missing/unsupported metadata consequently
+    /// leaves the mesh unchanged here (the transform path remains separately
+    /// fail-closed for unsupported HLODs).
+    pub fn mesh_visible_for_authored_subobject_directives(
+        &self,
+        mesh_index: usize,
+        directives: &[AuthoredDrawSubobjectVisibility],
+    ) -> bool {
+        if directives.is_empty() || self.hlod_parse_failed || self.hlods.is_empty() {
+            return true;
+        }
+
+        let Some((mesh_subobject, mesh_bone_index)) =
+            self.rigid_hlod_subobject_for_mesh(mesh_index)
+        else {
+            return true;
+        };
+        let Some((hlod, hierarchy)) = self.rigid_hlod_context() else {
+            return true;
+        };
+
+        // `ModelConditionInfo::m_hideShowVec` is iterated in its retained
+        // declaration order.  A later directive affecting the same child or
+        // an ancestor intentionally wins.
+        let mut visible = true;
+        for directive in directives {
+            let Some(target_subobject) =
+                Self::rigid_hlod_subobject_for_authored_directive(hlod, &directive.name)
+            else {
+                continue;
+            };
+            let Some(target_bone_index) = usize::try_from(target_subobject.bone_index)
+                .ok()
+                .filter(|bone_index| *bone_index < hierarchy.pivots.len())
+            else {
+                continue;
+            };
+            // C++ hides the exact looked-up RenderObj directly, then visits
+            // *strict* HTree descendants. A separate sibling on the same bone
+            // is neither the named child nor a descendant and must stay intact.
+            if mesh_subobject
+                .name
+                .eq_ignore_ascii_case(target_subobject.name.as_str())
+                || Self::hierarchy_bone_is_strict_descendant(
+                    hierarchy,
+                    mesh_bone_index,
+                    target_bone_index,
+                )
+            {
+                visible = !directive.hidden;
+            }
+        }
+        visible
+    }
+
     /// Backwards-compatible transform-only facade for callers that have not
     /// yet retained a source Draw-state animation identity.  An out-of-range
     /// legacy index preserves the old bind-pose fallback rather than silently
@@ -931,6 +998,42 @@ impl W3DModel {
     /// `ContainerName` plus that exact composed source identity.  Do not use a
     /// suffix, pivot-name, or template-name fallback here.
     fn rigid_hlod_bone_index_for_mesh(&self, mesh_index: usize) -> Option<usize> {
+        self.rigid_hlod_subobject_for_mesh(mesh_index)
+            .map(|(_subobject, bone_index)| bone_index)
+    }
+
+    /// Resolve one flattened Main mesh to its exact retained rigid HLOD child
+    /// and source HTree bone.  Keeping the child identity is necessary for
+    /// `ShowSubObject`/`HideSubObject`: C++ directly changes only the matched
+    /// render object before it recursively changes descendant bones.
+    fn rigid_hlod_subobject_for_mesh(
+        &self,
+        mesh_index: usize,
+    ) -> Option<(&W3dHlodSubObject, usize)> {
+        let (hlod, hierarchy) = self.rigid_hlod_context()?;
+
+        let mesh = self.meshes.get(mesh_index)?;
+        if mesh.container_name.is_empty()
+            || !mesh.container_name.eq_ignore_ascii_case(hlod.name.as_str())
+        {
+            return None;
+        }
+        let source_identity = format!("{}.{}", mesh.container_name, mesh.name);
+        let subobject = hlod.lods.first()?.subobjects.iter().find(|subobject| {
+            subobject
+                .name
+                .eq_ignore_ascii_case(source_identity.as_str())
+        })?;
+
+        let bone_index = usize::try_from(subobject.bone_index).ok()?;
+        (bone_index < hierarchy.pivots.len()).then_some((subobject, bone_index))
+    }
+
+    /// The only HLOD topology active Main currently renders: one source HLOD,
+    /// exactly one selected LOD record, no aggregate/proxy attachment, and an
+    /// exact matching source hierarchy.  Every caller must preserve this gate
+    /// rather than treating flattened mesh names as a substitute.
+    fn rigid_hlod_context(&self) -> Option<(&W3dHlod, &W3dHierarchy)> {
         if self.hlods.len() != 1 {
             return None;
         }
@@ -948,22 +1051,81 @@ impl W3DModel {
         {
             return None;
         }
+        Some((hlod, hierarchy))
+    }
 
-        let mesh = self.meshes.get(mesh_index)?;
-        if mesh.container_name.is_empty()
-            || !mesh.container_name.eq_ignore_ascii_case(hlod.name.as_str())
-        {
+    /// Resolve C++ `RenderObjClass::Get_Sub_Object_By_Name` only through a
+    /// structurally valid retained HLOD child.  Its first pass compares the
+    /// full source child name; its second pass compares the exact text after
+    /// the first dot.  We require the child record to have this HLOD's exact
+    /// prefix, so no unrelated mesh-name suffix can become visibility authority.
+    fn rigid_hlod_subobject_for_authored_directive<'a>(
+        hlod: &'a W3dHlod,
+        directive_name: &str,
+    ) -> Option<&'a W3dHlodSubObject> {
+        let directive_name = directive_name.trim();
+        if directive_name.is_empty() {
             return None;
         }
-        let source_identity = format!("{}.{}", mesh.container_name, mesh.name);
-        let subobject = hlod.lods.first()?.subobjects.iter().find(|subobject| {
-            subobject
-                .name
-                .eq_ignore_ascii_case(source_identity.as_str())
-        })?;
+        let subobjects = &hlod.lods.first()?.subobjects;
+        subobjects
+            .iter()
+            .find(|subobject| {
+                Self::rigid_hlod_child_leaf_name(hlod, subobject).is_some()
+                    && subobject.name.eq_ignore_ascii_case(directive_name)
+            })
+            .or_else(|| {
+                subobjects.iter().find(|subobject| {
+                    Self::rigid_hlod_child_leaf_name(hlod, subobject)
+                        .is_some_and(|leaf_name| leaf_name.eq_ignore_ascii_case(directive_name))
+                })
+            })
+    }
 
-        let bone_index = subobject.bone_index as usize;
-        (bone_index < hierarchy.pivots.len()).then_some(bone_index)
+    /// Return the C++ first-dot suffix only for a source record structurally
+    /// owned by this exact HLOD.  A bare or differently-prefixed name is not a
+    /// valid child mapping in Main's bounded rigid HLOD implementation.
+    fn rigid_hlod_child_leaf_name<'a>(
+        hlod: &W3dHlod,
+        subobject: &'a W3dHlodSubObject,
+    ) -> Option<&'a str> {
+        let (prefix, leaf_name) = subobject.name.split_once('.')?;
+        (!leaf_name.is_empty() && prefix.eq_ignore_ascii_case(hlod.name.as_str()))
+            .then_some(leaf_name)
+    }
+
+    /// Whether `bone_index` lies strictly below `ancestor_bone_index` in the
+    /// source HTree. The exact direct target is handled separately, matching
+    /// C++ `doHideShowSubObjs` plus `doHideShowBoneSubObjs`. The bounded walk
+    /// rejects malformed roots/cycles instead of treating invalid parent data
+    /// as visible geometry.
+    fn hierarchy_bone_is_strict_descendant(
+        hierarchy: &W3dHierarchy,
+        bone_index: usize,
+        ancestor_bone_index: usize,
+    ) -> bool {
+        let mut current_bone_index = bone_index;
+        for _ in 0..hierarchy.pivots.len() {
+            let Some(pivot) = hierarchy.pivots.get(current_bone_index) else {
+                return false;
+            };
+            if pivot.parent_idx == u32::MAX {
+                return false;
+            }
+            let Ok(parent_bone_index) = usize::try_from(pivot.parent_idx) else {
+                return false;
+            };
+            if parent_bone_index >= hierarchy.pivots.len()
+                || parent_bone_index == current_bone_index
+            {
+                return false;
+            }
+            if parent_bone_index == ancestor_bone_index {
+                return true;
+            }
+            current_bone_index = parent_bone_index;
+        }
+        false
     }
 
     /// Convert a source W3D Z-up matrix to the render basis used by imported
@@ -1009,7 +1171,8 @@ impl W3DModel {
         &self,
         identity: &str,
     ) -> Option<W3dAnimationBinding> {
-        let binding = W3dAnimationBinding::local(self.find_animation_index_for_draw_identity(identity)?);
+        let binding =
+            W3dAnimationBinding::local(self.find_animation_index_for_draw_identity(identity)?);
         self.animation_binding_is_compatible(&binding)
             .then_some(binding)
     }
@@ -1038,7 +1201,7 @@ impl W3DModel {
         match binding {
             W3dAnimationBinding::Local { .. } => true,
             W3dAnimationBinding::Companion { identity, .. } => {
-                animation.matches_draw_identity(identity)
+                !animation.source_is_compressed && animation.matches_draw_identity(identity)
             }
         }
     }
@@ -1051,10 +1214,7 @@ impl W3DModel {
 
     /// Metadata for one exact frozen animation binding. An incompatible
     /// companion is treated as unavailable so callers stay in bind pose.
-    pub fn animation_binding_metadata(
-        &self,
-        binding: &W3dAnimationBinding,
-    ) -> Option<(u32, u32)> {
+    pub fn animation_binding_metadata(&self, binding: &W3dAnimationBinding) -> Option<(u32, u32)> {
         self.animation_binding_is_compatible(binding)
             .then(|| binding.animation(self))
             .flatten()
@@ -1087,11 +1247,7 @@ impl W3DModel {
         self.sample_animation_data(binding.animation(self)?, frame)
     }
 
-    fn sample_animation_data(
-        &self,
-        anim: &W3dAnimation,
-        frame: f32,
-    ) -> Option<Vec<[f32; 16]>> {
+    fn sample_animation_data(&self, anim: &W3dAnimation, frame: f32) -> Option<Vec<[f32; 16]>> {
         let hierarchy = self.hierarchy.as_ref()?;
 
         let mut local_transforms: Vec<[f32; 16]> =
@@ -1493,7 +1649,9 @@ impl W3DLoader {
                         last_error = Some(error);
                         debug!(
                             "W3D companion '{}' at '{}' did not contain its exact HAnim: {}",
-                            identity, candidate, last_error.as_ref().expect("just assigned error")
+                            identity,
+                            candidate,
+                            last_error.as_ref().expect("just assigned error")
                         );
                     }
                 },
@@ -2530,6 +2688,7 @@ impl W3DLoader {
             hierarchy_name,
             num_frames,
             frame_rate,
+            source_is_compressed: false,
             channels,
             raw_visibility_channels,
             unsupported_visibility_pivots,
@@ -2658,6 +2817,7 @@ impl W3DLoader {
             hierarchy_name,
             num_frames,
             frame_rate,
+            source_is_compressed: true,
             channels,
             raw_visibility_channels,
             unsupported_visibility_pivots,
@@ -4883,6 +5043,7 @@ fn deduplicate_stage_uv_layers(layers: Vec<Vec<[f32; 2]>>) -> (Vec<Vec<[f32; 2]>
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
 
     fn chunk(chunk_type: u32, payload: Vec<u8>, container: bool) -> Vec<u8> {
         let mut out = Vec::with_capacity(8 + payload.len());
@@ -5111,6 +5272,85 @@ mod tests {
         [hierarchy, mesh, animation, hlod].concat()
     }
 
+    /// A source-shaped single-HLOD fixture with a parent, a descendant, and a
+    /// sibling.  Mesh and pivot names intentionally differ; only retained
+    /// `HLOD.Name.Child -> BoneIndex` records are legal visibility bindings.
+    fn hide_show_subobjects_hlod_model() -> W3DModel {
+        let mut model = W3DModel::new("hide_show_subobjects".to_string());
+        model.hierarchy = Some(W3dHierarchy {
+            name: "VIS_HIER".to_string(),
+            pivots: vec![
+                W3dPivot {
+                    name: "ROOT".to_string(),
+                    parent_idx: u32::MAX,
+                    translation: [0.0; 3],
+                    euler_angles: [0.0; 3],
+                    rotation: [0.0, 0.0, 0.0, 1.0],
+                },
+                W3dPivot {
+                    name: "PARENT_BONE".to_string(),
+                    parent_idx: 0,
+                    translation: [0.0; 3],
+                    euler_angles: [0.0; 3],
+                    rotation: [0.0, 0.0, 0.0, 1.0],
+                },
+                W3dPivot {
+                    name: "CHILD_BONE".to_string(),
+                    parent_idx: 1,
+                    translation: [0.0; 3],
+                    euler_angles: [0.0; 3],
+                    rotation: [0.0, 0.0, 0.0, 1.0],
+                },
+                W3dPivot {
+                    name: "SIBLING_BONE".to_string(),
+                    parent_idx: 0,
+                    translation: [0.0; 3],
+                    euler_angles: [0.0; 3],
+                    rotation: [0.0, 0.0, 0.0, 1.0],
+                },
+            ],
+            pivot_fixups: Vec::new(),
+        });
+        model.hlods.push(W3dHlod {
+            version: 0x0001_0000,
+            name: "VIS_HLOD".to_string(),
+            hierarchy_name: "VIS_HIER".to_string(),
+            lods: vec![W3dHlodLod {
+                max_screen_size: f32::MAX,
+                subobjects: vec![
+                    W3dHlodSubObject {
+                        name: "VIS_HLOD.ParentMesh".to_string(),
+                        bone_index: 1,
+                    },
+                    W3dHlodSubObject {
+                        // C++ only hides the directly named RenderObj on a
+                        // bone, not another direct sibling sharing that bone.
+                        name: "VIS_HLOD.SameBoneMesh".to_string(),
+                        bone_index: 1,
+                    },
+                    W3dHlodSubObject {
+                        name: "VIS_HLOD.ChildMesh".to_string(),
+                        bone_index: 2,
+                    },
+                    W3dHlodSubObject {
+                        name: "VIS_HLOD.SiblingMesh".to_string(),
+                        bone_index: 3,
+                    },
+                ],
+            }],
+            has_unsupported_attachments: false,
+        });
+        model.meshes = ["ParentMesh", "SameBoneMesh", "ChildMesh", "SiblingMesh"]
+            .into_iter()
+            .map(|name| {
+                let mut mesh = W3DMesh::new(name.to_string());
+                mesh.container_name = "VIS_HLOD".to_string();
+                mesh
+            })
+            .collect();
+        model
+    }
+
     /// An animation-only companion W3D, shaped like the raw HAnim files C++
     /// loads on a `Get_HAnim(Hierarchy.Animation)` miss.
     fn companion_animation_fixture(
@@ -5305,6 +5545,51 @@ mod tests {
     }
 
     #[test]
+    fn w3d_hlod_visibility_hide_show_subobjects_apply_exact_child_bones_in_order() {
+        let model = hide_show_subobjects_hlod_model();
+        let directives = vec![
+            AuthoredDrawSubobjectVisibility {
+                // C++ first tries this complete retained HLOD child identity.
+                name: "VIS_HLOD.ParentMesh".to_string(),
+                hidden: true,
+            },
+            AuthoredDrawSubobjectVisibility {
+                // This case-insensitive leaf form uses C++'s first-dot pass,
+                // but only after Main has matched a retained HLOD record.
+                name: "siblingmesh".to_string(),
+                hidden: true,
+            },
+            AuthoredDrawSubobjectVisibility {
+                // The descendant's later show must override the parent's hide.
+                name: "CHILDMESH".to_string(),
+                hidden: false,
+            },
+            AuthoredDrawSubobjectVisibility {
+                // Unknown directives must not become a broad mesh-name rule.
+                name: "not_a_retained_hlod_child".to_string(),
+                hidden: true,
+            },
+        ];
+
+        assert!(
+            !model.mesh_visible_for_authored_subobject_directives(0, &directives),
+            "the full HLOD child directive hides its direct target"
+        );
+        assert!(
+            model.mesh_visible_for_authored_subobject_directives(1, &directives),
+            "a same-bone sibling is not the directly named C++ RenderObj and must stay visible"
+        );
+        assert!(
+            model.mesh_visible_for_authored_subobject_directives(2, &directives),
+            "a later descendant ShowSubObject wins over its hidden ancestor"
+        );
+        assert!(
+            !model.mesh_visible_for_authored_subobject_directives(3, &directives),
+            "the exact leaf directive resolves only its retained sibling record"
+        );
+    }
+
+    #[test]
     fn w3d_hlod_visibility_compressed_channel_fails_closed_for_its_authored_pivot() {
         let mut model = W3DLoader::new()
             .load_model_from_bytes(&visibility_hlod_fixture(), "visibility_hlod")
@@ -5332,17 +5617,22 @@ mod tests {
                 "VIS_HIER.EXTERNAL",
             )
             .expect("animation-only companion should parse through HAnim path");
+        let mut compressed_companion = companion.clone();
+        compressed_companion.source_is_compressed = true;
         assert!(companion.matches_draw_identity("vis_hier.external"));
         assert_eq!(
             w3d_companion_animation_filename("VIS_HIER.EXTERNAL"),
             Some("EXTERNAL.w3d".to_string())
         );
 
-        let binding = W3dAnimationBinding::companion(
-            "VIS_HIER.EXTERNAL",
-            Arc::new(companion),
-        );
+        let binding = W3dAnimationBinding::companion("VIS_HIER.EXTERNAL", Arc::new(companion));
         assert!(geometry.animation_binding_is_compatible(&binding));
+        let compressed_binding =
+            W3dAnimationBinding::companion("VIS_HIER.EXTERNAL", Arc::new(compressed_companion));
+        assert!(
+            !geometry.animation_binding_is_compatible(&compressed_binding),
+            "external compressed companion channels stay fail-closed until their path is ported"
+        );
 
         let local_x = geometry
             .sample_animation(0, 1.0)
@@ -5351,7 +5641,10 @@ mod tests {
             .sample_animation_binding(&binding, 1.0)
             .expect("exact external binding should sample")[1][12];
         assert_eq!(local_x, 3.0, "fixture local clip is only the bind pose");
-        assert_eq!(external_x, 12.0, "companion motion must override local clip");
+        assert_eq!(
+            external_x, 12.0,
+            "companion motion must override local clip"
+        );
 
         let (transform, visible) = geometry
             .mesh_local_transform_and_visibility_for_binding(0, Some(&binding), 1.0)
@@ -5458,6 +5751,95 @@ mod tests {
                 .mesh_local_transform_for_animation(fan_mesh_index, 0, 0.0)
                 .is_some(),
             "retail FAN03 must bind through the authored HLOD record"
+        );
+    }
+
+    #[test]
+    fn w3d_hlod_visibility_hide_show_subobjects_retail_scorpion_maps_exact_hlod_child_when_available(
+    ) {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
+        let ini_path = root
+            .join("windows_game/extracted_big_files/INIZH/Data/INI/Object/GC_Chem_GLAUnits.ini");
+        let Some(w3d_path) = crate::assets::mesh_asset_resolve::find_filesystem_w3d("UVLiteTank")
+        else {
+            eprintln!("skip: retail UVLiteTank.W3D is not available on disk");
+            return;
+        };
+        let Ok(ini_content) = std::fs::read_to_string(&ini_path) else {
+            eprintln!(
+                "skip: retail Scorpion Object INI is not available at {}",
+                ini_path.display()
+            );
+            return;
+        };
+
+        let mut parser = crate::assets::IniParser::new();
+        parser
+            .parse_ini_content(&ini_content, "GC_Chem_GLAUnits.ini")
+            .expect("parse retail Scorpion source Draw state");
+        let scorpion = parser
+            .get_definition("GC_Chem_GLATankScorpion")
+            .expect("retail Chem Scorpion definition");
+        let upgrade_bit_index =
+            crate::game_logic::host_enum_table_residual::model_condition_bit_name_index(
+                "WEAPONSET_PLAYER_UPGRADE",
+            )
+            .expect("retail player-upgrade condition bit");
+        let upgrade_bits = 1u128
+            .checked_shl(u32::try_from(upgrade_bit_index).expect("condition bit index fits u32"))
+            .expect("condition bit fits retained bank");
+        let default_draw = scorpion
+            .select_draw_models_for_conditions(0)
+            .expect("retail pristine Scorpion draw state")
+            .into_iter()
+            .find(|draw| draw.model_key.eq_ignore_ascii_case("UVLiteTank"))
+            .expect("retail pristine Scorpion selects UVLiteTank");
+        let upgraded_draw = scorpion
+            .select_draw_models_for_conditions(upgrade_bits)
+            .expect("retail upgraded Scorpion draw state")
+            .into_iter()
+            .find(|draw| draw.model_key.eq_ignore_ascii_case("UVLiteTank"))
+            .expect("retail upgraded Scorpion retains UVLiteTank");
+
+        assert!(
+            default_draw
+                .subobject_visibility
+                .iter()
+                .any(|directive| directive.name == "misslerack01" && directive.hidden),
+            "retail DefaultConditionState hides the misspelled source rack leaf"
+        );
+        assert!(
+            upgraded_draw
+                .subobject_visibility
+                .iter()
+                .any(|directive| directive.name == "misslerack01" && !directive.hidden),
+            "retail upgrade state overwrites the inherited rack directive in place"
+        );
+
+        let model = W3DLoader::new()
+            .load_model_from_path(&w3d_path)
+            .expect("retail UVLiteTank W3D should parse");
+        let rack_mesh_index = model
+            .meshes
+            .iter()
+            .position(|mesh| {
+                mesh.name.eq_ignore_ascii_case("MISSLERACK01")
+                    && mesh.container_name.eq_ignore_ascii_case("UVLITETANK")
+            })
+            .expect("retail UVLiteTank mesh must retain exact HLOD child identity");
+        assert!(
+            !model.mesh_visible_for_authored_subobject_directives(
+                rack_mesh_index,
+                &default_draw.subobject_visibility,
+            ),
+            "pristine Scorpion hides only the source-authored exact rack child"
+        );
+        assert!(
+            model.mesh_visible_for_authored_subobject_directives(
+                rack_mesh_index,
+                &upgraded_draw.subobject_visibility,
+            ),
+            "upgrade state shows that same source-authored rack child"
         );
     }
 

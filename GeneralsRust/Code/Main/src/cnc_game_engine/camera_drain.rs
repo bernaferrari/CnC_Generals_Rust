@@ -103,16 +103,18 @@ impl CnCGameEngine {
         &mut self,
         pres: &crate::presentation_frame::PresentationFrame,
     ) {
-        // Wave 571: presentation freeze owns popup/music residual when installed.
-        for popup in &pres.pending_popup_messages {
-            if popup.pause {
-                self.host_set_paused(true);
-            }
+        // Wave 571: C++ InGameUI has one active popup layout. Only its final frozen
+        // record may own Main's pause; older historical requests must not
+        // repeatedly re-pause an acknowledged dialog.
+        if let Some(popup) = pres.pending_popup_messages.last() {
+            self.host_reconcile_active_popup_pause(Some(popup.pause));
             if popup.pause_music {
                 if let Some(sink) = self.background_music.take() {
                     sink.stop();
                 }
             }
+        } else {
+            self.host_reconcile_active_popup_pause(None);
         }
         if pres.pending_music_stop {
             if let Some(sink) = self.background_music.take() {

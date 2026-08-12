@@ -177,14 +177,34 @@ fn presentation_camera_residual_prefers_frame() {
 fn presentation_popup_music_fps_residual() {
     let eng = crate::cnc_game_engine::ENGINE_SRC;
     let pf = crate::presentation_frame::PRESENTATION_FRAME_SRC;
+    let camera_drain = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/src/cnc_game_engine/camera_drain.rs"
+    ));
+    let popup_bridge = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/src/cnc_game_engine/control_bar_bridge.rs"
+    ));
+    let scripts_camera = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/src/game_logic/world_scripts/scripts_camera.rs"
+    ));
     assert!(
         pf.contains("struct PresentationPopupMessage")
             && pf.contains("pause_music: p.pause_music")
-            && eng.contains("Prefer presentation popup/music residual")
             && eng.contains("Prefer presentation script FPS residual")
-            && eng.contains("pres.pending_music_stop")
-            && eng.contains("p.script_fps_limit"),
-        "popup/music/fps must prefer presentation freeze over live take dual-read"
+            && eng.contains("p.script_fps_limit")
+            && camera_drain.contains("pres.pending_popup_messages.last()")
+            && camera_drain.contains("self.host_reconcile_active_popup_pause(Some(popup.pause))")
+            && camera_drain.contains("self.host_reconcile_active_popup_pause(None)")
+            && camera_drain.contains("pres.pending_music_stop")
+            && scripts_camera.contains("let active_popup = popup_messages.last().cloned()")
+            && scripts_camera.contains("self.pending_popup_messages.clear();")
+            && popup_bridge.contains("fn host_dismiss_in_game_popup_message")
+            && popup_bridge.contains("popup_acknowledgement_matches_active_generation")
+            && popup_bridge.contains("self.host_clear_active_popup_presentation_residual();")
+            && popup_bridge.contains("self.host_reconcile_active_popup_pause(None);"),
+        "popup/music/fps must freeze only the newest C++ popup, reconcile its owned pause, and clear that frozen residual on acknowledgement"
     );
 }
 

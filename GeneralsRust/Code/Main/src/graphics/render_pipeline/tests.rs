@@ -4,7 +4,7 @@ use crate::assets::models::BlendMode;
 #[test]
 fn w3d_companion_animation_forward_palette_uses_render_item_binding() {
     use crate::assets::{
-        W3DAnimationBinding, W3DModel, W3dAnimChannel, W3dAnimation, W3dHierarchy, W3dPivot,
+        W3DModel, W3dAnimChannel, W3dAnimation, W3dAnimationBinding, W3dHierarchy, W3dPivot,
     };
     use std::sync::Arc;
 
@@ -20,6 +20,7 @@ fn w3d_companion_animation_forward_palette_uses_render_item_binding() {
         hierarchy_name: "RANGER_SKL".to_string(),
         num_frames: 2,
         frame_rate: 30,
+        source_is_compressed: false,
         channels: vec![W3dAnimChannel {
             first_frame: 0,
             last_frame: 1,
@@ -41,10 +42,8 @@ fn w3d_companion_animation_forward_palette_uses_render_item_binding() {
     // The geometry happens to contain a local clip zero, but it is not the
     // frozen Draw selection. ForwardPass must not use this ordinal fallback.
     geometry.animations.push(animation("LOCAL", 1.0));
-    let companion = W3DAnimationBinding::companion(
-        "RANGER_SKL.RUN",
-        Arc::new(animation("RUN", 9.0)),
-    );
+    let companion =
+        W3dAnimationBinding::companion("RANGER_SKL.RUN", Arc::new(animation("RUN", 9.0)));
     assert!(geometry.animation_binding_is_compatible(&companion));
 
     let material = W3DMaterial::default();
@@ -69,6 +68,17 @@ fn w3d_companion_animation_forward_palette_uses_render_item_binding() {
     assert!(
         ForwardPass::sample_bone_palette_for_item(&geometry, &item).is_none(),
         "an absent Draw animation is bind pose and must not upload clip zero"
+    );
+}
+
+#[test]
+fn w3d_companion_animation_forward_path_has_no_clip_zero_fallback() {
+    let forward = include_str!("forward_render.rs");
+    assert!(forward.contains("sample_bone_palette_for_item"));
+    assert!(forward.contains("item.animation_binding.as_ref()"));
+    assert!(
+        !forward.contains("sample_animation(0"),
+        "the GPU palette path must consume RenderItem.animation_binding exclusively"
     );
 }
 

@@ -15,6 +15,27 @@ use glam::Vec3;
 
 const SPEECH_SUBTITLE_DURATION_MS: i32 = 8000;
 
+/// Live-only identity allocator for C++'s one active InGamePopupMessage WND.
+///
+/// This deliberately outlives individual `MissionScriptHooks` / `GameLogic`
+/// instances.  Map loads and whole-world replacement create new hook objects;
+/// keeping the counter there would let a delayed acknowledgement for old popup
+/// #1 accidentally match a new world's popup #1.  It is neither gameplay nor
+/// presentation/save/Xfer data.
+static NEXT_LIVE_POPUP_GENERATION: AtomicUsize = AtomicUsize::new(1);
+
+fn next_live_popup_generation() -> usize {
+    // Zero is the explicit fail-closed "no active host popup" value.  Skip it
+    // if an effectively-unreachable usize wrap occurs rather than publishing
+    // a token Main intentionally refuses to acknowledge.
+    loop {
+        let generation = NEXT_LIVE_POPUP_GENERATION.fetch_add(1, Ordering::Relaxed);
+        if generation != 0 {
+            return generation;
+        }
+    }
+}
+
 fn speech_subtitle_label(name: &str) -> String {
     format!("DIALOGEVENT:{}Subtitle", name)
 }
@@ -220,6 +241,11 @@ pub struct ScriptPopupMessageRequest {
     pub width: i32,
     pub pause: bool,
     pub pause_music: bool,
+    /// Opaque live-session identity assigned by `MissionScriptHooks` when the
+    /// request enters its queue. It is deliberately not presentation/save/Xfer
+    /// data: Main uses it only to reject a delayed acknowledgement for a popup
+    /// that C++ has already replaced.
+    pub popup_generation: usize,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1516,7 +1542,10 @@ impl MissionScriptHooks {
         }
     }
 
-    pub fn push_popup_message(&self, request: ScriptPopupMessageRequest) {
+    pub fn push_popup_message(&self, mut request: ScriptPopupMessageRequest) {
+        // Keep this opaque and monotonic rather than deriving authority from
+        // popup text/layout fields. Acknowledge only the exact live instance.
+        request.popup_generation = next_live_popup_generation();
         if let Ok(mut queue) = self.popup_message_requests.lock() {
             queue.push(request);
         }
@@ -2412,6 +2441,7 @@ impl ScriptActionHandler for MissionScriptActionHandler {
             width,
             pause,
             pause_music,
+            popup_generation: 0,
         });
         Ok(())
     }
@@ -3179,6 +3209,37 @@ mod tests {
             .expect("set weather visible should succeed");
 
         assert_eq!(hooks.drain_weather_visibility_updates(), vec![false, true]);
+    }
+
+    #[test]
+    fn popup_generation_remains_unique_across_replaced_hook_instances() {
+        let popup = |message: &str| ScriptPopupMessageRequest {
+            message: message.to_string(),
+            x_percent: 50,
+            y_percent: 50,
+            width: 40,
+            pause: false,
+            pause_music: false,
+            popup_generation: 0,
+        };
+
+        // A map load replaces GameLogic and its MissionScriptHooks. The
+        // live-only token must therefore not restart at one per hook object.
+        let old_world = MissionScriptHooks::new().expect("old world hooks");
+        old_world.push_popup_message(popup("old popup"));
+        let old_generation = old_world.drain_popup_message_requests()[0].popup_generation;
+
+        let replacement_world = MissionScriptHooks::new().expect("replacement world hooks");
+        replacement_world.push_popup_message(popup("replacement popup"));
+        let replacement_generation =
+            replacement_world.drain_popup_message_requests()[0].popup_generation;
+
+        assert_ne!(old_generation, 0);
+        assert_ne!(replacement_generation, 0);
+        assert_ne!(
+            old_generation, replacement_generation,
+            "a stale old-world acknowledgement must not ABA-match the replacement world"
+        );
     }
 
     #[test]

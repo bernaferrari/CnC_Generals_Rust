@@ -492,6 +492,7 @@ impl CnCGameEngine {
             current_player_id: 0,
             game_paused: false,
             quit_menu_host_active: false,
+            popup_host_pause_owned: false,
             show_debug_info: debug_overlay,
             show_health_bars: true,
             show_fps: false,

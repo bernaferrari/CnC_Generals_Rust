@@ -30,7 +30,7 @@ impl RenderPipeline {
             for draw_model in input.draw_models {
                 if draw_model.model_key.trim().is_empty()
                     || !matches!(
-                        draw_model.animation_mode,
+                        &draw_model.animation_mode,
                         crate::assets::AuthoredDrawAnimationMode::Manual
                             | crate::assets::AuthoredDrawAnimationMode::Loop
                             | crate::assets::AuthoredDrawAnimationMode::Once
@@ -44,7 +44,7 @@ impl RenderPipeline {
                     continue;
                 };
                 let identity = animation.name.trim();
-                if identity.is_empty() {
+                if identity.is_empty() || identity.eq_ignore_ascii_case("none") {
                     continue;
                 }
                 // This is only an in-frame de-duplication optimization. The

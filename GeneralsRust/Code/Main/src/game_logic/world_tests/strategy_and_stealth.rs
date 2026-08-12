@@ -858,6 +858,7 @@ fn popup_and_script_ui_requests_are_forwarded_into_runtime_state() {
             width: 420,
             pause: true,
             pause_music: true,
+            popup_generation: 0,
         });
     game_logic
         .mission_scripts
@@ -909,7 +910,10 @@ fn popup_and_script_ui_requests_are_forwarded_into_runtime_state() {
 
     game_logic.evaluate_and_execute_scripts(0.0);
 
-    assert!(game_logic.is_paused, "popup pause should pause simulation");
+    assert!(
+        !game_logic.is_paused,
+        "popup pause is reconciled by Main's active-popup pause owner, not the raw script evaluator"
+    );
     assert!(
         game_logic.take_music_stop_request(),
         "popup pause_music should request music stop"
@@ -923,6 +927,10 @@ fn popup_and_script_ui_requests_are_forwarded_into_runtime_state() {
     assert_eq!(popups[0].width, 420);
     assert!(popups[0].pause);
     assert!(popups[0].pause_music);
+    assert_ne!(
+        popups[0].popup_generation, 0,
+        "mission-hook popups carry a live-only acknowledgement identity"
+    );
 
     let guardband = game_logic
         .take_view_guardband_request()
@@ -987,6 +995,77 @@ fn popup_and_script_ui_requests_are_forwarded_into_runtime_state() {
         .take_camera_focus_request()
         .expect("motion blur jump should emit a camera focus fallback");
     assert_eq!(jump_focus, Vec3::new(120.0, 20.0, 260.0));
+}
+
+#[test]
+fn popup_runtime_residual_keeps_only_the_latest_cxx_active_dialog() {
+    let mut game_logic = GameLogic::new();
+    game_logic.scripts_loaded = true;
+
+    // Retail InGameUI clears the old layout before opening the new one.  A
+    // pause popup immediately followed by a non-pause popup must not leave a
+    // stale presentation record that re-pauses the authoritative world.
+    game_logic
+        .mission_scripts
+        .push_popup_message(ScriptPopupMessageRequest {
+            message: "old pause".to_string(),
+            x_percent: 50,
+            y_percent: 50,
+            width: 40,
+            pause: true,
+            pause_music: false,
+            popup_generation: 0,
+        });
+    game_logic
+        .mission_scripts
+        .push_popup_message(ScriptPopupMessageRequest {
+            message: "latest nonpause".to_string(),
+            x_percent: 50,
+            y_percent: 50,
+            width: 40,
+            pause: false,
+            pause_music: false,
+            popup_generation: 0,
+        });
+    game_logic.evaluate_and_execute_scripts(0.0);
+
+    let popups = game_logic.take_popup_message_requests();
+    assert_eq!(popups.len(), 1);
+    assert_eq!(popups[0].message, "latest nonpause");
+    assert!(!popups[0].pause);
+    assert!(!game_logic.is_paused);
+
+    // The converse retains exactly the newer pause record so Main may claim
+    // and release only that popup's pause ownership.
+    game_logic
+        .mission_scripts
+        .push_popup_message(ScriptPopupMessageRequest {
+            message: "old nonpause".to_string(),
+            x_percent: 50,
+            y_percent: 50,
+            width: 40,
+            pause: false,
+            pause_music: false,
+            popup_generation: 0,
+        });
+    game_logic
+        .mission_scripts
+        .push_popup_message(ScriptPopupMessageRequest {
+            message: "latest pause".to_string(),
+            x_percent: 50,
+            y_percent: 50,
+            width: 40,
+            pause: true,
+            pause_music: false,
+            popup_generation: 0,
+        });
+    game_logic.evaluate_and_execute_scripts(0.0);
+
+    let popups = game_logic.take_popup_message_requests();
+    assert_eq!(popups.len(), 1);
+    assert_eq!(popups[0].message, "latest pause");
+    assert!(popups[0].pause);
+    assert!(!game_logic.is_paused);
 }
 
 #[test]

@@ -94,6 +94,29 @@ pub fn script_popup_message(
     TheInGameUI::popup_message(message, x_percent, y_percent, width, pause, pause_music);
 }
 
+/// Main's offline authority bridge opens the C++-equivalent single popup with
+/// an opaque live-instance id. The id is not text/template authority; it only
+/// lets Main reject a delayed acknowledgement after a replacement popup wins.
+pub fn script_popup_message_with_host_generation(
+    message: &str,
+    x_percent: i32,
+    y_percent: i32,
+    width: i32,
+    pause: bool,
+    pause_music: bool,
+    host_popup_generation: Option<usize>,
+) {
+    TheInGameUI::popup_message_with_host_generation(
+        message,
+        x_percent,
+        y_percent,
+        width,
+        pause,
+        pause_music,
+        host_popup_generation,
+    );
+}
+
 pub fn script_resize_view_guardband(gbx: f32, gby: f32) {
     with_tactical_view(|view| view.set_guard_band_bias(Vector2::new(gbx, gby)));
 }

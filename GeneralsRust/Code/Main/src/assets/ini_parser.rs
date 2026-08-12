@@ -78,6 +78,19 @@ pub struct AuthoredDrawAnimation {
     pub distance_covered_token: Option<String>,
 }
 
+/// One exact `ShowSubObject` or `HideSubObject` directive selected from a
+/// source `W3DModelDraw` condition state.
+///
+/// C++ lowercases each token while parsing, preserves the first declaration's
+/// position, and updates only its hide/show value when a later declaration
+/// repeats that same token.  The vector therefore remains both a source-order
+/// record and the authority for last-applicable child visibility.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct AuthoredDrawSubobjectVisibility {
+    pub name: String,
+    pub hidden: bool,
+}
+
 /// A single source-authored `DefaultConditionState`, `ConditionState`, or
 /// `TransitionState` block.  `condition_sets` retains the initial token list
 /// and each following `AliasConditionState` in source order.
@@ -89,6 +102,10 @@ pub struct DrawConditionStateDefinition {
     pub model: AuthoredConditionModel,
     pub animations: Vec<AuthoredDrawAnimation>,
     pub animation_mode: AuthoredDrawAnimationMode,
+    /// Ordered C++ `ModelConditionInfo::m_hideShowVec` counterpart.  This is
+    /// copied wholesale from `DefaultConditionState` before local directives
+    /// are parsed, just like model and animation state.
+    pub subobject_visibility: Vec<AuthoredDrawSubobjectVisibility>,
     /// Parser-only counterpart of C++ `ANIMS_COPIED_FROM_DEFAULT_STATE`.
     /// A state starts with Default's animations but its first Animation or
     /// IdleAnimation field replaces that inherited list rather than appending.
@@ -104,6 +121,7 @@ impl DrawConditionStateDefinition {
             model: AuthoredConditionModel::Unspecified,
             animations: Vec::new(),
             animation_mode: AuthoredDrawAnimationMode::Once,
+            subobject_visibility: Vec::new(),
             animations_copied_from_default: false,
         }
     }
@@ -116,6 +134,7 @@ impl DrawConditionStateDefinition {
             model: AuthoredConditionModel::Unspecified,
             animations: Vec::new(),
             animation_mode: AuthoredDrawAnimationMode::Once,
+            subobject_visibility: Vec::new(),
             animations_copied_from_default: false,
         }
     }
@@ -128,6 +147,7 @@ impl DrawConditionStateDefinition {
             model: AuthoredConditionModel::Unspecified,
             animations: Vec::new(),
             animation_mode: AuthoredDrawAnimationMode::Once,
+            subobject_visibility: Vec::new(),
             animations_copied_from_default: false,
         }
     }
@@ -208,6 +228,11 @@ pub struct AuthoredDrawModel {
     /// Defaults to source `ANIM_MODE_ONCE` for legacy presentation frames.
     #[serde(default)]
     pub animation_mode: AuthoredDrawAnimationMode,
+    /// Frozen active `ShowSubObject`/`HideSubObject` directives.  Empty is the
+    /// legacy/default representation and leaves every resolved HLOD child
+    /// visible unless its animation says otherwise.
+    #[serde(default)]
+    pub subobject_visibility: Vec<AuthoredDrawSubobjectVisibility>,
 }
 
 /// One source-authored `Behavior = ...` module, retained with its own block
@@ -544,6 +569,7 @@ impl ObjectDefinition {
                 model_key: model_key.clone(),
                 animations: state.animations.clone(),
                 animation_mode: state.animation_mode.clone(),
+                subobject_visibility: state.subobject_visibility.clone(),
             });
         }
 
@@ -901,6 +927,20 @@ impl IniParser {
                             active_condition_state,
                             value,
                         ),
+                        "showsubobject" => Self::assign_draw_condition_subobject_visibility(
+                            obj,
+                            active_draw_module,
+                            active_condition_state,
+                            value,
+                            false,
+                        ),
+                        "hidesubobject" => Self::assign_draw_condition_subobject_visibility(
+                            obj,
+                            active_draw_module,
+                            active_condition_state,
+                            value,
+                            true,
+                        ),
                         "draw" => {
                             obj.draw_module = Some(value.to_string());
                             obj.draw_modules
@@ -1132,6 +1172,7 @@ impl IniParser {
                 state.model = default.model.clone();
                 state.animations = default.animations.clone();
                 state.animation_mode = default.animation_mode.clone();
+                state.subobject_visibility = default.subobject_visibility.clone();
                 state.animations_copied_from_default = true;
             }
         }
@@ -1248,6 +1289,55 @@ impl IniParser {
             return;
         };
         state.animation_mode = AuthoredDrawAnimationMode::parse(value);
+    }
+
+    /// Preserve C++ `parseShowHideSubObject`: one declaration may name several
+    /// subobjects, `None` as its first token clears the inherited vector, and
+    /// a duplicate rewrites its existing value without changing its source
+    /// order.  C++ normalizes the name to lowercase at parse time.
+    fn assign_draw_condition_subobject_visibility(
+        obj: &mut ObjectDefinition,
+        active_draw_module: Option<usize>,
+        active_condition_state: Option<usize>,
+        value: &str,
+        hidden: bool,
+    ) {
+        let Some(module) = active_draw_module.and_then(|index| obj.draw_modules.get_mut(index))
+        else {
+            return;
+        };
+        let Some(state) =
+            active_condition_state.and_then(|index| module.condition_states.get_mut(index))
+        else {
+            return;
+        };
+
+        let mut names = value.split_whitespace();
+        let Some(first_name) = names.next() else {
+            return;
+        };
+        if first_name.eq_ignore_ascii_case("none") {
+            state.subobject_visibility.clear();
+            return;
+        }
+
+        for name in std::iter::once(first_name).chain(names) {
+            let name = name.trim().trim_matches(',').to_ascii_lowercase();
+            if name.is_empty() {
+                continue;
+            }
+            if let Some(existing) = state
+                .subobject_visibility
+                .iter_mut()
+                .find(|existing| existing.name.eq_ignore_ascii_case(name.as_str()))
+            {
+                existing.hidden = hidden;
+            } else {
+                state
+                    .subobject_visibility
+                    .push(AuthoredDrawSubobjectVisibility { name, hidden });
+            }
+        }
     }
 
     fn assign_model_name(obj: &mut ObjectDefinition, value: &str) {
@@ -1724,6 +1814,126 @@ End
         assert_eq!(
             really_damaged[0].animation_mode,
             AuthoredDrawAnimationMode::OnceBackwards
+        );
+    }
+
+    #[test]
+    fn w3d_hlod_visibility_hide_show_subobjects_inherit_overwrite_and_clear() {
+        let ini_content = r#"
+Object DrawSubobjectVisibilityProbe
+  Draw = W3DModelDraw ModuleTag_01
+    DefaultConditionState
+      Model = VisibilityProbe
+      HideSubObject = Hull Turret
+      ShowSubObject = turret Door
+    End
+    ConditionState = WEAPONSET_PLAYER_UPGRADE
+      ShowSubObject = Hull
+    End
+    ConditionState = DAMAGED
+      HideSubObject = None IgnoredAfterClear
+      HideSubObject = Rack Missile
+      ShowSubObject = missile
+    End
+    TransitionState = TRANS_Standing TRANS_Moving
+      HideSubObject = Door
+    End
+  End
+End
+"#;
+
+        let mut parser = IniParser::new();
+        parser
+            .parse_ini_content(ini_content, "draw_subobject_visibility_probe.ini")
+            .expect("parse source Draw subobject state table");
+        let definition = parser
+            .get_definition("DrawSubobjectVisibilityProbe")
+            .expect("parsed Draw subobject visibility probe");
+
+        let default = definition
+            .select_draw_models_for_conditions(0)
+            .expect("select DefaultConditionState");
+        assert_eq!(
+            default[0].subobject_visibility,
+            vec![
+                AuthoredDrawSubobjectVisibility {
+                    name: "hull".to_string(),
+                    hidden: true,
+                },
+                AuthoredDrawSubobjectVisibility {
+                    name: "turret".to_string(),
+                    hidden: false,
+                },
+                AuthoredDrawSubobjectVisibility {
+                    name: "door".to_string(),
+                    hidden: false,
+                },
+            ],
+            "one line may contain several names and a duplicate must overwrite in place"
+        );
+
+        let upgraded = definition
+            .select_draw_models_for_conditions(model_condition_bit("WEAPONSET_PLAYER_UPGRADE"))
+            .expect("select inherited player-upgrade state");
+        assert_eq!(
+            upgraded[0].subobject_visibility,
+            vec![
+                AuthoredDrawSubobjectVisibility {
+                    name: "hull".to_string(),
+                    hidden: false,
+                },
+                AuthoredDrawSubobjectVisibility {
+                    name: "turret".to_string(),
+                    hidden: false,
+                },
+                AuthoredDrawSubobjectVisibility {
+                    name: "door".to_string(),
+                    hidden: false,
+                },
+            ],
+            "normal ConditionState starts from Default then applies its local overwrite"
+        );
+
+        let damaged = definition
+            .select_draw_models_for_conditions(model_condition_bit("DAMAGED"))
+            .expect("select None-cleared damage state");
+        assert_eq!(
+            damaged[0].subobject_visibility,
+            vec![
+                AuthoredDrawSubobjectVisibility {
+                    name: "rack".to_string(),
+                    hidden: true,
+                },
+                AuthoredDrawSubobjectVisibility {
+                    name: "missile".to_string(),
+                    hidden: false,
+                },
+            ],
+            "None clears every inherited directive and ignores later tokens on its line"
+        );
+
+        let transition = definition.draw_modules[0]
+            .condition_states
+            .iter()
+            .find(|state| state.is_transition)
+            .expect("retained transition state");
+        assert_eq!(
+            transition.subobject_visibility,
+            vec![
+                AuthoredDrawSubobjectVisibility {
+                    name: "hull".to_string(),
+                    hidden: true,
+                },
+                AuthoredDrawSubobjectVisibility {
+                    name: "turret".to_string(),
+                    hidden: false,
+                },
+                AuthoredDrawSubobjectVisibility {
+                    name: "door".to_string(),
+                    hidden: true,
+                },
+            ],
+            "TransitionState inherits Default too, then overwrites Door in place"
         );
     }
 

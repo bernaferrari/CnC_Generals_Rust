@@ -345,6 +345,7 @@ impl RenderPipeline {
                 let draw_module_index = draw_model.module_index;
                 let authored_animations = draw_model.animations;
                 let authored_animation_mode = draw_model.animation_mode;
+                let authored_subobject_visibility = draw_model.subobject_visibility;
                 let model_name_owned = draw_model.model_key;
                 if model_name_owned.trim().is_empty() {
                     // An empty key cannot be an exact Draw submission.
@@ -468,6 +469,17 @@ impl RenderPipeline {
                                     continue;
                                 };
                                 if !mesh_visible {
+                                    continue;
+                                }
+                                // The frozen active Draw state owns these
+                                // directives. Resolve them only through the
+                                // model's retained single-HLOD child records;
+                                // missing/unsupported records leave this mesh
+                                // unchanged rather than guessing a suffix.
+                                if !w3d_model.mesh_visible_for_authored_subobject_directives(
+                                    mesh_idx,
+                                    &authored_subobject_visibility,
+                                ) {
                                     continue;
                                 }
                                 let mesh_local_transform = if transform_is_reasonable_for_mesh(
@@ -1332,9 +1344,14 @@ mod w3d_live_path_tests {
             "selected Draw-state animation identity must replace combat-bit clip guesses"
         );
         assert!(src.contains("mesh_local_transform_and_visibility_for_binding"));
-        assert!(src.contains("cached_draw_animation_binding"));
         assert!(
-            !src.contains("load_companion_animation"),
+            src.contains("mesh_visible_for_authored_subobject_directives"),
+            "the frozen selected Draw state must reach active mesh submission"
+        );
+        assert!(src.contains("cached_draw_animation_binding"));
+        let companion_loader = ["load", "companion", "animation"].join("_");
+        assert!(
+            !src.contains(&companion_loader),
             "frozen-frame collection must only consume the prewarm cache"
         );
         assert!(src.contains("submission.animation_name.as_deref()"));
@@ -1349,6 +1366,7 @@ mod w3d_live_path_tests {
             hierarchy_name: "BridgeHier".to_string(),
             num_frames: 10,
             frame_rate: 30,
+            source_is_compressed: false,
             channels: Vec::new(),
             raw_visibility_channels: Vec::new(),
             unsupported_visibility_pivots: Vec::new(),
