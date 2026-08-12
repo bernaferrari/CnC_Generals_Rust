@@ -1,5 +1,87 @@
 #![allow(unused_imports, unused_variables, dead_code, non_snake_case)]
 use super::*;
+use crate::graphics::render_pipeline::CachedLighting;
+use crate::presentation_frame::PresentationWorldEnv;
+
+/// Object-scene and terrain lighting resolved at the presentation/map
+/// activation boundary. They are intentionally independent: C++ selects
+/// `TerrainObjectsLighting[tod][0]` for W3D scene lights and
+/// `TerrainLighting[tod][0]` for TerrainVisual.
+#[derive(Debug, Clone, Default)]
+struct MapActivationLighting {
+    object: Option<CachedLighting>,
+    terrain: Option<CachedLighting>,
+    sky_color: Option<[f32; 3]>,
+}
+
+fn has_explicit_map_lighting(env: &PresentationWorldEnv) -> bool {
+    env.sun_direction.is_some()
+        || env.sun_color.is_some()
+        || env.ambient_color.is_some()
+        || env.fog_color.is_some()
+        || env.fog_start.zip(env.fog_end).is_some()
+}
+
+/// Resolve the frozen map frame without deriving lighting from map names or a
+/// guessed time of day. Explicit `MapMetadata` values override only their own
+/// channels; absent channels fall through to the authored GameData primary
+/// record. With neither source present we leave the existing renderer state
+/// intact rather than introducing a synthetic light.
+fn resolve_map_activation_lighting(env: Option<&PresentationWorldEnv>) -> MapActivationLighting {
+    let Some(env) = env else {
+        return MapActivationLighting::default();
+    };
+
+    let map_has_lighting = has_explicit_map_lighting(env);
+    let fog_color = env.fog_color.or(env.sun_color);
+    let fog_range = env.fog_start.zip(env.fog_end);
+
+    // NumberGlobalLights controls the W3D object-scene light list. If it is
+    // zero, retain Main's existing forward/Graphics lighting instead of
+    // constructing an artificial zero-direction scene light.
+    let object_primary = env
+        .primary_object_lighting
+        .filter(|lighting| lighting.object_light_active);
+    let object = (map_has_lighting || object_primary.is_some()).then(|| CachedLighting {
+        sun_direction: env
+            .sun_direction
+            .or_else(|| object_primary.map(|lighting| lighting.render_light_pos())),
+        sun_color: env
+            .sun_color
+            .or_else(|| object_primary.map(|lighting| lighting.diffuse)),
+        ambient_color: env
+            .ambient_color
+            .or_else(|| object_primary.map(|lighting| lighting.ambient)),
+        fog_color,
+        fog_range,
+    });
+
+    // TerrainVisual follows the authored terrain index-zero record directly,
+    // independently of whether a W3D object directional light is enabled.
+    let terrain_primary = env.primary_terrain_lighting;
+    let terrain = (map_has_lighting || terrain_primary.is_some()).then(|| CachedLighting {
+        sun_direction: env
+            .sun_direction
+            .or_else(|| terrain_primary.map(|lighting| lighting.render_light_pos())),
+        sun_color: env
+            .sun_color
+            .or_else(|| terrain_primary.map(|lighting| lighting.diffuse)),
+        ambient_color: env
+            .ambient_color
+            .or_else(|| terrain_primary.map(|lighting| lighting.ambient)),
+        fog_color,
+        fog_range,
+    });
+
+    MapActivationLighting {
+        object,
+        terrain,
+        // Retain the existing GraphicsSystem sky residual only when supplied
+        // explicitly by map metadata; GameData lighting has no sky fallback.
+        sky_color: env.fog_color,
+    }
+}
+
 impl CnCGameEngine {
     pub(super) fn play_ui_sound_effect(&mut self, path: String) {
         let Some(bytes) = self.ui_sound_cache.get(&path).cloned() else {
@@ -410,64 +492,40 @@ impl CnCGameEngine {
         graphics_system: &mut GraphicsSystem,
         render_pipeline: &mut RenderPipeline,
     ) {
-        // Wave 456: presentation-only map lighting (no live GameLogic dual-read).
-        const FALLBACK_AMBIENT: [f32; 3] = [0.30, 0.30, 0.30];
-        const FALLBACK_SUN_COLOR: [f32; 3] = [1.00, 0.90, 0.80];
-        const FALLBACK_SUN_DIRECTION: [f32; 3] = [-0.5, -1.0, -0.5];
-
+        // Wave 456 / hq-0za: presentation-only map lighting (no live
+        // GameLogic dual-read). GameData index-zero object and terrain values
+        // were frozen into this frame at map activation.
         let env = render_pipeline.presentation_frame().map(|p| &p.world_env);
+        let resolved = resolve_map_activation_lighting(env);
 
-        let (sun_dir, sun_color, ambient, fog_color, fog_range, sky) = if let Some(env) = env {
-            if env.has_map_metadata
-                || env.ambient_color.is_some()
-                || env.sun_color.is_some()
-                || env.sun_direction.is_some()
-            {
-                let fog_color = env.fog_color.or(env.sun_color);
-                let fog_range = match (env.fog_start, env.fog_end) {
-                    (Some(a), Some(b)) => Some((a, b)),
-                    _ => None,
-                };
-                info!(
-                    "Applying map lighting from presentation: ambient={:?} sun_color={:?} sun_dir={:?} fog={:?}",
-                    env.ambient_color,
-                    env.sun_color,
-                    env.sun_direction,
-                    fog_range
-                );
-                (
-                    env.sun_direction,
-                    env.sun_color,
-                    env.ambient_color,
-                    fog_color,
-                    fog_range,
-                    env.fog_color, // sky residual from fog/sky freeze when present
-                )
-            } else {
-                warn!("Presentation env has no lighting metadata; using fallback ambient/sun defaults");
-                (
-                    Some(FALLBACK_SUN_DIRECTION),
-                    Some(FALLBACK_SUN_COLOR),
-                    Some(FALLBACK_AMBIENT),
-                    None,
-                    None,
-                    None,
-                )
-            }
-        } else {
-            warn!("No presentation frame for map lighting; using fallback ambient/sun defaults");
-            (
-                Some(FALLBACK_SUN_DIRECTION),
-                Some(FALLBACK_SUN_COLOR),
-                Some(FALLBACK_AMBIENT),
-                None,
-                None,
-                None,
-            )
-        };
+        if let Some(env) = env {
+            info!(
+                "Applying frozen map/GameData lighting: map_metadata={} object_primary={} terrain_primary={} object={:?} terrain={:?}",
+                env.has_map_metadata,
+                env.primary_object_lighting.is_some(),
+                env.primary_terrain_lighting.is_some(),
+                resolved.object,
+                resolved.terrain,
+            );
+        }
 
-        render_pipeline.set_environment_lighting(sun_dir, sun_color, ambient, fog_color, fog_range);
-        graphics_system.set_lighting(ambient, sun_color, sun_dir, sky);
+        if resolved.object.is_none() && resolved.terrain.is_none() {
+            warn!(
+                "Presentation env has no authored GameData or map lighting; preserving existing renderer lighting"
+            );
+            return;
+        }
+
+        render_pipeline
+            .set_environment_lighting_with_terrain(resolved.object.clone(), resolved.terrain);
+        if let Some(object) = resolved.object {
+            graphics_system.set_lighting(
+                object.ambient_color,
+                object.sun_color,
+                object.sun_direction,
+                resolved.sky_color,
+            );
+        }
     }
 
     /// Wave 467: seed pipeline presentation (host+GW) and mirror into last_presentation_frame
@@ -1463,5 +1521,158 @@ impl CnCGameEngine {
 
     pub(super) fn exit_to_main_menu_from_victory(&mut self) {
         self.return_to_main_menu_after_match();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use game_engine::common::global_data as runtime_global_data;
+    use game_engine::common::ini::ini_game_data::ensure_global_data;
+    use game_engine::common::ini::INI;
+
+    fn primary(
+        ambient: [f32; 3],
+        diffuse: [f32; 3],
+        light_pos: [f32; 3],
+        object_light_active: bool,
+    ) -> crate::presentation_frame::PresentationPrimaryGlobalLight {
+        crate::presentation_frame::PresentationPrimaryGlobalLight {
+            ambient,
+            diffuse,
+            light_pos,
+            object_light_active,
+        }
+    }
+
+    #[test]
+    fn w3d_global_lighting_parser_freezes_distinct_primary_records_for_renderer() {
+        // Exercise the actual `GameData` block parser, then freeze its exact
+        // active-TOD index-zero values into a presentation-shaped record.
+        let authored_handle = ensure_global_data();
+        let previous_authored = authored_handle.read().clone();
+        let (parse_result, frozen) = runtime_global_data::with_global_data_restored(|| {
+            let mut ini = INI::new();
+            let parse_result = ini.with_inline_source(
+                r#"
+GameData
+  TimeOfDay = AFTERNOON
+  NumberGlobalLights = 1
+  TerrainObjectsLightingAfternoonAmbient = R:25 G:50 B:75
+  TerrainObjectsLightingAfternoonDiffuse = R:100 G:125 B:150
+  TerrainObjectsLightingAfternoonLightPos = X:1.0 Y:2.0 Z:3.0
+  TerrainLightingAfternoonAmbient = R:10 G:20 B:30
+  TerrainLightingAfternoonDiffuse = R:40 G:80 B:120
+  TerrainLightingAfternoonLightPos = X:4.0 Y:5.0 Z:6.0
+End
+"#,
+                |ini| ini.parse_current_file(),
+            );
+            let frozen = crate::presentation_frame::freeze_primary_game_data_lighting(
+                &authored_handle.read(),
+            );
+            (parse_result, frozen)
+        });
+        *authored_handle.write() = previous_authored;
+
+        parse_result.expect("inline GameData lighting must parse");
+        let (object, terrain) = frozen.expect("valid authored time of day freezes lighting");
+        assert_eq!(object.ambient, [25.0 / 255.0, 50.0 / 255.0, 75.0 / 255.0]);
+        assert_eq!(
+            object.diffuse,
+            [100.0 / 255.0, 125.0 / 255.0, 150.0 / 255.0]
+        );
+        assert_eq!(object.light_pos, [1.0, 2.0, 3.0]);
+        assert_eq!(object.render_light_pos(), [1.0, 3.0, 2.0]);
+        assert!(object.object_light_active);
+
+        assert_eq!(terrain.ambient, [10.0 / 255.0, 20.0 / 255.0, 30.0 / 255.0]);
+        assert_eq!(terrain.diffuse, [40.0 / 255.0, 80.0 / 255.0, 120.0 / 255.0]);
+        assert_eq!(terrain.light_pos, [4.0, 5.0, 6.0]);
+        assert_eq!(terrain.render_light_pos(), [4.0, 6.0, 5.0]);
+
+        let env = PresentationWorldEnv {
+            primary_object_lighting: Some(object),
+            primary_terrain_lighting: Some(terrain),
+            ..Default::default()
+        };
+        let resolved = resolve_map_activation_lighting(Some(&env));
+        assert_eq!(
+            resolved
+                .object
+                .as_ref()
+                .expect("active object light reaches Forward/Graphics")
+                .sun_direction,
+            Some([1.0, 3.0, 2.0])
+        );
+        assert_eq!(
+            resolved
+                .terrain
+                .as_ref()
+                .expect("terrain record reaches TerrainVisual")
+                .sun_direction,
+            Some([4.0, 6.0, 5.0])
+        );
+    }
+
+    #[test]
+    fn w3d_global_lighting_renderer_resolver_preserves_map_overrides_and_zero_light_fallback() {
+        let env = PresentationWorldEnv {
+            primary_object_lighting: Some(primary(
+                [0.10, 0.20, 0.30],
+                [0.40, 0.50, 0.60],
+                [1.0, 2.0, 3.0],
+                true,
+            )),
+            primary_terrain_lighting: Some(primary(
+                [0.70, 0.80, 0.90],
+                [0.11, 0.12, 0.13],
+                [4.0, 5.0, 6.0],
+                true,
+            )),
+            // Explicit map fields override the matching GameData channels but
+            // do not collapse the distinct authored object/terrain diffuse
+            // values into a single lighting record.
+            ambient_color: Some([0.91, 0.92, 0.93]),
+            sun_direction: Some([-1.0, -2.0, -3.0]),
+            ..Default::default()
+        };
+        let resolved = resolve_map_activation_lighting(Some(&env));
+        let object = resolved.object.expect("object lighting");
+        let terrain = resolved.terrain.expect("terrain lighting");
+        assert_eq!(object.ambient_color, Some([0.91, 0.92, 0.93]));
+        assert_eq!(terrain.ambient_color, Some([0.91, 0.92, 0.93]));
+        assert_eq!(object.sun_direction, Some([-1.0, -2.0, -3.0]));
+        assert_eq!(terrain.sun_direction, Some([-1.0, -2.0, -3.0]));
+        assert_eq!(object.sun_color, Some([0.40, 0.50, 0.60]));
+        assert_eq!(terrain.sun_color, Some([0.11, 0.12, 0.13]));
+
+        let zero_object_light_env = PresentationWorldEnv {
+            primary_object_lighting: Some(primary(
+                [0.0, 0.0, 0.0],
+                [0.0, 0.0, 0.0],
+                [0.0, 0.0, 0.0],
+                false,
+            )),
+            primary_terrain_lighting: Some(primary(
+                [0.2, 0.3, 0.4],
+                [0.5, 0.6, 0.7],
+                [7.0, 8.0, 9.0],
+                false,
+            )),
+            ..Default::default()
+        };
+        let zero_light = resolve_map_activation_lighting(Some(&zero_object_light_env));
+        assert!(
+            zero_light.object.is_none(),
+            "NumberGlobalLights=0 must preserve existing Forward/Graphics lighting"
+        );
+        assert_eq!(
+            zero_light
+                .terrain
+                .expect("terrain primary remains independently authored")
+                .sun_direction,
+            Some([7.0, 9.0, 8.0])
+        );
     }
 }

@@ -111,6 +111,19 @@ pub(crate) struct HostMinimapInteractionRequest {
 /// numeric ThingTemplate/upgrade IDs.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HostControlBarRequest {
+    /// Select the next idle worker from either retail idle-worker UI control.
+    ///
+    /// C++ dispatches both `ControlBar.wnd:ButtonIdleWorker` and
+    /// `IdleWorker.wnd:ButtonSelectNextIdleWorker` straight to
+    /// `InGameUI::selectNextIdleWorker`.  Main owns the offline match world,
+    /// so this must not enter the standalone GameLogic selection path.
+    SelectNextIdleWorker,
+    /// Cancel the active dozer/worker structure-placement mode.
+    ///
+    /// C++ clears the placement state when the Generals Experience panel gains
+    /// the mouse.  Main owns that state for an offline host match, so this
+    /// must not mutate the standalone GameLogic UI while the bridge is active.
+    CancelStructurePlacement,
     /// Queue a unit or structure template at every selected producer.
     Production {
         command_name: String,
@@ -567,6 +580,21 @@ pub(crate) fn publish_host_control_bar_request(request: HostControlBarRequest) -
     true
 }
 
+/// Publish the shared retail idle-worker selection action while Main owns the
+/// Control Bar.  Returning `false` deliberately lets standalone GameClient
+/// callers keep their legacy selection/message-stream behavior.
+pub(crate) fn publish_host_select_next_idle_worker() -> bool {
+    publish_host_control_bar_request(HostControlBarRequest::SelectNextIdleWorker)
+}
+
+/// Publish the retail Generals Experience placement-cancel action while Main
+/// owns the Control Bar. Returning `false` deliberately preserves the legacy
+/// `TheInGameUI::place_build_available(None, None)` fallback for standalone
+/// GameClient callers.
+pub(crate) fn publish_host_cancel_structure_placement() -> bool {
+    publish_host_control_bar_request(HostControlBarRequest::CancelStructurePlacement)
+}
+
 /// Publish a LeftHUD minimap click only while Main owns Control Bar authority.
 ///
 /// The callback supplies geometry and button semantics, but this function
@@ -704,6 +732,38 @@ mod tests {
                 source: CommandSourceType::FromUser,
             }]
         );
+    }
+
+    #[test]
+    fn bridge_routes_idle_worker_selection_only_when_enabled() {
+        let _guard = acquire();
+        assert!(
+            !publish_host_select_next_idle_worker(),
+            "standalone GameClient must retain its legacy idle-worker route"
+        );
+
+        set_host_control_bar_bridge_enabled(true);
+        assert!(publish_host_select_next_idle_worker());
+        assert!(matches!(
+            take_host_control_bar_requests().as_slice(),
+            [HostControlBarRequest::SelectNextIdleWorker]
+        ));
+    }
+
+    #[test]
+    fn bridge_routes_structure_placement_cancel_only_when_enabled() {
+        let _guard = acquire();
+        assert!(
+            !publish_host_cancel_structure_placement(),
+            "standalone GameClient must retain its legacy placement-cancel route"
+        );
+
+        set_host_control_bar_bridge_enabled(true);
+        assert!(publish_host_cancel_structure_placement());
+        assert!(matches!(
+            take_host_control_bar_requests().as_slice(),
+            [HostControlBarRequest::CancelStructurePlacement]
+        ));
     }
 
     #[test]

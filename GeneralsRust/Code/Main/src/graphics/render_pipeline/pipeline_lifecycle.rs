@@ -17,6 +17,13 @@ impl RenderPipeline {
         // Initialize forward pass
         let forward_pass = ForwardPass::initialize(graphics_system)?;
         let (ambient_light, sun_color, sun_direction) = graphics_system.current_lighting();
+        let initial_lighting = CachedLighting {
+            sun_direction: Some(sun_direction),
+            sun_color: Some(sun_color),
+            ambient_color: Some(ambient_light),
+            fog_color: None,
+            fog_range: None,
+        };
 
         info!("RenderPipeline initialized successfully");
 
@@ -29,13 +36,8 @@ impl RenderPipeline {
             skybox_textures_hint: None,
             skybox_enabled: true,
             heightmap_world_size: None,
-            cached_lighting: Some(CachedLighting {
-                sun_direction: Some(sun_direction),
-                sun_color: Some(sun_color),
-                ambient_color: Some(ambient_light),
-                fog_color: None,
-                fog_range: None,
-            }),
+            cached_lighting: Some(initial_lighting.clone()),
+            cached_terrain_lighting: Some(initial_lighting),
             last_startup_model_prewarm_signature: None,
             render_items: Vec::new(),
             frame_number: 0,

@@ -1,5 +1,92 @@
 use super::*;
+use game_engine::common::ini::ini_game_data::{
+    get_global_data, GlobalData as AuthoredGlobalData, TerrainLighting as AuthoredTerrainLighting,
+    TimeOfDay, MAX_GLOBAL_LIGHTS, TIME_OF_DAY_COUNT,
+};
 use std::sync::Arc;
+
+/// Index-zero GameData light frozen for Main's WGPU presentation path.
+///
+/// `light_pos` deliberately stays in the authored C++ W3D coordinate basis
+/// (X/Y/Z, Z-up). Consumers that render in Main's Y-up basis must call
+/// [`Self::render_light_pos`] rather than silently treating authored values as
+/// WGPU coordinates. C++ `W3DDisplay::setTimeOfDay` selects index zero from
+/// both the objects and terrain arrays independently.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Default)]
+pub struct PresentationPrimaryGlobalLight {
+    pub ambient: [f32; 3],
+    pub diffuse: [f32; 3],
+    pub light_pos: [f32; 3],
+    /// `NumberGlobalLights` admits this object-scene directional light.
+    /// Terrain still receives its authored index-zero values, matching the
+    /// existing Display/TerrainVisual path even when no object light is live.
+    pub object_light_active: bool,
+}
+
+impl PresentationPrimaryGlobalLight {
+    fn from_authored(source: &AuthoredTerrainLighting, object_light_active: bool) -> Self {
+        Self {
+            ambient: [source.ambient.r, source.ambient.g, source.ambient.b],
+            diffuse: [source.diffuse.r, source.diffuse.g, source.diffuse.b],
+            light_pos: [source.light_pos.x, source.light_pos.y, source.light_pos.z],
+            object_light_active,
+        }
+    }
+
+    /// Convert authored C++ W3D X/Y/Z (Z-up) to Main's X/Z/Y (Y-up) render
+    /// basis. This is the same conversion used for dynamic W3D scene lights.
+    #[inline]
+    pub fn render_light_pos(self) -> [f32; 3] {
+        [self.light_pos[0], self.light_pos[2], self.light_pos[1]]
+    }
+}
+
+/// Freeze the exact primary GameData lighting pair for the active authored
+/// time of day. Unknown/invalid time-of-day state is deliberately omitted:
+/// callers preserve any explicit map metadata rather than inventing a name or
+/// time-based lighting fallback.
+pub(crate) fn freeze_primary_game_data_lighting(
+    global_data: &AuthoredGlobalData,
+) -> Option<(
+    PresentationPrimaryGlobalLight,
+    PresentationPrimaryGlobalLight,
+)> {
+    let time_index = match global_data.time_of_day {
+        TimeOfDay::Invalid => return None,
+        time_of_day => time_of_day as usize,
+    };
+    if time_index >= TIME_OF_DAY_COUNT {
+        return None;
+    }
+
+    let object_light_active = global_data
+        .num_global_lights
+        .clamp(0, MAX_GLOBAL_LIGHTS as i32)
+        > 0;
+    let object = PresentationPrimaryGlobalLight::from_authored(
+        &global_data.terrain_objects_lighting[time_index][0],
+        object_light_active,
+    );
+    let terrain = PresentationPrimaryGlobalLight::from_authored(
+        &global_data.terrain_lighting[time_index][0],
+        object_light_active,
+    );
+    Some((object, terrain))
+}
+
+fn freeze_current_primary_game_data_lighting() -> (
+    Option<PresentationPrimaryGlobalLight>,
+    Option<PresentationPrimaryGlobalLight>,
+) {
+    let Some(global_data) = get_global_data() else {
+        return (None, None);
+    };
+    let global_data = global_data.read();
+    match freeze_primary_game_data_lighting(&global_data) {
+        Some((object, terrain)) => (Some(object), Some(terrain)),
+        None => (None, None),
+    }
+}
 
 /// Compact road segment for presentation-side road mesh bake.
 /// Coordinates match `RuntimeRoadSegment` world space (from/to as [x,y,z]).
@@ -246,6 +333,14 @@ pub struct PresentationWorldEnv {
     pub fog_color: Option<[f32; 3]>,
     pub fog_start: Option<f32>,
     pub fog_end: Option<f32>,
+    /// Primary `TerrainObjectsLighting*` GameData record for the active TOD.
+    /// This is distinct from terrain lighting: C++ applies the former to the
+    /// W3D scene and the latter to TerrainVisual.
+    #[serde(default)]
+    pub primary_object_lighting: Option<PresentationPrimaryGlobalLight>,
+    /// Primary `TerrainLighting*` GameData record for the active TOD.
+    #[serde(default)]
+    pub primary_terrain_lighting: Option<PresentationPrimaryGlobalLight>,
     /// Placed-object count from last parsed map metadata (prewarm signature).
     pub map_object_count: u32,
     pub has_map_metadata: bool,
@@ -385,6 +480,11 @@ impl PresentationWorldEnv {
         let is_snow = weather.contains("snow");
         // Night residual: weather name or evening/night tokens (fail-closed TOD runtime).
         let is_night = weather.contains("night") || weather.contains("evening");
+        // C++ W3DDisplay::setTimeOfDay selects GameData index zero separately
+        // for scene objects and TerrainVisual. Freeze it with the map frame so
+        // Main does not rediscover global lighting while rendering.
+        let (primary_object_lighting, primary_terrain_lighting) =
+            freeze_current_primary_game_data_lighting();
         Self {
             map_name: logic.get_current_map_name().trim().to_string(),
             is_snow,
@@ -404,6 +504,8 @@ impl PresentationWorldEnv {
                 .and_then(|m| m.fog_color.or(m.sky_color).or(m.sun_color)),
             fog_start: meta.as_ref().and_then(|m| m.fog_start),
             fog_end: meta.as_ref().and_then(|m| m.fog_end),
+            primary_object_lighting,
+            primary_terrain_lighting,
             map_object_count: meta.as_ref().map(|m| m.objects.len() as u32).unwrap_or(0),
             has_map_metadata: meta.is_some(),
             prewarm_template_names,

@@ -6,7 +6,7 @@
 use crate::display::view::{with_tactical_view, Point3};
 use crate::gui::control_bar::{
     host_control_bar_bridge_enabled, publish_host_minimap_interaction,
-    HostMinimapInteractionRequest, HostMinimapMouseButton,
+    publish_host_select_next_idle_worker, HostMinimapInteractionRequest, HostMinimapMouseButton,
 };
 use crate::gui::{
     hide_quit_menu, toggle_diplomacy, toggle_quit_menu, with_window_manager,
@@ -348,6 +348,13 @@ impl ControlBarCallbacks {
 
         if control_id == button_idle_worker_id {
             hide_quit_menu();
+            // C++ calls InGameUI::selectNextIdleWorker directly here.  While
+            // Main owns the match, send the same UI intent to its typed
+            // selection boundary rather than its dormant legacy message path.
+            if publish_host_select_next_idle_worker() {
+                return;
+            }
+            // Standalone GameClient retains its existing legacy route.
             let message_stream = get_message_stream();
             let mut stream = message_stream.write().unwrap_or_else(|e| e.into_inner());
             stream.append_message(GameMessageType::MetaSelectNextWorker);
@@ -904,6 +911,23 @@ mod tests {
         assert!(!should_submit_beacon_text(false, 1));
         assert!(!should_submit_beacon_text(true, 0));
         assert!(!should_submit_beacon_text(true, 2));
+    }
+
+    #[test]
+    fn idle_worker_button_publishes_typed_host_request_when_bridge_enabled() {
+        let _guard = crate::gui::control_bar::acquire_host_control_bar_bridge_test_guard();
+        crate::gui::control_bar::set_host_control_bar_bridge_enabled(true);
+
+        let mut callbacks = ControlBarCallbacks::new();
+        callbacks.handle_button_selected(
+            NameKeyGenerator::name_to_key("ControlBar.wnd:ButtonIdleWorker"),
+            false,
+        );
+
+        assert!(matches!(
+            crate::gui::control_bar::take_host_control_bar_requests().as_slice(),
+            [crate::gui::control_bar::HostControlBarRequest::SelectNextIdleWorker]
+        ));
     }
 }
 

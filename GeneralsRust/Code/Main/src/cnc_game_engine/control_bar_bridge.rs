@@ -72,6 +72,12 @@ impl CnCGameEngine {
         physical_os_input: bool,
     ) {
         match request {
+            HostControlBarRequest::SelectNextIdleWorker => {
+                self.host_select_next_idle_worker_from_control_bar();
+            }
+            HostControlBarRequest::CancelStructurePlacement => {
+                self.cancel_structure_placement_from_ui();
+            }
             HostControlBarRequest::Production {
                 template_name,
                 producer_ids,
@@ -1054,6 +1060,54 @@ fn host_control_bar_key(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cancel_structure_placement_request_routes_through_the_dual_hud_clear() {
+        let bridge = include_str!("control_bar_bridge.rs");
+        let apply_start = bridge
+            .find("fn host_apply_control_bar_request")
+            .expect("Control Bar bridge request handler");
+        let apply_end = bridge[apply_start..]
+            .find("\n    fn host_apply_control_bar_direct")
+            .map(|offset| apply_start + offset)
+            .expect("end of Control Bar bridge request handler");
+        let apply = &bridge[apply_start..apply_end];
+        let request_start = apply
+            .find("HostControlBarRequest::CancelStructurePlacement")
+            .expect("placement cancellation is drained by Main");
+        let request_end = apply[request_start..]
+            .find("HostControlBarRequest::Production")
+            .map(|offset| request_start + offset)
+            .expect("placement cancellation precedes normal Control Bar commands");
+        let request = &apply[request_start..request_end];
+        assert!(
+            request.contains("self.cancel_structure_placement_from_ui();"),
+            "the bridge must use Main's authoritative placement-cancel helper"
+        );
+
+        let ui_commands = include_str!("ui_commands.rs");
+        let clear_start = ui_commands
+            .find("fn cancel_structure_placement_from_ui")
+            .expect("authoritative placement-cancel helper");
+        let clear_end = ui_commands[clear_start..]
+            .find("\n    /// Update structure placement ghost legality")
+            .map(|offset| clear_start + offset)
+            .expect("end of authoritative placement-cancel helper");
+        let clear = &ui_commands[clear_start..clear_end];
+        assert!(
+            clear.contains("self.pending_structure_placement = None;")
+                && clear.contains("self.game_hud.construction_panel.clear_structure_placement();")
+                && clear.contains("self.ui_manager")
+                && clear.contains(".game_hud_mut()")
+                && clear.contains(".construction_panel")
+                && clear.contains(".clear_structure_placement();"),
+            "the host cancel must clear Main's pending placement and both HUD ghosts"
+        );
+        assert!(
+            !clear.contains("pending_map_command"),
+            "opening Generals Experience must not cancel an unrelated pending map command"
+        );
+    }
 
     #[test]
     fn fire_weapon_slots_are_explicit_and_fail_closed() {
