@@ -628,4 +628,48 @@ End
             "a reskin Draw table replaces rather than hybrid-merges the parent table"
         );
     }
+
+    #[test]
+    fn child_weapon_set_replaces_parent_collection_without_leaking_mine_detail() {
+        let source = r#"
+Object ParentMineClearer
+  WeaponSet
+    Conditions = None
+    Weapon = PRIMARY ParentGun
+  End
+  WeaponSet
+    Conditions = MINE_CLEARING_DETAIL
+    Weapon = PRIMARY DozerMineDisarmingWeapon
+  End
+End
+
+ChildObject ChildWithoutMineDetail ParentMineClearer
+  WeaponSet
+    Conditions = None
+    Weapon = PRIMARY ChildGun
+  End
+End
+"#;
+        let mut parser = IniParser::new();
+        parser
+            .parse_ini_content(source, "weapon_set_inheritance.ini")
+            .expect("parse parent and child WeaponSets");
+        let parent = parser
+            .get_definition("ParentMineClearer")
+            .expect("parent")
+            .clone();
+        let child = parser
+            .get_definition("ChildWithoutMineDetail")
+            .expect("child")
+            .clone();
+
+        let resolved = WW3DAssetManager::merge_definition_inheritance(parent, child);
+        assert_eq!(resolved.weapon_sets.len(), 1);
+        assert_eq!(resolved.base_weapon_name(0), Some("ChildGun"));
+        assert_eq!(
+            resolved.mine_clearing_primary_weapon_name(),
+            None,
+            "C++ clears every copied WeaponSet on the child's first authored row"
+        );
+    }
 }

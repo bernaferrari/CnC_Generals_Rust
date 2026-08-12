@@ -1148,6 +1148,20 @@ impl PresentationFrame {
                     obj.hacker_disable_building_ready = ent.hacker_disable_building_ready;
                     dirty = true;
                 }
+                let special_power_ready_template_name =
+                    (!ent.special_power_ready_template_name.is_empty())
+                        .then(|| ent.special_power_ready_template_name.clone());
+                if obj.special_power_ready_template_name != special_power_ready_template_name {
+                    obj.special_power_ready_template_name = special_power_ready_template_name;
+                    dirty = true;
+                }
+                let special_power_ready_template_id =
+                    (!ent.special_power_ready_template_name.is_empty())
+                        .then_some(ent.special_power_ready_template_id);
+                if obj.special_power_ready_template_id != special_power_ready_template_id {
+                    obj.special_power_ready_template_id = special_power_ready_template_id;
+                    dirty = true;
+                }
             }
             // Applied upgrade names residual.
             if obj.applied_upgrades != ent.applied_upgrade_names {
@@ -1422,6 +1436,10 @@ impl PresentationFrame {
             capture_power_ready: ent.capture_power_ready,
             hacker_disable_building_capable: ent.hacker_disable_building_capable,
             hacker_disable_building_ready: ent.hacker_disable_building_ready,
+            special_power_ready_template_name: (!ent.special_power_ready_template_name.is_empty())
+                .then(|| ent.special_power_ready_template_name.clone()),
+            special_power_ready_template_id: (!ent.special_power_ready_template_name.is_empty())
+                .then_some(ent.special_power_ready_template_id),
             health_current: ent.health.max(0.0),
             health_max,
             selected: ent.selected,

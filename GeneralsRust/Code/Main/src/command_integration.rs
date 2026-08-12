@@ -812,8 +812,7 @@ impl InputCommandProcessor {
             || PresentationFrame::object_has_kind(o, crate::game_logic::KindOf::Structure);
         let is_resource =
             PresentationFrame::object_has_kind(o, crate::game_logic::KindOf::Harvestable)
-                || PresentationFrame::object_has_kind(o, crate::game_logic::KindOf::Resource)
-                || o.template_name.to_ascii_lowercase().contains("supply");
+                || PresentationFrame::object_has_kind(o, crate::game_logic::KindOf::Resource);
         let enter_available_capacity = frame
             .normal_enter_available_capacity_for_local(o)
             .unwrap_or(0);

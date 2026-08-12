@@ -35,7 +35,7 @@ impl Object {
             }
             let primary_name = self.primary_weapon_name().map(|s| s.to_string());
             let secondary_name = self.secondary_weapon_name().map(|s| s.to_string());
-            let primary_ready = self.weapon.as_ref().is_some_and(|w| {
+            let primary_ready = self.weapon_slot(0).is_some_and(|w| {
                 let reload = (w.reload_time / rof).max(0.0);
                 Self::weapon_ready_named(w, current_time, primary_name.as_deref(), reload)
             });

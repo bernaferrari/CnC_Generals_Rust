@@ -149,6 +149,28 @@ impl PresentationFrame {
             let pos = obj.get_position();
             let (ground_height, ground_height_from_terrain) =
                 sample_presentation_ground_height(logic, pos);
+            // Freeze the exact source module identity used by the selected
+            // special-power command.  The UI must not rediscover this from a
+            // structure basename after the logic snapshot has been taken.
+            let ready_structure_special_power_module = obj
+                .thing
+                .template
+                .special_power_modules
+                .iter()
+                .find(|module| {
+                    module.command_power.as_ref().is_some_and(|power| {
+                        matches!(
+                            power,
+                            &crate::command_system::SpecialPowerType::ParticleCannon
+                                | &crate::command_system::SpecialPowerType::SuperweaponParticleCannon
+                                | &crate::command_system::SpecialPowerType::LaserCannon
+                                | &crate::command_system::SpecialPowerType::ScudStorm
+                                | &crate::command_system::SpecialPowerType::NuclearMissile
+                                | &crate::command_system::SpecialPowerType::NukeNeutronMissile
+                                | &crate::command_system::SpecialPowerType::SuperweaponNeutronMissile
+                        ) && logic.is_special_power_ready_for(obj.id, power)
+                    })
+                });
             objects.push(RenderableObject {
                 id: obj.id,
                 template_name: obj.template_name.clone(),
@@ -271,6 +293,10 @@ impl PresentationFrame {
                     .hacker_disable_building
                     .is_some(),
                 hacker_disable_building_ready: logic.is_hacker_disable_building_ready(obj.id),
+                special_power_ready_template_name: ready_structure_special_power_module
+                    .map(|module| module.special_power_template.clone()),
+                special_power_ready_template_id: ready_structure_special_power_module
+                    .map(|module| module.special_power_template_id),
                 health_current: auth_health,
                 health_max: obj.health.maximum,
                 selected: obj.selected || obj.status.selected,
@@ -693,7 +719,7 @@ impl PresentationFrame {
             use crate::game_logic::host_special_power_enum_residual::{
                 special_power_has_public_timer, special_power_public_timer_display_name,
                 special_power_public_timer_icon, special_power_reload_seconds,
-                special_power_required_science, template_provides_public_timer_power,
+                special_power_required_science, special_power_is_structure_bound_public_timer,
             };
             const PUBLIC_POWERS: &[P] = &[
                 P::ParticleCannon,
@@ -711,8 +737,11 @@ impl PresentationFrame {
                 P::SuperweaponNeutronMissile,
                 P::BaikonurRocket,
             ];
-            // Living constructed structures owned by local team (C++ addSuperweapon residual).
-            let owned_sw_templates: Vec<String> = logic
+            // C++ addSuperweapon obtains the exact SpecialPowerModule from a
+            // living structure.  Keep the module record with its owning
+            // object so timer/reload identity cannot be recreated from an
+            // Object INI basename later in the HUD path.
+            let owned_structure_modules: Vec<_> = logic
                 .host_objects()
                 .values()
                 .filter(|o| {
@@ -722,7 +751,14 @@ impl PresentationFrame {
                         && (o.is_kind_of(crate::game_logic::KindOf::Structure)
                             || o.is_kind_of(crate::game_logic::KindOf::FSSuperweapon))
                 })
-                .map(|o| o.template_name.clone())
+                .flat_map(|obj| {
+                    obj.thing
+                        .template
+                        .special_power_modules
+                        .iter()
+                        .filter(|module| module.public_timer)
+                        .map(move |module| (obj, module))
+                })
                 .collect();
             let mut seen = std::collections::HashSet::new();
             for power in PUBLIC_POWERS {
@@ -733,47 +769,51 @@ impl PresentationFrame {
                 if !seen.insert(template.clone()) {
                     continue;
                 }
-                let science_ok = match special_power_required_science(power) {
-                    Some(req) => p.has_unlocked_science(req),
-                    None => true,
-                };
-                let structure_templates =
-                    crate::game_logic::host_special_power_enum_residual::special_power_public_timer_structure_templates(
-                        power,
-                    );
-                let structure_ok = if structure_templates.is_empty() {
-                    // Science-only PublicTimer (Carpet/Crate/Napalm/Terror/BMNuke):
-                    // unlocked by science residual alone.
-                    science_ok
+                let structure_bound = special_power_is_structure_bound_public_timer(power);
+                let matching_modules: Vec<_> = owned_structure_modules
+                    .iter()
+                    .copied()
+                    .filter(|(_, module)| {
+                        module
+                            .command_power
+                            .as_ref()
+                            .is_some_and(|candidate| candidate == power)
+                    })
+                    .collect();
+                let science_ok = if structure_bound {
+                    // An exact module's RequiredScience must resolve on its
+                    // actual owner.  This handles authored general variants
+                    // without a parallel enum/name prerequisite table.
+                    matching_modules.iter().any(|(_, module)| {
+                        module
+                            .required_science
+                            .as_deref()
+                            .map(|required| p.has_unlocked_science(required))
+                            .unwrap_or(true)
+                    })
                 } else {
-                    // Structure SWs: require living constructed building residual.
-                    owned_sw_templates
-                        .iter()
-                        .any(|t| template_provides_public_timer_power(power, t))
+                    match special_power_required_science(power) {
+                        Some(req) => p.has_unlocked_science(req),
+                        None => true,
+                    }
                 };
-                let unlocked = science_ok && structure_ok;
+                let unlocked = if structure_bound {
+                    science_ok && !matching_modules.is_empty()
+                } else {
+                    science_ok
+                };
                 // Only list unlocked PublicTimer rows (C++ addSuperweapon when present).
                 // C++ ~SpecialPowerModule removeSuperweapon: destroyed/sold structure drops row.
                 if !unlocked {
                     continue;
                 }
-                let reload = special_power_reload_seconds(power).unwrap_or(0.0).max(0.0);
-                // Structure-bound PublicTimer SWs: remaining from living structure module
-                // residual (not Player SharedSyncedTimer — retail SharedNSync absent).
-                let remaining = if crate::game_logic::host_special_power_enum_residual::special_power_is_structure_bound_public_timer(
-                    power,
-                ) {
-                    // Per-structure module residual: soonest ready among owned SW buildings.
-                    let mut any = false;
+                let (template_name, reload, remaining) = if structure_bound {
+                    // Per-structure module residual: the first ready source
+                    // is the earliest timer, but its reload/name remain that
+                    // same exact loaded SpecialPowerTemplate.
                     let mut min_rem = f32::MAX;
-                    for obj in logic.host_objects().values() {
-                        if obj.team != p.team || !obj.is_alive() || !obj.is_constructed() {
-                            continue;
-                        }
-                        if !template_provides_public_timer_power(power, &obj.template_name) {
-                            continue;
-                        }
-                        any = true;
+                    let mut selected = None;
+                    for (obj, module) in &matching_modules {
                         let rem = obj
                             .special_power_cooldowns
                             .get(power)
@@ -782,20 +822,30 @@ impl PresentationFrame {
                             .max(0.0);
                         if rem < min_rem {
                             min_rem = rem;
+                            selected = Some(*module);
                         }
                     }
-                    if any { min_rem } else { 0.0 }
+                    let module = selected.expect("unlocked structure module is non-empty");
+                    (
+                        module.special_power_template.clone(),
+                        (module.reload_time_frames as f32 / 30.0).max(0.0),
+                        min_rem,
+                    )
                 } else {
-                    p.shared_special_power_cooldowns
-                        .get(power)
-                        .copied()
-                        .unwrap_or(0.0)
-                        .max(0.0)
+                    (
+                        template.clone(),
+                        special_power_reload_seconds(power).unwrap_or(0.0).max(0.0),
+                        p.shared_special_power_cooldowns
+                            .get(power)
+                            .copied()
+                            .unwrap_or(0.0)
+                            .max(0.0),
+                    )
                 };
                 let ready = remaining <= 0.0;
                 superweapon_timers.push(PresentationSuperweaponTimer {
                     name: special_power_public_timer_display_name(power).to_string(),
-                    template_name: template,
+                    template_name,
                     icon: special_power_public_timer_icon(power).to_string(),
                     recharge_time: reload,
                     remaining,

@@ -60,7 +60,7 @@ fn test_command_creation() {
 }
 
 #[test]
-fn boot_gather_classification_accepts_neutral_supply_for_local_harvester() {
+fn boot_gather_classification_requires_authored_supply_source_not_basename() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
 
     let system = CommandSystem::new();
@@ -73,16 +73,27 @@ fn boot_gather_classification_accepts_neutral_supply_for_local_harvester() {
         .set_health(100.0);
     game_logic.add_object(Object::new(harvester_template, ObjectId(1), Team::USA));
 
-    let mut supply_template = ThingTemplate::new("RetailSupplyPile");
+    let mut supply_template = ThingTemplate::new("ArbitraryRetailSupplyIdentity");
     supply_template
+        .add_kind_of(KindOf::SupplySource)
         .add_kind_of(KindOf::Resource)
         .add_kind_of(KindOf::Harvestable)
         .set_health(1.0);
     game_logic.add_object(Object::new(supply_template, ObjectId(2), Team::Neutral));
 
+    let mut lookalike_template = ThingTemplate::new("SupplyPileNamedButNotAuthored");
+    lookalike_template
+        .add_kind_of(KindOf::Structure)
+        .set_health(1.0);
+    game_logic.add_object(Object::new(lookalike_template, ObjectId(3), Team::Neutral));
+
     assert!(
         system.can_gather_from_target(&[ObjectId(1)], ObjectId(2), &game_logic),
-        "a player-owned HARVESTER must be able to target a neutral supply source"
+        "a player-owned HARVESTER must be able to target an authored neutral supply source"
+    );
+    assert!(
+        !system.can_gather_from_target(&[ObjectId(1)], ObjectId(3), &game_logic),
+        "a supply-looking template name must not manufacture Gather authority"
     );
 }
 

@@ -687,6 +687,38 @@ impl GameLogic {
         }
     }
 
+    /// Map an already parsed SpecialPower command adapter to the three C++
+    /// structure-superweapon EVA families.  This is intentionally separate
+    /// from the legacy name helper above: live Object creation/readiness uses
+    /// the exact parsed Behavior module, while the string helper remains a
+    /// compatibility API for old scripted/test callers.
+    fn classify_superweapon_eva_power(
+        power: &crate::command_system::SpecialPowerType,
+    ) -> Option<&'static str> {
+        use crate::command_system::SpecialPowerType as P;
+        match power {
+            P::ParticleCannon | P::SuperweaponParticleCannon | P::LaserCannon => Some("particle"),
+            P::ScudStorm => Some("scud"),
+            P::NuclearMissile | P::NukeNeutronMissile | P::SuperweaponNeutronMissile => {
+                Some("nuke")
+            }
+            _ => None,
+        }
+    }
+
+    fn parsed_superweapon_eva_source(&self, source_id: ObjectId) -> Option<(Team, &'static str)> {
+        let obj = self.objects.get(&source_id)?;
+        let kind = obj
+            .thing
+            .template
+            .special_power_modules
+            .iter()
+            .filter(|module| module.public_timer)
+            .filter_map(|module| module.command_power.as_ref())
+            .find_map(Self::classify_superweapon_eva_power)?;
+        Some((obj.team, kind))
+    }
+
     /// C++ InGameUI SuperweaponReady EVA residual (own/ally/enemy × type).
 
     /// C++ Player::onStructureConstructionComplete SuperweaponDetected EVA residual.
@@ -893,6 +925,19 @@ impl GameLogic {
         let Some(kind) = Self::classify_superweapon_eva_kind(template_name) else {
             return;
         };
+        self.try_eva_superweapon_detected_kind(owner_team, kind);
+    }
+
+    /// Live construction path: exact parsed module authority, never a
+    /// superweapon-shaped object name.
+    pub fn try_eva_superweapon_detected_for_source(&mut self, source_id: ObjectId) {
+        let Some((owner_team, kind)) = self.parsed_superweapon_eva_source(source_id) else {
+            return;
+        };
+        self.try_eva_superweapon_detected_kind(owner_team, kind);
+    }
+
+    fn try_eva_superweapon_detected_kind(&mut self, owner_team: Team, kind: &'static str) {
         let Some(local) = self.players.values().find(|p| p.is_local && p.is_alive) else {
             return;
         };
@@ -942,6 +987,19 @@ impl GameLogic {
         let Some(kind) = Self::classify_superweapon_eva_kind(template_name) else {
             return;
         };
+        self.try_eva_superweapon_ready_kind(owner_team, kind);
+    }
+
+    /// Live cooldown-ready path: resolve family from the source's parsed
+    /// module list rather than its template basename.
+    pub fn try_eva_superweapon_ready_for_source(&mut self, source_id: ObjectId) {
+        let Some((owner_team, kind)) = self.parsed_superweapon_eva_source(source_id) else {
+            return;
+        };
+        self.try_eva_superweapon_ready_kind(owner_team, kind);
+    }
+
+    fn try_eva_superweapon_ready_kind(&mut self, owner_team: Team, kind: &'static str) {
         // Need a local player to attribute own/ally/enemy residual.
         let Some(local) = self.players.values().find(|p| p.is_local && p.is_alive) else {
             return;
@@ -1023,27 +1081,51 @@ impl GameLogic {
     /// (ParticleCannon / NuclearMissile / ScudStorm). SharedNSync science powers
     /// are handled separately via `on_special_power_science_creation`.
     pub fn on_structure_superweapon_creation(&mut self, structure_id: ObjectId) {
-        use crate::game_logic::host_superweapon_kindof::special_power_for_superweapon_structure;
+        use crate::command_system::SpecialPowerType as P;
         let Some(obj) = self.objects.get(&structure_id) else {
             return;
         };
         if !obj.is_alive() || !obj.is_constructed() {
             return;
         }
-        let Some(power) = special_power_for_superweapon_structure(&obj.template_name) else {
+        // C++ finds actual SpecialPowerModule interfaces, in Behavior order.
+        // A superweapon-looking template without one has no timer to arm.
+        let modules: Vec<_> = obj
+            .thing
+            .template
+            .special_power_modules
+            .iter()
+            .filter(|module| {
+                module.command_power.as_ref().is_some_and(|power| {
+                    matches!(
+                        power,
+                        &P::ParticleCannon
+                            | &P::SuperweaponParticleCannon
+                            | &P::LaserCannon
+                            | &P::ScudStorm
+                            | &P::NuclearMissile
+                            | &P::NukeNeutronMissile
+                            | &P::SuperweaponNeutronMissile
+                    )
+                })
+            })
+            .cloned()
+            .collect();
+        if modules.is_empty() {
             return;
-        };
+        }
         // Non-shared structure SWs: startPowerRecharge only (not express ready-now).
         if let Some(obj) = self.objects.get_mut(&structure_id) {
-            // Retail KindOf POWERED residual for energy-draining SWs (PUC/Nuke).
-            if crate::game_logic::host_superweapon_kindof::superweapon_energy_production_for_template(
-                &obj.template_name,
-            )
-            .is_some_and(|e| e < 0)
-            {
-                obj.thing.template.add_kind_of(KindOf::Powered);
+            for module in modules.iter().filter(|module| {
+                !module.shared_n_sync
+                    && !module.starts_paused
+                    && !module.scripted_special_power_only
+            }) {
+                let Some(power) = module.command_power.as_ref() else {
+                    continue;
+                };
+                obj.start_power_recharge_with_frames(power, module.reload_time_frames);
             }
-            obj.start_power_recharge(&power);
         }
         let _ = self
             .special_power_strikes

@@ -1045,7 +1045,8 @@ impl GameLogic {
     #[inline]
     pub fn unit_is_resource_target(&self, id: ObjectId) -> bool {
         self.objects.get(&id).is_some_and(|o| {
-            o.is_kind_of(KindOf::Harvestable)
+            o.is_kind_of(KindOf::SupplySource)
+                || o.is_kind_of(KindOf::Harvestable)
                 || o.is_kind_of(KindOf::Resource)
                 || o.object_type == ObjectType::Supply
         })

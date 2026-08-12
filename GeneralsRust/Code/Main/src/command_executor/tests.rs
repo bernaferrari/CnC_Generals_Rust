@@ -1900,6 +1900,85 @@ fn mine_clearing_detail_toggles_weapon_set_flag() {
 }
 
 #[test]
+fn ordinary_do_weapon_uses_authored_mine_detail_and_disarms_only_when_armed() {
+    use super::CommandExecutor;
+    use crate::command_system::{CommandResult, WeaponSlot, WeaponTarget};
+    use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
+    use glam::Vec3;
+
+    let mut logic = GameLogic::new();
+    let mut clearer = ThingTemplate::new("AuthoredMineDetailClearer");
+    clearer
+        .add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(300.0)
+        .set_primary_weapon_none()
+        .set_mine_clearing_primary_weapon_name("DozerMineDisarmingWeapon");
+    logic
+        .templates
+        .insert("AuthoredMineDetailClearer".to_string(), clearer);
+
+    let clearer_id = logic
+        .create_object("AuthoredMineDetailClearer", Team::USA, Vec3::ZERO)
+        .expect("typed clearer");
+    let mine_id = logic
+        .place_land_mine(Team::GLA, Vec3::new(2.0, 0.0, 0.0), None)
+        .expect("enemy mine");
+
+    // The actual retail FIRE_WEAPON does not become usable merely because the
+    // object owns a mine row.  The parsed option arms the persistent detail
+    // bit first; an untyped/no-option command must fail closed here.
+    let result = CommandExecutor::new(&mut logic, 0).execute_weapon(
+        &[clearer_id],
+        &WeaponSlot::Primary,
+        -1,
+        &WeaponTarget::Location(Vec3::new(2.0, 0.0, 0.0)),
+    );
+    assert_eq!(result, CommandResult::InvalidCommand);
+    assert!(
+        logic.host_object(mine_id)
+            .and_then(|mine| mine.mine_data.as_ref())
+            .is_some_and(|data| data.is_active()),
+        "an unarmed or untyped primary must not clear the mine"
+    );
+
+    {
+        let mut exec = CommandExecutor::new(&mut logic, 0);
+        assert_eq!(
+            exec.execute_set_mine_clearing_detail(&[clearer_id], true),
+            CommandResult::Success
+        );
+        assert_eq!(
+            exec.execute_weapon(
+                &[clearer_id],
+                &WeaponSlot::Primary,
+                -1,
+                &WeaponTarget::Location(Vec3::new(2.0, 0.0, 0.0)),
+            ),
+            CommandResult::Success
+        );
+    }
+    let clearer = logic.host_object(clearer_id).expect("typed clearer");
+    assert!(clearer.weapon_set_mine_clearing_detail);
+    assert_eq!(
+        clearer.weapon_name_for_slot(0),
+        Some("DozerMineDisarmingWeapon"),
+        "ordinary DoWeapon must select the authored conditional source name"
+    );
+    assert_eq!(clearer.target_location, Some(Vec3::new(2.0, 0.0, 0.0)));
+
+    // The normal combat loop owns ground impact and DAMAGE_DISARM; no
+    // synthetic ClearMines executor path participates in this assertion.
+    logic.update_combat(&[clearer_id, mine_id], 1.0 / 30.0);
+    assert!(
+        logic.host_object(mine_id)
+            .map(|mine| mine.status.destroyed)
+            .unwrap_or(true),
+        "the ordinary location weapon path must apply DAMAGE_DISARM to the mine"
+    );
+}
+
+#[test]
 fn go_prone_sets_prone_timer_and_bit() {
     use super::CommandExecutor;
     use crate::command_system::CommandResult;

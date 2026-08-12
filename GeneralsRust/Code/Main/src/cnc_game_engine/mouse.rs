@@ -1658,7 +1658,7 @@ impl CnCGameEngine {
         ) || crate::presentation_frame::PresentationFrame::object_has_kind(
             o,
             crate::game_logic::KindOf::Resource,
-        ) || o.template_name.to_ascii_lowercase().contains("supply");
+        );
         let enter_available_capacity = frame
             .normal_enter_available_capacity_for_local(o)
             .unwrap_or(0);

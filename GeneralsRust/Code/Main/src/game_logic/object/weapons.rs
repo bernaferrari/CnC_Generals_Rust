@@ -75,7 +75,25 @@ impl Object {
             .ok()
             .flatten()
         }) {
-            return (template_mask & target_anti_mask) != 0;
+            if (template_mask & target_anti_mask) != 0 {
+                return true;
+            }
+
+            // `FIRE_WEAPON` at a map position is permitted by C++ even when
+            // the selected detail weapon only has AntiMine.  The eventual
+            // victim lookup still requires that exact MINE mask, so this
+            // admits the target-position route without letting the mine
+            // weapon harm ordinary ground objects.
+            if slot == Some(0)
+                && self.weapon_set_mine_clearing_detail
+                && self.mine_clearing_primary_weapon.is_some()
+                && target_anti_mask == WeaponAntiMask::GROUND
+                && (template_mask & WeaponAntiMask::MINE) != 0
+            {
+                return true;
+            }
+
+            return false;
         }
 
         // Compatibility path for deliberately hand-authored/test weapons
@@ -365,10 +383,10 @@ impl Object {
         if self.status.weapons_jammed || self.is_disabled() || self.is_shock_stunned() {
             return false;
         }
-        let primary_name = self.thing.template.primary_weapon_name.clone();
+        let primary_name = self.primary_weapon_name().map(str::to_owned);
         let secondary_name = self.thing.template.secondary_weapon_name.clone();
         let tertiary_name = self.thing.template.tertiary_weapon_name.clone();
-        if let Some(weapon) = &self.weapon {
+        if let Some(weapon) = self.weapon_slot(0) {
             let reload = self.effective_weapon_reload(weapon.reload_time);
             if Self::weapon_ready_named(weapon, current_time, primary_name.as_deref(), reload) {
                 return true;
@@ -421,7 +439,7 @@ impl Object {
             }
         }
         let target_faerie = target.is_faerie_fire();
-        let primary_ok = self.weapon.as_ref().is_some_and(|w| {
+        let primary_ok = self.weapon_slot(0).is_some_and(|w| {
             self.weapon_ready_vs_target_bonused(w, current_time, target_faerie)
                 && self.can_target_with_slot(target, w, Some(0))
         });
@@ -465,7 +483,7 @@ impl Object {
             target.is_kind_of(KindOf::Vehicle) && !target.is_kind_of(KindOf::Aircraft);
         let target_is_air = target.is_kind_of(KindOf::Aircraft) || target.status.airborne_target;
 
-        let primary_damage = self.weapon.as_ref().map(|w| w.damage).unwrap_or(0.0);
+        let primary_damage = self.weapon_slot(0).map(|w| w.damage).unwrap_or(0.0);
         let secondary_damage = self
             .secondary_weapon
             .as_ref()
@@ -836,8 +854,7 @@ impl Object {
         }
         // Only meaningful when clip is partially empty.
         let partial = self
-            .weapon
-            .as_ref()
+            .weapon_slot(0)
             .is_some_and(|w| w.clip_size > 0 && w.ammo.map(|a| a < w.clip_size).unwrap_or(false));
         if partial {
             self.frame_to_force_reload = frame.saturating_add(delay);
@@ -865,7 +882,7 @@ impl Object {
             return;
         }
         let needs =
-            self.weapon.as_ref().is_some_and(|w| {
+            self.weapon_slot(0).is_some_and(|w| {
                 w.clip_size > 0 && w.ammo.map(|a| a < w.clip_size).unwrap_or(true)
             }) || self.secondary_weapon.as_ref().is_some_and(|w| {
                 w.clip_size > 0 && w.ammo.map(|a| a < w.clip_size).unwrap_or(true)

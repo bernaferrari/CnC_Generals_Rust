@@ -216,41 +216,55 @@ fn ranger_residual_rifle_and_flashbang_splash() {
     );
 }
 
-/// Residual: China Hacker DisableBuilding → DISABLED_HACKED on enemy structure.
-/// Fail-closed: not full unpack/prep/persistent stream matrix.
+/// Exact paired Hacker Disable Building channel: the player click only starts
+/// an approach, then source-authored unpack/initial prep/persistent prep run
+/// before each DISABLED_HACKED refresh.  This covers the meaningful C++ phase
+/// boundary rather than the old name-based instant effect.
 #[test]
-fn hacker_disable_building_command_disables_after_reach() {
-    use crate::game_logic::host_hacker_disable::{
-        is_hacker_disable_unit, HACKER_DISABLE_EFFECT_DURATION_FRAMES,
-    };
+fn hacker_disable_building_uses_typed_persistent_channel_and_packs_on_relation_loss() {
+    use crate::game_logic::{HackerDisableBuildingMetadata, HackerDisableChannelPhase};
 
     let mut game_logic = GameLogic::new();
     ensure_test_structure_template(&mut game_logic);
-    ensure_test_infantry_template(&mut game_logic);
 
-    let mut hacker_tpl = crate::game_logic::ThingTemplate::new("ChinaInfantryHacker");
+    let mut hacker_tpl = crate::game_logic::ThingTemplate::new("TypedHackerDisableSource");
     hacker_tpl
         .add_kind_of(KindOf::Infantry)
         .add_kind_of(KindOf::Selectable)
         .add_kind_of(KindOf::Attackable)
         .set_health(100.0);
+    hacker_tpl.hacker_disable_building = Some(HackerDisableBuildingMetadata {
+        special_power_template: "SpecialAbilityHackerDisableBuilding".to_string(),
+        update_module_starts_attack: true,
+        starts_paused: false,
+        scripted_special_power_only: false,
+        reload_time_frames: 0,
+        required_science: None,
+        shared_n_sync: false,
+        start_ability_range: 150.0,
+        ability_abort_range: 10_000_000.0,
+        approach_requires_los: true,
+        unpack_time_ms: 7_300,
+        preparation_time_ms: 3_000,
+        persistent_prep_time_ms: 333,
+        effect_duration_ms: 2_000,
+        pack_time_ms: 5_133,
+        persistence_requires_recharge: false,
+    });
     game_logic
         .templates
-        .insert("ChinaInfantryHacker".to_string(), hacker_tpl);
+        .insert("TypedHackerDisableSource".to_string(), hacker_tpl);
 
-    // player_id 0 residual ownership maps to USA when no player exists —
-    // mirror disable_vehicle_hack residual tests (USA actor vs enemy target).
     let hacker_id = game_logic
-        .create_object("ChinaInfantryHacker", Team::USA, Vec3::new(200.0, 0.0, 0.0))
-        .expect("hacker");
-    {
-        let h = game_logic.host_object(hacker_id).expect("hacker");
-        assert!(is_hacker_disable_unit(&h.template_name));
-    }
+        .create_object(
+            "TypedHackerDisableSource",
+            Team::USA,
+            Vec3::new(200.0, 0.0, 0.0),
+        )
+        .expect("typed hacker");
     let target_id = game_logic
-        .create_object("TestBuilding", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
-        .expect("building");
-
+        .create_object("TestBuilding", Team::GLA, Vec3::ZERO)
+        .expect("enemy building");
     let initial_health = game_logic
         .host_object(target_id)
         .expect("building")
@@ -266,90 +280,174 @@ fn hacker_disable_building_command_disables_after_reach() {
         modifier_keys: crate::command_system::ModifierKeys::default(),
     });
     game_logic.process_commands();
-
-    {
-        let hacker = game_logic.host_object(hacker_id).expect("hacker");
-        assert_eq!(
-            hacker.ai_state,
-            AIState::SpecialAbility,
-            "disable building must enter SpecialAbility on issue"
-        );
-        assert_eq!(hacker.target, Some(target_id));
-    }
+    let issued = game_logic
+        .host_object(hacker_id)
+        .expect("hacker after issue");
+    assert_eq!(issued.ai_state, AIState::SpecialAbility);
+    assert_eq!(issued.target, Some(target_id));
+    assert_eq!(
+        issued
+            .hacker_disable_channel
+            .expect("approach channel")
+            .phase,
+        HackerDisableChannelPhase::Approaching
+    );
     assert!(
         !game_logic
             .host_object(target_id)
             .expect("building")
             .is_hacked_disabled(),
-        "disable building must not apply immediately on command issue"
+        "click must not apply a remote/instant disable"
     );
-    assert!(!game_logic.honesty_hacker_disable_building_ok());
 
-    // Out of StartAbilityRange 150 residual: stays pending.
+    // Out of the parsed StartAbilityRange, the physical path remains live.
     game_logic.update_ai(&[hacker_id, target_id], 1.0 / 60.0);
-    assert!(
-        !game_logic
-            .host_object(target_id)
-            .expect("building")
-            .is_hacked_disabled(),
-        "disable building stays pending out of range"
+    assert_eq!(
+        game_logic
+            .host_object(hacker_id)
+            .and_then(|source| source.hacker_disable_channel)
+            .expect("approach remains live")
+            .phase,
+        HackerDisableChannelPhase::Approaching
     );
 
-    // Walk into residual StartAbilityRange.
-    {
-        let hacker = game_logic.host_object_mut(hacker_id).expect("hacker");
-        hacker.set_position(Vec3::new(10.0, 0.0, 0.0));
-        hacker.set_ai_state(AIState::SpecialAbility);
-        hacker.target = Some(target_id);
-    }
+    // Enter range: the channel exposes its authored 7300 ms unpack before
+    // initial 3000 ms preparation.  The test directly moves the source only
+    // to isolate SpecialAbilityUpdate timing from pathfinding geometry.
+    game_logic
+        .host_object_mut(hacker_id)
+        .expect("hacker")
+        .set_position(Vec3::new(10.0, 0.0, 0.0));
     game_logic.update_ai(&[hacker_id, target_id], 1.0 / 60.0);
+    assert_eq!(
+        game_logic
+            .host_object(hacker_id)
+            .and_then(|source| source.hacker_disable_channel)
+            .expect("unpack channel")
+            .phase,
+        HackerDisableChannelPhase::Unpacking
+    );
+    game_logic.update_ai(&[hacker_id, target_id], 7.3);
+    let preparing = game_logic
+        .host_object(hacker_id)
+        .and_then(|source| source.hacker_disable_channel)
+        .expect("initial preparation");
+    assert_eq!(preparing.phase, HackerDisableChannelPhase::Preparing);
+    assert!(
+        (preparing.remaining_seconds - 3.0).abs() < 0.001,
+        "initial PreparationTime must be retained, got {}",
+        preparing.remaining_seconds
+    );
+    assert!(
+        game_logic
+            .host_object(hacker_id)
+            .expect("hacker")
+            .status
+            .using_ability,
+        "only preparation holds IS_USING_ABILITY"
+    );
 
-    let building_after = game_logic.host_object(target_id).expect("building");
-    assert_eq!(
-        building_after.health.current, initial_health,
-        "disable building residual must not damage HP"
-    );
-    assert_eq!(
-        building_after.team,
-        Team::GLA,
-        "disable building must not change ownership"
-    );
+    game_logic.update_ai(&[hacker_id, target_id], 3.0);
+    let first = game_logic
+        .host_object(hacker_id)
+        .and_then(|source| source.hacker_disable_channel)
+        .expect("persistent preparation after first trigger");
+    assert_eq!(first.phase, HackerDisableChannelPhase::Preparing);
     assert!(
-        building_after.is_hacked_disabled(),
-        "building must be DISABLED_HACKED"
+        (first.remaining_seconds - 0.333).abs() < 0.001,
+        "persistent trigger must use PersistentPrepTime, got {}",
+        first.remaining_seconds
     );
-    assert!(
-        building_after.is_disabled(),
-        "hacked building must count as is_disabled (production stop residual)"
-    );
-    assert!(
-        game_logic.honesty_hacker_disable_building_ok(),
-        "hacker disable building residual honesty"
-    );
+    let building_after_first = game_logic
+        .host_object(target_id)
+        .expect("building after trigger");
+    assert_eq!(building_after_first.health.current, initial_health);
+    assert_eq!(building_after_first.team, Team::GLA);
+    assert!(building_after_first.is_hacked_disabled());
     assert_eq!(game_logic.hacker_disable_building_count(), 1);
 
-    // Expire residual timer → building recovers.
-    let until = building_after.status.disabled_hacked_until_frame;
+    // C++ allows the same already-disabled building to remain a target and
+    // refreshes its effect on the next persistent trigger.
+    game_logic.frame = 1;
+    game_logic.update_ai(&[hacker_id, target_id], 0.333);
+    assert_eq!(game_logic.hacker_disable_building_count(), 2);
     assert!(
-        until
-            >= game_logic
-                .frame
-                .saturating_add(HACKER_DISABLE_EFFECT_DURATION_FRAMES.saturating_sub(1)),
-        "EffectDuration residual ~60 frames (got until={until} frame={})",
-        game_logic.frame
+        game_logic
+            .host_object(target_id)
+            .expect("building after refresh")
+            .is_hacked_disabled(),
+        "already-disabled target stays legal for the persistent channel"
     );
-    assert!(until > game_logic.frame);
-    game_logic.frame = until;
-    game_logic.update_ai(&[target_id], 1.0 / 60.0);
-    let recovered = game_logic.host_object(target_id).expect("building");
+
+    // Changing the exact ownership relationship cancels the effect only
+    // through authored PackTime; it does not run a final hidden trigger.
+    game_logic
+        .host_object_mut(target_id)
+        .expect("target")
+        .set_team(Team::USA);
+    game_logic.update_ai(&[hacker_id, target_id], 1.0 / 30.0);
+    assert_eq!(
+        game_logic
+            .host_object(hacker_id)
+            .and_then(|source| source.hacker_disable_channel)
+            .expect("packing channel")
+            .phase,
+        HackerDisableChannelPhase::Packing
+    );
     assert!(
-        !recovered.is_hacked_disabled(),
-        "DISABLED_HACKED must clear after EffectDuration 2000ms"
+        !game_logic
+            .host_object(hacker_id)
+            .expect("hacker packing")
+            .status
+            .using_ability
     );
-    assert!(
-        !recovered.is_disabled() || recovered.status.under_construction,
-        "recovered building is not disabled"
-    );
+    game_logic.update_ai(&[hacker_id, target_id], 5.2);
+    let finished = game_logic.host_object(hacker_id).expect("finished hacker");
+    assert!(finished.hacker_disable_channel.is_none());
+    assert_eq!(finished.ai_state, AIState::Idle);
+    assert_eq!(finished.target, None);
+}
+
+/// A Hacker-looking basename is never HDB authority without the exact paired
+/// parsed modules.  This catches the old active string fallback in both the
+/// command executor and the generic support-state branch.
+#[test]
+fn hacker_disable_building_rejects_hacker_basename_without_typed_metadata() {
+    let mut game_logic = GameLogic::new();
+    ensure_test_structure_template(&mut game_logic);
+    let mut lookalike = crate::game_logic::ThingTemplate::new("ChinaInfantryHacker");
+    lookalike
+        .add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(100.0);
+    game_logic
+        .templates
+        .insert("ChinaInfantryHacker".to_string(), lookalike);
+    let hacker_id = game_logic
+        .create_object("ChinaInfantryHacker", Team::USA, Vec3::new(10.0, 0.0, 0.0))
+        .expect("lookalike");
+    let target_id = game_logic
+        .create_object("TestBuilding", Team::GLA, Vec3::ZERO)
+        .expect("target");
+
+    game_logic.queue_command(crate::command_system::GameCommand {
+        command_type: crate::command_system::CommandType::HackerDisableBuilding { target_id },
+        player_id: 0,
+        command_id: 2,
+        timestamp: std::time::SystemTime::now(),
+        selected_units: vec![hacker_id],
+        modifier_keys: crate::command_system::ModifierKeys::default(),
+    });
+    game_logic.process_commands();
+
+    let source = game_logic.host_object(hacker_id).expect("lookalike source");
+    assert!(source.hacker_disable_channel.is_none());
+    assert_ne!(source.ai_state, AIState::SpecialAbility);
+    assert!(!game_logic
+        .host_object(target_id)
+        .expect("target")
+        .is_hacked_disabled());
 }
 
 /// Residual: GLA RPG Trooper / Tunnel Defender rocket splash + AP Rockets.

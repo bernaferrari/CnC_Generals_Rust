@@ -846,32 +846,29 @@ impl GameLogic {
         }
         self.hacker_disable_building_count = self.hacker_disable_building_count.saturating_add(1);
 
-        if metadata.persistent_prep_time_ms > 0 {
-            // `PersistenceRequiresRecharge` is the only persistent path that
-            // starts/gates another reload.  Ordinary HDB uses its authored
-            // PersistentPrepTime continuously while the target remains legal.
-            if metadata.persistence_requires_recharge
-                && !self.consume_hacker_disable_building_charge(object_id)
-            {
-                self.begin_hacker_disable_building_packing(
-                    object_id,
-                    target_id,
-                    metadata.pack_time_ms,
-                );
-                return;
-            }
-            if let Some(object) = self.objects.get_mut(&object_id) {
-                object.hacker_disable_channel =
-                    Some(crate::game_logic::HackerDisableChannelState::new(
-                        target_id,
-                        crate::game_logic::HackerDisableChannelPhase::Preparing,
-                        metadata.persistent_prep_time_ms,
-                    ));
-                object.set_status_using_ability(true);
-                object.set_ai_state(AIState::SpecialAbility);
-            }
-        } else {
+        // HDB is an intrinsic persistent SpecialAbilityUpdate. An omitted
+        // PersistentPrepTime is the C++ zero default, not a signal to turn it
+        // into a one-shot ability; retain it as a zero-duration preparation
+        // which may trigger on the following logic update without an in-tick
+        // infinite loop.
+        // `PersistenceRequiresRecharge` is the only persistent path that
+        // starts/gates another reload. Ordinary HDB uses its authored
+        // PersistentPrepTime continuously while the target remains legal.
+        if metadata.persistence_requires_recharge
+            && !self.consume_hacker_disable_building_charge(object_id)
+        {
             self.begin_hacker_disable_building_packing(object_id, target_id, metadata.pack_time_ms);
+            return;
+        }
+        if let Some(object) = self.objects.get_mut(&object_id) {
+            object.hacker_disable_channel =
+                Some(crate::game_logic::HackerDisableChannelState::new(
+                    target_id,
+                    crate::game_logic::HackerDisableChannelPhase::Preparing,
+                    metadata.persistent_prep_time_ms,
+                ));
+            object.set_status_using_ability(true);
+            object.set_ai_state(AIState::SpecialAbility);
         }
     }
 

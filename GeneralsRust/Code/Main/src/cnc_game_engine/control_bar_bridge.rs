@@ -1105,6 +1105,43 @@ mod tests {
     }
 
     #[test]
+    fn retail_disarm_mines_option_is_typed_without_a_button_name_authority() {
+        const USES_MINE_CLEARING_WEAPONSET: u32 = 0x0020_0000;
+        // Command_DisarmMinesAtPosition: NEED_TARGET_POS | OK_FOR_MULTI_SELECT
+        // | USES_MINE_CLEARING_WEAPONSET.  The generic DoWeapon translation
+        // deliberately keys off the parsed option, not this string.
+        let retail = host_control_bar_generic_target_action(
+            LegacyCommandType::DoAttackObject,
+            "Command_DisarmMinesAtPosition",
+            Some(0),
+            0x0000_0120 | USES_MINE_CLEARING_WEAPONSET,
+            Some(-1),
+        )
+        .expect("retail mine button translates");
+        let HostControlBarGenericTargetAction::Weapon(retail_weapon) = retail else {
+            panic!("retail mine button must remain an ordinary FIRE_WEAPON");
+        };
+        assert!(retail_weapon.uses_mine_clearing_weapon_set());
+
+        let spoofed_name_without_option = host_control_bar_generic_target_action(
+            LegacyCommandType::DoAttackObject,
+            "Command_DisarmMinesAtPosition",
+            Some(0),
+            0x0000_0120,
+            Some(-1),
+        )
+        .expect("ordinary FIRE_WEAPON translates");
+        let HostControlBarGenericTargetAction::Weapon(ordinary_weapon) = spoofed_name_without_option
+        else {
+            panic!("ordinary FIRE_WEAPON remains a weapon command");
+        };
+        assert!(
+            !ordinary_weapon.uses_mine_clearing_weapon_set(),
+            "a button spelling cannot authorise mine-clearing detail"
+        );
+    }
+
+    #[test]
     fn battle_plan_options_require_one_retail_choice() {
         use crate::command_system::SpecialPowerType;
 
