@@ -2,6 +2,77 @@ use super::*;
 use crate::assets::models::BlendMode;
 
 #[test]
+fn w3d_companion_animation_forward_palette_uses_render_item_binding() {
+    use crate::assets::{
+        W3DAnimationBinding, W3DModel, W3dAnimChannel, W3dAnimation, W3dHierarchy, W3dPivot,
+    };
+    use std::sync::Arc;
+
+    let pivot = |name: &str, parent_idx| W3dPivot {
+        name: name.to_string(),
+        parent_idx,
+        translation: [0.0; 3],
+        euler_angles: [0.0; 3],
+        rotation: [0.0, 0.0, 0.0, 1.0],
+    };
+    let animation = |name: &str, x: f32| W3dAnimation {
+        name: name.to_string(),
+        hierarchy_name: "RANGER_SKL".to_string(),
+        num_frames: 2,
+        frame_rate: 30,
+        channels: vec![W3dAnimChannel {
+            first_frame: 0,
+            last_frame: 1,
+            vector_len: 1,
+            flags: 0,
+            pivot: 1,
+            data: vec![x, x],
+        }],
+        raw_visibility_channels: Vec::new(),
+        unsupported_visibility_pivots: Vec::new(),
+    };
+
+    let mut geometry = W3DModel::new("ranger_geometry".to_string());
+    geometry.hierarchy = Some(W3dHierarchy {
+        name: "RANGER_SKL".to_string(),
+        pivots: vec![pivot("ROOT", u32::MAX), pivot("ARM", 0)],
+        pivot_fixups: Vec::new(),
+    });
+    // The geometry happens to contain a local clip zero, but it is not the
+    // frozen Draw selection. ForwardPass must not use this ordinal fallback.
+    geometry.animations.push(animation("LOCAL", 1.0));
+    let companion = W3DAnimationBinding::companion(
+        "RANGER_SKL.RUN",
+        Arc::new(animation("RUN", 9.0)),
+    );
+    assert!(geometry.animation_binding_is_compatible(&companion));
+
+    let material = W3DMaterial::default();
+    let mut item = RenderItem::new(
+        ObjectID(77),
+        "ranger_geometry".to_string(),
+        0,
+        Vec3::ZERO,
+        Mat4::IDENTITY,
+        &material,
+        RenderPass::ForwardOpaque,
+    );
+    item.animation_frame = 1.0;
+    item.animation_binding = Some(companion);
+
+    let palette = ForwardPass::sample_bone_palette_for_item(&geometry, &item)
+        .expect("the frozen companion binding must reach the final GPU palette");
+    assert_eq!(palette[1].w_axis.x, 9.0);
+    assert_ne!(palette[1].w_axis.x, 1.0, "must not sample local clip zero");
+
+    item.animation_binding = None;
+    assert!(
+        ForwardPass::sample_bone_palette_for_item(&geometry, &item).is_none(),
+        "an absent Draw animation is bind pose and must not upload clip zero"
+    );
+}
+
+#[test]
 fn presentation_live_fallback_reads_honesty_counter_present() {
     let src = crate::graphics::render_pipeline::RENDER_PIPELINE_SRC;
     assert!(

@@ -10,6 +10,23 @@
 use super::*;
 
 impl RenderPipeline {
+    /// Resolve one frozen Draw identity without performing render-collection
+    /// I/O. A local compatible HAnim is immediately usable; external HAnim
+    /// data must already have been placed in AssetManager's exact
+    /// identity-plus-hierarchy prewarm cache. Missing or incompatible data is
+    /// a bind-pose result, never a local animation-zero fallback.
+    fn cached_draw_animation_binding(
+        model: &crate::assets::W3DModel,
+        identity: &str,
+    ) -> Option<crate::assets::W3dAnimationBinding> {
+        if let Some(local) = model.local_animation_binding_for_draw_identity(identity) {
+            return Some(local);
+        }
+        let asset_manager_arc = crate::assets::get_asset_manager()?;
+        let asset_manager = asset_manager_arc.lock().ok()?;
+        asset_manager.cached_w3d_draw_animation_binding(model, identity)
+    }
+
     /// Advance one exact source-selected W3DModelDraw state. The C++ draw
     /// module chooses its first entry only when it has a single animation;
     /// random idle/multiple-entry selection has not been ported, so that case
@@ -23,18 +40,16 @@ impl RenderPipeline {
         authored_animations: &[crate::assets::AuthoredDrawAnimation],
         authored_mode: &crate::assets::AuthoredDrawAnimationMode,
         delta_time: f32,
-    ) -> (Option<usize>, f32) {
-        let requested_index = match authored_animations {
+    ) -> (Option<crate::assets::W3dAnimationBinding>, f32) {
+        let requested_binding = match authored_animations {
             [] => Some(None),
-            [animation] => model
-                .find_animation_index_for_draw_identity(&animation.name)
-                .map(Some),
+            [animation] => Self::cached_draw_animation_binding(model, &animation.name).map(Some),
             // C++ uses GameClientRandomValue for multiple state animations.
             // Until that exact stateful selector is ported, fail closed to
             // bind pose rather than choosing an arbitrary W3D index.
             _ => None,
         };
-        let Some(requested_index) = requested_index else {
+        let Some(requested_binding) = requested_binding else {
             return (None, 0.0);
         };
         let mode_is_supported = matches!(
@@ -49,14 +64,14 @@ impl RenderPipeline {
             return (None, 0.0);
         }
 
-        let Some(animation_index) = requested_index else {
+        let Some(animation_binding) = requested_binding else {
             return (None, 0.0);
         };
-        if model.hierarchy.is_none() {
+        let Some((num_frames, frame_rate)) = model.animation_binding_metadata(&animation_binding)
+        else {
             return (None, 0.0);
-        }
-
-        let (num_frames, frame_rate) = model.animation_metadata(animation_index).unwrap_or((1, 30));
+        };
+        let animation_binding_key = animation_binding.state_key();
         let obj_key = (object_id.0, draw_module_index);
         let state = self.animation_states.entry(obj_key).or_insert_with(|| {
             let start_frame = match authored_mode {
@@ -67,15 +82,17 @@ impl RenderPipeline {
                 _ => 0.0,
             };
             ObjectAnimationState {
-                animation_index: Some(animation_index),
+                animation_binding_key: Some(animation_binding_key.clone()),
                 current_frame: start_frame,
                 frame_rate: frame_rate as f32,
                 num_frames,
                 mode: authored_mode.clone(),
             }
         });
-        if state.animation_index != Some(animation_index) || state.mode != authored_mode.clone() {
-            state.animation_index = Some(animation_index);
+        if state.animation_binding_key != Some(animation_binding_key.clone())
+            || state.mode != authored_mode.clone()
+        {
+            state.animation_binding_key = Some(animation_binding_key);
             state.current_frame = match authored_mode {
                 crate::assets::AuthoredDrawAnimationMode::LoopBackwards
                 | crate::assets::AuthoredDrawAnimationMode::OnceBackwards => {
@@ -124,7 +141,7 @@ impl RenderPipeline {
                 crate::assets::AuthoredDrawAnimationMode::Unsupported(_) => state.current_frame,
             };
         }
-        (Some(animation_index), state.current_frame)
+        (Some(animation_binding), state.current_frame)
     }
 
     /// Translate the frozen GameClient W3DModelDraw animation record into the
@@ -139,22 +156,22 @@ impl RenderPipeline {
         model: &crate::assets::W3DModel,
         animation_name: Option<&str>,
         animation_time: f32,
-    ) -> (Option<usize>, f32) {
+    ) -> (Option<crate::assets::W3dAnimationBinding>, f32) {
         let Some(animation_name) = animation_name else {
             return (None, 0.0);
         };
-        let Some(animation_index) = model.find_animation_index_for_draw_identity(animation_name)
+        let Some(animation_binding) = Self::cached_draw_animation_binding(model, animation_name)
         else {
             return (None, 0.0);
         };
-        let Some((num_frames, _)) = model.animation_metadata(animation_index) else {
+        let Some((num_frames, _)) = model.animation_binding_metadata(&animation_binding) else {
             return (None, 0.0);
         };
         if !animation_time.is_finite() {
             return (None, 0.0);
         }
         let frame = animation_time.clamp(0.0, 1.0) * num_frames.saturating_sub(1) as f32;
-        (Some(animation_index), frame)
+        (Some(animation_binding), frame)
     }
 
     /// Collect render items from game objects - equivalent to C++ RenderPipeline::CollectRenderItems()
@@ -376,7 +393,7 @@ impl RenderPipeline {
                         } else {
                             let visibility = fow_visibility;
 
-                            let (animation_index, anim_frame) = self
+                            let (animation_binding, anim_frame) = self
                                 .advance_authored_draw_animation(
                                     object_id,
                                     draw_module_index,
@@ -442,9 +459,9 @@ impl RenderPipeline {
                                 // multi-LOD/aggregate content returns None and remains
                                 // intentionally non-rendering rather than drawing every group.
                                 let Some((mesh_local_transform, mesh_visible)) = w3d_model
-                                    .mesh_local_transform_and_visibility_for_animation(
+                                    .mesh_local_transform_and_visibility_for_binding(
                                         mesh_idx,
-                                        animation_index,
+                                        animation_binding.as_ref(),
                                         anim_frame,
                                     )
                                 else {
@@ -483,6 +500,7 @@ impl RenderPipeline {
                                 render_item.distance = world_position.distance(camera_position);
                                 render_item.set_fow_visibility(visibility);
                                 render_item.animation_frame = anim_frame;
+                                render_item.animation_binding = animation_binding.clone();
 
                                 self.render_items.push(render_item);
                             }
@@ -1084,7 +1102,7 @@ impl RenderPipeline {
                         // and normalized frame fraction into the bridge
                         // submission. Apply that exact state so raw W3D bit
                         // channels govern HLOD children here too.
-                        let (animation_index, anim_frame) = Self::bridge_draw_animation(
+                        let (animation_binding, anim_frame) = Self::bridge_draw_animation(
                             &w3d_model,
                             submission.animation_name.as_deref(),
                             submission.animation_time,
@@ -1092,9 +1110,9 @@ impl RenderPipeline {
 
                         for (mesh_idx, mesh) in w3d_model.meshes.iter().enumerate() {
                             let Some((mesh_local_transform, mesh_visible)) = w3d_model
-                                .mesh_local_transform_and_visibility_for_animation(
+                                .mesh_local_transform_and_visibility_for_binding(
                                     mesh_idx,
-                                    animation_index,
+                                    animation_binding.as_ref(),
                                     anim_frame,
                                 )
                             else {
@@ -1121,6 +1139,7 @@ impl RenderPipeline {
                             item.distance = world_position.distance(camera_position);
                             item.set_fow_visibility(fow_vis);
                             item.animation_frame = anim_frame;
+                            item.animation_binding = animation_binding.clone();
                             item.set_mesh_local_transform(mesh_local_transform);
                             item.uv_offset_override =
                                 Self::mesh_uv_override_for_submission(&submission, &mesh.name);
@@ -1312,7 +1331,12 @@ mod w3d_live_path_tests {
             !src.contains(&format!("fn {condition_clip_helper}")),
             "selected Draw-state animation identity must replace combat-bit clip guesses"
         );
-        assert!(src.contains("mesh_local_transform_and_visibility_for_animation"));
+        assert!(src.contains("mesh_local_transform_and_visibility_for_binding"));
+        assert!(src.contains("cached_draw_animation_binding"));
+        assert!(
+            !src.contains("load_companion_animation"),
+            "frozen-frame collection must only consume the prewarm cache"
+        );
         assert!(src.contains("submission.animation_name.as_deref()"));
         assert!(src.contains("submission.animation_time"));
     }
@@ -1330,14 +1354,26 @@ mod w3d_live_path_tests {
             unsupported_visibility_pivots: Vec::new(),
         });
 
+        model.hierarchy = Some(crate::assets::W3dHierarchy {
+            name: "BridgeHier".to_string(),
+            pivots: Vec::new(),
+            pivot_fixups: Vec::new(),
+        });
+
+        let (binding, frame) =
+            RenderPipeline::bridge_draw_animation(&model, Some("bridgehier.bridgeclip"), 0.5);
+        assert!(matches!(
+            binding,
+            Some(crate::assets::W3dAnimationBinding::Local { index: 0 })
+        ));
         assert_eq!(
-            RenderPipeline::bridge_draw_animation(&model, Some("bridgehier.bridgeclip"), 0.5,),
-            (Some(0), 4.5),
+            frame, 4.5,
             "the bridge fraction maps to the selected clip's source frame range"
         );
-        assert_eq!(
-            RenderPipeline::bridge_draw_animation(&model, Some("different.clip"), 0.5),
-            (None, 0.0),
+        let (missing_binding, missing_frame) =
+            RenderPipeline::bridge_draw_animation(&model, Some("different.clip"), 0.5);
+        assert!(
+            missing_binding.is_none() && missing_frame == 0.0,
             "an unresolved named clip must not substitute animation zero"
         );
     }

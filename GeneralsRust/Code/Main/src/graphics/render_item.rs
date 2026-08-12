@@ -1,4 +1,4 @@
-use crate::assets::W3DMaterial;
+use crate::assets::{W3DMaterial, W3dAnimationBinding};
 use crate::fow_rendering::ObjectVisibility;
 use crate::game_logic::ObjectId;
 use glam::{Mat4, Vec2, Vec3};
@@ -61,6 +61,11 @@ pub struct RenderItem {
 
     pub animation_frame: f32,
 
+    /// Exact local-or-companion HAnim frozen from the selected W3DModelDraw
+    /// state. `None` means bind pose; it must never become local clip zero in
+    /// the final palette path.
+    pub animation_binding: Option<W3dAnimationBinding>,
+
     /// C++ selection flash envelope residual intensity 0..1 (presentation-owned).
     pub selection_flash_intensity: f32,
 }
@@ -104,6 +109,7 @@ impl RenderItem {
             fow_visibility: ObjectVisibility::default(),
             uv_offset_override: None,
             animation_frame: 0.0,
+            animation_binding: None,
             selection_flash_intensity: 0.0,
         }
     }

@@ -10,6 +10,73 @@
 use super::*;
 
 impl RenderPipeline {
+    /// Resolve exact external raw HAnim files from the frozen presentation
+    /// frame before the mesh collector runs. Collection itself may only read
+    /// the resulting cache: opening an archive there would make a snapshot's
+    /// selected Draw state depend on timing and could stall the render pass.
+    ///
+    /// This deliberately handles only the one-entry animation case that the
+    /// active collector can select deterministically. Random/multiple entries
+    /// and unsupported playback modes retain bind pose rather than warming an
+    /// arbitrary clip.
+    pub(super) fn prewarm_frozen_draw_animation_bindings(&mut self) {
+        let Some(presentation) = self.presentation_frame.as_ref() else {
+            return;
+        };
+
+        let mut requests = Vec::<(String, String)>::new();
+        let mut seen = HashSet::new();
+        for input in presentation.unit_render_inputs() {
+            for draw_model in input.draw_models {
+                if draw_model.model_key.trim().is_empty()
+                    || !matches!(
+                        draw_model.animation_mode,
+                        crate::assets::AuthoredDrawAnimationMode::Manual
+                            | crate::assets::AuthoredDrawAnimationMode::Loop
+                            | crate::assets::AuthoredDrawAnimationMode::Once
+                            | crate::assets::AuthoredDrawAnimationMode::LoopBackwards
+                            | crate::assets::AuthoredDrawAnimationMode::OnceBackwards
+                    )
+                {
+                    continue;
+                }
+                let [animation] = draw_model.animations.as_slice() else {
+                    continue;
+                };
+                let identity = animation.name.trim();
+                if identity.is_empty() {
+                    continue;
+                }
+                // This is only an in-frame de-duplication optimization. The
+                // persistent AssetManager cache uses identity + hierarchy,
+                // never this model-key string.
+                let request_key = format!(
+                    "{}\u{0}{}",
+                    draw_model.model_key.to_ascii_lowercase(),
+                    identity.to_ascii_lowercase()
+                );
+                if seen.insert(request_key) {
+                    requests.push((draw_model.model_key, identity.to_string()));
+                }
+            }
+        }
+
+        if requests.is_empty() {
+            return;
+        }
+
+        let Some(asset_manager_arc) = crate::assets::get_asset_manager() else {
+            return;
+        };
+        let Ok(mut asset_manager) = asset_manager_arc.lock() else {
+            warn!("W3D Draw companion prewarm skipped: asset manager mutex poisoned");
+            return;
+        };
+        for (model_key, identity) in requests {
+            let _ = asset_manager.prewarm_w3d_draw_animation_binding(&model_key, &identity);
+        }
+    }
+
     pub(super) fn prewarm_startup_models(
         &mut self,
         graphics_system: &mut GraphicsSystem,

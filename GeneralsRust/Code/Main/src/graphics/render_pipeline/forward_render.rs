@@ -19,6 +19,19 @@ use game_client::effects::{get_particle_system_manager, ParticleRenderer};
 use game_client::fx_list::get_decal_manager;
 
 impl ForwardPass {
+    /// Produce the GPU palette from the exact binding frozen on the render
+    /// item. This boundary must not infer a local animation index: a missing
+    /// companion or absent Draw state is bind pose, not W3D clip zero.
+    pub(super) fn sample_bone_palette_for_item(
+        w3d_model: &crate::assets::W3DModel,
+        item: &RenderItem,
+    ) -> Option<Vec<Mat4>> {
+        let binding = item.animation_binding.as_ref()?;
+        w3d_model
+            .sample_animation_binding(binding, item.animation_frame)
+            .map(|transforms| transforms.iter().map(Mat4::from_cols_array).collect())
+    }
+
     pub(super) fn initialize(graphics_system: &GraphicsSystem) -> Result<Self> {
         // Initialize WW3D renderer - this may fail if engine is not initialized
         let clear_color = if std::env::var_os("GENERALS_DEBUG_WW3D_CLEAR_COLOR").is_some() {
@@ -806,12 +819,8 @@ impl ForwardPass {
         }
 
         if let Some(w3d_model) = graphics_system.get_model(&item.model_name) {
-            if !w3d_model.animations.is_empty() && w3d_model.hierarchy.is_some() {
-                if let Some(bone_transforms) = w3d_model.sample_animation(0, item.animation_frame) {
-                    let matrices: Vec<Mat4> =
-                        bone_transforms.iter().map(Mat4::from_cols_array).collect();
-                    mesh.set_bone_palette_slice(&matrices);
-                }
+            if let Some(matrices) = Self::sample_bone_palette_for_item(w3d_model, item) {
+                mesh.set_bone_palette_slice(&matrices);
             }
         }
 
