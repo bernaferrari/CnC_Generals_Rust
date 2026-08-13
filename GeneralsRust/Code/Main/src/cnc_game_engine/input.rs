@@ -1378,9 +1378,9 @@ impl CnCGameEngine {
         // (C++ W3DInGameUI selection circles / drag region after 3D scene setup).
         if !skip_world_scene && matches!(self.current_state, GameState::InGame | GameState::Paused)
         {
+            let size = self.window.inner_size();
             let drag_rect = if self.is_dragging {
                 self.selection_start_screen.map(|start| {
-                    let size = self.window.inner_size();
                     crate::graphics::selection_renderer::DragSelectRect {
                         start: glam::Vec2::new(start.0, start.1),
                         end: glam::Vec2::new(self.mouse_position.0, self.mouse_position.1),
@@ -1391,12 +1391,24 @@ impl CnCGameEngine {
             } else {
                 None
             };
+            // C++ InGameUI::postDraw renders this only while LookAtXlat has a
+            // live RMB scroll anchor. Main owns that gesture in AuthorityOnly,
+            // so derive the visual residual from Main input rather than the
+            // legacy GameClient singleton.
+            let rmb_scroll_anchor =
+                crate::cnc_game_engine::options_bridge::active_rmb_scroll_anchor_overlay(
+                    self.draw_rmb_scroll_anchor,
+                    self.is_rmb_scrolling,
+                    self.rmb_scroll_anchor,
+                    (size.width as f32, size.height as f32),
+                );
             let ground_markers = self.collect_ground_marker_circles();
             crate::graphics::selection_renderer::enqueue_selection_render(
                 &mut self.render_pipeline,
                 &self.view_matrix,
                 &self.projection_matrix,
                 drag_rect.filter(|r| r.is_valid()),
+                rmb_scroll_anchor,
                 self.last_presentation_frame.as_ref(),
                 ground_markers,
                 self.show_move_lines,

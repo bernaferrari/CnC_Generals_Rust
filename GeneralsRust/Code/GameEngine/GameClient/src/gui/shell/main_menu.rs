@@ -61,6 +61,7 @@ use crate::shell_hooks::{
 };
 use crate::system::SubsystemInterface;
 use game_engine::common::game_engine::get_game_engine;
+use game_engine::common::global_data as runtime_global_data;
 use game_engine::common::ini::get_global_data;
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::random_value::init_random_with_seed;
@@ -1752,9 +1753,15 @@ impl MainMenu {
             log::info!("Launching challenge menu with difficulty: {:?}", diff);
         } else {
             state.start_game = true;
+            // Shell menus retain the INI GlobalData Arc, while AuthorityOnly Main
+            // consumes NewGame from the runtime GlobalData singleton. C++ had one
+            // TheWritableGlobalData, so keep the selected campaign map coherent in
+            // both residences before the reverse animation can emit NewGame.
+            let pending_file = map_name.to_string();
             if let Some(data) = get_global_data() {
-                data.write().pending_file = map_name.to_string();
+                data.write().pending_file = pending_file.clone();
             }
+            runtime_global_data::write().pending_file = pending_file;
             Self::queue_action(state, PendingMainMenuAction::ReverseAnimateWindow);
             self.transition_set_group("FadeWholeScreen", false);
             log::info!("Starting game: {} with difficulty: {:?}", map_name, diff);
@@ -2853,6 +2860,30 @@ pub fn drive_os_wnd_open_challenge_menu_like_cpp() -> bool {
 mod tests {
     use super::*;
 
+    fn with_campaign_start_global_data_restored(f: impl FnOnce()) {
+        runtime_global_data::with_global_data_restored(|| {
+            let ini_global = game_engine::common::ini::ini_game_data::ensure_global_data();
+            let ini_snapshot = ini_global.read().clone();
+            let campaign_difficulty = get_campaign_manager().get_game_difficulty();
+            let challenge_difficulty =
+                get_challenge_generals_mut().map(|generals| generals.current_difficulty());
+
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f));
+
+            *ini_global.write() = ini_snapshot;
+            get_campaign_manager().set_game_difficulty(campaign_difficulty);
+            if let (Some(difficulty), Some(mut generals)) =
+                (challenge_difficulty, get_challenge_generals_mut())
+            {
+                generals.set_current_difficulty(difficulty);
+            }
+
+            if let Err(payload) = result {
+                std::panic::resume_unwind(payload);
+            }
+        });
+    }
+
     fn install_named_button(name: &str, x: i32, y: i32) {
         with_window_manager(|manager| {
             let button = manager.create_window(None, x, y, 80, 24).expect(name);
@@ -2872,6 +2903,50 @@ mod tests {
         state.launch_challenge_menu = false;
         state.show_side = ShowSide::None;
         state.drop_down = DropdownType::None;
+    }
+
+    #[test]
+    fn normal_campaign_start_mirrors_selected_map_to_both_global_data_residences() {
+        with_campaign_start_global_data_restored(|| {
+            let selected_map = "Maps\\Campaign\\MD_USA01.map";
+            let ini_global = game_engine::common::ini::ini_game_data::ensure_global_data();
+            ini_global.write().pending_file = "Maps\\Legacy\\Ini.map".to_string();
+            runtime_global_data::write().pending_file = "Maps\\Legacy\\Runtime.map".to_string();
+
+            let menu = MainMenu::new();
+            let mut state = MainMenuState::default();
+            menu.setup_game_start(&mut state, selected_map, GameDifficulty::Normal);
+
+            assert!(state.start_game);
+            assert_eq!(ini_global.read().pending_file, selected_map);
+            assert_eq!(runtime_global_data::read().pending_file, selected_map);
+        });
+    }
+
+    #[test]
+    fn challenge_campaign_start_defers_map_publication_and_game_start() {
+        with_campaign_start_global_data_restored(|| {
+            let selected_map = "Maps\\Campaign\\ChallengeExpected.map";
+            let ini_global = game_engine::common::ini::ini_game_data::ensure_global_data();
+            ini_global.write().pending_file = "Maps\\Legacy\\Ini.map".to_string();
+            runtime_global_data::write().pending_file = "Maps\\Legacy\\Runtime.map".to_string();
+
+            let menu = MainMenu::new();
+            let mut state = MainMenuState::default();
+            state.launch_challenge_menu = true;
+            menu.setup_game_start(&mut state, selected_map, GameDifficulty::Hard);
+
+            assert!(state.campaign_selected);
+            assert!(
+                !state.start_game,
+                "Challenge opens its selector before it can publish a map or start a match"
+            );
+            assert_eq!(ini_global.read().pending_file, "Maps\\Legacy\\Ini.map");
+            assert_eq!(
+                runtime_global_data::read().pending_file,
+                "Maps\\Legacy\\Runtime.map"
+            );
+        });
     }
 
     fn drive_os_wnd_campaign_side(side: ShowSide) {
