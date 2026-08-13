@@ -115,6 +115,27 @@ pub fn is_bomb_truck_template(template_name: &str) -> bool {
     n.contains("bombtruck")
 }
 
+/// Exact retail source identities whose `StealthUpdate` declares
+/// `DisguisesAsTeam = Yes`.
+///
+/// This deliberately is narrower than [`is_bomb_truck_template`]. The latter
+/// is a gameplay-facing Bomb Truck heuristic and also matches non-disguising
+/// assets such as `DeadBombTruckHulk`; the C++ scene-stealth rule instead
+/// reads the current template's `StealthUpdate::m_teamDisguised` capability.
+/// Normalize the authored identity so case/punctuation-only test fixtures do
+/// not create a second behavior class, but fail closed for every other name.
+pub fn has_disguises_as_team_stealth_residual(template_name: &str) -> bool {
+    matches!(
+        alnum_lower(template_name).as_str(),
+        "glavehiclebombtruck"
+            | "chemglavehiclebombtruck"
+            | "demoglavehiclebombtruck"
+            | "gcchemglavehiclebombtruck"
+            | "cineglavehiclebombtruck"
+            | "slthglavehiclebombtruck"
+    )
+}
+
 /// Whether a template is a legal disguise target residual.
 ///
 /// C++ ActionManager SPECIAL_DISGUISE_AS_VEHICLE:
@@ -335,6 +356,22 @@ mod tests {
         assert!(is_bomb_truck_template("TestBombTruck"));
         assert!(!is_bomb_truck_template("GLAVehicleQuadCannon"));
         assert!(!is_bomb_truck_template("USA_Ranger"));
+    }
+
+    #[test]
+    fn only_authored_team_disguise_templates_receive_the_scene_capability() {
+        for name in [
+            "GLAVehicleBombTruck",
+            "Chem_GLAVehicleBombTruck",
+            "Demo_GLAVehicleBombTruck",
+            "GC_Chem_GLAVehicleBombTruck",
+            "CINE_GLAVehicleBombTruck",
+            "Slth_GLAVehicleBombTruck",
+        ] {
+            assert!(has_disguises_as_team_stealth_residual(name), "{name}");
+        }
+        assert!(!has_disguises_as_team_stealth_residual("DeadBombTruckHulk"));
+        assert!(!has_disguises_as_team_stealth_residual("CustomBombTruck"));
     }
 
     #[test]

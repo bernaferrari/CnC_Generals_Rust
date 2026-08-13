@@ -680,6 +680,7 @@ mod tests {
             kind_names: Vec::new(),
             team_color: [1.0, 1.0, 1.0, 1.0],
             effectively_stealthed: false,
+            scene_hidden_by_stealth: false,
             health_current: 0.0,
             health_max: 0.0,
             selected: false,
@@ -1053,6 +1054,80 @@ mod tests {
                 .expect("same binding remains queryable")
                 .fully_obscured,
             "the accepted clear candidate establishes the source two-second grace"
+        );
+    }
+
+    #[test]
+    fn direct_scene_uses_viewer_relative_stealth_not_generic_effective_stealth() {
+        let mut client = GameClient::new().unwrap();
+        let object_id = 215;
+        let host_epoch = 8;
+        let mut entry = presentation_drawable_sync_for_test(
+            object_id,
+            host_epoch,
+            "VisualA",
+            true,
+            false,
+            [0.0, 0.0, 0.0],
+            0.0,
+        );
+        // The host has generic stealth for overlay/UI purposes, but C++
+        // `m_hiddenByStealth` is a viewer-relative look. A friendly viewer
+        // must still dispatch this Drawable (the WGPU frame supplies its
+        // translucent presentation alpha separately).
+        entry.effectively_stealthed = true;
+        entry.scene_hidden_by_stealth = false;
+        assert_eq!(
+            client.sync_presentation_drawables([entry.clone()]),
+            (1, 0, 0)
+        );
+        let binding = client
+            .presentation_direct_drawable_state(host_epoch, object_id)
+            .expect("resident direct visual gets a binding key");
+        assert!(
+            !binding.scene_effectively_hidden,
+            "generic effective stealth must not become C++ hiddenByStealth"
+        );
+        assert!(matches!(
+            client
+                .evaluate_frozen_direct_scene_shroud_candidates(
+                    10,
+                    [FrozenDirectSceneShroudCandidate {
+                        binding_key: binding.binding_key,
+                        raw_status: ObjectShroudStatus::Clear,
+                        effectively_dead: false,
+                    }],
+                )
+                .as_slice(),
+            [FrozenDirectSceneShroudDecision {
+                decision: crate::drawable::SceneShroudDecision::RenderDrawable { .. },
+                ..
+            }]
+        ));
+
+        // An undetected non-allied viewer gets C++ `StealthLook::Invisible`.
+        entry.scene_hidden_by_stealth = true;
+        assert_eq!(client.sync_presentation_drawables([entry]), (0, 1, 0));
+        assert!(
+            client
+                .presentation_direct_drawable_state(host_epoch, object_id)
+                .expect("same direct binding remains queryable")
+                .scene_effectively_hidden
+        );
+        assert_eq!(
+            client.evaluate_frozen_direct_scene_shroud_candidates(
+                11,
+                [FrozenDirectSceneShroudCandidate {
+                    binding_key: binding.binding_key,
+                    raw_status: ObjectShroudStatus::Clear,
+                    effectively_dead: false,
+                }],
+            ),
+            [FrozenDirectSceneShroudDecision {
+                binding_key: binding.binding_key,
+                decision: crate::drawable::SceneShroudDecision::HiddenDirectDrawable,
+            }],
+            "only the frozen viewer-relative look hides the direct scene candidate"
         );
     }
 

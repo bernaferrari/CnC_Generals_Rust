@@ -63,6 +63,18 @@ pub(super) fn freeze_direct_object_shroud_facts(
     PresentationDrawableShroudFacts::direct_host_object(raw_status, effectively_dead)
 }
 
+/// Freeze the source capability consumed by C++
+/// `StealthUpdate::canDisguise()`. The active host's Bomb Truck residual is
+/// the implemented source of `DisguisesAsTeam`; use the immutable
+/// ThingTemplate identity rather than mutable Object template bookkeeping or
+/// a pending/committed disguise transition.
+pub(super) fn freeze_direct_can_disguise_as_team(obj: &crate::game_logic::Object) -> bool {
+    crate::game_logic::host_bomb_truck_disguise::BOMB_TRUCK_DISGUISES_AS_TEAM
+        && crate::game_logic::host_bomb_truck_disguise::has_disguises_as_team_stealth_residual(
+            obj.thing.template.name.as_str(),
+        )
+}
+
 /// C++ visual disguise is an identity selection, not a mutation of the
 /// gameplay Object template.  Keep the source ThingTemplate name for ordinary
 /// Objects and use the committed disguise template only once the status says
@@ -497,6 +509,7 @@ impl PresentationFrame {
                 stealthed: obj.status.stealthed,
                 detected: obj.status.detected,
                 effectively_stealthed: obj.is_effectively_stealthed(),
+                can_disguise_as_team: freeze_direct_can_disguise_as_team(obj),
                 disabled: obj.is_disabled(),
                 contained_by: obj.contained_by,
                 force_attack: obj.force_attack,
@@ -1634,6 +1647,7 @@ impl PresentationFrame {
             o.fow_visibility.visibility_alpha.to_bits().hash(&mut h);
             o.fow_visibility.is_explored.to_bits().hash(&mut h);
             o.drawable_shroud.hash(&mut h);
+            o.can_disguise_as_team.hash(&mut h);
         }
         // This transient source can diverge from the GameWorld-primary object
         // roster during deferred death, so include the direct visual identity
@@ -1649,6 +1663,7 @@ impl PresentationFrame {
             drawable.object.orientation.to_bits().hash(&mut h);
             drawable.object.destroyed.hash(&mut h);
             drawable.object.drawable_shroud.hash(&mut h);
+            drawable.object.can_disguise_as_team.hash(&mut h);
         }
         self.local_supplies.hash(&mut h);
         self.match_over.hash(&mut h);

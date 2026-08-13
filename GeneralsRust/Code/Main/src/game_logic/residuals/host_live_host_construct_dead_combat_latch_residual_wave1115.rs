@@ -169,6 +169,7 @@ mod tests {
             Vec::new(),
             None,
             false,
+            false,
             0.0,
             false,
             0,

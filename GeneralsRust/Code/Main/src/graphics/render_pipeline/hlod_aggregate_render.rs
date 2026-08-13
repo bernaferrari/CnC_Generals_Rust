@@ -542,6 +542,17 @@ fn aggregate_render_item_from_parent(
             material,
             RenderPipeline::render_pass_for_material(material),
         ),
+        RenderItemOwner::PresentationProjectile(projectile_id) => {
+            RenderItem::new_presentation_projectile(
+                projectile_id,
+                source_model_cache_key.to_string(),
+                mesh_index,
+                world_position,
+                world_matrix,
+                material,
+                RenderPipeline::render_pass_for_material(material),
+            )
+        }
         RenderItemOwner::UnboundClientDrawable(drawable_id) => {
             RenderItem::new_unbound_client_drawable(
                 drawable_id,
@@ -739,6 +750,36 @@ mod tests {
         );
         assert_eq!(item.owner, parent.owner);
         assert_eq!(item.fow_visibility, parent.fow_visibility);
+    }
+
+    #[test]
+    fn aggregate_item_preserves_presentation_projectile_ownership() {
+        let projectile_id = ObjectId(91);
+        let parent = RenderItem::new_presentation_projectile(
+            projectile_id,
+            "PROJECTILE_PARENT".to_string(),
+            0,
+            Vec3::ZERO,
+            Mat4::IDENTITY,
+            &W3DMaterial::default(),
+            RenderPass::ForwardOpaque,
+        );
+
+        let aggregate = aggregate_render_item_from_parent(
+            &parent,
+            "PROJECTILE_ATTACHMENT",
+            0,
+            &W3DMaterial::default(),
+            Vec3::ZERO,
+            Mat4::IDENTITY,
+        );
+
+        assert_eq!(aggregate.object_id, projectile_id);
+        assert_eq!(
+            aggregate.owner,
+            RenderItemOwner::PresentationProjectile(projectile_id)
+        );
+        assert_eq!(aggregate.frozen_direct_scene_shroud, None);
     }
 
     #[test]

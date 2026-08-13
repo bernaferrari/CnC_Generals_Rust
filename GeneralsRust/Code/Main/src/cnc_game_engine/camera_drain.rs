@@ -1873,7 +1873,12 @@ impl CnCGameEngine {
             log::trace!("GameClient device update failed (non-fatal): {e}");
         }
         // Wave 586: presentation freeze residual when a frame is installed.
-        let visual_delta = if self.presentation_or_boot_time_frozen() {
+        // C++ `GameClient::update` freezes the per-Drawable update/shroud
+        // loop for script/tactical freezes *and* ordinary game pause. The
+        // installed presentation frame owns the former; `game_paused` is a
+        // host shell state and must remain part of this client-facing gate.
+        let presentation_time_frozen = self.presentation_or_boot_time_frozen() || self.game_paused;
+        let visual_delta = if presentation_time_frozen {
             0.0
         } else {
             game_engine::common::game_common::SECONDS_PER_LOGICFRAME_REAL
@@ -1904,6 +1909,12 @@ impl CnCGameEngine {
                     kind_names: o.kind_of.iter().map(|k| format!("{k:?}")).collect(),
                     team_color: o.team_color,
                     effectively_stealthed: o.effectively_stealthed,
+                    // C++ StealthUpdate resolves the look for this viewer:
+                    // undetected enemy stealth is invisible, while allied
+                    // stealth remains a translucent visible look. Dead
+                    // drawables are source-visible even if old status bits
+                    // still say stealthed.
+                    scene_hidden_by_stealth: pres.local_viewer_hides_stealthed(o),
                     health_current: o.health_current,
                     health_max: o.health_max,
                     selected: o.selected,
@@ -1991,9 +2002,15 @@ impl CnCGameEngine {
                             effectively_dead: *effectively_dead,
                         }
                     });
-            let _ = self
-                .game_client
-                .apply_frozen_direct_shroud_statuses(pres.frame.0, shroud_entries);
+            // C++ `GameClient::update` does not recompute bound Drawable
+            // shroud state while visual time is frozen. The view/scene phase
+            // still runs later against this retained client state, where a
+            // real eligible Clear candidate may refresh its clear frame.
+            if !presentation_time_frozen {
+                let _ = self
+                    .game_client
+                    .apply_frozen_direct_shroud_statuses(pres.frame.0, shroud_entries);
+            }
             // Pose belongs to the identical direct binding rather than a raw
             // ObjectID.  Do not filter gameplay-destroyed records here: the
             // direct source roster controls C++ Drawable residency.

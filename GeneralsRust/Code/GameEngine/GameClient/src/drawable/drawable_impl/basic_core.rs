@@ -122,6 +122,7 @@ impl BasicDrawable {
         kind_names: Vec<String>,
         indicator_color: Option<(u8, u8, u8)>,
         effectively_stealthed: bool,
+        scene_hidden_by_stealth: bool,
         health_pct: f32,
         selected: bool,
         veterancy_level: u8,
@@ -178,7 +179,10 @@ impl BasicDrawable {
         } else {
             self.set_caption_text(&caption);
         }
-        self.hidden_by_stealth = effectively_stealthed;
+        // C++ `m_hiddenByStealth` is viewer-relative. Do not derive it from
+        // generic `isEffectivelyStealthed`: friendly stealthed units use a
+        // translucent visible look and must still reach the scene path.
+        self.hidden_by_stealth = scene_hidden_by_stealth;
         if let Some(color) = indicator_color {
             self.set_indicator_color(Some(color));
         }

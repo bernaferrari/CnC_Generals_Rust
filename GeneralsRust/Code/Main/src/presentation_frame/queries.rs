@@ -248,16 +248,16 @@ impl PresentationFrame {
     pub fn unit_render_inputs(&self) -> Vec<UnitRenderInput> {
         // Wave 502: stealth mesh residual from frozen presentation only.
         // Wave 504: skip contained_by units; stamp garrisoned bits on structures.
-        // Enemy effectively-stealthed units are omitted from the main mesh pass
-        // (C++ auto-target / draw residual: not a legal observe target).
-        // Local-team stealthed units keep a translucent FOW alpha residual.
+        // C++ StealthUpdate computes a viewer-relative look. Invisible
+        // stealthed units are omitted; a visible-friendly/inactive-viewer look
+        // remains in the mesh pass with a translucent frozen alpha.
         const ALLY_STEALTH_ALPHA: f32 = 0.35;
         let mesh_allowed = |object: &RenderableObject, allow_destroyed: bool| {
             (allow_destroyed || !object.destroyed)
                 && !object.engine_bridged
                 // Wave 504: contained units are not drawn as free world meshes.
                 && object.contained_by.is_none()
-                && (!object.effectively_stealthed || self.is_allied_with_local(object))
+                && !self.local_viewer_hides_stealthed(object)
         };
         let make_input =
             |object: &RenderableObject| {
@@ -267,13 +267,20 @@ impl PresentationFrame {
                     self.world_env.is_night,
                     self.frame.0,
                 );
-                if object.effectively_stealthed && self.is_allied_with_local(object) {
+                if object.effectively_stealthed
+                    && !object.can_disguise_as_team
+                    && !object.drawable_shroud.effectively_dead
+                    && !self.local_viewer_hides_stealthed(object)
+                {
                     input.fow_visibility.visibility_alpha = input
                         .fow_visibility
                         .visibility_alpha
                         .min(ALLY_STEALTH_ALPHA);
                 }
-                // Wave 503: non-allied viewers see disguise mesh residual.
+                // Compatibility fallback for a GameWorld-only record with no
+                // resident direct Drawable identity. The normal direct-host
+                // path applies `visual_template_name` below regardless of
+                // viewer relation, matching C++ changeVisualDisguise.
                 if object.disguised && !self.is_allied_with_local(object) {
                     if let Some(ref disguise_template) = object.disguise_as_template {
                         if !disguise_template.is_empty() {
@@ -331,11 +338,30 @@ impl PresentationFrame {
                 .unwrap_or_default();
         };
 
+        // C++ StealthUpdate::changeVisualDisguise destroys/recreates the
+        // Drawable with `m_disguiseAsTemplate` before it decides only the
+        // viewer-relative indicator color. A GameWorld-primary row may still
+        // carry the original gameplay template, so make the frozen direct
+        // visual identity authoritative for every matching resident row—not
+        // merely for an absent/deferred-death fallback row.
+        let direct_visual_templates: std::collections::HashMap<ObjectId, &str> = self
+            .direct_host_drawables
+            .iter()
+            .filter(|direct| direct.resident && !direct.visual_template_name.trim().is_empty())
+            .map(|direct| (direct.object.id, direct.visual_template_name.as_str()))
+            .collect();
+
         let mut inputs: Vec<UnitRenderInput> = self
             .objects
             .iter()
             .filter(|object| mesh_allowed(object, false))
-            .map(|object| make_input(object))
+            .map(|object| {
+                let mut input = make_input(object);
+                if let Some(visual_template_name) = direct_visual_templates.get(&object.id) {
+                    apply_visual_template(&mut input, visual_template_name);
+                }
+                input
+            })
             .collect();
         let mut ordinary_input_ids: std::collections::HashSet<ObjectId> =
             inputs.iter().map(|input| input.id).collect();

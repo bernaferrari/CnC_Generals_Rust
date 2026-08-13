@@ -590,6 +590,13 @@ pub struct RenderableObject {
     pub detected: bool,
     /// Stealthed && !detected && !disguised (not a legal auto-target).
     pub effectively_stealthed: bool,
+    /// Exact active-host equivalent of C++
+    /// `StealthUpdate::canDisguise()` (`DisguisesAsTeam`). This is a frozen
+    /// source capability, not a transition-state inference: a Bomb Truck is
+    /// scene-visible before its disguise reaches the visual halfpoint even
+    /// though the host temporarily marks it STEALTHED.
+    #[serde(default)]
+    pub can_disguise_as_team: bool,
     /// Any host disable residual that blocks acting.
     pub disabled: bool,
     /// Container residual when this unit is inside another object.

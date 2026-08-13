@@ -15,6 +15,9 @@ use super::render_pipeline::RenderPass;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RenderItemOwner {
     Object(ObjectId),
+    /// Snapshot-owned projectile mesh. Projectile IDs share the gameplay
+    /// ObjectID type, but are not GameClient direct-drawable bindings.
+    PresentationProjectile(ObjectId),
     UnboundClientDrawable(u32),
 }
 
@@ -60,7 +63,8 @@ pub struct RenderItem {
     ///
     /// `INVALID_OBJECT_ID` is retained for legacy render-item consumers when
     /// `owner` is `UnboundClientDrawable`; new code must inspect `owner` when
-    /// it needs to distinguish standalone client visuals from gameplay objects.
+    /// it needs to distinguish direct gameplay objects, presentation
+    /// projectiles, and standalone client visuals.
     pub object_id: ObjectId,
 
     /// Exact ownership domain for this item.
@@ -227,6 +231,38 @@ impl RenderItem {
         );
         item.owner = RenderItemOwner::UnboundClientDrawable(drawable_id);
         item.debug_name = format!("client_drawable_{}_{}", drawable_id, item.mesh_key);
+        item
+    }
+
+    /// Construct an item from a snapshot-owned projectile mesh.
+    ///
+    /// Presentation projectiles retain their source ID for diagnostics and
+    /// normal render bookkeeping, but that ID is deliberately not an object
+    /// owner: it can collide with a direct GameClient Drawable's ObjectID and
+    /// must never receive that drawable's scene-shroud decision.
+    pub fn new_presentation_projectile(
+        projectile_id: ObjectId,
+        model_name: String,
+        mesh_index: usize,
+        world_position: Vec3,
+        world_matrix: Mat4,
+        material: &W3DMaterial,
+        render_pass: RenderPass,
+    ) -> Self {
+        let mut item = Self::new(
+            projectile_id,
+            model_name,
+            mesh_index,
+            world_position,
+            world_matrix,
+            material,
+            render_pass,
+        );
+        item.owner = RenderItemOwner::PresentationProjectile(projectile_id);
+        item.debug_name = format!(
+            "presentation_projectile_{}_{}",
+            projectile_id.0, item.mesh_key
+        );
         item
     }
 
@@ -427,6 +463,29 @@ mod tests {
         assert_eq!(item.object_id, crate::game_logic::INVALID_OBJECT_ID);
         assert_eq!(item.owner, RenderItemOwner::UnboundClientDrawable(77));
         assert!(item.debug_name.starts_with("client_drawable_77_"));
+        assert_eq!(item.fow_visibility, ObjectVisibility::default());
+        assert_eq!(item.frozen_direct_scene_shroud, None);
+    }
+
+    #[test]
+    fn presentation_projectile_keeps_its_object_id_out_of_direct_drawable_ownership() {
+        let projectile_id = ObjectId(77);
+        let item = RenderItem::new_presentation_projectile(
+            projectile_id,
+            "ProjectileMesh".to_string(),
+            0,
+            Vec3::ZERO,
+            Mat4::IDENTITY,
+            &W3DMaterial::default(),
+            RenderPass::ForwardOpaque,
+        );
+
+        assert_eq!(item.object_id, projectile_id);
+        assert_eq!(
+            item.owner,
+            RenderItemOwner::PresentationProjectile(projectile_id)
+        );
+        assert!(item.debug_name.starts_with("presentation_projectile_77_"));
         assert_eq!(item.fow_visibility, ObjectVisibility::default());
         assert_eq!(item.frozen_direct_scene_shroud, None);
     }
