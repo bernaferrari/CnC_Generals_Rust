@@ -206,6 +206,7 @@ impl GameLogic {
         );
         Self::apply_authored_parking_place_metadata(&mut template, definition);
         Self::apply_authored_deploy_style_metadata(&mut template, definition);
+        Self::apply_authored_supply_truck_metadata(&mut template, definition);
         Self::apply_authored_production_exit_metadata(&mut template, definition);
         Self::apply_authored_pilot_veterancy_metadata(&mut template, definition);
         Self::apply_authored_eject_pilot_die_metadata(&mut template, definition);
@@ -1078,8 +1079,57 @@ impl GameLogic {
         template.deploy_style_metadata = parse();
     }
 
-    /// Retain exactly one source `QueueProductionExitUpdate` or
-    /// `DefaultProductionExitUpdate` declaration.  The producer's C++ exit
+    /// Retain exact `SupplyTruckAIUpdate` data. A generic HARVESTER KindOf is
+    /// insufficient: it deliberately receives no autonomous collector state.
+    fn apply_authored_supply_truck_metadata(
+        template: &mut ThingTemplate,
+        definition: &ObjectDefinition,
+    ) {
+        use crate::game_logic::SupplyTruckMetadata;
+
+        fn unsigned(value: &str) -> Option<u32> {
+            value.trim().parse().ok()
+        }
+        fn finite(value: &str) -> Option<f32> {
+            let value = value.trim().parse::<f32>().ok()?;
+            value.is_finite().then_some(value)
+        }
+        fn duration_frames(value: &str) -> Option<u32> {
+            let milliseconds = unsigned(value)? as u64;
+            u32::try_from(milliseconds.checked_mul(30)?.checked_add(999)? / 1_000).ok()
+        }
+
+        let modules: Vec<_> = definition
+            .behavior_modules
+            .iter()
+            .filter(|module| {
+                module
+                    .class_name
+                    .eq_ignore_ascii_case("SupplyTruckAIUpdate")
+            })
+            .collect();
+        let [module] = modules.as_slice() else {
+            template.supply_truck_metadata = None;
+            return;
+        };
+        template.supply_truck_metadata = Some(SupplyTruckMetadata {
+            max_boxes: module.attribute("MaxBoxes").and_then(unsigned).unwrap_or(1),
+            warehouse_scan_distance: module
+                .attribute("SupplyWarehouseScanDistance")
+                .and_then(finite)
+                .unwrap_or(0.0),
+            warehouse_delay_frames: module
+                .attribute("SupplyWarehouseActionDelay")
+                .and_then(duration_frames)
+                .unwrap_or(0),
+            center_delay_frames: module
+                .attribute("SupplyCenterActionDelay")
+                .and_then(duration_frames)
+                .unwrap_or(0),
+        });
+    }
+
+    /// Retain exactly one source production-exit declaration.  The producer's C++ exit
     /// interface is behavior-authored, not a Barracks/WarFactory name rule;
     /// malformed or ambiguous declarations therefore expose no compact live
     /// authority rather than selecting a guessed exit style.
@@ -1163,6 +1213,9 @@ impl GameLogic {
                     || module
                         .class_name
                         .eq_ignore_ascii_case("DefaultProductionExitUpdate")
+                    || module
+                        .class_name
+                        .eq_ignore_ascii_case("SupplyCenterProductionExitUpdate")
             })
             .collect();
         let [module] = modules.as_slice() else {
@@ -1175,6 +1228,11 @@ impl GameLogic {
             .eq_ignore_ascii_case("QueueProductionExitUpdate")
         {
             ProductionExitStyle::Queue
+        } else if module
+            .class_name
+            .eq_ignore_ascii_case("SupplyCenterProductionExitUpdate")
+        {
+            ProductionExitStyle::SupplyCenter
         } else {
             ProductionExitStyle::Default
         };
@@ -1219,6 +1277,15 @@ impl GameLogic {
                         Some(value) => parse_bool(value)?,
                         None => false,
                     },
+                }),
+                ProductionExitStyle::SupplyCenter => Some(ProductionExitMetadata {
+                    style,
+                    unit_create_point,
+                    natural_rally_point,
+                    exit_delay_frames: 0,
+                    allow_airborne_creation: false,
+                    initial_burst: 0,
+                    use_spawn_rally_point: false,
                 }),
             }
         })();
@@ -2300,6 +2367,7 @@ impl GameLogic {
                     }
                 }
                 Self::apply_authored_parking_place_metadata(template, &definition);
+                Self::apply_authored_supply_truck_metadata(template, &definition);
                 // Starter templates are retained by the host before the full
                 // Object INI catalogue is seeded.  They still need the exact
                 // authored exit interface; otherwise a retail ChinaBarracks
@@ -4128,6 +4196,14 @@ Object RetailAmericaProducer
     UseSpawnRallyPoint = Yes
   End
 End
+Object RetailSupplyCenterProducer
+  Type = Structure
+  KindOf = STRUCTURE SUPPLY_CENTER
+  Behavior = SupplyCenterProductionExitUpdate ModuleTag_Exit
+    UnitCreatePoint = X:0.0 Y:0.0 Z:0.0
+    NaturalRallyPoint = X:24.0 Y:0.0 Z:0.0
+  End
+End
 Object BarracksNamedWithoutExitBehavior
   Type = Structure
   KindOf = STRUCTURE
@@ -4169,6 +4245,20 @@ End
         assert_eq!(default_exit.natural_rally_point, [53.0, -30.0, 0.0]);
         assert_eq!(default_exit.exit_delay_frames, 0);
         assert!(default_exit.use_spawn_rally_point);
+
+        let supply_center = GameLogic::build_template_from_object_definition(
+            "RetailSupplyCenterProducer",
+            parser
+                .get_definition("RetailSupplyCenterProducer")
+                .expect("SupplyCenter definition"),
+            None,
+        );
+        let supply_exit = supply_center
+            .production_exit_metadata
+            .expect("authored SupplyCenterProductionExitUpdate");
+        assert_eq!(supply_exit.style, ProductionExitStyle::SupplyCenter);
+        assert!(supply_exit.is_supply_center());
+        assert_eq!(supply_exit.natural_rally_point, [24.0, 0.0, 0.0]);
 
         let absent = GameLogic::build_template_from_object_definition(
             "BarracksNamedWithoutExitBehavior",

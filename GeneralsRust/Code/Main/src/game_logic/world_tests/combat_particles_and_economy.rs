@@ -3,6 +3,72 @@
 use super::super::*;
 use super::helpers::*;
 
+#[test]
+fn supply_center_one_shot_collector_enters_authored_wanting_route_without_passive_income() {
+    use crate::game_logic::{DockKind, ProductionExitMetadata, ProductionExitStyle};
+
+    let mut logic = GameLogic::new();
+    let mut player = Player::new(0, Team::USA, "USA", true);
+    player.resources.supplies = 500;
+    logic.add_player(player);
+
+    let mut truck = ThingTemplate::new("AmericaVehicleChinook");
+    truck.add_kind_of(KindOf::Harvester).set_health(100.0);
+    logic.templates.insert(truck.name.clone(), truck);
+
+    let mut warehouse = ThingTemplate::new("FiniteWarehouse");
+    warehouse
+        .add_kind_of(KindOf::SupplySource)
+        .set_health(100.0);
+    warehouse.dock_kind = DockKind::SupplyWarehouse;
+    warehouse.dock_starting_boxes = Some(100);
+    logic.templates.insert(warehouse.name.clone(), warehouse);
+    let source = logic
+        .create_object("FiniteWarehouse", Team::Neutral, Vec3::new(80.0, 0.0, 0.0))
+        .expect("finite supply source");
+
+    let mut center = ThingTemplate::new("AmericaSupplyCenter");
+    center
+        .add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::SupplyCenter)
+        .set_health(100.0);
+    center.production_exit_metadata = Some(ProductionExitMetadata {
+        style: ProductionExitStyle::SupplyCenter,
+        unit_create_point: [0.0, 0.0, 0.0],
+        natural_rally_point: [20.0, 0.0, 0.0],
+        exit_delay_frames: 0,
+        allow_airborne_creation: false,
+        initial_burst: 0,
+        use_spawn_rally_point: false,
+    });
+    logic.templates.insert(center.name.clone(), center);
+
+    let cash_before = logic.get_player(0).expect("player").resources.supplies;
+    let center_id = logic
+        .create_object_for_player("AmericaSupplyCenter", 0, Vec3::ZERO)
+        .expect("supply center");
+    let collector_id = logic
+        .host_objects()
+        .values()
+        .find(|object| object.producer_id == Some(center_id))
+        .map(|object| object.id)
+        .expect("one-shot collector");
+    let collector = logic.host_object(collector_id).expect("collector");
+    assert_eq!(collector.target, Some(source));
+    assert_eq!(collector.preferred_dock_id, Some(center_id));
+    assert_eq!(collector.ai_state, AIState::Gathering);
+
+    // A frame with a still-empty collector is not an economy event.  The
+    // only credit path is ReturningResources at the exact owned center.
+    logic.update();
+    assert_eq!(
+        logic.get_player(0).expect("player").resources.supplies,
+        cash_before,
+        "no fabricated base or supply-center income",
+    );
+    assert!(logic.take_supply_dropoff_events().is_empty());
+}
+
 /// Residual: AnthraxBomb (GLA SPECIAL_ANTHRAX_BOMB) queues delayed area damage
 /// and spawns residual toxin field after impact.
 /// Fail-closed: not full OCL jet cargo / PoisonField object / gamma upgrade.

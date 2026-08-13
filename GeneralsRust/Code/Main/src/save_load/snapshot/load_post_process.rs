@@ -163,6 +163,21 @@ impl Snapshot for WorldSnapshot {
             self.client_drawables = ClientDrawableWorldSnapshot::default();
         }
 
+        if self.version >= WORLD_SNAPSHOT_DIRECT_XFER_V5_TAIL_VERSION {
+            xfer.xfer_marker_label("PlayerTemplateBindings")?;
+            xfer_vec_default(
+                xfer,
+                &mut self.player_template_bindings,
+                PlayerTemplateBindingSnapshot {
+                    player_id: 0,
+                    template_name: String::new(),
+                    template_index: 0,
+                },
+            )?;
+        } else if xfer.get_mode() == XferMode::Load {
+            self.player_template_bindings.clear();
+        }
+
         Ok(())
     }
 

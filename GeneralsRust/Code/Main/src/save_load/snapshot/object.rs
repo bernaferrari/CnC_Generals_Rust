@@ -23,6 +23,22 @@ pub struct WeaponBarrelStateSnapshot {
     pub shots_left_on_barrel: u32,
 }
 
+/// Mutable economy/collector ownership state appended at schema v5.  It is a
+/// separate object tail so v1-v4 object records preserve their exact layout.
+/// `stored_supply_boxes` is the collector's carried box count, not player cash.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CollectorRuntimeSnapshot {
+    pub owner_player_id: Option<u32>,
+    pub producer_id: Option<ObjectId>,
+    pub preferred_dock_id: Option<ObjectId>,
+    pub target: Option<ObjectId>,
+    pub supply_center_spawn_behavior_fired: bool,
+    pub supply_truck_state: SupplyTruckState,
+    pub supply_truck_force_pending: bool,
+    pub supply_truck_next_dock_action_frame: u32,
+    pub stored_supply_boxes: u32,
+}
+
 pub const fn default_weapon_barrel_shots_left() -> u32 {
     // A missing v1-v3/v4-default cursor is not an authored one-shot weapon.
     // `Object::restore_weapon_barrel_runtime_for_slot` normalizes this zero to
@@ -93,6 +109,11 @@ pub struct ObjectSnapshot {
     pub last_weapon_discharge_barrel: u8,
     #[serde(default)]
     pub last_weapon_discharge_frame: u32,
+
+    /// v5 collector/ownership tail. Older saves leave this absent and retain
+    /// their historic fail-closed fresh collector state.
+    #[serde(default)]
+    pub collector_runtime: Option<CollectorRuntimeSnapshot>,
 }
 
 /// Object status snapshot
@@ -507,6 +528,70 @@ impl ObjectSnapshot {
             self.last_weapon_discharge_frame = 0;
         }
 
+        if world_version >= WORLD_SNAPSHOT_DIRECT_XFER_V5_TAIL_VERSION {
+            xfer.xfer_marker_label("CollectorRuntime")?;
+            xfer_option(
+                xfer,
+                &mut self.collector_runtime,
+                CollectorRuntimeSnapshot::default(),
+            )?;
+        } else if xfer.get_mode() == XferMode::Load {
+            self.collector_runtime = None;
+        }
+
+        Ok(())
+    }
+}
+
+impl Default for CollectorRuntimeSnapshot {
+    fn default() -> Self {
+        Self {
+            owner_player_id: None,
+            producer_id: None,
+            preferred_dock_id: None,
+            target: None,
+            supply_center_spawn_behavior_fired: false,
+            supply_truck_state: SupplyTruckState::Idle,
+            supply_truck_force_pending: false,
+            supply_truck_next_dock_action_frame: 0,
+            stored_supply_boxes: 0,
+        }
+    }
+}
+
+impl XferData for CollectorRuntimeSnapshot {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        xfer.xfer_marker_label("CollectorRuntimeSnapshot")?;
+        xfer.xfer_marker_label("OwnerPlayerId")?;
+        xfer_option(xfer, &mut self.owner_player_id, 0u32)?;
+        xfer.xfer_marker_label("ProducerId")?;
+        xfer_option(xfer, &mut self.producer_id, ObjectId(0))?;
+        xfer.xfer_marker_label("PreferredDockId")?;
+        xfer_option(xfer, &mut self.preferred_dock_id, ObjectId(0))?;
+        xfer.xfer_marker_label("Target")?;
+        xfer_option(xfer, &mut self.target, ObjectId(0))?;
+        xfer.xfer_marker_label("SupplyCenterSpawnBehaviorFired")?;
+        xfer.xfer_bool(&mut self.supply_center_spawn_behavior_fired)?;
+        xfer.xfer_marker_label("SupplyTruckState")?;
+        let mut state = self.supply_truck_state as u8;
+        xfer.xfer_u8(&mut state)?;
+        self.supply_truck_state = match state {
+            0 => SupplyTruckState::Idle,
+            1 => SupplyTruckState::Wanting,
+            2 => SupplyTruckState::DockingWarehouse,
+            3 => SupplyTruckState::DockingCenter,
+            other => {
+                return Err(SaveLoadError::Corrupted(format!(
+                    "Invalid SupplyTruckState value in snapshot: {other}"
+                )))
+            }
+        };
+        xfer.xfer_marker_label("SupplyTruckForcePending")?;
+        xfer.xfer_bool(&mut self.supply_truck_force_pending)?;
+        xfer.xfer_marker_label("SupplyTruckNextDockActionFrame")?;
+        xfer.xfer_u32(&mut self.supply_truck_next_dock_action_frame)?;
+        xfer.xfer_marker_label("StoredSupplyBoxes")?;
+        xfer.xfer_u32(&mut self.stored_supply_boxes)?;
         Ok(())
     }
 }

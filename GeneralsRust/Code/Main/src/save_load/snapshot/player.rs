@@ -29,6 +29,16 @@ pub struct PlayerSnapshot {
     pub statistics: PlayerStatisticsSnapshot,
 }
 
+/// Stable, exact identity of an offline player selection. `template_index` is
+/// signed because the C++ PlayerTemplate store is indexed by an `int`.
+/// Restoration must validate the name/index pair and never resolve Random.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PlayerTemplateBindingSnapshot {
+    pub player_id: u32,
+    pub template_name: String,
+    pub template_index: i32,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PopulationInfo {
     pub current: u32,
@@ -106,6 +116,19 @@ impl XferData for PlayerSnapshot {
         xfer.xfer_marker_label("Statistics")?;
         self.statistics.xfer(xfer)?;
 
+        Ok(())
+    }
+}
+
+impl XferData for PlayerTemplateBindingSnapshot {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        xfer.xfer_marker_label("PlayerTemplateBindingSnapshot")?;
+        xfer.xfer_marker_label("PlayerId")?;
+        xfer.xfer_u32(&mut self.player_id)?;
+        xfer.xfer_marker_label("TemplateName")?;
+        self.template_name.xfer(xfer)?;
+        xfer.xfer_marker_label("TemplateIndex")?;
+        xfer.xfer_i32(&mut self.template_index)?;
         Ok(())
     }
 }

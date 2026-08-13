@@ -1160,6 +1160,13 @@ impl GameLogic {
                 let doubled = natural + forward.normalize_or_zero() * 5.0;
                 let _ = self.append_unit_waypoint(new_id, doubled);
             }
+            // SupplyCenterProductionExitUpdate performs the ordinary exit
+            // route first, then forces only SupplyTruckAI-capable outputs into
+            // their Wanting state.  This shared completion path covers both
+            // paid ProductionUpdate output and the one-shot SpawnBehavior.
+            if producer_exit_metadata.is_some_and(|exit| exit.is_supply_center()) {
+                let _ = self.force_supply_center_collector_wanting(new_id, producer_id);
+            }
             n = n.saturating_add(1);
         }
         n

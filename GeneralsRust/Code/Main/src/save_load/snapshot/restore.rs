@@ -136,6 +136,19 @@ impl SnapshotBuilder {
         object.occupants = snapshot.contained_objects.clone();
         object.hacker_disable_channel = snapshot.hacker_disable_channel;
 
+        if let Some(runtime) = &snapshot.collector_runtime {
+            object.owner_player_id = runtime.owner_player_id;
+            object.producer_id = runtime.producer_id;
+            object.preferred_dock_id = runtime.preferred_dock_id;
+            object.set_target(runtime.target);
+            object.supply_center_spawn_behavior_fired = runtime.supply_center_spawn_behavior_fired;
+            object.supply_truck_state = runtime.supply_truck_state;
+            object.supply_truck_force_pending = runtime.supply_truck_force_pending;
+            object.supply_truck_next_dock_action_frame =
+                runtime.supply_truck_next_dock_action_frame;
+            object.stored_resources.supplies = runtime.stored_supply_boxes;
+        }
+
         self.restore_object_type_data(&snapshot.object_type, &mut object)?;
         self.restore_object_modules(&snapshot.modules, &mut object, game_logic)?;
 

@@ -585,7 +585,8 @@ impl SaveFileManager {
             BincodeWorldSnapshotDecodePath::Current => {}
             BincodeWorldSnapshotDecodePath::LegacyProductionV1
             | BincodeWorldSnapshotDecodePath::LegacyPreHackerDisableV2
-            | BincodeWorldSnapshotDecodePath::LegacyPreV4V3 => {
+            | BincodeWorldSnapshotDecodePath::LegacyPreV4V3
+            | BincodeWorldSnapshotDecodePath::LegacyPreV5V4 => {
                 log::info!(
                     "Migrated legacy bincode WorldSnapshot ({path:?}) into schema v{}",
                     WORLD_SNAPSHOT_BINCODE_VERSION
@@ -1207,7 +1208,7 @@ mod tests {
             136
         );
 
-        // A re-save is tagged v4 and uses the current record directly. Its
+        // A re-save is tagged v5 and uses the current record directly. Its
         // HDB channel must survive independently of older production layouts.
         migrated
             .objects
@@ -1244,6 +1245,16 @@ mod tests {
                 last_seen_weapon_discharge_sequence: 88,
                 recoil_slots: std::array::from_fn(|_| Vec::new()),
             });
+        let v4_payload =
+            serialize_pre_v5_v4_fixture(migrated).expect("serialize exact predecessor v4 fixture");
+        assert!(
+            bincode::deserialize::<WorldSnapshot>(&v4_payload).is_err(),
+            "the current v5 record must not consume a v4 positional payload"
+        );
+        let (mut migrated, v4_path) = decode_bincode_world_snapshot(&v4_payload)
+            .expect("pre-v5 v4 payload should migrate through its exact mirror");
+        assert_eq!(v4_path, BincodeWorldSnapshotDecodePath::LegacyPreV5V4);
+        assert!(migrated.player_template_bindings.is_empty());
         let current_payload = bincode::serialize(&migrated).expect("serialize current snapshot");
         let (current_round_trip, current_path) = decode_bincode_world_snapshot(&current_payload)
             .expect("current production snapshot should remain readable");

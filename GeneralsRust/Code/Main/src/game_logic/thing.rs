@@ -413,7 +413,28 @@ impl Default for DeployStyleMetadata {
     }
 }
 
-/// The two production-exit interfaces carried by the bounded live producer
+/// Authored `SupplyTruckAIUpdate` timing and capacity data. This remains
+/// absent for ordinary Harvesters: C++ exposes the collector state machine
+/// only when the unit owns that exact update module.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct SupplyTruckMetadata {
+    pub max_boxes: u32,
+    pub warehouse_scan_distance: f32,
+    pub warehouse_delay_frames: u32,
+    pub center_delay_frames: u32,
+}
+
+/// Compact runtime mirror of the C++ supply-truck Wanting/dock state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum SupplyTruckState {
+    #[default]
+    Idle,
+    Wanting,
+    DockingWarehouse,
+    DockingCenter,
+}
+
+/// The production-exit interfaces carried by the bounded live producer
 /// path.  This is deliberately not inferred from a building kind or basename:
 /// C++ `Object::getObjectExitInterface` exposes an interface only when an
 /// Object INI behavior authors one.
@@ -425,6 +446,9 @@ pub enum ProductionExitStyle {
     /// `DefaultProductionExitUpdate`: every completed batch member can use
     /// `DOOR_1` in the same ProductionUpdate.
     Default,
+    /// `SupplyCenterProductionExitUpdate`: exits through the authored path,
+    /// then hands an eligible supply truck to its ForceWanting autopilot.
+    SupplyCenter,
 }
 
 /// Exact immutable module data from either one
@@ -467,6 +491,11 @@ impl ProductionExitMetadata {
     #[inline]
     pub const fn is_default(self) -> bool {
         matches!(self.style, ProductionExitStyle::Default)
+    }
+
+    #[inline]
+    pub const fn is_supply_center(self) -> bool {
+        matches!(self.style, ProductionExitStyle::SupplyCenter)
     }
 
     /// `getNaturalRallyPoint(offset = TRUE)` adds two pathfinding cells along
@@ -983,6 +1012,9 @@ pub struct ThingTemplate {
     /// warehouse dock; ordinary resource objects retain their own lifecycle.
     #[serde(default)]
     pub dock_delete_when_empty: bool,
+    /// Exact `SupplyTruckAIUpdate` module data, when authored.
+    #[serde(default)]
+    pub supply_truck_metadata: Option<SupplyTruckMetadata>,
     /// `RailedTransportContain::Slots`, when that exact contain module is
     /// present.  A railed dock with no contain module never gains synthetic
     /// transport capacity.
@@ -1185,6 +1217,7 @@ impl ThingTemplate {
             dock_kind: DockKind::None,
             dock_starting_boxes: None,
             dock_delete_when_empty: false,
+            supply_truck_metadata: None,
             railed_transport_slots: None,
             contain_module: ContainModuleMetadata::default(),
             parking_place: None,

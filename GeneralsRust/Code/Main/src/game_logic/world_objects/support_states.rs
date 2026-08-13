@@ -3304,8 +3304,7 @@ impl GameLogic {
                 }
                 AIState::Gathering => {
                     // Accumulate resources when close to the supply source.
-                    const GATHER_RATE: f32 = 100.0;
-                    const MAX_CARRY: u32 = 1000;
+                    const SUPPLY_BOX_VALUE: u32 = 100;
 
                     let Some(source_id) = target_id else {
                         self.set_ai_state_decision_aware(object_id, AIState::Idle);
@@ -3355,12 +3354,47 @@ impl GameLogic {
                         continue;
                     }
 
+                    // C++ AIDock waits for the authored warehouse action
+                    // delay, then SupplyWarehouseDockUpdate transfers one
+                    // box. Only an authored SupplyTruckAIUpdate uses this
+                    // path; the older generic harvest command remains intact.
+                    let collector_metadata = self
+                        .objects
+                        .get(&object_id)
+                        .and_then(|object| object.thing.template.supply_truck_metadata);
+                    if let Some(metadata) = collector_metadata {
+                        let (state, next_frame) = self
+                            .objects
+                            .get(&object_id)
+                            .map(|object| {
+                                (
+                                    object.supply_truck_state,
+                                    object.supply_truck_next_dock_action_frame,
+                                )
+                            })
+                            .unwrap_or((SupplyTruckState::Idle, 0));
+                        if state != SupplyTruckState::DockingWarehouse {
+                            if let Some(object) = self.objects.get_mut(&object_id) {
+                                object.supply_truck_force_pending = false;
+                                object.supply_truck_state = SupplyTruckState::DockingWarehouse;
+                                object.supply_truck_next_dock_action_frame =
+                                    self.frame.saturating_add(metadata.warehouse_delay_frames);
+                            }
+                            continue;
+                        }
+                        if self.frame < next_frame {
+                            continue;
+                        }
+                    }
+
                     // In range — gather resources.  The host tracks cash
                     // value rather than C++ individual boxes, but a warehouse
                     // still cannot grant more than its authored stock.  This
                     // avoids turning an empty `SupplyWarehouseDockUpdate`
                     // into an infinite source.
-                    let gather_amount = (GATHER_RATE * dt) as u32;
+                    let gather_amount = collector_metadata
+                        .map(|_| SUPPLY_BOX_VALUE)
+                        .unwrap_or_else(|| (100.0 * dt) as u32);
                     // Keep the legacy generic-resource path intact.  The
                     // precise stock gate is required specifically for the
                     // newly-authored SupplyWarehouseDockUpdate target.
@@ -3378,21 +3412,28 @@ impl GameLogic {
                         self.set_ai_state_decision_aware(object_id, AIState::Idle);
                         continue;
                     }
+                    let max_carry = collector_metadata
+                        .map(|metadata| metadata.max_boxes.saturating_mul(SUPPLY_BOX_VALUE))
+                        .unwrap_or(1000);
                     let is_full = self
                         .objects
                         .get(&object_id)
                         .map(|o| o.stored_resources.supplies)
                         .unwrap_or(0)
                         + taken
-                        >= MAX_CARRY;
+                        >= max_carry;
 
                     if let Some(obj) = self.objects.get_mut(&object_id) {
                         obj.set_stored_supplies(
                             obj.stored_resources
                                 .supplies
                                 .saturating_add(taken)
-                                .min(MAX_CARRY),
+                                .min(max_carry),
                         );
+                        if let Some(metadata) = collector_metadata {
+                            obj.supply_truck_next_dock_action_frame =
+                                self.frame.saturating_add(metadata.warehouse_delay_frames);
+                        }
                     }
 
                     // Deplete the supply source.
@@ -3413,7 +3454,12 @@ impl GameLogic {
                         // over ResourceManager's nearest-center search when
                         // AI assigned this collector to a specific depot.
                         let refinery_dest = self
-                            .preferred_supply_center_or_nearest(object_id, team, position)
+                            .preferred_supply_center_or_nearest(
+                                object_id,
+                                team,
+                                owner_player_id,
+                                position,
+                            )
                             .and_then(|rid| self.objects.get(&rid).map(|r| r.get_position()));
                         if let Some(dest) = refinery_dest {
                             self.path_approach_with_state(
@@ -3427,7 +3473,12 @@ impl GameLogic {
                 AIState::ReturningResources => {
                     // Deposit resources when close to a supply center.
                     let (refinery_id, refinery_pos) = self
-                        .preferred_supply_center_or_nearest(object_id, team, position)
+                        .preferred_supply_center_or_nearest(
+                            object_id,
+                            team,
+                            owner_player_id,
+                            position,
+                        )
                         .and_then(|rid| {
                             self.objects
                                 .get(&rid)
@@ -3439,6 +3490,33 @@ impl GameLogic {
                         refinery_id.is_some() && position.distance(refinery_pos) <= INTERACT_RANGE;
 
                     if at_refinery {
+                        let collector_metadata = self
+                            .objects
+                            .get(&object_id)
+                            .and_then(|object| object.thing.template.supply_truck_metadata);
+                        if let Some(metadata) = collector_metadata {
+                            let (state, next_frame) = self
+                                .objects
+                                .get(&object_id)
+                                .map(|object| {
+                                    (
+                                        object.supply_truck_state,
+                                        object.supply_truck_next_dock_action_frame,
+                                    )
+                                })
+                                .unwrap_or((SupplyTruckState::Idle, 0));
+                            if state != SupplyTruckState::DockingCenter {
+                                if let Some(object) = self.objects.get_mut(&object_id) {
+                                    object.supply_truck_state = SupplyTruckState::DockingCenter;
+                                    object.supply_truck_next_dock_action_frame =
+                                        self.frame.saturating_add(metadata.center_delay_frames);
+                                }
+                                continue;
+                            }
+                            if self.frame < next_frame {
+                                continue;
+                            }
+                        }
                         // Deposit.
                         // C++ SupplyCenterDockUpdate::action: base box value +
                         // supplyTruckAI->getUpgradedSupplyBoost() when player has
@@ -3504,9 +3582,17 @@ impl GameLogic {
                             // credit so the typed event below is tied to this
                             // real ReturningResources deposit, not a later
                             // resource-total observation or passive income.
-                            let credited_player_id =
-                                self.players.iter().find_map(|(&player_id, player)| {
-                                    (player.team == team).then_some(player_id)
+                            let credited_player_id = self
+                                .objects
+                                .get(&object_id)
+                                .and_then(|collector| self.player_owner_for_host_object(collector))
+                                .filter(|&player_id| {
+                                    self.objects
+                                        .get(&refinery_id.expect("checked above"))
+                                        .is_some_and(|center| {
+                                            self.player_owner_for_host_object(center)
+                                                == Some(player_id)
+                                        })
                                 });
                             if let Some(player_id) = credited_player_id {
                                 let credited_player =
@@ -3543,6 +3629,10 @@ impl GameLogic {
                                     .map(|s| s.get_position())
                             });
                             if let Some(dest) = source_dest {
+                                if let Some(object) = self.objects.get_mut(&object_id) {
+                                    object.supply_truck_state = SupplyTruckState::Wanting;
+                                    object.supply_truck_next_dock_action_frame = 0;
+                                }
                                 self.path_approach_with_state(object_id, dest, AIState::Gathering);
                             } else if let Some(next) =
                                 self.find_nearest_harvestable_supply(team, position)
