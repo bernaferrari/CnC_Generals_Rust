@@ -44,6 +44,7 @@ pub mod batching;
 // Advanced rendering features (matching C++ visual fidelity)
 pub mod debug_render_modes;
 pub mod post_process;
+pub mod projected_shroud;
 pub mod reflection_system;
 pub mod render_target;
 

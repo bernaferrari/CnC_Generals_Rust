@@ -82,16 +82,17 @@ pub(crate) fn decode_bincode_world_snapshot(
     }
 }
 
-/// Complete v4 world record before exact offline PlayerTemplate bindings were
-/// appended as the v5 tail. It must stay a separate positional mirror: serde
-/// defaults cannot safely decode an omitted bincode struct field.
+/// Complete v4 world record before exact offline PlayerTemplate bindings and
+/// the v5 collector runtime tail were appended. It must stay a separate
+/// positional mirror: serde defaults cannot safely decode an omitted bincode
+/// struct field.
 #[derive(Debug, Deserialize, Serialize)]
 struct PreV5WorldSnapshot {
     version: u32,
     timestamp: SystemTime,
     frame_number: u64,
     random_seed: u64,
-    objects: HashMap<ObjectId, ObjectSnapshot>,
+    objects: HashMap<ObjectId, PreV5ObjectSnapshot>,
     players: Vec<PlayerSnapshot>,
     teams: Vec<TeamSnapshot>,
     terrain: TerrainSnapshot,
@@ -107,6 +108,35 @@ struct PreV5WorldSnapshot {
     host_upgrades: HostUpgradeRegistrySnapshot,
     next_weapon_discharge_sequence: u64,
     client_drawables: ClientDrawableWorldSnapshot,
+}
+
+/// Exact v4 `ObjectSnapshot` positional record. Version 4 already carried the
+/// hacker-disable, weapon-barrel, and accepted-discharge tails, but predates
+/// the v5 collector runtime tail. Reusing the live `ObjectSnapshot` here would
+/// make the decoder consume the first byte of the next object/world field as
+/// `collector_runtime` and reject or misalign real v4 saves.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+struct PreV5ObjectSnapshot {
+    id: ObjectId,
+    template_name: String,
+    team: Team,
+    player_id: u32,
+    geometry: GeometryInfo,
+    status: ObjectStatusSnapshot,
+    health: Health,
+    movement: Movement,
+    experience: Experience,
+    weapons: Vec<Weapon>,
+    contained_objects: Vec<ObjectId>,
+    container_object: Option<ObjectId>,
+    modules: HashMap<String, ModuleSnapshot>,
+    object_type: ObjectTypeSnapshot,
+    hacker_disable_channel: Option<HackerDisableChannelState>,
+    weapon_barrel_states: [WeaponBarrelStateSnapshot; 3],
+    last_weapon_discharge_sequence: u64,
+    last_weapon_discharge_slot: u8,
+    last_weapon_discharge_barrel: u8,
+    last_weapon_discharge_frame: u32,
 }
 
 fn bincode_prefix<T: DeserializeOwned>(payload: &[u8]) -> bincode::Result<T> {
@@ -521,7 +551,11 @@ impl From<PreV5WorldSnapshot> for WorldSnapshot {
             timestamp: snapshot.timestamp,
             frame_number: snapshot.frame_number,
             random_seed: snapshot.random_seed,
-            objects: snapshot.objects,
+            objects: snapshot
+                .objects
+                .into_iter()
+                .map(|(id, object)| (id, object.into()))
+                .collect(),
             players: snapshot.players,
             teams: snapshot.teams,
             terrain: snapshot.terrain,
@@ -538,6 +572,34 @@ impl From<PreV5WorldSnapshot> for WorldSnapshot {
             next_weapon_discharge_sequence: snapshot.next_weapon_discharge_sequence,
             client_drawables: snapshot.client_drawables,
             player_template_bindings: Vec::new(),
+        }
+    }
+}
+
+impl From<PreV5ObjectSnapshot> for ObjectSnapshot {
+    fn from(snapshot: PreV5ObjectSnapshot) -> Self {
+        Self {
+            id: snapshot.id,
+            template_name: snapshot.template_name,
+            team: snapshot.team,
+            player_id: snapshot.player_id,
+            geometry: snapshot.geometry,
+            status: snapshot.status,
+            health: snapshot.health,
+            movement: snapshot.movement,
+            experience: snapshot.experience,
+            weapons: snapshot.weapons,
+            contained_objects: snapshot.contained_objects,
+            container_object: snapshot.container_object,
+            modules: snapshot.modules,
+            object_type: snapshot.object_type,
+            hacker_disable_channel: snapshot.hacker_disable_channel,
+            weapon_barrel_states: snapshot.weapon_barrel_states,
+            last_weapon_discharge_sequence: snapshot.last_weapon_discharge_sequence,
+            last_weapon_discharge_slot: snapshot.last_weapon_discharge_slot,
+            last_weapon_discharge_barrel: snapshot.last_weapon_discharge_barrel,
+            last_weapon_discharge_frame: snapshot.last_weapon_discharge_frame,
+            collector_runtime: None,
         }
     }
 }
@@ -766,7 +828,11 @@ impl From<WorldSnapshot> for PreV5WorldSnapshot {
             timestamp: snapshot.timestamp,
             frame_number: snapshot.frame_number,
             random_seed: snapshot.random_seed,
-            objects: snapshot.objects,
+            objects: snapshot
+                .objects
+                .into_iter()
+                .map(|(id, object)| (id, object.into()))
+                .collect(),
             players: snapshot.players,
             teams: snapshot.teams,
             terrain: snapshot.terrain,
@@ -782,6 +848,34 @@ impl From<WorldSnapshot> for PreV5WorldSnapshot {
             host_upgrades: snapshot.host_upgrades,
             next_weapon_discharge_sequence: snapshot.next_weapon_discharge_sequence,
             client_drawables: snapshot.client_drawables,
+        }
+    }
+}
+
+#[cfg(test)]
+impl From<ObjectSnapshot> for PreV5ObjectSnapshot {
+    fn from(snapshot: ObjectSnapshot) -> Self {
+        Self {
+            id: snapshot.id,
+            template_name: snapshot.template_name,
+            team: snapshot.team,
+            player_id: snapshot.player_id,
+            geometry: snapshot.geometry,
+            status: snapshot.status,
+            health: snapshot.health,
+            movement: snapshot.movement,
+            experience: snapshot.experience,
+            weapons: snapshot.weapons,
+            contained_objects: snapshot.contained_objects,
+            container_object: snapshot.container_object,
+            modules: snapshot.modules,
+            object_type: snapshot.object_type,
+            hacker_disable_channel: snapshot.hacker_disable_channel,
+            weapon_barrel_states: snapshot.weapon_barrel_states,
+            last_weapon_discharge_sequence: snapshot.last_weapon_discharge_sequence,
+            last_weapon_discharge_slot: snapshot.last_weapon_discharge_slot,
+            last_weapon_discharge_barrel: snapshot.last_weapon_discharge_barrel,
+            last_weapon_discharge_frame: snapshot.last_weapon_discharge_frame,
         }
     }
 }
