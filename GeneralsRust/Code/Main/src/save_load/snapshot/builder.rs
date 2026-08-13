@@ -63,6 +63,7 @@ impl SnapshotBuilder {
             // this default. CnCGameEngine captures the renderer-owned DTO and
             // attaches it through the explicit companion-aware save API.
             client_drawables: ClientDrawableWorldSnapshot::default(),
+            player_template_bindings: self.snapshot_player_template_bindings(game_logic)?,
         };
 
         log::info!(
@@ -91,6 +92,7 @@ impl SnapshotBuilder {
 
         // C++ parity order: players/teams before objects, then world systems.
         self.restore_all_players(&snapshot.players, game_logic)?;
+        self.restore_player_template_bindings(snapshot, game_logic)?;
         self.restore_all_teams(&snapshot.teams, game_logic)?;
         self.restore_all_objects(&snapshot.objects, game_logic)?;
         self.restore_terrain(&snapshot.terrain, game_logic)?;
@@ -203,6 +205,17 @@ impl SnapshotBuilder {
             last_weapon_discharge_slot: weapon_discharge_marker.weapon_slot,
             last_weapon_discharge_barrel: weapon_discharge_marker.fired_barrel,
             last_weapon_discharge_frame: weapon_discharge_marker.logic_frame,
+            collector_runtime: Some(CollectorRuntimeSnapshot {
+                owner_player_id: object.owner_player_id,
+                producer_id: object.producer_id,
+                preferred_dock_id: object.preferred_dock_id,
+                target: object.target,
+                supply_center_spawn_behavior_fired: object.supply_center_spawn_behavior_fired,
+                supply_truck_state: object.supply_truck_state,
+                supply_truck_force_pending: object.supply_truck_force_pending,
+                supply_truck_next_dock_action_frame: object.supply_truck_next_dock_action_frame,
+                stored_supply_boxes: object.stored_resources.supplies,
+            }),
         })
     }
 
@@ -456,6 +469,111 @@ impl SnapshotBuilder {
             unlocked_upgrades,
             research_progress,
         })
+    }
+
+    /// Capture canonical, indexed identities as a world tail instead of
+    /// changing the historical positional `PlayerSnapshot` layout.  A stored
+    /// name without its exact Common-store index would allow a reordered data
+    /// set to load a plausible but incorrect General.
+    fn snapshot_player_template_bindings(
+        &self,
+        game_logic: &GameLogic,
+    ) -> SaveLoadResult<Vec<PlayerTemplateBindingSnapshot>> {
+        let mut bindings = Vec::new();
+        for (player_id, identity) in game_logic.player_template_identities_for_snapshot() {
+            let template = identity.resolve().ok_or_else(|| {
+                SaveLoadError::Corrupted(format!(
+                    "Player {} has an invalid PlayerTemplate identity while saving",
+                    player_id
+                ))
+            })?;
+            game_engine::common::ini::ensure_player_templates_loaded();
+            let store = game_engine::common::rts::player_template::get_player_template_store();
+            let template_index = identity.template_index.or_else(|| {
+                store
+                    .find_template_index(template.get_name())
+                    .map(|index| index as i32)
+            });
+            let Some(template_index) = template_index else {
+                return Err(SaveLoadError::Corrupted(format!(
+                    "Player {} PlayerTemplate '{}' has no store index while saving",
+                    player_id,
+                    template.get_name()
+                )));
+            };
+            let indexed = store.get_nth_player_template_signed(template_index);
+            if indexed.map(|candidate| candidate.get_name()) != Some(template.get_name()) {
+                return Err(SaveLoadError::Corrupted(format!(
+                    "Player {} PlayerTemplate '{}' no longer matches store index {} while saving",
+                    player_id,
+                    template.get_name(),
+                    template_index
+                )));
+            }
+            bindings.push(PlayerTemplateBindingSnapshot {
+                player_id,
+                template_name: template.get_name().to_string(),
+                template_index,
+            });
+        }
+        bindings.sort_by_key(|binding| binding.player_id);
+        Ok(bindings)
+    }
+
+    /// Validate every v5 identity before installing any of them.  This keeps
+    /// malformed or stale snapshot data from leaving a half-bound session.
+    fn restore_player_template_bindings(
+        &self,
+        snapshot: &WorldSnapshot,
+        game_logic: &mut GameLogic,
+    ) -> SaveLoadResult<()> {
+        if snapshot.version < WORLD_SNAPSHOT_BINCODE_VERSION {
+            return Ok(());
+        }
+
+        let mut identities = Vec::with_capacity(snapshot.player_template_bindings.len());
+        let mut seen_players = HashSet::new();
+        for binding in &snapshot.player_template_bindings {
+            if !seen_players.insert(binding.player_id) {
+                return Err(SaveLoadError::Corrupted(format!(
+                    "Duplicate PlayerTemplate binding for player {}",
+                    binding.player_id
+                )));
+            }
+            let identity = PlayerTemplateIdentity::from_exact_indexed_name(
+                &binding.template_name,
+                binding.template_index,
+            )
+            .ok_or_else(|| {
+                SaveLoadError::Corrupted(format!(
+                    "Player {} has stale PlayerTemplate name/index ('{}', {})",
+                    binding.player_id, binding.template_name, binding.template_index
+                ))
+            })?;
+            let Some(player) = game_logic.get_player(binding.player_id) else {
+                return Err(SaveLoadError::Corrupted(format!(
+                    "PlayerTemplate binding references missing player {}",
+                    binding.player_id
+                )));
+            };
+            if identity.base_team() != Some(player.team) {
+                return Err(SaveLoadError::Corrupted(format!(
+                    "PlayerTemplate binding for player {} does not match restored team",
+                    binding.player_id
+                )));
+            }
+            identities.push((binding.player_id, identity));
+        }
+
+        for (player_id, identity) in identities {
+            if !game_logic.install_restored_player_template_identity(player_id, identity) {
+                return Err(SaveLoadError::Corrupted(format!(
+                    "Could not install PlayerTemplate binding for player {}",
+                    player_id
+                )));
+            }
+        }
+        Ok(())
     }
 
     fn snapshot_population_used(&self, game_logic: &GameLogic, team: Team) -> u32 {

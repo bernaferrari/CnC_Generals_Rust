@@ -377,6 +377,16 @@ pub struct Object {
     /// again merely because no live child remains.
     #[serde(default)]
     pub supply_center_spawn_behavior_fired: bool,
+    /// C++ `SupplyTruckAIUpdate::m_stateMachine` compact state.
+    #[serde(default)]
+    pub supply_truck_state: SupplyTruckState,
+    /// C++ `m_forceWantingState`; consumed exactly once after the authored
+    /// SupplyCenter exit completes.
+    #[serde(default)]
+    pub supply_truck_force_pending: bool,
+    /// Earliest frame at which the current warehouse/center dock may act.
+    #[serde(default)]
+    pub supply_truck_next_dock_action_frame: u32,
     /// C++ HighlanderBody residual (cannot die from normal damage).
     pub highlander_body: bool,
     /// C++ UpgradeDie residual (free producer upgrade on death).

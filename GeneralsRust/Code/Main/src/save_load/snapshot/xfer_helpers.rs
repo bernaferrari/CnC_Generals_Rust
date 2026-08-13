@@ -193,6 +193,7 @@ pub(super) fn default_object_snapshot() -> ObjectSnapshot {
         last_weapon_discharge_slot: 0,
         last_weapon_discharge_barrel: 0,
         last_weapon_discharge_frame: 0,
+        collector_runtime: None,
     }
 }
 

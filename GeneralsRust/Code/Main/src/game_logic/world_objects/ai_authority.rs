@@ -280,9 +280,16 @@ impl GameLogic {
             AIState::ReturningResources => {
                 // Worker heading back to supply center to deposit resources.
                 // The actual deposit happens in the update loop when close enough.
-                if let Some(refinery_id) =
-                    self.preferred_supply_center_or_nearest(object_id, team, position)
-                {
+                let owner_player_id = self
+                    .objects
+                    .get(&object_id)
+                    .and_then(|object| self.player_owner_for_host_object(object));
+                if let Some(refinery_id) = self.preferred_supply_center_or_nearest(
+                    object_id,
+                    team,
+                    owner_player_id,
+                    position,
+                ) {
                     if let Some(refinery) = self.objects.get(&refinery_id) {
                         let dist_to_refinery = position.distance(refinery.get_position());
                         if dist_to_refinery > 20.0 {

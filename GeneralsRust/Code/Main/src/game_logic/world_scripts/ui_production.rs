@@ -24,26 +24,15 @@ impl GameLogic {
                         p.team,
                         &self.objects,
                     );
-                let supply_centers = self
-                    .objects
-                    .values()
-                    .filter(|obj| {
-                        obj.team == p.team
-                            && obj.is_constructed()
-                            && obj.is_alive()
-                            && obj.is_kind_of(KindOf::SupplyCenter)
-                    })
-                    .count();
-                let income = 5.0 + supply_centers as f32 * 25.0;
                 (
                     p.resources.supplies as i32,
                     produced,
                     consumed,
                     produced,
-                    income,
+                    0.0,
                 )
             } else {
-                (10000, 100, 60, 100, 5.0)
+                (10000, 100, 60, 100, 0.0)
             };
 
         // Get selected units

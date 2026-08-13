@@ -100,6 +100,7 @@ impl GameLogic {
     pub(in super::super) fn find_nearest_supply_center(
         &self,
         team: Team,
+        owner_player_id: Option<u32>,
         from_position: Vec3,
     ) -> Option<ObjectId> {
         // Pure residual acquire: nearest friendly constructed SupplyCenter (3D).
@@ -110,6 +111,7 @@ impl GameLogic {
                 if obj.team != team
                     || !obj.is_alive()
                     || !obj.is_constructed()
+                    || self.player_owner_for_host_object(obj) != owner_player_id
                     || (obj.thing.template.dock_kind != crate::game_logic::DockKind::SupplyCenter
                         && !obj.is_kind_of(KindOf::SupplyCenter))
                 {
@@ -151,6 +153,7 @@ impl GameLogic {
         &self,
         collector_id: ObjectId,
         team: Team,
+        owner_player_id: Option<u32>,
         from_position: Vec3,
     ) -> Option<ObjectId> {
         let preferred = self
@@ -160,6 +163,7 @@ impl GameLogic {
         if let Some(center_id) = preferred {
             let valid_preferred_center = self.objects.get(&center_id).is_some_and(|center| {
                 center.team == team
+                    && self.player_owner_for_host_object(center) == owner_player_id
                     && center.is_alive()
                     && center.is_constructed()
                     && (center.thing.template.dock_kind
@@ -171,7 +175,7 @@ impl GameLogic {
             }
         }
 
-        self.find_nearest_supply_center(team, from_position)
+        self.find_nearest_supply_center(team, owner_player_id, from_position)
     }
 
     /// Wave 958: legacy alias — prefer [`Self::host_objects`].
@@ -868,11 +872,51 @@ impl GameLogic {
     }
 
     /// Exact C++ PlayerTemplate selection retained for this host session.
-    ///
-    /// Save/load intentionally returns `None` until the schema-owned Xfer
-    /// follow-up can serialize and validate this identity.
     pub fn player_template_identity(&self, player_id: u32) -> Option<&PlayerTemplateIdentity> {
         self.player_template_bindings.get(&player_id)
+    }
+
+    /// Snapshot-only copy of exact offline identities.  The map remains
+    /// session-private so ordinary gameplay cannot replace a selected General
+    /// without going through the validated bind path.
+    pub(crate) fn player_template_identities_for_snapshot(
+        &self,
+    ) -> Vec<(u32, PlayerTemplateIdentity)> {
+        self.player_template_bindings
+            .iter()
+            .map(|(&player_id, identity)| (player_id, identity.clone()))
+            .collect()
+    }
+
+    /// Install a snapshot-owned exact identity after `restore_all_players`.
+    ///
+    /// This deliberately does *not* call `bind_player_template_identity`:
+    /// `PlayerSnapshot` has already restored the saved resources, sciences,
+    /// and GameInfo overrides, and re-applying `Player::init(pt)` would
+    /// overwrite them.  The indexed lookup makes a stale store ordering or
+    /// name fail closed, and prevents a saved Random slot from being resolved
+    /// a second time.
+    pub(crate) fn install_restored_player_template_identity(
+        &mut self,
+        player_id: u32,
+        player_template: PlayerTemplateIdentity,
+    ) -> bool {
+        let Some(template) = player_template.resolve() else {
+            return false;
+        };
+        let Some(template_team) = PlayerTemplateIdentity::team_for_template(&template) else {
+            return false;
+        };
+        let Some(player) = self.players.get(&player_id) else {
+            return false;
+        };
+        if player.team != template_team {
+            return false;
+        }
+
+        self.player_template_bindings
+            .insert(player_id, player_template);
+        true
     }
 
     /// Resolve the immutable Common PlayerTemplate for a concrete host player.

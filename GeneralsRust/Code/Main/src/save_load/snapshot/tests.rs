@@ -4,7 +4,8 @@ use super::*;
 use crate::ai::AIDifficulty;
 use crate::game_logic::{
     AIState, Experience, GameLogic, HostStrikePhase, HostSuperweaponKind, KindOf, Object, ObjectId,
-    Player, Team, ThingTemplate, VeterancyLevel, Weapon, WeaponLockType,
+    Player, PlayerTemplateIdentity, Resources, Team, ThingTemplate, VeterancyLevel, Weapon,
+    WeaponLockType,
 };
 use glam::Vec3;
 
@@ -54,6 +55,139 @@ fn snapshot_restore_rebuilds_state_and_object_id_counter() {
         .create_object("TestTank", Team::USA, Vec3::ZERO)
         .expect("failed to create post-restore object");
     assert_eq!(next_id.0, object_id.0 + 1);
+}
+
+#[test]
+fn snapshot_v5_restores_exact_human_and_ai_skirmish_template_bindings() {
+    game_engine::common::ini::ensure_player_templates_loaded();
+    let (laser_index, tank_index) = {
+        let store = game_engine::common::rts::player_template::get_player_template_store();
+        (
+            store
+                .find_template_index("FactionAmericaLaserGeneral")
+                .expect("retail Laser General") as i32,
+            store
+                .find_template_index("FactionChinaTankGeneral")
+                .expect("retail Tank General") as i32,
+        )
+    };
+
+    let laser =
+        PlayerTemplateIdentity::from_exact_indexed_name("FactionAmericaLaserGeneral", laser_index)
+            .expect("exact human selection");
+    let tank =
+        PlayerTemplateIdentity::from_exact_indexed_name("FactionChinaTankGeneral", tank_index)
+            .expect("exact AI selection");
+
+    let mut source = GameLogic::new();
+    source.add_player(Player::new(0, Team::USA, "Human", true));
+    source.add_player(Player::new(1, Team::China, "Computer", false));
+    assert!(source.bind_player_template_identity(0, laser.clone()));
+    assert!(source.bind_player_template_identity(1, tank.clone()));
+    source.get_player_mut(0).expect("human").resources.supplies = 4_321;
+    source.get_player_mut(1).expect("AI").resources.supplies = 1_234;
+
+    let builder = SnapshotBuilder::new();
+    let snapshot = builder.create_world_snapshot(&source).expect("v5 snapshot");
+    assert_eq!(snapshot.player_template_bindings.len(), 2);
+    assert_eq!(snapshot.player_template_bindings[0].player_id, 0);
+    assert_eq!(
+        snapshot.player_template_bindings[0].template_index,
+        laser_index
+    );
+    assert_eq!(snapshot.player_template_bindings[1].player_id, 1);
+    assert_eq!(
+        snapshot.player_template_bindings[1].template_index,
+        tank_index
+    );
+
+    let mut restored = GameLogic::new();
+    builder
+        .restore_from_snapshot(&snapshot, &mut restored)
+        .expect("v5 restore");
+    assert_eq!(
+        restored
+            .player_template_identity(0)
+            .expect("restored human binding"),
+        &laser
+    );
+    assert_eq!(
+        restored
+            .player_template_identity(1)
+            .expect("restored AI binding"),
+        &tank
+    );
+    assert_eq!(
+        restored.get_player(0).expect("human").resources.supplies,
+        4_321,
+        "restore must install identity only, without replaying template start cash"
+    );
+    assert_eq!(
+        restored.get_player(1).expect("AI").resources.supplies,
+        1_234,
+        "Random was resolved before save and must not be selected again on load"
+    );
+}
+
+#[test]
+fn snapshot_v4_defaults_to_no_template_bindings_and_v5_rejects_stale_pair() {
+    let mut legacy = WorldSnapshot::default();
+    legacy.version = 4;
+    legacy.players.push(PlayerSnapshot {
+        id: 0,
+        name: "Legacy".to_string(),
+        team: Team::USA,
+        is_human: true,
+        is_active: true,
+        resources: Resources::default(),
+        population: PopulationInfo {
+            current: 0,
+            maximum: 0,
+        },
+        tech_tree: TechTreeSnapshot {
+            unlocked_units: Vec::new(),
+            unlocked_buildings: Vec::new(),
+            unlocked_upgrades: Vec::new(),
+            research_progress: Default::default(),
+        },
+        upgrades: Vec::new(),
+        build_queue: Vec::new(),
+        research_queue: Vec::new(),
+        statistics: PlayerStatisticsSnapshot {
+            units_built: 0,
+            units_lost: 0,
+            buildings_built: 0,
+            buildings_lost: 0,
+            damage_dealt: 0.0,
+            damage_received: 0.0,
+            resources_gathered: 0,
+            experience_gained: 0.0,
+        },
+    });
+    let builder = SnapshotBuilder::new();
+    let mut restored = GameLogic::new();
+    builder
+        .restore_from_snapshot(&legacy, &mut restored)
+        .expect("v4 predecessor defaults binding tail");
+    assert!(restored.player_template_identity(0).is_none());
+
+    let mut stale = legacy;
+    stale.version = WORLD_SNAPSHOT_BINCODE_VERSION;
+    stale
+        .player_template_bindings
+        .push(PlayerTemplateBindingSnapshot {
+            player_id: 0,
+            template_name: "FactionAmericaLaserGeneral".to_string(),
+            template_index: -1,
+        });
+    let mut rejected = GameLogic::new();
+    assert!(
+        builder
+            .restore_from_snapshot(&stale, &mut rejected)
+            .is_err(),
+        "stale name/index pairs must fail closed rather than choose a General"
+    );
+    assert!(rejected.player_template_identity(0).is_none());
 }
 
 #[test]
@@ -2070,6 +2204,85 @@ fn direct_xfer_v4_round_trips_logical_and_client_drawable_tails() {
         ClientDrawableRecoilPhase::Recoil
     );
     assert_eq!(sentinel, 0xD4E5_F607);
+}
+
+/// V5 appends exact offline PlayerTemplate bindings after the v4 client
+/// Drawable tail. The sentinel proves this new world-owned identity extension
+/// cannot steal bytes from a following direct-Xfer record.
+#[test]
+fn direct_xfer_v5_round_trips_exact_player_template_binding_tail() {
+    use super::xfer_helpers::default_object_snapshot;
+    use crate::game_logic::SupplyTruckState;
+    use crate::save_load::{Xfer, XferLoad, XferSave};
+    use std::io::Cursor;
+
+    let mut world = WorldSnapshot::default();
+    world.version = WORLD_SNAPSHOT_DIRECT_XFER_VERSION;
+    world
+        .player_template_bindings
+        .push(PlayerTemplateBindingSnapshot {
+            player_id: 7,
+            template_name: "FactionAmericaLaserGeneral".to_string(),
+            template_index: 12,
+        });
+    let mut collector = default_object_snapshot();
+    collector.id = ObjectId(81);
+    collector.collector_runtime = Some(CollectorRuntimeSnapshot {
+        owner_player_id: Some(7),
+        producer_id: Some(ObjectId(80)),
+        preferred_dock_id: Some(ObjectId(80)),
+        target: Some(ObjectId(79)),
+        supply_center_spawn_behavior_fired: true,
+        supply_truck_state: SupplyTruckState::DockingCenter,
+        supply_truck_force_pending: true,
+        supply_truck_next_dock_action_frame: 1_234,
+        stored_supply_boxes: 6,
+    });
+    world.objects.insert(collector.id, collector);
+
+    let mut bytes = Cursor::new(Vec::new());
+    {
+        let mut writer = XferSave::new(&mut bytes);
+        world.xfer(&mut writer).expect("write direct v5 world");
+        let mut sentinel = 0xB7C8_D9EAu32;
+        writer.xfer_u32(&mut sentinel).expect("write sentinel");
+    }
+
+    let mut restored = WorldSnapshot::default();
+    let mut sentinel = 0u32;
+    {
+        let mut reader = XferLoad::new(Cursor::new(bytes.into_inner()));
+        restored.xfer(&mut reader).expect("read direct v5 world");
+        reader.xfer_u32(&mut sentinel).expect("read sentinel");
+    }
+
+    assert_eq!(
+        restored.player_template_bindings,
+        vec![PlayerTemplateBindingSnapshot {
+            player_id: 7,
+            template_name: "FactionAmericaLaserGeneral".to_string(),
+            template_index: 12,
+        }]
+    );
+    assert_eq!(
+        restored
+            .objects
+            .get(&ObjectId(81))
+            .and_then(|object| object.collector_runtime.as_ref())
+            .expect("v5 collector tail"),
+        &CollectorRuntimeSnapshot {
+            owner_player_id: Some(7),
+            producer_id: Some(ObjectId(80)),
+            preferred_dock_id: Some(ObjectId(80)),
+            target: Some(ObjectId(79)),
+            supply_center_spawn_behavior_fired: true,
+            supply_truck_state: SupplyTruckState::DockingCenter,
+            supply_truck_force_pending: true,
+            supply_truck_next_dock_action_frame: 1_234,
+            stored_supply_boxes: 6,
+        }
+    );
+    assert_eq!(sentinel, 0xB7C8_D9EA);
 }
 
 /// Direct Xfer must reject a future envelope before it consumes timestamp or

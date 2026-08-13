@@ -43,22 +43,17 @@ impl GameLogic {
         // or supply-center income.
         let player_ids: Vec<u32> = self.players.keys().copied().collect();
         for player_id in player_ids {
-            let (object_power_produced, power_consumed, supply_centers) = self
+            let (object_power_produced, power_consumed) = self
                 .objects
                 .values()
                 .filter(|object| self.player_owner_for_host_object(object) == Some(player_id))
                 .filter(|object| object.is_constructed() && object.is_alive())
-                .fold(
-                    (0_i32, 0_i32, 0_u32),
-                    |(produced, consumed, centers), object| {
-                        (
-                            produced.saturating_add(object.power_provided),
-                            consumed.saturating_add(object.power_consumed.abs()),
-                            centers
-                                .saturating_add(u32::from(object.is_kind_of(KindOf::SupplyCenter))),
-                        )
-                    },
-                );
+                .fold((0_i32, 0_i32), |(produced, consumed), object| {
+                    (
+                        produced.saturating_add(object.power_provided),
+                        consumed.saturating_add(object.power_consumed.abs()),
+                    )
+                });
 
             // `OverchargeBehavior::onCapture` normally moves its
             // ThingTemplate EnergyBonus explicitly.  Its disabled branch
@@ -77,18 +72,6 @@ impl GameLogic {
             let Some(player) = self.players.get_mut(&player_id) else {
                 continue;
             };
-            let mut income_per_second = 0.0f32;
-
-            // Base passive income -- every player earns a small trickle so they are
-            // never completely stuck even before building a supply center.
-            // In the full C++ game this comes from supply-truck harvesting; here we
-            // provide a simplified equivalent so the economy always moves forward.
-            income_per_second += 5.0; // $5/sec base passive income
-
-            // $25/sec per owned supply center approximates a single supply
-            // truck's delivery rate (full Chinook ~= $600 / 25s).
-            income_per_second += supply_centers as f32 * 25.0;
-
             player.power_available = power_produced - power_consumed;
             player.power_produced = power_produced;
             player.power_consumed = power_consumed;
@@ -105,30 +88,6 @@ impl GameLogic {
                 player.power_available = -power_consumed;
             }
 
-            if income_per_second > 0.0 {
-                player.income_accumulator += income_per_second * dt;
-                let whole = player.income_accumulator.floor() as u32;
-                player.income_accumulator -= whole as f32;
-                if whole > 0 {
-                    player.statistics.resources_collected =
-                        player.statistics.resources_collected.saturating_add(whole);
-                    if crate::gameworld_shadow::gameworld_economy_authority_live() {
-                        player.pending_supply_delta += whole as i64;
-                        crate::game_logic::host_economy_log::record(
-                            player.id,
-                            player.effective_supplies(),
-                            player.power_available,
-                        );
-                    } else {
-                        player.resources.supplies = player.resources.supplies.saturating_add(whole);
-                        crate::game_logic::host_economy_log::record(
-                            player.id,
-                            player.resources.supplies,
-                            player.power_available,
-                        );
-                    }
-                }
-            }
             // Shadow economy channel: effective supplies + power after host tick residual.
             crate::game_logic::host_economy_log::record(
                 player.id,

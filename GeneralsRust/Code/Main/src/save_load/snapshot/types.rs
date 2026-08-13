@@ -1,5 +1,6 @@
 //! Core snapshot trait, world snapshot, and shared utility types.
 
+use super::player::PlayerTemplateBindingSnapshot;
 use super::{
     AIPlayerSnapshot, ClientDrawableWorldSnapshot, CombatParticleRegistrySnapshot,
     CombatTrackerSnapshot, ExperienceTrackerSnapshot, GlobalAIStateSnapshot,
@@ -21,8 +22,9 @@ use std::time::SystemTime;
 /// by serde defaults under bincode's positional encoding.  Version 3 appends
 /// the Hacker Disable Building channel to every object snapshot.  Version 4
 /// appends logical weapon-discharge/barrel state and the renderer-owned client
-/// Drawable companion.
-pub const WORLD_SNAPSHOT_BINCODE_VERSION: u32 = 4;
+/// Drawable companion. Version 5 appends exact offline `PlayerTemplate`
+/// bindings as a world tail, retaining v1-v4 nested PlayerSnapshot alignment.
+pub const WORLD_SNAPSHOT_BINCODE_VERSION: u32 = 5;
 
 /// Direct Common Xfer keeps an independent positional envelope from bincode.
 ///
@@ -30,9 +32,10 @@ pub const WORLD_SNAPSHOT_BINCODE_VERSION: u32 = 4;
 /// and object records.  Do not derive object-tail gates from the bincode
 /// version: a historical direct v3 stream still contains HDB even once the
 /// bincode writer has advanced to v4.
-pub const WORLD_SNAPSHOT_DIRECT_XFER_VERSION: u32 = 4;
+pub const WORLD_SNAPSHOT_DIRECT_XFER_VERSION: u32 = 5;
 pub const WORLD_SNAPSHOT_DIRECT_XFER_HDB_VERSION: u32 = 3;
 pub const WORLD_SNAPSHOT_DIRECT_XFER_V4_TAIL_VERSION: u32 = 4;
+pub const WORLD_SNAPSHOT_DIRECT_XFER_V5_TAIL_VERSION: u32 = 5;
 
 /// Reject unknown direct-Xfer outer layouts before consuming any body bytes.
 /// Known historical writers are accepted so focused fixtures can verify their
@@ -42,7 +45,7 @@ pub(crate) fn validate_direct_world_snapshot_version(version: u32) -> SaveLoadRe
         // Keep these arms deliberately explicit. Advancing the current writer
         // must not accidentally make a future positional body acceptable
         // before its object/world gates and exact predecessor fixtures exist.
-        1 | 2 | 3 | 4 => Ok(()),
+        1 | 2 | 3 | 4 | 5 => Ok(()),
         actual => Err(crate::save_load::SaveLoadError::VersionMismatch {
             expected: WORLD_SNAPSHOT_DIRECT_XFER_VERSION,
             actual,
@@ -111,6 +114,12 @@ pub struct WorldSnapshot {
     /// frozen presentation topology only after a successful staged restore.
     #[serde(default)]
     pub client_drawables: ClientDrawableWorldSnapshot,
+
+    /// Exact offline Skirmish PlayerTemplate bindings. Kept as a world tail:
+    /// appending this to historical nested `PlayerSnapshot` Xfer records
+    /// would misalign every direct v1-v4 stream.
+    #[serde(default)]
+    pub player_template_bindings: Vec<PlayerTemplateBindingSnapshot>,
 }
 
 pub const fn default_next_weapon_discharge_sequence() -> u64 {
@@ -151,6 +160,7 @@ impl Default for WorldSnapshot {
             host_upgrades: HostUpgradeRegistrySnapshot::default(),
             next_weapon_discharge_sequence: default_next_weapon_discharge_sequence(),
             client_drawables: ClientDrawableWorldSnapshot::default(),
+            player_template_bindings: Vec::new(),
         }
     }
 }

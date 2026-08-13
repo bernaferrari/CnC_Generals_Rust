@@ -27,6 +27,7 @@ use std::time::SystemTime;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum BincodeWorldSnapshotDecodePath {
     Current,
+    LegacyPreV5V4,
     LegacyPreV4V3,
     LegacyPreHackerDisableV2,
     LegacyProductionV1,
@@ -41,6 +42,14 @@ pub(crate) fn decode_bincode_world_snapshot(
     match version {
         WORLD_SNAPSHOT_BINCODE_VERSION => bincode_exact::<WorldSnapshot>(payload)
             .map(|snapshot| (snapshot, BincodeWorldSnapshotDecodePath::Current))
+            .map_err(|error| SaveLoadError::Serialization(error.to_string())),
+        4 => bincode_exact::<PreV5WorldSnapshot>(payload)
+            .map(|snapshot| {
+                (
+                    snapshot.into(),
+                    BincodeWorldSnapshotDecodePath::LegacyPreV5V4,
+                )
+            })
             .map_err(|error| SaveLoadError::Serialization(error.to_string())),
         3 => bincode_exact::<PreV4WorldSnapshot>(payload)
             .map(|snapshot| {
@@ -71,6 +80,33 @@ pub(crate) fn decode_bincode_world_snapshot(
             actual,
         }),
     }
+}
+
+/// Complete v4 world record before exact offline PlayerTemplate bindings were
+/// appended as the v5 tail. It must stay a separate positional mirror: serde
+/// defaults cannot safely decode an omitted bincode struct field.
+#[derive(Debug, Deserialize, Serialize)]
+struct PreV5WorldSnapshot {
+    version: u32,
+    timestamp: SystemTime,
+    frame_number: u64,
+    random_seed: u64,
+    objects: HashMap<ObjectId, ObjectSnapshot>,
+    players: Vec<PlayerSnapshot>,
+    teams: Vec<TeamSnapshot>,
+    terrain: TerrainSnapshot,
+    weather: WeatherSnapshot,
+    resource_manager: ResourceManagerSnapshot,
+    combat_tracker: CombatTrackerSnapshot,
+    experience_tracker: ExperienceTrackerSnapshot,
+    pathfinding_cache: PathfindingCacheSnapshot,
+    ai_players: Vec<AIPlayerSnapshot>,
+    global_ai_state: GlobalAIStateSnapshot,
+    special_power_strikes: SpecialPowerStrikeRegistrySnapshot,
+    combat_particles: CombatParticleRegistrySnapshot,
+    host_upgrades: HostUpgradeRegistrySnapshot,
+    next_weapon_discharge_sequence: u64,
+    client_drawables: ClientDrawableWorldSnapshot,
 }
 
 fn bincode_prefix<T: DeserializeOwned>(payload: &[u8]) -> bincode::Result<T> {
@@ -299,6 +335,7 @@ impl From<LegacyWorldSnapshot> for WorldSnapshot {
             host_upgrades: snapshot.host_upgrades,
             next_weapon_discharge_sequence: default_next_weapon_discharge_sequence(),
             client_drawables: ClientDrawableWorldSnapshot::default(),
+            player_template_bindings: Vec::new(),
         }
     }
 }
@@ -330,6 +367,7 @@ impl From<LegacyObjectSnapshot> for ObjectSnapshot {
             last_weapon_discharge_slot: 0,
             last_weapon_discharge_barrel: 0,
             last_weapon_discharge_frame: 0,
+            collector_runtime: None,
         }
     }
 }
@@ -411,6 +449,7 @@ impl From<PreHackerDisableWorldSnapshot> for WorldSnapshot {
             host_upgrades: snapshot.host_upgrades,
             next_weapon_discharge_sequence: default_next_weapon_discharge_sequence(),
             client_drawables: ClientDrawableWorldSnapshot::default(),
+            player_template_bindings: Vec::new(),
         }
     }
 }
@@ -438,6 +477,7 @@ impl From<PreHackerDisableObjectSnapshot> for ObjectSnapshot {
             last_weapon_discharge_slot: 0,
             last_weapon_discharge_barrel: 0,
             last_weapon_discharge_frame: 0,
+            collector_runtime: None,
         }
     }
 }
@@ -469,6 +509,35 @@ impl From<PreV4WorldSnapshot> for WorldSnapshot {
             host_upgrades: snapshot.host_upgrades,
             next_weapon_discharge_sequence: default_next_weapon_discharge_sequence(),
             client_drawables: ClientDrawableWorldSnapshot::default(),
+            player_template_bindings: Vec::new(),
+        }
+    }
+}
+
+impl From<PreV5WorldSnapshot> for WorldSnapshot {
+    fn from(snapshot: PreV5WorldSnapshot) -> Self {
+        Self {
+            version: WORLD_SNAPSHOT_BINCODE_VERSION,
+            timestamp: snapshot.timestamp,
+            frame_number: snapshot.frame_number,
+            random_seed: snapshot.random_seed,
+            objects: snapshot.objects,
+            players: snapshot.players,
+            teams: snapshot.teams,
+            terrain: snapshot.terrain,
+            weather: snapshot.weather,
+            resource_manager: snapshot.resource_manager,
+            combat_tracker: snapshot.combat_tracker,
+            experience_tracker: snapshot.experience_tracker,
+            pathfinding_cache: snapshot.pathfinding_cache,
+            ai_players: snapshot.ai_players,
+            global_ai_state: snapshot.global_ai_state,
+            special_power_strikes: snapshot.special_power_strikes,
+            combat_particles: snapshot.combat_particles,
+            host_upgrades: snapshot.host_upgrades,
+            next_weapon_discharge_sequence: snapshot.next_weapon_discharge_sequence,
+            client_drawables: snapshot.client_drawables,
+            player_template_bindings: Vec::new(),
         }
     }
 }
@@ -496,6 +565,7 @@ impl From<PreV4ObjectSnapshot> for ObjectSnapshot {
             last_weapon_discharge_slot: 0,
             last_weapon_discharge_barrel: 0,
             last_weapon_discharge_frame: 0,
+            collector_runtime: None,
         }
     }
 }
@@ -689,6 +759,34 @@ impl From<WorldSnapshot> for PreV4WorldSnapshot {
 }
 
 #[cfg(test)]
+impl From<WorldSnapshot> for PreV5WorldSnapshot {
+    fn from(snapshot: WorldSnapshot) -> Self {
+        Self {
+            version: 4,
+            timestamp: snapshot.timestamp,
+            frame_number: snapshot.frame_number,
+            random_seed: snapshot.random_seed,
+            objects: snapshot.objects,
+            players: snapshot.players,
+            teams: snapshot.teams,
+            terrain: snapshot.terrain,
+            weather: snapshot.weather,
+            resource_manager: snapshot.resource_manager,
+            combat_tracker: snapshot.combat_tracker,
+            experience_tracker: snapshot.experience_tracker,
+            pathfinding_cache: snapshot.pathfinding_cache,
+            ai_players: snapshot.ai_players,
+            global_ai_state: snapshot.global_ai_state,
+            special_power_strikes: snapshot.special_power_strikes,
+            combat_particles: snapshot.combat_particles,
+            host_upgrades: snapshot.host_upgrades,
+            next_weapon_discharge_sequence: snapshot.next_weapon_discharge_sequence,
+            client_drawables: snapshot.client_drawables,
+        }
+    }
+}
+
+#[cfg(test)]
 impl From<ObjectSnapshot> for PreV4ObjectSnapshot {
     fn from(snapshot: ObjectSnapshot) -> Self {
         Self {
@@ -714,6 +812,11 @@ impl From<ObjectSnapshot> for PreV4ObjectSnapshot {
 #[cfg(test)]
 pub(crate) fn serialize_pre_v4_v3_fixture(snapshot: WorldSnapshot) -> bincode::Result<Vec<u8>> {
     bincode::serialize(&PreV4WorldSnapshot::from(snapshot))
+}
+
+#[cfg(test)]
+pub(crate) fn serialize_pre_v5_v4_fixture(snapshot: WorldSnapshot) -> bincode::Result<Vec<u8>> {
+    bincode::serialize(&PreV5WorldSnapshot::from(snapshot))
 }
 
 #[cfg(test)]

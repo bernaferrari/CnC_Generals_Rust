@@ -4,6 +4,74 @@
 use super::super::*;
 
 impl GameLogic {
+    /// C++ `SupplyCenterProductionExitUpdate::exitObjectViaDoor` finishes the
+    /// ordinary authored exit path before asking `SupplyTruckAIUpdate` to
+    /// enter Wanting.  The compact host keeps that path on the unit and only
+    /// changes its post-exit AI destination here; non-harvester outputs never
+    /// gain this supply-center-specific behavior.
+    pub(crate) fn force_supply_center_collector_wanting(
+        &mut self,
+        collector_id: ObjectId,
+        center_id: ObjectId,
+    ) -> bool {
+        let Some((collector_owner, collector_team, collector_pos, is_harvester, scan_distance)) =
+            self.host_object(collector_id).map(|collector| {
+                (
+                    self.player_owner_for_host_object(collector),
+                    collector.team,
+                    collector.get_position(),
+                    collector.is_kind_of(KindOf::Harvester),
+                    collector
+                        .thing
+                        .template
+                        .supply_truck_metadata
+                        .map(|metadata| metadata.warehouse_scan_distance),
+                )
+            })
+        else {
+            return false;
+        };
+        let legal_center = self.host_object(center_id).is_some_and(|center| {
+            center.is_alive()
+                && center.is_constructed()
+                && (center.is_kind_of(KindOf::SupplyCenter)
+                    || center.is_kind_of(KindOf::FSSupplyCenter))
+                && self.player_owner_for_host_object(center) == collector_owner
+        });
+        if !is_harvester || !legal_center {
+            return false;
+        }
+        let Some(source_id) = self.find_nearest_harvestable_supply(collector_team, collector_pos)
+        else {
+            return false;
+        };
+        if scan_distance.is_some_and(|distance| {
+            distance > 0.0
+                && self
+                    .host_object(source_id)
+                    .is_some_and(|source| source.get_position().distance(collector_pos) > distance)
+        }) {
+            return false;
+        }
+        if let Some(collector) = self.host_object_mut(collector_id) {
+            // `m_preferredDock` is set by the supply-center/AI handoff, and
+            // stays distinct from merely sharing a faction team.
+            collector.preferred_dock_id = Some(center_id);
+            collector.set_target(Some(source_id));
+            // Keep a concrete one-shot latch/state mirror alongside the
+            // host AIState.  The latter still owns path following; the former
+            // makes the supply dock cadence observable and saveable.
+            collector.supply_truck_force_pending = true;
+            collector.supply_truck_state = SupplyTruckState::Wanting;
+            collector.supply_truck_next_dock_action_frame = 0;
+            // Do not replace `movement.path`: it already contains the
+            // producer's natural/custom exit route.  Once it completes, the
+            // normal Gathering update proceeds to this acquired warehouse.
+            collector.set_ai_state(AIState::Gathering);
+        }
+        true
+    }
+
     /// Resolve the one-shot `SpawnBehavior` payload authored by a SupplyCenter
     /// or SupplyStash.  The live Object INI catalog preserves the nested
     /// `SpawnTemplateName` fields, so general-specific centers keep their
@@ -117,9 +185,9 @@ impl GameLogic {
             return None;
         }
 
-        // `SupplyCenterProductionExitUpdate` gives all three stock centers a
-        // UnitCreatePoint of (0, 0, 0), so the C++ exit starts at the center's
-        // world transform.  Preserve both that pose and Object::m_producerID.
+        // The real module's UnitCreatePoint is parsed below when the object
+        // catalog is available.  Preserve producer identity here; the common
+        // exit handoff applies its authored route immediately after creation.
         let spawned_id = match owner_player_id {
             Some(player_id) => self.create_object_for_player(&spawn_template, player_id, position),
             None => self.create_object(&spawn_template, team, position),
@@ -127,6 +195,28 @@ impl GameLogic {
         if let Some(spawned) = self.host_object_mut(spawned_id) {
             spawned.producer_id = Some(center_id);
             spawned.set_orientation(orientation);
+        }
+        let (natural, has_supply_exit) = self
+            .host_object(center_id)
+            .map(|center| {
+                let forward = center.thing.get_direction_vector();
+                let metadata = center.thing.template.production_exit_metadata;
+                let natural = metadata
+                    .map(|exit| {
+                        let point = exit.natural_rally_point_with_path_offset(
+                            crate::game_logic::host_ai_path_combat_residual_wave105::PATHFIND_CELL_SIZE_F,
+                        );
+                        crate::game_logic::host_production_buildable_command_residual::transform_model_exit_offset(
+                            center.get_position(), forward, (point[0], point[1], point[2]),
+                        )
+                    })
+                    .unwrap_or(center.get_position());
+                (natural, metadata.is_some_and(|exit| exit.is_supply_center()))
+            })
+            .unwrap_or((position, false));
+        self.path_approach_with_state(spawned_id, natural, AIState::Moving);
+        if has_supply_exit {
+            let _ = self.force_supply_center_collector_wanting(spawned_id, center_id);
         }
         if let Some(center) = self.host_object_mut(center_id) {
             center.supply_center_spawn_behavior_fired = true;
