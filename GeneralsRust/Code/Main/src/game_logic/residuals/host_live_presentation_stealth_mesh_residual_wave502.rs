@@ -1,7 +1,7 @@
 //! Wave 502 residual peels: presentation stealth hides enemy mesh / fades ally mesh.
 //! - `UnitRenderInput.effectively_stealthed` frozen from presentation
 //! - `unit_render_inputs` omits enemy effectively-stealthed units
-//! - local-team stealthed units clamp FOW alpha to ally stealth residual
+//! - viewer-relative friendly stealthed units carry separate presentation opacity
 //! Never flips shell `playable_claim`.
 //!
 //! Orthogonal to Wave 501 deploy/radar bit stamping.
@@ -24,23 +24,23 @@ pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> {
 pub const PRESENTATION_STEALTH_MESH_METHOD_NAMES_WAVE502: &[&str] = &[
     "effectively_stealthed",
     "unit_render_inputs",
-    "ALLY_STEALTH_ALPHA",
+    "presentation_opacity",
     "local_team",
-    "visibility_alpha",
+    "fow_visibility",
     "playable_claim = false",
 ];
 
 pub const PRESENTATION_STEALTH_MESH_SOURCE_MARKERS_WAVE502: &[&str] = &[
     "Wave 502: stealth mesh residual from frozen presentation only",
     "Wave 502: stealth filter/alpha applied inside unit_render_inputs (presentation-only)",
-    "ALLY_STEALTH_ALPHA",
+    "presentation_opacity",
     "effectively_stealthed: ro.effectively_stealthed",
 ];
 
 pub const PRESENTATION_STEALTH_MESH_NAV_STEPS_WAVE502: &[&str] = &[
     "FREEZE_EFFECTIVELY_STEALTHED",
     "FILTER_ENEMY_STEALTHED_FROM_MESH",
-    "ALLY_STEALTH_ALPHA_CLAMP",
+    "FRIENDLY_STEALTH_PRESENTATION_OPACITY",
     "COLLECT_UNIT_RENDER_INPUTS",
     "NO_LIVE_GAMELOGIC_DUAL_READ",
     "PLAYABLE_CLAIM_FALSE",
@@ -117,7 +117,7 @@ pub fn honesty_presentation_stealth_mesh_source_markers_residual_wave502() -> bo
         ) == Some(0)
         && residual_name_index(
             PRESENTATION_STEALTH_MESH_SOURCE_MARKERS_WAVE502,
-            "ALLY_STEALTH_ALPHA",
+            "presentation_opacity",
         ) == Some(2)
 }
 
@@ -138,9 +138,9 @@ pub fn simulate_presentation_stealth_mesh_input_source() -> bool {
     let pf = pf_source();
     let ok = pf.contains("Wave 502: stealth mesh residual from frozen presentation only")
         && pf.contains("effectively_stealthed: ro.effectively_stealthed")
-        && pf.contains("ALLY_STEALTH_ALPHA")
-        && pf.contains("o.effectively_stealthed && o.team != local_team")
-        && pf.contains("o.effectively_stealthed && o.team == local_team");
+        && pf.contains("input.presentation_opacity")
+        && pf.contains("local_viewer_hides_stealthed")
+        && pf.contains("local_viewer_uses_friendly_stealth_look");
     residual_action_store(ResidualPresentationStealthMeshAction::InputSource);
     ok
 }

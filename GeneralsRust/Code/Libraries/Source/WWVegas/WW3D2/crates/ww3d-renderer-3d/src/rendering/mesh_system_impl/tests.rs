@@ -250,6 +250,27 @@ fn hierarchy_that_must_not_supply_skin_links() -> HierarchyPrototype {
         assert!(draw_material_pass.contains("Some(visibility_alpha)"));
         assert!(draw_material_pass.contains("Some(visibility_falloff)"));
         assert!(draw_material_pass.contains("Some(is_explored)"));
+        assert!(draw_material_pass.contains("mesh.presentation_opacity()"));
+        assert!(draw_material_pass.contains("set_alpha_blend_enable(true)"));
+    }
+
+    #[test]
+    fn presentation_opacity_is_instance_alpha_without_changing_fow() {
+        let mut mesh = MeshClass::new();
+        assert!(!mesh.is_alpha());
+        assert_eq!(mesh.frozen_fow_visibility(), FrozenFowVisibility::CLEAR);
+
+        mesh.set_presentation_opacity(0.5);
+        assert!(mesh.is_alpha());
+        assert_eq!(mesh.sort_level, SORT_LEVEL_BIN1);
+        assert_eq!(mesh.frozen_fow_visibility(), FrozenFowVisibility::CLEAR);
+
+        let cloned = mesh.clone_mesh();
+        assert!((cloned.presentation_opacity() - 0.5).abs() < f32::EPSILON);
+        assert_eq!(cloned.frozen_fow_visibility(), FrozenFowVisibility::CLEAR);
+
+        mesh.set_presentation_opacity(f32::NAN);
+        assert!((mesh.presentation_opacity() - 1.0).abs() < f32::EPSILON);
     }
 
     #[test]

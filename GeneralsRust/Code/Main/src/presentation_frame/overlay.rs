@@ -1535,6 +1535,8 @@ impl PresentationFrame {
             // overlay stamps this source capability for the active engine
             // path; standalone GameWorld presentation fails closed.
             can_disguise_as_team: false,
+            friendly_stealth_opacity: 0.5,
+            friendly_stealth_opacity_max: 1.0,
             disabled: ent.disabled_emp
                 || ent.disabled_paralyzed
                 || ent.disabled_hacked
@@ -1900,6 +1902,17 @@ impl PresentationFrame {
             let can_disguise_as_team = super::build::freeze_direct_can_disguise_as_team(obj);
             if ro.can_disguise_as_team != can_disguise_as_team {
                 ro.can_disguise_as_team = can_disguise_as_team;
+                dirty = true;
+            }
+            let friendly_stealth_opacity = obj.thing.template.stealth_friendly_opacity_min;
+            if (ro.friendly_stealth_opacity - friendly_stealth_opacity).abs() > f32::EPSILON {
+                ro.friendly_stealth_opacity = friendly_stealth_opacity;
+                dirty = true;
+            }
+            let friendly_stealth_opacity_max = obj.thing.template.stealth_friendly_opacity_max;
+            if (ro.friendly_stealth_opacity_max - friendly_stealth_opacity_max).abs() > f32::EPSILON
+            {
+                ro.friendly_stealth_opacity_max = friendly_stealth_opacity_max;
                 dirty = true;
             }
             // GameWorld is the object-roster authority in the active frame,

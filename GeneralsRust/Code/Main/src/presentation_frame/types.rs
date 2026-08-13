@@ -355,6 +355,14 @@ impl PresentationDrawableShroudFacts {
     }
 }
 
+fn default_friendly_stealth_opacity() -> f32 {
+    0.5
+}
+
+fn default_friendly_stealth_opacity_max() -> f32 {
+    1.0
+}
+
 /// One renderable object as seen after a completed logic step.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RenderableObject {
@@ -597,6 +605,15 @@ pub struct RenderableObject {
     /// though the host temporarily marks it STEALTHED.
     #[serde(default)]
     pub can_disguise_as_team: bool,
+    /// Frozen C++ StealthUpdate FriendlyOpacityMin used by the two
+    /// viewer-relative friendly looks.  Retail defaults to 50%; this stays
+    /// separate from FOW alpha and from CamoNetting's object-local pulse.
+    #[serde(default = "default_friendly_stealth_opacity")]
+    pub friendly_stealth_opacity: f32,
+    /// Frozen FriendlyOpacityMax retained alongside the minimum for pulse
+    /// and detected-friendly look transitions.
+    #[serde(default = "default_friendly_stealth_opacity_max")]
+    pub friendly_stealth_opacity_max: f32,
     /// Any host disable residual that blocks acting.
     pub disabled: bool,
     /// Container residual when this unit is inside another object.

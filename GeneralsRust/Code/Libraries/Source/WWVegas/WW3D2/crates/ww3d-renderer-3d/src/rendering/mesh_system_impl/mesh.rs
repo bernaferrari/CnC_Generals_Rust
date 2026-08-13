@@ -34,6 +34,7 @@ impl MeshClass {
             is_hidden: false,
             is_animation_hidden: false,
             alpha_override: 1.0,
+            presentation_opacity: 1.0,
             material_pass_alpha_override: 1.0,
             material_pass_emissive_override: 1.0,
             frozen_fow_visibility: FrozenFowVisibility::default(),
@@ -82,6 +83,25 @@ impl MeshClass {
 
     pub fn uv_offset_override(&self) -> Option<[f32; 2]> {
         self.uv_offset_override
+    }
+
+    /// Set the frozen Drawable-level presentation opacity. Partial values
+    /// force the ordinary mesh onto the alpha-blended render path; opaque
+    /// values retain the authored material state.
+    pub fn set_presentation_opacity(&mut self, opacity: f32) {
+        self.presentation_opacity = if opacity.is_finite() {
+            opacity.clamp(0.0, 1.0)
+        } else {
+            1.0
+        };
+        if self.presentation_opacity < 0.999 && self.sort_level == SORT_LEVEL_NONE {
+            self.sort_level = SORT_LEVEL_BIN1;
+        }
+    }
+
+    #[inline]
+    pub fn presentation_opacity(&self) -> f32 {
+        self.presentation_opacity
     }
 
     /// Set the presentation snapshot consumed by every active material pass.
@@ -925,6 +945,7 @@ impl MeshClass {
         new_mesh.is_hidden = self.is_hidden;
         new_mesh.is_animation_hidden = self.is_animation_hidden;
         new_mesh.alpha_override = self.alpha_override;
+        new_mesh.presentation_opacity = self.presentation_opacity;
         new_mesh.material_pass_alpha_override = self.material_pass_alpha_override;
         new_mesh.material_pass_emissive_override = self.material_pass_emissive_override;
         new_mesh.frozen_fow_visibility = self.frozen_fow_visibility;
@@ -1048,6 +1069,7 @@ impl MeshClass {
             decal_mesh.transform = self.transform;
             decal_mesh.sort_level = self.sort_level;
             decal_mesh.alpha_override = 1.0;
+            decal_mesh.presentation_opacity = self.presentation_opacity;
             decal_mesh.material_pass_alpha_override = 1.0;
             decal_mesh.material_pass_emissive_override = 1.0;
             decal_mesh.frozen_fow_visibility = self.frozen_fow_visibility;

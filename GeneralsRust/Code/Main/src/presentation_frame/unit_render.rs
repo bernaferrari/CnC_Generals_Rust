@@ -225,6 +225,10 @@ pub struct UnitRenderInput {
     pub engine_bridged: bool,
     /// Local-player FOW from the presentation snapshot (not a live shroud query).
     pub fow_visibility: ObjectVisibility,
+    /// Frozen Drawable StealthLook opacity.  This is deliberately independent
+    /// from FOW alpha: C++ friendly stealth uses alpha blending while FOW
+    /// remains fully visible for the allied viewer.
+    pub presentation_opacity: f32,
     /// Frozen direct-object C++ shroud facts.  Renderer code receives this
     /// owned input and must not derive an ordinal status from FOW alpha.
     pub drawable_shroud: PresentationDrawableShroudFacts,
@@ -342,6 +346,7 @@ impl UnitRenderInput {
             is_surrendered: ro.is_surrendered,
             engine_bridged: ro.engine_bridged,
             fow_visibility: ro.fow_visibility,
+            presentation_opacity: 1.0,
             drawable_shroud: ro.drawable_shroud,
         }
     }

@@ -337,6 +337,9 @@ impl MeshClass {
 
     /// Check if mesh is alpha - equivalent to C++ Is_Alpha
     pub fn is_alpha(&self) -> bool {
+        if self.presentation_opacity < 0.999 {
+            return true;
+        }
         // Check if the mesh has alpha-blended materials
         if let Some(model) = &self.model {
             for pass in &model.material_passes {

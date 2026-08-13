@@ -115,6 +115,10 @@ pub struct RenderItem {
     /// FOW visibility data for this render item
     pub fow_visibility: ObjectVisibility,
 
+    /// Frozen Drawable StealthLook opacity, kept separate from FOW alpha.
+    /// Values below one force the renderer onto its alpha-blended path.
+    pub presentation_opacity: f32,
+
     /// C++ direct-Drawing scene result for this item, if its full binding was
     /// accepted at the frozen Main boundary.  Objectless client drawables and
     /// ordinary GameWorld items intentionally retain `None`.
@@ -194,6 +198,7 @@ impl RenderItem {
             index_buffer_range: None,
             sorting_key,
             fow_visibility: ObjectVisibility::default(),
+            presentation_opacity: 1.0,
             frozen_direct_scene_shroud: None,
             uv_offset_override: None,
             animation_frame: 0.0,
@@ -353,6 +358,15 @@ impl RenderItem {
         }
     }
 
+    #[inline]
+    pub fn set_presentation_opacity(&mut self, opacity: f32) {
+        self.presentation_opacity = if opacity.is_finite() {
+            opacity.clamp(0.0, 1.0)
+        } else {
+            1.0
+        };
+    }
+
     /// Replay the parent Drawable's already-frozen visual state on a new
     /// render-object child.  HLOD AdditionalModels have their own source
     /// material, so copying the parent's material itself would be incorrect.
@@ -363,6 +377,7 @@ impl RenderItem {
             parent.selection_flash_team_color,
             parent.poison_tinted,
         );
+        self.presentation_opacity = parent.presentation_opacity;
     }
 
     pub fn set_world_matrix(&mut self, matrix: Mat4) {

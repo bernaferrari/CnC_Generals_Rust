@@ -250,8 +250,8 @@ impl PresentationFrame {
         // Wave 504: skip contained_by units; stamp garrisoned bits on structures.
         // C++ StealthUpdate computes a viewer-relative look. Invisible
         // stealthed units are omitted; a visible-friendly/inactive-viewer look
-        // remains in the mesh pass with a translucent frozen alpha.
-        const ALLY_STEALTH_ALPHA: f32 = 0.35;
+        // remains in the mesh pass with a separate frozen presentation
+        // opacity. FOW alpha must remain untouched for this path.
         let mesh_allowed = |object: &RenderableObject, allow_destroyed: bool| {
             (allow_destroyed || !object.destroyed)
                 && !object.engine_bridged
@@ -267,15 +267,8 @@ impl PresentationFrame {
                     self.world_env.is_night,
                     self.frame.0,
                 );
-                if object.effectively_stealthed
-                    && !object.can_disguise_as_team
-                    && !object.drawable_shroud.effectively_dead
-                    && !self.local_viewer_hides_stealthed(object)
-                {
-                    input.fow_visibility.visibility_alpha = input
-                        .fow_visibility
-                        .visibility_alpha
-                        .min(ALLY_STEALTH_ALPHA);
+                if self.local_viewer_uses_friendly_stealth_look(object) {
+                    input.presentation_opacity = object.friendly_stealth_opacity.clamp(0.0, 1.0);
                 }
                 // Compatibility fallback for a GameWorld-only record with no
                 // resident direct Drawable identity. The normal direct-host

@@ -895,6 +895,7 @@ impl ForwardPass {
             frozen_fow.visibility_falloff,
             frozen_fow.is_explored,
         ));
+        mesh.set_presentation_opacity(item.presentation_opacity);
         mesh.alpha_override = item.fow_visibility.visibility_alpha;
         mesh.is_hidden = item.fow_visibility.visibility_alpha <= 0.01;
         mesh.set_uv_offset_override(item.uv_offset_override.map(|offset| [offset.x, offset.y]));

@@ -566,8 +566,19 @@ impl MeshRenderManager {
                 RenderInfoOverrideFlags::FORCE_TWO_SIDED | RenderInfoOverrideFlags::DECAL_RENDERING,
             );
 
+        // C++ Drawable::setStealthLook drives the instance opacity while
+        // preserving the authored material.  Opaque W3D materials therefore
+        // need a per-instance alpha variant; the cloned ShaderClass changes
+        // only the blend bits, so the cached MaterialPass remains untouched.
+        let mut pipeline_shader = pass.shader;
+        if mesh.presentation_opacity() < 0.999
+            && matches!(pass.shader.blend_mode(), MaterialBlendMode::Opaque)
+        {
+            pipeline_shader.set_alpha_blend_enable(true);
+        }
+
         let pipeline = self.pipeline_mgr.get_or_create(
-            &pass.shader,
+            &pipeline_shader,
             stage_masks.mask,
             prepared.is_skinned,
             render_info.lighting.is_some(),
@@ -591,7 +602,7 @@ impl MeshRenderManager {
         let (material_diffuse, material_specular, material_emissive) =
             material_properties(pass.get_vertex_material());
         let material_overrides = [
-            render_info.alpha_override,
+            render_info.alpha_override * mesh.presentation_opacity(),
             render_info.material_pass_alpha_override,
             render_info.material_pass_emissive_override,
             0.0,
