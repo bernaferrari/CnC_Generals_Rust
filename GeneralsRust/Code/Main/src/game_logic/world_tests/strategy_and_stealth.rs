@@ -1523,6 +1523,84 @@ fn combat_fire_queues_weapon_fire_audio_event() {
     );
 }
 
+/// hq-pi6: the active direct `world_tick::combat` finalizer must publish one
+/// actual discharge with the selected barrel *before* it advances, rather than
+/// deriving a renderer cue from `fire_intent_count` or damage victims.
+#[test]
+fn weapon_discharge_world_tick_combat_preserves_preadvance_barrel_and_freezes_once() {
+    let mut game_logic = GameLogic::new();
+    ensure_test_tank_template(&mut game_logic);
+
+    let attacker_id = game_logic
+        .create_object("TestTank", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("attacker");
+    let target_id = game_logic
+        .create_object("TestTank", Team::GLA, Vec3::new(10.0, 0.0, 0.0))
+        .expect("target");
+    {
+        let attacker = game_logic
+            .host_object_mut(attacker_id)
+            .expect("attacker exists");
+        attacker.attack_target(target_id);
+        attacker.weapon = Some(Weapon {
+            damage: 1.0,
+            range: 200.0,
+            reload_time: 0.0,
+            last_fire_time: 0.0,
+            ..Weapon::default()
+        });
+        assert!(attacker.set_weapon_barrel_count_for_slot(0, 3));
+        attacker.weapon_barrel_states[0].current_barrel = 2;
+        attacker.weapon_barrel_states[0].shots_left_on_barrel = 1;
+    }
+
+    game_logic.frame = 30;
+    game_logic.update_combat(&[attacker_id, target_id], LOGIC_FRAME_TIMESTEP);
+
+    let attacker = game_logic
+        .host_object(attacker_id)
+        .expect("attacker remains");
+    assert_eq!(
+        attacker.weapon_discharge_marker(),
+        WeaponDischargeMarker {
+            sequence: 1,
+            weapon_slot: 0,
+            fired_barrel: 2,
+            logic_frame: 30,
+        }
+    );
+    assert_eq!(
+        attacker
+            .weapon_barrel_state_for_slot(0)
+            .expect("primary cursor")
+            .current_barrel,
+        0,
+        "the cursor advances only after retaining barrel two"
+    );
+
+    let frozen = crate::presentation_frame::PresentationFrame::build_from_logic(&game_logic, 0);
+    assert!(frozen.events.iter().any(|event| matches!(
+        event,
+        crate::presentation_frame::PresentationEvent::WeaponDischarged {
+            source,
+            weapon_slot: 0,
+            fired_barrel: 2,
+            sequence: 1,
+            logic_frame: 30,
+        } if *source == attacker_id
+    )));
+    assert!(
+        crate::presentation_frame::PresentationFrame::build_from_logic(&game_logic, 0)
+            .events
+            .iter()
+            .all(|event| !matches!(
+                event,
+                crate::presentation_frame::PresentationEvent::WeaponDischarged { .. }
+            )),
+        "the transient accepted-discharge log must freeze once rather than replay"
+    );
+}
+
 #[test]
 fn combat_kill_queues_unit_die_audio_event() {
     let mut game_logic = GameLogic::new();

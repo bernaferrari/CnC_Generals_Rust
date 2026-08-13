@@ -935,6 +935,8 @@ impl GameLogic {
         let last_fire = obj.weapon.as_ref().map(|w| w.last_fire_time).unwrap_or(0.0);
         let mut w = rpg_trooper_weapon(ap);
         w.last_fire_time = last_fire;
+        // C++ AP Rockets changes this weapon through WeaponBonusUpgrade, which
+        // retains the concrete Weapon and its barrel cursor.
         obj.weapon = Some(w);
     }
 

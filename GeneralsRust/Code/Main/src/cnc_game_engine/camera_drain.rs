@@ -363,8 +363,8 @@ impl CnCGameEngine {
         }
         // Headless / no-game_client builds still drain NewGame if present.
         #[cfg(not(feature = "game_client"))]
-        if let Some((mode, faction, map, skirmish)) = self.take_pending_new_game_start_request() {
-            self.start_game_from_ui(mode, faction, map, skirmish);
+        if let Some(request) = self.take_pending_new_game_start_request() {
+            self.start_game_from_ui(request);
             return true;
         }
         false
@@ -385,24 +385,22 @@ impl CnCGameEngine {
         // NewGame / start-new-game must drain on the load screen, not only Menu.
         // Windowed sit-through was stuck in Loading because WND/start posted
         // NewGame while boot load was still InProgress and Menu never ticked.
-        if let Some((mode, faction, map, skirmish)) = self.take_pending_new_game_start_request() {
+        if let Some(request) = self.take_pending_new_game_start_request() {
             info!(
                 "Loading NewGame drain: mode={:?} faction={} map={}",
-                mode, faction, map
+                request.mode, request.faction, request.map
             );
-            self.start_game_from_ui(mode, faction, map, skirmish);
+            self.start_game_from_ui(request);
             return Ok(());
         }
         if gamelogic::helpers::TheGameLogic::is_start_new_game_requested() {
             gamelogic::helpers::TheGameLogic::clear_start_new_game_request();
-            if let Some((mode, faction, map, skirmish)) =
-                self.build_start_request_from_pending_globals(None)
-            {
+            if let Some(request) = self.build_start_request_from_pending_globals(None) {
                 info!(
                     "Loading start_new_game flag drain: mode={:?} map={}",
-                    mode, map
+                    request.mode, request.map
                 );
-                self.start_game_from_ui(mode, faction, map, skirmish);
+                self.start_game_from_ui(request);
                 return Ok(());
             }
         }
@@ -599,7 +597,9 @@ impl CnCGameEngine {
             "UI requested restart: mode={:?}, faction={}, map={}",
             mode, faction, map
         );
-        self.start_game_from_ui(mode, faction, map, None);
+        self.start_game_from_ui(HostStartRequest::without_player_template(
+            mode, faction, map, None,
+        ));
     }
 
     /// Prefer presentation-frozen game mode when a frame is installed.
@@ -1279,15 +1279,15 @@ impl CnCGameEngine {
         // Intercept MSG_NEW_GAME *before* pump moves it into the crate command list.
         // WND Skirmish/Campaign Start only appends NewGame to the common message stream.
         let t4 = std::time::Instant::now();
-        if let Some((mode, faction, map, skirmish)) = self.take_pending_new_game_start_request() {
+        if let Some(request) = self.take_pending_new_game_start_request() {
             info!(
                 "Menu NewGame drain: mode={:?} faction={} map={} skirmish={}",
-                mode,
-                faction,
-                map,
-                skirmish.is_some()
+                request.mode,
+                request.faction,
+                request.map,
+                request.skirmish.is_some()
             );
-            self.start_game_from_ui(mode, faction, map, skirmish);
+            self.start_game_from_ui(request);
             return true;
         }
 
@@ -1302,14 +1302,12 @@ impl CnCGameEngine {
         // Secondary path: crate helpers may flag start after pump.
         if gamelogic::helpers::TheGameLogic::is_start_new_game_requested() {
             gamelogic::helpers::TheGameLogic::clear_start_new_game_request();
-            if let Some((mode, faction, map, skirmish)) =
-                self.build_start_request_from_pending_globals(None)
-            {
+            if let Some(request) = self.build_start_request_from_pending_globals(None) {
                 info!(
                     "Menu start_new_game flag drain: mode={:?} map={}",
-                    mode, map
+                    request.mode, request.map
                 );
-                self.start_game_from_ui(mode, faction, map, skirmish);
+                self.start_game_from_ui(request);
                 return true;
             }
         }

@@ -1124,6 +1124,18 @@ impl PresentationFrame {
                 });
             }
         }
+        // A presentation frame can follow several fixed logic steps. Freeze
+        // every real accepted discharge in order; the renderer must never
+        // infer recoil from the lossy AI fire-intent residual.
+        for ev in logic.take_weapon_discharges_for_presentation() {
+            events.push(PresentationEvent::WeaponDischarged {
+                source: ev.source,
+                weapon_slot: ev.weapon_slot,
+                fired_barrel: ev.fired_barrel,
+                sequence: ev.sequence,
+                logic_frame: ev.logic_frame,
+            });
+        }
         // Wave 532: FireSound loop drain is a sibling of attack_log (not nested).
         // Nested drain only ran when attack_log was non-empty and could drop loops.
         for ev in crate::game_logic::host_fire_sound_loop_log::take_last_drain() {

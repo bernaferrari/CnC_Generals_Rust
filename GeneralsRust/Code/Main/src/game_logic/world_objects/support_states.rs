@@ -60,8 +60,8 @@ fn clear_rider_change_runtime_state(
     // C++ clears the active WeaponSet before the replacement's set is chosen.
     // The bounded Combat Cycle bridge is the live representation of that set.
     container.combat_cycle_rider = 0;
-    container.weapon = None;
-    container.secondary_weapon = None;
+    let _ = container.replace_weapon_set_slot(0, None);
+    let _ = container.replace_weapon_set_slot(1, None);
     container.record_host_weapon_stats();
     container.record_host_model_condition();
 }

@@ -46,6 +46,12 @@ pub struct AssetManager {
     ww3d_manager: WW3DAssetManager,
     /// Cache of loaded models
     model_cache: HashMap<String, W3DModel>,
+    /// Validated C++ `Drawable::getBarrelCount` answers keyed by the exact
+    /// Object INI identity and active ModelCondition bit bank.  Entries are
+    /// populated only from models which are already resident in
+    /// [`Self::model_cache`]; combat callers must never turn a barrel lookup
+    /// into archive I/O or a renderer-to-GameLogic mutation.
+    weapon_barrel_count_cache: HashMap<WeaponBarrelCountCacheKey, [Option<u8>; 3]>,
     /// Exact raw-animation companions keyed by the full frozen Draw identity
     /// and the compatible source hierarchy. `None` memoizes a failed exact
     /// prewarm so render collection neither retries archive I/O nor selects a
@@ -74,6 +80,28 @@ struct CompanionAnimationCacheKey {
     draw_identity: String,
 }
 
+/// Stable cache identity for one exact source Draw-state selection.
+///
+/// A model basename is intentionally insufficient: an Object can select a
+/// different set and ordering of Draw modules when its ModelCondition flags
+/// change, and C++ [`Drawable::getBarrelCount`] returns the first nonzero
+/// answer in that declaration order.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct WeaponBarrelCountCacheKey {
+    object_name: String,
+    condition_bits: u128,
+}
+
+impl WeaponBarrelCountCacheKey {
+    fn new(object_name: &str, condition_bits: u128) -> Option<Self> {
+        let object_name = object_name.trim();
+        (!object_name.is_empty()).then(|| Self {
+            object_name: object_name.to_ascii_lowercase(),
+            condition_bits,
+        })
+    }
+}
+
 impl CompanionAnimationCacheKey {
     fn for_geometry_model(model: &W3DModel, identity: &str) -> Option<Self> {
         let hierarchy_name = model.hierarchy.as_ref()?.name.trim();
@@ -88,6 +116,70 @@ impl CompanionAnimationCacheKey {
             draw_identity: identity.trim().to_ascii_lowercase(),
         })
     }
+}
+
+/// Reconstruct the one answer returned by C++ `Drawable::getBarrelCount` for
+/// each WeaponSet slot from an already-selected source Draw-module sequence.
+///
+/// The caller supplies only models already resident in the AssetManager cache.
+/// If an earlier Draw module cannot be validated, the whole lookup is unknown:
+/// skipping it and accepting a later module would change C++'s first-nonzero
+/// ordering.  Conversely, a validated module with no barrel for a slot is a
+/// known zero and permits the next declared module to answer that slot.
+fn cached_weapon_barrel_counts_for_draw_models<F>(
+    draw_models: &[AuthoredDrawModel],
+    mut cached_model: F,
+) -> Option<[Option<u8>; 3]>
+where
+    F: FnMut(&str) -> Option<&W3DModel>,
+{
+    let mut counts = [None; 3];
+
+    for draw_model in draw_models {
+        // Once every slot has a first nonzero source answer, later modules
+        // cannot affect C++ Drawable::getBarrelCount and need not be resident.
+        if counts.iter().all(Option::is_some) {
+            break;
+        }
+
+        let bindings = &draw_model.weapon_bone_bindings;
+        if !bindings.source_fields_valid {
+            return None;
+        }
+
+        // A source state with no base for an unresolved slot is a proven zero
+        // for that Draw module; C++ needs no hierarchy lookup before its
+        // `m_weaponBarrelInfoVec[slot]` stays empty. Do not unnecessarily
+        // require/cache a model when every remaining slot is in that state.
+        let unresolved_slot_has_source_base = counts.iter().enumerate().any(|(slot, count)| {
+            if count.is_some() {
+                return false;
+            }
+            let source = &bindings.slots[slot];
+            source.fire_fx_bone_base.is_some()
+                || source.recoil_bone_base.is_some()
+                || source.muzzle_flash_bone_base.is_some()
+                || source.launch_bone_base.is_some()
+        });
+        if !unresolved_slot_has_source_base {
+            continue;
+        }
+
+        let model_key = draw_model.model_key.trim();
+        if model_key.is_empty() {
+            return None;
+        }
+        let model = cached_model(model_key)?;
+        let topology = model.weapon_barrel_topology_for_authored_bindings(bindings)?;
+
+        for (slot, count) in counts.iter_mut().enumerate() {
+            if count.is_none() {
+                *count = topology.barrel_count(slot as u8);
+            }
+        }
+    }
+
+    Some(counts)
 }
 
 /// Summary of a model warmup pass.
@@ -193,6 +285,7 @@ impl AssetManager {
             texture_manager: TextureManager::new(),
             ww3d_manager: WW3DAssetManager::new(),
             model_cache: HashMap::new(),
+            weapon_barrel_count_cache: HashMap::new(),
             companion_animation_cache: HashMap::new(),
             missing_model_keys: HashSet::new(),
             initialized: false,
@@ -879,6 +972,156 @@ impl AssetManager {
     ) -> Option<Vec<AuthoredDrawModel>> {
         self.ww3d_manager
             .select_draw_models_for_object_conditions(object_name, condition_bits)
+    }
+
+    /// Return cache-only, exact C++ `Drawable::getBarrelCount` candidates for
+    /// the currently selected Object INI Draw states.
+    ///
+    /// Each array entry is the first validated nonzero count contributed by
+    /// the source Draw modules in declaration order. `Some(None)` means every
+    /// currently validated module reported zero for that slot. `None` means
+    /// an earlier module or model is not resident/valid enough to prove the
+    /// answer. In that case the gameplay cursor must retain its existing
+    /// fail-closed one-barrel or staged-restore state; this method never opens
+    /// an archive, blocks on Tokio, or falls back by template/model suffix.
+    ///
+    /// Positive answers are immutable asset facts for the manager lifetime,
+    /// so they are memoized by exact Object identity and ModelCondition bank.
+    /// Negative/unknown answers are deliberately not cached: a normal safe
+    /// startup/render prewarm may make the exact source model resident later.
+    pub fn cached_weapon_barrel_counts_for_object_conditions(
+        &mut self,
+        object_name: &str,
+        condition_bits: u128,
+    ) -> Option<[Option<u8>; 3]> {
+        let cache_key = WeaponBarrelCountCacheKey::new(object_name, condition_bits)?;
+        if let Some(counts) = self.weapon_barrel_count_cache.get(&cache_key) {
+            return Some(*counts);
+        }
+
+        let draw_models = self.select_draw_models_for_object_conditions(object_name, condition_bits)?;
+        let counts = cached_weapon_barrel_counts_for_draw_models(&draw_models, |model_key| {
+            self.get_cached_model_ref(model_key)
+        })?;
+        self.weapon_barrel_count_cache.insert(cache_key, counts);
+        Some(counts)
+    }
+
+    /// Warm exact W3D models named by selected Draw states, without routing a
+    /// source model key through the Object-template lookup.  This is the safe
+    /// map/startup boundary counterpart to the cache-only combat lookup: it
+    /// may open archives here, but never from a fixed simulation tick.
+    pub fn prewarm_exact_w3d_models_blocking<I, S>(&mut self, model_keys: I) -> ModelPrewarmStats
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
+        let mut stats = ModelPrewarmStats::default();
+        let mut requested = Vec::new();
+        let mut seen = HashSet::new();
+
+        for model_key in model_keys {
+            let model_key = model_key.as_ref().trim();
+            if model_key.is_empty() {
+                continue;
+            }
+            let normalized = model_key.to_ascii_lowercase();
+            if !seen.insert(normalized.clone()) {
+                continue;
+            }
+            stats.requested += 1;
+            if self.model_cache.contains_key(&normalized) {
+                stats.cache_hits += 1;
+            } else {
+                requested.push(model_key.to_string());
+            }
+        }
+
+        for model_key in requested {
+            match self.load_w3d_model(&model_key) {
+                Ok(_) => stats.resolved += 1,
+                Err(error) => {
+                    self.missing_model_keys
+                        .insert(model_key.to_ascii_lowercase());
+                    warn!(
+                        "Failed to prewarm exact W3D model '{}' for cached barrel topology: {}",
+                        model_key, error
+                    );
+                    stats.missing += 1;
+                }
+            }
+        }
+
+        stats
+    }
+
+    /// Prewarm and memoize exact barrel-count facts for a bounded set of
+    /// active Object/ModelCondition selections.
+    ///
+    /// This method is intended for successful map/start boundaries. It loads
+    /// only Draw models whose unresolved source slots actually declare one of
+    /// C++'s four barrel bases; modules with no bases are already known to
+    /// return zero. A failed/malformed topology is left unknown rather than
+    /// stored as a one-barrel guess, so a v4 restored cursor remains staged.
+    pub fn prewarm_weapon_barrel_topologies_for_object_conditions<I>(
+        &mut self,
+        selections: I,
+    ) -> ModelPrewarmStats
+    where
+        I: IntoIterator<Item = (String, u128)>,
+    {
+        let mut selection_keys = Vec::new();
+        let mut seen_selections = HashSet::new();
+        let mut model_keys = Vec::new();
+        let mut seen_models = HashSet::new();
+
+        for (object_name, condition_bits) in selections {
+            let Some(cache_key) = WeaponBarrelCountCacheKey::new(&object_name, condition_bits)
+            else {
+                continue;
+            };
+            if !seen_selections.insert(cache_key.clone()) {
+                continue;
+            }
+            if self.weapon_barrel_count_cache.contains_key(&cache_key) {
+                continue;
+            }
+
+            let Some(draw_models) =
+                self.select_draw_models_for_object_conditions(&object_name, condition_bits)
+            else {
+                continue;
+            };
+            for draw_model in &draw_models {
+                let bindings = &draw_model.weapon_bone_bindings;
+                if !bindings.source_fields_valid {
+                    continue;
+                }
+                let has_source_base = bindings.slots.iter().any(|slot| {
+                    slot.fire_fx_bone_base.is_some()
+                        || slot.recoil_bone_base.is_some()
+                        || slot.muzzle_flash_bone_base.is_some()
+                        || slot.launch_bone_base.is_some()
+                });
+                let model_key = draw_model.model_key.trim();
+                if has_source_base
+                    && !model_key.is_empty()
+                    && seen_models.insert(model_key.to_ascii_lowercase())
+                {
+                    model_keys.push(model_key.to_string());
+                }
+            }
+            selection_keys.push((object_name, condition_bits));
+        }
+
+        let stats = self.prewarm_exact_w3d_models_blocking(model_keys);
+        for (object_name, condition_bits) in selection_keys {
+            let _ = self.cached_weapon_barrel_counts_for_object_conditions(
+                &object_name,
+                condition_bits,
+            );
+        }
+        stats
     }
 
     /// Get full object definition from WW3D Asset Manager

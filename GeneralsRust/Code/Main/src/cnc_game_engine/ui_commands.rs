@@ -606,8 +606,11 @@ impl CnCGameEngine {
             return None;
         };
         // A successful requested or fallback load installed a new terrain
-        // payload. Rebuild the presentation-owned Arc only when that new world
-        // is ready; failed attempts leave no renderable match to seed.
+        // payload and a new logical object world.  Rebuild the
+        // presentation-owned Arc and discard raw object-id renderer timelines
+        // only when that new world is ready; failed attempts leave their
+        // active world/cache intact.
+        self.render_pipeline.invalidate_world_visual_state();
         self.invalidate_presentation_terrain_cache();
         if loaded != map_name {
             warn!(
@@ -657,6 +660,33 @@ impl CnCGameEngine {
                 player_id,
                 faction_team,
                 setup_skirmish_ai,
+            },
+        );
+        self.host_match_game_mode = Some(mode);
+        self.host_match_local_team = Some(faction_team);
+        self.host_match_local_player_id = Some(self.current_player_id);
+        self.host_stamp_sim_timing_residuals();
+    }
+
+    /// Start a Campaign/Challenge session from its exact C++ PlayerTemplate.
+    ///
+    /// This intentionally has a separate authority payload from the legacy
+    /// Team-only helper above: no-template skirmish/runtime callers therefore
+    /// cannot inherit a stale selected General.
+    #[inline]
+    pub(super) fn host_start_new_game_with_player_template(
+        &mut self,
+        mode: crate::game_logic::GameMode,
+        faction_team: crate::game_logic::Team,
+        player_template: crate::game_logic::PlayerTemplateIdentity,
+    ) {
+        self.host_clear_match_residuals();
+        let player_id = self.current_player_id;
+        self.host_game_logic_mut().apply_session_control_op(
+            crate::game_logic::SessionControlOp::StartNewGameWithPlayerTemplate {
+                mode,
+                player_id,
+                player_template,
             },
         );
         self.host_match_game_mode = Some(mode);

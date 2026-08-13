@@ -156,25 +156,44 @@ impl CnCGameEngine {
 
     /// Restart the simulation with UI-selected parameters and refresh view/minimap.
     /// Wave 611: via `host_start_game_from_ui`.
-    pub(super) fn start_game_from_ui(
-        &mut self,
-        mode: GameMode,
-        faction: String,
-        map: String,
-        skirmish: Option<crate::skirmish_config::SkirmishMatchConfig>,
-    ) {
+    pub(super) fn start_game_from_ui(&mut self, request: HostStartRequest) {
         // Wave 611: thin wrapper — residual via host helper.
-        self.host_start_game_from_ui(mode, faction, map, skirmish)
+        self.host_start_game_from_ui(request)
     }
 
     /// Restart the simulation with UI-selected parameters and refresh view/minimap.
-    pub(super) fn host_start_game_from_ui(
-        &mut self,
-        mode: GameMode,
-        faction: String,
-        map: String,
-        skirmish: Option<crate::skirmish_config::SkirmishMatchConfig>,
-    ) {
+    pub(super) fn host_start_game_from_ui(&mut self, request: HostStartRequest) {
+        let HostStartRequest {
+            mode,
+            faction,
+            map,
+            skirmish,
+            player_template,
+        } = request;
+
+        // A typed shell descriptor is only meaningful for C++ single-player
+        // Campaign/Challenge GameInfo.  Do not let an accidental direct
+        // skirmish/runtime call attach it to a different start path.
+        if player_template.is_some() && !matches!(mode, GameMode::SinglePlayer) {
+            warn!(
+                "Rejecting PlayerTemplate identity on non-single-player start mode {:?}",
+                mode
+            );
+            return;
+        }
+
+        let faction_team = Self::team_from_faction(&faction);
+        if let Some(player_template) = player_template.as_ref() {
+            if player_template.base_team() != Some(faction_team) {
+                warn!(
+                    "Rejecting PlayerTemplate '{}' whose exact base side no longer matches requested team {:?}",
+                    player_template.template_name,
+                    faction_team
+                );
+                return;
+            }
+        }
+
         // Capture the provenance before this function moves Menu → Loading.  The
         // flag may only be completed after the normal map/bootstrap path reaches
         // InGame; a runtime-host `start_game` command has no physical WND click and
@@ -209,7 +228,6 @@ impl CnCGameEngine {
         self.host_clear_match_residuals();
         info!("host_start_game_from_ui: match residuals cleared");
 
-        let faction_team = Self::team_from_faction(&faction);
         // Wave 169/840: empty UI map → DEFAULT_SKIRMISH_MAP (Defcon6) before
         // shell-residual rejection. Matches C++ startNewGame default map residual.
         let map = if map.trim().is_empty() {
@@ -247,9 +265,24 @@ impl CnCGameEngine {
                 self.host_start_new_game_with_faction(mode, faction_team, true);
             }
         } else {
-            // Wave 577: host start residual via helper (non-skirmish).
-            info!("host_start_game_from_ui: host_start_new_game_with_faction(non-skirmish)");
-            self.host_start_new_game_with_faction(mode, faction_team, false);
+            match player_template {
+                Some(player_template) => {
+                    info!(
+                        "host_start_game_from_ui: exact PlayerTemplate start '{}'",
+                        player_template.template_name
+                    );
+                    self.host_start_new_game_with_player_template(
+                        mode,
+                        faction_team,
+                        player_template,
+                    );
+                }
+                None => {
+                    // Wave 577: host start residual via helper (non-skirmish).
+                    info!("host_start_game_from_ui: host_start_new_game_with_faction(non-skirmish)");
+                    self.host_start_new_game_with_faction(mode, faction_team, false);
+                }
+            }
         }
         info!("host_start_game_from_ui: new game started, loading requested map={map_name}");
 

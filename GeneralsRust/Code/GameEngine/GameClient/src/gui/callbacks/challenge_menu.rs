@@ -2,6 +2,9 @@
 
 use crate::display::image::get_mapped_image_collection;
 use crate::game_text::GameText;
+use crate::gui::campaign_launch_host_bridge::{
+    publish_host_campaign_launch, HostCampaignLaunchDescriptor,
+};
 use crate::gui::campaign_manager::{get_campaign_manager, GameDifficulty as CampaignDifficulty};
 use crate::gui::challenge_game_info::{
     clear_challenge_game_info, init_challenge_game_info, set_challenge_slot0_and_map,
@@ -302,7 +305,15 @@ fn update_bio(state: &mut ChallengeMenuState, frames: usize) {
     sync_bio_text(state);
 }
 
-fn set_general_campaign(button_index: usize) -> Option<String> {
+#[derive(Debug, Clone)]
+struct ChallengeSelection {
+    map_name: String,
+    campaign_name: String,
+    player_template_name: String,
+    player_template_index: i32,
+}
+
+fn set_general_campaign(button_index: usize) -> Option<ChallengeSelection> {
     if button_index >= NUM_GENERALS {
         return None;
     }
@@ -341,7 +352,12 @@ fn set_general_campaign(button_index: usize) -> Option<String> {
         set_challenge_slot0_and_map(current_map.clone(), player_display_name, template_num);
     }
 
-    Some(current_map)
+    Some(ChallengeSelection {
+        map_name: current_map,
+        campaign_name,
+        player_template_name,
+        player_template_index: template_num,
+    })
 }
 
 fn start_challenge_game() {
@@ -361,7 +377,7 @@ fn start_challenge_game() {
         generals.current_difficulty()
     };
 
-    let Some(current_map) = set_general_campaign(selected_index) else {
+    let Some(selection) = set_general_campaign(selected_index) else {
         return;
     };
     let rank_points = {
@@ -370,12 +386,12 @@ fn start_challenge_game() {
         campaign_manager.get_rank_points()
     };
 
-    if current_map.is_empty() {
+    if selection.map_name.is_empty() {
         return;
     }
 
     if let Some(data) = get_global_data() {
-        data.write().pending_file = current_map;
+        data.write().pending_file = selection.map_name.clone();
     }
     TheScriptEngine::set_global_difficulty(challenge_to_logic_difficulty(difficulty));
 
@@ -397,11 +413,30 @@ fn start_challenge_game() {
         let _ = TheGameLogic::clear_game_data();
     }
 
+    // Keep both GlobalData residences coherent as hq-gyp/hq-c3w do, then
+    // publish the C++ TheChallengeGameInfo selection atomically with the
+    // NewGame payload for Main authority.
+    game_engine::common::global_data::write().pending_file = selection.map_name.clone();
+    let logic_difficulty = challenge_to_logic_difficulty(difficulty);
+    let _ = publish_host_campaign_launch(HostCampaignLaunchDescriptor {
+        generation: 0,
+        map_name: selection.map_name,
+        campaign_name: selection.campaign_name,
+        campaign_player_faction: String::new(),
+        is_challenge: true,
+        player_template_name: Some(selection.player_template_name),
+        player_template_index: Some(selection.player_template_index),
+        game_mode_code: GAME_SINGLE_PLAYER,
+        difficulty_code: logic_difficulty,
+        rank_points,
+        max_fps: Some(LOGICFRAMES_PER_SECOND as i32),
+    });
+
     let message_stream = get_message_stream();
     let mut stream = message_stream.write().unwrap_or_else(|e| e.into_inner());
     let msg = stream.append_message(GameMessageType::NewGame);
     msg.append_integer_argument(GAME_SINGLE_PLAYER);
-    msg.append_integer_argument(challenge_to_logic_difficulty(difficulty));
+    msg.append_integer_argument(logic_difficulty);
     msg.append_integer_argument(rank_points);
     msg.append_integer_argument(LOGICFRAMES_PER_SECOND as i32);
     init_random_with_seed(0);

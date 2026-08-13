@@ -11,7 +11,8 @@ use crate::gui::gadgets::ComboBoxItem;
 use crate::gui::gadgets::ListBoxItemData;
 use crate::gui::header_template::get_header_template_manager;
 use crate::gui::options_host_bridge::{
-    publish_host_draw_rmb_scroll_anchor, publish_host_move_rmb_scroll_anchor,
+    publish_host_alternate_mouse, publish_host_draw_rmb_scroll_anchor,
+    publish_host_move_rmb_scroll_anchor,
 };
 use crate::gui::shell::main_menu::{get_main_menu, DisplaySettings};
 use crate::gui::{
@@ -1019,9 +1020,9 @@ impl OptionsMenu {
         let _ = pref.write();
         self.firewall_behavior_override = None;
 
+        Self::commit_alternate_mouse_setting(alternate_mouse);
         {
             let mut global = runtime_global_data::write();
-            global.use_alternate_mouse = alternate_mouse;
             global.client_retaliation_mode_enabled = retaliation;
             global.double_click_attack_move = double_click_attack_move;
             global.language_filter_pref = language_filter;
@@ -1079,6 +1080,21 @@ impl OptionsMenu {
         }
 
         resolution_changed
+    }
+
+    /// C++ has one writable GlobalData object. Rust's live consumers span a
+    /// parsed-INI residence and a runtime options residence, so commit this
+    /// setting to both before a later LeftHUD callback snapshots it for Main.
+    fn commit_alternate_mouse_setting(alternate_mouse: bool) {
+        if let Some(data) = game_engine::common::ini::get_global_data() {
+            data.write().use_alternate_mouse = alternate_mouse;
+        }
+        runtime_global_data::write().use_alternate_mouse = alternate_mouse;
+        // Main is the physical-world input authority in an AuthorityOnly
+        // match.  Keep the legacy residences above for standalone GameClient,
+        // then deliver the same accepted setting through the bounded host
+        // bridge when it is installed.
+        let _ = publish_host_alternate_mouse(alternate_mouse);
     }
 
     fn close_menu(&mut self) {
@@ -2937,7 +2953,7 @@ pub fn simulate_map_select_menu_prepare_ok(map_path: &str) -> bool {
 mod tests {
     use super::*;
 
-    fn with_map_select_global_data_restored(f: impl FnOnce()) {
+    fn with_global_data_residences_restored(f: impl FnOnce()) {
         runtime_global_data::with_global_data_restored(|| {
             let ini_global = game_engine::common::ini::ini_game_data::ensure_global_data();
             let ini_snapshot = ini_global.read().clone();
@@ -3132,6 +3148,38 @@ mod tests {
     }
 
     #[test]
+    fn options_accept_converges_alternate_mouse_residences_and_publishes_to_main() {
+        use crate::gui::options_host_bridge::{
+            acquire_host_options_bridge_test_guard, set_host_options_bridge_enabled,
+            take_host_options_requests, HostOptionsRequest,
+        };
+
+        let _bridge_guard = acquire_host_options_bridge_test_guard();
+        set_host_options_bridge_enabled(true);
+        with_global_data_residences_restored(|| {
+            let ini_global = game_engine::common::ini::ini_game_data::ensure_global_data();
+            ini_global.write().use_alternate_mouse = false;
+            runtime_global_data::write().use_alternate_mouse = true;
+
+            OptionsMenu::commit_alternate_mouse_setting(true);
+            assert!(ini_global.read().use_alternate_mouse);
+            assert!(runtime_global_data::read().use_alternate_mouse);
+            assert_eq!(
+                take_host_options_requests(),
+                vec![HostOptionsRequest::AlternateMouse { enabled: true }]
+            );
+
+            OptionsMenu::commit_alternate_mouse_setting(false);
+            assert!(!ini_global.read().use_alternate_mouse);
+            assert!(!runtime_global_data::read().use_alternate_mouse);
+            assert_eq!(
+                take_host_options_requests(),
+                vec![HostOptionsRequest::AlternateMouse { enabled: false }]
+            );
+        });
+    }
+
+    #[test]
     fn map_select_double_click_uses_event_row_selection_like_cpp() {
         let mut menu = MapSelectMenu::new();
         menu.listbox_map_id = 42;
@@ -3178,7 +3226,7 @@ mod tests {
 
     #[test]
     fn map_select_start_game_mirrors_selected_map_to_both_global_data_residences() {
-        with_map_select_global_data_restored(|| {
+        with_global_data_residences_restored(|| {
             let selected_map = "Maps\\Official\\MapSelectExact.map".to_string();
             let ini_global = game_engine::common::ini::ini_game_data::ensure_global_data();
             ini_global.write().pending_file = "Maps\\Legacy\\Ini.map".to_string();
@@ -3196,7 +3244,7 @@ mod tests {
 
     #[test]
     fn map_select_start_game_without_selection_preserves_both_pending_maps() {
-        with_map_select_global_data_restored(|| {
+        with_global_data_residences_restored(|| {
             let ini_global = game_engine::common::ini::ini_game_data::ensure_global_data();
             ini_global.write().pending_file = "Maps\\Legacy\\Ini.map".to_string();
             runtime_global_data::write().pending_file = "Maps\\Legacy\\Runtime.map".to_string();

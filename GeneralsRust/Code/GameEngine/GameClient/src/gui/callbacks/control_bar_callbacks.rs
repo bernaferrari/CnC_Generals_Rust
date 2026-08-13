@@ -14,6 +14,7 @@ use crate::gui::{
     WindowMsgData, WindowMsgHandled,
 };
 use crate::helpers::{TheControlBar, TheInGameUI};
+use crate::input::{with_mouse, MouseButton};
 use crate::language_filter::get_language_filter;
 use crate::message_stream::{get_message_stream, GameMessageType};
 use game_engine::common::ini::get_global_data;
@@ -74,6 +75,12 @@ fn radar_allows_input() -> bool {
         return false;
     }
     local_player_has_radar()
+}
+
+/// After C++ `LeftHUDInput` validates radar availability, a held middle button
+/// falls through to ordinary camera handling.
+fn middle_mouse_is_held() -> bool {
+    with_mouse(|mouse| mouse.get_mouse_status().is_button_down(MouseButton::Middle))
 }
 
 fn local_pixel_to_radar(local_x: i32, local_y: i32, width: i32, height: i32) -> Option<ICoord2D> {
@@ -526,13 +533,29 @@ impl LeftHUDCallbacks {
         data1: WindowMsgData,
         _data2: WindowMsgData,
     ) -> WindowMsgHandled {
+        let host_bridge = host_control_bar_bridge_enabled();
+
+        // C++ first eats input when the radar is unavailable, then checks
+        // held MMB.  Main owns radar authority while the bridge is active,
+        // so defer the equivalent check to its existing presentation-side
+        // gate rather than consulting the dormant standalone globals.
+        if !host_bridge && !radar_allows_input() {
+            return WindowMsgHandled::Handled;
+        }
+
+        // C++ ControlBarCallback.cpp checks middleState before its switch.
+        // In particular, do not turn an LMB/RMB held alongside MMB into an
+        // authoritative-host minimap interaction; returning Ignored lets the
+        // normal middle-mouse route retain ownership.
+        if middle_mouse_is_held() {
+            return WindowMsgHandled::Ignored;
+        }
+
         // The executable owns the Rust simulation, not this standalone
         // GameClient's legacy GameLogic globals.  Send real LeftHUD clicks to
         // Main before consulting those globals, while leaving the standalone
         // path below exactly intact when the bridge is disabled.
-        if host_control_bar_bridge_enabled()
-            && matches!(msg, WindowMessage::LeftDown | WindowMessage::RightDown)
-        {
+        if host_bridge && matches!(msg, WindowMessage::LeftDown | WindowMessage::RightDown) {
             self.publish_host_minimap_mouse_down(window, msg, data1);
             return WindowMsgHandled::Handled;
         }
@@ -928,6 +951,90 @@ mod tests {
             crate::gui::control_bar::take_host_control_bar_requests().as_slice(),
             [crate::gui::control_bar::HostControlBarRequest::SelectNextIdleWorker]
         ));
+    }
+
+    #[test]
+    fn left_hud_host_request_captures_the_live_alternate_mouse_setting() {
+        let _bridge_guard = crate::gui::control_bar::acquire_host_control_bar_bridge_test_guard();
+        let ini_global = game_engine::common::ini::ini_game_data::ensure_global_data();
+        let previous_alternate_mouse = ini_global.read().use_alternate_mouse;
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            ini_global.write().use_alternate_mouse = true;
+            crate::gui::control_bar::set_host_control_bar_bridge_enabled(true);
+
+            let mut window = GameWindow::new();
+            window
+                .set_position(7, 443)
+                .expect("synthetic LeftHUD position is valid");
+            window
+                .set_size(167, 152)
+                .expect("synthetic LeftHUD size is valid");
+
+            let mut callbacks = LeftHUDCallbacks::new();
+            let click = 42usize | (491usize << 16);
+            assert_eq!(
+                callbacks.input(&window, WindowMessage::LeftDown, click, 0),
+                WindowMsgHandled::Handled
+            );
+
+            let published = crate::gui::control_bar::take_host_minimap_interactions();
+            assert!(matches!(
+                published.as_slice(),
+                [interaction]
+                    if interaction.button
+                        == crate::gui::control_bar::HostMinimapMouseButton::Left
+                        && interaction.alternate_mouse
+            ));
+        }));
+
+        ini_global.write().use_alternate_mouse = previous_alternate_mouse;
+        if let Err(payload) = result {
+            std::panic::resume_unwind(payload);
+        }
+    }
+
+    #[test]
+    fn held_middle_button_bypasses_left_hud_before_host_minimap_publication() {
+        let _bridge_guard = crate::gui::control_bar::acquire_host_control_bar_bridge_test_guard();
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            crate::gui::control_bar::set_host_control_bar_bridge_enabled(true);
+
+            let mut window = GameWindow::new();
+            window
+                .set_position(7, 443)
+                .expect("synthetic LeftHUD position is valid");
+            window
+                .set_size(167, 152)
+                .expect("synthetic LeftHUD size is valid");
+
+            with_mouse(|mouse| {
+                let _ =
+                    mouse.handle_mouse_button(MouseButton::Middle, true, std::time::Instant::now());
+            });
+
+            let mut callbacks = LeftHUDCallbacks::new();
+            let click = 42usize | (491usize << 16);
+            for message in [WindowMessage::LeftDown, WindowMessage::RightDown] {
+                assert_eq!(
+                    callbacks.input(&window, message, click, 0),
+                    WindowMsgHandled::Ignored,
+                    "C++ LeftHUDInput yields to the held-middle route before {message:?}"
+                );
+            }
+            assert!(
+                crate::gui::control_bar::take_host_minimap_interactions().is_empty(),
+                "a held middle button must not publish an authoritative minimap click"
+            );
+        }));
+
+        with_mouse(|mouse| {
+            let _ =
+                mouse.handle_mouse_button(MouseButton::Middle, false, std::time::Instant::now());
+        });
+        if let Err(payload) = result {
+            std::panic::resume_unwind(payload);
+        }
     }
 }
 

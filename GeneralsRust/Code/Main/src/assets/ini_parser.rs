@@ -91,6 +91,161 @@ pub struct AuthoredDrawSubobjectVisibility {
     pub hidden: bool,
 }
 
+/// One exact per-weapon-slot W3DModelDraw bone binding from a selected
+/// `ModelConditionInfo`.
+///
+/// These are *base* names. C++ `validateWeaponBarrelInfo` probes each base
+/// with `01` through `99` before trying the unadorned name, using all four
+/// fields to delimit a barrel. A future renderer must therefore not derive a
+/// barrel count from only recoil or muzzle names.
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct AuthoredDrawWeaponBoneSlot {
+    /// C++ `m_weaponFireFXBoneName[slot]`.
+    pub fire_fx_bone_base: Option<String>,
+    /// C++ `m_weaponRecoilBoneName[slot]`.
+    pub recoil_bone_base: Option<String>,
+    /// C++ `m_weaponMuzzleFlashName[slot]`.
+    pub muzzle_flash_bone_base: Option<String>,
+    /// C++ `m_weaponProjectileLaunchBoneName[slot]`.
+    pub launch_bone_base: Option<String>,
+}
+
+/// Source-authored weapon-bone bases for PRIMARY, SECONDARY, and TERTIARY.
+///
+/// `source_fields_valid` lets the later visual path reject an incomplete or
+/// unrecognized source declaration instead of treating it as an absent bone
+/// and inventing a topology. The default is valid: a state with no weapon
+/// bones simply has no visual recoil topology.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct AuthoredDrawWeaponBoneBindings {
+    pub slots: [AuthoredDrawWeaponBoneSlot; 3],
+    #[serde(default = "authored_draw_weapon_bone_bindings_valid_default")]
+    pub source_fields_valid: bool,
+}
+
+const fn authored_draw_weapon_bone_bindings_valid_default() -> bool {
+    true
+}
+
+impl Default for AuthoredDrawWeaponBoneBindings {
+    fn default() -> Self {
+        Self {
+            slots: std::array::from_fn(|_| AuthoredDrawWeaponBoneSlot::default()),
+            source_fields_valid: true,
+        }
+    }
+}
+
+impl AuthoredDrawWeaponBoneBindings {
+    /// Return one concrete C++ `WeaponSlotType` binding without aliasing an
+    /// out-of-range slot to PRIMARY.
+    pub fn slot(&self, slot: u8) -> Option<&AuthoredDrawWeaponBoneSlot> {
+        self.slots.get(usize::from(slot))
+    }
+}
+
+/// Exact recoil coefficients authored on one `W3DModelDraw` module.
+///
+/// These live on `W3DModelDrawModuleData`, not on a `ModelConditionInfo`.
+/// Consequently every selected condition state of one Draw module observes
+/// the same values.  The two speed fields retain C++'s *stored* units: an
+/// authored `InitialRecoilSpeed`/`RecoilSettleSpeed` passes through
+/// `INI::parseVelocityReal` and is converted to a per-logic-frame value,
+/// whereas the C++ constructor defaults are already stored as `2.0` and
+/// `0.065` without that conversion.
+///
+/// Raw `f32` bits keep this frozen source record `Eq`, serializable, and free
+/// of approximate identity comparisons.  A later renderer must check
+/// [`Self::is_visual_usable`] before consuming it; malformed, non-finite, or
+/// negative data must remain bind-pose/idle rather than acquire guessed
+/// recoil motion.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct AuthoredDrawRecoilKinematics {
+    /// C++ `m_initialRecoil`, in the exact stored units described above.
+    pub initial_recoil_per_logic_frame_bits: u32,
+    /// C++ `m_maxRecoil` distance.
+    pub max_recoil_distance_bits: u32,
+    /// C++ `m_recoilDamping` multiplier.
+    pub recoil_damping_bits: u32,
+    /// C++ `m_recoilSettle`, in the exact stored units described above.
+    pub recoil_settle_per_logic_frame_bits: u32,
+    /// False only when Main could not parse a source numeric token.  Parsed
+    /// but visually unsafe values remain retained and are rejected by
+    /// `is_visual_usable`, so presentation never replaces them with defaults.
+    #[serde(default = "authored_draw_recoil_kinematics_valid_default")]
+    pub source_fields_valid: bool,
+}
+
+const fn authored_draw_recoil_kinematics_valid_default() -> bool {
+    true
+}
+
+impl Default for AuthoredDrawRecoilKinematics {
+    fn default() -> Self {
+        Self {
+            // W3DModelDrawModuleData::W3DModelDrawModuleData, not an INI
+            // parse path. Keep the C++ defaults verbatim rather than dividing
+            // them by 30 like an authored velocity override.
+            initial_recoil_per_logic_frame_bits: 2.0f32.to_bits(),
+            max_recoil_distance_bits: 3.0f32.to_bits(),
+            recoil_damping_bits: 0.4f32.to_bits(),
+            recoil_settle_per_logic_frame_bits: 0.065f32.to_bits(),
+            source_fields_valid: true,
+        }
+    }
+}
+
+impl AuthoredDrawRecoilKinematics {
+    pub fn initial_recoil_per_logic_frame(&self) -> f32 {
+        f32::from_bits(self.initial_recoil_per_logic_frame_bits)
+    }
+
+    pub fn max_recoil_distance(&self) -> f32 {
+        f32::from_bits(self.max_recoil_distance_bits)
+    }
+
+    pub fn recoil_damping(&self) -> f32 {
+        f32::from_bits(self.recoil_damping_bits)
+    }
+
+    pub fn recoil_settle_per_logic_frame(&self) -> f32 {
+        f32::from_bits(self.recoil_settle_per_logic_frame_bits)
+    }
+
+    /// Authorize bounded visual recoil only for source data the renderer can
+    /// evolve without manufacturing a sign, NaN, or rate. C++ has no special
+    /// fallback for invalid INI input, so invalid data remains unavailable.
+    pub fn is_visual_usable(&self) -> bool {
+        self.source_fields_valid
+            && self.initial_recoil_per_logic_frame().is_finite()
+            && self.max_recoil_distance().is_finite()
+            && self.recoil_damping().is_finite()
+            && self.recoil_settle_per_logic_frame().is_finite()
+            && self.initial_recoil_per_logic_frame() >= 0.0
+            && self.max_recoil_distance() >= 0.0
+            && self.recoil_damping() >= 0.0
+            && self.recoil_settle_per_logic_frame() >= 0.0
+    }
+
+    fn set_initial_recoil_speed(&mut self, value: f32) {
+        self.initial_recoil_per_logic_frame_bits =
+            (value * game_engine::common::game_common::SECONDS_PER_LOGICFRAME_REAL).to_bits();
+    }
+
+    fn set_max_recoil_distance(&mut self, value: f32) {
+        self.max_recoil_distance_bits = value.to_bits();
+    }
+
+    fn set_recoil_damping(&mut self, value: f32) {
+        self.recoil_damping_bits = value.to_bits();
+    }
+
+    fn set_recoil_settle_speed(&mut self, value: f32) {
+        self.recoil_settle_per_logic_frame_bits =
+            (value * game_engine::common::game_common::SECONDS_PER_LOGICFRAME_REAL).to_bits();
+    }
+}
+
 /// The primary W3DModelDraw turret binding selected from one source condition
 /// state.
 ///
@@ -205,6 +360,11 @@ pub struct DrawConditionStateDefinition {
     /// this complete record from `DefaultConditionState` before their local
     /// directives are parsed.
     pub primary_turret: AuthoredDrawPrimaryTurret,
+    /// Exact C++ per-weapon-slot bases used later by
+    /// `ModelConditionInfo::validateWeaponBarrelInfo`. Normal and transition
+    /// states inherit this complete record from Default before local fields
+    /// are parsed, just like the model, animations, visibility, and turret.
+    pub weapon_bone_bindings: AuthoredDrawWeaponBoneBindings,
     /// Parser-only counterpart of C++ `ANIMS_COPIED_FROM_DEFAULT_STATE`.
     /// A state starts with Default's animations but its first Animation or
     /// IdleAnimation field replaces that inherited list rather than appending.
@@ -222,6 +382,7 @@ impl DrawConditionStateDefinition {
             animation_mode: AuthoredDrawAnimationMode::Once,
             subobject_visibility: Vec::new(),
             primary_turret: AuthoredDrawPrimaryTurret::default(),
+            weapon_bone_bindings: AuthoredDrawWeaponBoneBindings::default(),
             animations_copied_from_default: false,
         }
     }
@@ -236,6 +397,7 @@ impl DrawConditionStateDefinition {
             animation_mode: AuthoredDrawAnimationMode::Once,
             subobject_visibility: Vec::new(),
             primary_turret: AuthoredDrawPrimaryTurret::default(),
+            weapon_bone_bindings: AuthoredDrawWeaponBoneBindings::default(),
             animations_copied_from_default: false,
         }
     }
@@ -250,6 +412,7 @@ impl DrawConditionStateDefinition {
             animation_mode: AuthoredDrawAnimationMode::Once,
             subobject_visibility: Vec::new(),
             primary_turret: AuthoredDrawPrimaryTurret::default(),
+            weapon_bone_bindings: AuthoredDrawWeaponBoneBindings::default(),
             animations_copied_from_default: false,
         }
     }
@@ -275,6 +438,10 @@ impl DrawConditionStateDefinition {
 pub struct DrawModuleDefinition {
     pub declaration: String,
     pub ignored_condition_tokens: Vec<String>,
+    /// Module-scoped W3DModelDraw recoil coefficients. These are frozen on
+    /// each selected Draw model so a same-mesh condition state cannot borrow
+    /// kinetics from an unrelated module or basename.
+    pub recoil_kinematics: AuthoredDrawRecoilKinematics,
     pub condition_states: Vec<DrawConditionStateDefinition>,
 }
 
@@ -283,6 +450,7 @@ impl DrawModuleDefinition {
         Self {
             declaration,
             ignored_condition_tokens: Vec::new(),
+            recoil_kinematics: AuthoredDrawRecoilKinematics::default(),
             condition_states: Vec::new(),
         }
     }
@@ -321,6 +489,12 @@ pub struct AuthoredDrawModel {
     /// a process-local `usize`, so saved presentation frames remain portable
     /// across supported 32- and 64-bit Rust targets.
     pub module_index: u32,
+    /// Fixed-width identity of the source `ConditionState` selected inside
+    /// this Draw module. It is deliberately retained rather than inferred
+    /// from the model key: one mesh can be reused by several states with
+    /// different weapon-bone topologies.
+    #[serde(default)]
+    pub selected_condition_state_index: u32,
     pub model_key: String,
     /// The exact selected state's animation entries, including deliberate
     /// repeated entries. Empty means C++ selected no state animation and the
@@ -340,6 +514,16 @@ pub struct AuthoredDrawModel {
     /// entire vehicle hull.
     #[serde(default)]
     pub primary_turret: AuthoredDrawPrimaryTurret,
+    /// Frozen exact weapon-bone bases from the selected source state. A
+    /// renderer may consume this only after validating the active hierarchy;
+    /// empty/default remains no recoil topology, never a model-name fallback.
+    #[serde(default)]
+    pub weapon_bone_bindings: AuthoredDrawWeaponBoneBindings,
+    /// Frozen C++ W3DModelDraw module recoil coefficients. The source module
+    /// owns these values, rather than the selected condition state or model
+    /// basename; a later renderer must still validate them before use.
+    #[serde(default)]
+    pub recoil_kinematics: AuthoredDrawRecoilKinematics,
 }
 
 /// One source-authored `Behavior = ...` module, retained with its own block
@@ -662,22 +846,32 @@ impl ObjectDefinition {
                 // valid retail data; fail closed instead of wrapping/aliasing.
                 Err(_) => return Some(Vec::new()),
             };
-            let state = match module.selected_condition_state_for_conditions(condition_bits) {
-                Ok(Some(state)) => state,
-                // A source module exists but Main cannot faithfully select it.
-                // Do not partially render its siblings as a substitute state.
-                Ok(None) | Err(()) => return Some(Vec::new()),
+            let (condition_state_index, state) =
+                match module.selected_condition_state_for_conditions(condition_bits) {
+                    Ok(Some(selected)) => selected,
+                    // A source module exists but Main cannot faithfully select it.
+                    // Do not partially render its siblings as a substitute state.
+                    Ok(None) | Err(()) => return Some(Vec::new()),
+                };
+            let condition_state_index = match u32::try_from(condition_state_index) {
+                Ok(index) => index,
+                // State identity crosses the presentation/save boundary; do
+                // not wrap a malformed count into a different state.
+                Err(_) => return Some(Vec::new()),
             };
             let AuthoredConditionModel::Named(model_key) = &state.model else {
                 continue;
             };
             selected.push(AuthoredDrawModel {
                 module_index,
+                selected_condition_state_index: condition_state_index,
                 model_key: model_key.clone(),
                 animations: state.animations.clone(),
                 animation_mode: state.animation_mode.clone(),
                 subobject_visibility: state.subobject_visibility.clone(),
                 primary_turret: state.primary_turret.clone(),
+                weapon_bone_bindings: state.weapon_bone_bindings.clone(),
+                recoil_kinematics: module.recoil_kinematics.clone(),
             });
         }
 
@@ -689,7 +883,7 @@ impl DrawModuleDefinition {
     /// Match this one source-authored Draw module using the C++
     /// `SparseMatchFinder` ordering used by `W3DModelDraw`.
     fn select_model_for_conditions(&self, condition_bits: u128) -> AuthoredConditionModelSelection {
-        let Some(state) = self
+        let Some((_, state)) = self
             .selected_condition_state_for_conditions(condition_bits)
             .ok()
             .flatten()
@@ -713,7 +907,7 @@ impl DrawModuleDefinition {
     fn selected_condition_state_for_conditions(
         &self,
         condition_bits: u128,
-    ) -> std::result::Result<Option<&DrawConditionStateDefinition>, ()> {
+    ) -> std::result::Result<Option<(usize, &DrawConditionStateDefinition)>, ()> {
         let Some(ignored_bits) =
             ObjectDefinition::condition_tokens_mask(&self.ignored_condition_tokens)
         else {
@@ -721,11 +915,11 @@ impl DrawModuleDefinition {
         };
         let query_bits = condition_bits & !ignored_bits;
 
-        let mut best_state: Option<&DrawConditionStateDefinition> = None;
+        let mut best_state: Option<(usize, &DrawConditionStateDefinition)> = None;
         let mut best_yes_match = 0u32;
         let mut best_yes_extraneous = u32::MAX;
 
-        for state in &self.condition_states {
+        for (state_index, state) in self.condition_states.iter().enumerate() {
             if state.is_transition {
                 continue;
             }
@@ -743,7 +937,7 @@ impl DrawModuleDefinition {
                 if yes_match > best_yes_match
                     || (yes_match >= best_yes_match && yes_extraneous < best_yes_extraneous)
                 {
-                    best_state = Some(state);
+                    best_state = Some((state_index, state));
                     best_yes_match = yes_match;
                     best_yes_extraneous = yes_extraneous;
                 }
@@ -769,6 +963,26 @@ impl ObjectDefinition {
         }
         Some(mask)
     }
+}
+
+/// One C++ `ModelConditionInfo` weapon-bone field. Kept private because the
+/// public frozen record exposes the four exact base-name slots directly.
+#[derive(Clone, Copy)]
+enum DrawWeaponBoneField {
+    FireFx,
+    Recoil,
+    MuzzleFlash,
+    Launch,
+}
+
+/// One module-scoped `W3DModelDrawModuleData` recoil field. Unlike the
+/// weapon-bone fields above, these do not belong to a condition-state block.
+#[derive(Clone, Copy)]
+enum DrawRecoilKinematicField {
+    InitialSpeed,
+    MaxDistance,
+    Damping,
+    SettleSpeed,
 }
 
 /// INI Parser for Generals object definitions
@@ -1049,6 +1263,38 @@ impl IniParser {
                             value,
                             true,
                         ),
+                        // These four fields belong to C++
+                        // W3DModelDrawModuleData, rather than any nested
+                        // ModelConditionInfo. Retain them on the exact Draw
+                        // module before freezing its selected state.
+                        "initialrecoilspeed" => Self::assign_draw_module_recoil_kinematics(
+                            obj,
+                            active_draw_module,
+                            active_condition_state,
+                            value,
+                            DrawRecoilKinematicField::InitialSpeed,
+                        ),
+                        "maxrecoildistance" => Self::assign_draw_module_recoil_kinematics(
+                            obj,
+                            active_draw_module,
+                            active_condition_state,
+                            value,
+                            DrawRecoilKinematicField::MaxDistance,
+                        ),
+                        "recoildamping" => Self::assign_draw_module_recoil_kinematics(
+                            obj,
+                            active_draw_module,
+                            active_condition_state,
+                            value,
+                            DrawRecoilKinematicField::Damping,
+                        ),
+                        "recoilsettlespeed" => Self::assign_draw_module_recoil_kinematics(
+                            obj,
+                            active_draw_module,
+                            active_condition_state,
+                            value,
+                            DrawRecoilKinematicField::SettleSpeed,
+                        ),
                         // C++ W3DModelDraw stores the primary `m_turrets[0]`
                         // binding on every ModelConditionInfo. These fields
                         // are presentation-only but must survive the exact
@@ -1098,6 +1344,39 @@ impl IniParser {
                             active_condition_state,
                             value,
                             false,
+                        ),
+                        // C++ W3DModelDraw retains four independent
+                        // WeaponSlotType-indexed base names on each selected
+                        // ModelConditionInfo. They delimit barrel topology;
+                        // do not collapse them to the currently visible
+                        // recoil/muzzle pair.
+                        "weaponfirefxbone" => Self::assign_draw_condition_weapon_bone(
+                            obj,
+                            active_draw_module,
+                            active_condition_state,
+                            value,
+                            DrawWeaponBoneField::FireFx,
+                        ),
+                        "weaponrecoilbone" => Self::assign_draw_condition_weapon_bone(
+                            obj,
+                            active_draw_module,
+                            active_condition_state,
+                            value,
+                            DrawWeaponBoneField::Recoil,
+                        ),
+                        "weaponmuzzleflash" => Self::assign_draw_condition_weapon_bone(
+                            obj,
+                            active_draw_module,
+                            active_condition_state,
+                            value,
+                            DrawWeaponBoneField::MuzzleFlash,
+                        ),
+                        "weaponlaunchbone" => Self::assign_draw_condition_weapon_bone(
+                            obj,
+                            active_draw_module,
+                            active_condition_state,
+                            value,
+                            DrawWeaponBoneField::Launch,
                         ),
                         // AltTurretArtAngle/AltTurretArtPitch only affect an
                         // active alternate bone, which already makes the
@@ -1338,6 +1617,7 @@ impl IniParser {
                 state.animation_mode = default.animation_mode.clone();
                 state.subobject_visibility = default.subobject_visibility.clone();
                 state.primary_turret = default.primary_turret.clone();
+                state.weapon_bone_bindings = default.weapon_bone_bindings.clone();
                 state.animations_copied_from_default = true;
             }
         }
@@ -1454,6 +1734,55 @@ impl IniParser {
             return;
         };
         state.animation_mode = AuthoredDrawAnimationMode::parse(value);
+    }
+
+    /// Parse one `INI::scanReal`-style numeric token. Module recoil fields
+    /// consume only their first source token; trailing text belongs to later
+    /// parser fields in C++, not to an invented compound value here.
+    fn parse_draw_recoil_real(value: &str) -> Option<f32> {
+        value.split_whitespace().next()?.parse::<f32>().ok()
+    }
+
+    /// Retain one `W3DModelDrawModuleData` recoil coefficient on the active
+    /// Draw module. C++ parses the two speed fields through
+    /// `INI::parseVelocityReal`, which converts authored source units to
+    /// per-logic-frame values; the record's setters reproduce that conversion
+    /// while preserving constructor defaults unchanged.
+    fn assign_draw_module_recoil_kinematics(
+        obj: &mut ObjectDefinition,
+        active_draw_module: Option<usize>,
+        active_condition_state: Option<usize>,
+        value: &str,
+        field: DrawRecoilKinematicField,
+    ) {
+        let Some(module) = active_draw_module.and_then(|index| obj.draw_modules.get_mut(index))
+        else {
+            return;
+        };
+        // C++ switches to `parseConditionState` for nested state fields;
+        // none of these W3DModelDrawModuleData keys belongs there. Keep the
+        // lightweight parser from silently promoting malformed nested source
+        // into a module-wide kinetic override.
+        if active_condition_state.is_some() {
+            module.recoil_kinematics.source_fields_valid = false;
+            return;
+        }
+        let Some(value) = Self::parse_draw_recoil_real(value) else {
+            module.recoil_kinematics.source_fields_valid = false;
+            return;
+        };
+        match field {
+            DrawRecoilKinematicField::InitialSpeed => {
+                module.recoil_kinematics.set_initial_recoil_speed(value)
+            }
+            DrawRecoilKinematicField::MaxDistance => {
+                module.recoil_kinematics.set_max_recoil_distance(value)
+            }
+            DrawRecoilKinematicField::Damping => module.recoil_kinematics.set_recoil_damping(value),
+            DrawRecoilKinematicField::SettleSpeed => {
+                module.recoil_kinematics.set_recoil_settle_speed(value)
+            }
+        }
     }
 
     /// Preserve C++ `parseShowHideSubObject`: one declaration may name several
@@ -1580,6 +1909,76 @@ impl IniParser {
             state.primary_turret.alternate_yaw_bone_present = active;
         } else {
             state.primary_turret.alternate_pitch_bone_present = active;
+        }
+    }
+
+    /// Read one C++ `INI::getNextAsciiString`-style token. Bone names may be
+    /// quoted and contain spaces (for example `"UIMOB03 R HAND"`), whereas a
+    /// bare token ends at whitespace. The caller intentionally ignores any
+    /// later text just as the C++ field parser consumes its next token only.
+    fn next_draw_ascii_token(value: &str) -> Option<(&str, &str)> {
+        let value = value.trim_start();
+        let first = *value.as_bytes().first()?;
+        if first == b'\'' || first == b'"' {
+            let quote = first as char;
+            let tail = &value[1..];
+            let end = tail.find(quote)?;
+            return Some((&tail[..end], &tail[end + 1..]));
+        }
+        let end = value.find(char::is_whitespace).unwrap_or(value.len());
+        Some((&value[..end], &value[end..]))
+    }
+
+    /// C++ `parseWeaponBoneName` takes `WeaponSlotType` then one ASCII bone
+    /// token, lowercases it, and clears that exact slot for `None`. Do not
+    /// accept an unknown slot by redirecting it to PRIMARY: the frozen source
+    /// state must be rejected later rather than inventing a recoil topology.
+    fn parse_draw_weapon_bone(value: &str) -> Option<(usize, Option<String>)> {
+        let (slot, rest) = Self::next_draw_ascii_token(value)?;
+        let slot = match slot.to_ascii_uppercase().as_str() {
+            "PRIMARY" => 0,
+            "SECONDARY" => 1,
+            "TERTIARY" => 2,
+            _ => return None,
+        };
+        let (bone, _) = Self::next_draw_ascii_token(rest)?;
+        let bone = bone.trim();
+        let bone = (!bone.is_empty() && !bone.eq_ignore_ascii_case("none"))
+            .then(|| bone.to_ascii_lowercase());
+        Some((slot, bone))
+    }
+
+    fn assign_draw_condition_weapon_bone(
+        obj: &mut ObjectDefinition,
+        active_draw_module: Option<usize>,
+        active_condition_state: Option<usize>,
+        value: &str,
+        field: DrawWeaponBoneField,
+    ) {
+        let Some(module) = active_draw_module.and_then(|index| obj.draw_modules.get_mut(index))
+        else {
+            return;
+        };
+        let Some(state) =
+            active_condition_state.and_then(|index| module.condition_states.get_mut(index))
+        else {
+            return;
+        };
+        let Some((slot, bone)) = Self::parse_draw_weapon_bone(value) else {
+            state.weapon_bone_bindings.source_fields_valid = false;
+            return;
+        };
+        let Some(bindings) = state.weapon_bone_bindings.slots.get_mut(slot) else {
+            // The parser only accepts the three C++ WeaponSlotType names, but
+            // preserve fail-closed behavior if this record is ever widened.
+            state.weapon_bone_bindings.source_fields_valid = false;
+            return;
+        };
+        match field {
+            DrawWeaponBoneField::FireFx => bindings.fire_fx_bone_base = bone,
+            DrawWeaponBoneField::Recoil => bindings.recoil_bone_base = bone,
+            DrawWeaponBoneField::MuzzleFlash => bindings.muzzle_flash_bone_base = bone,
+            DrawWeaponBoneField::Launch => bindings.launch_bone_base = bone,
         }
     }
 
@@ -1978,11 +2377,13 @@ End
             Some(vec![
                 AuthoredDrawModel {
                     module_index: 0,
+                    selected_condition_state_index: 1,
                     model_key: "ProbeBodyDamaged".to_string(),
                     ..Default::default()
                 },
                 AuthoredDrawModel {
                     module_index: 2,
+                    selected_condition_state_index: 1,
                     model_key: "ProbeDoorOpening".to_string(),
                     ..Default::default()
                 },
@@ -2270,6 +2671,441 @@ End
             (transition.primary_turret.yaw_art_angle_radians() - std::f32::consts::FRAC_PI_4).abs()
                 < 1.0e-6,
             "TransitionState local art angle overwrites its inherited source value"
+        );
+    }
+
+    #[test]
+    fn w3d_hlod_weapon_bones_inherit_clear_exact_slots_and_freeze_state_identity() {
+        let ini_content = r#"
+Object DrawWeaponBoneProbe
+  Draw = W3DTankDraw ModuleTag_01
+    DefaultConditionState
+      Model = ProbePristine
+      WeaponFireFXBone = PRIMARY "Fx Bone"
+      WeaponRecoilBone = PRIMARY Recoil
+      WeaponMuzzleFlash = PRIMARY MuzzleFX
+      WeaponLaunchBone = PRIMARY Launch
+      WeaponFireFXBone = SECONDARY SecondaryFx
+      WeaponLaunchBone = TERTIARY ThirdLaunch
+    End
+    ConditionState = DAMAGED
+      Model = ProbeDamaged
+      WeaponRecoilBone = PRIMARY DamageRecoil
+      WeaponFireFXBone = SECONDARY None
+      WeaponMuzzleFlash = TERTIARY "Third Muzzle FX"
+    End
+    ConditionState = REALLYDAMAGED
+      Model = ProbeReallyDamaged
+      WeaponFireFXBone = PRIMARY NONE
+      WeaponRecoilBone = PRIMARY NONE
+      WeaponMuzzleFlash = PRIMARY NONE
+      WeaponLaunchBone = PRIMARY NONE
+    End
+  End
+End
+"#;
+
+        let mut parser = IniParser::new();
+        parser
+            .parse_ini_content(ini_content, "draw_weapon_bone_probe.ini")
+            .expect("parse source Draw weapon-bone states");
+        let definition = parser
+            .get_definition("DrawWeaponBoneProbe")
+            .expect("parsed weapon-bone probe");
+
+        let default = definition
+            .select_draw_models_for_conditions(0)
+            .expect("select pristine state");
+        assert_eq!(default.len(), 1);
+        assert_eq!(default[0].selected_condition_state_index, 0);
+        let primary = default[0]
+            .weapon_bone_bindings
+            .slot(0)
+            .expect("primary slot");
+        assert_eq!(primary.fire_fx_bone_base.as_deref(), Some("fx bone"));
+        assert_eq!(primary.recoil_bone_base.as_deref(), Some("recoil"));
+        assert_eq!(primary.muzzle_flash_bone_base.as_deref(), Some("muzzlefx"));
+        assert_eq!(primary.launch_bone_base.as_deref(), Some("launch"));
+        assert_eq!(
+            default[0]
+                .weapon_bone_bindings
+                .slot(1)
+                .and_then(|slot| slot.fire_fx_bone_base.as_deref()),
+            Some("secondaryfx")
+        );
+        assert_eq!(
+            default[0]
+                .weapon_bone_bindings
+                .slot(2)
+                .and_then(|slot| slot.launch_bone_base.as_deref()),
+            Some("thirdlaunch")
+        );
+
+        let damaged = definition
+            .select_draw_models_for_conditions(model_condition_bit("DAMAGED"))
+            .expect("select damaged state");
+        assert_eq!(damaged.len(), 1);
+        assert_eq!(damaged[0].selected_condition_state_index, 1);
+        let damaged_primary = damaged[0]
+            .weapon_bone_bindings
+            .slot(0)
+            .expect("inherited primary slot");
+        assert_eq!(
+            damaged_primary.fire_fx_bone_base.as_deref(),
+            Some("fx bone")
+        );
+        assert_eq!(
+            damaged_primary.recoil_bone_base.as_deref(),
+            Some("damagerecoil"),
+            "a local field overwrites just its own inherited C++ slot base"
+        );
+        assert_eq!(
+            damaged[0]
+                .weapon_bone_bindings
+                .slot(1)
+                .and_then(|slot| slot.fire_fx_bone_base.as_deref()),
+            None,
+            "None clears only the exact declared SECONDARY source field"
+        );
+        assert_eq!(
+            damaged[0]
+                .weapon_bone_bindings
+                .slot(2)
+                .and_then(|slot| slot.launch_bone_base.as_deref()),
+            Some("thirdlaunch"),
+            "unrelated slots remain inherited"
+        );
+        assert_eq!(
+            damaged[0]
+                .weapon_bone_bindings
+                .slot(2)
+                .and_then(|slot| slot.muzzle_flash_bone_base.as_deref()),
+            Some("third muzzle fx"),
+            "quoted C++ AsciiString bone names retain their full lowercased identity"
+        );
+
+        let really_damaged = definition
+            .select_draw_models_for_conditions(model_condition_bit("REALLYDAMAGED"))
+            .expect("select really damaged state");
+        assert_eq!(really_damaged[0].selected_condition_state_index, 2);
+        assert!(really_damaged[0]
+            .weapon_bone_bindings
+            .slot(0)
+            .is_some_and(|slot| {
+                slot.fire_fx_bone_base.is_none()
+                    && slot.recoil_bone_base.is_none()
+                    && slot.muzzle_flash_bone_base.is_none()
+                    && slot.launch_bone_base.is_none()
+            }));
+        assert!(really_damaged[0].weapon_bone_bindings.source_fields_valid);
+    }
+
+    #[test]
+    fn w3d_hlod_weapon_bones_fail_closed_for_unknown_slot_token() {
+        let ini_content = r#"
+Object MalformedWeaponBoneProbe
+  Draw = W3DModelDraw ModuleTag_01
+    DefaultConditionState
+      Model = Probe
+      WeaponFireFXBone = QUATERNARY InventedBone
+    End
+  End
+End
+"#;
+        let mut parser = IniParser::new();
+        parser
+            .parse_ini_content(ini_content, "malformed_weapon_bone_probe.ini")
+            .expect("retain malformed source record for fail-closed selection");
+        let draw = parser
+            .get_definition("MalformedWeaponBoneProbe")
+            .expect("parsed malformed weapon-bone probe")
+            .select_draw_models_for_conditions(0)
+            .expect("source still has a selected model")
+            .pop()
+            .expect("one Draw module");
+        assert!(
+            !draw.weapon_bone_bindings.source_fields_valid,
+            "an unsupported WeaponSlotType must disable later recoil/topology use rather than alias PRIMARY"
+        );
+    }
+
+    #[test]
+    fn w3d_hlod_weapon_bones_retail_scorpion_preserves_distinct_default_and_upgrade_slots() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
+        let ini_path = [
+            root.join("windows_game/extracted_big_files/INIZH/Data/INI/Object/GLAVehicle.ini"),
+            root.join("windows_game/extracted_big_files_v2/INIZH/Data/INI/Object/GLAVehicle.ini"),
+        ]
+        .into_iter()
+        .find(|candidate| candidate.is_file());
+        let Some(ini_path) = ini_path else {
+            eprintln!("skip: retail GLAVehicle.ini is not available on disk");
+            return;
+        };
+        let ini_content =
+            std::fs::read_to_string(&ini_path).expect("read retail GLAVehicle source Object INI");
+        let mut parser = IniParser::new();
+        parser
+            .parse_ini_content(&ini_content, "GLAVehicle.ini")
+            .expect("parse retail Scorpion Draw states");
+        let scorpion = parser
+            .get_definition("GLATankScorpion")
+            .expect("retail Scorpion definition");
+        let pristine = scorpion
+            .select_draw_models_for_conditions(0)
+            .expect("retail pristine Scorpion Draw state")
+            .into_iter()
+            .find(|draw| draw.model_key.eq_ignore_ascii_case("UVLiteTank"))
+            .expect("retail pristine Scorpion uses UVLiteTank");
+        let upgrade_bits = model_condition_bit("WEAPONSET_PLAYER_UPGRADE");
+        let upgraded = scorpion
+            .select_draw_models_for_conditions(upgrade_bits)
+            .expect("retail upgrade Scorpion Draw state")
+            .into_iter()
+            .find(|draw| draw.model_key.eq_ignore_ascii_case("UVLiteTank"))
+            .expect("retail upgrade Scorpion keeps UVLiteTank");
+
+        assert_ne!(
+            pristine.selected_condition_state_index, upgraded.selected_condition_state_index,
+            "same retail mesh is used by distinct selected source states and cannot identify recoil topology by basename"
+        );
+        let pristine_primary = pristine
+            .weapon_bone_bindings
+            .slot(0)
+            .expect("retail pristine PRIMARY");
+        assert_eq!(
+            pristine_primary.fire_fx_bone_base.as_deref(),
+            Some("muzzle")
+        );
+        assert_eq!(pristine_primary.recoil_bone_base.as_deref(), Some("barrel"));
+        assert_eq!(
+            pristine_primary.muzzle_flash_bone_base.as_deref(),
+            Some("muzzlefx")
+        );
+        assert_eq!(pristine_primary.launch_bone_base.as_deref(), Some("muzzle"));
+        let upgraded_secondary = upgraded
+            .weapon_bone_bindings
+            .slot(1)
+            .expect("retail upgraded SECONDARY");
+        assert_eq!(
+            upgraded_secondary.fire_fx_bone_base.as_deref(),
+            Some("weapona")
+        );
+        assert_eq!(
+            upgraded_secondary.launch_bone_base.as_deref(),
+            Some("weapona")
+        );
+        assert_eq!(upgraded_secondary.recoil_bone_base, None);
+        assert_eq!(upgraded_secondary.muzzle_flash_bone_base, None);
+        assert_eq!(
+            upgraded
+                .weapon_bone_bindings
+                .slot(0)
+                .and_then(|slot| slot.recoil_bone_base.as_deref()),
+            Some("barrel"),
+            "the upgrade state preserves DefaultConditionState PRIMARY topology while adding exact SECONDARY launch data"
+        );
+    }
+
+    #[test]
+    fn w3d_hlod_recoil_kinematics_freeze_module_defaults_and_velocity_overrides() {
+        let ini_content = r#"
+Object DrawRecoilProbe
+  Draw = W3DModelDraw ModuleTag_01
+    InitialRecoilSpeed = 120
+    MaxRecoilDistance = 8
+    RecoilDamping = .25
+    RecoilSettleSpeed = 6
+    DefaultConditionState
+      Model = ProbePristine
+    End
+    ConditionState = DAMAGED
+      Model = ProbeDamaged
+    End
+  End
+  Draw = W3DModelDraw ModuleTag_02
+    DefaultConditionState
+      Model = CppDefaultProbe
+    End
+  End
+End
+"#;
+        let mut parser = IniParser::new();
+        parser
+            .parse_ini_content(ini_content, "draw_recoil_probe.ini")
+            .expect("parse source Draw recoil module data");
+        let definition = parser
+            .get_definition("DrawRecoilProbe")
+            .expect("parsed recoil definition");
+
+        let pristine = definition
+            .select_draw_models_for_conditions(0)
+            .expect("select pristine Draw modules");
+        let damaged = definition
+            .select_draw_models_for_conditions(model_condition_bit("DAMAGED"))
+            .expect("select damaged Draw modules");
+        let pristine_recoil = &pristine[0].recoil_kinematics;
+        let damaged_recoil = &damaged[0].recoil_kinematics;
+        assert!(pristine_recoil.is_visual_usable());
+        assert_eq!(pristine_recoil, damaged_recoil);
+        assert_eq!(
+            pristine_recoil.initial_recoil_per_logic_frame().to_bits(),
+            (120.0 * game_engine::common::game_common::SECONDS_PER_LOGICFRAME_REAL).to_bits(),
+            "C++ INI::parseVelocityReal divides authored recoil speed by logic FPS"
+        );
+        assert_eq!(pristine_recoil.max_recoil_distance(), 8.0);
+        assert_eq!(pristine_recoil.recoil_damping(), 0.25);
+        assert_eq!(
+            pristine_recoil.recoil_settle_per_logic_frame().to_bits(),
+            (6.0 * game_engine::common::game_common::SECONDS_PER_LOGICFRAME_REAL).to_bits(),
+            "C++ parses settle speed through the same velocity conversion"
+        );
+
+        let cpp_defaults = &pristine[1].recoil_kinematics;
+        assert!(cpp_defaults.is_visual_usable());
+        assert_eq!(cpp_defaults.initial_recoil_per_logic_frame(), 2.0);
+        assert_eq!(cpp_defaults.max_recoil_distance(), 3.0);
+        assert_eq!(cpp_defaults.recoil_damping(), 0.4);
+        assert_eq!(cpp_defaults.recoil_settle_per_logic_frame(), 0.065);
+        assert_ne!(
+            cpp_defaults.initial_recoil_per_logic_frame().to_bits(),
+            (2.0 * game_engine::common::game_common::SECONDS_PER_LOGICFRAME_REAL).to_bits(),
+            "constructor defaults are already stored values, not source velocity overrides"
+        );
+    }
+
+    #[test]
+    fn w3d_hlod_recoil_kinematics_fail_closed_for_bad_or_nested_source() {
+        let ini_content = r#"
+Object BadDrawRecoilProbe
+  Draw = W3DModelDraw ModuleTag_01
+    InitialRecoilSpeed = not_a_number
+    DefaultConditionState
+      Model = Probe
+      MaxRecoilDistance = 9
+    End
+  End
+End
+
+Object NonFiniteDrawRecoilProbe
+  Draw = W3DModelDraw ModuleTag_01
+    InitialRecoilSpeed = NaN
+    DefaultConditionState
+      Model = Probe
+    End
+  End
+End
+"#;
+        let mut parser = IniParser::new();
+        parser
+            .parse_ini_content(ini_content, "bad_draw_recoil_probe.ini")
+            .expect("retain bad source data for a fail-closed presentation decision");
+
+        let bad = parser
+            .get_definition("BadDrawRecoilProbe")
+            .expect("bad recoil definition")
+            .select_draw_models_for_conditions(0)
+            .expect("select bad recoil Draw state")
+            .pop()
+            .expect("one bad recoil Draw module");
+        assert!(
+            !bad.recoil_kinematics.source_fields_valid && !bad.recoil_kinematics.is_visual_usable(),
+            "unknown numeric and nested module-only source fields must not silently use C++ defaults"
+        );
+
+        let nonfinite = parser
+            .get_definition("NonFiniteDrawRecoilProbe")
+            .expect("non-finite recoil definition")
+            .select_draw_models_for_conditions(0)
+            .expect("select non-finite recoil Draw state")
+            .pop()
+            .expect("one non-finite recoil Draw module");
+        assert!(nonfinite.recoil_kinematics.source_fields_valid);
+        assert!(
+            !nonfinite.recoil_kinematics.is_visual_usable(),
+            "a parsed NaN remains retained but cannot authorize visual recoil"
+        );
+    }
+
+    #[test]
+    fn w3d_hlod_recoil_kinematics_retail_nuke_and_sentry_keep_distinct_overrides() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
+        let ini_root = [
+            root.join("windows_game/extracted_big_files/INIZH/Data/INI/Object"),
+            root.join("windows_game/extracted_big_files_v2/INIZH/Data/INI/Object"),
+        ]
+        .into_iter()
+        .find(|candidate| {
+            candidate.join("ChinaVehicle.ini").is_file()
+                && candidate.join("AmericaVehicle.ini").is_file()
+        });
+        let Some(ini_root) = ini_root else {
+            eprintln!("skip: retail ChinaVehicle.ini/AmericaVehicle.ini are not available on disk");
+            return;
+        };
+
+        let mut parser = IniParser::new();
+        for filename in ["ChinaVehicle.ini", "AmericaVehicle.ini"] {
+            let path = ini_root.join(filename);
+            let content = std::fs::read_to_string(&path)
+                .unwrap_or_else(|error| panic!("read retail {}: {error}", path.display()));
+            parser
+                .parse_ini_content(&content, filename)
+                .unwrap_or_else(|error| panic!("parse retail {filename}: {error}"));
+        }
+
+        let nuke = parser
+            .get_definition("ChinaVehicleNukeLauncher")
+            .expect("retail China Nuke Cannon")
+            .select_draw_models_for_conditions(0)
+            .expect("select retail Nuke Cannon Draw state")
+            .into_iter()
+            .find(|draw| draw.model_key.eq_ignore_ascii_case("NVNukeCn"))
+            .expect("retail Nuke Cannon W3D module");
+        let sentry = parser
+            .get_definition("AmericaVehicleSentryDrone")
+            .expect("retail Sentry Drone")
+            .select_draw_models_for_conditions(0)
+            .expect("select retail Sentry Drone Draw state")
+            .into_iter()
+            .find(|draw| draw.model_key.eq_ignore_ascii_case("AVSENTRY"))
+            .expect("retail Sentry Drone W3D module");
+
+        assert!(nuke.recoil_kinematics.is_visual_usable());
+        assert!(sentry.recoil_kinematics.is_visual_usable());
+        assert_eq!(
+            nuke.recoil_kinematics
+                .initial_recoil_per_logic_frame()
+                .to_bits(),
+            (120.0 * game_engine::common::game_common::SECONDS_PER_LOGICFRAME_REAL).to_bits()
+        );
+        assert_eq!(nuke.recoil_kinematics.max_recoil_distance(), 8.0);
+        assert_eq!(
+            nuke.recoil_kinematics
+                .recoil_settle_per_logic_frame()
+                .to_bits(),
+            (6.0 * game_engine::common::game_common::SECONDS_PER_LOGICFRAME_REAL).to_bits()
+        );
+        assert_eq!(nuke.recoil_kinematics.recoil_damping(), 0.4);
+
+        assert_eq!(
+            sentry
+                .recoil_kinematics
+                .initial_recoil_per_logic_frame()
+                .to_bits(),
+            (10.0 * game_engine::common::game_common::SECONDS_PER_LOGICFRAME_REAL).to_bits()
+        );
+        assert_eq!(sentry.recoil_kinematics.max_recoil_distance(), 1.5);
+        assert_eq!(
+            sentry
+                .recoil_kinematics
+                .recoil_settle_per_logic_frame()
+                .to_bits(),
+            (3.0 * game_engine::common::game_common::SECONDS_PER_LOGICFRAME_REAL).to_bits()
+        );
+        assert_ne!(
+            nuke.recoil_kinematics, sentry.recoil_kinematics,
+            "retail source values must remain module identity, not a fixed recoil preset"
         );
     }
 

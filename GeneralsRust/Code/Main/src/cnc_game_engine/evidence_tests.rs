@@ -642,7 +642,7 @@ fn configured_skirmish_start_restamps_mode_after_map_clear_before_physical_evide
         .unwrap_or(clear_after_start.len());
     assert!(
         clear_after_start[..clear_end].contains("self.host_match_game_mode = None;"),
-        "reset and failed-load paths must still clear match mode rather than preserve stale eligibility"
+        "explicit match-reset paths must clear match mode rather than preserve stale eligibility; failed staged loads retain their active world"
     );
 
     for (source, gate) in [

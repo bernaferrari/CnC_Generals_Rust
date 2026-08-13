@@ -224,6 +224,8 @@ impl CnCGameEngine {
         // commands captured for another authority boundary.
         #[cfg(feature = "game_client")]
         self.host_invalidate_active_popup_for_world_boundary();
+        #[cfg(feature = "game_client")]
+        game_client::gui::campaign_launch_host_bridge::clear_host_campaign_launch_descriptor();
 
         // Carrier provenance cannot cross reset/load/new-match boundaries: an
         // object ID from an earlier world must never qualify a later deposit.
@@ -361,6 +363,7 @@ impl CnCGameEngine {
         // Wave 584/871/933: host reset residual via session-control authority.
         self.host_game_logic_mut()
             .apply_session_control_op(crate::game_logic::SessionControlOp::Reset);
+        self.render_pipeline.invalidate_world_visual_state();
         self.invalidate_presentation_terrain_cache();
         self.host_clear_match_residuals();
         self.selected_objects.clear();
@@ -993,6 +996,7 @@ impl CnCGameEngine {
         self.host_invalidate_active_popup_for_world_boundary();
 
         self.game_logic = logic;
+        self.render_pipeline.invalidate_world_visual_state();
         self.invalidate_presentation_terrain_cache();
     }
 
@@ -1248,12 +1252,29 @@ impl CnCGameEngine {
         self.host_load_game_from_ui(slot)
     }
 
+    /// A staged load has not changed the live world until
+    /// `host_replace_game_logic` succeeds.  Failed staging must therefore
+    /// return an active match to its prior UI state rather than calling the
+    /// match-reset/menu path, which would discard its renderer/presentation
+    /// state despite the failed transaction.
+    fn staged_load_failure_return_state(prior_state: GameState) -> GameState {
+        match prior_state {
+            GameState::InGame | GameState::Paused => prior_state,
+            _ => GameState::Menu,
+        }
+    }
+
     pub(super) fn host_load_game_from_ui(&mut self, slot: &str) -> Result<(), String> {
         // Wave 611: host residual helper.
         let slot = slot.trim();
         if slot.is_empty() {
             return Err("empty save slot".into());
         }
+
+        // Capture this before load-screen preparation changes the state to
+        // Loading. The staging helper below owns no live GameLogic/renderer
+        // references, so this is the only state needed for rollback.
+        let prior_state = self.current_state;
 
         // Headless host residual: skip load-screen SFX / GPU rebinds that block the
         // control loop for many seconds after snapshot restore.
@@ -1280,8 +1301,8 @@ impl CnCGameEngine {
                 // The staging authority has already validated this world. Keep
                 // its authoritative mode so clearing stale presentation state
                 // cannot turn a successfully restored offline match into an
-                // unclassified session.  Failed loads return before this point
-                // and therefore retain the fail-closed clear behavior.
+                // unclassified session. Failed staged loads return before this
+                // point and preserve the prior active world instead.
                 let loaded_match_mode = self.game_logic.game_mode();
                 self.host_clear_match_residuals();
                 self.host_match_game_mode = Some(loaded_match_mode);
@@ -1324,7 +1345,11 @@ impl CnCGameEngine {
             }
             Err(err) => {
                 warn!("Load failed for '{}': {}", slot, err);
-                self.return_to_main_menu_after_match();
+                // Do not reset GameLogic, presentation, or renderer state:
+                // `stage_saved_world_for_restore` has not installed anything
+                // on error. Transitioning out of Loading only hides its shell
+                // overlay; it does not invalidate the still-playable match.
+                self.transition_to_state(Self::staged_load_failure_return_state(prior_state));
                 Err(err.to_string())
             }
         }
@@ -1366,6 +1391,48 @@ mod staged_restore_tests {
             difficulty: GameDifficulty::Medium,
             save_type: SaveFileType::Normal,
         }
+    }
+
+    #[test]
+    fn staged_load_failure_keeps_only_an_active_match_state() {
+        assert_eq!(
+            CnCGameEngine::staged_load_failure_return_state(GameState::InGame),
+            GameState::InGame
+        );
+        assert_eq!(
+            CnCGameEngine::staged_load_failure_return_state(GameState::Paused),
+            GameState::Paused
+        );
+        for shell_state in [
+            GameState::Initializing,
+            GameState::Menu,
+            GameState::Loading,
+            GameState::Victory,
+            GameState::Defeat,
+            GameState::Exiting,
+        ] {
+            assert_eq!(
+                CnCGameEngine::staged_load_failure_return_state(shell_state),
+                GameState::Menu
+            );
+        }
+    }
+
+    #[test]
+    fn staged_load_error_branch_preserves_live_world_contract() {
+        let source = include_str!("host_authority.rs");
+        let start = source
+            .find("pub(super) fn host_load_game_from_ui")
+            .expect("load UI authority");
+        let body = &source[start..];
+        let error = &body[body.find("Err(err) =>").expect("load error branch")..];
+        let error = &error[..error
+            .find("\n            }\n        }\n    }\n}")
+            .unwrap_or(error.len())];
+        assert!(error.contains("Self::staged_load_failure_return_state(prior_state)"));
+        assert!(!error.contains("return_to_main_menu_after_match"));
+        assert!(!error.contains("host_clear_match_residuals"));
+        assert!(!error.contains("invalidate_world_visual_state"));
     }
 
     #[test]

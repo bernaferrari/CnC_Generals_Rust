@@ -442,6 +442,9 @@ impl GameLogic {
                 attacker.gain_experience(kill_xp);
             }
         }
+        // Contained fire changes where the shot originates, not which
+        // concrete passenger WeaponSet slot discharged.
+        let _ = self.record_accepted_weapon_discharge(passenger_id, 0);
 
         if destroyed {
             self.mark_object_for_destruction(target_id, Some(team));
@@ -573,6 +576,9 @@ impl GameLogic {
                 attacker.gain_experience(kill_xp);
             }
         }
+        // One garrisoned infantry shot can use a container muzzle position,
+        // but it retains the passenger's exact PRIMARY barrel identity.
+        let _ = self.record_accepted_weapon_discharge(garrisoned_id, 0);
 
         if destroyed {
             self.mark_object_for_destruction(target_id, Some(team));

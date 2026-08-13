@@ -644,7 +644,8 @@ impl PresentationFrame {
                 }
                 PresentationEvent::ParticleSystemSpawned { .. } => {}
                 PresentationEvent::WeaponFireLoopStarted { .. }
-                | PresentationEvent::WeaponFireLoopStopped { .. } => {}
+                | PresentationEvent::WeaponFireLoopStopped { .. }
+                | PresentationEvent::WeaponDischarged { .. } => {}
                 PresentationEvent::EvaAlert { name } => {
                     hud.push_info_message(&format!("EVA: {name}"));
                 }
@@ -726,7 +727,8 @@ impl PresentationFrame {
                 PresentationEvent::Victory { .. } => Some(("Victory", None)),
                 PresentationEvent::MoveOrdered { unit, .. } => Some(("UnitMove", Some(*unit))),
                 PresentationEvent::WeaponFireLoopStarted { .. }
-                | PresentationEvent::WeaponFireLoopStopped { .. } => None,
+                | PresentationEvent::WeaponFireLoopStopped { .. }
+                | PresentationEvent::WeaponDischarged { .. } => None,
                 PresentationEvent::ParticleSystemSpawned { .. } => None, // handled below (Wave 535)
                 PresentationEvent::OwnerChanged { .. } => None,          // handled below (Wave 530)
                 PresentationEvent::RadarMessage { .. } => None,          // handled below (Wave 529)

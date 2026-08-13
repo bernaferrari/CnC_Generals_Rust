@@ -218,6 +218,13 @@ impl GameLogic {
             } => {
                 self.start_new_game_with_faction(mode, player_id, faction_team, setup_skirmish_ai);
             }
+            SessionControlOp::StartNewGameWithPlayerTemplate {
+                mode,
+                player_id,
+                player_template,
+            } => {
+                self.start_new_game_with_player_template(mode, player_id, player_template);
+            }
             SessionControlOp::Reset => {
                 self.reset();
             }

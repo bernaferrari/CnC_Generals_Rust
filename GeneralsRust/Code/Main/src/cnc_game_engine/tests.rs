@@ -19,6 +19,73 @@ fn presentation_path_applies_pose_without_object_registry() {
 }
 
 #[test]
+fn visual_world_state_invalidation_only_follows_successful_world_changes() {
+    let lifecycle = crate::graphics::render_pipeline::RENDER_PIPELINE_SRC;
+    let reset_at = lifecycle
+        .find("pub fn invalidate_world_visual_state(")
+        .expect("dedicated visual-world reset API");
+    let reset_body = &lifecycle[reset_at..lifecycle.len().min(reset_at + 1_400)];
+    assert!(reset_body.contains("clear_visual_world_state_components"));
+    assert!(reset_body.contains("self.presentation_frame = None"));
+    assert!(
+        !reset_body.contains("clear_caches"),
+        "renderer world reset must not evict globally valid asset caches"
+    );
+
+    let authority = include_str!("host_authority.rs");
+    let reset = &authority[authority
+        .find("fn host_reset_game_logic(")
+        .expect("logic reset boundary")..];
+    let reset = &reset[..reset
+        .find("fn host_destroy_object(")
+        .expect("next reset-neighbor method")];
+    assert!(
+        reset.contains("self.render_pipeline.invalidate_world_visual_state()"),
+        "GameLogic reset reuses object IDs and must clear renderer-local timelines"
+    );
+
+    let replacement = &authority[authority
+        .find("fn host_replace_game_logic(")
+        .expect("full replacement boundary")..];
+    let replacement = &replacement[..replacement
+        .find("pub(super) fn host_save_game_authority(")
+        .expect("next replacement-neighbor method")];
+    assert!(
+        replacement.contains("self.render_pipeline.invalidate_world_visual_state()"),
+        "staged loads and startup worker installs must clear old-world timelines"
+    );
+
+    let map_load_source = include_str!("ui_commands.rs");
+    let map_load = &map_load_source[map_load_source
+        .find("fn host_load_map_or_default(")
+        .expect("in-place map-load boundary")..];
+    let success_guard = map_load
+        .find("let Some(loaded) = loaded else")
+        .expect("successful map-load guard");
+    let reset_after_success = map_load
+        .find("self.render_pipeline.invalidate_world_visual_state()")
+        .expect("map-load visual reset");
+    assert!(
+        success_guard < reset_after_success,
+        "failed map loads must retain the active world's visual state"
+    );
+
+    let setter_at = lifecycle
+        .find("pub fn set_presentation_frame(")
+        .expect("ordinary frame handoff setter");
+    let setter_tail = &lifecycle[setter_at..];
+    let setter_end = setter_tail
+        .find("\n    }\n")
+        .expect("presentation setter closing brace")
+        + "\n    }\n".len();
+    let setter = &setter_tail[..setter_end];
+    assert!(
+        !setter.contains("invalidate_world_visual_state"),
+        "ordinary frame handoff must not restart W3D timelines"
+    );
+}
+
+#[test]
 fn ui_command_path_prefers_presentation_object_identity() {
     let eng = crate::cnc_game_engine::ENGINE_SRC;
     for token in [
@@ -460,6 +527,159 @@ fn map_select_new_game_dispatch_consumes_the_exact_runtime_pending_map() {
         assert_eq!(global.writable.map_name, expected_map);
         assert!(global.pending_file.is_empty());
     });
+}
+
+#[cfg(feature = "game_client")]
+#[test]
+fn campaign_launch_descriptor_precedes_stale_map_and_hud_faction() {
+    use game_client::gui::campaign_launch_host_bridge::HostCampaignLaunchDescriptor;
+
+    let descriptor = HostCampaignLaunchDescriptor {
+        generation: 7,
+        map_name: "Maps\\Campaign\\ExactLaunch.map".to_string(),
+        campaign_name: "USA".to_string(),
+        // Deliberately differs from the campaign name: C++'s campaign player
+        // faction is more specific than a stale HUD/default fallback.
+        campaign_player_faction: "FactionChina".to_string(),
+        is_challenge: false,
+        player_template_name: None,
+        player_template_index: None,
+        game_mode_code: 0,
+        difficulty_code: 1,
+        rank_points: 0,
+        max_fps: None,
+    };
+
+    let overrides =
+        CnCGameEngine::campaign_launch_start_overrides(GameMode::SinglePlayer, Some(&descriptor))
+            .expect("ordinary campaign descriptor must resolve");
+    assert_eq!(
+        overrides.map.as_deref(),
+        Some("Maps\\Campaign\\ExactLaunch.map")
+    );
+    assert_eq!(overrides.faction.as_deref(), Some("China"));
+    assert_eq!(
+        overrides
+            .player_template
+            .as_ref()
+            .map(|identity| identity.template_name.as_str()),
+        Some("FactionChina"),
+        "a normal campaign PlayerFaction that exactly resolves must retain its template"
+    );
+
+    let overrides =
+        CnCGameEngine::campaign_launch_start_overrides(GameMode::Skirmish, Some(&descriptor))
+            .expect("non-single-player dispatch ignores the campaign descriptor");
+    assert!(overrides.map.is_none());
+    assert!(overrides.faction.is_none());
+    assert!(overrides.player_template.is_none());
+}
+
+#[cfg(feature = "game_client")]
+#[test]
+fn challenge_launch_rejects_a_missing_or_unpaired_selected_general() {
+    use game_client::gui::campaign_launch_host_bridge::HostCampaignLaunchDescriptor;
+
+    let descriptor = HostCampaignLaunchDescriptor {
+        generation: 9,
+        map_name: "Maps\\Challenge\\Exact.map".to_string(),
+        campaign_name: "CHALLENGE_0".to_string(),
+        campaign_player_faction: "FactionAmericaAirForceGeneral".to_string(),
+        is_challenge: true,
+        player_template_name: None,
+        player_template_index: None,
+        game_mode_code: 0,
+        difficulty_code: 1,
+        rank_points: 0,
+        max_fps: Some(30),
+    };
+
+    assert!(CnCGameEngine::campaign_launch_start_overrides(
+        GameMode::SinglePlayer,
+        Some(&descriptor),
+    )
+    .is_err());
+
+    let source = include_str!("dispatch.rs");
+    let rejection = &source[source
+        .find("Rejecting Challenge MSG_NEW_GAME")
+        .expect("Challenge rejection branch")..];
+    assert!(
+        rejection.contains("Self::clear_pending_campaign_start_map()"),
+        "a rejected typed Challenge launch must not leak its mirrored pending map"
+    );
+}
+
+#[cfg(feature = "game_client")]
+#[test]
+fn challenge_launch_retains_the_exact_selected_template_name_and_index() {
+    use game_client::gui::campaign_launch_host_bridge::HostCampaignLaunchDescriptor;
+
+    game_engine::common::ini::ensure_player_templates_loaded();
+    let (tank_index, air_force_index) = {
+        let store = game_engine::common::rts::player_template::get_player_template_store();
+        (
+            store
+                .find_template_index("FactionChinaTankGeneral")
+                .expect("retail Tank General template") as i32,
+            store
+                .find_template_index("FactionAmericaAirForceGeneral")
+                .expect("retail Air Force General template") as i32,
+        )
+    };
+
+    let descriptor = HostCampaignLaunchDescriptor {
+        generation: 10,
+        map_name: "Maps\\Challenge\\ExactTank.map".to_string(),
+        campaign_name: "CHALLENGE_0".to_string(),
+        campaign_player_faction: "FactionChinaTankGeneral".to_string(),
+        is_challenge: true,
+        player_template_name: Some("FactionChinaTankGeneral".to_string()),
+        player_template_index: Some(tank_index),
+        game_mode_code: 0,
+        difficulty_code: 1,
+        rank_points: 0,
+        max_fps: Some(30),
+    };
+
+    let overrides = CnCGameEngine::campaign_launch_start_overrides(
+        GameMode::SinglePlayer,
+        Some(&descriptor),
+    )
+    .expect("matched Challenge template must resolve");
+    let identity = overrides
+        .player_template
+        .expect("Challenge must carry exact PlayerTemplate identity");
+    assert_eq!(identity.template_name, "FactionChinaTankGeneral");
+    assert_eq!(identity.template_index, Some(tank_index));
+    assert_eq!(overrides.faction.as_deref(), Some("China"));
+
+    let stale = HostCampaignLaunchDescriptor {
+        player_template_index: Some(air_force_index),
+        ..descriptor
+    };
+    assert!(CnCGameEngine::campaign_launch_start_overrides(
+        GameMode::SinglePlayer,
+        Some(&stale),
+    )
+    .is_err());
+}
+
+#[test]
+fn campaign_faction_identity_maps_only_exact_cpp_base_names() {
+    assert_eq!(
+        CnCGameEngine::base_faction_from_campaign_faction("FactionAmerica").as_deref(),
+        Some("USA")
+    );
+    assert_eq!(
+        CnCGameEngine::base_faction_from_campaign_faction("china").as_deref(),
+        Some("China")
+    );
+    assert_eq!(
+        CnCGameEngine::base_faction_from_campaign_faction("FactionGLA").as_deref(),
+        Some("GLA")
+    );
+    assert!(CnCGameEngine::base_faction_from_campaign_faction("TankGeneral").is_none());
 }
 
 #[test]

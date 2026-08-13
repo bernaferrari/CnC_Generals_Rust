@@ -191,9 +191,13 @@ impl GameLogic {
         air.can_target_air = true;
         air.can_target_ground = false;
 
-        obj.weapon = Some(ground);
+        // C++ replaces the concrete PRIMARY Weapon when a salvage tier
+        // applies.  Its mutable barrel cursor belongs to that instance, not
+        // to the template-name slot, so do not carry a partially consumed
+        // cursor into the residual replacement.
+        let _ = obj.replace_weapon_set_slot(0, Some(ground));
         obj.record_host_weapon_stats();
-        obj.secondary_weapon = Some(air);
+        let _ = obj.replace_weapon_set_slot(1, Some(air));
         obj.record_host_weapon_stats();
         self.quad_cannon_residual_barrel_upgrades =
             self.quad_cannon_residual_barrel_upgrades.saturating_add(1);
@@ -741,14 +745,14 @@ impl GameLogic {
         let mission_id = self
             .host_deliver_payloads
             .queue_superweapon_ocl_bomb_for_owner(
-            caster_id,
-            team,
-            source_owner_player_id,
-            plan.target_coord,
-            self.frame,
-            deliver.payload.clone(),
-            impact_delay,
-        );
+                caster_id,
+                team,
+                source_owner_player_id,
+                plan.target_coord,
+                self.frame,
+                deliver.payload.clone(),
+                impact_delay,
+            );
         // Bind live transport object to cargo flight residual for approach motion.
         if let Some(m) = self.host_deliver_payloads.get_mut(mission_id) {
             m.transport_object_id = Some(transport_id);

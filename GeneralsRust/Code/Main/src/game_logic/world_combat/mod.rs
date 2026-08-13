@@ -17,3 +17,4 @@ mod strategy_center;
 mod streams_and_rpg;
 mod tanks_and_upgrades;
 mod vehicle_shells;
+mod weapon_discharge;

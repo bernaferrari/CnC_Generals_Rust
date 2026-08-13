@@ -89,4 +89,14 @@ pub enum PresentationEvent {
         unit: ObjectId,
         sound: String,
     },
+    /// One concrete accepted WeaponSet discharge.  This is renderer-facing
+    /// state only: it is distinct from AI fire intent and identifies the
+    /// exact slot/barrel before that cursor advances.
+    WeaponDischarged {
+        source: ObjectId,
+        weapon_slot: u8,
+        fired_barrel: u8,
+        sequence: u64,
+        logic_frame: u32,
+    },
 }

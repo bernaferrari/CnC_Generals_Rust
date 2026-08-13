@@ -828,10 +828,12 @@ impl GameLogic {
     /// Clear all players (for snapshot restoration)
     pub fn clear_all_players(&mut self) {
         self.players.clear();
+        self.player_template_bindings.clear();
     }
 
     /// Add a player directly (for snapshot restoration)
     pub fn add_player(&mut self, player: Player) {
+        self.player_template_bindings.remove(&player.id);
         self.players.insert(player.id, player);
     }
 
@@ -863,6 +865,25 @@ impl GameLogic {
     /// Get player by ID
     pub fn get_player(&self, player_id: u32) -> Option<&Player> {
         self.players.get(&player_id)
+    }
+
+    /// Exact C++ PlayerTemplate selection retained for this host session.
+    ///
+    /// Save/load intentionally returns `None` until the schema-owned Xfer
+    /// follow-up can serialize and validate this identity.
+    pub fn player_template_identity(&self, player_id: u32) -> Option<&PlayerTemplateIdentity> {
+        self.player_template_bindings.get(&player_id)
+    }
+
+    /// Resolve the immutable Common PlayerTemplate for a concrete host player.
+    /// Callers must use this before Team residual tables so a selected General
+    /// never silently degrades to a base faction.
+    pub(crate) fn resolved_player_template(
+        &self,
+        player_id: u32,
+    ) -> Option<game_engine::common::rts::player_template::PlayerTemplate> {
+        self.player_template_identity(player_id)
+            .and_then(PlayerTemplateIdentity::resolve)
     }
 
     /// Wave 238: economy probe without exposing `&Player` to engine dual-read paths.
@@ -1690,6 +1711,53 @@ impl GameLogic {
         if setup_skirmish_ai {
             self.setup_skirmish_ai(player_id);
         }
+    }
+
+    /// C++ GameInfo/SidesList start path for a selected Campaign or Challenge
+    /// PlayerTemplate.  The exact identity is resolved before any base-team
+    /// behavior is chosen; an invalid late resolution removes the local player
+    /// instead of starting the wrong General.
+    #[inline]
+    pub fn start_new_game_with_player_template(
+        &mut self,
+        mode: GameMode,
+        player_id: u32,
+        player_template: PlayerTemplateIdentity,
+    ) {
+        self.start_new_game(mode);
+        if !self.bind_player_template_identity(player_id, player_template) {
+            log::error!(
+                "Rejecting selected PlayerTemplate after session reset; removing local player {} rather than falling back to a base Team",
+                player_id
+            );
+            self.players.remove(&player_id);
+            self.player_template_bindings.remove(&player_id);
+        }
+    }
+
+    fn bind_player_template_identity(
+        &mut self,
+        player_id: u32,
+        player_template: PlayerTemplateIdentity,
+    ) -> bool {
+        let Some(template) = player_template.resolve() else {
+            return false;
+        };
+        let Some(team) = PlayerTemplateIdentity::team_for_template(&template) else {
+            return false;
+        };
+        let Some(player) = self.players.get_mut(&player_id) else {
+            return false;
+        };
+
+        // C++ Player::init(pt): the exact template owns base side, preferred
+        // color, starting money fallback, and rank-one sciences.  The generic
+        // player seeded by start_new_game is only a bootstrap shell.
+        player.team = team;
+        player.apply_player_template_start_state(&template);
+        self.player_template_bindings
+            .insert(player_id, player_template);
+        true
     }
 
     /// Apply an upgrade tag to an object.

@@ -1,6 +1,52 @@
 use super::*;
 
 impl Object {
+    /// Read the durable accepted-discharge marker without exposing the older
+    /// AI fire-intent presentation fields as a visual authority.
+    #[inline]
+    pub fn weapon_discharge_marker(&self) -> WeaponDischargeMarker {
+        WeaponDischargeMarker {
+            sequence: self.last_weapon_discharge_sequence,
+            weapon_slot: self.last_weapon_discharge_slot,
+            fired_barrel: self.last_weapon_discharge_barrel,
+            logic_frame: self.last_weapon_discharge_frame,
+        }
+    }
+
+    /// Restore a v4 logical marker. Unknown slots and sequence zero fail
+    /// closed to the unseen state; a renderer must not replay a malformed
+    /// source record as PRIMARY/barrel zero.
+    pub fn restore_weapon_discharge_marker(
+        &mut self,
+        sequence: u64,
+        weapon_slot: u8,
+        fired_barrel: u8,
+        logic_frame: u32,
+    ) -> bool {
+        if sequence == 0 || weapon_slot >= 3 {
+            self.last_weapon_discharge_sequence = 0;
+            self.last_weapon_discharge_slot = 0;
+            self.last_weapon_discharge_barrel = 0;
+            self.last_weapon_discharge_frame = 0;
+            return false;
+        }
+        self.last_weapon_discharge_sequence = sequence;
+        self.last_weapon_discharge_slot = weapon_slot;
+        self.last_weapon_discharge_barrel = fired_barrel;
+        self.last_weapon_discharge_frame = logic_frame;
+        true
+    }
+
+    /// Stamp an event allocated by the owning `GameLogic` world.
+    pub(crate) fn stamp_weapon_discharge_marker(&mut self, marker: WeaponDischargeMarker) {
+        let _ = self.restore_weapon_discharge_marker(
+            marker.sequence,
+            marker.weapon_slot,
+            marker.fired_barrel,
+            marker.logic_frame,
+        );
+    }
+
     pub fn record_host_ground_height(&self) {
         crate::game_logic::host_ground_height_log::record(
             self.id,
@@ -550,6 +596,7 @@ impl Object {
     /// C++ Object::setWeaponSetFlag residual (subset used by AIGroup).
     /// `flag`: 0=PLAYER_UPGRADE, 1=MINE_CLEARING, 2=CARBOMB, 3=VEHICLE_HIJACK.
     pub fn set_weapon_set_flag(&mut self, flag: u8, enabled: bool) -> bool {
+        let previous_sources = self.active_weapon_barrel_source_identities();
         match flag {
             0 => {
                 self.weapon_set_player_upgrade = enabled;
@@ -565,12 +612,15 @@ impl Object {
             }
             _ => return false,
         }
+        self.reset_weapon_barrel_states_if_sources_changed(previous_sources);
         self.record_host_weapon_set();
         true
     }
 
     pub fn set_weapon_set_mine_clearing_detail(&mut self, enabled: bool) {
+        let previous_sources = self.active_weapon_barrel_source_identities();
         self.weapon_set_mine_clearing_detail = enabled;
+        self.reset_weapon_barrel_states_if_sources_changed(previous_sources);
         self.record_host_weapon_set();
     }
 

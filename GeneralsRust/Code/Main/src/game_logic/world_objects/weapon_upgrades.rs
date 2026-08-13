@@ -517,7 +517,9 @@ impl GameLogic {
             .objects
             .iter()
             .filter(|(_, o)| {
-                upgrade_targets_object(o, team) && o.is_alive() && is_nuke_mig_template(&o.template_name)
+                upgrade_targets_object(o, team)
+                    && o.is_alive()
+                    && is_nuke_mig_template(&o.template_name)
             })
             .map(|(id, _)| *id)
             .collect();
@@ -808,7 +810,9 @@ impl GameLogic {
             .objects
             .iter()
             .filter(|(_, o)| {
-                upgrade_targets_object(o, team) && o.is_alive() && is_scorpion_template(&o.template_name)
+                upgrade_targets_object(o, team)
+                    && o.is_alive()
+                    && is_scorpion_template(&o.template_name)
             })
             .map(|(id, _)| *id)
             .collect();
@@ -888,7 +892,11 @@ impl GameLogic {
         let ids: Vec<ObjectId> = self
             .objects
             .iter()
-            .filter(|(_, o)| upgrade_targets_object(o, team) && o.is_alive() && is_raptor_template(&o.template_name))
+            .filter(|(_, o)| {
+                upgrade_targets_object(o, team)
+                    && o.is_alive()
+                    && is_raptor_template(&o.template_name)
+            })
             .map(|(id, _)| *id)
             .collect();
         let mut n = 0u32;
@@ -1254,7 +1262,7 @@ impl GameLogic {
             }
             if obj.secondary_weapon.is_none() {
                 if let Some(ref w) = secondary {
-                    obj.secondary_weapon = Some(w.clone());
+                    let _ = obj.replace_weapon_set_slot(1, Some(w.clone()));
                 }
             }
             obj.apply_upgrade_tag(upgrade_name);
@@ -1294,7 +1302,7 @@ impl GameLogic {
                     w.range = w
                         .range
                         .max(crate::game_logic::host_humvee::HUMVEE_AIR_TOW_RANGE);
-                    obj.secondary_weapon = Some(w);
+                    let _ = obj.replace_weapon_set_slot(1, Some(w));
                 }
             } else if let Some(w) = obj.secondary_weapon.as_mut() {
                 w.can_target_air = true;
@@ -1374,7 +1382,7 @@ impl GameLogic {
             }
             if let Some(ref w) = secondary {
                 // Always re-bind neutron secondary residual so stats stay correct.
-                obj.secondary_weapon = Some(w.clone());
+                let _ = obj.replace_weapon_set_slot(1, Some(w.clone()));
             }
             obj.apply_upgrade_tag(upgrade_name);
             obj.apply_upgrade_tag(UPGRADE_CHINA_NEUTRON_SHELLS);
@@ -1411,9 +1419,9 @@ impl GameLogic {
             // an older host object lacked that slot, never by guessing a
             // substitute from the pod weapon.
             if obj.secondary_weapon.is_none() {
-                obj.secondary_weapon = Some(comanche_antitank_weapon());
+                let _ = obj.replace_weapon_set_slot(1, Some(comanche_antitank_weapon()));
             }
-            obj.tertiary_weapon = Some(tertiary.clone());
+            let _ = obj.replace_weapon_set_slot(2, Some(tertiary.clone()));
             obj.apply_upgrade_tag(upgrade_name);
             obj.apply_upgrade_tag(UPGRADE_COMANCHE_ROCKET_PODS);
             // Host residual: PLAYER_UPGRADE weapon set flag for presentation honesty.
@@ -1449,7 +1457,7 @@ impl GameLogic {
                 continue;
             }
             if let Some(ref w) = primary {
-                obj.weapon = Some(w.clone());
+                let _ = obj.replace_weapon_set_slot(0, Some(w.clone()));
             }
             obj.apply_upgrade_tag(upgrade_name);
             obj.apply_upgrade_tag(UPGRADE_AMERICA_SENTRY_DRONE_GUN);
@@ -1489,7 +1497,7 @@ impl GameLogic {
             if let Some(ref w) = primary {
                 // Ensure residual anti-structure missile stats when store available.
                 if obj.weapon.is_none() {
-                    obj.weapon = Some(w.clone());
+                    let _ = obj.replace_weapon_set_slot(0, Some(w.clone()));
                 }
             }
             obj.apply_upgrade_tag(upgrade_name);

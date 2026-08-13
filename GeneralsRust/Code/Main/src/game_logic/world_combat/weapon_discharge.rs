@@ -1,0 +1,191 @@
+//! Exact accepted WeaponSet-discharge authority.
+//!
+//! This is the narrow bridge between a real live weapon discharge and frozen
+//! Drawable presentation. It intentionally does not observe the AI
+//! `host_fire_intent` residual: those writes can occur without a physical
+//! `Weapon::fireWeaponTemplate` equivalent.
+
+use super::super::*;
+
+impl GameLogic {
+    /// Normalize one already-accepted live discharge.
+    ///
+    /// Callers invoke this only after their concrete WeaponSet slot consumed
+    /// ammo / completed its accepted fire path. The helper reads the barrel
+    /// before advancing it, allocates a world-monotonic sequence, stamps the
+    /// durable Object marker, and appends the presentation-only event in one
+    /// operation. Lower-level per-victim damage helpers must not call this:
+    /// a splash weapon still produces one recoil cue, not one per victim.
+    pub(in super::super) fn record_accepted_weapon_discharge(
+        &mut self,
+        source: ObjectId,
+        weapon_slot: u8,
+    ) -> Option<crate::game_logic::host_weapon_discharge_log::HostWeaponDischargeEvent> {
+        if weapon_slot >= 3 {
+            return None;
+        }
+
+        // Retain the pre-advance barrel exactly once. If no concrete source
+        // Weapon is attached, fail closed rather than inventing PRIMARY/0.
+        let fired_barrel = self
+            .objects
+            .get_mut(&source)?
+            .fired_barrel_for_slot(weapon_slot)?;
+
+        // Zero is reserved for an unseen Object marker. A malformed restored
+        // counter is normalized by the setter below; keep this defensive guard
+        // too because this is the only allocator.
+        let sequence = self.next_weapon_discharge_sequence.max(1);
+        self.next_weapon_discharge_sequence = sequence.saturating_add(1).max(1);
+        let marker = WeaponDischargeMarker {
+            sequence,
+            weapon_slot,
+            fired_barrel,
+            logic_frame: self.frame,
+        };
+        let event = crate::game_logic::host_weapon_discharge_log::HostWeaponDischargeEvent {
+            source,
+            weapon_slot,
+            fired_barrel,
+            sequence,
+            logic_frame: self.frame,
+        };
+        self.objects
+            .get_mut(&source)?
+            .stamp_weapon_discharge_marker(marker);
+        // C++ passes this precise barrel to Drawable before Weapon advances.
+        // Freeze the source event at the same point; the retained cursor moves
+        // only after the event/marker identity is fully established.
+        self.weapon_discharge_log.record(event);
+        self.objects
+            .get_mut(&source)?
+            .advance_weapon_barrel_after_shot(weapon_slot);
+        Some(event)
+    }
+
+    /// The next unused logical sequence for v4 save capture.
+    #[inline]
+    pub fn weapon_discharge_next_sequence_for_snapshot(&self) -> u64 {
+        self.next_weapon_discharge_sequence.max(1)
+    }
+
+    /// Restore the next unused logical sequence. Presentation events are
+    /// transient, so a staged load deliberately begins with an empty queue;
+    /// durable per-object markers establish the no-replay baseline instead.
+    #[inline]
+    pub fn restore_weapon_discharge_next_sequence(&mut self, next_sequence: u64) {
+        self.next_weapon_discharge_sequence = next_sequence.max(1);
+        self.weapon_discharge_log.clear();
+    }
+
+    /// Consume every accepted discharge accumulated since the previous
+    /// presentation build. This has `&self` deliberately: taking a snapshot
+    /// is a visual boundary, not an authority mutation.
+    #[inline]
+    pub fn take_weapon_discharges_for_presentation(
+        &self,
+    ) -> Vec<crate::game_logic::host_weapon_discharge_log::HostWeaponDischargeEvent> {
+        self.weapon_discharge_log.take_for_presentation()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn weapon_discharge_normalizes_preadvance_barrel_and_freezes_every_event() {
+        let mut logic = GameLogic::new();
+        logic.frame = 77;
+        let source = ObjectId(701);
+        let mut object = Object::new(ThingTemplate::new("DischargeSource"), source, Team::USA);
+        object.weapon = Some(Weapon {
+            damage: 1.0,
+            range: 100.0,
+            ..Weapon::default()
+        });
+        assert!(object.set_weapon_barrel_count_for_slot(0, 3));
+        object.weapon_barrel_states[0].current_barrel = 2;
+        object.weapon_barrel_states[0].shots_left_on_barrel = 1;
+        logic.objects.insert(source, object);
+
+        let first = logic
+            .record_accepted_weapon_discharge(source, 0)
+            .expect("first accepted primary discharge");
+        let second = logic
+            .record_accepted_weapon_discharge(source, 0)
+            .expect("second accepted primary discharge");
+        assert_eq!((first.sequence, first.fired_barrel), (1, 2));
+        assert_eq!((second.sequence, second.fired_barrel), (2, 0));
+        assert_eq!(logic.weapon_discharge_next_sequence_for_snapshot(), 3);
+
+        let marker = logic
+            .host_object(source)
+            .expect("source")
+            .weapon_discharge_marker();
+        assert_eq!(
+            marker,
+            WeaponDischargeMarker {
+                sequence: 2,
+                weapon_slot: 0,
+                fired_barrel: 0,
+                logic_frame: 77,
+            }
+        );
+        assert_eq!(
+            logic
+                .host_object(source)
+                .expect("source")
+                .weapon_barrel_state_for_slot(0)
+                .expect("primary barrel")
+                .current_barrel,
+            1,
+            "two accepted shots must advance after capturing barrels 2 then 0"
+        );
+
+        // A presentation frame can trail multiple fixed logic steps. It must
+        // receive both accepted events, rather than only the last drain batch.
+        let frame = crate::presentation_frame::PresentationFrame::build_from_logic(&logic, 0);
+        let frozen: Vec<_> = frame
+            .events
+            .iter()
+            .filter_map(|event| match event {
+                crate::presentation_frame::PresentationEvent::WeaponDischarged {
+                    source: event_source,
+                    weapon_slot,
+                    fired_barrel,
+                    sequence,
+                    logic_frame,
+                } if *event_source == source => {
+                    Some((*sequence, *weapon_slot, *fired_barrel, *logic_frame))
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(frozen, vec![(1, 0, 2, 77), (2, 0, 0, 77)]);
+        assert!(
+            crate::presentation_frame::PresentationFrame::build_from_logic(&logic, 0)
+                .events
+                .iter()
+                .all(|event| !matches!(
+                    event,
+                    crate::presentation_frame::PresentationEvent::WeaponDischarged { .. }
+                )),
+            "accepted discharges must be frozen once, not replayed forever"
+        );
+    }
+
+    #[test]
+    fn weapon_discharge_restore_clamps_counter_and_rejects_bad_marker_slot() {
+        let mut logic = GameLogic::new();
+        logic.restore_weapon_discharge_next_sequence(0);
+        assert_eq!(logic.weapon_discharge_next_sequence_for_snapshot(), 1);
+
+        let mut object = Object::new(ThingTemplate::new("MarkerSource"), ObjectId(702), Team::USA);
+        assert!(!object.restore_weapon_discharge_marker(9, 3, 1, 22));
+        assert_eq!(
+            object.weapon_discharge_marker(),
+            WeaponDischargeMarker::unseen()
+        );
+    }
+}

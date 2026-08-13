@@ -1150,28 +1150,60 @@ impl GameLogic {
                 continue;
             }
 
-            let side = match player.team {
-                Team::USA => "America",
-                Team::China => "China",
-                Team::GLA => "GLA",
-                Team::Neutral => continue,
-            };
-            let residual = find_player_template_by_side(side)
-                .or_else(|| find_player_template_residual("FactionAmerica"));
-            let Some(residual) = residual else {
-                log::warn!(
-                    "Skirmish starting unit residual: no player template for side={} player={}",
-                    side,
-                    pid
-                );
-                continue;
-            };
+            // C++ GameLogic uses the Player's exact PlayerTemplate for both
+            // StartingBuilding and StartingUnit0..9.  A selected General must
+            // never degrade to the base-side residual table merely because a
+            // late Common-store lookup failed.
+            let selected_template = self.player_template_identity(pid).cloned();
+            let (starting_building, starting_units, exact_player_template) =
+                if selected_template.is_some() {
+                    let Some(template) = self.resolved_player_template(pid) else {
+                        log::error!(
+                            "Rejecting selected PlayerTemplate starter spawn for player {}: identity no longer resolves",
+                            pid
+                        );
+                        continue;
+                    };
+                    (
+                        template.get_starting_building().to_string(),
+                        (0..game_engine::common::rts::player_template::MAX_MP_STARTING_UNITS)
+                            .map(|index| template.get_starting_unit(index as i32).to_string())
+                            .collect::<Vec<_>>(),
+                        true,
+                    )
+                } else {
+                    let side = match player.team {
+                        Team::USA => "America",
+                        Team::China => "China",
+                        Team::GLA => "GLA",
+                        Team::Neutral => continue,
+                    };
+                    let residual = find_player_template_by_side(side)
+                        .or_else(|| find_player_template_residual("FactionAmerica"));
+                    let Some(residual) = residual else {
+                        log::warn!(
+                            "Skirmish starting unit residual: no player template for side={} player={}",
+                            side,
+                            pid
+                        );
+                        continue;
+                    };
+                    (
+                        residual.starting_building.to_string(),
+                        residual
+                            .starting_units
+                            .iter()
+                            .map(|unit| (*unit).to_string())
+                            .collect::<Vec<_>>(),
+                        false,
+                    )
+                };
 
             // --- Starting building (C++ placeStartingStructures) ---
             let mut base = self.player_base_position(pid);
             if base.is_none() {
                 // Wave 831/832: place at Player_N_Start when map has no faction army.
-                let building = residual.starting_building;
+                let building = starting_building.as_str();
                 let mut pos_opt: Option<Vec3> = None;
                 if !building.is_empty() {
                     if let Ok(starts) =
@@ -1243,11 +1275,11 @@ impl GameLogic {
             }
 
             // --- Starting units 0..9 (C++ placeStartingUnits / MAX_MP_STARTING_UNITS) ---
-            // Wave 832: walk residual.starting_units; retail usually only unit0 (dozer).
-            let unit_names: Vec<&str> = residual
-                .starting_units
+            // Wave 832: walk PlayerTemplate StartingUnit0..9; retail usually
+            // only unit0 (dozer).
+            let unit_names: Vec<&str> = starting_units
                 .iter()
-                .copied()
+                .map(String::as_str)
                 .filter(|n| !n.is_empty())
                 .collect();
             if unit_names.is_empty() {
@@ -1291,7 +1323,7 @@ impl GameLogic {
                         unit_name,
                         id
                     );
-                } else if i == 0 {
+                } else if i == 0 && !exact_player_template {
                     // Fallback retail short names for unit0 only.
                     // USA: ThingFactory AmericaVehicleDozer, then host USA_Dozer.
                     let fallbacks: &[&str] = match player.team {

@@ -26,7 +26,17 @@ impl Snapshot for WorldSnapshot {
         xfer.xfer_marker_label("WorldSnapshot")?;
 
         xfer.xfer_marker_label("Version")?;
+        // A direct Xfer stream is positional and marker labels write no bytes.
+        // Reject an invalid writer before emitting a partial record; on load,
+        // validate immediately after the raw u32 and before timestamp/object
+        // payload bytes can be consumed under the wrong layout.
+        if xfer.get_mode() != XferMode::Load {
+            validate_direct_world_snapshot_version(self.version)?;
+        }
         self.version.xfer(xfer)?;
+        if xfer.get_mode() == XferMode::Load {
+            validate_direct_world_snapshot_version(self.version)?;
+        }
 
         xfer.xfer_marker_label("Timestamp")?;
         let duration = self
@@ -134,6 +144,24 @@ impl Snapshot for WorldSnapshot {
 
         xfer.xfer_marker_label("HostUpgrades")?;
         self.host_upgrades.xfer(xfer)?;
+
+        if self.version >= WORLD_SNAPSHOT_DIRECT_XFER_V4_TAIL_VERSION {
+            xfer.xfer_marker_label("NextWeaponDischargeSequence")?;
+            xfer.xfer_u64(&mut self.next_weapon_discharge_sequence)?;
+            if xfer.get_mode() == XferMode::Load {
+                // Sequence zero is reserved only for an Object's unseen
+                // discharge marker; the world counter always denotes the next
+                // usable sequence.
+                self.next_weapon_discharge_sequence = self
+                    .next_weapon_discharge_sequence
+                    .max(default_next_weapon_discharge_sequence());
+            }
+            xfer.xfer_marker_label("ClientDrawables")?;
+            self.client_drawables.xfer(xfer)?;
+        } else if xfer.get_mode() == XferMode::Load {
+            self.next_weapon_discharge_sequence = default_next_weapon_discharge_sequence();
+            self.client_drawables = ClientDrawableWorldSnapshot::default();
+        }
 
         Ok(())
     }

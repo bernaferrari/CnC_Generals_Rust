@@ -8,6 +8,7 @@
 
 use crate::common::global_data as runtime_global_data;
 use crate::common::ini::ini::{INIError, INIResult, INI};
+use crate::common::user_preferences::UserPreferences;
 use once_cell::sync::OnceCell;
 use parking_lot::RwLock;
 use std::collections::HashMap;
@@ -1155,8 +1156,17 @@ impl GlobalData {
     /// Parse GameData definition from INI
     pub fn parse_game_data_definition(ini: &mut INI) -> Result<(), String> {
         let global_data = ensure_global_data();
+        {
+            let mut data = global_data.write();
+            parse_game_data_block(ini, &mut data).map_err(|err| err.to_string())?;
+        }
+
+        // GlobalData.cpp applies OptionPreferences after GameData.ini.  Loading the
+        // preference resolves the user-data path through this same global, so it
+        // must happen without the GameData write lock held.
+        let alternate_mouse_preference = load_alternate_mouse_preference();
         let mut data = global_data.write();
-        parse_game_data_block(ini, &mut data).map_err(|err| err.to_string())?;
+        apply_alternate_mouse_preference(&mut data, alternate_mouse_preference);
         sync_runtime_global_data_from_ini(&data);
         Ok(())
     }
@@ -1194,6 +1204,28 @@ pub fn get_global_data() -> Option<Arc<RwLock<GlobalData>>> {
 /// This is the main entry point for parsing GameData definitions from INI files
 pub fn parse_game_data_definition(ini: &mut INI) -> Result<(), String> {
     GlobalData::parse_game_data_definition(ini)
+}
+
+/// Mirrors OptionPreferences::getAlternateMouseModeEnabled in OptionsMenu.cpp:
+/// an absent entry leaves GameData's value intact, while only `yes` enables it.
+fn alternate_mouse_preference_value(value: Option<&str>) -> Option<bool> {
+    value.map(|value| value.eq_ignore_ascii_case("yes"))
+}
+
+fn apply_alternate_mouse_preference(data: &mut GlobalData, preference: Option<bool>) {
+    if let Some(enabled) = preference {
+        data.use_alternate_mouse = enabled;
+    }
+}
+
+fn load_alternate_mouse_preference() -> Option<bool> {
+    let mut preferences = UserPreferences::new();
+    let _ = preferences.load("Options.ini");
+    alternate_mouse_preference_value(
+        preferences
+            .get_string("UseAlternateMouse")
+            .map(|value| value.as_str()),
+    )
 }
 
 fn parse_game_data_block(ini: &mut INI, data: &mut GlobalData) -> INIResult<()> {
@@ -1615,7 +1647,6 @@ fn parse_game_data_block(ini: &mut INI, data: &mut GlobalData) -> INIResult<()> 
         }
     }
     let _ = data.set_time_of_day(data.time_of_day);
-    sync_runtime_global_data_from_ini(data);
     Ok(())
 }
 
@@ -1641,6 +1672,7 @@ fn apply_to_runtime_global_data(data: &GlobalData, runtime: &mut runtime_global_
     runtime.use_half_height_map = data.use_half_height_map;
     runtime.draw_entire_terrain = data.draw_entire_terrain;
     runtime.terrain_lod_target_time_ms = data.terrain_lod_target_time_ms;
+    runtime.use_alternate_mouse = data.use_alternate_mouse;
     runtime.right_mouse_always_scrolls = data.right_mouse_always_scrolls;
     runtime.use_water_plane = data.use_water_plane;
     runtime.use_cloud_plane = data.use_cloud_plane;
@@ -2287,6 +2319,34 @@ mod tests {
         assert!(runtime.writable.allow_exit_out_of_movies);
         assert_eq!(runtime.writable.shell_map_name, "ShellMap");
         assert!(!runtime.writable.shell_map_on);
+    }
+
+    #[test]
+    fn alternate_mouse_options_overlay_matches_cpp_yes_only_semantics() {
+        assert_eq!(alternate_mouse_preference_value(None), None);
+        assert_eq!(alternate_mouse_preference_value(Some("yes")), Some(true));
+        assert_eq!(alternate_mouse_preference_value(Some("YES")), Some(true));
+        assert_eq!(alternate_mouse_preference_value(Some("true")), Some(false));
+        assert_eq!(alternate_mouse_preference_value(Some("no")), Some(false));
+
+        let mut data = GlobalData::new();
+        data.use_alternate_mouse = true;
+        apply_alternate_mouse_preference(&mut data, None);
+        assert!(data.use_alternate_mouse);
+
+        apply_alternate_mouse_preference(&mut data, Some(false));
+        assert!(!data.use_alternate_mouse);
+    }
+
+    #[test]
+    fn apply_game_data_copies_alternate_mouse_to_runtime_global_data() {
+        let mut data = GlobalData::new();
+        data.use_alternate_mouse = true;
+
+        let mut runtime = runtime_global_data::GlobalData::default();
+        apply_to_runtime_global_data(&data, &mut runtime);
+
+        assert!(runtime.use_alternate_mouse);
     }
 
     #[test]

@@ -61,6 +61,8 @@
 
 mod ai;
 mod builder;
+mod client_drawable;
+mod client_drawable_xfer;
 mod game_state;
 mod legacy_bincode;
 mod load_post_process;
@@ -77,6 +79,7 @@ mod tests;
 
 pub use ai::*;
 pub use builder::*;
+pub use client_drawable::*;
 pub use game_state::*;
 pub(crate) use legacy_bincode::*;
 pub use object::*;
@@ -90,6 +93,8 @@ pub const SNAPSHOT_SRC: &str = concat!(
     include_str!("mod.rs"),
     include_str!("ai.rs"),
     include_str!("builder.rs"),
+    include_str!("client_drawable.rs"),
+    include_str!("client_drawable_xfer.rs"),
     include_str!("game_state.rs"),
     include_str!("load_post_process.rs"),
     include_str!("object.rs"),

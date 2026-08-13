@@ -263,39 +263,42 @@ impl CnCGameEngine {
                     };
                     // Wave 840: control-file map wins over boot ShellMap pending residual.
                     let control_map = args.get("map").cloned().filter(|m| !m.trim().is_empty());
-                    if let Some((mode, faction, map, skirmish)) =
-                        self.take_pending_new_game_start_request()
-                    {
+                    if let Some(mut request) = self.take_pending_new_game_start_request() {
                         let map = control_map
                             .clone()
                             .filter(|m| !Self::map_name_is_shell_residual(m))
-                            .unwrap_or(map);
+                            .unwrap_or(request.map);
                         let map = if Self::map_name_is_shell_residual(&map) {
                             control_map.clone().unwrap_or(map)
                         } else {
                             map
                         };
-                        self.start_game_from_ui(mode, faction, map, skirmish);
+                        request.map = map;
+                        self.start_game_from_ui(request);
                         self.runtime_host_last_gameplay_cmd = start_cmd.into();
                     } else if gamelogic::helpers::TheGameLogic::is_start_new_game_requested() {
                         gamelogic::helpers::TheGameLogic::clear_start_new_game_request();
-                        if let Some((mode, faction, map, skirmish)) =
-                            self.build_start_request_from_pending_globals(None)
-                        {
+                        if let Some(mut request) = self.build_start_request_from_pending_globals(None) {
                             let map = control_map
                                 .clone()
                                 .filter(|m| !Self::map_name_is_shell_residual(m))
-                                .unwrap_or(map);
+                                .unwrap_or(request.map);
                             let map = if Self::map_name_is_shell_residual(&map) {
                                 control_map.clone().unwrap_or(map)
                             } else {
                                 map
                             };
-                            self.start_game_from_ui(mode, faction, map, skirmish);
+                            request.map = map;
+                            self.start_game_from_ui(request);
                             self.runtime_host_last_gameplay_cmd = start_cmd.into();
                         } else if let Some(map) = control_map.clone() {
                             // Pending empty but control map present — start soft residual.
-                            self.start_game_from_ui(GameMode::Skirmish, "USA".into(), map, None);
+                            self.start_game_from_ui(HostStartRequest::without_player_template(
+                                GameMode::Skirmish,
+                                "USA".into(),
+                                map,
+                                None,
+                            ));
                             self.runtime_host_last_gameplay_cmd =
                                 "click_skirmish_start_ok_wnd_control_map".into();
                         } else {
@@ -303,7 +306,12 @@ impl CnCGameEngine {
                                 "click_skirmish_start_wnd_pending".into();
                         }
                     } else if let Some(map) = control_map.clone() {
-                        self.start_game_from_ui(GameMode::Skirmish, "USA".into(), map, None);
+                        self.start_game_from_ui(HostStartRequest::without_player_template(
+                            GameMode::Skirmish,
+                            "USA".into(),
+                            map,
+                            None,
+                        ));
                         self.runtime_host_last_gameplay_cmd =
                             "click_skirmish_start_ok_wnd_control_map".into();
                     } else {
@@ -340,7 +348,9 @@ impl CnCGameEngine {
                         .filter(|m| !m.trim().is_empty())
                         .filter(|m| !Self::map_name_is_shell_residual(m))
                         .unwrap_or(map);
-                    self.start_game_from_ui(mode, faction, map, skirmish);
+                    self.start_game_from_ui(HostStartRequest::without_player_template(
+                        mode, faction, map, skirmish,
+                    ));
                     self.runtime_host_last_gameplay_cmd = "click_skirmish_start_ok".into();
                 }
                 Some(other) => {
@@ -526,7 +536,9 @@ impl CnCGameEngine {
             })
             .unwrap_or_else(|| "USA".to_string());
         self.set_runtime_host_ui_screen_override(None);
-        self.start_game_from_ui(mode, faction, map, skirmish);
+        self.start_game_from_ui(HostStartRequest::without_player_template(
+            mode, faction, map, skirmish,
+        ));
         // start_game_from_ui transitions Loading -> InGame internally
     }
     // WND parity: enqueue MSG_NEW_GAME on the common stream so Menu drain
@@ -593,15 +605,13 @@ impl CnCGameEngine {
         }
         // Drain immediately (same helpers Menu update uses). Relying only on
         // the next Menu frame races pump_message_stream / state transitions.
-        if let Some((mode, faction, map_name, skirmish)) =
-            self.take_pending_new_game_start_request()
-        {
+        if let Some(request) = self.take_pending_new_game_start_request() {
             info!(
                 "Runtime host NewGame drain: mode={:?} faction={} map={}",
-                mode, faction, map_name
+                request.mode, request.faction, request.map
             );
             self.set_runtime_host_ui_screen_override(None);
-            self.start_game_from_ui(mode, faction, map_name, skirmish);
+            self.start_game_from_ui(request);
         } else {
             warn!("Runtime host queued NewGame but drain produced no start request");
             if self.current_state != GameState::Menu {

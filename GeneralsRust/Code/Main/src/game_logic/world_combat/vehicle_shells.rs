@@ -730,6 +730,9 @@ impl GameLogic {
         if let Some(prev) = obj.weapon.as_ref() {
             w.last_fire_time = prev.last_fire_time;
         }
+        // C++ WeaponBonusUpgrade updates the existing Raptor weapon in place;
+        // retain its current barrel cursor rather than treating this as a
+        // WeaponSet replacement.
         obj.weapon = Some(w);
         self.raptor_residual_laser_missiles_upgrades = self
             .raptor_residual_laser_missiles_upgrades
@@ -1126,7 +1129,7 @@ impl GameLogic {
         if let Some(prev) = obj.weapon.as_ref() {
             w.last_fire_time = prev.last_fire_time;
         }
-        obj.weapon = Some(w);
+        let _ = obj.replace_weapon_set_slot(0, Some(w));
         self.mig_residual_black_napalm_upgrades =
             self.mig_residual_black_napalm_upgrades.saturating_add(1);
         true
@@ -1150,7 +1153,7 @@ impl GameLogic {
         if let Some(prev) = obj.weapon.as_ref() {
             w.last_fire_time = prev.last_fire_time;
         }
-        obj.weapon = Some(w);
+        let _ = obj.replace_weapon_set_slot(0, Some(w));
         self.mig_residual_tactical_nuke_upgrades =
             self.mig_residual_tactical_nuke_upgrades.saturating_add(1);
         true

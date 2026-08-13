@@ -56,6 +56,7 @@
 
 pub mod animate_window_manager;
 pub mod callbacks;
+pub mod campaign_launch_host_bridge;
 pub mod campaign_manager;
 pub mod campaign_playthrough;
 pub mod challenge_generals;

@@ -92,6 +92,28 @@ impl SnapshotBuilder {
         object.weapon = primary;
         object.secondary_weapon = secondary;
         object.tertiary_weapon = tertiary;
+        // v4 stores only the mutable C++ Weapon cursor. Authored cadence and
+        // draw topology are rebuilt by Object; a saved multi-barrel cursor is
+        // staged losslessly until that topology is validated, rather than
+        // being normalized against the temporary one-barrel default.
+        for (slot, state) in snapshot.weapon_barrel_states.iter().enumerate() {
+            if object.weapon_slot(slot as u8).is_some() {
+                object.restore_weapon_barrel_runtime_for_slot(
+                    slot as u8,
+                    state.current_barrel,
+                    state.shots_left_on_barrel,
+                );
+            }
+        }
+        // Restore only the normalized accepted-discharge marker. A zero
+        // sequence or malformed slot fails closed inside Object, so stale AI
+        // fire-intent data can never become a post-load visual replay cue.
+        object.restore_weapon_discharge_marker(
+            snapshot.last_weapon_discharge_sequence,
+            snapshot.last_weapon_discharge_slot,
+            snapshot.last_weapon_discharge_barrel,
+            snapshot.last_weapon_discharge_frame,
+        );
         // Old saves can contain an active slot whose backing weapon did not
         // exist in that snapshot.  Do not let it fall through to primary.
         if object.weapon_slot(object.active_weapon_slot).is_none() {

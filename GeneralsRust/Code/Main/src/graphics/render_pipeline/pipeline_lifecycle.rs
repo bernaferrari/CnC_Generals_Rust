@@ -57,7 +57,9 @@ impl RenderPipeline {
             debug_last_missing_model_samples: Vec::new(),
             debug_warned_bad_mesh_transforms: HashSet::new(),
             model_cull_bounds_cache: HashMap::new(),
-            animation_states: HashMap::new(),
+            drawable_visual_states: HashMap::new(),
+            pending_client_drawable_restore: None,
+            pending_client_drawable_imports: HashMap::new(),
             last_frame_time: 0.0,
             presentation_frame: None,
             debug_last_laser_segments_packed: 0,
@@ -81,7 +83,36 @@ impl RenderPipeline {
         &mut self,
         frame: Option<crate::presentation_frame::PresentationFrame>,
     ) {
+        // A queued v4 Drawable payload is meaningful only against the next
+        // full frozen presentation topology.  Do the source-only identity
+        // pass here, before normal collection.  This deliberately performs
+        // no asset/archive I/O; collection consumes each resulting candidate
+        // once alongside its ordinary model resolution.
+        self.pending_client_drawable_imports.clear();
+        if let Some(frame) = frame.as_ref() {
+            self.prepare_pending_client_drawable_restore_for_frame(frame);
+        }
         self.presentation_frame = frame;
+    }
+
+    /// Discard renderer-local state tied to the current logical world.
+    ///
+    /// This is deliberately *not* part of [`Self::set_presentation_frame`]: a
+    /// presentation frame can be absent during an ordinary handoff, while a
+    /// successful map install, reset, or complete `GameLogic` replacement
+    /// invalidates every raw object-id timeline.  Asset, terrain, minimap,
+    /// lighting, and frame-counter caches have their own lifetimes and remain
+    /// intact here.
+    pub fn invalidate_world_visual_state(&mut self) {
+        clear_visual_world_state_components(
+            &mut self.drawable_visual_states,
+            &mut self.render_items,
+            &mut self.current_pass,
+            &mut self.last_frame_time,
+        );
+        self.presentation_frame = None;
+        self.pending_client_drawable_restore = None;
+        self.pending_client_drawable_imports.clear();
     }
 
     #[inline]

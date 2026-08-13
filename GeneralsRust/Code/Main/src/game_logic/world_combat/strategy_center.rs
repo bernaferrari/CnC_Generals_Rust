@@ -329,6 +329,10 @@ impl GameLogic {
                 crate::game_logic::host_strategy_center::BATTLE_PLAN_TURRET_RECENTER_FRAMES,
             );
         }
+        // One turret discharge may splash several victims. Normalize its
+        // concrete PRIMARY cursor once here, never inside the per-victim
+        // residual damage helper.
+        let _ = self.record_accepted_weapon_discharge(center_id, 0);
 
         for (id, killer) in destroy_ids {
             self.mark_object_for_destruction(id, killer);
@@ -675,6 +679,9 @@ impl GameLogic {
                 self.stop_attack_decision_aware(defense_id);
             }
         }
+        // This accepted base-defense shot can miss or splash; it is still one
+        // physical slot discharge and must advance/freeze exactly once.
+        let _ = self.record_accepted_weapon_discharge(defense_id, slot);
 
         if destroyed && !is_fire_base {
             // Fire Base residual already mark_object_for_destruction inside apply.
@@ -1110,6 +1117,9 @@ impl GameLogic {
                     asst.gain_experience(kill_xp);
                 }
             }
+            // An assisted-targeting clip is a real primary WeaponSet shot,
+            // not one visual event per auto-fire victim.
+            let _ = self.record_accepted_weapon_discharge(clip.assistant_id, 0);
             if destroyed {
                 // Clear engagement via decision authority (log-only when GW applies).
                 self.stop_attack_decision_aware(clip.assistant_id);

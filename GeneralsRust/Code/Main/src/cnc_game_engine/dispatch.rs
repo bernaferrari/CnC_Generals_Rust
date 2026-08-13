@@ -207,15 +207,8 @@ impl CnCGameEngine {
     }
 
     /// Pull MSG_NEW_GAME out of the common message stream without discarding
-    /// unrelated messages. Returns a fully resolved start_game_from_ui tuple.
-    pub(super) fn take_pending_new_game_start_request(
-        &self,
-    ) -> Option<(
-        GameMode,
-        String,
-        String,
-        Option<crate::skirmish_config::SkirmishMatchConfig>,
-    )> {
+    /// unrelated messages. Returns a fully resolved Main-owned start request.
+    pub(super) fn take_pending_new_game_start_request(&self) -> Option<HostStartRequest> {
         let dispatch = Self::take_new_game_dispatch_from_common_stream()?;
         self.build_start_request_from_pending_globals(Some(dispatch))
     }
@@ -261,12 +254,7 @@ impl CnCGameEngine {
     pub(super) fn build_start_request_from_pending_globals(
         &self,
         dispatch: Option<StartupNewGameDispatch>,
-    ) -> Option<(
-        GameMode,
-        String,
-        String,
-        Option<crate::skirmish_config::SkirmishMatchConfig>,
-    )> {
+    ) -> Option<HostStartRequest> {
         let dispatch = dispatch.unwrap_or(StartupNewGameDispatch {
             game_mode_code: 2, // GAME_SKIRMISH default when only the helper flag is set
             game_mode: GameMode::Skirmish,
@@ -276,10 +264,60 @@ impl CnCGameEngine {
             max_fps: None,
         });
 
+        // C++ has one GameInfo/GlobalData path for a campaign launch. Main's
+        // host consumes the typed shell descriptor only when it exactly
+        // corresponds to the NewGame payload being dispatched.  The bridge
+        // drops stale/mismatched descriptors, so ordinary commands and a
+        // later Skirmish launch cannot inherit a selected campaign faction.
+        #[cfg(feature = "game_client")]
+        let campaign_launch = match game_client::gui::campaign_launch_host_bridge::take_host_campaign_launch_for_new_game(
+            dispatch.game_mode_code,
+            dispatch.difficulty_code,
+            dispatch.rank_points,
+            dispatch.max_fps,
+        ) {
+            game_client::gui::campaign_launch_host_bridge::HostCampaignLaunchDelivery::None => None,
+            game_client::gui::campaign_launch_host_bridge::HostCampaignLaunchDelivery::Matched(descriptor) => Some(descriptor),
+            game_client::gui::campaign_launch_host_bridge::HostCampaignLaunchDelivery::Mismatched => {
+                warn!("Rejecting MSG_NEW_GAME whose payload does not match its pending campaign launch descriptor");
+                Self::clear_pending_campaign_start_map();
+                return None;
+            }
+        };
+        #[cfg(feature = "game_client")]
+        let campaign_launch_overrides = match Self::campaign_launch_start_overrides(
+                dispatch.game_mode,
+                campaign_launch.as_ref(),
+            ) {
+                Ok(overrides) => overrides,
+                Err(reason) => {
+                    // A Challenge descriptor carries a selected General slot,
+                    // not an arbitrary team label.  Starting from a stale HUD
+                    // faction here would silently launch the wrong General.
+                    warn!(
+                        "Rejecting Challenge MSG_NEW_GAME without a validated selected General: {reason}"
+                    );
+                    Self::clear_pending_campaign_start_map();
+                    return None;
+                }
+            };
+        #[cfg(not(feature = "game_client"))]
+        let campaign_launch_overrides = CampaignLaunchStartOverrides::default();
+
+        let CampaignLaunchStartOverrides {
+            map: campaign_launch_map,
+            faction: campaign_launch_faction,
+            player_template,
+        } = campaign_launch_overrides;
+
+        // Do not consume pending globals until a typed Challenge selection is
+        // known to be valid.  That keeps a rejected/stale descriptor from
+        // mutating the next shell launch's map state.
         let prepared_map = Self::apply_startup_new_game_dispatch(dispatch);
 
         let mode = dispatch.game_mode;
-        let map = prepared_map
+        let map = campaign_launch_map
+            .or(prepared_map)
             .filter(|m| !m.trim().is_empty())
             .or_else(|| {
                 let g = game_engine::common::global_data::read();
@@ -305,15 +343,147 @@ impl CnCGameEngine {
             None
         };
 
-        let faction = skirmish
-            .as_ref()
-            .map(crate::skirmish_config::local_faction_from_config)
-            .unwrap_or_else(|| {
-                self.ui_local_player_team_name()
-                    .unwrap_or_else(|| "USA".to_string())
-            });
+        let faction = campaign_launch_faction
+            .or_else(|| {
+                skirmish
+                    .as_ref()
+                    .map(crate::skirmish_config::local_faction_from_config)
+            })
+            .or_else(|| self.ui_local_player_team_name())
+            .unwrap_or_else(|| "USA".to_string());
 
-        Some((mode, faction, map, skirmish))
+        Some(match player_template {
+            Some(player_template) => {
+                HostStartRequest::with_player_template(mode, faction, map, skirmish, player_template)
+            }
+            None => HostStartRequest::without_player_template(mode, faction, map, skirmish),
+        })
+    }
+
+    /// Extract the Main-owned start fields from a matching typed campaign
+    /// descriptor.  Keep the exact PlayerTemplate identity alongside its
+    /// compatibility base Team so the session can construct the same General
+    /// C++ puts into `SidesList::playerFaction`.
+    #[cfg(feature = "game_client")]
+    pub(super) fn campaign_launch_start_overrides(
+        mode: GameMode,
+        descriptor: Option<
+            &game_client::gui::campaign_launch_host_bridge::HostCampaignLaunchDescriptor,
+        >,
+    ) -> std::result::Result<CampaignLaunchStartOverrides, &'static str> {
+        let Some(descriptor) = descriptor.filter(|_| matches!(mode, GameMode::SinglePlayer)) else {
+            return Ok(CampaignLaunchStartOverrides::default());
+        };
+
+        let map = (!descriptor.map_name.trim().is_empty()).then(|| descriptor.map_name.clone());
+
+        // Challenge C++ selection is an indexed PlayerTemplate.  Pairing the
+        // index with its exact selected name protects the host from a stale
+        // selection after the shell reorders or replaces its template list.
+        // Never fall through to the current HUD/default faction for this
+        // branch: that would create a plausible-looking but wrong match.
+        if descriptor.is_challenge {
+            let player_template = descriptor
+                .player_template_name
+                .as_deref()
+                .zip(descriptor.player_template_index)
+                .and_then(|(name, index)| PlayerTemplateIdentity::from_exact_indexed_name(name, index))
+                .ok_or("the selected Challenge PlayerTemplate slot is missing or stale")?;
+            let faction = Self::base_faction_from_player_template_identity(&player_template)
+                .ok_or("the selected Challenge PlayerTemplate has no supported Main base side")?;
+            let map = map.ok_or("the selected Challenge map is empty")?;
+            return Ok(CampaignLaunchStartOverrides {
+                map: Some(map),
+                faction: Some(faction),
+                player_template: Some(player_template),
+            });
+        }
+
+        // A normal campaign has no GameSlot index.  Preserve an exact
+        // PlayerFaction only when it resolves in the Common store; plain base
+        // labels retain the existing no-template map/default behavior.
+        let player_template = descriptor
+            .player_template_name
+            .as_deref()
+            .and_then(PlayerTemplateIdentity::from_exact_name)
+            .or_else(|| {
+                PlayerTemplateIdentity::from_exact_name(
+                    descriptor.campaign_player_faction.as_str(),
+                )
+            });
+        let faction = player_template
+            .as_ref()
+            .and_then(Self::base_faction_from_player_template_identity)
+            .or_else(|| {
+                Self::base_faction_from_campaign_faction(
+                    descriptor.campaign_player_faction.as_str(),
+                )
+            })
+            .or_else(|| {
+                Self::base_faction_from_campaign_faction(descriptor.campaign_name.as_str())
+            });
+        Ok(CampaignLaunchStartOverrides {
+            map,
+            faction,
+            player_template,
+        })
+    }
+
+    /// Resolve a Challenge PlayerTemplate only when the index retained by the
+    /// C++ shell still names precisely the same template.  Name-only lookup is
+    /// insufficient because challenge selection is position-sensitive.
+    #[cfg(feature = "game_client")]
+    pub(super) fn base_faction_from_indexed_player_template(
+        template_name: &str,
+        template_index: i32,
+    ) -> Option<String> {
+        PlayerTemplateIdentity::from_exact_indexed_name(template_name, template_index)
+            .as_ref()
+            .and_then(Self::base_faction_from_player_template_identity)
+    }
+
+    /// Drop the map writes paired with a rejected typed campaign descriptor.
+    /// Challenge publishers intentionally mirror `pending_file` into both
+    /// GlobalData residences before queuing NewGame. Leaving either copy after
+    /// an invalid selected-General slot would let a later unrelated launch
+    /// inherit the rejected Challenge map.
+    #[cfg(feature = "game_client")]
+    fn clear_pending_campaign_start_map() {
+        game_engine::common::global_data::write()
+            .pending_file
+            .clear();
+        if let Some(data) = game_engine::common::ini::get_global_data() {
+            data.write().pending_file.clear();
+        }
+    }
+
+    /// Convert a C++ PlayerTemplate `Side`/`BaseSide` identity to Main's
+    /// currently-supported base Team string.  This is intentionally exact and
+    /// fail-closed: a General template is not guessed from a display label.
+    pub(super) fn base_faction_from_player_template(template_name: &str) -> Option<String> {
+        PlayerTemplateIdentity::from_exact_name(template_name)
+            .as_ref()
+            .and_then(Self::base_faction_from_player_template_identity)
+    }
+
+    fn base_faction_from_player_template_identity(
+        player_template: &PlayerTemplateIdentity,
+    ) -> Option<String> {
+        player_template
+            .base_team()
+            .map(|team| team.get_name().to_string())
+    }
+
+    /// C++ Campaign `PlayerFaction` and PlayerTemplate base-side values use
+    /// both plain faction names and `Faction*` identifiers.
+    pub(super) fn base_faction_from_campaign_faction(value: &str) -> Option<String> {
+        let normalized = value.trim().to_ascii_lowercase();
+        match normalized.as_str() {
+            "usa" | "us" | "america" | "factionamerica" => Some("USA".to_string()),
+            "china" | "factionchina" => Some("China".to_string()),
+            "gla" | "factiongla" => Some("GLA".to_string()),
+            _ => None,
+        }
     }
 
     pub(super) const MENU_CAUSTIC_WARMUP_DELAY_FRAMES: u64 = 120;

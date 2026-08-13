@@ -225,6 +225,10 @@ impl CnCGameEngine {
             let global = game_engine::common::global_data::read();
             global.writable.build_map_cache
         };
+        // Main owns AuthorityOnly physical-world input.  Snapshot the live
+        // C++ GlobalData preference at creation, then accept later Options
+        // changes only through its typed host bridge.
+        let use_alternate_mouse = game_engine::common::global_data::read().use_alternate_mouse;
 
         // C++ GameEngine::init updates MapCache before shell-map startup checks.
         game_client::map_util::refresh_map_cache();
@@ -361,6 +365,9 @@ impl CnCGameEngine {
                 game_client::gui::control_bar::clear_host_control_bar_requests();
                 game_client::gui::control_bar::set_host_control_bar_bridge_enabled(true);
                 game_client::gui::options_host_bridge::set_host_options_bridge_enabled(true);
+                game_client::gui::campaign_launch_host_bridge::set_host_campaign_launch_bridge_enabled(
+                    true,
+                );
                 game_client::render_bridge::init_render_bridge();
                 let _ = gamelogic::helpers::register_scene_submission(std::sync::Arc::new(
                     game_client::render_bridge::RenderBridge::new(),
@@ -467,11 +474,14 @@ impl CnCGameEngine {
             last_eva_ally_under_attack_count: 0,
             sticky_waypoint_mode: false,
             sticky_auto_attack: false,
+            use_alternate_mouse,
             is_dragging: false,
             selection_start: None,
             selection_start_screen: None,
             last_click_time: None,
             last_click_position: None,
+            left_click_release_behavior: LeftMouseReleaseBehavior::Selection,
+            lmb_context_started_physically: false,
             is_windowed: window.fullscreen().is_none(),
             rmb_scroll_anchor: None,
             is_rmb_scrolling: false,

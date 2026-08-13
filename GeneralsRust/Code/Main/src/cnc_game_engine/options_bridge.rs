@@ -1,8 +1,9 @@
-//! Delivery of camera-affecting OptionsMenu preferences into Main.
+//! Delivery of input/camera-affecting OptionsMenu preferences into Main.
 //!
-//! The retail OptionsMenu WND remains in GameClient.  Main is the sole camera
-//! input authority for the offline world, so it consumes only the typed
-//! preference that changes C++ LookAtXlat's RMB drag-anchor behaviour.
+//! The retail OptionsMenu WND remains in GameClient. Main is the sole camera
+//! and physical-world input authority for the offline world, so it consumes
+//! only typed preferences that change C++ `CommandXlat`/`SelectionXlat` or
+//! `LookAtXlat` behaviour.
 
 #![allow(unused_imports, unused_variables, dead_code, non_snake_case)]
 
@@ -66,6 +67,9 @@ impl CnCGameEngine {
     pub(crate) fn host_tick_options_bridge(&mut self) {
         for request in take_host_options_requests() {
             match request {
+                HostOptionsRequest::AlternateMouse { enabled } => {
+                    self.use_alternate_mouse = enabled;
+                }
                 HostOptionsRequest::MoveRmbScrollAnchor { enabled } => {
                     self.move_rmb_scroll_anchor = enabled;
                 }

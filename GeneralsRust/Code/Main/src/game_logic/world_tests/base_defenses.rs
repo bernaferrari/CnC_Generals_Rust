@@ -850,6 +850,11 @@ fn quad_cannon_residual_anti_air_and_multi_barrel() {
     let mut aircraft_tpl = crate::game_logic::ThingTemplate::new("TestAircraft");
     aircraft_tpl
         .add_kind_of(KindOf::Aircraft)
+        // C++ WeaponSet::getVictimAntiMask classifies an airborne aircraft
+        // through its VEHICLE KindOf.  Retail aircraft carry both flags; this
+        // focused fixture must do the same or the anti-mask correctly fails
+        // closed before Quad Cannon can select its AA slot.
+        .add_kind_of(KindOf::Vehicle)
         .add_kind_of(KindOf::Attackable)
         .add_kind_of(KindOf::Selectable)
         .set_health(100.0);
@@ -881,6 +886,19 @@ fn quad_cannon_residual_anti_air_and_multi_barrel() {
         );
     }
 
+    // Model partially consumed cursors before the direct residual replaces
+    // both concrete Weapon instances.  Unlike a template condition swap, the
+    // host residual has no new template name for `ensure_*` to compare.
+    {
+        let q = game_logic.host_object_mut(quad_id).expect("quad");
+        q.weapon_barrel_states[0] = crate::game_logic::object::WeaponBarrelState::new(2, 4, None);
+        q.weapon_barrel_states[0].current_barrel = 2;
+        q.weapon_barrel_states[0].shots_left_on_barrel = 1;
+        q.weapon_barrel_states[1] = crate::game_logic::object::WeaponBarrelState::new(3, 2, None);
+        q.weapon_barrel_states[1].current_barrel = 1;
+        q.weapon_barrel_states[1].shots_left_on_barrel = 2;
+    }
+
     // Multi-barrel salvage tier residual (crate upgrade two → fastest fire).
     assert!(game_logic.apply_quad_cannon_barrel_tier(quad_id, QuadCannonBarrelTier::Two));
     assert!(
@@ -896,6 +914,22 @@ fn quad_cannon_residual_anti_air_and_multi_barrel() {
         let sec = q.secondary_weapon.as_ref().expect("upgraded aa");
         assert!(sec.can_target_air);
         assert!(!sec.can_target_ground);
+        assert_eq!(
+            (
+                q.weapon_barrel_states[0].current_barrel,
+                q.weapon_barrel_states[0].shots_left_on_barrel,
+            ),
+            (0, 1),
+            "direct PRIMARY replacement must discard its old barrel cursor"
+        );
+        assert_eq!(
+            (
+                q.weapon_barrel_states[1].current_barrel,
+                q.weapon_barrel_states[1].shots_left_on_barrel,
+            ),
+            (0, 1),
+            "direct SECONDARY replacement must discard its old barrel cursor"
+        );
     }
 
     let aircraft_id = game_logic

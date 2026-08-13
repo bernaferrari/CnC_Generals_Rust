@@ -7,7 +7,10 @@
 // W3D model loading system for real C&C 3D assets
 
 use crate::assets::archive::ArchiveFileSystem;
-use crate::assets::ini_parser::{AuthoredDrawPrimaryTurret, AuthoredDrawSubobjectVisibility};
+use crate::assets::ini_parser::{
+    AuthoredDrawPrimaryTurret, AuthoredDrawSubobjectVisibility, AuthoredDrawWeaponBoneBindings,
+    AuthoredDrawWeaponBoneSlot,
+};
 use anyhow::{anyhow, Result};
 use crc32fast::Hasher;
 use glam::{Mat4, Vec3};
@@ -150,6 +153,86 @@ pub struct W3dHlod {
     pub hierarchy_name: String,
     pub lods: Vec<W3dHlodLod>,
     pub has_unsupported_attachments: bool,
+}
+
+/// One exact validated C++ `WeaponBarrelInfo`-shaped hierarchy binding.
+///
+/// These indices remain renderer-local source topology, not save data. The
+/// saved client Drawable record identifies its source Draw state; a fresh
+/// `W3DModel` must rebuild and validate these indices before it can restore a
+/// recoil phase against a newly loaded asset.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct W3dWeaponBarrelBinding {
+    /// C++ `m_fxBone`; a later numbered muzzle may reuse the previous exact
+    /// FX pivot when its own indexed FX base is absent.
+    pub fire_fx_pivot_index: Option<u32>,
+    /// C++ `m_recoilBone`.
+    pub recoil_pivot_index: Option<u32>,
+    /// C++ `m_muzzleFlashBone`.
+    pub muzzle_flash_pivot_index: Option<u32>,
+    /// C++ `m_projectileOffsetMtx` source pivot, represented as its exact
+    /// pristine HTree index until a future projectile-offset path needs the
+    /// matrix itself.
+    pub launch_pivot_index: Option<u32>,
+}
+
+impl W3dWeaponBarrelBinding {
+    /// C++ starts visual recoil only when this barrel has a real recoil bone
+    /// or muzzle flash. Fire/launch-only bindings still count as a concrete
+    /// weapon barrel but must not invent recoil motion.
+    pub fn has_recoil_or_muzzle(self) -> bool {
+        self.recoil_pivot_index.is_some() || self.muzzle_flash_pivot_index.is_some()
+    }
+
+    fn has_any_binding(self) -> bool {
+        self.fire_fx_pivot_index.is_some()
+            || self.recoil_pivot_index.is_some()
+            || self.muzzle_flash_pivot_index.is_some()
+            || self.launch_pivot_index.is_some()
+    }
+}
+
+/// All exact W3DModelDraw barrel bindings for one currently selected Draw
+/// state. The fixed three slots match C++ `WEAPONSLOT_COUNT`; each vector is
+/// the ordered C++ `m_weaponBarrelInfoVec[slot]` result.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct W3dWeaponBarrelTopology {
+    pub slots: [Vec<W3dWeaponBarrelBinding>; 3],
+}
+
+impl W3dWeaponBarrelTopology {
+    pub fn slot(&self, slot: u8) -> Option<&[W3dWeaponBarrelBinding]> {
+        self.slots.get(usize::from(slot)).map(Vec::as_slice)
+    }
+
+    /// A count is meaningful only for a concrete retained C++ slot. It is
+    /// capped at `u8` because the active host barrel cursor has that source
+    /// width; W3DModelDraw itself scans at most 99 numbered entries.
+    pub fn barrel_count(&self, slot: u8) -> Option<u8> {
+        self.slot(slot)
+            .and_then(|barrels| u8::try_from(barrels.len()).ok())
+            .filter(|count| *count > 0)
+    }
+}
+
+/// One renderer-local control reconstructed from a validated
+/// [`W3dWeaponBarrelTopology`] record.  It deliberately carries only pristine
+/// HTree pivot indices and already-evolved recoil state; authored names,
+/// template names, and gameplay weapon identities remain outside the mesh
+/// transform path.
+///
+/// The control vector is ordered by C++ weapon slot then barrel.  When a
+/// malformed source aliases two controls to one pivot, later controls replace
+/// earlier ones just like sequential `Control_Bone` calls in
+/// `W3DModelDraw::handleClientRecoil`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct W3dWeaponVisualControl {
+    pub recoil_pivot_index: Option<u32>,
+    pub recoil_shift: f32,
+    pub muzzle_flash_pivot_index: Option<u32>,
+    /// C++ exposes a muzzle flash for the one visible frame in
+    /// `RECOIL_START`, before it advances the recoil phase.
+    pub muzzle_flash_visible: bool,
 }
 
 #[derive(Debug)]
@@ -1022,6 +1105,117 @@ impl W3DModel {
         let angle = gameplay_degrees.to_radians() + art_radians;
         (gameplay_degrees.is_finite() && art_radians.is_finite() && angle.is_finite())
             .then_some(angle)
+    }
+
+    /// Rebuild C++ `ModelConditionInfo::m_weaponBarrelInfoVec` for one frozen
+    /// selected Draw state using only its exact authored bases and this exact
+    /// active W3D hierarchy.
+    ///
+    /// The bounded Main renderer supports only the same rigid single-HLOD
+    /// topology used by its transform path. Missing/malformed Draw data,
+    /// malformed HLODs, multi-LOD/aggregate content, or an incompatible
+    /// hierarchy return `None`; callers must leave recoil idle instead of
+    /// inferring a barrel from a mesh/model name. A valid source state with no
+    /// retained bones returns `Some` with empty vectors, matching C++'s lack
+    /// of `WeaponBarrelInfo` for that slot.
+    pub fn weapon_barrel_topology_for_authored_bindings(
+        &self,
+        bindings: &AuthoredDrawWeaponBoneBindings,
+    ) -> Option<W3dWeaponBarrelTopology> {
+        if !bindings.source_fields_valid || self.hlod_parse_failed {
+            return None;
+        }
+        let (_hlod, hierarchy) = self.rigid_hlod_context()?;
+        Some(W3dWeaponBarrelTopology {
+            slots: std::array::from_fn(|slot| {
+                Self::weapon_barrels_for_authored_slot(hierarchy, &bindings.slots[slot])
+            }),
+        })
+    }
+
+    /// Mirror C++ `validateWeaponBarrelInfo`: scan every supplied base with
+    /// `%02d` indices 01 through 99, stop at the first all-missing record,
+    /// and use unadorned names only when no numbered record was found. A
+    /// numbered muzzle flash may reuse the previous numbered FX pivot exactly
+    /// like the retail multi-flash exception in C++.
+    fn weapon_barrels_for_authored_slot(
+        hierarchy: &W3dHierarchy,
+        authored: &AuthoredDrawWeaponBoneSlot,
+    ) -> Vec<W3dWeaponBarrelBinding> {
+        let has_any_base = authored.fire_fx_bone_base.is_some()
+            || authored.recoil_bone_base.is_some()
+            || authored.muzzle_flash_bone_base.is_some()
+            || authored.launch_bone_base.is_some();
+        if !has_any_base {
+            return Vec::new();
+        }
+
+        let mut numbered = Vec::new();
+        let mut previous_fire_fx = None;
+        for index in 1..=99u8 {
+            let mut binding = W3dWeaponBarrelBinding {
+                fire_fx_pivot_index: authored.fire_fx_bone_base.as_deref().and_then(|base| {
+                    Self::pristine_pivot_index(hierarchy, &format!("{base}{index:02}"))
+                }),
+                recoil_pivot_index: authored.recoil_bone_base.as_deref().and_then(|base| {
+                    Self::pristine_pivot_index(hierarchy, &format!("{base}{index:02}"))
+                }),
+                muzzle_flash_pivot_index: authored.muzzle_flash_bone_base.as_deref().and_then(
+                    |base| Self::pristine_pivot_index(hierarchy, &format!("{base}{index:02}")),
+                ),
+                launch_pivot_index: authored.launch_bone_base.as_deref().and_then(|base| {
+                    Self::pristine_pivot_index(hierarchy, &format!("{base}{index:02}"))
+                }),
+            };
+            if binding.fire_fx_pivot_index.is_none() && binding.muzzle_flash_pivot_index.is_some() {
+                binding.fire_fx_pivot_index = previous_fire_fx;
+            }
+            if !binding.has_any_binding() {
+                break;
+            }
+            previous_fire_fx = binding.fire_fx_pivot_index;
+            numbered.push(binding);
+        }
+
+        if !numbered.is_empty() {
+            return numbered;
+        }
+
+        let unadorned = W3dWeaponBarrelBinding {
+            fire_fx_pivot_index: authored
+                .fire_fx_bone_base
+                .as_deref()
+                .and_then(|base| Self::pristine_pivot_index(hierarchy, base)),
+            recoil_pivot_index: authored
+                .recoil_bone_base
+                .as_deref()
+                .and_then(|base| Self::pristine_pivot_index(hierarchy, base)),
+            muzzle_flash_pivot_index: authored
+                .muzzle_flash_bone_base
+                .as_deref()
+                .and_then(|base| Self::pristine_pivot_index(hierarchy, base)),
+            launch_pivot_index: authored
+                .launch_bone_base
+                .as_deref()
+                .and_then(|base| Self::pristine_pivot_index(hierarchy, base)),
+        };
+        unadorned
+            .has_any_binding()
+            .then_some(unadorned)
+            .into_iter()
+            .collect()
+    }
+
+    /// C++ `findPristineBone` treats index zero as an unresolved/no-bone
+    /// sentinel in the weapon and turret paths. Never let a matching root
+    /// pivot become a whole-model recoil/launch binding.
+    fn pristine_pivot_index(hierarchy: &W3dHierarchy, name: &str) -> Option<u32> {
+        hierarchy
+            .pivots
+            .iter()
+            .position(|pivot| pivot.name.eq_ignore_ascii_case(name))
+            .filter(|index| *index != 0)
+            .and_then(|index| u32::try_from(index).ok())
     }
 
     /// Build source-space local pivot matrices from either an explicitly
@@ -6018,6 +6212,130 @@ mod tests {
                 .zip(normal_muzzle.0.to_cols_array())
                 .all(|(fallback, normal)| (*fallback - normal).abs() < 1.0e-5),
             "an authored alternate turret must fail closed instead of borrowing the primary angle"
+        );
+    }
+
+    #[test]
+    fn w3d_hlod_weapon_barrel_topology_uses_all_four_bases_and_cxx_numbered_order() {
+        let mut model = primary_turret_hlod_model();
+        {
+            let hierarchy = model
+                .hierarchy
+                .as_mut()
+                .expect("single-HLOD fixture has an HTree");
+            hierarchy.pivots[1].name = "Fx01".to_string();
+            hierarchy.pivots[2].name = "Recoil01".to_string();
+            hierarchy.pivots[3].name = "Muzzle01".to_string();
+            hierarchy.pivots[4].name = "Launch01".to_string();
+            hierarchy.pivots.push(W3dPivot {
+                // A second muzzle but no second FX is the explicit C++ exception:
+                // it reuses the first exact FX pivot rather than abandoning the
+                // numbered barrel or inventing a bare-name lookup.
+                name: "Muzzle02".to_string(),
+                parent_idx: 0,
+                translation: [0.0; 3],
+                euler_angles: [0.0; 3],
+                rotation: [0.0, 0.0, 0.0, 1.0],
+            });
+        }
+
+        let bindings = AuthoredDrawWeaponBoneBindings {
+            slots: [
+                AuthoredDrawWeaponBoneSlot {
+                    fire_fx_bone_base: Some("fx".to_string()),
+                    recoil_bone_base: Some("recoil".to_string()),
+                    muzzle_flash_bone_base: Some("muzzle".to_string()),
+                    launch_bone_base: Some("launch".to_string()),
+                },
+                AuthoredDrawWeaponBoneSlot::default(),
+                AuthoredDrawWeaponBoneSlot::default(),
+            ],
+            source_fields_valid: true,
+        };
+        let topology = model
+            .weapon_barrel_topology_for_authored_bindings(&bindings)
+            .expect("one exact HLOD/hierarchy accepts frozen valid source bases");
+        let primary = topology.slot(0).expect("PRIMARY topology");
+        assert_eq!(primary.len(), 2, "01 then 02 stop at first all-missing 03");
+        assert_eq!(topology.barrel_count(0), Some(2));
+        assert_eq!(primary[0].fire_fx_pivot_index, Some(1));
+        assert_eq!(primary[0].recoil_pivot_index, Some(2));
+        assert_eq!(primary[0].muzzle_flash_pivot_index, Some(3));
+        assert_eq!(primary[0].launch_pivot_index, Some(4));
+        assert!(primary[0].has_recoil_or_muzzle());
+        assert_eq!(
+            primary[1].fire_fx_pivot_index,
+            Some(1),
+            "C++ reuses the previous numbered FX bone for a later muzzle-only barrel"
+        );
+        assert_eq!(primary[1].muzzle_flash_pivot_index, Some(5));
+        assert_eq!(primary[1].recoil_pivot_index, None);
+        assert_eq!(primary[1].launch_pivot_index, None);
+        assert!(primary[1].has_recoil_or_muzzle());
+
+        // No numbered `Bare*01` pivots exist, so C++ tries unadorned names
+        // exactly once. It must not mix those with the numbered sequence.
+        {
+            let hierarchy = model
+                .hierarchy
+                .as_mut()
+                .expect("single-HLOD fixture retains its HTree");
+            hierarchy.pivots[1].name = "BareFx".to_string();
+            hierarchy.pivots[2].name = "BareRecoil".to_string();
+            hierarchy.pivots[3].name = "BareMuzzle".to_string();
+            hierarchy.pivots[4].name = "BareLaunch".to_string();
+            hierarchy.pivots.truncate(5);
+        }
+        let bare_bindings = AuthoredDrawWeaponBoneBindings {
+            slots: [
+                AuthoredDrawWeaponBoneSlot {
+                    fire_fx_bone_base: Some("barefx".to_string()),
+                    recoil_bone_base: Some("barerecoil".to_string()),
+                    muzzle_flash_bone_base: Some("baremuzzle".to_string()),
+                    launch_bone_base: Some("barelaunch".to_string()),
+                },
+                AuthoredDrawWeaponBoneSlot::default(),
+                AuthoredDrawWeaponBoneSlot::default(),
+            ],
+            source_fields_valid: true,
+        };
+        let bare = model
+            .weapon_barrel_topology_for_authored_bindings(&bare_bindings)
+            .expect("same valid single-HLOD accepts bare source bases");
+        assert_eq!(bare.barrel_count(0), Some(1));
+        assert_eq!(
+            bare.slot(0).expect("PRIMARY bare topology")[0],
+            W3dWeaponBarrelBinding {
+                fire_fx_pivot_index: Some(1),
+                recoil_pivot_index: Some(2),
+                muzzle_flash_pivot_index: Some(3),
+                launch_pivot_index: Some(4),
+            }
+        );
+    }
+
+    #[test]
+    fn w3d_hlod_weapon_barrel_topology_rejects_invalid_source_and_unsupported_hlods() {
+        let model = primary_turret_hlod_model();
+        let invalid_source = AuthoredDrawWeaponBoneBindings {
+            source_fields_valid: false,
+            ..Default::default()
+        };
+        assert!(
+            model
+                .weapon_barrel_topology_for_authored_bindings(&invalid_source)
+                .is_none(),
+            "malformed source WeaponSlotType data cannot fall through to an empty/guessed topology"
+        );
+
+        let mut multi_lod = model.clone();
+        let second_lod = multi_lod.hlods[0].lods[0].clone();
+        multi_lod.hlods[0].lods.push(second_lod);
+        assert!(
+            multi_lod
+                .weapon_barrel_topology_for_authored_bindings(&AuthoredDrawWeaponBoneBindings::default())
+                .is_none(),
+            "until C++ LOD selection exists, even empty valid bindings may not authorize a multi-LOD model"
         );
     }
 

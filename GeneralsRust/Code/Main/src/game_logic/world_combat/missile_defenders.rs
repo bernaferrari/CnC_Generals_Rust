@@ -266,12 +266,12 @@ impl GameLogic {
                     w.ammo = stats.ammo;
                 }
             }
-            obj.weapon = weapon;
+            let _ = obj.replace_weapon_set_slot(0, weapon);
             obj.record_host_weapon_stats();
         } else {
-            obj.weapon = None;
+            let _ = obj.replace_weapon_set_slot(0, None);
             obj.record_host_weapon_stats();
-            obj.secondary_weapon = None;
+            let _ = obj.replace_weapon_set_slot(1, None);
             obj.record_host_weapon_stats();
         }
 
@@ -1348,6 +1348,7 @@ impl GameLogic {
                 self.stop_attack_decision_aware(sentry_id);
             }
         }
+        let _ = self.record_accepted_weapon_discharge(sentry_id, 0);
 
         if destroyed {
             self.mark_object_for_destruction(target_id, Some(team));
@@ -1546,6 +1547,9 @@ impl GameLogic {
                 self.stop_attack_decision_aware(hellfire_id);
             }
         }
+        // A scatter miss is still an accepted Hellfire launch: record the
+        // actual source slot once, independently of per-victim damage.
+        let _ = self.record_accepted_weapon_discharge(hellfire_id, 0);
 
         if destroyed {
             self.mark_object_for_destruction(target_id, Some(team));
