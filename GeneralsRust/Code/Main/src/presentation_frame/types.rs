@@ -914,6 +914,11 @@ pub struct PresentationDirectHostDrawable {
     /// `disguise_as_template`; otherwise this is the immutable ThingTemplate
     /// name, never the mutable Object `template_name` bookkeeping field.
     pub visual_template_name: String,
+    /// Authored instance scale of `visual_template_name`.  C++ destroys and
+    /// recreates the Drawable when a disguise visual is committed, so the
+    /// replacement template's `ThingTemplate::asset_scale` must replace both
+    /// the source mesh scale and its pre-model cull radius.
+    pub visual_mesh_scale: f32,
     /// Host-object presence at frame construction.  This is intentionally
     /// independent of HP and `RenderableObject::destroyed`: removal from the
     /// host roster, rather than gameplay death, ends direct visual residency.

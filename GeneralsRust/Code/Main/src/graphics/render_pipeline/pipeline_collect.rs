@@ -766,13 +766,7 @@ impl RenderPipeline {
             }
         }
 
-        let world_scale = world_matrix
-            .x_axis
-            .truncate()
-            .length()
-            .max(world_matrix.y_axis.truncate().length())
-            .max(world_matrix.z_axis.truncate().length())
-            .max(1.0);
+        let world_scale = Self::world_cull_scale(world_matrix);
         // Gameplay/render space is X/Z ground, Y-up (gameplay_to_render_transform is
         // identity). Use a building-sized fallback: selection_radius 0→10 is far too
         // small for CCs/factories and culls them before the mesh is ever loaded.
@@ -784,10 +778,52 @@ impl RenderPipeline {
         model_bounds
             .map(|(local_center, local_radius)| {
                 let world_center = world_matrix.transform_point3(local_center);
-                let world_radius = (local_radius * world_scale).max(fallback_radius);
+                let world_radius = Self::scaled_world_cull_radius(
+                    Some(local_radius),
+                    fallback_radius,
+                    world_scale,
+                );
                 (world_center, world_radius)
             })
-            .unwrap_or((fallback_center, fallback_radius))
+            .unwrap_or((
+                fallback_center,
+                Self::scaled_world_cull_radius(None, fallback_radius, world_scale),
+            ))
+    }
+
+    /// Largest affine-axis scale used to convert local W3D bounds into the
+    /// presentation world's cull sphere. A valid authored visual replacement
+    /// may be smaller than one (for example, a disguise template at 0.7), so
+    /// do not inflate it to unit scale. Degenerate/non-finite matrices fail
+    /// safely to unit scale instead of producing a NaN/zero cull radius.
+    pub(super) fn world_cull_scale(world_matrix: Mat4) -> f32 {
+        let axis_scales = [
+            world_matrix.x_axis.truncate().length(),
+            world_matrix.y_axis.truncate().length(),
+            world_matrix.z_axis.truncate().length(),
+        ];
+        if axis_scales
+            .iter()
+            .all(|scale| scale.is_finite() && *scale > 0.0)
+        {
+            axis_scales.into_iter().fold(0.0, f32::max)
+        } else {
+            1.0
+        }
+    }
+
+    /// Scale both the exact local W3D bounds and their cull fallback by the
+    /// same current Drawable transform. The fallback remains a lower bound;
+    /// it just lives in world space rather than unscaled model space.
+    pub(super) fn scaled_world_cull_radius(
+        local_radius: Option<f32>,
+        fallback_radius: f32,
+        world_scale: f32,
+    ) -> f32 {
+        let scaled_fallback_radius = fallback_radius * world_scale;
+        local_radius
+            .map(|local_radius| (local_radius * world_scale).max(scaled_fallback_radius))
+            .unwrap_or(scaled_fallback_radius)
     }
 
     /// Minimum cull sphere radius when model bounds are not yet cached.

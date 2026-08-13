@@ -1521,8 +1521,195 @@ impl CnCGameEngine {
         pres.apply_to_ui_state(&mut ui);
         self.last_ui_state = Some(ui);
         self.last_presentation_frame = Some(pres);
+        #[cfg(feature = "game_client")]
+        {
+            // A map/load seed can transition directly to InGame before the
+            // next logic tick reaches `host_tick_game_client_presentation_shell`.
+            // Establish the exact direct bindings now so the first W3D
+            // candidate ledger has a current key/status/pose rather than
+            // silently skipping its C++ clear-frame boundary for one render.
+            let presentation_time_frozen =
+                self.presentation_or_boot_time_frozen() || self.game_paused;
+            self.host_sync_presentation_direct_drawables(presentation_time_frozen);
+        }
         // Wave 844: stamp host sim residuals after match-start seed.
         self.host_refresh_match_sim_residuals_from_logic();
+    }
+
+    /// Freeze-to-GameClient direct Drawable association boundary shared by the
+    /// ordinary presentation shell tick and the initial match/load seed.
+    ///
+    /// This is deliberately narrower than `host_tick_game_client_presentation_shell`:
+    /// it does not consume input, update UI/effects, or advance client visual
+    /// time. It only establishes the C++ Object-backed Drawable association,
+    /// status, and pose from one immutable presentation frame, so the first
+    /// InGame W3D candidate can validate and write its clear-frame state.
+    #[cfg(feature = "game_client")]
+    fn host_sync_presentation_direct_drawables(&mut self, presentation_time_frozen: bool) {
+        let Some(pres) = self.last_presentation_frame.as_ref() else {
+            return;
+        };
+        let logic_frame = pres.frame.0;
+        let host_epoch = self.host_direct_visual_world_epoch;
+        // Materialize every borrowed presentation fact before mutating
+        // GameClient, preserving the immutable host→client boundary.
+        let sync_entries = pres
+            .direct_host_drawables
+            .iter()
+            .map(|direct| {
+                let o = &direct.object;
+                game_client::core::game_client::PresentationDrawableSync {
+                    object_id: o.id.0,
+                    host_epoch,
+                    // The direct-host roster was frozen from actual host
+                    // ownership. It deliberately remains resident through
+                    // gameplay death/slow death/rubble until that host entry
+                    // is removed, matching C++ Drawable lifetime.
+                    resident: direct.resident,
+                    visual_template_name: direct.visual_template_name.clone(),
+                    template_name: o.template_name.clone(),
+                    position: [o.position.x, o.position.y, o.position.z],
+                    orientation: o.orientation,
+                    destroyed: o.destroyed,
+                    model_condition_bits: o.model_condition_bits,
+                    body_damage_state: o.body_damage_state,
+                    // Wave 970: overlay residual (vet/construct) on Wave 965 kind/stealth/color/health.
+                    kind_names: o.kind_of.iter().map(|k| format!("{k:?}")).collect(),
+                    team_color: o.team_color,
+                    effectively_stealthed: o.effectively_stealthed,
+                    // C++ StealthUpdate resolves the look for this viewer:
+                    // undetected enemy stealth is invisible, while allied
+                    // stealth remains a translucent visible look. Dead
+                    // drawables are source-visible even if old status bits
+                    // still say stealthed.
+                    scene_hidden_by_stealth: pres.local_viewer_hides_stealthed(o),
+                    health_current: o.health_current,
+                    health_max: o.health_max,
+                    selected: o.selected,
+                    veterancy_level: match o.veterancy {
+                        crate::presentation_frame::PresentationVeterancy::Rookie => 0,
+                        crate::presentation_frame::PresentationVeterancy::Veteran => 1,
+                        crate::presentation_frame::PresentationVeterancy::Elite => 2,
+                        crate::presentation_frame::PresentationVeterancy::Heroic => 3,
+                    },
+                    under_construction: o.under_construction,
+                    construction_percent: o.construction_percent.clamp(0.0, 1.0),
+                    // Wave 1115: sold residual for construct-percent fail-closed.
+                    sold: o.sold,
+                    // Wave 972: icon-pip residual.
+                    ammo_pip_total: o.ammo_pip_total.min(255) as u8,
+                    ammo_pip_full: o.ammo_pip_full.min(255) as u8,
+                    occupant_count: (o.occupant_count as u32).min(255) as u8,
+                    max_garrison: (o.max_garrison as u32).min(255) as u8,
+                    disabled: o.disabled,
+                    is_carbomb: o.is_carbomb,
+                    weapon_bonus_enthusiastic: o.weapon_bonus_enthusiastic,
+                    // Wave 983: healing icon residual.
+                    show_healing: o.show_healing,
+                    healing_icon_type: o.healing_icon_type,
+                    // Wave 984: garrisoned unit ids for contained-flash residual.
+                    garrisoned_ids: o.garrisoned_units.iter().map(|id| id.0).collect(),
+                    // Wave 1057: emoticon residual for dual icon UI.
+                    emoticon_name: o.emoticon_name.clone(),
+                    emoticon_frames_left: o.emoticon_frames_left,
+                    // Wave 1058: formation residual for dual formation letter.
+                    formation_id: o.formation_id,
+                    // Wave 1059: caption residual (display_name when distinct from template).
+                    caption: {
+                        let dn = o.display_name.trim();
+                        if !dn.is_empty() && dn != o.template_name {
+                            dn.to_string()
+                        } else {
+                            String::new()
+                        }
+                    },
+                }
+            })
+            .collect::<Vec<_>>();
+        let direct_sources = pres
+            .direct_host_drawables
+            .iter()
+            .filter(|direct| direct.resident)
+            .filter_map(|direct| {
+                let object = &direct.object;
+                let (raw_status, effectively_dead) =
+                    object.drawable_shroud.direct_game_client_status()?;
+                Some((
+                    object.id.0,
+                    raw_status,
+                    effectively_dead,
+                    [object.position.x, object.position.y, object.position.z],
+                    object.orientation,
+                ))
+            })
+            .collect::<Vec<_>>();
+
+        let (created, updated, pruned) = self.game_client.sync_presentation_drawables(sync_entries);
+        if created + updated + pruned > 0 {
+            log::trace!(
+                "presentation drawable sync created={created} updated={updated} pruned={pruned}"
+            );
+        }
+        // Resolve the complete current binding *after* sync. The same runtime
+        // key then guards raw C++ shroud status and frozen pose, so an ordinary
+        // update preserves it while a visual replacement rejects predecessor
+        // frame data.
+        let direct_bindings = direct_sources
+            .into_iter()
+            .filter_map(
+                |(object_id, raw_status, effectively_dead, position, orientation)| {
+                    let binding_key = self
+                        .game_client
+                        .presentation_direct_drawable_state(host_epoch, object_id)?
+                        .binding_key;
+                    Some((
+                        binding_key,
+                        raw_status,
+                        effectively_dead,
+                        position,
+                        orientation,
+                    ))
+                },
+            )
+            .collect::<Vec<_>>();
+        // C++ `GameClient::update` does not recompute bound Drawable shroud
+        // state while visual time is frozen. The view/scene phase still runs
+        // later against this retained client state, where a real eligible
+        // Clear candidate may refresh its clear frame.
+        if !presentation_time_frozen {
+            let shroud_entries =
+                direct_bindings
+                    .iter()
+                    .map(|(binding_key, raw_status, effectively_dead, _, _)| {
+                        game_client::core::game_client::FrozenDirectShroudStatus {
+                            binding_key: *binding_key,
+                            raw_status: *raw_status,
+                            effectively_dead: *effectively_dead,
+                        }
+                    });
+            let _ = self
+                .game_client
+                .apply_frozen_direct_shroud_statuses(logic_frame, shroud_entries);
+        }
+        // Pose belongs to the identical direct binding rather than a raw
+        // ObjectID. Do not filter gameplay-destroyed records here: the direct
+        // source roster controls C++ Drawable residency.
+        let pose_entries =
+            direct_bindings
+                .into_iter()
+                .map(|(binding_key, _, _, position, orientation)| {
+                    game_client::core::game_client::FrozenDirectPresentationPose {
+                        binding_key,
+                        position,
+                        orientation,
+                    }
+                });
+        let n = self
+            .game_client
+            .apply_frozen_direct_presentation_poses(pose_entries);
+        if n > 0 {
+            log::trace!("presentation pose applied to {n} drawables");
+        }
     }
 
     /// Wave 590: boot/render residual — freeze a PresentationFrame if none installed.
@@ -1883,153 +2070,8 @@ impl CnCGameEngine {
         } else {
             game_engine::common::game_common::SECONDS_PER_LOGICFRAME_REAL
         };
+        self.host_sync_presentation_direct_drawables(presentation_time_frozen);
         if let Some(pres) = self.last_presentation_frame.as_ref() {
-            // Wave 963: sync drawables from presentation freeze (model+prune).
-            // Wave 962/963: sync drawables from presentation freeze (ensure + model +
-            // prune). No OBJECT_REGISTRY dual-world populate. Pose/shroud still apply
-            // after for FOW residual that is independent of model stamp.
-            let sync_entries = pres.direct_host_drawables.iter().map(|direct| {
-                let o = &direct.object;
-                game_client::core::game_client::PresentationDrawableSync {
-                    object_id: o.id.0,
-                    host_epoch: self.host_direct_visual_world_epoch,
-                    // The direct-host roster was frozen from actual host
-                    // ownership.  It deliberately remains resident through
-                    // gameplay death/slow death/rubble until that host entry
-                    // is removed, matching C++ Drawable lifetime.
-                    resident: direct.resident,
-                    visual_template_name: direct.visual_template_name.clone(),
-                    template_name: o.template_name.clone(),
-                    position: [o.position.x, o.position.y, o.position.z],
-                    orientation: o.orientation,
-                    destroyed: o.destroyed,
-                    model_condition_bits: o.model_condition_bits,
-                    body_damage_state: o.body_damage_state,
-                    // Wave 970: overlay residual (vet/construct) on Wave 965 kind/stealth/color/health.
-                    kind_names: o.kind_of.iter().map(|k| format!("{k:?}")).collect(),
-                    team_color: o.team_color,
-                    effectively_stealthed: o.effectively_stealthed,
-                    // C++ StealthUpdate resolves the look for this viewer:
-                    // undetected enemy stealth is invisible, while allied
-                    // stealth remains a translucent visible look. Dead
-                    // drawables are source-visible even if old status bits
-                    // still say stealthed.
-                    scene_hidden_by_stealth: pres.local_viewer_hides_stealthed(o),
-                    health_current: o.health_current,
-                    health_max: o.health_max,
-                    selected: o.selected,
-                    veterancy_level: match o.veterancy {
-                        crate::presentation_frame::PresentationVeterancy::Rookie => 0,
-                        crate::presentation_frame::PresentationVeterancy::Veteran => 1,
-                        crate::presentation_frame::PresentationVeterancy::Elite => 2,
-                        crate::presentation_frame::PresentationVeterancy::Heroic => 3,
-                    },
-                    under_construction: o.under_construction,
-                    construction_percent: o.construction_percent.clamp(0.0, 1.0),
-                    // Wave 1115: sold residual for construct-percent fail-closed.
-                    sold: o.sold,
-                    // Wave 972: icon-pip residual.
-                    ammo_pip_total: o.ammo_pip_total.min(255) as u8,
-                    ammo_pip_full: o.ammo_pip_full.min(255) as u8,
-                    occupant_count: (o.occupant_count as u32).min(255) as u8,
-                    max_garrison: (o.max_garrison as u32).min(255) as u8,
-                    disabled: o.disabled,
-                    is_carbomb: o.is_carbomb,
-                    weapon_bonus_enthusiastic: o.weapon_bonus_enthusiastic,
-                    // Wave 983: healing icon residual.
-                    show_healing: o.show_healing,
-                    healing_icon_type: o.healing_icon_type,
-                    // Wave 984: garrisoned unit ids for contained-flash residual.
-                    garrisoned_ids: o.garrisoned_units.iter().map(|id| id.0).collect(),
-                    // Wave 1057: emoticon residual for dual icon UI.
-                    emoticon_name: o.emoticon_name.clone(),
-                    emoticon_frames_left: o.emoticon_frames_left,
-                    // Wave 1058: formation residual for dual formation letter.
-                    formation_id: o.formation_id,
-                    // Wave 1059: caption residual (display_name when distinct from template).
-                    caption: {
-                        let dn = o.display_name.trim();
-                        if !dn.is_empty() && dn != o.template_name {
-                            dn.to_string()
-                        } else {
-                            String::new()
-                        }
-                    },
-                }
-            });
-            let (created, updated, pruned) =
-                self.game_client.sync_presentation_drawables(sync_entries);
-            if created + updated + pruned > 0 {
-                log::trace!(
-                    "presentation drawable sync created={created} updated={updated} pruned={pruned}"
-                );
-            }
-            // Resolve the complete current binding *after* sync.  The same
-            // runtime key then guards raw C++ shroud status and frozen pose,
-            // so an ordinary update preserves it while a visual replacement
-            // rejects predecessor-frame data.
-            let direct_bindings = pres
-                .direct_host_drawables
-                .iter()
-                .filter(|direct| direct.resident)
-                .filter_map(|direct| {
-                    let object = &direct.object;
-                    let (raw_status, effectively_dead) =
-                        object.drawable_shroud.direct_game_client_status()?;
-                    let binding_key = self
-                        .game_client
-                        .presentation_direct_drawable_state(
-                            self.host_direct_visual_world_epoch,
-                            object.id.0,
-                        )?
-                        .binding_key;
-                    Some((
-                        binding_key,
-                        raw_status,
-                        effectively_dead,
-                        [object.position.x, object.position.y, object.position.z],
-                        object.orientation,
-                    ))
-                })
-                .collect::<Vec<_>>();
-            let shroud_entries =
-                direct_bindings
-                    .iter()
-                    .map(|(binding_key, raw_status, effectively_dead, _, _)| {
-                        game_client::core::game_client::FrozenDirectShroudStatus {
-                            binding_key: *binding_key,
-                            raw_status: *raw_status,
-                            effectively_dead: *effectively_dead,
-                        }
-                    });
-            // C++ `GameClient::update` does not recompute bound Drawable
-            // shroud state while visual time is frozen. The view/scene phase
-            // still runs later against this retained client state, where a
-            // real eligible Clear candidate may refresh its clear frame.
-            if !presentation_time_frozen {
-                let _ = self
-                    .game_client
-                    .apply_frozen_direct_shroud_statuses(pres.frame.0, shroud_entries);
-            }
-            // Pose belongs to the identical direct binding rather than a raw
-            // ObjectID.  Do not filter gameplay-destroyed records here: the
-            // direct source roster controls C++ Drawable residency.
-            let pose_entries =
-                direct_bindings
-                    .into_iter()
-                    .map(|(binding_key, _, _, position, orientation)| {
-                        game_client::core::game_client::FrozenDirectPresentationPose {
-                            binding_key,
-                            position,
-                            orientation,
-                        }
-                    });
-            let n = self
-                .game_client
-                .apply_frozen_direct_presentation_poses(pose_entries);
-            if n > 0 {
-                log::trace!("presentation pose applied to {n} drawables");
-            }
             // Presentation cinematic letterbox residual → client display.
             self.game_client
                 .apply_presentation_cinematic_letterbox(pres.cinematic_letterbox);

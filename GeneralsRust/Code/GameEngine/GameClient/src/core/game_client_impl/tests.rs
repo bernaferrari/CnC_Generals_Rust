@@ -1208,6 +1208,28 @@ mod tests {
         assert!(
             after_reset.binding_key.binding_generation > replacement.binding_key.binding_generation
         );
+        // The newly reconstructed direct binding is immediately usable by the
+        // first Main render's frozen sidecar. With no prior scene Clear
+        // dispatch, Fogged must cull it rather than inheriting a predecessor
+        // world's clear-grace timer.
+        assert_eq!(
+            client.apply_frozen_direct_shroud_statuses(
+                100,
+                [FrozenDirectShroudStatus {
+                    binding_key: after_reset.binding_key,
+                    raw_status: ObjectShroudStatus::Fogged,
+                    effectively_dead: false,
+                }],
+            ),
+            1
+        );
+        assert!(
+            client
+                .presentation_direct_drawable_state(third_epoch, object_id)
+                .expect("reconstructed binding remains current")
+                .fully_obscured,
+            "first render after world replacement must receive current direct shroud cull state"
+        );
     }
 
     #[test]

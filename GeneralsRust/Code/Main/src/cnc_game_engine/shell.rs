@@ -1844,6 +1844,14 @@ impl CnCGameEngine {
         if let Some(target_state) = target_state {
             // Apply the post-load state transition immediately so we do not render additional
             // loading/world-only frames after shell/menu resources are already initialized.
+            // A CLI/initial-file startup can go straight from Loading to
+            // InGame. `host_replace_game_logic` intentionally invalidated the
+            // runtime direct Drawable bindings above, so hydrate a frozen
+            // frame and its direct client associations before the first
+            // redraw. Menu starts remain intentionally unseeded.
+            if target_state == GameState::InGame {
+                self.seed_presentation_after_match_start();
+            }
             self.transition_to_state(target_state);
         }
         self.startup_load_state = StartupLoadState::Complete;
