@@ -4,9 +4,78 @@
 //! all eight slots, difficulties, colors, teams, starting positions, and rules.
 
 use crate::ai::AIDifficulty;
-use crate::game_logic::{GameLogic, GameMode, Player, Team};
+use crate::game_logic::{GameLogic, GameMode, Player, PlayerTemplateIdentity, Team};
 use crate::ui::skirmish_menu::{Faction, GameRules, GameSlot, PlayerType, MAX_SLOTS};
 use serde::{Deserialize, Serialize};
+
+/// The exact C++ `GameSlot::m_playerTemplate` selection for an occupied
+/// offline Skirmish slot.
+///
+/// `GameInfo` stores an index, but accepting the index by itself would let a
+/// reordered PlayerTemplate store launch a plausible-looking *different*
+/// General.  Retaining the canonical name with it is therefore intentional:
+/// GameLogic validates the pair again immediately before it binds the player.
+///
+/// This type is deliberately local to the offline `SkirmishMatchConfig`.
+/// Multiplayer/GameNetwork transport remains deferred.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum SkirmishPlayerTemplateSelection {
+    /// A concrete `PlayerTemplateStore` record selected by the UI.
+    Exact {
+        template_name: String,
+        template_index: i32,
+    },
+    /// C++ `PLAYERTEMPLATE_RANDOM`; it is resolved one time before map load.
+    Random,
+}
+
+impl SkirmishPlayerTemplateSelection {
+    /// Build an indexed exact selection from a Main fallback-menu base faction.
+    ///
+    /// That menu currently exposes only USA/China/GLA/Random, unlike the C++
+    /// WND which exposes individual General sides.  Even its base-side choice
+    /// must still become a concrete PlayerTemplate rather than falling through
+    /// to `Team`-only bootstrap state.
+    pub fn base_faction(faction: &str) -> Self {
+        let template_name = match faction.trim().to_ascii_lowercase().as_str() {
+            "usa" | "america" => "FactionAmerica",
+            "china" => "FactionChina",
+            "gla" => "FactionGLA",
+            // Keep malformed locally-authored configuration fail-closed at
+            // the authority boundary instead of guessing USA.
+            _ => faction.trim(),
+        };
+        Self::exact_template_name(template_name)
+    }
+
+    /// Resolve a canonical store name into the name/index pair accepted by
+    /// `PlayerTemplateIdentity::from_exact_indexed_name`.  If the source is
+    /// absent, retain an invalid pair so `apply_skirmish_config` reports the
+    /// selected identity failure before changing the simulation; do not turn
+    /// it into a different base faction.
+    pub fn exact_template_name(template_name: &str) -> Self {
+        let requested_name = template_name.trim().to_string();
+        game_engine::common::ini::ensure_player_templates_loaded();
+        let store = game_engine::common::rts::player_template::get_player_template_store();
+        let Some(template_index) = store
+            .find_template_index(&requested_name)
+            .and_then(|index| i32::try_from(index).ok())
+        else {
+            return Self::Exact {
+                template_name: requested_name,
+                template_index: -1,
+            };
+        };
+        let template_name = store
+            .get_nth_player_template_signed(template_index)
+            .map(|template| template.get_name().to_string())
+            .unwrap_or(requested_name);
+        Self::Exact {
+            template_name,
+            template_index,
+        }
+    }
+}
 
 /// One configured skirmish slot as pure data (no UI types required by GameLogic).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -14,6 +83,12 @@ pub struct SkirmishSlotConfig {
     pub slot_index: usize,
     pub is_human: bool,
     pub is_active: bool,
+    /// Exact selected General/base PlayerTemplate; this, rather than
+    /// `faction`, is the authoritative gameplay identity.
+    pub player_template: SkirmishPlayerTemplateSelection,
+    /// Presentation/legacy faction label retained for menu text and callers
+    /// that only need a base-side display string. It must not select gameplay
+    /// state in `apply_skirmish_config`.
     pub faction: String,
     pub color_rgb: (u8, u8, u8),
     pub team: i32,
@@ -26,6 +101,13 @@ pub struct SkirmishSlotConfig {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SkirmishMatchConfig {
     pub map: String,
+    /// C++ `GameInfo::getSeed()` bit pattern used to seed the GameLogic ADC
+    /// stream before resolving any `PLAYERTEMPLATE_RANDOM` slots.
+    pub random_seed: u32,
+    /// C++ `GameInfo::oldFactionsOnly()`. It restricts the candidate list for
+    /// `PLAYERTEMPLATE_RANDOM`; exact selected identities remain name/index
+    /// authoritative.
+    pub old_factions_only: bool,
     pub rules: GameRulesSnapshot,
     pub slots: Vec<SkirmishSlotConfig>,
 }
@@ -59,15 +141,6 @@ impl GameRulesSnapshot {
     }
 }
 
-fn faction_to_team(faction: &str) -> Team {
-    match faction.to_ascii_uppercase().as_str() {
-        "USA" | "AMERICA" => Team::USA,
-        "CHINA" => Team::China,
-        "GLA" => Team::GLA,
-        _ => Team::USA,
-    }
-}
-
 fn ui_faction_name(f: Faction) -> String {
     match f {
         Faction::USA => "USA".into(),
@@ -77,11 +150,12 @@ fn ui_faction_name(f: Faction) -> String {
     }
 }
 
-fn resolve_random_faction(slot_index: usize) -> Team {
-    match slot_index % 3 {
-        0 => Team::USA,
-        1 => Team::China,
-        _ => Team::GLA,
+fn ui_player_template_selection(faction: Faction) -> SkirmishPlayerTemplateSelection {
+    match faction {
+        Faction::USA => SkirmishPlayerTemplateSelection::base_faction("USA"),
+        Faction::China => SkirmishPlayerTemplateSelection::base_faction("China"),
+        Faction::GLA => SkirmishPlayerTemplateSelection::base_faction("GLA"),
+        Faction::Random => SkirmishPlayerTemplateSelection::Random,
     }
 }
 
@@ -118,6 +192,7 @@ pub fn config_from_skirmish_menu(
     map: &str,
     rules: &GameRules,
     slots: &[GameSlot],
+    random_seed: u32,
 ) -> SkirmishMatchConfig {
     let mut out_slots = Vec::with_capacity(MAX_SLOTS);
     for slot in slots.iter().take(MAX_SLOTS) {
@@ -128,6 +203,7 @@ pub fn config_from_skirmish_menu(
             slot_index: slot.slot_index,
             is_human,
             is_active,
+            player_template: ui_player_template_selection(slot.faction),
             faction: ui_faction_name(slot.faction),
             color_rgb: slot.color.to_rgb(),
             team: slot.team,
@@ -138,6 +214,11 @@ pub fn config_from_skirmish_menu(
     }
     SkirmishMatchConfig {
         map: map.to_string(),
+        // The fallback menu has no GameClient GameInfo backing. Its caller
+        // owns this retained seed explicitly; do not synthesize a transient
+        // wall-clock value and present it as C++ GameInfo parity.
+        random_seed,
+        old_factions_only: false,
         rules: GameRulesSnapshot::from(rules),
         slots: out_slots,
     }
@@ -147,6 +228,8 @@ pub fn config_from_skirmish_menu(
 pub fn golden_skirmish_config(map: &str) -> SkirmishMatchConfig {
     SkirmishMatchConfig {
         map: map.to_string(),
+        random_seed: 0,
+        old_factions_only: false,
         rules: GameRulesSnapshot {
             starting_cash: 10_000,
             game_speed: 1.0,
@@ -160,6 +243,7 @@ pub fn golden_skirmish_config(map: &str) -> SkirmishMatchConfig {
                 slot_index: 0,
                 is_human: true,
                 is_active: true,
+                player_template: SkirmishPlayerTemplateSelection::base_faction("USA"),
                 faction: "USA".into(),
                 color_rgb: (0, 0, 200),
                 team: 0,
@@ -171,6 +255,7 @@ pub fn golden_skirmish_config(map: &str) -> SkirmishMatchConfig {
                 slot_index: 1,
                 is_human: false,
                 is_active: true,
+                player_template: SkirmishPlayerTemplateSelection::base_faction("GLA"),
                 faction: "GLA".into(),
                 color_rgb: (200, 0, 0),
                 team: 1,
@@ -182,34 +267,264 @@ pub fn golden_skirmish_config(map: &str) -> SkirmishMatchConfig {
     }
 }
 
+/// Resolved one-time C++ GameSlot selection ready to bind into Main GameLogic.
+///
+/// The borrow keeps all validation/re-resolution above `start_new_game`; no
+/// map or player mutation may begin until every occupied slot has a concrete,
+/// valid PlayerTemplate identity.
+struct ResolvedSkirmishSlot<'a> {
+    slot: &'a SkirmishSlotConfig,
+    player_template: PlayerTemplateIdentity,
+    team: Team,
+}
+
+fn validate_skirmish_template(
+    template: &game_engine::common::rts::player_template::PlayerTemplate,
+) -> Result<Team, String> {
+    // C++ `PopulatePlayerTemplateComboBox` and `populateRandomSideAndColor`
+    // both exclude entries with no starting building.  This also rejects the
+    // Civilian/Observer records before a headless caller can create a slot
+    // that the real Skirmish UI could not launch.
+    if template.get_starting_building().trim().is_empty() {
+        return Err(format!(
+            "PlayerTemplate '{}' has no Skirmish StartingBuilding",
+            template.get_name()
+        ));
+    }
+    if template.is_observer() {
+        return Err(format!(
+            "PlayerTemplate '{}' is an observer and cannot occupy an offline Skirmish slot",
+            template.get_name()
+        ));
+    }
+
+    // C++ GameLogic.cpp:713-721 rejects Challenge personas that do not start
+    // unlocked. `hq-f6i` owns loading the authored ChallengeMode persona
+    // table into this Common store before offline setup; until then an empty
+    // table deliberately means there is no persona record to reject, rather
+    // than guessing a General is locked from its name.
+    let generals = game_engine::common::ini::ini_challenge_generals::get_challenge_generals();
+    if generals
+        .get_general_by_template_name(template.get_name())
+        .is_some_and(|general| !general.is_starting_enabled())
+    {
+        return Err(format!(
+            "PlayerTemplate '{}' is a locked General persona",
+            template.get_name()
+        ));
+    }
+
+    PlayerTemplateIdentity::team_for_template(template).ok_or_else(|| {
+        format!(
+            "PlayerTemplate '{}' has no supported USA/China/GLA base side",
+            template.get_name()
+        )
+    })
+}
+
+fn resolve_exact_skirmish_template(
+    template_name: &str,
+    template_index: i32,
+) -> Result<(PlayerTemplateIdentity, Team), String> {
+    let identity = PlayerTemplateIdentity::from_exact_indexed_name(template_name, template_index)
+        .ok_or_else(|| {
+        format!(
+            "selected Skirmish PlayerTemplate name/index pair is stale or missing: '{}' at {}",
+            template_name, template_index
+        )
+    })?;
+    let template = identity.resolve().ok_or_else(|| {
+        format!(
+            "selected Skirmish PlayerTemplate '{}' disappeared during validation",
+            identity.template_name
+        )
+    })?;
+    let team = validate_skirmish_template(&template)?;
+    Ok((identity, team))
+}
+
+fn random_skirmish_template_candidates(
+    old_factions_only: bool,
+) -> Vec<(PlayerTemplateIdentity, Team)> {
+    game_engine::common::ini::ensure_player_templates_loaded();
+    let store = game_engine::common::rts::player_template::get_player_template_store();
+    store
+        .iter()
+        .enumerate()
+        .filter_map(|(index, template)| {
+            // C++ GameLogic.cpp:709 checks `GameInfo::oldFactionsOnly()`
+            // while it constructs the Random candidate list.
+            if old_factions_only && !template.is_old_faction() {
+                return None;
+            }
+            let template_index = i32::try_from(index).ok()?;
+            let team = validate_skirmish_template(template).ok()?;
+            Some((
+                PlayerTemplateIdentity {
+                    template_name: template.get_name().to_string(),
+                    template_index: Some(template_index),
+                },
+                team,
+            ))
+        })
+        .collect()
+}
+
+/// Resolve one C++ `PLAYERTEMPLATE_RANDOM` slot against the *already seeded*
+/// GameLogic ADC stream.  `GameLogic.cpp:740-748` intentionally burns
+/// `seed % 7` low-quality draws before it picks `RandomValue(0, 1000) % N`.
+fn resolve_random_skirmish_template(
+    random_seed: u32,
+    candidates: &[(PlayerTemplateIdentity, Team)],
+) -> Result<(PlayerTemplateIdentity, Team), String> {
+    if candidates.is_empty() {
+        return Err("no eligible PlayerTemplate is available for Random Skirmish selection".into());
+    }
+
+    use game_engine::common::random_value::get_game_logic_random_value;
+
+    for _ in 0..(random_seed % 7) {
+        let _ = get_game_logic_random_value(0, 1);
+    }
+    let candidate_index = (get_game_logic_random_value(0, 1000) as usize) % candidates.len();
+    Ok(candidates[candidate_index].clone())
+}
+
+fn resolve_skirmish_slots(
+    config: &SkirmishMatchConfig,
+) -> Result<Vec<ResolvedSkirmishSlot<'_>>, String> {
+    let mut active_slots: Vec<&SkirmishSlotConfig> =
+        config.slots.iter().filter(|slot| slot.is_active).collect();
+    if active_slots.is_empty() {
+        return Err("skirmish config produced no active players".into());
+    }
+    active_slots.sort_by_key(|slot| slot.slot_index);
+
+    let mut previous_slot = None;
+    for slot in &active_slots {
+        if slot.slot_index >= MAX_SLOTS {
+            return Err(format!(
+                "Skirmish slot {} is outside C++ MAX_SLOTS ({MAX_SLOTS})",
+                slot.slot_index
+            ));
+        }
+        if previous_slot == Some(slot.slot_index) {
+            return Err(format!(
+                "Skirmish slot {} appears more than once",
+                slot.slot_index
+            ));
+        }
+        previous_slot = Some(slot.slot_index);
+    }
+
+    // Validate every requested name/index pair before any GameLogic reset.
+    // Random identities are the only selections that C++ resolves at game
+    // start, after `InitGameLogicRandom(GameInfo::getSeed())`.
+    let mut exact: Vec<Option<(PlayerTemplateIdentity, Team)>> =
+        Vec::with_capacity(active_slots.len());
+    let mut needs_random = false;
+    for slot in &active_slots {
+        match &slot.player_template {
+            SkirmishPlayerTemplateSelection::Exact {
+                template_name,
+                template_index,
+            } => exact.push(Some(resolve_exact_skirmish_template(
+                template_name,
+                *template_index,
+            )?)),
+            SkirmishPlayerTemplateSelection::Random => {
+                needs_random = true;
+                exact.push(None);
+            }
+        }
+    }
+
+    let candidates =
+        needs_random.then(|| random_skirmish_template_candidates(config.old_factions_only));
+    if needs_random && candidates.as_ref().is_some_and(Vec::is_empty) {
+        return Err("no eligible PlayerTemplate is available for Random Skirmish selection".into());
+    }
+
+    // C++ `SkirmishGameOptionsMenu` calls InitGameLogicRandom with GameInfo's
+    // seed immediately before it queues GAME_SKIRMISH.  Use the same shared
+    // logic stream here so its post-selection state matches C++ as well.
+    game_engine::common::random_value::init_game_logic_random(config.random_seed);
+
+    active_slots
+        .into_iter()
+        .zip(exact)
+        .map(|(slot, resolved)| {
+            let (player_template, team) = match resolved {
+                Some(resolved) => resolved,
+                None => resolve_random_skirmish_template(
+                    config.random_seed,
+                    candidates
+                        .as_deref()
+                        .expect("random candidates validated above"),
+                )?,
+            };
+            Ok(ResolvedSkirmishSlot {
+                slot,
+                player_template,
+                team,
+            })
+        })
+        .collect()
+}
+
 /// Apply full skirmish configuration to the authoritative Main GameLogic.
 ///
-/// This is the shipped match-start path for slots/rules (not hard-coded difficulty-by-id).
+/// This is the shipped offline match-start path for C++ GameInfo slots. Every
+/// active human/AI resolves and binds its exact PlayerTemplate before the
+/// caller can load a map; base `Team` is only an auxiliary routing value.
 pub fn apply_skirmish_config(
     logic: &mut GameLogic,
     config: &SkirmishMatchConfig,
 ) -> Result<(), String> {
+    let resolved_slots = resolve_skirmish_slots(config)?;
+
     logic.start_new_game(GameMode::Skirmish);
     logic.clear_all_players();
 
     let cash = config.rules.starting_cash.max(0) as u32;
     let mut human_id: Option<u32> = None;
 
-    for slot in config.slots.iter().filter(|s| s.is_active) {
-        let team = if slot.faction.eq_ignore_ascii_case("random") {
-            resolve_random_faction(slot.slot_index)
-        } else {
-            faction_to_team(&slot.faction)
-        };
+    for resolved in resolved_slots {
+        let slot = resolved.slot;
+        let team = resolved.team;
         let player_id = slot.slot_index as u32;
         let mut player = Player::new(player_id, team, &slot.player_name, slot.is_human);
+        // C++ Player::init starts with GameInfo cash, then an authored
+        // non-zero PlayerTemplate Money value may replace it.
         player.resources.supplies = cash;
         player.color_rgb = slot.color_rgb;
         player.start_position = slot.start_position;
         player.alliance_team = slot.team;
-        // C++ Player::resetSciences residual: IntrinsicSciences + Rank1 SPP.
-        player.apply_faction_intrinsic_sciences();
         logic.add_player(player);
+
+        // This binds the exact template's side, starting money, sciences,
+        // production maps, and starting assets *before* map load. Reapply
+        // GameInfo slot fields that C++ Player::initFromDict applies after
+        // Player::init(PlayerTemplate), especially playerColor.
+        if !logic.bind_player_template_identity(player_id, resolved.player_template) {
+            return Err(format!(
+                "validated Skirmish PlayerTemplate failed to bind for slot {}",
+                slot.slot_index
+            ));
+        }
+        // `player_template_bindings` is session state retained by Main's
+        // map-load preserve path. This is the resolved concrete identity;
+        // downstream setup must use it rather than revisit this `Random`
+        // declaration and roll a second time.
+        let player = logic.get_player_mut(player_id).ok_or_else(|| {
+            format!(
+                "Skirmish player {} disappeared while binding its PlayerTemplate",
+                slot.slot_index
+            )
+        })?;
+        player.color_rgb = slot.color_rgb;
+        player.start_position = slot.start_position;
+        player.alliance_team = slot.team;
 
         if slot.is_human && human_id.is_none() {
             human_id = Some(player_id);
@@ -224,10 +539,6 @@ pub fn apply_skirmish_config(
             logic.add_ai_opponent(player_id, team, difficulty);
             logic.set_ai_difficulty(player_id, difficulty);
         }
-    }
-
-    if logic.get_players().is_empty() {
-        return Err("skirmish config produced no active players".into());
     }
 
     // Apply skirmish game rules that the host currently models.
@@ -265,7 +576,8 @@ pub fn config_from_client_skirmish_setup(
     map_override: Option<&str>,
 ) -> Option<SkirmishMatchConfig> {
     use game_client::gui::get_skirmish_setup;
-    use game_client::{SlotState, MAX_SLOTS};
+    use game_client::{SlotState, MAX_SLOTS, PLAYERTEMPLATE_RANDOM};
+    use game_engine::common::ini::ensure_player_templates_loaded;
     use game_engine::common::ini::ini_multiplayer::with_multiplayer_settings;
     use game_engine::common::rts::player_template::get_player_template_store;
 
@@ -293,6 +605,9 @@ pub fn config_from_client_skirmish_setup(
             }
         })?;
 
+    // GameClient stores only an index in GameInfo. Ensure the authoritative
+    // Common store is present before pairing it with its canonical name.
+    ensure_player_templates_loaded();
     let store = get_player_template_store();
     let mut slots = Vec::with_capacity(MAX_SLOTS);
     for i in 0..MAX_SLOTS {
@@ -310,6 +625,7 @@ pub fn config_from_client_skirmish_setup(
                 slot_index: i,
                 is_human: false,
                 is_active: false,
+                player_template: SkirmishPlayerTemplateSelection::Random,
                 faction: "USA".into(),
                 color_rgb: (128, 128, 128),
                 team: -1,
@@ -328,25 +644,56 @@ pub fn config_from_client_skirmish_setup(
             _ => None,
         };
 
-        let faction = {
+        let (faction, player_template) = {
             let tpl = slot.get_player_template();
             if tpl >= 0 {
                 store
                     .get_nth_player_template(tpl as usize)
-                    .map(|t| {
-                        let side = t.get_side().trim();
-                        if side.is_empty() {
-                            "USA".to_string()
+                    .map(|template| {
+                        let side = template.get_side().trim();
+                        let faction = if side.is_empty() {
+                            "Unknown".to_string()
                         } else if side.eq_ignore_ascii_case("America") {
                             "USA".to_string()
                         } else {
                             side.to_string()
-                        }
+                        };
+                        (
+                            faction,
+                            SkirmishPlayerTemplateSelection::Exact {
+                                template_name: template.get_name().to_string(),
+                                template_index: tpl,
+                            },
+                        )
                     })
-                    .unwrap_or_else(|| "USA".into())
+                    .unwrap_or_else(|| {
+                        // Keep the raw invalid index visible to host
+                        // validation. C++ GameInfo never supplies a name for
+                        // such a slot; Main must reject it rather than map it
+                        // to a generic USA player.
+                        (
+                            "Invalid".to_string(),
+                            SkirmishPlayerTemplateSelection::Exact {
+                                template_name: String::new(),
+                                template_index: tpl,
+                            },
+                        )
+                    })
+            } else if tpl == PLAYERTEMPLATE_RANDOM {
+                // PLAYERTEMPLATE_RANDOM is resolved once by the offline host
+                // from the retained GameInfo seed before the map load.
+                ("Random".into(), SkirmishPlayerTemplateSelection::Random)
             } else {
-                // PLAYERTEMPLATE_RANDOM / unset — host resolves per slot index.
-                "Random".into()
+                // Observer or another invalid sentinel is not a Random
+                // player. Keep its raw value as an invalid pair so the host
+                // fails closed rather than silently converting it to Random.
+                (
+                    "Invalid".into(),
+                    SkirmishPlayerTemplateSelection::Exact {
+                        template_name: String::new(),
+                        template_index: tpl,
+                    },
+                )
             }
         };
 
@@ -356,6 +703,7 @@ pub fn config_from_client_skirmish_setup(
             slot_index: i,
             is_human,
             is_active: true,
+            player_template,
             faction,
             color_rgb,
             team: slot.get_team_number(),
@@ -385,6 +733,10 @@ pub fn config_from_client_skirmish_setup(
     let fog = with_multiplayer_settings(|s| s.is_shroud_in_multiplayer);
     Some(SkirmishMatchConfig {
         map,
+        // Preserve C++ `Int`'s two's-complement bit pattern as the unsigned
+        // ADC seed consumed by `InitGameLogicRandom`.
+        random_seed: info.get_seed() as u32,
+        old_factions_only: info.old_factions_only(),
         rules: GameRulesSnapshot {
             starting_cash: if starting_cash > 0 {
                 starting_cash
@@ -435,6 +787,52 @@ mod tests {
     use super::*;
     use crate::ui::skirmish_menu::{GameSlot, PlayerType};
 
+    fn exact_template(name: &str) -> SkirmishPlayerTemplateSelection {
+        let selection = SkirmishPlayerTemplateSelection::exact_template_name(name);
+        match &selection {
+            SkirmishPlayerTemplateSelection::Exact { template_index, .. } => {
+                assert!(
+                    *template_index >= 0,
+                    "retail template '{name}' must resolve"
+                );
+            }
+            SkirmishPlayerTemplateSelection::Random => {
+                panic!("test requested an exact PlayerTemplate");
+            }
+        }
+        selection
+    }
+
+    fn template_index(selection: &SkirmishPlayerTemplateSelection) -> i32 {
+        match selection {
+            SkirmishPlayerTemplateSelection::Exact { template_index, .. } => *template_index,
+            SkirmishPlayerTemplateSelection::Random => panic!("test requested an Exact template"),
+        }
+    }
+
+    fn configured_slot(
+        slot_index: usize,
+        is_human: bool,
+        player_template: SkirmishPlayerTemplateSelection,
+        faction: &str,
+        color_rgb: (u8, u8, u8),
+        team: i32,
+        start_position: i32,
+    ) -> SkirmishSlotConfig {
+        SkirmishSlotConfig {
+            slot_index,
+            is_human,
+            is_active: true,
+            player_template,
+            faction: faction.into(),
+            color_rgb,
+            team,
+            start_position,
+            player_name: format!("slot-{slot_index}"),
+            ai_difficulty: (!is_human).then_some("Hard".into()),
+        }
+    }
+
     #[test]
     fn menu_config_propagates_slot_difficulties_and_cash() {
         let rules = GameRules {
@@ -447,11 +845,232 @@ mod tests {
         slots[1].player_type = PlayerType::HardAI;
         slots[1].faction = Faction::GLA;
 
-        let cfg = config_from_skirmish_menu("Maps/Test/Test.map", &rules, &slots);
+        let cfg = config_from_skirmish_menu("Maps/Test/Test.map", &rules, &slots, 0xCAFE_BABE);
         assert_eq!(cfg.rules.starting_cash, 12_500);
         assert!(cfg.slots[0].is_human);
         assert_eq!(cfg.slots[1].ai_difficulty.as_deref(), Some("Hard"));
         assert_eq!(cfg.slots[1].faction, "GLA");
+        assert_eq!(cfg.random_seed, 0xCAFE_BABE);
+        assert!(!cfg.old_factions_only);
+        assert!(matches!(
+            &cfg.slots[0].player_template,
+            SkirmishPlayerTemplateSelection::Exact { .. }
+        ));
+    }
+
+    #[test]
+    fn exact_skirmish_general_identities_bind_human_ai_and_slot_overrides() {
+        let air_force = exact_template("FactionAmericaAirForceGeneral");
+        let tank = exact_template("FactionChinaTankGeneral");
+        let air_force_index = template_index(&air_force);
+        let tank_index = template_index(&tank);
+        let config = SkirmishMatchConfig {
+            map: "Lone Eagle".into(),
+            random_seed: 0x1020_3040,
+            old_factions_only: false,
+            rules: GameRulesSnapshot {
+                starting_cash: 13_579,
+                ..GameRulesSnapshot::default_rules()
+            },
+            slots: vec![
+                configured_slot(0, true, air_force, "USA", (7, 8, 9), 31, 4),
+                configured_slot(1, false, tank, "China", (10, 11, 12), 32, 5),
+            ],
+        };
+
+        let mut logic = GameLogic::new();
+        apply_skirmish_config(&mut logic, &config).expect("exact General config must apply");
+
+        assert_eq!(logic.game_mode(), GameMode::Skirmish);
+        assert_eq!(
+            logic
+                .player_template_identity(0)
+                .map(|identity| (identity.template_name.as_str(), identity.template_index)),
+            Some(("FactionAmericaAirForceGeneral", Some(air_force_index)))
+        );
+        assert_eq!(
+            logic
+                .player_template_identity(1)
+                .map(|identity| (identity.template_name.as_str(), identity.template_index)),
+            Some(("FactionChinaTankGeneral", Some(tank_index)))
+        );
+
+        let human = logic.get_player(0).expect("human slot");
+        assert_eq!(human.team, Team::USA);
+        assert!(human.is_local);
+        assert_eq!(human.resources.supplies, 13_579);
+        // GameInfo fields are applied after Player::init(PlayerTemplate).
+        assert_eq!(human.color_rgb, (7, 8, 9));
+        assert_eq!(human.start_position, 4);
+        assert_eq!(human.alliance_team, 31);
+
+        let ai = logic.get_player(1).expect("AI slot");
+        assert_eq!(ai.team, Team::China);
+        assert!(!ai.is_local);
+        assert_eq!(ai.resources.supplies, 13_579);
+        assert_eq!(ai.color_rgb, (10, 11, 12));
+        assert_eq!(ai.start_position, 5);
+        assert_eq!(ai.alliance_team, 32);
+        assert_eq!(logic.host_ai_difficulty(1), Some(AIDifficulty::Hard));
+    }
+
+    #[test]
+    fn stale_exact_name_index_pair_rejects_before_game_logic_reset() {
+        let air_force = exact_template("FactionAmericaAirForceGeneral");
+        let tank = exact_template("FactionChinaTankGeneral");
+        let stale = match air_force {
+            SkirmishPlayerTemplateSelection::Exact { template_name, .. } => {
+                SkirmishPlayerTemplateSelection::Exact {
+                    template_name,
+                    template_index: template_index(&tank),
+                }
+            }
+            SkirmishPlayerTemplateSelection::Random => unreachable!(),
+        };
+        let config = SkirmishMatchConfig {
+            map: "Lone Eagle".into(),
+            random_seed: 77,
+            old_factions_only: false,
+            rules: GameRulesSnapshot::default_rules(),
+            slots: vec![configured_slot(0, true, stale, "USA", (1, 2, 3), 0, 0)],
+        };
+
+        let mut logic = GameLogic::new();
+        logic.start_new_game(GameMode::SinglePlayer);
+        let original_name = logic
+            .get_player(0)
+            .expect("single-player bootstrap player")
+            .name
+            .clone();
+
+        let error = apply_skirmish_config(&mut logic, &config)
+            .expect_err("mismatched exact name/index must not choose another General");
+        assert!(error.contains("name/index pair"), "{error}");
+        assert_eq!(logic.game_mode(), GameMode::SinglePlayer);
+        assert_eq!(
+            logic.get_player(0).map(|player| player.name.as_str()),
+            Some(original_name.as_str())
+        );
+        assert!(logic.player_template_identity(0).is_none());
+    }
+
+    #[test]
+    fn locked_boss_is_rejected_before_host_start_and_excluded_from_random() {
+        // C++ loads ChallengeMode.ini at GameClient startup, then uses the
+        // same StartsEnabled record in both direct slot validation and the
+        // PLAYERTEMPLATE_RANDOM candidate list. Boss is playable and has a
+        // StartingBuilding, so this must be a persona rejection rather than
+        // an accidental side/asset heuristic.
+        game_engine::common::ini::ensure_challenge_generals_loaded()
+            .expect("retail ChallengeMode.ini must be available to host validation");
+        let boss = exact_template("FactionBossGeneral");
+        let config = SkirmishMatchConfig {
+            map: "Lone Eagle".into(),
+            random_seed: 0xB055,
+            old_factions_only: false,
+            rules: GameRulesSnapshot::default_rules(),
+            slots: vec![configured_slot(0, true, boss, "Boss", (0, 255, 0), 0, 0)],
+        };
+
+        let mut logic = GameLogic::new();
+        logic.start_new_game(GameMode::SinglePlayer);
+        let error = apply_skirmish_config(&mut logic, &config)
+            .expect_err("a locked Boss persona must not reach host Skirmish startup");
+        assert!(error.contains("FactionBossGeneral"), "{error}");
+        assert!(error.contains("locked General persona"), "{error}");
+        assert_eq!(logic.game_mode(), GameMode::SinglePlayer);
+
+        let candidates = random_skirmish_template_candidates(false);
+        assert!(
+            !candidates.iter().any(|(identity, _)| {
+                identity
+                    .template_name
+                    .eq_ignore_ascii_case("FactionBossGeneral")
+            }),
+            "C++ Random must exclude the locked Boss persona"
+        );
+
+        let enabled = exact_template("FactionAmericaAirForceGeneral");
+        let SkirmishPlayerTemplateSelection::Exact {
+            template_name,
+            template_index,
+        } = enabled
+        else {
+            unreachable!("helper requested an exact template");
+        };
+        assert!(
+            resolve_exact_skirmish_template(&template_name, template_index).is_ok(),
+            "an authored enabled General must remain eligible"
+        );
+    }
+
+    #[test]
+    fn random_skirmish_slots_bind_once_to_exact_old_faction_templates() {
+        let config = SkirmishMatchConfig {
+            map: "Lone Eagle".into(),
+            random_seed: 0xC001_D00D,
+            old_factions_only: true,
+            rules: GameRulesSnapshot::default_rules(),
+            slots: vec![
+                configured_slot(
+                    0,
+                    true,
+                    SkirmishPlayerTemplateSelection::Random,
+                    "Random",
+                    (1, 2, 3),
+                    0,
+                    0,
+                ),
+                configured_slot(
+                    1,
+                    false,
+                    SkirmishPlayerTemplateSelection::Random,
+                    "Random",
+                    (4, 5, 6),
+                    1,
+                    1,
+                ),
+            ],
+        };
+
+        let mut logic = GameLogic::new();
+        apply_skirmish_config(&mut logic, &config).expect("Random config must resolve");
+        assert_eq!(
+            game_engine::common::random_value::get_game_logic_random_seed(),
+            config.random_seed
+        );
+        let selected_before_rebind = [0, 1].map(|player_id| {
+            logic
+                .player_template_identity(player_id)
+                .cloned()
+                .expect("Random slot must become an exact session binding")
+        });
+        for identity in &selected_before_rebind {
+            let template = identity
+                .resolve()
+                .expect("bound template must remain valid");
+            assert!(
+                template.is_old_faction(),
+                "oldFactionsOnly Random selected {}",
+                template.get_name()
+            );
+            assert!(identity.template_index.is_some());
+        }
+        assert!(config.slots.iter().all(|slot| matches!(
+            &slot.player_template,
+            SkirmishPlayerTemplateSelection::Random
+        )));
+
+        // Map-load rebinding must consume the concrete session identities,
+        // not the original Random declarations and a fresh RNG draw.
+        logic.rebind_host_ai_after_map_load();
+        let selected_after_rebind = [0, 1].map(|player_id| {
+            logic
+                .player_template_identity(player_id)
+                .cloned()
+                .expect("map-load preserve must retain the exact identity")
+        });
+        assert_eq!(selected_after_rebind, selected_before_rebind);
     }
 
     #[test]
@@ -460,12 +1079,15 @@ mod tests {
         let mut logic = GameLogic::new();
         let config = SkirmishMatchConfig {
             map: "Lone Eagle".into(),
+            random_seed: 0,
+            old_factions_only: false,
             rules: GameRulesSnapshot::default_rules(),
             slots: vec![
                 SkirmishSlotConfig {
                     slot_index: 0,
                     is_human: true,
                     is_active: true,
+                    player_template: SkirmishPlayerTemplateSelection::base_faction("USA"),
                     faction: "USA".into(),
                     color_rgb: (0, 0, 255),
                     team: 0,
@@ -477,6 +1099,7 @@ mod tests {
                     slot_index: 1,
                     is_human: false,
                     is_active: true,
+                    player_template: SkirmishPlayerTemplateSelection::base_faction("China"),
                     faction: "China".into(),
                     color_rgb: (255, 0, 0),
                     team: 1,
@@ -684,16 +1307,23 @@ mod tests {
         use game_client::gui::get_skirmish_setup;
         use game_client::{Money, SlotState};
 
+        game_engine::common::ini::ensure_player_templates_loaded();
+        let air_force_index = game_engine::common::rts::player_template::get_player_template_store()
+            .find_template_index("FactionAmericaAirForceGeneral")
+            .expect("retail Air Force General template") as i32;
+
         {
             let mut setup = get_skirmish_setup();
             setup.set_selected_map(String::new());
             let info = setup.game_info_mut().game_info_mut();
             info.reset();
             info.set_map("Maps/Lone Eagle/Lone Eagle.map".into());
+            info.set_seed(-0x1020_304);
             info.set_starting_cash(Money::new(15_000));
+            info.set_old_factions_only(false);
             if let Some(slot) = info.get_slot_mut(0) {
                 slot.set_state(SlotState::Player, "Commander".into(), 1);
-                slot.set_player_template(-1); // Random → host resolves
+                slot.set_player_template(air_force_index);
                 slot.set_team_number(0);
                 slot.set_start_pos(0);
                 slot.set_color(0);
@@ -714,10 +1344,23 @@ mod tests {
             cfg.map
         );
         assert_eq!(cfg.rules.starting_cash, 15_000);
+        assert_eq!(cfg.random_seed, (-0x1020_304i32) as u32);
+        assert!(!cfg.old_factions_only);
         assert!(cfg.slots[0].is_human && cfg.slots[0].is_active);
         assert!(!cfg.slots[1].is_human && cfg.slots[1].is_active);
         assert_eq!(cfg.slots[1].ai_difficulty.as_deref(), Some("Medium"));
         assert_eq!(cfg.slots[0].player_name, "Commander");
+        assert!(matches!(
+            &cfg.slots[0].player_template,
+            SkirmishPlayerTemplateSelection::Exact {
+                template_name,
+                template_index,
+            } if template_name == "FactionAmericaAirForceGeneral" && *template_index == air_force_index
+        ));
+        assert!(matches!(
+            &cfg.slots[1].player_template,
+            SkirmishPlayerTemplateSelection::Random
+        ));
     }
 
     /// WND Start residual composition (no window): client skirmish setup →

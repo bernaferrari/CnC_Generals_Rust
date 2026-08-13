@@ -134,10 +134,8 @@ impl GameLogic {
             // (zone path; crates remain for unit MoneyCrateCollide residual
             // only if not marked paid — mark paid after bulk to avoid double).
             if plan.is_final_item && plan.kind.credits_building_pickup_cash() {
-                let owner_player_id = self.player_owner_for_event(
-                    plan.source_owner_player_id,
-                    plan.source_team,
-                );
+                let owner_player_id =
+                    self.player_owner_for_event(plan.source_owner_player_id, plan.source_team);
                 let has_supply_lines = owner_player_id
                     .and_then(|player_id| self.players.get(&player_id))
                     .is_some_and(|player| {

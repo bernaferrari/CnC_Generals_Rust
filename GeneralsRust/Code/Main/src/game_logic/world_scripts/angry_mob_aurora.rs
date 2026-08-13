@@ -1319,7 +1319,8 @@ impl GameLogic {
         } else {
             start.y -= 5.0;
         }
-        let pid = self.create_object_for_owner_or_team(name, team, source_owner_player_id, start)?;
+        let pid =
+            self.create_object_for_owner_or_team(name, team, source_owner_player_id, start)?;
         let speed = AURORA_BOMB_LOCO_SPEED / 30.0;
         let min_speed = AURORA_BOMB_LOCO_MIN_SPEED / 30.0;
         let to_aim = aim - start;

@@ -113,6 +113,20 @@
         }
     }
 
+    struct ScriptToggleRecordingHandler {
+        updates: Arc<std::sync::Mutex<Vec<(String, bool)>>>,
+    }
+
+    impl ScriptActionHandler for ScriptToggleRecordingHandler {
+        fn enable_script(&self, name: &str, enabled: bool) -> crate::GameLogicResult<()> {
+            self.updates
+                .lock()
+                .expect("script toggle update mutex should not be poisoned")
+                .push((name.to_string(), enabled));
+            Ok(())
+        }
+    }
+
     #[tokio::test]
     async fn test_script_evaluator_creation() {
         initialize_script_engine().unwrap();
@@ -899,6 +913,131 @@
         assert!(
             !evaluator.evaluate_condition(&mut type_condition).unwrap(),
             "C++ TypeSighted also rejects an undetected stealthed candidate"
+        );
+    }
+
+    #[test]
+    fn enable_disable_actions_toggle_private_subroutine_group_before_following_call() {
+        // C++ ScriptEngine::enableScript/disableScript mutates group state
+        // before the next action in the same chain.  MissionScriptRuntime uses
+        // a private evaluator engine, so this must not fall through to the
+        // unrelated global engine or merely defer the state change to a hook.
+        const GROUP_NAME: &str = "Deferred Until Explicitly Enabled";
+        const FLAG_NAME: &str = "private_group_call_completed";
+
+        let updates = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let mut member = Script::new();
+        member.set_name("Private Group Member".to_string());
+        let mut always_true = OrCondition::new();
+        always_true
+            .set_first_and_condition(Some(Box::new(Condition::new(ConditionType::ConditionTrue))));
+        member.set_or_condition(Some(Box::new(always_true)));
+        let mut set_flag = ScriptAction::new(ScriptActionType::SetFlag);
+        set_flag
+            .add_parameter(Parameter::with_string(
+                ParameterType::Flag,
+                FLAG_NAME.to_string(),
+            ))
+            .expect("flag parameter should fit");
+        set_flag
+            .add_parameter(Parameter::with_int(ParameterType::Boolean, 1))
+            .expect("boolean parameter should fit");
+        member.set_action(Some(Box::new(set_flag)));
+
+        let mut group = ScriptGroup::new();
+        group.set_name(GROUP_NAME.to_string());
+        group.set_active(false);
+        group.set_subroutine(true);
+        group.append_script(Box::new(member));
+
+        let mut list = ScriptList::new();
+        list.append_group(Box::new(group));
+
+        let mut private_engine = ScriptEngine::new().expect("private script engine should initialize");
+        private_engine.set_action_handler(Some(Arc::new(ScriptToggleRecordingHandler {
+            updates: Arc::clone(&updates),
+        })));
+        private_engine
+            .set_script_list_for_player(0, Some(Box::new(list)))
+            .expect("private script list should install");
+        let private_engine = ScriptEngineHandle::from_engine(private_engine);
+        let evaluator = ScriptEvaluator::new(private_engine.clone());
+
+        let mut enable = ScriptAction::new(ScriptActionType::EnableScript);
+        enable
+            .add_parameter(Parameter::with_string(
+                ParameterType::Script,
+                GROUP_NAME.to_string(),
+            ))
+            .expect("enable parameter should fit");
+        let mut call_after_enable = ScriptAction::new(ScriptActionType::CallSubroutine);
+        call_after_enable
+            .add_parameter(Parameter::with_string(
+                ParameterType::Script,
+                GROUP_NAME.to_string(),
+            ))
+            .expect("call parameter should fit");
+        enable.set_next_action(Some(Box::new(call_after_enable)));
+        evaluator
+            .execute_action_sequence(&enable)
+            .expect("enable then call should execute on the private engine");
+
+        {
+            let engine = private_engine.read().expect("private engine lock");
+            let engine = engine.as_ref().expect("private engine should remain installed");
+            assert!(
+                engine
+                    .get_flag(FLAG_NAME)
+                    .expect("enabled group member should set its flag")
+                    .value,
+                "ENABLE_SCRIPT must make an inactive subroutine group callable immediately"
+            );
+        }
+
+        {
+            let engine = private_engine.write().expect("private engine lock");
+            engine
+                .as_ref()
+                .expect("private engine should remain installed")
+                .set_flag(FLAG_NAME, false)
+                .expect("flag reset should succeed");
+        }
+
+        let mut disable = ScriptAction::new(ScriptActionType::DisableScript);
+        disable
+            .add_parameter(Parameter::with_string(
+                ParameterType::Script,
+                GROUP_NAME.to_string(),
+            ))
+            .expect("disable parameter should fit");
+        let mut call_after_disable = ScriptAction::new(ScriptActionType::CallSubroutine);
+        call_after_disable
+            .add_parameter(Parameter::with_string(
+                ParameterType::Script,
+                GROUP_NAME.to_string(),
+            ))
+            .expect("call parameter should fit");
+        disable.set_next_action(Some(Box::new(call_after_disable)));
+        evaluator
+            .execute_action_sequence(&disable)
+            .expect("disable then call should remain on the private engine");
+
+        let engine = private_engine.read().expect("private engine lock");
+        let engine = engine.as_ref().expect("private engine should remain installed");
+        assert!(
+            !engine
+                .get_flag(FLAG_NAME)
+                .expect("flag should remain allocated")
+                .value,
+            "DISABLE_SCRIPT must make a subroutine group uncallable before the next action"
+        );
+        assert_eq!(
+            updates
+                .lock()
+                .expect("script toggle update mutex should not be poisoned")
+                .as_slice(),
+            [(GROUP_NAME.to_string(), true), (GROUP_NAME.to_string(), false)],
+            "the private engine must forward each toggle to MissionScriptRuntime exactly once"
         );
     }
 

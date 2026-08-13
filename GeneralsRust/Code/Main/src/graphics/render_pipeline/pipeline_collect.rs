@@ -67,6 +67,7 @@ impl RenderPipeline {
         allow_sync_model_loads: bool,
         deferred_model_load_budget: &mut usize,
         delta_time: f32,
+        direct_scene_candidates: &mut Vec<FrozenDirectDrawableSceneCandidate>,
     ) -> Result<()> {
         let collect_started = Instant::now();
         let object_ids_started = Instant::now();
@@ -75,29 +76,6 @@ impl RenderPipeline {
         // Keep frame installed for post-collect execute residual (minimap/shell/heightmap).
         let presentation = self.presentation_frame.clone();
         let presentation_unit_pass = presentation.is_some();
-        // C++ broadcasts an accepted WeaponSet discharge to every active
-        // W3DModelDraw before each module's visible draw.  The frozen event
-        // is the only safe authority here: AI fire intent is lossy and live
-        // GameLogic must never be read from the presentation mesh pass.
-        let weapon_discharges = presentation
-            .as_ref()
-            .map(|frame| {
-                frame
-                    .events
-                    .iter()
-                    .filter_map(|event| match event {
-                        crate::presentation_frame::PresentationEvent::WeaponDischarged {
-                            source,
-                            weapon_slot,
-                            fired_barrel,
-                            sequence,
-                            ..
-                        } => Some((source.0, *weapon_slot, *fired_barrel, *sequence)),
-                        _ => None,
-                    })
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
         // Reset live-identity residual each collect; presentation path must stay at 0.
         self.debug_last_live_unit_identity_reads = 0;
         self.debug_last_presentation_live_fallback_reads = 0;
@@ -148,6 +126,11 @@ impl RenderPipeline {
 
         let mut render_model_load_elapsed = Duration::ZERO;
         let mut render_item_build_elapsed = Duration::ZERO;
+        // A single C++ Drawable can own multiple source Draw modules and each
+        // module can produce many meshes. `renderOneObject` refreshes its
+        // clear timestamp once for the accepted Drawable, so retain one full
+        // binding key per collection rather than one record per mesh.
+        let mut direct_scene_candidate_bindings = HashSet::new();
 
         // --- Main unit mesh pass: presentation-owned inputs only ---
         for u in unit_inputs {
@@ -271,6 +254,24 @@ impl RenderPipeline {
                     continue;
                 }
 
+                // C++ `RTS3DScene::Visibility_Check` first accepts the
+                // RenderObj's frustum sphere, then removes a direct Drawable
+                // that is source-hidden (`m_hidden || m_hiddenByStealth`) or
+                // whose GameClient update marked it fully obscured. The
+                // immutable sidecar was captured before this execute call;
+                // do not query or mutate GameClient here, and do not turn
+                // this into the later `renderOneObject` clear-frame/material
+                // decision.
+                if frozen_direct_candidate_is_scene_culled(
+                    &self.presentation_direct_shroud_states,
+                    self.presentation_direct_shroud_host_epoch,
+                    object_id,
+                    u.drawable_shroud,
+                ) {
+                    fow_filtered += 1;
+                    continue;
+                }
+
                 let model_hint = model_hint_owned.as_deref().or(Some(model_name));
 
                 let model_load_started = Instant::now();
@@ -286,10 +287,8 @@ impl RenderPipeline {
                 let render_item_build_started = Instant::now();
                 match render_model_load_result {
                     RenderModelLoadResult::Ready(w3d_model) => {
-                        if w3d_model.meshes.is_empty() {
-                            self.debug_last_zero_mesh_models += 1;
-                            // Fall through to fallback cube below (same as Failed path)
-                        } else {
+                        let render_item_count_before_model = self.render_items.len();
+                        {
                             let visibility = fow_visibility;
 
                             let (animation_binding, anim_frame, weapon_controls) = self
@@ -301,8 +300,26 @@ impl RenderPipeline {
                                     &draw_model,
                                     delta_time,
                                     pending_client_drawable_restore,
-                                    &weapon_discharges,
                                 );
+
+                            // C++ `HLodClass::Update_Sub_Object_Transforms`
+                            // samples its additional-model parent bones after
+                            // the same turret/recoil controls that position
+                            // the rigid mesh children below. Retain the exact
+                            // aggregate poses before the mesh loop so every
+                            // resolvable external child sees that state once.
+                            let aggregate_poses = w3d_model
+                                .aggregate_attachment_poses_for_primary_turret_and_weapon_controls(
+                                    animation_binding.as_ref(),
+                                    anim_frame,
+                                    &authored_primary_turret,
+                                    u.turret_angle_deg,
+                                    u.turret_pitch_deg,
+                                    &weapon_controls,
+                                );
+                            let has_source_aggregate_attachments = aggregate_poses
+                                .as_ref()
+                                .is_some_and(|poses| !poses.is_empty());
 
                             for (mesh_idx, mesh) in w3d_model.meshes.iter().enumerate() {
                                 let mut material = mesh.material.clone();
@@ -356,9 +373,12 @@ impl RenderPipeline {
                                 }
 
                                 // HLOD rigid children resolve through the source-authored
-                                // `HLOD.Name.MeshName -> BoneIndex` record.  Unsupported
-                                // multi-LOD/aggregate content returns None and remains
-                                // intentionally non-rendering rather than drawing every group.
+                                // `HLOD.Name.MeshName -> BoneIndex` record. One rigid HLOD
+                                // uses the original game's constructor-selected static level;
+                                // separately resolved aggregates are collected after this
+                                // parent pass. Proxies, multiple HLODs, and unresolved selected
+                                // rigid children remain intentionally non-rendering rather than
+                                // drawing every source group.
                                 // C++ positions the Drawable/hull first, then
                                 // captures only its exact primary turret
                                 // HTree pivots after the selected HAnim has
@@ -434,22 +454,97 @@ impl RenderPipeline {
                                 );
                                 render_item.set_mesh_local_transform(mesh_local_transform);
                                 render_item.distance = world_position.distance(camera_position);
-                                render_item.set_fow_visibility(visibility);
+                                render_item.apply_frozen_presentation_visuals(
+                                    visibility,
+                                    selection_flash_intensity,
+                                    team_color,
+                                    u.poison_tinted,
+                                );
                                 render_item.animation_frame = anim_frame;
                                 render_item.animation_binding = animation_binding.clone();
 
                                 self.render_items.push(render_item);
                             }
 
-                            trace!(
-                                "Object {} will render with FOW alpha={}, explored={}",
-                                object_id,
-                                visibility.visibility_alpha,
-                                visibility.is_explored
-                            );
-                            render_item_build_elapsed += render_item_build_started.elapsed();
-                            continue; // Skip the fallback path
+                            // `HLodClass` renders each AdditionalModel after
+                            // its selected parent LOD. The independently
+                            // created child keeps the parent Drawable's world
+                            // transform/FOW ownership, while its exact HTree
+                            // attachment pose was frozen above with the same
+                            // HAnim, turret, and recoil controls as the rigid
+                            // source children.
+                            if let Some(aggregate_poses) = aggregate_poses {
+                                let fallback_parent_material = W3DMaterial::default();
+                                let parent_material = w3d_model
+                                    .meshes
+                                    .first()
+                                    .map(|mesh| &mesh.material)
+                                    .unwrap_or(&fallback_parent_material);
+                                let mut aggregate_parent_item = RenderItem::new(
+                                    object_id,
+                                    model_name.to_string(),
+                                    0,
+                                    world_position,
+                                    world_matrix,
+                                    parent_material,
+                                    Self::render_pass_for_material(parent_material),
+                                );
+                                aggregate_parent_item.apply_frozen_presentation_visuals(
+                                    visibility,
+                                    selection_flash_intensity,
+                                    team_color,
+                                    u.poison_tinted,
+                                );
+                                self.render_items.extend(
+                                    super::hlod_aggregate_render::collect_cached_hlod_aggregate_render_items(
+                                        graphics_system,
+                                        &aggregate_parent_item,
+                                        &aggregate_poses,
+                                        camera_position,
+                                    ),
+                                );
+                            }
+
+                            // This is intentionally after every source W3D
+                            // mesh and aggregate has had a chance to append a
+                            // real item, but before fallback/debug geometry.
+                            // It is the narrow Main-only seam for C++ scene
+                            // timing: a frustum-accepted direct Drawable
+                            // reaches renderOneObject only if it actually
+                            // submitted an eligible source render item.
+                            if self.render_items.len() > render_item_count_before_model {
+                                if let Some(candidate) = frozen_direct_scene_candidate(
+                                    &self.presentation_direct_shroud_states,
+                                    self.presentation_direct_shroud_host_epoch,
+                                    object_id,
+                                    u.drawable_shroud,
+                                ) {
+                                    let binding_key = (
+                                        candidate.host_epoch,
+                                        candidate.object_id.0,
+                                        candidate.drawable_id,
+                                        candidate.binding_generation,
+                                    );
+                                    if direct_scene_candidate_bindings.insert(binding_key) {
+                                        direct_scene_candidates.push(candidate);
+                                    }
+                                }
+                            }
+
+                            if !w3d_model.meshes.is_empty() || has_source_aggregate_attachments {
+                                trace!(
+                                    "Object {} will render with FOW alpha={}, explored={}",
+                                    object_id,
+                                    visibility.visibility_alpha,
+                                    visibility.is_explored
+                                );
+                                render_item_build_elapsed += render_item_build_started.elapsed();
+                                continue; // Skip the fallback path
+                            }
                         }
+
+                        self.debug_last_zero_mesh_models += 1;
+                        // Fall through to fallback cube below (same as Failed path).
 
                         if Self::missing_model_debug_cubes_enabled()
                             && !real_w3d_name_resolved(model_name)
@@ -469,17 +564,12 @@ impl RenderPipeline {
                                         RenderPass::ForwardOpaque,
                                     );
                                     render_item.distance = world_position.distance(camera_position);
-                                    render_item.set_fow_visibility(fow_visibility);
-                                    if selection_flash_intensity > 0.0 {
-                                        render_item.apply_selection_flash(
-                                            selection_flash_intensity,
-                                            team_color,
-                                        );
-                                    }
-                                    // Wave 499: presentation poison tint residual (no live GameLogic).
-                                    if u.poison_tinted {
-                                        render_item.apply_poison_tint();
-                                    }
+                                    render_item.apply_frozen_presentation_visuals(
+                                        fow_visibility,
+                                        selection_flash_intensity,
+                                        team_color,
+                                        u.poison_tinted,
+                                    );
 
                                     self.render_items.push(render_item);
                                 }
@@ -529,17 +619,12 @@ impl RenderPipeline {
                                         RenderPass::ForwardOpaque,
                                     );
                                     render_item.distance = world_position.distance(camera_position);
-                                    render_item.set_fow_visibility(fow_visibility);
-                                    if selection_flash_intensity > 0.0 {
-                                        render_item.apply_selection_flash(
-                                            selection_flash_intensity,
-                                            team_color,
-                                        );
-                                    }
-                                    // Wave 499: presentation poison tint residual (no live GameLogic).
-                                    if u.poison_tinted {
-                                        render_item.apply_poison_tint();
-                                    }
+                                    render_item.apply_frozen_presentation_visuals(
+                                        fow_visibility,
+                                        selection_flash_intensity,
+                                        team_color,
+                                        u.poison_tinted,
+                                    );
 
                                     self.render_items.push(render_item);
                                 }
@@ -975,6 +1060,11 @@ impl RenderPipeline {
             if model_name.is_empty() {
                 continue;
             }
+            // GameClient DrawableID and gameplay ObjectID are independent C++
+            // identities.  Standalone drawables (tracers, placement previews,
+            // FX) are legitimate client visuals, so preserve their distinct
+            // ownership instead of either casting the ID or dropping them.
+            let owner_object_id = submission.owner_object_id;
 
             let render_pass = if is_transparent {
                 RenderPass::ForwardTransparent
@@ -990,13 +1080,20 @@ impl RenderPipeline {
                 world_matrix.w_axis.z,
             );
 
-            let object_id = crate::game_logic::ObjectId(submission.drawable_id.0);
             let vis_alpha = submission.render_state.opacity;
             let fow_vis = ObjectVisibility {
                 visibility_alpha: vis_alpha,
                 is_explored: 1.0,
                 visibility_falloff: 1.0,
             };
+
+            // `DrawSubmission` transports persistent SELECTED/render-state
+            // flags and a combined generic emissive tint, but it has no
+            // frozen Drawable selection-envelope intensity or poisoned tint
+            // status. Those cannot be reconstructed from a selected bit (or
+            // from a tint that may represent another effect), so the bridge
+            // intentionally does not fabricate the presentation modifiers
+            // applied by the direct frozen-unit path above.
 
             let load_result = Self::ensure_render_model_loaded(
                 graphics_system,
@@ -1008,32 +1105,7 @@ impl RenderPipeline {
 
             match load_result {
                 RenderModelLoadResult::Ready(w3d_model) => {
-                    if w3d_model.meshes.is_empty() {
-                        // Real W3D name resolved — do not plant a diagnostic cube.
-                        if Self::missing_model_debug_cubes_enabled()
-                            && !real_w3d_name_resolved(model_name)
-                        {
-                            if let Some(fallback_model) =
-                                graphics_system.get_model_or_fallback("__fallback_cube__")
-                            {
-                                if !fallback_model.meshes.is_empty() {
-                                    let mut item = RenderItem::new(
-                                        object_id,
-                                        "__fallback_cube__".to_string(),
-                                        0,
-                                        world_position,
-                                        world_matrix,
-                                        &fallback_model.meshes[0].material,
-                                        render_pass,
-                                    );
-                                    item.distance = world_position.distance(camera_position);
-                                    item.set_fow_visibility(fow_vis);
-                                    self.render_items.push(item);
-                                    bridge_items_added += 1;
-                                }
-                            }
-                        }
-                    } else {
+                    {
                         // GameClient freezes its selected W3DModelDraw clip
                         // and normalized frame fraction into the bridge
                         // submission. Apply that exact state so raw W3D bit
@@ -1044,17 +1116,47 @@ impl RenderPipeline {
                             submission.animation_time,
                         );
 
+                        let bridge_subobject_visibility = submission
+                            .sub_object_visibility
+                            .iter()
+                            .map(|visibility| {
+                                crate::assets::ini_parser::AuthoredDrawSubobjectVisibility {
+                                    name: visibility.sub_object_name.clone(),
+                                    hidden: visibility.hidden,
+                                }
+                            })
+                            .collect::<Vec<_>>();
+                        let capture_bone_controls = submission
+                            .bone_overrides
+                            .iter()
+                            .map(|override_state| {
+                                (
+                                    override_state.bone_index,
+                                    Mat4::from_cols_array_2d(
+                                        &override_state.transform.to_cols_array_2d(),
+                                    ),
+                                )
+                            })
+                            .collect::<Vec<_>>();
+
                         for (mesh_idx, mesh) in w3d_model.meshes.iter().enumerate() {
                             let Some((mesh_local_transform, mesh_visible)) = w3d_model
-                                .mesh_local_transform_and_visibility_for_binding(
+                                .mesh_local_transform_and_visibility_for_binding_and_capture_controls(
                                     mesh_idx,
                                     animation_binding.as_ref(),
                                     anim_frame,
+                                    &capture_bone_controls,
                                 )
                             else {
                                 continue;
                             };
                             if !mesh_visible {
+                                continue;
+                            }
+                            if !w3d_model.mesh_visible_for_authored_subobject_directives(
+                                mesh_idx,
+                                &bridge_subobject_visibility,
+                            ) {
                                 continue;
                             }
                             let mesh_local_transform =
@@ -1063,23 +1165,132 @@ impl RenderPipeline {
                                 } else {
                                     Mat4::IDENTITY
                                 };
-                            let mut item = RenderItem::new(
-                                object_id,
-                                model_name.clone(),
-                                mesh_idx,
-                                world_position,
-                                world_matrix,
-                                &mesh.material,
-                                render_pass,
-                            );
+                            let mut item = match owner_object_id {
+                                Some(object_id) => RenderItem::new(
+                                    crate::game_logic::ObjectId(object_id),
+                                    model_name.clone(),
+                                    mesh_idx,
+                                    world_position,
+                                    world_matrix,
+                                    &mesh.material,
+                                    render_pass,
+                                ),
+                                None => RenderItem::new_unbound_client_drawable(
+                                    submission.drawable_id.0,
+                                    model_name.clone(),
+                                    mesh_idx,
+                                    world_position,
+                                    world_matrix,
+                                    &mesh.material,
+                                    render_pass,
+                                ),
+                            };
                             item.distance = world_position.distance(camera_position);
                             item.set_fow_visibility(fow_vis);
                             item.animation_frame = anim_frame;
                             item.animation_binding = animation_binding.clone();
+                            item.capture_bone_controls = capture_bone_controls.clone();
                             item.set_mesh_local_transform(mesh_local_transform);
                             item.uv_offset_override =
                                 Self::mesh_uv_override_for_submission(&submission, &mesh.name);
                             self.render_items.push(item);
+                        }
+
+                        // C++ `HLodClass::Update_Sub_Object_Transforms` also
+                        // assigns the frozen parent HTree pose to every
+                        // `AdditionalModels` entry.  Resolve those external
+                        // render objects only from the strict cache; this
+                        // bridge path already owns the exact capture controls
+                        // frozen by GameClient, so aggregate bones receive the
+                        // same palette/control state as the parent meshes.
+                        let aggregate_poses = w3d_model
+                            .aggregate_attachment_poses_for_binding_and_capture_controls(
+                                animation_binding.as_ref(),
+                                anim_frame,
+                                &capture_bone_controls,
+                            );
+                        let has_source_aggregate_attachments = aggregate_poses
+                            .as_ref()
+                            .is_some_and(|poses| !poses.is_empty());
+                        if let Some(aggregate_poses) = aggregate_poses {
+                            let fallback_parent_material = W3DMaterial::default();
+                            let parent_material = w3d_model
+                                .meshes
+                                .first()
+                                .map(|mesh| &mesh.material)
+                                .unwrap_or(&fallback_parent_material);
+                            let mut aggregate_parent_item = match owner_object_id {
+                                Some(object_id) => RenderItem::new(
+                                    crate::game_logic::ObjectId(object_id),
+                                    model_name.clone(),
+                                    0,
+                                    world_position,
+                                    world_matrix,
+                                    parent_material,
+                                    render_pass,
+                                ),
+                                None => RenderItem::new_unbound_client_drawable(
+                                    submission.drawable_id.0,
+                                    model_name.clone(),
+                                    0,
+                                    world_position,
+                                    world_matrix,
+                                    parent_material,
+                                    render_pass,
+                                ),
+                            };
+                            aggregate_parent_item.set_fow_visibility(fow_vis);
+                            self.render_items.extend(
+                                super::hlod_aggregate_render::collect_cached_hlod_aggregate_render_items(
+                                    graphics_system,
+                                    &aggregate_parent_item,
+                                    &aggregate_poses,
+                                    camera_position,
+                                ),
+                            );
+                        }
+
+                        // A source HLOD can consist solely of AdditionalModels.
+                        // C++ still builds and renders those child objects even
+                        // when the selected parent level contributes no rigid
+                        // mesh, so retain the valid aggregate source rather
+                        // than replacing its independent children with a debug
+                        // cube.  Missing child prototypes remain individually
+                        // absent through the cache-only collector above.
+                        if w3d_model.meshes.is_empty()
+                            && !has_source_aggregate_attachments
+                            && Self::missing_model_debug_cubes_enabled()
+                            && !real_w3d_name_resolved(model_name)
+                        {
+                            if let Some(fallback_model) =
+                                graphics_system.get_model_or_fallback("__fallback_cube__")
+                            {
+                                if !fallback_model.meshes.is_empty() {
+                                    let mut item = match owner_object_id {
+                                        Some(object_id) => RenderItem::new(
+                                            crate::game_logic::ObjectId(object_id),
+                                            "__fallback_cube__".to_string(),
+                                            0,
+                                            world_position,
+                                            world_matrix,
+                                            &fallback_model.meshes[0].material,
+                                            render_pass,
+                                        ),
+                                        None => RenderItem::new_unbound_client_drawable(
+                                            submission.drawable_id.0,
+                                            "__fallback_cube__".to_string(),
+                                            0,
+                                            world_position,
+                                            world_matrix,
+                                            &fallback_model.meshes[0].material,
+                                            render_pass,
+                                        ),
+                                    };
+                                    item.distance = world_position.distance(camera_position);
+                                    item.set_fow_visibility(fow_vis);
+                                    self.render_items.push(item);
+                                }
+                            }
                         }
                         bridge_items_added += 1;
                     }
@@ -1092,15 +1303,26 @@ impl RenderPipeline {
                             graphics_system.get_model_or_fallback("__fallback_cube__")
                         {
                             if !fallback_model.meshes.is_empty() {
-                                let mut item = RenderItem::new(
-                                    object_id,
-                                    "__fallback_cube__".to_string(),
-                                    0,
-                                    world_position,
-                                    world_matrix,
-                                    &fallback_model.meshes[0].material,
-                                    render_pass,
-                                );
+                                let mut item = match owner_object_id {
+                                    Some(object_id) => RenderItem::new(
+                                        crate::game_logic::ObjectId(object_id),
+                                        "__fallback_cube__".to_string(),
+                                        0,
+                                        world_position,
+                                        world_matrix,
+                                        &fallback_model.meshes[0].material,
+                                        render_pass,
+                                    ),
+                                    None => RenderItem::new_unbound_client_drawable(
+                                        submission.drawable_id.0,
+                                        "__fallback_cube__".to_string(),
+                                        0,
+                                        world_position,
+                                        world_matrix,
+                                        &fallback_model.meshes[0].material,
+                                        render_pass,
+                                    ),
+                                };
                                 item.distance = world_position.distance(camera_position);
                                 item.set_fow_visibility(fow_vis);
                                 self.render_items.push(item);
@@ -1280,6 +1502,14 @@ mod w3d_live_path_tests {
         );
         assert!(src.contains("submission.animation_name.as_deref()"));
         assert!(src.contains("submission.animation_time"));
+        assert!(
+            src.contains("mesh_visible_for_authored_subobject_directives"),
+            "GameClient bridge submissions must apply C++ W3DModelDraw Hide/Show state"
+        );
+        assert!(
+            src.contains("new_unbound_client_drawable"),
+            "standalone C++ GameClient drawables must reach the renderer without an ObjectID cast"
+        );
     }
 
     #[test]
@@ -1317,6 +1547,31 @@ mod w3d_live_path_tests {
         assert!(
             missing_binding.is_none() && missing_frame == 0.0,
             "an unresolved named clip must not substitute animation zero"
+        );
+    }
+
+    #[test]
+    fn bridge_hlod_aggregate_path_does_not_require_a_rigid_parent_mesh() {
+        let src = include_str!("pipeline_collect.rs");
+        let bridge_body = src
+            .split("pub(super) fn drain_render_bridge_submissions")
+            .nth(1)
+            .expect("bridge collector must remain present");
+        assert!(
+            bridge_body.contains("aggregate_attachment_poses_for_binding_and_capture_controls"),
+            "bridge AdditionalModels must sample the frozen HAnim/capture pose"
+        );
+        assert!(
+            bridge_body.contains("collect_cached_hlod_aggregate_render_items"),
+            "bridge AdditionalModels must use the strict cache-only collector"
+        );
+        assert!(
+            bridge_body.contains("has_source_aggregate_attachments"),
+            "a valid aggregate-only source must be distinguished from a truly empty model"
+        );
+        assert!(
+            bridge_body.contains("&& !has_source_aggregate_attachments"),
+            "the debug fallback must not replace a valid aggregate-only source"
         );
     }
 

@@ -41,6 +41,11 @@ impl ScriptEvaluator {
             ScriptActionType::PlayerSetMoney => self.execute_player_set_money_action(action),
             ScriptActionType::PlayerGiveMoney => self.execute_player_give_money_action(action),
             ScriptActionType::Quickvictory => self.execute_quick_victory_action(action),
+            // Keep CALL_SUBROUTINE on this evaluator's injected ScriptEngine.
+            // MissionScriptRuntime and trigger evaluators may carry a private
+            // engine; routing through the process-global dispatcher would make
+            // the callee list invisible and break C++'s immediate re-entry.
+            ScriptActionType::CallSubroutine => self.execute_call_subroutine_action(action),
             _ => {
                 let ctx = self.make_script_context();
                 let mut dispatcher = ScriptActionDispatcher::new(ctx);
@@ -427,7 +432,19 @@ impl ScriptEvaluator {
         })?;
 
         let script_name = script_param.get_string().to_string();
-        self.with_action_handler(|handler| handler.enable_script(&script_name, true))
+        // C++ mutates ScriptEngine state immediately, before the next action
+        // in this chain (including CALL_SUBROUTINE) can run.  The host handler
+        // mirrors that change into MissionScriptRuntime after the evaluator
+        // returns its current borrowed entry.
+        if self
+            .with_evaluation_engine_mut(|engine| {
+                engine.set_script_active_by_name(&script_name, true)
+            })
+            .is_none()
+        {
+            self.with_action_handler(|handler| handler.enable_script(&script_name, true))?;
+        }
+        Ok(())
     }
 
     /// Execute disable script action
@@ -439,7 +456,44 @@ impl ScriptEvaluator {
         })?;
 
         let script_name = script_param.get_string().to_string();
-        self.with_action_handler(|handler| handler.enable_script(&script_name, false))
+        // Keep DISABLE_SCRIPT immediate for the same C++ action-chain and
+        // subroutine re-entry semantics as ENABLE_SCRIPT above.
+        if self
+            .with_evaluation_engine_mut(|engine| {
+                engine.set_script_active_by_name(&script_name, false)
+            })
+            .is_none()
+        {
+            self.with_action_handler(|handler| handler.enable_script(&script_name, false))?;
+        }
+        Ok(())
+    }
+
+    /// C++ `ScriptEngine::callSubroutine` executes the named callee before the
+    /// outer action chain continues.  Use this evaluator's engine handle so a
+    /// caller with a private/lexically active engine never falls back to an
+    /// unrelated global ScriptList.
+    fn execute_call_subroutine_action(&self, action: &ScriptAction) -> GameLogicResult<()> {
+        let subroutine_name = action.get_parameter(0).ok_or_else(|| {
+            GameLogicError::Configuration(
+                "CallSubroutine action missing subroutine parameter".to_string(),
+            )
+        })?;
+        let subroutine_name = subroutine_name.get_string().to_string();
+        let found = self
+            .with_evaluation_engine_mut(|engine| {
+                engine.execute_subroutine_by_name(&subroutine_name)
+            })
+            .transpose()?
+            .unwrap_or(false);
+
+        if !found {
+            log::warn!(
+                "CALL_SUBROUTINE: subroutine '{}' not found",
+                subroutine_name
+            );
+        }
+        Ok(())
     }
 
     /// Execute freeze time action

@@ -904,7 +904,9 @@ impl GameLogic {
 
     /// PARITY_NOTE: GameLogic::sendObjectDestroyed(Object*) C++ line 4134.
     pub fn send_object_destroyed(&self, object_id: ObjectID) {
+        if let Some(client) = TheGameClient::get() {
+            client.clear_object_model_draws(object_id);
+        }
         trace!("sendObjectDestroyed: obj={}", object_id);
     }
-
 }

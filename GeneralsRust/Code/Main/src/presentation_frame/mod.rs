@@ -35,6 +35,7 @@ mod queries;
 mod spectre;
 mod types;
 mod unit_render;
+mod weapon_visual_dispatch;
 mod world_env;
 
 #[cfg(test)]
@@ -49,6 +50,7 @@ pub use projectile::*;
 pub use spectre::*;
 pub use types::*;
 pub use unit_render::*;
+pub use weapon_visual_dispatch::*;
 pub use world_env::*;
 
 /// Concatenated presentation_frame sources for residual `include_str` scans.
@@ -72,5 +74,6 @@ pub const PRESENTATION_FRAME_SRC: &str = concat!(
     include_str!("spectre.rs"),
     include_str!("types.rs"),
     include_str!("unit_render.rs"),
+    include_str!("weapon_visual_dispatch.rs"),
     include_str!("world_env.rs"),
 );

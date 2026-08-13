@@ -932,13 +932,12 @@ impl GameLogic {
         player_id: u32,
         build_template_name: &str,
     ) -> Option<VeterancyLevel> {
-        self.resolved_player_template(player_id)
-            .map(|template| {
-                PlayerTemplateIdentity::production_veterancy_for_template(
-                    &template,
-                    build_template_name,
-                )
-            })
+        self.resolved_player_template(player_id).map(|template| {
+            PlayerTemplateIdentity::production_veterancy_for_template(
+                &template,
+                build_template_name,
+            )
+        })
     }
 
     /// Wave 238: economy probe without exposing `&Player` to engine dual-read paths.
@@ -1792,7 +1791,12 @@ impl GameLogic {
         true
     }
 
-    fn bind_player_template_identity(
+    /// Bind an already validated offline GameInfo slot selection to an
+    /// existing bootstrap player. Campaign/Challenge and offline Skirmish
+    /// share this exact C++ `Player::init(PlayerTemplate)` seam; callers
+    /// remain responsible for restoring any GameInfo dict overrides (such as
+    /// the per-slot color) after this template-owned state is applied.
+    pub(crate) fn bind_player_template_identity(
         &mut self,
         player_id: u32,
         player_template: PlayerTemplateIdentity,

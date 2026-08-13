@@ -77,6 +77,104 @@ impl RenderPipeline {
         }
     }
 
+    /// Populate the strict C++ render-object registry for source HLOD
+    /// `AdditionalModels` and rigid HMODEL connections before collection
+    /// begins. Collection itself uses only cache lookups: opening an archive
+    /// while building RenderItems would make a frozen presentation frame
+    /// timing-dependent and can stall WGPU.
+    ///
+    /// This runs only from the already-authorized synchronous prewarm lane.
+    /// It starts from resident normal models, then follows only exact HLOD and
+    /// rigid HMODEL prototype records to a bounded token count. Missing,
+    /// malformed, and SKIN_NODE source children are remembered as attempted or
+    /// absent; they never turn into a presentation alias or fallback cube.
+    pub(super) fn prewarm_cached_hlod_aggregate_render_objects(
+        &mut self,
+        graphics_system: &GraphicsSystem,
+    ) {
+        const MAX_HLOD_AGGREGATE_PREWARM_TOKENS: usize = 96;
+
+        let mut pending = VecDeque::new();
+        for (_, model) in graphics_system.get_all_models() {
+            pending
+                .extend(super::hlod_aggregate_render::aggregate_prototype_names_for_prewarm(model));
+        }
+        if pending.is_empty() {
+            return;
+        }
+
+        let Some(asset_manager_arc) = crate::assets::get_asset_manager() else {
+            return;
+        };
+        let Ok(mut asset_manager) = asset_manager_arc.lock() else {
+            warn!("HLOD aggregate prewarm skipped: asset manager mutex poisoned");
+            return;
+        };
+
+        let mut attempted_now = 0usize;
+        let mut resolved_now = 0usize;
+        while let Some(full_name) = pending.pop_front() {
+            if attempted_now >= MAX_HLOD_AGGREGATE_PREWARM_TOKENS {
+                break;
+            }
+            let identity_key = full_name.to_ascii_lowercase();
+            if full_name.is_empty() || !self.hlod_aggregate_prewarm_attempts.insert(identity_key) {
+                continue;
+            }
+            attempted_now += 1;
+
+            let Some(prototype) =
+                asset_manager.resolve_w3d_render_object_prototype_blocking(&full_name)
+            else {
+                continue;
+            };
+            resolved_now += 1;
+
+            let Some(source_model) =
+                asset_manager.cached_w3d_render_object_source_model(&prototype)
+            else {
+                continue;
+            };
+            match prototype.kind() {
+                // An independently created HLOD can contribute its exact
+                // constructor-selected LOD children and `AdditionalModels`.
+                // The registry token's immutable index is authoritative: a
+                // source W3D may contain several independent HLOD chunks.
+                crate::assets::W3dRenderObjectPrototypeKind::Hlod { hlod_index } => {
+                    pending.extend(
+                        super::hlod_aggregate_render::hlod_prototype_names_for_prewarm(
+                            source_model,
+                            hlod_index,
+                        ),
+                    );
+                }
+                crate::assets::W3dRenderObjectPrototypeKind::Hmodel { hmodel_index } => {
+                    // This intentionally reuses the HMODEL renderer's exact
+                    // default-root/named-HTree validation. It sees only
+                    // NODE/COLLISION_NODE; a SKIN_NODE cannot be warmed into
+                    // an inferred-palette render path.
+                    pending.extend(
+                        super::hlod_aggregate_render::hmodel_rigid_node_names_for_prewarm(
+                            source_model,
+                            hmodel_index,
+                        ),
+                    );
+                }
+                crate::assets::W3dRenderObjectPrototypeKind::Mesh { .. } => {}
+            }
+        }
+
+        if attempted_now > 0 {
+            debug!(
+                "HLOD aggregate prewarm: attempted={} resolved={} remaining={} cap={}",
+                attempted_now,
+                resolved_now,
+                pending.len(),
+                MAX_HLOD_AGGREGATE_PREWARM_TOKENS
+            );
+        }
+    }
+
     pub(super) fn prewarm_startup_models(
         &mut self,
         graphics_system: &mut GraphicsSystem,

@@ -224,7 +224,9 @@ impl PresentationFrame {
     /// same-faction opponent become selectable.
     #[inline]
     pub fn uses_legacy_team_ownership_fallback(&self) -> bool {
-        self.objects.iter().all(|object| object.owner_player_id.is_none())
+        self.objects
+            .iter()
+            .all(|object| object.owner_player_id.is_none())
     }
 
     /// Whether this frozen object is controlled by the local player. Faction

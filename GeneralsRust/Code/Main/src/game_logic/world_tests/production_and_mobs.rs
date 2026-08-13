@@ -179,11 +179,7 @@ fn selected_general_start_binds_exact_template_and_rejects_late_invalid_identity
     );
     let mut logic = GameLogic::new();
 
-    assert!(logic.start_new_game_with_player_template(
-        GameMode::SinglePlayer,
-        0,
-        selected.clone(),
-    ));
+    assert!(logic.start_new_game_with_player_template(GameMode::SinglePlayer, 0, selected.clone(),));
     let player = logic.get_player(0).expect("bound local player");
     assert_eq!(player.team, Team::USA);
     assert!(player.has_unlocked_science("SCIENCE_AMERICA"));
@@ -1198,11 +1194,7 @@ fn highlander_body_clamps_normal_and_penalty_damage_unresistable_kills() {
     }
     let penalty_killed = {
         let penalty = game_logic.host_object_mut(penalty_id).unwrap();
-        penalty.take_damage_from_typed(
-            999.0,
-            None,
-            crate::game_logic::combat::DamageType::Penalty,
-        )
+        penalty.take_damage_from_typed(999.0, None, crate::game_logic::combat::DamageType::Penalty)
     };
     assert!(
         !penalty_killed,

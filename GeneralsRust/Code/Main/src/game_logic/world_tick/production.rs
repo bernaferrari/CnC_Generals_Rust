@@ -31,14 +31,11 @@ impl GameLogic {
             .filter_map(|id| {
                 let obj = self.objects.get(id)?;
                 let player_id = object_owner_player_ids.get(id).copied().flatten()?;
-                let factor = self
-                    .player_template_production_time_factor(player_id, &obj.template_name);
+                let factor =
+                    self.player_template_production_time_factor(player_id, &obj.template_name);
                 Some((
                     *id,
-                    Self::cpp_build_time_frames_from_factor(
-                        obj.thing.template.build_time,
-                        factor,
-                    ),
+                    Self::cpp_build_time_frames_from_factor(obj.thing.template.build_time, factor),
                 ))
             })
             .collect();
@@ -94,12 +91,13 @@ impl GameLogic {
                     let power_factor = build_owner_player_id
                         .and_then(|player_id| player_power_factor.get(&player_id).copied())
                         .unwrap_or(1.0);
-                    let authored_frames = authored_time_frames.get(&id).copied().unwrap_or_else(|| {
-                        Self::cpp_build_time_frames_from_factor(
-                            obj.thing.template.build_time,
-                            1.0,
-                        )
-                    });
+                    let authored_frames =
+                        authored_time_frames.get(&id).copied().unwrap_or_else(|| {
+                            Self::cpp_build_time_frames_from_factor(
+                                obj.thing.template.build_time,
+                                1.0,
+                            )
+                        });
                     // Keep the existing zero-duration one-tick safeguard, but
                     // otherwise advance from C++'s already-truncated authored
                     // frame count rather than multiplying seconds first.
@@ -1191,49 +1189,50 @@ impl GameLogic {
             // never degrade to the base-side residual table merely because a
             // late Common-store lookup failed.
             let selected_template = self.player_template_identity(pid).cloned();
-            let (starting_building, starting_units, exact_player_template) =
-                if selected_template.is_some() {
-                    let Some(template) = self.resolved_player_template(pid) else {
-                        log::error!(
+            let (starting_building, starting_units, exact_player_template) = if selected_template
+                .is_some()
+            {
+                let Some(template) = self.resolved_player_template(pid) else {
+                    log::error!(
                             "Rejecting selected PlayerTemplate starter spawn for player {}: identity no longer resolves",
                             pid
                         );
-                        continue;
-                    };
-                    (
-                        template.get_starting_building().to_string(),
-                        (0..game_engine::common::rts::player_template::MAX_MP_STARTING_UNITS)
-                            .map(|index| template.get_starting_unit(index as i32).to_string())
-                            .collect::<Vec<_>>(),
-                        true,
-                    )
-                } else {
-                    let side = match player.team {
-                        Team::USA => "America",
-                        Team::China => "China",
-                        Team::GLA => "GLA",
-                        Team::Neutral => continue,
-                    };
-                    let residual = find_player_template_by_side(side)
-                        .or_else(|| find_player_template_residual("FactionAmerica"));
-                    let Some(residual) = residual else {
-                        log::warn!(
-                            "Skirmish starting unit residual: no player template for side={} player={}",
-                            side,
-                            pid
-                        );
-                        continue;
-                    };
-                    (
-                        residual.starting_building.to_string(),
-                        residual
-                            .starting_units
-                            .iter()
-                            .map(|unit| (*unit).to_string())
-                            .collect::<Vec<_>>(),
-                        false,
-                    )
+                    continue;
                 };
+                (
+                    template.get_starting_building().to_string(),
+                    (0..game_engine::common::rts::player_template::MAX_MP_STARTING_UNITS)
+                        .map(|index| template.get_starting_unit(index as i32).to_string())
+                        .collect::<Vec<_>>(),
+                    true,
+                )
+            } else {
+                let side = match player.team {
+                    Team::USA => "America",
+                    Team::China => "China",
+                    Team::GLA => "GLA",
+                    Team::Neutral => continue,
+                };
+                let residual = find_player_template_by_side(side)
+                    .or_else(|| find_player_template_residual("FactionAmerica"));
+                let Some(residual) = residual else {
+                    log::warn!(
+                        "Skirmish starting unit residual: no player template for side={} player={}",
+                        side,
+                        pid
+                    );
+                    continue;
+                };
+                (
+                    residual.starting_building.to_string(),
+                    residual
+                        .starting_units
+                        .iter()
+                        .map(|unit| (*unit).to_string())
+                        .collect::<Vec<_>>(),
+                    false,
+                )
+            };
 
             // --- Starting building (C++ placeStartingStructures) ---
             let mut base = self.player_base_position(pid);

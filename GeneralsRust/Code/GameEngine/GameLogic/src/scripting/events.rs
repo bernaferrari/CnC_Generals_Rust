@@ -755,6 +755,16 @@ pub struct NamedObjectTracker {
     name_history: Arc<RwLock<HashSet<String>>>,
 }
 
+/// Owned mutable state of [`NamedObjectTracker`] used only by a whole-world
+/// transaction boundary.  Keeping the singleton's `Arc` wrapper in place is
+/// important: existing systems retain that wrapper, so swapping the wrapper
+/// itself would leave stale aliases in the active world.
+pub(crate) struct NamedObjectTrackerState {
+    name_to_id: HashMap<String, u32>,
+    id_to_name: HashMap<u32, String>,
+    name_history: HashSet<String>,
+}
+
 impl NamedObjectTracker {
     /// Create a new named object tracker
     pub fn new() -> Self {
@@ -862,6 +872,57 @@ impl NamedObjectTracker {
         id_map.clear();
         history.clear();
         Ok(())
+    }
+
+    /// Move all mutable tracker contents out while preserving this singleton's
+    /// identity.  Whole-world save staging uses this rather than clearing the
+    /// active world's tracker, so a failed stage can restore it exactly.
+    pub(crate) fn take_state_for_world_boundary(&self) -> NamedObjectTrackerState {
+        let mut name_to_id = self
+            .name_to_id
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut id_to_name = self
+            .id_to_name
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut name_history = self
+            .name_history
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+
+        NamedObjectTrackerState {
+            name_to_id: std::mem::take(&mut *name_to_id),
+            id_to_name: std::mem::take(&mut *id_to_name),
+            name_history: std::mem::take(&mut *name_history),
+        }
+    }
+
+    /// Install owned tracker contents and return the contents they replaced.
+    /// See [`Self::take_state_for_world_boundary`] for why this swaps values
+    /// instead of replacing the global `Arc`.
+    pub(crate) fn replace_state_for_world_boundary(
+        &self,
+        state: NamedObjectTrackerState,
+    ) -> NamedObjectTrackerState {
+        let mut name_to_id = self
+            .name_to_id
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut id_to_name = self
+            .id_to_name
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut name_history = self
+            .name_history
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+
+        NamedObjectTrackerState {
+            name_to_id: std::mem::replace(&mut *name_to_id, state.name_to_id),
+            id_to_name: std::mem::replace(&mut *id_to_name, state.id_to_name),
+            name_history: std::mem::replace(&mut *name_history, state.name_history),
+        }
     }
 
     /// Check whether a named object has ever been registered.
@@ -975,6 +1036,16 @@ pub struct AreaTracker {
     last_enter_frame: Arc<RwLock<HashMap<(String, u32), u32>>>,
     /// Last frame when an object exited an area (C++ Object::didExit equivalent support)
     last_exit_frame: Arc<RwLock<HashMap<(String, u32), u32>>>,
+}
+
+/// Owned mutable state of [`AreaTracker`] used only by a whole-world
+/// transaction boundary.  It follows the same stable-singleton rule as
+/// [`NamedObjectTrackerState`].
+pub(crate) struct AreaTrackerState {
+    areas: HashMap<String, TriggerArea>,
+    objects_in_areas: HashMap<String, HashSet<u32>>,
+    last_enter_frame: HashMap<(String, u32), u32>,
+    last_exit_frame: HashMap<(String, u32), u32>,
 }
 
 impl AreaTracker {
@@ -1263,6 +1334,66 @@ impl AreaTracker {
             .get(area_name)
             .map(|set| set.contains(&object_id))
             .unwrap_or(false))
+    }
+
+    /// Move all mutable tracker contents out while preserving this singleton's
+    /// `Arc` identity.  This is a raw restore boundary, not normal gameplay
+    /// mutation; poisoned locks are recovered so rollback cannot strand a
+    /// partially staged world.
+    pub(crate) fn take_state_for_world_boundary(&self) -> AreaTrackerState {
+        let mut areas = self
+            .areas
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut objects_in_areas = self
+            .objects_in_areas
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut last_enter_frame = self
+            .last_enter_frame
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut last_exit_frame = self
+            .last_exit_frame
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+
+        AreaTrackerState {
+            areas: std::mem::take(&mut *areas),
+            objects_in_areas: std::mem::take(&mut *objects_in_areas),
+            last_enter_frame: std::mem::take(&mut *last_enter_frame),
+            last_exit_frame: std::mem::take(&mut *last_exit_frame),
+        }
+    }
+
+    /// Install owned tracker contents and return the contents they replaced.
+    pub(crate) fn replace_state_for_world_boundary(
+        &self,
+        state: AreaTrackerState,
+    ) -> AreaTrackerState {
+        let mut areas = self
+            .areas
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut objects_in_areas = self
+            .objects_in_areas
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut last_enter_frame = self
+            .last_enter_frame
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut last_exit_frame = self
+            .last_exit_frame
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+
+        AreaTrackerState {
+            areas: std::mem::replace(&mut *areas, state.areas),
+            objects_in_areas: std::mem::replace(&mut *objects_in_areas, state.objects_in_areas),
+            last_enter_frame: std::mem::replace(&mut *last_enter_frame, state.last_enter_frame),
+            last_exit_frame: std::mem::replace(&mut *last_exit_frame, state.last_exit_frame),
+        }
     }
 }
 

@@ -1883,9 +1883,17 @@ impl CnCGameEngine {
             // Wave 962/963: sync drawables from presentation freeze (ensure + model +
             // prune). No OBJECT_REGISTRY dual-world populate. Pose/shroud still apply
             // after for FOW residual that is independent of model stamp.
-            let sync_entries = pres.objects.iter().map(|o| {
+            let sync_entries = pres.direct_host_drawables.iter().map(|direct| {
+                let o = &direct.object;
                 game_client::core::game_client::PresentationDrawableSync {
                     object_id: o.id.0,
+                    host_epoch: self.host_direct_visual_world_epoch,
+                    // The direct-host roster was frozen from actual host
+                    // ownership.  It deliberately remains resident through
+                    // gameplay death/slow death/rubble until that host entry
+                    // is removed, matching C++ Drawable lifetime.
+                    resident: direct.resident,
+                    visual_template_name: direct.visual_template_name.clone(),
                     template_name: o.template_name.clone(),
                     position: [o.position.x, o.position.y, o.position.z],
                     orientation: o.orientation,
@@ -1945,29 +1953,63 @@ impl CnCGameEngine {
                     "presentation drawable sync created={created} updated={updated} pruned={pruned}"
                 );
             }
-            // C++ per-drawable shroud residual from frozen presentation FOW.
-            let shroud_entries: Vec<(u32, bool)> = pres
-                .objects
+            // Resolve the complete current binding *after* sync.  The same
+            // runtime key then guards raw C++ shroud status and frozen pose,
+            // so an ordinary update preserves it while a visual replacement
+            // rejects predecessor-frame data.
+            let direct_bindings = pres
+                .direct_host_drawables
                 .iter()
-                .filter(|o| !o.destroyed)
-                .map(|o| (o.id.0, o.fow_visibility.fully_obscures_drawable()))
-                .collect();
-            self.game_client
-                .apply_presentation_shroud_to_drawables(shroud_entries);
-            // Pose residual re-apply (keeps prior path for honesty counters).
-            let pose_entries = pres.objects.iter().filter_map(|o| {
-                if o.destroyed {
-                    return None;
-                }
-                Some((
-                    o.id.0,
-                    [o.position.x, o.position.y, o.position.z],
-                    o.orientation,
-                ))
-            });
+                .filter(|direct| direct.resident)
+                .filter_map(|direct| {
+                    let object = &direct.object;
+                    let (raw_status, effectively_dead) =
+                        object.drawable_shroud.direct_game_client_status()?;
+                    let binding_key = self
+                        .game_client
+                        .presentation_direct_drawable_state(
+                            self.host_direct_visual_world_epoch,
+                            object.id.0,
+                        )?
+                        .binding_key;
+                    Some((
+                        binding_key,
+                        raw_status,
+                        effectively_dead,
+                        [object.position.x, object.position.y, object.position.z],
+                        object.orientation,
+                    ))
+                })
+                .collect::<Vec<_>>();
+            let shroud_entries =
+                direct_bindings
+                    .iter()
+                    .map(|(binding_key, raw_status, effectively_dead, _, _)| {
+                        game_client::core::game_client::FrozenDirectShroudStatus {
+                            binding_key: *binding_key,
+                            raw_status: *raw_status,
+                            effectively_dead: *effectively_dead,
+                        }
+                    });
+            let _ = self
+                .game_client
+                .apply_frozen_direct_shroud_statuses(pres.frame.0, shroud_entries);
+            // Pose belongs to the identical direct binding rather than a raw
+            // ObjectID.  Do not filter gameplay-destroyed records here: the
+            // direct source roster controls C++ Drawable residency.
+            let pose_entries =
+                direct_bindings
+                    .into_iter()
+                    .map(|(binding_key, _, _, position, orientation)| {
+                        game_client::core::game_client::FrozenDirectPresentationPose {
+                            binding_key,
+                            position,
+                            orientation,
+                        }
+                    });
             let n = self
                 .game_client
-                .apply_presentation_pose_to_drawables(pose_entries);
+                .apply_frozen_direct_presentation_poses(pose_entries);
             if n > 0 {
                 log::trace!("presentation pose applied to {n} drawables");
             }

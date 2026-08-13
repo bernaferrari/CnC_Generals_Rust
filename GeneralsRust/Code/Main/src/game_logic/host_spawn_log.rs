@@ -34,6 +34,18 @@ pub fn drain() -> Vec<HostSpawnEvent> {
     LOG.with(|log| std::mem::take(&mut *log.borrow_mut()))
 }
 
+/// Move the queue out for a whole-world staging boundary.  Unlike `clear`,
+/// this preserves pending events belonging to the still-active world so a
+/// failed save/map stage can restore them exactly.
+pub(crate) fn take_for_world_stage() -> Vec<HostSpawnEvent> {
+    drain()
+}
+
+/// Restore or install the queue owned by a whole-world staging boundary.
+pub(crate) fn replace_for_world_stage(next: Vec<HostSpawnEvent>) -> Vec<HostSpawnEvent> {
+    LOG.with(|log| std::mem::replace(&mut *log.borrow_mut(), next))
+}
+
 pub fn clear() {
     LOG.with(|log| log.borrow_mut().clear());
 }

@@ -1,4 +1,84 @@
 use super::*;
+use crate::fow_rendering::{ProjectedShroudMetadata, ProjectedShroudSnapshot};
+
+/// Freeze only the source facts C++ resolves for a direct Object-backed
+/// Drawable.  The host path has direct shroud membership but not a drawable or
+/// partition fade alpha, so it must never synthesize `PartialClear` from the
+/// presentation's scalar `ObjectVisibility`.  C++'s own drawable dispatch
+/// later owns the clear-frame grace and may produce its final PartialClear.
+pub(super) fn freeze_direct_object_shroud_facts(
+    obj: &crate::game_logic::Object,
+    local_player_id: u32,
+    fow_shell_bypass: bool,
+) -> PresentationDrawableShroudFacts {
+    let raw_status = if fow_shell_bypass || obj.owner_player_id == Some(local_player_id) {
+        // The host FOW bridge deliberately preserves C++ own-force/no-partition
+        // clear behavior even when the standalone manager has no membership.
+        PresentationObjectShroudStatus::Clear
+    } else if let Ok(shroud) = gamelogic::system::shroud_manager::get_shroud_manager().lock() {
+        // Main host objects are not registered in GameLogic's object manager.
+        // With no direct membership, retain the same C++ Object fallback used
+        // for an object without partition data: Clear, not an invented shroud.
+        let runtime_active = !shroud.get_visible_objects(local_player_id).is_empty()
+            || !shroud.get_explored_objects(local_player_id).is_empty();
+        if !runtime_active || shroud.can_see_object(local_player_id, obj.id.0) {
+            PresentationObjectShroudStatus::Clear
+        } else if shroud.has_explored_object(local_player_id, obj.id.0) {
+            PresentationObjectShroudStatus::Fogged
+        } else {
+            PresentationObjectShroudStatus::Shrouded
+        }
+    } else {
+        // The C++ Object fallback is Clear when it has no partition data.
+        PresentationObjectShroudStatus::Clear
+    };
+
+    // `Object::is_alive` also tests HP, which is deliberately not a direct
+    // Drawable residency signal: deferred death paths retain a visual Object
+    // with a sliver of HP.  Freeze only the C++ effectively-dead/deferred
+    // death state that the client-owned shroud grace branch consumes.
+    let effectively_dead = obj.status.effectively_dead
+        || obj.status.keep_as_rubble
+        || obj
+            .slow_death
+            .as_ref()
+            .is_some_and(|slow_death| slow_death.is_active())
+        || obj
+            .jet_slow_death
+            .as_ref()
+            .is_some_and(|slow_death| slow_death.is_active())
+        || obj
+            .helicopter_slow_death
+            .as_ref()
+            .is_some_and(|slow_death| slow_death.is_active())
+        || obj
+            .structure_topple_data
+            .as_ref()
+            .is_some_and(|topple| topple.is_active())
+        || obj
+            .structure_collapse_data
+            .as_ref()
+            .is_some_and(|collapse| collapse.is_active());
+
+    PresentationDrawableShroudFacts::direct_host_object(raw_status, effectively_dead)
+}
+
+/// C++ visual disguise is an identity selection, not a mutation of the
+/// gameplay Object template.  Keep the source ThingTemplate name for ordinary
+/// Objects and use the committed disguise template only once the status says
+/// it is active.
+fn direct_host_visual_template_name(obj: &crate::game_logic::Object) -> String {
+    let actual_template_name = obj.thing.template.name.as_str();
+    if obj.status.disguised {
+        obj.disguise_as_template
+            .as_deref()
+            .filter(|template_name| !template_name.trim().is_empty())
+            .unwrap_or(actual_template_name)
+            .to_owned()
+    } else {
+        actual_template_name.to_owned()
+    }
+}
 
 impl PresentationFrame {
     /// Build a snapshot by borrowing the authoritative world for this call only.
@@ -45,7 +125,32 @@ impl PresentationFrame {
         let local_team_base_position = logic.team_base_position(local_team);
         // Freeze terrain FOW grid once for this presentation frame (local player only).
         let fow_grid = FOWRenderingBridge::snapshot_terrain_grid(local_player_id, fow_shell_bypass);
+        // C++ W3DShroud copies logical cells into a padded destination texture
+        // before per-object material passes sample it.  Freeze that complete
+        // renderer input here, including GlobalData tint/levels, so WGPU never
+        // reads live FOW or GlobalData while drawing.
+        let projected_shroud = {
+            // `Enable/DisableBorderShroud` can override the constructor's
+            // `ShroudAlpha` border.  Read the script-display handoff only
+            // while building the frame; the resulting R8 padding is immutable
+            // to renderer code.  Headless/no-GameClient builds retain the
+            // source constructor default through `None`.
+            #[cfg(feature = "game_client")]
+            let border_alpha_override =
+                game_client::core::script_action_handler::script_display_border_shroud_level();
+            #[cfg(not(feature = "game_client"))]
+            let border_alpha_override = None;
+            let global = game_engine::common::global_data::read();
+            ProjectedShroudSnapshot::from_grid(
+                &fow_grid,
+                ProjectedShroudMetadata::from_global_data_with_border_override(
+                    &global,
+                    border_alpha_override,
+                ),
+            )
+        };
         let mut objects = Vec::with_capacity(logic.host_objects().len());
+        let mut direct_host_drawables = Vec::with_capacity(logic.host_objects().len());
         for obj in logic.host_objects().values() {
             // Coupled GameWorld is truth for sit-through HP / pose / dest / target /
             // ammo / occupants. HashMap poke without commit must not win.
@@ -170,6 +275,9 @@ impl PresentationFrame {
             } else {
                 FOWRenderingBridge::get_object_visibility(local_player_id, obj.id)
             };
+            let drawable_shroud =
+                freeze_direct_object_shroud_facts(obj, local_player_id, fow_shell_bypass);
+            let visual_template_name = direct_host_visual_template_name(obj);
             // Wave 77: freeze ground-height residual at object XY (sample or default-0).
             let pos = obj.get_position();
             let (ground_height, ground_height_from_terrain) =
@@ -196,7 +304,7 @@ impl PresentationFrame {
                         ) && logic.is_special_power_ready_for(obj.id, power)
                     })
                 });
-            objects.push(RenderableObject {
+            let renderable = RenderableObject {
                 id: obj.id,
                 template_name: obj.template_name.clone(),
                 team: obj.team,
@@ -659,12 +767,22 @@ impl PresentationFrame {
                 selection_radius: obj.selection_radius.max(5.0),
                 engine_bridged: false,
                 fow_visibility,
+                drawable_shroud,
                 ground_height,
                 ground_height_from_terrain,
+            };
+            direct_host_drawables.push(PresentationDirectHostDrawable {
+                object: renderable.clone(),
+                visual_template_name,
+                // Direct Object lifetime is host roster presence.  Do not
+                // derive it from health or gameplay destruction flags.
+                resident: true,
             });
+            objects.push(renderable);
         }
         // Stable presentation order for determinism (by ObjectId).
         objects.sort_by_key(|o| o.id.0);
+        direct_host_drawables.sort_by_key(|drawable| drawable.object.id.0);
 
         let local = logic.get_player(local_player_id);
         // local_team already resolved above for FOW residual (may fall back to
@@ -1243,6 +1361,7 @@ impl PresentationFrame {
             ai_difficulty: logic.get_difficulty(),
             game_mode: logic.game_mode(),
             objects,
+            direct_host_drawables,
             local_player_id,
             local_team,
             local_team_base_position,
@@ -1440,6 +1559,7 @@ impl PresentationFrame {
                 names
             },
             fow_grid,
+            projected_shroud,
             particle_systems,
             laser_beams,
             scene_lines,
@@ -1513,6 +1633,22 @@ impl PresentationFrame {
             o.destroyed.hash(&mut h);
             o.fow_visibility.visibility_alpha.to_bits().hash(&mut h);
             o.fow_visibility.is_explored.to_bits().hash(&mut h);
+            o.drawable_shroud.hash(&mut h);
+        }
+        // This transient source can diverge from the GameWorld-primary object
+        // roster during deferred death, so include the direct visual identity
+        // in the deterministic presentation fingerprint as well.
+        self.direct_host_drawables.len().hash(&mut h);
+        for drawable in &self.direct_host_drawables {
+            drawable.object.id.0.hash(&mut h);
+            drawable.visual_template_name.hash(&mut h);
+            drawable.resident.hash(&mut h);
+            drawable.object.position.x.to_bits().hash(&mut h);
+            drawable.object.position.y.to_bits().hash(&mut h);
+            drawable.object.position.z.to_bits().hash(&mut h);
+            drawable.object.orientation.to_bits().hash(&mut h);
+            drawable.object.destroyed.hash(&mut h);
+            drawable.object.drawable_shroud.hash(&mut h);
         }
         self.local_supplies.hash(&mut h);
         self.match_over.hash(&mut h);
@@ -1526,6 +1662,7 @@ impl PresentationFrame {
             n.hash(&mut h);
         }
         self.fow_grid.content_fingerprint().hash(&mut h);
+        self.projected_shroud.content_fingerprint().hash(&mut h);
         self.local_player_id.hash(&mut h);
         match self.local_team {
             Team::USA => 0u8,

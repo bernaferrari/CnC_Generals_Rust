@@ -296,6 +296,12 @@ pub fn eager_map_host_spawn_if_coupled(
     logic: &GameLogic,
     event: &crate::game_logic::host_spawn_log::HostSpawnEvent,
 ) -> bool {
+    // A candidate save/map world must not bind IDs into the active shadow or
+    // consume its pending bind token.  Its spawn log is isolated and discarded
+    // on rollback (or intentionally rebuilt from host after commit).
+    if crate::game_logic::staged_world_effects::world_stage_effects_active() {
+        return false;
+    }
     if !shadow_coupled_tick_active() || !gameworld_shadow_enabled() {
         // Still consume bind token so sole-tick without live shadow does not leak.
         let _ = take_next_host_spawn_bind_entity();

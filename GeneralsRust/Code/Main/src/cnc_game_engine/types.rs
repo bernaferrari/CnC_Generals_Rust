@@ -705,6 +705,12 @@ pub struct CnCGameEngine {
     pub(crate) presentation_terrain_cache: PresentationTerrainCache,
     /// Immutable presentation feed for client/render after last logic step.
     pub(crate) last_presentation_frame: Option<crate::presentation_frame::PresentationFrame>,
+    /// Runtime-only identity epoch for direct host Drawable associations.
+    ///
+    /// Object IDs are reused by reset, map install, and restore.  This epoch is
+    /// intentionally not part of a snapshot: C++ reconstructs Drawable
+    /// associations and clears volatile shroud history at those boundaries.
+    pub(crate) host_direct_visual_world_epoch: u64,
     /// Wave 842: host-owned match mode residual set after a successful match
     /// world start or restore.
     /// Prefer over live GameLogic::game_mode when presentation freeze is missing.

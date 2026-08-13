@@ -1255,10 +1255,10 @@ impl GameLogic {
             let Some(producer) = self.objects.get(&producer_id) else {
                 return false;
             };
-            let Some(player_id) = producer
-                .owner_player_id
-                .or_else(|| self.get_player_by_team(producer.team).map(|player| player.id))
-            else {
+            let Some(player_id) = producer.owner_player_id.or_else(|| {
+                self.get_player_by_team(producer.team)
+                    .map(|player| player.id)
+            }) else {
                 return false;
             };
             let mut cost = template.build_cost;
@@ -1267,11 +1267,8 @@ impl GameLogic {
                 &template_name,
                 template.build_cost.supplies,
             );
-            let total_time = self.modified_build_time_seconds(
-                player_id,
-                &template_name,
-                template.build_time,
-            );
+            let total_time =
+                self.modified_build_time_seconds(player_id, &template_name, template.build_time);
             (player_id, cost, total_time)
         };
 

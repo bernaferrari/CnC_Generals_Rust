@@ -949,13 +949,10 @@ impl GameLogic {
         container_id: ObjectId,
         occupant_id: ObjectId,
     ) -> bool {
-        let is_rider_change = self
-            .objects
-            .get(&container_id)
-            .is_some_and(|container| {
-                container.thing.template.contain_module.kind
-                    == crate::game_logic::ContainModuleKind::RiderChange
-            });
+        let is_rider_change = self.objects.get(&container_id).is_some_and(|container| {
+            container.thing.template.contain_module.kind
+                == crate::game_logic::ContainModuleKind::RiderChange
+        });
         if is_rider_change {
             // RiderChangeContain removal owns selection/veterancy/scuttle
             // ordering.  It must not be reduced to a bare Vec removal or the

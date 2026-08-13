@@ -161,9 +161,8 @@ impl GameLogic {
             is_pilot_find_vehicle_collide_target, is_recrewable_unmanned_vehicle,
             pilot_collide_would_like_to_collide_with, pilot_find_vehicle_scan_eligible,
             pilot_find_vehicle_scan_frame, pilot_levels_to_gain, should_pilot_base_center_fallback,
-            vehicle_can_gain_exp_for_levels,
-            vehicle_meets_pilot_find_min_health, PILOT_FIND_VEHICLE_MIN_HEALTH,
-            PILOT_FIND_VEHICLE_SCAN_RANGE,
+            vehicle_can_gain_exp_for_levels, vehicle_meets_pilot_find_min_health,
+            PILOT_FIND_VEHICLE_MIN_HEALTH, PILOT_FIND_VEHICLE_SCAN_RANGE,
         };
 
         if !pilot_find_vehicle_scan_frame(self.frame) {
@@ -210,8 +209,7 @@ impl GameLogic {
                 // RequiredKindOf/ForbiddenKindOf use the authored KindOf
                 // bank, not an ObjectType or basename approximation.
                 let is_vehicle = vehicle.is_kind_of(KindOf::Vehicle);
-                let is_air = vehicle.is_kind_of(KindOf::Aircraft)
-                    || vehicle.status.airborne_target;
+                let is_air = vehicle.is_kind_of(KindOf::Aircraft) || vehicle.status.airborne_target;
                 let under_construction =
                     vehicle.status.under_construction || vehicle.construction_percent + 0.001 < 1.0;
                 let is_dozer = vehicle.is_kind_of(KindOf::Dozer);

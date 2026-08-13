@@ -14,6 +14,8 @@ impl GameClient {
             last_applied_cinematic_text: None,
             drawable_map: std::collections::HashMap::with_capacity(super::DRAWABLE_HASH_SIZE),
             drawable_object_map: std::collections::HashMap::new(),
+            presentation_direct_drawable_bindings: std::collections::HashMap::new(),
+            next_presentation_direct_binding_generation: 1,
             drawable_toc: Vec::new(),
             text_bearing_drawables: Vec::new(),
             loaded_map: None,
@@ -85,6 +87,28 @@ impl GameClient {
         self.initialized = true;
     }
 
+    /// Discard presentation-owned Drawable state after a successful world
+    /// replacement.
+    ///
+    /// This is deliberately narrower than `reset`: it touches no client
+    /// subsystems or map assets.  Before the drawables are dropped, reset their
+    /// non-Xfer direct-shroud history so any retained implementation observes
+    /// the same clear-frame/full-obscured defaults as a newly created
+    /// Drawable.  Objectless and unbound drawables are not assigned a direct
+    /// association; after invalidation they are absent just like all other
+    /// presentation drawables.
+    pub fn invalidate_presentation_drawable_world(&mut self) {
+        for drawable in self.drawable_map.values_mut() {
+            drawable.reset_volatile_shroud_state();
+        }
+        self.drawable_map.clear();
+        self.drawable_object_map.clear();
+        self.presentation_direct_drawable_bindings.clear();
+        self.text_bearing_drawables.clear();
+        self.shadow_map.clear();
+        self.rendered_object_count = 0;
+    }
+
     /// Resets the game client for a new game
     pub fn reset(&mut self) -> GameClientResult<()> {
         reset_script_action_runtime_state();
@@ -106,13 +130,7 @@ impl GameClient {
                 })
         });
 
-        // Clear drawable map
-        self.drawable_map.clear();
-        self.drawable_object_map.clear();
-
-        // Clear other drawable data
-        self.text_bearing_drawables.clear();
-        self.shadow_map.clear();
+        self.invalidate_presentation_drawable_world();
 
         if let Some(loaded) = self.loaded_map.take() {
             if let Some(ref asset_manager) = self.subsystem_manager.asset_manager {
@@ -522,6 +540,13 @@ impl GameClient {
             register_radar_snapshot_block(ui_arc.clone());
             self.subsystem_manager.in_game_ui = Some(ui_arc);
         }
+
+        // C++ GameClient.cpp:351-353 creates and initializes
+        // `TheChallengeGenerals` immediately after TheInGameUI.  The Rust UI
+        // object is now only a projection of Common's authoritative authored
+        // persona table, which also serves headless Skirmish validation.
+        crate::gui::challenge_generals::init_challenge_generals();
+
         crate::core::subsystems::register_tactical_view_snapshot_block();
 
         crate::helpers::register_prepare_new_game_hooks();

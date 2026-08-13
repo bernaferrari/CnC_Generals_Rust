@@ -1751,6 +1751,11 @@ impl PresentationFrame {
                     crate::fow_rendering::ObjectVisibility::HIDDEN
                 }
             },
+            // A GameWorld entity carries only scalar FOW presentation data;
+            // it has no direct Drawable lifetime or raw ObjectShroudStatus.
+            // Keep it unknown until the host overlay below can freeze those
+            // exact facts for the matching object.
+            drawable_shroud: PresentationDrawableShroudFacts::default(),
             ground_height: if ent.ground_height_from_terrain {
                 ent.ground_height
             } else if ent.ground_height.abs() > 1e-6 {
@@ -1877,6 +1882,15 @@ impl PresentationFrame {
             let mut dirty = false;
             if ro.owner_player_id != obj.owner_player_id {
                 ro.owner_player_id = obj.owner_player_id;
+                dirty = true;
+            }
+            let drawable_shroud = super::build::freeze_direct_object_shroud_facts(
+                obj,
+                self.local_player_id,
+                self.fow_shell_bypass,
+            );
+            if ro.drawable_shroud != drawable_shroud {
+                ro.drawable_shroud = drawable_shroud;
                 dirty = true;
             }
             // GameWorld is the object-roster authority in the active frame,

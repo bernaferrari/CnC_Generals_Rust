@@ -91,7 +91,42 @@ fn drain_pending_team_script_events() -> Vec<PendingTeamScriptEvent> {
         .unwrap_or_default()
 }
 
+/// Opaque pending `Team::updateState` script events moved by the whole-world
+/// save-restore boundary.  The process-global queue must not leak an old
+/// world's pending callbacks into a staged map (or vice versa).
+pub(crate) struct TeamScriptEventQueue {
+    events: Vec<PendingTeamScriptEvent>,
+}
+
+pub(crate) fn take_pending_team_script_events_for_world_boundary() -> TeamScriptEventQueue {
+    let mut pending = match pending_team_script_events().lock() {
+        Ok(pending) => pending,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    TeamScriptEventQueue {
+        events: std::mem::take(&mut *pending),
+    }
+}
+
+pub(crate) fn replace_pending_team_script_events_for_world_boundary(
+    next: TeamScriptEventQueue,
+) -> TeamScriptEventQueue {
+    let mut pending = match pending_team_script_events().lock() {
+        Ok(pending) => pending,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    TeamScriptEventQueue {
+        events: std::mem::replace(&mut *pending, next.events),
+    }
+}
+
 pub fn flush_pending_team_script_events() {
+    // Stage bootstrap must not execute callbacks before the host has committed
+    // both its GameLogic and the staged singleton bundle.  The transaction
+    // owns this queue while active and restores/discards it atomically.
+    if crate::runtime_world_transaction::world_runtime_staging_active() {
+        return;
+    }
     let pending = drain_pending_team_script_events();
     if pending.is_empty() {
         return;

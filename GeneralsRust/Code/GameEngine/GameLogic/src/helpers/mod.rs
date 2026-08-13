@@ -25,7 +25,7 @@ use crate::object::draw::w3d_tree_draw::W3DTreeDrawModuleData;
 use crate::object::drawable::{Drawable, DrawableArcExt, DrawableThingHandle, DrawableType};
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::special_power_template::SpecialPowerTemplate;
-use crate::object::Object;
+use crate::object::{Object, WEAPONSLOT_COUNT};
 use crate::weapon::WeaponBonusSet;
 use game_engine::common::audio::audio_event_rts::{
     register_audio_event_owner_resolver, AudioEventOwnerResolver,
@@ -65,7 +65,6 @@ use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::sync::{Arc, OnceLock};
 use std::sync::{Mutex, RwLock};
 use std::time::{SystemTime, UNIX_EPOCH};
-
 
 /// Wave 281: host-only path has no dual-world factory objects.
 #[inline]

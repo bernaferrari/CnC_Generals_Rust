@@ -145,6 +145,17 @@ impl BasicDrawable {
         self.hidden || !self.visible || self.hidden_by_stealth
     }
 
+    /// Exact C++ `Drawable::isDrawableEffectivelyHidden` predicate used by
+    /// `RTS3DScene::renderOneObject`.
+    ///
+    /// Keep this distinct from [`Self::is_effectively_hidden`].  Rust's
+    /// presentation `visible` flag is a broader local/UI concern, whereas
+    /// the source scene branch checks only `m_hidden || m_hiddenByStealth`
+    /// before deciding whether it may refresh `m_shroudClearFrame`.
+    pub(crate) fn is_scene_effectively_hidden(&self) -> bool {
+        self.hidden || self.hidden_by_stealth
+    }
+
     pub fn set_drawable_hidden(&mut self, hidden: bool) {
         if self.hidden == hidden {
             return;
@@ -352,13 +363,18 @@ impl BasicDrawable {
     }
 
     pub(super) fn matrix4_from_model_draw(matrix: glam::Mat4) -> Matrix4 {
-        Matrix4 {
-            elements: matrix.to_cols_array_2d(),
-        }
+        Matrix4::from_glam(matrix)
     }
 
-    pub(super) fn model_draw_state(&self) -> Option<ModelDrawState> {
-        TheGameClient::get()?.get_drawable_model_draw(self.id.0)
+    /// Ordered W3D output belongs to the gameplay Object association, not the
+    /// client DrawableID.  The two IDs are allocated by separate C++ systems
+    /// and routinely differ.
+    pub(super) fn model_draw_states(&self) -> Vec<ModelDrawState> {
+        self.object_id
+            .and_then(|object_id| {
+                TheGameClient::get().map(|client| client.object_model_draws(object_id))
+            })
+            .unwrap_or_default()
     }
 
     pub(super) fn find_hotkey_squad_number(player: &mut Player, object_id: u32) -> Option<i32> {

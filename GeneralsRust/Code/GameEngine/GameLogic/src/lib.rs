@@ -101,6 +101,7 @@ pub mod common;
 pub mod logic;
 pub mod prelude;
 pub mod runtime;
+pub mod runtime_world_transaction;
 
 // Integration tests (disabled - needs API updates)
 // #[cfg(test)]

@@ -675,6 +675,9 @@ impl CnCGameEngine {
         // presentation-owned Arc and discard raw object-id renderer timelines
         // only when that new world is ready; failed attempts leave their
         // active world/cache intact.
+        self.host_advance_direct_visual_world_epoch();
+        #[cfg(feature = "game_client")]
+        self.game_client.invalidate_presentation_drawable_world();
         self.render_pipeline.invalidate_world_visual_state();
         self.invalidate_presentation_terrain_cache();
         if loaded != map_name {

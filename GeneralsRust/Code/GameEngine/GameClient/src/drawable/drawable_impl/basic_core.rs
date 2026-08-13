@@ -2,6 +2,7 @@ use super::*;
 use crate::display::image::{ensure_client_mapped_image, get_mapped_image_collection};
 use crate::display::view::{with_tactical_view_ref, Point3};
 use crate::draw_group_info::get_draw_group_info;
+use crate::drawable::ClientShroudVisibility;
 use crate::drawable_info::DrawableInfo;
 use crate::gui::display_string::get_display_string_manager;
 use crate::gui::font::{get_font_library, FontDesc};
@@ -19,7 +20,9 @@ use game_engine::common::bit_flags::{
 use game_engine::common::ini::{get_anim2d_collection, get_global_data, TimeOfDay as IniTimeOfDay};
 use game_engine::common::system::game_common::WhichTurretType;
 use game_engine::common::system::{Snapshotable, Xfer, XferMode, XferVersion};
-use gamelogic::common::types::{FormationID, ObjectID, WeaponSlotType, INVALID_ID};
+use gamelogic::common::types::{
+    FormationID, ObjectID, ObjectShroudStatus, WeaponSlotType, INVALID_ID,
+};
 use gamelogic::helpers::{BoneOverrideState, ModelDrawState, TheGameClient};
 use gamelogic::object::registry::OBJECT_REGISTRY;
 use gamelogic::player::{Player, NO_HOTKEY_SQUAD, NUM_HOTKEY_SQUADS};
@@ -278,8 +281,81 @@ impl BasicDrawable {
 
     pub fn set_fully_obscured_by_shroud(&mut self, fully_obscured: bool) {
         if self.drawable_fully_obscured_by_shroud != fully_obscured {
+            for draw_module in &mut self.draw_modules {
+                draw_module.set_fully_obscured_by_shroud(fully_obscured);
+            }
             self.drawable_fully_obscured_by_shroud = fully_obscured;
         }
+    }
+
+    /// C++ `Drawable::getFullyObscuredByShroud`.
+    #[must_use]
+    pub fn fully_obscured_by_shroud(&self) -> bool {
+        self.drawable_fully_obscured_by_shroud
+    }
+
+    /// Current volatile C++ `Drawable::m_shroudClearFrame` value.
+    ///
+    /// This is read-only here: the W3D direct-scene path will become the sole
+    /// writer when its candidate-dispatch parity is wired.
+    #[must_use]
+    pub fn shroud_clear_frame(&self) -> u32 {
+        self.shroud_clear_state.clear_frame()
+    }
+
+    /// Apply the GameClient half of C++ direct-object shroud handling.
+    ///
+    /// This consumes a frozen raw object status, preserving the source's
+    /// clear-frame grace calculation, and changes only
+    /// `m_drawableFullyObscuredByShroud`.  It deliberately does not write the
+    /// clear timestamp; that happens only in the later W3D scene dispatch.
+    #[must_use]
+    pub fn apply_frozen_direct_shroud_status(
+        &mut self,
+        logic_frame: u32,
+        raw_status: ObjectShroudStatus,
+        effectively_dead: bool,
+    ) -> ClientShroudVisibility {
+        let visibility = self.shroud_clear_state.evaluate_client_visibility(
+            logic_frame,
+            raw_status,
+            effectively_dead,
+        );
+        self.set_fully_obscured_by_shroud(visibility.fully_obscured);
+        visibility
+    }
+
+    /// Evaluate C++ `RTS3DScene::renderOneObject` shroud state once this
+    /// Drawable has reached Main's frozen frustum/model candidate boundary.
+    ///
+    /// Unlike the GameClient visibility half above, this is the only path
+    /// that refreshes `m_shroudClearFrame`. BasicDrawable owns the source
+    /// exact scene-hidden predicate, so an otherwise eligible Main record
+    /// still cannot refresh history when the source Drawable is hidden or
+    /// hidden by stealth.  The broader Rust presentation `visible` flag does
+    /// not participate in this C++ scene decision.
+    #[must_use]
+    pub fn evaluate_frozen_direct_scene_candidate(
+        &mut self,
+        logic_frame: u32,
+        raw_status: ObjectShroudStatus,
+        effectively_dead: bool,
+    ) -> crate::drawable::SceneShroudDecision {
+        self.shroud_clear_state.evaluate_scene_direct(
+            logic_frame,
+            raw_status,
+            effectively_dead,
+            self.is_scene_effectively_hidden(),
+        )
+    }
+
+    /// Reset non-serialized state after a fresh drawable reconstruction/load.
+    ///
+    /// Keep this out of ordinary `friend_bind_to_object` rebinds: C++ retains
+    /// both fields for the live Drawable in that case.
+    pub(super) fn reset_volatile_shroud_state(&mut self) {
+        self.shroud_clear_state.reset();
+        self.set_fully_obscured_by_shroud(false);
     }
 
     /// Emoticon helpers (C++ parity: one active emoticon at a time).

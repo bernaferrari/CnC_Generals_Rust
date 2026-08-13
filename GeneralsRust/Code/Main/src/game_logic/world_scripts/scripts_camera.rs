@@ -372,20 +372,11 @@ impl GameLogic {
         }
 
         let mission_runtime_started = Instant::now();
-        let dense_script_map = self.mission_script_count() >= DENSE_MISSION_SCRIPT_THRESHOLD;
-        let mission_update_result = if self.isInShellGame() {
-            // Shell/menu mode already has chunked heavy-script evaluation; cap how many
-            // scripts we touch per frame so the UI thread cannot stall on long script lists.
-            self.mission_scripts
-                .update_shell_budgeted(self.frame as u64, Some(SHELL_MISSION_SCRIPT_BUDGET))
-        } else if dense_script_map {
-            // Dense campaign maps: budget evaluation so residual/gates cannot hang a frame.
-            // Full parity still progresses scripts over successive frames.
-            self.mission_scripts
-                .update_budgeted(self.frame as u64, Some(DENSE_MISSION_SCRIPT_BUDGET))
-        } else {
-            self.mission_scripts.update(self.frame as u64)
-        };
+        // C++ `ScriptEngine::update` walks every active, difficulty-eligible
+        // non-subroutine script in declaration order every logic frame.  Shell
+        // maps use the same engine path; they do not get a menu-only budget,
+        // name heuristic, or resumable partial action chain.
+        let mission_update_result = self.mission_scripts.update(self.frame as u64);
         if let Err(err) = mission_update_result {
             log::error!("Mission script runtime update failed: {}", err);
         }

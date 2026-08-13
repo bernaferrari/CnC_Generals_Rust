@@ -29,8 +29,8 @@ pub const LIVE_HOST_GAME_CLIENT_SHELL_TICK_HELPER_METHOD_NAMES_WAVE586: &[&str] 
     "host_tick_game_client_presentation_shell",
     "update_presentation_shell",
     "update_input",
-    "apply_presentation_shroud_to_drawables",
-    "apply_presentation_pose_to_drawables",
+    "apply_frozen_direct_shroud_statuses",
+    "apply_frozen_direct_presentation_poses",
     "GameClient::update",
     "Wave 586",
     "playable_claim = false",
@@ -47,7 +47,7 @@ pub const LIVE_HOST_GAME_CLIENT_SHELL_TICK_HELPER_NAV_STEPS_WAVE586: &[&str] = &
 
 pub const RUNTIME_HOST_LIVE_HOST_GAME_CLIENT_SHELL_TICK_HELPER_CMD_NAMES_WAVE586: &[&str] = &[
     "host_game_client_shell_tick_helper",
-    "presentation_shroud_pose_apply",
+    "presentation_frozen_direct_shroud_pose_apply",
     "no_full_gameclient_update",
     "game_client_shell_tick_residual",
 ];
@@ -119,8 +119,8 @@ pub fn honesty_host_game_client_shell_tick_helper_method_names_residual_wave586(
     let names = LIVE_HOST_GAME_CLIENT_SHELL_TICK_HELPER_METHOD_NAMES_WAVE586;
     let ok = residual_name_index(names, "host_tick_game_client_presentation_shell").is_some()
         && residual_name_index(names, "update_presentation_shell").is_some()
-        && residual_name_index(names, "apply_presentation_shroud_to_drawables").is_some()
-        && residual_name_index(names, "apply_presentation_pose_to_drawables").is_some()
+        && residual_name_index(names, "apply_frozen_direct_shroud_statuses").is_some()
+        && residual_name_index(names, "apply_frozen_direct_presentation_poses").is_some()
         && residual_name_index(names, "GameClient::update").is_some()
         && residual_name_index(names, "Wave 586").is_some()
         && residual_name_index(names, "playable_claim = false").is_some();
@@ -136,8 +136,8 @@ pub fn honesty_host_game_client_shell_tick_helper_source_markers_residual_wave58
     };
     let body_ok = (body.contains("Wave 586") || body.contains("Wave 587"))
         && body.contains("update_presentation_shell")
-        && body.contains("apply_presentation_shroud_to_drawables")
-        && body.contains("apply_presentation_pose_to_drawables")
+        && body.contains("apply_frozen_direct_shroud_statuses")
+        && body.contains("apply_frozen_direct_presentation_poses")
         && body.contains("apply_presentation_cinematic_letterbox")
         && body.contains("presentation_or_boot_time_frozen")
         // Wave 587: device bookkeeping allowed; full update() still forbidden.
@@ -166,7 +166,7 @@ pub fn honesty_host_game_client_shell_tick_helper_nav_commands_residual_wave586(
         && residual_name_index(steps, "LIVE_HOST_GAME_CLIENT_SHELL_TICK_HELPER").is_some()
         && residual_name_index(steps, "LIVE_PLAYABLE_CLAIM_FALSE").is_some()
         && residual_name_index(cmds, "host_game_client_shell_tick_helper").is_some()
-        && residual_name_index(cmds, "presentation_shroud_pose_apply").is_some()
+        && residual_name_index(cmds, "presentation_frozen_direct_shroud_pose_apply").is_some()
         && residual_name_index(cmds, "no_full_gameclient_update").is_some()
         && residual_name_index(cmds, "game_client_shell_tick_residual").is_some();
     residual_action_store(ResidualHostGameClientShellTickHelperAction::NavCommands);

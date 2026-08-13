@@ -217,6 +217,144 @@ pub struct PresentationProjectileClipStatus {
     pub max_shots: u32,
 }
 
+/// Presentation-owned copy of C++ `ObjectShroudStatus`.
+///
+/// This is deliberately an ordinal-compatible raw status rather than a
+/// visibility/alpha approximation.  `RTS3DScene::renderOneObject` uses the
+/// C++ ordering directly: only values greater than `Clear` select the shroud
+/// material pass.  Keep every value, including `InvalidButPreviousValid`, so
+/// a later client boundary can convert it without collapsing behavior.
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum PresentationObjectShroudStatus {
+    /// C++ `OBJECTSHROUD_INVALID`.
+    #[default]
+    Invalid = 0,
+    /// C++ `OBJECTSHROUD_CLEAR`.
+    Clear = 1,
+    /// C++ `OBJECTSHROUD_PARTIAL_CLEAR`.
+    PartialClear = 2,
+    /// C++ `OBJECTSHROUD_FOGGED`.
+    Fogged = 3,
+    /// C++ `OBJECTSHROUD_SHROUDED`.
+    Shrouded = 4,
+    /// C++ `OBJECTSHROUD_INVALID_BUT_PREVIOUS_VALID`.
+    InvalidButPreviousValid = 5,
+}
+
+impl PresentationObjectShroudStatus {
+    /// Exact C++ scene-pass threshold: `ss > OBJECTSHROUD_CLEAR`.
+    #[inline]
+    pub const fn requires_scene_shroud_material(self) -> bool {
+        (self as u8) > (Self::Clear as u8)
+    }
+
+    /// Convert without changing C++ ordinal meaning.  The presentation layer
+    /// owns serialization; GameClient receives this only after a direct
+    /// drawable association has been established.
+    #[inline]
+    pub const fn as_game_logic_status(self) -> gamelogic::common::types::ObjectShroudStatus {
+        use gamelogic::common::types::ObjectShroudStatus;
+
+        match self {
+            Self::Invalid => ObjectShroudStatus::Invalid,
+            Self::Clear => ObjectShroudStatus::Clear,
+            Self::PartialClear => ObjectShroudStatus::PartialClear,
+            Self::Fogged => ObjectShroudStatus::Fogged,
+            Self::Shrouded => ObjectShroudStatus::Shrouded,
+            Self::InvalidButPreviousValid => ObjectShroudStatus::InvalidButPreviousValid,
+        }
+    }
+}
+
+impl From<gamelogic::common::types::ObjectShroudStatus> for PresentationObjectShroudStatus {
+    #[inline]
+    fn from(value: gamelogic::common::types::ObjectShroudStatus) -> Self {
+        use gamelogic::common::types::ObjectShroudStatus;
+
+        match value {
+            ObjectShroudStatus::Invalid => Self::Invalid,
+            ObjectShroudStatus::Clear => Self::Clear,
+            ObjectShroudStatus::PartialClear => Self::PartialClear,
+            ObjectShroudStatus::Fogged => Self::Fogged,
+            ObjectShroudStatus::Shrouded => Self::Shrouded,
+            ObjectShroudStatus::InvalidButPreviousValid => Self::InvalidButPreviousValid,
+        }
+    }
+}
+
+/// Whether this frame has authoritative direct-object facts for a drawable.
+///
+/// A GameWorld entity does not carry a C++ `DrawableInfo`/drawable lifetime,
+/// so it starts `Unknown`.  It must not be treated as a direct scene object
+/// until the matching host-object overlay has frozen the raw status and
+/// effective-death fact.  This deliberately does not invent a drawable ID or
+/// generation; the client owns those associations and rejects stale bindings.
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum PresentationDrawableLifetime {
+    /// No authoritative direct-object drawable facts are available.
+    #[default]
+    Unknown = 0,
+    /// `RenderableObject::id` was backed by a host `Object` during frame build.
+    DirectHostObject = 1,
+}
+
+impl PresentationDrawableLifetime {
+    #[inline]
+    pub const fn is_direct_host_object(self) -> bool {
+        matches!(self, Self::DirectHostObject)
+    }
+}
+
+/// Frozen input for the C++ direct-object shroud branch.
+///
+/// The raw status and effective-death bit are captured before rendering.  The
+/// drawable-owned clear-frame timer is intentionally absent: C++ updates it at
+/// view dispatch after resolving the live drawable, and Main must not emulate
+/// that state from `ObjectVisibility` alpha.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PresentationDrawableShroudFacts {
+    pub lifetime: PresentationDrawableLifetime,
+    pub raw_status: PresentationObjectShroudStatus,
+    pub effectively_dead: bool,
+}
+
+impl PresentationDrawableShroudFacts {
+    #[inline]
+    pub const fn direct_host_object(
+        raw_status: PresentationObjectShroudStatus,
+        effectively_dead: bool,
+    ) -> Self {
+        Self {
+            lifetime: PresentationDrawableLifetime::DirectHostObject,
+            raw_status,
+            effectively_dead,
+        }
+    }
+
+    /// Fail closed for GameWorld-only/default records.  C++ material selection
+    /// itself remains the exact raw ordinal threshold once direct ownership is
+    /// known.
+    #[inline]
+    pub const fn requires_scene_shroud_material(self) -> bool {
+        self.lifetime.is_direct_host_object() && self.raw_status.requires_scene_shroud_material()
+    }
+
+    /// Source-side payload for GameClient's direct-object update.  `Unknown`
+    /// has no drawable/object association and therefore cannot enter that API.
+    #[inline]
+    pub fn direct_game_client_status(
+        self,
+    ) -> Option<(gamelogic::common::types::ObjectShroudStatus, bool)> {
+        self.lifetime.is_direct_host_object().then_some((
+            self.raw_status.as_game_logic_status(),
+            self.effectively_dead,
+        ))
+    }
+}
+
 /// One renderable object as seen after a completed logic step.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RenderableObject {
@@ -736,6 +874,11 @@ pub struct RenderableObject {
     /// Unit mesh pass applies alpha / never-explored skip from this only — no
     /// live shroud re-query mid-render.
     pub fow_visibility: ObjectVisibility,
+    /// Exact C++ direct-object shroud input frozen with this object.  This is
+    /// separate from scalar `fow_visibility`: it retains raw ordinal status,
+    /// effective-death, and whether host drawable lifetime facts exist.
+    #[serde(default)]
+    pub drawable_shroud: PresentationDrawableShroudFacts,
     /// Terrain ground-height residual sampled at object XY (Wave 77 deepen).
     /// Defaults to `PRESENTATION_DEFAULT_GROUND_HEIGHT` when map height unavailable.
     /// Fail-closed: not full HeightMap bilinear / bridge-aware sample; does **not**
@@ -743,6 +886,31 @@ pub struct RenderableObject {
     pub ground_height: f32,
     /// True when `ground_height` came from terrain sample (not default-0).
     pub ground_height_from_terrain: bool,
+}
+
+/// Frozen direct-object visual source retained independently of the primary
+/// GameWorld presentation roster.
+///
+/// C++ keeps an Object-backed Drawable resident through deferred death and
+/// rubble lifetime.  The coupled GameWorld roster may intentionally omit that
+/// entity before the host Object is removed, so this owned record keeps the
+/// direct drawable input available without redefining gameplay destruction.
+/// It deliberately contains no DrawableId, clear-frame timer, or binding
+/// generation: those runtime-only associations belong to GameClient.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PresentationDirectHostDrawable {
+    /// Full frozen visual input from the host Object.  In particular,
+    /// `drawable_shroud` contains the raw C++ shroud ordinal and
+    /// effectively-dead fact for the direct drawable path.
+    pub object: RenderableObject,
+    /// Stable C++ visual identity.  A completed disguise selects
+    /// `disguise_as_template`; otherwise this is the immutable ThingTemplate
+    /// name, never the mutable Object `template_name` bookkeeping field.
+    pub visual_template_name: String,
+    /// Host-object presence at frame construction.  This is intentionally
+    /// independent of HP and `RenderableObject::destroyed`: removal from the
+    /// host roster, rather than gameplay death, ends direct visual residency.
+    pub resident: bool,
 }
 
 const fn default_presentation_allow_inside() -> bool {
@@ -934,5 +1102,81 @@ impl RenderableObject {
             gamelogic::common::Relationship::Enemies => self.contain_allow_enemies_inside,
             gamelogic::common::Relationship::Neutral => self.contain_allow_neutral_inside,
         }
+    }
+}
+
+#[cfg(test)]
+mod drawable_shroud_tests {
+    use super::*;
+    use std::hash::Hash;
+
+    #[test]
+    fn drawable_shroud_status_keeps_cxx_ordinals_and_safe_defaults() {
+        fn requires_hash<T: Hash>() {}
+
+        let statuses = [
+            PresentationObjectShroudStatus::Invalid,
+            PresentationObjectShroudStatus::Clear,
+            PresentationObjectShroudStatus::PartialClear,
+            PresentationObjectShroudStatus::Fogged,
+            PresentationObjectShroudStatus::Shrouded,
+            PresentationObjectShroudStatus::InvalidButPreviousValid,
+        ];
+        for (ordinal, status) in statuses.into_iter().enumerate() {
+            assert_eq!(status as u8, ordinal as u8);
+            assert_eq!(
+                status.as_game_logic_status() as u8,
+                ordinal as u8,
+                "conversion must retain C++ ObjectShroudStatus ordinal {ordinal}"
+            );
+            assert_eq!(
+                PresentationObjectShroudStatus::from(status.as_game_logic_status()),
+                status
+            );
+        }
+
+        requires_hash::<PresentationObjectShroudStatus>();
+        requires_hash::<PresentationDrawableLifetime>();
+        requires_hash::<PresentationDrawableShroudFacts>();
+
+        let default_from_old_frame: PresentationDrawableShroudFacts =
+            serde_json::from_str("{}").expect("missing fields use safe defaults");
+        assert_eq!(
+            default_from_old_frame,
+            PresentationDrawableShroudFacts::default()
+        );
+        assert_eq!(
+            default_from_old_frame.lifetime,
+            PresentationDrawableLifetime::Unknown
+        );
+        assert_eq!(
+            default_from_old_frame.raw_status,
+            PresentationObjectShroudStatus::Invalid
+        );
+        assert!(!default_from_old_frame.requires_scene_shroud_material());
+        assert!(default_from_old_frame.direct_game_client_status().is_none());
+
+        let partial = PresentationDrawableShroudFacts::direct_host_object(
+            PresentationObjectShroudStatus::PartialClear,
+            false,
+        );
+        assert!(partial.requires_scene_shroud_material());
+        assert_eq!(
+            partial.direct_game_client_status(),
+            Some((
+                gamelogic::common::types::ObjectShroudStatus::PartialClear,
+                false
+            ))
+        );
+        assert!(!PresentationDrawableShroudFacts::direct_host_object(
+            PresentationObjectShroudStatus::Clear,
+            false,
+        )
+        .requires_scene_shroud_material());
+        assert!(PresentationDrawableShroudFacts::direct_host_object(
+            PresentationObjectShroudStatus::InvalidButPreviousValid,
+            true,
+        )
+        .requires_scene_shroud_material());
     }
 }

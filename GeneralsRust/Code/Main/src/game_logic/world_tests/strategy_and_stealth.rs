@@ -1574,8 +1574,8 @@ fn weapon_discharge_world_tick_combat_preserves_preadvance_barrel_and_freezes_on
             .weapon_barrel_state_for_slot(0)
             .expect("primary cursor")
             .current_barrel,
-        0,
-        "the cursor advances only after retaining barrel two"
+        3,
+        "C++ retains the raw post-last-shot cursor until the next pre-fire topology guard"
     );
 
     let frozen = crate::presentation_frame::PresentationFrame::build_from_logic(&game_logic, 0);

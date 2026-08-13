@@ -2,19 +2,78 @@
 // Child module via `#[path]`. include_str! paths stay sibling-relative.
 
 #[test]
-fn presentation_path_applies_pose_without_object_registry() {
+fn presentation_path_applies_frozen_direct_shroud_after_sync_before_pose() {
     let src = crate::cnc_game_engine::ENGINE_SRC;
     assert!(
-        src.contains("apply_presentation_pose_to_drawables"),
-        "InGame presentation path must push pose to drawables without OBJECT_REGISTRY"
+        src.contains("apply_frozen_direct_presentation_poses"),
+        "InGame presentation path must push keyed frozen poses without OBJECT_REGISTRY"
     );
-    let i = src
-        .find("apply_presentation_shroud_to_drawables(shroud_entries)")
-        .expect("shroud apply");
-    let window = &src[i..src.len().min(i + 900)];
+    let sync = src
+        .find("sync_presentation_drawables(sync_entries)")
+        .expect("presentation drawable sync");
+    let direct_shroud = src
+        .find("apply_frozen_direct_shroud_statuses(pres.frame.0, shroud_entries)")
+        .expect("frozen raw shroud apply");
+    let pose = src
+        .find("apply_frozen_direct_presentation_poses(pose_entries)")
+        .expect("presentation pose apply");
+    let window = &src[sync..src.len().min(pose + 300)];
     assert!(
-        window.contains("apply_presentation_pose_to_drawables"),
-        "pose apply must sit next to presentation shroud residual"
+        sync < direct_shroud && direct_shroud < pose,
+        "raw direct status must apply only after sync and before pose"
+    );
+    assert!(
+        src.contains("pres.direct_host_drawables")
+            && window.contains("object.drawable_shroud.direct_game_client_status()?")
+            && window.contains("FrozenDirectShroudStatus")
+            && window.contains("presentation_direct_drawable_state(")
+            && window.contains("FrozenDirectPresentationPose"),
+        "only host-resident direct records may enter GameClient with one guarded binding key"
+    );
+    assert!(
+        !window.contains(".filter(|o| !o.destroyed)"),
+        "gameplay death must not prune a still-resident C++ Drawable"
+    );
+    assert!(
+        !window.contains("apply_presentation_shroud_to_drawables"),
+        "scalar ObjectVisibility must not compete with the raw direct-status path"
+    );
+}
+
+#[test]
+fn presentation_render_resolves_only_the_frozen_direct_scene_candidate_ledger() {
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    let render = &src[src.find("pub fn render(&mut self)").expect("render entry")..];
+    let ledger = render
+        .find("let mut direct_scene_candidate_sink")
+        .expect("Main-owned direct scene candidate boundary");
+    let game_client_call = render[ledger..]
+        .find("evaluate_frozen_direct_scene_shroud_candidates(")
+        .map(|offset| ledger + offset)
+        .expect("only Main may resolve the frozen candidate ledger against GameClient");
+    let execute = render[ledger..]
+        .find("render_pipeline.execute(")
+        .map(|offset| ledger + offset)
+        .expect("render pipeline receives the boundary callback");
+
+    assert!(ledger < game_client_call && game_client_call < execute);
+    let callback = &render[ledger..execute];
+    assert!(
+        callback.contains("FrozenDirectDrawableSceneCandidate")
+            && callback.contains("PresentationDirectDrawableBindingKey")
+            && callback.contains("DrawableId(candidate.drawable_id)")
+            && callback.contains("presentation_logic_frame")
+            && callback.contains("FrozenDirectDrawableSceneDecision")
+            && callback.contains("FrozenDirectDrawableSceneOutcome")
+            && callback.contains("SceneShroudDecision::HiddenDirectDrawable")
+            && callback.contains("SceneShroudDecision::RenderDrawable"),
+        "Main must map the immutable full candidate key and raw source facts exactly once"
+    );
+    assert!(
+        callback.contains("hq-1a1")
+            && !callback.contains("fow_visibility")
+            && !callback.contains("get_shroud"),
+        "scene decisions must not be inferred from FOW alpha or live shroud reads"
     );
 }
 
@@ -33,6 +92,21 @@ fn visual_world_state_invalidation_only_follows_successful_world_changes() {
     );
 
     let authority = include_str!("host_authority.rs");
+    let assert_client_reset_precedes_renderer = |boundary: &str, label: &str| {
+        let epoch_advance = boundary
+            .find("self.host_advance_direct_visual_world_epoch()")
+            .unwrap_or_else(|| panic!("{label} must advance direct visual identity"));
+        let client_reset = boundary
+            .find("self.game_client.invalidate_presentation_drawable_world()")
+            .unwrap_or_else(|| panic!("{label} must reset volatile GameClient drawable state"));
+        let renderer_reset = boundary
+            .find("self.render_pipeline.invalidate_world_visual_state()")
+            .unwrap_or_else(|| panic!("{label} must reset renderer-local state"));
+        assert!(
+            epoch_advance < client_reset && client_reset < renderer_reset,
+            "{label} must advance direct identity, then reset GameClient associations before renderer object-ID timelines"
+        );
+    };
     let reset = &authority[authority
         .find("fn host_reset_game_logic(")
         .expect("logic reset boundary")..];
@@ -43,17 +117,23 @@ fn visual_world_state_invalidation_only_follows_successful_world_changes() {
         reset.contains("self.render_pipeline.invalidate_world_visual_state()"),
         "GameLogic reset reuses object IDs and must clear renderer-local timelines"
     );
+    assert_client_reset_precedes_renderer(reset, "GameLogic reset");
 
     let replacement = &authority[authority
         .find("fn host_replace_game_logic(")
         .expect("full replacement boundary")..];
     let replacement = &replacement[..replacement
-        .find("pub(super) fn host_save_game_authority(")
+        .find("fn host_replace_staged_restore_world(")
         .expect("next replacement-neighbor method")];
-    assert!(
-        replacement.contains("self.render_pipeline.invalidate_world_visual_state()"),
-        "staged loads and startup worker installs must clear old-world timelines"
-    );
+    assert_client_reset_precedes_renderer(replacement, "full GameLogic replacement");
+
+    let staged_replacement = &authority[authority
+        .find("fn host_replace_staged_restore_world(")
+        .expect("staged replacement boundary")..];
+    let staged_replacement = &staged_replacement[..staged_replacement
+        .find("pub(super) fn host_save_game_authority(")
+        .expect("next staged-replacement neighbor method")];
+    assert_client_reset_precedes_renderer(staged_replacement, "committed staged restore");
 
     let map_load_source = include_str!("ui_commands.rs");
     let map_load = &map_load_source[map_load_source
@@ -65,9 +145,17 @@ fn visual_world_state_invalidation_only_follows_successful_world_changes() {
     let reset_after_success = map_load
         .find("self.render_pipeline.invalidate_world_visual_state()")
         .expect("map-load visual reset");
+    let client_reset_after_success = map_load
+        .find("self.game_client.invalidate_presentation_drawable_world()")
+        .expect("map-load GameClient drawable reset");
+    let epoch_after_success = map_load
+        .find("self.host_advance_direct_visual_world_epoch()")
+        .expect("map-load direct visual epoch advance");
     assert!(
-        success_guard < reset_after_success,
-        "failed map loads must retain the active world's visual state"
+        success_guard < epoch_after_success
+            && epoch_after_success < client_reset_after_success
+            && client_reset_after_success < reset_after_success,
+        "failed map loads must retain the active world's visual identity and state"
     );
 
     let setter_at = lifecycle
@@ -82,6 +170,24 @@ fn visual_world_state_invalidation_only_follows_successful_world_changes() {
     assert!(
         !setter.contains("invalidate_world_visual_state"),
         "ordinary frame handoff must not restart W3D timelines"
+    );
+}
+
+#[test]
+fn direct_visual_world_epoch_is_runtime_only_and_nonzero_at_boot() {
+    let types = include_str!("types.rs");
+    assert!(
+        types.contains("host_direct_visual_world_epoch: u64"),
+        "direct visual generation must be a host runtime field"
+    );
+    assert!(
+        types.contains("intentionally not part of a snapshot"),
+        "C++ volatile Drawable association state must not become a durable schema field"
+    );
+    let boot = include_str!("boot.rs");
+    assert!(
+        boot.contains("host_direct_visual_world_epoch: 1"),
+        "the initial direct visual epoch must be nonzero so invalid/default identities fail closed"
     );
 }
 

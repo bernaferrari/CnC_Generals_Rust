@@ -31,6 +31,9 @@ const W3D_CHUNK_VERTICES: u32 = 0x00000002;
 const W3D_CHUNK_VERTEX_NORMALS: u32 = 0x00000003;
 const W3D_CHUNK_MESH_USER_TEXT: u32 = 0x0000000C;
 const W3D_CHUNK_VERTEX_INFLUENCES: u32 = 0x0000000E;
+/// `sizeof(W3dVertInfStruct)` in the original MSVC W3D loader: one u16
+/// `BoneIdx` followed by six opaque padding bytes, once per mesh vertex.
+const W3D_VERTEX_INFLUENCE_RECORD_SIZE: usize = 8;
 const W3D_CHUNK_TRIANGLES: u32 = 0x00000020;
 const W3D_CHUNK_VERTEX_SHADE_INDICES: u32 = 0x00000022;
 const W3D_CHUNK_MATERIAL_INFO: u32 = 0x00000028;
@@ -70,7 +73,14 @@ const W3D_CHUNK_MATERIALS: u32 = 0x00000028;
 const W3D_CHUNK_HIERARCHY: u32 = 0x00000100;
 const W3D_CHUNK_ANIMATION: u32 = 0x00000200;
 const W3D_CHUNK_HMODEL: u32 = 0x00000300;
+const W3D_CHUNK_HMODEL_HEADER: u32 = 0x00000301;
+const W3D_CHUNK_HMODEL_NODE: u32 = 0x00000302;
+const W3D_CHUNK_HMODEL_COLLISION_NODE: u32 = 0x00000303;
+const W3D_CHUNK_HMODEL_SKIN_NODE: u32 = 0x00000304;
+const W3D_CHUNK_HMODEL_OBSOLETE_AUX_DATA: u32 = 0x00000305;
+const W3D_CHUNK_HMODEL_OBSOLETE_SHADOW_NODE: u32 = 0x00000306;
 const W3D_CHUNK_LODMODEL: u32 = 0x00000400;
+const W3D_CHUNK_POINTS: u32 = 0x00000440;
 const W3D_CHUNK_HLOD: u32 = 0x00000700;
 const W3D_CHUNK_HLOD_HEADER: u32 = 0x00000701;
 const W3D_CHUNK_HLOD_LOD_ARRAY: u32 = 0x00000702;
@@ -102,6 +112,17 @@ const ANIM_FLAVOR_ADAPTIVE_DELTA: u16 = 1;
 /// W3D fixed-length name size (matches C++ W3D_NAME_LEN = 16)
 const W3D_NAME_LEN: usize = 16;
 
+/// C++ `W3D_MAKE_VERSION(3, 0)`.  WW3D introduced an explicit external
+/// HTree root at this file-format boundary; older hierarchy/animation records
+/// must be normalized by inserting and addressing that root during load.
+const W3D_HTREE_ROOT_VERSION: u32 = 3 << 16;
+
+/// C++ `W3D_CURRENT_HTREE_VERSION` / `W3D_CURRENT_HANIM_VERSION`.  These are
+/// used only by source-shaped modern fixtures; production parsing accepts any
+/// version and applies the pre-3.0 compatibility rule above where required.
+const W3D_CURRENT_HTREE_VERSION: u32 = (4 << 16) | 1;
+const W3D_CURRENT_HANIM_VERSION: u32 = (4 << 16) | 1;
+
 /// Bone pivot from W3D hierarchy chunk. C++ parity: W3dPivotStruct (w3d_file.h:1322)
 #[derive(Debug, Clone)]
 pub struct W3dPivot {
@@ -132,27 +153,174 @@ pub struct W3dHlodSubObject {
 
 /// A single source-authored HLOD level.
 ///
-/// `max_screen_size` is retained verbatim for a future C++ `HLodClass::Prepare_LOD`
-/// port.  The active Main renderer deliberately does not choose among multiple
-/// levels until that selection path exists.
+/// `max_screen_size` is retained verbatim.  Main mirrors C++ construction by
+/// selecting the minimum allowed level at a screen area of one pixel, but it
+/// deliberately does not run C++'s normally per-view `Prepare_LOD` path: the
+/// Generals RTS scene has that dynamic optimization disabled.
 #[derive(Debug, Clone, PartialEq)]
 pub struct W3dHlodLod {
     pub max_screen_size: f32,
     pub subobjects: Vec<W3dHlodSubObject>,
 }
 
+/// One source-authored HLOD attachment array.
+///
+/// C++ reuses `W3dHLodArrayHeaderStruct` and `W3dHLodSubObjectStruct` for
+/// both aggregate render objects and non-rendering application proxies. Keep
+/// the otherwise-unused header threshold intact rather than collapsing the
+/// two array kinds into a generic boolean.
+#[derive(Debug, Clone, PartialEq)]
+pub struct W3dHlodAttachmentArray {
+    pub max_screen_size: f32,
+    pub subobjects: Vec<W3dHlodSubObject>,
+}
+
+/// One C++ `HLodClass::AdditionalModels` attachment resolved against the
+/// current parent HTree pose.
+///
+/// `parent_transform` is in Main's render basis but remains local to the
+/// parent model. A renderer must compose it with the parent's world transform
+/// and draw the independently resolved child model; this type intentionally
+/// does not flatten external aggregate geometry into the parent W3D file.
+#[derive(Debug, Clone, PartialEq)]
+pub struct W3dHlodAggregatePose {
+    pub name: String,
+    pub bone_index: u32,
+    pub parent_transform: Mat4,
+    pub visible: bool,
+}
+
+/// Bind-pose topology for one exact C++ `HLodPrototypeClass` definition.
+///
+/// A W3D file can register several independent `W3D_CHUNK_HLOD` records.
+/// `HLodPrototypeClass::Create` constructs the definition selected by its
+/// prototype token, not an inferred whole-file HLOD.  Preserve the two C++
+/// render groups separately: the constructor-selected LOD children render
+/// first, followed by `AdditionalModels` from the aggregate array.
+///
+/// Both vectors use [`W3dHlodAggregatePose`] because the render-object child
+/// wire records have the same `name`/`bone_index` shape. Their ordering and
+/// ownership remain distinct here so a caller cannot turn an aggregate into a
+/// selected LOD child or borrow a different HLOD's hierarchy.
+#[derive(Debug, Clone, PartialEq)]
+pub struct W3dHlodPrototypeBindPose {
+    pub selected_lod_children: Vec<W3dHlodAggregatePose>,
+    pub additional_models: Vec<W3dHlodAggregatePose>,
+}
+
 /// Parsed W3D HLOD metadata.
 ///
-/// This is intentionally only the rigid-child portion needed by the active Main
-/// WGPU path.  Aggregate/proxy records are retained as unsupported source content
-/// rather than guessed or flattened into ordinary meshes.
+/// HLOD aggregate and proxy arrays use the same source record shape as an LOD
+/// array, but their semantics differ: aggregates are external render objects
+/// attached to a parent HTree bone, while proxies are non-rendering
+/// application-facing name/bone records.
 #[derive(Debug, Clone, PartialEq)]
 pub struct W3dHlod {
     pub version: u32,
     pub name: String,
     pub hierarchy_name: String,
     pub lods: Vec<W3dHlodLod>,
-    pub has_unsupported_attachments: bool,
+    pub aggregates: Option<W3dHlodAttachmentArray>,
+    pub proxies: Option<W3dHlodAttachmentArray>,
+    /// Whether this source HLOD still has external C++ `AdditionalModels` to
+    /// resolve. The marker is presentation metadata only: C++ keeps the
+    /// selected parent LOD visible while it independently creates or skips
+    /// each aggregate render object. Empty aggregate arrays do not set it.
+    pub has_unrendered_aggregates: bool,
+    /// A malformed, repeated, or unknown trailing record makes this HLOD's
+    /// authoritative source topology ambiguous. Keep its geometry disabled
+    /// rather than guessing which partial array C++ happened to retain.
+    pub has_invalid_trailing_records: bool,
+}
+
+/// The exact source connection kind stored in a C++ `W3D_CHUNK_HMODEL`.
+///
+/// `HModelDefClass` attaches all three kinds through `Create_Render_Obj`, but
+/// a skin node needs its own HMODEL HTree palette at draw time.  Main retains
+/// the distinction so the currently complete rigid path cannot accidentally
+/// draw skinned geometry with an unrelated whole-file palette.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum W3dHmodelNodeKind {
+    /// `W3D_CHUNK_NODE`: an ordinary rigid render object connection.
+    Node,
+    /// `W3D_CHUNK_COLLISION_NODE`: a collision render object connection.
+    CollisionNode,
+    /// `W3D_CHUNK_SKIN_NODE`: a skinned render object connection.
+    SkinNode,
+}
+
+impl W3dHmodelNodeKind {
+    fn is_currently_rigid(self) -> bool {
+        matches!(self, Self::Node | Self::CollisionNode)
+    }
+}
+
+/// One C++ `HmdlNodeDefStruct` retained from an HMODEL definition.
+///
+/// `name` is already the exact `"<HModelName>.<RenderObjName>"` identity
+/// assembled by `HModelDefClass::read_connection`; it is never a whole-file
+/// fallback or a mesh-name suffix.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct W3dHmodelNode {
+    pub name: String,
+    pub bone_index: u32,
+    pub kind: W3dHmodelNodeKind,
+}
+
+/// One source-space point retained from an HMODEL `W3D_CHUNK_POINTS` record.
+///
+/// `SnapPointsClass::Load_W3D` reads `W3dVectorStruct` records directly, so
+/// this deliberately preserves the file's X/Y/Z basis. It is definition
+/// metadata, not a render-basis vertex or an HMODEL child connection.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct W3dHmodelSnapPoint {
+    pub source_position: [f32; 3],
+}
+
+/// One exact C++ `HModelDefClass` source definition.
+///
+/// C++ creates an `HLodClass` with one LOD from this record and attaches each
+/// node at its declared HTree pivot.  The definition is intentionally kept
+/// separate from ordinary whole-file `W3DModel` mesh transforms.
+#[derive(Debug, Clone, PartialEq)]
+pub struct W3dHmodel {
+    pub version: u32,
+    pub name: String,
+    pub hierarchy_name: String,
+    pub nodes: Vec<W3dHmodelNode>,
+    /// Immutable source metadata loaded by `HModelDefClass::Load_W3D` from
+    /// its last `W3D_CHUNK_POINTS` record. C++ `HLodClass(HModelDefClass)`
+    /// leaves its separate `SnapPoints` pointer null rather than copying this
+    /// field, so this must not be exposed as active render-object ownership.
+    pub source_snap_points: Vec<W3dHmodelSnapPoint>,
+    /// A malformed header or node-count topology cannot safely be projected
+    /// into a render tree.  Its prototype remains registered by exact name,
+    /// but rendering and recursive prewarm fail closed.
+    pub has_invalid_records: bool,
+}
+
+/// One rigid HMODEL node evaluated in its own default HTree pose.
+///
+/// The transform is local to the instantiated HMODEL.  The renderer composes
+/// the parent render-object world transform before this pivot transform,
+/// matching `HLodClass::Update_Sub_Object_Transforms`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct W3dHmodelNodePose {
+    pub name: String,
+    pub bone_index: u32,
+    pub parent_transform: Mat4,
+}
+
+/// One valid HMODEL `SKIN_NODE` connection bound to its owning HTree.
+///
+/// The connection's `bone_index` validates that the node belongs to the
+/// HMODEL tree, but it is not an outer mesh transform. C++ skin deformation
+/// reads every per-vertex bone from the container HTree; the caller must keep
+/// the HMODEL attachment root separate from this local palette.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct W3dHmodelSkinNodeBinding {
+    pub name: String,
+    pub bone_index: u32,
 }
 
 /// One exact validated C++ `WeaponBarrelInfo`-shaped hierarchy binding.
@@ -289,6 +457,16 @@ fn next_w3d_chunk<'a>(
     }))
 }
 
+/// Match `HModelDefClass::Load_W3D`'s `strncpy(..., W3D_NAME_LEN)` followed
+/// by an unconditional `buffer[W3D_NAME_LEN - 1] = 0`. HMODEL header names
+/// therefore retain at most fifteen source bytes even when a malformed fixed
+/// field lacks a terminator; using the generic sixteen-byte W3D helper here
+/// would create a prototype name C++ never registers.
+fn hmodel_cxx_header_name(bytes: &[u8]) -> String {
+    let capped_len = bytes.len().min(W3D_NAME_LEN.saturating_sub(1));
+    w3d_string_from_bytes(&bytes[..capped_len])
+}
+
 /// Animation channel targeting a specific bone. C++ parity: animation channel data
 #[derive(Debug, Clone)]
 pub struct W3dAnimChannel {
@@ -318,11 +496,10 @@ pub struct W3dRawVisibilityChannel {
 }
 
 impl W3dRawVisibilityChannel {
-    /// Match `BitChannelClass::Get_Bit` exactly: the frame is truncated by
-    /// `HRawAnimClass::Get_Visibility`, then bit zero is the low bit of the
-    /// first source byte.
-    fn visible_at(&self, frame: f32) -> bool {
-        let frame = frame as i32;
+    /// Match `BitChannelClass::Get_Bit` exactly: the caller supplies the
+    /// integer raw-HAnim frame, then bit zero is the low bit of the first
+    /// source byte.
+    fn visible_at(&self, frame: i32) -> bool {
         let first_frame = i32::from(self.first_frame);
         let last_frame = i32::from(self.last_frame);
         if frame < first_frame || frame > last_frame {
@@ -377,9 +554,21 @@ impl W3dAnimation {
     /// compressed/malformed `BIT_CHANNEL_VIS` means Main cannot safely decide
     /// whether that child should be drawn.
     fn visibility_for_pivot(&self, pivot: usize, frame: f32) -> Option<bool> {
-        if !frame.is_finite() {
-            return None;
+        // `HTreeClass::{Base,Anim}_Update` overwrites pivot zero with the
+        // external RenderObj root and forces it visible before it considers
+        // any source HAnim data.  Its raw W3D visibility channel (including a
+        // compressed or malformed one) therefore cannot hide the object root.
+        if pivot == 0 {
+            return Some(true);
         }
+        let frame = if self.source_is_compressed {
+            if !frame.is_finite() || frame < i32::MIN as f32 || frame > i32::MAX as f32 {
+                return None;
+            }
+            frame as i32
+        } else {
+            self.raw_frame_index(frame)?
+        };
         let pivot = u16::try_from(pivot).ok()?;
         if self
             .unsupported_visibility_pivots
@@ -400,6 +589,27 @@ impl W3dAnimation {
             // `HRawAnimClass::Get_Visibility` defaults to visible when this
             // animation has no visibility channel for the requested pivot.
             .or(Some(true))
+    }
+
+    /// Generals routes raw W3D HAnims through its specialized
+    /// `HTreeClass::Anim_Update(HRawAnimClass*, frame)`: `Float_To_Long`
+    /// obtains one integer frame, then a value at or beyond `NumFrames`
+    /// wraps to zero.  The game sets x87 rounding to `_RC_NEAR`, so ties use
+    /// nearest-even rather than Rust's truncation/cast behavior.  Negative
+    /// frames intentionally remain negative; raw channels then provide their
+    /// C++ identity/default values.
+    fn raw_frame_index(&self, frame: f32) -> Option<i32> {
+        if !frame.is_finite() || self.num_frames == 0 {
+            return None;
+        }
+        let rounded = frame.round_ties_even();
+        if rounded < i32::MIN as f32 || rounded > i32::MAX as f32 {
+            return None;
+        }
+        let frame = rounded as i32;
+        (frame >= i32::try_from(self.num_frames).ok()?)
+            .then_some(0)
+            .or(Some(frame))
     }
 }
 
@@ -809,6 +1019,28 @@ impl W3DMesh {
             .filter(|name| !name.is_empty())
     }
 
+    /// Whether this source mesh has a complete, safe skin declaration for an
+    /// HMODEL palette of `palette_len` pivots.
+    ///
+    /// C++ `MeshGeometryClass::read_vertex_influences` reads exactly one
+    /// `W3dVertInfStruct` per vertex and sets `SKIN` only after that succeeds.
+    /// Until Main's importer retains that exact chunk, an HMODEL `SKIN_NODE`
+    /// must stay absent rather than drawing the mesh with a guessed rigid
+    /// transform or palette. Every influence must also address the HMODEL's
+    /// own palette; a foreign/out-of-range bone is not recoverable safely.
+    pub fn has_complete_skin_influences_for_palette(&self, palette_len: usize) -> bool {
+        if palette_len == 0 || self.vertices.is_empty() {
+            return false;
+        }
+        let Some(influences) = self.vertex_influences.as_ref() else {
+            return false;
+        };
+        influences.len() == self.vertices.len()
+            && influences
+                .iter()
+                .all(|influence| usize::from(influence.bone_idx) < palette_len)
+    }
+
     pub fn stage_texture_names_from_ids(
         &self,
         pass_index: usize,
@@ -838,10 +1070,22 @@ pub struct W3DModel {
     pub bounding_box_min: Vec3,
     pub bounding_box_max: Vec3,
     pub hierarchy: Option<W3dHierarchy>,
-    /// Source-authored HLOD records.  A model with unsupported multi-LOD or
-    /// aggregate/proxy data remains non-rendering rather than flattening every
-    /// group into one visible model.
+    /// Every source HTree retained from this exact W3D file in C++ load
+    /// order. `hierarchy` remains the legacy whole-model selection used by
+    /// existing draw paths; HMODEL definitions resolve their explicitly named
+    /// HTree from this source set instead of borrowing that convenience field.
+    pub hierarchies: Vec<W3dHierarchy>,
+    /// Source-authored HLOD records. Main supports the C++ constructor-time
+    /// static level for one rigid HLOD. Multiple independent HLODs remain
+    /// non-rendering rather than flattening every group into one visible
+    /// model; external aggregates resolve independently and proxies remain
+    /// retained non-rendering application metadata.
     pub hlods: Vec<W3dHlod>,
+    /// Source HMODEL definitions registered as their own C++ render-object
+    /// prototypes. They must not be flattened into `meshes`: each instance
+    /// owns the HTree named by its definition and attaches its node records at
+    /// their authored pivots.
+    pub hmodels: Vec<W3dHmodel>,
     /// A malformed HLOD must not silently fall back to generic mesh rendering:
     /// that would falsely claim a usable hierarchy/binding relationship.
     pub hlod_parse_failed: bool,
@@ -859,9 +1103,320 @@ impl W3DModel {
             bounding_box_min: Vec3::splat(f32::MAX),
             bounding_box_max: Vec3::splat(f32::MIN),
             hierarchy: None,
+            hierarchies: Vec::new(),
             hlods: Vec::new(),
+            hmodels: Vec::new(),
             hlod_parse_failed: false,
             animations: Vec::new(),
+        }
+    }
+
+    /// Retain one C++ `HTreeManager` source record without changing the
+    /// legacy whole-model hierarchy selection. C++ preserves the first tree
+    /// registered under an exact case-insensitive name, while existing Main
+    /// rendering historically consults the most recently parsed `hierarchy`.
+    /// Keep both contracts explicit rather than letting an HMODEL borrow an
+    /// unrelated convenience value.
+    fn retain_source_hierarchy(&mut self, hierarchy: W3dHierarchy) {
+        let duplicate_source_name = self
+            .hierarchies
+            .iter()
+            .any(|existing| existing.name.eq_ignore_ascii_case(&hierarchy.name));
+        if !duplicate_source_name {
+            self.hierarchies.push(hierarchy.clone());
+        }
+        self.hierarchy = Some(hierarchy);
+    }
+
+    /// Return immutable HMODEL-definition snap points in their authored W3D
+    /// X/Y/Z basis.
+    ///
+    /// This is deliberately a source-definition query. Although
+    /// `HModelDefClass::Load_W3D` retains `W3D_CHUNK_POINTS`, retail
+    /// `HLodClass(HModelDefClass)` does not transfer that pointer to its own
+    /// `SnapPoints` member. Consequently this API must not be used as a
+    /// substitute for an active `RenderObjClass::Get_Snap_Point` call.
+    /// Malformed HMODEL topology stays fail-closed, just as C++ refuses to
+    /// register a prototype when its `Load_W3D` call fails.
+    pub fn hmodel_source_snap_points(&self, hmodel_index: usize) -> Option<&[W3dHmodelSnapPoint]> {
+        let hmodel = self.hmodels.get(hmodel_index)?;
+        (!hmodel.has_invalid_records).then_some(hmodel.source_snap_points.as_slice())
+    }
+
+    /// Return one immutable source snap point, if the exact HMODEL and point
+    /// index are valid. C++ indexes trusted source data directly; Main keeps
+    /// this query safe rather than manufacturing an out-of-range point.
+    pub fn hmodel_source_snap_point(
+        &self,
+        hmodel_index: usize,
+        point_index: usize,
+    ) -> Option<W3dHmodelSnapPoint> {
+        self.hmodel_source_snap_points(hmodel_index)?
+            .get(point_index)
+            .copied()
+    }
+
+    /// Evaluate the constructor-selected bind-pose render topology for one
+    /// exact C++ `HLodPrototypeClass` definition.
+    ///
+    /// `HLodLoaderClass` registers every `W3D_CHUNK_HLOD` independently and
+    /// `HLodPrototypeClass::Create` passes that exact `HLodDefClass` to the
+    /// constructor.  This API therefore accepts the immutable registry index
+    /// instead of selecting the first HLOD or treating a source W3D file as a
+    /// single aggregate.  The returned groups retain C++ render order:
+    /// constructor-selected LOD children first, then `AdditionalModels`.
+    ///
+    /// A newly created HLOD owns its own HTree in bind pose.  As in
+    /// `Animatable3DObjClass`, an empty or unavailable named HTree produces a
+    /// one-pivot identity default tree; it must never borrow a different
+    /// source HLOD's convenience hierarchy.  Malformed source topology,
+    /// out-of-range prototype indices, invalid child identities, and invalid
+    /// bone references fail closed at this isolated definition while valid
+    /// sibling definitions remain usable.
+    pub fn hlod_prototype_bind_pose(&self, hlod_index: usize) -> Option<W3dHlodPrototypeBindPose> {
+        if self.hlod_parse_failed {
+            return None;
+        }
+
+        let hlod = self.hlods.get(hlod_index)?;
+        if hlod.has_invalid_trailing_records
+            || hlod.name.is_empty()
+            || hlod.name.as_bytes().contains(&0)
+        {
+            return None;
+        }
+        let selected_lod = hlod
+            .lods
+            .get(Self::cxx_constructor_selected_hlod_lod_index(hlod)?)?;
+
+        let source_transforms = match self.source_hierarchy_for_hlod(hlod) {
+            Some(hierarchy) => compute_bind_pose_global_transforms(hierarchy)?,
+            // `Animatable3DObjClass::Animatable3DObjClass` calls
+            // `HTreeClass::Init_Default` for an empty or unavailable named
+            // hierarchy. Its single root is the render object's external
+            // transform, represented by identity until the caller composes it.
+            None => vec![Mat4::IDENTITY.to_cols_array()],
+        };
+
+        let pose_for_child = |child: &W3dHlodSubObject| {
+            if child.name.is_empty() || child.name.as_bytes().contains(&0) {
+                return None;
+            }
+            let bone_index = usize::try_from(child.bone_index)
+                .ok()
+                .filter(|index| *index < source_transforms.len())?;
+            let source_transform = source_transforms.get(bone_index).copied()?;
+            Some(W3dHlodAggregatePose {
+                name: child.name.clone(),
+                bone_index: child.bone_index,
+                parent_transform: Self::w3d_transform_to_render_basis(Mat4::from_cols_array(
+                    &source_transform,
+                )),
+                // Freshly constructed HLOD instances have no selected HAnim
+                // and their bind-pose HTree pivots are visible. Root zero is
+                // also forced visible by HTree.
+                visible: true,
+            })
+        };
+
+        let selected_lod_children = selected_lod
+            .subobjects
+            .iter()
+            .filter_map(|child| pose_for_child(child))
+            .collect();
+        let additional_models = hlod
+            .aggregates
+            .as_ref()
+            .map(|aggregates| {
+                aggregates
+                    .subobjects
+                    .iter()
+                    .filter_map(|child| pose_for_child(child))
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        Some(W3dHlodPrototypeBindPose {
+            selected_lod_children,
+            additional_models,
+        })
+    }
+
+    /// Return the local bind-pose palette for one independently constructed
+    /// C++ HMODEL instance.
+    ///
+    /// `HModelPrototypeClass::Create` builds `HLodClass(HModelDef)`, whose
+    /// `Animatable3DObjClass` owns the HTree named by this exact HMODEL. A
+    /// missing or empty named tree becomes C++'s one-pivot identity
+    /// `RootTransform`; it must never borrow another whole-file HTree or the
+    /// parent Drawable animation. The external HMODEL attachment transform is
+    /// intentionally not folded into this palette: `HTree::Base_Update` takes
+    /// that root separately at runtime.
+    pub fn hmodel_bind_pose_palette(&self, hmodel_index: usize) -> Option<Vec<Mat4>> {
+        let hmodel = self.hmodels.get(hmodel_index)?;
+        self.hmodel_bind_pose_source_transforms(hmodel)
+            .map(|transforms| {
+                transforms
+                    .into_iter()
+                    .map(|transform| {
+                        Self::w3d_transform_to_render_basis(Mat4::from_cols_array(&transform))
+                    })
+                    .collect()
+            })
+    }
+
+    /// Return the valid `SKIN_NODE` connections for one exact HMODEL.
+    ///
+    /// The connection pivot is validated against the HMODEL's own named or
+    /// default HTree, but is not returned as a mesh placement matrix. C++
+    /// deforms a skin with `Container->Get_HTree()` and then applies the
+    /// container's outer attachment only once. Invalid individual skin nodes
+    /// therefore skip without changing valid rigid sibling behavior.
+    pub fn hmodel_skin_node_bindings(
+        &self,
+        hmodel_index: usize,
+    ) -> Option<Vec<W3dHmodelSkinNodeBinding>> {
+        let palette_len = self.hmodel_bind_pose_palette(hmodel_index)?.len();
+        let hmodel = self.hmodels.get(hmodel_index)?;
+
+        Some(
+            hmodel
+                .nodes
+                .iter()
+                .filter(|node| {
+                    node.kind == W3dHmodelNodeKind::SkinNode
+                        && !node.name.is_empty()
+                        && !node.name.as_bytes().contains(&0)
+                        && usize::try_from(node.bone_index)
+                            .ok()
+                            .is_some_and(|bone_index| bone_index < palette_len)
+                })
+                .map(|node| W3dHmodelSkinNodeBinding {
+                    name: node.name.clone(),
+                    bone_index: node.bone_index,
+                })
+                .collect(),
+        )
+    }
+
+    /// Evaluate the rigid NODE/COLLISION_NODE records of one C++ HMODEL in
+    /// its independently instantiated default HTree pose.
+    ///
+    /// `HModelPrototypeClass::Create` constructs `HLodClass(HModelDef)`, and
+    /// `Animatable3DObjClass` clones the HTree named by the definition. If
+    /// that named tree cannot be found, C++ initializes a one-pivot identity
+    /// `RootTransform`; keep that exact fallback rather than borrowing a
+    /// different whole-file hierarchy. SKIN_NODE records use
+    /// [`Self::hmodel_bind_pose_palette`] instead because their mesh placement
+    /// is the outer HMODEL attachment, not their connection bone.
+    pub fn hmodel_rigid_node_poses(&self, hmodel_index: usize) -> Option<Vec<W3dHmodelNodePose>> {
+        let hmodel = self.hmodels.get(hmodel_index)?;
+        let source_transforms = self.hmodel_bind_pose_source_transforms(hmodel)?;
+
+        let mut poses = Vec::new();
+        for node in &hmodel.nodes {
+            if !node.kind.is_currently_rigid()
+                || node.name.is_empty()
+                || node.name.as_bytes().contains(&0)
+            {
+                continue;
+            }
+            let Some(bone_index) = usize::try_from(node.bone_index)
+                .ok()
+                .filter(|index| *index < source_transforms.len())
+            else {
+                // C++'s trusted-data implementation would later address this
+                // HTree pivot. Keep valid sibling connections independent and
+                // skip only this unsafe child.
+                continue;
+            };
+            let Some(source_transform) = source_transforms.get(bone_index).copied() else {
+                continue;
+            };
+            poses.push(W3dHmodelNodePose {
+                name: node.name.clone(),
+                bone_index: node.bone_index,
+                parent_transform: Self::w3d_transform_to_render_basis(Mat4::from_cols_array(
+                    &source_transform,
+                )),
+            });
+        }
+        Some(poses)
+    }
+
+    /// Resolve only the HTree explicitly named by one HLOD definition.
+    ///
+    /// `Animatable3DObjClass` falls back to its default one-root HTree when
+    /// the source name is empty or cannot be found. Returning `None` here
+    /// intentionally represents that exact fallback; callers must not select
+    /// the legacy convenience hierarchy merely because it happens to be from
+    /// another HLOD in the same source W3D file.
+    fn source_hierarchy_for_hlod(&self, hlod: &W3dHlod) -> Option<&W3dHierarchy> {
+        (!hlod.hierarchy_name.is_empty())
+            .then(|| {
+                self.hierarchies
+                    .iter()
+                    .find(|hierarchy| {
+                        hierarchy
+                            .name
+                            .eq_ignore_ascii_case(hlod.hierarchy_name.as_str())
+                    })
+                    // Older hand-built fixtures may retain only the legacy
+                    // field. It remains valid only when it names this exact
+                    // HLOD's requested HTree.
+                    .or_else(|| {
+                        self.hierarchy.as_ref().filter(|hierarchy| {
+                            hierarchy
+                                .name
+                                .eq_ignore_ascii_case(hlod.hierarchy_name.as_str())
+                        })
+                    })
+            })
+            .flatten()
+    }
+
+    /// Resolve only the HTree explicitly named by an HMODEL definition. The
+    /// current source model can carry several HTree records; matching the
+    /// convenience `hierarchy` field by position would change C++ ownership.
+    fn source_hierarchy_for_hmodel(&self, hmodel: &W3dHmodel) -> Option<&W3dHierarchy> {
+        (!hmodel.hierarchy_name.is_empty())
+            .then(|| {
+                self.hierarchies
+                    .iter()
+                    .find(|hierarchy| {
+                        hierarchy
+                            .name
+                            .eq_ignore_ascii_case(hmodel.hierarchy_name.as_str())
+                    })
+                    // Hand-built source fixtures from older callers may only
+                    // populate the legacy field. It is usable only when it
+                    // names this exact HMODEL hierarchy.
+                    .or_else(|| {
+                        self.hierarchy.as_ref().filter(|hierarchy| {
+                            hierarchy
+                                .name
+                                .eq_ignore_ascii_case(hmodel.hierarchy_name.as_str())
+                        })
+                    })
+            })
+            .flatten()
+    }
+
+    /// Produce the source-space local HTree bind pose for one valid HMODEL.
+    /// Keep this shared by rigid placement and skin palette construction so a
+    /// named/default hierarchy decision cannot drift between the two paths.
+    fn hmodel_bind_pose_source_transforms(&self, hmodel: &W3dHmodel) -> Option<Vec<[f32; 16]>> {
+        if hmodel.has_invalid_records
+            || hmodel.name.is_empty()
+            || hmodel.name.as_bytes().contains(&0)
+        {
+            return None;
+        }
+
+        match self.source_hierarchy_for_hmodel(hmodel) {
+            Some(hierarchy) => compute_bind_pose_global_transforms(hierarchy),
+            // `Animatable3DObjClass::Init_Default`: one visible identity root.
+            None => Some(vec![Mat4::IDENTITY.to_cols_array()]),
         }
     }
 
@@ -901,9 +1456,10 @@ impl W3DModel {
     /// for one mesh at the requested animation frame.
     ///
     /// `None` means the mesh is not renderable through the source HLOD data:
-    /// malformed HLOD, multiple HLODs/LODs without a selector, aggregates/proxies,
-    /// an unresolved child identity, an invalid bone, or an unsupported
-    /// compressed visibility channel all fail closed. Models without HLOD
+    /// malformed HLOD, multiple independent HLODs, an unresolved selected-level
+    /// child identity, an invalid bone, or an unsupported compressed visibility
+    /// channel all fail closed. Aggregate children are resolved independently;
+    /// their absence must not suppress valid parent geometry. Models without HLOD
     /// metadata preserve their existing local mesh transform and remain visible.
     ///
     /// An absent `animation_index` is deliberately a bind-pose request, not a
@@ -958,7 +1514,7 @@ impl W3DModel {
             let visible = animation.visibility_for_pivot(bone_index, animation_frame)?;
             (source_transform, visible)
         } else {
-            let source_transform = compute_bind_pose_global_transforms(hierarchy)
+            let source_transform = compute_bind_pose_global_transforms(hierarchy)?
                 .get(bone_index)
                 .copied()?;
             (source_transform, true)
@@ -968,6 +1524,342 @@ impl W3DModel {
             Self::w3d_transform_to_render_basis(Mat4::from_cols_array(&source_transform)),
             visible,
         ))
+    }
+
+    /// Resolve each source aggregate's parent-bone pose for the frozen HAnim
+    /// selection. This is the CPU-side equivalent of C++
+    /// `HLodClass::Update_Sub_Object_Transforms` for `AdditionalModels`:
+    /// each independently loaded child receives the exact parent HTree
+    /// transform and animation-hidden state.
+    ///
+    /// This does not make aggregate models renderable by itself. The caller
+    /// must resolve each `name` as an external render object, skip a missing
+    /// asset or invalid bone individually, and compose `parent_transform`
+    /// beneath the parent item world transform. Keeping that work separate
+    /// prevents a source aggregate from being flattened into an unrelated
+    /// parent mesh or substituted with a debug fallback.
+    pub fn aggregate_attachment_poses_for_binding(
+        &self,
+        animation_binding: Option<&W3dAnimationBinding>,
+        animation_frame: f32,
+    ) -> Option<Vec<W3dHlodAggregatePose>> {
+        self.aggregate_attachment_poses_for_binding_and_capture_controls(
+            animation_binding,
+            animation_frame,
+            &[],
+        )
+    }
+
+    /// As [`Self::aggregate_attachment_poses_for_binding`], but applies the
+    /// ordered source-space C++ `Capture_Bone`/`Control_Bone` transforms that
+    /// the current Draw module installed before `HLodClass` updates its
+    /// `AdditionalModels`. This is necessary for an aggregate on a turret,
+    /// recoil, or wrapper-controlled pivot to inherit that exact current pose.
+    pub fn aggregate_attachment_poses_for_binding_and_capture_controls(
+        &self,
+        animation_binding: Option<&W3dAnimationBinding>,
+        animation_frame: f32,
+        capture_bone_controls: &[(i32, Mat4)],
+    ) -> Option<Vec<W3dHlodAggregatePose>> {
+        let (hlod, _lod, hierarchy) = self.static_hlod_parent_context()?;
+        let aggregates = hlod.aggregates.as_ref()?;
+        let local_transforms =
+            self.local_transforms_for_animation_binding(animation_binding, animation_frame)?;
+        let mut controls = vec![None; hierarchy.pivots.len()];
+        let mut captured_pivots = vec![false; hierarchy.pivots.len()];
+        for (raw_index, transform) in capture_bone_controls {
+            let index = usize::try_from(*raw_index)
+                .ok()
+                .filter(|index| *index != 0 && *index < hierarchy.pivots.len())?;
+            if !Self::capture_control_transform_is_affine(*transform) {
+                return None;
+            }
+            // C++ `Control_Bone` replaces prior controls for the same pivot.
+            controls[index] = Some(transform.to_cols_array());
+            captured_pivots[index] = true;
+        }
+        let source_transforms = compute_htree_global_transforms_from_locals_with_capture_controls(
+            hierarchy,
+            &local_transforms,
+            &controls,
+        )?;
+        let animation = animation_binding.and_then(|binding| binding.animation(self));
+        if animation_binding.is_some() && animation.is_none() {
+            return None;
+        }
+
+        let mut poses = Vec::with_capacity(aggregates.subobjects.len());
+        for aggregate in &aggregates.subobjects {
+            let Some(bone_index) = usize::try_from(aggregate.bone_index)
+                .ok()
+                .filter(|index| *index < hierarchy.pivots.len())
+            else {
+                // C++ `Add_Sub_Object_To_Bone` skips an aggregate with an
+                // invalid bone and keeps the remaining parent HLOD intact.
+                continue;
+            };
+            let Some(source_transform) = source_transforms.get(bone_index).copied() else {
+                continue;
+            };
+            // HTree forces a captured pivot visible after it applies the
+            // control. Its root is also always visible; neither uses a raw
+            // pivot-zero visibility channel.
+            let visible = if bone_index == 0 || captured_pivots[bone_index] {
+                true
+            } else {
+                match animation {
+                    Some(animation) => {
+                        animation.visibility_for_pivot(bone_index, animation_frame)?
+                    }
+                    None => true,
+                }
+            };
+            poses.push(W3dHlodAggregatePose {
+                name: aggregate.name.clone(),
+                bone_index: aggregate.bone_index,
+                parent_transform: Self::w3d_transform_to_render_basis(Mat4::from_cols_array(
+                    &source_transform,
+                )),
+                visible,
+            });
+        }
+        Some(poses)
+    }
+
+    /// As [`Self::aggregate_attachment_poses_for_binding`], with the same
+    /// primary-turret and recoil `Control_Bone` sequence used by a rigid
+    /// parent mesh. C++ `HLodClass::Update_Sub_Object_Transforms` reads the
+    /// parent HTree *after* `W3DModelDraw` has installed those controls, so an
+    /// `AdditionalModels` child on a turret or barrel must inherit them too.
+    ///
+    /// The bounded visual-control implementation remains restricted to the
+    /// same exact single-HLOD topology as the parent mesh helper. When that
+    /// control topology is unavailable or a recoil payload is malformed, use
+    /// the already-valid selected HAnim/bind pose rather than moving an
+    /// aggregate through guessed names or stale indices.
+    pub fn aggregate_attachment_poses_for_primary_turret_and_weapon_controls(
+        &self,
+        animation_binding: Option<&W3dAnimationBinding>,
+        animation_frame: f32,
+        primary_turret: &AuthoredDrawPrimaryTurret,
+        turret_angle_degrees: f32,
+        turret_pitch_degrees: f32,
+        weapon_controls: &[W3dWeaponVisualControl],
+    ) -> Option<Vec<W3dHlodAggregatePose>> {
+        let fallback =
+            self.aggregate_attachment_poses_for_binding(animation_binding, animation_frame)?;
+        let Some((_hlod, hierarchy)) = self.rigid_hlod_context() else {
+            return Some(fallback);
+        };
+
+        let mut capture_controls = Vec::new();
+        if primary_turret.primary_fields_valid && !primary_turret.has_unsupported_alternate_turret()
+        {
+            if let Some((bone_index, transform)) = primary_turret
+                .yaw_bone
+                .as_deref()
+                .and_then(|bone_name| Self::primary_turret_pivot_index(hierarchy, bone_name))
+                .and_then(|bone_index| {
+                    Self::primary_turret_angle_radians(
+                        turret_angle_degrees,
+                        primary_turret.yaw_art_angle_radians(),
+                    )
+                    .map(|angle| (bone_index, Mat4::from_rotation_z(angle)))
+                })
+            {
+                capture_controls.push((i32::try_from(bone_index).ok()?, transform));
+            }
+            if let Some((bone_index, transform)) = primary_turret
+                .pitch_bone
+                .as_deref()
+                .and_then(|bone_name| Self::primary_turret_pivot_index(hierarchy, bone_name))
+                .and_then(|bone_index| {
+                    Self::primary_turret_angle_radians(
+                        turret_pitch_degrees,
+                        primary_turret.pitch_art_angle_radians(),
+                    )
+                    .map(|angle| (bone_index, Mat4::from_rotation_y(-angle)))
+                })
+            {
+                // `handleClientTurretPositioning` controls yaw before pitch.
+                // Preserve that order, including a malformed same-pivot
+                // source where pitch intentionally replaces yaw.
+                capture_controls.push((i32::try_from(bone_index).ok()?, transform));
+            }
+        }
+
+        for control in weapon_controls {
+            let Some(pivot_index) = control
+                .recoil_pivot_index
+                .and_then(|index| usize::try_from(index).ok())
+                .filter(|index| *index != 0 && *index < hierarchy.pivots.len())
+            else {
+                continue;
+            };
+            if !control.recoil_shift.is_finite() || control.recoil_shift < 0.0 {
+                return Some(fallback);
+            }
+            // `handleClientRecoil` runs after turret positioning. Its later
+            // slot/barrel control replaces an earlier control on the same
+            // source pivot, exactly as `HTreeClass::Control_Bone` does.
+            capture_controls.push((
+                i32::try_from(pivot_index).ok()?,
+                Mat4::from_translation(Vec3::new(-control.recoil_shift, 0.0, 0.0)),
+            ));
+        }
+
+        if capture_controls.is_empty() {
+            return Some(fallback);
+        }
+        self.aggregate_attachment_poses_for_binding_and_capture_controls(
+            animation_binding,
+            animation_frame,
+            &capture_controls,
+        )
+        .or(Some(fallback))
+    }
+
+    /// As [`Self::mesh_local_transform_and_visibility_for_binding`], with an
+    /// ordered C++ `HTreeClass::Capture_Bone` / `Control_Bone` control list
+    /// applied in source pivot space after HAnim locals and before children
+    /// inherit their parent's global transform.
+    ///
+    /// The controls originate in a frozen GameClient bridge submission. They
+    /// are deliberately index-only: an index is valid only against this exact
+    /// fresh hierarchy/HLOD, and malformed controls fail closed to the normal
+    /// selected pose rather than guessing a bone by name.
+    pub fn mesh_local_transform_and_visibility_for_binding_and_capture_controls(
+        &self,
+        mesh_index: usize,
+        animation_binding: Option<&W3dAnimationBinding>,
+        animation_frame: f32,
+        capture_bone_controls: &[(i32, Mat4)],
+    ) -> Option<(Mat4, bool)> {
+        let (fallback_transform, visible) = self.mesh_local_transform_and_visibility_for_binding(
+            mesh_index,
+            animation_binding,
+            animation_frame,
+        )?;
+        if capture_bone_controls.is_empty() {
+            return Some((fallback_transform, visible));
+        }
+
+        let Some(mesh_bone_index) = self.rigid_hlod_bone_index_for_mesh(mesh_index) else {
+            return Some((fallback_transform, visible));
+        };
+        let Some((_hlod, hierarchy)) = self.rigid_hlod_context() else {
+            return Some((fallback_transform, visible));
+        };
+        let Some(local_transforms) =
+            self.local_transforms_for_animation_binding(animation_binding, animation_frame)
+        else {
+            return Some((fallback_transform, visible));
+        };
+
+        let mut controls = vec![None; hierarchy.pivots.len()];
+        for (raw_index, transform) in capture_bone_controls {
+            let Some(index) = usize::try_from(*raw_index)
+                .ok()
+                .filter(|index| *index != 0 && *index < hierarchy.pivots.len())
+            else {
+                return Some((fallback_transform, visible));
+            };
+            if !Self::capture_control_transform_is_affine(*transform) {
+                return Some((fallback_transform, visible));
+            }
+            // `Control_Bone` replaces its captured pivot transform. Preserve
+            // the bridge order so duplicate controls retain C++ last-write
+            // wins semantics.
+            controls[index] = Some(transform.to_cols_array());
+        }
+
+        let Some(source_transform) =
+            compute_htree_global_transforms_from_locals_with_capture_controls(
+                hierarchy,
+                &local_transforms,
+                &controls,
+            )?
+            .get(mesh_bone_index)
+            .copied()
+        else {
+            return Some((fallback_transform, visible));
+        };
+        Some((
+            Self::w3d_transform_to_render_basis(Mat4::from_cols_array(&source_transform)),
+            visible,
+        ))
+    }
+
+    /// Produce a render-basis skin palette after the same validated C++ HTree
+    /// capture controls used by rigid HLOD children. Keeping this paired with
+    /// the mesh transform prevents a controlled rigid child and skinned
+    /// vertices from disagreeing in the forward pass.
+    pub fn animation_palette_for_binding_and_capture_controls(
+        &self,
+        animation_binding: Option<&W3dAnimationBinding>,
+        animation_frame: f32,
+        capture_bone_controls: &[(i32, Mat4)],
+    ) -> Option<Vec<Mat4>> {
+        if capture_bone_controls.is_empty() {
+            // Preserve the old, deliberate contract for ordinary Draw state:
+            // absent animation means bind pose and does not silently upload a
+            // local clip or a synthetic skin palette. C++ recoil controls are
+            // different: they operate on an HTree even with no HAnim, so the
+            // non-empty-control path below constructs that bind-pose palette.
+            let binding = animation_binding?;
+            return Some(
+                self.sample_animation_binding(binding, animation_frame)?
+                    .into_iter()
+                    .map(|transform| {
+                        Self::w3d_transform_to_render_basis(Mat4::from_cols_array(&transform))
+                    })
+                    .collect(),
+            );
+        }
+
+        // Raw bridge controls are only meaningful against the exact rigid
+        // HLOD/HTree topology that supplied their source pivot indices. A
+        // hierarchy alone is insufficient: accepting a stale index against a
+        // flattened or aggregate model can move unrelated geometry.
+        let (_hlod, hierarchy) = self.rigid_hlod_context()?;
+        let local_transforms =
+            self.local_transforms_for_animation_binding(animation_binding, animation_frame)?;
+
+        let mut controls = vec![None; hierarchy.pivots.len()];
+        for (raw_index, transform) in capture_bone_controls {
+            let index = usize::try_from(*raw_index)
+                .ok()
+                .filter(|index| *index != 0 && *index < hierarchy.pivots.len())?;
+            if !Self::capture_control_transform_is_affine(*transform) {
+                return None;
+            }
+            controls[index] = Some(transform.to_cols_array());
+        }
+        compute_htree_global_transforms_from_locals_with_capture_controls(
+            hierarchy,
+            &local_transforms,
+            &controls,
+        )
+        .map(|transforms| {
+            transforms
+                .into_iter()
+                .map(|transform| {
+                    Self::w3d_transform_to_render_basis(Mat4::from_cols_array(&transform))
+                })
+                .collect()
+        })
+    }
+
+    /// A bridge control is an HTree relative affine transform in source W3D
+    /// pivot space. Reject projective/non-finite payloads rather than letting
+    /// a malformed client submission affect the final GPU transform.
+    fn capture_control_transform_is_affine(transform: Mat4) -> bool {
+        const AFFINE_EPSILON: f32 = 1.0e-4;
+        transform.is_finite()
+            && transform.x_axis.w.abs() <= AFFINE_EPSILON
+            && transform.y_axis.w.abs() <= AFFINE_EPSILON
+            && transform.z_axis.w.abs() <= AFFINE_EPSILON
+            && (transform.w_axis.w - 1.0).abs() <= AFFINE_EPSILON
     }
 
     /// As [`Self::mesh_local_transform_and_visibility_for_binding`], with the
@@ -1113,13 +2005,15 @@ impl W3DModel {
             );
         }
 
-        let Some(source_transform) = compute_global_transforms_from_locals_with_capture_controls(
-            hierarchy,
-            &local_transforms,
-            &capture_controls,
-        )?
-        .get(mesh_bone_index)
-        .copied() else {
+        let Some(source_transform) =
+            compute_htree_global_transforms_from_locals_with_capture_controls(
+                hierarchy,
+                &local_transforms,
+                &capture_controls,
+            )?
+            .get(mesh_bone_index)
+            .copied()
+        else {
             return Some((fallback_transform, visible));
         };
         Some((
@@ -1241,7 +2135,7 @@ impl W3DModel {
             capture_controls[bone_index] = Some(transform);
         }
 
-        compute_global_transforms_from_locals_with_capture_controls(
+        compute_htree_global_transforms_from_locals_with_capture_controls(
             hierarchy,
             &local_transforms,
             &capture_controls,
@@ -1423,7 +2317,7 @@ impl W3DModel {
         else {
             return true;
         };
-        let Some((hlod, hierarchy)) = self.rigid_hlod_context() else {
+        let Some((hlod, lod, hierarchy)) = self.rigid_hlod_static_lod_context() else {
             return true;
         };
 
@@ -1433,7 +2327,7 @@ impl W3DModel {
         let mut visible = true;
         for directive in directives {
             let Some(target_subobject) =
-                Self::rigid_hlod_subobject_for_authored_directive(hlod, &directive.name)
+                Self::rigid_hlod_subobject_for_authored_directive(hlod, lod, &directive.name)
             else {
                 continue;
             };
@@ -1494,7 +2388,7 @@ impl W3DModel {
 
         let bone_index = self.rigid_hlod_bone_index_for_mesh(mesh_index)?;
         let hierarchy = self.hierarchy.as_ref()?;
-        let source_transform = compute_bind_pose_global_transforms(hierarchy)
+        let source_transform = compute_bind_pose_global_transforms(hierarchy)?
             .get(bone_index)
             .copied()?;
         Some(Self::w3d_transform_to_render_basis(Mat4::from_cols_array(
@@ -1522,7 +2416,7 @@ impl W3DModel {
         &self,
         mesh_index: usize,
     ) -> Option<(&W3dHlodSubObject, usize)> {
-        let (hlod, hierarchy) = self.rigid_hlod_context()?;
+        let (hlod, lod, hierarchy) = self.rigid_hlod_static_lod_context()?;
 
         let mesh = self.meshes.get(mesh_index)?;
         if mesh.container_name.is_empty()
@@ -1531,7 +2425,7 @@ impl W3DModel {
             return None;
         }
         let source_identity = format!("{}.{}", mesh.container_name, mesh.name);
-        let subobject = hlod.lods.first()?.subobjects.iter().find(|subobject| {
+        let subobject = lod.subobjects.iter().find(|subobject| {
             subobject
                 .name
                 .eq_ignore_ascii_case(source_identity.as_str())
@@ -1541,18 +2435,45 @@ impl W3DModel {
         (bone_index < hierarchy.pivots.len()).then_some((subobject, bone_index))
     }
 
-    /// The only HLOD topology active Main currently renders: one source HLOD,
-    /// exactly one selected LOD record, no aggregate/proxy attachment, and an
-    /// exact matching source hierarchy.  Every caller must preserve this gate
-    /// rather than treating flattened mesh names as a substitute.
-    fn rigid_hlod_context(&self) -> Option<(&W3dHlod, &W3dHierarchy)> {
-        if self.hlods.len() != 1 {
+    /// C++ `HLodClass` construction starts from `CurLod == 0`, calls
+    /// `Calculate_Cost_Value_Arrays(1.0f, ...)`, then raises it to the returned
+    /// minimum level.  It uses a strict `<` comparison against each ordered
+    /// `MaxScreenSize`; if every level is below one pixel, the final (highest
+    /// detail) level is selected.  The W3D exporter stores levels low-to-high.
+    ///
+    /// Generals' `RTS3DScene` explicitly disables its later dynamic
+    /// `Prepare_LOD`/optimizer calls, so this frozen construction selection is
+    /// the only HLOD selection Main may perform without inventing behavior.
+    /// Malformed thresholds fail closed instead of making an arbitrary level
+    /// visible.
+    fn cxx_constructor_selected_hlod_lod_index(hlod: &W3dHlod) -> Option<usize> {
+        let lods = &hlod.lods;
+        if lods.is_empty() || lods.iter().any(|lod| !lod.max_screen_size.is_finite()) {
+            return None;
+        }
+
+        let mut min_lod = 0;
+        while min_lod < lods.len() && lods[min_lod].max_screen_size < 1.0 {
+            min_lod += 1;
+        }
+        Some(min_lod.min(lods.len() - 1))
+    }
+
+    /// The source-valid parent HLOD/HTree topology shared by normal rigid
+    /// children and C++ `AdditionalModels`. Aggregate entries are deliberately
+    /// allowed here so their parent-bone poses can be prepared without
+    /// pretending their external geometry is already rendered.
+    fn static_hlod_parent_context(&self) -> Option<(&W3dHlod, &W3dHlodLod, &W3dHierarchy)> {
+        if self.hlod_parse_failed || self.hlods.len() != 1 {
             return None;
         }
         let hlod = self.hlods.first()?;
-        if hlod.lods.len() != 1 || hlod.has_unsupported_attachments {
+        if hlod.has_invalid_trailing_records {
             return None;
         }
+        let lod = hlod
+            .lods
+            .get(Self::cxx_constructor_selected_hlod_lod_index(hlod)?)?;
 
         let hierarchy = self.hierarchy.as_ref()?;
         if hlod.name.is_empty()
@@ -1563,7 +2484,31 @@ impl W3DModel {
         {
             return None;
         }
-        Some((hlod, hierarchy))
+        Some((hlod, lod, hierarchy))
+    }
+
+    /// The bounded rigid geometry topology that can safely use the C++
+    /// constructor-selected static level: one source HLOD, an exact matching
+    /// source hierarchy, and an intact selected level.
+    ///
+    /// `HLodClass` creates every aggregate independently. A missing aggregate
+    /// render object or an aggregate with an invalid parent bone does not
+    /// invalidate the selected parent LOD, so retained aggregate metadata must
+    /// never hide otherwise-valid parent geometry. Proxies likewise remain
+    /// non-rendering application data.
+    /// Every caller must preserve this gate rather than treating flattened
+    /// mesh names as a substitute.
+    fn rigid_hlod_static_lod_context(&self) -> Option<(&W3dHlod, &W3dHlodLod, &W3dHierarchy)> {
+        self.static_hlod_parent_context()
+    }
+
+    /// The deliberately narrower topology required by current turret/recoil
+    /// state.  Static multi-LOD geometry is safe above, but visual controls
+    /// still require a separately validated one-level HLOD rather than being
+    /// projected onto a selected level by inference.
+    fn rigid_hlod_context(&self) -> Option<(&W3dHlod, &W3dHierarchy)> {
+        let (hlod, _lod, hierarchy) = self.rigid_hlod_static_lod_context()?;
+        (hlod.lods.len() == 1).then_some((hlod, hierarchy))
     }
 
     /// Resolve C++ `RenderObjClass::Get_Sub_Object_By_Name` only through a
@@ -1573,13 +2518,14 @@ impl W3DModel {
     /// prefix, so no unrelated mesh-name suffix can become visibility authority.
     fn rigid_hlod_subobject_for_authored_directive<'a>(
         hlod: &'a W3dHlod,
+        lod: &'a W3dHlodLod,
         directive_name: &str,
     ) -> Option<&'a W3dHlodSubObject> {
         let directive_name = directive_name.trim();
         if directive_name.is_empty() {
             return None;
         }
-        let subobjects = &hlod.lods.first()?.subobjects;
+        let subobjects = &lod.subobjects;
         subobjects
             .iter()
             .find(|subobject| {
@@ -1762,20 +2708,21 @@ impl W3DModel {
     fn sample_animation_data(&self, anim: &W3dAnimation, frame: f32) -> Option<Vec<[f32; 16]>> {
         let hierarchy = self.hierarchy.as_ref()?;
         let local_transforms = sample_animation_local_transforms(hierarchy, anim, frame)?;
-        Some(compute_global_transforms_from_locals(
-            hierarchy,
-            &local_transforms,
-        ))
+        compute_htree_global_transforms_from_locals(hierarchy, &local_transforms)
     }
 }
 
 /// Build a column-major 4x4 matrix from a pivot's translation + quaternion rotation.
 /// Same logic as W3DLoader::mat4_from_tr_quat but operates on W3dPivot directly.
 fn mat4_from_pivot(pivot: &W3dPivot) -> [f32; 16] {
-    let x = pivot.rotation[0];
-    let y = pivot.rotation[1];
-    let z = pivot.rotation[2];
-    let w = pivot.rotation[3];
+    mat4_from_translation_and_quaternion(pivot.translation, pivot.rotation)
+}
+
+fn mat4_from_translation_and_quaternion(translation: [f32; 3], rotation: [f32; 4]) -> [f32; 16] {
+    let x = rotation[0];
+    let y = rotation[1];
+    let z = rotation[2];
+    let w = rotation[3];
     let xx = x * x;
     let yy = y * y;
     let zz = z * z;
@@ -1794,17 +2741,164 @@ fn mat4_from_pivot(pivot: &W3dPivot) -> [f32; 16] {
     let m20 = 2.0 * (xz - wy);
     let m21 = 2.0 * (yz + wx);
     let m22 = 1.0 - 2.0 * (xx + yy);
-    let tx = pivot.translation[0];
-    let ty = pivot.translation[1];
-    let tz = pivot.translation[2];
+    let tx = translation[0];
+    let ty = translation[1];
+    let tz = translation[2];
     [
         m00, m10, m20, 0.0, m01, m11, m21, 0.0, m02, m12, m22, 0.0, tx, ty, tz, 1.0,
     ]
 }
 
-/// Replace the 3×3 rotation part of a column-major 4x4 matrix with the given quaternion.
-/// Translation is preserved.
-fn apply_quat_to_transform(m: &mut [f32; 16], qx: f32, qy: f32, qz: f32, qw: f32) {
+/// Build source-space HTree local transforms for the selected W3D animation.
+///
+/// Generals runs ordinary raw W3D animations through its specialized
+/// `HTreeClass::Anim_Update(HRawAnimClass*, ...)`, not the generic interpolated
+/// HAnim path.  Keep the existing compressed-channel implementation isolated:
+/// that format takes the generic path and must not silently inherit raw-frame
+/// behavior merely because both records share [`W3dAnimation`].
+fn sample_animation_local_transforms(
+    hierarchy: &W3dHierarchy,
+    anim: &W3dAnimation,
+    frame: f32,
+) -> Option<Vec<[f32; 16]>> {
+    if anim.source_is_compressed {
+        return sample_compressed_animation_local_transforms(hierarchy, anim, frame);
+    }
+
+    if !frame.is_finite() {
+        return None;
+    }
+    let raw_frame = anim.raw_frame_index(frame)?;
+    let mut local_transforms: Vec<[f32; 16]> =
+        hierarchy.pivots.iter().map(mat4_from_pivot).collect();
+    let mut motion_channels: Vec<[Option<&W3dAnimChannel>; 4]> =
+        vec![[None; 4]; hierarchy.pivots.len()];
+
+    // `HRawAnimClass::add_channel` keeps one X/Y/Z/Q pointer per pivot and
+    // replaces an earlier pointer for the same channel kind.  Preserve that
+    // exact final-source-record authority rather than sequentially composing
+    // duplicate W3D chunks.
+    for channel in &anim.channels {
+        let Some(slot) = raw_motion_channel_slot(channel.flags) else {
+            continue;
+        };
+        let pivot_index = usize::from(channel.pivot);
+        if pivot_index < motion_channels.len() {
+            motion_channels[pivot_index][slot] = Some(channel);
+        }
+    }
+
+    // C++ sets pivot zero to the external RenderObj root and begins the raw
+    // node-motion walk at one. Source pivot-zero channels are intentionally
+    // not sampled, including malformed ones.
+    for pivot_index in 1..local_transforms.len() {
+        let channels = motion_channels[pivot_index];
+        let translation = [
+            raw_scalar_channel_value(channels[0], raw_frame)?,
+            raw_scalar_channel_value(channels[1], raw_frame)?,
+            raw_scalar_channel_value(channels[2], raw_frame)?,
+        ];
+        let rotation = raw_quaternion_channel_value(channels[3], raw_frame)?;
+
+        // `HTreeClass::Anim_Update(HRawAnimClass*)` first obtains
+        // parent * BaseTransform, then Matrix3D::Translate and postMul(q).
+        // Associativity permits the local equivalent here: Base * T * Q;
+        // the shared HTree evaluator supplies the parent afterward.
+        let with_translation = mat4_mul(
+            &local_transforms[pivot_index],
+            &mat4_from_translation(translation),
+        );
+        local_transforms[pivot_index] =
+            mat4_mul(&with_translation, &mat4_from_quaternion(rotation));
+    }
+
+    Some(local_transforms)
+}
+
+/// The compact source `ANIM_CHANNEL_*` kinds that the Generals raw HAnim path
+/// installs in one `NodeMotionStruct`. Other raw motion kinds are retained by
+/// the parser but are not consumed by the specialized game update path.
+fn raw_motion_channel_slot(flags: u16) -> Option<usize> {
+    match flags {
+        0 => Some(0),
+        1 => Some(1),
+        2 => Some(2),
+        6 => Some(3),
+        _ => None,
+    }
+}
+
+/// `MotionChannelClass::Get_Vector` returns scalar zero outside an authored
+/// range. A malformed scalar record is not source-usable, so fail the pose
+/// rather than treating a truncated payload as a real zero channel.
+fn raw_scalar_channel_value(channel: Option<&W3dAnimChannel>, frame: i32) -> Option<f32> {
+    let Some(channel) = channel else {
+        return Some(0.0);
+    };
+    if channel.vector_len != 1 || channel.last_frame < channel.first_frame {
+        return None;
+    }
+    let first = i32::from(channel.first_frame);
+    let last = i32::from(channel.last_frame);
+    if frame < first || frame > last {
+        return Some(0.0);
+    }
+    let index = usize::try_from(frame - first).ok()?;
+    channel.data.get(index).copied()
+}
+
+/// `MotionChannelClass::Get_Vector_As_Quat` returns the identity quaternion
+/// outside an authored range and does not normalize authored raw values.
+fn raw_quaternion_channel_value(channel: Option<&W3dAnimChannel>, frame: i32) -> Option<[f32; 4]> {
+    let Some(channel) = channel else {
+        return Some([0.0, 0.0, 0.0, 1.0]);
+    };
+    if channel.vector_len != 4 || channel.last_frame < channel.first_frame {
+        return None;
+    }
+    let first = i32::from(channel.first_frame);
+    let last = i32::from(channel.last_frame);
+    if frame < first || frame > last {
+        return Some([0.0, 0.0, 0.0, 1.0]);
+    }
+    let index = usize::try_from(frame - first).ok()?.checked_mul(4)?;
+    Some([
+        *channel.data.get(index)?,
+        *channel.data.get(index + 1)?,
+        *channel.data.get(index + 2)?,
+        *channel.data.get(index + 3)?,
+    ])
+}
+
+fn mat4_from_translation(translation: [f32; 3]) -> [f32; 16] {
+    [
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        translation[0],
+        translation[1],
+        translation[2],
+        1.0,
+    ]
+}
+
+fn mat4_from_quaternion(rotation: [f32; 4]) -> [f32; 16] {
+    mat4_from_translation_and_quaternion([0.0; 3], rotation)
+}
+
+/// Preserve the pre-existing generic compressed-HAnim behavior verbatim.
+/// Raw HAnim deliberately uses local post-composition instead; this helper is
+/// not part of Generals' specialized raw path.
+fn replace_rotation_preserving_translation(m: &mut [f32; 16], qx: f32, qy: f32, qz: f32, qw: f32) {
     let xx = qx * qx;
     let yy = qy * qy;
     let zz = qz * qz;
@@ -1814,22 +2908,21 @@ fn apply_quat_to_transform(m: &mut [f32; 16], qx: f32, qy: f32, qz: f32, qw: f32
     let wx = qw * qx;
     let wy = qw * qy;
     let wz = qw * qz;
-    m[0] = 1.0 - 2.0 * (yy + zz); // col0 row0
-    m[1] = 2.0 * (xy + wz); // col0 row1
-    m[2] = 2.0 * (xz - wy); // col0 row2
-    m[4] = 2.0 * (xy - wz); // col1 row0
-    m[5] = 1.0 - 2.0 * (xx + zz); // col1 row1
-    m[6] = 2.0 * (yz + wx); // col1 row2
-    m[8] = 2.0 * (xz + wy); // col2 row0
-    m[9] = 2.0 * (yz - wx); // col2 row1
-    m[10] = 1.0 - 2.0 * (xx + yy); // col2 row2
+    m[0] = 1.0 - 2.0 * (yy + zz);
+    m[1] = 2.0 * (xy + wz);
+    m[2] = 2.0 * (xz - wy);
+    m[4] = 2.0 * (xy - wz);
+    m[5] = 1.0 - 2.0 * (xx + zz);
+    m[6] = 2.0 * (yz + wx);
+    m[8] = 2.0 * (xz + wy);
+    m[9] = 2.0 * (yz - wx);
+    m[10] = 1.0 - 2.0 * (xx + yy);
 }
 
-/// Build source-space HTree local transforms after the selected raw HAnim
-/// channels have updated the source pivots. The result remains local so C++
-/// Capture_Bone/Control_Bone callers can inject one exact pivot transform
-/// before its descendants' global matrices are evaluated.
-fn sample_animation_local_transforms(
+/// Existing generic compressed-HAnim local-channel behavior. The source
+/// compressed decoder is independently incomplete, but its current support
+/// must not be reinterpreted through Generals' raw HAnim specialization.
+fn sample_compressed_animation_local_transforms(
     hierarchy: &W3dHierarchy,
     anim: &W3dAnimation,
     frame: f32,
@@ -1841,12 +2934,12 @@ fn sample_animation_local_transforms(
         hierarchy.pivots.iter().map(mat4_from_pivot).collect();
 
     for channel in &anim.channels {
-        let pivot_idx = channel.pivot as usize;
+        let pivot_idx = usize::from(channel.pivot);
         if pivot_idx >= local_transforms.len() {
             continue;
         }
 
-        let values = sample_channel(channel, frame);
+        let values = sample_compressed_channel(channel, frame);
 
         match channel.flags {
             0 => {
@@ -1865,11 +2958,13 @@ fn sample_animation_local_transforms(
                 }
             }
             6 if values.len() >= 4 => {
-                let qx = values[0];
-                let qy = values[1];
-                let qz = values[2];
-                let qw = values[3];
-                apply_quat_to_transform(&mut local_transforms[pivot_idx], qx, qy, qz, qw);
+                replace_rotation_preserving_translation(
+                    &mut local_transforms[pivot_idx],
+                    values[0],
+                    values[1],
+                    values[2],
+                    values[3],
+                );
             }
             _ => {}
         }
@@ -1880,7 +2975,7 @@ fn sample_animation_local_transforms(
 
 /// Interpolate an animation channel at the given continuous frame value.
 /// Returns the interpolated values (1 for scalar channels, 4 for quaternion).
-fn sample_channel(channel: &W3dAnimChannel, frame: f32) -> Vec<f32> {
+fn sample_compressed_channel(channel: &W3dAnimChannel, frame: f32) -> Vec<f32> {
     let first = channel.first_frame as f32;
     let last = channel.last_frame as f32;
 
@@ -1941,70 +3036,64 @@ fn sample_channel(channel: &W3dAnimChannel, frame: f32) -> Vec<f32> {
     result
 }
 
-/// Column-major 4x4 matrix multiply.
+/// Multiply two source W3D affine transforms in C++ `Matrix3D::Multiply`
+/// order: `a * b`.
+///
+/// Source `Matrix3D` stores three logical rows and transforms column vectors;
+/// Main retains that same transform in glam's column-major array layout.  Do
+/// not use the old row/column-swapped loop here: it evaluated `b * a`, which
+/// happens to pass translation-only fixtures but makes a child translation
+/// ignore its rotated parent.  Keeping the three-by-four arithmetic explicit
+/// also matches C++'s affine multiplication rather than accidentally granting
+/// source HTree controls projective semantics.
 fn mat4_mul(a: &[f32; 16], b: &[f32; 16]) -> [f32; 16] {
     let mut r = [0.0; 16];
-    for i in 0..4 {
-        for j in 0..4 {
-            r[i * 4 + j] = a[i * 4] * b[j]
-                + a[i * 4 + 1] * b[4 + j]
-                + a[i * 4 + 2] * b[2 * 4 + j]
-                + a[i * 4 + 3] * b[3 * 4 + j];
+    for column in 0..3 {
+        for row in 0..3 {
+            r[column * 4 + row] = a[row] * b[column * 4]
+                + a[4 + row] * b[column * 4 + 1]
+                + a[8 + row] * b[column * 4 + 2];
         }
     }
+    for row in 0..3 {
+        r[12 + row] = a[row] * b[12] + a[4 + row] * b[13] + a[8 + row] * b[14] + a[12 + row];
+    }
+    r[15] = 1.0;
     r
 }
 
-/// Compute global bone transforms from local transforms by walking the parent chain.
-fn compute_global_transforms_from_locals(
-    hierarchy: &W3dHierarchy,
-    locals: &[[f32; 16]],
-) -> Vec<[f32; 16]> {
-    let n = hierarchy.pivots.len();
-    let mut globals: Vec<[f32; 16]> = vec![[0.0; 16]; n];
-    for i in 0..n {
-        let local = locals[i];
-        let g = if hierarchy.pivots[i].parent_idx != 0xFFFF_FFFF {
-            let p = hierarchy.pivots[i].parent_idx as usize;
-            mat4_mul(&globals[p], &local)
-        } else {
-            local
-        };
-        globals[i] = g;
-    }
-    globals
-}
-
-/// Source HTree global update with C++ `Capture_Bone`/`Control_Bone` ordering.
+/// C++ `HTreeClass::{Base,Anim}_Update` source-space globals for a model
+/// whose object/world transform is deliberately supplied by its caller.
 ///
-/// A control matrix post-multiplies the just-built global transform of its
-/// exact pivot. Later pivot indices that are descendants therefore inherit the
-/// controlled parent, matching HTree's Base/Anim_Update then Capture_Update
-/// traversal. Invalid parent ordering/cycles fail closed instead of reading a
-/// zero-filled not-yet-constructed parent transform.
-fn compute_global_transforms_from_locals_with_capture_controls(
+/// `HTreeClass` overwrites pivot zero with that external object root and forces
+/// it visible; it does not apply pivot-zero W3D bind/animation data. Main's
+/// aggregate pose API leaves the object transform outside so it can compose
+/// the parent RenderItem world matrix exactly once, therefore pivot zero is
+/// the identity here. All non-root pivots retain the ordinary ordered
+/// parent-local/capture update semantics.
+fn compute_htree_global_transforms_from_locals_with_capture_controls(
     hierarchy: &W3dHierarchy,
     locals: &[[f32; 16]],
     capture_controls: &[Option<[f32; 16]>],
 ) -> Option<Vec<[f32; 16]>> {
-    if locals.len() != hierarchy.pivots.len() || capture_controls.len() != hierarchy.pivots.len() {
+    if locals.len() != hierarchy.pivots.len()
+        || capture_controls.len() != hierarchy.pivots.len()
+        || hierarchy.pivots.is_empty()
+        || hierarchy.pivots[0].parent_idx != u32::MAX
+    {
         return None;
     }
 
     let mut globals: Vec<[f32; 16]> = vec![[0.0; 16]; hierarchy.pivots.len()];
-    for (pivot_index, pivot) in hierarchy.pivots.iter().enumerate() {
-        let mut global = if pivot.parent_idx != u32::MAX {
-            let parent_index = usize::try_from(pivot.parent_idx).ok()?;
-            // Source HTree stores parent pivots before children. Main has no
-            // separate recursive evaluator for malformed source ordering, so
-            // reject it rather than using a fabricated identity parent.
-            if parent_index >= pivot_index {
-                return None;
-            }
-            mat4_mul(&globals[parent_index], &locals[pivot_index])
-        } else {
-            locals[pivot_index]
-        };
+    globals[0] = Mat4::IDENTITY.to_cols_array();
+    for (pivot_index, pivot) in hierarchy.pivots.iter().enumerate().skip(1) {
+        let parent_index = usize::try_from(pivot.parent_idx).ok()?;
+        // Source HTree stores parent pivots before children. Main has no
+        // recursive malformed-order evaluator, so do not fabricate a parent.
+        if parent_index >= pivot_index {
+            return None;
+        }
+        let mut global = mat4_mul(&globals[parent_index], &locals[pivot_index]);
         if let Some(control) = capture_controls[pivot_index] {
             global = mat4_mul(&global, &control);
         }
@@ -2013,14 +3102,29 @@ fn compute_global_transforms_from_locals_with_capture_controls(
     Some(globals)
 }
 
+/// As [`compute_htree_global_transforms_from_locals_with_capture_controls`],
+/// without C++ `Capture_Bone` controls.  Every runtime HTree caller goes
+/// through this wrapper so pivot zero always remains the external object root
+/// rather than leaking W3D bind or HAnim-local data into child transforms.
+fn compute_htree_global_transforms_from_locals(
+    hierarchy: &W3dHierarchy,
+    locals: &[[f32; 16]],
+) -> Option<Vec<[f32; 16]>> {
+    compute_htree_global_transforms_from_locals_with_capture_controls(
+        hierarchy,
+        locals,
+        &vec![None; hierarchy.pivots.len()],
+    )
+}
+
 /// Compute the HTree bind-pose globals from source W3D pivot data.
 ///
 /// Both static rigid HLOD children and animation sampling use the same hierarchy
 /// convention.  Keeping this outside `W3DLoader` prevents a render-time HLOD
 /// binding from accidentally depending on loader-only state.
-fn compute_bind_pose_global_transforms(hierarchy: &W3dHierarchy) -> Vec<[f32; 16]> {
+fn compute_bind_pose_global_transforms(hierarchy: &W3dHierarchy) -> Option<Vec<[f32; 16]>> {
     let locals: Vec<[f32; 16]> = hierarchy.pivots.iter().map(mat4_from_pivot).collect();
-    compute_global_transforms_from_locals(hierarchy, &locals)
+    compute_htree_global_transforms_from_locals(hierarchy, &locals)
 }
 
 /// W3D model loader
@@ -2478,7 +3582,7 @@ impl W3DLoader {
                                 hierarchy.name,
                                 hierarchy.pivots.len()
                             );
-                            model.hierarchy = Some(hierarchy);
+                            model.retain_source_hierarchy(hierarchy);
                         }
                         Err(e) => warn!("Failed to parse hierarchy chunk: {}", e),
                     }
@@ -2531,9 +3635,14 @@ impl W3DLoader {
                 }
                 W3D_CHUNK_HMODEL => {
                     debug!("Found W3D hierarchical model chunk, size: {}", chunk_size);
-                    if is_container_chunk {
-                        if let Err(e) = self.parse_container_chunk(chunk_data, &mut model) {
-                            warn!("Failed to parse hierarchical model container: {}", e);
+                    if !is_container_chunk {
+                        warn!("HMODEL chunk is not a container; skipping unsafe prototype");
+                    } else {
+                        match self.parse_hmodel_chunk(chunk_data) {
+                            Ok(hmodel) => model.hmodels.push(hmodel),
+                            Err(error) => {
+                                warn!("Failed to parse HMODEL definition: {}", error);
+                            }
                         }
                     }
                 }
@@ -2609,18 +3718,19 @@ impl W3DLoader {
         if model.hlods.is_empty() && !model.hlod_parse_failed {
             if let Some(ref hierarchy) = model.hierarchy {
                 if !hierarchy.pivots.is_empty() {
-                    let globals = Self::compute_global_transforms(hierarchy);
-                    for mesh in &mut model.meshes {
-                        if mesh.transform != Mat4::IDENTITY {
-                            continue;
-                        }
-                        if let Some(pivot_idx) =
-                            hierarchy.pivots.iter().position(|p| p.name == mesh.name)
-                        {
-                            let global = &globals[pivot_idx];
-                            mesh.transform = W3DModel::w3d_transform_to_render_basis(
-                                Mat4::from_cols_array(global),
-                            );
+                    if let Some(globals) = Self::compute_global_transforms(hierarchy) {
+                        for mesh in &mut model.meshes {
+                            if mesh.transform != Mat4::IDENTITY {
+                                continue;
+                            }
+                            if let Some(pivot_idx) =
+                                hierarchy.pivots.iter().position(|p| p.name == mesh.name)
+                            {
+                                let global = &globals[pivot_idx];
+                                mesh.transform = W3DModel::w3d_transform_to_render_basis(
+                                    Mat4::from_cols_array(global),
+                                );
+                            }
                         }
                     }
                 }
@@ -2725,10 +3835,22 @@ impl W3DLoader {
                     debug!("Found hierarchy chunk in container, size: {}", chunk_size);
                     match self.parse_hierarchy_chunk(chunk_data) {
                         Ok(hierarchy) => {
-                            model.hierarchy = Some(hierarchy);
+                            model.retain_source_hierarchy(hierarchy);
                         }
                         Err(e) => {
                             warn!("Failed to parse hierarchy chunk in container: {}", e)
+                        }
+                    }
+                }
+                W3D_CHUNK_HMODEL => {
+                    if !is_container_chunk {
+                        warn!("Nested HMODEL chunk is not a container; skipping unsafe prototype");
+                    } else {
+                        match self.parse_hmodel_chunk(chunk_data) {
+                            Ok(hmodel) => model.hmodels.push(hmodel),
+                            Err(error) => {
+                                warn!("Failed to parse nested HMODEL definition: {}", error)
+                            }
                         }
                     }
                 }
@@ -2762,6 +3884,268 @@ impl W3DLoader {
         Ok(())
     }
 
+    /// Parse one C++ `HModelDefClass` source record.
+    ///
+    /// `HModelDefClass::Load_W3D` requires a header first, allocates exactly
+    /// `NumConnections` node records, and reads NODE, COLLISION_NODE, and
+    /// SKIN_NODE in source order. Under the original 32-bit MSVC ABI,
+    /// `sizeof(W3dHModelHeaderStruct)` is 40 (four-byte tail alignment) while
+    /// `sizeof(W3dHModelNodeStruct)` is exactly 18 (its largest member has
+    /// two-byte alignment). Preserve that asymmetrical wire shape instead of
+    /// accepting the unrelated u32 helper structs from other compatibility
+    /// crates.
+    fn parse_hmodel_chunk(&self, data: &[u8]) -> Result<W3dHmodel> {
+        const HMODEL_HEADER_SIZE: usize = 40;
+        const HMODEL_NODE_SIZE: usize = 18;
+        const MAX_HMODEL_CONNECTIONS: usize = 4096;
+
+        let mut offset = 0usize;
+        let header = next_w3d_chunk(data, &mut offset, "HMODEL header")?
+            .ok_or_else(|| anyhow!("HMODEL has no header"))?;
+        if header.chunk_type != W3D_CHUNK_HMODEL_HEADER || header.is_container {
+            return Err(anyhow!(
+                "HMODEL expected raw header 0x{W3D_CHUNK_HMODEL_HEADER:08X}, got 0x{:08X}, container={}",
+                header.chunk_type,
+                header.is_container
+            ));
+        }
+        if header.data.len() != HMODEL_HEADER_SIZE {
+            return Err(anyhow!(
+                "HMODEL header has wrong size: {} != {}",
+                header.data.len(),
+                HMODEL_HEADER_SIZE
+            ));
+        }
+
+        let version = u32::from_le_bytes(header.data[0..4].try_into().unwrap());
+        let name = hmodel_cxx_header_name(&header.data[4..4 + W3D_NAME_LEN]);
+        let hierarchy_name = hmodel_cxx_header_name(&header.data[4 + W3D_NAME_LEN..36]);
+        let declared_connection_count =
+            usize::from(u16::from_le_bytes(header.data[36..38].try_into().unwrap()));
+        if declared_connection_count > MAX_HMODEL_CONNECTIONS {
+            return Err(anyhow!(
+                "HMODEL '{}' declares {} connections, exceeding safe limit {}",
+                name,
+                declared_connection_count,
+                MAX_HMODEL_CONNECTIONS
+            ));
+        }
+
+        let mut nodes = Vec::with_capacity(declared_connection_count);
+        let mut source_snap_points = Vec::new();
+        let mut has_invalid_records = name.is_empty()
+            || name.as_bytes().contains(&0)
+            || hierarchy_name.as_bytes().contains(&0);
+
+        while let Some(record) = next_w3d_chunk(data, &mut offset, "HMODEL connection")? {
+            if record.chunk_type == W3D_CHUNK_POINTS {
+                // `SnapPointsClass::Load_W3D` uses `Cur_Chunk_Length() / 12`
+                // and reads that many raw W3dVectorStruct values. It does
+                // not consume a declared HMODEL connection, rejects no
+                // trailing byte remainder, and a later POINTS record replaces
+                // the definition-owned pointer. Keep all three properties.
+                source_snap_points = Self::parse_hmodel_source_snap_points(record.data);
+                continue;
+            }
+            let kind = match record.chunk_type {
+                W3D_CHUNK_HMODEL_NODE => W3dHmodelNodeKind::Node,
+                W3D_CHUNK_HMODEL_COLLISION_NODE => W3dHmodelNodeKind::CollisionNode,
+                W3D_CHUNK_HMODEL_SKIN_NODE => W3dHmodelNodeKind::SkinNode,
+                // Obsolete extension chunks do not define a child render
+                // object and must never become aliases.
+                _ => continue,
+            };
+            if record.is_container || record.data.len() != HMODEL_NODE_SIZE {
+                has_invalid_records = true;
+                continue;
+            }
+            if nodes.len() >= declared_connection_count {
+                has_invalid_records = true;
+                continue;
+            }
+
+            let Some(render_object_name_end) = record.data[..W3D_NAME_LEN]
+                .iter()
+                .position(|byte| *byte == 0)
+            else {
+                // `read_connection` uses `strcat` on this source field. A
+                // non-terminated sixteen-byte leaf is undefined behavior in
+                // C++; safe Main must not manufacture a wider alias from it.
+                has_invalid_records = true;
+                continue;
+            };
+            let render_object_name = w3d_string_from_bytes(&record.data[..render_object_name_end]);
+            let bone_index = u32::from(u16::from_le_bytes(
+                record.data[W3D_NAME_LEN..W3D_NAME_LEN + 2]
+                    .try_into()
+                    .unwrap(),
+            ));
+            if render_object_name.is_empty() || render_object_name.as_bytes().contains(&0) {
+                has_invalid_records = true;
+                continue;
+            }
+
+            // C++ `read_connection` always constructs the complete identity
+            // from the HMODEL header name and the node leaf, even for a
+            // collision or skin connection.
+            nodes.push(W3dHmodelNode {
+                name: format!("{}.{}", name, render_object_name),
+                bone_index: if version < W3D_HTREE_ROOT_VERSION {
+                    // Pre-3.0 source uses 0xffff for the newly synthesized
+                    // external root; every other source pivot shifts by one.
+                    if bone_index == u32::from(u16::MAX) {
+                        0
+                    } else {
+                        bone_index.checked_add(1).ok_or_else(|| {
+                            anyhow!("HMODEL '{}' pre-3.0 pivot index overflow", name)
+                        })?
+                    }
+                } else {
+                    if bone_index == u32::from(u16::MAX) {
+                        has_invalid_records = true;
+                    }
+                    bone_index
+                },
+                kind,
+            });
+        }
+
+        if nodes.len() != declared_connection_count {
+            has_invalid_records = true;
+        }
+
+        Ok(W3dHmodel {
+            version,
+            name,
+            hierarchy_name,
+            nodes,
+            source_snap_points,
+            has_invalid_records,
+        })
+    }
+
+    /// Read the source payload exactly as C++ `SnapPointsClass::Load_W3D`.
+    /// A non-vector remainder is skipped by the C++ integer division, and
+    /// points remain in source W3D coordinates rather than the active render
+    /// basis.
+    fn parse_hmodel_source_snap_points(data: &[u8]) -> Vec<W3dHmodelSnapPoint> {
+        const W3D_VECTOR_SIZE: usize = 12;
+
+        data.chunks_exact(W3D_VECTOR_SIZE)
+            .map(|record| W3dHmodelSnapPoint {
+                source_position: [
+                    f32::from_le_bytes(record[0..4].try_into().unwrap()),
+                    f32::from_le_bytes(record[4..8].try_into().unwrap()),
+                    f32::from_le_bytes(record[8..12].try_into().unwrap()),
+                ],
+            })
+            .collect()
+    }
+
+    /// Parse one C++ `W3dHLodArrayHeaderStruct` plus its exact ordered
+    /// `W3dHLodSubObjectStruct` records. The same wire shape is used for an
+    /// ordinary LOD, aggregate render objects, and application proxies.
+    fn parse_hlod_subobject_array(
+        &self,
+        data: &[u8],
+        hlod_name: &str,
+        array_label: &str,
+    ) -> Result<W3dHlodAttachmentArray> {
+        const HLOD_ARRAY_HEADER_SIZE: usize = 8;
+        const HLOD_SUBOBJECT_SIZE: usize = 36;
+        const MAX_HLOD_SUBOBJECTS: usize = 4096;
+
+        let mut offset = 0usize;
+        let array_header = next_w3d_chunk(data, &mut offset, "HLOD subobject array header")?
+            .ok_or_else(|| {
+                anyhow!(
+                    "HLOD '{}' {} has no subobject array header",
+                    hlod_name,
+                    array_label
+                )
+            })?;
+        if array_header.chunk_type != W3D_CHUNK_HLOD_SUB_OBJECT_ARRAY_HEADER
+            || array_header.is_container
+        {
+            return Err(anyhow!(
+                "HLOD '{}' {} expected raw subobject array header 0x{W3D_CHUNK_HLOD_SUB_OBJECT_ARRAY_HEADER:08X}, got 0x{:08X}, container={}",
+                hlod_name,
+                array_label,
+                array_header.chunk_type,
+                array_header.is_container
+            ));
+        }
+        if array_header.data.len() != HLOD_ARRAY_HEADER_SIZE {
+            return Err(anyhow!(
+                "HLOD '{}' {} array header has wrong size: {} != {}",
+                hlod_name,
+                array_label,
+                array_header.data.len(),
+                HLOD_ARRAY_HEADER_SIZE
+            ));
+        }
+
+        let model_count = u32::from_le_bytes(array_header.data[0..4].try_into().unwrap()) as usize;
+        if model_count > MAX_HLOD_SUBOBJECTS {
+            return Err(anyhow!(
+                "HLOD '{}' {} declares {} subobjects, exceeding safe limit {}",
+                hlod_name,
+                array_label,
+                model_count,
+                MAX_HLOD_SUBOBJECTS
+            ));
+        }
+        let max_screen_size = f32::from_le_bytes(array_header.data[4..8].try_into().unwrap());
+
+        let mut subobjects = Vec::with_capacity(model_count);
+        for subobject_index in 0..model_count {
+            let subobject =
+                next_w3d_chunk(data, &mut offset, "HLOD subobject")?.ok_or_else(|| {
+                    anyhow!(
+                        "HLOD '{}' {} is missing subobject {}",
+                        hlod_name,
+                        array_label,
+                        subobject_index
+                    )
+                })?;
+            if subobject.chunk_type != W3D_CHUNK_HLOD_SUB_OBJECT || subobject.is_container {
+                return Err(anyhow!(
+                    "HLOD '{}' {} expected raw subobject 0x{W3D_CHUNK_HLOD_SUB_OBJECT:08X}, got 0x{:08X}, container={}",
+                    hlod_name,
+                    array_label,
+                    subobject.chunk_type,
+                    subobject.is_container
+                ));
+            }
+            if subobject.data.len() != HLOD_SUBOBJECT_SIZE {
+                return Err(anyhow!(
+                    "HLOD '{}' {} subobject {} has wrong size: {} != {}",
+                    hlod_name,
+                    array_label,
+                    subobject_index,
+                    subobject.data.len(),
+                    HLOD_SUBOBJECT_SIZE
+                ));
+            }
+            subobjects.push(W3dHlodSubObject {
+                bone_index: u32::from_le_bytes(subobject.data[0..4].try_into().unwrap()),
+                name: w3d_string_from_bytes(&subobject.data[4..HLOD_SUBOBJECT_SIZE]),
+            });
+        }
+        if next_w3d_chunk(data, &mut offset, "HLOD subobject array trailing data")?.is_some() {
+            return Err(anyhow!(
+                "HLOD '{}' {} has trailing chunks after its declared subobjects",
+                hlod_name,
+                array_label
+            ));
+        }
+
+        Ok(W3dHlodAttachmentArray {
+            max_screen_size,
+            subobjects,
+        })
+    }
+
     /// Parse the exact rigid-child metadata from a `W3D_CHUNK_HLOD` container.
     ///
     /// C++ `HLodDefClass::Load_W3D` reads the HLOD header, then exactly
@@ -2770,10 +4154,7 @@ impl W3DLoader {
     /// structure instead of recursively flattening it into anonymous meshes.
     fn parse_hlod_chunk(&self, data: &[u8]) -> Result<W3dHlod> {
         const HLOD_HEADER_SIZE: usize = 40;
-        const HLOD_ARRAY_HEADER_SIZE: usize = 8;
-        const HLOD_SUBOBJECT_SIZE: usize = 36;
         const MAX_HLOD_LODS: usize = 64;
-        const MAX_HLOD_SUBOBJECTS: usize = 4096;
 
         let mut offset = 0usize;
         let header = next_w3d_chunk(data, &mut offset, "HLOD header")?
@@ -2818,124 +4199,97 @@ impl W3DLoader {
                 ));
             }
 
-            let mut lod_offset = 0usize;
-            let array_header = next_w3d_chunk(
+            let array = self.parse_hlod_subobject_array(
                 lod_chunk.data,
-                &mut lod_offset,
-                "HLOD subobject array header",
-            )?
-            .ok_or_else(|| {
-                anyhow!(
-                    "HLOD '{}' LOD {} has no subobject array header",
-                    name,
-                    lod_index
-                )
-            })?;
-            if array_header.chunk_type != W3D_CHUNK_HLOD_SUB_OBJECT_ARRAY_HEADER {
-                return Err(anyhow!(
-                    "HLOD '{}' LOD {} expected subobject array header 0x{W3D_CHUNK_HLOD_SUB_OBJECT_ARRAY_HEADER:08X}, got 0x{:08X}",
-                    name,
-                    lod_index,
-                    array_header.chunk_type
-                ));
-            }
-            if array_header.data.len() < HLOD_ARRAY_HEADER_SIZE {
-                return Err(anyhow!(
-                    "HLOD '{}' LOD {} array header too small: {} < {}",
-                    name,
-                    lod_index,
-                    array_header.data.len(),
-                    HLOD_ARRAY_HEADER_SIZE
-                ));
-            }
-
-            let model_count =
-                u32::from_le_bytes(array_header.data[0..4].try_into().unwrap()) as usize;
-            if model_count > MAX_HLOD_SUBOBJECTS {
-                return Err(anyhow!(
-                    "HLOD '{}' LOD {} declares {} subobjects, exceeding safe limit {}",
-                    name,
-                    lod_index,
-                    model_count,
-                    MAX_HLOD_SUBOBJECTS
-                ));
-            }
-            let max_screen_size = f32::from_le_bytes(array_header.data[4..8].try_into().unwrap());
-
-            let mut subobjects = Vec::with_capacity(model_count);
-            for subobject_index in 0..model_count {
-                let subobject = next_w3d_chunk(lod_chunk.data, &mut lod_offset, "HLOD subobject")?
-                    .ok_or_else(|| {
-                        anyhow!(
-                            "HLOD '{}' LOD {} is missing subobject {}",
-                            name,
-                            lod_index,
-                            subobject_index
-                        )
-                    })?;
-                if subobject.chunk_type != W3D_CHUNK_HLOD_SUB_OBJECT {
-                    return Err(anyhow!(
-                        "HLOD '{}' LOD {} expected subobject 0x{W3D_CHUNK_HLOD_SUB_OBJECT:08X}, got 0x{:08X}",
-                        name,
-                        lod_index,
-                        subobject.chunk_type
-                    ));
-                }
-                if subobject.data.len() < HLOD_SUBOBJECT_SIZE {
-                    return Err(anyhow!(
-                        "HLOD '{}' LOD {} subobject {} too small: {} < {}",
-                        name,
-                        lod_index,
-                        subobject_index,
-                        subobject.data.len(),
-                        HLOD_SUBOBJECT_SIZE
-                    ));
-                }
-                let bone_index = u32::from_le_bytes(subobject.data[0..4].try_into().unwrap());
-                let subobject_name = w3d_string_from_bytes(&subobject.data[4..HLOD_SUBOBJECT_SIZE]);
-                subobjects.push(W3dHlodSubObject {
-                    name: subobject_name,
-                    bone_index,
-                });
-            }
+                &name,
+                &format!("LOD {lod_index}"),
+            )?;
 
             lods.push(W3dHlodLod {
-                max_screen_size,
-                subobjects,
+                max_screen_size: array.max_screen_size,
+                subobjects: array.subobjects,
             });
         }
 
-        // The Main render path has no C++-equivalent aggregate/proxy runtime.
-        // Retain the fact that the source asked for one and make the complete HLOD
-        // non-rendering instead of drawing a partial or guessed hierarchy.
-        let mut has_unsupported_attachments = false;
+        // Retain the two C++ trailing arrays even before Main can recursively
+        // render aggregates. Only aggregates affect model output; proxies are
+        // intentionally non-rendering application metadata in C++.
+        let mut aggregates = None;
+        let mut proxies = None;
+        let mut has_invalid_trailing_records = false;
         while let Some(remaining) = next_w3d_chunk(data, &mut offset, "HLOD trailing record")? {
             match remaining.chunk_type {
-                W3D_CHUNK_HLOD_AGGREGATE_ARRAY | W3D_CHUNK_HLOD_PROXY_ARRAY => {
-                    has_unsupported_attachments = true;
+                W3D_CHUNK_HLOD_AGGREGATE_ARRAY => {
+                    if !remaining.is_container || aggregates.is_some() {
+                        has_invalid_trailing_records = true;
+                        warn!(
+                            "HLOD '{}' has a non-container or repeated aggregate array; suppressing ambiguous render",
+                            name
+                        );
+                        continue;
+                    }
+                    match self.parse_hlod_subobject_array(remaining.data, &name, "aggregate array")
+                    {
+                        Ok(array) => aggregates = Some(array),
+                        Err(error) => {
+                            has_invalid_trailing_records = true;
+                            warn!(
+                                "HLOD '{}' has malformed aggregate data; suppressing ambiguous render: {}",
+                                name, error
+                            );
+                        }
+                    }
+                }
+                W3D_CHUNK_HLOD_PROXY_ARRAY => {
+                    if !remaining.is_container || proxies.is_some() {
+                        has_invalid_trailing_records = true;
+                        warn!(
+                            "HLOD '{}' has a non-container or repeated proxy array; suppressing ambiguous render",
+                            name
+                        );
+                        continue;
+                    }
+                    match self.parse_hlod_subobject_array(remaining.data, &name, "proxy array") {
+                        Ok(array) => proxies = Some(array),
+                        Err(error) => {
+                            has_invalid_trailing_records = true;
+                            warn!(
+                                "HLOD '{}' has malformed proxy data; suppressing ambiguous render: {}",
+                                name, error
+                            );
+                        }
+                    }
                 }
                 unknown => {
-                    has_unsupported_attachments = true;
+                    has_invalid_trailing_records = true;
                     warn!(
-                        "HLOD '{}' has unsupported trailing chunk 0x{:08X}; suppressing incomplete render",
+                        "HLOD '{}' has unsupported trailing chunk 0x{:08X}; suppressing ambiguous render",
                         name, unknown
                     );
                 }
             }
         }
 
+        let has_unrendered_aggregates = aggregates
+            .as_ref()
+            .is_some_and(|array| !array.subobjects.is_empty());
+
         Ok(W3dHlod {
             version,
             name,
             hierarchy_name,
             lods,
-            has_unsupported_attachments,
+            aggregates,
+            proxies,
+            has_unrendered_aggregates,
+            has_invalid_trailing_records,
         })
     }
 
     /// Parse W3D hierarchy chunk (0x100) — ported from standalone parser's parse_hierarchy_chunk
     fn parse_hierarchy_chunk(&self, data: &[u8]) -> Result<W3dHierarchy> {
         let mut name = String::new();
+        let mut hierarchy_version = None;
         let mut num_pivots: u32 = 0;
         let mut pivots: Vec<W3dPivot> = Vec::new();
         let mut pivot_fixups: Vec<[[f32; 3]; 4]> = Vec::new();
@@ -2968,12 +4322,13 @@ impl W3DLoader {
                     if chunk_data.len() < 32 {
                         return Err(anyhow!("hierarchy header too small: {}", chunk_data.len()));
                     }
-                    let _version = u32::from_le_bytes([
+                    let version = u32::from_le_bytes([
                         chunk_data[0],
                         chunk_data[1],
                         chunk_data[2],
                         chunk_data[3],
                     ]);
+                    hierarchy_version = Some(version);
                     let mut n = String::new();
                     for i in 4..4 + W3D_NAME_LEN {
                         if i >= chunk_data.len() || chunk_data[i] == 0 {
@@ -2989,8 +4344,8 @@ impl W3DLoader {
                         chunk_data[23],
                     ]);
                     debug!(
-                        "Hierarchy header: name='{}', num_pivots={}",
-                        name, num_pivots
+                        "Hierarchy header: name='{}', version=0x{:08X}, num_pivots={}",
+                        name, version, num_pivots
                     );
                 }
                 W3D_CHUNK_PIVOTS => {
@@ -3072,6 +4427,41 @@ impl W3DLoader {
             offset += 8 + chunk_size;
         }
 
+        if hierarchy_version.is_some_and(|version| version < W3D_HTREE_ROOT_VERSION) {
+            // C++ `HTreeClass::read_pivots(pre30)` injects this exact node,
+            // then increments every source parent index (including
+            // `0xFFFF_FFFF`, which wraps to the synthetic root).  Preserve
+            // that normalized index space so the shared runtime evaluator can
+            // always reserve pivot zero for the external object transform.
+            for pivot in &mut pivots {
+                pivot.parent_idx = pivot.parent_idx.wrapping_add(1);
+            }
+            pivots.insert(
+                0,
+                W3dPivot {
+                    name: "RootTransform".to_string(),
+                    parent_idx: u32::MAX,
+                    translation: [0.0; 3],
+                    euler_angles: [0.0; 3],
+                    rotation: [0.0, 0.0, 0.0, 1.0],
+                },
+            );
+            if !pivot_fixups.is_empty() {
+                // The Main loader retains fixups as source metadata. Keep the
+                // same pivot indexing even though no active runtime consumer
+                // currently evaluates them.
+                pivot_fixups.insert(
+                    0,
+                    [
+                        [1.0, 0.0, 0.0],
+                        [0.0, 1.0, 0.0],
+                        [0.0, 0.0, 1.0],
+                        [0.0, 0.0, 0.0],
+                    ],
+                );
+            }
+        }
+
         Ok(W3dHierarchy {
             name,
             pivots,
@@ -3083,6 +4473,7 @@ impl W3DLoader {
     fn parse_animation_chunk(&self, data: &[u8]) -> Result<W3dAnimation> {
         let mut name = String::new();
         let mut hierarchy_name = String::new();
+        let mut animation_version = None;
         let mut num_frames: u32 = 0;
         let mut frame_rate: u32 = 0;
         let mut channels: Vec<W3dAnimChannel> = Vec::new();
@@ -3118,6 +4509,13 @@ impl W3DLoader {
                     if chunk_data.len() < 44 {
                         return Err(anyhow!("animation header too small: {}", chunk_data.len()));
                     }
+                    let version = u32::from_le_bytes([
+                        chunk_data[0],
+                        chunk_data[1],
+                        chunk_data[2],
+                        chunk_data[3],
+                    ]);
+                    animation_version = Some(version);
                     let mut n = String::new();
                     for i in 4..4 + W3D_NAME_LEN {
                         if chunk_data[i] == 0 {
@@ -3147,8 +4545,8 @@ impl W3DLoader {
                         chunk_data[43],
                     ]);
                     debug!(
-                        "Animation header: name='{}', hierarchy='{}', frames={}, fps={}",
-                        name, hierarchy_name, num_frames, frame_rate
+                        "Animation header: name='{}', hierarchy='{}', version=0x{:08X}, frames={}, fps={}",
+                        name, hierarchy_name, version, num_frames, frame_rate
                     );
                 }
                 W3D_CHUNK_ANIMATION_CHANNEL => {
@@ -3246,6 +4644,25 @@ impl W3DLoader {
             }
 
             offset += 8 + chunk_size;
+        }
+
+        if animation_version.is_some_and(|version| version < W3D_HTREE_ROOT_VERSION) {
+            // C++ `HRawAnimClass::{read_channel,read_bit_channel}` shifts
+            // every pre-3.0 source pivot after `HTreeClass` inserts its
+            // synthetic root.  `u16` wrapping matches the raw C++ field
+            // operation; a resulting out-of-range channel is safely ignored
+            // later by the same bounded pose sampler.
+            for channel in &mut channels {
+                channel.pivot = channel.pivot.wrapping_add(1);
+            }
+            for channel in &mut raw_visibility_channels {
+                channel.pivot = channel.pivot.wrapping_add(1);
+            }
+            for pivot in &mut unsupported_visibility_pivots {
+                if let Some(pivot) = pivot {
+                    *pivot = pivot.wrapping_add(1);
+                }
+            }
         }
 
         Ok(W3dAnimation {
@@ -3667,67 +5084,20 @@ impl W3DLoader {
 
     /// Compute global bone transforms from hierarchy pivots.
     /// Ported from standalone writer.rs compute_global_transforms + mat4_from_tr_quat.
-    fn compute_global_transforms(hierarchy: &W3dHierarchy) -> Vec<[f32; 16]> {
-        let n = hierarchy.pivots.len();
-        let mut globals: Vec<[f32; 16]> = vec![[0.0; 16]; n];
-        for i in 0..n {
-            let local = Self::mat4_from_tr_quat(&hierarchy.pivots[i]);
-            let g = if hierarchy.pivots[i].parent_idx != 0xFFFF_FFFF {
-                let p = hierarchy.pivots[i].parent_idx as usize;
-                Self::mat4_mul(&globals[p], &local)
-            } else {
-                local
-            };
-            globals[i] = g;
-        }
-        globals
+    fn compute_global_transforms(hierarchy: &W3dHierarchy) -> Option<Vec<[f32; 16]>> {
+        let locals = hierarchy
+            .pivots
+            .iter()
+            .map(Self::mat4_from_tr_quat)
+            .collect::<Vec<_>>();
+        compute_htree_global_transforms_from_locals(hierarchy, &locals)
     }
 
-    /// Build a column-major 4x4 matrix from pivot translation + quaternion.
-    /// Ported from standalone writer.rs mat4_from_tr_quat.
+    /// Build the exact source-space affine matrix used by the shared HTree
+    /// evaluator.  Keep the legacy HMODEL residual on the same representation
+    /// as rigid HLOD/palette paths so parent-child order cannot diverge.
     fn mat4_from_tr_quat(pivot: &W3dPivot) -> [f32; 16] {
-        let x = pivot.rotation[0];
-        let y = pivot.rotation[1];
-        let z = pivot.rotation[2];
-        let w = pivot.rotation[3];
-        let xx = x * x;
-        let yy = y * y;
-        let zz = z * z;
-        let xy = x * y;
-        let xz = x * z;
-        let yz = y * z;
-        let wx = w * x;
-        let wy = w * y;
-        let wz = w * z;
-        let m00 = 1.0 - 2.0 * (yy + zz);
-        let m01 = 2.0 * (xy - wz);
-        let m02 = 2.0 * (xz + wy);
-        let m10 = 2.0 * (xy + wz);
-        let m11 = 1.0 - 2.0 * (xx + zz);
-        let m12 = 2.0 * (yz - wx);
-        let m20 = 2.0 * (xz - wy);
-        let m21 = 2.0 * (yz + wx);
-        let m22 = 1.0 - 2.0 * (xx + yy);
-        let tx = pivot.translation[0];
-        let ty = pivot.translation[1];
-        let tz = pivot.translation[2];
-        [
-            m00, m01, m02, 0.0, m10, m11, m12, 0.0, m20, m21, m22, 0.0, tx, ty, tz, 1.0,
-        ]
-    }
-
-    /// Column-major 4x4 matrix multiply. Ported from standalone writer.rs mat4_mul.
-    fn mat4_mul(a: &[f32; 16], b: &[f32; 16]) -> [f32; 16] {
-        let mut r = [0.0; 16];
-        for i in 0..4 {
-            for j in 0..4 {
-                r[i * 4 + j] = a[i * 4] * b[j]
-                    + a[i * 4 + 1] * b[4 + j]
-                    + a[i * 4 + 2] * b[2 * 4 + j]
-                    + a[i * 4 + 3] * b[3 * 4 + j];
-            }
-        }
-        r
+        mat4_from_pivot(pivot)
     }
 
     /// Resolve texture indices to actual texture names - matches C++ behavior
@@ -4273,6 +5643,13 @@ impl W3DLoader {
         let mut vertex_colors: Vec<[f32; 4]> = Vec::new();
         let mut triangles: Vec<[u32; 3]> = Vec::new();
         let mut expected_vertex_count: Option<u32> = None;
+        let mut mesh_header_version: Option<u32> = None;
+        // C++ `MeshGeometryClass::read_vertex_influences` writes its one
+        // allocated link array on every occurrence. Retain only the last
+        // complete chunk here for the same overwrite behavior; a short chunk
+        // returns an error immediately, so Main fails the whole mesh closed
+        // instead of retaining its partial trusted-data link array.
+        let mut vertex_influences: Option<Vec<W3dVertInfStruct>> = None;
         let mut texture_names: Vec<String> = Vec::new(); // C++ MeshLoadContextClass texture array
 
         // Parse mesh sub-chunks with safety counter
@@ -4330,6 +5707,7 @@ impl W3DLoader {
                     mesh.name = header.mesh_name;
                     mesh.container_name = header.container_name;
                     expected_vertex_count = Some(header.num_vertices);
+                    mesh_header_version = Some(header.version);
                     debug!(
                         "Mesh name: '{}', expecting {} vertices, {} triangles",
                         mesh.name, header.num_vertices, header.num_triangles
@@ -4350,6 +5728,17 @@ impl W3DLoader {
                 W3D_CHUNK_VERTEX_COLORS => {
                     vertex_colors = self.parse_vertex_colors(chunk_data)?;
                     debug!("Parsed {} vertex colors", vertex_colors.len());
+                }
+                W3D_CHUNK_VERTEX_INFLUENCES => {
+                    vertex_influences = Some(
+                        self.parse_vertex_influences_with_count(chunk_data, expected_vertex_count)?,
+                    );
+                    debug!(
+                        "Parsed {} exact W3dVertInfStruct records",
+                        vertex_influences
+                            .as_ref()
+                            .map_or(0, |influences| influences.len())
+                    );
                 }
                 W3D_CHUNK_TRIANGLES => {
                     triangles = self.parse_triangles(chunk_data)?;
@@ -4506,6 +5895,28 @@ impl W3DLoader {
             triangles,
         )?;
 
+        if let Some(mut influences) = vertex_influences {
+            let expected_count = expected_vertex_count
+                .and_then(|count| usize::try_from(count).ok())
+                .ok_or_else(|| anyhow!("vertex influences require a valid mesh header"))?;
+            if influences.len() != expected_count || influences.len() != mesh.vertices.len() {
+                return Err(anyhow!(
+                    "mesh '{}' vertex influences do not match its exact vertex count",
+                    mesh.name
+                ));
+            }
+
+            // `MeshModelClass::Load_W3D` adjusts only successfully loaded
+            // pre-3.0 skin links after all mesh chunks have been read. C++
+            // stores those links as uint16, so the increment wraps at u16::MAX.
+            if mesh_header_version.is_some_and(|version| version < W3D_HTREE_ROOT_VERSION) {
+                for influence in &mut influences {
+                    influence.bone_idx = influence.bone_idx.wrapping_add(1);
+                }
+            }
+            mesh.vertex_influences = Some(influences);
+        }
+
         if !texture_names.is_empty() {
             mesh.texture_library = texture_names.clone();
         }
@@ -4647,6 +6058,47 @@ impl W3DLoader {
             },
             container_name,
         })
+    }
+
+    /// Parse one exact source `W3dVertInfStruct` per declared mesh vertex.
+    ///
+    /// `MeshGeometryClass::read_vertex_influences` reads `sizeof` bytes for
+    /// every `Get_Vertex_Count()` entry and returns `WW3D_ERROR_LOAD_FAILED`
+    /// on the first short read. It does not validate or reinterpret the pad
+    /// bytes, and `Close_Chunk` discards any remaining trailing data. Keeping
+    /// that shape matters: an arbitrary extra byte is not a malformed record,
+    /// while even one missing byte from the required records makes the C++
+    /// reader fail. Main rejects that mesh rather than leaving a partial skin
+    /// array behind.
+    fn parse_vertex_influences_with_count(
+        &self,
+        data: &[u8],
+        expected_count: Option<u32>,
+    ) -> Result<Vec<W3dVertInfStruct>> {
+        let vertex_count = usize::try_from(
+            expected_count.ok_or_else(|| anyhow!("vertex influences precede mesh header"))?,
+        )
+        .map_err(|_| anyhow!("mesh vertex count does not fit usize"))?;
+        let required_size = vertex_count
+            .checked_mul(W3D_VERTEX_INFLUENCE_RECORD_SIZE)
+            .ok_or_else(|| anyhow!("vertex influence byte count overflow"))?;
+        if data.len() < required_size {
+            return Err(anyhow!(
+                "insufficient vertex influence data: need {} bytes, have {} (for {} vertices)",
+                required_size,
+                data.len(),
+                vertex_count
+            ));
+        }
+
+        let mut influences = Vec::with_capacity(vertex_count);
+        for record in data[..required_size].chunks_exact(W3D_VERTEX_INFLUENCE_RECORD_SIZE) {
+            let bone_idx = u16::from_le_bytes([record[0], record[1]]);
+            let mut pad = [0u8; 6];
+            pad.copy_from_slice(&record[2..W3D_VERTEX_INFLUENCE_RECORD_SIZE]);
+            influences.push(W3dVertInfStruct { bone_idx, pad });
+        }
+        Ok(influences)
     }
 
     /// Parse vertices array with expected count validation - C++ compatible version
@@ -5627,6 +7079,55 @@ mod tests {
         out
     }
 
+    fn vertex_influence_payload(records: &[(u16, [u8; 6])], trailing: &[u8]) -> Vec<u8> {
+        let mut payload =
+            Vec::with_capacity(records.len() * W3D_VERTEX_INFLUENCE_RECORD_SIZE + trailing.len());
+        for (bone_idx, pad) in records {
+            payload.extend_from_slice(&bone_idx.to_le_bytes());
+            payload.extend_from_slice(pad);
+        }
+        payload.extend_from_slice(trailing);
+        payload
+    }
+
+    /// Small source-shaped mesh container for the exact C++ skin-link loader.
+    /// It deliberately has three vertices because the chunk reader must use
+    /// `NumVertices`, not derive a record count from the payload length.
+    fn mesh_with_vertex_influence_chunks(version: u32, influence_chunks: &[Vec<u8>]) -> Vec<u8> {
+        let mut mesh_header = vec![0; 116];
+        mesh_header[0..4].copy_from_slice(&version.to_le_bytes());
+        mesh_header[8..24].copy_from_slice(&fixed_name("SKIN", W3D_NAME_LEN));
+        mesh_header[40..44].copy_from_slice(&1u32.to_le_bytes());
+        mesh_header[44..48].copy_from_slice(&3u32.to_le_bytes());
+
+        let mut vertices = Vec::new();
+        for vertex in [[0.0f32, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]] {
+            for value in vertex {
+                vertices.extend_from_slice(&value.to_le_bytes());
+            }
+        }
+        let mut triangle = Vec::with_capacity(32);
+        triangle.extend_from_slice(&0u32.to_le_bytes());
+        triangle.extend_from_slice(&1u32.to_le_bytes());
+        triangle.extend_from_slice(&2u32.to_le_bytes());
+        triangle.extend_from_slice(&[0u8; 20]);
+
+        let mut mesh_payload = [
+            chunk(W3D_CHUNK_MESH_HEADER, mesh_header, false),
+            chunk(W3D_CHUNK_VERTICES, vertices, false),
+            chunk(W3D_CHUNK_TRIANGLES, triangle, false),
+        ]
+        .concat();
+        for influence_chunk in influence_chunks {
+            mesh_payload.extend_from_slice(&chunk(
+                W3D_CHUNK_VERTEX_INFLUENCES,
+                influence_chunk.clone(),
+                false,
+            ));
+        }
+        chunk(W3D_CHUNK_MESH, mesh_payload, true)
+    }
+
     fn pivot(name: &str, parent: u32, translation: [f32; 3]) -> Vec<u8> {
         let mut out = fixed_name(name, W3D_NAME_LEN);
         out.extend_from_slice(&parent.to_le_bytes());
@@ -5644,9 +7145,41 @@ mod tests {
         out
     }
 
-    fn rigid_hlod_fixture(lod_count: usize, has_aggregate: bool) -> Vec<u8> {
+    fn hlod_attachment_array(chunk_type: u32, entries: &[(&str, u32)]) -> Vec<u8> {
+        assert!(
+            matches!(
+                chunk_type,
+                W3D_CHUNK_HLOD_AGGREGATE_ARRAY | W3D_CHUNK_HLOD_PROXY_ARRAY
+            ),
+            "synthetic attachment must be an aggregate or proxy array"
+        );
+        assert!(
+            !entries.is_empty(),
+            "C++ HLOD exporter omits empty aggregate/proxy arrays"
+        );
+
+        let mut array_header = Vec::with_capacity(8);
+        array_header.extend_from_slice(&(entries.len() as u32).to_le_bytes());
+        // C++ `HLodSaveClass` writes zero here for aggregate/proxy arrays.
+        // It is metadata, not an attachment-LOD threshold.
+        array_header.extend_from_slice(&0.0f32.to_le_bytes());
+        let mut payload = chunk(W3D_CHUNK_HLOD_SUB_OBJECT_ARRAY_HEADER, array_header, false);
+        for (name, bone_index) in entries {
+            let mut subobject = Vec::with_capacity(36);
+            subobject.extend_from_slice(&bone_index.to_le_bytes());
+            subobject.extend_from_slice(&fixed_name(name, 32));
+            payload.extend_from_slice(&chunk(W3D_CHUNK_HLOD_SUB_OBJECT, subobject, false));
+        }
+        chunk(chunk_type, payload, true)
+    }
+
+    fn rigid_hlod_fixture(
+        lod_count: usize,
+        aggregate_entries: &[(&str, u32)],
+        proxy_entries: &[(&str, u32)],
+    ) -> Vec<u8> {
         let mut hierarchy_header = Vec::with_capacity(36);
-        hierarchy_header.extend_from_slice(&1u32.to_le_bytes());
+        hierarchy_header.extend_from_slice(&W3D_CURRENT_HTREE_VERSION.to_le_bytes());
         hierarchy_header.extend_from_slice(&fixed_name("RIG_HIER", W3D_NAME_LEN));
         hierarchy_header.extend_from_slice(&2u32.to_le_bytes());
         hierarchy_header.extend_from_slice(&[0u8; 12]);
@@ -5719,20 +7252,93 @@ mod tests {
             .concat();
             hlod_payload.extend_from_slice(&chunk(W3D_CHUNK_HLOD_LOD_ARRAY, lod_payload, true));
         }
-        if has_aggregate {
-            hlod_payload.extend_from_slice(&chunk(
+        if !aggregate_entries.is_empty() {
+            hlod_payload.extend_from_slice(&hlod_attachment_array(
                 W3D_CHUNK_HLOD_AGGREGATE_ARRAY,
-                Vec::new(),
-                true,
+                aggregate_entries,
+            ));
+        }
+        if !proxy_entries.is_empty() {
+            hlod_payload.extend_from_slice(&hlod_attachment_array(
+                W3D_CHUNK_HLOD_PROXY_ARRAY,
+                proxy_entries,
             ));
         }
 
         [hierarchy, mesh, chunk(W3D_CHUNK_HLOD, hlod_payload, true)].concat()
     }
 
+    /// Build one source-shaped C++ `HModelDefClass` container. The HMODEL
+    /// structs use the original MSVC `sizeof` payloads (40-byte header,
+    /// 18-byte connection) because `hmdldef.cpp` reads them directly.
+    fn hmodel_fixture_chunk(
+        version: u32,
+        model_name: &str,
+        hierarchy_name: &str,
+        nodes: &[(u32, &str, u16)],
+    ) -> Vec<u8> {
+        hmodel_fixture_chunk_with_trailing(version, model_name, hierarchy_name, nodes, &[])
+    }
+
+    fn hmodel_fixture_chunk_with_trailing(
+        version: u32,
+        model_name: &str,
+        hierarchy_name: &str,
+        nodes: &[(u32, &str, u16)],
+        trailing_chunks: &[(u32, Vec<u8>)],
+    ) -> Vec<u8> {
+        let mut header = Vec::with_capacity(40);
+        header.extend_from_slice(&version.to_le_bytes());
+        header.extend_from_slice(&fixed_name(model_name, W3D_NAME_LEN));
+        header.extend_from_slice(&fixed_name(hierarchy_name, W3D_NAME_LEN));
+        header.extend_from_slice(&(nodes.len() as u16).to_le_bytes());
+        header.extend_from_slice(&[0u8; 2]);
+        assert_eq!(header.len(), 40);
+
+        let mut payload = chunk(W3D_CHUNK_HMODEL_HEADER, header, false);
+        for (chunk_type, leaf_name, pivot_index) in nodes {
+            assert!(
+                matches!(
+                    *chunk_type,
+                    W3D_CHUNK_HMODEL_NODE
+                        | W3D_CHUNK_HMODEL_COLLISION_NODE
+                        | W3D_CHUNK_HMODEL_SKIN_NODE
+                ),
+                "fixture may only create HMODEL connection chunks"
+            );
+            let mut node = fixed_name(leaf_name, W3D_NAME_LEN);
+            node.extend_from_slice(&pivot_index.to_le_bytes());
+            assert_eq!(node.len(), 18);
+            payload.extend_from_slice(&chunk(*chunk_type, node, false));
+        }
+        for (chunk_type, trailing_payload) in trailing_chunks {
+            payload.extend_from_slice(&chunk(*chunk_type, trailing_payload.clone(), false));
+        }
+        chunk(W3D_CHUNK_HMODEL, payload, true)
+    }
+
+    fn hmodel_snap_points_payload(points: &[[f32; 3]], trailing: &[u8]) -> Vec<u8> {
+        let mut payload = Vec::with_capacity(points.len() * 12 + trailing.len());
+        for point in points {
+            for component in point {
+                payload.extend_from_slice(&component.to_le_bytes());
+            }
+        }
+        payload.extend_from_slice(trailing);
+        payload
+    }
+
+    fn rigid_hmodel_fixture(version: u32, nodes: &[(u32, &str, u16)]) -> Vec<u8> {
+        [
+            rigid_hlod_fixture(1, &[], &[]),
+            hmodel_fixture_chunk(version, "RIG_HMODEL", "RIG_HIER", nodes),
+        ]
+        .concat()
+    }
+
     fn visibility_hlod_fixture() -> Vec<u8> {
         let mut hierarchy_header = Vec::with_capacity(36);
-        hierarchy_header.extend_from_slice(&1u32.to_le_bytes());
+        hierarchy_header.extend_from_slice(&W3D_CURRENT_HTREE_VERSION.to_le_bytes());
         hierarchy_header.extend_from_slice(&fixed_name("VIS_HIER", W3D_NAME_LEN));
         hierarchy_header.extend_from_slice(&2u32.to_le_bytes());
         hierarchy_header.extend_from_slice(&[0u8; 12]);
@@ -5784,7 +7390,7 @@ mod tests {
         );
 
         let mut animation_header = Vec::with_capacity(44);
-        animation_header.extend_from_slice(&1u32.to_le_bytes());
+        animation_header.extend_from_slice(&W3D_CURRENT_HANIM_VERSION.to_le_bytes());
         animation_header.extend_from_slice(&fixed_name("VIS_CLIP", W3D_NAME_LEN));
         animation_header.extend_from_slice(&fixed_name("VIS_HIER", W3D_NAME_LEN));
         animation_header.extend_from_slice(&4u32.to_le_bytes());
@@ -5903,7 +7509,10 @@ mod tests {
                     },
                 ],
             }],
-            has_unsupported_attachments: false,
+            aggregates: None,
+            proxies: None,
+            has_unrendered_aggregates: false,
+            has_invalid_trailing_records: false,
         });
         model.meshes = ["ParentMesh", "SameBoneMesh", "ChildMesh", "SiblingMesh"]
             .into_iter()
@@ -5967,7 +7576,10 @@ mod tests {
                     },
                 ],
             }],
-            has_unsupported_attachments: false,
+            aggregates: None,
+            proxies: None,
+            has_unrendered_aggregates: false,
+            has_invalid_trailing_records: false,
         });
         model.meshes = ["ChassisMesh", "GunHousingMesh", "BarrelMesh", "FlashMesh"]
             .into_iter()
@@ -6001,6 +7613,23 @@ mod tests {
         model
     }
 
+    /// The exact turret fixture with one external C++ `AdditionalModels`
+    /// record attached to the recoil/barrel pivot. It lets the aggregate
+    /// projection prove that parent mesh and external child share one HTree
+    /// control sequence without involving a renderer or asset lookup.
+    fn primary_turret_hlod_model_with_barrel_aggregate() -> W3DModel {
+        let mut model = primary_turret_hlod_model();
+        model.hlods[0].aggregates = Some(W3dHlodAttachmentArray {
+            max_screen_size: 0.0,
+            subobjects: vec![W3dHlodSubObject {
+                name: "EXTERNAL_BARREL_ATTACHMENT".to_string(),
+                bone_index: 3,
+            }],
+        });
+        model.hlods[0].has_unrendered_aggregates = true;
+        model
+    }
+
     /// An animation-only companion W3D, shaped like the raw HAnim files C++
     /// loads on a `Get_HAnim(Hierarchy.Animation)` miss.
     fn companion_animation_fixture(
@@ -6010,7 +7639,7 @@ mod tests {
         last_x: f32,
     ) -> Vec<u8> {
         let mut animation_header = Vec::with_capacity(44);
-        animation_header.extend_from_slice(&1u32.to_le_bytes());
+        animation_header.extend_from_slice(&W3D_CURRENT_HANIM_VERSION.to_le_bytes());
         animation_header.extend_from_slice(&fixed_name(animation_name, W3D_NAME_LEN));
         animation_header.extend_from_slice(&fixed_name(hierarchy_name, W3D_NAME_LEN));
         animation_header.extend_from_slice(&2u32.to_le_bytes());
@@ -6126,9 +7755,102 @@ mod tests {
     }
 
     #[test]
+    fn mesh_vertex_influences_retain_exact_eight_byte_records_and_ignore_trailing_data() {
+        let records = [
+            (2u16, [1, 2, 3, 4, 5, 6]),
+            (0u16, [7, 8, 9, 10, 11, 12]),
+            (u16::MAX, [13, 14, 15, 16, 17, 18]),
+        ];
+        let bytes = mesh_with_vertex_influence_chunks(
+            0x0004_0002,
+            &[vertex_influence_payload(&records, &[0xAA, 0xBB, 0xCC])],
+        );
+        let model = W3DLoader::new()
+            .load_model_from_bytes(&bytes, "exact_vertex_influences")
+            .expect("a complete W3dVertInfStruct array with trailing bytes is source-valid");
+        let influences = model.meshes[0]
+            .vertex_influences
+            .as_ref()
+            .expect("the source SKIN chunk must survive parsing");
+
+        assert_eq!(influences.len(), 3);
+        assert_eq!(influences[0].bone_idx, 2);
+        assert_eq!(influences[0].pad, [1, 2, 3, 4, 5, 6]);
+        assert_eq!(influences[1].bone_idx, 0);
+        assert_eq!(influences[1].pad, [7, 8, 9, 10, 11, 12]);
+        assert_eq!(influences[2].bone_idx, u16::MAX);
+        assert_eq!(influences[2].pad, [13, 14, 15, 16, 17, 18]);
+    }
+
+    #[test]
+    fn mesh_vertex_influences_use_last_complete_chunk_and_only_pre3_indices_wrap_forward() {
+        let first = vertex_influence_payload(&[(9, [1; 6]), (9, [2; 6]), (9, [3; 6])], &[]);
+        let last = vertex_influence_payload(&[(0, [4; 6]), (1, [5; 6]), (u16::MAX, [6; 6])], &[]);
+        let repeated = W3DLoader::new()
+            .load_model_from_bytes(
+                &mesh_with_vertex_influence_chunks(0x0004_0002, &[first, last]),
+                "repeated_vertex_influences",
+            )
+            .expect("each complete source influence chunk can overwrite the prior link array");
+        let repeated = repeated.meshes[0]
+            .vertex_influences
+            .as_ref()
+            .expect("the final complete chunk remains");
+        assert_eq!(
+            repeated
+                .iter()
+                .map(|influence| influence.bone_idx)
+                .collect::<Vec<_>>(),
+            vec![0, 1, u16::MAX],
+            "modern W3D indices must stay exactly as written"
+        );
+        assert_eq!(repeated[0].pad, [4; 6]);
+        assert_eq!(repeated[2].pad, [6; 6]);
+
+        let legacy_records = [(0, [7; 6]), (1, [8; 6]), (u16::MAX, [9; 6])];
+        let pre3 = W3DLoader::new()
+            .load_model_from_bytes(
+                &mesh_with_vertex_influence_chunks(
+                    W3D_HTREE_ROOT_VERSION - 1,
+                    &[vertex_influence_payload(&legacy_records, &[])],
+                ),
+                "pre3_vertex_influences",
+            )
+            .expect("a complete pre-3.0 source influence chunk parses");
+        let pre3 = pre3.meshes[0]
+            .vertex_influences
+            .as_ref()
+            .expect("pre-3.0 links are retained after C++ root fixup");
+        assert_eq!(
+            pre3.iter()
+                .map(|influence| influence.bone_idx)
+                .collect::<Vec<_>>(),
+            vec![1, 2, 0],
+            "the C++ uint16 root insertion fixup wraps after a successful load"
+        );
+        assert_eq!(pre3[0].pad, [7; 6]);
+        assert_eq!(pre3[2].pad, [9; 6]);
+    }
+
+    #[test]
+    fn mesh_vertex_influences_short_chunk_invalidates_the_mesh_without_partial_skin_data() {
+        let only_two_records =
+            vertex_influence_payload(&[(0, [0; 6]), (1, [0; 6])], &[0xFE, 0xED, 0xFA, 0xCE]);
+        assert!(
+            W3DLoader::new()
+                .load_model_from_bytes(
+                    &mesh_with_vertex_influence_chunks(0x0004_0002, &[only_two_records]),
+                    "short_vertex_influences",
+                )
+                .is_err(),
+            "a file whose only mesh has a short W3dVertInfStruct array must fail closed instead of preserving partial links"
+        );
+    }
+
+    #[test]
     fn hlod_rigid_binding_uses_authored_bone_once_without_name_heuristics() {
         let model = W3DLoader::new()
-            .load_model_from_bytes(&rigid_hlod_fixture(1, false), "rigid_hlod")
+            .load_model_from_bytes(&rigid_hlod_fixture(1, &[], &[]), "rigid_hlod")
             .expect("source-shaped HLOD fixture should parse");
 
         assert_eq!(model.hlods.len(), 1);
@@ -6157,6 +7879,407 @@ mod tests {
     }
 
     #[test]
+    fn hmodel_parser_retains_exact_typed_connections_and_its_named_htree_pose() {
+        let model = W3DLoader::new()
+            .load_model_from_bytes(
+                &rigid_hmodel_fixture(
+                    0x0004_0002,
+                    &[
+                        (W3D_CHUNK_HMODEL_NODE, "RigidBody", 1),
+                        (W3D_CHUNK_HMODEL_COLLISION_NODE, "Collision", 0),
+                        (W3D_CHUNK_HMODEL_SKIN_NODE, "Skin", 1),
+                    ],
+                ),
+                "rigid_hmodel",
+            )
+            .expect("source-shaped HMODEL fixture should parse");
+
+        assert_eq!(model.hmodels.len(), 1);
+        assert_eq!(
+            model.hierarchies.len(),
+            1,
+            "the named source HTree is retained"
+        );
+        let hmodel = &model.hmodels[0];
+        assert_eq!(hmodel.name, "RIG_HMODEL");
+        assert_eq!(hmodel.hierarchy_name, "RIG_HIER");
+        assert!(!hmodel.has_invalid_records);
+        assert_eq!(
+            hmodel
+                .nodes
+                .iter()
+                .map(|node| (node.name.as_str(), node.bone_index, node.kind))
+                .collect::<Vec<_>>(),
+            vec![
+                ("RIG_HMODEL.RigidBody", 1, W3dHmodelNodeKind::Node),
+                ("RIG_HMODEL.Collision", 0, W3dHmodelNodeKind::CollisionNode),
+                ("RIG_HMODEL.Skin", 1, W3dHmodelNodeKind::SkinNode),
+            ],
+            "HModelDefClass::read_connection always forms <ModelName>.<RenderObjName>"
+        );
+
+        let poses = model
+            .hmodel_rigid_node_poses(0)
+            .expect("valid HMODEL uses only its explicitly named HTree");
+        assert_eq!(poses.len(), 2, "SKIN_NODE must not enter the rigid path");
+        assert_eq!(poses[0].name, "RIG_HMODEL.RigidBody");
+        assert_eq!(poses[0].bone_index, 1);
+        assert!(
+            (poses[0].parent_transform.w_axis.truncate() - Vec3::new(10.0, 30.0, 20.0)).length()
+                < 0.0001,
+            "the HMODEL child uses its own source HTree pivot in render basis"
+        );
+        assert_eq!(poses[1].name, "RIG_HMODEL.Collision");
+        assert_eq!(poses[1].parent_transform, Mat4::IDENTITY);
+
+        let skin_palette = model
+            .hmodel_bind_pose_palette(0)
+            .expect("a valid HMODEL owns its named HTree bind palette");
+        assert_eq!(skin_palette.len(), 2);
+        assert_eq!(skin_palette[0], Mat4::IDENTITY);
+        assert!(
+            (skin_palette[1].w_axis.truncate() - Vec3::new(10.0, 30.0, 20.0)).length() < 0.0001,
+            "SKIN_NODE must use the HMODEL's named HTree, not a whole-file palette"
+        );
+        assert_eq!(
+            model
+                .hmodel_skin_node_bindings(0)
+                .expect("the valid skin connection has an HMODEL-local palette"),
+            vec![W3dHmodelSkinNodeBinding {
+                name: "RIG_HMODEL.Skin".to_string(),
+                bone_index: 1,
+            }]
+        );
+    }
+
+    #[test]
+    fn hmodel_pre30_pivots_normalize_exactly_like_hmdldef() {
+        let model = W3DLoader::new()
+            .load_model_from_bytes(
+                &rigid_hmodel_fixture(
+                    2 << 16,
+                    &[
+                        (W3D_CHUNK_HMODEL_NODE, "LegacyRoot", u16::MAX),
+                        (W3D_CHUNK_HMODEL_NODE, "LegacyChild", 0),
+                    ],
+                ),
+                "legacy_hmodel",
+            )
+            .expect("pre-3.0 HMODEL fixture should normalize safely");
+
+        let hmodel = &model.hmodels[0];
+        assert_eq!(hmodel.nodes[0].bone_index, 0);
+        assert_eq!(hmodel.nodes[1].bone_index, 1);
+        let poses = model
+            .hmodel_rigid_node_poses(0)
+            .expect("normalized HMODEL nodes use the corresponding HTree pivots");
+        assert_eq!(poses[0].parent_transform, Mat4::IDENTITY);
+        assert!(
+            (poses[1].parent_transform.w_axis.truncate() - Vec3::new(10.0, 30.0, 20.0)).length()
+                < 0.0001
+        );
+    }
+
+    #[test]
+    fn hmodel_header_names_follow_cxx_fifteen_byte_termination() {
+        let bytes = [
+            rigid_hlod_fixture(1, &[], &[]),
+            hmodel_fixture_chunk(
+                0x0004_0002,
+                "0123456789ABCDEF",
+                "ABCDEFGHIJKLMNOP",
+                &[(W3D_CHUNK_HMODEL_NODE, "Body", 0)],
+            ),
+        ]
+        .concat();
+        let model = W3DLoader::new()
+            .load_model_from_bytes(&bytes, "truncated_hmodel")
+            .expect("HMODEL header remains source-shaped when its fixed fields fill 16 bytes");
+
+        assert_eq!(model.hmodels[0].name, "0123456789ABCDE");
+        assert_eq!(model.hmodels[0].hierarchy_name, "ABCDEFGHIJKLMNO");
+        assert_eq!(model.hmodels[0].nodes[0].name, "0123456789ABCDE.Body");
+    }
+
+    #[test]
+    fn hmodel_points_retain_source_vectors_without_consuming_connections() {
+        let expected_points = [[1.25, -2.5, 3.75], [-4.0, 5.5, 6.25]];
+        let bytes = [
+            rigid_hlod_fixture(1, &[], &[]),
+            hmodel_fixture_chunk_with_trailing(
+                0x0004_0002,
+                "TRAILING_HMODEL",
+                "RIG_HIER",
+                &[(W3D_CHUNK_HMODEL_NODE, "Body", 1)],
+                &[
+                    // C++ `HModelDefClass::Load_W3D` loads snap points but
+                    // does not increment SubObjectCount for them.
+                    (
+                        W3D_CHUNK_POINTS,
+                        hmodel_snap_points_payload(&expected_points, &[]),
+                    ),
+                    // Both old HMODEL extension records are skipped by the
+                    // documented source parser and cannot become aliases.
+                    (W3D_CHUNK_HMODEL_OBSOLETE_AUX_DATA, vec![1, 2, 3, 4]),
+                    (W3D_CHUNK_HMODEL_OBSOLETE_SHADOW_NODE, vec![5, 6]),
+                ],
+            ),
+        ]
+        .concat();
+        let model = W3DLoader::new()
+            .load_model_from_bytes(&bytes, "trailing_hmodel")
+            .expect("non-connection HMODEL chunks remain source-shaped metadata");
+
+        assert_eq!(model.hmodels.len(), 1);
+        assert!(!model.hmodels[0].has_invalid_records);
+        assert_eq!(model.hmodels[0].nodes.len(), 1);
+        assert_eq!(model.hmodels[0].nodes[0].name, "TRAILING_HMODEL.Body");
+        assert_eq!(
+            model
+                .hmodel_source_snap_points(0)
+                .expect("a valid HMODEL exposes its source definition points"),
+            [
+                W3dHmodelSnapPoint {
+                    source_position: expected_points[0],
+                },
+                W3dHmodelSnapPoint {
+                    source_position: expected_points[1],
+                },
+            ]
+        );
+        assert_eq!(
+            model.hmodel_source_snap_point(0, 1),
+            Some(W3dHmodelSnapPoint {
+                source_position: expected_points[1],
+            })
+        );
+        assert_eq!(model.hmodel_source_snap_point(0, 2), None);
+    }
+
+    #[test]
+    fn hmodel_later_points_replaces_prior_points_and_ignores_remainder() {
+        let first_points = [[1.0, 2.0, 3.0]];
+        let replacement_points = [[-4.0, 5.0, -6.0], [7.0, -8.0, 9.0]];
+        let bytes = [
+            rigid_hlod_fixture(1, &[], &[]),
+            hmodel_fixture_chunk_with_trailing(
+                0x0004_0002,
+                "REPLACED_POINTS",
+                "RIG_HIER",
+                &[(W3D_CHUNK_HMODEL_NODE, "Body", 1)],
+                &[
+                    (
+                        W3D_CHUNK_POINTS,
+                        hmodel_snap_points_payload(&first_points, &[]),
+                    ),
+                    (
+                        W3D_CHUNK_POINTS,
+                        hmodel_snap_points_payload(&replacement_points, &[0xDE, 0xAD, 0xBE]),
+                    ),
+                ],
+            ),
+        ]
+        .concat();
+        let model = W3DLoader::new()
+            .load_model_from_bytes(&bytes, "replaced_hmodel_points")
+            .expect("C++ source-shaped HMODEL points should parse");
+
+        let hmodel = &model.hmodels[0];
+        assert!(!hmodel.has_invalid_records);
+        assert_eq!(
+            hmodel.nodes.len(),
+            1,
+            "POINTS records cannot consume a declared HMODEL connection"
+        );
+        assert_eq!(
+            model
+                .hmodel_source_snap_points(0)
+                .expect("valid HMODEL source points"),
+            [
+                W3dHmodelSnapPoint {
+                    source_position: replacement_points[0],
+                },
+                W3dHmodelSnapPoint {
+                    source_position: replacement_points[1],
+                },
+            ],
+            "the later C++ SnapPointsClass allocation replaces the prior definition vector"
+        );
+    }
+
+    #[test]
+    fn hmodel_rejects_twenty_byte_connection_payloads_from_the_wrong_u32_layout() {
+        let mut malformed_node = fixed_name("Body", W3D_NAME_LEN);
+        malformed_node.extend_from_slice(&1u16.to_le_bytes());
+        // This extra dword-tail shape comes from the incorrect u32 helper
+        // struct, not `sizeof(W3dHModelNodeStruct)` in the original MSVC C++.
+        malformed_node.extend_from_slice(&[0u8; 2]);
+        assert_eq!(malformed_node.len(), 20);
+        let bytes = [
+            rigid_hlod_fixture(1, &[], &[]),
+            hmodel_fixture_chunk_with_trailing(
+                0x0004_0002,
+                "BAD_NODE_LAYOUT",
+                "RIG_HIER",
+                &[],
+                &[(W3D_CHUNK_HMODEL_NODE, malformed_node)],
+            ),
+        ]
+        .concat();
+        let model = W3DLoader::new()
+            .load_model_from_bytes(&bytes, "bad_hmodel_node_layout")
+            .expect("malformed HMODEL remains inspectable but cannot render");
+
+        assert!(model.hmodels[0].has_invalid_records);
+        assert!(model.hmodels[0].nodes.is_empty());
+        assert!(model.hmodel_rigid_node_poses(0).is_none());
+        assert!(model.hmodel_bind_pose_palette(0).is_none());
+        assert!(model.hmodel_skin_node_bindings(0).is_none());
+    }
+
+    #[test]
+    fn hmodel_missing_named_htree_uses_only_default_root_and_never_an_inferred_palette() {
+        let mut model = W3DModel::new("hmodel_default_root".to_string());
+        model.hierarchy = Some(W3dHierarchy {
+            name: "UNRELATED_TREE".to_string(),
+            pivots: vec![
+                W3dPivot {
+                    name: "ROOT".to_string(),
+                    parent_idx: u32::MAX,
+                    translation: [0.0; 3],
+                    euler_angles: [0.0; 3],
+                    rotation: [0.0, 0.0, 0.0, 1.0],
+                },
+                W3dPivot {
+                    name: "UNRELATED_BONE".to_string(),
+                    parent_idx: 0,
+                    translation: [99.0, 88.0, 77.0],
+                    euler_angles: [0.0; 3],
+                    rotation: [0.0, 0.0, 0.0, 1.0],
+                },
+            ],
+            pivot_fixups: Vec::new(),
+        });
+        model.hmodels.push(W3dHmodel {
+            version: 0x0004_0002,
+            name: "DEFAULT_ROOT_HMODEL".to_string(),
+            hierarchy_name: "MISSING_TREE".to_string(),
+            nodes: vec![
+                W3dHmodelNode {
+                    name: "DEFAULT_ROOT_HMODEL.RootChild".to_string(),
+                    bone_index: 0,
+                    kind: W3dHmodelNodeKind::Node,
+                },
+                W3dHmodelNode {
+                    name: "DEFAULT_ROOT_HMODEL.InvalidChild".to_string(),
+                    bone_index: 1,
+                    kind: W3dHmodelNodeKind::Node,
+                },
+                W3dHmodelNode {
+                    name: "DEFAULT_ROOT_HMODEL.RootSkin".to_string(),
+                    bone_index: 0,
+                    kind: W3dHmodelNodeKind::SkinNode,
+                },
+                W3dHmodelNode {
+                    name: "DEFAULT_ROOT_HMODEL.InvalidSkin".to_string(),
+                    bone_index: 1,
+                    kind: W3dHmodelNodeKind::SkinNode,
+                },
+            ],
+            source_snap_points: Vec::new(),
+            has_invalid_records: false,
+        });
+
+        let poses = model
+            .hmodel_rigid_node_poses(0)
+            .expect("C++ Animatable3DObjClass creates a default HTree on a miss");
+        assert_eq!(poses.len(), 1);
+        assert_eq!(poses[0].name, "DEFAULT_ROOT_HMODEL.RootChild");
+        assert_eq!(poses[0].parent_transform, Mat4::IDENTITY);
+        assert_eq!(
+            model
+                .hmodel_bind_pose_palette(0)
+                .expect("missing named HTree uses only C++ Init_Default"),
+            vec![Mat4::IDENTITY],
+            "an unrelated whole-file hierarchy must never become an HMODEL skin palette"
+        );
+        assert_eq!(
+            model
+                .hmodel_skin_node_bindings(0)
+                .expect("valid root skin remains independent from invalid siblings"),
+            vec![W3dHmodelSkinNodeBinding {
+                name: "DEFAULT_ROOT_HMODEL.RootSkin".to_string(),
+                bone_index: 0,
+            }],
+            "the out-of-range skin connection must fail closed without a root alias"
+        );
+    }
+
+    #[test]
+    fn hmodel_skin_mesh_requires_one_valid_influence_for_each_vertex() {
+        let mut mesh = W3DMesh::new("strict_skin".to_string());
+        mesh.vertices = vec![
+            W3DVertex {
+                position: [0.0; 3],
+                normal: [0.0, 0.0, 1.0],
+                uv: [0.0; 2],
+                color: [1.0; 4],
+            },
+            W3DVertex {
+                position: [1.0, 0.0, 0.0],
+                normal: [0.0, 0.0, 1.0],
+                uv: [1.0, 0.0],
+                color: [1.0; 4],
+            },
+        ];
+        mesh.vertex_influences = Some(vec![
+            W3dVertInfStruct {
+                bone_idx: 0,
+                pad: [0; 6],
+            },
+            W3dVertInfStruct {
+                bone_idx: 1,
+                pad: [0; 6],
+            },
+        ]);
+
+        assert!(mesh.has_complete_skin_influences_for_palette(2));
+        assert!(
+            !mesh.has_complete_skin_influences_for_palette(1),
+            "an influence outside the owning HMODEL palette is not a root fallback"
+        );
+
+        mesh.vertex_influences
+            .as_mut()
+            .expect("fixture influences")
+            .pop();
+        assert!(
+            !mesh.has_complete_skin_influences_for_palette(2),
+            "C++ reads exactly one W3dVertInfStruct per source vertex"
+        );
+    }
+
+    #[test]
+    fn hmodel_modern_invalid_pivot_fails_closed_without_partial_rigid_rendering() {
+        let model = W3DLoader::new()
+            .load_model_from_bytes(
+                &rigid_hmodel_fixture(3 << 16, &[(W3D_CHUNK_HMODEL_NODE, "BadPivot", u16::MAX)]),
+                "invalid_hmodel",
+            )
+            .expect("invalid source topology remains inspectable");
+
+        assert!(model.hmodels[0].has_invalid_records);
+        assert!(
+            model.hmodel_rigid_node_poses(0).is_none(),
+            "modern 0xffff pivot is an assertion violation in C++; Main must not guess"
+        );
+        assert!(
+            model.hmodel_bind_pose_palette(0).is_none(),
+            "a malformed HMODEL cannot still donate a skin palette"
+        );
+    }
+
+    #[test]
     fn w3d_hlod_visibility_raw_bit_channel_uses_lsb_frames_and_default_outside_range() {
         let model = W3DLoader::new()
             .load_model_from_bytes(&visibility_hlod_fixture(), "visibility_hlod")
@@ -6165,15 +8288,15 @@ mod tests {
         let animation = &model.animations[0];
         assert_eq!(animation.raw_visibility_channels.len(), 1);
         assert_eq!(animation.raw_visibility_channels[0].pivot, 1);
-        assert!(animation.raw_visibility_channels[0].visible_at(0.0));
-        assert!(animation.raw_visibility_channels[0].visible_at(2.0));
+        assert!(animation.raw_visibility_channels[0].visible_at(0));
+        assert!(animation.raw_visibility_channels[0].visible_at(2));
         assert!(
-            !animation.raw_visibility_channels[0].visible_at(3.0),
+            !animation.raw_visibility_channels[0].visible_at(3),
             "bit one is the second low-order bit, not MSB-first"
         );
-        assert!(animation.raw_visibility_channels[0].visible_at(4.0));
+        assert!(animation.raw_visibility_channels[0].visible_at(4));
         assert!(
-            animation.raw_visibility_channels[0].visible_at(5.0),
+            animation.raw_visibility_channels[0].visible_at(5),
             "frames outside [FirstFrame, LastFrame] use DefaultVal"
         );
 
@@ -6372,6 +8495,72 @@ mod tests {
                 .zip(normal_muzzle.0.to_cols_array())
                 .all(|(fallback, normal)| (*fallback - normal).abs() < 1.0e-5),
             "an authored alternate turret must fail closed instead of borrowing the primary angle"
+        );
+    }
+
+    #[test]
+    fn aggregate_poses_inherit_primary_turret_and_recoil_controls_in_cxx_order() {
+        let model = primary_turret_hlod_model_with_barrel_aggregate();
+        let binding = W3dAnimationBinding::local(0);
+        let primary_turret = AuthoredDrawPrimaryTurret {
+            yaw_bone: Some("yaw_pivot".to_string()),
+            pitch_bone: Some("pitch_pivot".to_string()),
+            yaw_art_angle_radians_bits: std::f32::consts::FRAC_PI_2.to_bits(),
+            pitch_art_angle_radians_bits: 0.0f32.to_bits(),
+            ..Default::default()
+        };
+        let weapon_controls = [W3dWeaponVisualControl {
+            recoil_pivot_index: Some(3),
+            recoil_shift: 2.5,
+            muzzle_flash_pivot_index: None,
+            muzzle_flash_visible: false,
+        }];
+
+        let parent_barrel = model
+            .mesh_local_transform_and_visibility_for_primary_turret_and_weapon_controls(
+                2,
+                Some(&binding),
+                1.0,
+                &primary_turret,
+                0.0,
+                90.0,
+                &weapon_controls,
+            )
+            .expect("the rigid barrel parent must retain its exact controlled pose");
+        let aggregate = model
+            .aggregate_attachment_poses_for_primary_turret_and_weapon_controls(
+                Some(&binding),
+                1.0,
+                &primary_turret,
+                0.0,
+                90.0,
+                &weapon_controls,
+            )
+            .expect("an aggregate on a valid parent pivot must inherit controls");
+        assert_eq!(aggregate.len(), 1);
+        assert_eq!(aggregate[0].name, "EXTERNAL_BARREL_ATTACHMENT");
+        assert!(aggregate[0].visible);
+        assert!(
+            aggregate[0]
+                .parent_transform
+                .to_cols_array()
+                .iter()
+                .zip(parent_barrel.0.to_cols_array())
+                .all(|(aggregate, parent)| (*aggregate - parent).abs() < 1.0e-5),
+            "C++ AdditionalModels use the same final HTree transform as their parent barrel"
+        );
+
+        let bind_pose = model
+            .aggregate_attachment_poses_for_binding(Some(&binding), 1.0)
+            .expect("source-valid aggregate bind/HAnim pose");
+        assert!(
+            bind_pose[0]
+                .parent_transform
+                .to_cols_array()
+                .iter()
+                .zip(aggregate[0].parent_transform.to_cols_array())
+                .any(|(before, controlled)| (*before - controlled).abs() > 1.0e-4),
+            "turret/recoil controls must not be dropped from the aggregate pose"
         );
     }
 
@@ -6605,27 +8794,594 @@ mod tests {
     }
 
     #[test]
-    fn multi_lod_and_aggregate_hlods_fail_closed_until_selection_is_ported() {
-        let multi_lod = W3DLoader::new()
-            .load_model_from_bytes(&rigid_hlod_fixture(2, false), "multi_lod")
+    fn htree_source_matrix_multiply_keeps_cxx_parent_local_and_capture_order() {
+        let quarter_turn = std::f32::consts::FRAC_1_SQRT_2;
+        let hierarchy = W3dHierarchy {
+            name: "MATRIX_ORDER".to_string(),
+            pivots: vec![
+                W3dPivot {
+                    name: "ROOT".to_string(),
+                    parent_idx: u32::MAX,
+                    translation: [0.0; 3],
+                    euler_angles: [0.0; 3],
+                    rotation: [0.0, 0.0, 0.0, 1.0],
+                },
+                W3dPivot {
+                    name: "ROTATED_PARENT".to_string(),
+                    parent_idx: 0,
+                    translation: [0.0; 3],
+                    euler_angles: [0.0; 3],
+                    rotation: [0.0, 0.0, quarter_turn, quarter_turn],
+                },
+                W3dPivot {
+                    name: "LOCAL_CHILD".to_string(),
+                    parent_idx: 1,
+                    translation: [2.0, 0.0, 0.0],
+                    euler_angles: [0.0; 3],
+                    rotation: [0.0, 0.0, 0.0, 1.0],
+                },
+            ],
+            pivot_fixups: Vec::new(),
+        };
+        let locals: Vec<_> = hierarchy.pivots.iter().map(mat4_from_pivot).collect();
+
+        let globals = compute_htree_global_transforms_from_locals(&hierarchy, &locals)
+            .expect("ordered affine HTree must evaluate");
+        assert!(
+            (Mat4::from_cols_array(&globals[2]).w_axis.truncate() - Vec3::new(0.0, 2.0, 0.0))
+                .length()
+                < 0.0001,
+            "C++ Matrix3D::Multiply(parent, local) rotates the child's local translation"
+        );
+
+        let mut controls = vec![None; hierarchy.pivots.len()];
+        controls[1] = Some(Mat4::from_translation(Vec3::X * 3.0).to_cols_array());
+        let captured = compute_htree_global_transforms_from_locals_with_capture_controls(
+            &hierarchy, &locals, &controls,
+        )
+        .expect("a valid C++ Capture_Bone control must evaluate");
+        assert!(
+            (Mat4::from_cols_array(&captured[2]).w_axis.truncate() - Vec3::new(0.0, 5.0, 0.0))
+                .length()
+                < 0.0001,
+            "C++ Control_Bone post-multiplies the parent before descendants inherit it"
+        );
+
+        let loader_globals = W3DLoader::compute_global_transforms(&hierarchy)
+            .expect("legacy HMODEL residual must use the same source matrix convention");
+        assert!(
+            (Mat4::from_cols_array(&loader_globals[2]).w_axis.truncate()
+                - Vec3::new(0.0, 2.0, 0.0))
+            .length()
+                < 0.0001
+        );
+    }
+
+    #[test]
+    fn raw_hanim_uses_cxx_integer_delta_postcomposition_and_duplicate_channel_rules() {
+        let quarter_turn = std::f32::consts::FRAC_1_SQRT_2;
+        let hierarchy = W3dHierarchy {
+            name: "RAW_DELTA".to_string(),
+            pivots: vec![
+                W3dPivot {
+                    name: "ROOT".to_string(),
+                    parent_idx: u32::MAX,
+                    translation: [0.0; 3],
+                    euler_angles: [0.0; 3],
+                    rotation: [0.0, 0.0, 0.0, 1.0],
+                },
+                W3dPivot {
+                    name: "ANIMATED_PARENT".to_string(),
+                    parent_idx: 0,
+                    translation: [10.0, 0.0, 0.0],
+                    euler_angles: [0.0; 3],
+                    rotation: [0.0, 0.0, quarter_turn, quarter_turn],
+                },
+                W3dPivot {
+                    name: "CHILD".to_string(),
+                    parent_idx: 1,
+                    translation: [1.0, 0.0, 0.0],
+                    euler_angles: [0.0; 3],
+                    rotation: [0.0, 0.0, 0.0, 1.0],
+                },
+            ],
+            pivot_fixups: Vec::new(),
+        };
+        let animation = W3dAnimation {
+            name: "RAW_DELTA_ANIM".to_string(),
+            hierarchy_name: "RAW_DELTA".to_string(),
+            num_frames: 3,
+            frame_rate: 30,
+            source_is_compressed: false,
+            channels: vec![
+                // C++ starts its raw node-motion loop at pivot one, so this
+                // malformed root channel must not poison the usable child pose.
+                W3dAnimChannel {
+                    first_frame: 0,
+                    last_frame: 2,
+                    vector_len: 0,
+                    flags: 0,
+                    pivot: 0,
+                    data: Vec::new(),
+                },
+                W3dAnimChannel {
+                    first_frame: 1,
+                    last_frame: 1,
+                    vector_len: 1,
+                    flags: 0,
+                    pivot: 1,
+                    data: vec![2.0],
+                },
+                // `HRawAnimClass::add_channel` overwrites the prior X
+                // pointer; the final source record is authoritative.
+                W3dAnimChannel {
+                    first_frame: 1,
+                    last_frame: 1,
+                    vector_len: 1,
+                    flags: 0,
+                    pivot: 1,
+                    data: vec![3.0],
+                },
+                W3dAnimChannel {
+                    first_frame: 1,
+                    last_frame: 1,
+                    vector_len: 4,
+                    flags: 6,
+                    pivot: 1,
+                    data: vec![0.0, 0.0, quarter_turn, quarter_turn],
+                },
+            ],
+            raw_visibility_channels: vec![W3dRawVisibilityChannel {
+                first_frame: 1,
+                last_frame: 1,
+                flags: 0,
+                pivot: 1,
+                default_visible: true,
+                bits: vec![0],
+            }],
+            unsupported_visibility_pivots: Vec::new(),
+        };
+
+        let raw_one = sample_animation_local_transforms(&hierarchy, &animation, 1.25)
+            .expect("fractional raw frame must use the C++ rounded integer frame");
+        let raw_one_globals = compute_htree_global_transforms_from_locals(&hierarchy, &raw_one)
+            .expect("valid raw HAnim hierarchy");
+        assert!(
+            (Mat4::from_cols_array(&raw_one_globals[2]).w_axis.truncate()
+                - Vec3::new(9.0, 3.0, 0.0))
+                .length()
+                < 0.0001,
+            "base Rz90 * delta Tx3 * delta Rz90 must rotate the child after preserving its bind pose"
+        );
+        assert_eq!(
+            animation.visibility_for_pivot(1, 1.25),
+            Some(false),
+            "specialized Generals raw update uses the same rounded frame for visibility"
+        );
+
+        let raw_two = sample_animation_local_transforms(&hierarchy, &animation, 1.5)
+            .expect("half frame rounds to the even raw frame under C++ _RC_NEAR");
+        let raw_two_globals = compute_htree_global_transforms_from_locals(&hierarchy, &raw_two)
+            .expect("valid raw HAnim hierarchy");
+        assert!(
+            (Mat4::from_cols_array(&raw_two_globals[2]).w_axis.truncate()
+                - Vec3::new(10.0, 1.0, 0.0))
+                .length()
+                < 0.0001,
+            "outside a raw channel range C++ supplies identity deltas rather than clamping/interpolating"
+        );
+        assert_eq!(animation.visibility_for_pivot(1, 1.5), Some(true));
+
+        let wrapped = sample_animation_local_transforms(&hierarchy, &animation, 2.6)
+            .expect("a raw frame at NumFrames wraps to zero");
+        let wrapped_globals = compute_htree_global_transforms_from_locals(&hierarchy, &wrapped)
+            .expect("valid wrapped raw HAnim hierarchy");
+        assert!(
+            (Mat4::from_cols_array(&wrapped_globals[2]).w_axis.truncate()
+                - Vec3::new(10.0, 1.0, 0.0))
+            .length()
+                < 0.0001
+        );
+    }
+
+    #[test]
+    fn htree_runtime_pose_ignores_authored_pivot_zero_pose_channels_and_visibility() {
+        let mut model = W3DLoader::new()
+            .load_model_from_bytes(&rigid_hlod_fixture(1, &[], &[]), "root_pose")
+            .expect("source-shaped rigid HLOD fixture should parse");
+        let original_bounds = (model.bounding_box_min, model.bounding_box_max);
+        let hierarchy = model
+            .hierarchy
+            .as_mut()
+            .expect("rigid HLOD fixture has an HTree");
+        hierarchy.pivots[0].translation = [99.0, 88.0, 77.0];
+        hierarchy.pivots[0].rotation = [0.0, 0.0, 1.0, 0.0];
+        model.animations.push(W3dAnimation {
+            name: "ROOT_ONLY".to_string(),
+            hierarchy_name: "RIG_HIER".to_string(),
+            num_frames: 2,
+            frame_rate: 30,
+            source_is_compressed: false,
+            channels: vec![
+                W3dAnimChannel {
+                    first_frame: 0,
+                    last_frame: 1,
+                    vector_len: 1,
+                    flags: 0,
+                    pivot: 0,
+                    data: vec![0.0, 500.0],
+                },
+                W3dAnimChannel {
+                    first_frame: 0,
+                    last_frame: 1,
+                    vector_len: 4,
+                    flags: 6,
+                    pivot: 0,
+                    data: vec![0.0, 0.0, 0.0, 1.0, 0.0, 1.0, 0.0, 0.0],
+                },
+            ],
+            raw_visibility_channels: vec![W3dRawVisibilityChannel {
+                first_frame: 0,
+                last_frame: 1,
+                flags: 0,
+                pivot: 0,
+                default_visible: false,
+                bits: vec![0],
+            }],
+            // A compressed pivot-zero source is likewise ignored because C++
+            // replaces pivot zero before it queries visibility.
+            unsupported_visibility_pivots: vec![Some(0)],
+        });
+
+        let binding = W3dAnimationBinding::local(0);
+        let sampled = model
+            .sample_animation_binding(&binding, 1.0)
+            .expect("root-local source data must not invalidate the HTree pose");
+        assert_eq!(sampled[0], Mat4::IDENTITY.to_cols_array());
+        assert_eq!(
+            Mat4::from_cols_array(&sampled[1]).w_axis.truncate(),
+            Vec3::new(10.0, 20.0, 30.0),
+            "a child must inherit the external object root, not authored pivot-zero data"
+        );
+        assert_eq!(
+            model.animations[0].visibility_for_pivot(0, 1.0),
+            Some(true),
+            "pivot zero is always visible even when its raw source channel is hidden or unsupported"
+        );
+
+        let (bind_transform, bind_visible) = model
+            .mesh_local_transform_and_visibility_for_binding(0, None, 0.0)
+            .expect("bind-pose rigid HLOD child");
+        let (animated_transform, animated_visible) = model
+            .mesh_local_transform_and_visibility_for_binding(0, Some(&binding), 1.0)
+            .expect("animated rigid HLOD child");
+        assert!(bind_visible && animated_visible);
+        assert_eq!(animated_transform, bind_transform);
+
+        let palette = model
+            .animation_palette_for_binding_and_capture_controls(Some(&binding), 1.0, &[])
+            .expect("selected HAnim palette must use the same HTree root rule");
+        assert_eq!(palette[0], Mat4::IDENTITY);
+        assert_eq!(palette[1], animated_transform);
+
+        model.calculate_bounding_box();
+        assert_eq!(
+            (model.bounding_box_min, model.bounding_box_max),
+            original_bounds,
+            "bind-pose bounds must ignore authored pivot-zero data"
+        );
+
+        let mut root_mesh_model = model.clone();
+        root_mesh_model.hlods[0].lods[0].subobjects[0].bone_index = 0;
+        let (root_transform, root_visible) = root_mesh_model
+            .mesh_local_transform_and_visibility_for_binding(0, Some(&binding), 1.0)
+            .expect("a valid root-bound HLOD child must receive the external root");
+        assert_eq!(root_transform, Mat4::IDENTITY);
+        assert!(root_visible);
+
+        let loader_globals = W3DLoader::compute_global_transforms(
+            root_mesh_model
+                .hierarchy
+                .as_ref()
+                .expect("fixture hierarchy"),
+        )
+        .expect("loader residual HModel path must share the HTree root rule");
+        assert_eq!(loader_globals[0], Mat4::IDENTITY.to_cols_array());
+        assert_eq!(
+            Mat4::from_cols_array(&loader_globals[1]).w_axis.truncate(),
+            Vec3::new(10.0, 20.0, 30.0)
+        );
+    }
+
+    #[test]
+    fn pre30_hierarchy_and_raw_animation_insert_and_address_the_synthetic_root() {
+        const PRE30_VERSION: u32 = (2 << 16) | 1;
+
+        let mut hierarchy_header = Vec::with_capacity(36);
+        hierarchy_header.extend_from_slice(&PRE30_VERSION.to_le_bytes());
+        hierarchy_header.extend_from_slice(&fixed_name("LEGACY_HIER", W3D_NAME_LEN));
+        hierarchy_header.extend_from_slice(&2u32.to_le_bytes());
+        hierarchy_header.extend_from_slice(&[0u8; 12]);
+        let hierarchy_data = [
+            chunk(W3D_CHUNK_HIERARCHY_HEADER, hierarchy_header, false),
+            chunk(
+                W3D_CHUNK_PIVOTS,
+                [
+                    pivot("LEGACY_ROOT", u32::MAX, [0.0, 0.0, 0.0]),
+                    pivot("LEGACY_CHILD", 0, [2.0, 0.0, 0.0]),
+                ]
+                .concat(),
+                false,
+            ),
+        ]
+        .concat();
+
+        let mut animation_header = Vec::with_capacity(44);
+        animation_header.extend_from_slice(&PRE30_VERSION.to_le_bytes());
+        animation_header.extend_from_slice(&fixed_name("LEGACY_ANIM", W3D_NAME_LEN));
+        animation_header.extend_from_slice(&fixed_name("LEGACY_HIER", W3D_NAME_LEN));
+        animation_header.extend_from_slice(&2u32.to_le_bytes());
+        animation_header.extend_from_slice(&30u32.to_le_bytes());
+        let mut root_x_channel = Vec::with_capacity(20);
+        root_x_channel.extend_from_slice(&0u16.to_le_bytes());
+        root_x_channel.extend_from_slice(&1u16.to_le_bytes());
+        root_x_channel.extend_from_slice(&1u16.to_le_bytes());
+        root_x_channel.extend_from_slice(&0u16.to_le_bytes());
+        root_x_channel.extend_from_slice(&0u16.to_le_bytes());
+        root_x_channel.extend_from_slice(&0u16.to_le_bytes());
+        root_x_channel.extend_from_slice(&0.0f32.to_le_bytes());
+        root_x_channel.extend_from_slice(&7.0f32.to_le_bytes());
+        let mut child_visibility = Vec::with_capacity(10);
+        child_visibility.extend_from_slice(&0u16.to_le_bytes());
+        child_visibility.extend_from_slice(&1u16.to_le_bytes());
+        child_visibility.extend_from_slice(&0u16.to_le_bytes());
+        child_visibility.extend_from_slice(&1u16.to_le_bytes());
+        child_visibility.push(1);
+        // Source child pivot one is visible at frame zero and hidden at one.
+        child_visibility.push(0b0000_0001);
+        let animation_data = [
+            chunk(W3D_CHUNK_ANIMATION_HEADER, animation_header, false),
+            chunk(W3D_CHUNK_ANIMATION_CHANNEL, root_x_channel, false),
+            chunk(W3D_CHUNK_BIT_CHANNEL, child_visibility, false),
+        ]
+        .concat();
+
+        let loader = W3DLoader::new();
+        let hierarchy = loader
+            .parse_hierarchy_chunk(&hierarchy_data)
+            .expect("pre-3.0 hierarchy source must normalize safely");
+        assert_eq!(hierarchy.pivots.len(), 3);
+        assert_eq!(hierarchy.pivots[0].name, "RootTransform");
+        assert_eq!(hierarchy.pivots[0].parent_idx, u32::MAX);
+        assert_eq!(hierarchy.pivots[1].name, "LEGACY_ROOT");
+        assert_eq!(hierarchy.pivots[1].parent_idx, 0);
+        assert_eq!(hierarchy.pivots[2].name, "LEGACY_CHILD");
+        assert_eq!(hierarchy.pivots[2].parent_idx, 1);
+
+        let animation = loader
+            .parse_animation_chunk(&animation_data)
+            .expect("pre-3.0 raw HAnim source must normalize safely");
+        assert_eq!(animation.channels[0].pivot, 1);
+        assert_eq!(animation.raw_visibility_channels[0].pivot, 2);
+        assert_eq!(animation.visibility_for_pivot(2, 0.0), Some(true));
+        assert_eq!(animation.visibility_for_pivot(2, 1.0), Some(false));
+
+        let mut model = W3DModel::new("pre30_pose".to_string());
+        model.hierarchy = Some(hierarchy);
+        model.animations.push(animation);
+        let sampled = model
+            .sample_animation_binding(&W3dAnimationBinding::local(0), 1.0)
+            .expect("shifted raw HAnim channel must reach the normalized hierarchy");
+        assert_eq!(sampled[0], Mat4::IDENTITY.to_cols_array());
+        assert_eq!(
+            sampled[1][12], 7.0,
+            "source root channel shifts to pivot one"
+        );
+        assert_eq!(
+            sampled[2][12],
+            9.0,
+            "the source child must inherit the shifted original root, not the synthetic external root"
+        );
+    }
+
+    #[test]
+    fn multi_lod_rigid_hlod_uses_cxx_constructor_selection_and_retains_attachment_metadata() {
+        let mut multi_lod = W3DLoader::new()
+            .load_model_from_bytes(&rigid_hlod_fixture(2, &[], &[]), "multi_lod")
             .expect("multi-LOD source fixture should parse and retain metadata");
         assert_eq!(multi_lod.hlods[0].lods.len(), 2);
+
+        // C++ `Calculate_Cost_Value_Arrays(1.0f, ...)` uses a strict `<`.
+        // A level whose authored maximum is exactly one pixel remains the
+        // constructor-selected minimum level.
+        multi_lod.hlods[0].lods[0].max_screen_size = 1.0;
+        multi_lod.hlods[0].lods[1].max_screen_size = f32::MAX;
+        assert_eq!(
+            W3DModel::cxx_constructor_selected_hlod_lod_index(&multi_lod.hlods[0]),
+            Some(0)
+        );
+
+        // Once the first level is strictly below one, C++ raises CurLod to the
+        // second level. Make only that selected level name the flattened mesh
+        // so the transform proof cannot accidentally draw both source groups.
+        multi_lod.hlods[0].lods[0].max_screen_size = 0.999_999;
+        multi_lod.hlods[0].lods[0].subobjects[0].name = "HLODROOT.LOW_ONLY".to_string();
+        assert_eq!(
+            W3DModel::cxx_constructor_selected_hlod_lod_index(&multi_lod.hlods[0]),
+            Some(1)
+        );
+        assert!(
+            multi_lod
+                .mesh_local_transform_for_animation(0, 0, 0.0)
+                .is_some(),
+            "only the C++ constructor-selected HLOD level may resolve a rigid child"
+        );
+        assert!(
+            !multi_lod.mesh_visible_for_authored_subobject_directives(
+                0,
+                &[AuthoredDrawSubobjectVisibility {
+                    name: "RIGID".to_string(),
+                    hidden: true,
+                }],
+            ),
+            "HideSubObject must resolve only within that same selected source level"
+        );
+
+        // If all levels are below one pixel, C++ clamps to the final (highest
+        // detail) level rather than wrapping or choosing a guessed default.
+        multi_lod.hlods[0].lods[1].max_screen_size = 0.5;
+        assert_eq!(
+            W3DModel::cxx_constructor_selected_hlod_lod_index(&multi_lod.hlods[0]),
+            Some(1)
+        );
+
+        // A malformed threshold is not a license to render an arbitrary
+        // source level in Main's bounded implementation.
+        multi_lod.hlods[0].lods[0].max_screen_size = f32::NAN;
         assert!(
             multi_lod
                 .mesh_local_transform_for_animation(0, 0, 0.0)
                 .is_none(),
-            "multi-LOD HLOD must not draw all source groups before selector parity"
+            "malformed HLOD thresholds must fail closed"
         );
 
         let aggregate = W3DLoader::new()
-            .load_model_from_bytes(&rigid_hlod_fixture(1, true), "aggregate_hlod")
-            .expect("aggregate source fixture should retain its unsupported marker");
-        assert!(aggregate.hlods[0].has_unsupported_attachments);
+            .load_model_from_bytes(
+                &rigid_hlod_fixture(
+                    1,
+                    &[("ATTACHED_MODEL", 1), ("SECOND_ATTACHMENT", 0)],
+                    &[("SPAWN_POINT", 1), ("RALLY_PROXY", 0)],
+                ),
+                "aggregate_hlod",
+            )
+            .expect("source-shaped attachment arrays should parse");
+        let aggregate_hlod = &aggregate.hlods[0];
+        assert_eq!(
+            aggregate_hlod.aggregates.as_ref(),
+            Some(&W3dHlodAttachmentArray {
+                max_screen_size: 0.0,
+                subobjects: vec![
+                    W3dHlodSubObject {
+                        name: "ATTACHED_MODEL".to_string(),
+                        bone_index: 1,
+                    },
+                    W3dHlodSubObject {
+                        name: "SECOND_ATTACHMENT".to_string(),
+                        bone_index: 0,
+                    }
+                ],
+            })
+        );
+        assert_eq!(
+            aggregate_hlod.proxies.as_ref(),
+            Some(&W3dHlodAttachmentArray {
+                max_screen_size: 0.0,
+                subobjects: vec![
+                    W3dHlodSubObject {
+                        name: "SPAWN_POINT".to_string(),
+                        bone_index: 1,
+                    },
+                    W3dHlodSubObject {
+                        name: "RALLY_PROXY".to_string(),
+                        bone_index: 0,
+                    }
+                ],
+            })
+        );
+        assert!(aggregate_hlod.has_unrendered_aggregates);
+        assert!(!aggregate_hlod.has_invalid_trailing_records);
+        let aggregate_poses = aggregate
+            .aggregate_attachment_poses_for_binding(None, 0.0)
+            .expect("a source-valid aggregate HLOD must expose exact parent-bone poses");
+        assert_eq!(aggregate_poses.len(), 2);
+        assert_eq!(aggregate_poses[0].name, "ATTACHED_MODEL");
+        assert_eq!(aggregate_poses[0].bone_index, 1);
+        assert!(aggregate_poses[0].visible);
+        assert_eq!(
+            aggregate_poses[0].parent_transform.w_axis.truncate(),
+            Vec3::new(10.0, 30.0, 20.0),
+            "aggregate pose must use the parent HTree bone in the same render basis as rigid children"
+        );
+        assert_eq!(aggregate_poses[1].name, "SECOND_ATTACHMENT");
+        assert_eq!(aggregate_poses[1].bone_index, 0);
+        let controlled_poses = aggregate
+            .aggregate_attachment_poses_for_binding_and_capture_controls(
+                None,
+                0.0,
+                &[(1, Mat4::from_translation(Vec3::new(-2.0, 0.0, 0.0)))],
+            )
+            .expect("valid source capture controls must update aggregate parent poses");
+        assert_eq!(
+            controlled_poses[0].parent_transform.w_axis.truncate(),
+            Vec3::new(8.0, 30.0, 20.0),
+            "C++ controls post-multiply the aggregate's HTree parent pivot before child rendering"
+        );
+        let mut authored_root_offset = aggregate.clone();
+        authored_root_offset
+            .hierarchy
+            .as_mut()
+            .expect("synthetic aggregate hierarchy")
+            .pivots[0]
+            .translation = [99.0, 88.0, 77.0];
+        let root_ignored_poses = authored_root_offset
+            .aggregate_attachment_poses_for_binding(None, 0.0)
+            .expect("HTree root handling must remain valid");
+        assert_eq!(
+            root_ignored_poses[0].parent_transform.w_axis.truncate(),
+            Vec3::new(10.0, 30.0, 20.0),
+            "HTree overwrites pivot zero with the parent object root; W3D pivot-zero bind data must not leak into the child attachment pose"
+        );
         assert!(
             aggregate
                 .mesh_local_transform_for_animation(0, 0, 0.0)
+                .is_some(),
+            "C++ keeps the selected parent LOD visible while each aggregate is resolved or skipped independently"
+        );
+
+        let proxy_only = W3DLoader::new()
+            .load_model_from_bytes(
+                &rigid_hlod_fixture(1, &[], &[("SPAWN_POINT", 1)]),
+                "proxy_hlod",
+            )
+            .expect("source-shaped proxy array should parse");
+        assert!(!proxy_only.hlods[0].has_unrendered_aggregates);
+        assert!(!proxy_only.hlods[0].has_invalid_trailing_records);
+        assert!(
+            proxy_only
+                .aggregate_attachment_poses_for_binding(None, 0.0)
                 .is_none(),
-            "aggregate HLOD must remain non-rendering until aggregate attachment parity exists"
+            "proxies remain source application records, not implicit aggregate render objects"
+        );
+        assert!(
+            proxy_only
+                .mesh_local_transform_for_animation(0, 0, 0.0)
+                .is_some(),
+            "C++ proxies are non-rendering application records and must not hide the parent HLOD"
+        );
+
+        let mut malformed_proxy = rigid_hlod_fixture(1, &[], &[("SPAWN_POINT", 1)]);
+        let proxy_chunk_type = W3D_CHUNK_HLOD_PROXY_ARRAY.to_le_bytes();
+        let proxy_offset = malformed_proxy
+            .windows(proxy_chunk_type.len())
+            .position(|window| window == proxy_chunk_type)
+            .expect("synthetic fixture must contain its proxy chunk");
+        let raw_size_offset = proxy_offset + proxy_chunk_type.len();
+        let raw_size = u32::from_le_bytes(
+            malformed_proxy[raw_size_offset..raw_size_offset + 4]
+                .try_into()
+                .expect("proxy chunk must carry a raw size"),
+        );
+        malformed_proxy[raw_size_offset..raw_size_offset + 4]
+            .copy_from_slice(&(raw_size & 0x7FFF_FFFF).to_le_bytes());
+        let malformed_proxy = W3DLoader::new()
+            .load_model_from_bytes(&malformed_proxy, "malformed_proxy_hlod")
+            .expect("malformed trailing metadata must safely retain the outer HLOD record");
+        assert!(malformed_proxy.hlods[0].has_invalid_trailing_records);
+        assert!(
+            malformed_proxy
+                .mesh_local_transform_for_animation(0, 0, 0.0)
+                .is_none(),
+            "a malformed source attachment record must not be treated as safe rigid topology"
         );
     }
 

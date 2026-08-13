@@ -7,10 +7,10 @@ use crate::common::audio::AudioEventRts;
 use crate::common::audio::TimeOfDay;
 use crate::common::ObjectID;
 use crate::common::*;
-use crate::helpers::TheAudio;
-use crate::helpers::{TheGameLogic, TheGlobalData};
-use crate::object::body::body_module::BodyDamageType;
 use crate::effects::FXList;
+use crate::helpers::TheAudio;
+use crate::helpers::{ModelDrawSourceIdentity, TheGameClient, TheGameLogic, TheGlobalData};
+use crate::object::body::body_module::BodyDamageType;
 use crate::object::draw::draw_module::{
     DebrisDrawInterface, DrawModule, ObjectDrawInterface, RGBColor, ShadowType,
 };
@@ -409,6 +409,9 @@ enum DrawModuleKindMut<'a> {
     OverlordTank(&'a mut crate::object::draw::W3DOverlordTankDraw),
     OverlordTruck(&'a mut crate::object::draw::W3DOverlordTruckDraw),
     Truck(&'a mut crate::object::draw::W3DTruckDraw),
+    PoliceCar(&'a mut crate::object::draw::W3DPoliceCarDraw),
+    ScienceModel(&'a mut crate::object::draw::W3DScienceModelDraw),
+    DependencyModel(&'a mut crate::object::draw::W3DDependencyModelDraw),
     Tracer(&'a mut crate::object::draw::W3DTracerDraw),
     Laser(&'a mut crate::object::draw::W3DLaserDraw),
     Rope(&'a mut crate::object::draw::W3DRopeDraw),
@@ -417,6 +420,7 @@ enum DrawModuleKindMut<'a> {
     Tree(&'a mut crate::object::draw::W3DTreeDraw),
     Debris(&'a mut crate::object::draw::W3DDebrisDraw),
     Supply(&'a mut crate::object::draw::W3DSupplyDraw),
+    Default(&'a mut crate::object::draw::W3DDefaultDraw),
 }
 
 impl<'a> DrawModuleKindMut<'a> {
@@ -429,6 +433,9 @@ impl<'a> DrawModuleKindMut<'a> {
             Self::OverlordTank(draw) => draw,
             Self::OverlordTruck(draw) => draw,
             Self::Truck(draw) => draw,
+            Self::PoliceCar(draw) => draw,
+            Self::ScienceModel(draw) => draw,
+            Self::DependencyModel(draw) => draw,
             Self::Tracer(draw) => draw,
             Self::Laser(draw) => draw,
             Self::Rope(draw) => draw,
@@ -437,6 +444,7 @@ impl<'a> DrawModuleKindMut<'a> {
             Self::Tree(draw) => draw,
             Self::Debris(draw) => draw,
             Self::Supply(draw) => draw,
+            Self::Default(draw) => draw,
         }
     }
 
@@ -456,6 +464,9 @@ impl<'a> DrawModuleKindMut<'a> {
             Self::OverlordTank(draw) => draw.set_terrain_decal(decal_type),
             Self::OverlordTruck(draw) => draw.set_terrain_decal(decal_type),
             Self::Truck(draw) => draw.set_terrain_decal(decal_type),
+            Self::PoliceCar(draw) => draw.set_terrain_decal(decal_type),
+            Self::ScienceModel(draw) => draw.set_terrain_decal(decal_type),
+            Self::DependencyModel(draw) => draw.set_terrain_decal(decal_type),
             Self::Tracer(draw) => draw.set_terrain_decal(decal_type),
             Self::Laser(draw) => draw.set_terrain_decal(decal_type),
             Self::Rope(draw) => draw.set_terrain_decal(decal_type),
@@ -464,6 +475,7 @@ impl<'a> DrawModuleKindMut<'a> {
             Self::Tree(draw) => draw.set_terrain_decal(decal_type),
             Self::Debris(draw) => draw.set_terrain_decal(decal_type),
             Self::Supply(draw) => draw.set_terrain_decal(decal_type),
+            Self::Default(draw) => draw.set_terrain_decal(decal_type),
         }
     }
 
@@ -473,6 +485,9 @@ impl<'a> DrawModuleKindMut<'a> {
             Self::OverlordTank(draw) => draw.bind_owner_id(object_id),
             Self::OverlordTruck(draw) => draw.bind_owner_id(object_id),
             Self::Truck(draw) => draw.bind_owner_id(object_id),
+            Self::PoliceCar(draw) => draw.bind_owner_id(object_id),
+            Self::ScienceModel(draw) => draw.bind_owner_id(object_id),
+            Self::DependencyModel(draw) => draw.bind_owner_id(object_id),
             Self::Model(draw) => draw.bind_owner_id(object_id),
             Self::Tank(draw) => draw.bind_owner_id(object_id),
             Self::TankTruck(draw) => draw.bind_owner_id(object_id),
@@ -480,7 +495,9 @@ impl<'a> DrawModuleKindMut<'a> {
             Self::ProjectileStream(draw) => draw.bind_owner_id(object_id),
             Self::Debris(draw) => draw.bind_owner_id(object_id),
             Self::Supply(draw) => draw.bind_owner_id(object_id),
-            Self::Tracer(_) | Self::Rope(_) | Self::Projectile(_) | Self::Tree(_) => {}
+            Self::Projectile(draw) => draw.bind_owner_id(object_id),
+            Self::Default(draw) => draw.bind_owner_id(object_id),
+            Self::Tracer(_) | Self::Rope(_) | Self::Tree(_) => {}
         }
     }
 }
@@ -525,6 +542,21 @@ fn with_draw_module_kind(
         func(DrawModuleKindMut::Truck(module));
         true
     } else if let Some(module) =
+        (module as &mut dyn Any).downcast_mut::<crate::object::draw::W3DPoliceCarDraw>()
+    {
+        func(DrawModuleKindMut::PoliceCar(module));
+        true
+    } else if let Some(module) =
+        (module as &mut dyn Any).downcast_mut::<crate::object::draw::W3DScienceModelDraw>()
+    {
+        func(DrawModuleKindMut::ScienceModel(module));
+        true
+    } else if let Some(module) =
+        (module as &mut dyn Any).downcast_mut::<crate::object::draw::W3DDependencyModelDraw>()
+    {
+        func(DrawModuleKindMut::DependencyModel(module));
+        true
+    } else if let Some(module) =
         (module as &mut dyn Any).downcast_mut::<crate::object::draw::W3DTracerDraw>()
     {
         func(DrawModuleKindMut::Tracer(module));
@@ -563,6 +595,11 @@ fn with_draw_module_kind(
         (module as &mut dyn Any).downcast_mut::<crate::object::draw::W3DSupplyDraw>()
     {
         func(DrawModuleKindMut::Supply(module));
+        true
+    } else if let Some(module) =
+        (module as &mut dyn Any).downcast_mut::<crate::object::draw::W3DDefaultDraw>()
+    {
+        func(DrawModuleKindMut::Default(module));
         true
     } else {
         false
@@ -1453,10 +1490,22 @@ impl Drawable {
         module_data: Arc<dyn ModuleData>,
         mut module: Box<dyn Module>,
     ) -> DrawableModuleHandle {
-        let _ = with_draw_module_kind(module.as_mut(), |draw| {
-            draw.bind_owner_id(self.object_id);
-        });
-        module.on_drawable_bound_to_object();
+        // C++ constructs draw modules before `friend_bindToObject`.  Do not
+        // bind them to INVALID_ID or notify them during construction; W3D
+        // modules resolve their owning Object only after the real association
+        // exists.  A module dynamically added to an already bound Drawable is
+        // the one legitimate immediate-notification case.
+        let is_bound = self
+            .object_ref
+            .as_ref()
+            .and_then(|weak| weak.upgrade())
+            .is_some();
+        if is_bound {
+            let _ = with_draw_module_kind(module.as_mut(), |draw| {
+                draw.bind_owner_id(self.object_id);
+            });
+            module.on_drawable_bound_to_object();
+        }
         let entry = Arc::new(DrawModuleEntry::new(
             name,
             tag,
@@ -3240,10 +3289,50 @@ impl Drawable {
 
     /// C++ `Drawable::friend_bindToObject` + `GameLogic::bindObjectAndDrawable`.
     pub fn friend_bind_to_object(&mut self, object: &Arc<RwLock<crate::object::Object>>) {
-        if let Ok(guard) = object.read() {
-            self.object_id = guard.get_id();
+        let Some(new_object_id) = object.read().ok().map(|guard| guard.get_id()) else {
+            return;
+        };
+        let previous_object_id = self.object_id;
+        if let Some(client) = TheGameClient::get() {
+            // A replacement Drawable for the *same* object must also retire
+            // its predecessor's model output. C++ has no cross-drawable global
+            // output cache to make that stale state visible for another frame.
+            client.clear_object_model_draws(new_object_id);
+            if previous_object_id != new_object_id {
+                client.clear_object_model_draws(previous_object_id);
+            }
         }
+        self.object_id = new_object_id;
         self.bind_object_ref(object);
+
+        self.notify_draw_modules_bound_to_current_object();
+    }
+
+    /// Notify draw modules only after this Drawable has a resolved gameplay
+    /// object association. Used by both the ordinary bind path and Xfer load.
+    fn notify_draw_modules_bound_to_current_object(&mut self) {
+        if self.object_id == INVALID_ID
+            || self
+                .object_ref
+                .as_ref()
+                .and_then(|weak| weak.upgrade())
+                .is_none()
+        {
+            return;
+        }
+
+        // C++ Drawable::friend_bindToObject notifies each DrawModule after the
+        // object association has been installed.  Rebinding owner IDs here is
+        // essential: the normal GameClient allocation path constructs with
+        // INVALID_ID and the factory path may construct before this callback.
+        for module_handle in self.get_draw_modules_with_interface(ModuleInterfaceType::DRAW) {
+            module_handle.with_module(|module| {
+                let _ = with_draw_module_kind(module, |draw| {
+                    draw.bind_owner_id(self.object_id);
+                });
+                module.on_drawable_bound_to_object();
+            });
+        }
     }
 
     /// Get current worldspace client bone positions
@@ -3645,6 +3734,13 @@ impl Snapshot for Drawable {
         }
 
         self.xfer_drawable_modules(xfer);
+        if is_loading {
+            // Xfer reconstructs the object link and module list separately.
+            // Route the completed association through the same post-bind
+            // notification used by C++ `friend_bindToObject`, otherwise W3D
+            // modules can retain an INVALID owner/current state after load.
+            self.notify_draw_modules_bound_to_current_object();
+        }
 
         let mut stealth_look = stealth_look_to_u32(self.stealth_look);
         let _ = xfer.xfer_unsigned_int(&mut stealth_look);
@@ -3843,6 +3939,12 @@ impl crate::drawable::Drawable for Drawable {
     /// Draw the drawable at a specific position
     /// Reference: C++ Drawable.cpp - rendering is delegated to draw modules
     fn draw(&mut self, transform: Option<&Matrix3D>) {
+        // This happens before the hidden early-out.  The bridge represents the
+        // current C++ Drawable::draw() result, not the last visible frame.
+        if let Some(client) = TheGameClient::get() {
+            client.begin_object_model_draw_frame(self.object_id);
+        }
+
         let object_effectively_dead = self
             .object_ref
             .as_ref()
@@ -3876,13 +3978,31 @@ impl crate::drawable::Drawable for Drawable {
         if let Some(instance_mtx) = self.instance_matrix {
             transform_mtx = transform_mtx * instance_mtx;
         }
-
-        for module_handle in self.get_draw_modules_with_interface(ModuleInterfaceType::DRAW) {
+        let logic_drawable_id = self.drawable_id;
+        for (runtime_draw_ordinal, module_handle) in self
+            .get_draw_modules_with_interface(ModuleInterfaceType::DRAW)
+            .into_iter()
+            .enumerate()
+        {
+            if let Some(client) = TheGameClient::get() {
+                client.begin_active_object_model_draw(
+                    self.object_id,
+                    ModelDrawSourceIdentity {
+                        runtime_draw_ordinal: runtime_draw_ordinal as u32,
+                        module_name: module_handle.name().to_string(),
+                        module_tag: module_handle.tag().to_string(),
+                        module_tag_name_key: module_handle.module_tag_key(),
+                    },
+                );
+            }
             module_handle.with_module(|module| {
                 with_draw_module_mut(module, |draw| {
                     draw.do_draw_module(&transform_mtx);
                 });
             });
+            if let Some(client) = TheGameClient::get() {
+                client.commit_active_object_model_draw(self.object_id, logic_drawable_id);
+            }
         }
     }
 

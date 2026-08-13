@@ -139,8 +139,10 @@ pub use ini_campaign::{
     Campaign, CampaignStore, Mission, MAX_DISPLAYED_UNITS, MAX_OBJECTIVE_LINES,
 };
 pub use ini_challenge_generals::{
-    get_challenge_generals, get_challenge_generals_mut, init_challenge_generals,
-    parse_challenge_generals_definition, ChallengeGenerals, GeneralPersona, NUM_GENERALS,
+    challenge_generals_load_status, ensure_challenge_generals_loaded, get_challenge_generals,
+    get_challenge_generals_mut, init_challenge_generals, parse_challenge_generals_definition,
+    ChallengeGenerals, ChallengeGeneralsLoadError, ChallengeGeneralsLoadStatus, GeneralPersona,
+    NUM_GENERALS,
 };
 pub use ini_credits::{
     get_credits_manager, get_credits_manager_mut, init_credits_manager, parse_credits_definition,

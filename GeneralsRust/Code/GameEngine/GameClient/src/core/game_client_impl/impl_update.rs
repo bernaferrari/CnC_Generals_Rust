@@ -210,6 +210,209 @@ impl GameClient {
         }
     }
 
+    /// Apply C++ `GameClient::update` direct-object shroud visibility from a
+    /// frozen presentation frame.
+    ///
+    /// Each entry carries the full runtime binding key returned after the
+    /// presentation sync.  It is accepted only if the host epoch, object id,
+    /// Drawable id, binding generation, object map, and Drawable inverse map
+    /// still agree.  This does not alter ordinary drawable visibility, hidden
+    /// state, scene candidates, or clear-frame timestamps.  The latter remain
+    /// owned by the W3D direct-scene dispatch that will be wired separately.
+    ///
+    /// Returns the number of current drawable associations whose direct shroud
+    /// state accepted the update.
+    pub fn apply_frozen_direct_shroud_statuses<I>(&mut self, logic_frame: u32, entries: I) -> usize
+    where
+        I: IntoIterator<Item = FrozenDirectShroudStatus>,
+    {
+        let mut applied = 0;
+
+        for entry in entries {
+            let Some(state) = self.presentation_direct_drawable_state(
+                entry.binding_key.host_epoch,
+                entry.binding_key.object_id,
+            ) else {
+                continue;
+            };
+            if state.binding_key != entry.binding_key {
+                continue;
+            }
+            let drawable_id = state.binding_key.drawable_id;
+            let Some(drawable) = self.drawable_map.get_mut(&drawable_id) else {
+                continue;
+            };
+            if drawable.get_object_id() != Some(entry.binding_key.object_id) {
+                continue;
+            }
+            if drawable
+                .apply_frozen_direct_shroud_status(
+                    logic_frame,
+                    entry.raw_status,
+                    entry.effectively_dead,
+                )
+                .is_some()
+            {
+                applied += 1;
+            }
+        }
+
+        applied
+    }
+
+    /// Evaluate one frozen direct candidate at the C++ W3D scene boundary.
+    ///
+    /// Main invokes this only after its immutable presentation candidate has
+    /// passed frustum culling and produced at least one real render item. The
+    /// full runtime binding key prevents a stale frame from refreshing a
+    /// replacement Drawable's volatile clear history. The concrete Drawable
+    /// still owns its source-equivalent effective-hidden check.
+    #[must_use]
+    pub fn evaluate_frozen_direct_scene_candidate(
+        &mut self,
+        logic_frame: u32,
+        binding_key: PresentationDirectDrawableBindingKey,
+        raw_status: gamelogic::common::types::ObjectShroudStatus,
+        effectively_dead: bool,
+    ) -> Option<crate::drawable::SceneShroudDecision> {
+        let state =
+            self.presentation_direct_drawable_state(binding_key.host_epoch, binding_key.object_id)?;
+        if state.binding_key != binding_key {
+            return None;
+        }
+        let drawable = self.drawable_map.get_mut(&binding_key.drawable_id)?;
+        if drawable.get_object_id() != Some(binding_key.object_id) {
+            return None;
+        }
+        drawable.evaluate_frozen_direct_scene_candidate(logic_frame, raw_status, effectively_dead)
+    }
+
+    /// Consume one immutable Main scene-candidate ledger.
+    ///
+    /// The caller has already deduplicated candidates by full binding key and
+    /// selected a single frozen view/pass. This client boundary validates the
+    /// association again so a stale ledger can never refresh a replacement
+    /// Drawable's clear-frame state.
+    #[must_use]
+    pub fn evaluate_frozen_direct_scene_shroud_candidates<I>(
+        &mut self,
+        logic_frame: u32,
+        candidates: I,
+    ) -> Vec<FrozenDirectSceneShroudDecision>
+    where
+        I: IntoIterator<Item = FrozenDirectSceneShroudCandidate>,
+    {
+        candidates
+            .into_iter()
+            .filter_map(|candidate| {
+                let decision = self.evaluate_frozen_direct_scene_candidate(
+                    logic_frame,
+                    candidate.binding_key,
+                    candidate.raw_status,
+                    candidate.effectively_dead,
+                )?;
+                Some(FrozenDirectSceneShroudDecision {
+                    binding_key: candidate.binding_key,
+                    decision,
+                })
+            })
+            .collect()
+    }
+
+    /// Read a direct presentation Drawable state guarded by frozen host-world
+    /// and object identities.
+    ///
+    /// An unbound/objectless drawable, an unknown object, a host epoch from a
+    /// previous world, a stale association, or a drawable without base direct
+    /// shroud state returns `None` rather than being treated as clear.
+    #[must_use]
+    pub fn presentation_direct_drawable_state(
+        &self,
+        host_epoch: u64,
+        object_id: ObjectID,
+    ) -> Option<PresentationDirectDrawableState> {
+        // Epoch zero belongs only to the legacy convenience ensure helper.
+        // Main's direct host pipeline starts at one and is the only route that
+        // may expose a renderable direct binding key.
+        if host_epoch == 0 {
+            return None;
+        }
+        let drawable_id = self.drawable_object_map.get(&object_id)?;
+        let binding = self
+            .presentation_direct_drawable_bindings
+            .get(drawable_id)?;
+        let binding_key = binding.binding_key;
+        if binding_key.host_epoch != host_epoch
+            || binding_key.object_id != object_id
+            || binding_key.drawable_id != *drawable_id
+        {
+            return None;
+        }
+        let drawable = self.drawable_map.get(drawable_id)?;
+        if drawable.get_object_id() != Some(object_id) {
+            return None;
+        }
+        let scene_effectively_hidden = drawable.scene_effectively_hidden()?;
+        let fully_obscured = drawable.fully_obscured_by_shroud()?;
+        Some(PresentationDirectDrawableState {
+            binding_key,
+            scene_effectively_hidden,
+            fully_obscured,
+        })
+    }
+
+    /// Compatibility reader for callers that do not yet retain a host epoch.
+    ///
+    /// New presentation code should use
+    /// [`Self::presentation_direct_drawable_state`] and retain its full key.
+    #[must_use]
+    pub fn presentation_direct_fully_obscured(&self, object_id: ObjectID) -> Option<bool> {
+        let drawable_id = self.drawable_object_map.get(&object_id)?;
+        let host_epoch = self
+            .presentation_direct_drawable_bindings
+            .get(drawable_id)?
+            .binding_key
+            .host_epoch;
+        self.presentation_direct_drawable_state(host_epoch, object_id)
+            .map(|state| state.fully_obscured)
+    }
+
+    /// Apply a frozen direct visual pose only when its full runtime binding
+    /// key still resolves to the same Drawable.
+    ///
+    /// This is the keyed counterpart to the legacy
+    /// [`Self::apply_presentation_pose_to_drawables`] helper.  Main's direct
+    /// host path must use this method so a visual-template replacement cannot
+    /// receive a pose captured for its predecessor.
+    pub fn apply_frozen_direct_presentation_poses<I>(&mut self, entries: I) -> usize
+    where
+        I: IntoIterator<Item = FrozenDirectPresentationPose>,
+    {
+        let mut updated = 0usize;
+        for entry in entries {
+            let Some(state) = self.presentation_direct_drawable_state(
+                entry.binding_key.host_epoch,
+                entry.binding_key.object_id,
+            ) else {
+                continue;
+            };
+            if state.binding_key != entry.binding_key {
+                continue;
+            }
+            let Some(drawable) = self.drawable_map.get_mut(&state.binding_key.drawable_id) else {
+                continue;
+            };
+            if drawable.get_object_id() != Some(entry.binding_key.object_id) {
+                continue;
+            }
+            let position = Vector3::new(entry.position[0], entry.position[1], entry.position[2]);
+            drawable.set_position(position);
+            drawable.set_instance_transform(Matrix4::rotation_y(entry.orientation));
+            updated = updated.saturating_add(1);
+        }
+        updated
+    }
+
     /// Apply presentation-owned world pose to bound drawables (no OBJECT_REGISTRY).
     ///
     /// C++ drawable instance transform residual driven by frozen `PresentationFrame`
@@ -228,8 +431,12 @@ impl GameClient {
             };
             let position = Vector3::new(pos[0], pos[1], pos[2]);
             drawable.set_position(position);
-            // C++ Matrix3D translation * Rotate_Y residual (sync_with_game_logic parity).
-            let transform = Matrix4::translation(position).mul(&Matrix4::rotation_y(orientation));
+            // C++ `Drawable::draw` starts with the owning Thing/Object world
+            // transform, then post-multiplies only the local instance matrix.
+            // `BasicDrawable::get_transform()` already supplies the world
+            // translation from `set_position`, so carrying it in the instance
+            // matrix as well would translate every host-synced drawable twice.
+            let transform = Matrix4::rotation_y(orientation);
             drawable.set_instance_transform(transform);
             updated += 1;
         }
@@ -248,6 +455,9 @@ impl GameClient {
             .into_iter()
             .map(|(id, tmpl, pos, ori)| PresentationDrawableSync {
                 object_id: id,
+                host_epoch: 0,
+                resident: true,
+                visual_template_name: tmpl.clone(),
                 template_name: tmpl,
                 position: pos,
                 orientation: ori,
@@ -284,79 +494,146 @@ impl GameClient {
 
     /// Wave 963: presentation drawable sync residual (ensure + pose/model + prune).
     ///
-    /// Returns `(created, updated, pruned)`. No OBJECT_REGISTRY dual-world populate.
+    /// Direct visual residency is controlled solely by
+    /// [`PresentationDrawableSync::resident`].  In particular, `destroyed`
+    /// is diagnostic/render data and must not remove an active slow-death or
+    /// rubble visual.  Returns `(created, updated, pruned)`. No
+    /// OBJECT_REGISTRY dual-world populate.
     pub fn sync_presentation_drawables<I>(&mut self, entries: I) -> (usize, usize, usize)
     where
         I: IntoIterator<Item = PresentationDrawableSync>,
     {
         use crate::drawable::DrawableExt;
-        use game_engine::common::bit_flags::{create_model_condition_flags, ModelConditionFlags};
-        use gamelogic::common::types::BodyDamageType;
 
         let mut created = 0usize;
         let mut updated = 0usize;
-        let mut live_ids = std::collections::HashSet::new();
+        let mut live_bindings = std::collections::HashSet::new();
 
         for e in entries {
-            if e.destroyed {
+            if !e.resident {
                 continue;
             }
-            live_ids.insert(e.object_id);
+            let visual_template_name = Self::presentation_visual_template_name(&e).to_string();
+            live_bindings.insert((e.host_epoch, e.object_id));
 
             if let Some(&drawable_id) = self.drawable_object_map.get(&e.object_id) {
-                if let Some(drawable) = self.drawable_map.get_mut(&drawable_id) {
+                let retains_binding = self
+                    .presentation_direct_drawable_bindings
+                    .get(&drawable_id)
+                    .map(|binding| {
+                        binding.binding_key.host_epoch == e.host_epoch
+                            && binding.binding_key.object_id == e.object_id
+                            && binding.binding_key.drawable_id == drawable_id
+                            && binding.visual_template_name == visual_template_name
+                            && self.drawable_map.get(&drawable_id).is_some_and(|drawable| {
+                                drawable.get_object_id() == Some(e.object_id)
+                            })
+                    })
+                    .unwrap_or(false);
+
+                if retains_binding {
+                    let Some(drawable) = self.drawable_map.get_mut(&drawable_id) else {
+                        continue;
+                    };
                     let position = Vector3::new(e.position[0], e.position[1], e.position[2]);
                     drawable.set_position(position);
-                    let transform =
-                        Matrix4::translation(position).mul(&Matrix4::rotation_y(e.orientation));
+                    let transform = Matrix4::rotation_y(e.orientation);
                     drawable.set_instance_transform(transform);
                     if let Some(basic) = drawable.downcast_mut::<BasicDrawable>() {
-                        if !e.template_name.is_empty() {
-                            basic.set_template_name(Some(e.template_name.clone()));
+                        if !visual_template_name.is_empty() {
+                            basic.set_template_name(Some(visual_template_name.clone()));
                         }
                         Self::stamp_presentation_object_residual(basic, &e);
                     }
                     updated = updated.saturating_add(1);
+                    continue;
                 }
-                continue;
+
+                // A mapped Drawable with a different host epoch, visual
+                // template, or missing direct record cannot retain volatile
+                // direct state.  Recreate it instead of silently rebinding.
+                let _ = self.destroy_drawable(drawable_id);
+                if self.drawable_object_map.get(&e.object_id).copied() == Some(drawable_id) {
+                    self.drawable_object_map.remove(&e.object_id);
+                }
+                self.presentation_direct_drawable_bindings
+                    .remove(&drawable_id);
             }
 
             let mut drawable = BasicDrawable::new(DrawableId::INVALID);
-            if !e.template_name.is_empty() {
-                drawable.set_template_name(Some(e.template_name.clone()));
+            if !visual_template_name.is_empty() {
+                drawable.set_template_name(Some(visual_template_name.clone()));
             }
             drawable.set_object_id(Some(e.object_id));
             let position = Vector3::new(e.position[0], e.position[1], e.position[2]);
             drawable.set_position(position);
-            let transform = Matrix4::translation(position).mul(&Matrix4::rotation_y(e.orientation));
+            let transform = Matrix4::rotation_y(e.orientation);
             drawable.set_instance_transform(transform);
             Self::stamp_presentation_object_residual(&mut drawable, &e);
             let id = self.alloc_drawable_id();
             drawable.set_id(id);
             self.drawable_map.insert(id, Box::new(drawable));
             self.drawable_object_map.insert(e.object_id, id);
+            let binding_generation = self.alloc_presentation_direct_binding_generation();
+            let binding_key = PresentationDirectDrawableBindingKey {
+                host_epoch: e.host_epoch,
+                object_id: e.object_id,
+                drawable_id: id,
+                binding_generation,
+            };
+            self.presentation_direct_drawable_bindings.insert(
+                id,
+                PresentationDirectDrawableBinding {
+                    binding_key,
+                    visual_template_name,
+                },
+            );
             created = created.saturating_add(1);
         }
 
-        let stale: Vec<(u32, DrawableId)> = self
-            .drawable_object_map
+        let stale: Vec<(DrawableId, PresentationDirectDrawableBindingKey)> = self
+            .presentation_direct_drawable_bindings
             .iter()
-            .filter_map(|(&oid, &did)| {
-                if live_ids.contains(&oid) {
+            .filter_map(|(&drawable_id, binding)| {
+                let binding_key = binding.binding_key;
+                if live_bindings.contains(&(binding_key.host_epoch, binding_key.object_id)) {
                     None
                 } else {
-                    Some((oid, did))
+                    Some((drawable_id, binding_key))
                 }
             })
             .collect();
         let mut pruned = 0usize;
-        for (oid, did) in stale {
-            let _ = self.destroy_drawable(did);
-            self.drawable_object_map.remove(&oid);
+        for (drawable_id, binding_key) in stale {
+            let _ = self.destroy_drawable(drawable_id);
+            if self
+                .drawable_object_map
+                .get(&binding_key.object_id)
+                .copied()
+                == Some(drawable_id)
+            {
+                self.drawable_object_map.remove(&binding_key.object_id);
+            }
+            self.presentation_direct_drawable_bindings
+                .remove(&drawable_id);
             pruned = pruned.saturating_add(1);
         }
 
         (created, updated, pruned)
+    }
+
+    fn presentation_visual_template_name(e: &PresentationDrawableSync) -> &str {
+        if e.visual_template_name.is_empty() {
+            &e.template_name
+        } else {
+            &e.visual_template_name
+        }
+    }
+
+    fn alloc_presentation_direct_binding_generation(&mut self) -> u64 {
+        let generation = self.next_presentation_direct_binding_generation.max(1);
+        self.next_presentation_direct_binding_generation = generation.wrapping_add(1).max(1);
+        generation
     }
 
     fn stamp_presentation_object_residual(

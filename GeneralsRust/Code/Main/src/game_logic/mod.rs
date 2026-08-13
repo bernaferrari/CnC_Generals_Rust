@@ -84,6 +84,7 @@ pub mod resources;
 pub mod script_events;
 pub mod script_loader;
 pub mod special_power_strikes;
+pub(crate) mod staged_world_effects;
 pub mod terrain;
 pub mod thing;
 pub mod units;

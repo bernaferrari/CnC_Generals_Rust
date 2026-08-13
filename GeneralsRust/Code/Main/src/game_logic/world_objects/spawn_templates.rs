@@ -214,6 +214,7 @@ impl GameLogic {
         Self::apply_authored_hacker_disable_building_metadata(&mut template, definition);
         Self::apply_authored_overcharge_metadata(&mut template, definition);
         Self::apply_authored_power_plant_update_metadata(&mut template, definition);
+        Self::apply_authored_temporary_weapon_behavior_metadata(&mut template, definition);
 
         let primary_texture = texture_hint.or_else(|| definition.get_primary_texture());
         if let Some(texture_name) = primary_texture {
@@ -2050,6 +2051,40 @@ impl GameLogic {
         };
     }
 
+    /// Retain exact source data for C++ `FireWeaponWhenDamagedBehavior` and
+    /// `FireWeaponWhenDeadBehavior` without activating a second live firing
+    /// path.  The former owns eight independent mutable PRIMARY Weapons and
+    /// C++ Xfers every present one; Main's current Object snapshot has no
+    /// behavior-runtime tail, so attaching those states before a coordinated
+    /// schema revision would silently corrupt cooldown/ammo/barrel state on
+    /// save/load.  Source metadata is safe and lets that later activation use
+    /// retained module identity rather than template-name residuals.
+    fn apply_authored_temporary_weapon_behavior_metadata(
+        template: &mut ThingTemplate,
+        definition: &ObjectDefinition,
+    ) {
+        use crate::game_logic::host_temporary_weapon_behavior::{
+            parse_fire_weapon_when_damaged_metadata, parse_fire_weapon_when_dead_metadata,
+        };
+
+        template.fire_weapon_when_damaged_behaviors = definition
+            .behavior_modules
+            .iter()
+            .enumerate()
+            .filter_map(|(source_index, module)| {
+                parse_fire_weapon_when_damaged_metadata(module, source_index)
+            })
+            .collect();
+        template.fire_weapon_when_dead_behaviors = definition
+            .behavior_modules
+            .iter()
+            .enumerate()
+            .filter_map(|(source_index, module)| {
+                parse_fire_weapon_when_dead_metadata(module, source_index)
+            })
+            .collect();
+    }
+
     /// Retain the small exact data slice consumed by C++
     /// `ActionManager::canCaptureBuilding`: source capture SpecialPower,
     /// target CAPTURABLE/IMMUNE_TO_CAPTURE flags, and GarrisonContain state.
@@ -2277,6 +2312,7 @@ impl GameLogic {
                 Self::apply_authored_hacker_disable_building_metadata(template, &definition);
                 Self::apply_authored_overcharge_metadata(template, &definition);
                 Self::apply_authored_power_plant_update_metadata(template, &definition);
+                Self::apply_authored_temporary_weapon_behavior_metadata(template, &definition);
                 // Existing curated starters keep their broader host combat
                 // bindings, but a mine-clear conditional primary is source
                 // authority only. Clear any stale value when a resolved
@@ -4529,6 +4565,96 @@ End
         );
         assert!(!immune.capturable);
         assert!(immune.immune_to_capture);
+    }
+
+    #[test]
+    fn temporary_weapon_behavior_metadata_is_source_ordered_and_not_live_state() {
+        use crate::game_logic::host_temporary_weapon_behavior::{
+            FireWeaponWhenDamagedWeaponRole, TemporaryWeaponSlot,
+        };
+
+        let source = r#"
+Object TemporaryWeaponContractProbe
+  Behavior = FireWeaponWhenDamagedBehavior ModuleTag_Damage
+    StartsActive = Yes
+    DamageTypes = NONE +FLAME +POISON -FLAME
+    DamageAmount = 2.5
+    ReactionWeaponDamaged = SharedTempWeapon
+    ContinuousWeaponDamaged = SharedTempWeapon
+    TriggeredBy = Upgrade_A Upgrade_B
+    ConflictsWith = Upgrade_C
+    RemovesUpgrades = Upgrade_D
+    FXListUpgrade = UpgradeFX
+    RequiresAllTriggers = Yes
+  End
+  Behavior = FireWeaponWhenDeadBehavior ModuleTag_Death
+    StartsActive = No
+    DeathWeapon = DeathTempWeapon
+    DeathTypes = NONE +EXPLODED
+    VeterancyLevels = NONE +VETERAN
+    ExemptStatus = +UNDER_CONSTRUCTION
+    RequiredStatus = DEPLOYED
+  End
+End
+"#;
+        let mut parser = crate::assets::IniParser::new();
+        parser
+            .parse_ini_content(source, "temporary_weapon_contract_probe.ini")
+            .expect("parse source behavior modules");
+        let template = GameLogic::build_template_from_object_definition(
+            "TemporaryWeaponContractProbe",
+            parser
+                .get_definition("TemporaryWeaponContractProbe")
+                .expect("source definition"),
+            None,
+        );
+
+        assert_eq!(template.fire_weapon_when_damaged_behaviors.len(), 1);
+        assert_eq!(template.fire_weapon_when_dead_behaviors.len(), 1);
+        let damaged = &template.fire_weapon_when_damaged_behaviors[0];
+        assert_eq!(damaged.module_source_index, 0);
+        assert_eq!(damaged.module_tag.as_deref(), Some("ModuleTag_Damage"));
+        assert!(damaged.starts_active);
+        assert_eq!(damaged.damage_types.0, 1u64 << 9, "POISON only");
+        assert_eq!(damaged.damage_amount, 2.5);
+        assert_eq!(damaged.upgrade_mux.triggered_by, ["Upgrade_A", "Upgrade_B"]);
+        let specs = damaged.runtime_specs();
+        assert_eq!(specs.len(), 2);
+        assert_ne!(specs[0].key, specs[1].key);
+        assert_eq!(
+            specs[0].key.role,
+            FireWeaponWhenDamagedWeaponRole::ReactionDamaged
+        );
+        assert_eq!(
+            specs[1].key.role,
+            FireWeaponWhenDamagedWeaponRole::ContinuousDamaged
+        );
+        assert!(specs
+            .iter()
+            .all(|spec| spec.weapon_slot == TemporaryWeaponSlot::Primary));
+
+        let dead = &template.fire_weapon_when_dead_behaviors[0];
+        assert_eq!(dead.module_source_index, 1);
+        assert_eq!(dead.module_tag.as_deref(), Some("ModuleTag_Death"));
+        assert!(!dead.starts_active);
+        assert_eq!(dead.death_weapon.as_deref(), Some("DeathTempWeapon"));
+        assert_eq!(dead.death_types.0, 1u32 << 4);
+        assert_eq!(dead.veterancy_levels.0, 1u8 << 1);
+        assert!(dead.die_mux_allows(4, 1, 1u64 << 44));
+        assert_eq!(
+            dead.ephemeral_weapon_spec()
+                .expect("C++ creates a fresh death weapon")
+                .weapon_slot,
+            TemporaryWeaponSlot::Primary
+        );
+
+        // The template retains source contracts only.  There is deliberately
+        // no object-owned damaged-behavior runtime here until a versioned
+        // ObjectSnapshot tail can preserve all eight C++ Weapon Xfers.
+        assert!(template
+            .fire_weapon_when_damaged_behaviors
+            .iter()
+            .all(|metadata| !metadata.runtime_specs().is_empty()));
     }
 
     #[test]

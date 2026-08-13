@@ -247,8 +247,7 @@ fn evolve_recoil_and_build_controls(
 
     let usable_kinematics = kinematics.is_visual_usable();
     for &(weapon_slot, fired_barrel, sequence) in discharges {
-        if sequence == 0 || sequence <= visual_state.last_seen_weapon_discharge_sequence
-        {
+        if sequence == 0 || sequence <= visual_state.last_seen_weapon_discharge_sequence {
             continue;
         }
         let slot_index = usize::from(weapon_slot);
@@ -357,52 +356,6 @@ fn bars_get_with_state<'a>(
 }
 
 impl RenderPipeline {
-    /// Record the exact frozen C++ `Drawable::handleWeaponFireFX` broadcast
-    /// before FOW/frustum culling.  A Draw module may be off-screen for the
-    /// event's source frame, but its recoil state must still begin when it is
-    /// next visibly collected; only the visible draw evolves the kinematics.
-    pub(super) fn stage_frozen_weapon_discharges(
-        &mut self,
-        object_id: crate::game_logic::ObjectId,
-        source_template_name: &str,
-        draw_model: &crate::assets::AuthoredDrawModel,
-        discharges: &[(u32, u8, u8, u64)],
-    ) {
-        if discharges.is_empty() {
-            return;
-        }
-        let Some(identity) =
-            frozen_visual_identity_for_draw_model(source_template_name, draw_model)
-        else {
-            return;
-        };
-        let state = self
-            .drawable_visual_states
-            .entry((object_id.0, draw_model.module_index))
-            .or_default();
-        if state.identity.as_ref() != Some(&identity) {
-            *state = ObjectVisualState {
-                identity: Some(identity),
-                ..Default::default()
-            };
-        }
-        for &(source, weapon_slot, fired_barrel, sequence) in discharges {
-            if source != object_id.0
-                || sequence == 0
-                || sequence <= state.last_seen_weapon_discharge_sequence
-                || state
-                    .pending_weapon_discharges
-                    .iter()
-                    .any(|(_, _, pending_sequence)| *pending_sequence == sequence)
-            {
-                continue;
-            }
-            state
-                .pending_weapon_discharges
-                .push((weapon_slot, fired_barrel, sequence));
-        }
-    }
-
     /// Resolve an exact frozen Draw HAnim without collection-time archive I/O.
     /// Local data is immediately usable; an external companion must already
     /// have been loaded into AssetManager's exact identity/hierarchy cache.
@@ -517,7 +470,13 @@ impl RenderPipeline {
                 ..Default::default()
             };
         }
-        let discharges = std::mem::take(&mut state.pending_weapon_discharges);
+        // `hq-x4h` owns the exact frozen Drawable route: C++ evaluates
+        // stealth/suspend-FX gates and then may stop at an earlier Draw module
+        // with a FireFX pivot. A bare `(object, slot, barrel, sequence)` must
+        // not be broadcast here. Saved in-flight state is still validated and
+        // advanced below; live discharge injection remains deliberately inert
+        // until that route/revision contract exists.
+        let discharges: &[(u8, u8, u64)] = &[];
 
         if let Some(saved) = pending_restore {
             // Pre-frame validation proved the source fields, but only this

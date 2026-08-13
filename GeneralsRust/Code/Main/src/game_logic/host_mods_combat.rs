@@ -113,6 +113,9 @@ pub mod host_fire_weapon_when_damaged;
 #[path = "host_fire_weapon_when_dead.rs"]
 pub(super) mod host_fire_weapon_when_dead;
 
+#[path = "host_temporary_weapon_behavior.rs"]
+pub mod host_temporary_weapon_behavior;
+
 #[path = "host_fx_list_die.rs"]
 pub(super) mod host_fx_list_die;
 

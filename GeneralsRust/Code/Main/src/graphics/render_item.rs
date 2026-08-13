@@ -1,15 +1,70 @@
 use crate::assets::{W3DMaterial, W3dAnimationBinding};
 use crate::fow_rendering::ObjectVisibility;
 use crate::game_logic::ObjectId;
+use gamelogic::common::types::ObjectShroudStatus;
 use glam::{Mat4, Vec2, Vec3};
 
 use super::render_pipeline::RenderPass;
+
+/// Identity of the client-side source that produced a render item.
+///
+/// C++ `DrawableID` and gameplay `ObjectID` are independent domains.  Effects,
+/// placement previews, and other standalone client drawables intentionally do
+/// not have a gameplay object, so they must not be smuggled into the object
+/// domain merely to satisfy the renderer's bookkeeping.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RenderItemOwner {
+    Object(ObjectId),
+    UnboundClientDrawable(u32),
+}
+
+/// Frozen direct-drawable scene outcome retained on an eligible object-owned
+/// render item.
+///
+/// This is deliberately separate from `fow_visibility`: C++ W3D chooses the
+/// projected-shroud route from `ObjectShroudStatus` after Drawable-owned
+/// clear-grace handling, not from a scalar FOW alpha.  hq-1a1 will consume
+/// this exact status/pass pair when it adds the material route.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FrozenDirectSceneShroudRenderState {
+    /// Scene-local status after the Drawable's clear-grace evaluation.
+    pub final_status: ObjectShroudStatus,
+    /// Exact C++ `ss > OBJECTSHROUD_CLEAR` material-pass eligibility.
+    pub pushes_projected_shroud_pass: bool,
+}
+
+/// The only authority permitted to supply a skinned RenderItem's bone palette.
+///
+/// Ordinary Drawable geometry keeps its frozen Draw-state HAnim path. An
+/// HMODEL `SKIN_NODE`, however, is a `MeshClass` whose C++ container is the
+/// independently constructed HMODEL `HLodClass`; it must sample that exact
+/// HMODEL's named/default bind-pose HTree instead of a parent Drawable or a
+/// whole-file convenience hierarchy.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RenderItemBonePaletteSource {
+    /// Existing Draw-state binding, animation frame, and capture controls on
+    /// this item provide the palette when one is explicitly selected.
+    FrozenDrawState,
+    /// The strict private graphics-cache source model and exact HMODEL
+    /// definition that own this skin's bind-pose palette.
+    HmodelBindPose {
+        source_model_cache_key: String,
+        hmodel_index: usize,
+    },
+}
 
 /// Render item abstraction - equivalent to C++ SAGE RenderItem
 #[derive(Debug, Clone)]
 pub struct RenderItem {
     /// Object ID for debugging and tracking
+    ///
+    /// `INVALID_OBJECT_ID` is retained for legacy render-item consumers when
+    /// `owner` is `UnboundClientDrawable`; new code must inspect `owner` when
+    /// it needs to distinguish standalone client visuals from gameplay objects.
     pub object_id: ObjectId,
+
+    /// Exact ownership domain for this item.
+    pub owner: RenderItemOwner,
 
     /// Debug name for render item
     pub debug_name: String,
@@ -56,6 +111,11 @@ pub struct RenderItem {
     /// FOW visibility data for this render item
     pub fow_visibility: ObjectVisibility,
 
+    /// C++ direct-Drawing scene result for this item, if its full binding was
+    /// accepted at the frozen Main boundary.  Objectless client drawables and
+    /// ordinary GameWorld items intentionally retain `None`.
+    pub frozen_direct_scene_shroud: Option<FrozenDirectSceneShroudRenderState>,
+
     /// Per-instance UV offset override for submeshes such as W3D tread meshes.
     pub uv_offset_override: Option<Vec2>,
 
@@ -66,8 +126,30 @@ pub struct RenderItem {
     /// the final palette path.
     pub animation_binding: Option<W3dAnimationBinding>,
 
+    /// Ordered C++ HTree `Capture_Bone`/`Control_Bone` deltas in source W3D
+    /// pivot space. These remain separate from the root world transform and
+    /// are validated against the freshly loaded hierarchy before either rigid
+    /// HLOD transforms or the GPU skin palette consume them.
+    pub capture_bone_controls: Vec<(i32, Mat4)>,
+
+    /// Explicit owner for GPU skinning. This is deliberately separate from
+    /// `model_name`: an HMODEL skin mesh may be a strict child prototype from
+    /// another source file while its palette still belongs to its HMODEL.
+    pub bone_palette_source: RenderItemBonePaletteSource,
+
     /// C++ selection flash envelope residual intensity 0..1 (presentation-owned).
     pub selection_flash_intensity: f32,
+
+    /// Frozen source color for the selection-flash envelope.  The current
+    /// SAGE-default path is white, but retain the authored team color so a
+    /// render-object child can replay the exact same frozen modifier on its
+    /// own material.
+    selection_flash_team_color: [f32; 4],
+
+    /// C++ `TINT_STATUS_POISONED` presentation state.  This remains separate
+    /// from the material colors because HLOD AdditionalModels have independent
+    /// source materials and must replay the same frozen tint once each.
+    pub poison_tinted: bool,
 }
 
 impl RenderItem {
@@ -92,6 +174,7 @@ impl RenderItem {
 
         Self {
             object_id,
+            owner: RenderItemOwner::Object(object_id),
             debug_name: format!("{}_{}", object_id.0, mesh_key),
             model_name,
             mesh_index,
@@ -107,11 +190,44 @@ impl RenderItem {
             index_buffer_range: None,
             sorting_key,
             fow_visibility: ObjectVisibility::default(),
+            frozen_direct_scene_shroud: None,
             uv_offset_override: None,
             animation_frame: 0.0,
             animation_binding: None,
+            capture_bone_controls: Vec::new(),
+            bone_palette_source: RenderItemBonePaletteSource::FrozenDrawState,
             selection_flash_intensity: 0.0,
+            selection_flash_team_color: [1.0, 1.0, 1.0, 1.0],
+            poison_tinted: false,
         }
+    }
+
+    /// Construct an item submitted by a standalone C++ GameClient drawable.
+    ///
+    /// These drawables have no gameplay object and therefore no object FOW
+    /// channel.  Keeping their client ID as a first-class owner avoids the
+    /// historical, incorrect DrawableID-to-ObjectID cast.
+    pub fn new_unbound_client_drawable(
+        drawable_id: u32,
+        model_name: String,
+        mesh_index: usize,
+        world_position: Vec3,
+        world_matrix: Mat4,
+        material: &W3DMaterial,
+        render_pass: RenderPass,
+    ) -> Self {
+        let mut item = Self::new(
+            crate::game_logic::INVALID_OBJECT_ID,
+            model_name,
+            mesh_index,
+            world_position,
+            world_matrix,
+            material,
+            render_pass,
+        );
+        item.owner = RenderItemOwner::UnboundClientDrawable(drawable_id);
+        item.debug_name = format!("client_drawable_{}_{}", drawable_id, item.mesh_key);
+        item
     }
 
     /// Generate sorting key for render ordering - equivalent to C++ RenderItem::GenerateSortingKey()
@@ -119,6 +235,7 @@ impl RenderItem {
     /// Apply C++ flashAsSelected residual as emissive boost (white flash default).
     pub fn apply_selection_flash(&mut self, intensity: f32, team_color: [f32; 4]) {
         let i = intensity.clamp(0.0, 1.0);
+        self.selection_flash_team_color = team_color;
         if i <= 0.0 {
             self.selection_flash_intensity = 0.0;
             return;
@@ -166,6 +283,7 @@ impl RenderItem {
     /// Update world matrix - equivalent to C++ RenderItem::SetWorldMatrix()
     /// Wave 499: C++ TINT_STATUS_POISONED residual — greenish diffuse bias.
     pub fn apply_poison_tint(&mut self) {
+        self.poison_tinted = true;
         const POISON: [f32; 3] = [0.15, 0.85, 0.20];
         const BLEND: f32 = 0.45;
         let d = &mut self.material.diffuse_color;
@@ -176,6 +294,39 @@ impl RenderItem {
         e.x = (e.x + POISON[0] * 0.15).min(2.0);
         e.y = (e.y + POISON[1] * 0.25).min(2.0);
         e.z = (e.z + POISON[2] * 0.10).min(2.0);
+    }
+
+    /// Apply the frozen Drawable-level visual state shared by all render
+    /// objects produced for one presentation unit.  Call this once while
+    /// constructing each fresh source mesh or its synthetic HLOD parent; the
+    /// latter lets independently materialled AdditionalModels replay the same
+    /// state without re-reading GameLogic during rendering.
+    pub fn apply_frozen_presentation_visuals(
+        &mut self,
+        fow_visibility: ObjectVisibility,
+        selection_flash_intensity: f32,
+        selection_flash_team_color: [f32; 4],
+        poison_tinted: bool,
+    ) {
+        self.set_fow_visibility(fow_visibility);
+        if selection_flash_intensity > 0.0 {
+            self.apply_selection_flash(selection_flash_intensity, selection_flash_team_color);
+        }
+        if poison_tinted {
+            self.apply_poison_tint();
+        }
+    }
+
+    /// Replay the parent Drawable's already-frozen visual state on a new
+    /// render-object child.  HLOD AdditionalModels have their own source
+    /// material, so copying the parent's material itself would be incorrect.
+    pub fn copy_frozen_presentation_visuals_from(&mut self, parent: &Self) {
+        self.apply_frozen_presentation_visuals(
+            parent.fow_visibility,
+            parent.selection_flash_intensity,
+            parent.selection_flash_team_color,
+            parent.poison_tinted,
+        );
     }
 
     pub fn set_world_matrix(&mut self, matrix: Mat4) {
@@ -223,6 +374,13 @@ impl RenderItem {
         self.fow_visibility = visibility;
     }
 
+    /// Retain the exact C++ direct-scene shroud result selected for this
+    /// object-owned item.  The caller has already checked the full
+    /// host-epoch/object/drawable/generation identity.
+    pub fn set_frozen_direct_scene_shroud(&mut self, state: FrozenDirectSceneShroudRenderState) {
+        self.frozen_direct_scene_shroud = Some(state);
+    }
+
     /// Get FOW visibility for this render item
     pub fn get_fow_visibility(&self) -> ObjectVisibility {
         self.fow_visibility
@@ -249,3 +407,73 @@ impl PartialEq for RenderItem {
 }
 
 impl Eq for RenderItem {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unbound_client_drawable_keeps_its_identity_out_of_object_id_space() {
+        let item = RenderItem::new_unbound_client_drawable(
+            77,
+            "StandaloneTracer".to_string(),
+            0,
+            Vec3::ZERO,
+            Mat4::IDENTITY,
+            &W3DMaterial::default(),
+            RenderPass::ForwardOpaque,
+        );
+
+        assert_eq!(item.object_id, crate::game_logic::INVALID_OBJECT_ID);
+        assert_eq!(item.owner, RenderItemOwner::UnboundClientDrawable(77));
+        assert!(item.debug_name.starts_with("client_drawable_77_"));
+        assert_eq!(item.fow_visibility, ObjectVisibility::default());
+        assert_eq!(item.frozen_direct_scene_shroud, None);
+    }
+
+    #[test]
+    fn ordinary_render_items_keep_the_existing_draw_state_palette_owner() {
+        let item = RenderItem::new(
+            ObjectId(9),
+            "ordinary".to_string(),
+            0,
+            Vec3::ZERO,
+            Mat4::IDENTITY,
+            &W3DMaterial::default(),
+            RenderPass::ForwardOpaque,
+        );
+
+        assert_eq!(
+            item.bone_palette_source,
+            RenderItemBonePaletteSource::FrozenDrawState,
+            "HMODEL palette ownership must not change ordinary rigid or animated items"
+        );
+    }
+
+    #[test]
+    fn direct_scene_status_is_retained_independently_from_fow_visibility() {
+        let mut item = RenderItem::new(
+            ObjectId(12),
+            "direct".to_string(),
+            0,
+            Vec3::ZERO,
+            Mat4::IDENTITY,
+            &W3DMaterial::default(),
+            RenderPass::ForwardOpaque,
+        );
+        item.set_fow_visibility(ObjectVisibility::HIDDEN);
+        item.set_frozen_direct_scene_shroud(FrozenDirectSceneShroudRenderState {
+            final_status: ObjectShroudStatus::PartialClear,
+            pushes_projected_shroud_pass: true,
+        });
+
+        assert_eq!(
+            item.frozen_direct_scene_shroud,
+            Some(FrozenDirectSceneShroudRenderState {
+                final_status: ObjectShroudStatus::PartialClear,
+                pushes_projected_shroud_pass: true,
+            }),
+            "the retained C++ scene decision must not be reconstructed from FOW alpha"
+        );
+    }
+}

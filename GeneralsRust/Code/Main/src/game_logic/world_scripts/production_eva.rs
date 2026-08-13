@@ -1378,10 +1378,8 @@ impl GameLogic {
     /// this action.  C++ does not reject an enable click at the health
     /// threshold; the active behavior checks it after its next drain update.
     pub fn toggle_overcharge_object(&mut self, object_id: ObjectId) -> bool {
-        let Some((energy_bonus, has_power_plant_update, was_active)) = self
-            .objects
-            .get(&object_id)
-            .and_then(|obj| {
+        let Some((energy_bonus, has_power_plant_update, was_active)) =
+            self.objects.get(&object_id).and_then(|obj| {
                 (obj.is_alive() && obj.thing.template.supports_overcharge()).then(|| {
                     (
                         obj.thing.template.energy_bonus.unwrap_or(0),
@@ -1432,20 +1430,15 @@ impl GameLogic {
             .map(|(id, _)| *id)
             .collect();
         for id in ids {
-            let Some((behavior, energy_bonus, has_power_plant_update)) = self
-                .objects
-                .get(&id)
-                .and_then(|obj| {
-                    obj.thing
-                        .template
-                        .overcharge_behavior
-                        .map(|behavior| {
-                            (
-                                behavior,
-                                obj.thing.template.energy_bonus.unwrap_or(0),
-                                obj.thing.template.power_plant_update.is_some(),
-                            )
-                        })
+            let Some((behavior, energy_bonus, has_power_plant_update)) =
+                self.objects.get(&id).and_then(|obj| {
+                    obj.thing.template.overcharge_behavior.map(|behavior| {
+                        (
+                            behavior,
+                            obj.thing.template.energy_bonus.unwrap_or(0),
+                            obj.thing.template.power_plant_update.is_some(),
+                        )
+                    })
                 })
             else {
                 // An old snapshot or malformed template must not keep an
@@ -1495,11 +1488,7 @@ impl GameLogic {
             // it here would incorrectly turn that 0% case into an exhaustion
             // branch and retract rods before the death path owns the object.
             if below_threshold {
-                let _ = self.disable_overcharge_object(
-                    id,
-                    energy_bonus,
-                    has_power_plant_update,
-                );
+                let _ = self.disable_overcharge_object(id, energy_bonus, has_power_plant_update);
                 // C++ posts OverchargeExhausted only through the authored
                 // threshold branch.  Destruction itself is cleaned up by
                 // onDelete and is not an exhaustion message at the 0% default.

@@ -252,9 +252,13 @@ impl CnCGameEngine {
         if mode == GameMode::Skirmish {
             if let Some(ref config) = skirmish {
                 if let Err(e) = self.host_apply_skirmish_config_authority(config) {
-                    warn!("apply_skirmish_config failed: {e}; falling back to legacy start");
-                    // Wave 577: host start residual via helper.
-                    self.host_start_new_game_with_faction(mode, faction_team, true);
+                    // A supplied C++ GameInfo-derived config has selected
+                    // exact PlayerTemplate identities. Never substitute a
+                    // Team-only legacy start when one is stale/locked: that
+                    // would launch a plausible but wrong General match.
+                    warn!("Rejecting configured Skirmish start before map load: {e}");
+                    self.return_to_main_menu_after_match();
+                    return;
                 } else if let Some(human) = config.slots.iter().find(|s| s.is_human && s.is_active)
                 {
                     self.current_player_id = human.slot_index as u32;

@@ -1414,6 +1414,39 @@ impl CnCGameEngine {
         // never dual-reads live GameLogic (immutable presentation boundary).
         // Wave 590: boot/render presentation seed via helper.
         self.host_ensure_presentation_frame_for_render();
+        #[cfg(feature = "game_client")]
+        let frozen_direct_shroud_states = self
+            .last_presentation_frame
+            .as_ref()
+            .map(|pres| {
+                pres.direct_host_drawables
+                    .iter()
+                    .filter(|direct| direct.resident)
+                    .filter_map(|direct| {
+                        // Direct visual residency is host-object lifetime,
+                        // not gameplay `destroyed`/HP.  The GameClient query
+                        // returns a complete runtime association key, so this
+                        // immutable sidecar cannot cull a replacement that
+                        // reused the same raw ObjectID.
+                        direct.object.drawable_shroud.direct_game_client_status()?;
+                        let state = self.game_client.presentation_direct_drawable_state(
+                            self.host_direct_visual_world_epoch,
+                            direct.object.id.0,
+                        )?;
+                        Some(
+                            crate::graphics::render_pipeline::FrozenDirectDrawableShroudState {
+                                host_epoch: state.binding_key.host_epoch,
+                                object_id: direct.object.id,
+                                drawable_id: state.binding_key.drawable_id.0,
+                                binding_generation: state.binding_key.binding_generation,
+                                scene_effectively_hidden: state.scene_effectively_hidden,
+                                fully_obscured: state.fully_obscured,
+                            },
+                        )
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
         // First InGame frames: boot camera still stares at the origin while
         // Lone Eagle / ZH maps live hundreds of world units away.
         if matches!(self.current_state, GameState::InGame | GameState::Paused) {
@@ -1427,6 +1460,9 @@ impl CnCGameEngine {
         }
         self.render_pipeline
             .set_presentation_frame(self.last_presentation_frame.clone());
+        #[cfg(feature = "game_client")]
+        self.render_pipeline
+            .set_presentation_direct_shroud_states(frozen_direct_shroud_states);
         if let Some(pres) = self.last_presentation_frame.as_ref() {
             self.render_pipeline
                 .set_skybox_enabled(pres.world_env.skybox_enabled);
@@ -1476,15 +1512,103 @@ impl CnCGameEngine {
                 self.show_attack_lines,
             );
         }
+        // C++ only refreshes Drawable::m_shroudClearFrame after the current
+        // W3D view accepted a direct RenderObj and it produced real source
+        // geometry. RenderPipeline exposes that frozen candidate ledger before
+        // forward submission, but remains independent of GameClient/live
+        // logic. Resolve its full binding keys here at the Main boundary.
+        let presentation_logic_frame = self
+            .last_presentation_frame
+            .as_ref()
+            .map_or(0, |presentation| presentation.frame.0);
+        let view_matrix = self.view_matrix;
+        let projection_matrix = self.projection_matrix;
+        let camera_position = self.camera_position;
+        #[cfg(feature = "game_client")]
+        {
+            let (render_pipeline, graphics_system, game_client) = (
+                &mut self.render_pipeline,
+                &mut self.graphics_system,
+                &mut self.game_client,
+            );
+            let mut direct_scene_candidate_sink = |candidates: &[crate::graphics::render_pipeline::FrozenDirectDrawableSceneCandidate]| {
+                let game_client_candidates = candidates.iter().copied().map(|candidate| {
+                    game_client::core::FrozenDirectSceneShroudCandidate {
+                        binding_key: game_client::core::PresentationDirectDrawableBindingKey {
+                            host_epoch: candidate.host_epoch,
+                            object_id: candidate.object_id.0,
+                            drawable_id: game_client::core::DrawableId(candidate.drawable_id),
+                            binding_generation: candidate.binding_generation,
+                        },
+                        raw_status: candidate.raw_status,
+                        effectively_dead: candidate.effectively_dead,
+                    }
+                });
+                // Preserve the exact scene-local outcome before WGPU. The
+                // pipeline verifies the full key again, drops a hidden direct
+                // Drawable before forward rendering, and retains Clear versus
+                // PartialClear/Fogged pass eligibility for hq-1a1's projected
+                // material route. No scalar FOW result is used here.
+                game_client
+                    .evaluate_frozen_direct_scene_shroud_candidates(
+                        presentation_logic_frame,
+                        game_client_candidates,
+                    )
+                    .into_iter()
+                    .filter_map(|decision| {
+                        let outcome = match decision.decision {
+                            game_client::drawable::SceneShroudDecision::HiddenDirectDrawable => {
+                                crate::graphics::render_pipeline::FrozenDirectDrawableSceneOutcome::HiddenDirectDrawable
+                            }
+                            game_client::drawable::SceneShroudDecision::RenderDrawable {
+                                final_status,
+                                pushes_projected_shroud_pass,
+                            } => crate::graphics::render_pipeline::FrozenDirectDrawableSceneOutcome::RenderDrawable {
+                                final_status,
+                                pushes_projected_shroud_pass,
+                            },
+                            game_client::drawable::SceneShroudDecision::RenderGhostWithFogLight
+                            | game_client::drawable::SceneShroudDecision::RenderWithoutDrawable => {
+                                return None;
+                            }
+                        };
+                        Some(
+                            crate::graphics::render_pipeline::FrozenDirectDrawableSceneDecision {
+                                host_epoch: decision.binding_key.host_epoch,
+                                object_id: crate::game_logic::ObjectId(
+                                    decision.binding_key.object_id,
+                                ),
+                                drawable_id: decision.binding_key.drawable_id.0,
+                                binding_generation: decision.binding_key.binding_generation,
+                                outcome,
+                            },
+                        )
+                    })
+                    .collect()
+            };
+            render_pipeline.execute(
+                graphics_system,
+                &view_matrix,
+                &projection_matrix,
+                camera_position,
+                render_time_delta,
+                allow_sync_model_loads,
+                deferred_startup_model_load_budget,
+                skip_world_scene,
+                Some(&mut direct_scene_candidate_sink),
+            )?;
+        }
+        #[cfg(not(feature = "game_client"))]
         self.render_pipeline.execute(
             &mut self.graphics_system,
-            &self.view_matrix,
-            &self.projection_matrix,
-            self.camera_position,
+            &view_matrix,
+            &projection_matrix,
+            camera_position,
             render_time_delta,
             allow_sync_model_loads,
             deferred_startup_model_load_budget,
             skip_world_scene,
+            None,
         )?;
         let render_pipeline_elapsed = render_pipeline_started.elapsed();
 

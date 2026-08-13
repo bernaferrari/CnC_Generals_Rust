@@ -8,6 +8,9 @@
     clippy::all
 )]
 use super::*;
+use crate::graphics::fow_uniform_integration::frozen_fow_model_fields;
+use crate::graphics::render_item::RenderItemBonePaletteSource;
+use ww3d_renderer_3d::rendering::mesh_system::FrozenFowVisibility;
 
 #[cfg(feature = "game_client")]
 use game_client::effects::particle_renderer::{register_particle_renderer, ParticleUniforms};
@@ -20,16 +23,73 @@ use game_client::fx_list::get_decal_manager;
 
 impl ForwardPass {
     /// Produce the GPU palette from the exact binding frozen on the render
-    /// item. This boundary must not infer a local animation index: a missing
-    /// companion or absent Draw state is bind pose, not W3D clip zero.
+    /// item. This compatibility helper can only resolve the item's own model;
+    /// an HMODEL source key that differs from `item.model_name` fails closed.
+    /// The live forward path uses
+    /// [`Self::sample_bone_palette_for_item_with_model_resolver`] so a strict
+    /// child mesh can retain a separately owned HMODEL palette source.
     pub(super) fn sample_bone_palette_for_item(
         w3d_model: &crate::assets::W3DModel,
         item: &RenderItem,
     ) -> Option<Vec<Mat4>> {
-        let binding = item.animation_binding.as_ref()?;
-        w3d_model
-            .sample_animation_binding(binding, item.animation_frame)
-            .map(|transforms| transforms.iter().map(Mat4::from_cols_array).collect())
+        match &item.bone_palette_source {
+            RenderItemBonePaletteSource::FrozenDrawState => w3d_model
+                .animation_palette_for_binding_and_capture_controls(
+                    item.animation_binding.as_ref(),
+                    item.animation_frame,
+                    &item.capture_bone_controls,
+                ),
+            RenderItemBonePaletteSource::HmodelBindPose {
+                source_model_cache_key,
+                hmodel_index,
+            } => (source_model_cache_key == &item.model_name)
+                .then(|| w3d_model.hmodel_bind_pose_palette(*hmodel_index))
+                .flatten(),
+        }
+    }
+
+    /// Resolve the exact model whose source owns this item's palette.
+    ///
+    /// This is deliberately keyed by the explicit `RenderItem` palette
+    /// source, not by the draw mesh's model. An HMODEL SKIN_NODE can resolve a
+    /// strict mesh token from another source file while its C++ `MeshClass`
+    /// container remains the HMODEL's own named/default HTree.
+    pub(super) fn sample_bone_palette_for_item_with_model_resolver<'model, F>(
+        item: &RenderItem,
+        mut resolve_model: F,
+    ) -> Option<Vec<Mat4>>
+    where
+        F: FnMut(&str) -> Option<&'model crate::assets::W3DModel>,
+    {
+        match &item.bone_palette_source {
+            RenderItemBonePaletteSource::FrozenDrawState => {
+                let w3d_model = resolve_model(&item.model_name)?;
+                w3d_model.animation_palette_for_binding_and_capture_controls(
+                    item.animation_binding.as_ref(),
+                    item.animation_frame,
+                    &item.capture_bone_controls,
+                )
+            }
+            RenderItemBonePaletteSource::HmodelBindPose {
+                source_model_cache_key,
+                hmodel_index,
+            } => resolve_model(source_model_cache_key)?.hmodel_bind_pose_palette(*hmodel_index),
+        }
+    }
+
+    /// Validate the final renderer mesh against an HMODEL-owned palette.
+    /// Collection already validates the immutable W3D source mesh; this last
+    /// check also rejects a stale or incompatible prebuilt `MeshModelClass`
+    /// instead of letting its fallback bone data render with a wrong palette.
+    fn hmodel_skin_mesh_matches_palette(mesh_model: &MeshModelClass, palette: &[Mat4]) -> bool {
+        !palette.is_empty()
+            && mesh_model.is_skinned()
+            && mesh_model.vertex_influences().is_some_and(|influences| {
+                !influences.is_empty()
+                    && influences
+                        .iter()
+                        .all(|influence| usize::from(influence.bone_idx) < palette.len())
+            })
     }
 
     pub(super) fn initialize(graphics_system: &GraphicsSystem) -> Result<Self> {
@@ -804,9 +864,37 @@ impl ForwardPass {
             None => return Ok(None),
         };
 
+        let palette = Self::sample_bone_palette_for_item_with_model_resolver(item, |model_key| {
+            graphics_system
+                .get_model(model_key)
+                .map(|model| model.as_ref())
+        });
+        if matches!(
+            &item.bone_palette_source,
+            RenderItemBonePaletteSource::HmodelBindPose { .. }
+        ) {
+            let Some(palette) = palette.as_deref() else {
+                // An explicit HMODEL skin owner is not optional. Rendering it
+                // without the exact source HTree would silently substitute a
+                // parent, whole-file, or renderer fallback palette.
+                return Ok(None);
+            };
+            if !Self::hmodel_skin_mesh_matches_palette(mesh_model.as_ref(), palette) {
+                return Ok(None);
+            }
+        }
+
         let mut mesh = MeshClass::new();
         mesh.set_transform(item.world_matrix * item.mesh_local_transform);
         mesh.model = Some(mesh_model);
+        // FOW was captured on the RenderItem during collection. The draw path
+        // must carry that snapshot, not consult GameLogic/FOW again.
+        let frozen_fow = frozen_fow_model_fields(item.fow_visibility);
+        mesh.set_frozen_fow_visibility(FrozenFowVisibility::new(
+            frozen_fow.visibility_alpha,
+            frozen_fow.visibility_falloff,
+            frozen_fow.is_explored,
+        ));
         mesh.alpha_override = item.fow_visibility.visibility_alpha;
         mesh.is_hidden = item.fow_visibility.visibility_alpha <= 0.01;
         mesh.set_uv_offset_override(item.uv_offset_override.map(|offset| [offset.x, offset.y]));
@@ -818,10 +906,8 @@ impl ForwardPass {
             mesh.is_decal_instance = true;
         }
 
-        if let Some(w3d_model) = graphics_system.get_model(&item.model_name) {
-            if let Some(matrices) = Self::sample_bone_palette_for_item(w3d_model, item) {
-                mesh.set_bone_palette_slice(&matrices);
-            }
+        if let Some(matrices) = palette {
+            mesh.set_bone_palette_slice(&matrices);
         }
 
         Ok(Some(Arc::new(mesh)))
@@ -883,5 +969,114 @@ impl ForwardPass {
         let mesh_model = Arc::new(self.build_mesh_model(&cache_key, mesh, &item.material)?);
         self.mesh_cache.insert(cache_key, mesh_model.clone());
         Ok(Some(mesh_model))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::assets::{W3DMaterial, W3DModel, W3dHierarchy, W3dHmodel, W3dPivot};
+    use crate::game_logic::ObjectId;
+    use crate::graphics::render_item::{RenderItem, RenderItemBonePaletteSource};
+    use std::collections::HashMap;
+
+    fn pivot(name: &str, parent_idx: u32, translation_x: f32) -> W3dPivot {
+        W3dPivot {
+            name: name.to_string(),
+            parent_idx,
+            translation: [translation_x, 0.0, 0.0],
+            euler_angles: [0.0; 3],
+            rotation: [0.0, 0.0, 0.0, 1.0],
+        }
+    }
+
+    fn hmodel_palette_source(model_name: &str, tree_name: &str, child_x: f32) -> W3DModel {
+        let mut model = W3DModel::new(model_name.to_string());
+        let hierarchy = W3dHierarchy {
+            name: tree_name.to_string(),
+            pivots: vec![pivot("ROOT", u32::MAX, 0.0), pivot("CHILD", 0, child_x)],
+            pivot_fixups: Vec::new(),
+        };
+        model.hierarchies.push(hierarchy.clone());
+        model.hierarchy = Some(hierarchy.clone());
+        model.hmodels.push(W3dHmodel {
+            version: 0x0004_0002,
+            name: format!("{model_name}_HMODEL"),
+            hierarchy_name: hierarchy.name,
+            nodes: Vec::new(),
+            source_snap_points: Vec::new(),
+            has_invalid_records: false,
+        });
+        model
+    }
+
+    #[test]
+    fn hmodel_skin_palette_resolves_only_explicit_source_and_fails_closed() {
+        let hmodel_source = hmodel_palette_source("HMODEL_SOURCE", "HMODEL_TREE", 2.0);
+        // This is the child mesh model and deliberately carries a different
+        // hierarchy value. The palette source enum must prevent it from ever
+        // being sampled for the HMODEL skin.
+        let mesh_source = hmodel_palette_source("MESH_SOURCE", "WRONG_TREE", 99.0);
+        let material = W3DMaterial::default();
+        let mut item = RenderItem::new(
+            ObjectId(41),
+            "__strict_w3d_render_object_source__::skin_mesh".to_string(),
+            0,
+            Vec3::ZERO,
+            Mat4::IDENTITY,
+            &material,
+            RenderPass::ForwardOpaque,
+        );
+        item.bone_palette_source = RenderItemBonePaletteSource::HmodelBindPose {
+            source_model_cache_key: "__strict_w3d_render_object_source__::skin_hmodel".to_string(),
+            hmodel_index: 0,
+        };
+
+        assert!(
+            ForwardPass::sample_bone_palette_for_item(&mesh_source, &item).is_none(),
+            "the single-model helper must not substitute the child mesh or parent model"
+        );
+
+        let models = HashMap::from([
+            (
+                "__strict_w3d_render_object_source__::skin_hmodel".to_string(),
+                hmodel_source,
+            ),
+            (
+                "__strict_w3d_render_object_source__::skin_mesh".to_string(),
+                mesh_source,
+            ),
+        ]);
+        let palette = ForwardPass::sample_bone_palette_for_item_with_model_resolver(&item, |key| {
+            models.get(key)
+        })
+        .expect("the exact HMODEL source owns a bind-pose palette");
+        assert_eq!(palette[0], Mat4::IDENTITY);
+        assert_eq!(palette[1].w_axis.x, 2.0);
+        assert_ne!(palette[1].w_axis.x, 99.0);
+
+        item.bone_palette_source = RenderItemBonePaletteSource::HmodelBindPose {
+            source_model_cache_key: "__strict_w3d_render_object_source__::missing".to_string(),
+            hmodel_index: 0,
+        };
+        assert!(
+            ForwardPass::sample_bone_palette_for_item_with_model_resolver(&item, |key| {
+                models.get(key)
+            })
+            .is_none(),
+            "a missing explicit palette source must not fall through to the mesh model"
+        );
+
+        item.bone_palette_source = RenderItemBonePaletteSource::HmodelBindPose {
+            source_model_cache_key: "__strict_w3d_render_object_source__::skin_hmodel".to_string(),
+            hmodel_index: 1,
+        };
+        assert!(
+            ForwardPass::sample_bone_palette_for_item_with_model_resolver(&item, |key| {
+                models.get(key)
+            })
+            .is_none(),
+            "an out-of-range HMODEL definition must fail closed"
+        );
     }
 }

@@ -585,9 +585,9 @@ pub use super::host_upgrades::{
     HostUpgradeKind, HostUpgradePhase, HostUpgradeRegistry, HostUpgradeResearch,
 };
 pub use super::host_usa_pilot::{
-    is_pilot_template, is_recrewable_unmanned_vehicle,
-    pilot_collide_would_like_to_collide_with, should_recrew_on_enter, HostDeathType,
-    HostUsaPilotRegistry, EJECT_PILOT_TEMPLATE, PILOT_EJECT_AUDIO, PILOT_RECREW_AUDIO,
+    is_pilot_template, is_recrewable_unmanned_vehicle, pilot_collide_would_like_to_collide_with,
+    should_recrew_on_enter, HostDeathType, HostUsaPilotRegistry, EJECT_PILOT_TEMPLATE,
+    PILOT_EJECT_AUDIO, PILOT_RECREW_AUDIO,
 };
 pub use super::host_usa_tanks::{
     is_composite_armor_unit_template, is_crusader_template, is_laser_general_tank_template,

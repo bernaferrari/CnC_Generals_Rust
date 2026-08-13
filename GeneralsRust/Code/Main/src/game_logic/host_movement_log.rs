@@ -88,6 +88,17 @@ pub fn drain() -> Vec<HostMovementEvent> {
     LOG.with(|log| std::mem::take(&mut *log.borrow_mut()))
 }
 
+/// Move the queue out for a whole-world staging boundary without dropping the
+/// active world's pending presentation mutations.
+pub(crate) fn take_for_world_stage() -> Vec<HostMovementEvent> {
+    drain()
+}
+
+/// Restore or install the queue owned by a whole-world staging boundary.
+pub(crate) fn replace_for_world_stage(next: Vec<HostMovementEvent>) -> Vec<HostMovementEvent> {
+    LOG.with(|log| std::mem::replace(&mut *log.borrow_mut(), next))
+}
+
 pub fn len() -> usize {
     LOG.with(|log| log.borrow().len())
 }

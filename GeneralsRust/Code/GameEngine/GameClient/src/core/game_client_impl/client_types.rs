@@ -35,6 +35,15 @@ pub struct GameClient {
     // Drawable management
     drawable_map: std::collections::HashMap<DrawableId, Box<dyn Drawable>>,
     drawable_object_map: std::collections::HashMap<ObjectID, DrawableId>,
+    /// Runtime-only identity and visual-template metadata for Main's direct
+    /// host-object drawables.  Do not add this to Xfer: C++ reconstructs these
+    /// client bindings around the loaded Drawable instances.
+    presentation_direct_drawable_bindings:
+        std::collections::HashMap<DrawableId, PresentationDirectDrawableBinding>,
+    /// Never-zero generation allocator for direct visual binding lifetimes.
+    /// It deliberately survives world invalidation so an object id/drawable id
+    /// reuse cannot look like the same visual binding.
+    next_presentation_direct_binding_generation: u64,
     drawable_toc: Vec<DrawableTOCEntry>,
     text_bearing_drawables: Vec<DrawableId>,
     loaded_map: Option<LoadedMap>,

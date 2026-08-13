@@ -71,10 +71,9 @@ impl GameLogic {
         jet_id: ObjectId,
         airfield_id: ObjectId,
     ) -> bool {
-        let (Some(jet), Some(airfield)) = (
-            self.objects.get(&jet_id),
-            self.objects.get(&airfield_id),
-        ) else {
+        let (Some(jet), Some(airfield)) =
+            (self.objects.get(&jet_id), self.objects.get(&airfield_id))
+        else {
             return false;
         };
         match (jet.owner_player_id, airfield.owner_player_id) {
@@ -94,10 +93,9 @@ impl GameLogic {
     /// from the producer-first controller check above: `ALLOW_ALLIES` is an
     /// explicit player relationship, not a matching USA/China/GLA faction.
     pub(crate) fn is_friendly_airfield(&self, jet_id: ObjectId, airfield_id: ObjectId) -> bool {
-        let (Some(jet), Some(airfield)) = (
-            self.objects.get(&jet_id),
-            self.objects.get(&airfield_id),
-        ) else {
+        let (Some(jet), Some(airfield)) =
+            (self.objects.get(&jet_id), self.objects.get(&airfield_id))
+        else {
             return false;
         };
         Self::has_usable_airfield_parking_behavior(airfield)
@@ -141,8 +139,7 @@ impl GameLogic {
                     jet.is_alive()
                         && Self::is_aircraft(jet)
                         && jet.producer_id == Some(airfield_id)
-                        && jet.airfield_parking_space_index
-                            == u32::try_from(index).ok()
+                        && jet.airfield_parking_space_index == u32::try_from(index).ok()
                 })
             });
             if !keep {
@@ -160,16 +157,14 @@ impl GameLogic {
             .objects
             .iter()
             .filter_map(|(&jet_id, jet)| {
-                (jet.is_alive()
-                    && Self::is_aircraft(jet)
-                    && jet.producer_id == Some(airfield_id))
-                .then(|| {
-                    jet.airfield_parking_space_index
-                        .and_then(|index| usize::try_from(index).ok())
-                        .filter(|&index| index < capacity)
-                        .map(|index| (jet_id, index))
-                })
-                .flatten()
+                (jet.is_alive() && Self::is_aircraft(jet) && jet.producer_id == Some(airfield_id))
+                    .then(|| {
+                        jet.airfield_parking_space_index
+                            .and_then(|index| usize::try_from(index).ok())
+                            .filter(|&index| index < capacity)
+                            .map(|index| (jet_id, index))
+                    })
+                    .flatten()
             })
             .collect();
         persisted_reservations.sort_by_key(|(jet_id, _)| jet_id.0);
@@ -229,11 +224,7 @@ impl GameLogic {
     fn airfield_has_reserved_space(&self, airfield_id: ObjectId, jet_id: ObjectId) -> bool {
         self.airfield_parking_spaces
             .get(&airfield_id)
-            .is_some_and(|spaces| {
-                spaces
-                    .iter()
-                    .any(|space| space.object_id == Some(jet_id))
-            })
+            .is_some_and(|spaces| spaces.iter().any(|space| space.object_id == Some(jet_id)))
     }
 
     /// C++ `ParkingPlaceBehavior::reserveSpace`.  The selected slot is stored
@@ -636,7 +627,12 @@ impl GameLogic {
                 (airfield_id != jet_id
                     && Self::has_usable_airfield_parking_behavior(airfield)
                     && self.is_friendly_airfield(jet_id, airfield_id))
-                .then(|| (airfield_id, airfield.get_position().distance_squared(jet_position)))
+                .then(|| {
+                    (
+                        airfield_id,
+                        airfield.get_position().distance_squared(jet_position),
+                    )
+                })
             })
             .collect();
         candidates.sort_by(|(left_id, left_distance), (right_id, right_distance)| {
@@ -703,18 +699,20 @@ impl GameLogic {
         let Some(airfield_id) = self.select_and_reserve_airfield_for_return(jet_id) else {
             return false;
         };
-        let Some((metadata, airfield_position)) = self.objects.get(&airfield_id).and_then(|airfield| {
-            Self::has_usable_airfield_parking_behavior(airfield)
-                .then(|| {
-                    airfield
-                        .thing
-                        .template
-                        .parking_place
-                        .clone()
-                        .map(|metadata| (metadata, airfield.get_position()))
-                })
-                .flatten()
-        }) else {
+        let Some((metadata, airfield_position)) =
+            self.objects.get(&airfield_id).and_then(|airfield| {
+                Self::has_usable_airfield_parking_behavior(airfield)
+                    .then(|| {
+                        airfield
+                            .thing
+                            .template
+                            .parking_place
+                            .clone()
+                            .map(|metadata| (metadata, airfield.get_position()))
+                    })
+                    .flatten()
+            })
+        else {
             let _ = self.release_airfield_parking_space_for_jet(jet_id);
             return false;
         };

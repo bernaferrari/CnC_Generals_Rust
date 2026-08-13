@@ -608,8 +608,7 @@ impl GameLogic {
             } else {
                 v.team == source.team
             };
-            if v.is_effectively_stealthed() && !allied && !source.status.ignoring_stealth
-            {
+            if v.is_effectively_stealthed() && !allied && !source.status.ignoring_stealth {
                 return CanAttackResult::NotPossible;
             }
             let has_legal_weapon = candidate_slots.iter().copied().any(|slot| {

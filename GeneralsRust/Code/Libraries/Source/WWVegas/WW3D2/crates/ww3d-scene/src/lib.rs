@@ -57,7 +57,9 @@ pub use layer::{Layer, LayerManager};
 pub use light::{get_lighting_lod_cutoff, set_lighting_lod_cutoff};
 pub use light::{Light, LightEnvironment, LightFlags, LightType, MAX_LIGHTS};
 pub use lod::{
-    DistLod, DistLodNode, HLod, LodLevel, ModelNode, Proxy, SnapPoint, NO_MAX_SCREEN_SIZE,
+    calculate_hlod_screen_area, optimize_prepared_hlods, DistLod, DistLodNode, HLod,
+    HLodScreenAreaInput, LodLevel, ModelNode, Proxy, SnapPoint, AT_MAX_LOD, AT_MIN_LOD,
+    NO_MAX_SCREEN_SIZE,
 };
 pub use npatch::{
     NPatchConfig, NPatchTessellator, NPatchVertex, SubdividedMesh, TessellationLevel,

@@ -68,22 +68,27 @@ impl Default for RenderObjectClass {
     }
 }
 
+/// C++ `ObjectShroudStatus` ordinal ordering is observable in
+/// `RTS3DScene::renderOneObject`: every value strictly above `Clear` takes
+/// the projected shroud material path.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
 pub enum ObjectShroudStatus {
-    Invalid,
-    Clear,
-    PartialClear,
-    Fogged,
-    Shrouded,
+    Invalid = 0,
+    Clear = 1,
+    PartialClear = 2,
+    Fogged = 3,
+    Shrouded = 4,
+    InvalidButPreviousValid = 5,
 }
 
 impl ObjectShroudStatus {
     fn needs_shroud_pass(self) -> bool {
-        !matches!(self, Self::Clear | Self::PartialClear)
+        (self as u8) > (Self::Clear as u8)
     }
 
     fn is_fogged_or_worse(self) -> bool {
-        matches!(self, Self::Fogged | Self::Shrouded)
+        (self as u8) >= (Self::Fogged as u8)
     }
 }
 
@@ -528,6 +533,23 @@ pub struct W3DScene {
     config: SceneConfig,
 }
 
+/// Values copied out of a stored [`DrawableState`] after its C++-owned
+/// shroud-clear timestamp has been updated in place.  Keeping this detached
+/// from `render_objects` lets the scene add lights and emit events without
+/// retaining a mutable borrow of the render-object table.
+#[derive(Debug, Clone, Copy)]
+enum SceneDrawableFacts {
+    Direct {
+        shroud_status: ObjectShroudStatus,
+        infantry: bool,
+        second_material_pass_opacity: f32,
+        stealth_visible_detected: bool,
+        receives_dynamic_lights: bool,
+    },
+    Ghost,
+    NoDrawable,
+}
+
 impl Default for W3DScene {
     fn default() -> Self {
         Self::new(SceneConfig::default())
@@ -970,14 +992,13 @@ impl W3DScene {
             return;
         };
 
-        let (class_id, visible, hidden, sphere, draw_info) = {
+        let (class_id, visible, hidden, sphere) = {
             let object = &self.render_objects[index];
             (
                 object.class_id,
                 object.visible,
                 object.hidden,
                 object.bounding_sphere,
-                object.drawable_info.clone(),
             )
         };
 
@@ -992,28 +1013,49 @@ impl W3DScene {
         let mut light_kind = LightEnvKind::Default;
         let mut pass = RenderPassKind::Normal;
 
-        match draw_info {
-            Some(info) => {
-                let Some(mut drawable) = info.drawable else {
-                    pass = RenderPassKind::Fogged;
-                    light_kind = LightEnvKind::Fogged;
-                    self.render_events
-                        .push(RenderEvent::Object(id, pass, light_kind));
-                    return;
-                };
+        // Do not clone `DrawableInfo` here.  C++ keeps
+        // `Drawable::m_shroudClearFrame` on the stored client drawable, so a
+        // clone would make the clear timestamp disappear before the next
+        // view pass.
+        let drawable_facts = {
+            let object = &mut self.render_objects[index];
+            match object.drawable_info.as_mut() {
+                Some(info) => match info.drawable.as_mut() {
+                    Some(drawable) => {
+                        if drawable.effectively_hidden {
+                            return;
+                        }
+                        let shroud_status =
+                            Self::effective_shroud_status_at(self.current_frame, drawable);
+                        SceneDrawableFacts::Direct {
+                            shroud_status,
+                            infantry: drawable.is_kind_of(KINDOF_INFANTRY),
+                            second_material_pass_opacity: drawable.second_material_pass_opacity,
+                            stealth_visible_detected: drawable.stealth_visible_detected,
+                            receives_dynamic_lights: drawable.receives_dynamic_lights,
+                        }
+                    }
+                    None => SceneDrawableFacts::Ghost,
+                },
+                None => SceneDrawableFacts::NoDrawable,
+            }
+        };
 
-                if drawable.effectively_hidden {
-                    return;
-                }
-
-                let shroud_status = self.effective_shroud_status(&mut drawable);
-                if drawable.is_kind_of(KINDOF_INFANTRY) {
+        match drawable_facts {
+            SceneDrawableFacts::Direct {
+                shroud_status,
+                infantry,
+                second_material_pass_opacity,
+                stealth_visible_detected,
+                receives_dynamic_lights,
+            } => {
+                if infantry {
                     light_kind = LightEnvKind::Infantry;
                 }
 
-                if drawable.second_material_pass_opacity != 0.0 {
-                    rinfo.material_pass_emissive_override = drawable.second_material_pass_opacity;
-                    pass = if drawable.stealth_visible_detected {
+                if second_material_pass_opacity != 0.0 {
+                    rinfo.material_pass_emissive_override = second_material_pass_opacity;
+                    pass = if stealth_visible_detected {
                         RenderPassKind::HeatVisionOnly
                     } else {
                         RenderPassKind::HeatVision
@@ -1026,27 +1068,39 @@ impl W3DScene {
                     pass = RenderPassKind::Shroud;
                 }
 
-                self.add_object_lights(sphere, drawable.receives_dynamic_lights);
+                self.add_object_lights(sphere, receives_dynamic_lights);
             }
-            None => {
-                self.add_object_lights(sphere, true);
+            SceneDrawableFacts::Ghost => {
+                self.render_events.push(RenderEvent::Object(
+                    id,
+                    RenderPassKind::Fogged,
+                    LightEnvKind::Fogged,
+                ));
+                return;
             }
+            SceneDrawableFacts::NoDrawable => self.add_object_lights(sphere, true),
         }
 
         self.render_events
             .push(RenderEvent::Object(id, pass, light_kind));
     }
 
-    fn effective_shroud_status(&self, drawable: &mut DrawableState) -> ObjectShroudStatus {
+    fn effective_shroud_status_at(
+        current_frame: u32,
+        drawable: &mut DrawableState,
+    ) -> ObjectShroudStatus {
         let mut status = drawable.shroud_status;
         if status == ObjectShroudStatus::Clear {
-            drawable.shroud_clear_frame = self.current_frame;
+            drawable.shroud_clear_frame = current_frame;
         } else if status.is_fogged_or_worse() && drawable.shroud_clear_frame != 0 {
             let mut limit = 2 * 30;
             if drawable.effectively_dead {
                 limit += 3 * 30;
             }
-            if self.current_frame < drawable.shroud_clear_frame + limit {
+            // C++ compares `frame < limit + m_shroudClearFrame` using
+            // `UnsignedInt`; retain wrapping addition rather than inventing
+            // saturating time around the 32-bit frame rollover.
+            if current_frame < drawable.shroud_clear_frame.wrapping_add(limit) {
                 status = ObjectShroudStatus::PartialClear;
             }
         }
@@ -1332,4 +1386,89 @@ fn scale_argb_luminance(color: u32, scale: f32) -> u32 {
     let g = (((color >> 8) & 0xff) as f32 * scale).clamp(0.0, 255.0) as u32;
     let b = ((color & 0xff) as f32 * scale).clamp(0.0, 255.0) as u32;
     alpha | (r << 16) | (g << 8) | b
+}
+
+#[cfg(test)]
+mod shroud_state_tests {
+    use super::*;
+
+    #[test]
+    fn ordinal_statuses_keep_cpp_projected_pass_threshold() {
+        assert!(!ObjectShroudStatus::Invalid.needs_shroud_pass());
+        assert!(!ObjectShroudStatus::Clear.needs_shroud_pass());
+        assert!(ObjectShroudStatus::PartialClear.needs_shroud_pass());
+        assert!(ObjectShroudStatus::Fogged.needs_shroud_pass());
+        assert!(ObjectShroudStatus::Shrouded.needs_shroud_pass());
+        assert!(ObjectShroudStatus::InvalidButPreviousValid.needs_shroud_pass());
+        assert!(!ObjectShroudStatus::PartialClear.is_fogged_or_worse());
+        assert!(ObjectShroudStatus::Fogged.is_fogged_or_worse());
+        assert!(ObjectShroudStatus::InvalidButPreviousValid.is_fogged_or_worse());
+    }
+
+    #[test]
+    fn direct_render_updates_stored_clear_history_and_keeps_partial_clear_in_the_pass() {
+        let mut scene = W3DScene::default();
+        scene.set_current_frame(10);
+        let id = scene.add_render_object(RenderObject::default().with_drawable(DrawableState {
+            drawable_id: 1,
+            object_id: Some(1),
+            shroud_status: ObjectShroudStatus::Clear,
+            ..DrawableState::default()
+        }));
+
+        scene.render(&mut RenderInfo::default());
+        assert_eq!(
+            scene
+                .get_render_object(id)
+                .and_then(|object| object.drawable_info.as_ref())
+                .and_then(|info| info.drawable.as_ref())
+                .map(|drawable| drawable.shroud_clear_frame),
+            Some(10)
+        );
+
+        scene
+            .get_render_object_mut(id)
+            .and_then(|object| object.drawable_info.as_mut())
+            .and_then(|info| info.drawable.as_mut())
+            .expect("stored direct drawable")
+            .shroud_status = ObjectShroudStatus::Fogged;
+        scene.clear_render_events();
+        scene.set_current_frame(69);
+        scene.render(&mut RenderInfo::default());
+
+        assert!(scene.render_events().iter().any(|event| {
+            *event == RenderEvent::Object(id, RenderPassKind::Shroud, LightEnvKind::Default)
+        }));
+        assert_eq!(
+            scene
+                .get_render_object(id)
+                .and_then(|object| object.drawable_info.as_ref())
+                .and_then(|info| info.drawable.as_ref())
+                .map(|drawable| drawable.shroud_clear_frame),
+            Some(10),
+            "the clone-free path must retain C++ Drawable client state"
+        );
+    }
+
+    #[test]
+    fn clear_grace_wraps_like_cpp_unsigned_int_addition() {
+        let mut drawable = DrawableState {
+            shroud_status: ObjectShroudStatus::Clear,
+            ..DrawableState::default()
+        };
+        assert_eq!(
+            W3DScene::effective_shroud_status_at(u32::MAX - 5, &mut drawable),
+            ObjectShroudStatus::Clear
+        );
+        drawable.shroud_status = ObjectShroudStatus::Fogged;
+
+        assert_eq!(
+            W3DScene::effective_shroud_status_at(20, &mut drawable),
+            ObjectShroudStatus::PartialClear
+        );
+        assert_eq!(
+            W3DScene::effective_shroud_status_at(55, &mut drawable),
+            ObjectShroudStatus::Fogged
+        );
+    }
 }

@@ -29,8 +29,8 @@ use super::draw_module::*;
 use crate::common::*;
 use crate::helpers::{
     game_client_random_value, game_client_random_value_real, BoneOverrideState,
-    MeshUvOverrideState, ModelDrawState, SubObjectVisibilityState, TheGameClient, TheGameLogic,
-    TheParticleSystemManager,
+    MeshUvOverrideState, ModelDrawState, ModelDrawWeaponBoneBindings, SubObjectVisibilityState,
+    TheGameClient, TheGameLogic, TheParticleSystemManager,
 };
 use crate::upgrade::modules::model_condition::parse_model_condition_flag;
 use game_engine::common::ini::{INIError, INI};

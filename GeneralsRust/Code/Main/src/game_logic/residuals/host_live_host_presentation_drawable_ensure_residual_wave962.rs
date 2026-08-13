@@ -15,7 +15,7 @@ pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> {
 
 pub const LIVE_HOST_PRESENTATION_DRAWABLE_ENSURE_METHOD_NAMES_WAVE962: &[&str] = &[
     "ensure_presentation_drawables",
-    "apply_presentation_pose_to_drawables",
+    "apply_frozen_direct_presentation_poses",
     "Wave 962",
     "playable_claim = false",
 ];

@@ -748,7 +748,9 @@ impl GraphicsSystem {
             bounding_box_min: Vec3::new(-5.0, -5.0, -5.0),
             bounding_box_max: Vec3::new(5.0, 5.0, 5.0),
             hierarchy: None,
+            hierarchies: Vec::new(),
             hlods: Vec::new(),
+            hmodels: Vec::new(),
             hlod_parse_failed: false,
             animations: Vec::new(),
         }
