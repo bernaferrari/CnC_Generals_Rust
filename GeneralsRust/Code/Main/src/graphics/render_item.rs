@@ -36,6 +36,29 @@ pub struct FrozenDirectSceneShroudRenderState {
     pub pushes_projected_shroud_pass: bool,
 }
 
+/// Frozen C++ shroud result for a standalone client Drawable whose
+/// `DrawableInfo::m_shroudStatusObjectID` points at an unrelated controller.
+///
+/// This is intentionally separate from both `fow_visibility` and the direct
+/// object binding state above: objectless drawables have no ObjectID owner,
+/// no Drawable clear-frame timer, and no direct scene lifetime. The projected
+/// material route can consume this exact status later without deriving it from
+/// alpha.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FrozenObjectlessDrawableShroudRenderState {
+    /// Runtime GameClient Drawable identity which owns this fact.
+    pub drawable_id: u32,
+    /// Optional frozen controller identity. `None` means the source had no
+    /// controller; `Some` with `controller_found == false` is a stale/missing
+    /// controller and still fails open to C++'s clear status.
+    pub controller_object_id: Option<ObjectId>,
+    pub controller_found: bool,
+    /// C++ W3DScene result: clear unless the controller is Fogged or worse,
+    /// in which case an objectless Drawable is forced to Shrouded.
+    pub final_status: ObjectShroudStatus,
+    pub pushes_projected_shroud_pass: bool,
+}
+
 /// The only authority permitted to supply a skinned RenderItem's bone palette.
 ///
 /// Ordinary Drawable geometry keeps its frozen Draw-state HAnim path. An
@@ -124,6 +147,11 @@ pub struct RenderItem {
     /// ordinary GameWorld items intentionally retain `None`.
     pub frozen_direct_scene_shroud: Option<FrozenDirectSceneShroudRenderState>,
 
+    /// C++ objectless Drawable shroud-controller result. This has no direct
+    /// object owner and must not participate in direct-object culling or
+    /// clear-frame history.
+    pub frozen_objectless_drawable_shroud: Option<FrozenObjectlessDrawableShroudRenderState>,
+
     /// Per-instance UV offset override for submeshes such as W3D tread meshes.
     pub uv_offset_override: Option<Vec2>,
 
@@ -200,6 +228,7 @@ impl RenderItem {
             fow_visibility: ObjectVisibility::default(),
             presentation_opacity: 1.0,
             frozen_direct_scene_shroud: None,
+            frozen_objectless_drawable_shroud: None,
             uv_offset_override: None,
             animation_frame: 0.0,
             animation_binding: None,
@@ -378,6 +407,7 @@ impl RenderItem {
             parent.poison_tinted,
         );
         self.presentation_opacity = parent.presentation_opacity;
+        self.frozen_objectless_drawable_shroud = parent.frozen_objectless_drawable_shroud;
     }
 
     pub fn set_world_matrix(&mut self, matrix: Mat4) {
@@ -430,6 +460,16 @@ impl RenderItem {
     /// host-epoch/object/drawable/generation identity.
     pub fn set_frozen_direct_scene_shroud(&mut self, state: FrozenDirectSceneShroudRenderState) {
         self.frozen_direct_scene_shroud = Some(state);
+    }
+
+    /// Retain the frozen C++ controller result for one standalone client
+    /// Drawable. The caller owns the identity validation at the Main bridge
+    /// boundary; this setter never consults GameLogic or FOW.
+    pub fn set_frozen_objectless_drawable_shroud(
+        &mut self,
+        state: FrozenObjectlessDrawableShroudRenderState,
+    ) {
+        self.frozen_objectless_drawable_shroud = Some(state);
     }
 
     /// Get FOW visibility for this render item
@@ -549,5 +589,67 @@ mod tests {
             }),
             "the retained C++ scene decision must not be reconstructed from FOW alpha"
         );
+    }
+
+    #[test]
+    fn objectless_drawable_shroud_is_keyed_and_separate_from_fow() {
+        let mut item = RenderItem::new_unbound_client_drawable(
+            77,
+            "prisoner".to_string(),
+            0,
+            Vec3::ZERO,
+            Mat4::IDENTITY,
+            &W3DMaterial::default(),
+            RenderPass::ForwardOpaque,
+        );
+        item.set_fow_visibility(ObjectVisibility {
+            visibility_alpha: 0.13,
+            is_explored: 1.0,
+            visibility_falloff: 1.0,
+        });
+        item.set_frozen_objectless_drawable_shroud(FrozenObjectlessDrawableShroudRenderState {
+            drawable_id: 77,
+            controller_object_id: Some(ObjectId(14)),
+            controller_found: true,
+            final_status: ObjectShroudStatus::Shrouded,
+            pushes_projected_shroud_pass: true,
+        });
+
+        let state = item
+            .frozen_objectless_drawable_shroud
+            .expect("controller result retained on the standalone Drawable item");
+        assert_eq!(state.drawable_id, 77);
+        assert_eq!(state.controller_object_id, Some(ObjectId(14)));
+        assert_eq!(state.final_status, ObjectShroudStatus::Shrouded);
+        assert!(state.pushes_projected_shroud_pass);
+        assert_eq!(item.fow_visibility.visibility_alpha, 0.13);
+    }
+
+    #[test]
+    fn objectless_drawable_missing_controller_is_explicitly_clear() {
+        let mut item = RenderItem::new_unbound_client_drawable(
+            78,
+            "stale_prisoner".to_string(),
+            0,
+            Vec3::ZERO,
+            Mat4::IDENTITY,
+            &W3DMaterial::default(),
+            RenderPass::ForwardOpaque,
+        );
+        item.set_frozen_objectless_drawable_shroud(FrozenObjectlessDrawableShroudRenderState {
+            drawable_id: 78,
+            controller_object_id: Some(ObjectId(9999)),
+            controller_found: false,
+            final_status: ObjectShroudStatus::Clear,
+            pushes_projected_shroud_pass: false,
+        });
+
+        let state = item
+            .frozen_objectless_drawable_shroud
+            .expect("missing controller still yields a keyed clear fact");
+        assert_eq!(state.controller_object_id, Some(ObjectId(9999)));
+        assert!(!state.controller_found);
+        assert_eq!(state.final_status, ObjectShroudStatus::Clear);
+        assert!(!state.pushes_projected_shroud_pass);
     }
 }

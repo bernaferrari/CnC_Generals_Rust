@@ -26,7 +26,10 @@ use super::graphics_system::GraphicsSystem;
 use super::minimap_renderer::{
     MinimapCoordinates, MinimapDimensions, MinimapTextureRenderer, UiTextureRegistrar,
 };
-use super::render_item::{FrozenDirectSceneShroudRenderState, RenderItem, RenderItemOwner};
+use super::render_item::{
+    FrozenDirectSceneShroudRenderState, FrozenObjectlessDrawableShroudRenderState, RenderItem,
+    RenderItemOwner,
+};
 use crate::assets::textures::RawTexture;
 use crate::assets::{ModelPrewarmStats, W3DMaterial, W3DModel};
 use ww3d_renderer_3d::material_system::{MaterialPassClass, VertexMaterialClass};
@@ -247,6 +250,26 @@ pub struct FrozenDirectDrawableShroudState {
     /// deliberately not Rust's broader presentation `visible` flag.
     pub scene_effectively_hidden: bool,
     pub fully_obscured: bool,
+}
+
+/// Exact C++ objectless `W3DScene::renderOneObject` shroud rule.
+///
+/// An objectless Drawable starts at Clear. Its optional
+/// `m_shroudStatusObjectID` only forces Shrouded when the controller is
+/// Fogged or worse; PartialClear, Clear, Invalid, and a missing controller all
+/// remain Clear. This is intentionally independent of FOW alpha.
+#[inline]
+pub(super) const fn objectless_drawable_scene_status(
+    controller_status: Option<gamelogic::common::types::ObjectShroudStatus>,
+) -> gamelogic::common::types::ObjectShroudStatus {
+    match controller_status {
+        Some(status)
+            if (status as u8) >= (gamelogic::common::types::ObjectShroudStatus::Fogged as u8) =>
+        {
+            gamelogic::common::types::ObjectShroudStatus::Shrouded
+        }
+        _ => gamelogic::common::types::ObjectShroudStatus::Clear,
+    }
 }
 
 /// One direct Drawable selected by Main's frozen W3D collection for the C++

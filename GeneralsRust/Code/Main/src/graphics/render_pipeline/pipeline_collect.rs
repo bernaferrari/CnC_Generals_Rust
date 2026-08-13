@@ -1106,6 +1106,15 @@ impl RenderPipeline {
             // FX) are legitimate client visuals, so preserve their distinct
             // ownership instead of either casting the ID or dropping them.
             let owner_object_id = submission.owner_object_id;
+            // C++ objectless Drawables have no gameplay owner or direct
+            // Drawable clear-frame state. Their optional
+            // DrawableInfo::m_shroudStatusObjectID is resolved only against
+            // this frozen presentation frame and retained on each resulting
+            // render item. Never derive this branch from FOW alpha.
+            let objectless_shroud = Self::frozen_objectless_drawable_shroud_for_submission(
+                self.presentation_frame.as_ref(),
+                &submission,
+            );
 
             let render_pass = if is_transparent {
                 RenderPass::ForwardTransparent
@@ -1228,6 +1237,9 @@ impl RenderPipeline {
                             };
                             item.distance = world_position.distance(camera_position);
                             item.set_fow_visibility(fow_vis);
+                            if let Some(state) = objectless_shroud {
+                                item.set_frozen_objectless_drawable_shroud(state);
+                            }
                             item.animation_frame = anim_frame;
                             item.animation_binding = animation_binding.clone();
                             item.capture_bone_controls = capture_bone_controls.clone();
@@ -1281,6 +1293,9 @@ impl RenderPipeline {
                                 ),
                             };
                             aggregate_parent_item.set_fow_visibility(fow_vis);
+                            if let Some(state) = objectless_shroud {
+                                aggregate_parent_item.set_frozen_objectless_drawable_shroud(state);
+                            }
                             self.render_items.extend(
                                 super::hlod_aggregate_render::collect_cached_hlod_aggregate_render_items(
                                     graphics_system,
@@ -1329,6 +1344,9 @@ impl RenderPipeline {
                                     };
                                     item.distance = world_position.distance(camera_position);
                                     item.set_fow_visibility(fow_vis);
+                                    if let Some(state) = objectless_shroud {
+                                        item.set_frozen_objectless_drawable_shroud(state);
+                                    }
                                     self.render_items.push(item);
                                 }
                             }
@@ -1366,6 +1384,9 @@ impl RenderPipeline {
                                 };
                                 item.distance = world_position.distance(camera_position);
                                 item.set_fow_visibility(fow_vis);
+                                if let Some(state) = objectless_shroud {
+                                    item.set_frozen_objectless_drawable_shroud(state);
+                                }
                                 self.render_items.push(item);
                                 bridge_items_added += 1;
                             }
@@ -1381,6 +1402,56 @@ impl RenderPipeline {
                 bridge_items_added, submissions_count
             );
         }
+    }
+
+    /// Resolve C++ `DrawableInfo::m_shroudStatusObjectID` for one standalone
+    /// client Drawable from the immutable host presentation snapshot.
+    ///
+    /// W3DScene starts objectless drawables at `OBJECTSHROUD_CLEAR`; only a
+    /// controller whose frozen status is `FOGGED` or worse changes that result
+    /// to `OBJECTSHROUD_SHROUDED`. Missing controllers, clear/partial/invalid
+    /// controllers, and a missing presentation frame all remain clear. This
+    /// function intentionally never reads `ObjectVisibility` or alpha.
+    #[cfg(feature = "game_client")]
+    fn frozen_objectless_drawable_shroud_for_submission(
+        presentation: Option<&crate::presentation_frame::PresentationFrame>,
+        submission: &game_client::render_bridge::DrawSubmission,
+    ) -> Option<FrozenObjectlessDrawableShroudRenderState> {
+        if submission.owner_object_id.is_some() {
+            return None;
+        }
+
+        let controller_object_id = submission
+            .shroud_status_object_id
+            .filter(|object_id| *object_id != 0)
+            .map(crate::game_logic::ObjectId);
+
+        let controller_status = controller_object_id.and_then(|controller_id| {
+            let frame = presentation?;
+            frame
+                .objects
+                .iter()
+                .find(|object| object.id == controller_id)
+                .or_else(|| {
+                    frame
+                        .direct_host_drawables
+                        .iter()
+                        .find(|direct| direct.object.id == controller_id && direct.resident)
+                        .map(|direct| &direct.object)
+                })
+                .map(|object| object.drawable_shroud.raw_status.as_game_logic_status())
+        });
+
+        let final_status = objectless_drawable_scene_status(controller_status);
+
+        Some(FrozenObjectlessDrawableShroudRenderState {
+            drawable_id: submission.drawable_id.0,
+            controller_object_id,
+            controller_found: controller_status.is_some(),
+            final_status,
+            pushes_projected_shroud_pass: final_status
+                != gamelogic::common::types::ObjectShroudStatus::Clear,
+        })
     }
 
     #[cfg(feature = "game_client")]

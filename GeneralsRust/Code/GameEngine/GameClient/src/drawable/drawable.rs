@@ -10,10 +10,10 @@ use std::error::Error;
 use std::sync::Arc;
 
 pub use crate::core::DrawableId;
-use crate::drawable_info::DrawableInfo;
 use crate::display::image::{ensure_client_mapped_image, get_mapped_image_collection};
 use crate::display::view::{with_tactical_view_ref, Point3};
 use crate::draw_group_info::get_draw_group_info;
+use crate::drawable_info::DrawableInfo;
 use crate::gui::display_string::get_display_string_manager;
 use crate::gui::font::{get_font_library, FontDesc};
 use crate::helpers::TheInGameUI;
@@ -4382,6 +4382,10 @@ impl Drawable for BasicDrawable {
 
         let submission = crate::render_bridge::DrawSubmission {
             drawable_id: crate::render_bridge::DrawableId(self.id.0),
+            shroud_status_object_id: {
+                let object_id = self.shroud_status_object_id();
+                (object_id != 0).then_some(object_id)
+            },
             model_name,
             world_transform: glam::Mat4::from_cols_array_2d(&world_transform.elements),
             condition_flags,

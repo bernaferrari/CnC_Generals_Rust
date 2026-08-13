@@ -225,6 +225,10 @@ pub struct DrawSubmission {
     /// unbound legacy submission is intentionally left as `None` so consumers
     /// can fail closed instead of guessing from independent ID counters.
     pub owner_object_id: Option<u32>,
+    /// C++ `DrawableInfo::m_shroudStatusObjectID` for an objectless
+    /// drawable. This is a controller lookup only; it is deliberately not
+    /// converted into a gameplay owner or a FOW alpha value by the bridge.
+    pub shroud_status_object_id: Option<u32>,
     /// C++ draw-module execution identity carried from the logic bridge.
     /// `None` denotes the BasicDrawable template fallback rather than a W3D
     /// DrawModule result.
@@ -255,6 +259,7 @@ impl Default for DrawSubmission {
         Self {
             drawable_id: DrawableId(0),
             owner_object_id: None,
+            shroud_status_object_id: None,
             legacy_model_draw_source: None,
             legacy_weapon_bone_bindings: None,
             model_name: String::new(),
@@ -1346,6 +1351,7 @@ impl DrawSubmission {
         Self {
             drawable_id: DrawableId(desc.drawable_id),
             owner_object_id: None,
+            shroud_status_object_id: None,
             legacy_model_draw_source: None,
             legacy_weapon_bone_bindings: None,
             model_name: desc.model_name,

@@ -166,6 +166,50 @@ fn frozen_direct_shroud_sidecar_culls_only_a_matching_direct_host_candidate() {
 }
 
 #[test]
+fn objectless_drawable_controller_status_is_exact_and_not_alpha_derived() {
+    use gamelogic::common::types::ObjectShroudStatus;
+
+    assert_eq!(
+        objectless_drawable_scene_status(None),
+        ObjectShroudStatus::Clear
+    );
+    assert_eq!(
+        objectless_drawable_scene_status(Some(ObjectShroudStatus::Clear)),
+        ObjectShroudStatus::Clear
+    );
+    assert_eq!(
+        objectless_drawable_scene_status(Some(ObjectShroudStatus::PartialClear)),
+        ObjectShroudStatus::Clear
+    );
+    assert_eq!(
+        objectless_drawable_scene_status(Some(ObjectShroudStatus::Invalid)),
+        ObjectShroudStatus::Clear
+    );
+    assert_eq!(
+        objectless_drawable_scene_status(Some(ObjectShroudStatus::Fogged)),
+        ObjectShroudStatus::Shrouded
+    );
+    assert_eq!(
+        objectless_drawable_scene_status(Some(ObjectShroudStatus::Shrouded)),
+        ObjectShroudStatus::Shrouded
+    );
+
+    let collect = include_str!("pipeline_collect.rs");
+    assert!(collect.contains("shroud_status_object_id"));
+    assert!(collect.contains("frozen_objectless_drawable_shroud"));
+    assert!(collect.contains("raw_status.as_game_logic_status()"));
+    let objectless_body = collect
+        .split_once("fn frozen_objectless_drawable_shroud_for_submission")
+        .and_then(|(_, tail)| tail.split_once("pub(super) fn mesh_uv_override_for_submission"))
+        .map(|(body, _)| body)
+        .unwrap_or_default();
+    assert!(
+        !objectless_body.contains("visibility_alpha"),
+        "objectless shroud status must not be inferred from FOW alpha"
+    );
+}
+
+#[test]
 fn frozen_direct_scene_candidate_preserves_raw_facts_for_current_visible_binding() {
     use crate::presentation_frame::{
         PresentationDrawableShroudFacts, PresentationObjectShroudStatus,
