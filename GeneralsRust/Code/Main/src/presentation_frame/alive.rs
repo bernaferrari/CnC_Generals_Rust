@@ -303,6 +303,19 @@ impl PresentationFrame {
             && !self.local_stealth_viewer_sees_as_allied(object)
     }
 
+    /// Whether C++ would select VISIBLE_FRIENDLY or
+    /// VISIBLE_FRIENDLY_DETECTED for this frozen object.  Unlike the generic
+    /// selection/alliance helper this intentionally does not require the
+    /// owner player to be alive: StealthUpdate asks the viewer's relationship
+    /// and treats an inactive viewer as ALLIES.
+    #[inline]
+    pub fn local_viewer_uses_friendly_stealth_look(&self, object: &RenderableObject) -> bool {
+        object.stealthed
+            && !object.can_disguise_as_team
+            && !object.drawable_shroud.effectively_dead
+            && self.local_stealth_viewer_sees_as_allied(object)
+    }
+
     /// True only for a proven, active opposing player. This avoids inventing
     /// hostility for neutral props or ownerless compatibility records.
     pub fn is_enemy_of_local(&self, object: &RenderableObject) -> bool {

@@ -345,6 +345,10 @@ pub struct MeshClass {
     pub is_hidden: bool,
     pub is_animation_hidden: bool,
     pub alpha_override: f32,
+    /// Presentation-owned instance opacity (C++ Drawable stealth look).
+    /// Kept separate from FOW alpha so friendly stealth does not alter the
+    /// frozen shroud channel.
+    pub presentation_opacity: f32,
     pub material_pass_alpha_override: f32,
     pub material_pass_emissive_override: f32,
     frozen_fow_visibility: FrozenFowVisibility,

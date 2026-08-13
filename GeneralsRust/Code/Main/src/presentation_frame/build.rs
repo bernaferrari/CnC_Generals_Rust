@@ -531,6 +531,8 @@ impl PresentationFrame {
                 detected: obj.status.detected,
                 effectively_stealthed: obj.is_effectively_stealthed(),
                 can_disguise_as_team: freeze_direct_can_disguise_as_team(obj),
+                friendly_stealth_opacity: obj.thing.template.stealth_friendly_opacity_min,
+                friendly_stealth_opacity_max: obj.thing.template.stealth_friendly_opacity_max,
                 disabled: obj.is_disabled(),
                 contained_by: obj.contained_by,
                 force_attack: obj.force_attack,
@@ -1670,6 +1672,8 @@ impl PresentationFrame {
             o.fow_visibility.is_explored.to_bits().hash(&mut h);
             o.drawable_shroud.hash(&mut h);
             o.can_disguise_as_team.hash(&mut h);
+            o.friendly_stealth_opacity.to_bits().hash(&mut h);
+            o.friendly_stealth_opacity_max.to_bits().hash(&mut h);
         }
         // This transient source can diverge from the GameWorld-primary object
         // roster during deferred death, so include the direct visual identity
@@ -1687,6 +1691,16 @@ impl PresentationFrame {
             drawable.object.destroyed.hash(&mut h);
             drawable.object.drawable_shroud.hash(&mut h);
             drawable.object.can_disguise_as_team.hash(&mut h);
+            drawable
+                .object
+                .friendly_stealth_opacity
+                .to_bits()
+                .hash(&mut h);
+            drawable
+                .object
+                .friendly_stealth_opacity_max
+                .to_bits()
+                .hash(&mut h);
         }
         self.local_supplies.hash(&mut h);
         self.match_over.hash(&mut h);

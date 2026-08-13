@@ -88,6 +88,7 @@ fn unit_render_input_world_matrix_applies_mesh_scale() {
         is_surrendered: false,
         engine_bridged: false,
         fow_visibility: ObjectVisibility::FULLY_VISIBLE,
+        presentation_opacity: 1.0,
         drawable_shroud: PresentationDrawableShroudFacts::default(),
     };
     let m = u.world_matrix();
@@ -172,9 +173,26 @@ fn viewer_relative_stealth_matches_cxx_allies_and_inactive_local_rules() {
         .find(|input| input.id == allied_id)
         .expect("allied translucent input");
     assert!(
-        allied_input.fow_visibility.visibility_alpha > 0.01
-            && allied_input.fow_visibility.visibility_alpha <= 0.35,
-        "C++ VISIBLE_FRIENDLY stays in the mesh pass with the frozen friendly-stealth alpha"
+        (allied_input.fow_visibility.visibility_alpha - 1.0).abs() < f32::EPSILON
+            && (allied_input.presentation_opacity - 0.5).abs() < 0.001,
+        "C++ VISIBLE_FRIENDLY keeps FOW clear and uses its separate friendly-stealth opacity"
+    );
+
+    logic
+        .get_object_mut(allied_id)
+        .expect("allied object")
+        .status
+        .detected = true;
+    let detected_frame = PresentationFrame::build_from_logic(&logic, 0);
+    let detected_input = detected_frame
+        .unit_render_inputs()
+        .into_iter()
+        .find(|input| input.id == allied_id)
+        .expect("detected friendly stealth remains renderable");
+    assert!(
+        (detected_input.fow_visibility.visibility_alpha - 1.0).abs() < f32::EPSILON
+            && (detected_input.presentation_opacity - 0.5).abs() < 0.001,
+        "C++ VISIBLE_FRIENDLY_DETECTED keeps the same friendly opacity"
     );
 
     let mut dead_enemy = active_enemy.clone();

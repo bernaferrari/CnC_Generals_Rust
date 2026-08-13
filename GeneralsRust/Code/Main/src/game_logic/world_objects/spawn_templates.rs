@@ -197,6 +197,7 @@ impl GameLogic {
         // value on the host template so snapshots and rendering never need a
         // template-name scale fallback.
         template.set_asset_scale(definition.scale);
+        Self::apply_authored_stealth_update_metadata(&mut template, definition);
         let rider_change_normal_locomotors =
             unambiguous_locomotors_for_set(definition, "SET_NORMAL");
         Self::apply_authored_dock_and_contain_modules(
@@ -1961,6 +1962,54 @@ impl GameLogic {
             })
         };
         template.hacker_disable_building = parse();
+    }
+
+    /// Retain the exact StealthUpdate friendly opacity bounds used by
+    /// C++ `StealthUpdate::getFriendlyOpacity`. Missing fields retain the
+    /// module-data defaults; malformed present values fail closed to those
+    /// defaults rather than inventing a non-finite presentation value.
+    fn apply_authored_stealth_update_metadata(
+        template: &mut ThingTemplate,
+        definition: &ObjectDefinition,
+    ) {
+        fn parse_percent(value: &str) -> Option<f32> {
+            value
+                .split(';')
+                .next()
+                .unwrap_or_default()
+                .trim()
+                .trim_end_matches('%')
+                .parse::<f32>()
+                .ok()
+                .filter(|value| value.is_finite())
+                .map(|value| (value / 100.0).clamp(0.0, 1.0))
+        }
+
+        let modules: Vec<_> = definition
+            .behavior_modules
+            .iter()
+            .filter(|module| module.class_name.eq_ignore_ascii_case("StealthUpdate"))
+            .collect();
+        let [module] = modules.as_slice() else {
+            return;
+        };
+
+        if let Some(value) = module
+            .attribute("FriendlyOpacityMin")
+            .and_then(parse_percent)
+        {
+            template.stealth_friendly_opacity_min = value;
+        }
+        if let Some(value) = module
+            .attribute("FriendlyOpacityMax")
+            .and_then(parse_percent)
+        {
+            template.stealth_friendly_opacity_max = value;
+        }
+        if template.stealth_friendly_opacity_min > template.stealth_friendly_opacity_max {
+            template.stealth_friendly_opacity_min = 0.5;
+            template.stealth_friendly_opacity_max = 1.0;
+        }
     }
 
     /// Retain the exact Object INI data C++ `OverchargeBehavior` consumes.

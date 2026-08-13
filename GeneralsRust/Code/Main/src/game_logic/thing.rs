@@ -1024,6 +1024,13 @@ pub struct ThingTemplate {
     /// INI module rather than inferred from VEHICLE, dimensions, or a name.
     #[serde(default)]
     pub contain_module: ContainModuleMetadata,
+    /// Exact StealthUpdate FriendlyOpacityMin/Max values.  They are retained
+    /// on the immutable template so presentation can select the C++ friendly
+    /// look without re-reading INI or live GameLogic during WGPU collection.
+    #[serde(default = "default_stealth_friendly_opacity_min")]
+    pub stealth_friendly_opacity_min: f32,
+    #[serde(default = "default_stealth_friendly_opacity_max")]
+    pub stealth_friendly_opacity_max: f32,
     /// Exact `ParkingPlaceBehavior` data.  This remains absent when the
     /// source object has no such behavior, even if its KindOf is
     /// `FSAirfield`; physical aircraft landing then fails closed.
@@ -1220,6 +1227,8 @@ impl ThingTemplate {
             supply_truck_metadata: None,
             railed_transport_slots: None,
             contain_module: ContainModuleMetadata::default(),
+            stealth_friendly_opacity_min: default_stealth_friendly_opacity_min(),
+            stealth_friendly_opacity_max: default_stealth_friendly_opacity_max(),
             parking_place: None,
             deploy_style_metadata: None,
             production_exit_metadata: None,
@@ -1615,6 +1624,14 @@ impl ThingTemplate {
 }
 
 fn default_asset_scale() -> f32 {
+    1.0
+}
+
+fn default_stealth_friendly_opacity_min() -> f32 {
+    0.5
+}
+
+fn default_stealth_friendly_opacity_max() -> f32 {
     1.0
 }
 

@@ -460,6 +460,7 @@ impl RenderPipeline {
                                     team_color,
                                     u.poison_tinted,
                                 );
+                                render_item.set_presentation_opacity(u.presentation_opacity);
                                 render_item.animation_frame = anim_frame;
                                 render_item.animation_binding = animation_binding.clone();
 
@@ -495,6 +496,8 @@ impl RenderPipeline {
                                     team_color,
                                     u.poison_tinted,
                                 );
+                                aggregate_parent_item
+                                    .set_presentation_opacity(u.presentation_opacity);
                                 self.render_items.extend(
                                     super::hlod_aggregate_render::collect_cached_hlod_aggregate_render_items(
                                         graphics_system,
@@ -570,6 +573,7 @@ impl RenderPipeline {
                                         team_color,
                                         u.poison_tinted,
                                     );
+                                    render_item.set_presentation_opacity(u.presentation_opacity);
 
                                     self.render_items.push(render_item);
                                 }
@@ -625,6 +629,7 @@ impl RenderPipeline {
                                         team_color,
                                         u.poison_tinted,
                                     );
+                                    render_item.set_presentation_opacity(u.presentation_opacity);
 
                                     self.render_items.push(render_item);
                                 }
