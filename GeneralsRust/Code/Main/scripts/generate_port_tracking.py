@@ -19,6 +19,48 @@ SOURCE_STATUS_MISSING = "MISSING"
 # Explicit C++ -> Rust mappings for renamed faithful ports where file names diverge.
 # Keys are: (kind, relative_cpp_path_from_Source_or_Include_root).
 MANUAL_CPP_TO_RUST: dict[tuple[str, str], str] = {
+    ("Source", "Common/System/KindOf.cpp"): "Common/src/system/kind_of.rs",
+    ("Include", "Common/KindOf.h"): "Common/src/system/kind_of.rs",
+    ("Include", "Common/System/KindOf.h"): "Common/src/system/kind_of.rs",
+    # These ports are intentionally split into Rust module directories.  Keep
+    # the source mapping explicit so the audit does not report the historical
+    # flat-file name as missing.
+    (
+        "Source",
+        "GameClient/MessageStream/MetaEvent.cpp",
+    ): "GameClient/src/message_stream/meta_event_impl/mod.rs",
+    (
+        "Source",
+        "GameLogic/AI/AIPlayer.cpp",
+    ): "GameLogic/src/ai/ai_player/mod.rs",
+    (
+        "Source",
+        "GameLogic/AI/AIStates.cpp",
+    ): "GameLogic/src/ai/ai_states/mod.rs",
+    (
+        "Include",
+        "GameClient/MetaEvent.h",
+    ): "GameClient/src/message_stream/meta_event_impl/mod.rs",
+    (
+        "Include",
+        "GameLogic/AIPlayer.h",
+    ): "GameLogic/src/ai/ai_player/mod.rs",
+    (
+        "Include",
+        "GameLogic/ArmorSet.h",
+    ): "GameLogic/src/common/types/enums.rs",
+    (
+        "Include",
+        "GameLogic/LogicRandomValue.h",
+    ): "GameLogic/src/helpers/random.rs",
+    (
+        "Include",
+        "GameLogic/ObjectScriptStatusBits.h",
+    ): "GameLogic/src/common/types/enums.rs",
+    (
+        "Include",
+        "GameLogic/WeaponBonusConditionFlags.h",
+    ): "GameLogic/src/common/types/weapon_upgrade_masks.rs",
     ("Source", "GameLogic/AI/AIDock.cpp"): "GameLogic/src/ai/dock.rs",
     ("Source", "GameLogic/AI/AIGuard.cpp"): "GameLogic/src/ai/guard.rs",
     ("Source", "GameLogic/AI/AIGuardRetaliate.cpp"): "GameLogic/src/ai/guard_retaliate.rs",
@@ -40,23 +82,13 @@ MANUAL_CPP_TO_RUST: dict[tuple[str, str], str] = {
     ("Include", "GameLogic/AISkirmishPlayer.h"): "GameLogic/src/ai/skirmish_player.rs",
     ("Include", "GameLogic/AIStateMachine.h"): "GameLogic/src/ai/state_machine.rs",
     ("Include", "GameLogic/AITNGuard.h"): "GameLogic/src/ai/tn_guard.rs",
-    ("Include", "GameLogic/ArmorSet.h"): "GameLogic/src/common/types.rs",
     ("Include", "GameLogic/FPUControl.h"): "GameLogic/src/system/game_logic.rs",
-    ("Include", "GameLogic/LogicRandomValue.h"): "GameLogic/src/helpers.rs",
     (
         "Include",
         "GameLogic/Module/SpecialAbility.h",
     ): "GameLogic/src/object/special_powers/special_ability.rs",
     ("Include", "GameLogic/ObjectIter.h"): "GameLogic/src/object/simple_object_iterator.rs",
-    (
-        "Include",
-        "GameLogic/ObjectScriptStatusBits.h",
-    ): "GameLogic/src/common/types.rs",
     ("Include", "GameLogic/Powers.h"): "GameLogic/src/special_power.rs",
-    (
-        "Include",
-        "GameLogic/WeaponBonusConditionFlags.h",
-    ): "GameLogic/src/common/types.rs",
     ("Include", "GameLogic/WeaponSetFlags.h"): "GameLogic/src/weapon/weapon_set.rs",
     ("Include", "GameLogic/WeaponSetType.h"): "GameLogic/src/weapon/weapon_set.rs",
     ("Include", "GameLogic/WeaponStatus.h"): "GameLogic/src/weapon/weapon.rs",

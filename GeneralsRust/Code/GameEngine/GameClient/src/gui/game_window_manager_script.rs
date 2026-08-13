@@ -37,6 +37,68 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{Arc, RwLock};
 
+// WOL/GameSpy callback bodies are intentionally feature-gated while the
+// non-network game remains the supported runtime.  Keep the callback names in
+// the FunctionLexicon in both configurations, but bind the real C++-parity
+// ports whenever `online_ui` is selected.  This prevents the registry from
+// silently replacing an enabled online callback with the offline no-op table.
+macro_rules! register_online_system {
+    ($registry:expr, $name:literal, $callback:path) => {{
+        #[cfg(feature = "online_ui")]
+        $registry.register_win_system($name, $callback);
+        #[cfg(not(feature = "online_ui"))]
+        $registry.register_win_system(
+            $name,
+            |_window: &GameWindow,
+             _message: WindowMessage,
+             _data1: WindowMsgData,
+             _data2: WindowMsgData| WindowMsgHandled::Ignored,
+        );
+    }};
+}
+
+macro_rules! register_online_input {
+    ($registry:expr, $name:literal, $callback:path) => {{
+        #[cfg(feature = "online_ui")]
+        $registry.register_win_input($name, $callback);
+        #[cfg(not(feature = "online_ui"))]
+        $registry.register_win_input(
+            $name,
+            |_window: &GameWindow,
+             _message: WindowMessage,
+             _data1: WindowMsgData,
+             _data2: WindowMsgData| WindowMsgHandled::Ignored,
+        );
+    }};
+}
+
+macro_rules! register_online_layout_init {
+    ($registry:expr, $name:literal, $callback:path) => {{
+        #[cfg(feature = "online_ui")]
+        $registry.register_layout_init($name, |layout| $callback(layout, None));
+        #[cfg(not(feature = "online_ui"))]
+        $registry.register_layout_init($name, |_layout| {});
+    }};
+}
+
+macro_rules! register_online_layout_update {
+    ($registry:expr, $name:literal, $callback:path) => {{
+        #[cfg(feature = "online_ui")]
+        $registry.register_layout_update($name, |layout| $callback(layout, None));
+        #[cfg(not(feature = "online_ui"))]
+        $registry.register_layout_update($name, |_layout| {});
+    }};
+}
+
+macro_rules! register_online_layout_shutdown {
+    ($registry:expr, $name:literal, $callback:path) => {{
+        #[cfg(feature = "online_ui")]
+        $registry.register_layout_shutdown_without_data($name, |layout| $callback(layout, None));
+        #[cfg(not(feature = "online_ui"))]
+        $registry.register_layout_shutdown_without_data($name, |_layout| {});
+    }};
+}
+
 // ---------------------------------------------------------------------------
 // Constants matching C++ GameWindowManagerScript.cpp
 // ---------------------------------------------------------------------------
@@ -618,67 +680,73 @@ impl ScriptCallbackRegistry {
             cb::keyboard_options_menu_system,
         );
 
-        // WOL/network callbacks — deferred per AGENTS.md
-        self.register_win_system("WOLLadderScreenSystem", |_win, _msg, _d1, _d2| {
-            WindowMsgHandled::Ignored
-        });
-        self.register_win_system("WOLLoginMenuSystem", |_win, _msg, _d1, _d2| {
-            WindowMsgHandled::Ignored
-        });
-        self.register_win_system("WOLLocaleSelectSystem", |_win, _msg, _d1, _d2| {
-            WindowMsgHandled::Ignored
-        });
-        self.register_win_system("WOLLobbyMenuSystem", |_win, _msg, _d1, _d2| {
-            WindowMsgHandled::Ignored
-        });
-        self.register_win_system("WOLGameSetupMenuSystem", |_win, _msg, _d1, _d2| {
-            WindowMsgHandled::Ignored
-        });
-        self.register_win_system("WOLMapSelectMenuSystem", |_win, _msg, _d1, _d2| {
-            WindowMsgHandled::Ignored
-        });
-        self.register_win_system("WOLBuddyOverlaySystem", |_win, _msg, _d1, _d2| {
-            WindowMsgHandled::Ignored
-        });
-        self.register_win_system("WOLBuddyOverlayRCMenuSystem", |_win, _msg, _d1, _d2| {
-            WindowMsgHandled::Ignored
-        });
-        self.register_win_system("RCGameDetailsMenuSystem", |_win, _msg, _d1, _d2| {
-            WindowMsgHandled::Ignored
-        });
-        self.register_win_system("GameSpyPlayerInfoOverlaySystem", |_win, _msg, _d1, _d2| {
-            WindowMsgHandled::Ignored
-        });
-        self.register_win_system("WOLMessageWindowSystem", |_win, _msg, _d1, _d2| {
-            WindowMsgHandled::Ignored
-        });
-        self.register_win_system("WOLQuickMatchMenuSystem", |_win, _msg, _d1, _d2| {
-            WindowMsgHandled::Ignored
-        });
-        self.register_win_system("WOLWelcomeMenuSystem", |_win, _msg, _d1, _d2| {
-            WindowMsgHandled::Ignored
-        });
-        self.register_win_system("WOLStatusMenuSystem", |_win, _msg, _d1, _d2| {
-            WindowMsgHandled::Ignored
-        });
-        self.register_win_system("WOLQMScoreScreenSystem", |_win, _msg, _d1, _d2| {
-            WindowMsgHandled::Ignored
-        });
-        self.register_win_system("WOLCustomScoreScreenSystem", |_win, _msg, _d1, _d2| {
-            WindowMsgHandled::Ignored
-        });
-        self.register_win_system("NetworkDirectConnectSystem", |_win, _msg, _d1, _d2| {
-            WindowMsgHandled::Ignored
-        });
-        self.register_win_system("PopupHostGameSystem", |_win, _msg, _d1, _d2| {
-            WindowMsgHandled::Ignored
-        });
-        self.register_win_system("PopupJoinGameSystem", |_win, _msg, _d1, _d2| {
-            WindowMsgHandled::Ignored
-        });
-        self.register_win_system("PopupLadderSelectSystem", |_win, _msg, _d1, _d2| {
-            WindowMsgHandled::Ignored
-        });
+        // WOL/GameSpy callback bindings.  Offline builds use the same
+        // fail-closed stubs as the original deferred network path; online_ui
+        // selects the concrete callback ports.
+        register_online_system!(self, "WOLLadderScreenSystem", cb::wol_ladder_screen_system);
+        register_online_system!(self, "WOLLoginMenuSystem", cb::wol_login_menu_system);
+        register_online_system!(self, "WOLLocaleSelectSystem", cb::wol_locale_select_system);
+        register_online_system!(self, "WOLLobbyMenuSystem", cb::wol_lobby_menu_system);
+        register_online_system!(
+            self,
+            "WOLGameSetupMenuSystem",
+            cb::wol_game_setup_menu_system
+        );
+        register_online_system!(
+            self,
+            "WOLMapSelectMenuSystem",
+            cb::wol_map_select_menu_system
+        );
+        register_online_system!(self, "WOLBuddyOverlaySystem", cb::wol_buddy_overlay_system);
+        register_online_system!(
+            self,
+            "WOLBuddyOverlayRCMenuSystem",
+            cb::wol_buddy_overlay_rc_menu_system
+        );
+        register_online_system!(
+            self,
+            "RCGameDetailsMenuSystem",
+            cb::rc_game_details_menu_system
+        );
+        register_online_system!(
+            self,
+            "GameSpyPlayerInfoOverlaySystem",
+            cb::popup_player_info_system
+        );
+        register_online_system!(
+            self,
+            "WOLMessageWindowSystem",
+            cb::wol_message_window_system
+        );
+        register_online_system!(
+            self,
+            "WOLQuickMatchMenuSystem",
+            cb::wol_quick_match_menu_system
+        );
+        register_online_system!(self, "WOLWelcomeMenuSystem", cb::wol_welcome_menu_system);
+        register_online_system!(self, "WOLStatusMenuSystem", cb::wol_status_menu_system);
+        register_online_system!(
+            self,
+            "WOLQMScoreScreenSystem",
+            cb::wol_qm_score_screen_system
+        );
+        register_online_system!(
+            self,
+            "WOLCustomScoreScreenSystem",
+            cb::wol_custom_score_screen_system
+        );
+        register_online_system!(
+            self,
+            "NetworkDirectConnectSystem",
+            cb::network_direct_connect_system
+        );
+        register_online_system!(self, "PopupHostGameSystem", cb::popup_host_game_system);
+        register_online_system!(self, "PopupJoinGameSystem", cb::popup_join_game_system);
+        register_online_system!(
+            self,
+            "PopupLadderSelectSystem",
+            cb::popup_ladder_select_system
+        );
 
         self.register_win_system("InGamePopupMessageSystem", cb::in_game_popup_message_system);
 
@@ -746,62 +814,46 @@ impl ScriptCallbackRegistry {
         );
         self.register_win_input("ChallengeMenuInput", cb::challenge_menu_input);
 
-        // WOL/network callbacks — deferred per AGENTS.md
-        self.register_win_input("WOLLadderScreenInput", |_win, _msg, _d1, _d2| {
-            WindowMsgHandled::Ignored
-        });
-        self.register_win_input("WOLLoginMenuInput", |_win, _msg, _d1, _d2| {
-            WindowMsgHandled::Ignored
-        });
-        self.register_win_input("WOLLocaleSelectInput", |_win, _msg, _d1, _d2| {
-            WindowMsgHandled::Ignored
-        });
-        self.register_win_input("WOLLobbyMenuInput", |_win, _msg, _d1, _d2| {
-            WindowMsgHandled::Ignored
-        });
-        self.register_win_input("WOLGameSetupMenuInput", |_win, _msg, _d1, _d2| {
-            WindowMsgHandled::Ignored
-        });
-        self.register_win_input("WOLMapSelectMenuInput", |_win, _msg, _d1, _d2| {
-            WindowMsgHandled::Ignored
-        });
-        self.register_win_input("WOLBuddyOverlayInput", |_win, _msg, _d1, _d2| {
-            WindowMsgHandled::Ignored
-        });
-        self.register_win_input("GameSpyPlayerInfoOverlayInput", |_win, _msg, _d1, _d2| {
-            WindowMsgHandled::Ignored
-        });
-        self.register_win_input("WOLMessageWindowInput", |_win, _msg, _d1, _d2| {
-            WindowMsgHandled::Ignored
-        });
-        self.register_win_input("WOLQuickMatchMenuInput", |_win, _msg, _d1, _d2| {
-            WindowMsgHandled::Ignored
-        });
-        self.register_win_input("WOLWelcomeMenuInput", |_win, _msg, _d1, _d2| {
-            WindowMsgHandled::Ignored
-        });
-        self.register_win_input("WOLStatusMenuInput", |_win, _msg, _d1, _d2| {
-            WindowMsgHandled::Ignored
-        });
-        self.register_win_input("WOLQMScoreScreenInput", |_win, _msg, _d1, _d2| {
-            WindowMsgHandled::Ignored
-        });
-        self.register_win_input("WOLCustomScoreScreenInput", |_win, _msg, _d1, _d2| {
-            WindowMsgHandled::Ignored
-        });
-
-        self.register_win_input("NetworkDirectConnectInput", |_win, _msg, _d1, _d2| {
-            WindowMsgHandled::Ignored
-        });
-        self.register_win_input("PopupHostGameInput", |_win, _msg, _d1, _d2| {
-            WindowMsgHandled::Ignored
-        });
-        self.register_win_input("PopupJoinGameInput", |_win, _msg, _d1, _d2| {
-            WindowMsgHandled::Ignored
-        });
-        self.register_win_input("PopupLadderSelectInput", |_win, _msg, _d1, _d2| {
-            WindowMsgHandled::Ignored
-        });
+        // WOL/GameSpy callback bindings.  Offline builds use the same
+        // fail-closed stubs as the original deferred network path.
+        register_online_input!(self, "WOLLadderScreenInput", cb::wol_ladder_screen_input);
+        register_online_input!(self, "WOLLoginMenuInput", cb::wol_login_menu_input);
+        register_online_input!(self, "WOLLocaleSelectInput", cb::wol_locale_select_input);
+        register_online_input!(self, "WOLLobbyMenuInput", cb::wol_lobby_menu_input);
+        register_online_input!(self, "WOLGameSetupMenuInput", cb::wol_game_setup_menu_input);
+        register_online_input!(self, "WOLMapSelectMenuInput", cb::wol_map_select_menu_input);
+        register_online_input!(self, "WOLBuddyOverlayInput", cb::wol_buddy_overlay_input);
+        register_online_input!(
+            self,
+            "GameSpyPlayerInfoOverlayInput",
+            cb::popup_player_info_input
+        );
+        register_online_input!(self, "WOLMessageWindowInput", cb::wol_message_window_input);
+        register_online_input!(
+            self,
+            "WOLQuickMatchMenuInput",
+            cb::wol_quick_match_menu_input
+        );
+        register_online_input!(self, "WOLWelcomeMenuInput", cb::wol_welcome_menu_input);
+        register_online_input!(self, "WOLStatusMenuInput", cb::wol_status_menu_input);
+        register_online_input!(self, "WOLQMScoreScreenInput", cb::wol_qm_score_screen_input);
+        register_online_input!(
+            self,
+            "WOLCustomScoreScreenInput",
+            cb::wol_custom_score_screen_input
+        );
+        register_online_input!(
+            self,
+            "NetworkDirectConnectInput",
+            cb::network_direct_connect_input
+        );
+        register_online_input!(self, "PopupHostGameInput", cb::popup_host_game_input);
+        register_online_input!(self, "PopupJoinGameInput", cb::popup_join_game_input);
+        register_online_input!(
+            self,
+            "PopupLadderSelectInput",
+            cb::popup_ladder_select_input
+        );
 
         self.register_win_input("InGamePopupMessageInput", cb::in_game_popup_message_input);
 
@@ -869,28 +921,42 @@ impl ScriptCallbackRegistry {
             cb::challenge_menu_init(layout, None)
         });
 
-        // WOL/network callbacks — deferred per AGENTS.md
-        self.register_layout_init("WOLLadderScreenInit", |_layout| {});
-        self.register_layout_init("WOLLoginMenuInit", |_layout| {});
-        self.register_layout_init("WOLLocaleSelectInit", |_layout| {});
-        self.register_layout_init("WOLLobbyMenuInit", |_layout| {});
-        self.register_layout_init("WOLGameSetupMenuInit", |_layout| {});
-        self.register_layout_init("WOLMapSelectMenuInit", |_layout| {});
-        self.register_layout_init("WOLBuddyOverlayInit", |_layout| {});
-        self.register_layout_init("WOLBuddyOverlayRCMenuInit", |_layout| {});
-        self.register_layout_init("RCGameDetailsMenuInit", |_layout| {});
-        self.register_layout_init("GameSpyPlayerInfoOverlayInit", |_layout| {});
-        self.register_layout_init("WOLMessageWindowInit", |_layout| {});
-        self.register_layout_init("WOLQuickMatchMenuInit", |_layout| {});
-        self.register_layout_init("WOLWelcomeMenuInit", |_layout| {});
-        self.register_layout_init("WOLStatusMenuInit", |_layout| {});
-        self.register_layout_init("WOLQMScoreScreenInit", |_layout| {});
-        self.register_layout_init("WOLCustomScoreScreenInit", |_layout| {});
-
-        self.register_layout_init("NetworkDirectConnectInit", |_layout| {});
-        self.register_layout_init("PopupHostGameInit", |_layout| {});
-        self.register_layout_init("PopupJoinGameInit", |_layout| {});
-        self.register_layout_init("PopupLadderSelectInit", |_layout| {});
+        register_online_layout_init!(self, "WOLLadderScreenInit", cb::wol_ladder_screen_init);
+        register_online_layout_init!(self, "WOLLoginMenuInit", cb::wol_login_menu_init);
+        register_online_layout_init!(self, "WOLLocaleSelectInit", cb::wol_locale_select_init);
+        register_online_layout_init!(self, "WOLLobbyMenuInit", cb::wol_lobby_menu_init);
+        register_online_layout_init!(self, "WOLGameSetupMenuInit", cb::wol_game_setup_menu_init);
+        register_online_layout_init!(self, "WOLMapSelectMenuInit", cb::wol_map_select_menu_init);
+        register_online_layout_init!(self, "WOLBuddyOverlayInit", cb::wol_buddy_overlay_init);
+        register_online_layout_init!(
+            self,
+            "WOLBuddyOverlayRCMenuInit",
+            cb::wol_buddy_overlay_rc_menu_init
+        );
+        register_online_layout_init!(self, "RCGameDetailsMenuInit", cb::rc_game_details_menu_init);
+        register_online_layout_init!(
+            self,
+            "GameSpyPlayerInfoOverlayInit",
+            cb::popup_player_info_init
+        );
+        register_online_layout_init!(self, "WOLMessageWindowInit", cb::wol_message_window_init);
+        register_online_layout_init!(self, "WOLQuickMatchMenuInit", cb::wol_quick_match_menu_init);
+        register_online_layout_init!(self, "WOLWelcomeMenuInit", cb::wol_welcome_menu_init);
+        register_online_layout_init!(self, "WOLStatusMenuInit", cb::wol_status_menu_init);
+        register_online_layout_init!(self, "WOLQMScoreScreenInit", cb::wol_qm_score_screen_init);
+        register_online_layout_init!(
+            self,
+            "WOLCustomScoreScreenInit",
+            cb::wol_custom_score_screen_init
+        );
+        register_online_layout_init!(
+            self,
+            "NetworkDirectConnectInit",
+            cb::network_direct_connect_init
+        );
+        register_online_layout_init!(self, "PopupHostGameInit", cb::popup_host_game_init);
+        register_online_layout_init!(self, "PopupJoinGameInit", cb::popup_join_game_init);
+        register_online_layout_init!(self, "PopupLadderSelectInit", cb::popup_ladder_select_init);
 
         self.register_layout_init("InGamePopupMessageInit", |layout| {
             cb::in_game_popup_message_init(layout, None)
@@ -945,24 +1011,54 @@ impl ScriptCallbackRegistry {
             cb::challenge_menu_update(layout, None)
         });
 
-        // WOL/network callbacks — deferred per AGENTS.md
-        self.register_layout_update("WOLLadderScreenUpdate", |_layout| {});
-        self.register_layout_update("WOLLoginMenuUpdate", |_layout| {});
-        self.register_layout_update("WOLLocaleSelectUpdate", |_layout| {});
-        self.register_layout_update("WOLLobbyMenuUpdate", |_layout| {});
-        self.register_layout_update("WOLGameSetupMenuUpdate", |_layout| {});
-        self.register_layout_update("PopupHostGameUpdate", |_layout| {});
-        self.register_layout_update("WOLMapSelectMenuUpdate", |_layout| {});
-        self.register_layout_update("WOLBuddyOverlayUpdate", |_layout| {});
-        self.register_layout_update("GameSpyPlayerInfoOverlayUpdate", |_layout| {});
-        self.register_layout_update("WOLMessageWindowUpdate", |_layout| {});
-        self.register_layout_update("WOLQuickMatchMenuUpdate", |_layout| {});
-        self.register_layout_update("WOLWelcomeMenuUpdate", |_layout| {});
-        self.register_layout_update("WOLStatusMenuUpdate", |_layout| {});
-        self.register_layout_update("WOLQMScoreScreenUpdate", |_layout| {});
-        self.register_layout_update("WOLCustomScoreScreenUpdate", |_layout| {});
-
-        self.register_layout_update("NetworkDirectConnectUpdate", |_layout| {});
+        register_online_layout_update!(self, "WOLLadderScreenUpdate", cb::wol_ladder_screen_update);
+        register_online_layout_update!(self, "WOLLoginMenuUpdate", cb::wol_login_menu_update);
+        register_online_layout_update!(self, "WOLLocaleSelectUpdate", cb::wol_locale_select_update);
+        register_online_layout_update!(self, "WOLLobbyMenuUpdate", cb::wol_lobby_menu_update);
+        register_online_layout_update!(
+            self,
+            "WOLGameSetupMenuUpdate",
+            cb::wol_game_setup_menu_update
+        );
+        register_online_layout_update!(self, "PopupHostGameUpdate", cb::popup_host_game_update);
+        register_online_layout_update!(
+            self,
+            "WOLMapSelectMenuUpdate",
+            cb::wol_map_select_menu_update
+        );
+        register_online_layout_update!(self, "WOLBuddyOverlayUpdate", cb::wol_buddy_overlay_update);
+        register_online_layout_update!(
+            self,
+            "GameSpyPlayerInfoOverlayUpdate",
+            cb::popup_player_info_update
+        );
+        register_online_layout_update!(
+            self,
+            "WOLMessageWindowUpdate",
+            cb::wol_message_window_update
+        );
+        register_online_layout_update!(
+            self,
+            "WOLQuickMatchMenuUpdate",
+            cb::wol_quick_match_menu_update
+        );
+        register_online_layout_update!(self, "WOLWelcomeMenuUpdate", cb::wol_welcome_menu_update);
+        register_online_layout_update!(self, "WOLStatusMenuUpdate", cb::wol_status_menu_update);
+        register_online_layout_update!(
+            self,
+            "WOLQMScoreScreenUpdate",
+            cb::wol_qm_score_screen_update
+        );
+        register_online_layout_update!(
+            self,
+            "WOLCustomScoreScreenUpdate",
+            cb::wol_custom_score_screen_update
+        );
+        register_online_layout_update!(
+            self,
+            "NetworkDirectConnectUpdate",
+            cb::network_direct_connect_update
+        );
 
         self.register_layout_update("ScoreScreenUpdate", |layout| {
             cb::score_screen_update(layout, None)
@@ -1020,26 +1116,73 @@ impl ScriptCallbackRegistry {
             cb::challenge_menu_shutdown(layout, None)
         });
 
-        // WOL/network callbacks — deferred per AGENTS.md
-        self.register_layout_shutdown_without_data("WOLLadderScreenShutdown", |_layout| {});
-        self.register_layout_shutdown_without_data("WOLLoginMenuShutdown", |_layout| {});
-        self.register_layout_shutdown_without_data("WOLLocaleSelectShutdown", |_layout| {});
-        self.register_layout_shutdown_without_data("WOLLobbyMenuShutdown", |_layout| {});
-        self.register_layout_shutdown_without_data("WOLGameSetupMenuShutdown", |_layout| {});
-        self.register_layout_shutdown_without_data("WOLMapSelectMenuShutdown", |_layout| {});
-        self.register_layout_shutdown_without_data("WOLBuddyOverlayShutdown", |_layout| {});
-        self.register_layout_shutdown_without_data(
-            "GameSpyPlayerInfoOverlayShutdown",
-            |_layout| {},
+        register_online_layout_shutdown!(
+            self,
+            "WOLLadderScreenShutdown",
+            cb::wol_ladder_screen_shutdown
         );
-        self.register_layout_shutdown_without_data("WOLMessageWindowShutdown", |_layout| {});
-        self.register_layout_shutdown_without_data("WOLQuickMatchMenuShutdown", |_layout| {});
-        self.register_layout_shutdown_without_data("WOLWelcomeMenuShutdown", |_layout| {});
-        self.register_layout_shutdown_without_data("WOLStatusMenuShutdown", |_layout| {});
-        self.register_layout_shutdown_without_data("WOLQMScoreScreenShutdown", |_layout| {});
-        self.register_layout_shutdown_without_data("WOLCustomScoreScreenShutdown", |_layout| {});
-
-        self.register_layout_shutdown_without_data("NetworkDirectConnectShutdown", |_layout| {});
+        register_online_layout_shutdown!(self, "WOLLoginMenuShutdown", cb::wol_login_menu_shutdown);
+        register_online_layout_shutdown!(
+            self,
+            "WOLLocaleSelectShutdown",
+            cb::wol_locale_select_shutdown
+        );
+        register_online_layout_shutdown!(self, "WOLLobbyMenuShutdown", cb::wol_lobby_menu_shutdown);
+        register_online_layout_shutdown!(
+            self,
+            "WOLGameSetupMenuShutdown",
+            cb::wol_game_setup_menu_shutdown
+        );
+        register_online_layout_shutdown!(
+            self,
+            "WOLMapSelectMenuShutdown",
+            cb::wol_map_select_menu_shutdown
+        );
+        register_online_layout_shutdown!(
+            self,
+            "WOLBuddyOverlayShutdown",
+            cb::wol_buddy_overlay_shutdown
+        );
+        register_online_layout_shutdown!(
+            self,
+            "GameSpyPlayerInfoOverlayShutdown",
+            cb::popup_player_info_shutdown
+        );
+        register_online_layout_shutdown!(
+            self,
+            "WOLMessageWindowShutdown",
+            cb::wol_message_window_shutdown
+        );
+        register_online_layout_shutdown!(
+            self,
+            "WOLQuickMatchMenuShutdown",
+            cb::wol_quick_match_menu_shutdown
+        );
+        register_online_layout_shutdown!(
+            self,
+            "WOLWelcomeMenuShutdown",
+            cb::wol_welcome_menu_shutdown
+        );
+        register_online_layout_shutdown!(
+            self,
+            "WOLStatusMenuShutdown",
+            cb::wol_status_menu_shutdown
+        );
+        register_online_layout_shutdown!(
+            self,
+            "WOLQMScoreScreenShutdown",
+            cb::wol_qm_score_screen_shutdown
+        );
+        register_online_layout_shutdown!(
+            self,
+            "WOLCustomScoreScreenShutdown",
+            cb::wol_custom_score_screen_shutdown
+        );
+        register_online_layout_shutdown!(
+            self,
+            "NetworkDirectConnectShutdown",
+            cb::network_direct_connect_shutdown
+        );
 
         self.register_layout_shutdown_without_data("ScoreScreenShutdown", |layout| {
             cb::score_screen_shutdown(layout, None)
@@ -2526,6 +2669,35 @@ mod tests {
         let cb = registry.get_win_system("TestSystem").unwrap();
         let _ = cb;
         assert!(registry.get_win_system("Nonexistent").is_none());
+    }
+
+    #[cfg(not(feature = "online_ui"))]
+    #[test]
+    fn deferred_online_callbacks_remain_registered_and_fail_closed() {
+        let mut registry = ScriptCallbackRegistry::new();
+        registry.populate_defaults();
+
+        // The .wnd lexicon must still resolve these names in the supported
+        // offline build, even though their transport-dependent bodies are
+        // deliberately no-ops until the network milestone lands.
+        for name in [
+            "WOLLoginMenuSystem",
+            "WOLGameSetupMenuSystem",
+            "WOLBuddyOverlaySystem",
+            "GameSpyPlayerInfoOverlaySystem",
+            "PopupHostGameSystem",
+        ] {
+            assert!(registry.get_win_system(name).is_some(), "missing {name}");
+        }
+        for name in [
+            "WOLLoginMenuInit",
+            "WOLGameSetupMenuInit",
+            "WOLBuddyOverlayInit",
+            "GameSpyPlayerInfoOverlayInit",
+            "PopupHostGameInit",
+        ] {
+            assert!(registry.get_layout_init(name).is_some(), "missing {name}");
+        }
     }
 
     #[test]

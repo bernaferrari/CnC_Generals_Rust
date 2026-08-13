@@ -868,9 +868,10 @@ pub fn init_save_file_system() -> SaveLoadResult<()> {
 mod tests {
     use super::*;
     use crate::game_logic::{
-        HackerDisableChannelPhase, HackerDisableChannelState, KindOf, ObjectId, Player, Team,
-        ThingTemplate,
+        HackerDisableChannelPhase, HackerDisableChannelState, KindOf, ObjectId, Player,
+        SupplyTruckState, Team, ThingTemplate,
     };
+    use crate::save_load::snapshot::CollectorRuntimeSnapshot;
     use glam::Vec3;
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -1231,6 +1232,20 @@ mod tests {
         current_object.last_weapon_discharge_slot = 0;
         current_object.last_weapon_discharge_barrel = 2;
         current_object.last_weapon_discharge_frame = 7_777;
+        // A v5-only collector tail must be deliberately omitted from the
+        // predecessor fixture. The decoder must still consume every v4 object
+        // and world field without treating the next byte as an Option tag.
+        current_object.collector_runtime = Some(CollectorRuntimeSnapshot {
+            owner_player_id: Some(1),
+            producer_id: Some(ObjectId(91)),
+            preferred_dock_id: Some(ObjectId(92)),
+            target: Some(ObjectId(93)),
+            supply_center_spawn_behavior_fired: true,
+            supply_truck_state: SupplyTruckState::DockingCenter,
+            supply_truck_force_pending: true,
+            supply_truck_next_dock_action_frame: 7_800,
+            stored_supply_boxes: 4,
+        });
         migrated.next_weapon_discharge_sequence = 89;
         migrated
             .client_drawables
@@ -1255,6 +1270,14 @@ mod tests {
             .expect("pre-v5 v4 payload should migrate through its exact mirror");
         assert_eq!(v4_path, BincodeWorldSnapshotDecodePath::LegacyPreV5V4);
         assert!(migrated.player_template_bindings.is_empty());
+        assert!(
+            migrated
+                .objects
+                .get(&barracks_id)
+                .and_then(|object| object.collector_runtime.as_ref())
+                .is_none(),
+            "v4 predecessor records must default the v5 collector tail"
+        );
         let current_payload = bincode::serialize(&migrated).expect("serialize current snapshot");
         let (current_round_trip, current_path) = decode_bincode_world_snapshot(&current_payload)
             .expect("current production snapshot should remain readable");
