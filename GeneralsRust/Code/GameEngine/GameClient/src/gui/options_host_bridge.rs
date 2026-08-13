@@ -1,4 +1,5 @@
-//! Typed host delivery for OptionsMenu settings that affect Main-owned input.
+//! Typed host delivery for OptionsMenu settings that affect Main-owned input
+//! and presentation.
 //!
 //! GameClient still owns the retail OptionsMenu WND and its standalone
 //! `TheInGameUI` compatibility state.  The Main executable owns camera input
@@ -17,6 +18,9 @@ pub enum HostOptionsRequest {
     /// Match C++ `MoveRMBScrollAnchor`: during RMB drag scrolling, keep the
     /// camera anchor within half a display width/height of the cursor.
     MoveRmbScrollAnchor { enabled: bool },
+    /// Match C++ `DrawRMBScrollAnchor`: render the active RMB drag anchor as
+    /// the retail green/black cross in Main's presentation path.
+    DrawRmbScrollAnchor { enabled: bool },
 }
 
 #[derive(Default)]
@@ -56,7 +60,7 @@ pub fn take_host_options_requests() -> Vec<HostOptionsRequest> {
         .collect()
 }
 
-/// Publish a MoveRMBScrollAnchor update only when Main owns live camera input.
+/// Publish an OptionsMenu update only when Main owns its live effect.
 /// Returning `false` preserves the standalone legacy callback behaviour.
 pub(crate) fn publish_host_move_rmb_scroll_anchor(enabled: bool) -> bool {
     let mut bridge = host_options_bridge()
@@ -68,6 +72,22 @@ pub(crate) fn publish_host_move_rmb_scroll_anchor(enabled: bool) -> bool {
     bridge
         .requests
         .push_back(HostOptionsRequest::MoveRmbScrollAnchor { enabled });
+    true
+}
+
+/// Publish a DrawRMBScrollAnchor update only when Main owns the active
+/// camera-drag presentation.  The setting remains process/UI state rather
+/// than savegame state, just like its moving-anchor sibling.
+pub(crate) fn publish_host_draw_rmb_scroll_anchor(enabled: bool) -> bool {
+    let mut bridge = host_options_bridge()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if !bridge.enabled {
+        return false;
+    }
+    bridge
+        .requests
+        .push_back(HostOptionsRequest::DrawRmbScrollAnchor { enabled });
     true
 }
 

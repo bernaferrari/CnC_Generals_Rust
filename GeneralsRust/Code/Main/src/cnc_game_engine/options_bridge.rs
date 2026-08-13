@@ -10,6 +10,24 @@ use super::*;
 #[cfg(feature = "game_client")]
 use game_client::gui::options_host_bridge::{take_host_options_requests, HostOptionsRequest};
 
+/// Build the visual C++ `DrawRMBScrollAnchor` residual only for a live Main
+/// RMB drag. This keeps the preference separate from camera simulation and
+/// makes its inactive/no-anchor cases directly testable without a window.
+#[inline]
+pub(super) fn active_rmb_scroll_anchor_overlay(
+    draw_anchor: bool,
+    is_rmb_scrolling: bool,
+    rmb_scroll_anchor: Option<(f32, f32)>,
+    display_size: (f32, f32),
+) -> Option<crate::graphics::selection_renderer::RmbScrollAnchorOverlay> {
+    crate::graphics::selection_renderer::RmbScrollAnchorOverlay::from_active_rmb_scroll(
+        draw_anchor,
+        is_rmb_scrolling,
+        rmb_scroll_anchor,
+        display_size,
+    )
+}
+
 /// C++ `LookAtXlat.cpp` moves an enabled RMB drag anchor only once the cursor
 /// exceeds half the display extent from it.  Keeping this pure makes the
 /// camera rule independently testable without a window/GPU fixture.
@@ -51,6 +69,9 @@ impl CnCGameEngine {
                 HostOptionsRequest::MoveRmbScrollAnchor { enabled } => {
                     self.move_rmb_scroll_anchor = enabled;
                 }
+                HostOptionsRequest::DrawRmbScrollAnchor { enabled } => {
+                    self.draw_rmb_scroll_anchor = enabled;
+                }
             }
         }
     }
@@ -72,5 +93,25 @@ mod tests {
         let mut anchor = (10.0, 990.0);
         clamp_move_rmb_scroll_anchor(&mut anchor, (1000.0, 0.0), (400.0, 300.0), true);
         assert_eq!(anchor, (800.0, 150.0));
+    }
+
+    #[test]
+    fn active_main_rmb_gesture_gates_the_draw_anchor_overlay() {
+        let display_size = (400.0, 300.0);
+        assert!(
+            active_rmb_scroll_anchor_overlay(false, true, Some((100.0, 125.0)), display_size,)
+                .is_none()
+        );
+        assert!(
+            active_rmb_scroll_anchor_overlay(true, false, Some((100.0, 125.0)), display_size)
+                .is_none()
+        );
+        assert!(active_rmb_scroll_anchor_overlay(true, true, None, display_size).is_none());
+
+        let overlay =
+            active_rmb_scroll_anchor_overlay(true, true, Some((100.0, 125.0)), display_size)
+                .expect("an active Main RMB gesture has a visible anchor");
+        assert_eq!(overlay.position, glam::Vec2::new(100.0, 125.0));
+        assert_eq!(overlay.window_size, glam::Vec2::new(400.0, 300.0));
     }
 }

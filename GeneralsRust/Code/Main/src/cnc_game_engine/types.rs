@@ -773,6 +773,10 @@ pub struct CnCGameEngine {
     /// C++ OptionsMenu `MoveScrollAnchor` preference, consumed by Main's
     /// AuthorityOnly RMB camera drag path rather than legacy TheInGameUI.
     pub(crate) move_rmb_scroll_anchor: bool,
+    /// C++ OptionsMenu `DrawScrollAnchor` preference. This is a transient
+    /// presentation choice for Main's AuthorityOnly RMB drag overlay, never
+    /// authoritative simulation or savegame state.
+    pub(crate) draw_rmb_scroll_anchor: bool,
     /// Evidence-only provenance for the active RMB gesture. A gather proof
     /// requires the press and release to both be real OS mouse input; injected
     /// press/release pairs still execute normal gameplay but cannot qualify.

@@ -476,6 +476,7 @@ impl CnCGameEngine {
             rmb_scroll_anchor: None,
             is_rmb_scrolling: false,
             move_rmb_scroll_anchor: false,
+            draw_rmb_scroll_anchor: false,
             rmb_scroll_started_physically: false,
             is_mmb_rotating: false,
             mmb_anchor: None,

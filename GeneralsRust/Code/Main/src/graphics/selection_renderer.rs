@@ -20,6 +20,13 @@ use wgpu::util::DeviceExt;
 const DRAG_RECT_COLOR: [f32; 4] = [0.2, 1.0, 0.2, 0.6];
 const DRAG_RECT_LINE_WIDTH_PX: f32 = 2.0;
 
+/// C++ `InGameUI::postDraw()` draws the active RMB camera anchor as two black
+/// drop rectangles followed by two opaque green center rectangles.
+const RMB_SCROLL_ANCHOR_DROP_COLOR: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
+const RMB_SCROLL_ANCHOR_MAIN_COLOR: [f32; 4] = [0.0, 1.0, 0.0, 1.0];
+const RMB_SCROLL_ANCHOR_HALF_SIZE_PX: f32 = 2.0;
+const RMB_SCROLL_ANCHOR_RATIO: f32 = 4.0;
+
 const TERRAIN_Y_OFFSET: f32 = 0.5;
 const CIRCLE_SEGMENTS: u32 = 24;
 const CIRCLE_ALPHA: f32 = 0.55;
@@ -40,6 +47,46 @@ impl DragSelectRect {
         let dx = (self.end.x - self.start.x).abs();
         let dy = (self.end.y - self.start.y).abs();
         dx > 2.0 || dy > 2.0
+    }
+}
+
+/// A C++ `InGameUI::postDraw()` RMB-scroll anchor expressed in screen pixels.
+/// It remains an ephemeral Main presentation residual: it is derived from the
+/// active input gesture, not simulation state or a savegame payload.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RmbScrollAnchorOverlay {
+    pub position: Vec2,
+    pub window_size: Vec2,
+}
+
+impl RmbScrollAnchorOverlay {
+    /// Return an overlay only for the same condition as C++
+    /// `LookAtTranslator::getRMBScrollAnchor()`: a live RMB scroll gesture
+    /// with an available anchor, plus the player's DrawScrollAnchor setting.
+    pub fn from_active_rmb_scroll(
+        draw_anchor: bool,
+        is_rmb_scrolling: bool,
+        rmb_scroll_anchor: Option<(f32, f32)>,
+        display_size: (f32, f32),
+    ) -> Option<Self> {
+        if !draw_anchor || !is_rmb_scrolling {
+            return None;
+        }
+        let (x, y) = rmb_scroll_anchor?;
+        let (width, height) = display_size;
+        if !x.is_finite()
+            || !y.is_finite()
+            || !width.is_finite()
+            || !height.is_finite()
+            || width <= 0.0
+            || height <= 0.0
+        {
+            return None;
+        }
+        Some(Self {
+            position: Vec2::new(x, y),
+            window_size: Vec2::new(width, height),
+        })
     }
 }
 
@@ -106,6 +153,73 @@ fn drag_rect_screen_vertices(rect: &DragSelectRect) -> Vec<f32> {
         bottom - half_height,
         right + half_width,
         top + half_height,
+    );
+    vertices
+}
+
+/// Append one C++ `Display::drawFillRect` equivalent in screen pixels to a
+/// clip-space colored-quad vertex stream.
+fn append_screen_fill_rect_vertices(
+    vertices: &mut Vec<f32>,
+    origin: Vec2,
+    size: Vec2,
+    viewport: Vec2,
+    color: [f32; 4],
+) {
+    let left = (origin.x / viewport.x) * 2.0 - 1.0;
+    let right = ((origin.x + size.x) / viewport.x) * 2.0 - 1.0;
+    let top = 1.0 - (origin.y / viewport.y) * 2.0;
+    let bottom = 1.0 - ((origin.y + size.y) / viewport.y) * 2.0;
+    let mut push_vertex = |x: f32, y: f32| {
+        vertices.extend_from_slice(&[x, y, color[0], color[1], color[2], color[3]]);
+    };
+    push_vertex(left, bottom);
+    push_vertex(right, bottom);
+    push_vertex(right, top);
+    push_vertex(left, bottom);
+    push_vertex(right, top);
+    push_vertex(left, top);
+}
+
+/// Pack C++ `InGameUI.cpp:3786-3801` exactly: four filled rectangles in draw
+/// order, black horizontal/vertical drop then green horizontal/vertical main.
+/// The same existing screen-space quad shader that draws the selection marquee
+/// consumes the resulting vertices; this adds no shader or render subsystem.
+fn rmb_scroll_anchor_screen_vertices(anchor: &RmbScrollAnchorOverlay) -> Vec<f32> {
+    let w = RMB_SCROLL_ANCHOR_HALF_SIZE_PX;
+    let h = RMB_SCROLL_ANCHOR_HALF_SIZE_PX;
+    let ratio = RMB_SCROLL_ANCHOR_RATIO;
+    let position = anchor.position;
+    let viewport = anchor.window_size;
+    let mut vertices = Vec::with_capacity(4 * 6 * 6);
+
+    append_screen_fill_rect_vertices(
+        &mut vertices,
+        Vec2::new(position.x - w * ratio - 1.0, position.y - h - 1.0),
+        Vec2::new(w * 2.0 * ratio + 3.0, h * 2.0 + 3.0),
+        viewport,
+        RMB_SCROLL_ANCHOR_DROP_COLOR,
+    );
+    append_screen_fill_rect_vertices(
+        &mut vertices,
+        Vec2::new(position.x - w - 1.0, position.y - h * ratio - 1.0),
+        Vec2::new(w * 2.0 + 3.0, h * 2.0 * ratio + 3.0),
+        viewport,
+        RMB_SCROLL_ANCHOR_DROP_COLOR,
+    );
+    append_screen_fill_rect_vertices(
+        &mut vertices,
+        Vec2::new(position.x - w * ratio, position.y - h),
+        Vec2::new(w * 2.0 * ratio + 1.0, h * 2.0 + 1.0),
+        viewport,
+        RMB_SCROLL_ANCHOR_MAIN_COLOR,
+    );
+    append_screen_fill_rect_vertices(
+        &mut vertices,
+        Vec2::new(position.x - w, position.y - h * ratio),
+        Vec2::new(w * 2.0 + 1.0, h * 2.0 * ratio + 1.0),
+        viewport,
+        RMB_SCROLL_ANCHOR_MAIN_COLOR,
     );
     vertices
 }
@@ -392,8 +506,12 @@ impl SelectionRenderer {
     // Screen-space drag rectangle
     // -----------------------------------------------------------------------
 
-    fn draw_drag_rect(&self, render_pass: &mut wgpu::RenderPass<'_>, rect: &DragSelectRect) {
-        let vertices = drag_rect_screen_vertices(rect);
+    fn draw_screen_overlay_vertices(
+        &self,
+        render_pass: &mut wgpu::RenderPass<'_>,
+        vertices: &[f32],
+        label: &'static str,
+    ) {
         if vertices.is_empty() {
             return;
         }
@@ -401,14 +519,28 @@ impl SelectionRenderer {
         let vertex_buffer = self
             .device
             .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("selection_drag_rect_verts"),
-                contents: bytemuck::cast_slice(&vertices),
+                label: Some(label),
+                contents: bytemuck::cast_slice(vertices),
                 usage: wgpu::BufferUsages::VERTEX,
             });
 
         render_pass.set_pipeline(&self.drag_rect_pipeline);
         render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
-        render_pass.draw(0..24, 0..1);
+        render_pass.draw(0..(vertices.len() / 6) as u32, 0..1);
+    }
+
+    fn draw_drag_rect(&self, render_pass: &mut wgpu::RenderPass<'_>, rect: &DragSelectRect) {
+        let vertices = drag_rect_screen_vertices(rect);
+        self.draw_screen_overlay_vertices(render_pass, &vertices, "selection_drag_rect_verts");
+    }
+
+    fn draw_rmb_scroll_anchor(
+        &self,
+        render_pass: &mut wgpu::RenderPass<'_>,
+        anchor: &RmbScrollAnchorOverlay,
+    ) {
+        let vertices = rmb_scroll_anchor_screen_vertices(anchor);
+        self.draw_screen_overlay_vertices(render_pass, &vertices, "rmb_scroll_anchor_verts");
     }
 
     // -----------------------------------------------------------------------
@@ -666,6 +798,7 @@ pub fn enqueue_selection_render(
     view_matrix: &Mat4,
     projection_matrix: &Mat4,
     drag_rect: Option<DragSelectRect>,
+    rmb_scroll_anchor: Option<RmbScrollAnchorOverlay>,
     presentation: Option<&crate::presentation_frame::PresentationFrame>,
     // Placement ghost / special-power radius / guard area residual circles.
     ground_markers: Vec<SelectedUnit>,
@@ -707,7 +840,17 @@ pub fn enqueue_selection_render(
     }
 
     let drag_rect = drag_rect.filter(|rect| rect.is_valid());
-    if drag_rect.is_none() && selected_units.is_empty() && order_line_vertices.is_empty() {
+    let rmb_scroll_anchor = rmb_scroll_anchor.filter(|anchor| {
+        anchor.position.is_finite()
+            && anchor.window_size.is_finite()
+            && anchor.window_size.x > 0.0
+            && anchor.window_size.y > 0.0
+    });
+    if drag_rect.is_none()
+        && rmb_scroll_anchor.is_none()
+        && selected_units.is_empty()
+        && order_line_vertices.is_empty()
+    {
         return;
     }
 
@@ -758,10 +901,11 @@ pub fn enqueue_selection_render(
         });
     }
 
-    if let Some(drag_rect) = drag_rect {
+    if drag_rect.is_some() || rmb_scroll_anchor.is_some() {
         // C++ draws this in W3DInGameUI's 2D pass, after the scene and before
-        // window repaint.  Queue it before Main queues its UI flush, so HUD
-        // widgets still render over the marquee exactly as in the original.
+        // window repaint. Queue it before Main queues its UI flush, so HUD
+        // widgets still render over both the marquee and RMB anchor exactly as
+        // in the original.
         let drag_renderer = Arc::clone(&renderer);
         pipeline.enqueue_post_frame_callback(move |frame| {
             let color_view = frame.color_view_arc();
@@ -781,7 +925,12 @@ pub fn enqueue_selection_render(
                 timestamp_writes: None,
                 occlusion_query_set: None,
             });
-            drag_renderer.draw_drag_rect(&mut render_pass, &drag_rect);
+            if let Some(drag_rect) = drag_rect.as_ref() {
+                drag_renderer.draw_drag_rect(&mut render_pass, drag_rect);
+            }
+            if let Some(rmb_scroll_anchor) = rmb_scroll_anchor.as_ref() {
+                drag_renderer.draw_rmb_scroll_anchor(&mut render_pass, rmb_scroll_anchor);
+            }
             drop(render_pass);
             Ok(())
         });
@@ -937,7 +1086,11 @@ mod presentation_selection_tests {
 
 #[cfg(test)]
 mod selection_shader_residual_tests {
-    use super::{drag_rect_screen_vertices, DragSelectRect, DRAG_RECT_COLOR};
+    use super::{
+        drag_rect_screen_vertices, rmb_scroll_anchor_screen_vertices, DragSelectRect,
+        RmbScrollAnchorOverlay, DRAG_RECT_COLOR, RMB_SCROLL_ANCHOR_DROP_COLOR,
+        RMB_SCROLL_ANCHOR_MAIN_COLOR,
+    };
     use glam::Vec2;
 
     #[test]
@@ -974,5 +1127,60 @@ mod selection_shader_residual_tests {
         assert!((vertices[1] - -0.51).abs() < f32::EPSILON);
         assert!((vertices[6] - 0.505).abs() < f32::EPSILON);
         assert!((vertices[13] - -0.49).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn rmb_scroll_anchor_matches_cpp_four_rect_green_black_cross() {
+        let anchor = RmbScrollAnchorOverlay::from_active_rmb_scroll(
+            true,
+            true,
+            Some((100.0, 125.0)),
+            (400.0, 300.0),
+        )
+        .expect("active RMB scroll has an anchor");
+        let vertices = rmb_scroll_anchor_screen_vertices(&anchor);
+
+        // Four C++ fill rectangles × six vertices × [clip_x, clip_y, rgba].
+        assert_eq!(vertices.len(), 4 * 6 * 6);
+        assert_eq!(&vertices[2..6], &RMB_SCROLL_ANCHOR_DROP_COLOR);
+        assert_eq!(&vertices[38..42], &RMB_SCROLL_ANCHOR_DROP_COLOR);
+        assert_eq!(&vertices[74..78], &RMB_SCROLL_ANCHOR_MAIN_COLOR);
+        assert_eq!(&vertices[110..114], &RMB_SCROLL_ANCHOR_MAIN_COLOR);
+
+        // C++ first black horizontal rect: x=91, y=122, width=19, height=7.
+        assert!((vertices[0] - -0.545).abs() < f32::EPSILON);
+        assert!((vertices[1] - 0.14).abs() < f32::EPSILON);
+        assert!((vertices[12] - -0.45).abs() < f32::EPSILON);
+        assert!((vertices[13] - 0.186_666_67).abs() < 0.000_001);
+    }
+
+    #[test]
+    fn rmb_scroll_anchor_requires_the_enabled_active_gesture() {
+        let display_size = (400.0, 300.0);
+        assert!(RmbScrollAnchorOverlay::from_active_rmb_scroll(
+            false,
+            true,
+            Some((100.0, 125.0)),
+            display_size,
+        )
+        .is_none());
+        assert!(RmbScrollAnchorOverlay::from_active_rmb_scroll(
+            true,
+            false,
+            Some((100.0, 125.0)),
+            display_size,
+        )
+        .is_none());
+        assert!(
+            RmbScrollAnchorOverlay::from_active_rmb_scroll(true, true, None, display_size,)
+                .is_none()
+        );
+        assert!(RmbScrollAnchorOverlay::from_active_rmb_scroll(
+            true,
+            true,
+            Some((f32::NAN, 125.0)),
+            display_size,
+        )
+        .is_none());
     }
 }

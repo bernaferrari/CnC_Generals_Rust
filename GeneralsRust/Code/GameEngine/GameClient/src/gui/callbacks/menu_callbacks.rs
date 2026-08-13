@@ -10,7 +10,9 @@ use crate::gui::campaign_manager::get_campaign_manager;
 use crate::gui::gadgets::ComboBoxItem;
 use crate::gui::gadgets::ListBoxItemData;
 use crate::gui::header_template::get_header_template_manager;
-use crate::gui::options_host_bridge::publish_host_move_rmb_scroll_anchor;
+use crate::gui::options_host_bridge::{
+    publish_host_draw_rmb_scroll_anchor, publish_host_move_rmb_scroll_anchor,
+};
 use crate::gui::shell::main_menu::{get_main_menu, DisplaySettings};
 use crate::gui::{
     queue_shell_operation, queue_shell_pop, queue_shell_push, queue_shell_reverse_animate_window,
@@ -635,6 +637,10 @@ impl OptionsMenu {
     fn apply_immediate_checkbox_effect(&self, control_id: i32, checked: bool) -> bool {
         if control_id == self.check_draw_anchor_id {
             TheInGameUI::set_draw_rmb_scroll_anchor(checked);
+            // Main owns the active RMB camera-drag presentation for an
+            // AuthorityOnly match. Preserve the legacy standalone state, then
+            // publish the same visual preference only while Main hosts it.
+            let _ = publish_host_draw_rmb_scroll_anchor(checked);
             return true;
         }
         if control_id == self.check_move_anchor_id {
@@ -3092,6 +3098,37 @@ mod tests {
         );
 
         TheInGameUI::set_move_rmb_scroll_anchor(original_move_anchor);
+    }
+
+    #[test]
+    fn options_draw_rmb_scroll_anchor_publishes_only_to_an_enabled_host() {
+        use crate::gui::options_host_bridge::{
+            acquire_host_options_bridge_test_guard, set_host_options_bridge_enabled,
+            take_host_options_requests, HostOptionsRequest,
+        };
+
+        let _bridge_guard = acquire_host_options_bridge_test_guard();
+        let original_draw_anchor = TheInGameUI::get_draw_rmb_scroll_anchor();
+        let mut menu = OptionsMenu::new();
+        menu.check_draw_anchor_id = 11;
+
+        set_host_options_bridge_enabled(true);
+        assert!(menu.apply_immediate_checkbox_effect(menu.check_draw_anchor_id, true));
+        assert_eq!(
+            take_host_options_requests(),
+            vec![HostOptionsRequest::DrawRmbScrollAnchor { enabled: true }]
+        );
+        assert!(TheInGameUI::get_draw_rmb_scroll_anchor());
+
+        set_host_options_bridge_enabled(false);
+        assert!(menu.apply_immediate_checkbox_effect(menu.check_draw_anchor_id, false));
+        assert!(take_host_options_requests().is_empty());
+        assert!(
+            !TheInGameUI::get_draw_rmb_scroll_anchor(),
+            "disabled host delivery must retain the standalone legacy callback"
+        );
+
+        TheInGameUI::set_draw_rmb_scroll_anchor(original_draw_anchor);
     }
 
     #[test]
