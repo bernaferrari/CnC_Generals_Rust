@@ -438,6 +438,14 @@ impl Drawable for BasicDrawable {
             let submission = crate::render_bridge::DrawSubmission {
                 drawable_id: crate::render_bridge::DrawableId(self.id.0),
                 owner_object_id: self.object_id,
+                // Prison/captive visuals are objectless but retain the C++
+                // DrawableInfo controller identity. Keep it as a separate
+                // immutable bridge fact; Main resolves the controller from
+                // its frozen presentation frame.
+                shroud_status_object_id: {
+                    let object_id = self.shroud_status_object_id();
+                    (object_id != 0).then_some(object_id)
+                },
                 legacy_model_draw_source: model_draw.map(|state| state.source.clone()),
                 legacy_weapon_bone_bindings: model_draw
                     .map(|state| state.weapon_bone_bindings.clone()),

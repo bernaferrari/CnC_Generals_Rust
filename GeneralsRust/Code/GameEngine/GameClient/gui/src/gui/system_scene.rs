@@ -54,7 +54,9 @@ pub fn render_system_cards() -> Vec<AnyElement> {
                 line(
                     "Active",
                     challenge
-                        .get_player_general_by_campaign_name("BossGeneral")
+                        .personas
+                        .iter()
+                        .find(|persona| persona.starts_enabled)
                         .map(|persona| persona.display_name.clone())
                         .unwrap_or_else(|| "None".to_string()),
                 ),

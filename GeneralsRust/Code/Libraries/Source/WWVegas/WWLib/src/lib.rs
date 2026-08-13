@@ -1,18 +1,4 @@
 #![allow(clippy::all)]
-
-#[cfg(test)]
-mod win32_compile_out_tests {
-    #[test]
-    fn registry_keyboard_not_compiled_on_non_windows() {
-        #[cfg(not(windows))]
-        {
-            let src = include_str!("lib.rs");
-            assert!(src.contains("#[cfg(windows)]\npub mod keyboard"));
-            assert!(src.contains("#[cfg(windows)]\npub mod registry"));
-        }
-        assert!(cfg!(not(windows)) || cfg!(windows));
-    }
-}
 #![allow(dead_code)]
 #![allow(unused_imports)]
 #![allow(unused_variables)]
@@ -200,12 +186,10 @@ pub mod trig;
 pub mod trim;
 pub mod uarray;
 pub mod vector;
-#[cfg(windows)]
 pub mod verchk;
 pub mod visualc;
 pub mod watcom;
 pub mod widestring;
-#[cfg(windows)]
 pub mod win;
 pub mod wwcomutil;
 pub mod wwfont;
@@ -289,3 +273,17 @@ pub use verchk::*;
 pub use win::{is_game_in_focus, print_win32_error, set_game_in_focus};
 // Note: wwfile module is available but not glob-imported to avoid name conflicts with rawfile
 pub use wwfile::{datetime, FileInterface, WWFile};
+
+#[cfg(test)]
+mod win32_compile_out_tests {
+    #[test]
+    fn registry_keyboard_not_compiled_on_non_windows() {
+        #[cfg(not(windows))]
+        {
+            let src = include_str!("lib.rs");
+            assert!(src.contains("#[cfg(windows)]\npub mod keyboard"));
+            assert!(src.contains("#[cfg(windows)]\npub mod registry"));
+        }
+        assert!(cfg!(not(windows)) || cfg!(windows));
+    }
+}
