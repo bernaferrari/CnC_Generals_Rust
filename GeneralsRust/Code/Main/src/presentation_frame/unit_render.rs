@@ -1,5 +1,58 @@
 use super::*;
 
+/// Build the dynamic part of one selected Draw module's C++ projectile-bone
+/// visibility vector.  The caller appends it after static state directives so
+/// the existing exact-HLOD resolver preserves C++ last-write behavior.
+fn authored_projectile_clip_subobject_visibility(
+    draw_model: &crate::assets::AuthoredDrawModel,
+    statuses: &[Option<PresentationProjectileClipStatus>; 3],
+) -> Vec<crate::assets::AuthoredDrawSubobjectVisibility> {
+    let feedback = &draw_model.projectile_bone_feedback;
+    let bindings = &draw_model.weapon_bone_bindings;
+    if !feedback.source_fields_valid || !bindings.source_fields_valid {
+        return Vec::new();
+    }
+
+    let mut directives = Vec::new();
+    for slot in [0u8, 1, 2] {
+        if !feedback.is_enabled_for_slot(slot) {
+            continue;
+        }
+        let Some(status) = statuses.get(usize::from(slot)).copied().flatten() else {
+            continue;
+        };
+        // C++ debug-crashes then returns when `maxCount < showCount`.
+        if status.max_shots == 0 || status.max_shots < status.shots_remaining {
+            continue;
+        }
+        let Some(binding) = bindings.slot(slot) else {
+            continue;
+        };
+        let hide_count = status.max_shots - status.shots_remaining;
+        if let Some(name) = binding.projectile_hide_show_bone.as_deref() {
+            if !name.trim().is_empty() {
+                directives.push(crate::assets::AuthoredDrawSubobjectVisibility {
+                    name: name.to_string(),
+                    hidden: hide_count > 0,
+                });
+            }
+            continue;
+        }
+        // C++ formats an absent/empty `WeaponLaunchBone` as `01`, `02`, …;
+        // retain that exact result instead of adding a Rust-only source gate.
+        // The HLOD resolver still applies it only to an exact retained child.
+        let launch_bone_base = binding.launch_bone_base.as_deref().unwrap_or_default();
+        for projectile_index in 0..status.max_shots {
+            let ordinal = projectile_index + 1;
+            directives.push(crate::assets::AuthoredDrawSubobjectVisibility {
+                name: format!("{launch_bone_base}{ordinal:02}"),
+                hidden: ordinal <= hide_count,
+            });
+        }
+    }
+    directives
+}
+
 /// Snapshot-owned unit mesh/position/selection/FOW input for the main unit render pass.
 ///
 /// Built only from `PresentationFrame` — no live `GameLogic` or shroud borrow.
@@ -15,6 +68,10 @@ pub struct UnitRenderInput {
     /// Exact selected models for all source-authored W3D Draw modules. Source
     /// order and module identity are preserved; equal basenames are not merged.
     pub draw_models: Vec<crate::assets::AuthoredDrawModel>,
+    /// Frozen C++ `Drawable::updateDrawableClipStatus` payloads.  They retain
+    /// concrete WeaponSet slot identity rather than collapsing to the active
+    /// weapon, because C++ broadcasts every slot to every Draw module.
+    pub projectile_clip_statuses: [Option<PresentationProjectileClipStatus>; 3],
     /// Mesh scale residual frozen from presentation (default 1.0).
     pub mesh_scale: f32,
     pub team: Team,
@@ -197,6 +254,7 @@ impl UnitRenderInput {
             template_name: ro.template_name.clone(),
             model_key,
             draw_models,
+            projectile_clip_statuses: ro.projectile_clip_statuses,
             mesh_scale: if ro.mesh_scale > 0.0 {
                 ro.mesh_scale
             } else {
@@ -319,6 +377,26 @@ impl UnitRenderInput {
             .first()
             .map(|model| model.model_key.clone())
             .unwrap_or_default();
+    }
+
+    /// Resolve C++ W3DModelDraw child visibility for exactly one selected
+    /// Draw module.
+    ///
+    /// `Drawable::setModelConditionState` applies the selected state's static
+    /// Show/Hide vector, then `Object::adjustModelConditionForWeaponStatus`
+    /// broadcasts clip status in PRIMARY/SECONDARY/TERTIARY order.  Appending
+    /// the dynamic directives after the static vector preserves that actual
+    /// invocation order for the existing exact-HLOD last-write resolver.
+    pub(crate) fn authored_subobject_visibility_for_draw_model(
+        &self,
+        draw_model: &crate::assets::AuthoredDrawModel,
+    ) -> Vec<crate::assets::AuthoredDrawSubobjectVisibility> {
+        let mut directives = draw_model.subobject_visibility.clone();
+        directives.extend(authored_projectile_clip_subobject_visibility(
+            draw_model,
+            &self.projectile_clip_statuses,
+        ));
+        directives
     }
 
     /// World matrix for the unit mesh pass (translation + Y rotation + mesh scale).
@@ -1141,6 +1219,274 @@ impl UnitRenderInput {
             base.max(1.0)
         } else {
             base
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn projectile_clip_visibility_uses_cxx_slot_order_override_and_last_write_order() {
+        let mut bindings = crate::assets::AuthoredDrawWeaponBoneBindings::default();
+        bindings.slots[0].launch_bone_base = Some("unusedlaunch".to_string());
+        bindings.slots[0].projectile_hide_show_bone = Some("missile".to_string());
+        bindings.slots[1].launch_bone_base = Some("rack".to_string());
+        let draw_model = crate::assets::AuthoredDrawModel {
+            subobject_visibility: vec![crate::assets::AuthoredDrawSubobjectVisibility {
+                name: "missile".to_string(),
+                hidden: false,
+            }],
+            weapon_bone_bindings: bindings,
+            projectile_bone_feedback: crate::assets::AuthoredDrawProjectileBoneFeedback {
+                enabled_slots: 0b011,
+                source_fields_valid: true,
+            },
+            ..Default::default()
+        };
+        let statuses = [
+            Some(PresentationProjectileClipStatus {
+                shots_remaining: 2,
+                max_shots: 3,
+            }),
+            Some(PresentationProjectileClipStatus {
+                shots_remaining: 2,
+                max_shots: 3,
+            }),
+            None,
+        ];
+
+        let dynamic = authored_projectile_clip_subobject_visibility(&draw_model, &statuses);
+        assert_eq!(
+            dynamic,
+            vec![
+                crate::assets::AuthoredDrawSubobjectVisibility {
+                    name: "missile".to_string(),
+                    hidden: true,
+                },
+                crate::assets::AuthoredDrawSubobjectVisibility {
+                    name: "rack01".to_string(),
+                    hidden: true,
+                },
+                crate::assets::AuthoredDrawSubobjectVisibility {
+                    name: "rack02".to_string(),
+                    hidden: false,
+                },
+                crate::assets::AuthoredDrawSubobjectVisibility {
+                    name: "rack03".to_string(),
+                    hidden: false,
+                },
+            ],
+            "C++ sends PRIMARY first, emits one direct HideShow override, then emits SECONDARY numbered children"
+        );
+        assert!(
+            dynamic
+                .iter()
+                .all(|directive| directive.name != "missile01"),
+            "WeaponHideShowBone is an exact C++ child name rather than a numbered launch base"
+        );
+
+        let mut combined = draw_model.subobject_visibility.clone();
+        combined.extend(dynamic);
+        assert_eq!(
+            combined[0].hidden, false,
+            "the selected condition state's static ShowSubObject remains first"
+        );
+        assert!(
+            combined[1].hidden,
+            "the later clip callback wins for the same exact HLOD child"
+        );
+    }
+
+    #[test]
+    fn projectile_clip_visibility_handles_invalid_counts_and_exact_generated_names() {
+        let mut bindings = crate::assets::AuthoredDrawWeaponBoneBindings::default();
+        bindings.slots[0].launch_bone_base = Some("rack".to_string());
+        let valid_draw = crate::assets::AuthoredDrawModel {
+            weapon_bone_bindings: bindings.clone(),
+            projectile_bone_feedback: crate::assets::AuthoredDrawProjectileBoneFeedback {
+                enabled_slots: 1,
+                source_fields_valid: true,
+            },
+            ..Default::default()
+        };
+        let malformed_count = [
+            Some(PresentationProjectileClipStatus {
+                shots_remaining: 3,
+                max_shots: 2,
+            }),
+            None,
+            None,
+        ];
+        assert!(
+            authored_projectile_clip_subobject_visibility(&valid_draw, &malformed_count).is_empty(),
+            "C++ rejects showCount above maxCount instead of selecting an arbitrary child"
+        );
+        let large_count = [
+            Some(PresentationProjectileClipStatus {
+                shots_remaining: 99,
+                max_shots: 100,
+            }),
+            None,
+            None,
+        ];
+        let large_directives =
+            authored_projectile_clip_subobject_visibility(&valid_draw, &large_count);
+        assert_eq!(large_directives.len(), 100);
+        assert_eq!(large_directives[0].name, "rack01");
+        assert!(large_directives[0].hidden);
+        assert_eq!(large_directives[1].name, "rack02");
+        assert!(!large_directives[1].hidden);
+        assert_eq!(large_directives[99].name, "rack100");
+        assert!(
+            !large_directives[99].hidden,
+            "C++ `%02d` has a minimum width, so clip feedback must retain a 100th exact child"
+        );
+
+        let empty_launch_directives = authored_projectile_clip_subobject_visibility(
+            &crate::assets::AuthoredDrawModel {
+                projectile_bone_feedback: crate::assets::AuthoredDrawProjectileBoneFeedback {
+                    enabled_slots: 1,
+                    source_fields_valid: true,
+                },
+                ..Default::default()
+            },
+            &[
+                Some(PresentationProjectileClipStatus {
+                    shots_remaining: 1,
+                    max_shots: 2,
+                }),
+                None,
+                None,
+            ],
+        );
+        assert_eq!(
+            empty_launch_directives,
+            vec![
+                crate::assets::AuthoredDrawSubobjectVisibility {
+                    name: "01".to_string(),
+                    hidden: true,
+                },
+                crate::assets::AuthoredDrawSubobjectVisibility {
+                    name: "02".to_string(),
+                    hidden: false,
+                },
+            ],
+            "C++ formats an empty launch base rather than suppressing enabled feedback"
+        );
+
+        let direct_override = crate::assets::AuthoredDrawModel {
+            weapon_bone_bindings: crate::assets::AuthoredDrawWeaponBoneBindings {
+                slots: [
+                    crate::assets::AuthoredDrawWeaponBoneSlot {
+                        projectile_hide_show_bone: Some("missile".to_string()),
+                        ..Default::default()
+                    },
+                    crate::assets::AuthoredDrawWeaponBoneSlot::default(),
+                    crate::assets::AuthoredDrawWeaponBoneSlot::default(),
+                ],
+                source_fields_valid: true,
+            },
+            projectile_bone_feedback: crate::assets::AuthoredDrawProjectileBoneFeedback {
+                enabled_slots: 1,
+                source_fields_valid: true,
+            },
+            ..Default::default()
+        };
+        assert_eq!(
+            authored_projectile_clip_subobject_visibility(&direct_override, &large_count),
+            vec![crate::assets::AuthoredDrawSubobjectVisibility {
+                name: "missile".to_string(),
+                hidden: true,
+            }],
+            "C++ WeaponHideShowBone emits its one exact child without numbered topology"
+        );
+
+        let invalid_draw = crate::assets::AuthoredDrawModel {
+            weapon_bone_bindings: bindings,
+            projectile_bone_feedback: crate::assets::AuthoredDrawProjectileBoneFeedback {
+                enabled_slots: 1,
+                source_fields_valid: false,
+            },
+            ..Default::default()
+        };
+        let otherwise_valid = [
+            Some(PresentationProjectileClipStatus {
+                shots_remaining: 1,
+                max_shots: 2,
+            }),
+            None,
+            None,
+        ];
+        assert!(
+            authored_projectile_clip_subobject_visibility(&invalid_draw, &otherwise_valid)
+                .is_empty(),
+            "an invalid retained module mask cannot author dynamic visibility"
+        );
+    }
+
+    #[test]
+    fn projectile_clip_visibility_retail_scud_hides_first_exact_launch_children() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
+        let ini_path = [
+            root.join("windows_game/extracted_big_files/INIZH/Data/INI/Object/FactionBuilding.ini"),
+            root.join(
+                "windows_game/extracted_big_files_v2/INIZH/Data/INI/Object/FactionBuilding.ini",
+            ),
+        ]
+        .into_iter()
+        .find(|candidate| candidate.is_file());
+        let Some(ini_path) = ini_path else {
+            eprintln!("skip: retail FactionBuilding.ini is not available on disk");
+            return;
+        };
+
+        let source = std::fs::read_to_string(&ini_path)
+            .unwrap_or_else(|error| panic!("read retail {}: {error}", ini_path.display()));
+        let mut parser = crate::assets::IniParser::new();
+        parser
+            .parse_ini_content(&source, "FactionBuilding.ini")
+            .expect("parse retail Scud Storm Draw state");
+        let attacking_bit_index =
+            crate::game_logic::host_enum_table_residual::model_condition_bit_name_index(
+                "ATTACKING",
+            )
+            .expect("retail ATTACKING condition bit");
+        let attacking_bits = 1u128
+            .checked_shl(
+                u32::try_from(attacking_bit_index).expect("ATTACKING condition bit fits u32"),
+            )
+            .expect("ATTACKING condition bit fits retained bank");
+        let scud = parser
+            .get_definition("GLAScudStorm")
+            .expect("retail Scud Storm definition")
+            .select_draw_models_for_conditions(attacking_bits)
+            .expect("retail attacking Scud Storm state")
+            .into_iter()
+            .find(|draw| draw.model_key.eq_ignore_ascii_case("UBScudStrm_A2"))
+            .expect("retail attacking Scud Storm model");
+        let directives = authored_projectile_clip_subobject_visibility(
+            &scud,
+            &[
+                Some(PresentationProjectileClipStatus {
+                    shots_remaining: 6,
+                    max_shots: 9,
+                }),
+                None,
+                None,
+            ],
+        );
+
+        assert_eq!(directives.len(), 9);
+        for (index, directive) in directives.iter().enumerate() {
+            let ordinal = index + 1;
+            assert_eq!(directive.name, format!("weapona{ordinal:02}"));
+            assert_eq!(
+                directive.hidden,
+                ordinal <= 3,
+                "C++ hides the first max-minus-remaining Scud missiles"
+            );
         }
     }
 }

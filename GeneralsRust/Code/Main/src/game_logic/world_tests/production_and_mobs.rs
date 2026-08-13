@@ -66,6 +66,158 @@ fn control_bar_queue_slot_cancel_releases_player_upgrade_state() {
         .is_some_and(|building| building.production_queue.is_empty()));
 }
 
+#[test]
+fn exact_player_template_production_maps_keep_cpp_namekey_semantics() {
+    use crate::game_logic::host_upgrade_module_residuals::apply_production_cost_factor;
+    use game_engine::common::game_common::VeterancyLevel as CommonVeterancyLevel;
+    use game_engine::common::name_key_generator::NameKeyGenerator;
+    use game_engine::common::rts::player_template::PlayerTemplate;
+    use gamelogic::world::entities::production_total_logic_frames;
+
+    // C++ Player::init copies these three maps from its selected
+    // PlayerTemplate, and Player.cpp subsequently queries them by NAMEKEY of
+    // the exact ThingTemplate name.  Exercise the Main adapter without a
+    // global-store mutation so parallel tests cannot alter retail templates.
+    let mut template = PlayerTemplate::new("TestExactGeneral".to_string());
+    template
+        .production_cost_changes
+        .insert(NameKeyGenerator::name_to_key("ExactUnit"), -0.20);
+    template
+        .production_time_changes
+        .insert(NameKeyGenerator::name_to_key("ExactUnit"), 0.25);
+    template.production_veterancy_levels.insert(
+        NameKeyGenerator::name_to_key("ExactUnit"),
+        CommonVeterancyLevel::Elite,
+    );
+
+    assert!(
+        (PlayerTemplateIdentity::production_cost_factor_for_template(&template, "ExactUnit")
+            - 0.80)
+            .abs()
+            < f32::EPSILON
+    );
+    assert!(
+        (PlayerTemplateIdentity::production_time_factor_for_template(&template, "ExactUnit")
+            - 1.25)
+            .abs()
+            < f32::EPSILON
+    );
+    assert_eq!(
+        apply_production_cost_factor(101, 0.80),
+        80,
+        "C++ calcCostToBuild returns Int after the real General multiplier"
+    );
+
+    // C++ calcTimeToBuild does `Int(build_time * 30)` *before* multiplying
+    // the PlayerTemplate factor, then truncates again before its later
+    // low-power division.  The old seconds-first route completed this 2.099s
+    // item in 78 frames; retail's two integer boundaries yield 77.
+    let exact_time_seconds = GameLogic::cpp_build_time_seconds_from_factor(
+        2.099,
+        PlayerTemplateIdentity::production_time_factor_for_template(&template, "ExactUnit"),
+    );
+    assert_eq!(
+        GameLogic::cpp_build_time_frames_from_factor(2.099, 1.25),
+        77,
+        "C++ applies the General factor to the integer base-frame count"
+    );
+    assert_eq!(
+        production_total_logic_frames(exact_time_seconds, false, 1.0),
+        77,
+        "General production-time factor must apply after the base 30-FPS truncation"
+    );
+    assert_eq!(
+        production_total_logic_frames(exact_time_seconds, false, 0.5),
+        154,
+        "low-power division must remain after the authored PlayerTemplate frame truncation"
+    );
+    let frame_boundary_seconds = GameLogic::cpp_build_time_seconds_from_factor(4.2, 1.0);
+    assert_eq!(
+        production_total_logic_frames(frame_boundary_seconds, false, 1.0),
+        125,
+        "seconds carrier must not round a valid C++ frame count down before queue completion"
+    );
+    assert_eq!(
+        PlayerTemplateIdentity::production_veterancy_for_template(&template, "ExactUnit"),
+        VeterancyLevel::Elite,
+    );
+    assert_eq!(
+        PlayerTemplateIdentity::production_veterancy_for_template(&template, "OtherUnit"),
+        VeterancyLevel::Rookie,
+        "C++ Player::getProductionVeterancyLevel defaults to LEVEL_FIRST"
+    );
+}
+
+#[test]
+fn selected_general_start_binds_exact_template_and_rejects_late_invalid_identity() {
+    let selected = PlayerTemplateIdentity::from_exact_name("FactionAmericaAirForceGeneral")
+        .expect("retail Air Force General PlayerTemplate");
+    game_engine::common::ini::ensure_player_templates_loaded();
+    let (air_force_index, tank_index) = {
+        let store = game_engine::common::rts::player_template::get_player_template_store();
+        (
+            store
+                .find_template_index("FactionAmericaAirForceGeneral")
+                .expect("retail Air Force General template") as i32,
+            store
+                .find_template_index("FactionChinaTankGeneral")
+                .expect("retail Tank General template") as i32,
+        )
+    };
+    assert!(PlayerTemplateIdentity::from_exact_indexed_name(
+        "FactionAmericaAirForceGeneral",
+        air_force_index,
+    )
+    .is_some());
+    assert!(
+        PlayerTemplateIdentity::from_exact_indexed_name(
+            "FactionAmericaAirForceGeneral",
+            tank_index,
+        )
+        .is_none(),
+        "a Challenge index is part of the selected General identity"
+    );
+    let mut logic = GameLogic::new();
+
+    assert!(logic.start_new_game_with_player_template(
+        GameMode::SinglePlayer,
+        0,
+        selected.clone(),
+    ));
+    let player = logic.get_player(0).expect("bound local player");
+    assert_eq!(player.team, Team::USA);
+    assert!(player.has_unlocked_science("SCIENCE_AMERICA"));
+    assert_eq!(player.color_rgb, (0, 0, 255));
+    assert_eq!(
+        logic
+            .player_template_identity(0)
+            .map(|identity| identity.template_name.as_str()),
+        Some(selected.template_name.as_str())
+    );
+
+    let invalid = PlayerTemplateIdentity {
+        template_name: "MissingExactPlayerTemplate".to_string(),
+        template_index: None,
+    };
+    assert!(
+        !logic.start_new_game_with_player_template(GameMode::SinglePlayer, 0, invalid),
+        "a late missing identity must not fall back to a USA/China/GLA team"
+    );
+    assert!(logic.get_player(0).is_none());
+    assert!(logic.player_template_identity(0).is_none());
+
+    let stale_index_pair = PlayerTemplateIdentity {
+        template_name: "FactionChinaTankGeneral".to_string(),
+        template_index: Some(air_force_index),
+    };
+    assert!(
+        !logic.start_new_game_with_player_template(GameMode::SinglePlayer, 0, stale_index_pair),
+        "GameLogic must independently reject a stale index/name pair before map load"
+    );
+    assert!(logic.get_player(0).is_none());
+    assert!(logic.player_template_identity(0).is_none());
+}
+
 // -----------------------------------------------------------------------
 // China Overlord / Helix / Emperor portable gattling + propaganda residual
 // Fail-closed: not full OverlordContain portable-structure spawn / W3D draw.

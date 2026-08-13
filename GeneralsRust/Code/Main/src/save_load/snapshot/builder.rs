@@ -187,11 +187,13 @@ impl SnapshotBuilder {
             hacker_disable_channel: object.hacker_disable_channel,
             weapon_barrel_states: std::array::from_fn(|slot| {
                 object
-                    .weapon_barrel_state_for_slot(slot as u8)
-                    .map(|state| WeaponBarrelStateSnapshot {
-                        current_barrel: state.current_barrel,
-                        shots_left_on_barrel: state.shots_left_on_barrel,
-                    })
+                    .weapon_barrel_cursor_for_snapshot(slot as u8)
+                    .map(
+                        |(current_barrel, shots_left_on_barrel)| WeaponBarrelStateSnapshot {
+                            current_barrel,
+                            shots_left_on_barrel,
+                        },
+                    )
                     .unwrap_or_default()
             }),
             // The accepted-discharge marker is logical state, deliberately

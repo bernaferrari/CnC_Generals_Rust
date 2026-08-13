@@ -86,6 +86,39 @@ fn visual_world_state_invalidation_only_follows_successful_world_changes() {
 }
 
 #[test]
+fn weapon_barrel_topology_prewarm_is_only_a_successful_world_boundary() {
+    let source = include_str!("ui_commands.rs");
+    let map_load_start = source
+        .find("fn host_load_map_or_default(")
+        .expect("map-load authority boundary");
+    let map_load = &source[map_load_start..];
+    let success_guard = map_load
+        .find("let Some(loaded) = loaded else")
+        .expect("successful map-load guard");
+    let prewarm = map_load
+        .find("self.prewarm_host_weapon_barrel_topologies_for_loaded_world()")
+        .expect("host barrel topology prewarm");
+    let visual_reset = map_load
+        .find("self.render_pipeline.invalidate_world_visual_state()")
+        .expect("new-world visual reset");
+    assert!(
+        success_guard < prewarm && prewarm < visual_reset,
+        "only a successfully installed logical world may preload exact W3D barrel topology"
+    );
+
+    let helper_start = source
+        .find("fn prewarm_host_weapon_barrel_topologies_for_loaded_world(")
+        .expect("dedicated map-boundary helper");
+    let helper = &source[helper_start..map_load_start + success_guard];
+    assert!(helper.contains("prewarm_weapon_barrel_topology_models_for_objects"));
+    assert!(helper.contains("prewarm_weapon_barrel_topologies_for_object_conditions"));
+    assert!(
+        !helper.contains("render_pipeline"),
+        "host configuration must read immutable cached assets, not write from WGPU"
+    );
+}
+
+#[test]
 fn ui_command_path_prefers_presentation_object_identity() {
     let eng = crate::cnc_game_engine::ENGINE_SRC;
     for token in [
@@ -642,11 +675,9 @@ fn challenge_launch_retains_the_exact_selected_template_name_and_index() {
         max_fps: Some(30),
     };
 
-    let overrides = CnCGameEngine::campaign_launch_start_overrides(
-        GameMode::SinglePlayer,
-        Some(&descriptor),
-    )
-    .expect("matched Challenge template must resolve");
+    let overrides =
+        CnCGameEngine::campaign_launch_start_overrides(GameMode::SinglePlayer, Some(&descriptor))
+            .expect("matched Challenge template must resolve");
     let identity = overrides
         .player_template
         .expect("Challenge must carry exact PlayerTemplate identity");
@@ -658,11 +689,10 @@ fn challenge_launch_retains_the_exact_selected_template_name_and_index() {
         player_template_index: Some(air_force_index),
         ..descriptor
     };
-    assert!(CnCGameEngine::campaign_launch_start_overrides(
-        GameMode::SinglePlayer,
-        Some(&stale),
-    )
-    .is_err());
+    assert!(
+        CnCGameEngine::campaign_launch_start_overrides(GameMode::SinglePlayer, Some(&stale),)
+            .is_err()
+    );
 }
 
 #[test]

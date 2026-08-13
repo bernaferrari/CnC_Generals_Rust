@@ -886,6 +886,61 @@ impl GameLogic {
             .and_then(PlayerTemplateIdentity::resolve)
     }
 
+    /// Exact `PlayerTemplate::ProductionCostChange` factor for one player and
+    /// ThingTemplate.  A host player without a bound Campaign/Challenge
+    /// template retains the ordinary `1.0` factor; a bound General never falls
+    /// back to a base-side table.
+    pub(crate) fn player_template_production_cost_factor(
+        &self,
+        player_id: u32,
+        build_template_name: &str,
+    ) -> f32 {
+        self.resolved_player_template(player_id)
+            .map(|template| {
+                PlayerTemplateIdentity::production_cost_factor_for_template(
+                    &template,
+                    build_template_name,
+                )
+            })
+            .unwrap_or(1.0)
+    }
+
+    /// Exact `PlayerTemplate::ProductionTimeChange` factor for one player and
+    /// ThingTemplate.  Low-power timing remains a separate production/construction
+    /// concern, as it is in C++ `ThingTemplate::calcTimeToBuild`.
+    pub(crate) fn player_template_production_time_factor(
+        &self,
+        player_id: u32,
+        build_template_name: &str,
+    ) -> f32 {
+        self.resolved_player_template(player_id)
+            .map(|template| {
+                PlayerTemplateIdentity::production_time_factor_for_template(
+                    &template,
+                    build_template_name,
+                )
+            })
+            .unwrap_or(1.0)
+    }
+
+    /// C++ Object construction sets the controller's exact
+    /// `ProductionVeterancyLevel` for every spawned ThingTemplate.  `None`
+    /// means this player is not backed by a selected PlayerTemplate; a bound
+    /// template with no entry explicitly maps to Main's Rookie default.
+    pub(crate) fn player_template_production_veterancy(
+        &self,
+        player_id: u32,
+        build_template_name: &str,
+    ) -> Option<VeterancyLevel> {
+        self.resolved_player_template(player_id)
+            .map(|template| {
+                PlayerTemplateIdentity::production_veterancy_for_template(
+                    &template,
+                    build_template_name,
+                )
+            })
+    }
+
     /// Wave 238: economy probe without exposing `&Player` to engine dual-read paths.
     #[inline]
     pub fn player_economy(&self, id: u32) -> Option<(u32, i32, i32, i32)> {
@@ -1723,7 +1778,7 @@ impl GameLogic {
         mode: GameMode,
         player_id: u32,
         player_template: PlayerTemplateIdentity,
-    ) {
+    ) -> bool {
         self.start_new_game(mode);
         if !self.bind_player_template_identity(player_id, player_template) {
             log::error!(
@@ -1732,7 +1787,9 @@ impl GameLogic {
             );
             self.players.remove(&player_id);
             self.player_template_bindings.remove(&player_id);
+            return false;
         }
+        true
     }
 
     fn bind_player_template_identity(

@@ -465,6 +465,69 @@ impl PlayerTemplateIdentity {
             .or_else(|| Self::team_from_side(template.get_side()))
     }
 
+    /// C++ `Player::getProductionCostChangePercent`: a PlayerTemplate
+    /// modifier is keyed by the *exact* ThingTemplate name, not by its base
+    /// faction or KindOf.  Keep this computation beside the identity so every
+    /// Main consumer uses the same NameKey lookup as `Player.cpp`.
+    pub(crate) fn production_cost_factor_for_template(
+        template: &game_engine::common::rts::player_template::PlayerTemplate,
+        build_template_name: &str,
+    ) -> f32 {
+        let key = game_engine::common::name_key_generator::NameKeyGenerator::name_to_key(
+            build_template_name,
+        );
+        1.0
+            + template
+                .get_production_cost_changes()
+                .get(&key)
+                .copied()
+                .unwrap_or(0.0)
+    }
+
+    /// C++ `Player::getProductionTimeChangePercent`.  This deliberately does
+    /// not fold in low-power timing: `ThingTemplate::calcTimeToBuild` applies
+    /// the authored General factor first and the energy penalty afterwards.
+    pub(crate) fn production_time_factor_for_template(
+        template: &game_engine::common::rts::player_template::PlayerTemplate,
+        build_template_name: &str,
+    ) -> f32 {
+        let key = game_engine::common::name_key_generator::NameKeyGenerator::name_to_key(
+            build_template_name,
+        );
+        1.0
+            + template
+                .get_production_time_changes()
+                .get(&key)
+                .copied()
+                .unwrap_or(0.0)
+    }
+
+    /// C++ `Player::getProductionVeterancyLevel`, translated from Common's
+    /// `Regular` spelling to Main's long-lived `Rookie` spelling.  The C++
+    /// default is LEVEL_FIRST/Regular, so callers never invent a veterancy
+    /// level when an exact template has no entry for this object.
+    pub(crate) fn production_veterancy_for_template(
+        template: &game_engine::common::rts::player_template::PlayerTemplate,
+        build_template_name: &str,
+    ) -> VeterancyLevel {
+        use game_engine::common::game_common::VeterancyLevel as CommonVeterancyLevel;
+
+        let key = game_engine::common::name_key_generator::NameKeyGenerator::name_to_key(
+            build_template_name,
+        );
+        match template
+            .get_production_veterancy_levels()
+            .get(&key)
+            .copied()
+            .unwrap_or(CommonVeterancyLevel::Regular)
+        {
+            CommonVeterancyLevel::Regular => VeterancyLevel::Rookie,
+            CommonVeterancyLevel::Veteran => VeterancyLevel::Veteran,
+            CommonVeterancyLevel::Elite => VeterancyLevel::Elite,
+            CommonVeterancyLevel::Heroic => VeterancyLevel::Heroic,
+        }
+    }
+
     fn team_from_side(value: &str) -> Option<Team> {
         match value.trim().to_ascii_lowercase().as_str() {
             "usa" | "us" | "america" | "factionamerica" => Some(Team::USA),

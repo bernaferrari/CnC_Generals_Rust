@@ -10,140 +10,6 @@
 use super::*;
 
 impl RenderPipeline {
-    /// Resolve one frozen Draw identity without performing render-collection
-    /// I/O. A local compatible HAnim is immediately usable; external HAnim
-    /// data must already have been placed in AssetManager's exact
-    /// identity-plus-hierarchy prewarm cache. Missing or incompatible data is
-    /// a bind-pose result, never a local animation-zero fallback.
-    fn cached_draw_animation_binding(
-        model: &crate::assets::W3DModel,
-        identity: &str,
-    ) -> Option<crate::assets::W3dAnimationBinding> {
-        if let Some(local) = model.local_animation_binding_for_draw_identity(identity) {
-            return Some(local);
-        }
-        let asset_manager_arc = crate::assets::get_asset_manager()?;
-        let asset_manager = asset_manager_arc.lock().ok()?;
-        asset_manager.cached_w3d_draw_animation_binding(model, identity)
-    }
-
-    /// Advance one exact source-selected W3DModelDraw state. The C++ draw
-    /// module chooses its first entry only when it has a single animation;
-    /// random idle/multiple-entry selection has not been ported, so that case
-    /// retains the entries but deliberately remains bind-pose rather than
-    /// guessing a client-side random clip.
-    fn advance_authored_draw_animation(
-        &mut self,
-        object_id: crate::game_logic::ObjectId,
-        draw_module_index: u32,
-        model: &crate::assets::W3DModel,
-        authored_animations: &[crate::assets::AuthoredDrawAnimation],
-        authored_mode: &crate::assets::AuthoredDrawAnimationMode,
-        delta_time: f32,
-    ) -> (Option<crate::assets::W3dAnimationBinding>, f32) {
-        let requested_binding = match authored_animations {
-            [] => Some(None),
-            [animation] => Self::cached_draw_animation_binding(model, &animation.name).map(Some),
-            // C++ uses GameClientRandomValue for multiple state animations.
-            // Until that exact stateful selector is ported, fail closed to
-            // bind pose rather than choosing an arbitrary W3D index.
-            _ => None,
-        };
-        let Some(requested_binding) = requested_binding else {
-            return (None, 0.0);
-        };
-        let mode_is_supported = matches!(
-            authored_mode,
-            crate::assets::AuthoredDrawAnimationMode::Manual
-                | crate::assets::AuthoredDrawAnimationMode::Loop
-                | crate::assets::AuthoredDrawAnimationMode::Once
-                | crate::assets::AuthoredDrawAnimationMode::LoopBackwards
-                | crate::assets::AuthoredDrawAnimationMode::OnceBackwards
-        );
-        if !mode_is_supported {
-            return (None, 0.0);
-        }
-
-        let Some(animation_binding) = requested_binding else {
-            return (None, 0.0);
-        };
-        let Some((num_frames, frame_rate)) = model.animation_binding_metadata(&animation_binding)
-        else {
-            return (None, 0.0);
-        };
-        let animation_binding_key = animation_binding.state_key();
-        let obj_key = (object_id.0, draw_module_index);
-        let state = self.animation_states.entry(obj_key).or_insert_with(|| {
-            let start_frame = match authored_mode {
-                crate::assets::AuthoredDrawAnimationMode::LoopBackwards
-                | crate::assets::AuthoredDrawAnimationMode::OnceBackwards => {
-                    num_frames.saturating_sub(1) as f32
-                }
-                _ => 0.0,
-            };
-            ObjectAnimationState {
-                animation_binding_key: Some(animation_binding_key.clone()),
-                current_frame: start_frame,
-                frame_rate: frame_rate as f32,
-                num_frames,
-                mode: authored_mode.clone(),
-            }
-        });
-        if state.animation_binding_key != Some(animation_binding_key.clone())
-            || state.mode != authored_mode.clone()
-        {
-            state.animation_binding_key = Some(animation_binding_key);
-            state.current_frame = match authored_mode {
-                crate::assets::AuthoredDrawAnimationMode::LoopBackwards
-                | crate::assets::AuthoredDrawAnimationMode::OnceBackwards => {
-                    num_frames.saturating_sub(1) as f32
-                }
-                _ => 0.0,
-            };
-            state.frame_rate = frame_rate as f32;
-            state.num_frames = num_frames;
-            state.mode = authored_mode.clone();
-        }
-
-        if delta_time > 0.0 && delta_time < 1.0 && state.num_frames > 1 {
-            let terminal = (state.num_frames - 1) as f32;
-            let delta = delta_time * state.frame_rate;
-            state.current_frame = match &state.mode {
-                crate::assets::AuthoredDrawAnimationMode::Manual => state.current_frame,
-                crate::assets::AuthoredDrawAnimationMode::Once => {
-                    (state.current_frame + delta).min(terminal)
-                }
-                crate::assets::AuthoredDrawAnimationMode::Loop => {
-                    let period = terminal;
-                    if period > 0.0 {
-                        (state.current_frame + delta) % period
-                    } else {
-                        0.0
-                    }
-                }
-                crate::assets::AuthoredDrawAnimationMode::OnceBackwards => {
-                    (state.current_frame - delta).max(0.0)
-                }
-                crate::assets::AuthoredDrawAnimationMode::LoopBackwards => {
-                    let period = terminal;
-                    if period > 0.0 {
-                        (state.current_frame - delta).rem_euclid(period)
-                    } else {
-                        0.0
-                    }
-                }
-                crate::assets::AuthoredDrawAnimationMode::LoopPingPong => {
-                    // This mode requires a direction bit in the state. Keep
-                    // the current source frame stable until that complete
-                    // playback state is ported instead of pretending it loops.
-                    state.current_frame
-                }
-                crate::assets::AuthoredDrawAnimationMode::Unsupported(_) => state.current_frame,
-            };
-        }
-        (Some(animation_binding), state.current_frame)
-    }
-
     /// Translate the frozen GameClient W3DModelDraw animation record into the
     /// exact W3D frame used by the bridge collector. `ModelDrawState` carries
     /// a normalized 0..=1 progress fraction, so it is the authority here; do
@@ -209,6 +75,29 @@ impl RenderPipeline {
         // Keep frame installed for post-collect execute residual (minimap/shell/heightmap).
         let presentation = self.presentation_frame.clone();
         let presentation_unit_pass = presentation.is_some();
+        // C++ broadcasts an accepted WeaponSet discharge to every active
+        // W3DModelDraw before each module's visible draw.  The frozen event
+        // is the only safe authority here: AI fire intent is lossy and live
+        // GameLogic must never be read from the presentation mesh pass.
+        let weapon_discharges = presentation
+            .as_ref()
+            .map(|frame| {
+                frame
+                    .events
+                    .iter()
+                    .filter_map(|event| match event {
+                        crate::presentation_frame::PresentationEvent::WeaponDischarged {
+                            source,
+                            weapon_slot,
+                            fired_barrel,
+                            sequence,
+                            ..
+                        } => Some((source.0, *weapon_slot, *fired_barrel, *sequence)),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
         // Reset live-identity residual each collect; presentation path must stay at 0.
         self.debug_last_live_unit_identity_reads = 0;
         self.debug_last_presentation_live_fallback_reads = 0;
@@ -343,11 +232,19 @@ impl RenderPipeline {
 
             for draw_model in draw_models {
                 let draw_module_index = draw_model.module_index;
-                let authored_animations = draw_model.animations;
-                let authored_animation_mode = draw_model.animation_mode;
-                let authored_subobject_visibility = draw_model.subobject_visibility;
-                let authored_primary_turret = draw_model.primary_turret;
-                let model_name_owned = draw_model.model_key;
+                // A queued v4 visual record is a one-shot candidate. Remove
+                // it before culling/model resolution so an unavailable mesh
+                // cannot retain stale saved playback for a later retry.
+                let pending_client_drawable_restore = self
+                    .pending_client_drawable_imports
+                    .remove(&(object_id.0, draw_module_index));
+                // C++ applies static Draw directives first, then broadcasts
+                // weapon clip feedback in slot order. Preserve that exact
+                // ordering before the HLOD resolver handles last-write wins.
+                let authored_subobject_visibility =
+                    u.authored_subobject_visibility_for_draw_model(&draw_model);
+                let authored_primary_turret = draw_model.primary_turret.clone();
+                let model_name_owned = draw_model.model_key.clone();
                 if model_name_owned.trim().is_empty() {
                     // An empty key cannot be an exact Draw submission.
                     model_missing += 1;
@@ -395,14 +292,16 @@ impl RenderPipeline {
                         } else {
                             let visibility = fow_visibility;
 
-                            let (animation_binding, anim_frame) = self
+                            let (animation_binding, anim_frame, weapon_controls) = self
                                 .advance_authored_draw_animation(
                                     object_id,
                                     draw_module_index,
                                     &w3d_model,
-                                    &authored_animations,
-                                    &authored_animation_mode,
+                                    template_name_owned.as_str(),
+                                    &draw_model,
                                     delta_time,
+                                    pending_client_drawable_restore,
+                                    &weapon_discharges,
                                 );
 
                             for (mesh_idx, mesh) in w3d_model.meshes.iter().enumerate() {
@@ -467,19 +366,20 @@ impl RenderPipeline {
                                 // the sole authority here; unsupported/missing
                                 // bindings retain the normal HLOD pose rather
                                 // than rotating all vehicle geometry.
-                                let Some((mesh_local_transform, mesh_visible)) = w3d_model
-                                    .mesh_local_transform_and_visibility_for_primary_turret(
+                                let Some((mesh_local_transform, animation_visible)) = w3d_model
+                                    .mesh_local_transform_and_visibility_for_primary_turret_and_weapon_controls(
                                         mesh_idx,
                                         animation_binding.as_ref(),
                                         anim_frame,
                                         &authored_primary_turret,
                                         u.turret_angle_deg,
                                         u.turret_pitch_deg,
+                                        &weapon_controls,
                                     )
                                 else {
                                     continue;
                                 };
-                                if !mesh_visible {
+                                if !animation_visible {
                                     continue;
                                 }
                                 // The frozen active Draw state owns these
@@ -487,10 +387,23 @@ impl RenderPipeline {
                                 // model's retained single-HLOD child records;
                                 // missing/unsupported records leave this mesh
                                 // unchanged rather than guessing a suffix.
-                                if !w3d_model.mesh_visible_for_authored_subobject_directives(
-                                    mesh_idx,
-                                    &authored_subobject_visibility,
-                                ) {
+                                let authored_visible = w3d_model
+                                    .mesh_visible_for_authored_subobject_directives(
+                                        mesh_idx,
+                                        &authored_subobject_visibility,
+                                    );
+                                // `handleClientRecoil` runs after C++ static
+                                // ModelCondition Hide/Show. It can therefore
+                                // reveal or hide only the exact first muzzle
+                                // child on its pivot; selected HAnim invisibility
+                                // above remains authoritative.
+                                if !w3d_model
+                                    .muzzle_flash_visibility_override_for_mesh(
+                                        mesh_idx,
+                                        &weapon_controls,
+                                    )
+                                    .unwrap_or(authored_visible)
+                                {
                                     continue;
                                 }
                                 let mesh_local_transform = if transform_is_reasonable_for_mesh(

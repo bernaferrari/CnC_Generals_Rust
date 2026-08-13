@@ -9,6 +9,7 @@ fn visual_world_state_reset_clears_object_timeline_components() {
         (1_u32, 2_u32),
         ObjectAnimationState {
             animation_binding_key: None,
+            animation_identity: "test.bind".to_string(),
             current_frame: 7.5,
             frame_rate: 30.0,
             num_frames: 12,

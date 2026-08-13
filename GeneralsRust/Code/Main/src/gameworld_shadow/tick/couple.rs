@@ -461,6 +461,11 @@ pub fn coupled_entity_target_host(host: ObjectId) -> Option<ObjectId> {
 pub struct CoupledFatView {
     pub weapon_ammo: u32,
     pub weapon_clip_size: u32,
+    /// Source slot associated with the authoritative primary GameWorld weapon
+    /// channel.  Presentation uses this only to honor C++ `getRemainingAmmo`
+    /// while that slot is `RELOADING_CLIP`.
+    pub active_weapon_slot: u8,
+    pub weapon_fire_status: u8,
     pub attack_substate_ordinal: u8,
     pub ai_state_ordinal: u8,
     pub occupant_count: u16,
@@ -479,6 +484,8 @@ pub fn coupled_entity_fat_view(host: ObjectId) -> Option<CoupledFatView> {
         Some(CoupledFatView {
             weapon_ammo: e.weapon_ammo,
             weapon_clip_size: e.weapon_clip_size,
+            active_weapon_slot: e.active_weapon_slot,
+            weapon_fire_status: e.weapon_fire_status,
             attack_substate_ordinal: e.attack_substate_ordinal,
             ai_state_ordinal: e.ai_state_ordinal,
             occupant_count: e.occupant_count,

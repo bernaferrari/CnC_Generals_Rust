@@ -270,6 +270,14 @@ impl GameLogic {
         }
 
         if let Some(template) = self.templates.get(template_name).cloned() {
+            // C++ Object.cpp asks the controlling Player for the exact
+            // `ProductionVeterancyLevel` while constructing every Object.
+            // Resolve it before moving the ThingTemplate into Object so a
+            // selected General's authored per-unit rank is independent of the
+            // shared base Team.
+            let player_template_veterancy = owner_player_id.and_then(|player_id| {
+                self.player_template_production_veterancy(player_id, template_name)
+            });
             let is_structure = template.is_kind_of(KindOf::Structure);
             let counts_as_unit = Self::template_counts_as_unit(&template);
             let id = self.allocate_object_id();
@@ -1053,6 +1061,10 @@ impl GameLogic {
             // Weapon bound via weapon_bootstrap primary; no extra strip.
             // Auto-fire residual runs from update_combat when idle.
 
+            if let Some(level) = player_template_veterancy {
+                let _ = object.set_min_veterancy_level(level);
+            }
+
             object.ensure_fire_weapon_when_damaged();
             object.ensure_transition_damage_fx();
             object.ensure_fx_list_die();
@@ -1281,10 +1293,20 @@ impl GameLogic {
             return None;
         }
         if let Some(template) = self.templates.get(template_name).cloned() {
+            // Keep the same PlayerTemplate veterancy binding for a placed
+            // structure as for a completed production spawn.  C++ creates the
+            // ExperienceTracker before construction completes, not only when
+            // its build timer reaches 100%.
+            let player_template_veterancy = owner_player_id.and_then(|player_id| {
+                self.player_template_production_veterancy(player_id, template_name)
+            });
             let id = self.allocate_object_id();
             let mut object = Object::new_under_construction(template, id, team);
             object.owner_player_id = owner_player_id;
             object.set_position(position);
+            if let Some(level) = player_template_veterancy {
+                let _ = object.set_min_veterancy_level(level);
+            }
             if crate::gameworld_shadow::gameworld_movement_authority_live() {
                 crate::game_logic::host_move_log::record(
                     id,

@@ -1,6 +1,31 @@
 use super::*;
 
 impl PresentationFrame {
+    /// Freeze the only clip record currently owned by a coupled GameWorld
+    /// entity.  Its secondary/tertiary weapon state is not represented in the
+    /// GameWorld entity, so returning host mirrors here would make the
+    /// GameWorld overlay mix authority domains; leave those slots unset.
+    fn projectile_clip_statuses_from_gameworld_entity(
+        ent: &gamelogic::world::entities::Entity,
+    ) -> [Option<PresentationProjectileClipStatus>; 3] {
+        let shots_remaining = if ent.active_weapon_slot == 0
+            && ent.weapon_fire_status
+                == crate::game_logic::object::WeaponFireStatus::ReloadingClip as u8
+        {
+            0
+        } else {
+            ent.weapon_ammo
+        };
+        let primary = (ent.weapon_ammo != u32::MAX
+            && ent.weapon_clip_size > 0
+            && shots_remaining <= ent.weapon_clip_size)
+            .then_some(PresentationProjectileClipStatus {
+                shots_remaining,
+                max_shots: ent.weapon_clip_size,
+            });
+        [primary, None, None]
+    }
+
     /// Overlay health/position/destroyed from a GameWorld shadow session.
     ///
     /// Host still builds the frame (templates, FOW, selection); shadow is last
@@ -369,6 +394,12 @@ impl PresentationFrame {
             }
             if obj.weapon_ammo != ent.weapon_ammo {
                 obj.weapon_ammo = ent.weapon_ammo;
+                dirty = true;
+            }
+            let projectile_clip_statuses =
+                Self::projectile_clip_statuses_from_gameworld_entity(ent);
+            if obj.projectile_clip_statuses != projectile_clip_statuses {
+                obj.projectile_clip_statuses = projectile_clip_statuses;
                 dirty = true;
             }
             if obj.weapon_can_target_air != ent.weapon_can_target_air {
@@ -1518,6 +1549,7 @@ impl PresentationFrame {
             weapon_min_range: ent.weapon_min_range,
             weapon_reload_time: ent.weapon_reload_time,
             weapon_ammo: ent.weapon_ammo,
+            projectile_clip_statuses: Self::projectile_clip_statuses_from_gameworld_entity(ent),
             ammo_pip_total: ent.weapon_clip_size,
             ammo_pip_full: ent.weapon_ammo.min(ent.weapon_clip_size),
             weapon_ready_percent: if ent.weapon_reload_time > 1e-6 {

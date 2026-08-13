@@ -202,6 +202,21 @@ impl PresentationBuildingType {
     }
 }
 
+/// One C++ `Drawable::updateDrawableClipStatus` payload for a concrete
+/// PRIMARY/SECONDARY/TERTIARY WeaponSet slot.
+///
+/// This is presentation input, not a renderer query: gameplay freezes the
+/// exact remaining/max pair before the W3D path turns it into authored child
+/// visibility. `None` means the current authority cannot provide a valid
+/// finite clip pair and must not guess a projectile model state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PresentationProjectileClipStatus {
+    /// C++ `Weapon::getRemainingAmmo()` / `shotsRemaining`.
+    pub shots_remaining: u32,
+    /// C++ `Weapon::getClipSize()` / `maxShots`.
+    pub max_shots: u32,
+}
+
 /// One renderable object as seen after a completed logic step.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RenderableObject {
@@ -455,6 +470,11 @@ pub struct RenderableObject {
     pub weapon_reload_time: f32,
     /// Primary weapon ammo residual (`u32::MAX` = unlimited).
     pub weapon_ammo: u32,
+    /// Exact per-slot clip pairs for the C++ W3D projectile-bone feedback
+    /// path. Older saved presentation frames contain no such vector and
+    /// therefore fail closed with no dynamic projectile directives.
+    #[serde(default)]
+    pub projectile_clip_statuses: [Option<PresentationProjectileClipStatus>; 3],
     /// C++ getAmmoPipShowingInfo residual (0 = no ShowsAmmoPips weapon).
     pub ammo_pip_total: u32,
     /// Remaining rounds for the ShowsAmmoPips weapon.

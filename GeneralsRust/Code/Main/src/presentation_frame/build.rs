@@ -58,6 +58,20 @@ impl PresentationFrame {
                 .map(glam::Vec3::from);
             let auth_target = logic.host_authoritative_target(obj.id);
             let auth_ammo = logic.host_authoritative_weapon_ammo(obj.id);
+            let auth_projectile_clip_statuses =
+                logic.host_authoritative_projectile_clip_statuses(obj.id);
+            let projectile_clip_statuses = std::array::from_fn(|slot| {
+                auth_projectile_clip_statuses
+                    .get(slot)
+                    .copied()
+                    .flatten()
+                    .map(
+                        |(shots_remaining, max_shots)| PresentationProjectileClipStatus {
+                            shots_remaining,
+                            max_shots,
+                        },
+                    )
+            });
             let auth_occupants = logic.host_authoritative_occupant_count(obj.id);
             let _auth_attack_sub = logic.host_authoritative_attack_substate(obj.id);
             let (auth_construction_percent, auth_under_construction) = logic
@@ -389,6 +403,7 @@ impl PresentationFrame {
                         .map(|w| w.ammo.unwrap_or(u32::MAX))
                         .unwrap_or(u32::MAX)
                 }),
+                projectile_clip_statuses,
                 ammo_pip_total: obj.get_ammo_pip_showing_info().map(|(t, _)| t).unwrap_or(0),
                 ammo_pip_full: obj.get_ammo_pip_showing_info().map(|(_, f)| f).unwrap_or(0),
                 weapon_ready_percent: {

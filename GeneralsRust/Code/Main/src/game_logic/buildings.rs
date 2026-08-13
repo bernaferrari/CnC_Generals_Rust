@@ -282,15 +282,40 @@ impl BuildingData {
         template: &ThingTemplate,
         quantity: u32,
     ) -> bool {
+        self.add_to_queue_with_quantity_and_terms(
+            template_name,
+            template,
+            quantity,
+            template.build_time,
+            template.build_cost,
+        )
+    }
+
+    /// Enqueue an authored unit with the player-specific terms already
+    /// calculated by `ThingTemplate::calcCostToBuild` /
+    /// `ThingTemplate::calcTimeToBuild`.
+    ///
+    /// `ProductionEntry` stores the charged cost and its owning player's
+    /// duration.  Keeping those values on the queue item makes a later cancel
+    /// refund the exact amount paid and prevents another player's General
+    /// modifier from changing an in-flight entry.
+    pub fn add_to_queue_with_quantity_and_terms(
+        &mut self,
+        template_name: String,
+        template: &ThingTemplate,
+        quantity: u32,
+        total_time: f32,
+        cost: Resources,
+    ) -> bool {
         if self.can_produce(template)
             && self.production_queue.len() < DEFAULT_PRODUCTION_QUEUE_LIMIT
         {
             let item = ProductionItem {
                 template_name,
                 progress: 0.0,
-                total_time: template.build_time,
+                total_time: total_time.max(0.0),
                 construction_frames: 0,
-                cost: template.build_cost,
+                cost,
                 quantity_total: quantity.max(1),
                 quantity_produced: 0,
                 kind: ProductionKind::Unit,

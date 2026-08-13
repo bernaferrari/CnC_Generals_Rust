@@ -94,10 +94,12 @@ pub struct AuthoredDrawSubobjectVisibility {
 /// One exact per-weapon-slot W3DModelDraw bone binding from a selected
 /// `ModelConditionInfo`.
 ///
-/// These are *base* names. C++ `validateWeaponBarrelInfo` probes each base
-/// with `01` through `99` before trying the unadorned name, using all four
-/// fields to delimit a barrel. A future renderer must therefore not derive a
-/// barrel count from only recoil or muzzle names.
+/// The first four fields are *base* names. C++
+/// `validateWeaponBarrelInfo` probes each base with `01` through `99` before
+/// trying the unadorned name, using all four to delimit a barrel. A future
+/// renderer must therefore not derive a barrel count from only recoil or
+/// muzzle names. `projectile_hide_show_bone` is deliberately separate: C++
+/// uses it only as one exact projectile-clip visibility child.
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct AuthoredDrawWeaponBoneSlot {
     /// C++ `m_weaponFireFXBoneName[slot]`.
@@ -108,6 +110,13 @@ pub struct AuthoredDrawWeaponBoneSlot {
     pub muzzle_flash_bone_base: Option<String>,
     /// C++ `m_weaponProjectileLaunchBoneName[slot]`.
     pub launch_bone_base: Option<String>,
+    /// C++ `m_weaponProjectileHideShowName[slot]`.
+    ///
+    /// Unlike `launch_bone_base`, this is one exact child name used by
+    /// `W3DModelDraw::doHideShowProjectileObjects`; it never receives a
+    /// generated numeric suffix.
+    #[serde(default)]
+    pub projectile_hide_show_bone: Option<String>,
 }
 
 /// Source-authored weapon-bone bases for PRIMARY, SECONDARY, and TERTIARY.
@@ -141,6 +150,46 @@ impl AuthoredDrawWeaponBoneBindings {
     /// out-of-range slot to PRIMARY.
     pub fn slot(&self, slot: u8) -> Option<&AuthoredDrawWeaponBoneSlot> {
         self.slots.get(usize::from(slot))
+    }
+}
+
+/// Module-scoped C++ `ProjectileBoneFeedbackEnabledSlots` state.
+///
+/// `W3DModelDrawModuleData` owns this bit mask, so it applies to every
+/// selected condition state of this one Draw module.  Keep the validity bit
+/// separate from the zero default: absent source means clip feedback is
+/// disabled, whereas malformed source must make later presentation fail
+/// closed instead of assuming a usable empty mask.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct AuthoredDrawProjectileBoneFeedback {
+    /// C++ `m_projectileBoneFeedbackEnabledSlots` with PRIMARY/SECONDARY/
+    /// TERTIARY at bits 0/1/2.
+    pub enabled_slots: u32,
+    #[serde(default = "authored_draw_projectile_bone_feedback_valid_default")]
+    pub source_fields_valid: bool,
+}
+
+const fn authored_draw_projectile_bone_feedback_valid_default() -> bool {
+    true
+}
+
+impl Default for AuthoredDrawProjectileBoneFeedback {
+    fn default() -> Self {
+        Self {
+            enabled_slots: 0,
+            source_fields_valid: true,
+        }
+    }
+}
+
+impl AuthoredDrawProjectileBoneFeedback {
+    /// C++ uses `(1 << slot)` directly.  Main only retains the three concrete
+    /// WeaponSlotType values and must not redirect unknown slots to PRIMARY.
+    #[inline]
+    pub fn is_enabled_for_slot(&self, slot: u8) -> bool {
+        self.source_fields_valid
+            && slot < 3
+            && (self.enabled_slots & (1u32 << u32::from(slot))) != 0
     }
 }
 
@@ -360,10 +409,12 @@ pub struct DrawConditionStateDefinition {
     /// this complete record from `DefaultConditionState` before their local
     /// directives are parsed.
     pub primary_turret: AuthoredDrawPrimaryTurret,
-    /// Exact C++ per-weapon-slot bases used later by
-    /// `ModelConditionInfo::validateWeaponBarrelInfo`. Normal and transition
-    /// states inherit this complete record from Default before local fields
-    /// are parsed, just like the model, animations, visibility, and turret.
+    /// Exact C++ per-weapon-slot weapon-bone record. Its four topology bases
+    /// are used later by `ModelConditionInfo::validateWeaponBarrelInfo`; its
+    /// independent `WeaponHideShowBone` is used by projectile-clip feedback.
+    /// Normal and transition states inherit this complete record from Default
+    /// before local fields are parsed, just like the model, animations,
+    /// visibility, and turret.
     pub weapon_bone_bindings: AuthoredDrawWeaponBoneBindings,
     /// Parser-only counterpart of C++ `ANIMS_COPIED_FROM_DEFAULT_STATE`.
     /// A state starts with Default's animations but its first Animation or
@@ -442,6 +493,10 @@ pub struct DrawModuleDefinition {
     /// each selected Draw model so a same-mesh condition state cannot borrow
     /// kinetics from an unrelated module or basename.
     pub recoil_kinematics: AuthoredDrawRecoilKinematics,
+    /// C++ `W3DModelDrawModuleData::m_projectileBoneFeedbackEnabledSlots`.
+    /// It is frozen with the selected state so a same-named mesh from another
+    /// Draw module cannot borrow this module's clip-art policy.
+    pub projectile_bone_feedback: AuthoredDrawProjectileBoneFeedback,
     pub condition_states: Vec<DrawConditionStateDefinition>,
 }
 
@@ -451,6 +506,7 @@ impl DrawModuleDefinition {
             declaration,
             ignored_condition_tokens: Vec::new(),
             recoil_kinematics: AuthoredDrawRecoilKinematics::default(),
+            projectile_bone_feedback: AuthoredDrawProjectileBoneFeedback::default(),
             condition_states: Vec::new(),
         }
     }
@@ -519,6 +575,11 @@ pub struct AuthoredDrawModel {
     /// empty/default remains no recoil topology, never a model-name fallback.
     #[serde(default)]
     pub weapon_bone_bindings: AuthoredDrawWeaponBoneBindings,
+    /// Frozen C++ module feedback mask for projectile visibility.  A selected
+    /// Draw state needs both this module record and its own launch/hide-show
+    /// bones before Main may emit dynamic subobject directives.
+    #[serde(default)]
+    pub projectile_bone_feedback: AuthoredDrawProjectileBoneFeedback,
     /// Frozen C++ W3DModelDraw module recoil coefficients. The source module
     /// owns these values, rather than the selected condition state or model
     /// basename; a later renderer must still validate them before use.
@@ -871,6 +932,7 @@ impl ObjectDefinition {
                 subobject_visibility: state.subobject_visibility.clone(),
                 primary_turret: state.primary_turret.clone(),
                 weapon_bone_bindings: state.weapon_bone_bindings.clone(),
+                projectile_bone_feedback: module.projectile_bone_feedback.clone(),
                 recoil_kinematics: module.recoil_kinematics.clone(),
             });
         }
@@ -973,6 +1035,7 @@ enum DrawWeaponBoneField {
     Recoil,
     MuzzleFlash,
     Launch,
+    HideShow,
 }
 
 /// One module-scoped `W3DModelDrawModuleData` recoil field. Unlike the
@@ -1295,6 +1358,17 @@ impl IniParser {
                             value,
                             DrawRecoilKinematicField::SettleSpeed,
                         ),
+                        // C++ W3DModelDrawModuleData owns this bit mask,
+                        // outside every ModelConditionInfo.  Do not promote a
+                        // nested spelling into module-wide clip feedback.
+                        "projectilebonefeedbackenabledslots" => {
+                            Self::assign_draw_module_projectile_bone_feedback(
+                                obj,
+                                active_draw_module,
+                                active_condition_state,
+                                value,
+                            )
+                        }
                         // C++ W3DModelDraw stores the primary `m_turrets[0]`
                         // binding on every ModelConditionInfo. These fields
                         // are presentation-only but must survive the exact
@@ -1377,6 +1451,13 @@ impl IniParser {
                             active_condition_state,
                             value,
                             DrawWeaponBoneField::Launch,
+                        ),
+                        "weaponhideshowbone" => Self::assign_draw_condition_weapon_bone(
+                            obj,
+                            active_draw_module,
+                            active_condition_state,
+                            value,
+                            DrawWeaponBoneField::HideShow,
                         ),
                         // AltTurretArtAngle/AltTurretArtPitch only affect an
                         // active alternate bone, which already makes the
@@ -1785,6 +1866,94 @@ impl IniParser {
         }
     }
 
+    /// Parse C++ `INI::parseBitString32` using `TheWeaponSlotTypeNames`.
+    ///
+    /// The engine distinguishes a normal list (which replaces the old mask)
+    /// from `+`/`-` edits (which retain it), permits `NONE` only by itself,
+    /// and treats any unknown slot as an INI error.  This retained source
+    /// record uses `None` for that error so presentation can fail closed while
+    /// the broad Object parser continues preserving other valid data.
+    fn parse_draw_projectile_bone_feedback_slots(value: &str, previous: u32) -> Option<u32> {
+        let mut mask = previous;
+        let mut found_normal = false;
+        let mut found_add_or_sub = false;
+
+        for token in value.split_whitespace() {
+            if token.eq_ignore_ascii_case("none") {
+                if found_normal || found_add_or_sub {
+                    return None;
+                }
+                return Some(0);
+            }
+
+            let (operation, slot_name) = match token.as_bytes().first().copied() {
+                Some(b'+') => (Some(true), &token[1..]),
+                Some(b'-') => (Some(false), &token[1..]),
+                _ => (None, token),
+            };
+            let slot = match slot_name.to_ascii_uppercase().as_str() {
+                "PRIMARY" => 0u32,
+                "SECONDARY" => 1u32,
+                "TERTIARY" => 2u32,
+                _ => return None,
+            };
+            let bit = 1u32 << slot;
+
+            match operation {
+                Some(add) => {
+                    if found_normal {
+                        return None;
+                    }
+                    if add {
+                        mask |= bit;
+                    } else {
+                        mask &= !bit;
+                    }
+                    found_add_or_sub = true;
+                }
+                None => {
+                    if found_add_or_sub {
+                        return None;
+                    }
+                    if !found_normal {
+                        mask = 0;
+                    }
+                    mask |= bit;
+                    found_normal = true;
+                }
+            }
+        }
+
+        Some(mask)
+    }
+
+    /// Retain C++ `ProjectileBoneFeedbackEnabledSlots` on the exact active
+    /// Draw module.  It is not a ModelConditionInfo field, so recognizing it
+    /// inside a state would silently apply a malformed module-wide override.
+    fn assign_draw_module_projectile_bone_feedback(
+        obj: &mut ObjectDefinition,
+        active_draw_module: Option<usize>,
+        active_condition_state: Option<usize>,
+        value: &str,
+    ) {
+        let Some(module) = active_draw_module.and_then(|index| obj.draw_modules.get_mut(index))
+        else {
+            return;
+        };
+        if active_condition_state.is_some() {
+            module.projectile_bone_feedback.source_fields_valid = false;
+            return;
+        }
+        let Some(mask) = Self::parse_draw_projectile_bone_feedback_slots(
+            value,
+            module.projectile_bone_feedback.enabled_slots,
+        ) else {
+            module.projectile_bone_feedback.source_fields_valid = false;
+            return;
+        };
+        module.projectile_bone_feedback.enabled_slots = mask;
+    }
+
     /// Preserve C++ `parseShowHideSubObject`: one declaration may name several
     /// subobjects, `None` as its first token clears the inherited vector, and
     /// a duplicate rewrites its existing value without changing its source
@@ -1979,6 +2148,7 @@ impl IniParser {
             DrawWeaponBoneField::Recoil => bindings.recoil_bone_base = bone,
             DrawWeaponBoneField::MuzzleFlash => bindings.muzzle_flash_bone_base = bone,
             DrawWeaponBoneField::Launch => bindings.launch_bone_base = bone,
+            DrawWeaponBoneField::HideShow => bindings.projectile_hide_show_bone = bone,
         }
     }
 
@@ -2798,6 +2968,246 @@ End
                     && slot.launch_bone_base.is_none()
             }));
         assert!(really_damaged[0].weapon_bone_bindings.source_fields_valid);
+    }
+
+    #[test]
+    fn w3d_projectile_bone_feedback_keeps_module_mask_and_state_override_identity() {
+        let ini_content = r#"
+Object DrawProjectileFeedbackProbe
+  Draw = W3DModelDraw ModuleTag_01
+    ProjectileBoneFeedbackEnabledSlots = PRIMARY SECONDARY
+    ProjectileBoneFeedbackEnabledSlots = +TERTIARY -SECONDARY
+    DefaultConditionState
+      Model = ProbePristine
+      WeaponLaunchBone = PRIMARY Rack
+      WeaponHideShowBone = PRIMARY "Missile Bay"
+      WeaponLaunchBone = TERTIARY ThirdRack
+    End
+    ConditionState = DAMAGED
+      Model = ProbeDamaged
+      WeaponHideShowBone = PRIMARY None
+    End
+  End
+End
+"#;
+        let mut parser = IniParser::new();
+        parser
+            .parse_ini_content(ini_content, "draw_projectile_feedback_probe.ini")
+            .expect("parse source projectile feedback records");
+        let definition = parser
+            .get_definition("DrawProjectileFeedbackProbe")
+            .expect("parsed projectile feedback probe");
+
+        let pristine = definition
+            .select_draw_models_for_conditions(0)
+            .expect("select pristine draw state")
+            .pop()
+            .expect("one source Draw module");
+        assert_eq!(pristine.projectile_bone_feedback.enabled_slots, 0b101);
+        assert!(pristine.projectile_bone_feedback.source_fields_valid);
+        assert!(pristine.projectile_bone_feedback.is_enabled_for_slot(0));
+        assert!(!pristine.projectile_bone_feedback.is_enabled_for_slot(1));
+        assert!(pristine.projectile_bone_feedback.is_enabled_for_slot(2));
+        assert_eq!(
+            pristine
+                .weapon_bone_bindings
+                .slot(0)
+                .and_then(|slot| slot.projectile_hide_show_bone.as_deref()),
+            Some("missile bay"),
+            "C++ parseWeaponBoneName preserves one lowercased exact override name"
+        );
+
+        let damaged = definition
+            .select_draw_models_for_conditions(model_condition_bit("DAMAGED"))
+            .expect("select damaged draw state")
+            .pop()
+            .expect("one source Draw module");
+        assert_eq!(
+            damaged.projectile_bone_feedback,
+            pristine.projectile_bone_feedback
+        );
+        assert_eq!(
+            damaged
+                .weapon_bone_bindings
+                .slot(0)
+                .and_then(|slot| slot.launch_bone_base.as_deref()),
+            Some("rack"),
+            "ConditionState inherits Default's unrelated launch bone"
+        );
+        assert_eq!(
+            damaged
+                .weapon_bone_bindings
+                .slot(0)
+                .and_then(|slot| slot.projectile_hide_show_bone.as_deref()),
+            None,
+            "an explicit C++ None clears only the selected state's override bone"
+        );
+    }
+
+    #[test]
+    fn w3d_projectile_bone_feedback_fails_closed_for_malformed_module_input() {
+        let ini_content = r#"
+Object MalformedProjectileFeedbackProbe
+  Draw = W3DModelDraw ModuleTag_01
+    ProjectileBoneFeedbackEnabledSlots = PRIMARY SECONDARY
+    DefaultConditionState
+      Model = Probe
+      ProjectileBoneFeedbackEnabledSlots = TERTIARY
+      WeaponLaunchBone = PRIMARY Rack
+    End
+  End
+End
+
+Object MixedProjectileFeedbackProbe
+  Draw = W3DModelDraw ModuleTag_01
+    ProjectileBoneFeedbackEnabledSlots = PRIMARY +SECONDARY
+    DefaultConditionState
+      Model = Probe
+      WeaponLaunchBone = PRIMARY Rack
+    End
+  End
+End
+"#;
+        let mut parser = IniParser::new();
+        parser
+            .parse_ini_content(ini_content, "malformed_projectile_feedback_probe.ini")
+            .expect("retain malformed source records for fail-closed selection");
+
+        for object_name in [
+            "MalformedProjectileFeedbackProbe",
+            "MixedProjectileFeedbackProbe",
+        ] {
+            let draw = parser
+                .get_definition(object_name)
+                .expect("parsed malformed projectile feedback probe")
+                .select_draw_models_for_conditions(0)
+                .expect("source still selects its model")
+                .pop()
+                .expect("one Draw module");
+            assert!(
+                !draw.projectile_bone_feedback.source_fields_valid,
+                "{object_name} must not turn malformed module input into enabled visual feedback"
+            );
+        }
+    }
+
+    #[test]
+    fn w3d_projectile_bone_feedback_retail_tomahawk_scorpion_and_scud_keep_exact_slots() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
+        let ini_root = [
+            root.join("windows_game/extracted_big_files/INIZH/Data/INI/Object"),
+            root.join("windows_game/extracted_big_files_v2/INIZH/Data/INI/Object"),
+        ]
+        .into_iter()
+        .find(|candidate| {
+            candidate.join("AmericaVehicle.ini").is_file()
+                && candidate.join("GLAVehicle.ini").is_file()
+                && candidate.join("FactionBuilding.ini").is_file()
+        });
+        let Some(ini_root) = ini_root else {
+            eprintln!(
+                "skip: retail AmericaVehicle.ini/GLAVehicle.ini/FactionBuilding.ini are not available on disk"
+            );
+            return;
+        };
+
+        let mut parser = IniParser::new();
+        for filename in [
+            "AmericaVehicle.ini",
+            "GLAVehicle.ini",
+            "FactionBuilding.ini",
+        ] {
+            let path = ini_root.join(filename);
+            let content = std::fs::read_to_string(&path)
+                .unwrap_or_else(|error| panic!("read retail {}: {error}", path.display()));
+            parser
+                .parse_ini_content(&content, filename)
+                .unwrap_or_else(|error| panic!("parse retail {filename}: {error}"));
+        }
+
+        let tomahawk = parser
+            .get_definition("AmericaVehicleTomahawk")
+            .expect("retail Tomahawk definition")
+            .select_draw_models_for_conditions(0)
+            .expect("retail Tomahawk default state")
+            .into_iter()
+            .find(|draw| draw.model_key.eq_ignore_ascii_case("AVTomahawk"))
+            .expect("retail Tomahawk model");
+        assert_eq!(tomahawk.projectile_bone_feedback.enabled_slots, 0b001);
+        assert_eq!(
+            tomahawk
+                .weapon_bone_bindings
+                .slot(0)
+                .and_then(|slot| slot.projectile_hide_show_bone.as_deref()),
+            Some("missile"),
+            "retail Tomahawk uses one direct MISSILE child, not missile01"
+        );
+        let tomahawk_damaged = parser
+            .get_definition("AmericaVehicleTomahawk")
+            .expect("retail Tomahawk definition")
+            .select_draw_models_for_conditions(model_condition_bit("REALLYDAMAGED"))
+            .expect("retail damaged Tomahawk state")
+            .into_iter()
+            .find(|draw| draw.model_key.eq_ignore_ascii_case("AVTomahawk_D"))
+            .expect("retail damaged Tomahawk model");
+        assert_eq!(
+            tomahawk_damaged
+                .weapon_bone_bindings
+                .slot(0)
+                .and_then(|slot| slot.projectile_hide_show_bone.as_deref()),
+            Some("missile"),
+            "C++ normal ConditionState begins as a DefaultConditionState copy"
+        );
+
+        let scorpion = parser
+            .get_definition("GLATankScorpion")
+            .expect("retail Scorpion definition")
+            .select_draw_models_for_conditions(model_condition_bit("WEAPONSET_PLAYER_UPGRADE"))
+            .expect("retail upgraded Scorpion state")
+            .into_iter()
+            .find(|draw| draw.model_key.eq_ignore_ascii_case("UVLiteTank"))
+            .expect("retail upgraded Scorpion model");
+        assert_eq!(scorpion.projectile_bone_feedback.enabled_slots, 0b010);
+        assert_eq!(
+            scorpion
+                .weapon_bone_bindings
+                .slot(1)
+                .and_then(|slot| slot.launch_bone_base.as_deref()),
+            Some("weapona"),
+            "retail Scorpion feedback belongs to its SECONDARY missile slot"
+        );
+        assert!(
+            scorpion
+                .weapon_bone_bindings
+                .slot(1)
+                .and_then(|slot| slot.projectile_hide_show_bone.as_deref())
+                .is_none(),
+            "without a C++ override the renderer must use numbered WeaponA01..NN children"
+        );
+
+        let scud = parser
+            .get_definition("GLAScudStorm")
+            .expect("retail Scud Storm definition")
+            .select_draw_models_for_conditions(model_condition_bit("ATTACKING"))
+            .expect("retail attacking Scud Storm state")
+            .into_iter()
+            .find(|draw| draw.model_key.eq_ignore_ascii_case("UBScudStrm_A2"))
+            .expect("retail attacking Scud Storm model");
+        assert_eq!(scud.projectile_bone_feedback.enabled_slots, 0b001);
+        assert_eq!(
+            scud.weapon_bone_bindings
+                .slot(0)
+                .and_then(|slot| slot.launch_bone_base.as_deref()),
+            Some("weapona"),
+            "retail Scud Storm feedback keeps its PRIMARY WeaponA launch base"
+        );
+        assert!(
+            scud.weapon_bone_bindings
+                .slot(0)
+                .and_then(|slot| slot.projectile_hide_show_bone.as_deref())
+                .is_none(),
+            "retail Scud Storm relies on exact WeaponA01 through WeaponA09 children"
+        );
     }
 
     #[test]

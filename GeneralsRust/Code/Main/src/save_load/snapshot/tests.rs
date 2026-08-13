@@ -934,6 +934,17 @@ fn snapshot_roundtrip_stages_primary_and_secondary_barrel_cursors() {
     builder
         .restore_from_snapshot(&snapshot, &mut restored)
         .expect("restore");
+    let staged_resnapshot = builder
+        .create_world_snapshot(&restored)
+        .expect("re-snapshot before fresh topology is available");
+    assert_eq!(
+        staged_resnapshot.objects[&id].weapon_barrel_states[0], cursor_snapshot[0],
+        "a save made before W3D topology validation must retain the raw staged primary cursor"
+    );
+    assert_eq!(
+        staged_resnapshot.objects[&id].weapon_barrel_states[1], cursor_snapshot[1],
+        "a save made before W3D topology validation must retain the raw staged secondary cursor"
+    );
     let object = restored.host_object_mut(id).expect("restored object");
     // The restore call stored raw cursors while the host still had its safe
     // one-barrel fallback. Applying validated topology consumes them once.
@@ -963,6 +974,89 @@ fn snapshot_roundtrip_stages_primary_and_secondary_barrel_cursors() {
         }
     );
     assert_eq!(restored.weapon_discharge_next_sequence_for_snapshot(), 43);
+}
+
+/// A pristine C++ Weapon already owns its authored `m_numShotsForCurBarrel`,
+/// even if it has not fired. Main derives that lazy cursor at first use, so
+/// the v4 snapshot must persist the zero sentinel rather than its temporary
+/// one-shot representation; restore then rebuilds the exact authored cadence.
+#[test]
+fn snapshot_roundtrip_pristine_authored_shots_per_barrel_does_not_become_one() {
+    let ini_content = r#"
+Weapon __RustSnapshotPristineFiveShotWeapon
+  AttackRange = 100.0
+  PrimaryDamage = 25.0
+  ShotsPerBarrel = 5
+End
+"#;
+    assert_eq!(
+        crate::assets::ini_template_loader::register_weapons_from_ini_text(ini_content),
+        1
+    );
+
+    let mut source = GameLogic::new();
+    let mut template = ThingTemplate::new("SnapshotPristineFiveShotTank");
+    template.set_primary_weapon_name("__RustSnapshotPristineFiveShotWeapon");
+    source
+        .templates
+        .insert("SnapshotPristineFiveShotTank".to_string(), template);
+    let id = source
+        .create_object("SnapshotPristineFiveShotTank", Team::USA, Vec3::ZERO)
+        .expect("create source weapon object");
+
+    let builder = SnapshotBuilder::new();
+    let snapshot = builder.create_world_snapshot(&source).expect("snapshot");
+    assert_eq!(
+        snapshot.objects[&id].weapon_barrel_states[0].shots_left_on_barrel, 0,
+        "uninitialized Main cursor must serialize the v4 authored-cadence sentinel"
+    );
+
+    let mut restored = GameLogic::new();
+    restored.templates = source.templates.clone();
+    builder
+        .restore_from_snapshot(&snapshot, &mut restored)
+        .expect("restore");
+    let restored = restored
+        .host_object_mut(id)
+        .expect("restored source weapon object");
+    assert!(
+        restored.set_weapon_barrel_count_for_slot(0, 2),
+        "fresh validated topology may configure the restored first barrel"
+    );
+    assert_eq!(
+        {
+            let state = restored
+                .weapon_barrel_state_for_slot(0)
+                .expect("restored PRIMARY cursor");
+            (
+                state.current_barrel,
+                state.shots_per_barrel,
+                state.shots_left_on_barrel,
+            )
+        },
+        (0, 5, 5),
+        "a pristine five-shot Weapon must resume with its authored first barrel cadence"
+    );
+    for _ in 0..4 {
+        restored.advance_weapon_barrel_after_shot(0);
+    }
+    assert_eq!(
+        restored
+            .weapon_barrel_state_for_slot(0)
+            .expect("post-shot PRIMARY cursor")
+            .current_barrel,
+        0,
+        "the first four shots remain on barrel zero"
+    );
+    restored.advance_weapon_barrel_after_shot(0);
+    assert_eq!(
+        restored
+            .weapon_barrel_state_for_slot(0)
+            .expect("fifth-shot PRIMARY cursor")
+            .current_barrel,
+        1,
+        "the authored fifth shot advances to the next validated barrel"
+    );
 }
 
 fn ensure_strike_test_tank(logic: &mut GameLogic) {

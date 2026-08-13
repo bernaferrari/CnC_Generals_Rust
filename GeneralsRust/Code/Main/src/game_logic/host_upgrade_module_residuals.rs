@@ -241,15 +241,21 @@ impl HostUpgradeModuleResidualLog {
     }
 }
 
-/// Apply modified build cost residual: `ceil(base * factor)` supplies.
+/// Apply a modified build cost with C++ `ThingTemplate::calcCostToBuild`
+/// integer-return semantics.
+///
+/// C++ multiplies the authored integer cost by the Player's real modifiers,
+/// then converts the result to `Int` at the return boundary.  That conversion
+/// truncates toward zero; rounding would overcharge values such as
+/// `101 * 0.8` to 81 instead of the retail 80.
 pub fn apply_production_cost_factor(base_supplies: u32, factor: f32) -> u32 {
     if base_supplies == 0 {
         return 0;
     }
     let f = factor.max(0.0);
     let v = (base_supplies as f32) * f;
-    // C++ Real cost then cast — residual uses ceil so -10% of 100 → 90.
-    v.round().max(0.0) as u32
+    // C++ `Real` cost then `Int` return conversion.
+    v.trunc().max(0.0) as u32
 }
 
 /// KindOf token match helper from host KindOf flags.

@@ -7,6 +7,7 @@ fn unit_render_input_world_matrix_applies_mesh_scale() {
         template_name: "T".into(),
         model_key: "M".into(),
         draw_models: Vec::new(),
+        projectile_clip_statuses: [None; 3],
         mesh_scale: 2.0,
         team: Team::USA,
         team_color: [1.0, 1.0, 1.0, 1.0],

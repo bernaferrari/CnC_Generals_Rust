@@ -1305,6 +1305,61 @@ impl GameLogic {
             .and_then(|w| w.ammo)
     }
 
+    /// Freeze the C++ `Drawable::updateDrawableClipStatus` arguments for all
+    /// concrete host WeaponSet slots.
+    ///
+    /// A coupled GameWorld currently owns one primary weapon clip record.  It
+    /// is authoritative while present, so Main exposes only that exact pair
+    /// and deliberately leaves secondary/tertiary unset rather than mixing a
+    /// stale host mirror into a live GameWorld presentation frame.  The
+    /// uncoupled host retains all three slots and reports each independently,
+    /// matching Object::adjustModelConditionForWeaponStatus iteration order.
+    pub fn host_authoritative_projectile_clip_statuses(
+        &self,
+        id: ObjectId,
+    ) -> [Option<(u32, u32)>; 3] {
+        let valid_clip = |shots_remaining: u32, max_shots: u32| {
+            (max_shots > 0 && shots_remaining <= max_shots).then_some((shots_remaining, max_shots))
+        };
+
+        if let Some(fat) = crate::gameworld_shadow::coupled_entity_fat_view(id) {
+            // C++ Weapon::getRemainingAmmo reports zero while a reloaded
+            // clip's backing counter has already been reset to full.
+            let shots_remaining = if fat.active_weapon_slot == 0
+                && fat.weapon_fire_status
+                    == crate::game_logic::object::WeaponFireStatus::ReloadingClip as u8
+            {
+                0
+            } else {
+                fat.weapon_ammo
+            };
+            return [
+                (fat.weapon_ammo != u32::MAX)
+                    .then(|| valid_clip(shots_remaining, fat.weapon_clip_size))
+                    .flatten(),
+                None,
+                None,
+            ];
+        }
+
+        let Some(object) = self.host_object(id) else {
+            return [None; 3];
+        };
+        std::array::from_fn(|index| {
+            let slot = u8::try_from(index).ok()?;
+            let weapon = object.weapon_slot(slot)?;
+            let shots_remaining = if slot == object.active_weapon_slot
+                && object.weapon_fire_status
+                    == crate::game_logic::object::WeaponFireStatus::ReloadingClip
+            {
+                0
+            } else {
+                weapon.ammo?
+            };
+            valid_clip(shots_remaining, weapon.clip_size)
+        })
+    }
+
     /// Mutate attack substate via HashMap field borrow so `self.frame` stays readable.
     pub fn host_stamp_attack_substate_at_frame(
         &mut self,

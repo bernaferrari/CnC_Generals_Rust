@@ -20,6 +20,29 @@ impl GameLogic {
             .map(|obj| (obj.id, self.player_owner_for_host_object(obj)))
             .collect();
 
+        // C++ `ThingTemplate::calcTimeToBuild(player)` converts build time to
+        // integer logic frames, applies the exact PlayerTemplate
+        // `ProductionTimeChange`, and only then applies low-power timing.
+        // Snapshot the pre-power frame counts before mutable Object borrows;
+        // they remain player-owned start state and do not depend on tick
+        // ordering.
+        let authored_time_frames: std::collections::HashMap<ObjectId, u32> = object_ids
+            .iter()
+            .filter_map(|id| {
+                let obj = self.objects.get(id)?;
+                let player_id = object_owner_player_ids.get(id).copied().flatten()?;
+                let factor = self
+                    .player_template_production_time_factor(player_id, &obj.template_name);
+                Some((
+                    *id,
+                    Self::cpp_build_time_frames_from_factor(
+                        obj.thing.template.build_time,
+                        factor,
+                    ),
+                ))
+            })
+            .collect();
+
         // Pre-scan dozers: exclusive dock = assigned to this building (C++ DozerAIUpdate).
         let dozer_info: Vec<(Vec3, Option<u32>, Option<ObjectId>)> = self
             .objects
@@ -71,7 +94,20 @@ impl GameLogic {
                     let power_factor = build_owner_player_id
                         .and_then(|player_id| player_power_factor.get(&player_id).copied())
                         .unwrap_or(1.0);
-                    let base_rate = 1.0 / obj.thing.template.build_time.max(0.01);
+                    let authored_frames = authored_time_frames.get(&id).copied().unwrap_or_else(|| {
+                        Self::cpp_build_time_frames_from_factor(
+                            obj.thing.template.build_time,
+                            1.0,
+                        )
+                    });
+                    // Keep the existing zero-duration one-tick safeguard, but
+                    // otherwise advance from C++'s already-truncated authored
+                    // frame count rather than multiplying seconds first.
+                    let base_rate = if authored_frames == 0 {
+                        100.0
+                    } else {
+                        30.0 / authored_frames as f32
+                    };
                     let effective_rate = base_rate * dozer_count as f32 * power_factor;
                     // Under CONSTRUCTION_AUTHORITY + shadow, GameWorld sole-ticks percent
                     // using effective_rate; host only completes when writeback hits 1.0

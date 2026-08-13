@@ -390,6 +390,12 @@ pub(super) struct ObjectVisualState {
     /// invent a timeline that was absent when it was saved.
     pub force_bind_pose: bool,
     pub last_seen_weapon_discharge_sequence: u64,
+    /// Frozen accepted discharges received while this drawable is outside the
+    /// current render pass.  C++ `handleWeaponFireFX` records RECOIL_START
+    /// immediately, whereas `handleClientRecoil` evolves it only during a
+    /// visible `doDrawModule`; retain the broadcast until collection has a
+    /// fresh validated model/topology to consume exactly once.
+    pub pending_weapon_discharges: Vec<(u8, u8, u64)>,
     pub recoil_slots: [Vec<ObjectWeaponRecoilState>; 3],
 }
 
