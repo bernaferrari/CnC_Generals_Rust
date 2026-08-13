@@ -474,6 +474,43 @@ fn frozen_direct_shroud_sidecar_stays_at_the_render_boundary_and_before_model_lo
 }
 
 #[test]
+fn cull_radius_preserves_subunit_direct_visual_scale_for_bounds_and_fallback() {
+    let world_matrix = Mat4::from_scale(Vec3::splat(0.7));
+    let world_scale = RenderPipeline::world_cull_scale(world_matrix);
+    assert!(
+        (world_scale - 0.7).abs() < f32::EPSILON,
+        "a valid direct disguise scale must not be inflated to 1.0"
+    );
+
+    assert!(
+        (RenderPipeline::scaled_world_cull_radius(Some(20.0), 10.0, world_scale) - 14.0).abs()
+            < f32::EPSILON,
+        "known local W3D bounds must scale by the authored 0.7 transform"
+    );
+    assert!(
+        (RenderPipeline::scaled_world_cull_radius(Some(4.0), 10.0, world_scale) - 7.0).abs()
+            < f32::EPSILON,
+        "the scaled fallback remains the lower bound when known local bounds are smaller"
+    );
+    assert!(
+        (RenderPipeline::scaled_world_cull_radius(None, 10.0, world_scale) - 7.0).abs()
+            < f32::EPSILON,
+        "missing model bounds must retain the same scaled fallback radius"
+    );
+
+    let invalid_scale = RenderPipeline::world_cull_scale(Mat4::from_cols(
+        glam::Vec4::new(f32::NAN, 0.0, 0.0, 0.0),
+        glam::Vec4::Y,
+        glam::Vec4::Z,
+        glam::Vec4::W,
+    ));
+    assert_eq!(
+        invalid_scale, 1.0,
+        "non-finite world scale must fail safely to a finite cull radius"
+    );
+}
+
+#[test]
 fn direct_scene_candidate_ledger_follows_real_item_production_before_forward_sort() {
     let collect = include_str!("pipeline_collect.rs");
     let ready = collect

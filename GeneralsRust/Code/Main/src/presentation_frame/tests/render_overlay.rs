@@ -300,10 +300,11 @@ fn completed_allied_disguise_uses_the_direct_visual_template_after_gameworld_reb
     logic
         .templates
         .insert("GLAVehicleBombTruck".into(), truck_template);
-    logic.templates.insert(
-        "FriendlyDisguiseAppearance".into(),
-        ThingTemplate::new("FriendlyDisguiseAppearance"),
-    );
+    let mut disguise_template = ThingTemplate::new("FriendlyDisguiseAppearance");
+    disguise_template.set_asset_scale(0.7);
+    logic
+        .templates
+        .insert("FriendlyDisguiseAppearance".into(), disguise_template);
     let id = logic
         .create_object(
             "GLAVehicleBombTruck",
@@ -330,14 +331,15 @@ fn completed_allied_disguise_uses_the_direct_visual_template_after_gameworld_reb
         .find(|object| object.id == id)
         .expect("rebuilt Bomb Truck");
     assert!(frame.is_allied_with_local(object));
-    assert_eq!(
-        frame
-            .direct_host_drawables
-            .iter()
-            .find(|direct| direct.object.id == id)
-            .expect("resident direct drawable")
-            .visual_template_name,
-        "FriendlyDisguiseAppearance"
+    let direct = frame
+        .direct_host_drawables
+        .iter()
+        .find(|direct| direct.object.id == id)
+        .expect("resident direct drawable");
+    assert_eq!(direct.visual_template_name, "FriendlyDisguiseAppearance");
+    assert!(
+        (direct.visual_mesh_scale - 0.7).abs() < f32::EPSILON,
+        "C++ visual replacement must carry the disguise template's asset scale"
     );
     let input = frame
         .unit_render_inputs()
@@ -347,6 +349,14 @@ fn completed_allied_disguise_uses_the_direct_visual_template_after_gameworld_reb
     assert_eq!(
         input.template_name, "FriendlyDisguiseAppearance",
         "direct Drawable visual identity is independent of the viewer relationship"
+    );
+    assert!(
+        (input.mesh_scale - 0.7).abs() < f32::EPSILON,
+        "direct visual overlay must replace source scale before frustum/world-matrix use"
+    );
+    assert!(
+        (input.world_matrix().x_axis.truncate().length() - 0.7).abs() < f32::EPSILON,
+        "the replacement scale must reach the final world matrix, not just metadata"
     );
 }
 

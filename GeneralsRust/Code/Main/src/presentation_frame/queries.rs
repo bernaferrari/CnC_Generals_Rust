@@ -311,7 +311,9 @@ impl PresentationFrame {
                 }
                 input
             };
-        let apply_visual_template = |input: &mut UnitRenderInput, visual_template_name: &str| {
+        let apply_visual_template = |input: &mut UnitRenderInput,
+                                     visual_template_name: &str,
+                                     visual_mesh_scale: f32| {
             if visual_template_name.trim().is_empty() {
                 return;
             }
@@ -336,6 +338,9 @@ impl PresentationFrame {
                 .first()
                 .map(|model| model.model_key.clone())
                 .unwrap_or_default();
+            if visual_mesh_scale.is_finite() && visual_mesh_scale > 0.0 {
+                input.mesh_scale = visual_mesh_scale;
+            }
         };
 
         // C++ StealthUpdate::changeVisualDisguise destroys/recreates the
@@ -344,11 +349,19 @@ impl PresentationFrame {
         // carry the original gameplay template, so make the frozen direct
         // visual identity authoritative for every matching resident row—not
         // merely for an absent/deferred-death fallback row.
-        let direct_visual_templates: std::collections::HashMap<ObjectId, &str> = self
+        let direct_visual_templates: std::collections::HashMap<ObjectId, (&str, f32)> = self
             .direct_host_drawables
             .iter()
             .filter(|direct| direct.resident && !direct.visual_template_name.trim().is_empty())
-            .map(|direct| (direct.object.id, direct.visual_template_name.as_str()))
+            .map(|direct| {
+                (
+                    direct.object.id,
+                    (
+                        direct.visual_template_name.as_str(),
+                        direct.visual_mesh_scale,
+                    ),
+                )
+            })
             .collect();
 
         let mut inputs: Vec<UnitRenderInput> = self
@@ -357,8 +370,10 @@ impl PresentationFrame {
             .filter(|object| mesh_allowed(object, false))
             .map(|object| {
                 let mut input = make_input(object);
-                if let Some(visual_template_name) = direct_visual_templates.get(&object.id) {
-                    apply_visual_template(&mut input, visual_template_name);
+                if let Some((visual_template_name, visual_mesh_scale)) =
+                    direct_visual_templates.get(&object.id)
+                {
+                    apply_visual_template(&mut input, visual_template_name, *visual_mesh_scale);
                 }
                 input
             })
@@ -388,7 +403,11 @@ impl PresentationFrame {
             let mut input = make_input(&direct.object);
             // Direct visual identity is frozen from immutable ThingTemplate /
             // committed disguise state, never mutable Object template bookkeeping.
-            apply_visual_template(&mut input, &direct.visual_template_name);
+            apply_visual_template(
+                &mut input,
+                &direct.visual_template_name,
+                direct.visual_mesh_scale,
+            );
             ordinary_input_ids.insert(input.id);
             inputs.push(input);
         }

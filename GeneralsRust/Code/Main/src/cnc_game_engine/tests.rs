@@ -3,31 +3,39 @@
 
 #[test]
 fn presentation_path_applies_frozen_direct_shroud_after_sync_before_pose() {
-    let src = crate::cnc_game_engine::ENGINE_SRC;
+    let src = include_str!("camera_drain.rs");
     assert!(
         src.contains("apply_frozen_direct_presentation_poses"),
         "InGame presentation path must push keyed frozen poses without OBJECT_REGISTRY"
     );
-    let sync = src
+    let helper = src
+        .find("fn host_sync_presentation_direct_drawables(")
+        .expect("shared direct drawable hydration helper");
+    let helper_end = src[helper..]
+        .find("/// Wave 590: boot/render residual")
+        .map(|offset| helper + offset)
+        .expect("next helper boundary");
+    let helper = &src[helper..helper_end];
+    let sync = helper
         .find("sync_presentation_drawables(sync_entries)")
         .expect("presentation drawable sync");
-    let direct_shroud = src
-        .find("apply_frozen_direct_shroud_statuses(pres.frame.0, shroud_entries)")
+    let direct_shroud = helper
+        .find("apply_frozen_direct_shroud_statuses(logic_frame, shroud_entries)")
         .expect("frozen raw shroud apply");
-    let pose = src
+    let pose = helper
         .find("apply_frozen_direct_presentation_poses(pose_entries)")
         .expect("presentation pose apply");
-    let window = &src[sync..src.len().min(pose + 300)];
+    let window = &helper[sync..helper.len().min(pose + 300)];
     assert!(
         sync < direct_shroud && direct_shroud < pose,
         "raw direct status must apply only after sync and before pose"
     );
     assert!(
-        src.contains("pres.direct_host_drawables")
-            && window.contains("object.drawable_shroud.direct_game_client_status()?")
-            && window.contains("FrozenDirectShroudStatus")
-            && window.contains("presentation_direct_drawable_state(")
-            && window.contains("FrozenDirectPresentationPose"),
+        helper.contains("direct_host_drawables")
+            && helper.contains("object.drawable_shroud.direct_game_client_status()?")
+            && helper.contains("FrozenDirectShroudStatus")
+            && helper.contains("presentation_direct_drawable_state(")
+            && helper.contains("FrozenDirectPresentationPose"),
         "only host-resident direct records may enter GameClient with one guarded binding key"
     );
     assert!(
@@ -38,19 +46,86 @@ fn presentation_path_applies_frozen_direct_shroud_after_sync_before_pose() {
         !window.contains("apply_presentation_shroud_to_drawables"),
         "scalar ObjectVisibility must not compete with the raw direct-status path"
     );
-    let freeze = src
-        .find("let presentation_time_frozen =")
-        .expect("direct client freeze gate");
-    let freeze_window = &src[freeze..src.len().min(pose + 300)];
     assert!(
-        freeze_window.contains("self.presentation_or_boot_time_frozen() || self.game_paused")
-            && freeze_window.contains("if !presentation_time_frozen")
-            && freeze_window.contains("apply_frozen_direct_shroud_statuses"),
+        helper.contains("if !presentation_time_frozen")
+            && helper.contains("apply_frozen_direct_shroud_statuses"),
         "C++ GameClient update must retain direct shroud state during script/tactical or game-pause freeze"
     );
     assert!(
-        window.contains("scene_hidden_by_stealth: pres.local_viewer_hides_stealthed(o)"),
+        helper.contains("scene_hidden_by_stealth: pres.local_viewer_hides_stealthed(o)"),
         "direct hiddenByStealth must use the frozen viewer-relative C++ look, not generic stealth"
+    );
+}
+
+#[test]
+fn match_seed_primes_direct_bindings_before_first_ingame_render() {
+    let camera = include_str!("camera_drain.rs");
+    let seed_start = camera
+        .find("pub(super) fn host_seed_presentation_after_match_start(")
+        .expect("match-start presentation seed");
+    let seed_end = camera[seed_start..]
+        .find("/// Freeze-to-GameClient direct Drawable association boundary")
+        .map(|offset| seed_start + offset)
+        .expect("direct hydration helper follows seed");
+    let seed = &camera[seed_start..seed_end];
+    let frame = seed
+        .find("self.last_presentation_frame = Some(pres);")
+        .expect("seed installs immutable frame first");
+    let direct_sync = seed
+        .find("self.host_sync_presentation_direct_drawables(presentation_time_frozen);")
+        .expect("seed primes direct bindings");
+    assert!(
+        frame < direct_sync
+            && seed.contains("self.presentation_or_boot_time_frozen() || self.game_paused"),
+        "first InGame render must receive direct bindings after frame install and with the C++ freeze gate"
+    );
+
+    let start_game = include_str!("start_game.rs");
+    let start = &start_game[start_game
+        .find("pub(super) fn host_start_game_from_ui(")
+        .expect("start-game authority")..];
+    assert!(
+        start
+            .find("self.seed_presentation_after_match_start();")
+            .expect("start-game presentation seed")
+            < start
+                .find("self.transition_to_state(GameState::InGame);")
+                .expect("start-game InGame transition"),
+        "new matches must hydrate direct bindings before their first InGame render"
+    );
+
+    let authority = include_str!("host_authority.rs");
+    let restore = &authority[authority
+        .find("pub(super) fn host_load_game_from_ui(")
+        .expect("load-game authority")..];
+    assert!(
+        restore
+            .find("self.seed_presentation_after_match_start();")
+            .expect("load-game presentation seed")
+            < restore
+                .find("self.transition_to_state(GameState::InGame);")
+                .expect("load-game InGame transition"),
+        "staged restores must hydrate direct bindings before their first InGame render"
+    );
+
+    let shell = include_str!("shell.rs");
+    let startup = &shell[shell
+        .find("pub(super) fn host_finalize_startup_map_load(")
+        .expect("startup-map authority")..];
+    let startup_target = &startup[startup
+        .find("if let Some(target_state) = target_state {")
+        .expect("startup target transition")..];
+    let ingame = &startup_target[startup_target
+        .find("if target_state == GameState::InGame {")
+        .expect("startup InGame branch")..];
+    assert!(
+        ingame
+            .find("self.seed_presentation_after_match_start();")
+            .expect("startup InGame seed")
+            < ingame
+                .find("self.transition_to_state(target_state);")
+                .expect("startup target transition"),
+        "CLI/initial-file startup must hydrate direct bindings before its first InGame redraw"
     );
 }
 

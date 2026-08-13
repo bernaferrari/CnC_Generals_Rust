@@ -92,6 +92,25 @@ fn direct_host_visual_template_name(obj: &crate::game_logic::Object) -> String {
     }
 }
 
+/// C++ `Drawable` construction takes the replacement visual template's
+/// `getAssetScale()`, not the source Object's scale.  Main's direct visual
+/// identity is a frozen name, so resolve the matching loaded host template at
+/// the same snapshot boundary and fail closed to the source scale when an
+/// incomplete test/mod table lacks that named template.
+fn direct_host_visual_mesh_scale(
+    logic: &GameLogic,
+    obj: &crate::game_logic::Object,
+    visual_template_name: &str,
+) -> f32 {
+    logic
+        .templates
+        .get(visual_template_name)
+        .map(crate::assets::mesh_asset_resolve::mesh_scale_from_template)
+        .unwrap_or_else(|| {
+            crate::assets::mesh_asset_resolve::mesh_scale_from_template(obj.get_template())
+        })
+}
+
 impl PresentationFrame {
     /// Build a snapshot by borrowing the authoritative world for this call only.
     ///
@@ -290,6 +309,8 @@ impl PresentationFrame {
             let drawable_shroud =
                 freeze_direct_object_shroud_facts(obj, local_player_id, fow_shell_bypass);
             let visual_template_name = direct_host_visual_template_name(obj);
+            let visual_mesh_scale =
+                direct_host_visual_mesh_scale(logic, obj, &visual_template_name);
             // Wave 77: freeze ground-height residual at object XY (sample or default-0).
             let pos = obj.get_position();
             let (ground_height, ground_height_from_terrain) =
@@ -787,6 +808,7 @@ impl PresentationFrame {
             direct_host_drawables.push(PresentationDirectHostDrawable {
                 object: renderable.clone(),
                 visual_template_name,
+                visual_mesh_scale,
                 // Direct Object lifetime is host roster presence.  Do not
                 // derive it from health or gameplay destruction flags.
                 resident: true,
@@ -1656,6 +1678,7 @@ impl PresentationFrame {
         for drawable in &self.direct_host_drawables {
             drawable.object.id.0.hash(&mut h);
             drawable.visual_template_name.hash(&mut h);
+            drawable.visual_mesh_scale.to_bits().hash(&mut h);
             drawable.resident.hash(&mut h);
             drawable.object.position.x.to_bits().hash(&mut h);
             drawable.object.position.y.to_bits().hash(&mut h);
