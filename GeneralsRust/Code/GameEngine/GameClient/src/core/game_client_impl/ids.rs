@@ -128,7 +128,12 @@ pub struct PresentationDrawableSync {
     pub kind_names: Vec<String>,
     /// Wave 965: team tint residual 0..1 RGBA → indicator RGB.
     pub team_color: [f32; 4],
+    /// Generic frozen host stealth state used by UI/overlay residuals.
     pub effectively_stealthed: bool,
+    /// Exact viewer-relative C++ `m_hiddenByStealth` result for the direct
+    /// scene path. This is intentionally separate from generic effective
+    /// stealth: friendly stealthed units remain visible/translucent.
+    pub scene_hidden_by_stealth: bool,
     pub health_current: f32,
     pub health_max: f32,
     pub selected: bool,

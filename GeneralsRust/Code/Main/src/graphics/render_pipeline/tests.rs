@@ -289,6 +289,24 @@ fn direct_scene_decisions_validate_full_binding_drop_hidden_and_retain_scene_sta
     let mut render_items = vec![
         item(rendered_object),
         item(hidden_object),
+        RenderItem::new_presentation_projectile(
+            rendered_object,
+            "projectile-sharing-rendered-object-id".to_string(),
+            0,
+            Vec3::ZERO,
+            Mat4::IDENTITY,
+            &W3DMaterial::default(),
+            RenderPass::ForwardOpaque,
+        ),
+        RenderItem::new_presentation_projectile(
+            hidden_object,
+            "projectile-sharing-hidden-object-id".to_string(),
+            0,
+            Vec3::ZERO,
+            Mat4::IDENTITY,
+            &W3DMaterial::default(),
+            RenderPass::ForwardOpaque,
+        ),
         RenderItem::new_unbound_client_drawable(
             77,
             "standalone".to_string(),
@@ -359,6 +377,20 @@ fn direct_scene_decisions_validate_full_binding_drop_hidden_and_retain_scene_sta
                 && item.frozen_direct_scene_shroud.is_none()
         }),
         "objectless client drawables must not inherit a direct object decision"
+    );
+    assert!(
+        render_items.iter().any(|item| {
+            item.owner == RenderItemOwner::PresentationProjectile(rendered_object)
+                && item.frozen_direct_scene_shroud.is_none()
+        }),
+        "a presentation projectile sharing an ObjectID must not inherit a direct projected-shroud decision"
+    );
+    assert!(
+        render_items.iter().any(|item| {
+            item.owner == RenderItemOwner::PresentationProjectile(hidden_object)
+                && item.frozen_direct_scene_shroud.is_none()
+        }),
+        "a presentation projectile sharing an ObjectID must not be removed by a direct hidden decision"
     );
     assert!(
         !frozen_direct_scene_outcome_has_valid_pass_eligibility(
@@ -1183,6 +1215,7 @@ fn projectile_mesh_pass_uses_presentation_inputs() {
     let src = crate::graphics::render_pipeline::RENDER_PIPELINE_SRC;
     assert!(src.contains("projectile_render_inputs"));
     assert!(src.contains("Presentation projectile mesh residual"));
+    assert!(src.contains("new_presentation_projectile"));
 }
 
 #[test]

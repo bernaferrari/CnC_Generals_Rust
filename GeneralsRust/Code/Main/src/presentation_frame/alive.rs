@@ -263,6 +263,46 @@ impl PresentationFrame {
             && local.alliance_team == owner.alliance_team
     }
 
+    /// C++ `Team::getRelationship` slice used only by the StealthUpdate
+    /// viewer look. Unlike selection ownership, the source relation does not
+    /// turn an otherwise-allied object into an enemy merely because that
+    /// object's controlling player is dead; the caller separately handles an
+    /// inactive *viewer*.
+    #[inline]
+    fn local_stealth_viewer_sees_as_allied(&self, object: &RenderableObject) -> bool {
+        let Some(owner_player_id) = object.owner_player_id else {
+            return self.uses_legacy_team_ownership_fallback() && object.team == self.local_team;
+        };
+        if owner_player_id == self.local_player_id {
+            return true;
+        }
+        let Some(local) = self.player_info(self.local_player_id) else {
+            return false;
+        };
+        let Some(owner) = self.player_info(owner_player_id) else {
+            return false;
+        };
+        local.alliance_team >= 0 && local.alliance_team == owner.alliance_team
+    }
+
+    /// Frozen viewer-relation slice of C++
+    /// `StealthUpdate::calcStealthedStatusForPlayer` for the direct scene and
+    /// ordinary WGPU mesh gates.
+    ///
+    /// An inactive local player (including observer/dead state in the current
+    /// host projection) sees the source relation as `ALLIES`; an effectively
+    /// dead object likewise has `StealthLook::None`.  Keep this separate from
+    /// generic ownership/alliance queries, whose input/selection meanings are
+    /// intentionally different.
+    #[inline]
+    pub fn local_viewer_hides_stealthed(&self, object: &RenderableObject) -> bool {
+        object.effectively_stealthed
+            && !object.can_disguise_as_team
+            && !object.drawable_shroud.effectively_dead
+            && self.local_is_alive
+            && !self.local_stealth_viewer_sees_as_allied(object)
+    }
+
     /// True only for a proven, active opposing player. This avoids inventing
     /// hostility for neutral props or ownerless compatibility records.
     pub fn is_enemy_of_local(&self, object: &RenderableObject) -> bool {

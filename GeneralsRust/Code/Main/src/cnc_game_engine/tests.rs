@@ -38,6 +38,20 @@ fn presentation_path_applies_frozen_direct_shroud_after_sync_before_pose() {
         !window.contains("apply_presentation_shroud_to_drawables"),
         "scalar ObjectVisibility must not compete with the raw direct-status path"
     );
+    let freeze = src
+        .find("let presentation_time_frozen =")
+        .expect("direct client freeze gate");
+    let freeze_window = &src[freeze..src.len().min(pose + 300)];
+    assert!(
+        freeze_window.contains("self.presentation_or_boot_time_frozen() || self.game_paused")
+            && freeze_window.contains("if !presentation_time_frozen")
+            && freeze_window.contains("apply_frozen_direct_shroud_statuses"),
+        "C++ GameClient update must retain direct shroud state during script/tactical or game-pause freeze"
+    );
+    assert!(
+        window.contains("scene_hidden_by_stealth: pres.local_viewer_hides_stealthed(o)"),
+        "direct hiddenByStealth must use the frozen viewer-relative C++ look, not generic stealth"
+    );
 }
 
 #[test]

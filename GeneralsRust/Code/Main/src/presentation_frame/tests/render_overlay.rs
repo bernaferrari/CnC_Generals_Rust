@@ -104,6 +104,253 @@ fn unit_render_input_world_matrix_applies_mesh_scale() {
 }
 
 #[test]
+fn viewer_relative_stealth_matches_cxx_allies_and_inactive_local_rules() {
+    use crate::game_logic::{GameLogic, Player, Team, ThingTemplate};
+
+    let mut logic = GameLogic::new();
+    let mut local = Player::new(0, Team::USA, "Local", true);
+    local.alliance_team = 7;
+    let mut allied = Player::new(1, Team::China, "Allied", false);
+    allied.alliance_team = 7;
+    let mut enemy = Player::new(2, Team::GLA, "Enemy", false);
+    enemy.alliance_team = 8;
+    logic.add_player(local);
+    logic.add_player(allied);
+    logic.add_player(enemy);
+
+    let mut template = ThingTemplate::new("ViewerRelativeStealthUnit");
+    template.set_health(100.0);
+    logic
+        .templates
+        .insert("ViewerRelativeStealthUnit".into(), template);
+    let allied_id = logic
+        .create_object(
+            "ViewerRelativeStealthUnit",
+            Team::China,
+            glam::Vec3::new(2.0, 0.0, 2.0),
+        )
+        .expect("allied object");
+    let enemy_id = logic
+        .create_object(
+            "ViewerRelativeStealthUnit",
+            Team::GLA,
+            glam::Vec3::new(4.0, 0.0, 2.0),
+        )
+        .expect("enemy object");
+    for (id, owner) in [(allied_id, 1), (enemy_id, 2)] {
+        let object = logic.host_object_mut(id).expect("host object");
+        object.owner_player_id = Some(owner);
+        object.status.stealthed = true;
+        object.status.detected = false;
+    }
+
+    let active = PresentationFrame::build_from_logic(&logic, 0);
+    let active_allied = active
+        .objects
+        .iter()
+        .find(|object| object.id == allied_id)
+        .expect("allied frozen object");
+    let active_enemy = active
+        .objects
+        .iter()
+        .find(|object| object.id == enemy_id)
+        .expect("enemy frozen object");
+    assert!(active_allied.effectively_stealthed && active_enemy.effectively_stealthed);
+    assert!(
+        !active.local_viewer_hides_stealthed(active_allied)
+            && active.local_viewer_hides_stealthed(active_enemy),
+        "C++ StealthUpdate keeps allied stealth visible and hides an undetected non-ally"
+    );
+    let active_inputs = active.unit_render_inputs();
+    assert!(active_inputs.iter().any(|input| input.id == allied_id));
+    assert!(
+        !active_inputs.iter().any(|input| input.id == enemy_id),
+        "the scene sync and ordinary WGPU mesh gate share the same invisible-enemy decision"
+    );
+    let allied_input = active_inputs
+        .iter()
+        .find(|input| input.id == allied_id)
+        .expect("allied translucent input");
+    assert!(
+        allied_input.fow_visibility.visibility_alpha > 0.01
+            && allied_input.fow_visibility.visibility_alpha <= 0.35,
+        "C++ VISIBLE_FRIENDLY stays in the mesh pass with the frozen friendly-stealth alpha"
+    );
+
+    let mut dead_enemy = active_enemy.clone();
+    dead_enemy.drawable_shroud.effectively_dead = true;
+    assert!(
+        !active.local_viewer_hides_stealthed(&dead_enemy),
+        "C++ StealthUpdate returns StealthLook::None before evaluating relations for dead objects"
+    );
+
+    logic.get_player_mut(1).expect("allied player").is_alive = false;
+    let dead_allied_owner = PresentationFrame::build_from_logic(&logic, 0);
+    let allied_object = dead_allied_owner
+        .objects
+        .iter()
+        .find(|object| object.id == allied_id)
+        .expect("allied frozen object with a dead owner");
+    assert!(
+        !dead_allied_owner.local_viewer_hides_stealthed(allied_object),
+        "C++ Team::getRelationship does not make an allied object invisible because its owner died"
+    );
+
+    // C++ forces an inactive observer/dead local player to ALLIES for this
+    // visual relationship. Do not reuse generic selection/ownership logic.
+    logic.get_player_mut(0).expect("local player").is_alive = false;
+    let inactive = PresentationFrame::build_from_logic(&logic, 0);
+    assert!(!inactive.local_is_alive);
+    for id in [allied_id, enemy_id] {
+        let object = inactive
+            .objects
+            .iter()
+            .find(|object| object.id == id)
+            .expect("inactive frozen object");
+        assert!(
+            !inactive.local_viewer_hides_stealthed(object),
+            "an inactive local viewer must not turn any stealthed object invisible"
+        );
+    }
+    let inactive_inputs = inactive.unit_render_inputs();
+    assert!(
+        [allied_id, enemy_id]
+            .into_iter()
+            .all(|id| inactive_inputs.iter().any(|input| input.id == id)),
+        "inactive local visual relation keeps both stealth objects in the mesh roster"
+    );
+}
+
+#[test]
+fn bomb_truck_prehalfpoint_disguise_stays_visible_opaque_through_gameworld_rebuild() {
+    use crate::game_logic::{GameLogic, Player, Team, ThingTemplate};
+    use crate::gameworld_shadow::GameWorldShadow;
+
+    let mut logic = GameLogic::new();
+    logic.add_player(Player::new(0, Team::USA, "Local", true));
+    logic.add_player(Player::new(1, Team::GLA, "Enemy", false));
+
+    let mut template = ThingTemplate::new("GLAVehicleBombTruck");
+    template.set_health(100.0);
+    logic
+        .templates
+        .insert("GLAVehicleBombTruck".into(), template);
+    let id = logic
+        .create_object(
+            "GLAVehicleBombTruck",
+            Team::GLA,
+            glam::Vec3::new(4.0, 0.0, 2.0),
+        )
+        .expect("Bomb Truck object");
+    {
+        let object = logic.host_object_mut(id).expect("host Bomb Truck");
+        object.owner_player_id = Some(1);
+        // Presentation's mutable Object template bookkeeping must not affect
+        // this source capability; C++ reads the immutable ThingTemplate's
+        // StealthUpdate data instead.
+        object.template_name = "PoisonedRuntimeName".into();
+        object.apply_disguise("TestTank", Team::USA);
+    }
+
+    let mut shadow = GameWorldShadow::new(64);
+    shadow.sync_from_host(&logic);
+    // `build_from_gameworld` is the default engine object's roster path. It
+    // first rebuilds from GameWorld, then the host overlay must restore the
+    // immutable source capability.
+    let frame = PresentationFrame::build_from_gameworld(&shadow, 0, Some(&logic));
+    assert!(frame.gameworld_primary_objects);
+    let object = frame
+        .objects
+        .iter()
+        .find(|object| object.id == id)
+        .expect("rebuilt Bomb Truck");
+    assert_eq!(object.template_name, "PoisonedRuntimeName");
+    assert!(object.effectively_stealthed);
+    assert!(object.can_disguise_as_team);
+    assert!(
+        !frame.local_viewer_hides_stealthed(object),
+        "C++ canDisguise returns StealthLook::None before the visual disguise halfpoint"
+    );
+    let input = frame
+        .unit_render_inputs()
+        .into_iter()
+        .find(|input| input.id == id)
+        .expect("pre-halfpoint Bomb Truck remains renderable");
+    assert!(
+        (input.fow_visibility.visibility_alpha - 1.0).abs() < f32::EPSILON,
+        "StealthLook::None stays opaque; it is not the friendly-stealth alpha path"
+    );
+}
+
+#[test]
+fn completed_allied_disguise_uses_the_direct_visual_template_after_gameworld_rebuild() {
+    use crate::game_logic::{GameLogic, Player, Team, ThingTemplate};
+    use crate::gameworld_shadow::GameWorldShadow;
+
+    let mut logic = GameLogic::new();
+    let mut local = Player::new(0, Team::USA, "Local", true);
+    local.alliance_team = 9;
+    let mut allied_truck_owner = Player::new(1, Team::GLA, "Allied Truck", false);
+    allied_truck_owner.alliance_team = 9;
+    logic.add_player(local);
+    logic.add_player(allied_truck_owner);
+
+    let mut truck_template = ThingTemplate::new("GLAVehicleBombTruck");
+    truck_template.set_health(100.0);
+    logic
+        .templates
+        .insert("GLAVehicleBombTruck".into(), truck_template);
+    logic.templates.insert(
+        "FriendlyDisguiseAppearance".into(),
+        ThingTemplate::new("FriendlyDisguiseAppearance"),
+    );
+    let id = logic
+        .create_object(
+            "GLAVehicleBombTruck",
+            Team::GLA,
+            glam::Vec3::new(4.0, 0.0, 2.0),
+        )
+        .expect("Bomb Truck object");
+    {
+        let object = logic.host_object_mut(id).expect("host Bomb Truck");
+        object.owner_player_id = Some(1);
+        object.apply_disguise("FriendlyDisguiseAppearance", Team::USA);
+        for _ in 0..30 {
+            object.tick_disguise_transition();
+        }
+        assert!(object.status.disguised, "reached visual disguise halfpoint");
+    }
+
+    let mut shadow = GameWorldShadow::new(64);
+    shadow.sync_from_host(&logic);
+    let frame = PresentationFrame::build_from_gameworld(&shadow, 0, Some(&logic));
+    let object = frame
+        .objects
+        .iter()
+        .find(|object| object.id == id)
+        .expect("rebuilt Bomb Truck");
+    assert!(frame.is_allied_with_local(object));
+    assert_eq!(
+        frame
+            .direct_host_drawables
+            .iter()
+            .find(|direct| direct.object.id == id)
+            .expect("resident direct drawable")
+            .visual_template_name,
+        "FriendlyDisguiseAppearance"
+    );
+    let input = frame
+        .unit_render_inputs()
+        .into_iter()
+        .find(|input| input.id == id)
+        .expect("allied disguised mesh input");
+    assert_eq!(
+        input.template_name, "FriendlyDisguiseAppearance",
+        "direct Drawable visual identity is independent of the viewer relationship"
+    );
+}
+
+#[test]
 fn drawable_shroud_facts_stay_frozen_and_host_overlay_stamps_gameworld_records() {
     use crate::game_logic::{GameLogic, Team, ThingTemplate};
     use crate::gameworld_shadow::GameWorldShadow;

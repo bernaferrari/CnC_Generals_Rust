@@ -1531,6 +1531,10 @@ impl PresentationFrame {
             stealthed: ent.stealthed,
             detected: ent.detected,
             effectively_stealthed: ent.stealthed && !ent.detected,
+            // GameWorld has no typed StealthUpdate module metadata. A host
+            // overlay stamps this source capability for the active engine
+            // path; standalone GameWorld presentation fails closed.
+            can_disguise_as_team: false,
             disabled: ent.disabled_emp
                 || ent.disabled_paralyzed
                 || ent.disabled_hacked
@@ -1891,6 +1895,11 @@ impl PresentationFrame {
             );
             if ro.drawable_shroud != drawable_shroud {
                 ro.drawable_shroud = drawable_shroud;
+                dirty = true;
+            }
+            let can_disguise_as_team = super::build::freeze_direct_can_disguise_as_team(obj);
+            if ro.can_disguise_as_team != can_disguise_as_team {
+                ro.can_disguise_as_team = can_disguise_as_team;
                 dirty = true;
             }
             // GameWorld is the object-roster authority in the active frame,

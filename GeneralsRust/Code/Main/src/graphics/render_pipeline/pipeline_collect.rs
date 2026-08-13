@@ -682,7 +682,7 @@ impl RenderPipeline {
                                 } else {
                                     Mat4::IDENTITY
                                 };
-                            let mut render_item = RenderItem::new(
+                            let mut render_item = RenderItem::new_presentation_projectile(
                                 p.id,
                                 model_name.to_string(),
                                 mesh_idx,
