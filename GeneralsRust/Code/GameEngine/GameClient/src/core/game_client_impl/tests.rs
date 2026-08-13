@@ -19,7 +19,7 @@ mod tests {
         ini::{get_global_data, ini_game_data::init_global_data},
         recorder::Recorder,
     };
-    use gamelogic::common::types::ObjectStatusMaskType;
+    use gamelogic::common::types::{ObjectShroudStatus, ObjectStatusMaskType};
     use gamelogic::thing_template::DefaultThingTemplate as LogicDefaultThingTemplate;
     use std::io::Cursor;
     use std::path::{Path, PathBuf};
@@ -655,6 +655,545 @@ mod tests {
 
         client.destroy_drawable(first_id).unwrap();
         assert_eq!(client.get_drawable_for_object(99), Some(second_id));
+    }
+
+    fn presentation_drawable_sync_for_test(
+        object_id: u32,
+        host_epoch: u64,
+        visual_template_name: &str,
+        resident: bool,
+        destroyed: bool,
+        position: [f32; 3],
+        orientation: f32,
+    ) -> PresentationDrawableSync {
+        PresentationDrawableSync {
+            object_id,
+            host_epoch,
+            resident,
+            visual_template_name: visual_template_name.to_string(),
+            template_name: "UnderlyingTemplate".to_string(),
+            position,
+            orientation,
+            destroyed,
+            model_condition_bits: 0,
+            body_damage_state: 0,
+            kind_names: Vec::new(),
+            team_color: [1.0, 1.0, 1.0, 1.0],
+            effectively_stealthed: false,
+            health_current: 0.0,
+            health_max: 0.0,
+            selected: false,
+            veterancy_level: 0,
+            under_construction: false,
+            construction_percent: 0.0,
+            sold: false,
+            ammo_pip_total: 0,
+            ammo_pip_full: 0,
+            occupant_count: 0,
+            max_garrison: 0,
+            disabled: false,
+            is_carbomb: false,
+            weapon_bonus_enthusiastic: false,
+            show_healing: false,
+            healing_icon_type: 0,
+            garrisoned_ids: Vec::new(),
+            emoticon_name: String::new(),
+            emoticon_frames_left: 0,
+            formation_id: 0,
+            caption: String::new(),
+        }
+    }
+
+    #[test]
+    fn direct_visual_binding_uses_residency_and_replaces_on_visual_identity_change() {
+        let mut client = GameClient::new().unwrap();
+        let object_id = 101;
+        let host_epoch = 7;
+        let first = presentation_drawable_sync_for_test(
+            object_id,
+            host_epoch,
+            "VisualA",
+            true,
+            true,
+            [2.0, 3.0, 4.0],
+            0.2,
+        );
+
+        // `destroyed` is gameplay state, not direct visual residency.  An
+        // active slow-death/rubble visual remains bound while resident.
+        assert_eq!(
+            client.sync_presentation_drawables([first.clone()]),
+            (1, 0, 0)
+        );
+        let initial = client
+            .presentation_direct_drawable_state(host_epoch, object_id)
+            .expect("resident direct visual should receive a runtime key");
+        let initial_id = initial.binding_key.drawable_id;
+        assert_eq!(
+            client.apply_frozen_direct_shroud_statuses(
+                40,
+                [FrozenDirectShroudStatus {
+                    binding_key: initial.binding_key,
+                    raw_status: ObjectShroudStatus::Fogged,
+                    effectively_dead: true,
+                }],
+            ),
+            1
+        );
+        assert!(
+            client
+                .presentation_direct_drawable_state(host_epoch, object_id)
+                .expect("same binding remains queryable")
+                .fully_obscured
+        );
+
+        // Exact same resident visual keeps its full binding key and therefore
+        // retains C++ volatile direct shroud history.
+        assert_eq!(
+            client.sync_presentation_drawables([first.clone()]),
+            (0, 1, 0)
+        );
+        assert_eq!(
+            client
+                .presentation_direct_drawable_state(host_epoch, object_id)
+                .expect("same visual stays bound")
+                .binding_key,
+            initial.binding_key
+        );
+
+        // C++ `friend_bindToObject` preserves volatile Drawable shroud state
+        // for an ordinary rebind to the same Object.  The runtime key must
+        // remain valid too, otherwise the next presentation sync would
+        // recreate the Drawable and discard the direct visibility history.
+        client
+            .bind_drawable_to_object(initial.binding_key.drawable_id, object_id)
+            .expect("same-owner rebind");
+        let rebound = client
+            .presentation_direct_drawable_state(host_epoch, object_id)
+            .expect("same-owner rebind keeps the direct binding");
+        assert_eq!(rebound.binding_key, initial.binding_key);
+        assert!(
+            rebound.fully_obscured,
+            "same-owner rebind must retain volatile shroud state"
+        );
+        assert_eq!(
+            client.sync_presentation_drawables([first.clone()]),
+            (0, 1, 0)
+        );
+
+        let replacement = presentation_drawable_sync_for_test(
+            object_id,
+            host_epoch,
+            "VisualB",
+            true,
+            false,
+            [5.0, 6.0, 7.0],
+            0.4,
+        );
+        assert_eq!(
+            client.sync_presentation_drawables([replacement]),
+            (1, 0, 0),
+            "a visual disguise/template replacement recreates the Drawable"
+        );
+        let replaced = client
+            .presentation_direct_drawable_state(host_epoch, object_id)
+            .expect("replacement visual should receive a runtime key");
+        assert_ne!(replaced.binding_key, initial.binding_key);
+        assert_ne!(replaced.binding_key.drawable_id, initial_id);
+        assert!(replaced.binding_key.binding_generation > initial.binding_key.binding_generation);
+        assert!(
+            !replaced.fully_obscured,
+            "replacement resets volatile shroud state"
+        );
+
+        // A frozen status/pose for the replaced visual cannot mutate the new
+        // binding, even though host epoch and ObjectID still match.
+        assert_eq!(
+            client.apply_frozen_direct_shroud_statuses(
+                41,
+                [FrozenDirectShroudStatus {
+                    binding_key: initial.binding_key,
+                    raw_status: ObjectShroudStatus::Clear,
+                    effectively_dead: false,
+                }],
+            ),
+            0
+        );
+        assert_eq!(
+            client.apply_frozen_direct_presentation_poses([FrozenDirectPresentationPose {
+                binding_key: initial.binding_key,
+                position: [99.0, 99.0, 99.0],
+                orientation: 1.0,
+            }]),
+            0
+        );
+    }
+
+    #[test]
+    fn direct_scene_candidate_refreshes_clear_history_only_for_the_current_binding() {
+        let mut client = GameClient::new().unwrap();
+        let object_id = 212;
+        let host_epoch = 8;
+        let entry = presentation_drawable_sync_for_test(
+            object_id,
+            host_epoch,
+            "VisualA",
+            true,
+            false,
+            [0.0, 0.0, 0.0],
+            0.0,
+        );
+        assert_eq!(client.sync_presentation_drawables([entry]), (1, 0, 0));
+        let initial = client
+            .presentation_direct_drawable_state(host_epoch, object_id)
+            .expect("resident direct visual gets a binding key");
+
+        let decision = client.evaluate_frozen_direct_scene_shroud_candidates(
+            10,
+            [FrozenDirectSceneShroudCandidate {
+                binding_key: initial.binding_key,
+                raw_status: ObjectShroudStatus::Clear,
+                effectively_dead: false,
+            }],
+        );
+        assert_eq!(
+            decision,
+            [FrozenDirectSceneShroudDecision {
+                binding_key: initial.binding_key,
+                decision: crate::drawable::SceneShroudDecision::RenderDrawable {
+                    final_status: ObjectShroudStatus::Clear,
+                    pushes_projected_shroud_pass: false,
+                },
+            }],
+            "only an accepted direct scene candidate refreshes clear history"
+        );
+
+        assert_eq!(
+            client.apply_frozen_direct_shroud_statuses(
+                69,
+                [FrozenDirectShroudStatus {
+                    binding_key: initial.binding_key,
+                    raw_status: ObjectShroudStatus::Fogged,
+                    effectively_dead: false,
+                }],
+            ),
+            1
+        );
+        assert!(
+            !client
+                .presentation_direct_drawable_state(host_epoch, object_id)
+                .expect("current binding remains queryable")
+                .fully_obscured,
+            "the 2-second scene clear history keeps the next client update visible"
+        );
+
+        assert_eq!(
+            client.apply_frozen_direct_shroud_statuses(
+                70,
+                [FrozenDirectShroudStatus {
+                    binding_key: initial.binding_key,
+                    raw_status: ObjectShroudStatus::Fogged,
+                    effectively_dead: false,
+                }],
+            ),
+            1
+        );
+        assert!(
+            client
+                .presentation_direct_drawable_state(host_epoch, object_id)
+                .expect("same binding remains queryable")
+                .fully_obscured,
+            "the source limit is strict: frame 70 is outside a clear at frame 10"
+        );
+
+        let stale = PresentationDirectDrawableBindingKey {
+            binding_generation: initial.binding_key.binding_generation.wrapping_add(1),
+            ..initial.binding_key
+        };
+        assert!(
+            client
+                .evaluate_frozen_direct_scene_shroud_candidates(
+                    71,
+                    [FrozenDirectSceneShroudCandidate {
+                        binding_key: stale,
+                        raw_status: ObjectShroudStatus::Clear,
+                        effectively_dead: false,
+                    }],
+                )
+                .is_empty(),
+            "a stale ledger must not refresh the current direct Drawable"
+        );
+    }
+
+    #[test]
+    fn hidden_direct_scene_candidate_does_not_refresh_clear_history() {
+        let mut client = GameClient::new().unwrap();
+        let object_id = 213;
+        let host_epoch = 8;
+        let entry = presentation_drawable_sync_for_test(
+            object_id,
+            host_epoch,
+            "VisualA",
+            true,
+            false,
+            [0.0, 0.0, 0.0],
+            0.0,
+        );
+        assert_eq!(client.sync_presentation_drawables([entry]), (1, 0, 0));
+        let binding = client
+            .presentation_direct_drawable_state(host_epoch, object_id)
+            .expect("resident direct visual gets a binding key")
+            .binding_key;
+        client
+            .find_drawable_by_id_mut(binding.drawable_id)
+            .expect("binding owns a live drawable")
+            .as_any_mut()
+            .downcast_mut::<crate::drawable::BasicDrawable>()
+            .expect("presentation direct binding uses BasicDrawable")
+            .set_drawable_hidden(true);
+        assert!(
+            client
+                .presentation_direct_drawable_state(host_epoch, object_id)
+                .expect("current binding exports exact scene-hidden state")
+                .scene_effectively_hidden,
+            "Main must cull the same C++ hidden predicate before model load"
+        );
+
+        assert_eq!(
+            client.evaluate_frozen_direct_scene_shroud_candidates(
+                10,
+                [FrozenDirectSceneShroudCandidate {
+                    binding_key: binding,
+                    raw_status: ObjectShroudStatus::Clear,
+                    effectively_dead: false,
+                }],
+            ),
+            [FrozenDirectSceneShroudDecision {
+                binding_key: binding,
+                decision: crate::drawable::SceneShroudDecision::HiddenDirectDrawable,
+            }],
+            "the BasicDrawable hidden predicate remains authoritative at scene dispatch"
+        );
+        assert_eq!(
+            client.apply_frozen_direct_shroud_statuses(
+                11,
+                [FrozenDirectShroudStatus {
+                    binding_key: binding,
+                    raw_status: ObjectShroudStatus::Fogged,
+                    effectively_dead: false,
+                }],
+            ),
+            1
+        );
+        assert!(
+            client
+                .presentation_direct_drawable_state(host_epoch, object_id)
+                .expect("current binding remains queryable")
+                .fully_obscured,
+            "a hidden clear candidate cannot establish later C++ clear grace"
+        );
+    }
+
+    #[test]
+    fn presentation_visible_flag_does_not_suppress_cxx_direct_scene_clear_history() {
+        let mut client = GameClient::new().unwrap();
+        let object_id = 214;
+        let host_epoch = 8;
+        let entry = presentation_drawable_sync_for_test(
+            object_id,
+            host_epoch,
+            "VisualA",
+            true,
+            false,
+            [0.0, 0.0, 0.0],
+            0.0,
+        );
+        assert_eq!(client.sync_presentation_drawables([entry]), (1, 0, 0));
+        let binding = client
+            .presentation_direct_drawable_state(host_epoch, object_id)
+            .expect("resident direct visual gets a binding key")
+            .binding_key;
+        client
+            .find_drawable_by_id_mut(binding.drawable_id)
+            .expect("binding owns a live drawable")
+            .set_visible(false);
+
+        assert_eq!(
+            client.evaluate_frozen_direct_scene_shroud_candidates(
+                10,
+                [FrozenDirectSceneShroudCandidate {
+                    binding_key: binding,
+                    raw_status: ObjectShroudStatus::Clear,
+                    effectively_dead: false,
+                }],
+            ),
+            [FrozenDirectSceneShroudDecision {
+                binding_key: binding,
+                decision: crate::drawable::SceneShroudDecision::RenderDrawable {
+                    final_status: ObjectShroudStatus::Clear,
+                    pushes_projected_shroud_pass: false,
+                },
+            }],
+            "C++ scene visibility excludes Rust's broader presentation visible flag"
+        );
+        assert_eq!(
+            client.apply_frozen_direct_shroud_statuses(
+                69,
+                [FrozenDirectShroudStatus {
+                    binding_key: binding,
+                    raw_status: ObjectShroudStatus::Fogged,
+                    effectively_dead: false,
+                }],
+            ),
+            1
+        );
+        assert!(
+            !client
+                .presentation_direct_drawable_state(host_epoch, object_id)
+                .expect("same binding remains queryable")
+                .fully_obscured,
+            "the accepted clear candidate establishes the source two-second grace"
+        );
+    }
+
+    #[test]
+    fn direct_visual_binding_prunes_nonresident_and_world_invalidation_mints_a_new_generation() {
+        let mut client = GameClient::new().unwrap();
+        let object_id = 313;
+        let first_epoch = 17;
+        let resident = presentation_drawable_sync_for_test(
+            object_id,
+            first_epoch,
+            "VisualA",
+            true,
+            false,
+            [0.0, 0.0, 0.0],
+            0.0,
+        );
+        assert_eq!(client.sync_presentation_drawables([resident]), (1, 0, 0));
+        let initial = client
+            .presentation_direct_drawable_state(first_epoch, object_id)
+            .expect("initial binding");
+
+        // Nonresident, rather than `destroyed`, tears down the direct visual.
+        let nonresident = presentation_drawable_sync_for_test(
+            object_id,
+            first_epoch,
+            "VisualA",
+            false,
+            false,
+            [0.0, 0.0, 0.0],
+            0.0,
+        );
+        assert_eq!(client.sync_presentation_drawables([nonresident]), (0, 0, 1));
+        assert_eq!(
+            client.presentation_direct_drawable_state(first_epoch, object_id),
+            None
+        );
+
+        let second_epoch = 18;
+        let replacement = presentation_drawable_sync_for_test(
+            object_id,
+            second_epoch,
+            "VisualA",
+            true,
+            false,
+            [0.0, 0.0, 0.0],
+            0.0,
+        );
+        assert_eq!(client.sync_presentation_drawables([replacement]), (1, 0, 0));
+        let replacement = client
+            .presentation_direct_drawable_state(second_epoch, object_id)
+            .expect("new host epoch binding");
+        assert!(
+            replacement.binding_key.binding_generation > initial.binding_key.binding_generation
+        );
+
+        client.invalidate_presentation_drawable_world();
+        assert!(client.get_drawable_ids().is_empty());
+        assert_eq!(
+            client.presentation_direct_drawable_state(second_epoch, object_id),
+            None
+        );
+
+        let third_epoch = 19;
+        let after_reset = presentation_drawable_sync_for_test(
+            object_id,
+            third_epoch,
+            "VisualA",
+            true,
+            false,
+            [0.0, 0.0, 0.0],
+            0.0,
+        );
+        assert_eq!(client.sync_presentation_drawables([after_reset]), (1, 0, 0));
+        let after_reset = client
+            .presentation_direct_drawable_state(third_epoch, object_id)
+            .expect("world replacement must reconstruct a fresh visual binding");
+        assert!(
+            after_reset.binding_key.binding_generation > replacement.binding_key.binding_generation
+        );
+    }
+
+    #[test]
+    fn presentation_pose_keeps_world_translation_out_of_instance_transform() {
+        // C++ Drawable::draw begins from the attached Object/Thing world
+        // transform, then post-multiplies the local instance matrix exactly
+        // once.  The host presentation sync must therefore put its frozen
+        // position in BasicDrawable::position and only its yaw in the local
+        // instance matrix.
+        let mut client = GameClient::new().unwrap();
+        let object_id = 91_337;
+        let first_position = [37.0, -11.5, 8.25];
+        let first_yaw = 0.61;
+
+        assert_eq!(
+            client.ensure_presentation_drawables([(
+                object_id,
+                "PresentationPoseParityTank".to_string(),
+                first_position,
+                first_yaw,
+            )]),
+            1
+        );
+        // The legacy convenience helper deliberately uses epoch zero and may
+        // not leak a usable direct-host binding into Main's keyed pipeline.
+        assert_eq!(
+            client.presentation_direct_drawable_state(0, object_id),
+            None
+        );
+
+        let drawable_id = client
+            .get_drawable_for_object(object_id)
+            .expect("presentation sync should bind the new drawable");
+        let drawable = client
+            .find_drawable_by_id(drawable_id)
+            .expect("presentation drawable should remain registered");
+        let expected_first = Matrix4::translation(Vector3::new(
+            first_position[0],
+            first_position[1],
+            first_position[2],
+        ))
+        .mul(&Matrix4::rotation_y(first_yaw));
+        assert_eq!(drawable.get_transform(), expected_first);
+
+        let second_position = [-4.0, 19.0, 2.5];
+        let second_yaw = -0.28;
+        assert_eq!(
+            client
+                .apply_presentation_pose_to_drawables([(object_id, second_position, second_yaw,)]),
+            1
+        );
+        let drawable = client
+            .find_drawable_by_id(drawable_id)
+            .expect("presentation drawable should remain registered after pose update");
+        let expected_second = Matrix4::translation(Vector3::new(
+            second_position[0],
+            second_position[1],
+            second_position[2],
+        ))
+        .mul(&Matrix4::rotation_y(second_yaw));
+        assert_eq!(drawable.get_transform(), expected_second);
     }
 
     #[test]

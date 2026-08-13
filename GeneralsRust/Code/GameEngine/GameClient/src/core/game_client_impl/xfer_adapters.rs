@@ -212,6 +212,7 @@ pub(crate) fn xfer_live_game_client_state(
             } else {
                 client.drawable_map.clear();
                 client.drawable_object_map.clear();
+                client.presentation_direct_drawable_bindings.clear();
                 Vec::new()
             };
 

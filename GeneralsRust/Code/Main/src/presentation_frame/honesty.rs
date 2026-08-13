@@ -1,4 +1,5 @@
 use super::*;
+use crate::fow_rendering::ProjectedShroudSnapshot;
 
 impl PresentationFrame {
     /// Lookup snapshot FOW for an object (local player). None if not on the frame.
@@ -13,6 +14,23 @@ impl PresentationFrame {
     #[inline]
     pub fn fow_grid(&self) -> &PresentationFowGrid {
         &self.fow_grid
+    }
+
+    /// Source-shaped W3D shroud projection input frozen for this presentation
+    /// frame.  This is the only shroud texture source that renderer material
+    /// passes may consume.
+    #[inline]
+    pub fn projected_shroud(&self) -> &ProjectedShroudSnapshot {
+        &self.projected_shroud
+    }
+
+    /// Projection input eligible for terrain/object shroud material passes.
+    /// Shell maps and inactive/corrupt snapshots fail open exactly like the
+    /// existing terrain overlay path; callers must not retain a prior texture.
+    #[inline]
+    pub fn terrain_projected_shroud(&self) -> Option<&ProjectedShroudSnapshot> {
+        (self.terrain_fow_overlay_active() && self.projected_shroud.is_uploadable())
+            .then_some(&self.projected_shroud)
     }
 
     /// R8 terrain FOW texture from the snapshot only (no live shroud lock).

@@ -640,9 +640,10 @@ fn retail_overcharge_behavior_metadata_drives_frozen_command_and_live_drain() {
         .ancestors()
         .nth(3)
         .expect("Main crate must remain three levels below repository root");
-    let retail_source = std::fs::read_to_string(repo_root.join(
-        "windows_game/extracted_big_files_v2/INIZH/Data/INI/Object/FactionBuilding.ini",
-    ))
+    let retail_source = std::fs::read_to_string(
+        repo_root
+            .join("windows_game/extracted_big_files_v2/INIZH/Data/INI/Object/FactionBuilding.ini"),
+    )
     .expect("read retail FactionBuilding.ini");
     let mut parser = crate::assets::IniParser::new();
     parser
@@ -770,18 +771,31 @@ End
             .can_toggle_overcharge
     );
     assert!(frame.unit_command_buttons().iter().any(|button| {
-        button.command_name.eq_ignore_ascii_case("Command_ToggleOvercharge") && button.enabled
+        button
+            .command_name
+            .eq_ignore_ascii_case("Command_ToggleOvercharge")
+            && button.enabled
     }));
     logic.select_objects(0, vec![name_only_id]);
     let name_only_frame = PresentationFrame::build_from_logic(&logic, 0);
-    assert!(!name_only_frame.unit_command_buttons().iter().any(|button| {
-        button.command_name.eq_ignore_ascii_case("Command_ToggleOvercharge")
-    }));
+    assert!(
+        !name_only_frame.unit_command_buttons().iter().any(|button| {
+            button
+                .command_name
+                .eq_ignore_ascii_case("Command_ToggleOvercharge")
+        })
+    );
     logic.select_objects(0, vec![zero_bonus_id]);
     let zero_bonus_frame = PresentationFrame::build_from_logic(&logic, 0);
-    assert!(zero_bonus_frame.unit_command_buttons().iter().any(|button| {
-        button.command_name.eq_ignore_ascii_case("Command_ToggleOvercharge") && button.enabled
-    }));
+    assert!(zero_bonus_frame
+        .unit_command_buttons()
+        .iter()
+        .any(|button| {
+            button
+                .command_name
+                .eq_ignore_ascii_case("Command_ToggleOvercharge")
+                && button.enabled
+        }));
 
     let command = |id, command_id| GameCommand {
         command_type: CommandType::ToggleOvercharge,
@@ -901,7 +915,8 @@ End
     // positive applied damage observed above rather than assuming raw 4.5
     // damage is unresistable; this guarantees the next identical tick is
     // truly lethal for the parsed retail armor path.
-    logic.host_object_mut(plant_id)
+    logic
+        .host_object_mut(plant_id)
         .expect("re-enabled plant")
         .health
         .current = actual_damage * 0.5;
@@ -973,10 +988,9 @@ fn typed_overcharge_capture_keeps_disabled_bonus_in_cxx_energy_pool() {
         .set_health(1_000.0);
     plant_template.energy_bonus = Some(5);
     plant_template.overcharge_behavior = Some(OverchargeBehaviorMetadata::default());
-    logic.templates.insert(
-        "TypedOverchargeCaptureFixture".to_string(),
-        plant_template,
-    );
+    logic
+        .templates
+        .insert("TypedOverchargeCaptureFixture".to_string(), plant_template);
 
     let plant_id = logic
         .create_object_for_player("TypedOverchargeCaptureFixture", 0, Vec3::ZERO)

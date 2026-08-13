@@ -217,6 +217,12 @@ impl GameClient {
                         previous_drawable.set_object_id(None);
                     }
                     self.drawable_object_map.remove(&object_id);
+                    // A generic registration displaced a presentation-owned
+                    // direct visual.  Its runtime key is no longer valid;
+                    // host sync will mint a new one if this remains a direct
+                    // presentation resident.
+                    self.presentation_direct_drawable_bindings
+                        .remove(&previous_drawable_id);
                 }
             }
         }
@@ -363,6 +369,8 @@ impl GameClient {
                 }
             }
         }
+        // Direct visual identity is runtime-only and dies with the Drawable.
+        self.presentation_direct_drawable_bindings.remove(&id);
 
         // Remove from text bearing list
         self.text_bearing_drawables
@@ -381,6 +389,25 @@ impl GameClient {
             .get(&drawable_id)
             .and_then(|drawable| drawable.get_object_id());
 
+        // C++ `Drawable::friend_bindToObject` does not reset its volatile
+        // shroud state when it is rebound to the same Object.  Retain the
+        // direct binding only for that fully validated no-op association;
+        // any owner change, displacement, or broken inverse map is a new
+        // visual lifetime and must receive a fresh key on the next host sync.
+        let retains_same_direct_binding = old_object_id == Some(object_id)
+            && self.drawable_object_map.get(&object_id).copied() == Some(drawable_id)
+            && self
+                .presentation_direct_drawable_bindings
+                .get(&drawable_id)
+                .is_some_and(|binding| {
+                    binding.binding_key.object_id == object_id
+                        && binding.binding_key.drawable_id == drawable_id
+                });
+        if !retains_same_direct_binding {
+            self.presentation_direct_drawable_bindings
+                .remove(&drawable_id);
+        }
+
         if let Some(old_object_id) = old_object_id {
             if old_object_id != object_id
                 && self.drawable_object_map.get(&old_object_id).copied() == Some(drawable_id)
@@ -394,6 +421,8 @@ impl GameClient {
                 if let Some(previous_drawable) = self.drawable_map.get_mut(&previous_drawable_id) {
                     previous_drawable.set_object_id(None);
                 }
+                self.presentation_direct_drawable_bindings
+                    .remove(&previous_drawable_id);
             }
         }
 
@@ -1412,6 +1441,7 @@ impl Snapshotable for GameClient {
         } else {
             self.drawable_map.clear();
             self.drawable_object_map.clear();
+            self.presentation_direct_drawable_bindings.clear();
             Vec::new()
         };
 
@@ -1565,6 +1595,10 @@ impl Snapshotable for GameClient {
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
+        // Binding keys describe pre-load runtime Drawable instances and are
+        // intentionally not serialized.  Recreated presentation drawables
+        // receive fresh keys on the next host sync.
+        self.presentation_direct_drawable_bindings.clear();
         self.drawable_object_map.clear();
         let mut next_drawable_id = self.next_drawable_id.0.max(1);
 

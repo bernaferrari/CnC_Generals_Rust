@@ -107,6 +107,46 @@ impl Drawable for BasicDrawable {
         BasicDrawable::set_fully_obscured_by_shroud(self, fully_obscured);
     }
 
+    fn fully_obscured_by_shroud(&self) -> Option<bool> {
+        Some(BasicDrawable::fully_obscured_by_shroud(self))
+    }
+
+    fn scene_effectively_hidden(&self) -> Option<bool> {
+        Some(BasicDrawable::is_scene_effectively_hidden(self))
+    }
+
+    fn apply_frozen_direct_shroud_status(
+        &mut self,
+        logic_frame: u32,
+        raw_status: gamelogic::common::types::ObjectShroudStatus,
+        effectively_dead: bool,
+    ) -> Option<crate::drawable::ClientShroudVisibility> {
+        Some(BasicDrawable::apply_frozen_direct_shroud_status(
+            self,
+            logic_frame,
+            raw_status,
+            effectively_dead,
+        ))
+    }
+
+    fn evaluate_frozen_direct_scene_candidate(
+        &mut self,
+        logic_frame: u32,
+        raw_status: gamelogic::common::types::ObjectShroudStatus,
+        effectively_dead: bool,
+    ) -> Option<crate::drawable::SceneShroudDecision> {
+        Some(BasicDrawable::evaluate_frozen_direct_scene_candidate(
+            self,
+            logic_frame,
+            raw_status,
+            effectively_dead,
+        ))
+    }
+
+    fn reset_volatile_shroud_state(&mut self) {
+        BasicDrawable::reset_volatile_shroud_state(self);
+    }
+
     fn is_selected(&self) -> bool {
         self.selected
     }
@@ -300,29 +340,22 @@ impl Drawable for BasicDrawable {
             return;
         }
 
-        // C++ parity: Drawable::draw() builds transform from getTransformMatrix() *
-        // getInstanceMatrix(), then applies physics xform before draw module dispatch.
-        let mut world_transform = self.get_transform();
-        if !self.is_instance_identity() {
-            let instance = self.instance_transform;
-            world_transform = world_transform.mul(&instance);
-        }
+        // `BasicDrawable::get_transform()` already contains this port's
+        // instance matrix and scale. Do not multiply it again here: C++ uses
+        // its separate getTransformMatrix()/getInstanceMatrix() values once
+        // each, while this Rust accessor deliberately returns their combined
+        // presentation representation.
+        let world_transform = self.get_transform();
 
-        // C++ parity: applyPhysicsXform(&transformMtx) at Drawable.cpp:2649.
-        // Uses locomotor-derived pitch/roll/yaw/overlap_z from LocoInfo to apply
-        // visual physics transforms (vehicle tilt, hover bob, etc.).
-        if let Some(ref loco) = self.loco_info {
-            let total_pitch = snap_denorm(loco.pitch);
-            let total_roll = snap_denorm(loco.roll);
-            let total_yaw = snap_denorm(loco.yaw);
-            let total_z = snap_denorm(loco.overlap_z);
-
-            let physics_xform = Matrix4::translation(Vector3::new(0.0, 0.0, total_z))
-                .mul(&Matrix4::rotation_y(total_pitch))
-                .mul(&Matrix4::rotation_x(-total_roll))
-                .mul(&Matrix4::rotation_z(total_yaw));
-            world_transform = world_transform.mul(&physics_xform);
-        }
+        // Do not approximate C++ `Drawable::applyPhysicsXform` from persisted
+        // `LocoInfo` here. The source calculation is gated by object Held,
+        // GlobalData, TacticalView/script freeze and the *current* AI
+        // locomotor/physics state; rendering can execute more than once per
+        // client frame. Applying the raw saved fields here was therefore both
+        // observable on ineligible objects and capable of double-applying a
+        // guessed transform. The exact client-frame calculation will cache a
+        // validated transform from frozen physics input (hq-9vz). Until then,
+        // fail closed to the authoritative presentation root transform.
 
         // Note: DrawModule dispatch is handled by GameLogic::Drawable::draw(), not here.
         // BasicDrawable::render() handles the rendering submission after draw modules
@@ -331,113 +364,130 @@ impl Drawable for BasicDrawable {
         let tint = self.get_tint_color();
         let selected = self.is_selected();
 
-        let model_draw = self.model_draw_state();
+        // A C++ Drawable dispatches every DrawModule in order.  Preserve every
+        // committed W3D result rather than treating the last one as the whole
+        // object.  No committed output retains the template fallback used by
+        // simple/non-W3D drawables; an explicit empty committed W3D result is
+        // skipped rather than fabricating that fallback model.
+        let base_world_transform = world_transform;
+        let model_draws = self.model_draw_states();
+        let submit_model_draw = |model_draw: Option<&ModelDrawState>| {
+            let world_transform = base_world_transform;
+            let model_name = match model_draw {
+                Some(state) if state.model_name.is_empty() => return,
+                Some(state) => state.model_name.clone(),
+                None => self.template_name.clone().unwrap_or_default(),
+            };
 
-        let model_name = model_draw
-            .as_ref()
-            .map(|state| state.model_name.clone())
-            .filter(|name| !name.is_empty())
-            .or_else(|| self.template_name.clone())
-            .unwrap_or_default();
+            // The presentation-facing BasicDrawable owns the authoritative
+            // frozen object transform (including its existing visual physics
+            // pass). The legacy model-draw bridge transports module-local
+            // state only; replacing this transform with GameLogic's partially
+            // reconstructed Drawable transform would make an approximation
+            // look authoritative and lose presentation-side physics fields.
 
-        if let Some(model_draw) = model_draw.as_ref() {
-            world_transform = Self::matrix4_from_model_draw(model_draw.world_transform);
-        }
+            let mut condition_flags = model_draw
+                .map(|state| Self::render_condition_flags_from_bits(state.condition_flags_bits))
+                .unwrap_or_else(|| self.compute_render_condition_flags());
 
-        let mut condition_flags = model_draw
-            .as_ref()
-            .map(|state| Self::render_condition_flags_from_bits(state.condition_flags_bits))
-            .unwrap_or_else(|| self.compute_render_condition_flags());
+            if selected {
+                condition_flags |= crate::render_bridge::RenderConditionFlags::SELECTED;
+            }
 
-        if selected {
-            condition_flags |= crate::render_bridge::RenderConditionFlags::SELECTED;
-        }
+            let bone_overrides = model_draw
+                .map(|state| {
+                    state
+                        .bone_overrides
+                        .iter()
+                        .map(Self::bone_override_from_model_draw)
+                        .collect()
+                })
+                .unwrap_or_default();
+            let mesh_uv_overrides = model_draw
+                .map(|state| {
+                    state
+                        .mesh_uv_overrides
+                        .iter()
+                        .map(|uv| crate::render_bridge::MeshUvOverride {
+                            mesh_name_prefix: uv.mesh_name_prefix.clone(),
+                            u_offset: uv.u_offset,
+                            v_offset: uv.v_offset,
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            let sub_object_visibility = model_draw
+                .map(|state| {
+                    state
+                        .sub_object_visibility
+                        .iter()
+                        .map(|visibility| crate::render_bridge::SubObjectVisibility {
+                            sub_object_name: visibility.sub_object_name.clone(),
+                            hidden: visibility.hidden,
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            let animation_name = model_draw.and_then(|state| state.animation_name.clone());
+            let animation_mode = model_draw
+                .and_then(|state| Self::animation_mode_from_model_draw(state.animation_mode));
+            let animation_time = model_draw.map(|state| state.animation_time).unwrap_or(0.0);
+            let render_state =
+                Self::render_state_from_flags(condition_flags, opacity, tint, selected);
 
-        let bone_overrides = model_draw
-            .as_ref()
-            .map(|state| {
-                state
-                    .bone_overrides
-                    .iter()
-                    .map(Self::bone_override_from_model_draw)
-                    .collect()
-            })
-            .unwrap_or_default();
-        let mesh_uv_overrides = model_draw
-            .as_ref()
-            .map(|state| {
-                state
-                    .mesh_uv_overrides
-                    .iter()
-                    .map(|uv| crate::render_bridge::MeshUvOverride {
-                        mesh_name_prefix: uv.mesh_name_prefix.clone(),
-                        u_offset: uv.u_offset,
-                        v_offset: uv.v_offset,
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
-        let sub_object_visibility = model_draw
-            .as_ref()
-            .map(|state| {
-                state
-                    .sub_object_visibility
-                    .iter()
-                    .map(|visibility| crate::render_bridge::SubObjectVisibility {
-                        sub_object_name: visibility.sub_object_name.clone(),
-                        hidden: visibility.hidden,
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
-        let animation_name = model_draw
-            .as_ref()
-            .and_then(|state| state.animation_name.clone());
-        let animation_mode = model_draw
-            .as_ref()
-            .and_then(|state| Self::animation_mode_from_model_draw(state.animation_mode));
-        let animation_time = model_draw
-            .as_ref()
-            .map(|state| state.animation_time)
-            .unwrap_or(0.0);
-        let render_state = Self::render_state_from_flags(condition_flags, opacity, tint, selected);
+            let submission = crate::render_bridge::DrawSubmission {
+                drawable_id: crate::render_bridge::DrawableId(self.id.0),
+                owner_object_id: self.object_id,
+                legacy_model_draw_source: model_draw.map(|state| state.source.clone()),
+                legacy_weapon_bone_bindings: model_draw
+                    .map(|state| state.weapon_bone_bindings.clone()),
+                model_name,
+                world_transform: world_transform.to_glam(),
+                condition_flags,
+                render_state: render_state.clone(),
+                bone_overrides,
+                mesh_uv_overrides,
+                sub_object_visibility,
+                animation_name,
+                animation_mode,
+                animation_time,
+                bounding_sphere: {
+                    let (_, radius) = self.get_bounding_sphere();
+                    ww3d_core::BoundingSphere::new(
+                        ww3d_core::glam::Vec3::new(
+                            self.position.x,
+                            self.position.y,
+                            self.position.z,
+                        ),
+                        radius,
+                    )
+                },
+                bounding_box: ww3d_core::AABox::zero(),
+                sort_level: 0,
+                opaque: render_state.opacity >= 1.0,
+                transparent: render_state.opacity < 1.0,
+                cast_shadow: self.status.has(DrawableStatus::SHADOWS),
+            };
 
-        let submission = crate::render_bridge::DrawSubmission {
-            drawable_id: crate::render_bridge::DrawableId(self.id.0),
-            model_name,
-            world_transform: glam::Mat4::from_cols_array_2d(&world_transform.elements),
-            condition_flags,
-            render_state: render_state.clone(),
-            bone_overrides,
-            mesh_uv_overrides,
-            sub_object_visibility,
-            animation_name,
-            animation_mode,
-            animation_time,
-            bounding_sphere: {
-                let (_, radius) = self.get_bounding_sphere();
-                ww3d_core::BoundingSphere::new(
-                    ww3d_core::glam::Vec3::new(self.position.x, self.position.y, self.position.z),
-                    radius,
-                )
-            },
-            bounding_box: ww3d_core::AABox::zero(),
-            sort_level: 0,
-            opaque: render_state.opacity >= 1.0,
-            transparent: render_state.opacity < 1.0,
-            cast_shadow: self.status.has(DrawableStatus::SHADOWS),
+            if let Ok(mut bridge_guard) = get_render_bridge().lock() {
+                if let Some(bridge) = bridge_guard.as_mut() {
+                    bridge.submit(submission);
+                }
+            }
         };
 
-        if let Ok(mut bridge_guard) = get_render_bridge().lock() {
-            if let Some(bridge) = bridge_guard.as_mut() {
-                bridge.submit(submission);
+        if model_draws.is_empty() {
+            submit_model_draw(None);
+        } else {
+            for model_draw in &model_draws {
+                submit_model_draw(Some(model_draw));
             }
         }
 
         // C++ parity: Drawable::draw() iterates draw modules after setting up
         // the world transform. Each draw module renders its portion of the model.
         for dm in &mut self.draw_modules {
-            dm.do_draw(&world_transform, view_matrix, projection_matrix);
+            dm.do_draw(&base_world_transform, view_matrix, projection_matrix);
         }
     }
 

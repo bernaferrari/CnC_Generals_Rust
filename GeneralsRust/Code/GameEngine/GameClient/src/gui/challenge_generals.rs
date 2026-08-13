@@ -6,15 +6,8 @@
 //                /GeneralsMD/Code/GameEngine/Source/GameClient/GUI/ChallengeGenerals.cpp
 
 use game_engine::common::ini::{
-    get_challenge_generals as get_ini_challenge_generals,
-    get_challenge_generals_mut as get_ini_challenge_generals_mut,
-    init_challenge_generals as init_ini_challenge_generals,
-    ChallengeGenerals as IniChallengeGenerals, INILoadType, INI,
+    ensure_challenge_generals_loaded, get_challenge_generals as get_ini_challenge_generals,
 };
-use std::collections::{BTreeSet, HashSet};
-use std::env;
-use std::fs;
-use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
 
 /// Number of generals in Challenge mode
@@ -27,65 +20,6 @@ fn optional_ini_string(value: &str) -> Option<String> {
     } else {
         Some(value.to_string())
     }
-}
-
-fn push_challenge_ini_file(files: &mut Vec<PathBuf>, seen: &mut HashSet<PathBuf>, path: PathBuf) {
-    if path.is_file() {
-        let key = fs::canonicalize(&path).unwrap_or(path.clone());
-        if seen.insert(key) {
-            files.push(path);
-        }
-    }
-}
-
-fn discover_challenge_mode_ini_files() -> Vec<PathBuf> {
-    let mut roots = BTreeSet::new();
-
-    if let Ok(cwd) = env::current_dir() {
-        for ancestor in cwd.ancestors() {
-            roots.insert(ancestor.to_path_buf());
-        }
-    }
-    if let Ok(exe) = env::current_exe() {
-        if let Some(parent) = exe.parent() {
-            for ancestor in parent.ancestors() {
-                roots.insert(ancestor.to_path_buf());
-            }
-        }
-    }
-
-    let mut seen = HashSet::new();
-    let mut files = Vec::new();
-    for root in roots {
-        push_challenge_ini_file(
-            &mut files,
-            &mut seen,
-            root.join("Data/INI/ChallengeMode.ini"),
-        );
-        push_challenge_ini_file(
-            &mut files,
-            &mut seen,
-            root.join("Data/INI/Default/ChallengeMode.ini"),
-        );
-
-        for extracted in [
-            root.join("windows_game/extracted_big_files/INIZH"),
-            root.join("windows_game/extracted_big_files_v2/INIZH"),
-        ] {
-            push_challenge_ini_file(
-                &mut files,
-                &mut seen,
-                extracted.join("Data/INI/ChallengeMode.ini"),
-            );
-            push_challenge_ini_file(
-                &mut files,
-                &mut seen,
-                extracted.join("Data/INI/Default/ChallengeMode.ini"),
-            );
-        }
-    }
-
-    files
 }
 
 /// Represents an individual General's persona data
@@ -424,6 +358,11 @@ pub struct ChallengeGenerals {
     /// Current difficulty setting for challenge mode
     /// Matches C++ m_currentDifficulty (ChallengeGenerals.h line 105)
     current_difficulty: GameDifficulty,
+
+    /// Common could not provide a valid authored persona table.  Keep this
+    /// explicit so the legacy GameClient projection cannot mistake blank
+    /// positions for an all-unlocked table.
+    persona_data_failed: bool,
 }
 
 impl ChallengeGenerals {
@@ -482,42 +421,29 @@ impl ChallengeGenerals {
             ],
             player_template_num: 0,
             current_difficulty: GameDifficulty::Normal,
+            persona_data_failed: false,
         }
     }
 
-    /// Initializes the challenge generals from INI file
-    /// Matches C++ init() (ChallengeGenerals.cpp lines 36-40)
+    /// Initializes the UI projection from the Common-owned authored table.
     ///
-    /// In the C++ version, this loads from Data\\INI\\ChallengeMode.ini
+    /// C++ has one `TheChallengeGenerals` singleton loaded through
+    /// `Data\\INI\\ChallengeMode.ini`.  Main's headless authority and this
+    /// UI projection must consume the same source, so GameClient never parses
+    /// a second potentially divergent table here.
     pub fn init(&mut self) {
-        init_ini_challenge_generals();
-        {
-            let mut store = get_ini_challenge_generals_mut();
-            *store = IniChallengeGenerals::new();
-        }
-
-        let sources = discover_challenge_mode_ini_files();
-        if sources.is_empty() {
-            log::warn!("ChallengeGenerals::init: no ChallengeMode.ini sources found");
+        if let Err(error) = ensure_challenge_generals_loaded() {
+            // The Common store records this failure and Main's session
+            // authority rejects all template selection while it remains
+            // unresolved.  Keep GameClient alive enough to surface its normal
+            // UI diagnostics instead of manufacturing unlocked persona data.
+            log::warn!("ChallengeGenerals::init: {error}");
+            self.positions = std::array::from_fn(|_| GeneralPersona::new());
+            self.persona_data_failed = true;
             return;
         }
 
-        let mut ini = INI::new();
-        for (idx, source) in sources.iter().enumerate() {
-            let load_type = if idx == 0 {
-                INILoadType::Overwrite
-            } else {
-                INILoadType::MultiFile
-            };
-            if let Err(err) = ini.load(source, load_type) {
-                log::warn!(
-                    "ChallengeGenerals::init: failed to load '{}': {}",
-                    source.display(),
-                    err
-                );
-            }
-        }
-
+        self.persona_data_failed = false;
         self.sync_from_ini_store();
     }
 
@@ -558,6 +484,9 @@ impl ChallengeGenerals {
     /// Finds a general by template name
     /// Matches C++ getGeneralByTemplateName (ChallengeGenerals.cpp lines 132-142)
     pub fn general_by_template_name(&self, name: &str) -> Option<&GeneralPersona> {
+        if self.persona_data_failed {
+            return Some(fail_closed_general_persona());
+        }
         for i in 0..NUM_GENERALS {
             if self.positions[i]
                 .player_template_name()
@@ -592,6 +521,11 @@ impl ChallengeGenerals {
     pub fn current_difficulty(&self) -> GameDifficulty {
         self.current_difficulty
     }
+}
+
+fn fail_closed_general_persona() -> &'static GeneralPersona {
+    static FAIL_CLOSED_PERSONA: OnceLock<GeneralPersona> = OnceLock::new();
+    FAIL_CLOSED_PERSONA.get_or_init(GeneralPersona::new)
 }
 
 impl Default for ChallengeGenerals {
@@ -886,5 +820,39 @@ mod tests {
 
         generals.set_current_difficulty(GameDifficulty::Easy);
         assert_eq!(generals.current_difficulty(), GameDifficulty::Easy);
+    }
+
+    #[test]
+    fn game_client_projection_uses_the_common_locked_general_table() {
+        init_challenge_generals();
+        let generals = get_challenge_generals_mut().expect("ChallengeGenerals UI projection");
+
+        assert!(generals
+            .general_by_template_name("FactionAmericaAirForceGeneral")
+            .is_some_and(|persona| persona.is_starting_enabled()));
+        assert!(generals
+            .general_by_template_name("FactionBossGeneral")
+            .is_some_and(|persona| !persona.is_starting_enabled()));
+
+        let common = game_engine::common::ini::get_challenge_generals();
+        assert!(common
+            .get_general_by_template_name("FactionAmericaAirForceGeneral")
+            .is_some_and(|persona| persona.is_starting_enabled()));
+        assert!(common
+            .get_general_by_template_name("FactionBossGeneral")
+            .is_some_and(|persona| !persona.is_starting_enabled()));
+    }
+
+    #[test]
+    fn failed_common_persona_projection_rejects_every_template() {
+        let mut generals = ChallengeGenerals::new();
+        generals.persona_data_failed = true;
+
+        assert!(generals
+            .general_by_template_name("FactionBossGeneral")
+            .is_some_and(|persona| !persona.is_starting_enabled()));
+        assert!(generals
+            .general_by_template_name("FactionAmericaAirForceGeneral")
+            .is_some_and(|persona| !persona.is_starting_enabled()));
     }
 }

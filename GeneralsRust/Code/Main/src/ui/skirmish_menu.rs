@@ -193,6 +193,11 @@ pub struct SkirmishMenu {
     rules: GameRules,
     /// Selected map name
     map_name: String,
+    /// Setup-owned C++ `GameInfo::getSeed()` equivalent for the fallback
+    /// Main menu. The GameClient WND path owns the actual GameInfo record;
+    /// this menu deliberately retains an explicit seed instead of inventing a
+    /// wall-clock value at Start time.
+    random_seed: u32,
     /// Map preview available
     has_map_preview: bool,
     /// Action buttons
@@ -223,6 +228,7 @@ impl SkirmishMenu {
             slots: Vec::new(),
             rules: GameRules::default(),
             map_name: "Default Map".to_string(),
+            random_seed: 0,
             has_map_preview: false,
             action_buttons: Vec::new(),
             screen_size: (1024, 768),
@@ -325,6 +331,19 @@ impl SkirmishMenu {
             self.rules.clone(),
             self.map_name.clone(),
         )
+    }
+
+    /// Set the retained offline setup seed before Start.  Callers that have a
+    /// real C++ GameInfo should use the GameClient configuration path instead;
+    /// the default zero is deterministic rather than a false timing-parity
+    /// claim for this simplified fallback menu.
+    pub fn set_random_seed(&mut self, random_seed: u32) {
+        self.random_seed = random_seed;
+    }
+
+    /// Retained setup seed supplied to the offline Skirmish configuration.
+    pub fn random_seed(&self) -> u32 {
+        self.random_seed
     }
 
     /// Production slot-type cycle used by the skirmish UI (Open → Easy → Medium → …).
@@ -475,6 +494,7 @@ impl SkirmishMenu {
                         &self.map_name,
                         &self.rules,
                         &self.slots,
+                        self.random_seed,
                     );
                     Some(UIEvent::StartGame {
                         mode: GameMode::Skirmish,

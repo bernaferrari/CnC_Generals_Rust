@@ -658,6 +658,16 @@ fn presentation_fow_grid_matches_shroud_snapshot_and_stays_frozen() {
     assert_eq!(snap.fow_grid.width, 10);
     assert_eq!(snap.fow_grid.height, 10);
     assert_eq!(snap.fow_grid.cell_count(), 100, "10x10 compact grid");
+    assert_eq!(snap.projected_shroud.grid_width, 10);
+    assert_eq!(snap.projected_shroud.grid_height, 10);
+    // W3D adds the source border (12x12) then validates the destination to
+    // powers of two, so the frozen texture is the full 16x16 allocation.
+    assert_eq!(snap.projected_shroud.texture_extent(), Some((16, 16)));
+    assert_eq!(snap.projected_shroud.texels.len(), 256);
+    assert!(
+        snap.terrain_projected_shroud().is_some(),
+        "active non-shell frame must expose only its frozen shroud projection"
+    );
 
     // R8 payload length matches grid; encoding is deterministic.
     let r8 = snap.terrain_fow_r8().expect("active grid has r8");
@@ -675,6 +685,7 @@ fn presentation_fow_grid_matches_shroud_snapshot_and_stays_frozen() {
     // Freeze: mutate live shroud after snapshot — presentation cells must not change.
     let frozen_fp = snap.fow_grid.content_fingerprint();
     let frozen_r8 = snap.fow_grid.to_r8_texture();
+    let frozen_projected_fp = snap.projected_shroud.content_fingerprint();
     {
         let mut shroud = get_shroud_manager().lock().expect("shroud");
         // Permanent reveal → all cells Visible on the live manager.
@@ -686,6 +697,11 @@ fn presentation_fow_grid_matches_shroud_snapshot_and_stays_frozen() {
         "owned grid must stay frozen after live shroud mutation"
     );
     assert_eq!(snap.fow_grid.to_r8_texture(), frozen_r8);
+    assert_eq!(
+        snap.projected_shroud.content_fingerprint(),
+        frozen_projected_fp,
+        "projected R8 snapshot must stay frozen after live shroud mutation"
+    );
 
     // New build sees the reveal.
     let snap_after = PresentationFrame::build_from_logic(&logic, 0);
@@ -701,6 +717,11 @@ fn presentation_fow_grid_matches_shroud_snapshot_and_stays_frozen() {
         snap_after.fow_grid.content_fingerprint(),
         frozen_fp,
         "new frame must differ after live reveal"
+    );
+    assert_ne!(
+        snap_after.projected_shroud.content_fingerprint(),
+        frozen_projected_fp,
+        "new projected R8 snapshot must differ after live reveal"
     );
 
     // Shell bypass forces fully visible cells when grid dims exist.
@@ -718,6 +739,7 @@ fn presentation_fow_grid_matches_shroud_snapshot_and_stays_frozen() {
                 .all(|&c| c == PresentationFowGrid::CELL_VISIBLE));
         }
         assert!(!shell_snap.terrain_fow_overlay_active());
+        assert!(shell_snap.terrain_projected_shroud().is_none());
     }
 
     // Cleanup global shroud so other tests fail-open cleanly.
@@ -730,7 +752,7 @@ fn presentation_fow_grid_matches_shroud_snapshot_and_stays_frozen() {
 }
 
 #[test]
-fn unit_render_inputs_skip_destroyed_and_engine_bridged() {
+fn unit_render_inputs_keep_resident_direct_destroyed_drawable_without_duplicate() {
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("UnitRenderSkip");
     apply_skirmish_config(&mut logic, &cfg).expect("config");
@@ -757,11 +779,30 @@ fn unit_render_inputs_skip_destroyed_and_engine_bridged() {
     let inputs = snap.unit_render_inputs();
     assert_eq!(
         inputs.len(),
-        2,
-        "non-destroyed host units enter main mesh pass (dual-id bridge retired)"
+        3,
+        "the normal roster omits gameplay-destroyed rows, while the resident direct host drawable preserves its visual lifetime"
     );
     let input_ids: Vec<_> = inputs.iter().map(|i| i.id).collect();
-    assert!(input_ids.contains(&alive_id) && input_ids.contains(&other_id));
+    assert!(
+        input_ids.contains(&alive_id)
+            && input_ids.contains(&other_id)
+            && input_ids.contains(&dead_id)
+    );
+    assert_eq!(
+        input_ids.iter().filter(|&&id| id == dead_id).count(),
+        1,
+        "a direct source may fill a missing normal row but must not duplicate it"
+    );
+    let direct = snap
+        .direct_host_drawables
+        .iter()
+        .find(|drawable| drawable.object.id == dead_id)
+        .expect("destroyed host object retains direct source");
+    assert!(direct.resident);
+    assert!(
+        direct.object.destroyed,
+        "gameplay destruction remains on the normal object payload"
+    );
     let ids = snap.renderable_object_ids();
     assert!(ids.contains(&alive_id));
     assert!(ids.contains(&other_id));
@@ -769,6 +810,88 @@ fn unit_render_inputs_skip_destroyed_and_engine_bridged() {
     assert!(
         inputs.iter().all(|i| !i.engine_bridged),
         "engine_bridged residual stays false on host-only path"
+    );
+}
+
+#[test]
+fn direct_host_drawable_roster_survives_gameworld_rebuild_and_uses_visual_identity() {
+    use crate::gameworld_shadow::GameWorldShadow;
+
+    let mut logic = GameLogic::new();
+    let cfg = golden_skirmish_config("DirectHostVisualRoster");
+    apply_skirmish_config(&mut logic, &cfg).expect("config");
+    let mut template = ThingTemplate::new("DirectHostVisualActual");
+    template.set_health(40.0);
+    template.add_kind_of(KindOf::Infantry);
+    logic
+        .templates
+        .insert("DirectHostVisualActual".into(), template);
+    let id = logic
+        .create_object(
+            "DirectHostVisualActual",
+            Team::China,
+            glam::Vec3::new(2.0, 0.0, 2.0),
+        )
+        .expect("object");
+    {
+        let object = logic.host_object_mut(id).expect("host object");
+        // The visual selector must not take this mutable bookkeeping name.
+        object.template_name = "MutableRuntimeTemplate".into();
+        object.status.disguised = true;
+        object.disguise_as_template = Some("DirectHostVisualDisguise".into());
+        // Match the GameWorld rebuild omission gate while retaining host
+        // Object presence for the direct drawable lifetime.
+        object.status.destroyed = true;
+        object.health.current = 0.0;
+    }
+
+    let mut shadow = GameWorldShadow::new(64);
+    shadow.sync_from_host(&logic);
+    let mut frame = PresentationFrame::build_from_logic(&logic, 0);
+    let direct = frame
+        .direct_host_drawables
+        .iter()
+        .find(|drawable| drawable.object.id == id)
+        .expect("direct host source");
+    assert!(direct.resident);
+    assert_eq!(direct.visual_template_name, "DirectHostVisualDisguise");
+    assert_ne!(direct.visual_template_name, "MutableRuntimeTemplate");
+
+    logic
+        .host_object_mut(id)
+        .expect("host object")
+        .disguise_as_template = None;
+    let fallback_frame = PresentationFrame::build_from_logic(&logic, 0);
+    assert_eq!(
+        fallback_frame
+            .direct_host_drawables
+            .iter()
+            .find(|drawable| drawable.object.id == id)
+            .expect("direct fallback source")
+            .visual_template_name,
+        "DirectHostVisualActual",
+        "a committed disguise without a replacement template falls back to ThingTemplate, not mutable Object bookkeeping"
+    );
+
+    assert_eq!(frame.rebuild_objects_from_gameworld(&shadow), 0);
+    assert!(
+        frame.objects.is_empty(),
+        "GameWorld has omitted the destroyed entity"
+    );
+    assert_eq!(
+        frame.direct_host_drawables.len(),
+        1,
+        "primary roster replacement must not erase the independent direct source"
+    );
+    let inputs = frame.unit_render_inputs();
+    let input = inputs
+        .iter()
+        .find(|input| input.id == id)
+        .expect("resident direct drawable fills missing GameWorld row");
+    assert_eq!(input.template_name, "DirectHostVisualDisguise");
+    assert!(
+        input.destroyed,
+        "visual residency does not rewrite gameplay destruction"
     );
 }
 

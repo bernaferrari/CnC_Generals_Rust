@@ -460,9 +460,7 @@ impl GameLogic {
                 // A genuinely unowned victim has no player relationship.
                 // Preserve the legacy faction gate for map/old-save objects
                 // without assigning it a player.
-                _ => {
-                    team != victim_team && team != Team::Neutral && victim_team != Team::Neutral
-                }
+                _ => team != victim_team && team != Team::Neutral && victim_team != Team::Neutral,
             };
             if let Some(player_id) = killer_owner_player_id {
                 if let Some(player) = self.players.get_mut(&player_id) {

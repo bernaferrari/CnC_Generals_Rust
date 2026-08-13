@@ -8,8 +8,11 @@ use game_engine::common::bit_flags::ModelConditionFlags;
 use game_engine::common::system::game_common::WhichTurretType;
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::Module;
-use gamelogic::common::types::{WeaponSlotType, INVALID_ID};
-use gamelogic::helpers::BoneOverrideState;
+use gamelogic::common::types::{ObjectShroudStatus, WeaponSlotType, INVALID_ID};
+use gamelogic::common::Matrix3D;
+use gamelogic::helpers::{
+    BoneOverrideState, ModelDrawSourceIdentity, ModelDrawState, TheGameClient,
+};
 use gamelogic::object::registry::OBJECT_REGISTRY;
 use parking_lot::Mutex;
 
@@ -51,6 +54,17 @@ impl DrawModule for SnapshotTestDrawModule {
 struct IndicatorDispatchTestDrawModule {
     observed_color: Arc<Mutex<Option<(u8, u8, u8)>>>,
     bind_count: Arc<std::sync::atomic::AtomicU32>,
+}
+
+#[derive(Debug)]
+struct ShroudDispatchTestDrawModule {
+    observed: Arc<Mutex<Vec<bool>>>,
+}
+
+impl DrawModule for ShroudDispatchTestDrawModule {
+    fn set_fully_obscured_by_shroud(&mut self, fully_obscured: bool) {
+        self.observed.lock().push(fully_obscured);
+    }
 }
 
 impl DrawModule for IndicatorDispatchTestDrawModule {
@@ -105,6 +119,66 @@ fn test_drawable_creation() {
     assert_eq!(drawable.drawable_info().drawable_id, 1);
     assert_eq!(drawable.drawable_info().ghost_object_id, INVALID_ID);
     assert_eq!(drawable.drawable_info().shroud_status_object_id, INVALID_ID);
+    assert_eq!(drawable.shroud_clear_frame(), 0);
+    assert!(!drawable.fully_obscured_by_shroud());
+}
+
+#[test]
+fn direct_shroud_history_is_volatile_but_survives_live_rebinds() {
+    use game_engine::common::system::xfer_load::XferLoad;
+    use game_engine::common::system::xfer_save::XferSave;
+    use std::io::Cursor;
+
+    let mut saved = BasicDrawable::new(DrawableId(77));
+    let _ =
+        saved
+            .shroud_clear_state
+            .evaluate_scene_direct(17, ObjectShroudStatus::Clear, false, false);
+    saved.set_fully_obscured_by_shroud(true);
+    saved.set_object_id(Some(100));
+    saved.set_object_id(Some(200));
+    assert_eq!(saved.shroud_clear_frame(), 17);
+    assert!(saved.fully_obscured_by_shroud());
+
+    let mut saved_bytes = Vec::new();
+    {
+        let cursor = Cursor::new(&mut saved_bytes);
+        let mut xfer = XferSave::new(cursor, 1);
+        xfer.open("drawable_volatile_shroud_state").unwrap();
+        saved.xfer_snapshot(&mut xfer).unwrap();
+        xfer.close().unwrap();
+    }
+
+    // Neither the clear timestamp nor fully-obscured state belongs in C++
+    // Drawable::xfer, so otherwise identical drawables serialize byte-for-byte
+    // the same data.
+    let mut baseline = BasicDrawable::new(DrawableId(77));
+    baseline.set_object_id(Some(200));
+    let mut baseline_bytes = Vec::new();
+    {
+        let cursor = Cursor::new(&mut baseline_bytes);
+        let mut xfer = XferSave::new(cursor, 1);
+        xfer.open("drawable_volatile_shroud_state").unwrap();
+        baseline.xfer_snapshot(&mut xfer).unwrap();
+        xfer.close().unwrap();
+    }
+    assert_eq!(saved_bytes, baseline_bytes);
+
+    let mut loaded = BasicDrawable::new(DrawableId(0));
+    let _ = loaded.shroud_clear_state.evaluate_scene_direct(
+        29,
+        ObjectShroudStatus::Clear,
+        false,
+        false,
+    );
+    loaded.set_fully_obscured_by_shroud(true);
+    let mut xfer = XferLoad::new(Cursor::new(saved_bytes), 1);
+    xfer.open("drawable_volatile_shroud_state").unwrap();
+    loaded.xfer_snapshot(&mut xfer).unwrap();
+    xfer.close().unwrap();
+
+    assert_eq!(loaded.shroud_clear_frame(), 0);
+    assert!(!loaded.fully_obscured_by_shroud());
 }
 
 #[test]
@@ -164,6 +238,21 @@ fn test_drawable_visibility() {
 
     drawable.set_stealth_look(StealthLook::Invisible);
     assert!(!drawable.is_visible());
+}
+
+#[test]
+fn fully_obscured_state_dispatches_only_on_change() {
+    let observed = Arc::new(Mutex::new(Vec::new()));
+    let mut drawable = BasicDrawable::new(DrawableId(1));
+    drawable.add_draw_module(Box::new(ShroudDispatchTestDrawModule {
+        observed: Arc::clone(&observed),
+    }));
+
+    drawable.set_fully_obscured_by_shroud(true);
+    drawable.set_fully_obscured_by_shroud(true);
+    drawable.set_fully_obscured_by_shroud(false);
+
+    assert_eq!(*observed.lock(), vec![true, false]);
 }
 
 #[test]
@@ -272,6 +361,52 @@ fn object_binding_notifies_draw_modules() {
 
     assert_eq!(drawable.object_id, Some(123));
     assert_eq!(bind_count.load(std::sync::atomic::Ordering::SeqCst), 1);
+}
+
+#[test]
+fn model_draw_bridge_uses_bound_object_not_client_drawable_id() {
+    let client = TheGameClient::get().expect("logic game-client bridge");
+    let object_id = 9_020_001;
+    client.clear_object_model_draws(object_id);
+    client.begin_object_model_draw_frame(object_id);
+    client.begin_active_object_model_draw(
+        object_id,
+        ModelDrawSourceIdentity {
+            runtime_draw_ordinal: 0,
+            module_name: "W3DModelDraw".to_string(),
+            module_tag: "Body".to_string(),
+            module_tag_name_key: 123,
+        },
+    );
+    client.set_active_object_model_draw(
+        object_id,
+        ModelDrawState {
+            source: Default::default(),
+            logic_drawable_id: 0,
+            model_name: "BridgeIdentityTank".to_string(),
+            world_transform: Matrix3D::IDENTITY,
+            condition_flags_bits: 0,
+            bone_overrides: Vec::new(),
+            animation_name: None,
+            animation_time: 0.0,
+            animation_mode: 0,
+            mesh_uv_overrides: Vec::new(),
+            sub_object_visibility: Vec::new(),
+            weapon_bone_bindings: Default::default(),
+        },
+    );
+    client.commit_active_object_model_draw(object_id, 777);
+
+    let mut drawable = BasicDrawable::new(DrawableId(42));
+    drawable.set_object_id(Some(object_id));
+    let states = drawable.model_draw_states();
+
+    assert_eq!(states.len(), 1);
+    assert_eq!(states[0].model_name, "BridgeIdentityTank");
+    assert_eq!(states[0].logic_drawable_id, 777);
+    assert_eq!(states[0].source.runtime_draw_ordinal, 0);
+
+    client.clear_object_model_draws(object_id);
 }
 
 #[test]
@@ -1646,4 +1781,22 @@ fn test_matrix4_operations() {
     assert_eq!(scale.elements[0][0], 2.0);
     assert_eq!(scale.elements[1][1], 2.0);
     assert_eq!(scale.elements[2][2], 2.0);
+}
+
+#[test]
+fn legacy_matrix4_bridge_conversion_preserves_cpp_affine_semantics() {
+    let legacy = Matrix4::translation(Vector3::new(1.0, 2.0, 3.0))
+        .mul(&Matrix4::rotation_z(std::f32::consts::FRAC_PI_2));
+
+    let rendered = legacy.to_glam();
+    let transformed = rendered.transform_point3(glam::Vec3::X);
+    assert_near(transformed.x, 1.0);
+    assert_near(transformed.y, 3.0);
+    assert_near(transformed.z, 3.0);
+
+    let recovered = Matrix4::from_glam(rendered);
+    assert_eq!(
+        recovered, legacy,
+        "bridge conversion must round-trip Xfer layout"
+    );
 }

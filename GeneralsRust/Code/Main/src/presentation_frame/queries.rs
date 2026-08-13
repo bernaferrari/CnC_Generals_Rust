@@ -239,7 +239,11 @@ impl PresentationFrame {
 
     /// Main unit mesh pass inputs from the snapshot only (no GameLogic / shroud borrow).
     ///
-    /// Filters destroyed and engine-bridged objects (RenderBridge owns those).
+    /// The ordinary GameWorld roster filters gameplay-destroyed and
+    /// engine-bridged objects (RenderBridge owns the latter).  A resident
+    /// direct-host record may fill an omitted ordinary row so its C++ Drawable
+    /// can remain visible during deferred death/rubble lifetime, but it never
+    /// bypasses bridge, containment, or stealth ownership gates.
     /// Includes local-player FOW alpha for skip/darkening without mid-render queries.
     pub fn unit_render_inputs(&self) -> Vec<UnitRenderInput> {
         // Wave 502: stealth mesh residual from frozen presentation only.
@@ -248,41 +252,35 @@ impl PresentationFrame {
         // (C++ auto-target / draw residual: not a legal observe target).
         // Local-team stealthed units keep a translucent FOW alpha residual.
         const ALLY_STEALTH_ALPHA: f32 = 0.35;
-        self.objects
-            .iter()
-            .filter(|o| !o.destroyed && !o.engine_bridged)
-            .filter(|o| {
+        let mesh_allowed = |object: &RenderableObject, allow_destroyed: bool| {
+            (allow_destroyed || !object.destroyed)
+                && !object.engine_bridged
                 // Wave 504: contained units are not drawn as free world meshes.
-                if o.contained_by.is_some() {
-                    return false;
-                }
-                if o.effectively_stealthed && !self.is_allied_with_local(o) {
-                    false
-                } else {
-                    true
-                }
-            })
-            .map(|o| {
+                && object.contained_by.is_none()
+                && (!object.effectively_stealthed || self.is_allied_with_local(object))
+        };
+        let make_input =
+            |object: &RenderableObject| {
                 let mut input = UnitRenderInput::from_renderable_with_environment(
-                    o,
+                    object,
                     self.world_env.is_snow,
                     self.world_env.is_night,
                     self.frame.0,
                 );
-                if o.effectively_stealthed && self.is_allied_with_local(o) {
+                if object.effectively_stealthed && self.is_allied_with_local(object) {
                     input.fow_visibility.visibility_alpha = input
                         .fow_visibility
                         .visibility_alpha
                         .min(ALLY_STEALTH_ALPHA);
                 }
                 // Wave 503: non-allied viewers see disguise mesh residual.
-                if o.disguised && !self.is_allied_with_local(o) {
-                    if let Some(ref dt) = o.disguise_as_template {
-                        if !dt.is_empty() {
+                if object.disguised && !self.is_allied_with_local(object) {
+                    if let Some(ref disguise_template) = object.disguise_as_template {
+                        if !disguise_template.is_empty() {
                             let fallback_model_key =
                                 crate::assets::mesh_asset_resolve::model_key_from_presentation(
-                                    Some(dt.as_str()),
-                                    dt,
+                                    Some(disguise_template.as_str()),
+                                    disguise_template,
                                 );
                             let fallback_draw_models = (!fallback_model_key.trim().is_empty())
                                 .then(|| crate::assets::AuthoredDrawModel {
@@ -292,7 +290,7 @@ impl PresentationFrame {
                                 });
                             input.draw_models =
                                 crate::assets::resolve_presentation_draw_models_for_conditions(
-                                    dt,
+                                    disguise_template,
                                     fallback_draw_models.as_slice(),
                                     input.model_condition_bits_with_combat_flags(),
                                 );
@@ -305,8 +303,70 @@ impl PresentationFrame {
                     }
                 }
                 input
-            })
-            .collect()
+            };
+        let apply_visual_template = |input: &mut UnitRenderInput, visual_template_name: &str| {
+            if visual_template_name.trim().is_empty() {
+                return;
+            }
+            let fallback_model_key = crate::assets::mesh_asset_resolve::model_key_from_presentation(
+                Some(visual_template_name),
+                visual_template_name,
+            );
+            let fallback_draw_models =
+                (!fallback_model_key.trim().is_empty()).then(|| crate::assets::AuthoredDrawModel {
+                    module_index: 0,
+                    model_key: fallback_model_key,
+                    ..Default::default()
+                });
+            input.template_name = visual_template_name.to_owned();
+            input.draw_models = crate::assets::resolve_presentation_draw_models_for_conditions(
+                visual_template_name,
+                fallback_draw_models.as_slice(),
+                input.model_condition_bits_with_combat_flags(),
+            );
+            input.model_key = input
+                .draw_models
+                .first()
+                .map(|model| model.model_key.clone())
+                .unwrap_or_default();
+        };
+
+        let mut inputs: Vec<UnitRenderInput> = self
+            .objects
+            .iter()
+            .filter(|object| mesh_allowed(object, false))
+            .map(|object| make_input(object))
+            .collect();
+        let mut ordinary_input_ids: std::collections::HashSet<ObjectId> =
+            inputs.iter().map(|input| input.id).collect();
+
+        for direct in &self.direct_host_drawables {
+            // A live ordinary row remains the sole mesh source.  This avoids
+            // duplicate meshes when the GameWorld roster retained the entity.
+            if !direct.resident || ordinary_input_ids.contains(&direct.object.id) {
+                continue;
+            }
+            // If the current ordinary roster delegated this ID to RenderBridge,
+            // the older host-only copy must not reclaim it as a main mesh.
+            if self
+                .objects
+                .iter()
+                .any(|object| object.id == direct.object.id && object.engine_bridged)
+            {
+                continue;
+            }
+            if !mesh_allowed(&direct.object, true) {
+                continue;
+            }
+
+            let mut input = make_input(&direct.object);
+            // Direct visual identity is frozen from immutable ThingTemplate /
+            // committed disguise state, never mutable Object template bookkeeping.
+            apply_visual_template(&mut input, &direct.visual_template_name);
+            ordinary_input_ids.insert(input.id);
+            inputs.push(input);
+        }
+        inputs
     }
 
     /// Projectile mesh pass inputs from frozen in-flight projectiles (model_key residual).

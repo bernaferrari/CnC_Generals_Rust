@@ -78,6 +78,58 @@ impl Matrix4 {
         result
     }
 
+    /// Convert this legacy row-major, column-vector affine matrix into the
+    /// column-major storage expected by `glam::Mat4` / the WGPU bridge.
+    ///
+    /// C++ `Matrix3D` and this port's `Matrix4` store translation at
+    /// `[row][3]`; handing `elements` directly to
+    /// `Mat4::from_cols_array_2d` transposes the semantic transform and puts
+    /// translation in the homogeneous row instead. Keep this conversion at
+    /// the explicit renderer boundary rather than changing the legacy Xfer
+    /// layout or all C++-style matrix users.
+    pub(crate) fn to_glam(self) -> glam::Mat4 {
+        glam::Mat4::from_cols_array_2d(&[
+            [
+                self.elements[0][0],
+                self.elements[1][0],
+                self.elements[2][0],
+                self.elements[3][0],
+            ],
+            [
+                self.elements[0][1],
+                self.elements[1][1],
+                self.elements[2][1],
+                self.elements[3][1],
+            ],
+            [
+                self.elements[0][2],
+                self.elements[1][2],
+                self.elements[2][2],
+                self.elements[3][2],
+            ],
+            [
+                self.elements[0][3],
+                self.elements[1][3],
+                self.elements[2][3],
+                self.elements[3][3],
+            ],
+        ])
+    }
+
+    /// Inverse of [`Self::to_glam`] for legacy code that receives a WGPU
+    /// transform and must retain the C++ Matrix3D/Xfer convention.
+    pub(crate) fn from_glam(matrix: glam::Mat4) -> Self {
+        let columns = matrix.to_cols_array_2d();
+        Self {
+            elements: [
+                [columns[0][0], columns[1][0], columns[2][0], columns[3][0]],
+                [columns[0][1], columns[1][1], columns[2][1], columns[3][1]],
+                [columns[0][2], columns[1][2], columns[2][2], columns[3][2]],
+                [columns[0][3], columns[1][3], columns[2][3], columns[3][3]],
+            ],
+        }
+    }
+
     /// Rotation around the X axis (right-hand rule).
     /// Matches C++ Matrix3D::Rotate_X.
     pub fn rotation_x(angle: f32) -> Self {

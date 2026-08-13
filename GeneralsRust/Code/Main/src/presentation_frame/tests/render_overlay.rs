@@ -88,6 +88,7 @@ fn unit_render_input_world_matrix_applies_mesh_scale() {
         is_surrendered: false,
         engine_bridged: false,
         fow_visibility: ObjectVisibility::FULLY_VISIBLE,
+        drawable_shroud: PresentationDrawableShroudFacts::default(),
     };
     let m = u.world_matrix();
     // Column-major: scale is on the diagonal of the upper 3x3 after T*R*S.
@@ -100,6 +101,224 @@ fn unit_render_input_world_matrix_applies_mesh_scale() {
     u.mesh_scale = 0.0; // invalid → treat as 1.0
     let m1 = u.world_matrix();
     assert!((m1.x_axis.truncate().length() - 1.0).abs() < 1e-4);
+}
+
+#[test]
+fn drawable_shroud_facts_stay_frozen_and_host_overlay_stamps_gameworld_records() {
+    use crate::game_logic::{GameLogic, Team, ThingTemplate};
+    use crate::gameworld_shadow::GameWorldShadow;
+    use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
+
+    let mut logic = GameLogic::new();
+    apply_skirmish_config(&mut logic, &golden_skirmish_config("DrawableShroudFreeze"))
+        .expect("config");
+    let mut template = ThingTemplate::new("DrawableShroudFreezeUnit");
+    template.set_health(100.0);
+    logic
+        .templates
+        .insert("DrawableShroudFreezeUnit".into(), template);
+    let id = logic
+        .create_object(
+            "DrawableShroudFreezeUnit",
+            Team::USA,
+            glam::Vec3::new(2.0, 0.0, 2.0),
+        )
+        .expect("object");
+    {
+        let obj = logic.host_object_mut(id).expect("host object");
+        // C++ own-force/no-partition source is Clear; effective death remains
+        // a separate exact fact for the client-owned grace limit.
+        obj.owner_player_id = Some(0);
+        obj.status.effectively_dead = true;
+    }
+
+    let frozen = PresentationFrame::build_from_logic(&logic, 0);
+    let frozen_object = frozen
+        .objects
+        .iter()
+        .find(|object| object.id == id)
+        .unwrap();
+    assert_eq!(
+        frozen_object.drawable_shroud.lifetime,
+        PresentationDrawableLifetime::DirectHostObject
+    );
+    assert_eq!(
+        frozen_object.drawable_shroud.raw_status,
+        PresentationObjectShroudStatus::Clear
+    );
+    assert!(frozen_object.drawable_shroud.effectively_dead);
+    assert_eq!(
+        frozen_object.drawable_shroud.direct_game_client_status(),
+        Some((gamelogic::common::types::ObjectShroudStatus::Clear, true))
+    );
+
+    logic
+        .host_object_mut(id)
+        .expect("host object")
+        .status
+        .effectively_dead = false;
+    assert!(
+        frozen
+            .objects
+            .iter()
+            .find(|object| object.id == id)
+            .unwrap()
+            .drawable_shroud
+            .effectively_dead,
+        "an installed presentation frame must not reread live GameLogic"
+    );
+    let fresh = PresentationFrame::build_from_logic(&logic, 0);
+    assert!(
+        !fresh
+            .objects
+            .iter()
+            .find(|object| object.id == id)
+            .unwrap()
+            .drawable_shroud
+            .effectively_dead,
+        "the next frame captures the new host value"
+    );
+    let mut changed_status = frozen.clone();
+    changed_status
+        .objects
+        .iter_mut()
+        .find(|object| object.id == id)
+        .unwrap()
+        .drawable_shroud
+        .raw_status = PresentationObjectShroudStatus::Fogged;
+    assert_ne!(
+        frozen.presentation_hash(),
+        changed_status.presentation_hash(),
+        "raw shroud facts are part of deterministic presentation identity"
+    );
+
+    let mut shadow = GameWorldShadow::new(64);
+    shadow.sync_from_host(&logic);
+    let mut gameworld_only = PresentationFrame::build_from_gameworld(&shadow, 0, None);
+    let gameworld_object = gameworld_only
+        .objects
+        .iter()
+        .find(|object| object.id == id)
+        .expect("GameWorld object");
+    assert_eq!(
+        gameworld_object.drawable_shroud,
+        PresentationDrawableShroudFacts::default(),
+        "GameWorld scalar FOW cannot manufacture direct drawable facts"
+    );
+    assert!(!gameworld_object
+        .drawable_shroud
+        .requires_scene_shroud_material());
+
+    assert!(gameworld_only.overlay_host_fx_residual(&logic) >= 1);
+    let host_stamped = gameworld_only
+        .objects
+        .iter()
+        .find(|object| object.id == id)
+        .expect("host-stamped object");
+    assert_eq!(
+        host_stamped.drawable_shroud.lifetime,
+        PresentationDrawableLifetime::DirectHostObject
+    );
+    assert_eq!(
+        host_stamped.drawable_shroud.raw_status,
+        PresentationObjectShroudStatus::Clear
+    );
+    assert!(!host_stamped.drawable_shroud.effectively_dead);
+}
+
+#[test]
+fn direct_host_shroud_facts_use_raw_membership_not_visibility_alpha() {
+    use crate::game_logic::{GameLogic, Team, ThingTemplate};
+    use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
+    use gamelogic::system::shroud_manager::get_shroud_manager;
+
+    let _shroud_test_guard = crate::fow_rendering::shroud_test_isolation_lock()
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    let mut logic = GameLogic::new();
+    apply_skirmish_config(
+        &mut logic,
+        &golden_skirmish_config("DirectShroudMembership"),
+    )
+    .expect("config");
+    let mut template = ThingTemplate::new("DirectShroudMembershipUnit");
+    template.set_health(100.0);
+    logic
+        .templates
+        .insert("DirectShroudMembershipUnit".into(), template);
+    let id = logic
+        .create_object(
+            "DirectShroudMembershipUnit",
+            Team::GLA,
+            glam::Vec3::new(3.0, 0.0, 3.0),
+        )
+        .expect("object");
+    logic
+        .host_object_mut(id)
+        .expect("host object")
+        .owner_player_id = Some(1);
+
+    {
+        let mut shroud = get_shroud_manager().lock().expect("shroud");
+        shroud.clear_all();
+        shroud.init_shroud_grid(500.0, 500.0);
+        shroud.mark_host_object_seen(0, id.0);
+    }
+    assert_eq!(
+        PresentationFrame::build_from_logic(&logic, 0)
+            .objects
+            .iter()
+            .find(|object| object.id == id)
+            .unwrap()
+            .drawable_shroud
+            .raw_status,
+        PresentationObjectShroudStatus::Clear
+    );
+
+    {
+        let mut shroud = get_shroud_manager().lock().expect("shroud");
+        shroud.clear_all();
+        shroud.init_shroud_grid(500.0, 500.0);
+        shroud.mark_host_object_seen(0, id.0);
+        // Explored membership persists while current visible membership drops:
+        // this is the raw Fogged branch, not a visibility-alpha threshold.
+        shroud.clear_host_object_visibility(0);
+    }
+    assert_eq!(
+        PresentationFrame::build_from_logic(&logic, 0)
+            .objects
+            .iter()
+            .find(|object| object.id == id)
+            .unwrap()
+            .drawable_shroud
+            .raw_status,
+        PresentationObjectShroudStatus::Fogged
+    );
+
+    {
+        let mut shroud = get_shroud_manager().lock().expect("shroud");
+        shroud.clear_all();
+        shroud.init_shroud_grid(500.0, 500.0);
+        // Keep the FOW runtime active for the viewer but leave this object
+        // absent from both raw membership sets.
+        shroud.mark_host_object_seen(0, 0x00ff_0001);
+    }
+    assert_eq!(
+        PresentationFrame::build_from_logic(&logic, 0)
+            .objects
+            .iter()
+            .find(|object| object.id == id)
+            .unwrap()
+            .drawable_shroud
+            .raw_status,
+        PresentationObjectShroudStatus::Shrouded
+    );
+
+    if let Ok(mut shroud) = get_shroud_manager().lock() {
+        shroud.clear_all();
+        shroud.init_shroud_grid(1.0, 1.0);
+        shroud.clear_all();
+    }
 }
 
 #[test]

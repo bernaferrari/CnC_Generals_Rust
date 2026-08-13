@@ -76,12 +76,6 @@ pub(self) use ww3d_engine::FrameTiming;
 pub(self) const SCRIPT_BROADCAST_DURATION: f32 = 6.0;
 pub(self) const LOGIC_FRAMES_PER_SECOND: f32 = 30.0;
 pub(self) const LOGIC_FRAME_TIMESTEP: f32 = 1.0 / LOGIC_FRAMES_PER_SECOND;
-pub(self) const SHELL_MISSION_SCRIPT_BUDGET: usize = 8;
-/// Cap per-frame mission script evaluation on dense campaign maps so a single
-/// frame cannot stall on hundreds of always-true / CALL_SUBROUTINE scripts.
-/// (Shell mode already budgets; SP/skirmish previously ran the full list.)
-pub(self) const DENSE_MISSION_SCRIPT_BUDGET: usize = 24;
-pub(self) const DENSE_MISSION_SCRIPT_THRESHOLD: usize = 48;
 
 /// Host count of crate ticks that were empty-world no-ops (not C++ phase order).
 static CRATE_EMPTY_NOOP_TICKS: AtomicU32 = AtomicU32::new(0);
@@ -476,12 +470,11 @@ impl PlayerTemplateIdentity {
         let key = game_engine::common::name_key_generator::NameKeyGenerator::name_to_key(
             build_template_name,
         );
-        1.0
-            + template
-                .get_production_cost_changes()
-                .get(&key)
-                .copied()
-                .unwrap_or(0.0)
+        1.0 + template
+            .get_production_cost_changes()
+            .get(&key)
+            .copied()
+            .unwrap_or(0.0)
     }
 
     /// C++ `Player::getProductionTimeChangePercent`.  This deliberately does
@@ -494,12 +487,11 @@ impl PlayerTemplateIdentity {
         let key = game_engine::common::name_key_generator::NameKeyGenerator::name_to_key(
             build_template_name,
         );
-        1.0
-            + template
-                .get_production_time_changes()
-                .get(&key)
-                .copied()
-                .unwrap_or(0.0)
+        1.0 + template
+            .get_production_time_changes()
+            .get(&key)
+            .copied()
+            .unwrap_or(0.0)
     }
 
     /// C++ `Player::getProductionVeterancyLevel`, translated from Common's

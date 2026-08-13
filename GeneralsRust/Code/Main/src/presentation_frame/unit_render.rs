@@ -225,6 +225,9 @@ pub struct UnitRenderInput {
     pub engine_bridged: bool,
     /// Local-player FOW from the presentation snapshot (not a live shroud query).
     pub fow_visibility: ObjectVisibility,
+    /// Frozen direct-object C++ shroud facts.  Renderer code receives this
+    /// owned input and must not derive an ordinal status from FOW alpha.
+    pub drawable_shroud: PresentationDrawableShroudFacts,
 }
 
 impl UnitRenderInput {
@@ -339,6 +342,7 @@ impl UnitRenderInput {
             is_surrendered: ro.is_surrendered,
             engine_bridged: ro.engine_bridged,
             fow_visibility: ro.fow_visibility,
+            drawable_shroud: ro.drawable_shroud,
         }
     }
 

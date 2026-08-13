@@ -596,6 +596,8 @@ impl MeshRenderManager {
             render_info.material_pass_emissive_override,
             0.0,
         ];
+        let (visibility_alpha, visibility_falloff, is_explored) =
+            mesh.frozen_fow_visibility().model_uniform_values();
 
         let model_binds = WgpuMaterialBinds::model(
             self.gpu_device.as_ref(),
@@ -613,10 +615,9 @@ impl MeshRenderManager {
             material_emissive,
             material_overrides,
             arena,
-            // Default FOW values (fully visible) - will be overridden when FOW is integrated
-            None, // visibility_alpha
-            None, // visibility_falloff
-            None, // is_explored
+            Some(visibility_alpha),
+            Some(visibility_falloff),
+            Some(is_explored),
             Some(&self.live_csm),
         )?;
         resources.set_pipeline(render_pass, Arc::clone(&pipeline));

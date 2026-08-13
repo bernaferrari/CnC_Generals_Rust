@@ -6,9 +6,15 @@
 //! Purpose: INI parsing for ChallengeGenerals and GeneralPersona definitions
 //! Used for the Generals' Challenge mode personas and related GUI data.
 
-use crate::common::ini::ini::{FieldParse, INIError, INIResult, INI};
+use crate::common::ini::ini::{FieldParse, INIError, INILoadType, INIResult, INI};
 use once_cell::sync::OnceCell;
-use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
+use std::cell::Cell;
+use std::collections::HashSet;
+use std::env;
+use std::fmt;
+use std::fs;
+use std::path::PathBuf;
+use std::sync::{Mutex, OnceLock, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 // Constants matching C++ definitions
 pub const NUM_GENERALS: usize = 12;
@@ -648,10 +654,17 @@ impl ChallengeGenerals {
     /// Find a general by player template name (case-insensitive)
     /// Matches C++ getGeneralByTemplateName
     pub fn get_general_by_template_name(&self, name: &str) -> Option<&GeneralPersona> {
-        let name_lower = name.to_lowercase();
+        // An absent or malformed authored ChallengeMode table must never turn
+        // an otherwise locked General (notably FactionBossGeneral) into an
+        // eligible Random/exact Skirmish choice.  The C++ path guarantees the
+        // singleton is initialized at GameClient startup; Rust's headless
+        // paths surface a single locked sentinel until that invariant holds.
+        if challenge_generals_load_failed() {
+            return Some(fail_closed_general_persona());
+        }
         self.positions
             .iter()
-            .find(|p| p.player_template_name.to_lowercase() == name_lower)
+            .find(|p| p.player_template_name.eq_ignore_ascii_case(name))
     }
 
     /// Set the current player template number
@@ -841,25 +854,347 @@ const CHALLENGE_GENERALS_FIELD_PARSE_TABLE: &[FieldParse<ChallengeGenerals>] = &
 
 static CHALLENGE_GENERALS: OnceCell<RwLock<ChallengeGenerals>> = OnceCell::new();
 
+/// The only authored ChallengeMode source the retail client asks the C++
+/// `FileSystem` to resolve.  In particular, C++ does not separately load a
+/// `Default/ChallengeMode.ini` layer.
+const CHALLENGE_MODE_INI_PATH: &str = "Data/INI/ChallengeMode.ini";
+
+/// Result of loading the authoritative ChallengeMode persona table.
+///
+/// `GameLogic::populateRandomSideAndColor` assumes `TheChallengeGenerals` was
+/// initialized during GameClient startup.  Rust also has headless/offline
+/// entry points, so preserve that invariant explicitly instead of treating an
+/// empty lazy store as if it were authored data.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ChallengeGeneralsLoadError {
+    SourceNotFound,
+    ParseFailed { source: String, error: INIError },
+    InvalidData { source: String, detail: String },
+}
+
+impl fmt::Display for ChallengeGeneralsLoadError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::SourceNotFound => write!(f, "could not resolve {CHALLENGE_MODE_INI_PATH}"),
+            Self::ParseFailed { source, error } => {
+                write!(
+                    f,
+                    "failed to parse ChallengeMode source '{source}': {error}"
+                )
+            }
+            Self::InvalidData { source, detail } => {
+                write!(f, "invalid ChallengeMode source '{source}': {detail}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for ChallengeGeneralsLoadError {}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ChallengeGeneralsLoadStatus {
+    Uninitialized,
+    Loaded { source: String },
+    Failed(ChallengeGeneralsLoadError),
+}
+
+static CHALLENGE_GENERALS_LOAD_STATUS: OnceLock<Mutex<ChallengeGeneralsLoadStatus>> =
+    OnceLock::new();
+
+thread_local! {
+    /// The INI block parser calls the global store while the loader owns its
+    /// status mutex.  Suppress recursive lazy initialization on that exact
+    /// thread; other callers wait for the same single initialization result.
+    static CHALLENGE_GENERALS_LOADING: Cell<bool> = const { Cell::new(false) };
+}
+
+struct ChallengeGeneralsLoadingScope {
+    previous: bool,
+}
+
+impl ChallengeGeneralsLoadingScope {
+    fn enter() -> Self {
+        let previous = CHALLENGE_GENERALS_LOADING.with(|loading| {
+            let previous = loading.get();
+            loading.set(true);
+            previous
+        });
+        Self { previous }
+    }
+}
+
+impl Drop for ChallengeGeneralsLoadingScope {
+    fn drop(&mut self) {
+        CHALLENGE_GENERALS_LOADING.with(|loading| loading.set(self.previous));
+    }
+}
+
+fn challenge_generals_is_loading_on_this_thread() -> bool {
+    CHALLENGE_GENERALS_LOADING.with(Cell::get)
+}
+
+fn challenge_generals_store() -> &'static RwLock<ChallengeGenerals> {
+    CHALLENGE_GENERALS.get_or_init(|| RwLock::new(ChallengeGenerals::new()))
+}
+
+fn challenge_generals_load_status_store() -> &'static Mutex<ChallengeGeneralsLoadStatus> {
+    CHALLENGE_GENERALS_LOAD_STATUS
+        .get_or_init(|| Mutex::new(ChallengeGeneralsLoadStatus::Uninitialized))
+}
+
+fn push_unique_root(roots: &mut Vec<PathBuf>, seen: &mut HashSet<PathBuf>, root: PathBuf) {
+    let key = fs::canonicalize(&root).unwrap_or_else(|_| root.clone());
+    if seen.insert(key) {
+        roots.push(root);
+    }
+}
+
+fn add_root_and_ancestors(roots: &mut Vec<PathBuf>, seen: &mut HashSet<PathBuf>, root: PathBuf) {
+    for ancestor in root.ancestors() {
+        push_unique_root(roots, seen, ancestor.to_path_buf());
+    }
+}
+
+/// A fallback only for hosts whose Common FileSystem has not been initialized
+/// yet (notably focused/headless tests).  The normal path below is the C++
+/// virtual `FileSystem` lookup, which keeps loose-file-before-archive
+/// precedence intact.
+fn discover_challenge_mode_ini_file() -> Option<PathBuf> {
+    let mut roots = Vec::new();
+    let mut seen_roots = HashSet::new();
+
+    // A selected mod is the explicit local override.  The C++ loader still
+    // asks for the same canonical virtual filename.
+    let mod_dir = {
+        let global_data = crate::common::global_data::read();
+        global_data.writable.mod_dir.clone()
+    };
+    if !mod_dir.trim().is_empty() {
+        add_root_and_ancestors(&mut roots, &mut seen_roots, PathBuf::from(mod_dir.trim()));
+    }
+
+    if let Ok(cwd) = env::current_dir() {
+        add_root_and_ancestors(&mut roots, &mut seen_roots, cwd);
+    }
+    if let Ok(exe) = env::current_exe() {
+        if let Some(parent) = exe.parent() {
+            add_root_and_ancestors(&mut roots, &mut seen_roots, parent.to_path_buf());
+        }
+    }
+    for extracted in crate::common::system::install_layout::extracted_asset_roots() {
+        push_unique_root(&mut roots, &mut seen_roots, extracted);
+    }
+
+    let mut seen_files = HashSet::new();
+    for root in roots {
+        let candidates = [
+            root.join(CHALLENGE_MODE_INI_PATH),
+            root.join("windows_game/extracted_big_files/INIZH")
+                .join(CHALLENGE_MODE_INI_PATH),
+            root.join("windows_game/extracted_big_files_v2/INIZH")
+                .join(CHALLENGE_MODE_INI_PATH),
+        ];
+        for path in candidates {
+            if !path.is_file() {
+                continue;
+            }
+            let key = fs::canonicalize(&path).unwrap_or_else(|_| path.clone());
+            if seen_files.insert(key) {
+                return Some(path);
+            }
+        }
+    }
+    None
+}
+
+fn reset_challenge_generals_store() {
+    let mut store = challenge_generals_store()
+        .write()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    *store = ChallengeGenerals::new();
+}
+
+fn validate_challenge_generals_data(
+    store: &ChallengeGenerals,
+    source: &str,
+) -> Result<(), ChallengeGeneralsLoadError> {
+    let mut template_names = HashSet::new();
+
+    // The retail file defines all twelve UI positions.  Positions 0..=9 are
+    // the actual General records (the ninth is the locked Boss); positions
+    // 10/11 are deliberately disabled placeholders with no PlayerTemplate.
+    for (index, persona) in store.positions.iter().enumerate() {
+        if persona.bio_name.trim().is_empty() {
+            return Err(ChallengeGeneralsLoadError::InvalidData {
+                source: source.to_string(),
+                detail: format!("GeneralPersona{index} is missing BioNameString"),
+            });
+        }
+
+        let template_name = persona.player_template_name.trim();
+        if index < 10 && template_name.is_empty() {
+            return Err(ChallengeGeneralsLoadError::InvalidData {
+                source: source.to_string(),
+                detail: format!("GeneralPersona{index} is missing PlayerTemplate"),
+            });
+        }
+        if persona.starts_enabled && template_name.is_empty() {
+            return Err(ChallengeGeneralsLoadError::InvalidData {
+                source: source.to_string(),
+                detail: format!(
+                    "enabled GeneralPersona{index} has no PlayerTemplate and cannot be selected"
+                ),
+            });
+        }
+        if !template_name.is_empty() && !template_names.insert(template_name.to_ascii_lowercase()) {
+            return Err(ChallengeGeneralsLoadError::InvalidData {
+                source: source.to_string(),
+                detail: format!("duplicate PlayerTemplate '{template_name}'"),
+            });
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_challenge_generals_store(source: &str) -> Result<(), ChallengeGeneralsLoadError> {
+    let store = challenge_generals_store()
+        .read()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    validate_challenge_generals_data(&store, source)
+}
+
+fn load_challenge_generals_once() -> Result<String, ChallengeGeneralsLoadError> {
+    // C++ ChallengeGenerals::init calls `ini.load("Data\\INI\\ChallengeMode.ini",
+    // INI_LOAD_OVERWRITE)`.  Let the shared FileSystem make that exact lookup
+    // first, so local files keep precedence over archive contents.
+    reset_challenge_generals_store();
+    let mut ini = INI::new();
+    match ini.load(CHALLENGE_MODE_INI_PATH, INILoadType::Overwrite) {
+        Ok(()) => {
+            validate_challenge_generals_store(CHALLENGE_MODE_INI_PATH)?;
+            return Ok(CHALLENGE_MODE_INI_PATH.to_string());
+        }
+        Err(INIError::CantOpenFile) => {
+            // A test/headless host may not yet have registered LocalFileSystem
+            // or archive backends.  Resolve one physical source, never a
+            // made-up default table or a merged alternate INI layer.
+        }
+        Err(error) => {
+            return Err(ChallengeGeneralsLoadError::ParseFailed {
+                source: CHALLENGE_MODE_INI_PATH.to_string(),
+                error,
+            });
+        }
+    }
+
+    let source =
+        discover_challenge_mode_ini_file().ok_or(ChallengeGeneralsLoadError::SourceNotFound)?;
+    reset_challenge_generals_store();
+    let mut ini = INI::new();
+    ini.load(&source, INILoadType::Overwrite).map_err(|error| {
+        ChallengeGeneralsLoadError::ParseFailed {
+            source: source.display().to_string(),
+            error,
+        }
+    })?;
+    let source = source.display().to_string();
+    validate_challenge_generals_store(&source)?;
+    Ok(source)
+}
+
+/// Load ChallengeMode personas exactly once into the Common-owned store.
+///
+/// Callers may inspect the result to make an authority decision.  The public
+/// store accessors also invoke this seam, so legacy UI and headless Main paths
+/// cannot accidentally interpret an uninitialized table as one with no locked
+/// personas.
+pub fn ensure_challenge_generals_loaded() -> Result<(), ChallengeGeneralsLoadError> {
+    if challenge_generals_is_loading_on_this_thread() {
+        return Ok(());
+    }
+
+    let mut status = challenge_generals_load_status_store()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    match &*status {
+        ChallengeGeneralsLoadStatus::Loaded { .. } => return Ok(()),
+        ChallengeGeneralsLoadStatus::Failed(error) => return Err(error.clone()),
+        ChallengeGeneralsLoadStatus::Uninitialized => {}
+    }
+
+    let _scope = ChallengeGeneralsLoadingScope::enter();
+    match load_challenge_generals_once() {
+        Ok(source) => {
+            *status = ChallengeGeneralsLoadStatus::Loaded { source };
+            Ok(())
+        }
+        Err(error) => {
+            // Do not leave a partially parsed table visible.  The failed
+            // status below makes template lookup fail closed instead.
+            reset_challenge_generals_store();
+            *status = ChallengeGeneralsLoadStatus::Failed(error.clone());
+            Err(error)
+        }
+    }
+}
+
+pub fn challenge_generals_load_status() -> ChallengeGeneralsLoadStatus {
+    if challenge_generals_is_loading_on_this_thread() {
+        return ChallengeGeneralsLoadStatus::Uninitialized;
+    }
+    challenge_generals_load_status_store()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .clone()
+}
+
+fn challenge_generals_load_failed() -> bool {
+    if challenge_generals_is_loading_on_this_thread() {
+        return false;
+    }
+    matches!(
+        challenge_generals_load_status(),
+        ChallengeGeneralsLoadStatus::Failed(_)
+    )
+}
+
+fn fail_closed_general_persona() -> &'static GeneralPersona {
+    static FAIL_CLOSED_PERSONA: OnceLock<GeneralPersona> = OnceLock::new();
+    FAIL_CLOSED_PERSONA.get_or_init(GeneralPersona::new)
+}
+
 /// Get read access to the global ChallengeGenerals
 pub fn get_challenge_generals() -> RwLockReadGuard<'static, ChallengeGenerals> {
-    CHALLENGE_GENERALS
-        .get_or_init(|| RwLock::new(ChallengeGenerals::new()))
+    if !challenge_generals_is_loading_on_this_thread() {
+        let _ = ensure_challenge_generals_loaded();
+    }
+    challenge_generals_store()
         .read()
-        .unwrap()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 /// Get write access to the global ChallengeGenerals
 pub fn get_challenge_generals_mut() -> RwLockWriteGuard<'static, ChallengeGenerals> {
-    CHALLENGE_GENERALS
-        .get_or_init(|| RwLock::new(ChallengeGenerals::new()))
+    if !challenge_generals_is_loading_on_this_thread() {
+        let _ = ensure_challenge_generals_loaded();
+    }
+    challenge_generals_store()
         .write()
-        .unwrap()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
-/// Initialize the global ChallengeGenerals store
+/// Initialize the global ChallengeGenerals store and authored persona data.
+///
+/// This is retained for existing INI subsystem startup callers.  Consumers
+/// that need to reject a session at an authority boundary should use
+/// [`ensure_challenge_generals_loaded`] and propagate its error.
 pub fn init_challenge_generals() {
-    let _unused = get_challenge_generals();
+    if let Err(error) = ensure_challenge_generals_loaded() {
+        log::warn!(
+            "ChallengeMode persona initialization failed; template eligibility is fail-closed: {error}"
+        );
+    }
 }
 
 // ============================================================================
@@ -944,13 +1279,47 @@ mod tests {
 
     #[test]
     fn test_global_challenge_generals() {
-        init_challenge_generals();
+        ensure_challenge_generals_loaded().expect("retail ChallengeMode.ini must load");
+        assert!(matches!(
+            challenge_generals_load_status(),
+            ChallengeGeneralsLoadStatus::Loaded { .. }
+        ));
         let generals = get_challenge_generals();
         assert_eq!(generals.positions.len(), NUM_GENERALS);
+
+        // `ChallengeMode.ini` deliberately includes the playable Boss
+        // PlayerTemplate but marks it locked.  This is the exact record that
+        // GameLogic/GUIUtil exclude from Random and direct selection.
+        assert!(generals
+            .get_general_by_template_name("FactionAmericaAirForceGeneral")
+            .is_some_and(|persona| persona.is_starting_enabled()));
+        assert!(generals
+            .get_general_by_template_name("FactionBossGeneral")
+            .is_some_and(|persona| !persona.is_starting_enabled()));
+    }
+
+    #[test]
+    fn malformed_challenge_mode_without_the_locked_boss_record_is_rejected() {
+        let mut generals = ChallengeGenerals::new();
+        for (index, persona) in generals.positions.iter_mut().enumerate() {
+            persona.bio_name = format!("GUI:BioNameEntry_Pos{index}");
+            if index < 9 {
+                persona.player_template_name = format!("FactionGeneral{index}");
+            }
+        }
+
+        let error = validate_challenge_generals_data(&generals, "test ChallengeMode.ini")
+            .expect_err("a missing GeneralPersona9 PlayerTemplate must fail closed");
+        assert!(matches!(
+            error,
+            ChallengeGeneralsLoadError::InvalidData { detail, .. }
+                if detail.contains("GeneralPersona9") && detail.contains("PlayerTemplate")
+        ));
     }
 
     #[test]
     fn test_challenge_mode_equals_separator_forms() {
+        let original = get_challenge_generals().clone();
         {
             let mut generals = get_challenge_generals_mut();
             *generals = ChallengeGenerals::new();
@@ -990,5 +1359,8 @@ END
         assert!(persona.starts_enabled);
         assert_eq!(persona.taunt_sound1, "Taunts_Grainger061");
         assert_eq!(persona.campaign, "CHALLENGE_0");
+
+        let mut generals = get_challenge_generals_mut();
+        *generals = original;
     }
 }

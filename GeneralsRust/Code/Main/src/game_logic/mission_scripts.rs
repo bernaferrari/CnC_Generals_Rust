@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
 
 use crate::localization;
 use gamelogic::scripting::core::{Script, ScriptAction, ScriptActionType, ScriptList};
@@ -9,7 +8,6 @@ use gamelogic::scripting::engine::{
     get_script_engine, initialize_script_engine, ScriptActionHandler,
 };
 use gamelogic::scripting::evaluator::ScriptEvaluator;
-use gamelogic::team::get_team_factory;
 use gamelogic::{GameLogicError, GameLogicResult};
 use glam::Vec3;
 
@@ -302,38 +300,6 @@ fn camera_coord3d_to_world(x: f32, y: f32, z: f32) -> Vec3 {
 struct ScriptState {
     completed: bool,
     next_frame_allowed: u64,
-    pending_condition_cursor: Option<ShellPendingConditionCursor>,
-    pending_action_cursor: Option<ShellPendingActionCursor>,
-}
-
-#[derive(Debug, Clone, Copy)]
-enum ScriptActionBranch {
-    TrueAction,
-    FalseAction,
-}
-
-#[derive(Debug, Clone, Copy)]
-struct ShellPendingActionCursor {
-    branch: ScriptActionBranch,
-    next_action_index: usize,
-}
-
-#[derive(Debug, Clone, Copy)]
-struct ShellPendingConditionCursor {
-    next_or_index: usize,
-    next_and_index: usize,
-}
-
-#[derive(Debug, Clone, Copy)]
-enum ShellConditionChunkResult {
-    Pending(ShellPendingConditionCursor),
-    Complete(bool),
-}
-
-#[derive(Debug, Clone, Copy)]
-enum ShellConditionStepOutcome {
-    Advance(ShellPendingConditionCursor),
-    Complete(bool),
 }
 
 impl ScriptState {
@@ -341,8 +307,6 @@ impl ScriptState {
         Self {
             completed: false,
             next_frame_allowed: 0,
-            pending_condition_cursor: None,
-            pending_action_cursor: None,
         }
     }
 }
@@ -353,37 +317,60 @@ struct RuntimeScript {
     original_name: Option<String>,
     script: Script,
     state: ScriptState,
+    /// `None` means a root ScriptList entry.  A group index preserves C++'s
+    /// per-group active gate rather than baking it into the script at load.
+    group_index: Option<usize>,
+    is_subroutine: bool,
     enabled: bool,
+}
+
+/// Runtime identity/state for one C++ `ScriptGroup`.
+///
+/// `ENABLE_SCRIPT` / `DISABLE_SCRIPT` can name a group.  C++ looks up groups
+/// independently from scripts and toggles only the group active bit; members
+/// retain their own active/one-shot state.
+#[derive(Clone)]
+struct RuntimeScriptGroup {
+    name: String,
+    active: bool,
+    is_subroutine: bool,
 }
 
 pub struct MissionScriptRuntime {
     evaluator: ScriptEvaluator,
     scripts: Vec<RuntimeScript>,
+    groups: Vec<RuntimeScriptGroup>,
     script_lookup: HashMap<String, usize>,
     original_lookup: HashMap<String, usize>,
+    group_lookup: HashMap<String, usize>,
+    /// Action handlers cannot take the runtime mutex recursively.  They queue
+    /// ENABLE/DISABLE requests here; the regular C++-ordered walk applies the
+    /// queue immediately after each completed script before visiting the next
+    /// declaration.
+    pending_script_enabled_updates: Arc<Mutex<Vec<(String, bool)>>>,
     frame_counter: u64,
     next_script_index: usize,
 }
 
 impl MissionScriptRuntime {
-    // Shell/map menu mode should remain responsive; defer known heavy attack-wave scripts briefly
-    // during startup, then allow them to run with adaptive backoff based on observed runtime.
-    const SHELL_HEAVY_SCRIPT_WARMUP_FRAMES: u64 = 600;
-    const SHELL_SLOW_SCRIPT_WARN_MS: u64 = 40;
-    const SHELL_HEAVY_CONDITIONS_PER_SLICE: usize = 12;
-    const SHELL_HEAVY_CONDITION_SLICE_MS: u64 = 4;
-    const SHELL_HEAVY_ACTIONS_PER_SLICE: usize = 3;
-    const SHELL_HEAVY_SLICE_MS: u64 = 6;
-
     fn new() -> GameLogicResult<Self> {
+        Self::new_with_pending_script_enabled_updates(Arc::new(Mutex::new(Vec::new())))
+    }
+
+    fn new_with_pending_script_enabled_updates(
+        pending_script_enabled_updates: Arc<Mutex<Vec<(String, bool)>>>,
+    ) -> GameLogicResult<Self> {
         let _ = initialize_script_engine();
         let engine = get_script_engine();
         let evaluator = ScriptEvaluator::new(engine.clone());
         Ok(Self {
             evaluator,
             scripts: Vec::new(),
+            groups: Vec::new(),
             script_lookup: HashMap::new(),
             original_lookup: HashMap::new(),
+            group_lookup: HashMap::new(),
+            pending_script_enabled_updates,
             frame_counter: 0,
             next_script_index: 0,
         })
@@ -391,8 +378,10 @@ impl MissionScriptRuntime {
 
     fn install_lists(&mut self, lists: &[ScriptList]) {
         self.scripts.clear();
+        self.groups.clear();
         self.script_lookup.clear();
         self.original_lookup.clear();
+        self.group_lookup.clear();
         self.frame_counter = 0;
         self.next_script_index = 0;
 
@@ -400,7 +389,7 @@ impl MissionScriptRuntime {
             self.collect_chain(
                 format!("List{}", list_index),
                 list.first_script.as_deref(),
-                true,
+                None,
             );
 
             let mut group = list.first_group.as_deref();
@@ -415,10 +404,19 @@ impl MissionScriptRuntime {
                         script_group.get_name().replace(' ', "_")
                     )
                 };
+                let runtime_group_index = self.groups.len();
+                self.group_lookup
+                    .entry(script_group.get_name().to_string())
+                    .or_insert(runtime_group_index);
+                self.groups.push(RuntimeScriptGroup {
+                    name: script_group.get_name().to_string(),
+                    active: script_group.is_active(),
+                    is_subroutine: script_group.is_subroutine(),
+                });
                 self.collect_chain(
                     group_prefix,
                     script_group.get_script(),
-                    script_group.is_active(),
+                    Some(runtime_group_index),
                 );
                 group = script_group.get_next();
                 group_index += 1;
@@ -429,24 +427,29 @@ impl MissionScriptRuntime {
             "Mission script runtime registered {} WW3D scripts",
             self.scripts.len()
         );
-        let enabled_count = self.scripts.iter().filter(|script| script.enabled).count();
+        let enabled_count = self
+            .scripts
+            .iter()
+            .filter(|script| self.is_regular_script_eligible(script) && script.enabled)
+            .count();
         log::info!(
-            "Mission script runtime enabled {} scripts at install",
+            "Mission script runtime has {} frame-eligible scripts at install",
             enabled_count
         );
         for script in self.scripts.iter().filter(|script| {
-            script.name.contains("Move_Camera")
-                || script.original_name.as_deref().is_some_and(|name| {
-                    matches!(
-                        name,
-                        "move camera"
-                            | "restart camera script"
-                            | "restart camera"
-                            | "restart camera really"
-                            | "unshroud"
-                            | "turn off sirens"
-                    )
-                })
+            self.is_regular_script_eligible(script)
+                && (script.name.contains("Move_Camera")
+                    || script.original_name.as_deref().is_some_and(|name| {
+                        matches!(
+                            name.to_ascii_lowercase().as_str(),
+                            "move camera"
+                                | "restart camera script"
+                                | "restart camera"
+                                | "restart camera really"
+                                | "unshroud"
+                                | "turn off sirens"
+                        )
+                    }))
         }) {
             log::debug!(
                 "Mission script install: runtime='{}' original={:?} enabled={} script_active={}",
@@ -462,37 +465,29 @@ impl MissionScriptRuntime {
         self.update_budgeted(current_frame, None)
     }
 
-    fn update_shell_budgeted(
-        &mut self,
-        current_frame: u64,
-        max_scripts_per_frame: Option<usize>,
-    ) -> GameLogicResult<()> {
-        self.update_budgeted_internal(current_frame, max_scripts_per_frame, true)
-    }
-
     fn update_budgeted(
         &mut self,
         current_frame: u64,
         max_scripts_per_frame: Option<usize>,
     ) -> GameLogicResult<()> {
-        self.update_budgeted_internal(current_frame, max_scripts_per_frame, false)
+        self.update_budgeted_internal(current_frame, max_scripts_per_frame)
     }
 
     fn update_budgeted_internal(
         &mut self,
         current_frame: u64,
         max_scripts_per_frame: Option<usize>,
-        shell_safe_mode: bool,
     ) -> GameLogicResult<()> {
         if self.scripts.is_empty() {
             return Ok(());
         }
         self.frame_counter = current_frame;
+        self.apply_pending_script_enabled_updates()?;
         if current_frame <= 2 {
             let enabled: Vec<_> = self
                 .scripts
                 .iter()
-                .filter(|script| script.enabled)
+                .filter(|script| self.is_regular_script_eligible(script) && script.enabled)
                 .map(|script| script.name.as_str())
                 .collect();
             log::debug!(
@@ -508,106 +503,104 @@ impl MissionScriptRuntime {
                 let to_evaluate = budget.min(len);
                 for _ in 0..to_evaluate {
                     let index = self.next_script_index % len;
-                    if shell_safe_mode
-                        && Self::should_defer_heavy_shell_script(
-                            &self.scripts[index],
-                            self.frame_counter,
-                        )
-                    {
-                        self.next_script_index = (self.next_script_index + 1) % len;
-                        continue;
-                    }
-                    self.evaluate_script(index, shell_safe_mode)?;
+                    let group_is_eligible = self.is_regular_script_eligible(&self.scripts[index]);
+                    self.evaluate_script(index, group_is_eligible)?;
+                    self.apply_pending_script_enabled_updates()?;
                     self.next_script_index = (self.next_script_index + 1) % len;
                 }
             }
             None => {
-                for index in 0..self.scripts.len() {
-                    if shell_safe_mode
-                        && Self::should_defer_heavy_shell_script(
-                            &self.scripts[index],
-                            self.frame_counter,
-                        )
-                    {
-                        continue;
-                    }
-                    self.evaluate_script(index, shell_safe_mode)?;
-                }
+                self.update_full_cxx_order()?;
                 self.next_script_index = 0;
             }
         }
         Ok(())
     }
 
-    fn should_defer_heavy_shell_script(script: &RuntimeScript, frame_counter: u64) -> bool {
-        frame_counter < Self::SHELL_HEAVY_SCRIPT_WARMUP_FRAMES
-            && Self::is_shell_heavy_attack_script(script)
-    }
-
-    fn is_shell_heavy_attack_script(script: &RuntimeScript) -> bool {
-        let runtime = script.name.to_ascii_lowercase();
-        let original = script
-            .original_name
-            .as_deref()
-            .unwrap_or_default()
-            .to_ascii_lowercase();
-
-        let combined = format!("{runtime} {original}");
-        (combined.contains("spawn") && combined.contains("attack"))
-            || combined.contains("go_hunt")
-            || combined.contains("go hunt")
-            || combined.contains("gount")
-            || combined.contains("mig")
-                && (combined.contains("hunt") || combined.contains("attack"))
-    }
-
-    fn shell_slow_script_cooldown_frames(elapsed: Duration) -> u64 {
-        let ms = elapsed.as_millis() as u64;
-        if ms >= 500 {
-            600
-        } else if ms >= 250 {
-            360
-        } else if ms >= 120 {
-            180
-        } else if ms >= 80 {
-            90
-        } else if ms >= Self::SHELL_SLOW_SCRIPT_WARN_MS {
-            30
-        } else {
-            0
-        }
-    }
-
     fn set_script_enabled(&mut self, name: &str, enabled: bool) -> GameLogicResult<()> {
-        let idx = self.script_lookup.get(name).copied().or_else(|| {
-            self.original_lookup
-                .get(&name.to_ascii_lowercase())
-                .copied()
-        });
+        let script_index = self
+            .script_lookup
+            .get(name)
+            .copied()
+            .or_else(|| self.original_lookup.get(name).copied());
+        let group_index = self.group_lookup.get(name).copied();
 
-        if let Some(idx) = idx {
-            let entry = &mut self.scripts[idx];
-            entry.enabled = enabled;
-            entry.script.set_active(enabled);
-            entry.state.pending_condition_cursor = None;
-            entry.state.pending_action_cursor = None;
-            if enabled {
-                entry.state.completed = false;
-                entry.state.next_frame_allowed = self.frame_counter;
+        // C++ ScriptEngine.cpp:6800-6823 finds groups and scripts separately.
+        // Keep the mutation order visible to immediate/re-entrant actions:
+        // ENABLE toggles group then script; DISABLE toggles script then group.
+        if enabled {
+            if let Some(group_index) = group_index {
+                self.groups[group_index].active = true;
             }
+            if let Some(script_index) = script_index {
+                self.set_runtime_script_active(script_index, true);
+            }
+        } else {
+            if let Some(script_index) = script_index {
+                self.set_runtime_script_active(script_index, false);
+            }
+            if let Some(group_index) = group_index {
+                self.groups[group_index].active = false;
+            }
+        }
+
+        if let Some(script_index) = script_index {
             log::debug!(
                 "Mission script runtime set '{}' enabled={} (runtime='{}')",
                 name,
                 enabled,
-                entry.name
+                self.scripts[script_index].name
             );
-        } else {
-            log::warn!("Enable/Disable requested for unknown script '{}'", name);
+        }
+        if let Some(group_index) = group_index {
+            log::debug!(
+                "Mission script runtime set group '{}' active={} (runtime='{}')",
+                name,
+                enabled,
+                self.groups[group_index].name
+            );
+        }
+        if script_index.is_none() && group_index.is_none() {
+            log::warn!(
+                "Enable/Disable requested for unknown script/group '{}'",
+                name
+            );
         }
         Ok(())
     }
 
-    fn collect_chain(&mut self, prefix: String, script: Option<&Script>, group_active: bool) {
+    fn apply_pending_script_enabled_updates(&mut self) -> GameLogicResult<()> {
+        let pending = self
+            .pending_script_enabled_updates
+            .lock()
+            .map(|mut queue| queue.drain(..).collect::<Vec<_>>())
+            .map_err(|_| {
+                GameLogicError::Configuration(
+                    "Mission script enable queue mutex poisoned".to_string(),
+                )
+            })?;
+        for (name, enabled) in pending {
+            self.set_script_enabled(&name, enabled)?;
+        }
+        Ok(())
+    }
+
+    fn set_runtime_script_active(&mut self, script_index: usize, enabled: bool) {
+        let entry = &mut self.scripts[script_index];
+        entry.enabled = enabled;
+        entry.script.set_active(enabled);
+        if enabled {
+            entry.state.completed = false;
+            entry.state.next_frame_allowed = self.frame_counter;
+        }
+    }
+
+    fn collect_chain(
+        &mut self,
+        prefix: String,
+        script: Option<&Script>,
+        group_index: Option<usize>,
+    ) {
         let mut current = script;
         let mut ordinal = 0usize;
 
@@ -624,10 +617,13 @@ impl MissionScriptRuntime {
                 name.push_str(&suffix);
             }
 
-            let original_key = if base.is_empty() {
+            // C++ `findScript` compares its AsciiString name verbatim.  The
+            // generated runtime path below may normalize display whitespace,
+            // but action lookup must retain authored spelling and case.
+            let original_key = if node.get_name().is_empty() {
                 None
             } else {
-                Some(base.to_ascii_lowercase())
+                Some(node.get_name().to_string())
             };
 
             if let Some(ref key) = original_key {
@@ -642,7 +638,9 @@ impl MissionScriptRuntime {
                 original_name: original_key,
                 script: node.clone(),
                 state: ScriptState::new(),
-                enabled: group_active && node.is_active(),
+                group_index,
+                is_subroutine: node.is_subroutine(),
+                enabled: node.is_active(),
             });
 
             current = node.get_next();
@@ -650,17 +648,53 @@ impl MissionScriptRuntime {
         }
     }
 
-    fn evaluate_script(&mut self, index: usize, shell_safe_mode: bool) -> GameLogicResult<()> {
+    fn is_regular_script_eligible(&self, script: &RuntimeScript) -> bool {
+        if script.is_subroutine {
+            return false;
+        }
+        script.group_index.map_or(true, |group_index| {
+            self.groups
+                .get(group_index)
+                .is_some_and(|group| group.active && !group.is_subroutine)
+        })
+    }
+
+    /// C++ samples an ordinary group's active/subroutine gate when it reaches
+    /// that group in `ScriptEngine::update`, then walks the whole chain.  A
+    /// member that disables its own group therefore affects the next frame,
+    /// not remaining siblings in the already-entered chain.
+    fn update_full_cxx_order(&mut self) -> GameLogicResult<()> {
+        let mut current_group = None;
+        let mut entered_group_is_eligible = true;
+
+        for index in 0..self.scripts.len() {
+            let group_index = self.scripts[index].group_index;
+            if group_index != current_group {
+                current_group = group_index;
+                entered_group_is_eligible = group_index.map_or(true, |group_index| {
+                    self.groups
+                        .get(group_index)
+                        .is_some_and(|group| group.active && !group.is_subroutine)
+                });
+            }
+
+            if !entered_group_is_eligible || self.scripts[index].is_subroutine {
+                continue;
+            }
+            self.evaluate_script(index, true)?;
+            self.apply_pending_script_enabled_updates()?;
+        }
+        Ok(())
+    }
+
+    fn evaluate_script(&mut self, index: usize, group_is_eligible: bool) -> GameLogicResult<()> {
         let entry = &mut self.scripts[index];
-        if !entry.enabled {
-            entry.state.pending_condition_cursor = None;
-            entry.state.pending_action_cursor = None;
+        if !group_is_eligible || entry.is_subroutine || !entry.enabled || !entry.script.is_active()
+        {
             return Ok(());
         }
 
         if entry.script.is_one_shot() && entry.state.completed {
-            entry.state.pending_condition_cursor = None;
-            entry.state.pending_action_cursor = None;
             return Ok(());
         }
 
@@ -668,30 +702,7 @@ impl MissionScriptRuntime {
             return Ok(());
         }
 
-        let shell_chunk_heavy = shell_safe_mode && Self::is_shell_heavy_attack_script(entry);
-        let eval_started = Instant::now();
-        let (condition_result, yielded) = if shell_chunk_heavy {
-            Self::evaluate_shell_heavy_script_chunked(&self.evaluator, entry)?
-        } else {
-            entry.state.pending_condition_cursor = None;
-            entry.state.pending_action_cursor = None;
-            (self.evaluator.evaluate_script(&mut entry.script)?, false)
-        };
-        let eval_elapsed = eval_started.elapsed();
-        if eval_elapsed >= Duration::from_millis(Self::SHELL_SLOW_SCRIPT_WARN_MS) {
-            log::warn!(
-                "Slow mission script evaluate: '{}' original={:?} took {:?} (frame={})",
-                entry.name,
-                entry.original_name,
-                eval_elapsed,
-                self.frame_counter
-            );
-        }
-
-        if yielded {
-            entry.state.next_frame_allowed = self.frame_counter.saturating_add(1);
-            return Ok(());
-        }
+        let condition_result = self.evaluator.evaluate_script(&mut entry.script)?;
 
         if condition_result && entry.script.is_one_shot() {
             entry.state.completed = true;
@@ -700,315 +711,13 @@ impl MissionScriptRuntime {
                 self.frame_counter + delay_frames(entry.script.delay_evaluation_seconds);
         }
 
-        if shell_safe_mode {
-            let cooldown = Self::shell_slow_script_cooldown_frames(eval_elapsed);
-            if cooldown > 0 {
-                let deferred_until = self.frame_counter.saturating_add(cooldown);
-                entry.state.next_frame_allowed = entry.state.next_frame_allowed.max(deferred_until);
-                log::warn!(
-                    "Shell script backoff: '{}' original={:?} eval={:?} cooldown={}f until_frame={}",
-                    entry.name,
-                    entry.original_name,
-                    eval_elapsed,
-                    cooldown,
-                    entry.state.next_frame_allowed
-                );
-            }
-        }
-
         Ok(())
-    }
-
-    fn evaluate_shell_heavy_script_chunked(
-        evaluator: &ScriptEvaluator,
-        entry: &mut RuntimeScript,
-    ) -> GameLogicResult<(bool, bool)> {
-        let (branch, condition_result, start_index) = match entry.state.pending_action_cursor {
-            Some(cursor) => (
-                cursor.branch,
-                matches!(cursor.branch, ScriptActionBranch::TrueAction),
-                cursor.next_action_index,
-            ),
-            None => {
-                let condition_result = match Self::evaluate_shell_heavy_conditions_chunked(
-                    evaluator,
-                    &mut entry.script,
-                    entry.state.pending_condition_cursor,
-                )? {
-                    ShellConditionChunkResult::Pending(cursor) => {
-                        entry.state.pending_condition_cursor = Some(cursor);
-                        return Ok((false, true));
-                    }
-                    ShellConditionChunkResult::Complete(result) => {
-                        entry.state.pending_condition_cursor = None;
-                        result
-                    }
-                };
-                let branch = if condition_result {
-                    ScriptActionBranch::TrueAction
-                } else {
-                    ScriptActionBranch::FalseAction
-                };
-                (branch, condition_result, 0)
-            }
-        };
-
-        let Some(first_action) = Self::script_action_for_branch(&entry.script, branch) else {
-            entry.state.pending_action_cursor = None;
-            return Ok((condition_result, false));
-        };
-
-        let Some(action) = Self::script_action_at_index(first_action, start_index) else {
-            entry.state.pending_action_cursor = None;
-            return Ok((condition_result, false));
-        };
-
-        let (next_action_index, yielded, has_more_actions) =
-            Self::execute_script_action_slice(evaluator, action, start_index, true, &entry.name)?;
-
-        if yielded && has_more_actions {
-            entry.state.pending_action_cursor = Some(ShellPendingActionCursor {
-                branch,
-                next_action_index,
-            });
-            log::debug!(
-                "Chunked heavy shell script '{}' at action {}",
-                entry.name,
-                next_action_index
-            );
-            Ok((condition_result, true))
-        } else {
-            entry.state.pending_action_cursor = None;
-            Ok((condition_result, false))
-        }
-    }
-
-    fn evaluate_shell_heavy_conditions_chunked(
-        evaluator: &ScriptEvaluator,
-        script: &mut Script,
-        pending_cursor: Option<ShellPendingConditionCursor>,
-    ) -> GameLogicResult<ShellConditionChunkResult> {
-        if script.condition.is_none() {
-            return Ok(ShellConditionChunkResult::Complete(true));
-        }
-
-        let mut cursor = pending_cursor.unwrap_or(ShellPendingConditionCursor {
-            next_or_index: 0,
-            next_and_index: 0,
-        });
-        let slice_started = Instant::now();
-        let mut evaluated_conditions = 0usize;
-
-        loop {
-            let step = Self::evaluate_shell_condition_step(evaluator, script, cursor)?;
-            match step {
-                ShellConditionStepOutcome::Complete(result) => {
-                    return Ok(ShellConditionChunkResult::Complete(result));
-                }
-                ShellConditionStepOutcome::Advance(next_cursor) => {
-                    cursor = next_cursor;
-                    evaluated_conditions += 1;
-                    if evaluated_conditions >= Self::SHELL_HEAVY_CONDITIONS_PER_SLICE
-                        || slice_started.elapsed()
-                            >= Duration::from_millis(Self::SHELL_HEAVY_CONDITION_SLICE_MS)
-                    {
-                        return Ok(ShellConditionChunkResult::Pending(cursor));
-                    }
-                }
-            }
-        }
-    }
-
-    fn evaluate_shell_condition_step(
-        evaluator: &ScriptEvaluator,
-        script: &mut Script,
-        cursor: ShellPendingConditionCursor,
-    ) -> GameLogicResult<ShellConditionStepOutcome> {
-        let Some(first_or) = script.condition.as_deref_mut() else {
-            return Ok(ShellConditionStepOutcome::Complete(true));
-        };
-
-        let mut current_or = Some(first_or);
-        for _ in 0..cursor.next_or_index {
-            current_or = current_or.and_then(|or_node| or_node.next_or.as_deref_mut());
-        }
-        let Some(or_node) = current_or else {
-            return Ok(ShellConditionStepOutcome::Complete(false));
-        };
-
-        let mut current_and = or_node.first_and.as_deref_mut();
-        for _ in 0..cursor.next_and_index {
-            current_and =
-                current_and.and_then(|and_node| and_node.next_and_condition.as_deref_mut());
-        }
-
-        let Some(and_node) = current_and else {
-            if or_node.next_or.is_some() {
-                return Ok(ShellConditionStepOutcome::Advance(
-                    ShellPendingConditionCursor {
-                        next_or_index: cursor.next_or_index + 1,
-                        next_and_index: 0,
-                    },
-                ));
-            }
-            return Ok(ShellConditionStepOutcome::Complete(false));
-        };
-
-        let (condition_result, has_next_and) = {
-            let result = evaluator.evaluate_condition(and_node)?;
-            (result, and_node.next_and_condition.is_some())
-        };
-
-        if condition_result {
-            if has_next_and {
-                Ok(ShellConditionStepOutcome::Advance(
-                    ShellPendingConditionCursor {
-                        next_or_index: cursor.next_or_index,
-                        next_and_index: cursor.next_and_index + 1,
-                    },
-                ))
-            } else {
-                Ok(ShellConditionStepOutcome::Complete(true))
-            }
-        } else if or_node.next_or.is_some() {
-            Ok(ShellConditionStepOutcome::Advance(
-                ShellPendingConditionCursor {
-                    next_or_index: cursor.next_or_index + 1,
-                    next_and_index: 0,
-                },
-            ))
-        } else {
-            Ok(ShellConditionStepOutcome::Complete(false))
-        }
-    }
-
-    fn execute_script_action_slice(
-        evaluator: &ScriptEvaluator,
-        start_action: &ScriptAction,
-        start_index: usize,
-        shell_safe_mode: bool,
-        script_name: &str,
-    ) -> GameLogicResult<(usize, bool, bool)> {
-        let slice_started = Instant::now();
-        let mut current_action = Some(start_action);
-        let mut executed = 0usize;
-        let mut next_action_index = start_index;
-
-        while let Some(action) = current_action {
-            if shell_safe_mode && Self::should_skip_shell_pathological_action(action) {
-                let team_ctx = Self::describe_action_team_context(action);
-                log::warn!(
-                    "Skipping pathological shell action script='{}' action={:?}{} to preserve menu responsiveness",
-                    script_name,
-                    action.get_action_type(),
-                    team_ctx
-                );
-                executed += 1;
-                next_action_index += 1;
-                current_action = action.get_next();
-                continue;
-            }
-            let action_started = Instant::now();
-            evaluator.execute_action(action)?;
-            let action_elapsed = action_started.elapsed();
-            if action_elapsed >= Duration::from_millis(Self::SHELL_SLOW_SCRIPT_WARN_MS) {
-                let team_ctx = Self::describe_action_team_context(action);
-                log::warn!(
-                    "Slow mission script action execute: script='{}' action={:?} took {:?}{}",
-                    script_name,
-                    action.get_action_type(),
-                    action_elapsed,
-                    team_ctx
-                );
-            }
-            executed += 1;
-            next_action_index += 1;
-            let next = action.get_next();
-            let has_more = next.is_some();
-
-            if has_more
-                && (executed >= Self::SHELL_HEAVY_ACTIONS_PER_SLICE
-                    || slice_started.elapsed() >= Duration::from_millis(Self::SHELL_HEAVY_SLICE_MS))
-            {
-                return Ok((next_action_index, true, true));
-            }
-
-            current_action = next;
-        }
-
-        Ok((next_action_index, false, false))
-    }
-
-    fn should_skip_shell_pathological_action(action: &ScriptAction) -> bool {
-        let _ = action;
-        false
-    }
-
-    fn describe_action_team_context(action: &ScriptAction) -> String {
-        let Some(team_name_param) = action.get_parameter(0) else {
-            return String::new();
-        };
-        let team_name = team_name_param.get_string();
-        if team_name.is_empty() {
-            return String::new();
-        }
-
-        let mut total_members = 0usize;
-        let mut alive_members = 0usize;
-        if let Ok(mut factory) = get_team_factory().lock() {
-            if let Some(team_arc) = factory.find_team(team_name) {
-                if let Ok(team) = team_arc.read() {
-                    let members = team.get_members();
-                    total_members = members.len();
-                    let mut alive = 0usize;
-                    for member in members {
-                        let Some(obj) =
-                            gamelogic::helpers::TheGameLogic::find_object_by_id(*member)
-                        else {
-                            continue;
-                        };
-                        let Ok(obj_guard) = obj.read() else {
-                            continue;
-                        };
-                        if !obj_guard.is_effectively_dead() {
-                            alive += 1;
-                        }
-                    }
-                    alive_members = alive;
-                }
-            }
-        }
-
-        format!(
-            " team='{}' members={} alive={}",
-            team_name, total_members, alive_members
-        )
-    }
-
-    fn script_action_for_branch(
-        script: &Script,
-        branch: ScriptActionBranch,
-    ) -> Option<&ScriptAction> {
-        match branch {
-            ScriptActionBranch::TrueAction => script.get_action(),
-            ScriptActionBranch::FalseAction => script.get_false_action(),
-        }
-    }
-
-    fn script_action_at_index(start_action: &ScriptAction, index: usize) -> Option<&ScriptAction> {
-        let mut current = Some(start_action);
-        let mut offset = 0usize;
-        while offset < index {
-            current = current?.get_next();
-            offset += 1;
-        }
-        current
     }
 }
 
 pub struct MissionScriptHooks {
     runtime: Mutex<MissionScriptRuntime>,
-    pending_script_enabled_updates: Mutex<Vec<(String, bool)>>,
+    pending_script_enabled_updates: Arc<Mutex<Vec<(String, bool)>>>,
     messages: Mutex<Vec<String>>,
     sounds: Mutex<Vec<String>>,
     sound_events: Mutex<Vec<ScriptSoundEvent>>,
@@ -1075,9 +784,14 @@ pub struct MissionScriptHooks {
 
 impl MissionScriptHooks {
     pub fn new() -> GameLogicResult<Arc<Self>> {
+        let pending_script_enabled_updates = Arc::new(Mutex::new(Vec::new()));
         Ok(Arc::new(Self {
-            runtime: Mutex::new(MissionScriptRuntime::new()?),
-            pending_script_enabled_updates: Mutex::new(Vec::new()),
+            runtime: Mutex::new(
+                MissionScriptRuntime::new_with_pending_script_enabled_updates(Arc::clone(
+                    &pending_script_enabled_updates,
+                ))?,
+            ),
+            pending_script_enabled_updates,
             messages: Mutex::new(Vec::new()),
             sounds: Mutex::new(Vec::new()),
             sound_events: Mutex::new(Vec::new()),
@@ -1153,44 +867,15 @@ impl MissionScriptHooks {
         self.update_budgeted(frame, None)
     }
 
-    pub fn update_shell_budgeted(
-        &self,
-        frame: u64,
-        max_scripts_per_frame: Option<usize>,
-    ) -> GameLogicResult<()> {
-        self.frame_counter.store(frame, Ordering::Relaxed);
-        let pending = self
-            .pending_script_enabled_updates
-            .lock()
-            .map(|mut queue| queue.drain(..).collect::<Vec<_>>())
-            .unwrap_or_default();
-        let mut runtime = self.runtime.lock().map_err(|_| {
-            GameLogicError::Configuration("Mission script runtime mutex poisoned".to_string())
-        })?;
-        for (name, enabled) in pending {
-            runtime.set_script_enabled(&name, enabled)?;
-        }
-        runtime.update_shell_budgeted(frame, max_scripts_per_frame)?;
-        Ok(())
-    }
-
     pub fn update_budgeted(
         &self,
         frame: u64,
         max_scripts_per_frame: Option<usize>,
     ) -> GameLogicResult<()> {
         self.frame_counter.store(frame, Ordering::Relaxed);
-        let pending = self
-            .pending_script_enabled_updates
-            .lock()
-            .map(|mut queue| queue.drain(..).collect::<Vec<_>>())
-            .unwrap_or_default();
         let mut runtime = self.runtime.lock().map_err(|_| {
             GameLogicError::Configuration("Mission script runtime mutex poisoned".to_string())
         })?;
-        for (name, enabled) in pending {
-            runtime.set_script_enabled(&name, enabled)?;
-        }
         runtime.update_budgeted(frame, max_scripts_per_frame)?;
         Ok(())
     }
@@ -1201,58 +886,6 @@ impl MissionScriptHooks {
         })?;
         queue.push((name.to_string(), enabled));
         Ok(())
-    }
-
-    pub fn disable_attack_wave_scripts(&self) -> usize {
-        let mut disabled = 0usize;
-        if let Ok(mut runtime) = self.runtime.lock() {
-            for entry in runtime.scripts.iter_mut() {
-                let runtime_name = entry.name.to_ascii_lowercase();
-                let original_name = entry.original_name.clone().unwrap_or_default();
-                let original_name = original_name.to_ascii_lowercase();
-                let looks_like_attack_wave = (runtime_name.contains("attack")
-                    && runtime_name.contains("spawn"))
-                    || (original_name.contains("and attack") && original_name.contains("spawn"));
-                if looks_like_attack_wave && entry.enabled {
-                    entry.enabled = false;
-                    entry.script.set_active(false);
-                    entry.state.completed = true;
-                    disabled += 1;
-                }
-            }
-        }
-        disabled
-    }
-
-    /// Disable dense campaign utility scripts that re-enter CALL_SUBROUTINE every
-    /// frame (random-number generators, pure cinematic camera chains). Keeps the
-    /// mission path tickable without hanging the host on MD_*/GC_* maps.
-    pub fn disable_heavy_campaign_utility_scripts(&self) -> usize {
-        let mut disabled = 0usize;
-        if let Ok(mut runtime) = self.runtime.lock() {
-            for entry in runtime.scripts.iter_mut() {
-                let runtime_name = entry.name.to_ascii_lowercase();
-                let original_name = entry
-                    .original_name
-                    .clone()
-                    .unwrap_or_default()
-                    .to_ascii_lowercase();
-                let combined = format!("{runtime_name} {original_name}");
-                let looks_heavy = combined.contains("generate random number")
-                    || combined.contains("sub-random")
-                    || combined.contains("sub-generate")
-                    || (combined.contains("cinematic") && combined.contains("camera"))
-                    || combined.contains("move_camera")
-                    || combined.contains("move camera");
-                if looks_heavy && entry.enabled {
-                    entry.enabled = false;
-                    entry.script.set_active(false);
-                    entry.state.completed = true;
-                    disabled += 1;
-                }
-            }
-        }
-        disabled
     }
 
     pub fn push_message(&self, text: String) {
@@ -2794,28 +2427,394 @@ fn delay_frames(seconds: i32) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use gamelogic::scripting::core::{Condition, ConditionType, OrCondition, ScriptActionType};
+    use gamelogic::scripting::core::{
+        Condition, ConditionType, Coord3D, OrCondition, Parameter, ParameterType, ScriptActionType,
+        ScriptGroup,
+    };
+    use gamelogic::scripting::engine::{ScriptEngine, ScriptEngineHandle};
 
-    fn build_noop_action_chain(count: usize) -> Option<Box<ScriptAction>> {
-        let mut head = None;
-        for _ in 0..count {
-            let mut action = Box::new(ScriptAction::new(ScriptActionType::NoOp));
-            action.set_next_action(head);
-            head = Some(action);
-        }
-        head
+    #[derive(Clone)]
+    struct RecordingScriptHandler {
+        events: Arc<Mutex<Vec<String>>>,
+        enabled_updates: Option<Arc<Mutex<Vec<(String, bool)>>>>,
     }
 
-    fn build_true_condition_chain(count: usize) -> Option<Box<OrCondition>> {
-        let mut head = None;
-        for _ in 0..count {
-            let mut condition = Box::new(Condition::new(ConditionType::ConditionTrue));
-            condition.set_next_condition(head);
-            head = Some(condition);
+    impl ScriptActionHandler for RecordingScriptHandler {
+        fn display_text(&self, text: &str) -> GameLogicResult<()> {
+            self.events
+                .lock()
+                .expect("recording script handler mutex should not be poisoned")
+                .push(text.to_string());
+            Ok(())
         }
-        let mut or_condition = Box::new(OrCondition::new());
-        or_condition.set_first_and_condition(head);
-        Some(or_condition)
+
+        fn enable_script(&self, name: &str, enabled: bool) -> GameLogicResult<()> {
+            if let Some(enabled_updates) = self.enabled_updates.as_ref() {
+                enabled_updates
+                    .lock()
+                    .expect("recording script enable queue mutex should not be poisoned")
+                    .push((name.to_string(), enabled));
+            }
+            Ok(())
+        }
+    }
+
+    fn private_runtime_recording_into(
+        events: Arc<Mutex<Vec<String>>>,
+        lists: &[ScriptList],
+    ) -> MissionScriptRuntime {
+        let mut private_engine =
+            ScriptEngine::new().expect("private script engine should initialize");
+        private_engine.set_action_handler(Some(Arc::new(RecordingScriptHandler {
+            events,
+            enabled_updates: None,
+        })));
+        for (side_index, list) in lists.iter().enumerate() {
+            private_engine
+                .set_script_list_for_player(side_index, Some(Box::new(list.clone())))
+                .expect("private script engine should accept its ScriptList");
+        }
+
+        let mut runtime =
+            MissionScriptRuntime::new().expect("mission script runtime should initialize");
+        runtime.evaluator = ScriptEvaluator::new(ScriptEngineHandle::from_engine(private_engine));
+        runtime
+    }
+
+    fn display_text_action(text: &str) -> Box<ScriptAction> {
+        let mut action = ScriptAction::new(ScriptActionType::DisplayText);
+        action
+            .add_parameter(Parameter::with_string(
+                ParameterType::TextString,
+                text.to_string(),
+            ))
+            .expect("display text action should accept its text parameter");
+        Box::new(action)
+    }
+
+    fn script_enable_action(name: &str, enabled: bool) -> Box<ScriptAction> {
+        let action_type = if enabled {
+            ScriptActionType::EnableScript
+        } else {
+            ScriptActionType::DisableScript
+        };
+        let mut action = ScriptAction::new(action_type);
+        action
+            .add_parameter(Parameter::with_string(
+                ParameterType::Script,
+                name.to_string(),
+            ))
+            .expect("script toggle action should accept its target name");
+        Box::new(action)
+    }
+
+    fn one_shot_script(name: &str, action: Box<ScriptAction>) -> Box<Script> {
+        let mut script = Script::new();
+        script.set_name(name.to_string());
+        script.set_one_shot(true);
+        script.set_action(Some(action));
+        Box::new(script)
+    }
+
+    fn cxx_true_one_shot_script(name: &str, action: Box<ScriptAction>) -> Box<Script> {
+        let mut script = one_shot_script(name, action);
+        let mut or_condition = OrCondition::new();
+        or_condition
+            .set_first_and_condition(Some(Box::new(Condition::new(ConditionType::ConditionTrue))));
+        script.set_or_condition(Some(Box::new(or_condition)));
+        script
+    }
+
+    #[test]
+    fn dense_host_lists_keep_attack_random_and_cinematic_scripts_in_cxx_order() {
+        // C++ ScriptEngine::update (ScriptEngine.cpp:5479-5574, 7653-7667)
+        // walks root scripts first, then active non-subroutine groups, without
+        // a density/name filter.  Keep this list above the old 48-script
+        // threshold and include the campaign patterns that the host used to
+        // erase before frame zero.
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let mut list = ScriptList::new();
+
+        list.append_script(one_shot_script(
+            "Spawn Techs And Attack",
+            display_text_action("attack-wave"),
+        ));
+
+        let mut random_driver = display_text_action("random-before-call");
+        let mut call = ScriptAction::new(ScriptActionType::CallSubroutine);
+        call.add_parameter(Parameter::with_string(
+            ParameterType::ScriptSubroutine,
+            "SUB-Generate Random Number".to_string(),
+        ))
+        .expect("CALL_SUBROUTINE should accept its name");
+        call.set_next_action(Some(display_text_action("random-after-call")));
+        random_driver.set_next_action(Some(Box::new(call)));
+        list.append_script(one_shot_script("Generate Random Number", random_driver));
+
+        let mut cinematic = display_text_action("cinematic-camera");
+        let mut camera_move = ScriptAction::new(ScriptActionType::MoveCameraTo);
+        camera_move
+            .add_parameter(Parameter::with_coord(
+                ParameterType::Coord3D,
+                Coord3D::new(150.0, 275.0, 40.0),
+            ))
+            .expect("MOVE_CAMERA_TO should accept a coordinate target");
+        cinematic.set_next_action(Some(Box::new(camera_move)));
+        list.append_script(one_shot_script("Cinematic Camera", cinematic));
+
+        for ordinal in 0..48 {
+            list.append_script(one_shot_script(
+                &format!("Dense Filler {ordinal:02}"),
+                display_text_action(&format!("filler-{ordinal:02}")),
+            ));
+        }
+
+        let mut active_group = ScriptGroup::new();
+        active_group.set_name("Post Root Camera Group".to_string());
+        active_group.set_active(true);
+        active_group.append_script(one_shot_script(
+            "Active Group Cinematic",
+            display_text_action("active-group"),
+        ));
+        list.append_group(Box::new(active_group));
+
+        let mut subroutine_group = ScriptGroup::new();
+        subroutine_group.set_name("SUB-Generate Random Number".to_string());
+        subroutine_group.set_active(true);
+        subroutine_group.set_subroutine(true);
+        subroutine_group.append_script(cxx_true_one_shot_script(
+            "Subroutine Body",
+            display_text_action("random-subroutine"),
+        ));
+        list.append_group(Box::new(subroutine_group));
+
+        let mut runtime = private_runtime_recording_into(Arc::clone(&events), &[list.clone()]);
+        runtime.install_lists(&[list]);
+        runtime
+            .update(9001)
+            .expect("a dense non-shell list should complete one ordered frame walk");
+
+        let events = events
+            .lock()
+            .expect("recording script handler mutex should not be poisoned")
+            .clone();
+        assert_eq!(
+            &events[..5],
+            [
+                "attack-wave",
+                "random-before-call",
+                "random-subroutine",
+                "random-after-call",
+                "cinematic-camera",
+            ],
+            "attack, CALL_SUBROUTINE/random, and cinematic scripts must retain declaration order"
+        );
+        assert_eq!(
+            events.len(),
+            54,
+            "the bounded walk must not skip dense scripts"
+        );
+        assert_eq!(events.last().map(String::as_str), Some("active-group"));
+
+        assert!(
+            runtime
+                .scripts
+                .iter()
+                .filter(|entry| runtime.is_regular_script_eligible(entry))
+                .all(|entry| entry.state.completed),
+            "every active root/group one-shot must run on this logic frame"
+        );
+        let subroutine = runtime
+            .scripts
+            .iter()
+            .find(|entry| entry.original_name.as_deref() == Some("Subroutine Body"))
+            .expect("subroutine script should remain discoverable for CALL_SUBROUTINE");
+        assert!(!runtime.is_regular_script_eligible(subroutine));
+        assert!(
+            !subroutine.state.completed,
+            "a subroutine must not be evaluated by the regular frame walk"
+        );
+    }
+
+    #[test]
+    fn shell_named_attack_scripts_use_the_same_complete_frame_walk() {
+        // GAME_SHELL does not give C++ ScriptEngine::update a separate budget,
+        // warm-up, or continuation interpreter.  In particular, a script name
+        // that used to trigger the Rust-only shell throttle must not change
+        // whether every declared script runs on this logic frame.
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let mut list = ScriptList::new();
+        for name in [
+            "Spawn Bikes And Attack",
+            "Shell Script 01",
+            "Shell Script 02",
+            "Shell Script 03",
+            "Shell Script 04",
+            "Shell Script 05",
+            "Shell Script 06",
+            "Shell Script 07",
+            "Shell Script 08",
+            "Shell Script 09",
+        ] {
+            list.append_script(one_shot_script(name, display_text_action(name)));
+        }
+
+        let mut runtime = private_runtime_recording_into(Arc::clone(&events), &[list.clone()]);
+        runtime.install_lists(&[list]);
+        runtime
+            .update(1)
+            .expect("shell-equivalent script frame should complete");
+
+        assert_eq!(
+            events
+                .lock()
+                .expect("recording event mutex should not be poisoned")
+                .as_slice(),
+            [
+                "Spawn Bikes And Attack",
+                "Shell Script 01",
+                "Shell Script 02",
+                "Shell Script 03",
+                "Shell Script 04",
+                "Shell Script 05",
+                "Shell Script 06",
+                "Shell Script 07",
+                "Shell Script 08",
+                "Shell Script 09",
+            ],
+            "every root script must run in declaration order on frame one"
+        );
+    }
+
+    #[test]
+    fn group_name_toggles_apply_at_cxx_group_boundaries_without_skipping_siblings() {
+        // C++ enableScript/disableScript toggles a named group independently
+        // (ScriptEngine.cpp:6797-6823).  A root action can enable a later
+        // group in this same update; once a group has been entered, disabling
+        // it takes effect next frame rather than skipping its remaining chain.
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let pending_enabled_updates = Arc::new(Mutex::new(Vec::new()));
+        let mut list = ScriptList::new();
+        list.append_script(one_shot_script(
+            "Enable Dormant Attack Group",
+            script_enable_action("Dormant Attack Group", true),
+        ));
+        list.append_script(one_shot_script(
+            "Root After Enable",
+            display_text_action("root-after-enable"),
+        ));
+
+        let mut dormant_group = ScriptGroup::new();
+        dormant_group.set_name("Dormant Attack Group".to_string());
+        dormant_group.set_active(false);
+        let mut dormant_member = Script::new();
+        dormant_member.set_name("Dormant Attack Member".to_string());
+        dormant_member.set_one_shot(false);
+        dormant_member.set_action(Some(display_text_action("dormant-group")));
+        dormant_group.append_script(Box::new(dormant_member));
+        list.append_group(Box::new(dormant_group));
+
+        let mut self_disabling_group = ScriptGroup::new();
+        self_disabling_group.set_name("Self Disabling Group".to_string());
+        self_disabling_group.set_active(true);
+        self_disabling_group.append_script(one_shot_script(
+            "Disable This Group",
+            script_enable_action("Self Disabling Group", false),
+        ));
+        let mut sibling = Script::new();
+        sibling.set_name("Sibling In Entered Group".to_string());
+        sibling.set_one_shot(false);
+        sibling.set_action(Some(display_text_action("self-group-sibling")));
+        self_disabling_group.append_script(Box::new(sibling));
+        list.append_group(Box::new(self_disabling_group));
+
+        let mut private_engine =
+            ScriptEngine::new().expect("private script engine should initialize");
+        private_engine.set_action_handler(Some(Arc::new(RecordingScriptHandler {
+            events: Arc::clone(&events),
+            enabled_updates: Some(Arc::clone(&pending_enabled_updates)),
+        })));
+        private_engine
+            .set_script_list_for_player(0, Some(Box::new(list.clone())))
+            .expect("private script engine should accept the test ScriptList");
+
+        let mut runtime = MissionScriptRuntime::new_with_pending_script_enabled_updates(
+            Arc::clone(&pending_enabled_updates),
+        )
+        .expect("mission script runtime should initialize");
+        runtime.evaluator = ScriptEvaluator::new(ScriptEngineHandle::from_engine(private_engine));
+        runtime.install_lists(&[list]);
+
+        runtime
+            .update(17)
+            .expect("first C++-ordered group frame should run");
+        assert_eq!(
+            events
+                .lock()
+                .expect("recording event mutex should not be poisoned")
+                .as_slice(),
+            ["root-after-enable", "dormant-group", "self-group-sibling"],
+            "root enable must admit its later group, while an entered group finishes its sibling chain"
+        );
+        assert!(runtime.groups[0].active);
+        assert!(!runtime.groups[1].active);
+
+        runtime
+            .update(18)
+            .expect("second C++-ordered group frame should run");
+        assert_eq!(
+            events
+                .lock()
+                .expect("recording event mutex should not be poisoned")
+                .as_slice(),
+            [
+                "root-after-enable",
+                "dormant-group",
+                "self-group-sibling",
+                "dormant-group",
+            ],
+            "a disabled group must be skipped on the following frame without disabling other groups"
+        );
+    }
+
+    #[test]
+    fn script_and_group_toggles_keep_cxx_authored_name_case() {
+        // ScriptEngine::findGroup/findScript use exact AsciiString equality;
+        // an action authored with a case mismatch must not enable either
+        // target, even though both have runtime-derived display names.
+        let mut root_script = Script::new();
+        root_script.set_name("Mixed Case Root Script".to_string());
+        root_script.set_active(false);
+
+        let mut group = ScriptGroup::new();
+        group.set_name("Mixed Case Group".to_string());
+        group.set_active(false);
+
+        let mut list = ScriptList::new();
+        list.append_script(Box::new(root_script));
+        list.append_group(Box::new(group));
+
+        let mut runtime =
+            MissionScriptRuntime::new().expect("mission script runtime should initialize");
+        runtime.install_lists(&[list]);
+
+        runtime
+            .set_script_enabled("mixed case root script", true)
+            .expect("mismatched script name should be a harmless no-op");
+        runtime
+            .set_script_enabled("mixed case group", true)
+            .expect("mismatched group name should be a harmless no-op");
+        assert!(!runtime.scripts[0].enabled);
+        assert!(!runtime.groups[0].active);
+
+        runtime
+            .set_script_enabled("Mixed Case Root Script", true)
+            .expect("exact script name should enable the target");
+        runtime
+            .set_script_enabled("Mixed Case Group", true)
+            .expect("exact group name should enable the target");
+        assert!(runtime.scripts[0].enabled);
+        assert!(runtime.groups[0].active);
     }
 
     #[test]
@@ -3374,203 +3373,6 @@ mod tests {
                 SuperweaponObjectDisplayMutation::Hide { object_id: 77 },
                 SuperweaponObjectDisplayMutation::Show { object_id: 77 }
             ]
-        );
-    }
-
-    #[test]
-    fn heavy_shell_scripts_only_defer_during_warmup() {
-        let heavy = RuntimeScript {
-            name: "List3::Tech_Attacks::Spawn_Techs_And_Attack".to_string(),
-            original_name: Some("spawn techs and attack".to_string()),
-            script: Script::new(),
-            state: ScriptState::new(),
-            enabled: true,
-        };
-
-        assert!(MissionScriptRuntime::should_defer_heavy_shell_script(
-            &heavy,
-            MissionScriptRuntime::SHELL_HEAVY_SCRIPT_WARMUP_FRAMES - 1
-        ));
-        assert!(!MissionScriptRuntime::should_defer_heavy_shell_script(
-            &heavy,
-            MissionScriptRuntime::SHELL_HEAVY_SCRIPT_WARMUP_FRAMES
-        ));
-    }
-
-    #[test]
-    fn shell_heavy_script_detection_matches_attack_wave_patterns() {
-        let heavy = RuntimeScript {
-            name: "List3::Combat_Cycle_Attacks::Spawn_Bikes_And_Attack".to_string(),
-            original_name: Some("spawn bikes and attack".to_string()),
-            script: Script::new(),
-            state: ScriptState::new(),
-            enabled: true,
-        };
-        let allowed = RuntimeScript {
-            name: "List0::Move_Camera".to_string(),
-            original_name: Some("move camera".to_string()),
-            script: Script::new(),
-            state: ScriptState::new(),
-            enabled: true,
-        };
-
-        assert!(MissionScriptRuntime::is_shell_heavy_attack_script(&heavy));
-        assert!(!MissionScriptRuntime::is_shell_heavy_attack_script(
-            &allowed
-        ));
-    }
-
-    #[test]
-    fn heavy_shell_script_actions_are_chunked_across_frames() {
-        let runtime =
-            MissionScriptRuntime::new().expect("mission script runtime should initialize");
-        let mut script = Script::new();
-        script.set_name("spawn techs and attack".to_string());
-        script.set_action(build_noop_action_chain(5));
-
-        let mut entry = RuntimeScript {
-            name: "List3::Tech_Attacks::Spawn_Techs_And_Attack".to_string(),
-            original_name: Some("spawn techs and attack".to_string()),
-            script,
-            state: ScriptState::new(),
-            enabled: true,
-        };
-
-        let (condition_result, yielded) =
-            MissionScriptRuntime::evaluate_shell_heavy_script_chunked(
-                &runtime.evaluator,
-                &mut entry,
-            )
-            .expect("first shell chunk should run");
-        assert!(condition_result);
-        assert!(yielded);
-        let first = &entry;
-
-        assert!(
-            first.state.pending_action_cursor.is_some(),
-            "heavy shell script should yield after first action slice"
-        );
-        assert!(
-            !first.state.completed,
-            "one-shot script should not complete until the full action chain runs"
-        );
-
-        let (_, second_yielded) = MissionScriptRuntime::evaluate_shell_heavy_script_chunked(
-            &runtime.evaluator,
-            &mut entry,
-        )
-        .expect("second shell chunk should complete remaining actions");
-        assert!(!second_yielded);
-        if entry.script.is_one_shot() {
-            entry.state.completed = true;
-        }
-
-        let second = &entry;
-        assert!(
-            second.state.pending_action_cursor.is_none(),
-            "second slice should finish the action chain"
-        );
-        assert!(second.state.completed, "one-shot script should complete");
-    }
-
-    #[test]
-    fn heavy_shell_script_conditions_are_chunked_across_frames() {
-        let runtime =
-            MissionScriptRuntime::new().expect("mission script runtime should initialize");
-        let mut script = Script::new();
-        script.set_name("spawn bikes and attack".to_string());
-        script.set_or_condition(build_true_condition_chain(
-            MissionScriptRuntime::SHELL_HEAVY_CONDITIONS_PER_SLICE + 6,
-        ));
-        script.set_action(build_noop_action_chain(1));
-
-        let mut entry = RuntimeScript {
-            name: "List3::Combat_Cycle_Attacks::Spawn_Bikes_And_Attack".to_string(),
-            original_name: Some("spawn bikes and attack".to_string()),
-            script,
-            state: ScriptState::new(),
-            enabled: true,
-        };
-
-        let (_, yielded_first) = MissionScriptRuntime::evaluate_shell_heavy_script_chunked(
-            &runtime.evaluator,
-            &mut entry,
-        )
-        .expect("condition slice should run");
-        assert!(
-            yielded_first,
-            "long heavy condition chains should yield to the next frame"
-        );
-        assert!(
-            entry.state.pending_condition_cursor.is_some(),
-            "yielded condition pass must retain continuation cursor"
-        );
-        assert!(
-            entry.state.pending_action_cursor.is_none(),
-            "action evaluation must not begin before condition pass completes"
-        );
-    }
-
-    #[test]
-    fn disabling_script_clears_pending_shell_action_cursor() {
-        let mut runtime =
-            MissionScriptRuntime::new().expect("mission script runtime should initialize");
-        let mut script = Script::new();
-        script.set_name("spawn techs and attack".to_string());
-        script.set_action(build_noop_action_chain(5));
-
-        runtime.scripts.push(RuntimeScript {
-            name: "List3::Tech_Attacks::Spawn_Techs_And_Attack".to_string(),
-            original_name: Some("spawn techs and attack".to_string()),
-            script,
-            state: ScriptState::new(),
-            enabled: true,
-        });
-        runtime
-            .original_lookup
-            .insert("spawn techs and attack".to_string(), 0);
-        runtime.scripts[0].state.pending_condition_cursor = Some(ShellPendingConditionCursor {
-            next_or_index: 1,
-            next_and_index: 0,
-        });
-        runtime.scripts[0].state.pending_action_cursor = Some(ShellPendingActionCursor {
-            branch: ScriptActionBranch::TrueAction,
-            next_action_index: 2,
-        });
-
-        assert!(runtime.scripts[0].state.pending_condition_cursor.is_some());
-        assert!(runtime.scripts[0].state.pending_action_cursor.is_some());
-
-        runtime
-            .set_script_enabled("spawn techs and attack", false)
-            .expect("disable script should succeed");
-        assert!(
-            runtime.scripts[0].state.pending_condition_cursor.is_none(),
-            "disabling must clear pending condition cursor to avoid stale continuation"
-        );
-        assert!(
-            runtime.scripts[0].state.pending_action_cursor.is_none(),
-            "disabling must clear pending cursor to avoid stale continuation"
-        );
-    }
-
-    #[test]
-    fn shell_slow_script_backoff_scales_with_runtime() {
-        assert_eq!(
-            MissionScriptRuntime::shell_slow_script_cooldown_frames(Duration::from_millis(10)),
-            0
-        );
-        assert_eq!(
-            MissionScriptRuntime::shell_slow_script_cooldown_frames(Duration::from_millis(45)),
-            30
-        );
-        assert_eq!(
-            MissionScriptRuntime::shell_slow_script_cooldown_frames(Duration::from_millis(120)),
-            180
-        );
-        assert_eq!(
-            MissionScriptRuntime::shell_slow_script_cooldown_frames(Duration::from_millis(500)),
-            600
         );
     }
 }

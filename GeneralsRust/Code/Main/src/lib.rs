@@ -128,6 +128,7 @@ pub mod save_load;
 pub mod selection_renderer;
 pub mod unit_control;
 pub mod unit_input_handler;
+pub mod visual_dispatch;
 pub mod win32_game_engine;
 
 // Playability integration

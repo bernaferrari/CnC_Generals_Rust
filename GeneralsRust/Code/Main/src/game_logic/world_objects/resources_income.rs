@@ -48,13 +48,17 @@ impl GameLogic {
                 .values()
                 .filter(|object| self.player_owner_for_host_object(object) == Some(player_id))
                 .filter(|object| object.is_constructed() && object.is_alive())
-                .fold((0_i32, 0_i32, 0_u32), |(produced, consumed, centers), object| {
-                    (
-                        produced.saturating_add(object.power_provided),
-                        consumed.saturating_add(object.power_consumed.abs()),
-                        centers.saturating_add(u32::from(object.is_kind_of(KindOf::SupplyCenter))),
-                    )
-                });
+                .fold(
+                    (0_i32, 0_i32, 0_u32),
+                    |(produced, consumed, centers), object| {
+                        (
+                            produced.saturating_add(object.power_provided),
+                            consumed.saturating_add(object.power_consumed.abs()),
+                            centers
+                                .saturating_add(u32::from(object.is_kind_of(KindOf::SupplyCenter))),
+                        )
+                    },
+                );
 
             // `OverchargeBehavior::onCapture` normally moves its
             // ThingTemplate EnergyBonus explicitly.  Its disabled branch
@@ -400,11 +404,10 @@ impl GameLogic {
             })
             .collect();
 
-        let live: std::collections::HashSet<ObjectId> =
-            derricks
-                .iter()
-                .map(|(id, _, _, _, _, _, _, _)| *id)
-                .collect();
+        let live: std::collections::HashSet<ObjectId> = derricks
+            .iter()
+            .map(|(id, _, _, _, _, _, _, _)| *id)
+            .collect();
         let stale: Vec<ObjectId> = self
             .oil_derricks
             .next_deposit_keys()
@@ -415,7 +418,9 @@ impl GameLogic {
             self.oil_derricks.forget(id);
         }
 
-        for (derrick_id, team, object_owner, pos, alive, constructed, stealthed, detected) in derricks {
+        for (derrick_id, team, object_owner, pos, alive, constructed, stealthed, detected) in
+            derricks
+        {
             let is_neutral = team == Team::Neutral;
             if !is_legal_oil_derrick_income_source(alive, constructed, is_neutral) {
                 continue;
@@ -747,12 +752,11 @@ impl GameLogic {
             }
             // Internet Center residual: auto-start hacking when contained.
             if h.in_ic && is_legal_hacker_income_source(h.alive, h.neutral, h.disabled_hacked) {
-                self.hacker_income
-                    .ensure_internet_center_hacking(
-                        h.id,
-                        frame,
-                        h.metadata.cash_update_delay_frames(true),
-                    );
+                self.hacker_income.ensure_internet_center_hacking(
+                    h.id,
+                    frame,
+                    h.metadata.cash_update_delay_frames(true),
+                );
             }
             // If no longer in IC and never field-started, keep active only if
             // still marked hacking (field residual). Leaving IC mid-hack continues

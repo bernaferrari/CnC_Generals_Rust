@@ -2,10 +2,122 @@
 // Split from `core/game_client.rs` dump. Included by `game_client_impl/mod.rs`
 // so this stays one logical `game_client` module (public API identical).
 
+/// Runtime identity of one direct host-object visual binding.
+///
+/// This is deliberately client-local state: it identifies a currently live
+/// `Drawable`, not a GameLogic object relationship that belongs in Xfer.  A
+/// new world, replacement visual template, or recreated Drawable receives a
+/// distinct key even if GameLogic reuses the same object id.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct PresentationDirectDrawableBindingKey {
+    /// Main's monotonically changing host-world identity.
+    pub host_epoch: u64,
+    /// GameLogic object identity within `host_epoch`.
+    pub object_id: ObjectID,
+    /// Runtime-only GameClient Drawable identity.
+    pub drawable_id: DrawableId,
+    /// Monotonic lifetime identity for this particular binding instance.
+    pub binding_generation: u64,
+}
+
+/// Guarded direct-drawable shroud state exported to Main's render sidecar.
+///
+/// Callers must retain and compare the full [`PresentationDirectDrawableBindingKey`]
+/// rather than treating a reused `ObjectID` as a stable visual owner.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PresentationDirectDrawableState {
+    pub binding_key: PresentationDirectDrawableBindingKey,
+    /// Exact C++ `Drawable::isDrawableEffectivelyHidden` scene predicate.
+    /// Main consumes this only in its frozen direct-host `Visibility_Check`
+    /// sidecar; it is not the broader presentation `visible` flag.
+    pub scene_effectively_hidden: bool,
+    pub fully_obscured: bool,
+}
+
+/// Frozen world pose for an already-resolved direct visual binding.
+///
+/// The full key prevents a pose captured before a visual replacement from
+/// moving the replacement Drawable by accident.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct FrozenDirectPresentationPose {
+    pub binding_key: PresentationDirectDrawableBindingKey,
+    pub position: [f32; 3],
+    pub orientation: f32,
+}
+
+/// Private runtime metadata for a presentation-owned direct drawable.
+///
+/// It is intentionally absent from GameClient Xfer/snapshot data.  The
+/// visual-template identity tells synchronization whether C++ would retain the
+/// same Drawable or replace it, which in turn controls volatile direct shroud
+/// state lifetime.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PresentationDirectDrawableBinding {
+    binding_key: PresentationDirectDrawableBindingKey,
+    visual_template_name: String,
+}
+
+/// Frozen direct-object shroud input for the GameClient visibility pass.
+///
+/// This deliberately carries the unmodified GameLogic
+/// `ObjectShroudStatus`: C++ applies its clear-frame grace inside
+/// `GameClient::update`, after obtaining the raw status for the currently
+/// bound object.  Objectless drawables and ghosts use distinct W3D scene
+/// branches and must not enter this batch.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FrozenDirectShroudStatus {
+    /// Exact direct visual lifetime that produced this raw shroud status.
+    /// The status is ignored unless all four identity components still match.
+    pub binding_key: PresentationDirectDrawableBindingKey,
+    /// Exact raw status returned by `Object::getShroudedStatus`.
+    pub raw_status: gamelogic::common::types::ObjectShroudStatus,
+    /// Exact `Object::isEffectivelyDead()` result for the extended grace limit.
+    pub effectively_dead: bool,
+}
+
+/// One frozen direct visual that reached Main's W3D-equivalent scene
+/// candidate boundary for this presentation frame.
+///
+/// Unlike [`FrozenDirectShroudStatus`], this input is not part of the
+/// GameClient update visibility pass. Main produces it only after frozen
+/// frustum acceptance, the current fully-obscured cull, and a real render
+/// item have all succeeded. The consumer is therefore the sole permitted
+/// direct-scene clear-frame writer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FrozenDirectSceneShroudCandidate {
+    /// Exact runtime binding that produced the candidate.
+    pub binding_key: PresentationDirectDrawableBindingKey,
+    /// Exact raw status for the frozen host object.
+    pub raw_status: gamelogic::common::types::ObjectShroudStatus,
+    /// Exact effective-death fact for the source grace extension.
+    pub effectively_dead: bool,
+}
+
+/// One validated direct-scene outcome returned for a frozen candidate.
+///
+/// Main does not yet use this to route the future projected-shroud material
+/// pass; retaining the decision keeps that pass keyed to the exact C++ scene
+/// status rather than a scalar FOW approximation when it is wired later.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FrozenDirectSceneShroudDecision {
+    pub binding_key: PresentationDirectDrawableBindingKey,
+    pub decision: crate::drawable::SceneShroudDecision,
+}
+
 /// Wave 963: presentation → drawable sync residual (host path, no dual-world registry).
 #[derive(Debug, Clone)]
 pub struct PresentationDrawableSync {
     pub object_id: u32,
+    /// Runtime host-world identity supplied by Main for this direct visual.
+    pub host_epoch: u64,
+    /// Whether the host still owns this visual resident.  This is the only
+    /// lifetime input used by `sync_presentation_drawables`; gameplay death is
+    /// represented independently by `destroyed` and must not prune an active
+    /// slow-death/rubble visual.
+    pub resident: bool,
+    /// Exact visual identity, including an active visual disguise.  A change
+    /// replaces the runtime Drawable and resets non-Xfer volatile visual state.
+    pub visual_template_name: String,
     pub template_name: String,
     pub position: [f32; 3],
     pub orientation: f32,

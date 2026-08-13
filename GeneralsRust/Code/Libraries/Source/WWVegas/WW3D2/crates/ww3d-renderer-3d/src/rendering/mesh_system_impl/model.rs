@@ -42,7 +42,7 @@ impl MeshModelClass {
     /// Construct a mesh model from an asset prototype, mirroring the legacy loader.
     pub fn from_mesh_prototype(
         prototype: &MeshPrototype,
-        hierarchy: Option<&HierarchyPrototype>,
+        _hierarchy: Option<&HierarchyPrototype>,
     ) -> W3dResult<Self> {
         let mut model = MeshModelClass::new(&prototype.name);
 
@@ -67,15 +67,6 @@ impl MeshModelClass {
 
         if let Some(influences) = &prototype.vertex_influences {
             model.set_vertex_influences(influences.clone());
-        } else if let Some(hierarchy_proto) = hierarchy {
-            let mut links = Vec::with_capacity(model.vertices.len());
-            let fallback_index = hierarchy_proto
-                .bind_transforms
-                .first()
-                .map(|_| 0u16)
-                .unwrap_or(0);
-            links.resize(model.vertices.len(), fallback_index);
-            model.set_vertex_bone_links(links);
         }
 
         model.vertex_count = model.vertices.len() as u32;
@@ -91,7 +82,7 @@ impl MeshModelClass {
     pub fn create_wgpu_buffers(&mut self, device: &wgpu::Device) {
         const MAX_UV_SETS: usize = 4;
         // Determine vertex format based on mesh type
-        let is_skinned = self.get_flag(MeshGeometryClass::SKIN);
+        let is_skinned = self.is_skinned();
         let has_normals = self.has_normals();
 
         // Calculate vertex stride (floats) based on attributes
@@ -200,9 +191,13 @@ impl MeshModelClass {
         self.material_passes.get(index)
     }
 
-    /// Check if mesh is skinned (has bone influences)
+    /// Check whether this mesh has a complete source-shaped skin table.
+    ///
+    /// The C++ loader only sets `SKIN` after it has read one `BoneIdx` record
+    /// per source vertex. Do not let a flag left behind by a malformed caller
+    /// choose a skinned WGPU layout without the corresponding exact data.
     pub fn is_skinned(&self) -> bool {
-        self.get_flag(MeshGeometryClass::SKIN)
+        self.get_flag(MeshGeometryClass::SKIN) && self.vertex_influences().is_some()
     }
 
     /// Check if mesh has normals
@@ -253,55 +248,49 @@ impl MeshModelClass {
 
     /// Replace the per-vertex bone links. Mirrors C++ `MeshGeometryClass::VertexBoneLink`.
     pub fn set_vertex_bone_links(&mut self, links: Vec<u16>) {
-        self.vertex_bone_links = links;
-
-        if self.vertex_bone_links.is_empty() {
+        if self.vertices.is_empty() || links.len() != self.vertices.len() {
             self.vertex_influences.clear();
-            self.set_flag(MeshGeometryClass::SKIN, false);
-            return;
-        }
-
-        if self.vertex_influences.len() != self.vertex_bone_links.len() {
-            self.vertex_influences = self
-                .vertex_bone_links
-                .iter()
-                .map(|&index| {
-                    // CRITICAL: C++ uses single-bone-per-vertex, not multi-bone
-                    W3dVertInfStruct {
-                        bone_idx: index,
-                        pad: [0; 6], // Padding for binary compatibility
-                    }
-                })
-                .collect();
-        }
-
-        self.set_flag(MeshGeometryClass::SKIN, true);
-    }
-
-    /// Install full vertex influence data (up to 4 weights per vertex).
-    pub fn set_vertex_influences(&mut self, influences: Vec<W3dVertInfStruct>) {
-        self.vertex_influences = influences;
-
-        if self.vertex_influences.is_empty() {
             self.vertex_bone_links.clear();
             self.set_flag(MeshGeometryClass::SKIN, false);
             return;
         }
 
-        if self.vertex_bone_links.len() != self.vertex_influences.len() {
-            self.vertex_bone_links = self
-                .vertex_influences
-                .iter()
-                .map(|inf| inf.bone_idx) // Single bone index, not array
-                .collect();
+        // This explicit API already owns an exact link for every vertex. Keep
+        // the public `W3dVertInfStruct` view aligned with it, but never create
+        // links from a hierarchy or an absent source chunk.
+        self.vertex_influences = links
+            .iter()
+            .map(|&bone_idx| W3dVertInfStruct {
+                bone_idx,
+                pad: [0; 6],
+            })
+            .collect();
+        self.vertex_bone_links = links;
+
+        self.set_flag(MeshGeometryClass::SKIN, true);
+    }
+
+    /// Install the exact one-record-per-vertex W3D influence table.
+    pub fn set_vertex_influences(&mut self, influences: Vec<W3dVertInfStruct>) {
+        if self.vertices.is_empty() || influences.len() != self.vertices.len() {
+            self.vertex_influences.clear();
+            self.vertex_bone_links.clear();
+            self.set_flag(MeshGeometryClass::SKIN, false);
+            return;
         }
+
+        self.vertex_bone_links = influences
+            .iter()
+            .map(|influence| influence.bone_idx)
+            .collect();
+        self.vertex_influences = influences;
 
         self.set_flag(MeshGeometryClass::SKIN, true);
     }
 
     /// Access the per-vertex bone links if the data is present and aligned with the vertex array.
     pub fn vertex_bone_links(&self) -> Option<&[u16]> {
-        if self.vertex_bone_links.len() == self.vertices.len() {
+        if !self.vertices.is_empty() && self.vertex_bone_links.len() == self.vertices.len() {
             Some(&self.vertex_bone_links)
         } else {
             None
@@ -309,7 +298,7 @@ impl MeshModelClass {
     }
 
     pub fn vertex_influences(&self) -> Option<&[W3dVertInfStruct]> {
-        if self.vertex_influences.len() == self.vertices.len() {
+        if !self.vertices.is_empty() && self.vertex_influences.len() == self.vertices.len() {
             Some(&self.vertex_influences)
         } else {
             None
@@ -565,4 +554,3 @@ impl Clone for MeshModelClass {
         }
     }
 }
-

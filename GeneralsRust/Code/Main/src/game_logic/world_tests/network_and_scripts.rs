@@ -457,6 +457,20 @@ fn shell_game_state_tracks_in_game_status() {
 }
 
 #[test]
+fn shell_mission_scripts_share_the_cpp_complete_frame_walk() {
+    // C++ ScriptEngine::update has no GAME_SHELL-specific script budget,
+    // warm-up classifier, or resumable action interpreter.  Keep the live
+    // call site on the same complete walk as ordinary map gameplay.
+    let tick = include_str!("../world_scripts/scripts_camera.rs");
+    let runtime = include_str!("../mission_scripts.rs");
+    assert!(tick.contains("self.mission_scripts.update(self.frame as u64)"));
+    assert!(!tick.contains("update_shell_budgeted"));
+    assert!(!runtime.contains("update_shell_budgeted"));
+    assert!(!runtime.contains("SHELL_HEAVY_SCRIPT_WARMUP_FRAMES"));
+    assert!(!runtime.contains("evaluate_shell_heavy_script_chunked"));
+}
+
+#[test]
 fn exact_model_lookup_rejects_legacy_proxy_meshes() {
     let proxy_pairs = [
         ("PMRocks01b", "PMBoulders_D"),
@@ -4088,9 +4102,8 @@ fn retail_pilot_metadata_drives_starting_veteran_and_same_owner_recrew() {
         .nth(3)
         .expect("Main crate must remain three levels below repository root");
     let source = std::fs::read_to_string(
-        repo_root.join(
-            "windows_game/extracted_big_files_v2/INIZH/Data/INI/Object/AmericaInfantry.ini",
-        ),
+        repo_root
+            .join("windows_game/extracted_big_files_v2/INIZH/Data/INI/Object/AmericaInfantry.ini"),
     )
     .expect("retail AmericaInfantry.ini");
     let mut parser = crate::assets::IniParser::new();
@@ -4108,7 +4121,10 @@ fn retail_pilot_metadata_drives_starting_veteran_and_same_owner_recrew() {
         .veterancy_crate_collide
         .expect("retail IsPilot metadata");
     assert!(metadata.supports_pilot_recrew());
-    assert_eq!(metadata.pilot_starting_level(), Some(VeterancyLevel::Veteran));
+    assert_eq!(
+        metadata.pilot_starting_level(),
+        Some(VeterancyLevel::Veteran)
+    );
     game_logic
         .templates
         .insert("AmericaInfantryPilot".to_string(), pilot_tpl);
@@ -4133,11 +4149,7 @@ fn retail_pilot_metadata_drives_starting_veteran_and_same_owner_recrew() {
         .templates
         .insert("AmericaInfantryPilotNameOnly".to_string(), name_only);
     let name_only_id = game_logic
-        .create_object_for_player(
-            "AmericaInfantryPilotNameOnly",
-            0,
-            Vec3::new(2.0, 0.0, 2.0),
-        )
+        .create_object_for_player("AmericaInfantryPilotNameOnly", 0, Vec3::new(2.0, 0.0, 2.0))
         .expect("name-only pilot");
     assert_eq!(
         game_logic
@@ -4175,11 +4187,16 @@ fn retail_pilot_metadata_drives_starting_veteran_and_same_owner_recrew() {
         modifier_keys: crate::command_system::ModifierKeys::default(),
     });
     game_logic.process_commands();
-    let pilot = game_logic.host_object(pilot_id).expect("pilot after foreign cmd");
+    let pilot = game_logic
+        .host_object(pilot_id)
+        .expect("pilot after foreign cmd");
     assert_eq!(pilot.ai_state, AIState::Idle);
     assert_eq!(pilot.target, None);
     assert!(
-        game_logic.host_object(foreign_tank_id).unwrap().is_unmanned(),
+        game_logic
+            .host_object(foreign_tank_id)
+            .unwrap()
+            .is_unmanned(),
         "same faction cannot bypass the exact controlling-player check"
     );
 
@@ -4188,7 +4205,9 @@ fn retail_pilot_metadata_drives_starting_veteran_and_same_owner_recrew() {
         .create_object_for_player("TestTank", 0, Vec3::new(0.0, 0.0, 0.0))
         .expect("own tank");
     {
-        let t = game_logic.host_object_mut(tank_id).expect("own tank object");
+        let t = game_logic
+            .host_object_mut(tank_id)
+            .expect("own tank object");
         t.apply_kill_pilot_unmanned();
         t.set_team(Team::Neutral);
         t.experience.level = VeterancyLevel::Rookie;

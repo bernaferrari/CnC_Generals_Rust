@@ -2796,21 +2796,18 @@ fn count_scripts(lists: &[ScriptList]) -> usize {
 // -------------------------------------------------------------------------------------------------
 
 fn convert_parameter_type(value: u32) -> LoaderResult<ParameterType> {
-    ParameterType::from_u32(value).ok_or_else(|| {
-        configuration_error(format!("Unknown ParameterType value {}", value))
-    })
+    ParameterType::from_u32(value)
+        .ok_or_else(|| configuration_error(format!("Unknown ParameterType value {}", value)))
 }
 
 fn convert_condition_type(value: u32) -> LoaderResult<ConditionType> {
-    ConditionType::from_u32(value).ok_or_else(|| {
-        configuration_error(format!("Unknown ConditionType value {}", value))
-    })
+    ConditionType::from_u32(value)
+        .ok_or_else(|| configuration_error(format!("Unknown ConditionType value {}", value)))
 }
 
 fn convert_action_type(value: u32) -> LoaderResult<ScriptActionType> {
-    ScriptActionType::from_u32(value).ok_or_else(|| {
-        configuration_error(format!("Unknown ScriptActionType value {}", value))
-    })
+    ScriptActionType::from_u32(value)
+        .ok_or_else(|| configuration_error(format!("Unknown ScriptActionType value {}", value)))
 }
 
 fn configuration_error(message: impl Into<String>) -> GameLogicError {

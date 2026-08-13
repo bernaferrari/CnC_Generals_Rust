@@ -1280,9 +1280,9 @@ impl GameLogic {
                     let _ = engine.set_game_state_context(self.build_script_game_state_context());
                     self.script_engine = Some(Arc::new(engine));
 
-                    // Also install the handler into the legacy ScriptEngine pipeline that runs INI
-                    // mission scripts, so ScriptActions like DISPLAY_TEXT, MOVE_CAMERA_TO, etc. are
-                    // delivered to the main runtime.
+                    // The legacy ScriptEngine owns immediate subroutine dispatch; install the
+                    // host handler there so CALL_SUBROUTINE actions deliver presentation/gameplay
+                    // effects to this world without a second frame evaluator.
                     let _ = gamelogic::scripting::engine::initialize_script_engine();
                     if let Ok(mut legacy_guard) =
                         gamelogic::scripting::engine::get_script_engine().write()
@@ -1308,23 +1308,6 @@ impl GameLogic {
                 self.scripts_loaded = true;
                 self.mission_scripts
                     .install_lists(&self.loaded_script_lists);
-                // Dense campaign maps: disable host-hanging utility scripts (random
-                // generators that CALL_SUBROUTINE every frame, attack-wave spawns,
-                // cinematic camera chains). Decode/install still proven; evaluation
-                // is budgeted separately for residual safety.
-                if result.total_scripts >= DENSE_MISSION_SCRIPT_THRESHOLD {
-                    let attack = self.mission_scripts.disable_attack_wave_scripts();
-                    let utility = self
-                        .mission_scripts
-                        .disable_heavy_campaign_utility_scripts();
-                    log::info!(
-                        "Dense campaign scripts for '{}': disabled attack_wave={} utility={} (of {})",
-                        map_name,
-                        attack,
-                        utility,
-                        result.total_scripts
-                    );
-                }
                 self.script_broadcasts.clear();
                 self.new_script_messages.clear();
                 self.pending_popup_messages.clear();
@@ -1338,9 +1321,10 @@ impl GameLogic {
                 self.script_superweapon_display_enabled = true;
                 self.script_superweapon_hidden_objects.clear();
 
-                // Feed the decoded per-player ScriptLists into the legacy ScriptEngine
-                // implementation (gamelogic::scripting::engine) so that `ScriptEngine::update()`
-                // runs real mission scripts each frame.
+                // Keep the decoded per-player lists in the legacy ScriptEngine solely for
+                // C++-style immediate CALL_SUBROUTINE resolution.  The live host's regular
+                // once-per-frame traversal is MissionScriptRuntime above; do not run a second
+                // parallel ScriptEngine::update loop here.
                 let _ = gamelogic::scripting::engine::initialize_script_engine();
                 if let Ok(mut engine_guard) =
                     gamelogic::scripting::engine::get_script_engine().write()

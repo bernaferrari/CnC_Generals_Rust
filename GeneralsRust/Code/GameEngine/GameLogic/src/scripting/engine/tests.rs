@@ -376,6 +376,44 @@ fn call_subroutine_resolves_subroutine_group_name_first() {
 }
 
 #[test]
+fn enable_disable_script_by_group_name_toggles_cxx_group_state() {
+    // C++ ScriptEngine::enableScript/disableScript (ScriptEngine.cpp:6797-6823)
+    // first-classifies a matching ScriptGroup separately from matching Script.
+    // An inactive subroutine group must become callable immediately when enabled
+    // and must stop being callable when disabled.
+    let mut engine = ScriptEngine::new().unwrap();
+
+    let mut member = Script::new();
+    member.script_name = "Toggle Group Member".to_string();
+    member.condition = Some(always_true_condition());
+    member.action = Some(set_flag_action("group_toggle_fired"));
+
+    let mut group = ScriptGroup::new();
+    group.group_name = "Toggle Group".to_string();
+    group.is_group_subroutine = true;
+    group.is_group_active = false;
+    group.first_script = Some(Box::new(member));
+
+    let mut list = ScriptList::new();
+    list.first_group = Some(Box::new(group));
+    engine
+        .set_script_list_for_player(0, Some(Box::new(list)))
+        .unwrap();
+
+    assert!(engine.set_script_active_by_name("Toggle Group", true));
+    assert!(engine.execute_subroutine_by_name("Toggle Group").unwrap());
+    assert!(engine.get_flag("group_toggle_fired").unwrap().value);
+
+    engine.set_flag("group_toggle_fired", false).unwrap();
+    assert!(engine.set_script_active_by_name("Toggle Group", false));
+    assert!(engine.execute_subroutine_by_name("Toggle Group").unwrap());
+    assert!(
+        !engine.get_flag("group_toggle_fired").unwrap().value,
+        "disabled groups must not execute through CALL_SUBROUTINE"
+    );
+}
+
+#[test]
 fn millisecond_script_seconds_use_ceil_frame_conversion() {
     let mut engine = ScriptEngine::new().unwrap();
     engine

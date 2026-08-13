@@ -73,6 +73,11 @@ pub trait DrawModule: std::fmt::Debug + Send + Sync {
     /// Fail-closed residual: does not free GPU shadow meshes that were never allocated.
     fn release_shadows(&mut self) {}
 
+    /// C++ `DrawModule::setFullyObscuredByShroud(Bool)`.
+    ///
+    /// The base Drawable dispatches this only when the effective value changes.
+    fn set_fully_obscured_by_shroud(&mut self, _fully_obscured: bool) {}
+
     /// Replace the team indicator color.
     /// C++ `ObjectDrawInterface::replaceIndicatorColor(color)`.
     fn replace_indicator_color(&mut self, _color: Option<(u8, u8, u8)>) {}

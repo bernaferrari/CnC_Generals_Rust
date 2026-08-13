@@ -285,6 +285,53 @@ pub struct BonePaletteView<'a> {
     pub version: u64,
 }
 
+/// Immutable per-mesh fog-of-war scalar state captured by presentation code.
+///
+/// The renderer receives this with a mesh instance and must not replace it
+/// with a live game/FOW query. `visibility_falloff` is deliberately carried
+/// unchanged for the model-uniform layout; the current scalar WGSL path does
+/// not derive an additional curve from it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct FrozenFowVisibility {
+    pub visibility_alpha: f32,
+    pub visibility_falloff: f32,
+    pub is_explored: f32,
+}
+
+impl FrozenFowVisibility {
+    /// Clear/default visibility for standalone WW3D meshes with no game-owned
+    /// render-item snapshot.
+    pub const CLEAR: Self = Self {
+        visibility_alpha: 1.0,
+        visibility_falloff: 1.0,
+        is_explored: 1.0,
+    };
+
+    pub const fn new(visibility_alpha: f32, visibility_falloff: f32, is_explored: f32) -> Self {
+        Self {
+            visibility_alpha,
+            visibility_falloff,
+            is_explored,
+        }
+    }
+
+    /// Field order expected by `WgpuMaterialBinds::model`.
+    #[inline]
+    pub const fn model_uniform_values(self) -> (f32, f32, f32) {
+        (
+            self.visibility_alpha,
+            self.visibility_falloff,
+            self.is_explored,
+        )
+    }
+}
+
+impl Default for FrozenFowVisibility {
+    fn default() -> Self {
+        Self::CLEAR
+    }
+}
+
 
 /// Main mesh class - equivalent to C++ MeshClass
 #[derive(Debug)]
@@ -300,6 +347,7 @@ pub struct MeshClass {
     pub alpha_override: f32,
     pub material_pass_alpha_override: f32,
     pub material_pass_emissive_override: f32,
+    frozen_fow_visibility: FrozenFowVisibility,
     pub lighting_environment: Option<Arc<LightEnvironmentClass>>,
     pub decal_meshes: Vec<Arc<MeshClass>>, // Equivalent to C++ Decal meshes
     pub base_vertex_offset: u32,           // Equivalent to C++ BaseVertexOffset

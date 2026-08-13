@@ -6,6 +6,7 @@
 
 use std::any::Any;
 
+use crate::drawable::DrawableShroudClearState;
 use crate::drawable_info::DrawableInfo;
 use game_engine::common::audio::audio_event_rts::AudioEventRts;
 use game_engine::common::audio::dynamic_audio_event_info::DynamicAudioEventInfo;
@@ -162,6 +163,12 @@ pub struct BasicDrawable {
     indicator_color: Option<(u8, u8, u8)>,
     /// Static image initialization flag (C++ s_staticImagesInited).
     static_images_inited: bool,
+    /// Volatile C++ `Drawable::m_shroudClearFrame`.
+    ///
+    /// Direct W3D scene dispatch owns writes to this timestamp.  GameClient's
+    /// frozen direct-status pass only reads it to choose fully-obscured state.
+    /// It is intentionally not part of the Drawable Xfer layout.
+    shroud_clear_state: DrawableShroudClearState,
     /// C++ parity: Drawable::m_drawableFullyObscuredByShroud.
     /// When true, the drawable is completely hidden by fog-of-war and should not render.
     drawable_fully_obscured_by_shroud: bool,
@@ -268,6 +275,7 @@ impl BasicDrawable {
             caption_text: None,
             indicator_color: None,
             static_images_inited: false,
+            shroud_clear_state: DrawableShroudClearState::default(),
             drawable_fully_obscured_by_shroud: false,
             draw_modules: Vec::new(),
             bone_data: None,

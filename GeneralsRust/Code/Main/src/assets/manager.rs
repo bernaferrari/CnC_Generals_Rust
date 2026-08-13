@@ -11,8 +11,8 @@ use crate::assets::{
     archive::{ArchiveFileSystem, ArchiveStatistics},
     audio::AudioManager,
     models::{
-        get_common_cnc_units, split_w3d_draw_animation_identity, W3DLoader, W3DModel, W3dAnimation,
-        W3dAnimationBinding,
+        get_common_cnc_units, split_w3d_draw_animation_identity, W3DLoader, W3DMesh, W3DModel,
+        W3dAnimation, W3dAnimationBinding,
     },
     textures::{GPUTexture, RawTexture, TextureManager},
     ww3d_asset_manager::WW3DAssetManager,
@@ -24,7 +24,7 @@ use std::cmp::Ordering as CmpOrdering;
 use std::collections::{HashMap, HashSet};
 use std::env;
 use std::fs::{self, File};
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::AtomicBool;
@@ -46,6 +46,12 @@ pub struct AssetManager {
     ww3d_manager: WW3DAssetManager,
     /// Cache of loaded models
     model_cache: HashMap<String, W3DModel>,
+    /// C++ `WW3DAssetManager`-style source records for render-object names.
+    ///
+    /// This deliberately remains separate from `model_cache`: ordinary whole-file
+    /// model loads are allowed to use presentation aliases, whereas an external
+    /// HLOD child must resolve only a source-authored full prototype identity.
+    w3d_render_object_prototypes: W3dRenderObjectPrototypeRegistry,
     /// Validated C++ `Drawable::getBarrelCount` answers keyed by the exact
     /// Object INI identity and active ModelCondition bit bank.  Entries are
     /// populated only from models which are already resident in
@@ -92,6 +98,158 @@ struct WeaponBarrelCountCacheKey {
     condition_bits: u128,
 }
 
+/// One source-renderable C++ `PrototypeClass` kind retained by `W3DModel`.
+///
+/// The indices are immutable source indices into the model returned by
+/// [`AssetManager::cached_w3d_render_object_source_model`]. They are source
+/// definitions, not renderer submission commands: HMODEL owns an independent
+/// HTree and expands only through the aggregate renderer's rigid-node path.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum W3dRenderObjectPrototypeKind {
+    /// C++ `MeshLoaderClass` / `PrimitivePrototypeClass` source mesh.
+    Mesh { mesh_index: usize },
+    /// C++ `HLodLoaderClass` source HLOD definition.
+    Hlod { hlod_index: usize },
+    /// C++ `HModelLoaderClass` hierarchical model definition.
+    Hmodel { hmodel_index: usize },
+}
+
+/// Immutable source metadata for one exact C++ `PrototypeClass` name.
+///
+/// `WW3DAssetManager::Find_Prototype` compares the complete name
+/// case-insensitively. This token preserves that full source spelling and
+/// points only at the strict source model that registered it; it cannot select
+/// a presentation alias, an aggregate parent, or a placeholder mesh.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct W3dRenderObjectPrototype {
+    full_name: String,
+    source_file_stem: String,
+    source_model_key: String,
+    kind: W3dRenderObjectPrototypeKind,
+}
+
+impl W3dRenderObjectPrototype {
+    /// Original source spelling of the complete prototype identity.
+    pub fn full_name(&self) -> &str {
+        &self.full_name
+    }
+
+    /// Exact W3D file stem that populated this source record.
+    pub fn source_file_stem(&self) -> &str {
+        &self.source_file_stem
+    }
+
+    /// Renderable source representation retained by Main.
+    pub fn kind(&self) -> W3dRenderObjectPrototypeKind {
+        self.kind
+    }
+}
+
+/// Strict, source-backed subset of C++ `WW3DAssetManager`'s prototype table.
+///
+/// The normal `AssetManager::model_cache` intentionally does not feed this
+/// table: it can contain presentation-model aliases. Each entry here is loaded
+/// through the exact C++ first-dot filename rule and is immutable after its
+/// source file has registered, matching C++'s first-name-wins collision rule.
+#[derive(Default)]
+struct W3dRenderObjectPrototypeRegistry {
+    prototypes: HashMap<String, W3dRenderObjectPrototype>,
+    source_models: HashMap<String, W3DModel>,
+}
+
+impl W3dRenderObjectPrototypeRegistry {
+    fn lookup(&self, full_name: &str) -> Option<W3dRenderObjectPrototype> {
+        let key = w3d_render_object_identity_key(full_name)?;
+        self.prototypes.get(&key).cloned()
+    }
+
+    fn source_model(&self, prototype: &W3dRenderObjectPrototype) -> Option<&W3DModel> {
+        let key = w3d_render_object_identity_key(&prototype.full_name)?;
+        let registered = self.prototypes.get(&key)?;
+        (registered == prototype)
+            .then(|| self.source_models.get(&prototype.source_model_key))
+            .flatten()
+    }
+
+    fn source_stem_is_loaded(&self, source_stem: &str) -> bool {
+        w3d_render_object_identity_key(source_stem)
+            .is_some_and(|source_key| self.source_models.contains_key(&source_key))
+    }
+
+    fn register_source_model(&mut self, source_stem: &str, model: W3DModel) {
+        let Some(source_model_key) = w3d_render_object_identity_key(source_stem) else {
+            return;
+        };
+
+        // C++ holds the first loaded source and refuses later duplicate
+        // prototype names. Do not mutate either source records or their model
+        // topology on a repeated request.
+        if self.source_models.contains_key(&source_model_key) {
+            return;
+        }
+
+        for (mesh_index, mesh) in model.meshes.iter().enumerate() {
+            let Some(full_name) = w3d_mesh_prototype_name(mesh) else {
+                continue;
+            };
+            self.register_prototype(
+                full_name,
+                source_stem,
+                &source_model_key,
+                W3dRenderObjectPrototypeKind::Mesh { mesh_index },
+            );
+        }
+
+        for (hlod_index, hlod) in model.hlods.iter().enumerate() {
+            if hlod.name.is_empty() {
+                continue;
+            }
+            self.register_prototype(
+                hlod.name.clone(),
+                source_stem,
+                &source_model_key,
+                W3dRenderObjectPrototypeKind::Hlod { hlod_index },
+            );
+        }
+
+        for (hmodel_index, hmodel) in model.hmodels.iter().enumerate() {
+            if hmodel.name.is_empty() {
+                continue;
+            }
+            self.register_prototype(
+                hmodel.name.clone(),
+                source_stem,
+                &source_model_key,
+                W3dRenderObjectPrototypeKind::Hmodel { hmodel_index },
+            );
+        }
+
+        self.source_models.insert(source_model_key, model);
+    }
+
+    fn register_prototype(
+        &mut self,
+        full_name: String,
+        source_file_stem: &str,
+        source_model_key: &str,
+        kind: W3dRenderObjectPrototypeKind,
+    ) {
+        let Some(key) = w3d_render_object_identity_key(&full_name) else {
+            return;
+        };
+
+        // `Load_Prototype` calls `Render_Obj_Exists` before `Add_Prototype`.
+        // Preserve the first exact source record rather than silently replacing
+        // it with a later W3D file's conflicting definition.
+        self.prototypes.entry(key).or_insert(W3dRenderObjectPrototype {
+            full_name,
+            source_file_stem: source_file_stem.to_string(),
+            source_model_key: source_model_key.to_string(),
+            kind,
+        });
+    }
+}
+
 impl WeaponBarrelCountCacheKey {
     fn new(object_name: &str, condition_bits: u128) -> Option<Self> {
         let object_name = object_name.trim();
@@ -114,6 +272,144 @@ impl CompanionAnimationCacheKey {
             draw_identity: identity.trim().to_ascii_lowercase(),
         })
     }
+}
+
+/// C++ `stricmp` key for a full source prototype identity.
+///
+/// W3D names are ASCII records. Deliberately do not trim or strip a suffix:
+/// whitespace and every character after a dot participate in `Find_Prototype`.
+fn w3d_render_object_identity_key(full_name: &str) -> Option<String> {
+    (!full_name.is_empty() && !full_name.as_bytes().contains(&0))
+        .then(|| full_name.to_ascii_lowercase())
+}
+
+/// C++ `Create_Render_Obj`'s load-on-demand filename rule.
+///
+/// `strchr(name, '.')` selects the first dot, not the last one. Source render
+/// object names are not filesystem paths, so reject path separators before an
+/// archive request rather than broadening a missing prototype into arbitrary
+/// file access.
+fn w3d_render_object_source_stem(full_name: &str) -> Option<&str> {
+    w3d_render_object_identity_key(full_name)?;
+    let source_stem = full_name.split_once('.').map_or(full_name, |(stem, _)| stem);
+    (!source_stem.is_empty()
+        && !source_stem.contains('/')
+        && !source_stem.contains('\\')
+        && !source_stem.as_bytes().contains(&0))
+    .then_some(source_stem)
+}
+
+/// `MeshClass::Load_W3D` builds a prototype name from the exact source
+/// `ContainerName`, a dot only when that container is nonempty, and `MeshName`.
+fn w3d_mesh_prototype_name(mesh: &W3DMesh) -> Option<String> {
+    if mesh.name.is_empty() || mesh.name.as_bytes().contains(&0) {
+        return None;
+    }
+
+    if mesh.container_name.is_empty() {
+        Some(mesh.name.clone())
+    } else if mesh.container_name.as_bytes().contains(&0) {
+        None
+    } else {
+        Some(format!("{}.{}", mesh.container_name, mesh.name))
+    }
+}
+
+/// Archive storage spellings for one exact C++ source filename.
+///
+/// The stem is never remapped to a presentation alias or a retail filename
+/// table. Case-only variants preserve C++'s case-insensitive file lookup on
+/// case-sensitive extracted trees; `art/w3d` spellings are storage locations,
+/// not alternative asset identities.
+fn exact_w3d_render_object_archive_paths(source_stem: &str) -> Vec<String> {
+    let mut stems = Vec::new();
+    for stem in [
+        source_stem.to_string(),
+        source_stem.to_ascii_lowercase(),
+        source_stem.to_ascii_uppercase(),
+    ] {
+        if !stems.iter().any(|existing: &String| existing == &stem) {
+            stems.push(stem);
+        }
+    }
+
+    let mut paths = Vec::new();
+    let mut push_unique = |path: String| {
+        if !paths.iter().any(|existing| existing == &path) {
+            paths.push(path);
+        }
+    };
+    for stem in stems {
+        // Preserve the two C++ Create_Render_Obj lookup locations before
+        // Main's archive/extract storage-path spellings.
+        push_unique(format!("{stem}.w3d"));
+        push_unique(format!("../{stem}.w3d"));
+        push_unique(format!("art/w3d/{stem}.w3d"));
+        push_unique(format!("Art/W3D/{stem}.w3d"));
+        push_unique(format!("Art/W3D/{stem}.W3D"));
+        push_unique(format!("art/w3d/{stem}.W3D"));
+    }
+    paths
+}
+
+/// Load one W3D source without the presentation aliases accepted by the
+/// ordinary whole-file model loader.
+fn load_exact_w3d_render_object_source(
+    model_loader: &W3DLoader,
+    archive_system: &mut ArchiveFileSystem,
+    source_stem: &str,
+) -> Result<W3DModel> {
+    let mut last_open_error = None;
+    for archive_path in exact_w3d_render_object_archive_paths(source_stem) {
+        let mut reader = match archive_system.open_reader(&archive_path) {
+            Ok(reader) => reader,
+            Err(error) => {
+                last_open_error = Some(error.to_string());
+                continue;
+            }
+        };
+
+        // Once C++ finds a source file it loads that file, rather than using a
+        // later alias/path as a fallback for malformed prototype contents.
+        let mut bytes = Vec::new();
+        reader
+            .read_to_end(&mut bytes)
+            .map_err(|error| anyhow!("failed reading strict W3D source '{archive_path}': {error}"))?;
+        return model_loader
+            .load_model_from_bytes(&bytes, source_stem)
+            .map_err(|error| anyhow!("failed parsing strict W3D source '{archive_path}': {error}"));
+    }
+
+    Err(anyhow!(
+        "strict W3D source '{}.w3d' was not found: {}",
+        source_stem,
+        last_open_error.unwrap_or_else(|| "no archive candidates".to_string())
+    ))
+}
+
+/// Resolve a full prototype identity, loading only its first-dot source stem
+/// and then re-looking up the same full identity exactly as C++ does.
+fn resolve_w3d_render_object_prototype_with_loader<F>(
+    registry: &mut W3dRenderObjectPrototypeRegistry,
+    full_name: &str,
+    mut load_source: F,
+) -> Option<W3dRenderObjectPrototype>
+where
+    F: FnMut(&str) -> Option<W3DModel>,
+{
+    if let Some(prototype) = registry.lookup(full_name) {
+        return Some(prototype);
+    }
+
+    let source_stem = w3d_render_object_source_stem(full_name)?;
+    if !registry.source_stem_is_loaded(source_stem) {
+        let source_model = load_source(source_stem)?;
+        registry.register_source_model(source_stem, source_model);
+    }
+
+    // A loaded file is not itself a render object. The request succeeds only
+    // if it registered this original full name.
+    registry.lookup(full_name)
 }
 
 /// Reconstruct the one answer returned by C++ `Drawable::getBarrelCount` for
@@ -283,6 +579,7 @@ impl AssetManager {
             texture_manager: TextureManager::new(),
             ww3d_manager: WW3DAssetManager::new(),
             model_cache: HashMap::new(),
+            w3d_render_object_prototypes: W3dRenderObjectPrototypeRegistry::default(),
             weapon_barrel_count_cache: HashMap::new(),
             companion_animation_cache: HashMap::new(),
             missing_model_keys: HashSet::new(),
@@ -1443,6 +1740,62 @@ impl AssetManager {
         self.model_cache.get(&unit_key)
     }
 
+    /// Return a resident exact C++ render-object prototype by full source name.
+    ///
+    /// This is cache-only and compares the complete identity
+    /// case-insensitively. It never treats a W3D filename, a mesh suffix, or a
+    /// presentation alias as an equivalent prototype name.
+    pub fn cached_w3d_render_object_prototype(
+        &self,
+        full_name: &str,
+    ) -> Option<W3dRenderObjectPrototype> {
+        self.w3d_render_object_prototypes.lookup(full_name)
+    }
+
+    /// Resolve one exact C++ render-object prototype, loading the source W3D
+    /// named by the portion before its first dot on a cache miss.
+    ///
+    /// This method performs synchronous archive I/O and parsing. Use it during
+    /// asset prewarm/construction only; frozen render collection must use
+    /// [`Self::cached_w3d_render_object_prototype`] and
+    /// [`Self::cached_w3d_render_object_source_model`] exclusively. A file that
+    /// lacks the requested complete source identity returns `None` rather than
+    /// a whole-file model, alias, or placeholder.
+    pub fn resolve_w3d_render_object_prototype_blocking(
+        &mut self,
+        full_name: &str,
+    ) -> Option<W3dRenderObjectPrototype> {
+        let (registry, archive_system, model_loader) = (
+            &mut self.w3d_render_object_prototypes,
+            &mut self.archive_system,
+            &self.model_loader,
+        );
+        resolve_w3d_render_object_prototype_with_loader(registry, full_name, |source_stem| {
+            match load_exact_w3d_render_object_source(model_loader, archive_system, source_stem) {
+                Ok(model) => Some(model),
+                Err(error) => {
+                    debug!(
+                        "Strict W3D render-object source '{}' did not resolve '{}': {}",
+                        source_stem, full_name, error
+                    );
+                    None
+                }
+            }
+        })
+    }
+
+    /// Borrow the exact immutable source model associated with a strict
+    /// prototype token.
+    ///
+    /// The token must still be resident in this manager's strict registry; a
+    /// manually fabricated or stale token cannot expose an unrelated model.
+    pub fn cached_w3d_render_object_source_model(
+        &self,
+        prototype: &W3dRenderObjectPrototype,
+    ) -> Option<&W3DModel> {
+        self.w3d_render_object_prototypes.source_model(prototype)
+    }
+
     pub fn model_animation_names(&self, model_name: &str) -> Vec<String> {
         let model_key = model_name.to_lowercase();
         self.model_cache
@@ -1778,6 +2131,7 @@ impl AssetManager {
     pub fn clear_caches(&mut self) {
         info!("Clearing asset caches");
         self.model_cache.clear();
+        self.w3d_render_object_prototypes = W3dRenderObjectPrototypeRegistry::default();
         self.companion_animation_cache.clear();
         self.missing_model_keys.clear();
         self.texture_manager.clear_cache();
@@ -2111,7 +2465,7 @@ mod tests {
     use super::*;
     use crate::assets::{
         AuthoredDrawWeaponBoneBindings, AuthoredDrawWeaponBoneSlot, W3dHierarchy, W3dHlod,
-        W3dHlodLod, W3dPivot,
+        W3dHlodLod, W3dHmodel, W3dHmodelNode, W3dHmodelNodeKind, W3dPivot,
     };
     use std::path::PathBuf;
     use std::time::{Duration, SystemTime};
@@ -2145,7 +2499,10 @@ mod tests {
                 max_screen_size: 1.0,
                 subobjects: Vec::new(),
             }],
-            has_unsupported_attachments: false,
+            aggregates: None,
+            proxies: None,
+            has_unrendered_aggregates: false,
+            has_invalid_trailing_records: false,
         }];
         model
     }
@@ -2170,6 +2527,217 @@ mod tests {
             },
             ..Default::default()
         }
+    }
+
+    fn prototype_source_model(
+        mesh_container: &str,
+        mesh_name: &str,
+        hlod_name: &str,
+    ) -> W3DModel {
+        let mut model = W3DModel::new("strict_source".to_string());
+        let mut mesh = W3DMesh::new(mesh_name.to_string());
+        mesh.container_name = mesh_container.to_string();
+        model.meshes.push(mesh);
+        if !hlod_name.is_empty() {
+            model.hlods.push(W3dHlod {
+                version: 0,
+                name: hlod_name.to_string(),
+                hierarchy_name: String::new(),
+                lods: Vec::new(),
+                aggregates: None,
+                proxies: None,
+                has_unrendered_aggregates: false,
+                has_invalid_trailing_records: false,
+            });
+        }
+        model
+    }
+
+    #[test]
+    fn strict_render_object_registry_indexes_only_exact_mesh_and_hlod_names() {
+        let mut registry = W3dRenderObjectPrototypeRegistry::default();
+        registry.register_source_model(
+            "ATTACHED_MODEL",
+            prototype_source_model("ATTACHED_MODEL", "Body", "ATTACHED_MODEL"),
+        );
+
+        let mesh = registry
+            .lookup("attached_model.body")
+            .expect("C++ Find_Prototype is case-insensitive for the complete mesh identity");
+        assert_eq!(mesh.full_name(), "ATTACHED_MODEL.Body");
+        assert_eq!(mesh.source_file_stem(), "ATTACHED_MODEL");
+        assert_eq!(mesh.kind(), W3dRenderObjectPrototypeKind::Mesh { mesh_index: 0 });
+        assert!(registry.source_model(&mesh).is_some());
+
+        let hlod = registry
+            .lookup("attached_model")
+            .expect("source HLOD header name is also an exact prototype identity");
+        assert_eq!(hlod.kind(), W3dRenderObjectPrototypeKind::Hlod { hlod_index: 0 });
+
+        assert!(registry.lookup("Body").is_none(), "no bare mesh alias");
+        assert!(
+            registry.lookup("ATTACHED_MODEL.Body.extra").is_none(),
+            "no suffix/whole-file fallback"
+        );
+    }
+
+    #[test]
+    fn strict_render_object_registry_retains_each_hlod_chunk_index() {
+        let mut source = prototype_source_model("MULTI_HLOD", "Body", "");
+        source.hlods = vec![
+            W3dHlod {
+                version: 0x0001_0000,
+                name: "FIRST_HLOD".to_string(),
+                hierarchy_name: "FIRST_TREE".to_string(),
+                lods: vec![W3dHlodLod {
+                    max_screen_size: f32::MAX,
+                    subobjects: Vec::new(),
+                }],
+                aggregates: None,
+                proxies: None,
+                has_unrendered_aggregates: false,
+                has_invalid_trailing_records: false,
+            },
+            W3dHlod {
+                version: 0x0001_0000,
+                name: "SECOND_HLOD".to_string(),
+                hierarchy_name: "SECOND_TREE".to_string(),
+                lods: vec![W3dHlodLod {
+                    max_screen_size: f32::MAX,
+                    subobjects: Vec::new(),
+                }],
+                aggregates: None,
+                proxies: None,
+                has_unrendered_aggregates: false,
+                has_invalid_trailing_records: false,
+            },
+        ];
+
+        let mut registry = W3dRenderObjectPrototypeRegistry::default();
+        registry.register_source_model("MULTI_HLOD", source);
+
+        assert_eq!(
+            registry
+                .lookup("first_hlod")
+                .map(|prototype| prototype.kind()),
+            Some(W3dRenderObjectPrototypeKind::Hlod { hlod_index: 0 })
+        );
+        assert_eq!(
+            registry
+                .lookup("SECOND_HLOD")
+                .map(|prototype| prototype.kind()),
+            Some(W3dRenderObjectPrototypeKind::Hlod { hlod_index: 1 }),
+            "each C++ HLOD loader record must retain its immutable source index"
+        );
+    }
+
+    #[test]
+    fn strict_render_object_registry_indexes_hmodel_by_its_exact_header_name() {
+        let mut model = W3DModel::new("hmodel_source".to_string());
+        model.hmodels.push(W3dHmodel {
+            version: 0x0004_0002,
+            name: "ATTACHED_HMODEL".to_string(),
+            hierarchy_name: "ATTACHED_TREE".to_string(),
+            nodes: vec![W3dHmodelNode {
+                name: "ATTACHED_HMODEL.Body".to_string(),
+                bone_index: 0,
+                kind: W3dHmodelNodeKind::Node,
+            }],
+            source_snap_points: Vec::new(),
+            has_invalid_records: false,
+        });
+
+        let mut registry = W3dRenderObjectPrototypeRegistry::default();
+        registry.register_source_model("ATTACHED_HMODEL", model);
+
+        let hmodel = registry
+            .lookup("attached_hmodel")
+            .expect("C++ Find_Prototype finds HMODEL by its complete header name");
+        assert_eq!(hmodel.full_name(), "ATTACHED_HMODEL");
+        assert_eq!(
+            hmodel.kind(),
+            W3dRenderObjectPrototypeKind::Hmodel { hmodel_index: 0 }
+        );
+        assert!(registry.source_model(&hmodel).is_some());
+        assert!(
+            registry.lookup("ATTACHED_HMODEL.Body").is_none(),
+            "an HMODEL connection is a later exact prototype lookup, not an alias registered from its leaf"
+        );
+    }
+
+    #[test]
+    fn strict_render_object_registry_preserves_the_first_duplicate_name() {
+        let mut registry = W3dRenderObjectPrototypeRegistry::default();
+        registry.register_source_model(
+            "FIRST",
+            prototype_source_model("DUPLICATE", "Mesh", ""),
+        );
+        registry.register_source_model(
+            "SECOND",
+            prototype_source_model("DUPLICATE", "Mesh", ""),
+        );
+
+        let prototype = registry
+            .lookup("duplicate.mesh")
+            .expect("the first source registered the prototype");
+        assert_eq!(prototype.source_file_stem(), "FIRST");
+        assert!(
+            registry.source_model(&prototype).is_some(),
+            "the duplicate must not replace the original source model"
+        );
+    }
+
+    #[test]
+    fn strict_render_object_on_demand_uses_first_dot_stem_then_relooks_up_full_name() {
+        let mut registry = W3dRenderObjectPrototypeRegistry::default();
+        let mut requested_stems = Vec::new();
+        let prototype = resolve_w3d_render_object_prototype_with_loader(
+            &mut registry,
+            "ATTACHED_MODEL.Body.extra",
+            |source_stem| {
+                requested_stems.push(source_stem.to_string());
+                Some(prototype_source_model(
+                    "ATTACHED_MODEL",
+                    "Body.extra",
+                    "",
+                ))
+            },
+        )
+        .expect("the full name must be re-looked up after the exact stem source loads");
+
+        assert_eq!(requested_stems, ["ATTACHED_MODEL"]);
+        assert_eq!(prototype.full_name(), "ATTACHED_MODEL.Body.extra");
+        assert_eq!(prototype.kind(), W3dRenderObjectPrototypeKind::Mesh { mesh_index: 0 });
+    }
+
+    #[test]
+    fn strict_render_object_on_demand_never_returns_an_unmatched_whole_file() {
+        let mut registry = W3dRenderObjectPrototypeRegistry::default();
+        let unresolved = resolve_w3d_render_object_prototype_with_loader(
+            &mut registry,
+            "ATTACHED_MODEL.Body",
+            |_| Some(prototype_source_model("ATTACHED_MODEL", "Other", "")),
+        );
+
+        assert!(
+            unresolved.is_none(),
+            "a loaded source file is not an acceptable substitute for its missing exact prototype"
+        );
+        assert!(registry.lookup("ATTACHED_MODEL.Other").is_some());
+    }
+
+    #[test]
+    fn strict_render_object_stem_keeps_cxx_first_dot_rule_and_rejects_paths() {
+        assert_eq!(
+            w3d_render_object_source_stem("ATTACHED_MODEL.Body.extra"),
+            Some("ATTACHED_MODEL")
+        );
+        assert_eq!(
+            w3d_render_object_source_stem("ATTACHED_MODEL"),
+            Some("ATTACHED_MODEL")
+        );
+        assert_eq!(w3d_render_object_source_stem(""), None);
+        assert_eq!(w3d_render_object_source_stem("../ATTACHED.Body"), None);
     }
 
     #[test]

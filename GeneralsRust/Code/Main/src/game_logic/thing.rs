@@ -1144,6 +1144,21 @@ pub struct ThingTemplate {
     /// Weapon.ini / Object INI tertiary weapon template name (resolved via WeaponStore).
     #[serde(default)]
     pub tertiary_weapon_name: Option<String>,
+    /// Source-ordered `FireWeaponWhenDamagedBehavior` module data.  This is
+    /// retained separately from ordinary WeaponSet slots because C++ creates
+    /// up to eight independent PRIMARY `Weapon` instances per module.  Main
+    /// does not activate the records until Object snapshot persistence can
+    /// carry each mutable Weapon state in C++ Xfer order.
+    #[serde(default)]
+    pub fire_weapon_when_damaged_behaviors:
+        Vec<crate::game_logic::host_temporary_weapon_behavior::FireWeaponWhenDamagedMetadata>,
+    /// Source-ordered `FireWeaponWhenDeadBehavior` module data.  C++ creates
+    /// a fresh ephemeral PRIMARY Weapon for each qualifying death, so these
+    /// records retain source gates/references only and add no object snapshot
+    /// state by themselves.
+    #[serde(default)]
+    pub fire_weapon_when_dead_behaviors:
+        Vec<crate::game_logic::host_temporary_weapon_behavior::FireWeaponWhenDeadMetadata>,
     /// Locomotor.ini SET_NORMAL template name (resolved via Common LocomotorStore).
     /// Fail-closed residual: single primary locomotor only (not multi-set / surface matrix).
     pub locomotor_name: Option<String>,
@@ -1209,6 +1224,8 @@ impl ThingTemplate {
             secondary_weapon_name: None,
             tertiary_weapon: None,
             tertiary_weapon_name: None,
+            fire_weapon_when_damaged_behaviors: Vec::new(),
+            fire_weapon_when_dead_behaviors: Vec::new(),
             locomotor_name: None,
             create_crate_data: Vec::new(),
         }

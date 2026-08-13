@@ -7,11 +7,85 @@
 /// - Predictive LOD for performance optimization
 /// - Screen-space LOD metrics
 use crate::{CameraClass, RenderObj};
-use glam::{Mat4, Vec3};
+use glam::{Mat4, Vec2, Vec3};
 use std::sync::Arc;
 
-/// No maximum screen size limit
-pub const NO_MAX_SCREEN_SIZE: f32 = -1.0;
+/// W3D's authored "never switch higher than this" sentinel.
+///
+/// C++ writes this as `WWMATH_FLOAT_MAX`, not `-1.0`.  HLOD arrays are ordered
+/// from the lowest-detail model at index zero to the highest-detail model at
+/// the final index; an object bigger than a level's maximum screen area moves
+/// to the next, more detailed level.
+pub const NO_MAX_SCREEN_SIZE: f32 = f32::MAX;
+
+/// C++ `RenderObjClass::AT_MIN_LOD`: a forced lower bound for an HLOD level.
+pub const AT_MIN_LOD: f32 = f32::MAX;
+
+/// C++ `RenderObjClass::AT_MAX_LOD`: marks that no more detailed level exists.
+pub const AT_MAX_LOD: f32 = -1.0;
+
+const MAX_PREDICTIVE_LOD_COST: f32 = 1.0e6;
+
+/// All frozen camera/object data used by C++ `RenderObjClass::Get_Screen_Size`.
+///
+/// This deliberately does not accept a projection matrix: C++ uses the
+/// viewport and view plane directly.  A future visual-dispatch pass must freeze
+/// these values per view before selecting multi-LOD W3D models.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct HLodScreenAreaInput {
+    pub sphere_center: Vec3,
+    pub sphere_radius: f32,
+    pub camera_position: Vec3,
+    pub viewport_width: f32,
+    pub viewport_height: f32,
+    pub view_plane_min: Vec2,
+    pub view_plane_max: Vec2,
+}
+
+/// Transcription of C++ `RenderObjClass::Get_Screen_Size`.
+///
+/// Invalid frozen camera/model inputs are rejected rather than being converted
+/// into a guessed distance threshold.  A zero camera-to-sphere distance is a
+/// valid C++ input and yields zero because the source initializes `radius` to
+/// zero before its guarded division.
+pub fn calculate_hlod_screen_area(input: HLodScreenAreaInput) -> Option<f32> {
+    if !input.sphere_center.is_finite()
+        || !input.camera_position.is_finite()
+        || !input.sphere_radius.is_finite()
+        || input.sphere_radius < 0.0
+        || !input.viewport_width.is_finite()
+        || !input.viewport_height.is_finite()
+        || input.viewport_width <= 0.0
+        || input.viewport_height <= 0.0
+        || !input.view_plane_min.is_finite()
+        || !input.view_plane_max.is_finite()
+    {
+        return None;
+    }
+
+    let view_plane_size = input.view_plane_max - input.view_plane_min;
+    if !view_plane_size.is_finite() || view_plane_size.x <= 0.0 || view_plane_size.y <= 0.0 {
+        return None;
+    }
+
+    let distance = (input.sphere_center - input.camera_position).length();
+    if !distance.is_finite() {
+        return None;
+    }
+
+    let normalized_radius = if distance != 0.0 {
+        input.sphere_radius / distance
+    } else {
+        0.0
+    };
+    let screen_area = std::f32::consts::PI
+        * normalized_radius
+        * normalized_radius
+        * (input.viewport_width / view_plane_size.x)
+        * (input.viewport_height / view_plane_size.y);
+
+    screen_area.is_finite().then_some(screen_area)
+}
 
 /// Model node - represents a model attached to a bone
 #[derive(Clone, Debug)]
@@ -28,12 +102,15 @@ impl ModelNode {
     }
 }
 
-/// LOD level - contains models for a single level of detail
+/// LOD level - contains models for a single level of detail.
+///
+/// The source W3D array order is lowest detail to highest detail.  This is
+/// important because C++ `Increment_LOD` moves to a *more* detailed index.
 #[derive(Clone, Debug)]
 pub struct LodLevel {
     /// Models at this LOD level
     pub models: Vec<ModelNode>,
-    /// Maximum screen size for this LOD (normalized 0-1, -1 = no limit)
+    /// Maximum normalized screen area before C++ moves to the next detail level.
     pub max_screen_size: f32,
     /// Cost metrics for predictive LOD
     pub non_pixel_cost: f32,
@@ -98,7 +175,7 @@ impl SnapPoint {
     }
 }
 
-/// Hierarchical LOD - Animated model with multiple levels of detail
+/// Hierarchical LOD - Animated model with multiple levels of detail.
 ///
 /// This is the Rust equivalent of C++ HLodClass. It manages:
 /// - Multiple LOD levels with automatic switching
@@ -109,9 +186,9 @@ impl SnapPoint {
 pub struct HLod {
     /// Name of this HLOD
     pub name: String,
-    /// Array of LOD levels (from highest to lowest detail)
+    /// Array of LOD levels (from lowest to highest detail).
     pub lod_levels: Vec<LodLevel>,
-    /// Current active LOD index
+    /// Current active LOD index (`0` is lowest detail).
     pub current_lod: usize,
     /// Additional models always rendered (attached to bones)
     pub additional_models: Vec<ModelNode>,
@@ -188,8 +265,9 @@ impl HLod {
 
     /// Set the current LOD level
     pub fn set_lod_level(&mut self, lod: usize) {
-        if lod < self.lod_levels.len() {
-            self.current_lod = lod;
+        if let Some(last_lod) = self.lod_levels.len().checked_sub(1) {
+            // C++ clamps instead of silently ignoring an out-of-range request.
+            self.current_lod = lod.min(last_lod);
         }
     }
 
@@ -205,69 +283,147 @@ impl HLod {
     pub fn set_max_screen_size(&mut self, lod_index: usize, size: f32) {
         if let Some(lod) = self.lod_levels.get_mut(lod_index) {
             lod.max_screen_size = size;
-        }
-    }
-
-    /// Get total polygon count across all LOD levels
-    pub fn get_num_polys(&self) -> usize {
-        self.lod_levels.iter().map(|l| l.get_num_polys()).sum()
-    }
-
-    /// Prepare LOD selection based on camera distance
-    ///
-    /// This implements screen-space LOD selection similar to C++ Prepare_LOD
-    pub fn prepare_lod(&mut self, camera: &CameraClass) {
-        if self.lod_levels.is_empty() {
-            return;
-        }
-
-        let distance = (self.transform.w_axis.truncate() - camera.position).length();
-        let screen_area = calculate_screen_area(distance, &camera.projection_matrix);
-
-        // Find appropriate LOD level based on screen size
-        for (i, lod) in self.lod_levels.iter().enumerate() {
-            if lod.max_screen_size == NO_MAX_SCREEN_SIZE || screen_area >= lod.max_screen_size {
-                self.current_lod = i;
-                return;
+            // C++ refreshes static factors and initializes cost/value arrays at
+            // one pixel whenever an authored threshold changes.
+            self.recalculate_static_lod_factors();
+            self.cost_array.clear();
+            self.value_array.clear();
+            if let Some(min_lod) = self.calculate_cost_value_arrays(1.0) {
+                if self.current_lod < min_lod {
+                    self.set_lod_level(min_lod);
+                }
             }
         }
-
-        // Default to lowest LOD if nothing matches
-        self.current_lod = self.lod_levels.len().saturating_sub(1);
     }
 
-    /// Increment LOD level (lower detail)
+    /// Get the C++ current-LOD polygon count, including additional models.
+    pub fn get_num_polys(&self) -> usize {
+        self.lod_levels
+            .get(self.current_lod)
+            .map(LodLevel::get_num_polys)
+            .unwrap_or(0)
+            .saturating_add(
+                self.additional_models
+                    .iter()
+                    .map(|model| model.model.get_num_polys())
+                    .sum(),
+            )
+    }
+
+    /// Deprecated compatibility entry point.
+    ///
+    /// The lightweight `CameraClass` does not contain C++'s viewport/view-plane
+    /// data and this HLOD wrapper does not retain an authoritative world-space
+    /// bounding sphere.  Selecting a LOD from a guessed radius or projection is
+    /// observably wrong, so this intentionally performs no selection.  Call
+    /// [`Self::prepare_lod_for_screen_area`] with a frozen
+    /// [`HLodScreenAreaInput`] calculation at the view-dispatch boundary.
+    #[deprecated(
+        note = "use prepare_lod_for_screen_area with calculate_hlod_screen_area at the frozen per-view boundary"
+    )]
+    pub fn prepare_lod(&mut self, _camera: &CameraClass) {}
+
+    /// Prepare C++ cost/value arrays for one already-frozen view and enforce its
+    /// authored minimum detail.  This is the per-object portion of
+    /// `HLodClass::Prepare_LOD`; callers then batch all visible multi-LOD HLODs
+    /// through [`optimize_prepared_hlods`] for the C++ scene-wide budget pass.
+    ///
+    /// Returns `false` without changing selection when the source data is hidden,
+    /// absent, or malformed.  That fail-closed behavior is intentional until the
+    /// active Main visual dispatcher owns the complete frozen input.
+    pub fn prepare_lod_for_screen_area(&mut self, screen_area: f32) -> bool {
+        if self.hidden || self.lod_levels.is_empty() {
+            return false;
+        }
+
+        self.current_lod = self.current_lod.min(self.lod_levels.len() - 1);
+        let Some(min_lod) = self.calculate_cost_value_arrays(screen_area) else {
+            return false;
+        };
+        if self.current_lod < min_lod {
+            self.set_lod_level(min_lod);
+        }
+        true
+    }
+
+    /// Increment LOD level (higher detail in the source array).
     pub fn increment_lod(&mut self) {
         if self.current_lod + 1 < self.lod_levels.len() {
             self.current_lod += 1;
         }
     }
 
-    /// Decrement LOD level (higher detail)
+    /// Decrement LOD level (lower detail in the source array).
     pub fn decrement_lod(&mut self) {
         if self.current_lod > 0 {
             self.current_lod -= 1;
         }
     }
 
-    /// Calculate cost/value arrays for predictive LOD
+    /// Calculate C++ `HLodClass::Calculate_Cost_Value_Arrays` transactionally.
     ///
-    /// This implements the predictive LOD system that dynamically adjusts
-    /// LOD based on performance budget.
-    pub fn calculate_cost_value_arrays(&mut self, screen_area: f32) -> usize {
+    /// The returned index is the source's `minlod`, and `value_array` contains
+    /// one extra `AT_MAX_LOD` sentinel so post-increment probes are exact.
+    /// Malformed values are rejected rather than manufacturing a LOD choice.
+    pub fn calculate_cost_value_arrays(&mut self, screen_area: f32) -> Option<usize> {
         let lod_count = self.lod_levels.len();
-        self.cost_array.resize(lod_count, 0.0);
-        self.value_array.resize(lod_count, 0.0);
-
-        for (i, lod) in self.lod_levels.iter().enumerate() {
-            // Cost = non-pixel cost + pixel cost * screen area
-            self.cost_array[i] = lod.non_pixel_cost + lod.pixel_cost_per_area * screen_area;
-
-            // Value = benefit factor * screen area * LOD bias
-            self.value_array[i] = lod.benefit_factor * screen_area * self.lod_bias;
+        if lod_count == 0
+            || !screen_area.is_finite()
+            || screen_area < 0.0
+            || !self.lod_bias.is_finite()
+        {
+            return None;
         }
 
-        lod_count
+        let mut costs = vec![0.0; lod_count];
+        let mut values = vec![0.0; lod_count + 1];
+
+        for (i, lod) in self.lod_levels.iter().enumerate() {
+            if !lod.max_screen_size.is_finite()
+                || !lod.non_pixel_cost.is_finite()
+                || !lod.pixel_cost_per_area.is_finite()
+                || !lod.benefit_factor.is_finite()
+                || lod.non_pixel_cost < 0.0
+                || lod.pixel_cost_per_area < 0.0
+            {
+                return None;
+            }
+
+            let cost = lod.non_pixel_cost + lod.pixel_cost_per_area * screen_area;
+            if !cost.is_finite() || cost <= 0.0 || cost >= MAX_PREDICTIVE_LOD_COST {
+                return None;
+            }
+            costs[i] = cost;
+        }
+
+        let mut lod = 0;
+        while lod < lod_count && self.lod_levels[lod].max_screen_size < screen_area {
+            values[lod] = AT_MIN_LOD;
+            lod += 1;
+        }
+
+        if lod >= lod_count {
+            lod = lod_count - 1;
+        } else {
+            values[lod] = AT_MIN_LOD;
+        }
+        let min_lod = lod;
+
+        lod += 1;
+        while lod < lod_count {
+            let value =
+                self.lod_levels[lod].benefit_factor * screen_area * self.lod_bias / costs[lod];
+            if !value.is_finite() {
+                return None;
+            }
+            values[lod] = value;
+            lod += 1;
+        }
+        values[lod_count] = AT_MAX_LOD;
+
+        self.cost_array = costs;
+        self.value_array = values;
+        Some(min_lod)
     }
 
     /// Get the rendering cost of the current LOD
@@ -288,25 +444,38 @@ impl HLod {
 
     /// Get the value after incrementing LOD (for predictive decisions)
     pub fn get_post_increment_value(&self) -> f32 {
-        let next_lod = (self.current_lod + 1).min(self.lod_levels.len().saturating_sub(1));
-        self.value_array.get(next_lod).copied().unwrap_or(0.0)
+        self.value_array
+            .get(self.current_lod.saturating_add(1))
+            .copied()
+            .unwrap_or(AT_MAX_LOD)
     }
 
     /// Recalculate static LOD factors (cost/benefit metrics)
     pub fn recalculate_static_lod_factors(&mut self) {
         for lod in &mut self.lod_levels {
             let poly_count = lod.get_num_polys();
+            let polygons = poly_count as f32;
 
-            // Simplified cost calculation
-            lod.non_pixel_cost = poly_count as f32 * 0.001;
-            lod.pixel_cost_per_area = poly_count as f32 * 0.01;
-            lod.benefit_factor = poly_count as f32 * 0.1;
+            // C++ currently has no pixel component.  It sums non-hidden models;
+            // this compatibility wrapper retains no per-submodel hidden state, so
+            // its represented model list is the corresponding visible set.
+            lod.pixel_cost_per_area = 0.0;
+            if poly_count == 0 {
+                lod.non_pixel_cost = 0.000001;
+                lod.benefit_factor = 0.0;
+            } else {
+                lod.non_pixel_cost = polygons;
+                lod.benefit_factor = 1.0 - 0.5 / (polygons * polygons);
+            }
         }
     }
 
     /// Set the LOD bias (affects value calculations)
     pub fn set_lod_bias(&mut self, bias: f32) {
-        self.lod_bias = bias;
+        // C++ asserts `bias > 0` in debug and then clamps it to zero in all
+        // builds.  Invalid Rust input is kept fail-closed rather than poisoning
+        // the next prepared value array with NaN.
+        self.lod_bias = if bias.is_finite() { bias.max(0.0) } else { 0.0 };
     }
 
     /// Set the transform
@@ -455,6 +624,209 @@ impl HLod {
     }
 }
 
+#[derive(Clone, Copy, Debug)]
+struct PredictiveLodHeapNode {
+    item: usize,
+    key: f32,
+}
+
+/// One-indexed max-heap transcribed from the local `LODHeap` in C++
+/// `predlod.cpp`.  Input order intentionally resolves equal keys exactly as
+/// the source heap does; do not replace this with a sorted vector because that
+/// changes which equally-valued HLOD is promoted first.
+struct PredictiveLodHeap {
+    nodes: Vec<PredictiveLodHeapNode>,
+}
+
+impl PredictiveLodHeap {
+    fn new(items: impl IntoIterator<Item = PredictiveLodHeapNode>) -> Self {
+        let mut nodes = Vec::new();
+        nodes.push(PredictiveLodHeapNode {
+            item: usize::MAX,
+            key: 0.0,
+        });
+        nodes.extend(items);
+
+        let mut heap = Self { nodes };
+        for index in (1..=heap.len() / 2).rev() {
+            heap.downheap(index);
+        }
+        heap
+    }
+
+    fn len(&self) -> usize {
+        self.nodes.len().saturating_sub(1)
+    }
+
+    fn top(&self) -> Option<PredictiveLodHeapNode> {
+        self.nodes.get(1).copied()
+    }
+
+    /// C++ `Change_Key_Top` always down-heaps the root.
+    fn change_key_top(&mut self, new_key: f32) {
+        if self.len() == 0 {
+            return;
+        }
+        self.nodes[1].key = new_key;
+        self.downheap(1);
+    }
+
+    fn change_key(&mut self, item: usize, new_key: f32) {
+        for index in 1..=self.len() {
+            if self.nodes[index].item != item {
+                continue;
+            }
+
+            let old_key = self.nodes[index].key;
+            self.nodes[index].key = new_key;
+            if new_key < old_key {
+                self.downheap(index);
+            } else {
+                self.upheap(index);
+            }
+            break;
+        }
+    }
+
+    fn upheap(&mut self, mut index: usize) {
+        let node = self.nodes[index];
+        self.nodes[0].key = f32::MAX;
+        while self.nodes[index / 2].key <= node.key {
+            self.nodes[index] = self.nodes[index / 2];
+            index /= 2;
+        }
+        self.nodes[index] = node;
+    }
+
+    fn downheap(&mut self, mut index: usize) {
+        let node = self.nodes[index];
+        let count = self.len();
+        while index <= count / 2 {
+            let mut child_index = index * 2;
+            if child_index < count && self.nodes[child_index].key < self.nodes[child_index + 1].key
+            {
+                child_index += 1;
+            }
+            if node.key >= self.nodes[child_index].key {
+                break;
+            }
+            self.nodes[index] = self.nodes[child_index];
+            index = child_index;
+        }
+        self.nodes[index] = node;
+    }
+}
+
+fn prepared_hlod_is_valid(hlod: &HLod) -> bool {
+    let lod_count = hlod.lod_levels.len();
+    lod_count > 1
+        && hlod.current_lod < lod_count
+        && hlod.cost_array.len() == lod_count
+        && hlod.value_array.len() == lod_count + 1
+        && hlod
+            .cost_array
+            .iter()
+            .all(|cost| cost.is_finite() && *cost >= 0.0 && *cost < MAX_PREDICTIVE_LOD_COST)
+        && hlod.value_array.iter().all(|value| value.is_finite())
+        && hlod.value_array[lod_count] == AT_MAX_LOD
+}
+
+/// Run C++ `PredictiveLODOptimizerClass::Optimize_LODs` on visible, prepared
+/// multi-LOD HLODs.
+///
+/// `fixed_cost` is the cost C++ accumulates through `Add_Cost` for visible
+/// single-LOD render objects before it optimizes the multi-LOD candidates.
+/// This function is intentionally inert until a caller has an exact frozen
+/// view, exact visible-object order, and a C++ scene budget.  The Generals
+/// W3D game path currently disables this dynamic optimization, so Main must
+/// not call it simply because a W3D asset contains multiple LOD arrays.
+///
+/// Returns `false` without mutating candidates when their prepared source data
+/// is malformed.  Otherwise the C++ heap/update order is preserved exactly.
+pub fn optimize_prepared_hlods(hlods: &mut [HLod], fixed_cost: f32, max_cost: f32) -> bool {
+    if hlods.is_empty() {
+        return true;
+    }
+    if !fixed_cost.is_finite()
+        || fixed_cost < 0.0
+        || !max_cost.is_finite()
+        || max_cost < 0.0
+        || !hlods.iter().all(prepared_hlod_is_valid)
+    {
+        return false;
+    }
+
+    let mut total_cost = fixed_cost;
+    for hlod in hlods.iter() {
+        total_cost += hlod.get_cost();
+    }
+    if !total_cost.is_finite() {
+        return false;
+    }
+
+    let mut min_current_value_queue =
+        PredictiveLodHeap::new(hlods.iter().enumerate().map(|(item, hlod)| {
+            PredictiveLodHeapNode {
+                item,
+                key: -hlod.get_value(),
+            }
+        }));
+    let mut max_post_increment_value_queue =
+        PredictiveLodHeap::new(hlods.iter().enumerate().map(|(item, hlod)| {
+            PredictiveLodHeapNode {
+                item,
+                key: hlod.get_post_increment_value(),
+            }
+        }));
+
+    loop {
+        let mut incremented_item = None;
+
+        if total_cost <= max_cost {
+            let Some(top) = max_post_increment_value_queue.top() else {
+                break;
+            };
+            if top.key == AT_MAX_LOD {
+                break;
+            }
+
+            let old_cost = hlods[top.item].get_cost();
+            hlods[top.item].increment_lod();
+            total_cost = total_cost - old_cost + hlods[top.item].get_cost();
+
+            max_post_increment_value_queue
+                .change_key_top(hlods[top.item].get_post_increment_value());
+            min_current_value_queue.change_key(top.item, -hlods[top.item].get_value());
+            incremented_item = Some(top.item);
+        }
+
+        while total_cost > max_cost {
+            let Some(top) = min_current_value_queue.top() else {
+                return true;
+            };
+            if top.key == -AT_MIN_LOD {
+                return true;
+            }
+
+            let old_cost = hlods[top.item].get_cost();
+            hlods[top.item].decrement_lod();
+            total_cost = total_cost - old_cost + hlods[top.item].get_cost();
+
+            min_current_value_queue.change_key_top(-hlods[top.item].get_value());
+            max_post_increment_value_queue
+                .change_key(top.item, hlods[top.item].get_post_increment_value());
+
+            // C++ terminates when a single outer iteration promotes then
+            // immediately demotes the same candidate.
+            if incremented_item == Some(top.item) {
+                return true;
+            }
+        }
+    }
+
+    true
+}
+
 /// Distance-based LOD - Simple LOD switching based on camera distance
 ///
 /// This is the Rust equivalent of C++ DistLODClass
@@ -543,27 +915,11 @@ impl DistLod {
     }
 }
 
-fn calculate_screen_area(distance: f32, projection: &Mat4) -> f32 {
-    if distance <= 0.0 {
-        return 1.0;
-    }
-
-    const DEFAULT_RADIUS: f32 = 10.0;
-
-    let focal_length = projection.y_axis.y.abs();
-    if focal_length < 0.001 {
-        return 1.0 / (distance * distance).max(1.0);
-    }
-
-    let screen_radius = (DEFAULT_RADIUS * focal_length) / distance.max(0.1);
-    (screen_radius * screen_radius).min(1.0)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::RenderInfoClass;
-    use glam::{Mat4, Vec3};
+    use glam::{Mat4, Vec2, Vec3};
 
     #[derive(Debug)]
     struct MockModel {
@@ -609,13 +965,14 @@ mod tests {
     fn test_hlod_add_levels() {
         let mut hlod = HLod::new("TestHLod".to_string());
 
-        hlod.add_lod_level(0.5);
         hlod.add_lod_level(0.1);
+        hlod.add_lod_level(0.5);
         hlod.add_lod_level(NO_MAX_SCREEN_SIZE);
 
         assert_eq!(hlod.get_lod_count(), 3);
-        assert_eq!(hlod.get_max_screen_size(0), 0.5);
-        assert_eq!(hlod.get_max_screen_size(1), 0.1);
+        assert_eq!(hlod.get_max_screen_size(0), 0.1);
+        assert_eq!(hlod.get_max_screen_size(1), 0.5);
+        assert_eq!(NO_MAX_SCREEN_SIZE, f32::MAX);
     }
 
     #[test]
@@ -695,10 +1052,117 @@ mod tests {
         hlod.add_lod_model(0, model, 0);
 
         hlod.recalculate_static_lod_factors();
-        hlod.calculate_cost_value_arrays(0.25);
+        assert_eq!(hlod.calculate_cost_value_arrays(0.25), Some(0));
 
         assert!(hlod.get_cost() >= 0.0);
         assert!(hlod.get_value() >= 0.0);
+    }
+
+    #[test]
+    fn hlod_screen_area_matches_cxx_rendobj_formula_and_rejects_bad_view_data() {
+        let input = HLodScreenAreaInput {
+            sphere_center: Vec3::new(3.0, 4.0, 0.0),
+            sphere_radius: 5.0,
+            camera_position: Vec3::ZERO,
+            viewport_width: 800.0,
+            viewport_height: 600.0,
+            view_plane_min: Vec2::new(-2.0, -1.0),
+            view_plane_max: Vec2::new(2.0, 1.0),
+        };
+        let expected = std::f32::consts::PI * 200.0 * 300.0;
+        assert!((calculate_hlod_screen_area(input).unwrap() - expected).abs() < 0.5);
+
+        let at_camera = HLodScreenAreaInput {
+            sphere_center: Vec3::ZERO,
+            ..input
+        };
+        assert_eq!(calculate_hlod_screen_area(at_camera), Some(0.0));
+
+        let malformed_view = HLodScreenAreaInput {
+            view_plane_max: Vec2::new(-2.0, 1.0),
+            ..input
+        };
+        assert_eq!(calculate_hlod_screen_area(malformed_view), None);
+    }
+
+    #[test]
+    fn hlod_cost_values_keep_cxx_min_lod_clamp_and_post_increment_sentinel() {
+        let mut hlod = HLod::new("Thresholds".to_string());
+        for max_screen_size in [2.0, 10.0, NO_MAX_SCREEN_SIZE] {
+            hlod.add_lod_level(max_screen_size);
+        }
+        for lod in &mut hlod.lod_levels {
+            lod.non_pixel_cost = 1.0;
+            lod.pixel_cost_per_area = 0.0;
+        }
+        hlod.lod_levels[2].benefit_factor = 0.75;
+
+        assert_eq!(hlod.calculate_cost_value_arrays(3.0), Some(1));
+        assert_eq!(
+            hlod.value_array,
+            vec![AT_MIN_LOD, AT_MIN_LOD, 2.25, AT_MAX_LOD]
+        );
+        assert_eq!(hlod.current_lod, 0);
+        assert!(hlod.prepare_lod_for_screen_area(3.0));
+        assert_eq!(hlod.current_lod, 1);
+        assert_eq!(hlod.get_post_increment_value(), 2.25);
+
+        hlod.set_lod_level(usize::MAX);
+        assert_eq!(hlod.current_lod, 2);
+        assert_eq!(hlod.get_post_increment_value(), AT_MAX_LOD);
+    }
+
+    #[test]
+    fn hlod_threshold_and_bias_setters_keep_cxx_initialization_invariants() {
+        let mut hlod = HLod::new("Setters".to_string());
+        hlod.add_lod_level(2.0);
+        hlod.add_lod_level(NO_MAX_SCREEN_SIZE);
+
+        // C++ Set_Max_Screen_Size recalculates at one pixel and clamps to a
+        // newly required higher-detail level.
+        hlod.set_max_screen_size(0, 0.5);
+        assert_eq!(hlod.current_lod, 1);
+        assert_eq!(hlod.value_array.last(), Some(&AT_MAX_LOD));
+
+        // C++ clamps a release-build nonpositive bias to zero.
+        hlod.set_lod_bias(-3.0);
+        assert_eq!(hlod.lod_bias, 0.0);
+        hlod.set_lod_bias(f32::NAN);
+        assert_eq!(hlod.lod_bias, 0.0);
+    }
+
+    #[test]
+    fn hlod_static_costs_and_scene_budget_optimizer_match_cxx_heap_order() {
+        let mut static_factors = HLod::new("StaticFactors".to_string());
+        let low = static_factors.add_lod_level(2.0);
+        let high = static_factors.add_lod_level(NO_MAX_SCREEN_SIZE);
+        static_factors.add_lod_model(low, MockModel::new("low", 1), 0);
+        static_factors.add_lod_model(high, MockModel::new("high", 10), 0);
+        static_factors.recalculate_static_lod_factors();
+        assert_eq!(static_factors.lod_levels[low].non_pixel_cost, 1.0);
+        assert_eq!(static_factors.lod_levels[low].pixel_cost_per_area, 0.0);
+        assert_eq!(static_factors.lod_levels[low].benefit_factor, 0.5);
+        assert_eq!(static_factors.lod_levels[high].non_pixel_cost, 10.0);
+        assert!((static_factors.lod_levels[high].benefit_factor - 0.995).abs() < 0.000_001);
+
+        fn prepared(name: &str, high_detail_benefit: f32) -> HLod {
+            let mut hlod = HLod::new(name.to_string());
+            hlod.add_lod_level(2.0);
+            hlod.add_lod_level(NO_MAX_SCREEN_SIZE);
+            hlod.lod_levels[0].non_pixel_cost = 1.0;
+            hlod.lod_levels[1].non_pixel_cost = 10.0;
+            hlod.lod_levels[1].benefit_factor = high_detail_benefit;
+            assert_eq!(hlod.calculate_cost_value_arrays(1.0), Some(0));
+            hlod.set_lod_level(1);
+            hlod
+        }
+
+        let mut visible = vec![prepared("high-value", 0.9), prepared("low-value", 0.5)];
+        // C++ starts over budget, demotes the lowest current value, then its
+        // next outer iteration promotes/demotes that same tuple and stops.
+        assert!(optimize_prepared_hlods(&mut visible, 0.0, 15.0));
+        assert_eq!(visible[0].current_lod, 1);
+        assert_eq!(visible[1].current_lod, 0);
     }
 
     #[test]

@@ -36,6 +36,7 @@ impl MeshClass {
             alpha_override: 1.0,
             material_pass_alpha_override: 1.0,
             material_pass_emissive_override: 1.0,
+            frozen_fow_visibility: FrozenFowVisibility::default(),
             lighting_environment: None,
             decal_meshes: Vec::new(),
             base_vertex_offset: 0,
@@ -81,6 +82,24 @@ impl MeshClass {
 
     pub fn uv_offset_override(&self) -> Option<[f32; 2]> {
         self.uv_offset_override
+    }
+
+    /// Set the presentation snapshot consumed by every active material pass.
+    /// This method intentionally accepts already-frozen values only.
+    pub fn set_frozen_fow_visibility(&mut self, visibility: FrozenFowVisibility) {
+        self.frozen_fow_visibility = visibility;
+        // C++ wraps the complete RenderObj::Render call in its shroud pass.
+        // Existing derived decal meshes therefore must not retain an earlier
+        // clear snapshot when their parent is assigned frozen FOW later.
+        for decal_mesh in &mut self.decal_meshes {
+            Arc::make_mut(decal_mesh).set_frozen_fow_visibility(visibility);
+        }
+    }
+
+    /// Return the immutable FOW snapshot associated with this mesh instance.
+    #[inline]
+    pub fn frozen_fow_visibility(&self) -> FrozenFowVisibility {
+        self.frozen_fow_visibility
     }
 
     /// Install per-vertex bone links on the underlying model geometry.
@@ -908,6 +927,7 @@ impl MeshClass {
         new_mesh.alpha_override = self.alpha_override;
         new_mesh.material_pass_alpha_override = self.material_pass_alpha_override;
         new_mesh.material_pass_emissive_override = self.material_pass_emissive_override;
+        new_mesh.frozen_fow_visibility = self.frozen_fow_visibility;
         new_mesh.collision_type = self.collision_type;
         new_mesh.w3d_attributes = self.w3d_attributes;
         new_mesh.is_decal_instance = self.is_decal_instance;
@@ -1030,6 +1050,7 @@ impl MeshClass {
             decal_mesh.alpha_override = 1.0;
             decal_mesh.material_pass_alpha_override = 1.0;
             decal_mesh.material_pass_emissive_override = 1.0;
+            decal_mesh.frozen_fow_visibility = self.frozen_fow_visibility;
             decal_mesh.is_decal_instance = true;
 
             let bounding_box = AABoxClass::from_min_max(min, max);

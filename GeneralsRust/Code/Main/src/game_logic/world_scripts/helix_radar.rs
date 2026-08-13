@@ -234,7 +234,8 @@ impl GameLogic {
                 None
             }
         };
-        let bid = self.create_object_for_owner_or_team(BOOBY_TRAP_OBJECT, team, owner_player_id, pos)?;
+        let bid =
+            self.create_object_for_owner_or_team(BOOBY_TRAP_OBJECT, team, owner_player_id, pos)?;
         if let Some(o) = self.objects.get_mut(&bid) {
             o.booby_trap_special = true;
             o.booby_trap_attached_to = Some(structure_id);
@@ -539,7 +540,8 @@ impl GameLogic {
         if horiz > 1.0 {
             start += dir_xz * (8.0 / horiz).min(1.0);
         }
-        let pid = self.create_object_for_owner_or_team(tpl_name, team, source_owner_player_id, start)?;
+        let pid =
+            self.create_object_for_owner_or_team(tpl_name, team, source_owner_player_id, start)?;
         if let Some(o) = self.objects.get_mut(&pid) {
             o.helix_napalm_bomb_projectile = true;
             o.producer_id = Some(source_id);
@@ -1180,12 +1182,9 @@ impl GameLogic {
         for i in 0..n {
             let offset = (i as f32 - (n as f32 - 1.0) * 0.5) * SUPERWEAPON_CRATE_DROP_SPACING;
             let pos = Vec3::new(location.x + offset, location.y + 40.0, location.z);
-            if let Some(id) = self.create_object_for_owner_or_team(
-                tpl_name,
-                team,
-                owner_player_id,
-                pos,
-            ) {
+            if let Some(id) =
+                self.create_object_for_owner_or_team(tpl_name, team, owner_player_id, pos)
+            {
                 self.host_money_crates
                     .register(id, SUPERWEAPON_CRATE_DROP_MONEY, false, 0);
                 self.host_money_crates.arm_default_deletion(

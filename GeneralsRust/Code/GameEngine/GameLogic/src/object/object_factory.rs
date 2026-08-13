@@ -943,9 +943,6 @@ impl ObjectFactory {
             model_name.to_string(),
             drawable_type,
         )));
-        if let Ok(mut guard) = drawable.write() {
-            guard.bind_object_ref(base_object);
-        }
 
         let _ = template.module_descriptors();
 
@@ -1077,6 +1074,12 @@ impl ObjectFactory {
                 }
                 Err(_) => warn!("Drawable lock poisoned while installing draw modules"),
             }
+        }
+
+        // Match C++ bindObjectAndDrawable ordering: draw modules are created
+        // first, then receive their Object association and bound callback.
+        if let Ok(mut guard) = drawable.write() {
+            guard.friend_bind_to_object(base_object);
         }
 
         // Associate drawable with object

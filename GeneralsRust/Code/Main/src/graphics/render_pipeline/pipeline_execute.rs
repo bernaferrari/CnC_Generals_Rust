@@ -22,6 +22,16 @@ impl RenderPipeline {
         allow_sync_model_loads: bool,
         deferred_startup_model_load_budget: usize,
         skip_world_scene: bool,
+        // Called synchronously after frozen collection and before sort/forward.
+        // Main owns this callback and may resolve candidates against
+        // GameClient; RenderPipeline itself remains free of GameClient/live
+        // logic access. It returns Main-owned, full-keyed decisions that are
+        // revalidated against this exact frozen sidecar before item mutation.
+        mut direct_scene_decision_resolver: Option<
+            &mut dyn FnMut(
+                &[FrozenDirectDrawableSceneCandidate],
+            ) -> Vec<FrozenDirectDrawableSceneDecision>,
+        >,
     ) -> Result<()> {
         let execute_started = std::time::Instant::now();
         trace!("RenderPipeline::execute frame {}", self.frame_number + 1);
@@ -108,6 +118,10 @@ impl RenderPipeline {
         let mut collect_elapsed = std::time::Duration::ZERO;
         let mut sort_elapsed = std::time::Duration::ZERO;
         let mut terrain_elapsed = std::time::Duration::ZERO;
+        // Bounded to the current execute call. The collector emits at most
+        // one record per complete direct Drawable binding, regardless of the
+        // number of W3D Draw modules or meshes that produced render items.
+        let mut direct_scene_candidates = Vec::new();
         if render_world_scene {
             self.sync_lighting_from_map_metadata();
             if allow_sync_model_loads {
@@ -119,6 +133,7 @@ impl RenderPipeline {
                 }
                 self.prewarm_startup_models(graphics_system, allow_sync_model_loads);
                 self.prewarm_frozen_draw_animation_bindings();
+                self.prewarm_cached_hlod_aggregate_render_objects(graphics_system);
                 if self.frame_number <= 5 {
                     info!(
                         "RenderPipeline::execute frame {} prewarm_done",
@@ -160,8 +175,23 @@ impl RenderPipeline {
                 allow_sync_model_loads,
                 &mut deferred_model_load_budget,
                 delta_time,
+                &mut direct_scene_candidates,
             )?;
             collect_elapsed = collect_started.elapsed();
+            let direct_scene_decisions = direct_scene_decision_resolver
+                .as_deref_mut()
+                .map_or_else(Vec::new, |resolver| resolver(&direct_scene_candidates));
+            // This stays after collection (and GameClient's callback) but
+            // before bridge submissions, sort, and forward render. It never
+            // reads FOW alpha: the callback's final C++ scene ordinal is the
+            // sole authority for the future projected-shroud material pass.
+            apply_frozen_direct_scene_decisions_to_render_items(
+                &mut self.render_items,
+                &self.presentation_direct_shroud_states,
+                self.presentation_direct_shroud_host_epoch,
+                &direct_scene_candidates,
+                direct_scene_decisions,
+            );
             if self.frame_number <= 5 {
                 info!(
                     "RenderPipeline::execute frame {} collect_done ({} items, {:?})",
@@ -209,6 +239,11 @@ impl RenderPipeline {
                 );
             }
         } else {
+            if let Some(resolver) = direct_scene_decision_resolver.as_deref_mut() {
+                // Preserve the callback contract for a deliberately skipped
+                // world scene without carrying decisions into a later frame.
+                let _ = resolver(&direct_scene_candidates);
+            }
             self.debug_last_deferred_model_load_budget = 0;
             self.debug_last_deferred_model_loads = 0;
             self.debug_last_model_budget_skips = 0;

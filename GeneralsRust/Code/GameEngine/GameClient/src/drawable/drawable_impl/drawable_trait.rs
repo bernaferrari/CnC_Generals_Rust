@@ -66,6 +66,60 @@ pub trait Drawable: std::fmt::Debug + Send + Sync + DrawableDowncast {
     /// Default no-op for drawables without shroud state.
     fn set_fully_obscured_by_shroud(&mut self, _fully_obscured: bool) {}
 
+    /// C++ `Drawable::getFullyObscuredByShroud` for presentation readers.
+    ///
+    /// `None` keeps custom/objectless implementations from being interpreted
+    /// as a direct-object shroud decision.
+    fn fully_obscured_by_shroud(&self) -> Option<bool> {
+        None
+    }
+
+    /// Exact C++ `Drawable::isDrawableEffectivelyHidden` value for the W3D
+    /// `Visibility_Check`/scene path.
+    ///
+    /// This must remain narrower than generic presentation visibility: C++
+    /// checks only `m_hidden || m_hiddenByStealth` before scene dispatch.
+    /// `None` keeps non-direct/objectless implementations out of Main's
+    /// direct-host sidecar.
+    fn scene_effectively_hidden(&self) -> Option<bool> {
+        None
+    }
+
+    /// Apply C++ GameClient's frozen direct-object shroud decision.
+    ///
+    /// `None` means this drawable has no base Drawable clear-frame state.
+    /// Implementations must only update fully-obscured state here; direct W3D
+    /// scene dispatch remains the sole owner of clear-frame refreshes.
+    fn apply_frozen_direct_shroud_status(
+        &mut self,
+        _logic_frame: u32,
+        _raw_status: gamelogic::common::types::ObjectShroudStatus,
+        _effectively_dead: bool,
+    ) -> Option<crate::drawable::ClientShroudVisibility> {
+        None
+    }
+
+    /// Evaluate the C++ W3D direct-scene shroud branch for one already
+    /// selected frozen visual candidate.
+    ///
+    /// This is the sole trait hook allowed to refresh a Drawable's volatile
+    /// clear-frame history. Callers must have completed frozen frustum and
+    /// render-model eligibility first; implementations retain their own
+    /// effective-hidden check before mutating that history.
+    fn evaluate_frozen_direct_scene_candidate(
+        &mut self,
+        _logic_frame: u32,
+        _raw_status: gamelogic::common::types::ObjectShroudStatus,
+        _effectively_dead: bool,
+    ) -> Option<crate::drawable::SceneShroudDecision> {
+        None
+    }
+
+    /// Reset volatile direct-object shroud state during world replacement.
+    ///
+    /// Ordinary object rebinds must not use this hook.
+    fn reset_volatile_shroud_state(&mut self) {}
+
     /// Check if drawable is selected
     fn is_selected(&self) -> bool;
 

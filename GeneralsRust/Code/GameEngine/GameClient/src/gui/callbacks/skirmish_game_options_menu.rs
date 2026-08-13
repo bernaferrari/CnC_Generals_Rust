@@ -21,7 +21,7 @@ use game_engine::common::ini::ini_map_cache::{
     get_map_cache_mut, init_global_map_cache, MapMetaData,
 };
 use game_engine::common::name_key_generator::NameKeyGenerator;
-use game_engine::common::random_value::init_random_with_seed;
+use game_engine::common::random_value::init_game_logic_random;
 use game_engine::common::rts::player_template::get_player_template_store;
 use game_engine::common::skirmish_battle_honors::{
     SkirmishBattleHonors, BATTLE_HONOR_AIR_WING, BATTLE_HONOR_APOCALYPSE, BATTLE_HONOR_BATTLE_TANK,
@@ -1354,7 +1354,10 @@ fn start_skirmish_game(state: &mut SkirmishGameOptionsState) {
         info.start_game(0);
         info.get_seed() as u32
     };
-    init_random_with_seed(seed);
+    // C++ `SkirmishGameOptionsMenu::reallyDoStart` seeds only the GameLogic
+    // ADC stream from the retained GameInfo seed.  Do not perturb client or
+    // audio RNG state here.
+    init_game_logic_random(seed);
     write_skirmish_preferences(state);
 
     // Write pending map into both GlobalData residences. Menus historically used the

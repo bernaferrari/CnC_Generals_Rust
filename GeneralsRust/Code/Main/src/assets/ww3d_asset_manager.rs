@@ -672,4 +672,62 @@ End
             "C++ clears every copied WeaponSet on the child's first authored row"
         );
     }
+
+    #[test]
+    fn child_behavior_tags_replace_temporary_weapon_modules_in_place() {
+        let source = r#"
+Object ParentTemporaryWeaponProbe
+  Behavior = FireWeaponWhenDamagedBehavior ModuleTag_TemporaryDamage
+    ReactionWeaponDamaged = ParentReactionWeapon
+  End
+  Behavior = FireWeaponWhenDeadBehavior ModuleTag_TemporaryDeath
+    DeathWeapon = ParentDeathWeapon
+  End
+End
+
+ChildObject ChildTemporaryWeaponProbe ParentTemporaryWeaponProbe
+  Behavior = FireWeaponWhenDamagedBehavior moduletag_temporarydamage
+    ReactionWeaponDamaged = ChildReactionWeapon
+    ContinuousWeaponRubble = ChildContinuousWeapon
+  End
+  Behavior = FireWeaponWhenDeadBehavior ModuleTag_AdditionalDeath
+    DeathWeapon = ChildAdditionalDeathWeapon
+  End
+End
+"#;
+        let mut parser = IniParser::new();
+        parser
+            .parse_ini_content(source, "temporary_weapon_inheritance.ini")
+            .expect("parse temporary weapon source");
+        let parent = parser
+            .get_definition("ParentTemporaryWeaponProbe")
+            .expect("parent")
+            .clone();
+        let child = parser
+            .get_definition("ChildTemporaryWeaponProbe")
+            .expect("child")
+            .clone();
+
+        let resolved = WW3DAssetManager::merge_definition_inheritance(parent, child);
+        assert_eq!(resolved.behavior_modules.len(), 3);
+        assert_eq!(
+            resolved.behavior_modules[0].module_tag.as_deref(),
+            Some("moduletag_temporarydamage"),
+            "case-insensitive tag identity replaces the parent module at its original index"
+        );
+        assert_eq!(
+            resolved.behavior_modules[0].attribute("ReactionWeaponDamaged"),
+            Some("ChildReactionWeapon")
+        );
+        assert_eq!(
+            resolved.behavior_modules[1].attribute("DeathWeapon"),
+            Some("ParentDeathWeapon"),
+            "unmentioned tagged parent behavior remains source-position stable"
+        );
+        assert_eq!(
+            resolved.behavior_modules[2].attribute("DeathWeapon"),
+            Some("ChildAdditionalDeathWeapon"),
+            "a new tag appends after inherited modules"
+        );
+    }
 }

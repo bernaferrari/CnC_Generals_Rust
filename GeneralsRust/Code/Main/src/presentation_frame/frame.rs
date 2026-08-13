@@ -1,4 +1,5 @@
 use super::*;
+use crate::fow_rendering::ProjectedShroudSnapshot;
 
 const fn default_presentation_alliance_team() -> i32 {
     -1
@@ -62,6 +63,12 @@ pub struct PresentationFrame {
     /// Host game mode residual (restart/save metadata).
     pub game_mode: crate::game_logic::GameMode,
     pub objects: Vec<RenderableObject>,
+    /// Transient direct Object→Drawable source roster.  This survives a
+    /// GameWorld-primary replacement of `objects` so deferred death/rubble
+    /// visuals retain their C++ Object lifetime.  It is deliberately not part
+    /// of serialized presentation/save state; GameClient owns binding state.
+    #[serde(skip)]
+    pub direct_host_drawables: Vec<PresentationDirectHostDrawable>,
     pub local_player_id: u32,
     /// Local player team frozen at snapshot time (selection/hotkey residual).
     /// Prefer this over live `GameLogic::get_player` dual-reads when a frame is installed.
@@ -229,6 +236,11 @@ pub struct PresentationFrame {
     /// Frozen at build so GPU upload does not re-query shroud mid-render.
     /// Fail-closed: not full SAGE dirty-rect / multi-layer shroud streaming.
     pub fow_grid: PresentationFowGrid,
+    /// Source-shaped terrain shroud projection texture, frozen from `fow_grid`
+    /// with its own border, origin, R8 levels, and tint metadata.  Renderer
+    /// passes consume this owned value; they must not query live GameLogic/FOW.
+    #[serde(default)]
+    pub projected_shroud: ProjectedShroudSnapshot,
     /// Active combat particle systems from host registry (observe path for client).
     pub particle_systems: Vec<PresentationParticleSystem>,
     /// Active Patriot assist / BinaryDataStream lasers + Line3D segments.

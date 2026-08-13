@@ -21,9 +21,7 @@ const MISSILE_DEFAULT_KILL_SELF_DELAY_FRAMES: u32 = 3;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum HostProjectileLifecycle {
     /// `DumbProjectileBehavior`: expiry calls `detonate()`.
-    DumbProjectile {
-        max_lifespan_frames: u32,
-    },
+    DumbProjectile { max_lifespan_frames: u32 },
     /// `MissileAIUpdate`: fuel and followed-target loss have distinct results.
     Missile {
         try_to_follow_target: bool,
@@ -89,13 +87,20 @@ pub fn host_projectile_lifecycle_for_object_name(
     // map, while its historical linked list intentionally retains the older
     // shell. Resolve by the authoritative name map rather than walking that
     // list, otherwise a real Object can appear to have no behavior modules.
-    let template = projectile_template_store().lock().ok()?.find_template(name, false)?;
+    let template = projectile_template_store()
+        .lock()
+        .ok()?
+        .find_template(name, false)?;
     lifecycle_from_template(template.as_ref())
 }
 
 fn lifecycle_from_template(template: &ThingTemplate) -> Option<HostProjectileLifecycle> {
     for module in template.get_behavior_module_info().iter() {
-        if module.name.as_str().eq_ignore_ascii_case("DumbProjectileBehavior") {
+        if module
+            .name
+            .as_str()
+            .eq_ignore_ascii_case("DumbProjectileBehavior")
+        {
             return parse_dumb_projectile_lifecycle(module.data.as_ref());
         }
         if module.name.as_str().eq_ignore_ascii_case("MissileAIUpdate") {
@@ -105,9 +110,7 @@ fn lifecycle_from_template(template: &ThingTemplate) -> Option<HostProjectileLif
     None
 }
 
-fn parse_dumb_projectile_lifecycle(
-    data: &dyn EngineModuleData,
-) -> Option<HostProjectileLifecycle> {
+fn parse_dumb_projectile_lifecycle(data: &dyn EngineModuleData) -> Option<HostProjectileLifecycle> {
     let max_lifespan_frames = optional_duration_frames(data, "MaxLifespan")?
         .unwrap_or(DUMB_PROJECTILE_DEFAULT_MAX_LIFESPAN_FRAMES);
     Some(HostProjectileLifecycle::DumbProjectile {
@@ -155,10 +158,7 @@ fn parse_cpp_duration_unsigned_int(value: &str) -> Option<u32> {
     (frames <= u32::MAX as f64).then_some(frames as u32)
 }
 
-fn optional_duration_frames(
-    data: &dyn EngineModuleData,
-    field: &str,
-) -> Option<Option<u32>> {
+fn optional_duration_frames(data: &dyn EngineModuleData, field: &str) -> Option<Option<u32>> {
     match data.get_ini_field(field) {
         Some(value) => parse_cpp_duration_unsigned_int(value).map(Some),
         None => Some(None),

@@ -1,7 +1,7 @@
 //! Wave 963: presentation drawable full sync (model + prune, no OBJECT_REGISTRY).
 //!
 //! `sync_presentation_drawables` ensures/creates drawables, stamps model-condition
-//! and body-damage residual, prunes destroyed/absent objects. Engine calls sync
+//! and body-damage residual, prunes nonresident/absent visuals. Engine calls sync
 //! before shroud/pose. playable_claim stays false.
 
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
@@ -25,7 +25,7 @@ pub const LIVE_HOST_PRESENTATION_DRAWABLE_SYNC_METHOD_NAMES_WAVE963: &[&str] = &
 pub const LIVE_HOST_PRESENTATION_DRAWABLE_SYNC_NAV_STEPS_WAVE963: &[&str] = &[
     "PRESENTATION_DRAWABLE_SYNC",
     "MODEL_CONDITION_FROM_FREEZE",
-    "PRUNE_DESTROYED_DRAWABLES",
+    "PRUNE_NONRESIDENT_DRAWABLES",
     "NO_OBJECT_REGISTRY_POPULATE",
     "LIVE_HOST_PRESENTATION_DRAWABLE_SYNC",
     "LIVE_PLAYABLE_CLAIM_FALSE",
@@ -104,7 +104,7 @@ pub fn honesty_host_presentation_drawable_sync_method_names_residual_wave963() -
 pub fn honesty_host_presentation_drawable_sync_nav_commands_residual_wave963() -> bool {
     let steps = LIVE_HOST_PRESENTATION_DRAWABLE_SYNC_NAV_STEPS_WAVE963;
     let ok = residual_name_index(steps, "LIVE_HOST_PRESENTATION_DRAWABLE_SYNC").is_some()
-        && residual_name_index(steps, "PRUNE_DESTROYED_DRAWABLES").is_some();
+        && residual_name_index(steps, "PRUNE_NONRESIDENT_DRAWABLES").is_some();
     residual_action_store(ResidualHostPresentationDrawableSyncAction::NavCommands);
     RESIDUAL_OK.store(ok, Ordering::SeqCst);
     ok
@@ -114,10 +114,7 @@ pub fn honesty_host_presentation_drawable_sync_residual_pack_wave963() -> bool {
     let cnc = cnc_source();
     let gl = gl_source();
     let client = client_source();
-    let tick = match cnc.find("fn host_tick_game_client_presentation_shell") {
-        Some(i) => &cnc[i..cnc.len().min(i + 5000)],
-        None => "",
-    };
+    let tick = fn_window(cnc, "fn host_tick_game_client_presentation_shell(");
     let ok = client.contains("Wave 963")
         && cnc.contains("Wave 963")
         && client.contains("struct PresentationDrawableSync")
@@ -128,10 +125,10 @@ pub fn honesty_host_presentation_drawable_sync_residual_pack_wave963() -> bool {
         && client.contains("model_condition_bits")
         && client.contains("react_to_body_damage_state_change")
         && tick.contains("sync_presentation_drawables")
-        && tick.contains("apply_presentation_shroud_to_drawables")
+        && tick.contains("apply_frozen_direct_shroud_statuses")
         && tick
             .find("sync_presentation_drawables")
-            .zip(tick.find("apply_presentation_shroud_to_drawables"))
+            .zip(tick.find("apply_frozen_direct_shroud_statuses"))
             .map(|(a, b)| a < b)
             .unwrap_or(false)
         && !cnc.contains("playable_claim = true")

@@ -322,35 +322,105 @@ impl ScriptEngine {
         }
     }
 
+    /// C++ `findScript` returns the first declaration in side/root/group
+    /// traversal order, so a toggle must stop after the first matching script.
     fn set_script_active_in_chain(script: &mut Script, name: &str, active: bool) -> bool {
         let mut current: Option<&mut Script> = Some(script);
-        let mut updated = false;
         while let Some(script_ref) = current {
             if script_ref.script_name == name {
                 script_ref.is_active = active;
-                updated = true;
+                return true;
             }
             current = script_ref.next_script.as_deref_mut();
         }
-        updated
+        false
     }
 
+    /// Match C++ `findScript`: root scripts first, followed by groups in
+    /// declaration order, with the first match winning.
     fn set_script_active_in_list(list: &mut ScriptList, name: &str, active: bool) -> bool {
-        let mut updated = false;
-
         if let Some(script_head) = list.first_script.as_deref_mut() {
-            updated |= Self::set_script_active_in_chain(script_head, name, active);
+            if Self::set_script_active_in_chain(script_head, name, active) {
+                return true;
+            }
         }
 
         let mut group_opt = list.first_group.as_deref_mut();
         while let Some(group) = group_opt {
             if let Some(script_head) = group.first_script.as_deref_mut() {
-                updated |= Self::set_script_active_in_chain(script_head, name, active);
+                if Self::set_script_active_in_chain(script_head, name, active) {
+                    return true;
+                }
             }
             group_opt = group.next_group.as_deref_mut();
         }
 
-        updated
+        false
+    }
+
+    /// Match C++ `findGroup`: side order, then group declaration order, with
+    /// the first matching group winning.
+    fn set_group_active_in_list(list: &mut ScriptList, name: &str, active: bool) -> bool {
+        let mut group_opt = list.first_group.as_deref_mut();
+        while let Some(group) = group_opt {
+            if group.group_name == name {
+                group.is_group_active = active;
+                return true;
+            }
+            group_opt = group.next_group.as_deref_mut();
+        }
+        false
+    }
+
+    fn set_script_active_in_lists(
+        lists: &mut [Option<Box<ScriptList>>],
+        name: &str,
+        active: bool,
+    ) -> bool {
+        for slot in lists {
+            let Some(list) = slot.as_deref_mut() else {
+                continue;
+            };
+            if Self::set_script_active_in_list(list, name, active) {
+                return true;
+            }
+        }
+        false
+    }
+
+    fn set_group_active_in_lists(
+        lists: &mut [Option<Box<ScriptList>>],
+        name: &str,
+        active: bool,
+    ) -> bool {
+        for slot in lists {
+            let Some(list) = slot.as_deref_mut() else {
+                continue;
+            };
+            if Self::set_group_active_in_list(list, name, active) {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// C++ `enableScript` finds a group then a script; `disableScript` does
+    /// the inverse.  They are independent lookups, so a same-named group and
+    /// script both change state in the original ordering.
+    fn set_script_or_group_active_in_lists(
+        lists: &mut [Option<Box<ScriptList>>],
+        name: &str,
+        active: bool,
+    ) -> bool {
+        if active {
+            let group_updated = Self::set_group_active_in_lists(lists, name, true);
+            let script_updated = Self::set_script_active_in_lists(lists, name, true);
+            group_updated || script_updated
+        } else {
+            let script_updated = Self::set_script_active_in_lists(lists, name, false);
+            let group_updated = Self::set_group_active_in_lists(lists, name, false);
+            group_updated || script_updated
+        }
     }
 
     fn find_script_clone_in_chain(
@@ -401,14 +471,7 @@ impl ScriptEngine {
     /// Matches the behavior of C++ `ENABLE_SCRIPT` / `DISABLE_SCRIPT` actions.
     pub fn set_script_active_by_name(&self, script_name: &str, active: bool) -> bool {
         if let Some(updated) = self.with_current_active_script_lists(|active_lists| {
-            let mut updated = false;
-            for slot in &mut active_lists.lists {
-                let Some(list) = slot.as_deref_mut() else {
-                    continue;
-                };
-                updated |= Self::set_script_active_in_list(list, script_name, active);
-            }
-            updated
+            Self::set_script_or_group_active_in_lists(&mut active_lists.lists, script_name, active)
         }) {
             let handler = self.with_inner(|inner| inner.action_handler.clone());
             if let Some(handler) = handler {
@@ -420,12 +483,11 @@ impl ScriptEngine {
         let mut updated = false;
         let handler = {
             let mut inner = self.lock_inner_mut();
-            for slot in &mut inner.side_script_lists {
-                let Some(list) = slot.as_deref_mut() else {
-                    continue;
-                };
-                updated |= Self::set_script_active_in_list(list, script_name, active);
-            }
+            updated = Self::set_script_or_group_active_in_lists(
+                &mut inner.side_script_lists,
+                script_name,
+                active,
+            );
             inner.action_handler.clone()
         };
 

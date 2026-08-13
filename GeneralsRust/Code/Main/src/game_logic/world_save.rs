@@ -1436,6 +1436,12 @@ impl GameLogic {
             }
         }
 
+        // The fast parser owns its decoded side/team dictionaries instead of
+        // going through LogicMapLoader's global SidesList callback.  Publish
+        // the same map-owned SidesList before deriving PlayerList/TeamFactory,
+        // otherwise a staged restore would commit an empty (or stale) side
+        // singleton even though its player/team globals came from this map.
+        self.sync_legacy_sides_list_from_dicts(&sides_data.side_dicts, &sides_data.team_dicts);
         self.sync_legacy_player_list_from_side_dicts(&sides_data.side_dicts);
         self.sync_legacy_team_factory_from_team_dicts(&sides_data.team_dicts);
 
@@ -1532,6 +1538,24 @@ impl GameLogic {
 
         if let Ok(mut guard) = ThePlayerList().write() {
             *guard = logic_list;
+        }
+    }
+
+    pub(super) fn sync_legacy_sides_list_from_dicts(
+        &self,
+        side_dicts: &[Dict],
+        team_dicts: &[Dict],
+    ) {
+        let sides_list = get_sides_list();
+        let Ok(mut sides) = sides_list.write() else {
+            return;
+        };
+        sides.reset();
+        for dict in side_dicts {
+            sides.add_side(dict);
+        }
+        for dict in team_dicts {
+            sides.add_team(dict);
         }
     }
 

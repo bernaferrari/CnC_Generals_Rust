@@ -634,7 +634,10 @@ impl Default for GlobalData {
             double_click_time_ms: 250,
 
             // Shroud and fog
-            shroud_color: [0.0, 0.0, 0.0],
+            // GlobalData.cpp:874 initializes the multiplicative shroud tint to
+            // RGB 0x00FFFFFF.  Black here would make every projected level
+            // multiply to black before GameData.ini has been applied.
+            shroud_color: [1.0, 1.0, 1.0],
             clear_alpha: 255,
             fog_alpha: 127,
             shroud_alpha: 0,
@@ -2495,6 +2498,10 @@ mod tests {
         assert_eq!(data.build_speed, 0.0);
         assert!(data.particle_scale > 0.0);
         assert_eq!(data.max_particle_count, 0);
+        assert_eq!(data.shroud_color, [1.0, 1.0, 1.0]);
+        assert_eq!(data.clear_alpha, 255);
+        assert_eq!(data.fog_alpha, 127);
+        assert_eq!(data.shroud_alpha, 0);
     }
 
     #[test]

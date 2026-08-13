@@ -546,6 +546,24 @@ impl W3DModelDraw {
             })
             .collect();
 
+        // Keep the authored source bases, not resolved local bone indices.
+        // Renderer-local indices are nonportable across a save/load or asset
+        // reload; the receiving side must validate these names against its
+        // current W3D hierarchy before using a weapon-barrel topology.
+        let weapon_bone_bindings = self
+            .current_state()
+            .map(|state| ModelDrawWeaponBoneBindings {
+                fire_fx: std::array::from_fn(|slot| state.weapon_fire_fx_bone[slot].to_string()),
+                recoil: std::array::from_fn(|slot| state.weapon_recoil_bone[slot].to_string()),
+                muzzle_flash: std::array::from_fn(|slot| {
+                    state.weapon_muzzle_flash[slot].to_string()
+                }),
+                launch: std::array::from_fn(|slot| {
+                    state.weapon_projectile_launch_bone[slot].to_string()
+                }),
+            })
+            .unwrap_or_default();
+
         // Phase 5: Apply instance scaling to the world transform.
         //
         // C++ parity: doDrawModule() applies getDrawable()->getInstanceScale()
@@ -558,6 +576,8 @@ impl W3DModelDraw {
         // render_bridge::RenderConditionFlags, which controls damage overlays,
         // night/snow maps, construction visibility, etc.
         let state = ModelDrawState {
+            source: Default::default(),
+            logic_drawable_id: 0,
             model_name,
             world_transform,
             condition_flags_bits: self.last_model_conditions.bits(),
@@ -567,9 +587,10 @@ impl W3DModelDraw {
             animation_mode: anim_mode,
             mesh_uv_overrides,
             sub_object_visibility,
+            weapon_bone_bindings,
         };
 
-        client.set_drawable_model_draw(owner_id, state);
+        client.set_active_object_model_draw(owner_id, state);
     }
 
     /// Collect mesh UV overrides for tread/track animations.

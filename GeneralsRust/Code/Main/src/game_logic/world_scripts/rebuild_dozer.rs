@@ -14,21 +14,22 @@ impl GameLogic {
         infantry_id: ObjectId,
         vehicle_id: ObjectId,
     ) -> bool {
-        let (inf_team, inf_owner_player_id, inf_level, is_pilot) = match self.objects.get(&infantry_id) {
-            Some(inf) => (
-                inf.team,
-                inf.owner_player_id,
-                inf.experience.level,
-                inf.is_alive()
-                    && inf
-                        .thing
-                        .template
-                        .veterancy_crate_collide
-                        .as_ref()
-                        .is_some_and(|metadata| metadata.supports_pilot_recrew()),
-            ),
-            None => return false,
-        };
+        let (inf_team, inf_owner_player_id, inf_level, is_pilot) =
+            match self.objects.get(&infantry_id) {
+                Some(inf) => (
+                    inf.team,
+                    inf.owner_player_id,
+                    inf.experience.level,
+                    inf.is_alive()
+                        && inf
+                            .thing
+                            .template
+                            .veterancy_crate_collide
+                            .as_ref()
+                            .is_some_and(|metadata| metadata.supports_pilot_recrew()),
+                ),
+                None => return false,
+            };
         if !is_pilot || !self.can_execute_pilot_recrew(infantry_id, vehicle_id) {
             return false;
         }

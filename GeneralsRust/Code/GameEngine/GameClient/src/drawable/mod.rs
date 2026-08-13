@@ -45,6 +45,7 @@
 pub mod drawable;
 pub mod drawable_draw_pipeline;
 pub mod drawable_manager;
+pub mod shroud_state;
 pub mod update;
 
 pub use crate::drawable_info::{DrawableInfo, ExtraRenderFlags};
@@ -59,6 +60,11 @@ pub use drawable::{
 };
 
 pub use drawable_manager::{DrawLayer, DrawableManager, Frustum, RenderPass, RenderStats, Vector4};
+pub use shroud_state::{
+    evaluate_ghost_scene, evaluate_non_drawable_scene, evaluate_objectless_drawable_scene,
+    pushes_projected_shroud_pass, ClientShroudVisibility, DrawableShroudClearState,
+    SceneShroudDecision,
+};
 pub use update::{
     AnimatedParticleSysBoneClientUpdateModule, BeaconClientUpdateModule,
     BeaconClientUpdateModuleData, SwayClientUpdateModule,

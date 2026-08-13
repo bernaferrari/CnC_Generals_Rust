@@ -587,6 +587,9 @@ impl Snapshotable for BasicDrawable {
 
         // --- Rust-specific fields not in C++ (preserved for old Rust save compatibility) ---
         if version >= 7 {
+            if xfer.get_xfer_mode() == XferMode::Load {
+                self.reset_volatile_shroud_state();
+            }
             return Ok(());
         }
 
@@ -623,6 +626,10 @@ impl Snapshotable for BasicDrawable {
         xfer.xfer_unsigned_int(&mut current_frame)
             .map_err(|e| format!("{:?}", e))?;
         self.current_frame = current_frame;
+
+        if xfer.get_xfer_mode() == XferMode::Load {
+            self.reset_volatile_shroud_state();
+        }
 
         Ok(())
     }

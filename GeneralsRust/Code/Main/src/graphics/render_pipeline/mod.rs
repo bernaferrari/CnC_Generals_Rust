@@ -26,7 +26,7 @@ use super::graphics_system::GraphicsSystem;
 use super::minimap_renderer::{
     MinimapCoordinates, MinimapDimensions, MinimapTextureRenderer, UiTextureRegistrar,
 };
-use super::render_item::RenderItem;
+use super::render_item::{FrozenDirectSceneShroudRenderState, RenderItem, RenderItemOwner};
 use crate::assets::textures::RawTexture;
 use crate::assets::{ModelPrewarmStats, W3DMaterial, W3DModel};
 use ww3d_renderer_3d::material_system::{MaterialPassClass, VertexMaterialClass};
@@ -225,6 +225,320 @@ pub enum RenderPass {
     UIPass,             // 2D UI overlay rendering
 }
 
+/// One direct-host Drawable shroud result frozen at Main's render boundary.
+///
+/// This is intentionally only the already-evaluated GameClient scene-cull
+/// state for a current object-to-drawable association. It is not a raw
+/// `ObjectShroudStatus`, does not own a clear-frame timer, and must never be
+/// used to make a W3D scene-pass/material decision. The collector uses it
+/// solely for the C++ `Visibility_Check`-equivalent early cull after frustum
+/// acceptance.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FrozenDirectDrawableShroudState {
+    /// Host world identity.  This is transient and is advanced only after a
+    /// successful world replacement, so a raw ObjectID cannot cross worlds.
+    pub host_epoch: u64,
+    pub object_id: ObjectID,
+    /// Runtime GameClient Drawable identity at capture time.
+    pub drawable_id: u32,
+    /// Monotonic runtime identity for this particular object→Drawable binding.
+    pub binding_generation: u64,
+    /// Exact C++ `Drawable::isDrawableEffectivelyHidden` predicate. This is
+    /// deliberately not Rust's broader presentation `visible` flag.
+    pub scene_effectively_hidden: bool,
+    pub fully_obscured: bool,
+}
+
+/// One direct Drawable selected by Main's frozen W3D collection for the C++
+/// `RTS3DScene::renderOneObject`-equivalent scene dispatch.
+///
+/// This carries no GameClient handle and does not make a material decision.
+/// Its raw status is copied from the same presentation input which reached a
+/// real render item; Main owns the synchronous callback that resolves this
+/// guarded binding key against GameClient immediately before forward render.
+/// One record represents a full Drawable binding, not one source Draw module
+/// or mesh, so collection de-duplicates it by the four identity fields.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FrozenDirectDrawableSceneCandidate {
+    /// Transient host visual-world identity.
+    pub host_epoch: u64,
+    pub object_id: ObjectID,
+    /// Runtime GameClient Drawable identity captured at the presentation boundary.
+    pub drawable_id: u32,
+    /// Monotonic identity of this object-to-Drawable association.
+    pub binding_generation: u64,
+    /// Exact frozen C++ ordinal, never inferred from FOW alpha.
+    pub raw_status: gamelogic::common::types::ObjectShroudStatus,
+    /// Frozen direct-host death fact used by the Drawable-owned grace window.
+    pub effectively_dead: bool,
+}
+
+/// Main-owned result of resolving one [`FrozenDirectDrawableSceneCandidate`]
+/// against GameClient at the direct W3D scene boundary.
+///
+/// This deliberately mirrors only the two direct-drawable outcomes that can
+/// be produced for a full object-to-Drawable binding.  It contains no
+/// GameClient handle or type so the renderer can retain the outcome without
+/// extending GameClient ownership into WGPU.  Input converts GameClient's
+/// validated result to this type before returning from the execute callback.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FrozenDirectDrawableSceneOutcome {
+    /// C++ `Drawable::isDrawableEffectivelyHidden()` exited before the W3D
+    /// render branch.  Main drops the matching object-owned render items.
+    HiddenDirectDrawable,
+    /// A direct Drawable reached the normal W3D branch.
+    RenderDrawable {
+        /// Exact post-clear-grace C++ `ObjectShroudStatus`.
+        final_status: gamelogic::common::types::ObjectShroudStatus,
+        /// Exact C++ `ss > OBJECTSHROUD_CLEAR` material-pass eligibility.
+        pushes_projected_shroud_pass: bool,
+    },
+}
+
+/// Full-keyed, GameClient-free direct scene result returned to Main.
+///
+/// Every identity field must match both the candidate that produced real W3D
+/// geometry and the current frozen sidecar.  Main deliberately ignores stale,
+/// malformed, or ambiguous records rather than letting an ObjectID alone
+/// alter a replacement Drawable's render state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FrozenDirectDrawableSceneDecision {
+    pub host_epoch: u64,
+    pub object_id: ObjectID,
+    pub drawable_id: u32,
+    pub binding_generation: u64,
+    pub outcome: FrozenDirectDrawableSceneOutcome,
+}
+
+/// Return whether a frozen direct-host candidate is currently fully obscured.
+///
+/// The input's direct-host lifetime and the sidecar's same-object identity
+/// must both match. Missing or objectless entries deliberately fail open here:
+/// their C++ W3D branches have distinct shroud behavior and cannot inherit a
+/// direct host Drawable's result.
+#[inline]
+pub(super) fn frozen_direct_candidate_is_fully_obscured(
+    sidecar: &HashMap<ObjectID, FrozenDirectDrawableShroudState>,
+    host_epoch: Option<u64>,
+    object_id: ObjectID,
+    drawable_shroud: crate::presentation_frame::PresentationDrawableShroudFacts,
+) -> bool {
+    drawable_shroud.lifetime.is_direct_host_object()
+        && sidecar.get(&object_id).is_some_and(|state| {
+            Some(state.host_epoch) == host_epoch
+                && state.object_id == object_id
+                && state.drawable_id != 0
+                && state.binding_generation != 0
+                && state.fully_obscured
+        })
+}
+
+/// Return whether C++ `RTS3DScene::Visibility_Check` rejects a current direct
+/// Drawable before model load.
+///
+/// Source checks `isDrawableEffectivelyHidden()` (only `m_hidden ||
+/// m_hiddenByStealth`) and `getFullyObscuredByShroud()` after frustum
+/// acceptance. Both facts come from the same guarded frozen sidecar; missing
+/// or objectless entries fail open for their separate C++ branches.
+#[inline]
+pub(super) fn frozen_direct_candidate_is_scene_culled(
+    sidecar: &HashMap<ObjectID, FrozenDirectDrawableShroudState>,
+    host_epoch: Option<u64>,
+    object_id: ObjectID,
+    drawable_shroud: crate::presentation_frame::PresentationDrawableShroudFacts,
+) -> bool {
+    drawable_shroud.lifetime.is_direct_host_object()
+        && sidecar.get(&object_id).is_some_and(|state| {
+            Some(state.host_epoch) == host_epoch
+                && state.object_id == object_id
+                && state.drawable_id != 0
+                && state.binding_generation != 0
+                && (state.scene_effectively_hidden || state.fully_obscured)
+        })
+}
+
+/// Reconstruct the scene-dispatch payload for one direct candidate after its
+/// immutable Visibility_Check culls have accepted it.
+///
+/// The raw status/death facts belong to the presentation input, while the
+/// binding identity comes only from Main's guarded sidecar. A malformed,
+/// stale, or fully-obscured sidecar entry cannot become a scene callback.
+#[inline]
+pub(super) fn frozen_direct_scene_candidate(
+    sidecar: &HashMap<ObjectID, FrozenDirectDrawableShroudState>,
+    host_epoch: Option<u64>,
+    object_id: ObjectID,
+    drawable_shroud: crate::presentation_frame::PresentationDrawableShroudFacts,
+) -> Option<FrozenDirectDrawableSceneCandidate> {
+    let (raw_status, effectively_dead) = drawable_shroud.direct_game_client_status()?;
+    let state = sidecar.get(&object_id)?;
+    if Some(state.host_epoch) != host_epoch
+        || state.object_id != object_id
+        || state.drawable_id == 0
+        || state.binding_generation == 0
+        || state.scene_effectively_hidden
+        || state.fully_obscured
+    {
+        return None;
+    }
+
+    Some(FrozenDirectDrawableSceneCandidate {
+        host_epoch: state.host_epoch,
+        object_id,
+        drawable_id: state.drawable_id,
+        binding_generation: state.binding_generation,
+        raw_status,
+        effectively_dead,
+    })
+}
+
+/// Whether a Main-owned direct scene decision still describes the exact
+/// current frozen direct binding and a candidate which actually produced
+/// source geometry in this collection.
+#[inline]
+pub(super) fn frozen_direct_scene_decision_matches_current_binding(
+    sidecar: &HashMap<ObjectID, FrozenDirectDrawableShroudState>,
+    host_epoch: Option<u64>,
+    candidates: &[FrozenDirectDrawableSceneCandidate],
+    decision: FrozenDirectDrawableSceneDecision,
+) -> bool {
+    if Some(decision.host_epoch) != host_epoch
+        || decision.host_epoch == 0
+        || decision.object_id.0 == 0
+        || decision.drawable_id == 0
+        || decision.binding_generation == 0
+    {
+        return false;
+    }
+
+    let Some(state) = sidecar.get(&decision.object_id) else {
+        return false;
+    };
+    if state.host_epoch != decision.host_epoch
+        || state.object_id != decision.object_id
+        || state.drawable_id != decision.drawable_id
+        || state.binding_generation != decision.binding_generation
+        || state.scene_effectively_hidden
+        || state.fully_obscured
+    {
+        return false;
+    }
+
+    candidates.iter().any(|candidate| {
+        candidate.host_epoch == decision.host_epoch
+            && candidate.object_id == decision.object_id
+            && candidate.drawable_id == decision.drawable_id
+            && candidate.binding_generation == decision.binding_generation
+    })
+}
+
+/// Check the direct scene result's self-contained C++ projected-pass rule.
+///
+/// This uses the frozen final `ObjectShroudStatus` ordinal, never `ObjectVisibility`
+/// or FOW alpha.  A callback result that violates the rule is malformed and
+/// cannot be retained on a render item.
+#[inline]
+pub(super) const fn frozen_direct_scene_outcome_has_valid_pass_eligibility(
+    outcome: FrozenDirectDrawableSceneOutcome,
+) -> bool {
+    match outcome {
+        FrozenDirectDrawableSceneOutcome::HiddenDirectDrawable => true,
+        FrozenDirectDrawableSceneOutcome::RenderDrawable {
+            final_status,
+            pushes_projected_shroud_pass,
+        } => {
+            pushes_projected_shroud_pass
+                == ((final_status as u8)
+                    > (gamelogic::common::types::ObjectShroudStatus::Clear as u8))
+        }
+    }
+}
+
+/// Apply the current direct-scene decisions to the render items produced by
+/// this frozen collection.
+///
+/// Only an exact full binding that appears in both the candidate ledger and
+/// current sidecar can affect object-owned items.  Conflicting duplicate
+/// records fail closed.  Hidden direct Drawables disappear before sort/forward;
+/// rendered Drawables retain their exact final status/pass eligibility for the
+/// later projected-shroud material pass.
+pub(super) fn apply_frozen_direct_scene_decisions_to_render_items(
+    render_items: &mut Vec<RenderItem>,
+    sidecar: &HashMap<ObjectID, FrozenDirectDrawableShroudState>,
+    host_epoch: Option<u64>,
+    candidates: &[FrozenDirectDrawableSceneCandidate],
+    decisions: impl IntoIterator<Item = FrozenDirectDrawableSceneDecision>,
+) {
+    type DirectBindingKey = (u64, ObjectID, u32, u64);
+
+    let mut accepted_by_binding =
+        HashMap::<DirectBindingKey, FrozenDirectDrawableSceneDecision>::new();
+    let mut ambiguous_bindings = HashSet::<DirectBindingKey>::new();
+    for decision in decisions {
+        if !frozen_direct_scene_decision_matches_current_binding(
+            sidecar, host_epoch, candidates, decision,
+        ) || !frozen_direct_scene_outcome_has_valid_pass_eligibility(decision.outcome)
+        {
+            continue;
+        }
+
+        let binding_key = (
+            decision.host_epoch,
+            decision.object_id,
+            decision.drawable_id,
+            decision.binding_generation,
+        );
+        if let Some(previous) = accepted_by_binding.insert(binding_key, decision) {
+            if previous != decision {
+                ambiguous_bindings.insert(binding_key);
+            }
+        }
+    }
+    for binding_key in ambiguous_bindings {
+        accepted_by_binding.remove(&binding_key);
+    }
+
+    // Current sidecar validation makes ObjectID a safe short-lived index only
+    // after the full binding key above has been accepted.
+    let accepted_by_object: HashMap<ObjectID, FrozenDirectDrawableSceneDecision> =
+        accepted_by_binding
+            .into_values()
+            .map(|decision| (decision.object_id, decision))
+            .collect();
+
+    render_items.retain(|item| {
+        let RenderItemOwner::Object(object_id) = item.owner else {
+            return true;
+        };
+        !matches!(
+            accepted_by_object
+                .get(&object_id)
+                .map(|decision| decision.outcome),
+            Some(FrozenDirectDrawableSceneOutcome::HiddenDirectDrawable)
+        )
+    });
+
+    for item in render_items {
+        let RenderItemOwner::Object(object_id) = item.owner else {
+            continue;
+        };
+        let Some(decision) = accepted_by_object.get(&object_id) else {
+            continue;
+        };
+        let FrozenDirectDrawableSceneOutcome::RenderDrawable {
+            final_status,
+            pushes_projected_shroud_pass,
+        } = decision.outcome
+        else {
+            continue;
+        };
+        item.set_frozen_direct_scene_shroud(FrozenDirectSceneShroudRenderState {
+            final_status,
+            pushes_projected_shroud_pass,
+        });
+    }
+}
+
 /// Main render pipeline - equivalent to C++ SAGE RenderPipeline
 pub struct RenderPipeline {
     // WW3D renderer bridge
@@ -245,6 +559,10 @@ pub struct RenderPipeline {
     /// when the authored arrays differ.
     cached_terrain_lighting: Option<CachedLighting>,
     last_startup_model_prewarm_signature: Option<String>,
+    /// Exact external HLOD aggregate identities already attempted by the
+    /// bounded prewarm path. Collection itself must remain cache-only, and a
+    /// missing source token must not cause archive I/O every rendered frame.
+    hlod_aggregate_prewarm_attempts: HashSet<String>,
 
     // Render items for current frame
     render_items: Vec<RenderItem>,
@@ -292,6 +610,14 @@ pub struct RenderPipeline {
     last_frame_time: f32,
     /// When set, collect_render_items prefers presentation-owned transforms/model keys.
     presentation_frame: Option<crate::presentation_frame::PresentationFrame>,
+    /// Immutable direct-host shroud visibility captured from GameClient for
+    /// this presentation frame. It is replaced, never merged, at every Main
+    /// render boundary so object IDs cannot carry across frame/world changes.
+    presentation_direct_shroud_states: HashMap<ObjectID, FrozenDirectDrawableShroudState>,
+    /// The only host epoch accepted by the direct shroud sidecar currently
+    /// installed for this presentation handoff.  The ObjectID map is merely a
+    /// short-lived lookup index; each value retains its complete binding key.
+    presentation_direct_shroud_host_epoch: Option<u64>,
     /// Last presentation laser SegLine CPU pack residual (execute path).
     debug_last_laser_segments_packed: u32,
     debug_last_laser_pack_ok: bool,
@@ -390,12 +716,6 @@ pub(super) struct ObjectVisualState {
     /// invent a timeline that was absent when it was saved.
     pub force_bind_pose: bool,
     pub last_seen_weapon_discharge_sequence: u64,
-    /// Frozen accepted discharges received while this drawable is outside the
-    /// current render pass.  C++ `handleWeaponFireFX` records RECOIL_START
-    /// immediately, whereas `handleClientRecoil` evolves it only during a
-    /// visible `doDrawModule`; retain the broadcast until collection has a
-    /// fresh validated model/topology to consume exactly once.
-    pub pending_weapon_discharges: Vec<(u8, u8, u64)>,
     pub recoil_slots: [Vec<ObjectWeaponRecoilState>; 3],
 }
 
@@ -449,6 +769,7 @@ pub(super) enum RenderModelLoadResult {
 
 mod forward_materials;
 mod forward_render;
+mod hlod_aggregate_render;
 mod pipeline_collect;
 mod pipeline_drawable_state;
 mod pipeline_debug;
@@ -467,6 +788,7 @@ pub const RENDER_PIPELINE_SRC: &str = concat!(
     include_str!("mod.rs"),
     include_str!("forward_materials.rs"),
     include_str!("forward_render.rs"),
+    include_str!("hlod_aggregate_render.rs"),
     include_str!("pipeline_collect.rs"),
     include_str!("pipeline_drawable_state.rs"),
     include_str!("pipeline_debug.rs"),

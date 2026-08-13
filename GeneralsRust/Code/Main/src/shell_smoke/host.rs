@@ -53,7 +53,7 @@ pub(super) fn run_host_session(frames: u32) -> HostSession {
         menu.set_map_name(map_id.clone());
     }
     let (slots, rules, menu_map_name) = menu.get_game_config();
-    let cfg = config_from_skirmish_menu(&menu_map_name, &rules, &slots);
+    let cfg = config_from_skirmish_menu(&menu_map_name, &rules, &slots, menu.random_seed());
     let active = cfg.slots.iter().filter(|s| s.is_active).count();
     let has_human = cfg.slots.iter().any(|s| s.is_human);
     let has_ai = cfg.slots.iter().any(|s| !s.is_human && s.is_active);

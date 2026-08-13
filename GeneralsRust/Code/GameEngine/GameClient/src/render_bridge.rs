@@ -24,6 +24,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crate::drawable::drawable_draw_pipeline::{with_drawable_pipeline, MeshVertex};
+use gamelogic::helpers::{ModelDrawSourceIdentity, ModelDrawWeaponBoneBindings};
 use ww3d_assets::prototypes::MeshPrototype;
 use ww3d_assets::AssetManager;
 use ww3d_core::animation::{AnimationController, AnimationMode, Hierarchy, Pivot};
@@ -217,7 +218,20 @@ pub struct ProjectileStreamSubmission {
 
 #[derive(Debug, Clone)]
 pub struct DrawSubmission {
+    /// Client DrawableID allocated by the GameClient.  It is not a gameplay
+    /// ObjectID and must never be cast to one by a renderer.
     pub drawable_id: DrawableId,
+    /// Explicit gameplay ownership for Main/FOW/render-item association.  An
+    /// unbound legacy submission is intentionally left as `None` so consumers
+    /// can fail closed instead of guessing from independent ID counters.
+    pub owner_object_id: Option<u32>,
+    /// C++ draw-module execution identity carried from the logic bridge.
+    /// `None` denotes the BasicDrawable template fallback rather than a W3D
+    /// DrawModule result.
+    pub legacy_model_draw_source: Option<ModelDrawSourceIdentity>,
+    /// Selected-state authored weapon bases, kept as names rather than local
+    /// W3D pivot indices so a downstream renderer can revalidate topology.
+    pub legacy_weapon_bone_bindings: Option<ModelDrawWeaponBoneBindings>,
     pub model_name: String,
     pub world_transform: glam::Mat4,
     pub condition_flags: RenderConditionFlags,
@@ -240,6 +254,9 @@ impl Default for DrawSubmission {
     fn default() -> Self {
         Self {
             drawable_id: DrawableId(0),
+            owner_object_id: None,
+            legacy_model_draw_source: None,
+            legacy_weapon_bone_bindings: None,
             model_name: String::new(),
             world_transform: glam::Mat4::IDENTITY,
             condition_flags: RenderConditionFlags::empty(),
@@ -1328,6 +1345,9 @@ impl DrawSubmission {
 
         Self {
             drawable_id: DrawableId(desc.drawable_id),
+            owner_object_id: None,
+            legacy_model_draw_source: None,
+            legacy_weapon_bone_bindings: None,
             model_name: desc.model_name,
             world_transform,
             condition_flags,

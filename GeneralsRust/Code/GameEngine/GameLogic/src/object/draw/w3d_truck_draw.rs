@@ -386,20 +386,18 @@ impl W3DTruckDraw {
             }
         }
     }
-    fn append_bone_overrides(
-        &mut self,
-        transform_mtx: &Matrix3D,
-        speed: Real,
-        turning: Real,
-        backwards: bool,
-    ) {
+    fn append_bone_overrides(&mut self, speed: Real, turning: Real, backwards: bool) {
         let Some(owner_id) = self.base.owner_id() else {
             return;
         };
         let Some(client) = TheGameClient::get() else {
             return;
         };
-        let Some(mut state) = client.get_drawable_model_draw(owner_id) else {
+        // A Truck wrapper may refine only the base W3D result from this same
+        // draw-module invocation.  Reading a committed object record here
+        // would let a failed base draw mutate a preceding module's model.
+        let Some(mut state) = client.with_active_object_model_draw(owner_id, |state| state.clone())
+        else {
             return;
         };
         let conditions = ModelConditionFlags::from_bits_retain(state.condition_flags_bits);
@@ -502,9 +500,12 @@ impl W3DTruckDraw {
             trailer_index,
             Matrix3D::from_rotation_z(self.cur_trailer_rotation),
         );
-        state.world_transform = *transform_mtx;
+        // C++ W3DTruckDraw calls the base model draw first, then controls
+        // wheel/cab bones on that same render object.  The base has already
+        // applied instance scaling, so replacing its world transform here
+        // would silently drop it.
         state.bone_overrides = overrides;
-        client.set_drawable_model_draw(owner_id, state);
+        client.set_active_object_model_draw(owner_id, state);
     }
 }
 
@@ -596,7 +597,7 @@ impl DrawModule for W3DTruckDraw {
             };
         self.mid_front_wheel_rotation = self.front_wheel_rotation;
         self.mid_rear_wheel_rotation = self.rear_wheel_rotation;
-        self.append_bone_overrides(transform_mtx, speed, turning, backwards);
+        self.append_bone_overrides(speed, turning, backwards);
         if motive && !airborne {
             self.enable_emitters(true);
             if let Some(ps) = TheParticleSystemManager::get() {

@@ -14,7 +14,8 @@ use crate::save_load::campaign::{
 };
 use crate::save_load::snapshot::SnapshotBuilder;
 use crate::skirmish_config::{
-    apply_skirmish_config, GameRulesSnapshot, SkirmishMatchConfig, SkirmishSlotConfig,
+    apply_skirmish_config, GameRulesSnapshot, SkirmishMatchConfig, SkirmishPlayerTemplateSelection,
+    SkirmishSlotConfig,
 };
 use glam::Vec3;
 use std::time::{Duration, UNIX_EPOCH};
@@ -47,6 +48,7 @@ fn faction_slot(index: usize, faction: &str, human: bool) -> SkirmishSlotConfig 
         slot_index: index,
         is_human: human,
         is_active: true,
+        player_template: SkirmishPlayerTemplateSelection::base_faction(faction),
         faction: faction.into(),
         color_rgb: (200, 0, 0),
         team: index as i32,
@@ -76,6 +78,8 @@ pub fn breadth_factions() -> BreadthCategoryResult {
     for faction in ["USA", "China", "GLA"] {
         let cfg = SkirmishMatchConfig {
             map: "BreadthMap".into(),
+            random_seed: 0,
+            old_factions_only: false,
             rules: GameRulesSnapshot::default_rules(),
             slots: vec![
                 faction_slot(0, faction, true),
@@ -144,6 +148,8 @@ pub fn breadth_economy_combat() -> BreadthCategoryResult {
     let mut logic = GameLogic::new();
     let cfg = SkirmishMatchConfig {
         map: "Econ".into(),
+        random_seed: 0,
+        old_factions_only: false,
         rules: GameRulesSnapshot {
             starting_cash: 50_000,
             ..GameRulesSnapshot::default_rules()

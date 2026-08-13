@@ -250,9 +250,7 @@ impl HostHackerIncomeRegistry {
     /// zero authored delay is still next-update, never same-update income.
     #[inline]
     fn next_cash_update_after(current_frame: u32, delay_frames: u32) -> u32 {
-        current_frame
-            .saturating_add(delay_frames)
-            .saturating_add(1)
+        current_frame.saturating_add(delay_frames).saturating_add(1)
     }
 
     pub fn new() -> Self {
@@ -659,16 +657,8 @@ mod tests {
     fn internet_center_auto_start_uses_fast_interval() {
         let mut reg = HostHackerIncomeRegistry::new();
         let id = ObjectId(2);
-        assert!(reg.ensure_internet_center_hacking(
-            id,
-            0,
-            HACKER_CASH_INTERVAL_FAST_FRAMES
-        ));
-        assert!(!reg.ensure_internet_center_hacking(
-            id,
-            0,
-            HACKER_CASH_INTERVAL_FAST_FRAMES
-        )); // already active
+        assert!(reg.ensure_internet_center_hacking(id, 0, HACKER_CASH_INTERVAL_FAST_FRAMES));
+        assert!(!reg.ensure_internet_center_hacking(id, 0, HACKER_CASH_INTERVAL_FAST_FRAMES)); // already active
         assert_eq!(
             reg.try_deposit(
                 id,

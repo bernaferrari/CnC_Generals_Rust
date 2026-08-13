@@ -1,6 +1,27 @@
 #![allow(unused_imports, unused_variables, dead_code, non_snake_case)]
 use super::*;
+
+/// A decoded save restored into a private host `GameLogic` plus the exact
+/// process-global runtime bundle that map loading touched while staging it.
+/// The bundle stays opaque until the single combined commit boundary below.
+struct StagedRestoreWorld {
+    logic: crate::game_logic::GameLogic,
+    info: SaveGameInfo,
+    runtime_world: gamelogic::runtime_world_transaction::StagedRuntimeWorld,
+}
+
 impl CnCGameEngine {
+    /// Begin a new transient direct-visual world identity.
+    ///
+    /// This is deliberately separate from durable world/save identity.  A
+    /// successful world replacement reconstructs client Drawables, while a
+    /// failed staged/load attempt must leave the active associations valid.
+    #[inline]
+    pub(super) fn host_advance_direct_visual_world_epoch(&mut self) {
+        let next = self.host_direct_visual_world_epoch.wrapping_add(1);
+        self.host_direct_visual_world_epoch = if next == 0 { 1 } else { next };
+    }
+
     #[inline]
     pub(super) fn host_update_ui_state(&mut self, player_id: u32) -> crate::ui::GameUIState {
         // Wave 585/862/872/880: prefer last presentation UI residual when freeze installed.
@@ -363,6 +384,9 @@ impl CnCGameEngine {
         // Wave 584/871/933: host reset residual via session-control authority.
         self.host_game_logic_mut()
             .apply_session_control_op(crate::game_logic::SessionControlOp::Reset);
+        self.host_advance_direct_visual_world_epoch();
+        #[cfg(feature = "game_client")]
+        self.game_client.invalidate_presentation_drawable_world();
         self.render_pipeline.invalidate_world_visual_state();
         self.invalidate_presentation_terrain_cache();
         self.host_clear_match_residuals();
@@ -996,8 +1020,49 @@ impl CnCGameEngine {
         self.host_invalidate_active_popup_for_world_boundary();
 
         self.game_logic = logic;
+        self.host_advance_direct_visual_world_epoch();
+        #[cfg(feature = "game_client")]
+        self.game_client.invalidate_presentation_drawable_world();
         self.render_pipeline.invalidate_world_visual_state();
         self.invalidate_presentation_terrain_cache();
+    }
+
+    /// Install a fully staged save world as one no-fail host boundary.
+    ///
+    /// Unlike `host_replace_game_logic`, this also owns the legacy singleton
+    /// bundle mutated by map loading.  The order is intentional: invalidate
+    /// old UI/log ownership, install candidate globals, install matching host
+    /// logic, then run TeamFactory post-unlock callbacks against that complete
+    /// candidate world before rebuilding the shadow from host authority.
+    fn host_replace_staged_restore_world(&mut self, staged: StagedRestoreWorld) {
+        #[cfg(feature = "game_client")]
+        self.host_invalidate_active_popup_for_world_boundary();
+
+        crate::game_logic::staged_world_effects::discard_live_for_world_replace();
+
+        let StagedRestoreWorld {
+            logic,
+            info: _,
+            runtime_world,
+        } = staged;
+        let deferred_effects = runtime_world.install_globals();
+        let old_logic = std::mem::replace(&mut self.game_logic, logic);
+
+        // C++ `createInactiveTeam` executes `ExecuteActionsOnCreate`
+        // synchronously.  Staging deferred the guard-drop callbacks solely to
+        // avoid targeting the old world; now that both halves are committed,
+        // execute them in original queue order before shadow reconstruction.
+        deferred_effects.execute_after_logic_commit();
+        drop(old_logic);
+
+        self.host_advance_direct_visual_world_epoch();
+        #[cfg(feature = "game_client")]
+        self.game_client.invalidate_presentation_drawable_world();
+        self.render_pipeline.invalidate_world_visual_state();
+        self.invalidate_presentation_terrain_cache();
+        if let Some(shadow) = self.gameworld_shadow.as_mut() {
+            shadow.sync_from_host(&self.game_logic);
+        }
     }
 
     pub(super) fn host_save_game_authority(
@@ -1054,11 +1119,45 @@ impl CnCGameEngine {
         slot: &str,
         active_mode: crate::game_logic::GameMode,
         template_catalog: &std::collections::HashMap<String, crate::game_logic::ThingTemplate>,
-    ) -> Result<(crate::game_logic::GameLogic, SaveGameInfo), String> {
+    ) -> Result<StagedRestoreWorld, String> {
         let (snapshot, save_info) = save_file_manager
             .load_game_snapshot(slot)
             .map_err(|err| format!("{err}"))?;
 
+        Self::stage_decoded_saved_world_for_restore(
+            &snapshot,
+            save_info,
+            slot,
+            active_mode,
+            template_catalog,
+            |snapshot, staged| {
+                save_file_manager
+                    .restore_game_snapshot(snapshot, staged)
+                    .map_err(|err| format!("{err}"))
+            },
+        )
+    }
+
+    /// Stage a decoded save behind a raw singleton/TLS transaction boundary.
+    ///
+    /// `restore_snapshot` is deliberately injected only at this private seam:
+    /// the focused test can force an error *after* map loading has mutated all
+    /// candidate globals, proving rollback preserves the active world.  It is
+    /// not a production failpoint and does not alter save schema/versioning.
+    fn stage_decoded_saved_world_for_restore<F>(
+        snapshot: &crate::save_load::WorldSnapshot,
+        save_info: SaveGameInfo,
+        slot: &str,
+        active_mode: crate::game_logic::GameMode,
+        template_catalog: &std::collections::HashMap<String, crate::game_logic::ThingTemplate>,
+        restore_snapshot: F,
+    ) -> Result<StagedRestoreWorld, String>
+    where
+        F: FnOnce(
+            &crate::save_load::WorldSnapshot,
+            &mut crate::game_logic::GameLogic,
+        ) -> Result<(), String>,
+    {
         let saved_map = save_info.map_name.trim();
         if saved_map.is_empty() || saved_map == "-" || saved_map.eq_ignore_ascii_case("unknown") {
             return Err(format!(
@@ -1080,6 +1179,15 @@ impl CnCGameEngine {
             .to_string();
 
         let mode = Self::offline_restore_mode_for_save(active_mode, &save_info)?;
+
+        // Map loading and snapshot restore write legacy singleton state (AI,
+        // terrain, sides, players, teams, script engine, shroud, named/area
+        // trackers).  Move that state out before constructing the candidate so
+        // failure cannot poison the still-playable host match.  Main's TLS
+        // logs/shadow bind path need the matching take/restore scope around
+        // the same work.
+        let staged_effects = crate::game_logic::staged_world_effects::StagedWorldEffects::enter();
+        let runtime_stage = gamelogic::runtime_world_transaction::RuntimeWorldStage::begin();
         let mut staged = crate::game_logic::GameLogic::new();
         staged.start_new_game(mode);
         // Map object restoration needs the live INI/template catalog.  Keep
@@ -1101,9 +1209,7 @@ impl CnCGameEngine {
             ));
         }
 
-        save_file_manager
-            .restore_game_snapshot(&snapshot, &mut staged)
-            .map_err(|err| format!("{err}"))?;
+        restore_snapshot(snapshot, &mut staged)?;
 
         // Snapshot restoration must not turn a successful map load into a
         // false in-game claim.  It currently restores terrain/objects but not
@@ -1114,7 +1220,16 @@ impl CnCGameEngine {
             ));
         }
 
-        Ok((staged, save_info))
+        // Restore the active singleton/TLS state before exposing the candidate
+        // to the caller.  The returned opaque bundle is installed only by the
+        // no-fail combined commit below.
+        let runtime_world = runtime_stage.finish_and_restore_live();
+        staged_effects.finish_and_restore_live();
+        Ok(StagedRestoreWorld {
+            logic: staged,
+            info: save_info,
+            runtime_world,
+        })
     }
 
     /// Wave 928: single load authority boundary.
@@ -1123,14 +1238,15 @@ impl CnCGameEngine {
         // and snapshot all restore successfully in a staging world.
         let active_mode = self.game_logic.game_mode();
         let template_catalog = self.game_logic.templates.clone();
-        let (staged, save_info) = Self::stage_saved_world_for_restore(
+        let staged = Self::stage_saved_world_for_restore(
             &mut self.save_file_manager,
             slot,
             active_mode,
             &template_catalog,
         )?;
 
-        self.host_replace_game_logic(staged);
+        let save_info = staged.info.clone();
+        self.host_replace_staged_restore_world(staged);
         info!(
             "Game loaded successfully from slot '{}' on map '{}'",
             slot,
@@ -1364,6 +1480,161 @@ mod staged_restore_tests {
     use crate::save_load::{GameDifficulty, SaveFileManager, SaveFileType};
     use std::time::SystemTime;
 
+    /// Keeps this test's thread-local presentation queues independent from
+    /// whatever a neighboring test had recorded before it began.
+    struct WorldStageLogRestore {
+        state: Option<crate::game_logic::staged_world_effects::WorldStageEffectsState>,
+    }
+
+    impl WorldStageLogRestore {
+        fn take() -> Self {
+            Self {
+                state: Some(
+                    crate::game_logic::staged_world_effects::WorldStageEffectsState::take_all_for_test(),
+                ),
+            }
+        }
+    }
+
+    impl Drop for WorldStageLogRestore {
+        fn drop(&mut self) {
+            if let Some(state) = self.state.take() {
+                drop(
+                    crate::game_logic::staged_world_effects::WorldStageEffectsState::replace_all_for_test(state),
+                );
+            }
+        }
+    }
+
+    /// Seed the full load-map/snapshot-restore queue closure.  The staged
+    /// candidate uses a distinct object/label, so equality after its forced
+    /// failure proves both pending queues and presentation last-drain state
+    /// stayed attached to the live world.
+    fn record_all_stage_queue_events(object: crate::game_logic::ObjectId, label: &str) {
+        crate::game_logic::host_spawn_log::record(object, label.to_string(), 7, [1.0, 2.0, 3.0]);
+        crate::game_logic::host_move_log::record(object, Some([4.0, 5.0, 6.0]));
+        let _ = crate::game_logic::host_move_log::drain();
+        crate::game_logic::host_move_log::record(object, None);
+        crate::game_logic::host_ground_height_log::record(object, 7.0, true);
+        crate::game_logic::host_model_mesh_log::record(object, label, 1.25);
+        crate::game_logic::host_kind_of_log::record(object, 0x55aa_1234);
+        crate::game_logic::host_identity_log::record(
+            object,
+            label.to_string(),
+            [0.25, 0.5, 0.75, 1.0],
+        );
+        crate::game_logic::host_movement_log::record(
+            object,
+            glam::Vec3::new(1.0, 2.0, 3.0),
+            4.0,
+            0,
+            &[glam::Vec3::new(5.0, 6.0, 7.0)],
+            false,
+            0x11,
+            false,
+            false,
+            false,
+            true,
+            8,
+            9,
+            10.0,
+            11,
+            false,
+            Some(12),
+            Some(13),
+        );
+        crate::game_logic::host_demo_mine_cheer_log::record(object, true, true, 14.0);
+        crate::game_logic::host_detector_log::record(object, true, 15.0, 16);
+        crate::game_logic::host_overlord_log::record(object, true, false, 17, false);
+        crate::game_logic::host_stealth_flags_log::record(
+            crate::game_logic::host_stealth_flags_log::HostStealthFlagsEvent {
+                object,
+                innate_stealth: true,
+                stealth_breaks_on_attack: false,
+                stealth_breaks_on_move: true,
+                is_tunnel_network: false,
+                passengers_allowed_to_fire: true,
+            },
+        );
+        crate::game_logic::host_hive_log::record(object, 18, 19.0);
+        crate::game_logic::host_weapon_set_log::record(object, true, false);
+        crate::game_logic::host_contain_capacity_log::record(object, 20, 21);
+        crate::game_logic::host_status_log::record_selected(object, true);
+        crate::game_logic::host_ai_attitude_log::record(object, 2);
+        crate::game_logic::host_special_power_log::record(object, false, 22.0, 23.0, true);
+        crate::game_logic::host_player_cooldown_log::record(
+            24,
+            vec![(format!("{label}-cooldown"), 25.0)],
+        );
+        crate::game_logic::host_stored_supplies_log::record(object, 26);
+        crate::game_logic::host_contain_log::record_contained_by(
+            object,
+            Some(crate::game_logic::ObjectId(0x00ff_ee13)),
+        );
+        crate::game_logic::host_ai_state_log::record(object, 12);
+        crate::game_logic::host_ai_mood_log::record(object, 27, 28, true, label.to_string());
+        crate::game_logic::host_locomotor_log::record(
+            object, false, false, true, false, true, false, 29.0, 30.0, true, 31.0, 32.0, 33.0, 34,
+            35, 36.0, -1,
+        );
+        crate::game_logic::host_combat_attack_log::record(
+            object,
+            37,
+            38.0,
+            39,
+            40,
+            41,
+            42,
+            43,
+            true,
+            Some([44.0, 45.0, 46.0]),
+            47,
+            48.0,
+        );
+        crate::game_logic::host_attack_log::record(
+            object,
+            Some(crate::game_logic::ObjectId(0x00ff_ee14)),
+        );
+        let _ = crate::game_logic::host_attack_log::drain();
+        crate::game_logic::host_attack_log::record(object, None);
+        crate::game_logic::host_target_location_log::record(object, Some([49.0, 50.0, 51.0]));
+        crate::game_logic::host_ai_decision_log::record_set_state(object, 14);
+        crate::game_logic::host_command_set_log::record(
+            object,
+            Some(format!("{label}-command-set")),
+        );
+        crate::game_logic::host_continuous_fire_log::record(object, 52, 53, 54);
+        crate::game_logic::host_player_meta_log::record_sciences(55, [format!("{label}-science")]);
+        crate::game_logic::host_player_progress_log::record(56, 57, 58, 59, 60.0);
+        crate::game_logic::host_veterancy_log::record(object, 3);
+        crate::game_logic::host_max_health_log::record(object, 61.0);
+        crate::game_logic::host_experience_log::record(object, 62.0);
+        crate::game_logic::host_building_type_log::record(object, true, 12);
+        crate::game_logic::host_physics_motive_log::record(
+            object,
+            63,
+            64.0,
+            [65.0, 66.0, 67.0],
+            68.0,
+            69.0,
+            70.0,
+            true,
+            71,
+            false,
+            72,
+            73.0,
+            74.0,
+            true,
+            75.0,
+            76.0,
+            Some([77.0, 78.0, 79.0]),
+            Some(80),
+            true,
+            Some(81),
+            Some(82),
+        );
+    }
+
     fn retail_map_path_for_test() -> Option<String> {
         // Keep this test portable for source-only CI while exercising a real
         // extracted retail map whenever `windows_game` is available.  Return
@@ -1433,6 +1704,7 @@ mod staged_restore_tests {
         assert!(!error.contains("return_to_main_menu_after_match"));
         assert!(!error.contains("host_clear_match_residuals"));
         assert!(!error.contains("invalidate_world_visual_state"));
+        assert!(!error.contains("invalidate_presentation_drawable_world"));
     }
 
     #[test]
@@ -1502,21 +1774,25 @@ mod staged_restore_tests {
             )
             .expect("write valid staged restore save");
 
-        let (restored, restored_info) = CnCGameEngine::stage_saved_world_for_restore(
+        let restored = CnCGameEngine::stage_saved_world_for_restore(
             &mut saves,
             "valid_map",
             GameMode::Shell,
             &catalog,
         )
         .expect("saved map should load before restore");
-        assert_eq!(restored_info.map_name, map_name);
-        assert!(restored.isInGame());
-        assert_eq!(restored.get_current_map_name(), map_name);
-        assert_eq!(restored.get_current_frame(), 321);
-        assert_eq!(restored.host_ai_player_count(), 1);
-        assert_eq!(restored.host_ai_difficulty(71), Some(AIDifficulty::Hard));
-        assert!(!restored.is_host_ai_active(71));
+        assert_eq!(restored.info.map_name, map_name);
+        assert!(restored.logic.isInGame());
+        assert_eq!(restored.logic.get_current_map_name(), map_name);
+        assert_eq!(restored.logic.get_current_frame(), 321);
+        assert_eq!(restored.logic.host_ai_player_count(), 1);
+        assert_eq!(
+            restored.logic.host_ai_difficulty(71),
+            Some(AIDifficulty::Hard)
+        );
+        assert!(!restored.logic.is_host_ai_active(71));
         let restored_ai = restored
+            .logic
             .snapshot_host_ai_players_for_save()
             .into_iter()
             .find(|ai| ai.player_id == 71)
@@ -1525,5 +1801,216 @@ mod staged_restore_tests {
             restored_ai.base_center,
             Some(glam::Vec3::new(47.0, 0.0, -31.0))
         );
+    }
+
+    #[test]
+    fn forced_post_restore_failure_restores_globals_and_tls_effect_queues() {
+        let Some(map_name) = retail_map_path_for_test() else {
+            eprintln!("retail maps unavailable — skip staged rollback transaction test");
+            return;
+        };
+
+        let temp = tempfile::tempdir().expect("temporary save directory");
+        let mut saves = SaveFileManager::with_save_directory(temp.path());
+        saves.init().expect("initialize temporary save directory");
+
+        let mut source = GameLogic::new();
+        source.start_new_game(GameMode::Skirmish);
+        assert!(source.load_map(&map_name), "load source retail map");
+        // The forced error runs after snapshot restoration, which initializes
+        // both legacy AI singletons.  Seed distinct live allocator/manager
+        // contents first: rollback must recover them rather than merely leave
+        // a valid-looking empty AI system behind.
+        source.add_player(Player::new(0, Team::USA, "Human", true));
+        source.add_player(Player::new(1, Team::China, "Computer", false));
+        source.setup_skirmish_ai(0);
+        let (first_live_ai_group_id, second_live_ai_group_id) = {
+            let mut ai = gamelogic::ai::THE_AI.write().expect("lock live legacy AI");
+            let first = ai.create_group();
+            let first = first.read().expect("read first live AI group").get_id();
+            let second = ai.create_group();
+            let second = second.read().expect("read second live AI group").get_id();
+            (first, second)
+        };
+        let live_integration_group_count =
+            gamelogic::ai::integration::with_ai_integration_mut(|manager| {
+                manager
+                    .create_unit_group("stage-rollback-sentinel".to_string(), 1)
+                    .expect("create live integration AI group");
+                manager.get_unit_group_count()
+            })
+            .expect("live AI integration manager initialized");
+        let catalog = source.templates.clone();
+        saves
+            .save_game(
+                "forced_stage_failure",
+                &source,
+                &save_info("forced_stage_failure", map_name.clone()),
+            )
+            .expect("write forced-failure staged restore save");
+        let (snapshot, info) = saves
+            .load_game_snapshot("forced_stage_failure")
+            .expect("decode forced-failure staged restore save");
+
+        // Capture every singleton family this transaction owns.  The candidate
+        // map load is deliberately allowed to mutate them before the injected
+        // error; equality below proves the active values were restored, not
+        // merely cleared to defaults.
+        let global_probe = || {
+            let terrain = gamelogic::terrain::get_terrain_logic()
+                .read()
+                .map(|terrain| terrain.get_source_filename().to_string())
+                .unwrap_or_default();
+            let players = gamelogic::player::ThePlayerList()
+                .read()
+                .map(|players| (players.get_player_count(), players.get_local_player_index()))
+                .unwrap_or_default();
+            let teams = gamelogic::team::get_team_factory()
+                .lock()
+                .map(|teams| {
+                    (
+                        teams.get_all_teams().len(),
+                        teams.get_next_team_id(),
+                        teams.get_next_team_prototype_id(),
+                    )
+                })
+                .unwrap_or_default();
+            let sides = gamelogic::sides_list::get_sides_list()
+                .read()
+                .map(|sides| (sides.get_num_sides(), sides.get_num_teams()))
+                .unwrap_or_default();
+            let shroud = gamelogic::system::shroud_manager::get_shroud_manager()
+                .lock()
+                .map(|shroud| shroud.grid_dimensions())
+                .unwrap_or(None);
+            let mut named = gamelogic::scripting::engine::get_named_object_tracker()
+                .get_all_named_objects()
+                .unwrap_or_default();
+            named.sort();
+            let mut areas = gamelogic::scripting::engine::get_area_tracker().all_area_aabbs();
+            areas.sort_by(|left, right| left.0.cmp(&right.0));
+            let script_engine_present = gamelogic::scripting::engine::get_script_engine()
+                .read()
+                .map(|engine| engine.is_some())
+                .unwrap_or(false);
+            let legacy_ai_groups = gamelogic::ai::THE_AI
+                .read()
+                .map(|ai| {
+                    (
+                        ai.get_group_by_id(first_live_ai_group_id).is_some(),
+                        ai.get_group_by_id(second_live_ai_group_id).is_some(),
+                    )
+                })
+                .unwrap_or_default();
+            let integration_group_count =
+                gamelogic::ai::integration::with_ai_integration(|manager| {
+                    manager.get_unit_group_count()
+                })
+                .unwrap_or_default();
+            (
+                terrain,
+                players,
+                teams,
+                sides,
+                shroud,
+                named,
+                areas,
+                script_engine_present,
+                legacy_ai_groups,
+                integration_group_count,
+            )
+        };
+        let before = global_probe();
+
+        let _log_restore = WorldStageLogRestore::take();
+        let sentinel = crate::game_logic::ObjectId(0x00ff_ee11);
+        record_all_stage_queue_events(sentinel, "stage-rollback-sentinel");
+        let expected =
+            crate::game_logic::staged_world_effects::WorldStageEffectsState::take_all_for_test();
+        drop(
+            crate::game_logic::staged_world_effects::WorldStageEffectsState::replace_all_for_test(
+                expected.clone(),
+            ),
+        );
+
+        let err = match CnCGameEngine::stage_decoded_saved_world_for_restore(
+            &snapshot,
+            info,
+            "forced_stage_failure",
+            GameMode::Skirmish,
+            &catalog,
+            |_snapshot, staged| {
+                assert!(staged.isInGame(), "failure is injected after map load");
+                assert!(gamelogic::runtime_world_transaction::world_runtime_staging_active());
+                assert!(crate::game_logic::staged_world_effects::world_stage_effects_active());
+                // The map candidate has already emitted its normal object
+                // creation events.  Emit every conditional residual family as
+                // well, so rollback proves the raw boundary discards both.
+                record_all_stage_queue_events(
+                    crate::game_logic::ObjectId(0x00ff_ee12),
+                    "staged-candidate-only",
+                );
+                Err("forced failure after staged snapshot restore".to_string())
+            },
+        ) {
+            Ok(_) => panic!("injected post-restore failure must reject the candidate world"),
+            Err(err) => err,
+        };
+        assert!(err.contains("forced failure after staged snapshot restore"));
+
+        assert_eq!(global_probe(), before, "rollback must restore live globals");
+        let resumed_ai_group_id = {
+            let mut ai = gamelogic::ai::THE_AI
+                .write()
+                .expect("lock restored legacy AI");
+            let resumed = ai.create_group();
+            let resumed_id = resumed
+                .read()
+                .expect("read post-rollback legacy AI group")
+                .get_id();
+            resumed_id
+        };
+        assert_eq!(
+            resumed_ai_group_id,
+            second_live_ai_group_id.wrapping_add(1),
+            "rollback must preserve the legacy AI group-ID allocator"
+        );
+        assert_eq!(
+            gamelogic::ai::integration::with_ai_integration(|manager| {
+                manager.get_unit_group_count()
+            }),
+            Some(live_integration_group_count),
+            "rollback must preserve the live AI integration manager"
+        );
+        let actual =
+            crate::game_logic::staged_world_effects::WorldStageEffectsState::take_all_for_test();
+        assert_eq!(
+            actual, expected,
+            "all map/snapshot-reachable TLS queues and last-drain state must survive rollback"
+        );
+    }
+
+    #[test]
+    fn staged_commit_runs_team_effects_only_after_logic_install() {
+        let source = include_str!("host_authority.rs");
+        let start = source
+            .find("fn host_replace_staged_restore_world")
+            .expect("combined staged commit boundary");
+        let body = &source[start
+            ..source[start..]
+                .find("\n    pub(super) fn host_save_game_authority")
+                .map(|end| start + end)
+                .expect("end of combined staged commit boundary")];
+        let globals = body
+            .find("runtime_world.install_globals()")
+            .expect("global install");
+        let logic = body
+            .find("std::mem::replace(&mut self.game_logic, logic)")
+            .expect("host logic install");
+        let effects = body
+            .find("deferred_effects.execute_after_logic_commit()")
+            .expect("deferred team effects");
+        let shadow = body.find("shadow.sync_from_host").expect("shadow rebuild");
+        assert!(globals < logic && logic < effects && effects < shadow);
     }
 }

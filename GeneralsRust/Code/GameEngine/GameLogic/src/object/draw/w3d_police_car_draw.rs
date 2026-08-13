@@ -110,9 +110,11 @@ impl DrawModule for W3DPoliceCarDraw {
         self.base.do_draw_module(transform_mtx);
         if let Some(owner_id) = self.base.owner_id() {
             if let Some(client) = TheGameClient::get() {
-                if let Some(mut state) = client.get_drawable_model_draw(owner_id) {
+                if let Some(mut state) =
+                    client.with_active_object_model_draw(owner_id, |state| state.clone())
+                {
                     state.animation_time = (self.cur_frame / 14.0).clamp(0.0, 1.0);
-                    client.set_drawable_model_draw(owner_id, state);
+                    client.set_active_object_model_draw(owner_id, state);
                 }
             }
         }

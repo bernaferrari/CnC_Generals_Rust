@@ -3473,6 +3473,29 @@ pub trait PartitionFilter {
 // Global AI instance - using once_cell for thread-safe singleton
 pub static THE_AI: Lazy<Arc<RwLock<AI>>> = Lazy::new(|| Arc::new(RwLock::new(AI::new())));
 
+/// Move the legacy AI singleton contents out for a whole-world restore
+/// transaction while preserving the `THE_AI` `Arc`/`RwLock` identity.
+///
+/// Candidate save restore may initialize the AI before it is known to be
+/// valid.  Replacing the wrapper would strand aliases held by the active
+/// world, while clearing it would corrupt the active match on rollback.  The
+/// runtime transaction owns the only raw use of this boundary API.
+pub(crate) fn take_global_ai_for_world_boundary() -> AI {
+    let mut ai = THE_AI
+        .write()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    std::mem::replace(&mut *ai, AI::new())
+}
+
+/// Install legacy AI contents at a whole-world restore boundary and return
+/// the contents they replaced.  See [`take_global_ai_for_world_boundary`].
+pub(crate) fn replace_global_ai_for_world_boundary(next: AI) -> AI {
+    let mut ai = THE_AI
+        .write()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    std::mem::replace(&mut *ai, next)
+}
+
 // Core AI systems
 pub mod ai_core; // Complete AI system integration
 pub mod ai_update; // AI update interfaces and coordination

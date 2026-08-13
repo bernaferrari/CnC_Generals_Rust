@@ -39,6 +39,7 @@ impl RenderPipeline {
             cached_lighting: Some(initial_lighting.clone()),
             cached_terrain_lighting: Some(initial_lighting),
             last_startup_model_prewarm_signature: None,
+            hlod_aggregate_prewarm_attempts: HashSet::new(),
             render_items: Vec::new(),
             frame_number: 0,
             current_pass: None,
@@ -62,6 +63,8 @@ impl RenderPipeline {
             pending_client_drawable_imports: HashMap::new(),
             last_frame_time: 0.0,
             presentation_frame: None,
+            presentation_direct_shroud_states: HashMap::new(),
+            presentation_direct_shroud_host_epoch: None,
             debug_last_laser_segments_packed: 0,
             debug_last_laser_pack_ok: false,
             debug_last_laser_gpu_write_ok: false,
@@ -83,6 +86,12 @@ impl RenderPipeline {
         &mut self,
         frame: Option<crate::presentation_frame::PresentationFrame>,
     ) {
+        // Direct-host shroud state is meaningful only for this exact frozen
+        // topology. Main installs its replacement sidecar immediately after
+        // this call; every other handoff intentionally stays empty rather
+        // than reusing an object ID from an earlier frame.
+        self.presentation_direct_shroud_states.clear();
+        self.presentation_direct_shroud_host_epoch = None;
         // A queued v4 Drawable payload is meaningful only against the next
         // full frozen presentation topology.  Do the source-only identity
         // pass here, before normal collection.  This deliberately performs
@@ -93,6 +102,39 @@ impl RenderPipeline {
             self.prepare_pending_client_drawable_restore_for_frame(frame);
         }
         self.presentation_frame = frame;
+    }
+
+    /// Install the immutable direct-host shroud sidecar for the frame just
+    /// supplied to [`Self::set_presentation_frame`].
+    ///
+    /// Main obtains each entry through GameClient's guarded current binding
+    /// query before calling this method. This renderer-owned method performs
+    /// no GameClient/GameLogic read and merely replaces the current-frame map.
+    pub fn set_presentation_direct_shroud_states<I>(&mut self, states: I)
+    where
+        I: IntoIterator<Item = FrozenDirectDrawableShroudState>,
+    {
+        self.presentation_direct_shroud_states.clear();
+        self.presentation_direct_shroud_host_epoch = None;
+        for state in states {
+            if state.host_epoch == 0
+                || state.object_id.0 == 0
+                || state.drawable_id == 0
+                || state.binding_generation == 0
+            {
+                continue;
+            }
+            match self.presentation_direct_shroud_host_epoch {
+                None => self.presentation_direct_shroud_host_epoch = Some(state.host_epoch),
+                Some(epoch) if epoch == state.host_epoch => {}
+                // A renderer handoff must describe exactly one current host
+                // world.  Mixed epochs are a malformed/stale batch, not a
+                // reason to merge object IDs across world replacements.
+                Some(_) => continue,
+            }
+            self.presentation_direct_shroud_states
+                .insert(state.object_id, state);
+        }
     }
 
     /// Discard renderer-local state tied to the current logical world.
@@ -111,8 +153,11 @@ impl RenderPipeline {
             &mut self.last_frame_time,
         );
         self.presentation_frame = None;
+        self.presentation_direct_shroud_states.clear();
+        self.presentation_direct_shroud_host_epoch = None;
         self.pending_client_drawable_restore = None;
         self.pending_client_drawable_imports.clear();
+        self.hlod_aggregate_prewarm_attempts.clear();
     }
 
     #[inline]

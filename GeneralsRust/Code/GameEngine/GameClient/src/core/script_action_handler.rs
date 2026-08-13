@@ -41,6 +41,23 @@ pub fn set_script_display_border_shroud_level(level: u8) -> bool {
     true
 }
 
+/// Latest script-owned W3D shroud border level, when one has been requested.
+///
+/// This is intentionally readable without a live `Display` lock so a
+/// presentation frame can freeze the value alongside its FOW grid.  `None`
+/// means no script override exists and consumers should retain the source
+/// `GlobalData::m_shroudAlpha` initialization value instead.
+pub fn script_display_border_shroud_level() -> Option<u8> {
+    let level = PENDING_BORDER_SHROUD_LEVEL.load(Ordering::Relaxed);
+    (0..=u8::MAX as i32).contains(&level).then_some(level as u8)
+}
+
+/// Clear the deferred script override when the script-display runtime resets.
+/// The next presentation snapshot falls back to `GlobalData::m_shroudAlpha`.
+pub fn clear_script_display_border_shroud_level() {
+    PENDING_BORDER_SHROUD_LEVEL.store(-1, Ordering::Relaxed);
+}
+
 pub fn play_script_display_movie(movie_name: &str) -> bool {
     with_script_display(|display| display.play_movie(movie_name.to_string())).unwrap_or(false)
 }
@@ -274,7 +291,7 @@ pub fn reset_script_action_runtime_state() {
     if let Ok(mut state) = script_ui_state_slot().lock() {
         *state = ScriptUiState::default();
     }
-    PENDING_BORDER_SHROUD_LEVEL.store(-1, Ordering::Relaxed);
+    clear_script_display_border_shroud_level();
     game_engine::common::global_data::write().writable.wireframe = false;
     with_tactical_view(|view| view.reset_3d_wireframe_mode());
     TheGameLogic::set_intro_movie_playing(false);
@@ -627,11 +644,12 @@ impl GameClientScriptActionHandler {
 }
 
 impl ScriptActionHandler for GameClientScriptActionHandler {
-    fn set_border_shroud_level(&self, _level: u8) -> GameLogicResult<()> {
-        if with_script_display(|display| display.set_border_shroud_level(_level)).is_none() {
-            // For fallback or non-visual environments, keep the action no-op rather than fail.
-            // A dedicated terrain compositor path will consume this value later.
-        }
+    fn set_border_shroud_level(&self, level: u8) -> GameLogicResult<()> {
+        // Keep the value even before a Display is registered.  The frozen
+        // projected-shroud snapshot consumes this script handoff at
+        // presentation-build time, while `set_script_display...` also updates
+        // an active Display when one exists.
+        let _ = set_script_display_border_shroud_level(level);
         Ok(())
     }
 
@@ -1655,5 +1673,25 @@ mod tests {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .contains("shared"));
+    }
+
+    #[test]
+    fn border_shroud_handoff_persists_without_display_and_resets_cleanly() {
+        clear_script_display_border_shroud_level();
+        assert_eq!(script_display_border_shroud_level(), None);
+
+        let handler = GameClientScriptActionHandler::new();
+        handler
+            .set_border_shroud_level(211)
+            .expect("DisableBorderShroud handoff");
+        assert_eq!(script_display_border_shroud_level(), Some(211));
+
+        handler
+            .set_border_shroud_level(37)
+            .expect("EnableBorderShroud handoff");
+        assert_eq!(script_display_border_shroud_level(), Some(37));
+
+        clear_script_display_border_shroud_level();
+        assert_eq!(script_display_border_shroud_level(), None);
     }
 }
