@@ -372,8 +372,11 @@ impl Object {
         self.set_status_disabled_emp(false);
         self.status.disabled_emp_until_frame = 0;
         self.set_status_hijacked(false);
-        self.weapon = Some(crate::game_logic::host_car_bomb::suicide_car_bomb_weapon());
-        self.secondary_weapon = None;
+        let _ = self.replace_weapon_set_slot(
+            0,
+            Some(crate::game_logic::host_car_bomb::suicide_car_bomb_weapon()),
+        );
+        let _ = self.replace_weapon_set_slot(1, None);
         self.set_active_weapon_slot(0);
         self.status.attacking = false;
         self.set_status_moving(false);

@@ -9,6 +9,41 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::time::SystemTime;
 
+/// Persisted mutable cursor for one concrete PRIMARY/SECONDARY/TERTIARY
+/// WeaponSet slot.
+///
+/// Authored `ShotsPerBarrel`, validated draw barrel count, and the active
+/// weapon-source cache deliberately stay runtime data. They are rebuilt from
+/// the restored Thing/WeaponSet before these two cursor values are staged.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WeaponBarrelStateSnapshot {
+    #[serde(default)]
+    pub current_barrel: u8,
+    #[serde(default = "default_weapon_barrel_shots_left")]
+    pub shots_left_on_barrel: u32,
+}
+
+pub const fn default_weapon_barrel_shots_left() -> u32 {
+    // A missing v1-v3/v4-default cursor is not an authored one-shot weapon.
+    // `Object::restore_weapon_barrel_runtime_for_slot` normalizes this zero to
+    // the restored Weapon.ini `ShotsPerBarrel`, preserving a fresh legacy
+    // cursor instead of silently forcing every old weapon to one shot.
+    0
+}
+
+impl Default for WeaponBarrelStateSnapshot {
+    fn default() -> Self {
+        Self {
+            current_barrel: 0,
+            shots_left_on_barrel: default_weapon_barrel_shots_left(),
+        }
+    }
+}
+
+pub(crate) fn default_weapon_barrel_state_snapshots() -> [WeaponBarrelStateSnapshot; 3] {
+    [WeaponBarrelStateSnapshot::default(); 3]
+}
+
 /// Complete object state snapshot
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ObjectSnapshot {
@@ -41,6 +76,23 @@ pub struct ObjectSnapshot {
     /// the current schema preserves a source/target channel across save/load.
     #[serde(default)]
     pub hacker_disable_channel: Option<HackerDisableChannelState>,
+
+    /// v4 logical mutable barrel cursors for the three concrete WeaponSet
+    /// slots. This is an ObjectSnapshot tail rather than a nested `Weapon`
+    /// change, so historical mirrors retain their exact Weapon layout.
+    #[serde(default = "default_weapon_barrel_state_snapshots")]
+    pub weapon_barrel_states: [WeaponBarrelStateSnapshot; 3],
+
+    /// Last normalized accepted-discharge marker. A zero sequence is the
+    /// sole unseen sentinel; slot/barrel/frame are meaningful only then.
+    #[serde(default)]
+    pub last_weapon_discharge_sequence: u64,
+    #[serde(default)]
+    pub last_weapon_discharge_slot: u8,
+    #[serde(default)]
+    pub last_weapon_discharge_barrel: u8,
+    #[serde(default)]
+    pub last_weapon_discharge_frame: u32,
 }
 
 /// Object status snapshot
@@ -414,7 +466,7 @@ impl ObjectSnapshot {
         xfer.xfer_marker_label("ObjectType")?;
         self.object_type.xfer(xfer)?;
 
-        if world_version >= WORLD_SNAPSHOT_BINCODE_VERSION {
+        if world_version >= WORLD_SNAPSHOT_DIRECT_XFER_HDB_VERSION {
             xfer.xfer_marker_label("HackerDisableChannel")?;
             xfer_option(
                 xfer,
@@ -431,6 +483,30 @@ impl ObjectSnapshot {
             self.hacker_disable_channel = None;
         }
 
+        if world_version >= WORLD_SNAPSHOT_DIRECT_XFER_V4_TAIL_VERSION {
+            xfer.xfer_marker_label("WeaponBarrelStates")?;
+            for state in &mut self.weapon_barrel_states {
+                state.xfer(xfer)?;
+            }
+            xfer.xfer_marker_label("LastWeaponDischargeSequence")?;
+            xfer.xfer_u64(&mut self.last_weapon_discharge_sequence)?;
+            xfer.xfer_marker_label("LastWeaponDischargeSlot")?;
+            xfer.xfer_u8(&mut self.last_weapon_discharge_slot)?;
+            xfer.xfer_marker_label("LastWeaponDischargeBarrel")?;
+            xfer.xfer_u8(&mut self.last_weapon_discharge_barrel)?;
+            xfer.xfer_marker_label("LastWeaponDischargeFrame")?;
+            xfer.xfer_u32(&mut self.last_weapon_discharge_frame)?;
+        } else if xfer.get_mode() == XferMode::Load {
+            // v1-v3 direct-Xfer records predate the logical barrel/discharge
+            // tail. Do not allow a pre-seeded current snapshot to manufacture
+            // a post-load visual baseline.
+            self.weapon_barrel_states = default_weapon_barrel_state_snapshots();
+            self.last_weapon_discharge_sequence = 0;
+            self.last_weapon_discharge_slot = 0;
+            self.last_weapon_discharge_barrel = 0;
+            self.last_weapon_discharge_frame = 0;
+        }
+
         Ok(())
     }
 }
@@ -440,7 +516,18 @@ impl ObjectSnapshot {
 // direct-Xfer streams.
 impl XferData for ObjectSnapshot {
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
-        self.xfer_for_world_version(xfer, WORLD_SNAPSHOT_BINCODE_VERSION)
+        self.xfer_for_world_version(xfer, WORLD_SNAPSHOT_DIRECT_XFER_VERSION)
+    }
+}
+
+impl XferData for WeaponBarrelStateSnapshot {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        xfer.xfer_marker_label("WeaponBarrelStateSnapshot")?;
+        xfer.xfer_marker_label("CurrentBarrel")?;
+        xfer.xfer_u8(&mut self.current_barrel)?;
+        xfer.xfer_marker_label("ShotsLeftOnBarrel")?;
+        xfer.xfer_u32(&mut self.shots_left_on_barrel)?;
+        Ok(())
     }
 }
 

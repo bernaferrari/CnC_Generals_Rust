@@ -1170,6 +1170,8 @@ impl GameLogic {
         }
         obj.applied_upgrades
             .insert(UPGRADE_GLA_AP_ROCKETS.to_string());
+        // AP Rockets is a C++ WeaponBonusUpgrade, not a new WeaponSet.  Keep
+        // each live weapon's barrel cursor intact while refreshing its stats.
         obj.weapon = Some(stinger_ground_weapon(true));
         obj.secondary_weapon = Some(stinger_air_weapon(true));
         self.stinger_site_residual_ap_rockets_upgrades = self

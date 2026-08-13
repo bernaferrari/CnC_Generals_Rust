@@ -20,6 +20,9 @@ pub mod host_emp_pulse_drop_log;
 #[path = "host_fire_intent_log.rs"]
 pub mod host_fire_intent_log;
 
+#[path = "host_weapon_discharge_log.rs"]
+pub mod host_weapon_discharge_log;
+
 #[path = "host_fire_sound_loop_log.rs"]
 pub mod host_fire_sound_loop_log;
 

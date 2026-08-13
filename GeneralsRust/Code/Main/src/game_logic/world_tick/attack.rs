@@ -904,7 +904,7 @@ impl GameLogic {
             .get(&victim_id)
             .map(|v| (v.is_kind_of(KindOf::Infantry), v.is_faerie_fire()))
             .unwrap_or((false, false));
-        let fired = {
+        let fired_slot = {
             let Some(u) = self.objects.get_mut(&unit_id) else {
                 return AttackFireResult::Failure;
             };
@@ -917,11 +917,31 @@ impl GameLogic {
                 crate::game_logic::host_ai_decision_log::record_set_state(unit_id, 2);
             }
             // TARGET_FAERIE_FIRE ROF residual when victim is painted.
-            u.fire_at_ex(victim_id, current_time, victim_infantry, victim_faerie)
+            u.fire_at_ex_defer_weapon_barrel_advance(
+                victim_id,
+                current_time,
+                victim_infantry,
+                victim_faerie,
+            )
         };
 
-        if fired {
-            // max_shots_to_fire decremented inside Object::fire_at_ex (Weapon::m_maxShotCount).
+        if let Some(slot) = fired_slot {
+            // The shot above has consumed ammo and queued its projectile, but
+            // deliberately has not advanced the concrete WeaponSet cursor.
+            // Normalize its exact pre-advance barrel through the owning world
+            // so Drawable presentation sees an actual discharge, never an AI
+            // intent. A malformed transient object state still advances the
+            // logical cursor fail-closed rather than replaying the shot.
+            if self
+                .record_accepted_weapon_discharge(unit_id, slot)
+                .is_none()
+            {
+                if let Some(unit) = self.objects.get_mut(&unit_id) {
+                    unit.advance_weapon_barrel_after_shot(slot);
+                }
+            }
+            // max_shots_to_fire is decremented inside the accepted Object
+            // shot (C++ Weapon::m_maxShotCount).
             AttackFireResult::Success
         } else {
             // fire_at false: either pre-attack armed or cannot fire.

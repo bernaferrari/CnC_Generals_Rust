@@ -271,9 +271,24 @@ pub struct RenderPipeline {
     debug_last_missing_model_samples: Vec<String>,
     debug_warned_bad_mesh_transforms: HashSet<String>,
     model_cull_bounds_cache: HashMap<String, (Vec3, f32)>,
-    /// Per-object, per-source-Draw-module animation state. Equal W3D names
-    /// must not collapse separate retail Draw modules into one timeline.
-    animation_states: HashMap<(u32, u32), ObjectAnimationState>,
+    /// Per-object, per-source-Draw-module visual state. Equal W3D names must
+    /// not collapse separate retail Draw modules into one timeline: C++ keeps
+    /// animation and weapon-recoil state on each W3DModelDraw module.
+    drawable_visual_states: HashMap<(u32, u32), ObjectVisualState>,
+    /// A v4 client Drawable payload which has passed the host's staged-load
+    /// boundary but has not yet seen a frozen full presentation topology.
+    /// `set_presentation_frame(Some(..))` consumes this exactly once into the
+    /// current-frame candidates below; it never performs archive/model I/O.
+    pending_client_drawable_restore:
+        Option<crate::save_load::snapshot::ClientDrawableWorldSnapshot>,
+    /// Source-identity validated restore records for the one frame currently
+    /// installed in `presentation_frame`. Collection removes each record
+    /// before it consults the normal model-load path, so an unavailable model
+    /// or topology cannot trigger retries or retain a stale saved timeline.
+    pending_client_drawable_imports: HashMap<
+        (u32, u32),
+        crate::save_load::snapshot::ClientDrawableStateSnapshot,
+    >,
     last_frame_time: f32,
     /// When set, collect_render_items prefers presentation-owned transforms/model keys.
     presentation_frame: Option<crate::presentation_frame::PresentationFrame>,
@@ -307,14 +322,94 @@ pub(super) const DEFAULT_SKYBOX_TEXTURES: [&str; 5] = [
     "TSMorningT.tga",
 ];
 
+#[derive(Debug, Clone, PartialEq)]
 pub(super) struct ObjectAnimationState {
     /// Exact selected W3D animation from the frozen source Draw state. `None`
     /// deliberately means bind pose; it must not silently become W3D clip 0.
     animation_binding_key: Option<crate::assets::W3dAnimationBindingKey>,
+    /// Full frozen `Hierarchy.Animation` identity.  The process-local binding
+    /// key alone cannot be saved: local index zero on one model says nothing
+    /// about a different model after a load.
+    animation_identity: String,
     current_frame: f32,
     frame_rate: f32,
     num_frames: u32,
     mode: crate::assets::AuthoredDrawAnimationMode,
+}
+
+/// Stable selected Draw identity for renderer-local state.  This deliberately
+/// mirrors the identity carried by `ClientDrawableStateSnapshot`, but remains
+/// a private render-time record rather than a second save representation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct FrozenVisualDrawIdentity {
+    pub source_template_name: String,
+    pub model_key: String,
+    pub selected_condition_state_index: u32,
+    pub animation: Option<FrozenVisualAnimationIdentity>,
+}
+
+/// The serializable portion of a frozen HAnim selection, excluding its moving
+/// current frame.  Keeping this separate lets a Draw identity remain `Eq` and
+/// prevents a saved frame number from becoming source-selection authority.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct FrozenVisualAnimationIdentity {
+    pub hierarchy_animation: String,
+    pub mode: crate::save_load::snapshot::ClientDrawableAnimationMode,
+}
+
+/// One live `W3DModelDraw::WeaponRecoilInfo` equivalent.  It is renderer-only;
+/// snapshot conversion happens at the explicit client Drawable boundary.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(super) struct ObjectWeaponRecoilState {
+    pub phase: crate::save_load::snapshot::ClientDrawableRecoilPhase,
+    pub shift: f32,
+    pub recoil_rate: f32,
+}
+
+impl Default for ObjectWeaponRecoilState {
+    fn default() -> Self {
+        Self {
+            phase: crate::save_load::snapshot::ClientDrawableRecoilPhase::Idle,
+            shift: 0.0,
+            recoil_rate: 0.0,
+        }
+    }
+}
+
+/// Unified renderer-local state for a single `(ObjectId, Draw-module)`.
+/// Animation may be absent while recoil remains meaningful: a selected Draw
+/// state with no HAnim is bind pose, not an instruction to lose a real gun
+/// recoil event.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub(super) struct ObjectVisualState {
+    pub identity: Option<FrozenVisualDrawIdentity>,
+    pub animation: Option<ObjectAnimationState>,
+    /// A restored `None` animation is an explicit saved bind-pose choice.
+    /// Keep it distinct from an ordinary cache miss: the latter may become
+    /// available after normal prewarm, while a loaded snapshot must never
+    /// invent a timeline that was absent when it was saved.
+    pub force_bind_pose: bool,
+    pub last_seen_weapon_discharge_sequence: u64,
+    pub recoil_slots: [Vec<ObjectWeaponRecoilState>; 3],
+}
+
+/// Clear renderer-local state whose keys are meaningful only within one live
+/// game world.  Keep this separate from asset caches: a model or texture can
+/// safely serve another map, whereas an `(ObjectId, Draw-module)` timeline
+/// cannot because object IDs are reused after `GameLogic::reset`.
+///
+/// `T` keeps the pure state transition independently testable without making
+/// a WGPU-backed [`RenderPipeline`] fixture just to exercise this lifecycle.
+fn clear_visual_world_state_components<T>(
+    drawable_visual_states: &mut HashMap<(u32, u32), ObjectVisualState>,
+    render_items: &mut Vec<T>,
+    current_pass: &mut Option<RenderPass>,
+    last_frame_time: &mut f32,
+) {
+    drawable_visual_states.clear();
+    render_items.clear();
+    *current_pass = None;
+    *last_frame_time = 0.0;
 }
 
 /// Forward rendering pass powered by the WW3D renderer backend.
@@ -349,6 +444,7 @@ pub(super) enum RenderModelLoadResult {
 mod forward_materials;
 mod forward_render;
 mod pipeline_collect;
+mod pipeline_drawable_state;
 mod pipeline_debug;
 mod pipeline_execute;
 mod pipeline_lifecycle;
@@ -366,6 +462,7 @@ pub const RENDER_PIPELINE_SRC: &str = concat!(
     include_str!("forward_materials.rs"),
     include_str!("forward_render.rs"),
     include_str!("pipeline_collect.rs"),
+    include_str!("pipeline_drawable_state.rs"),
     include_str!("pipeline_debug.rs"),
     include_str!("pipeline_execute.rs"),
     include_str!("pipeline_lifecycle.rs"),

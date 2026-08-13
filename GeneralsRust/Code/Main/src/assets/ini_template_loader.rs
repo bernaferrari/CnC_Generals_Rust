@@ -802,6 +802,15 @@ fn register_weapon_template_from_properties(
         }
     }
 
+    // C++ WeaponTemplateFieldParseTable owns this independently of clip
+    // cadence.  It drives the per-Weapon barrel cursor, so do not silently
+    // collapse a multi-shot barrel into one shot while importing Weapon.ini.
+    if let Some(val) = properties.get("ShotsPerBarrel") {
+        if let Ok(shots) = val.parse::<i32>() {
+            template.shots_per_barrel = shots;
+        }
+    }
+
     // C++: INI::parseDurationUnsignedInt — msec → logic frames (30 FPS).
     if let Some(val) = properties.get("ClipReloadTime") {
         let tokens: Vec<&str> = val.split_whitespace().collect();
@@ -1411,6 +1420,29 @@ End
             ] {
                 assert_ne!(mask & bit, 0, "missing parsed anti-mask bit {bit:#x}");
             }
+        })
+        .expect("weapon store available");
+    }
+
+    #[test]
+    fn weapon_shots_per_barrel_is_retained_from_authored_ini() {
+        let ini_content = r#"
+Weapon __RustShotsPerBarrelExact
+  AttackRange = 100.0
+  PrimaryDamage = 25.0
+  ShotsPerBarrel = 3
+End
+"#;
+
+        assert_eq!(register_weapons_from_ini_text(ini_content), 1);
+        gamelogic::with_weapon_store(|store| {
+            assert_eq!(
+                store
+                    .find_weapon_template("__RustShotsPerBarrelExact")
+                    .expect("registered exact barrel weapon")
+                    .shots_per_barrel,
+                3
+            );
         })
         .expect("weapon store available");
     }

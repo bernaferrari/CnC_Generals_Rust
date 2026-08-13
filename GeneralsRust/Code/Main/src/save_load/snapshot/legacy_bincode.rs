@@ -20,12 +20,14 @@ use std::time::SystemTime;
 /// used by `bincode::serialize`, rather than manually interpreting bytes.
 ///
 /// Every known schema is decoded only through its exact historical record:
-/// v1 has float-only production, v2 predates the HDB channel, and v3 is the
-/// current record.  Unknown versions fail closed rather than relying on field
-/// prefixes or serde defaults.
+/// v1 has float-only production, v2 predates the HDB channel, v3 has HDB but
+/// predates the v4 barrel/discharge/client tails, and v4 is the current
+/// record. Unknown versions fail closed rather than relying on field prefixes
+/// or serde defaults.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum BincodeWorldSnapshotDecodePath {
     Current,
+    LegacyPreV4V3,
     LegacyPreHackerDisableV2,
     LegacyProductionV1,
 }
@@ -39,6 +41,14 @@ pub(crate) fn decode_bincode_world_snapshot(
     match version {
         WORLD_SNAPSHOT_BINCODE_VERSION => bincode_exact::<WorldSnapshot>(payload)
             .map(|snapshot| (snapshot, BincodeWorldSnapshotDecodePath::Current))
+            .map_err(|error| SaveLoadError::Serialization(error.to_string())),
+        3 => bincode_exact::<PreV4WorldSnapshot>(payload)
+            .map(|snapshot| {
+                (
+                    snapshot.into(),
+                    BincodeWorldSnapshotDecodePath::LegacyPreV4V3,
+                )
+            })
             .map_err(|error| SaveLoadError::Serialization(error.to_string())),
         2 => bincode_exact::<PreHackerDisableWorldSnapshot>(payload)
             .map(|snapshot| {
@@ -210,6 +220,56 @@ struct PreHackerDisableObjectSnapshot {
     object_type: ObjectTypeSnapshot,
 }
 
+/// Exact v3 world record.  Version 3 already carried the HDB Object tail,
+/// but its positional outer record ended at `host_upgrades` and its objects
+/// predated the v4 logical barrel/discharge tail.
+///
+/// This must remain a complete mirror instead of using serde defaults on the
+/// live v4 types: bincode would treat the first v4 tail byte as part of the
+/// next enclosing field and silently shift the rest of the record.
+#[derive(Debug, Deserialize, Serialize)]
+struct PreV4WorldSnapshot {
+    version: u32,
+    timestamp: SystemTime,
+    frame_number: u64,
+    random_seed: u64,
+    objects: HashMap<ObjectId, PreV4ObjectSnapshot>,
+    players: Vec<PlayerSnapshot>,
+    teams: Vec<TeamSnapshot>,
+    terrain: TerrainSnapshot,
+    weather: WeatherSnapshot,
+    resource_manager: ResourceManagerSnapshot,
+    combat_tracker: CombatTrackerSnapshot,
+    experience_tracker: ExperienceTrackerSnapshot,
+    pathfinding_cache: PathfindingCacheSnapshot,
+    ai_players: Vec<AIPlayerSnapshot>,
+    global_ai_state: GlobalAIStateSnapshot,
+    special_power_strikes: SpecialPowerStrikeRegistrySnapshot,
+    combat_particles: CombatParticleRegistrySnapshot,
+    host_upgrades: HostUpgradeRegistrySnapshot,
+}
+
+/// Exact v3 object record: the HDB channel was the final positional field
+/// before v4 appended weapon barrel and accepted-discharge state.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+struct PreV4ObjectSnapshot {
+    id: ObjectId,
+    template_name: String,
+    team: Team,
+    player_id: u32,
+    geometry: GeometryInfo,
+    status: ObjectStatusSnapshot,
+    health: Health,
+    movement: Movement,
+    experience: Experience,
+    weapons: Vec<Weapon>,
+    contained_objects: Vec<ObjectId>,
+    container_object: Option<ObjectId>,
+    modules: HashMap<String, ModuleSnapshot>,
+    object_type: ObjectTypeSnapshot,
+    hacker_disable_channel: Option<HackerDisableChannelState>,
+}
+
 impl From<LegacyWorldSnapshot> for WorldSnapshot {
     fn from(snapshot: LegacyWorldSnapshot) -> Self {
         Self {
@@ -237,6 +297,8 @@ impl From<LegacyWorldSnapshot> for WorldSnapshot {
             special_power_strikes: snapshot.special_power_strikes,
             combat_particles: snapshot.combat_particles,
             host_upgrades: snapshot.host_upgrades,
+            next_weapon_discharge_sequence: default_next_weapon_discharge_sequence(),
+            client_drawables: ClientDrawableWorldSnapshot::default(),
         }
     }
 }
@@ -263,6 +325,11 @@ impl From<LegacyObjectSnapshot> for ObjectSnapshot {
                 .collect(),
             object_type: snapshot.object_type,
             hacker_disable_channel: None,
+            weapon_barrel_states: default_weapon_barrel_state_snapshots(),
+            last_weapon_discharge_sequence: 0,
+            last_weapon_discharge_slot: 0,
+            last_weapon_discharge_barrel: 0,
+            last_weapon_discharge_frame: 0,
         }
     }
 }
@@ -342,6 +409,8 @@ impl From<PreHackerDisableWorldSnapshot> for WorldSnapshot {
             special_power_strikes: snapshot.special_power_strikes,
             combat_particles: snapshot.combat_particles,
             host_upgrades: snapshot.host_upgrades,
+            next_weapon_discharge_sequence: default_next_weapon_discharge_sequence(),
+            client_drawables: ClientDrawableWorldSnapshot::default(),
         }
     }
 }
@@ -364,6 +433,69 @@ impl From<PreHackerDisableObjectSnapshot> for ObjectSnapshot {
             modules: snapshot.modules,
             object_type: snapshot.object_type,
             hacker_disable_channel: None,
+            weapon_barrel_states: default_weapon_barrel_state_snapshots(),
+            last_weapon_discharge_sequence: 0,
+            last_weapon_discharge_slot: 0,
+            last_weapon_discharge_barrel: 0,
+            last_weapon_discharge_frame: 0,
+        }
+    }
+}
+
+impl From<PreV4WorldSnapshot> for WorldSnapshot {
+    fn from(snapshot: PreV4WorldSnapshot) -> Self {
+        Self {
+            version: WORLD_SNAPSHOT_BINCODE_VERSION,
+            timestamp: snapshot.timestamp,
+            frame_number: snapshot.frame_number,
+            random_seed: snapshot.random_seed,
+            objects: snapshot
+                .objects
+                .into_iter()
+                .map(|(id, object)| (id, object.into()))
+                .collect(),
+            players: snapshot.players,
+            teams: snapshot.teams,
+            terrain: snapshot.terrain,
+            weather: snapshot.weather,
+            resource_manager: snapshot.resource_manager,
+            combat_tracker: snapshot.combat_tracker,
+            experience_tracker: snapshot.experience_tracker,
+            pathfinding_cache: snapshot.pathfinding_cache,
+            ai_players: snapshot.ai_players,
+            global_ai_state: snapshot.global_ai_state,
+            special_power_strikes: snapshot.special_power_strikes,
+            combat_particles: snapshot.combat_particles,
+            host_upgrades: snapshot.host_upgrades,
+            next_weapon_discharge_sequence: default_next_weapon_discharge_sequence(),
+            client_drawables: ClientDrawableWorldSnapshot::default(),
+        }
+    }
+}
+
+impl From<PreV4ObjectSnapshot> for ObjectSnapshot {
+    fn from(snapshot: PreV4ObjectSnapshot) -> Self {
+        Self {
+            id: snapshot.id,
+            template_name: snapshot.template_name,
+            team: snapshot.team,
+            player_id: snapshot.player_id,
+            geometry: snapshot.geometry,
+            status: snapshot.status,
+            health: snapshot.health,
+            movement: snapshot.movement,
+            experience: snapshot.experience,
+            weapons: snapshot.weapons,
+            contained_objects: snapshot.contained_objects,
+            container_object: snapshot.container_object,
+            modules: snapshot.modules,
+            object_type: snapshot.object_type,
+            hacker_disable_channel: snapshot.hacker_disable_channel,
+            weapon_barrel_states: default_weapon_barrel_state_snapshots(),
+            last_weapon_discharge_sequence: 0,
+            last_weapon_discharge_slot: 0,
+            last_weapon_discharge_barrel: 0,
+            last_weapon_discharge_frame: 0,
         }
     }
 }
@@ -524,6 +656,64 @@ impl From<ObjectSnapshot> for PreHackerDisableObjectSnapshot {
             object_type: snapshot.object_type,
         }
     }
+}
+
+#[cfg(test)]
+impl From<WorldSnapshot> for PreV4WorldSnapshot {
+    fn from(snapshot: WorldSnapshot) -> Self {
+        Self {
+            version: 3,
+            timestamp: snapshot.timestamp,
+            frame_number: snapshot.frame_number,
+            random_seed: snapshot.random_seed,
+            objects: snapshot
+                .objects
+                .into_iter()
+                .map(|(id, object)| (id, object.into()))
+                .collect(),
+            players: snapshot.players,
+            teams: snapshot.teams,
+            terrain: snapshot.terrain,
+            weather: snapshot.weather,
+            resource_manager: snapshot.resource_manager,
+            combat_tracker: snapshot.combat_tracker,
+            experience_tracker: snapshot.experience_tracker,
+            pathfinding_cache: snapshot.pathfinding_cache,
+            ai_players: snapshot.ai_players,
+            global_ai_state: snapshot.global_ai_state,
+            special_power_strikes: snapshot.special_power_strikes,
+            combat_particles: snapshot.combat_particles,
+            host_upgrades: snapshot.host_upgrades,
+        }
+    }
+}
+
+#[cfg(test)]
+impl From<ObjectSnapshot> for PreV4ObjectSnapshot {
+    fn from(snapshot: ObjectSnapshot) -> Self {
+        Self {
+            id: snapshot.id,
+            template_name: snapshot.template_name,
+            team: snapshot.team,
+            player_id: snapshot.player_id,
+            geometry: snapshot.geometry,
+            status: snapshot.status,
+            health: snapshot.health,
+            movement: snapshot.movement,
+            experience: snapshot.experience,
+            weapons: snapshot.weapons,
+            contained_objects: snapshot.contained_objects,
+            container_object: snapshot.container_object,
+            modules: snapshot.modules,
+            object_type: snapshot.object_type,
+            hacker_disable_channel: snapshot.hacker_disable_channel,
+        }
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn serialize_pre_v4_v3_fixture(snapshot: WorldSnapshot) -> bincode::Result<Vec<u8>> {
+    bincode::serialize(&PreV4WorldSnapshot::from(snapshot))
 }
 
 #[cfg(test)]

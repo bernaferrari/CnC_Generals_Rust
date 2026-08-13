@@ -666,7 +666,7 @@ impl GameLogic {
         weapon.reload_time = delay_frames_to_reload_secs(delay);
         weapon.can_target_ground = true;
         weapon.can_target_air = false;
-        obj.weapon = Some(weapon);
+        let _ = obj.replace_weapon_set_slot(0, Some(weapon));
         obj.record_host_weapon_stats();
 
         // Tag residual crate upgrade for tier inference.
@@ -929,7 +929,7 @@ impl GameLogic {
         }
         obj.applied_upgrades
             .insert(UPGRADE_CHINA_BLACK_NAPALM.to_string());
-        obj.weapon = Some(dragon_flame_weapon(true));
+        let _ = obj.replace_weapon_set_slot(0, Some(dragon_flame_weapon(true)));
         self.dragon_tank_residual_black_napalm_upgrades = self
             .dragon_tank_residual_black_napalm_upgrades
             .saturating_add(1);
@@ -959,6 +959,8 @@ impl GameLogic {
             .insert(UPGRADE_CHINA_CHAIN_GUNS.to_string());
         let level = GattlingFireLevel::from_u8(obj.continuous_fire_level);
         if is_tank {
+            // Chain Guns is a C++ WeaponBonusUpgrade, so it must retain the
+            // live weapon/barrel state rather than rebind the WeaponSet.
             obj.weapon = Some(gattling_ground_weapon(level, true));
             obj.secondary_weapon = Some(gattling_air_weapon(level, true));
             self.gattling_tank_residual_chain_gun_upgrades = self
@@ -1418,7 +1420,7 @@ impl GameLogic {
         weapon.projectile_speed = speed;
         weapon.can_target_ground = true;
         weapon.can_target_air = false;
-        obj.weapon = Some(weapon);
+        let _ = obj.replace_weapon_set_slot(0, Some(weapon));
         obj.record_host_weapon_stats();
 
         obj.applied_upgrades.remove("WEAPONSET_CRATEUPGRADE_ONE");
@@ -1802,7 +1804,7 @@ impl GameLogic {
         let last_fire = obj.weapon.as_ref().map(|w| w.last_fire_time).unwrap_or(0.0);
         let mut gun = scorpion_gun_weapon(tier);
         gun.last_fire_time = last_fire;
-        obj.weapon = Some(gun);
+        let _ = obj.replace_weapon_set_slot(0, Some(gun));
 
         if has_scorpion_rocket_upgrade(&obj.applied_upgrades) {
             let ap = has_ap_rockets_upgrade(&obj.applied_upgrades);
@@ -1813,7 +1815,11 @@ impl GameLogic {
                 .unwrap_or(0.0);
             let mut missile = scorpion_missile_weapon(ap, tier.dual_missile_clip());
             missile.last_fire_time = sec_last;
-            obj.secondary_weapon = Some(missile);
+            // Salvage changes the selected C++ WeaponSet.  Even when AP
+            // Rockets also contributes its in-place stats, this concrete
+            // secondary Weapon instance was rebuilt and starts with a fresh
+            // barrel cursor.
+            let _ = obj.replace_weapon_set_slot(1, Some(missile));
         }
 
         self.scorpion_residual_salvage_upgrades =
@@ -1838,7 +1844,10 @@ impl GameLogic {
             .insert(UPGRADE_GLA_SCORPION_ROCKET.to_string());
         let tier = salvage_tier_from_upgrades(&obj.applied_upgrades);
         let ap = has_ap_rockets_upgrade(&obj.applied_upgrades);
-        obj.secondary_weapon = Some(scorpion_missile_weapon(ap, tier.dual_missile_clip()));
+        let _ = obj.replace_weapon_set_slot(
+            1,
+            Some(scorpion_missile_weapon(ap, tier.dual_missile_clip())),
+        );
         self.scorpion_residual_rocket_upgrades =
             self.scorpion_residual_rocket_upgrades.saturating_add(1);
         true
@@ -1868,6 +1877,9 @@ impl GameLogic {
                 .unwrap_or(0.0);
             let mut missile = scorpion_missile_weapon(true, tier.dual_missile_clip());
             missile.last_fire_time = sec_last;
+            // AP Rockets is a C++ WeaponBonus upgrade layered onto the
+            // selected Scorpion Rocket WeaponSet; preserve its live barrel
+            // cursor while refreshing the boosted stats.
             obj.secondary_weapon = Some(missile);
         }
         true

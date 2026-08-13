@@ -384,6 +384,97 @@ pub struct Player {
     pub shared_special_power_cooldowns: HashMap<crate::command_system::SpecialPowerType, f32>,
 }
 
+/// Main-owned identity of the C++ `PlayerTemplate` that constructed a host
+/// player.  A base [`Team`] remains a compatibility/faction-routing value; it
+/// is not sufficient to represent a Zero Hour General.
+///
+/// Challenge selection is position-sensitive in C++ (`GameSlot` stores the
+/// selected PlayerTemplate index), so an indexed identity validates both the
+/// retained index and canonical template name on every resolution.  Ordinary
+/// campaign entries carry the exact name only.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlayerTemplateIdentity {
+    pub template_name: String,
+    pub template_index: Option<i32>,
+}
+
+impl PlayerTemplateIdentity {
+    /// Resolve an ordinary Campaign `PlayerFaction` only when it names an
+    /// exact PlayerTemplate.  A bare base-side label that is not a template is
+    /// deliberately not guessed into a selected General.
+    pub fn from_exact_name(template_name: &str) -> Option<Self> {
+        let template_name = template_name.trim();
+        if template_name.is_empty() {
+            return None;
+        }
+
+        game_engine::common::ini::ensure_player_templates_loaded();
+        let store = game_engine::common::rts::player_template::get_player_template_store();
+        let template = store.find_template(template_name)?;
+        Some(Self {
+            template_name: template.get_name().to_string(),
+            template_index: None,
+        })
+    }
+
+    /// Resolve a Challenge selection only when its retained slot still names
+    /// the exact template selected by the shell.  Name-only lookup would let a
+    /// reordered PlayerTemplate store launch a plausible but wrong General.
+    pub fn from_exact_indexed_name(template_name: &str, template_index: i32) -> Option<Self> {
+        let template_name = template_name.trim();
+        if template_name.is_empty() {
+            return None;
+        }
+
+        game_engine::common::ini::ensure_player_templates_loaded();
+        let store = game_engine::common::rts::player_template::get_player_template_store();
+        let template = store.get_nth_player_template_signed(template_index)?;
+        (template.get_name() == template_name).then(|| Self {
+            template_name: template.get_name().to_string(),
+            template_index: Some(template_index),
+        })
+    }
+
+    /// Re-resolve the immutable Common store record at the GameLogic authority
+    /// boundary.  Returning a clone keeps the store lock short and gives the
+    /// host only source-authored PlayerTemplate fields.
+    pub fn resolve(&self) -> Option<game_engine::common::rts::player_template::PlayerTemplate> {
+        game_engine::common::ini::ensure_player_templates_loaded();
+        let store = game_engine::common::rts::player_template::get_player_template_store();
+        match self.template_index {
+            Some(index) => store
+                .get_nth_player_template_signed(index)
+                .filter(|template| template.get_name() == self.template_name)
+                .cloned(),
+            None => store.find_template(&self.template_name).cloned(),
+        }
+    }
+
+    /// Main's current Team enum represents only the three C++ base sides.
+    /// Keep that conversion exact and reject observer/civilian/Boss identities
+    /// rather than silently choosing a different General.
+    pub fn base_team(&self) -> Option<Team> {
+        let template = self.resolve()?;
+        Self::team_for_template(&template)
+    }
+
+    pub(crate) fn team_for_template(
+        template: &game_engine::common::rts::player_template::PlayerTemplate,
+    ) -> Option<Team> {
+        Self::team_from_side(template.get_base_side())
+            .or_else(|| Self::team_from_side(template.get_side()))
+    }
+
+    fn team_from_side(value: &str) -> Option<Team> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "usa" | "us" | "america" | "factionamerica" => Some(Team::USA),
+            "china" | "factionchina" => Some(Team::China),
+            "gla" | "factiongla" => Some(Team::GLA),
+            _ => None,
+        }
+    }
+}
+
 impl Player {
     /// C&C Generals default starting money is $10,000 (Normal difficulty).
     /// Matches the `StartingMoney::Normal` variant from the LAN API game-info crate.
@@ -910,6 +1001,52 @@ impl Player {
         }
     }
 
+    /// C++ `Player::init(PlayerTemplate)` followed by `resetRank` /
+    /// `resetSciences` for a concrete Campaign or Challenge General.
+    ///
+    /// The caller has already resolved the exact template identity.  Unlike
+    /// the base-team fallback above, this preserves every authored intrinsic
+    /// science and its template purchase-point grant before adding the Rank1
+    /// grant.  Template money of zero retains Main's current GameInfo/default
+    /// starting cash, matching the C++ fallback.
+    pub(crate) fn apply_player_template_start_state(
+        &mut self,
+        template: &game_engine::common::rts::player_template::PlayerTemplate,
+    ) {
+        use crate::game_logic::host_science_rank::{
+            retail_rank_for_level, RANK_SCIENCE_POINTS_DEFAULT, SCIENCE_RANK1,
+        };
+
+        let starting_money = template.get_money().count_money();
+        if starting_money != 0 {
+            self.resources.supplies = starting_money;
+        }
+
+        let color = template.get_preferred_color();
+        self.color_rgb = (
+            ((color >> 16) & 0xff) as u8,
+            ((color >> 8) & 0xff) as u8,
+            (color & 0xff) as u8,
+        );
+        self.is_alive = !template.is_observer();
+
+        self.rank_level = 1;
+        self.skill_points = 0;
+        self.unlocked_sciences.clear();
+        self.unlocked_sciences
+            .extend(template.get_intrinsic_sciences().iter().cloned());
+        self.unlocked_sciences.insert(SCIENCE_RANK1.to_string());
+
+        let rank1_grant = retail_rank_for_level(1)
+            .map(|rank| rank.science_purchase_points_granted)
+            .unwrap_or(RANK_SCIENCE_POINTS_DEFAULT);
+        self.science_purchase_points = template
+            .get_intrinsic_science_purchase_points()
+            .saturating_add(rank1_grant);
+        self.record_host_sciences();
+        self.record_host_progress();
+    }
+
     /// C++ Player::isCapableOfPurchasingScience residual.
     pub fn is_capable_of_purchasing_science(&self, science_name: &str) -> bool {
         crate::game_logic::host_sp_science_upgrade_player_team_residual_wave109::is_capable_of_purchasing_science_residual(
@@ -1162,6 +1299,13 @@ pub struct GameLogic {
 
     /// Players in the game
     players: HashMap<u32, Player>,
+    /// Exact Campaign/Challenge PlayerTemplate binding for each host player.
+    ///
+    /// This is deliberately GameLogic session state rather than a `Player`
+    /// field until the shared save schema owns its Xfer representation.  It is
+    /// reset with a match, survives the existing SP/skirmish map-load preserve
+    /// path, and never mutates GameNetwork.
+    player_template_bindings: HashMap<u32, PlayerTemplateIdentity>,
 
     /// Object ID counter
     next_object_id: ObjectId,
@@ -1170,6 +1314,16 @@ pub struct GameLogic {
 
     /// Simulation frame counter
     pub(crate) frame: u32,
+
+    /// Next unused sequence for an actual accepted WeaponSet discharge.
+    ///
+    /// This is logical-world state, not renderer cadence. Sequence zero stays
+    /// reserved for an Object with no accepted discharge marker.
+    next_weapon_discharge_sequence: u64,
+    /// Host-only, presentation-facing accepted-discharge queue. It is not
+    /// serialized: the durable Object marker + counter establish restore
+    /// baselines, while pre-save transient cues must not replay after load.
+    weapon_discharge_log: crate::game_logic::host_weapon_discharge_log::HostWeaponDischargeLog,
 
     /// Game mode
     game_mode: GameMode,
@@ -3288,6 +3442,14 @@ pub enum SessionControlOp {
         faction_team: Team,
         setup_skirmish_ai: bool,
     },
+    /// Selected Campaign/Challenge PlayerTemplate start.  This is separate
+    /// from the Team-only compatibility path so ordinary/skirmish callers
+    /// cannot accidentally inherit a stale General identity.
+    StartNewGameWithPlayerTemplate {
+        mode: GameMode,
+        player_id: u32,
+        player_template: PlayerTemplateIdentity,
+    },
     Reset,
     OverrideWorldSize {
         width: f32,
@@ -3732,9 +3894,13 @@ impl GameLogic {
             objects: HostObjectStore::new(),
             host_view_dirty: HashSet::new(),
             players: HashMap::new(),
+            player_template_bindings: HashMap::new(),
             next_object_id: ObjectId(1), // Start at 1, 0 is invalid
             next_formation_id: 1,
             frame: 0,
+            next_weapon_discharge_sequence: 1,
+            weapon_discharge_log:
+                crate::game_logic::host_weapon_discharge_log::HostWeaponDischargeLog::default(),
             game_mode: GameMode::None,
             skirmish_rules: SkirmishRulesState::default(),
             world_width,
@@ -4329,9 +4495,12 @@ impl GameLogic {
         self.objects.clear();
         self.host_view_dirty.clear();
         self.players.clear();
+        self.player_template_bindings.clear();
         self.next_object_id = ObjectId(1);
         self.next_formation_id = 1;
         self.frame = 0;
+        self.next_weapon_discharge_sequence = 1;
+        self.weapon_discharge_log.clear();
         self.objects_to_destroy.clear();
         self.accepted_gather_commands.clear();
         self.supply_dropoff_events.clear();

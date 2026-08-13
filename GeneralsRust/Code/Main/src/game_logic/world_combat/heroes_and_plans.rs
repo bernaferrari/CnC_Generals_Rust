@@ -610,8 +610,8 @@ impl GameLogic {
                         let _ = STRATEGY_CENTER_SEARCH_AND_DESTROY_SIGHT_SCALAR;
                     }
                     HostBattlePlan::Bombardment => {
-                        center.weapon = None;
-                        center.secondary_weapon = None;
+                        let _ = center.replace_weapon_set_slot(0, None);
+                        let _ = center.replace_weapon_set_slot(1, None);
                         center.stop_attack();
                         // Cancel TurretAI idle-scan / Hold residual when gun unequips.
                         center.turret_idle_scanning = false;
@@ -791,11 +791,11 @@ impl GameLogic {
                         }
                         HostBattlePlan::Bombardment => {
                             // C++ enableTurret(true) after unpack ACTIVE.
-                            center.weapon = Some(
+                            let _ = center.replace_weapon_set_slot(0, Some(
                                 crate::game_logic::host_strategy_center::strategy_center_gun_weapon(
                                 ),
-                            );
-                            center.secondary_weapon = None;
+                            ));
+                            let _ = center.replace_weapon_set_slot(1, None);
                             // TurretAI idle-scan residual: schedule first idle scan
                             // after MinIdleScanInterval (scan_index 0 → 15 frames).
                             center.turret_idle_scan_index = 0;

@@ -142,12 +142,37 @@ impl SaveFileManager {
         game_logic: &GameLogic,
         save_info: &SaveGameInfo,
     ) -> SaveLoadResult<()> {
+        // Non-host callers deliberately remain logic-only.  The authoritative
+        // CnCGameEngine path captures its renderer-owned companion explicitly
+        // through the companion-aware API below.
+        self.save_game_with_client_drawable_snapshot(
+            filename,
+            game_logic,
+            ClientDrawableWorldSnapshot::default(),
+            save_info,
+        )
+    }
+
+    /// Save a WorldSnapshot with an explicitly captured renderer companion.
+    ///
+    /// SnapshotBuilder owns only GameLogic, so it must not reach into live
+    /// renderer/global state.  The host captures the DTO at its authority
+    /// boundary, passes it here, and this method attaches it before the normal
+    /// Common `.sav` writer serializes the exact v4 positional record.
+    pub fn save_game_with_client_drawable_snapshot(
+        &mut self,
+        filename: &str,
+        game_logic: &GameLogic,
+        client_drawables: ClientDrawableWorldSnapshot,
+        save_info: &SaveGameInfo,
+    ) -> SaveLoadResult<()> {
         let save_path = self.get_save_path(filename);
         let temp_path = self.get_temp_path(&format!("{}_temp", filename));
 
         // Create snapshot of current game state
         let snapshot_builder = SnapshotBuilder::new();
-        let world_snapshot = snapshot_builder.create_world_snapshot(game_logic)?;
+        let mut world_snapshot = snapshot_builder.create_world_snapshot(game_logic)?;
+        world_snapshot.client_drawables = client_drawables;
 
         // Save to temporary file first
         self.save_to_file(&temp_path, &world_snapshot, save_info)?;
@@ -556,11 +581,16 @@ impl SaveFileManager {
     /// at each outer container call site.
     fn decode_world_snapshot_payload(payload: &[u8]) -> SaveLoadResult<WorldSnapshot> {
         let (snapshot, path) = decode_bincode_world_snapshot(payload)?;
-        if matches!(path, BincodeWorldSnapshotDecodePath::LegacyProductionV1) {
-            log::info!(
-                "Migrated legacy production bincode snapshot into schema v{}",
-                WORLD_SNAPSHOT_BINCODE_VERSION
-            );
+        match path {
+            BincodeWorldSnapshotDecodePath::Current => {}
+            BincodeWorldSnapshotDecodePath::LegacyProductionV1
+            | BincodeWorldSnapshotDecodePath::LegacyPreHackerDisableV2
+            | BincodeWorldSnapshotDecodePath::LegacyPreV4V3 => {
+                log::info!(
+                    "Migrated legacy bincode WorldSnapshot ({path:?}) into schema v{}",
+                    WORLD_SNAPSHOT_BINCODE_VERSION
+                );
+            }
         }
         Ok(snapshot)
     }
@@ -922,6 +952,12 @@ mod tests {
 
     fn assert_legacy_production_migrated(snapshot: &WorldSnapshot, barracks_id: ObjectId) {
         assert_eq!(snapshot.version, WORLD_SNAPSHOT_BINCODE_VERSION);
+        assert_eq!(
+            snapshot.next_weapon_discharge_sequence,
+            default_next_weapon_discharge_sequence(),
+            "v1/v2 records predate the v4 world tail"
+        );
+        assert!(snapshot.client_drawables.drawables.is_empty());
         let object = snapshot
             .objects
             .get(&barracks_id)
@@ -952,6 +988,49 @@ mod tests {
         assert_eq!(production.exit_burst_remaining, 0);
         assert!(!production.queue_exit_state_initialized);
         assert!(object.hacker_disable_channel.is_none());
+        assert_eq!(
+            object.weapon_barrel_states,
+            default_weapon_barrel_state_snapshots()
+        );
+        assert_eq!(object.last_weapon_discharge_sequence, 0);
+        assert_eq!(object.last_weapon_discharge_slot, 0);
+        assert_eq!(object.last_weapon_discharge_barrel, 0);
+        assert_eq!(object.last_weapon_discharge_frame, 0);
+    }
+
+    fn assert_pre_v4_v3_migrated(snapshot: &WorldSnapshot, barracks_id: ObjectId) {
+        assert_eq!(snapshot.version, WORLD_SNAPSHOT_BINCODE_VERSION);
+        assert_eq!(
+            snapshot.next_weapon_discharge_sequence,
+            default_next_weapon_discharge_sequence(),
+            "v3 ended before the v4 world tail"
+        );
+        assert!(
+            snapshot.client_drawables.drawables.is_empty(),
+            "v3 must default the renderer companion rather than replay stale visuals"
+        );
+        let object = snapshot
+            .objects
+            .get(&barracks_id)
+            .expect("v3 migration must retain its producer");
+        assert_eq!(
+            object.hacker_disable_channel,
+            Some(HackerDisableChannelState::new(
+                ObjectId(77),
+                HackerDisableChannelPhase::Preparing,
+                1_500,
+            )),
+            "v3 must retain its final HDB object tail"
+        );
+        assert_eq!(
+            object.weapon_barrel_states,
+            default_weapon_barrel_state_snapshots(),
+            "v3 must not reinterpret pre-v4 bytes as barrel cursors"
+        );
+        assert_eq!(object.last_weapon_discharge_sequence, 0);
+        assert_eq!(object.last_weapon_discharge_slot, 0);
+        assert_eq!(object.last_weapon_discharge_barrel, 0);
+        assert_eq!(object.last_weapon_discharge_frame, 0);
     }
 
     fn gzhs_fixture_bytes(save_info: &SaveGameInfo, decompressed_payload: &[u8]) -> Vec<u8> {
@@ -1049,7 +1128,7 @@ mod tests {
 
         // Schema v2 already had production frames and Queue exit state, but
         // its ObjectSnapshot predates the appended Hacker Disable channel.
-        // Decode it via its exact mirror instead of allowing the current v3
+        // Decode it via its exact mirror instead of allowing the current v4
         // object decoder to consume the following world fields as an Option.
         let (v2_source, v2_source_path) =
             decode_bincode_world_snapshot(&legacy_payload).expect("rebuild source for v2 fixture");
@@ -1070,6 +1149,40 @@ mod tests {
             BincodeWorldSnapshotDecodePath::LegacyPreHackerDisableV2
         );
         assert_legacy_production_migrated(&v2_migrated, barracks_id);
+
+        // Version 3 was current before the v4 logical barrel/discharge and
+        // renderer companion tails. It did include HDB, so this genuine
+        // historical-shape fixture proves we choose its exact outer/Object
+        // mirrors rather than trusting positional serde defaults.
+        let mut v3_source = v2_migrated;
+        let v3_object = v3_source
+            .objects
+            .get_mut(&barracks_id)
+            .expect("v3 fixture producer");
+        v3_object.hacker_disable_channel = Some(HackerDisableChannelState::new(
+            ObjectId(77),
+            HackerDisableChannelPhase::Preparing,
+            1_500,
+        ));
+        v3_object.weapon_barrel_states[1] = WeaponBarrelStateSnapshot {
+            current_barrel: 2,
+            shots_left_on_barrel: 7,
+        };
+        v3_object.last_weapon_discharge_sequence = 91;
+        v3_object.last_weapon_discharge_slot = 1;
+        v3_object.last_weapon_discharge_barrel = 2;
+        v3_object.last_weapon_discharge_frame = 4_200;
+        v3_source.next_weapon_discharge_sequence = 92;
+        let v3_payload =
+            serialize_pre_v4_v3_fixture(v3_source).expect("serialize exact predecessor v3 fixture");
+        assert!(
+            bincode::deserialize::<WorldSnapshot>(&v3_payload).is_err(),
+            "the current v4 record must not consume a v3 positional payload"
+        );
+        let (v3_migrated, v3_path) = decode_bincode_world_snapshot(&v3_payload)
+            .expect("pre-v4 v3 payload should migrate through its exact mirror");
+        assert_eq!(v3_path, BincodeWorldSnapshotDecodePath::LegacyPreV4V3);
+        assert_pre_v4_v3_migrated(&v3_migrated, barracks_id);
 
         // The old float is converted at the first real production update,
         // where the restored template and live power factor are available.
@@ -1094,7 +1207,7 @@ mod tests {
             136
         );
 
-        // A re-save is tagged v3 and uses the current record directly.  Its
+        // A re-save is tagged v4 and uses the current record directly. Its
         // HDB channel must survive independently of older production layouts.
         migrated
             .objects
@@ -1105,6 +1218,32 @@ mod tests {
             HackerDisableChannelPhase::Preparing,
             1_500,
         ));
+        let current_object = migrated
+            .objects
+            .get_mut(&barracks_id)
+            .expect("migrated producer for current v4 tails");
+        current_object.weapon_barrel_states[0] = WeaponBarrelStateSnapshot {
+            current_barrel: 2,
+            shots_left_on_barrel: 3,
+        };
+        current_object.last_weapon_discharge_sequence = 88;
+        current_object.last_weapon_discharge_slot = 0;
+        current_object.last_weapon_discharge_barrel = 2;
+        current_object.last_weapon_discharge_frame = 7_777;
+        migrated.next_weapon_discharge_sequence = 89;
+        migrated
+            .client_drawables
+            .drawables
+            .push(ClientDrawableStateSnapshot {
+                object_id: barracks_id.0,
+                draw_module_index: 1,
+                source_template_name: "LegacyBarracks".to_string(),
+                model_key: "UVLegacyBarracks".to_string(),
+                selected_condition_state_index: 2,
+                animation: None,
+                last_seen_weapon_discharge_sequence: 88,
+                recoil_slots: std::array::from_fn(|_| Vec::new()),
+            });
         let current_payload = bincode::serialize(&migrated).expect("serialize current snapshot");
         let (current_round_trip, current_path) = decode_bincode_world_snapshot(&current_payload)
             .expect("current production snapshot should remain readable");
@@ -1120,6 +1259,27 @@ mod tests {
                 HackerDisableChannelPhase::Preparing,
                 1_500,
             ))
+        );
+        let current_object = current_round_trip
+            .objects
+            .get(&barracks_id)
+            .expect("current object tails");
+        assert_eq!(
+            current_object.weapon_barrel_states[0],
+            WeaponBarrelStateSnapshot {
+                current_barrel: 2,
+                shots_left_on_barrel: 3,
+            }
+        );
+        assert_eq!(current_object.last_weapon_discharge_sequence, 88);
+        assert_eq!(current_object.last_weapon_discharge_slot, 0);
+        assert_eq!(current_object.last_weapon_discharge_barrel, 2);
+        assert_eq!(current_object.last_weapon_discharge_frame, 7_777);
+        assert_eq!(current_round_trip.next_weapon_discharge_sequence, 89);
+        assert_eq!(current_round_trip.client_drawables.drawables.len(), 1);
+        assert_eq!(
+            current_round_trip.client_drawables.drawables[0].last_seen_weapon_discharge_sequence,
+            88
         );
 
         let mut future_payload = current_payload.clone();
@@ -1145,6 +1305,18 @@ mod tests {
         let (common_snapshot, _) = SaveFileManager::read_common_sav_chunks(&common_chunks)
             .expect("Common fixture should migrate legacy payload");
         assert_legacy_production_migrated(&common_snapshot, barracks_id);
+
+        // V3 must choose the same exact migration path through the native
+        // Common container, not only when decoding a raw test payload.
+        let v3_common_chunks = SaveFileManager::write_common_sav_chunks_with_payload(
+            &migrated,
+            &save_info,
+            v3_payload.clone(),
+        )
+        .expect("encode Common v3 fixture");
+        let (v3_common_snapshot, _) = SaveFileManager::read_common_sav_chunks(&v3_common_chunks)
+            .expect("Common fixture should migrate v3 payload");
+        assert_pre_v4_v3_migrated(&v3_common_snapshot, barracks_id);
 
         // The GZHS wrapper can contain a Common GameState body or the original
         // raw WorldSnapshot body; both call the same migration seam.
@@ -1177,8 +1349,35 @@ mod tests {
             .expect("raw GZHS fixture should migrate legacy payload");
         assert_legacy_production_migrated(&raw_snapshot, barracks_id);
 
+        let v3_wrapped_common = SaveFileManager::encode_common_game_state_with_payload(
+            &migrated,
+            &save_info,
+            v3_payload.clone(),
+        )
+        .expect("encode GZHS Common v3 payload");
+        let v3_wrapped_path = fixture_directory.join("v3_common.gen");
+        std::fs::write(
+            &v3_wrapped_path,
+            gzhs_fixture_bytes(&save_info, &v3_wrapped_common),
+        )
+        .expect("write GZHS Common v3 fixture");
+        let (v3_wrapped_snapshot, _) = manager
+            .load_from_file(&v3_wrapped_path)
+            .expect("GZHS Common fixture should migrate v3 payload");
+        assert_pre_v4_v3_migrated(&v3_wrapped_snapshot, barracks_id);
+
+        let v3_raw_path = fixture_directory.join("v3_raw.gen");
+        std::fs::write(&v3_raw_path, gzhs_fixture_bytes(&save_info, &v3_payload))
+            .expect("write raw GZHS v3 fixture");
+        let (v3_raw_snapshot, _) = manager
+            .load_from_file(&v3_raw_path)
+            .expect("raw GZHS fixture should migrate v3 payload");
+        assert_pre_v4_v3_migrated(&v3_raw_snapshot, barracks_id);
+
         let _ = std::fs::remove_file(wrapped_path);
         let _ = std::fs::remove_file(raw_path);
+        let _ = std::fs::remove_file(v3_wrapped_path);
+        let _ = std::fs::remove_file(v3_raw_path);
         let _ = std::fs::remove_dir(fixture_directory);
     }
 }

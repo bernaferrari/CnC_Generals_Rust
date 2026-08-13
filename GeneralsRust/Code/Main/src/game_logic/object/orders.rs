@@ -764,7 +764,7 @@ impl Object {
         self.has_overlord_gattling_addon = true;
         self.weapon_set_player_upgrade = true;
         let chain = has_chain_guns_upgrade(&self.applied_upgrades);
-        self.secondary_weapon = Some(overlord_gattling_air_weapon(0, chain));
+        let _ = self.replace_weapon_set_slot(1, Some(overlord_gattling_air_weapon(0, chain)));
         self.continuous_fire_consecutive = 0;
         self.continuous_fire_level = 0;
         self.continuous_fire_coast_until_frame = 0;

@@ -1344,12 +1344,15 @@ impl GameLogic {
                 };
                 if need_dummy {
                     // Combat Chinook + Listening Outpost share ListeningOutpost dummy.
-                    container.weapon = Some(if is_combat_chinook || is_listening_outpost {
-                        crate::game_logic::host_combat_chinook::listening_outpost_upgraded_dummy_weapon(
-                        )
-                    } else {
-                        crate::game_logic::host_battle_bus::battle_bus_passenger_dummy_weapon()
-                    });
+                    let _ = container.replace_weapon_set_slot(
+                        0,
+                        Some(if is_combat_chinook || is_listening_outpost {
+                            crate::game_logic::host_combat_chinook::listening_outpost_upgraded_dummy_weapon(
+                            )
+                        } else {
+                            crate::game_logic::host_battle_bus::battle_bus_passenger_dummy_weapon()
+                        }),
+                    );
                 }
                 newly_upgraded = !was_upgraded;
             } else if was_upgraded {
@@ -1363,7 +1366,7 @@ impl GameLogic {
                     })
                     .unwrap_or(false)
                 {
-                    container.weapon = None;
+                    let _ = container.replace_weapon_set_slot(0, None);
                 }
             }
         }

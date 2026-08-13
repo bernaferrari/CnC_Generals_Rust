@@ -288,6 +288,64 @@ pub(crate) struct StartupNewGameDispatch {
     pub(crate) max_fps: Option<i32>,
 }
 
+/// Fully resolved Main-owned match-start payload.
+///
+/// Replacing the old positional `(mode, faction, map, skirmish)` tuple keeps a
+/// selected Campaign/Challenge PlayerTemplate attached to every NewGame drain.
+/// Direct runtime/UI callers must use [`Self::without_player_template`] so a
+/// normal or skirmish start cannot inherit stale selection state.
+#[derive(Debug, Clone)]
+pub(super) struct HostStartRequest {
+    pub(super) mode: GameMode,
+    pub(super) faction: String,
+    pub(super) map: String,
+    pub(super) skirmish: Option<crate::skirmish_config::SkirmishMatchConfig>,
+    pub(super) player_template: Option<crate::game_logic::PlayerTemplateIdentity>,
+}
+
+impl HostStartRequest {
+    pub(super) fn without_player_template(
+        mode: GameMode,
+        faction: String,
+        map: String,
+        skirmish: Option<crate::skirmish_config::SkirmishMatchConfig>,
+    ) -> Self {
+        Self {
+            mode,
+            faction,
+            map,
+            skirmish,
+            player_template: None,
+        }
+    }
+
+    pub(super) fn with_player_template(
+        mode: GameMode,
+        faction: String,
+        map: String,
+        skirmish: Option<crate::skirmish_config::SkirmishMatchConfig>,
+        player_template: crate::game_logic::PlayerTemplateIdentity,
+    ) -> Self {
+        Self {
+            mode,
+            faction,
+            map,
+            skirmish,
+            player_template: Some(player_template),
+        }
+    }
+}
+
+/// Main extraction of the generation-matched GameClient campaign descriptor.
+/// The bridge stays responsible for publication/lifetime matching; this type
+/// owns only the authoritative start fields that must survive to GameLogic.
+#[derive(Debug, Clone, Default)]
+pub(super) struct CampaignLaunchStartOverrides {
+    pub(super) map: Option<String>,
+    pub(super) faction: Option<String>,
+    pub(super) player_template: Option<crate::game_logic::PlayerTemplateIdentity>,
+}
+
 /// Parsed `FIRE_WEAPON` data retained while the player chooses a target.
 ///
 /// C++ keeps both fields on its pending CommandButton and selects the final
@@ -372,6 +430,25 @@ pub(super) enum PendingMapCommand {
     PlaceBeacon,
     /// Unit special-ability residual awaiting object/map click.
     UnitAbility(PendingUnitAbility),
+}
+
+/// What the active left-button gesture must do once it is released.
+///
+/// C++ routes physical world clicks through `PlaceEventTranslator`,
+/// `GUICommandTranslator`, `SelectionTranslator`, and `CommandTranslator` in
+/// that order.  Main receives the OS edge directly, so it retains this tiny
+/// per-gesture decision rather than treating alternate mouse as a blind button
+/// swap.  In particular, an armed map/build command stays on LMB in both
+/// mouse layouts, while classic (non-alternate) LMB context commands wait long
+/// enough to yield to a selection-box drag.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) enum LeftMouseReleaseBehavior {
+    #[default]
+    Selection,
+    ContextCommand,
+    /// A target/action was already consumed on the press edge, so its release
+    /// must not clear the selection or issue a second command.
+    Suppress,
 }
 
 /// ControlBar unit ability that needs a target click residual.
@@ -761,12 +838,21 @@ pub struct CnCGameEngine {
     pub(crate) sticky_waypoint_mode: bool,
     /// Sticky auto-attack residual (Ctrl+Shift+A): convert plain moves to attack-move.
     pub(crate) sticky_auto_attack: bool,
+    /// C++ `GlobalData::m_useAlternateMouse`, consumed by Main's sole
+    /// AuthorityOnly physical world-input path.  GameClient keeps its own
+    /// legacy consumers; live Options updates cross the typed host bridge.
+    pub(crate) use_alternate_mouse: bool,
     pub(crate) is_dragging: bool,
     pub(crate) selection_start: Option<Vec3>,
     /// Screen-space drag origin for selection box overlay residual.
     pub(crate) selection_start_screen: Option<(f32, f32)>,
     pub(crate) last_click_time: Option<Instant>,
     pub(crate) last_click_position: Option<Vec3>,
+    pub(crate) left_click_release_behavior: LeftMouseReleaseBehavior,
+    /// Physical provenance for a classic-layout LMB context gesture.  Both
+    /// edges must be physical before the existing gameplay evidence path may
+    /// treat its resulting command as player input.
+    pub(crate) lmb_context_started_physically: bool,
     pub(crate) is_windowed: bool,
     pub(crate) rmb_scroll_anchor: Option<(f32, f32)>,
     pub(crate) is_rmb_scrolling: bool,

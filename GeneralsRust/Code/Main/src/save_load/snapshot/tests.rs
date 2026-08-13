@@ -884,6 +884,87 @@ fn save_file_roundtrip_preserves_secondary_weapon() {
     assert!(unit.weapon.is_some());
 }
 
+/// v4 keeps mutable barrel cursors at the Object tail, not inside every host
+/// Weapon. Restore stages a multi-barrel cursor until fresh topology is known.
+#[test]
+fn snapshot_roundtrip_stages_primary_and_secondary_barrel_cursors() {
+    let mut source = GameLogic::new();
+    source.templates.insert(
+        "BarrelCursorTank".to_string(),
+        ThingTemplate::new("BarrelCursorTank"),
+    );
+    let id = source
+        .create_object("BarrelCursorTank", Team::USA, Vec3::ZERO)
+        .expect("create barrel cursor object");
+    source.restore_weapon_discharge_next_sequence(43);
+    {
+        let object = source.host_object_mut(id).expect("source object");
+        object.weapon = Some(Weapon {
+            damage: 10.0,
+            range: 100.0,
+            ..Weapon::default()
+        });
+        object.secondary_weapon = Some(Weapon {
+            damage: 20.0,
+            range: 80.0,
+            ..Weapon::default()
+        });
+        object.weapon_barrel_states[0].current_barrel = 2;
+        object.weapon_barrel_states[0].shots_left_on_barrel = 1;
+        object.weapon_barrel_states[1].current_barrel = 1;
+        object.weapon_barrel_states[1].shots_left_on_barrel = 1;
+        assert!(object.restore_weapon_discharge_marker(42, 1, 1, 9_001));
+    }
+
+    let builder = SnapshotBuilder::new();
+    let snapshot = builder.create_world_snapshot(&source).expect("snapshot");
+    let cursor_snapshot = &snapshot.objects[&id].weapon_barrel_states;
+    assert_eq!(cursor_snapshot[0].current_barrel, 2);
+    assert_eq!(cursor_snapshot[1].current_barrel, 1);
+    assert_eq!(snapshot.next_weapon_discharge_sequence, 43);
+    assert_eq!(cursor_snapshot[1].shots_left_on_barrel, 1);
+    let marker_snapshot = &snapshot.objects[&id];
+    assert_eq!(marker_snapshot.last_weapon_discharge_sequence, 42);
+    assert_eq!(marker_snapshot.last_weapon_discharge_slot, 1);
+    assert_eq!(marker_snapshot.last_weapon_discharge_barrel, 1);
+    assert_eq!(marker_snapshot.last_weapon_discharge_frame, 9_001);
+
+    let mut restored = GameLogic::new();
+    restored.templates = source.templates.clone();
+    builder
+        .restore_from_snapshot(&snapshot, &mut restored)
+        .expect("restore");
+    let object = restored.host_object_mut(id).expect("restored object");
+    // The restore call stored raw cursors while the host still had its safe
+    // one-barrel fallback. Applying validated topology consumes them once.
+    assert!(object.set_weapon_barrel_count_for_slot(0, 3));
+    assert!(object.set_weapon_barrel_count_for_slot(1, 2));
+    assert_eq!(
+        object
+            .weapon_barrel_state_for_slot(0)
+            .expect("primary cursor")
+            .current_barrel,
+        2
+    );
+    assert_eq!(
+        object
+            .weapon_barrel_state_for_slot(1)
+            .expect("secondary cursor")
+            .current_barrel,
+        1
+    );
+    assert_eq!(
+        object.weapon_discharge_marker(),
+        crate::game_logic::WeaponDischargeMarker {
+            sequence: 42,
+            weapon_slot: 1,
+            fired_barrel: 1,
+            logic_frame: 9_001,
+        }
+    );
+    assert_eq!(restored.weapon_discharge_next_sequence_for_snapshot(), 43);
+}
+
 fn ensure_strike_test_tank(logic: &mut GameLogic) {
     let mut t = ThingTemplate::new("StrikeTestTank");
     t.add_kind_of(KindOf::Vehicle)
@@ -1561,6 +1642,69 @@ fn popup_and_host_write_common_sav_chunks_and_restore_authority() {
     assert!((pose[0] - 12.0).abs() < 0.01 && (pose[2] - 8.0).abs() < 0.01);
 }
 
+/// The renderer companion enters `.sav` only through the explicit host-aware
+/// SaveFileManager API; logic-only callers retain the default empty payload.
+#[test]
+fn companion_aware_save_preserves_client_drawable_snapshot() {
+    use crate::save_load::{GameDifficulty, SaveFileManager, SaveFileType, SaveGameInfo};
+    use std::time::{Duration, SystemTime};
+
+    let save_dir = tempfile::TempDir::new().expect("temp save dir");
+    let mut manager = SaveFileManager::with_save_directory(save_dir.path());
+    manager.init().expect("init");
+    let client_drawables = ClientDrawableWorldSnapshot {
+        drawables: vec![ClientDrawableStateSnapshot {
+            object_id: 17,
+            draw_module_index: 1,
+            source_template_name: "CompanionTank".to_string(),
+            model_key: "UVCompanion".to_string(),
+            selected_condition_state_index: 3,
+            animation: Some(ClientDrawableAnimationSnapshot {
+                hierarchy_animation: "UVCompanion.UVCompanion".to_string(),
+                frame: 8.25,
+                mode: ClientDrawableAnimationMode::Loop,
+            }),
+            last_seen_weapon_discharge_sequence: 31,
+            recoil_slots: [
+                vec![ClientDrawableRecoilSnapshot {
+                    phase: ClientDrawableRecoilPhase::Settle,
+                    shift: 0.125,
+                    recoil_rate: 0.75,
+                }],
+                Vec::new(),
+                Vec::new(),
+            ],
+        }],
+    };
+    let save_info = SaveGameInfo {
+        filename: "client_drawable_companion".to_string(),
+        display_name: "Client Drawable Companion".to_string(),
+        description: "v4 renderer companion".to_string(),
+        map_name: "CompanionMap".to_string(),
+        campaign_side: None,
+        mission_number: None,
+        save_date: SystemTime::now(),
+        game_version: env!("CARGO_PKG_VERSION").to_string(),
+        play_time: Duration::ZERO,
+        difficulty: GameDifficulty::Medium,
+        save_type: SaveFileType::Normal,
+    };
+
+    manager
+        .save_game_with_client_drawable_snapshot(
+            "client_drawable_companion",
+            &GameLogic::new(),
+            client_drawables.clone(),
+            &save_info,
+        )
+        .expect("save companion");
+    let (snapshot, loaded_info) = manager
+        .load_game_snapshot("client_drawable_companion")
+        .expect("decode companion");
+    assert_eq!(loaded_info.map_name, "CompanionMap");
+    assert_eq!(snapshot.client_drawables, client_drawables);
+}
+
 /// Direct Common Xfer is positional: pre-HDB world version 2 objects end at
 /// `ObjectType`, so the current reader must not consume the following world
 /// fields as an HDB option discriminator.  This deliberately uses the direct
@@ -1629,5 +1773,303 @@ fn direct_xfer_v2_object_snapshot_omits_hacker_disable_tail_and_keeps_alignment(
         .expect("restored v2 object")
         .hacker_disable_channel
         .is_none());
+    assert_eq!(
+        restored
+            .objects
+            .get(&object_id)
+            .expect("restored v2 object")
+            .weapon_barrel_states,
+        default_weapon_barrel_state_snapshots()
+    );
+    assert_eq!(
+        restored.next_weapon_discharge_sequence,
+        default_next_weapon_discharge_sequence()
+    );
+    assert!(restored.client_drawables.drawables.is_empty());
     assert_eq!(trailing_sentinel, 0xC0DE_CAFE);
+}
+
+/// Direct Xfer v3 already contains the HDB Object tail even after bincode
+/// advances to v4. A following player and raw sentinel prove the object gate
+/// is tied to the direct envelope version, not the bincode constant.
+#[test]
+fn direct_xfer_v3_preserves_hacker_disable_tail_and_keeps_alignment_after_bincode_v4() {
+    use super::xfer_helpers::{default_object_snapshot, default_player_snapshot};
+    use crate::game_logic::{HackerDisableChannelPhase, HackerDisableChannelState};
+    use crate::save_load::{Xfer, XferLoad, XferSave};
+    use std::io::Cursor;
+
+    let object_id = ObjectId(93);
+    let mut world = WorldSnapshot::default();
+    world.version = 3;
+    let mut object = default_object_snapshot();
+    object.id = object_id;
+    object.template_name = "V3HdbDirectXferObject".to_string();
+    object.hacker_disable_channel = Some(HackerDisableChannelState::new(
+        ObjectId(94),
+        HackerDisableChannelPhase::Packing,
+        777,
+    ));
+    world.objects.insert(object_id, object);
+    let mut player = default_player_snapshot();
+    player.id = 19;
+    player.name = "V3PostObjectAlignment".to_string();
+    world.players.push(player);
+
+    let mut bytes = Cursor::new(Vec::new());
+    {
+        let mut writer = XferSave::new(&mut bytes);
+        world.xfer(&mut writer).expect("write direct v3 world");
+        let mut sentinel = 0xA3B4_C5D6u32;
+        writer.xfer_u32(&mut sentinel).expect("write sentinel");
+    }
+
+    let mut restored = WorldSnapshot::default();
+    let mut sentinel = 0u32;
+    {
+        let mut reader = XferLoad::new(Cursor::new(bytes.into_inner()));
+        restored.xfer(&mut reader).expect("read direct v3 world");
+        reader.xfer_u32(&mut sentinel).expect("read sentinel");
+    }
+
+    assert_eq!(restored.version, 3);
+    assert_eq!(restored.players[0].name, "V3PostObjectAlignment");
+    assert_eq!(
+        restored
+            .objects
+            .get(&object_id)
+            .and_then(|object| object.hacker_disable_channel),
+        Some(HackerDisableChannelState::new(
+            ObjectId(94),
+            HackerDisableChannelPhase::Packing,
+            777,
+        ))
+    );
+    let object = restored
+        .objects
+        .get(&object_id)
+        .expect("restored v3 object");
+    assert_eq!(
+        object.weapon_barrel_states,
+        default_weapon_barrel_state_snapshots()
+    );
+    assert_eq!(object.last_weapon_discharge_sequence, 0);
+    assert_eq!(restored.next_weapon_discharge_sequence, 1);
+    assert!(restored.client_drawables.drawables.is_empty());
+    assert_eq!(sentinel, 0xA3B4_C5D6);
+}
+
+/// Direct v4 appends the logical Object/world tails in one explicit order.
+/// The sentinel proves client Drawable Xfer data does not steal bytes from
+/// subsequent records.
+#[test]
+fn direct_xfer_v4_round_trips_logical_and_client_drawable_tails() {
+    use super::xfer_helpers::{default_object_snapshot, default_player_snapshot};
+    use crate::save_load::{Xfer, XferLoad, XferSave};
+    use std::io::Cursor;
+
+    let object_id = ObjectId(95);
+    let mut world = WorldSnapshot::default();
+    world.version = WORLD_SNAPSHOT_DIRECT_XFER_VERSION;
+    world.next_weapon_discharge_sequence = 43;
+    let mut object = default_object_snapshot();
+    object.id = object_id;
+    object.template_name = "V4TailDirectXferObject".to_string();
+    object.weapon_barrel_states = [
+        WeaponBarrelStateSnapshot {
+            current_barrel: 2,
+            shots_left_on_barrel: 4,
+        },
+        WeaponBarrelStateSnapshot {
+            current_barrel: 1,
+            shots_left_on_barrel: 3,
+        },
+        WeaponBarrelStateSnapshot {
+            current_barrel: 0,
+            shots_left_on_barrel: 2,
+        },
+    ];
+    object.last_weapon_discharge_sequence = 42;
+    object.last_weapon_discharge_slot = 1;
+    object.last_weapon_discharge_barrel = 2;
+    object.last_weapon_discharge_frame = 7_654;
+    world.objects.insert(object_id, object);
+    let mut player = default_player_snapshot();
+    player.id = 20;
+    player.name = "V4PostTailAlignment".to_string();
+    world.players.push(player);
+    world
+        .client_drawables
+        .drawables
+        .push(ClientDrawableStateSnapshot {
+            object_id: object_id.0,
+            draw_module_index: 2,
+            source_template_name: "V4TailDirectXferObject".to_string(),
+            model_key: "UVV4Tail".to_string(),
+            selected_condition_state_index: 5,
+            animation: Some(ClientDrawableAnimationSnapshot {
+                hierarchy_animation: "UVV4Tail.UVV4Tail".to_string(),
+                frame: 12.5,
+                mode: ClientDrawableAnimationMode::Loop,
+            }),
+            last_seen_weapon_discharge_sequence: 42,
+            recoil_slots: [
+                vec![ClientDrawableRecoilSnapshot {
+                    phase: ClientDrawableRecoilPhase::Recoil,
+                    shift: 0.25,
+                    recoil_rate: 1.5,
+                }],
+                Vec::new(),
+                Vec::new(),
+            ],
+        });
+
+    let mut bytes = Cursor::new(Vec::new());
+    {
+        let mut writer = XferSave::new(&mut bytes);
+        world.xfer(&mut writer).expect("write direct v4 world");
+        let mut sentinel = 0xD4E5_F607u32;
+        writer.xfer_u32(&mut sentinel).expect("write sentinel");
+    }
+
+    let mut restored = WorldSnapshot::default();
+    let mut sentinel = 0u32;
+    {
+        let mut reader = XferLoad::new(Cursor::new(bytes.into_inner()));
+        restored.xfer(&mut reader).expect("read direct v4 world");
+        reader.xfer_u32(&mut sentinel).expect("read sentinel");
+    }
+
+    let object = restored
+        .objects
+        .get(&object_id)
+        .expect("restored v4 object");
+    assert_eq!(
+        object.weapon_barrel_states,
+        [
+            WeaponBarrelStateSnapshot {
+                current_barrel: 2,
+                shots_left_on_barrel: 4,
+            },
+            WeaponBarrelStateSnapshot {
+                current_barrel: 1,
+                shots_left_on_barrel: 3,
+            },
+            WeaponBarrelStateSnapshot {
+                current_barrel: 0,
+                shots_left_on_barrel: 2,
+            },
+        ]
+    );
+    assert_eq!(object.last_weapon_discharge_sequence, 42);
+    assert_eq!(object.last_weapon_discharge_slot, 1);
+    assert_eq!(object.last_weapon_discharge_barrel, 2);
+    assert_eq!(object.last_weapon_discharge_frame, 7_654);
+    assert_eq!(restored.next_weapon_discharge_sequence, 43);
+    assert_eq!(restored.players[0].name, "V4PostTailAlignment");
+    assert_eq!(restored.client_drawables.drawables.len(), 1);
+    let drawable = &restored.client_drawables.drawables[0];
+    assert_eq!(drawable.object_id, object_id.0);
+    assert_eq!(drawable.last_seen_weapon_discharge_sequence, 42);
+    assert_eq!(
+        drawable.recoil_slots[0][0].phase,
+        ClientDrawableRecoilPhase::Recoil
+    );
+    assert_eq!(sentinel, 0xD4E5_F607);
+}
+
+/// Direct Xfer must reject a future envelope before it consumes timestamp or
+/// any body byte. Marker labels are no-ops, so this is the actual boundary.
+#[test]
+fn direct_xfer_rejects_future_outer_version_before_body_consumption() {
+    use crate::save_load::{SaveLoadError, Xfer, XferLoad, XferSave};
+    use std::io::Cursor;
+
+    let mut bytes = Cursor::new(Vec::new());
+    {
+        let mut writer = XferSave::new(&mut bytes);
+        let mut future_version = WORLD_SNAPSHOT_DIRECT_XFER_VERSION + 1;
+        let mut seconds = 0x1122_3344_5566_7788u64;
+        let mut nanos = 0xA1B2_C3D4u32;
+        let mut frame = 0x1020_3040_5060_7080u64;
+        writer.xfer_u32(&mut future_version).expect("write version");
+        writer
+            .xfer_u64(&mut seconds)
+            .expect("write timestamp seconds");
+        writer.xfer_u32(&mut nanos).expect("write timestamp nanos");
+        writer.xfer_u64(&mut frame).expect("write frame sentinel");
+    }
+
+    let mut reader = XferLoad::new(Cursor::new(bytes.into_inner()));
+    let mut restored = WorldSnapshot::default();
+    assert!(matches!(
+        restored.xfer(&mut reader),
+        Err(SaveLoadError::VersionMismatch {
+            expected: WORLD_SNAPSHOT_DIRECT_XFER_VERSION,
+            actual,
+        }) if actual == WORLD_SNAPSHOT_DIRECT_XFER_VERSION + 1
+    ));
+
+    let mut seconds = 0u64;
+    let mut nanos = 0u32;
+    let mut frame = 0u64;
+    reader
+        .xfer_u64(&mut seconds)
+        .expect("timestamp bytes remain");
+    reader.xfer_u32(&mut nanos).expect("nanoseconds remain");
+    reader.xfer_u64(&mut frame).expect("frame bytes remain");
+    assert_eq!(seconds, 0x1122_3344_5566_7788);
+    assert_eq!(nanos, 0xA1B2_C3D4);
+    assert_eq!(frame, 0x1020_3040_5060_7080);
+}
+
+#[test]
+fn direct_xfer_rejects_future_writer_before_emitting_any_record_bytes() {
+    use crate::save_load::{SaveLoadError, XferSave};
+    use std::io::Cursor;
+
+    let mut future = WorldSnapshot::default();
+    future.version = WORLD_SNAPSHOT_DIRECT_XFER_VERSION + 1;
+    let mut bytes = Cursor::new(Vec::new());
+    let err = {
+        let mut writer = XferSave::new(&mut bytes);
+        future
+            .xfer(&mut writer)
+            .expect_err("future direct writer must fail closed")
+    };
+    assert!(matches!(
+        err,
+        SaveLoadError::VersionMismatch {
+            expected: WORLD_SNAPSHOT_DIRECT_XFER_VERSION,
+            actual,
+        } if actual == WORLD_SNAPSHOT_DIRECT_XFER_VERSION + 1
+    ));
+    assert!(bytes.into_inner().is_empty());
+}
+
+/// The outer direct-Xfer validator accepts every explicitly supported legacy
+/// version. This is intentionally an envelope check; historical full-body
+/// compatibility remains covered by exact tail fixtures above.
+#[test]
+fn direct_xfer_accepts_known_outer_versions() {
+    use crate::save_load::{XferLoad, XferSave};
+    use std::io::Cursor;
+
+    for version in 1..=WORLD_SNAPSHOT_DIRECT_XFER_VERSION {
+        let mut source = WorldSnapshot::default();
+        source.version = version;
+        let mut bytes = Cursor::new(Vec::new());
+        {
+            let mut writer = XferSave::new(&mut bytes);
+            source
+                .xfer(&mut writer)
+                .expect("known direct-Xfer version writes");
+        }
+        let mut restored = WorldSnapshot::default();
+        let mut reader = XferLoad::new(Cursor::new(bytes.into_inner()));
+        restored
+            .xfer(&mut reader)
+            .expect("known direct-Xfer version reads");
+        assert_eq!(restored.version, version);
+    }
 }

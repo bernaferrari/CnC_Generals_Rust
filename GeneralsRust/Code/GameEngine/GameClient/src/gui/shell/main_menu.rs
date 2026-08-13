@@ -34,6 +34,9 @@ use crate::gui::callbacks::message_box::{
     ex_message_box_ok_cancel, message_box_ok, message_box_ok_cancel, quit_message_box_yes_no,
     ExtendedMessageBoxFunc, MessageBoxFunc, MessageBoxReturnType as ExMessageBoxReturnType,
 };
+use crate::gui::campaign_launch_host_bridge::{
+    publish_host_campaign_launch, HostCampaignLaunchDescriptor,
+};
 use crate::gui::campaign_manager::{get_campaign_manager, GameDifficulty as CampaignDifficulty};
 use crate::gui::challenge_generals::{
     get_challenge_generals_mut, GameDifficulty as ChallengeGameDifficulty,
@@ -1874,13 +1877,39 @@ impl MainMenu {
             let _ = TheGameLogic::clear_game_data();
         }
 
-        let (difficulty, rank_points) = {
+        let (difficulty, rank_points, campaign_name, campaign_player_faction, map_name) = {
             let campaign_manager = get_campaign_manager();
+            let campaign = campaign_manager.get_current_campaign();
             (
                 campaign_manager.get_game_difficulty() as i32,
                 campaign_manager.get_rank_points(),
+                campaign
+                    .map(|campaign| campaign.name.clone())
+                    .unwrap_or_default(),
+                campaign
+                    .map(|campaign| campaign.player_faction_name.clone())
+                    .unwrap_or_default(),
+                campaign_manager.get_current_map().unwrap_or_default(),
             )
         };
+        // C++ has one GameInfo/GlobalData path from MainMenu through
+        // GameLogic.  Main's AuthorityOnly host needs the same campaign
+        // identity at the moment this exact MSG_NEW_GAME is enqueued; a later
+        // HUD faction is not a valid substitute.  Normal campaigns do not
+        // select a challenge template here.
+        let _ = publish_host_campaign_launch(HostCampaignLaunchDescriptor {
+            generation: 0,
+            map_name,
+            campaign_name,
+            campaign_player_faction,
+            is_challenge: false,
+            player_template_name: None,
+            player_template_index: None,
+            game_mode_code: gamelogic::system::game_logic::GAME_SINGLE_PLAYER,
+            difficulty_code: difficulty,
+            rank_points,
+            max_fps: None,
+        });
         let message_stream = get_message_stream();
         let mut stream = message_stream.write().unwrap_or_else(|e| e.into_inner());
         let msg = stream.append_message(GameMessageType::NewGame);

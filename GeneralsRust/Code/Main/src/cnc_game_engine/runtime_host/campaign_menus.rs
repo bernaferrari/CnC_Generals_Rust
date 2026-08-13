@@ -790,7 +790,12 @@ impl CnCGameEngine {
                 "china" => "China",
                 _ => "USA",
             };
-            self.start_game_from_ui(GameMode::SinglePlayer, faction.into(), map, None);
+            self.start_game_from_ui(HostStartRequest::without_player_template(
+                GameMode::SinglePlayer,
+                faction.into(),
+                map,
+                None,
+            ));
             self.runtime_host_last_gameplay_cmd = "click_campaign_start_ok_wnd".into();
         } else {
             self.runtime_host_last_gameplay_cmd = "click_campaign_start_miss".into();

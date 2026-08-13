@@ -64,6 +64,37 @@ pub enum AttackSubState {
     ChaseTarget,
 }
 
+/// The durable marker for one actually accepted WeaponSet discharge.
+///
+/// This is deliberately separate from `last_fire_*` / `fire_intent_count`:
+/// those fields also represent GameWorld AI presentation writeback, whereas a
+/// W3D recoil/muzzle cue must name the concrete slot and its barrel *before*
+/// that Weapon advances. A zero sequence is the only unseen sentinel.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct WeaponDischargeMarker {
+    pub sequence: u64,
+    pub weapon_slot: u8,
+    pub fired_barrel: u8,
+    pub logic_frame: u32,
+}
+
+impl WeaponDischargeMarker {
+    #[inline]
+    pub const fn unseen() -> Self {
+        Self {
+            sequence: 0,
+            weapon_slot: 0,
+            fired_barrel: 0,
+            logic_frame: 0,
+        }
+    }
+
+    #[inline]
+    pub const fn is_seen(self) -> bool {
+        self.sequence != 0
+    }
+}
+
 impl AttackSubState {
     pub fn to_ordinal(self) -> u8 {
         match self {
@@ -969,14 +1000,12 @@ pub struct Object {
     /// Active looping FireSound name while until_frame is live.
     #[serde(default)]
     pub fire_sound_loop_name: String,
-    /// C++ Weapon::m_curBarrel residual (which fire bone / FX barrel).
-    pub weapon_cur_barrel: u8,
-    /// C++ WeaponTemplate::m_shotsPerBarrel residual (0/1 = single-barrel).
-    pub weapon_shots_per_barrel: u32,
-    /// C++ Drawable barrel count residual (mod wraps cur barrel).
-    pub weapon_barrel_count: u8,
-    /// C++ Weapon::m_numShotsForCurBarrel residual.
-    pub weapon_shots_left_on_barrel: u32,
+    /// C++ `WeaponSet` owns a distinct `Weapon` instance per PRIMARY,
+    /// SECONDARY, and TERTIARY slot.  Keep each slot's mutable barrel cursor
+    /// independent rather than letting a secondary shot rotate PRIMARY's
+    /// muzzle/FX state.
+    #[serde(default)]
+    pub weapon_barrel_states: [WeaponBarrelState; 3],
 
     /// C++ Weapon PRE_ATTACK residual: target being wound up against.
     #[serde(default)]
@@ -1016,6 +1045,17 @@ pub struct Object {
     /// Host residual: cumulative successful fire_at discharges this match.
     #[serde(default)]
     pub fire_intent_count: u32,
+
+    /// Last real accepted WeaponSet discharge. This survives save/load as a
+    /// v4 ObjectSnapshot tail; it must never be reconstructed from AI intent.
+    #[serde(default)]
+    pub last_weapon_discharge_sequence: u64,
+    #[serde(default)]
+    pub last_weapon_discharge_slot: u8,
+    #[serde(default)]
+    pub last_weapon_discharge_barrel: u8,
+    #[serde(default)]
+    pub last_weapon_discharge_frame: u32,
 
     /// Stored guard radius for pathing/AI persistence
     pub guard_radius: f32,
@@ -2408,6 +2448,7 @@ pub fn bounce_sound_volume_residual(fall_dy: f32, mass: f32) -> f32 {
 }
 
 mod attack;
+mod barrels;
 mod bonuses;
 mod construct;
 mod damage;
@@ -2426,6 +2467,7 @@ mod update;
 pub mod visual;
 mod weapons;
 
+pub use barrels::WeaponBarrelState;
 pub use visual::ObjectVisualInfo;
 
 #[cfg(test)]

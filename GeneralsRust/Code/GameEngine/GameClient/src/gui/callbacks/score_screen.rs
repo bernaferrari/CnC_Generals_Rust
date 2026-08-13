@@ -6,6 +6,9 @@ use crate::core::script_action_handler::{
 };
 use crate::game_text::GameText;
 use crate::gui::callbacks::popup_replay::popup_replay_update;
+use crate::gui::campaign_launch_host_bridge::{
+    publish_host_campaign_launch, HostCampaignLaunchDescriptor,
+};
 use crate::gui::campaign_manager::{
     get_campaign_manager, Campaign, GameDifficulty as CampaignDifficulty,
 };
@@ -273,16 +276,25 @@ fn start_next_campaign_game() {
         leave_score_screen_for_next_campaign(shell);
     });
 
-    let pending_file = {
+    let (pending_file, campaign_name, campaign_player_faction, is_challenge) = {
         let manager = get_campaign_manager();
-        manager.get_current_map().unwrap_or_default()
+        let campaign = manager.get_current_campaign();
+        (
+            manager.get_current_map().unwrap_or_default(),
+            campaign
+                .map(|campaign| campaign.name.clone())
+                .unwrap_or_default(),
+            campaign
+                .map(|campaign| campaign.player_faction_name.clone())
+                .unwrap_or_default(),
+            campaign
+                .map(|campaign| campaign.is_challenge_campaign())
+                .unwrap_or(false),
+        )
     };
 
-    if get_campaign_manager()
-        .get_current_campaign()
-        .map(|c| c.is_challenge_campaign())
-        .unwrap_or(false)
-    {
+    let mut challenge_template_num = None;
+    if is_challenge {
         // C++ rematch: init/clearSlotList/reset/enterGame then set map+slot0.
         crate::gui::challenge_game_info::init_challenge_game_info();
         let template_num = get_challenge_generals()
@@ -295,6 +307,7 @@ fn start_next_campaign_game() {
             String::new(),
             template_num,
         );
+        challenge_template_num = Some(template_num);
         if TheGameLogic::is_in_game() {
             let _ = TheGameLogic::clear_game_data();
         }
@@ -302,13 +315,40 @@ fn start_next_campaign_game() {
 
     if let Some(data) = game_engine::common::ini::get_global_data() {
         let mut data = data.write();
-        data.pending_file = pending_file;
+        data.pending_file = pending_file.clone();
     }
+    game_engine::common::global_data::write().pending_file = pending_file.clone();
 
     let manager = get_campaign_manager();
     let difficulty = manager.get_game_difficulty() as i32;
     let rank_points = manager.get_rank_points();
     drop(manager);
+
+    // A continued Challenge can arrive after a shell/load transition where
+    // the display path has not yet touched PlayerTemplate.ini. C++ resolves
+    // the stored slot through its always-live PlayerTemplateStore here; load
+    // the same exact store before converting the saved index back to identity.
+    game_engine::common::ini::ensure_player_templates_loaded();
+    let challenge_template_name = challenge_template_num.and_then(|template_num| {
+        usize::try_from(template_num).ok().and_then(|index| {
+            game_engine::common::rts::player_template::get_player_template_store()
+                .get_nth_player_template(index)
+                .map(|template| template.get_name().to_string())
+        })
+    });
+    let _ = publish_host_campaign_launch(HostCampaignLaunchDescriptor {
+        generation: 0,
+        map_name: pending_file,
+        campaign_name,
+        campaign_player_faction,
+        is_challenge,
+        player_template_name: challenge_template_name,
+        player_template_index: challenge_template_num,
+        game_mode_code: GAME_SINGLE_PLAYER,
+        difficulty_code: difficulty,
+        rank_points,
+        max_fps: None,
+    });
 
     let message_stream = get_message_stream();
     let mut stream = message_stream.write().unwrap_or_else(|e| e.into_inner());

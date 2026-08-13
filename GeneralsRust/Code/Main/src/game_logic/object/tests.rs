@@ -405,22 +405,249 @@ fn garrison_range_bonus_extends_is_within_attack_range() {
 fn barrel_advances_after_shots_per_barrel() {
     let vt = ThingTemplate::new("QuadCannon");
     let mut o = Object::new(vt, ObjectId(1), Team::USA);
-    o.weapon_shots_per_barrel = 2;
-    o.weapon_barrel_count = 4;
-    o.weapon_shots_left_on_barrel = 2;
-    o.weapon_cur_barrel = 0;
-    o.advance_weapon_barrel_after_shot();
-    assert_eq!(o.weapon_cur_barrel, 0);
-    assert_eq!(o.weapon_shots_left_on_barrel, 1);
-    o.advance_weapon_barrel_after_shot();
-    assert_eq!(o.weapon_cur_barrel, 1);
-    assert_eq!(o.weapon_shots_left_on_barrel, 2);
+    o.weapon = Some(Weapon::default());
+    o.weapon_barrel_states[0] = WeaponBarrelState::new(2, 4, None);
+    o.advance_weapon_barrel_after_shot(0);
+    let primary = o
+        .weapon_barrel_state_for_slot(0)
+        .expect("primary barrel state");
+    assert_eq!(primary.current_barrel, 0);
+    assert_eq!(primary.shots_left_on_barrel, 1);
+    o.advance_weapon_barrel_after_shot(0);
+    let primary = o
+        .weapon_barrel_state_for_slot(0)
+        .expect("primary barrel state");
+    assert_eq!(primary.current_barrel, 1);
+    assert_eq!(primary.shots_left_on_barrel, 2);
     for _ in 0..6 {
-        o.advance_weapon_barrel_after_shot();
+        o.advance_weapon_barrel_after_shot(0);
     }
     // 1 + 6/2 = 4 barrels wrapped -> barrel 0 after 8 shots total from start of loop?
     // started at barrel 1 after 2 shots; +6 shots = 3 more barrel advances -> barrel 0
-    assert_eq!(o.weapon_cur_barrel, 0);
+    assert_eq!(
+        o.weapon_barrel_state_for_slot(0)
+            .expect("primary barrel state")
+            .current_barrel,
+        0
+    );
+}
+
+#[test]
+fn barrel_cursors_are_independent_per_weapon_set_slot() {
+    let vt = ThingTemplate::new("IndependentBarrels");
+    let mut o = Object::new(vt, ObjectId(1), Team::USA);
+    o.weapon = Some(Weapon::default());
+    o.secondary_weapon = Some(Weapon::default());
+    o.weapon_barrel_states[0] = WeaponBarrelState::new(2, 3, None);
+    o.weapon_barrel_states[1] = WeaponBarrelState::new(3, 2, None);
+
+    o.advance_weapon_barrel_after_shot(0);
+    o.advance_weapon_barrel_after_shot(0);
+
+    let primary = o.weapon_barrel_state_for_slot(0).expect("primary state");
+    assert_eq!(
+        (primary.current_barrel, primary.shots_left_on_barrel),
+        (1, 2)
+    );
+    let secondary = o.weapon_barrel_state_for_slot(1).expect("secondary state");
+    assert_eq!(
+        (secondary.current_barrel, secondary.shots_left_on_barrel),
+        (0, 3),
+        "PRIMARY must not rotate SECONDARY's independent Weapon cursor"
+    );
+
+    for _ in 0..3 {
+        o.advance_weapon_barrel_after_shot(1);
+    }
+    let primary = o.weapon_barrel_state_for_slot(0).expect("primary state");
+    assert_eq!(
+        (primary.current_barrel, primary.shots_left_on_barrel),
+        (1, 2)
+    );
+    let secondary = o.weapon_barrel_state_for_slot(1).expect("secondary state");
+    assert_eq!(
+        (secondary.current_barrel, secondary.shots_left_on_barrel),
+        (1, 3)
+    );
+}
+
+#[test]
+fn direct_weapon_set_replacement_resets_only_its_own_barrel_cursor() {
+    let vt = ThingTemplate::new("ExactSlotReplacement");
+    let mut o = Object::new(vt, ObjectId(1), Team::USA);
+    o.weapon = Some(Weapon::default());
+    o.secondary_weapon = Some(Weapon::default());
+    o.tertiary_weapon = Some(Weapon::default());
+    o.weapon_barrel_states[0] = WeaponBarrelState::new(2, 4, None);
+    o.weapon_barrel_states[1] = WeaponBarrelState::new(3, 3, None);
+    o.weapon_barrel_states[2] = WeaponBarrelState::new(4, 2, None);
+    o.weapon_barrel_states[0].current_barrel = 3;
+    o.weapon_barrel_states[1].current_barrel = 2;
+    o.weapon_barrel_states[2].current_barrel = 1;
+
+    assert!(o.replace_weapon_set_slot(1, Some(Weapon::default())));
+    assert_eq!(o.weapon_barrel_states[0].current_barrel, 3);
+    assert_eq!(o.weapon_barrel_states[1].current_barrel, 0);
+    assert_eq!(o.weapon_barrel_states[2].current_barrel, 1);
+    assert!(!o.replace_weapon_set_slot(3, Some(Weapon::default())));
+}
+
+#[test]
+fn authored_shots_per_barrel_configures_the_exact_active_slot() {
+    let ini_content = r#"
+Weapon __RustObjectSlotBarrelAuthored
+  AttackRange = 100.0
+  PrimaryDamage = 25.0
+  ShotsPerBarrel = 3
+End
+"#;
+    assert_eq!(
+        crate::assets::ini_template_loader::register_weapons_from_ini_text(ini_content),
+        1
+    );
+
+    let mut vt = ThingTemplate::new("AuthoredSlotBarrelObject");
+    vt.set_primary_weapon_name("__RustObjectSlotBarrelAuthored");
+    let mut o = Object::new(vt, ObjectId(1), Team::USA);
+    o.weapon = Some(Weapon::default());
+
+    assert_eq!(o.fired_barrel_for_slot(0), Some(0));
+    let state = o.weapon_barrel_state_for_slot(0).expect("configured state");
+    assert_eq!((state.shots_per_barrel, state.shots_left_on_barrel), (3, 3));
+
+    o.advance_weapon_barrel_after_shot(0);
+    assert_eq!(
+        o.weapon_barrel_state_for_slot(0)
+            .expect("configured state")
+            .shots_left_on_barrel,
+        2
+    );
+}
+
+#[test]
+fn restored_multi_barrel_cursor_waits_for_validated_topology() {
+    let vt = ThingTemplate::new("DeferredBarrelTopology");
+    let mut o = Object::new(vt, ObjectId(1), Team::USA);
+    o.weapon_barrel_states[0] = WeaponBarrelState::new(3, 1, None);
+
+    assert!(o.restore_weapon_barrel_runtime_for_slot(0, 2, 2));
+    let before_topology = o.weapon_barrel_state_for_slot(0).expect("barrel state");
+    assert_eq!(
+        (
+            before_topology.current_barrel,
+            before_topology.shots_left_on_barrel
+        ),
+        (0, 3),
+        "a one-barrel default must not truncate a saved multi-barrel cursor"
+    );
+
+    assert!(o.set_weapon_barrel_count_for_slot(0, 4));
+    let after_topology = o.weapon_barrel_state_for_slot(0).expect("barrel state");
+    assert_eq!(
+        (
+            after_topology.current_barrel,
+            after_topology.shots_left_on_barrel
+        ),
+        (2, 2),
+        "validated topology consumes the pending saved cursor exactly once"
+    );
+}
+
+#[test]
+fn live_fire_before_topology_never_replays_a_stale_restored_cursor() {
+    let vt = ThingTemplate::new("DeferredBarrelTopologyLiveFire");
+    let mut o = Object::new(vt, ObjectId(1), Team::USA);
+    o.weapon = Some(Weapon::default());
+    o.weapon_barrel_states[0] = WeaponBarrelState::new(3, 1, None);
+
+    assert!(o.restore_weapon_barrel_runtime_for_slot(0, 2, 2));
+    o.advance_weapon_barrel_after_shot(0);
+    assert!(o.set_weapon_barrel_count_for_slot(0, 4));
+
+    let state = o.weapon_barrel_state_for_slot(0).expect("barrel state");
+    assert_eq!(
+        (state.current_barrel, state.shots_left_on_barrel),
+        (0, 2),
+        "late topology must retain the real post-load shot instead of replaying the stale save cursor"
+    );
+}
+
+#[test]
+fn deferred_restored_cursor_never_crosses_to_a_replaced_weapon_set_slot() {
+    let ini_content = r#"
+Weapon __RustPendingOriginalBarrelWeapon
+  AttackRange = 100.0
+  PrimaryDamage = 25.0
+  ShotsPerBarrel = 3
+End
+
+Weapon __RustPendingReplacementBarrelWeapon
+  AttackRange = 100.0
+  PrimaryDamage = 25.0
+  ShotsPerBarrel = 5
+End
+"#;
+    assert_eq!(
+        crate::assets::ini_template_loader::register_weapons_from_ini_text(ini_content),
+        2
+    );
+
+    let mut vt = ThingTemplate::new("DeferredCursorWeaponSetSwap");
+    vt.set_primary_weapon_name("__RustPendingOriginalBarrelWeapon");
+    vt.set_mine_clearing_primary_weapon_name("__RustPendingReplacementBarrelWeapon");
+    let mut o = Object::new(vt, ObjectId(1), Team::USA);
+    o.weapon = Some(Weapon::default());
+    o.mine_clearing_primary_weapon = Some(Weapon::default());
+
+    assert_eq!(o.fired_barrel_for_slot(0), Some(0));
+    assert!(o.restore_weapon_barrel_runtime_for_slot(0, 2, 2));
+
+    // C++ destroys the old PRIMARY Weapon when its conditional WeaponSet
+    // changes.  A topology arriving after that replacement cannot transfer
+    // the old instance's saved cursor into the mine-detail Weapon.
+    o.set_weapon_set_mine_clearing_detail(true);
+    assert!(o.set_weapon_barrel_count_for_slot(0, 4));
+
+    let state = o
+        .weapon_barrel_state_for_slot(0)
+        .expect("replacement state");
+    assert_eq!(
+        (
+            state.current_barrel,
+            state.shots_per_barrel,
+            state.shots_left_on_barrel
+        ),
+        (0, 5, 5)
+    );
+}
+
+#[test]
+fn mine_clearing_weapon_set_swap_resets_primary_barrel_cursor() {
+    let mut vt = ThingTemplate::new("MineDetailBarrelSwap");
+    vt.set_primary_weapon_name("OrdinaryMineDetailTestWeapon");
+    vt.set_mine_clearing_primary_weapon_name("DetailMineDetailTestWeapon");
+    let mut o = Object::new(vt, ObjectId(1), Team::USA);
+    o.weapon = Some(Weapon::default());
+    o.mine_clearing_primary_weapon = Some(Weapon::default());
+    // Model a partially consumed old PRIMARY cursor.  The next conditional
+    // WeaponSet bind must replace it even before the first detail shot.
+    o.weapon_barrel_states[0] =
+        WeaponBarrelState::new(2, 4, Some("OrdinaryMineDetailTestWeapon".to_string()));
+    o.weapon_barrel_states[0].current_barrel = 1;
+    o.weapon_barrel_states[0].shots_left_on_barrel = 1;
+    assert_eq!(
+        o.weapon_barrel_state_for_slot(0)
+            .expect("primary state")
+            .current_barrel,
+        1
+    );
+
+    o.set_weapon_set_mine_clearing_detail(true);
+
+    let state = o
+        .weapon_barrel_state_for_slot(0)
+        .expect("reset primary state");
+    assert_eq!((state.current_barrel, state.shots_left_on_barrel), (0, 1));
 }
 
 #[test]

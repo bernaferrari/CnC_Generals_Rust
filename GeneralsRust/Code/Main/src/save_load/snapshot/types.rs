@@ -1,10 +1,11 @@
 //! Core snapshot trait, world snapshot, and shared utility types.
 
 use super::{
-    AIPlayerSnapshot, CombatParticleRegistrySnapshot, CombatTrackerSnapshot,
-    ExperienceTrackerSnapshot, GlobalAIStateSnapshot, HostUpgradeRegistrySnapshot, ObjectSnapshot,
-    ObjectStatusSnapshot, PathfindingCacheSnapshot, PlayerSnapshot, ResourceManagerSnapshot,
-    SpecialPowerStrikeRegistrySnapshot, TeamSnapshot, TerrainSnapshot, WeatherSnapshot,
+    AIPlayerSnapshot, ClientDrawableWorldSnapshot, CombatParticleRegistrySnapshot,
+    CombatTrackerSnapshot, ExperienceTrackerSnapshot, GlobalAIStateSnapshot,
+    HostUpgradeRegistrySnapshot, ObjectSnapshot, ObjectStatusSnapshot, PathfindingCacheSnapshot,
+    PlayerSnapshot, ResourceManagerSnapshot, SpecialPowerStrikeRegistrySnapshot, TeamSnapshot,
+    TerrainSnapshot, WeatherSnapshot,
 };
 use crate::game_logic::*;
 use crate::save_load::{SaveLoadResult, Xfer, XferData};
@@ -18,8 +19,36 @@ use std::time::SystemTime;
 /// Version 1 persisted only float production progress.  Version 2 adds the
 /// nested production frame/quantity/exit fields, which cannot be represented
 /// by serde defaults under bincode's positional encoding.  Version 3 appends
-/// the Hacker Disable Building channel to every object snapshot.
-pub const WORLD_SNAPSHOT_BINCODE_VERSION: u32 = 3;
+/// the Hacker Disable Building channel to every object snapshot.  Version 4
+/// appends logical weapon-discharge/barrel state and the renderer-owned client
+/// Drawable companion.
+pub const WORLD_SNAPSHOT_BINCODE_VERSION: u32 = 4;
+
+/// Direct Common Xfer keeps an independent positional envelope from bincode.
+///
+/// Its raw `u32` world version is the only safe boundary before the timestamp
+/// and object records.  Do not derive object-tail gates from the bincode
+/// version: a historical direct v3 stream still contains HDB even once the
+/// bincode writer has advanced to v4.
+pub const WORLD_SNAPSHOT_DIRECT_XFER_VERSION: u32 = 4;
+pub const WORLD_SNAPSHOT_DIRECT_XFER_HDB_VERSION: u32 = 3;
+pub const WORLD_SNAPSHOT_DIRECT_XFER_V4_TAIL_VERSION: u32 = 4;
+
+/// Reject unknown direct-Xfer outer layouts before consuming any body bytes.
+/// Known historical writers are accepted so focused fixtures can verify their
+/// positional tails independently of current bincode schema evolution.
+pub(crate) fn validate_direct_world_snapshot_version(version: u32) -> SaveLoadResult<()> {
+    match version {
+        // Keep these arms deliberately explicit. Advancing the current writer
+        // must not accidentally make a future positional body acceptable
+        // before its object/world gates and exact predecessor fixtures exist.
+        1 | 2 | 3 | 4 => Ok(()),
+        actual => Err(crate::save_load::SaveLoadError::VersionMismatch {
+            expected: WORLD_SNAPSHOT_DIRECT_XFER_VERSION,
+            actual,
+        }),
+    }
+}
 
 /// Trait for objects that can be included in game snapshots
 pub trait Snapshot {
@@ -72,6 +101,20 @@ pub struct WorldSnapshot {
     /// Mid-flight loads must keep pending research so complete unlocks still fire.
     #[serde(default)]
     pub host_upgrades: HostUpgradeRegistrySnapshot,
+
+    /// Next unused logical accepted-weapon-discharge sequence.  `0` is never
+    /// emitted: Object marker sequence zero is reserved for "unseen".
+    #[serde(default = "default_next_weapon_discharge_sequence")]
+    pub next_weapon_discharge_sequence: u64,
+
+    /// Renderer-local visual state companion.  It is validated against a fresh
+    /// frozen presentation topology only after a successful staged restore.
+    #[serde(default)]
+    pub client_drawables: ClientDrawableWorldSnapshot,
+}
+
+pub const fn default_next_weapon_discharge_sequence() -> u64 {
+    1
 }
 
 impl XferData for SerializableVec3 {
@@ -106,6 +149,8 @@ impl Default for WorldSnapshot {
             special_power_strikes: SpecialPowerStrikeRegistrySnapshot::default(),
             combat_particles: CombatParticleRegistrySnapshot::default(),
             host_upgrades: HostUpgradeRegistrySnapshot::default(),
+            next_weapon_discharge_sequence: default_next_weapon_discharge_sequence(),
+            client_drawables: ClientDrawableWorldSnapshot::default(),
         }
     }
 }

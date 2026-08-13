@@ -55,6 +55,14 @@ impl SnapshotBuilder {
             special_power_strikes: self.snapshot_special_power_strikes(game_logic)?,
             combat_particles: self.snapshot_combat_particles(game_logic)?,
             host_upgrades: self.snapshot_host_upgrades(game_logic)?,
+            // Direct GameLogic-owned allocator; zero is never a valid next
+            // sequence and the getter preserves that invariant for v4 saves.
+            next_weapon_discharge_sequence: game_logic
+                .weapon_discharge_next_sequence_for_snapshot(),
+            // SaveFileManager's logic-only entry point intentionally writes
+            // this default. CnCGameEngine captures the renderer-owned DTO and
+            // attaches it through the explicit companion-aware save API.
+            client_drawables: ClientDrawableWorldSnapshot::default(),
         };
 
         log::info!(
@@ -96,6 +104,10 @@ impl SnapshotBuilder {
         self.restore_special_power_strikes(&snapshot.special_power_strikes, game_logic)?;
         self.restore_combat_particles(&snapshot.combat_particles, game_logic)?;
         self.restore_host_upgrades(&snapshot.host_upgrades, game_logic)?;
+        // The v4 counter is the next unused logical accepted-discharge ID.
+        // The runtime setter clamps legacy/malformed zero to one and clears
+        // transient presentation events so a load cannot replay pre-save FX.
+        game_logic.restore_weapon_discharge_next_sequence(snapshot.next_weapon_discharge_sequence);
 
         log::info!("World restoration complete");
         Ok(())
@@ -137,6 +149,7 @@ impl SnapshotBuilder {
         // Snapshot the object's state
         let status = self.snapshot_object_status(game_logic, object);
         let object_type = self.snapshot_object_type(game_logic, object)?;
+        let weapon_discharge_marker = object.weapon_discharge_marker();
 
         Ok(ObjectSnapshot {
             id: object.id,
@@ -172,6 +185,22 @@ impl SnapshotBuilder {
             modules: self.snapshot_object_modules(object)?,
             object_type,
             hacker_disable_channel: object.hacker_disable_channel,
+            weapon_barrel_states: std::array::from_fn(|slot| {
+                object
+                    .weapon_barrel_state_for_slot(slot as u8)
+                    .map(|state| WeaponBarrelStateSnapshot {
+                        current_barrel: state.current_barrel,
+                        shots_left_on_barrel: state.shots_left_on_barrel,
+                    })
+                    .unwrap_or_default()
+            }),
+            // The accepted-discharge marker is logical state, deliberately
+            // independent of the older AI fire-intent presentation residual.
+            // It names the exact pre-advance barrel a renderer may baseline.
+            last_weapon_discharge_sequence: weapon_discharge_marker.sequence,
+            last_weapon_discharge_slot: weapon_discharge_marker.weapon_slot,
+            last_weapon_discharge_barrel: weapon_discharge_marker.fired_barrel,
+            last_weapon_discharge_frame: weapon_discharge_marker.logic_frame,
         })
     }
 

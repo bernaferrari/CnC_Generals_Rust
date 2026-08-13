@@ -188,6 +188,11 @@ pub(super) fn default_object_snapshot() -> ObjectSnapshot {
             waypoints: Vec::new(),
         }),
         hacker_disable_channel: None,
+        weapon_barrel_states: default_weapon_barrel_state_snapshots(),
+        last_weapon_discharge_sequence: 0,
+        last_weapon_discharge_slot: 0,
+        last_weapon_discharge_barrel: 0,
+        last_weapon_discharge_frame: 0,
     }
 }
 

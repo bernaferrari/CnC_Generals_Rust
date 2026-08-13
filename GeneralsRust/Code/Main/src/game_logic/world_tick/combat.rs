@@ -3201,6 +3201,21 @@ impl GameLogic {
                         attacker.break_stealth();
                     }
                 }
+                // This direct normal-combat finalizer does not route through
+                // Object::fire_at_ex.  Its accepted shot already consumed
+                // ammo above, so normalize the exact pre-advance barrel here
+                // rather than leaving this live route cursor-static or
+                // synthesizing recoil from a fire-intent writeback.
+                if self
+                    .record_accepted_weapon_discharge(attacker_id, slot)
+                    .is_none()
+                {
+                    // Keep gameplay cursor progression sound even if a
+                    // malformed source state cannot produce presentation.
+                    if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+                        attacker.advance_weapon_barrel_after_shot(slot);
+                    }
+                }
             }
         }
 

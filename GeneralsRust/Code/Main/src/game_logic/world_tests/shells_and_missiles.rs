@@ -1052,11 +1052,64 @@ fn scorpion_residual_gun_salvage_and_rocket() {
         assert!((sec.reload_time - 15.0).abs() < 0.1);
     }
 
+    // Salvage changes the selected WeaponSet (including the already-unlocked
+    // secondary), so C++ deletes and recreates that concrete Weapon.  The
+    // slot-local cursor must reset rather than crossing into the new tier.
+    {
+        let s = game_logic
+            .host_object_mut(scorp_id)
+            .expect("scorpion pre-salvage cursor");
+        assert!(s.set_weapon_barrel_count_for_slot(1, 3));
+        s.weapon_barrel_states[1].shots_per_barrel = 2;
+        s.weapon_barrel_states[1].shots_left_on_barrel = 1;
+        s.weapon_barrel_states[1].current_barrel = 2;
+    }
+    assert!(game_logic.apply_scorpion_salvage_tier(scorp_id, ScorpionSalvageTier::Two));
+    {
+        let s = game_logic
+            .host_object(scorp_id)
+            .expect("scorpion post-salvage cursor");
+        let state = s.weapon_barrel_state_for_slot(1).expect("secondary cursor");
+        assert_eq!(
+            (state.current_barrel, state.shots_left_on_barrel),
+            (0, 1),
+            "a true WeaponSet rebind must begin with a fresh secondary cursor"
+        );
+    }
+
+    // C++ AP Rockets is WeaponBonus state layered on the already selected
+    // Scorpion Rocket WeaponSet.  It must refresh the stats without
+    // reconstructing the concrete Weapon or losing its in-flight barrel.
+    {
+        let s = game_logic
+            .host_object_mut(scorp_id)
+            .expect("scorpion cursor");
+        assert!(s.set_weapon_barrel_count_for_slot(1, 3));
+        s.weapon_barrel_states[1].shots_per_barrel = 2;
+        s.weapon_barrel_states[1].shots_left_on_barrel = 1;
+        s.weapon_barrel_states[1].current_barrel = 2;
+    }
+    let secondary_cursor_before_ap = {
+        let s = game_logic
+            .host_object(scorp_id)
+            .expect("scorpion cursor before AP");
+        let state = s.weapon_barrel_state_for_slot(1).expect("secondary cursor");
+        (state.current_barrel, state.shots_left_on_barrel)
+    };
+
     assert!(game_logic.apply_scorpion_ap_rockets_upgrade(scorp_id));
     {
         let s = game_logic.host_object(scorp_id).expect("scorpion");
         let sec = s.secondary_weapon.as_ref().expect("ap missile");
         assert!((sec.damage - 125.0).abs() < 0.01);
+        let state = s
+            .weapon_barrel_state_for_slot(1)
+            .expect("secondary cursor after AP");
+        assert_eq!(
+            (state.current_barrel, state.shots_left_on_barrel),
+            secondary_cursor_before_ap,
+            "WeaponBonus must retain the active secondary barrel cursor"
+        );
     }
 
     let enemy = game_logic

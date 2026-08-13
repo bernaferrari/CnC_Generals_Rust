@@ -12,6 +12,39 @@ pub(super) enum MouseInputOrigin {
     Injected,
 }
 
+/// C++ world-click role after Window/ControlBar input has declined the event.
+///
+/// `m_useAlternateMouse` is not a raw button swap: `PlaceEventTranslator` and
+/// `GUICommandTranslator` retain LMB ownership for armed placement/targeting
+/// in both layouts.  Outside those modes, the classic layout uses LMB for a
+/// context command and RMB for cancel/deselect; alternate uses LMB selection
+/// and RMB context command.  RMB drag scrolling is independent of this role.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WorldMouseAction {
+    Selection,
+    ContextCommand,
+    CancelOrDeselect,
+    Targeting,
+}
+
+#[inline]
+fn world_mouse_action(
+    button: MouseButton,
+    use_alternate_mouse: bool,
+    targeting_active: bool,
+) -> Option<WorldMouseAction> {
+    match button {
+        // C++ PlaceEventTranslator / GUICommandTranslator run before both
+        // SelectionXlat and CommandXlat, so map/build targeting remains LMB.
+        MouseButton::Left if targeting_active => Some(WorldMouseAction::Targeting),
+        MouseButton::Left if use_alternate_mouse => Some(WorldMouseAction::Selection),
+        MouseButton::Left => Some(WorldMouseAction::ContextCommand),
+        MouseButton::Right if use_alternate_mouse => Some(WorldMouseAction::ContextCommand),
+        MouseButton::Right => Some(WorldMouseAction::CancelOrDeselect),
+        _ => None,
+    }
+}
+
 impl CnCGameEngine {
     pub fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
         if new_size.width > 0 && new_size.height > 0 {
@@ -373,12 +406,21 @@ impl CnCGameEngine {
         }
 
         if in_world && !wnd_used && !hud_cameo_consumed {
+            let targeting_active =
+                self.pending_map_command.is_some() || self.pending_structure_placement.is_some();
+            let world_action =
+                world_mouse_action(button, self.use_alternate_mouse, targeting_active);
             match (button, pressed) {
                 (MouseButton::Left, true) => {
+                    self.lmb_context_started_physically =
+                        matches!(origin, MouseInputOrigin::Physical);
                     self.handle_left_click();
                 }
                 (MouseButton::Left, false) => {
-                    self.handle_left_release();
+                    let physical_lmb_gesture = matches!(origin, MouseInputOrigin::Physical)
+                        && self.lmb_context_started_physically;
+                    self.handle_left_release(origin, physical_lmb_gesture);
+                    self.lmb_context_started_physically = false;
                 }
                 (MouseButton::Right, true) => {
                     // Set anchor for drag-scroll; the actual right-click command
@@ -400,22 +442,41 @@ impl CnCGameEngine {
                             if dx * dx + dy * dy < DRAG_THRESHOLD_SQ {
                                 let had_selection = !self.selected_objects.is_empty()
                                     || !self.ui_selected_ids(self.current_player_id).is_empty();
-                                // Physical + inject share this order residual.
-                                log::info!(
-                                    "RMB world order: had_sel={had_selection} match={} headless={}",
-                                    self.interactive_playability.match_started_from_menu_wnd,
-                                    self.runtime_host_headless
-                                );
-                                self.handle_right_click(origin, physical_rmb_gesture);
-                                self.interactive_playability.note_gameplay_order(
-                                    matches!(origin, MouseInputOrigin::Physical)
-                                        && !self.runtime_host_headless,
-                                    had_selection,
-                                );
-                                log::info!(
-                                    "RMB world order latched gameplay_order={}",
-                                    self.interactive_playability.gameplay_order
-                                );
+                                // SelectionXlat cancels an armed GUI/build
+                                // mode before CommandXlat sees a right click.
+                                // Keep that precedence in both mouse layouts.
+                                if self.cancel_world_mouse_targeting() {
+                                    log::info!("RMB cancelled an armed world target mode");
+                                } else {
+                                    match world_action {
+                                        Some(WorldMouseAction::ContextCommand) => {
+                                            // Physical + inject share this order residual.
+                                            log::info!(
+                                                "RMB context command: had_sel={had_selection} match={} headless={}",
+                                                self.interactive_playability.match_started_from_menu_wnd,
+                                                self.runtime_host_headless
+                                            );
+                                            let issued = self
+                                                .handle_right_click(origin, physical_rmb_gesture);
+                                            self.interactive_playability.note_gameplay_order(
+                                                matches!(origin, MouseInputOrigin::Physical)
+                                                    && !self.runtime_host_headless,
+                                                had_selection && issued,
+                                            );
+                                            log::info!(
+                                                "RMB context command issued={issued} gameplay_order={}",
+                                                self.interactive_playability.gameplay_order
+                                            );
+                                        }
+                                        Some(WorldMouseAction::CancelOrDeselect) => {
+                                            self.deselect_world_selection_from_right_click();
+                                        }
+                                        // LMB-only roles cannot occur for this branch.
+                                        Some(WorldMouseAction::Selection)
+                                        | Some(WorldMouseAction::Targeting)
+                                        | None => {}
+                                    }
+                                }
                             }
                         }
                     }
@@ -1485,7 +1546,9 @@ impl CnCGameEngine {
                     map,
                     skirmish,
                 } => {
-                    self.start_game_from_ui(mode, faction, map, skirmish);
+                    self.start_game_from_ui(HostStartRequest::without_player_template(
+                        mode, faction, map, skirmish,
+                    ));
                 }
                 UIEvent::LoadGame(slot) => {
                     if slot == "quicksave" {
@@ -1845,8 +1908,40 @@ impl CnCGameEngine {
 
 #[cfg(test)]
 mod tests {
-    use super::CnCGameEngine;
+    use super::{world_mouse_action, CnCGameEngine, WorldMouseAction};
+    use winit::event::MouseButton;
     use winit::keyboard::{KeyCode, PhysicalKey};
+
+    #[test]
+    fn alternate_mouse_preserves_cpp_world_button_roles_and_lmb_targeting_priority() {
+        // C++ CommandXlat/SelectionXlat: classic mode gives LMB the context
+        // route and RMB cancel/deselect; Alternate Mouse restores the modern
+        // LMB-select/RMB-context layout.  Place/GUI targeting remains LMB.
+        assert_eq!(
+            world_mouse_action(MouseButton::Left, false, false),
+            Some(WorldMouseAction::ContextCommand)
+        );
+        assert_eq!(
+            world_mouse_action(MouseButton::Right, false, false),
+            Some(WorldMouseAction::CancelOrDeselect)
+        );
+        assert_eq!(
+            world_mouse_action(MouseButton::Left, true, false),
+            Some(WorldMouseAction::Selection)
+        );
+        assert_eq!(
+            world_mouse_action(MouseButton::Right, true, false),
+            Some(WorldMouseAction::ContextCommand)
+        );
+        assert_eq!(
+            world_mouse_action(MouseButton::Left, false, true),
+            Some(WorldMouseAction::Targeting)
+        );
+        assert_eq!(
+            world_mouse_action(MouseButton::Left, true, true),
+            Some(WorldMouseAction::Targeting)
+        );
+    }
 
     #[test]
     fn control_groups_use_physical_number_row_not_shifted_text_or_numpad() {

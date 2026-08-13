@@ -15,14 +15,44 @@ impl Object {
         target_is_infantry: bool,
         target_has_faerie_fire: bool,
     ) -> bool {
+        let Some(slot) = self.fire_at_ex_defer_weapon_barrel_advance(
+            target_id,
+            current_time,
+            target_is_infantry,
+            target_has_faerie_fire,
+        ) else {
+            return false;
+        };
+        // This legacy Object-only entry point has no owning GameLogic from
+        // which to allocate a durable actual-discharge sequence. Preserve its
+        // logical cursor behavior, but keep it deliberately presentation
+        // eventless. Live GameLogic fire paths use the deferred entry point
+        // and record_accepted_weapon_discharge instead.
+        self.advance_weapon_barrel_after_shot(slot);
+        true
+    }
+
+    /// Execute one accepted shot without advancing its exact WeaponSet barrel.
+    ///
+    /// The owning GameLogic must immediately finish this through
+    /// `record_accepted_weapon_discharge`, which captures the pre-advance
+    /// barrel, advances it once, stamps its durable marker, and freezes a
+    /// renderer-facing event. Object-only legacy paths retain `fire_at_ex`.
+    pub(crate) fn fire_at_ex_defer_weapon_barrel_advance(
+        &mut self,
+        target_id: ObjectId,
+        current_time: f32,
+        target_is_infantry: bool,
+        target_has_faerie_fire: bool,
+    ) -> Option<u8> {
         // C++ Weapon::getMaxShotCount residual — AI burst / scatter limits.
         if !self.has_max_shots_remaining() {
-            return false;
+            return None;
         }
 
         // C++ canFireWeapon residual: jammed / disabled units cannot discharge.
         if self.status.weapons_jammed || self.is_disabled() {
-            return false;
+            return None;
         }
         // Prefer an explicit locked/active slot when ready.  The normal
         // fallback remains PRIMARY then SECONDARY; TERTIARY is deliberately
@@ -62,7 +92,7 @@ impl Object {
                     // A lock must not silently redirect an explicit manual
                     // weapon command to PRIMARY when the requested slot is
                     // unavailable or still reloading.
-                    _ => return false,
+                    _ => return None,
                 }
             } else if self.active_weapon_slot == 2 && tertiary_ready {
                 // Active TERTIARY is an explicit weapon toggle, not an auto
@@ -75,7 +105,7 @@ impl Object {
             } else if secondary_ready {
                 1u8
             } else {
-                return false;
+                return None;
             }
         };
 
@@ -122,7 +152,7 @@ impl Object {
                     self.set_ai_state(AIState::Attacking);
                 }
                 self.status.attacking = true;
-                return false;
+                return None;
             }
             // Delay complete — fall through to fire; record_shot clears ready_at.
         } else {
@@ -240,7 +270,7 @@ impl Object {
                         Self::auto_reloaded_clip_after_firing(weapon, name),
                     )
                 }
-                None => return false,
+                None => return None,
             };
         let shooter_id = self.id;
         let shooter_pos = self.get_position();
@@ -328,8 +358,6 @@ impl Object {
         // C++ fireWeaponTemplate LeechRange activate residual.
         self.activate_leech_range_for_slot(slot);
         self.record_shot_at_target(target_id);
-        // C++ Weapon::m_numShotsForCurBarrel / m_curBarrel residual.
-        self.advance_weapon_barrel_after_shot();
         // C++ --m_maxShotCount residual.
         self.consume_max_shot_count();
         self.refresh_weapon_fire_status(current_time);
@@ -386,7 +414,7 @@ impl Object {
         if self.stealth_breaks_on_attack && self.status.stealthed {
             self.break_stealth();
         }
-        true
+        Some(slot)
     }
 
     pub fn move_to(&mut self, position: Vec3) {
@@ -456,9 +484,6 @@ impl Object {
 
     /// C++ Weapon::setLeechRangeActive residual for a weapon slot.
 
-    /// C++ Weapon barrel rotation residual after a shot.
-    /// Decrements shots on current barrel; when exhausted, advances `weapon_cur_barrel`.
-
     /// C++ FiringTracker::shotFired FireSoundLoopTime residual.
     /// Extends the looping fire-audio deadline; records start when newly armed.
     pub fn stamp_fire_sound_loop_after_shot(&mut self, frame: u32, weapon_name: Option<&str>) {
@@ -493,19 +518,6 @@ impl Object {
             if !sound.is_empty() {
                 crate::game_logic::host_fire_sound_loop_log::record(self.id, sound, false);
             }
-        }
-    }
-
-    pub fn advance_weapon_barrel_after_shot(&mut self) {
-        let spb = self.weapon_shots_per_barrel.max(1);
-        let barrels = self.weapon_barrel_count.max(1) as u32;
-        if self.weapon_shots_left_on_barrel == 0 {
-            self.weapon_shots_left_on_barrel = spb;
-        }
-        self.weapon_shots_left_on_barrel = self.weapon_shots_left_on_barrel.saturating_sub(1);
-        if self.weapon_shots_left_on_barrel == 0 {
-            self.weapon_cur_barrel = ((self.weapon_cur_barrel as u32 + 1) % barrels) as u8;
-            self.weapon_shots_left_on_barrel = spb;
         }
     }
 

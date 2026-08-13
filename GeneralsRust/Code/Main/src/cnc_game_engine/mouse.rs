@@ -2,7 +2,7 @@
 use super::input::MouseInputOrigin;
 use super::*;
 
-/// Physical input metadata held only across the synchronous right-click command
+/// Physical input metadata held only across the synchronous context-command
 /// execution boundary. `issued_at` is part of the command's own immutable
 /// fingerprint, so an unrelated queued/AI Gather event cannot be mistaken for
 /// this physical input edge.
@@ -15,12 +15,12 @@ struct PhysicalGatherAttempt {
 }
 
 impl PhysicalGatherAttempt {
-    fn from_right_click_command(
+    fn from_context_click_command(
         command: &crate::command_system::GameCommand,
         origin: MouseInputOrigin,
-        physical_rmb_gesture: bool,
+        physical_context_gesture: bool,
     ) -> Option<Self> {
-        if !matches!(origin, MouseInputOrigin::Physical) || !physical_rmb_gesture {
+        if !matches!(origin, MouseInputOrigin::Physical) || !physical_context_gesture {
             return None;
         }
         let crate::command_system::CommandType::Gather { target_id } = &command.command_type else {
@@ -40,6 +40,18 @@ impl PhysicalGatherAttempt {
             && self.player_id == event.player_id
             && self.target_id == event.target_id
     }
+}
+
+/// C++ `SelectionInfo::contextCommandForNewSelection` only lets the
+/// prefer-selection modifier bypass a classic LMB context route for a locally
+/// selectable target. Terrain and non-local targets still reach CommandXlat.
+#[inline]
+fn classic_left_context_action_allowed(
+    has_selection: bool,
+    shift_down: bool,
+    target_is_locally_selectable: bool,
+) -> bool {
+    has_selection && (!shift_down || !target_is_locally_selectable)
 }
 
 // C++ `W3DView::deviceToWorld` equivalent for the active Main camera.  Input
@@ -208,9 +220,29 @@ impl CnCGameEngine {
         self.is_dragging = true;
         self.selection_start = Some(self.mouse_world_position);
         self.selection_start_screen = Some(self.mouse_position);
+        self.left_click_release_behavior = LeftMouseReleaseBehavior::Selection;
 
         let mouse_pos = self.mouse_world_position;
         let clicked_object = self.find_object_at_position(mouse_pos, false);
+
+        // C++ PlaceEventTranslator and GUICommandTranslator run before
+        // SelectionXlat/CommandXlat.  Their LMB target/placement ownership is
+        // therefore invariant across mouse layouts and must also outrank a
+        // stale double-click selection gesture.
+        if self.pending_map_command.is_some() {
+            self.commit_pending_map_command(mouse_pos, clicked_object);
+            self.left_click_release_behavior = LeftMouseReleaseBehavior::Suppress;
+            return;
+        }
+        if let Some(template) = self.pending_structure_placement.clone() {
+            // Wall/fence residual: defer commit to left-release so drag can form a line.
+            if !Self::is_wall_structure_template(&template) {
+                // C++ structure placement residual: empty-ground click commits DozerConstruct.
+                self.place_structure_from_ui(&template, mouse_pos);
+                self.left_click_release_behavior = LeftMouseReleaseBehavior::Suppress;
+            }
+            return;
+        }
 
         // Check for double-click
         let now = Instant::now();
@@ -235,51 +267,77 @@ impl CnCGameEngine {
             if let Some(object_id) = clicked_object {
                 self.select_similar_units(object_id);
             }
-        } else {
-            // Single-click behavior
-            if self.pending_map_command.is_some() {
-                let loc = self.mouse_world_position;
-                self.commit_pending_map_command(loc, clicked_object);
-            } else if ctrl_down && !self.selected_objects.is_empty() {
-                // C++ ForceAttack residual: Ctrl+LMB with selection issues force-attack.
-                self.issue_force_attack_from_left_click(mouse_pos, clicked_object);
-            } else if let Some(object_id) = clicked_object {
-                if shift_down {
-                    // C++ Shift+select residual: toggle unit in multi-selection.
-                    self.toggle_select_object(object_id);
-                } else {
-                    // Select this object
-                    // Wave 1104: belt-and-suspenders local selectable check (pick peels FOW first).
-                    let selectable = self.last_presentation_frame.as_ref().is_some_and(|frame| {
-                        frame.objects.iter().any(|o| {
-                            o.id == object_id
-                                && frame.is_owned_by_local(o)
-                                && crate::unit_control::UnitControlSystem::presentation_is_selectable(
-                                    o,
-                                )
-                        })
-                    });
-                    if !selectable {
-                        return;
-                    }
-                    // Wave 583: selection residual via host_set_selection.
-                    self.host_set_selection(self.current_player_id, vec![object_id]);
-                    self.play_sound_effect(SoundType::Select);
-                }
-            } else if let Some(template) = self.pending_structure_placement.clone() {
-                // Wall/fence residual: defer commit to left-release so drag can form a line.
-                if Self::is_wall_structure_template(&template) {
-                    // selection_start already set at top of handle_left_click.
-                } else {
-                    // C++ structure placement residual: empty-ground click commits DozerConstruct.
-                    let loc = self.mouse_world_position;
-                    self.place_structure_from_ui(&template, loc);
-                }
-            } else {
-                // Defer empty-ground clear until left-release if this becomes a box drag.
-                // Instant clear on mousedown fights drag-select residual.
-            }
+            self.left_click_release_behavior = LeftMouseReleaseBehavior::Suppress;
+            return;
         }
+
+        let had_selection = !self.ui_selected_ids(self.current_player_id).is_empty();
+        if !self.use_alternate_mouse && ctrl_down && had_selection {
+            // Classic layout: CommandXlat consumes Ctrl+LMB as force attack.
+            // Alternate layout leaves force attack on its RMB context route.
+            self.issue_force_attack_from_left_click(mouse_pos, clicked_object);
+            self.left_click_release_behavior = LeftMouseReleaseBehavior::Suppress;
+            return;
+        }
+
+        let target_is_locally_selectable = clicked_object
+            .is_some_and(|object_id| self.is_locally_selectable_click_target(object_id));
+        if !self.use_alternate_mouse
+            && classic_left_context_action_allowed(
+                had_selection,
+                shift_down,
+                target_is_locally_selectable,
+            )
+        {
+            // In C++'s classic layout, LMB first gives CommandXlat an
+            // opportunity to issue a context command.  Defer until release so
+            // a box drag remains SelectionXlat-owned. Shift is only a
+            // selection override for a locally selectable target: C++
+            // SelectionInfo still lets Shift+LMB issue a context action on
+            // terrain, enemy, allied, civilian, or crate targets. If the
+            // context probe yields no command, `handle_left_release` falls
+            // through to ordinary selection of the clicked drawable.
+            self.left_click_release_behavior = LeftMouseReleaseBehavior::ContextCommand;
+            return;
+        }
+
+        if let Some(object_id) = clicked_object {
+            self.select_left_click_target(object_id, shift_down);
+        }
+        // Empty-ground selection clear remains deferred until left-release so
+        // a potential box drag is not destroyed on its press edge.
+    }
+
+    /// Apply the selection half of C++ `SelectionXlat` for a point click that
+    /// was not consumed by a command/placement path.
+    fn select_left_click_target(&mut self, object_id: ObjectId, shift_down: bool) {
+        if shift_down {
+            // C++ Shift+select residual: toggle unit in multi-selection.
+            self.toggle_select_object(object_id);
+            return;
+        }
+
+        if !self.is_locally_selectable_click_target(object_id) {
+            return;
+        }
+        // Wave 583: selection residual via host_set_selection.
+        self.host_set_selection(self.current_player_id, vec![object_id]);
+        self.play_sound_effect(SoundType::Select);
+    }
+
+    /// Whether the frozen object is a locally owned target that SelectionXlat
+    /// may select. This mirrors the point-selection predicate used both for a
+    /// normal LMB selection and for classic Shift+LMB's prefer-selection
+    /// override.
+    fn is_locally_selectable_click_target(&self, object_id: ObjectId) -> bool {
+        // Wave 1104: belt-and-suspenders local selectable check (pick peels FOW first).
+        self.last_presentation_frame.as_ref().is_some_and(|frame| {
+            frame.objects.iter().any(|o| {
+                o.id == object_id
+                    && frame.is_owned_by_local(o)
+                    && crate::unit_control::UnitControlSystem::presentation_is_selectable(o)
+            })
+        })
     }
 
     /// Shift+click residual: add friendly unit or remove if already selected.
@@ -385,8 +443,16 @@ impl CnCGameEngine {
         }
     }
 
-    pub(super) fn handle_left_release(&mut self) {
+    pub(super) fn handle_left_release(
+        &mut self,
+        origin: MouseInputOrigin,
+        physical_lmb_gesture: bool,
+    ) {
         self.is_dragging = false;
+        let release_behavior = std::mem::replace(
+            &mut self.left_click_release_behavior,
+            LeftMouseReleaseBehavior::Selection,
+        );
         let selection_start_screen = self.selection_start_screen.take();
 
         let Some(start) = self.selection_start.take() else {
@@ -404,6 +470,38 @@ impl CnCGameEngine {
                 .length()
             })
             .unwrap_or_default();
+
+        // A map-target, structure placement, force attack, or double-click
+        // selection already consumed the press edge.  C++'s higher-priority
+        // translators suppress the corresponding release so it cannot also
+        // clear selection or issue a second world action.
+        if release_behavior == LeftMouseReleaseBehavior::Suppress {
+            return;
+        }
+
+        if release_behavior == LeftMouseReleaseBehavior::ContextCommand
+            && drag_distance_screen <= 2.0
+        {
+            let had_selection = !self.ui_selected_ids(self.current_player_id).is_empty();
+            let issued = self.handle_left_context_click(origin, physical_lmb_gesture);
+            self.interactive_playability.note_gameplay_order(
+                matches!(origin, MouseInputOrigin::Physical) && !self.runtime_host_headless,
+                had_selection && issued,
+            );
+
+            if !issued {
+                // Classic C++ `SelectionInfo::contextCommandForNewSelection`
+                // returns false for a drawable with no actionable context
+                // command.  That exact fallthrough is what lets LMB replace
+                // selection instead of moving selected units into a friendly
+                // object under the cursor.
+                if let Some(object_id) = self.find_object_at_position(end, false) {
+                    let shift_down = self.keys_pressed.contains(&Key::Named(NamedKey::Shift));
+                    self.select_left_click_target(object_id, shift_down);
+                }
+            }
+            return;
+        }
 
         // C++ starts an area selection from a pixel delta and dispatches an
         // IRegion2D on release.  Terrain-ray distance changes with camera
@@ -476,24 +574,48 @@ impl CnCGameEngine {
         self.play_sound_effect(SoundType::Select);
     }
 
-    /// Issue a context-sensitive RMB command. Physical gather evidence is
-    /// threaded through this exact command path, but only becomes tracked after
-    /// GameLogic reports the Gather command actually accepted its carrier IDs.
+    /// Issue a context-sensitive command through Alternate Mouse's RMB route.
+    ///
+    /// The actual command implementation is shared with the classic-layout
+    /// LMB route below; only the physical button policy differs.
     pub(super) fn handle_right_click(
         &mut self,
         origin: MouseInputOrigin,
         physical_rmb_gesture: bool,
-    ) {
+    ) -> bool {
+        self.handle_context_click(origin, physical_rmb_gesture)
+    }
+
+    /// Issue a context-sensitive command through the classic-layout LMB
+    /// route.  C++ `CommandXlat` treats this as the same logical context
+    /// command as Alternate Mouse's RMB path.
+    pub(super) fn handle_left_context_click(
+        &mut self,
+        origin: MouseInputOrigin,
+        physical_lmb_gesture: bool,
+    ) -> bool {
+        self.handle_context_click(origin, physical_lmb_gesture)
+    }
+
+    /// Issue one logical C++ `evaluateContextCommand` action.  Physical gather
+    /// evidence is threaded through this exact command path, but only becomes
+    /// tracked after GameLogic reports the Gather command actually accepted its
+    /// carrier IDs.
+    fn handle_context_click(
+        &mut self,
+        origin: MouseInputOrigin,
+        physical_context_gesture: bool,
+    ) -> bool {
         let mouse_pos = self.mouse_world_position;
 
         // Prefer live player selection; fall back to engine selection residual.
         // Wave 234: selection prefers engine/presentation freeze.
-        let mut selected = self.ui_selected_ids(self.current_player_id);
+        let selected = self.ui_selected_ids(self.current_player_id);
         if selected.is_empty() {
-            return;
+            return false;
         }
 
-        // C++ context-sensitive right-click residual via CommandSystem:
+        // C++ context-sensitive click residual via CommandSystem:
         // attack / gather / repair / enter / get-repaired / get-healed / move / attack-move.
         let target_object = self.find_object_at_position(mouse_pos, true);
         let ctrl = self.keys_pressed.iter().any(|k| {
@@ -527,6 +649,9 @@ impl CnCGameEngine {
             viewport_size: None,
             world_min: None,
             world_max: None,
+            // CommandSystem's `Right` arm represents its logical context
+            // command, not the literal OS button.  C++ chooses the physical
+            // button in CommandXlat before evaluating this shared action.
             mouse_button: crate::command_system::MouseButton::Right,
             modifier_keys: crate::command_system::ModifierKeys { ctrl, shift, alt },
             is_drag: false,
@@ -546,6 +671,18 @@ impl CnCGameEngine {
         );
 
         if let Some(mut command) = command {
+            let target_had_no_context_action = target_object.is_some()
+                && matches!(
+                    &command.command_type,
+                    crate::command_system::CommandType::MoveTo { .. }
+                );
+            if target_had_no_context_action {
+                // C++ `evaluateContextCommand` returns MSG_INVALID rather
+                // than a move when a drawable was under the cursor but had no
+                // actionable relationship.  Classic LMB then falls back to
+                // selection; Alternate RMB simply does nothing.
+                return false;
+            }
             if self.sticky_auto_attack {
                 if let crate::command_system::CommandType::MoveTo { destination, .. } =
                     command.command_type
@@ -556,31 +693,81 @@ impl CnCGameEngine {
                     };
                 }
             }
-            self.host_queue_and_process_right_click_command(command, origin, physical_rmb_gesture);
-            return;
+            self.host_queue_and_process_context_click_command(
+                command,
+                origin,
+                physical_context_gesture,
+            );
+            return true;
         }
 
-        // Fail-closed fallback residual: move if context path produced nothing.
+        // A drawable with no accepted context action is deliberately not
+        // converted to a move.  The only C++ fallback move is terrain (no
+        // drawable), and that distinction is what lets classic LMB select a
+        // friendly object after a failed context probe.
+        if target_object.is_some() {
+            return false;
+        }
+
+        // Fail-closed terrain fallback residual: move if the context path did
+        // not synthesize a command.
         if self.sticky_auto_attack {
             self.host_command_attack_move(self.current_player_id, mouse_pos);
         } else {
             self.host_command_move(self.current_player_id, mouse_pos);
         }
         self.play_sound_effect(SoundType::Command);
+        true
+    }
+
+    /// C++ SelectionXlat sees a right-button click before CommandXlat.  An
+    /// armed GUI/build mode is cancelled there; it must never turn into a
+    /// context command merely because Main owns direct OS input.
+    pub(super) fn cancel_world_mouse_targeting(&mut self) -> bool {
+        let mut cancelled = false;
+        if self.pending_structure_placement.is_some() {
+            // SelectionXlat processes raw RMB-up before CommandXlat.  Unlike
+            // a pending GUI target, a pending structure has a placement
+            // source, so retail deselects the builder before CommandXlat
+            // clears the placement state in either mouse layout.
+            self.deselect_world_selection_from_right_click();
+            self.cancel_structure_placement_from_ui();
+            cancelled = true;
+        }
+        if self.pending_map_command.take().is_some() {
+            self.clear_radius_cursor_overlays();
+            let msg = "Cancelled pending command";
+            self.game_hud.push_info_message(msg);
+            self.ui_manager.game_hud_mut().push_info_message(msg);
+            cancelled = true;
+        }
+        cancelled
+    }
+
+    /// C++ SelectionXlat deselects on a short classic-layout RMB click when
+    /// no GUI/build target mode owns that click.  RMB drag remains LookAtXlat
+    /// scrolling and is filtered by the caller before this method runs.
+    pub(super) fn deselect_world_selection_from_right_click(&mut self) {
+        if !self.ui_selected_ids(self.current_player_id).is_empty() {
+            self.host_set_selection(self.current_player_id, Vec::new());
+        }
     }
 
     /// Run the normal synchronous command authority path, then bind a physical
     /// Gather attempt to its executor-confirmed carrier subset. Injected,
     /// runtime-host, and AI commands have no physical attempt and are consumed
     /// without ever entering `physical_gather_carrier_ids`.
-    fn host_queue_and_process_right_click_command(
+    fn host_queue_and_process_context_click_command(
         &mut self,
         command: crate::command_system::GameCommand,
         origin: MouseInputOrigin,
-        physical_rmb_gesture: bool,
+        physical_context_gesture: bool,
     ) {
-        let physical_attempt =
-            PhysicalGatherAttempt::from_right_click_command(&command, origin, physical_rmb_gesture);
+        let physical_attempt = PhysicalGatherAttempt::from_context_click_command(
+            &command,
+            origin,
+            physical_context_gesture,
+        );
         self.host_queue_and_process_command(command);
 
         // `host_queue_and_process_command` is synchronous. Always consume the
@@ -610,7 +797,7 @@ impl CnCGameEngine {
     /// untracked/remote carrier is deliberately insufficient.
     pub(super) fn host_drain_physical_gather_dropoffs(&mut self) {
         // Clear any non-input Gather acceptances that arose during simulation;
-        // a physical RMB path consumes its own event synchronously above.
+        // a physical context-click path consumes its own event synchronously above.
         let _ = self.host_game_logic_mut().take_accepted_gather_commands();
         let dropoffs = self.host_game_logic_mut().take_supply_dropoff_events();
         if dropoffs.is_empty() || !self.host_physical_gather_evidence_eligible() {
@@ -1880,6 +2067,14 @@ impl CnCGameEngine {
 #[cfg(test)]
 mod camera_pick_tests {
     use super::*;
+
+    #[test]
+    fn classic_shift_lmb_only_prefers_selection_for_a_local_target() {
+        assert!(classic_left_context_action_allowed(true, false, true));
+        assert!(!classic_left_context_action_allowed(true, true, true));
+        assert!(classic_left_context_action_allowed(true, true, false));
+        assert!(!classic_left_context_action_allowed(false, false, false));
+    }
 
     #[test]
     fn center_screen_pick_follows_the_render_camera_not_map_extents() {

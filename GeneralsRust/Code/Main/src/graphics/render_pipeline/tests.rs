@@ -2,6 +2,43 @@ use super::*;
 use crate::assets::models::BlendMode;
 
 #[test]
+fn visual_world_state_reset_clears_object_timeline_components() {
+    use std::collections::HashMap;
+
+    let mut animation_states = HashMap::from([(
+        (1_u32, 2_u32),
+        ObjectAnimationState {
+            animation_binding_key: None,
+            current_frame: 7.5,
+            frame_rate: 30.0,
+            num_frames: 12,
+            mode: crate::assets::AuthoredDrawAnimationMode::Loop,
+        },
+    )]);
+    let mut stale_render_items = vec!["old-world-item"];
+    let mut current_pass = Some(RenderPass::ForwardOpaque);
+    let mut last_frame_time = 17.25;
+
+    clear_visual_world_state_components(
+        &mut animation_states,
+        &mut stale_render_items,
+        &mut current_pass,
+        &mut last_frame_time,
+    );
+
+    assert!(
+        animation_states.is_empty(),
+        "raw object-id timelines must reset"
+    );
+    assert!(
+        stale_render_items.is_empty(),
+        "old-world submissions must drop"
+    );
+    assert_eq!(current_pass, None);
+    assert_eq!(last_frame_time, 0.0, "new world starts with a fresh delta");
+}
+
+#[test]
 fn w3d_companion_animation_forward_palette_uses_render_item_binding() {
     use crate::assets::{
         W3DModel, W3dAnimChannel, W3dAnimation, W3dAnimationBinding, W3dHierarchy, W3dPivot,
