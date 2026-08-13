@@ -1246,38 +1246,42 @@ impl GameLogic {
             return false;
         }
         let science_ok = science_gated; // residual already validated via can_make
-        if let Some(producer) = self.objects.get(&producer_id) {
-            let team = producer.team;
-            let owner_player_id = producer.owner_player_id;
-            let player = match owner_player_id {
-                Some(player_id) => self.get_player_mut(player_id),
-                None => self.get_player_mut_by_team(team),
-            };
-            let Some(player) = player else {
+
+        // C++ ThingTemplate::calcCostToBuild / calcTimeToBuild are evaluated
+        // for the actual controlling Player.  Resolve that identity before a
+        // mutable player borrow so an exact General's name-key modifiers stay
+        // coupled to the charged queue entry (including cancellation refunds).
+        let (player_id, charged_cost, total_time) = {
+            let Some(producer) = self.objects.get(&producer_id) else {
                 return false;
             };
-            let player_id = player.id;
-            let base = template.build_cost.supplies;
-            let mod_supplies = {
-                let factor = player.production_cost_factor(
-                    &crate::game_logic::host_upgrade_module_residuals::kindof_cost_tokens(
-                        template.is_kind_of(crate::game_logic::KindOf::Vehicle),
-                        template.is_kind_of(crate::game_logic::KindOf::Infantry),
-                        template.is_kind_of(crate::game_logic::KindOf::Aircraft),
-                        template.is_kind_of(crate::game_logic::KindOf::Structure),
-                    ),
-                );
-                crate::game_logic::host_upgrade_module_residuals::apply_production_cost_factor(
-                    base, factor,
-                )
-            };
-            let mut cost = template.build_cost.clone();
-            cost.supplies = mod_supplies;
-            if !player.spend_resources(&cost) {
-                // Race residual: money spent between can_make and charge.
-                self.try_eva_insufficient_funds(player_id);
+            let Some(player_id) = producer
+                .owner_player_id
+                .or_else(|| self.get_player_by_team(producer.team).map(|player| player.id))
+            else {
                 return false;
-            }
+            };
+            let mut cost = template.build_cost;
+            cost.supplies = self.modified_build_cost_supplies(
+                player_id,
+                &template_name,
+                template.build_cost.supplies,
+            );
+            let total_time = self.modified_build_time_seconds(
+                player_id,
+                &template_name,
+                template.build_time,
+            );
+            (player_id, cost, total_time)
+        };
+
+        let Some(player) = self.get_player_mut(player_id) else {
+            return false;
+        };
+        if !player.spend_resources(&charged_cost) {
+            // Race residual: money spent between can_make and charge.
+            self.try_eva_insufficient_funds(player_id);
+            return false;
         }
 
         let producer_template_name = self
@@ -1291,7 +1295,13 @@ impl GameLogic {
         );
         if let Some(producer) = self.objects.get_mut(&producer_id) {
             if let Some(building) = producer.building_data.as_mut() {
-                if building.add_to_queue_with_quantity(template_name.clone(), &template, quantity) {
+                if building.add_to_queue_with_quantity_and_terms(
+                    template_name.clone(),
+                    &template,
+                    quantity,
+                    total_time,
+                    charged_cost,
+                ) {
                     if science_gated && science_ok {
                         self.stealth_fighter_science.record_production_enqueue();
                     }

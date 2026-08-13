@@ -1013,6 +1013,166 @@ impl W3DModel {
         ))
     }
 
+    /// As [`Self::mesh_local_transform_and_visibility_for_primary_turret`],
+    /// with C++ `W3DModelDraw::handleClientRecoil` controls applied after the
+    /// selected HAnim and after primary-turret capture controls.  The controls
+    /// are fresh W3D pivot identities only: callers must first validate their
+    /// selected source Draw state against [`Self::weapon_barrel_topology_for_authored_bindings`].
+    ///
+    /// A malformed/unsupported control path deliberately falls back to the
+    /// already-valid turret/animation pose rather than moving an arbitrary
+    /// mesh.  Muzzle visibility is kept separate from HTree capture controls
+    /// because C++ hides the exact subobject on that pivot, not every sibling
+    /// sharing the same bone.
+    pub fn mesh_local_transform_and_visibility_for_primary_turret_and_weapon_controls(
+        &self,
+        mesh_index: usize,
+        animation_binding: Option<&W3dAnimationBinding>,
+        animation_frame: f32,
+        primary_turret: &AuthoredDrawPrimaryTurret,
+        turret_angle_degrees: f32,
+        turret_pitch_degrees: f32,
+        weapon_controls: &[W3dWeaponVisualControl],
+    ) -> Option<(Mat4, bool)> {
+        let (fallback_transform, visible) = self
+            .mesh_local_transform_and_visibility_for_primary_turret(
+                mesh_index,
+                animation_binding,
+                animation_frame,
+                primary_turret,
+                turret_angle_degrees,
+                turret_pitch_degrees,
+            )?;
+        if weapon_controls.is_empty() {
+            return Some((fallback_transform, visible));
+        }
+
+        let Some(mesh_bone_index) = self.rigid_hlod_bone_index_for_mesh(mesh_index) else {
+            return Some((fallback_transform, visible));
+        };
+        let Some((hlod, hierarchy)) = self.rigid_hlod_context() else {
+            return Some((fallback_transform, visible));
+        };
+        let Some(local_transforms) =
+            self.local_transforms_for_animation_binding(animation_binding, animation_frame)
+        else {
+            return Some((fallback_transform, visible));
+        };
+
+        let mut capture_controls = vec![None; hierarchy.pivots.len()];
+        if primary_turret.primary_fields_valid && !primary_turret.has_unsupported_alternate_turret()
+        {
+            if let Some((bone_index, transform)) = primary_turret
+                .yaw_bone
+                .as_deref()
+                .and_then(|bone_name| Self::primary_turret_pivot_index(hierarchy, bone_name))
+                .and_then(|bone_index| {
+                    Self::primary_turret_angle_radians(
+                        turret_angle_degrees,
+                        primary_turret.yaw_art_angle_radians(),
+                    )
+                    .map(|angle| (bone_index, Mat4::from_rotation_z(angle).to_cols_array()))
+                })
+            {
+                capture_controls[bone_index] = Some(transform);
+            }
+            if let Some((bone_index, transform)) = primary_turret
+                .pitch_bone
+                .as_deref()
+                .and_then(|bone_name| Self::primary_turret_pivot_index(hierarchy, bone_name))
+                .and_then(|bone_index| {
+                    Self::primary_turret_angle_radians(
+                        turret_pitch_degrees,
+                        primary_turret.pitch_art_angle_radians(),
+                    )
+                    .map(|angle| (bone_index, Mat4::from_rotation_y(-angle).to_cols_array()))
+                })
+            {
+                // C++ calls yaw Control_Bone before pitch. If bad source data
+                // aliases them, the later pitch control replaces yaw.
+                capture_controls[bone_index] = Some(transform);
+            }
+        }
+
+        for control in weapon_controls {
+            let Some(pivot_index) = control
+                .recoil_pivot_index
+                .and_then(|index| usize::try_from(index).ok())
+                .filter(|index| *index != 0 && *index < hierarchy.pivots.len())
+            else {
+                continue;
+            };
+            if !control.recoil_shift.is_finite() || control.recoil_shift < 0.0 {
+                return Some((fallback_transform, visible));
+            }
+            // `handleClientRecoil` runs after turret positioning and calls
+            // Capture_Bone/Control_Bone in slot/barrel order. A later control
+            // on the same pivot replaces the earlier capture transform.
+            capture_controls[pivot_index] = Some(
+                Mat4::from_translation(Vec3::new(-control.recoil_shift, 0.0, 0.0)).to_cols_array(),
+            );
+        }
+
+        let Some(source_transform) = compute_global_transforms_from_locals_with_capture_controls(
+            hierarchy,
+            &local_transforms,
+            &capture_controls,
+        )?
+        .get(mesh_bone_index)
+        .copied() else {
+            return Some((fallback_transform, visible));
+        };
+        Some((
+            Self::w3d_transform_to_render_basis(Mat4::from_cols_array(&source_transform)),
+            visible,
+        ))
+    }
+
+    /// Return C++ `setMuzzleFlashHidden`'s direct visibility override for one
+    /// rigid HLOD mesh.  `W3DModelDraw` changes only
+    /// `Get_Sub_Object_On_Bone(0, muzzle_bone)`: the first child in the
+    /// selected HLOD level on that exact pivot, not every sibling sharing the
+    /// bone.  Controls are evaluated in slot/barrel order, so a malformed
+    /// later alias intentionally wins just like sequential C++ calls.
+    ///
+    /// This is kept independent of HTree transforms.  The collector applies
+    /// the override after authored Hide/Show directives, while preserving a
+    /// selected HAnim's own invisible mesh state.
+    pub fn muzzle_flash_visibility_override_for_mesh(
+        &self,
+        mesh_index: usize,
+        weapon_controls: &[W3dWeaponVisualControl],
+    ) -> Option<bool> {
+        let (mesh_subobject, mesh_bone_index) = self.rigid_hlod_subobject_for_mesh(mesh_index)?;
+        let (hlod, _hierarchy) = self.rigid_hlod_context()?;
+        let mesh_bone_index = u32::try_from(mesh_bone_index).ok()?;
+        let first_child_for_pivot = |pivot_index: u32| {
+            hlod.lods.first().and_then(|lod| {
+                lod.subobjects
+                    .iter()
+                    .find(|child| child.bone_index == pivot_index)
+            })
+        };
+
+        let mut override_visibility = None;
+        for control in weapon_controls {
+            let Some(pivot_index) = control.muzzle_flash_pivot_index else {
+                continue;
+            };
+            if mesh_bone_index != pivot_index {
+                continue;
+            }
+            if first_child_for_pivot(pivot_index).is_some_and(|child| {
+                child
+                    .name
+                    .eq_ignore_ascii_case(mesh_subobject.name.as_str())
+            }) {
+                override_visibility = Some(control.muzzle_flash_visible);
+            }
+        }
+        override_visibility
+    }
+
     /// Return the source-space HTree transform for one rigid HLOD mesh after
     /// C++-ordered primary turret capture controls. `None` means no safe
     /// primary control exists, not that the mesh itself is unavailable; the
@@ -6246,6 +6406,7 @@ mod tests {
                     recoil_bone_base: Some("recoil".to_string()),
                     muzzle_flash_bone_base: Some("muzzle".to_string()),
                     launch_bone_base: Some("launch".to_string()),
+                    projectile_hide_show_bone: None,
                 },
                 AuthoredDrawWeaponBoneSlot::default(),
                 AuthoredDrawWeaponBoneSlot::default(),
@@ -6293,6 +6454,7 @@ mod tests {
                     recoil_bone_base: Some("barerecoil".to_string()),
                     muzzle_flash_bone_base: Some("baremuzzle".to_string()),
                     launch_bone_base: Some("barelaunch".to_string()),
+                    projectile_hide_show_bone: None,
                 },
                 AuthoredDrawWeaponBoneSlot::default(),
                 AuthoredDrawWeaponBoneSlot::default(),

@@ -87,6 +87,66 @@ fn exact_parsed_structure_power_for_button(
 }
 
 impl CnCGameEngine {
+    /// Prime the immutable host-side barrel-topology catalogue for every
+    /// Object template actually present in a freshly loaded world.
+    ///
+    /// C++ asks each live Drawable for its current W3DModelDraw barrel count
+    /// immediately before a shot. Main keeps GameLogic and WGPU ownership
+    /// separate, so models are allowed to enter the shared AssetManager only
+    /// at this successful world boundary; simulation then uses a cache-only
+    /// query keyed by the current exact ModelCondition state. We prewarm all
+    /// finite source Condition/Transition states for active templates so a
+    /// later FIRING/DAMAGED/upgrade transition never opens an archive from a
+    /// fixed combat step.
+    fn prewarm_host_weapon_barrel_topologies_for_loaded_world(&mut self) {
+        let template_names: Vec<String> = self
+            .game_logic
+            .host_objects()
+            .values()
+            .map(|object| object.template_name.trim())
+            .filter(|name| !name.is_empty())
+            .map(ToOwned::to_owned)
+            .collect();
+        if template_names.is_empty() {
+            return;
+        }
+        let active_selections: Vec<(String, u128)> = self
+            .game_logic
+            .host_objects()
+            .values()
+            .filter_map(|object| {
+                let name = object.template_name.trim();
+                (!name.is_empty()).then(|| (name.to_string(), object.model_condition_bits))
+            })
+            .collect();
+
+        let Some(manager_arc) = crate::assets::get_asset_manager() else {
+            return;
+        };
+        let Ok(mut manager) = manager_arc.lock() else {
+            warn!("Weapon barrel topology prewarm skipped: asset manager mutex poisoned");
+            return;
+        };
+
+        let source_stats =
+            manager.prewarm_weapon_barrel_topology_models_for_objects(template_names.iter());
+        let active_stats =
+            manager.prewarm_weapon_barrel_topologies_for_object_conditions(active_selections);
+        if source_stats.requested != 0 || active_stats.requested != 0 {
+            debug!(
+                "Prewarmed host W3D barrel topology: source requested={} hits={} resolved={} missing={}; active requested={} hits={} resolved={} missing={}",
+                source_stats.requested,
+                source_stats.cache_hits,
+                source_stats.resolved,
+                source_stats.missing,
+                active_stats.requested,
+                active_stats.cache_hits,
+                active_stats.resolved,
+                active_stats.missing,
+            );
+        }
+    }
+
     pub(super) fn commit_pending_map_command(
         &mut self,
         location: glam::Vec3,
@@ -605,6 +665,11 @@ impl CnCGameEngine {
             );
             return None;
         };
+        // The new logical world is now authoritative. Prime exact source W3D
+        // topology before a post-load combat tick can accept a shot; failure
+        // remains cache-miss/one-barrel fail-closed rather than doing I/O from
+        // `Weapon::privateFireWeapon`'s Rust equivalent.
+        self.prewarm_host_weapon_barrel_topologies_for_loaded_world();
         // A successful requested or fallback load installed a new terrain
         // payload and a new logical object world.  Rebuild the
         // presentation-owned Arc and discard raw object-id renderer timelines
@@ -679,7 +744,7 @@ impl CnCGameEngine {
         mode: crate::game_logic::GameMode,
         faction_team: crate::game_logic::Team,
         player_template: crate::game_logic::PlayerTemplateIdentity,
-    ) {
+    ) -> bool {
         self.host_clear_match_residuals();
         let player_id = self.current_player_id;
         self.host_game_logic_mut().apply_session_control_op(
@@ -689,10 +754,26 @@ impl CnCGameEngine {
                 player_template,
             },
         );
+        if self
+            .game_logic
+            .player_template_identity(player_id)
+            .is_none()
+        {
+            // The identity was generation/index validated before this call,
+            // but the Common store is still checked at the GameLogic boundary.
+            // Do not let a late invalidation proceed into map load as a generic
+            // base-faction match.
+            log::error!(
+                "Rejecting host Campaign/Challenge start: PlayerTemplate binding for player {} did not survive session reset",
+                player_id
+            );
+            return false;
+        }
         self.host_match_game_mode = Some(mode);
         self.host_match_local_team = Some(faction_team);
         self.host_match_local_player_id = Some(self.current_player_id);
         self.host_stamp_sim_timing_residuals();
+        true
     }
 
     pub(super) fn host_process_commands_with_command_sound(&mut self) {

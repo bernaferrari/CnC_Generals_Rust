@@ -1158,7 +1158,13 @@ impl GameLogic {
         }
     }
 
-    /// C++ ThingTemplate::calcCostToBuild KindOf production-cost-change residual.
+    /// C++ `ThingTemplate::calcCostToBuild` player modifier path.
+    ///
+    /// The exact `PlayerTemplate::ProductionCostChange` comes first, then the
+    /// independently stacked KindOf upgrade modifiers.  The old host helper
+    /// returned early for an unclassified template, which incorrectly skipped
+    /// a General's exact-name discount even though C++ applies it before the
+    /// KindOf query.
     pub fn modified_build_cost_supplies(
         &self,
         player_id: u32,
@@ -1184,11 +1190,67 @@ impl GameLogic {
             })
             .unwrap_or((false, false, false, false));
         let tokens = kindof_cost_tokens(is_vehicle, is_infantry, is_aircraft, is_structure);
-        if tokens.is_empty() {
-            return base_supplies;
+        let kindof_factor = player.production_cost_factor(&tokens);
+        let template_factor = self.player_template_production_cost_factor(player_id, template_name);
+        apply_production_cost_factor(base_supplies, template_factor * kindof_factor)
+    }
+
+    /// C++ `ThingTemplate::calcTimeToBuild` authored pre-power frame count.
+    ///
+    /// Retail first converts `getBuildTime() * 30` to `Int`, then applies the
+    /// selected PlayerTemplate's `ProductionTimeChange` and converts to `Int`
+    /// again.  Keep this integer form available to both queued production and
+    /// dozer construction, before either path applies the low-power penalty.
+    pub(crate) fn cpp_build_time_frames_from_factor(base_seconds: f32, factor: f32) -> u32 {
+        const LOGIC_FRAMES_PER_SECOND: f32 = 30.0;
+
+        if !base_seconds.is_finite() || !factor.is_finite() {
+            // Invalid INI values must not manufacture a near-instant unit.
+            return u32::MAX;
         }
-        let factor = player.production_cost_factor(&tokens);
-        apply_production_cost_factor(base_supplies, factor)
+
+        let base_frames = (base_seconds * LOGIC_FRAMES_PER_SECOND)
+            .trunc()
+            .clamp(0.0, u32::MAX as f32) as u32;
+        ((base_frames as f32) * factor.max(0.0))
+            .trunc()
+            .clamp(0.0, u32::MAX as f32) as u32
+    }
+
+    /// Encode C++ `ThingTemplate::calcTimeToBuild`'s authored pre-power frame
+    /// count in Main's legacy seconds carrier.
+    ///
+    /// Retail first converts `getBuildTime() * 30` to `Int`, then applies the
+    /// selected PlayerTemplate's `ProductionTimeChange` and converts to `Int`
+    /// again.  Main's queue stores seconds but its existing completion code
+    /// recovers an integer frame count before applying the low-power penalty.
+    /// Preserve that ordering by encoding the already-truncated pre-power
+    /// frame count just above its lower frame boundary.  A direct
+    /// `frames as f32 / 30.0` can round below that boundary (for example frame
+    /// 63), causing the downstream `.trunc()` to lose a frame.
+    pub(crate) fn cpp_build_time_seconds_from_factor(base_seconds: f32, factor: f32) -> f32 {
+        const LOGIC_FRAMES_PER_SECOND: f32 = 30.0;
+        const FRAME_ENCODING_FRACTION: f32 = 0.25;
+        let authored_frames = Self::cpp_build_time_frames_from_factor(base_seconds, factor);
+        if authored_frames == 0 {
+            return 0.0;
+        }
+
+        (authored_frames as f32 + FRAME_ENCODING_FRACTION) / LOGIC_FRAMES_PER_SECOND
+    }
+
+    /// C++ `ThingTemplate::calcTimeToBuild` authored PlayerTemplate stage.
+    ///
+    /// This returns a seconds carrier for `ProductionItem`; its existing
+    /// logic-frame completion path then applies the C++ low-energy penalty.
+    pub(crate) fn modified_build_time_seconds(
+        &self,
+        player_id: u32,
+        template_name: &str,
+        base_seconds: f32,
+    ) -> f32 {
+        let factor = self.player_template_production_time_factor(player_id, template_name);
+        Self::cpp_build_time_seconds_from_factor(base_seconds, factor)
     }
 
     pub fn honesty_baikonur_ok(&self) -> bool {

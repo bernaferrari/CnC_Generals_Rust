@@ -422,14 +422,41 @@ fn barrel_advances_after_shots_per_barrel() {
     for _ in 0..6 {
         o.advance_weapon_barrel_after_shot(0);
     }
-    // 1 + 6/2 = 4 barrels wrapped -> barrel 0 after 8 shots total from start of loop?
-    // started at barrel 1 after 2 shots; +6 shots = 3 more barrel advances -> barrel 0
+    // C++ retains the end-of-cycle cursor until the *next* discharge compares
+    // it against the current Drawable count. Eight shots therefore leave the
+    // transient value 4, not a modulo-wrapped zero.
     assert_eq!(
         o.weapon_barrel_state_for_slot(0)
             .expect("primary barrel state")
             .current_barrel,
-        0
+        4
     );
+    assert_eq!(
+        o.fired_barrel_for_slot(0),
+        Some(0),
+        "the next C++ pre-fire >= barrelCount check resets the transient cursor"
+    );
+}
+
+#[test]
+fn barrel_cursor_resets_on_next_fire_after_current_draw_topology_shrinks() {
+    let template = ThingTemplate::new("TopologyShrinkTank");
+    let mut object = Object::new(template, ObjectId(1), Team::USA);
+    object.weapon = Some(Weapon::default());
+    object.weapon_barrel_states[0] = WeaponBarrelState::new(1, 5, None);
+    object.weapon_barrel_states[0].current_barrel = 4;
+
+    // A new ModelCondition state has fewer valid WeaponBarrelInfo entries.
+    // C++ does not modulo the old cursor when that state is selected.
+    assert!(object.set_weapon_barrel_count_for_slot(0, 3));
+    assert_eq!(
+        object
+            .weapon_barrel_state_for_slot(0)
+            .expect("configured primary")
+            .current_barrel,
+        4
+    );
+    assert_eq!(object.fired_barrel_for_slot(0), Some(0));
 }
 
 #[test]
@@ -618,6 +645,45 @@ End
             state.shots_left_on_barrel
         ),
         (0, 5, 5)
+    );
+}
+
+#[test]
+fn snapshot_cursor_projection_rejects_pending_cursor_after_weapon_set_swap() {
+    let ini_content = r#"
+Weapon __RustSnapshotPendingOriginalWeapon
+  AttackRange = 100.0
+  PrimaryDamage = 25.0
+  ShotsPerBarrel = 3
+End
+
+Weapon __RustSnapshotPendingReplacementWeapon
+  AttackRange = 100.0
+  PrimaryDamage = 25.0
+  ShotsPerBarrel = 5
+End
+"#;
+    assert_eq!(
+        crate::assets::ini_template_loader::register_weapons_from_ini_text(ini_content),
+        2
+    );
+
+    let mut template = ThingTemplate::new("SnapshotPendingWeaponSetSwap");
+    template.set_primary_weapon_name("__RustSnapshotPendingOriginalWeapon");
+    template.set_mine_clearing_primary_weapon_name("__RustSnapshotPendingReplacementWeapon");
+    let mut object = Object::new(template, ObjectId(1), Team::USA);
+    object.weapon = Some(Weapon::default());
+    object.mine_clearing_primary_weapon = Some(Weapon::default());
+    assert_eq!(object.fired_barrel_for_slot(0), Some(0));
+    assert!(object.restore_weapon_barrel_runtime_for_slot(0, 2, 2));
+
+    // Do not invoke a mutating cursor helper after the set swap: this models
+    // a save before topology can configure the new concrete C++ Weapon.
+    object.set_weapon_set_mine_clearing_detail(true);
+    assert_eq!(
+        object.weapon_barrel_cursor_for_snapshot(0),
+        Some((0, 0)),
+        "a staged cursor from a destroyed old Weapon must not cross a save boundary"
     );
 }
 

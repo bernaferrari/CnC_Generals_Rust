@@ -267,15 +267,29 @@ impl CnCGameEngine {
         } else {
             match player_template {
                 Some(player_template) => {
+                    // Campaign/Challenge starts rebuild C++ SidesList from
+                    // its selected PlayerTemplate; they must not reuse a
+                    // non-zero human slot left by a prior skirmish match.
+                    // Main's fresh single-player bootstrap owns local player
+                    // zero, which is the player `start_new_game` creates
+                    // before the exact template is bound.
+                    self.current_player_id = 0;
                     info!(
                         "host_start_game_from_ui: exact PlayerTemplate start '{}'",
                         player_template.template_name
                     );
-                    self.host_start_new_game_with_player_template(
+                    if !self.host_start_new_game_with_player_template(
                         mode,
                         faction_team,
                         player_template,
-                    );
+                    ) {
+                        // C++ never substitutes a base Team after a selected
+                        // GameSlot PlayerTemplate fails to resolve.  Return to
+                        // the shell before map load so Main cannot create a
+                        // plausible-looking but wrong General match.
+                        self.return_to_main_menu_after_match();
+                        return;
+                    }
                 }
                 None => {
                     // Wave 577: host start residual via helper (non-skirmish).

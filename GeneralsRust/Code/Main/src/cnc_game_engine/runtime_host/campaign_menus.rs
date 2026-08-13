@@ -779,11 +779,42 @@ impl CnCGameEngine {
             }
         }
         if wnd_ok {
-            // Real offline path: SinglePlayer menu → first USA mission via start_game_from_ui.
-            let map = args
+            // The WND campaign click just queued C++ `MSG_NEW_GAME` alongside
+            // the GameClient-owned CampaignLaunch descriptor.  Drain that
+            // exact payload before falling back to the runtime-host shortcut:
+            // constructing a generic `(USA/China/GLA, map)` request here used
+            // to discard the selected PlayerTemplate before GameLogic saw it.
+            //
+            // Split dispatch extraction from request construction so a queued
+            // but invalid Challenge/Campaign descriptor fails closed rather
+            // than looking indistinguishable from "nothing was queued" and
+            // silently launching a base-faction game.
+            let requested_map = args
                 .get("map")
                 .map(|v| v.trim().to_string())
-                .filter(|s| !s.is_empty())
+                .filter(|s| !s.is_empty());
+            if let Some(dispatch) = Self::take_new_game_dispatch_from_common_stream() {
+                let Some(mut request) = self.build_start_request_from_pending_globals(Some(dispatch))
+                else {
+                    self.runtime_host_last_gameplay_cmd = "click_campaign_start_rejected".into();
+                    return;
+                };
+                // The runtime-host command's explicit map is an intentional
+                // test/control override.  It changes only the map, never the
+                // validated PlayerTemplate identity carried by `request`.
+                if let Some(map) = requested_map.clone() {
+                    request.map = map;
+                }
+                self.start_game_from_ui(request);
+                self.runtime_host_last_gameplay_cmd = "click_campaign_start_ok_wnd".into();
+                return;
+            }
+
+            // Development/headless fallback when the shell click itself did
+            // not enqueue `MSG_NEW_GAME`.  Deliberately construct a request
+            // with no PlayerTemplate so stale GameClient selection state can
+            // never leak into this non-C++ fallback path.
+            let map = requested_map
                 .unwrap_or_else(|| crate::golden_campaign::OFFLINE_USA_CAMPAIGN_MAP.to_string());
             let faction = match campaign.as_str() {
                 "gla" => "GLA",

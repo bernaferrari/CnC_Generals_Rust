@@ -25,6 +25,14 @@ impl GameLogic {
             return None;
         }
 
+        // C++ `Weapon::privateFireWeapon` queries the current Drawable's
+        // exact barrel count immediately before it captures/advances the
+        // slot cursor. Main's equivalent is a cache-only host configuration:
+        // successful map/start prewarm may have validated this exact Draw
+        // state; an unavailable/busy/unsupported source deliberately leaves
+        // the existing one-barrel or staged-restore cursor untouched.
+        let _ = self.configure_cached_weapon_barrel_topology_for_object(source);
+
         // Retain the pre-advance barrel exactly once. If no concrete source
         // Weapon is attached, fail closed rather than inventing PRIMARY/0.
         let fired_barrel = self
