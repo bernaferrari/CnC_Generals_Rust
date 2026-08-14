@@ -31,6 +31,33 @@ fn shadow_stable_ids_across_sync() {
 }
 
 #[test]
+fn shadow_world_boundary_reset_clears_previous_identity_map() {
+    let mut logic = GameLogic::new();
+    let cfg = golden_skirmish_config("WorldBoundaryReset");
+    apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+    ensure_template(&mut logic, "BoundaryUnit", 100.0);
+    let id = logic
+        .create_object("BoundaryUnit", Team::USA, Vec3::ZERO)
+        .expect("unit");
+
+    let mut shadow = GameWorldShadow::new(64);
+    shadow.sync_from_host(&logic);
+    let entity = shadow.entity_for_host(id).expect("entity");
+    assert_eq!(shadow.mapped_count(), 1);
+
+    // A reset/map-load/save-restore may reuse host ObjectIds.  No old
+    // GameWorld entity or host map entry may survive that boundary.
+    shadow.reset_for_world_boundary();
+    assert_eq!(shadow.mapped_count(), 0);
+    assert!(shadow.entity_for_host(id).is_none());
+    assert!(shadow.world().entity(entity).is_none());
+
+    // The next authoritative sync starts a fresh mapping in the new world.
+    shadow.sync_from_host(&logic);
+    assert!(shadow.entity_for_host(id).is_some());
+}
+
+#[test]
 fn same_faction_slots_keep_owner_authority_through_shadow_and_presentation() {
     use crate::game_logic::Player;
     use crate::presentation_frame::PresentationFrame;
