@@ -570,6 +570,20 @@ impl W3DModelDraw {
         // before setting the render object transform.
         let world_transform = self.apply_instance_scale(transform_mtx);
 
+        // Keep the two render-object properties separate from the presentation
+        // Drawable state.  A missing owner Drawable is not equivalent to the
+        // C++ default scale: the ghost adapter must reject that source rather
+        // than manufacture a value.  `hex_color` is the live W3DModelDraw
+        // field (the same value passed to Create_Render_Obj in C++), so the
+        // adapter can preserve its bit pattern without deriving a tint.
+        let render_object_scale = self
+            .with_owner_drawable(|drawable| {
+                let scale = drawable.get_world_scale().x;
+                scale.is_finite().then_some(scale)
+            })
+            .flatten();
+        let render_object_color = (!model_name.is_empty()).then_some(self.hex_color as u32);
+
         // Phase 6: Build the model draw state with all collected data.
         //
         // The consumer (GameClient device layer) maps condition_flags_bits to
@@ -580,6 +594,8 @@ impl W3DModelDraw {
             logic_drawable_id: 0,
             model_name,
             world_transform,
+            render_object_scale,
+            render_object_color,
             condition_flags_bits: self.last_model_conditions.bits(),
             bone_overrides,
             animation_name: anim_name,

@@ -449,6 +449,9 @@ impl Drawable for BasicDrawable {
                 legacy_model_draw_source: model_draw.map(|state| state.source.clone()),
                 legacy_weapon_bone_bindings: model_draw
                     .map(|state| state.weapon_bone_bindings.clone()),
+                legacy_render_object_transform: model_draw.map(|state| state.world_transform),
+                legacy_render_object_scale: model_draw.and_then(|state| state.render_object_scale),
+                legacy_render_object_color: model_draw.and_then(|state| state.render_object_color),
                 model_name,
                 world_transform: world_transform.to_glam(),
                 condition_flags,

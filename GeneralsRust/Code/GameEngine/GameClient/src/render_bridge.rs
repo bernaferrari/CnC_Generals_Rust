@@ -26,7 +26,8 @@ use std::sync::Arc;
 use crate::drawable::drawable_draw_pipeline::{with_drawable_pipeline, MeshVertex};
 use gamelogic::helpers::{ModelDrawSourceIdentity, ModelDrawWeaponBoneBindings};
 use gamelogic::object::w3d_ghost_object::{
-    FrozenW3DGhostSceneEvent, FrozenW3DGhostSnapshot, W3DGhostSceneId, W3DGhostSnapshotKey,
+    FrozenW3DGhostSceneEvent, FrozenW3DGhostSnapshot, RenderObjectClass, RenderObjectState,
+    W3DGhostSceneId, W3DGhostSnapshotKey, W3DRenderObjectSnapshot,
 };
 use ww3d_assets::prototypes::MeshPrototype;
 use ww3d_assets::AssetManager;
@@ -239,6 +240,14 @@ pub struct DrawSubmission {
     /// Selected-state authored weapon bases, kept as names rather than local
     /// W3D pivot indices so a downstream renderer can revalidate topology.
     pub legacy_weapon_bone_bindings: Option<ModelDrawWeaponBoneBindings>,
+    /// The transform set on the live W3D render object by the committed
+    /// W3DModelDraw path.  This is separate from the presentation transform
+    /// used by generic scene submissions; `None` is intentionally fail-closed.
+    pub legacy_render_object_transform: Option<glam::Mat4>,
+    /// The exact object scale passed to the live W3D render object.
+    pub legacy_render_object_scale: Option<f32>,
+    /// The exact object ARGB color passed to the live W3D render object.
+    pub legacy_render_object_color: Option<u32>,
     pub model_name: String,
     pub world_transform: glam::Mat4,
     pub condition_flags: RenderConditionFlags,
@@ -265,6 +274,9 @@ impl Default for DrawSubmission {
             shroud_status_object_id: None,
             legacy_model_draw_source: None,
             legacy_weapon_bone_bindings: None,
+            legacy_render_object_transform: None,
+            legacy_render_object_scale: None,
+            legacy_render_object_color: None,
             model_name: String::new(),
             world_transform: glam::Mat4::IDENTITY,
             condition_flags: RenderConditionFlags::empty(),
@@ -564,6 +576,24 @@ impl RenderBridge {
         self.pending.push(submission);
     }
 
+    /// Expose an exact ghost payload for one already-resolved live W3D draw.
+    ///
+    /// This deliberately operates on the renderer-owned model cache instead
+    /// of recreating an object from `model_name`.  Callers must provide the
+    /// same committed submission that reached this bridge; if the cache has
+    /// not resolved that object, or if any required W3D field is unavailable,
+    /// the result is `None` and the ghost path remains fail-closed.
+    pub fn materialize_exact_w3d_render_object_snapshot(
+        &self,
+        submission: &DrawSubmission,
+    ) -> Option<W3DRenderObjectSnapshot> {
+        let model = self
+            .model_cache
+            .get(&submission.model_name.to_lowercase())?;
+        let wrapper = model.as_any().downcast_ref::<WrapRenderObj>()?;
+        wrapper.materialize_exact_ghost_snapshot(submission)
+    }
+
     pub fn submit_projectile_stream(&mut self, submission: ProjectileStreamSubmission) {
         self.pending_projectile_streams.push(submission);
     }
@@ -788,9 +818,13 @@ impl RenderBridge {
     }
 
     fn resolve_model(&mut self, name: &str) -> Option<(Arc<dyn RenderObject>, ModelResolution)> {
+        let class_id = self.asset_manager.class_id_for_asset(name);
         if let Some(obj) = self.asset_manager.create_render_obj(name) {
             return Some((
-                Arc::from(Box::new(WrapRenderObj(obj)) as Box<dyn RenderObject>),
+                Arc::from(Box::new(WrapRenderObj {
+                    inner: obj,
+                    class_id,
+                }) as Box<dyn RenderObject>),
                 ModelResolution::Asset,
             ));
         }
@@ -807,8 +841,12 @@ impl RenderBridge {
                         &known_meshes,
                     );
                     if let Some(obj) = self.asset_manager.create_render_obj(name) {
+                        let class_id = self.asset_manager.class_id_for_asset(name);
                         return Some((
-                            Arc::from(Box::new(WrapRenderObj(obj)) as Box<dyn RenderObject>),
+                            Arc::from(Box::new(WrapRenderObj {
+                                inner: obj,
+                                class_id,
+                            }) as Box<dyn RenderObject>),
                             ModelResolution::Asset,
                         ));
                     }
@@ -1243,39 +1281,117 @@ impl Default for RenderBridge {
 
 /// Adapter that wraps a `ww3d_assets::RenderObj` as a `ww3d_core::RenderObject`.
 #[derive(Debug)]
-struct WrapRenderObj(Box<dyn ww3d_assets::assets::RenderObj>);
+struct WrapRenderObj {
+    inner: Box<dyn ww3d_assets::assets::RenderObj>,
+    /// The class registry is the only authoritative class source currently
+    /// available at this boundary.  Keep it optional so ghost capture can
+    /// reject an asset whose source metadata was not registered.
+    class_id: Option<ww3d_core::RenderObjClassId>,
+}
+
+impl WrapRenderObj {
+    /// Materialize only the subset of render objects for which the current
+    /// W3D bridge has every live field required by `W3DRenderObjectSnapshot`.
+    ///
+    /// The generic renderer may retain compatibility fallbacks (for example,
+    /// treating an unregistered object as a mesh), but ghost persistence may
+    /// not.  Missing class, transform, scale, color, or dynamic W3D state
+    /// returns `None` instead of inventing a default.
+    fn materialize_exact_ghost_snapshot(
+        &self,
+        submission: &DrawSubmission,
+    ) -> Option<W3DRenderObjectSnapshot> {
+        let class_id = self.class_id?;
+        let scale = submission.legacy_render_object_scale?;
+        let color = submission.legacy_render_object_color?;
+        let transform = submission.legacy_render_object_transform?;
+
+        if !scale.is_finite() || !transform.is_finite() {
+            return None;
+        }
+        if submission.model_name.is_empty()
+            || !submission
+                .model_name
+                .eq_ignore_ascii_case(self.inner.get_name())
+        {
+            return None;
+        }
+
+        let (class_id, sub_objects) = match class_id {
+            ww3d_core::RenderObjClassId::Mesh => {
+                // Mesh has no C++ sub-object collection.  Any dynamic state
+                // here would require a live MeshClass adapter that does not
+                // exist yet, so leave the ghost source fail-closed.
+                if self
+                    .inner
+                    .as_any()
+                    .downcast_ref::<ww3d_assets::prototypes::MeshInstance>()
+                    .is_none()
+                    || !submission.bone_overrides.is_empty()
+                    || !submission.mesh_uv_overrides.is_empty()
+                    || !submission.sub_object_visibility.is_empty()
+                    || submission.animation_name.is_some()
+                {
+                    return None;
+                }
+                (RenderObjectClass::Mesh, Vec::new())
+            }
+            // HLOD child transforms and animation/bone state are not retained
+            // by the current asset wrapper after a submission is rendered.
+            // Returning `None` here prevents a static prototype transform from
+            // masquerading as the live C++ snapshot.
+            ww3d_core::RenderObjClassId::Hlod => return None,
+            _ => return None,
+        };
+
+        Some(W3DRenderObjectSnapshot::new(RenderObjectState {
+            name: self.inner.get_name().to_string(),
+            scale,
+            color,
+            transform: gamelogic::object::w3d_ghost_object::Matrix3x4::from_logic_matrix(transform),
+            sub_objects,
+            class_id,
+        }))
+    }
+}
 
 impl RenderObject for WrapRenderObj {
     fn class_id(&self) -> ww3d_core::RenderObjClassId {
-        ww3d_core::RenderObjClassId::Mesh
+        // Preserve the renderer's legacy fallback for ordinary draw calls.
+        // Exact ghost capture calls `materialize_exact_ghost_snapshot`, which
+        // requires the optional registry value and never reaches this branch.
+        self.class_id.unwrap_or(ww3d_core::RenderObjClassId::Mesh)
     }
 
     fn name(&self) -> &str {
-        self.0.get_name()
+        self.inner.get_name()
     }
 
     fn set_name(&mut self, name: String) {
-        self.0.set_name(&name);
+        self.inner.set_name(&name);
     }
 
     fn clone_object(&self) -> Box<dyn RenderObject> {
-        Box::new(WrapRenderObj(self.0.clone_box()))
+        Box::new(WrapRenderObj {
+            inner: self.inner.clone_box(),
+            class_id: self.class_id,
+        })
     }
 
     fn render(&mut self, _info: &RenderInfo) -> ww3d_core::errors::W3DResult<()> {
-        self.0.render();
+        self.inner.render();
         Ok(())
     }
 
     fn get_obj_space_bounding_sphere(&self) -> BoundingSphere {
-        self.0
+        self.inner
             .get_obj_space_bounding_sphere()
             .map(|(center, radius)| BoundingSphere::new(center, radius))
             .unwrap_or(BoundingSphere::zero())
     }
 
     fn get_obj_space_bounding_box(&self) -> AABox {
-        self.0
+        self.inner
             .get_obj_space_bounding_box()
             .map(|(min, max)| AABox { min, max })
             .unwrap_or(AABox {
@@ -1285,11 +1401,11 @@ impl RenderObject for WrapRenderObj {
     }
 
     fn get_transform(&self) -> ww3d_core::glam::Mat4 {
-        *self.0.get_transform()
+        *self.inner.get_transform()
     }
 
     fn set_transform(&mut self, transform: ww3d_core::glam::Mat4) {
-        self.0.set_transform(transform);
+        self.inner.set_transform(transform);
     }
 
     fn as_any(&self) -> &dyn std::any::Any {
@@ -1428,6 +1544,9 @@ impl DrawSubmission {
             shroud_status_object_id: None,
             legacy_model_draw_source: None,
             legacy_weapon_bone_bindings: None,
+            legacy_render_object_transform: None,
+            legacy_render_object_scale: None,
+            legacy_render_object_color: None,
             model_name: desc.model_name,
             world_transform,
             condition_flags,
@@ -1806,6 +1925,65 @@ mod tests {
         assert_eq!(stats.culled, 0);
         assert_eq!(stats.rendered, 1);
         assert_eq!(stats.opaque_draws, 1);
+    }
+
+    #[test]
+    fn exact_w3d_ghost_adapter_requires_live_scale_and_color() {
+        let mut bridge = RenderBridge::new();
+        register_test_model(&mut bridge, "GhostMesh");
+
+        let mut camera = Camera::perspective(
+            "ghost_adapter".to_string(),
+            60.0_f32.to_radians(),
+            16.0 / 9.0,
+            0.1,
+            1000.0,
+        );
+        camera.set_position(WwVec3::new(0.0, 0.0, -20.0));
+        camera.look_at(WwVec3::ZERO, WwVec3::Y);
+        bridge.begin_frame(&camera, 0.016);
+
+        let mut submission = DrawSubmission {
+            drawable_id: DrawableId(91),
+            owner_object_id: Some(9001),
+            model_name: "GhostMesh".to_string(),
+            world_transform: GameMat4::IDENTITY,
+            legacy_render_object_transform: Some(GameMat4::from_translation(GameVec3::new(
+                2.0, 3.0, 4.0,
+            ))),
+            legacy_render_object_scale: None,
+            legacy_render_object_color: Some(0x7f102030),
+            bounding_sphere: BoundingSphere::new(WwVec3::ZERO, 10.0),
+            opaque: true,
+            transparent: false,
+            cast_shadow: true,
+            ..Default::default()
+        };
+        bridge.submit(submission.clone());
+        bridge.flush();
+
+        assert!(
+            bridge
+                .materialize_exact_w3d_render_object_snapshot(&submission)
+                .is_none(),
+            "missing live scale must not fall back to 1.0"
+        );
+
+        submission.legacy_render_object_scale = Some(1.25);
+        let snapshot = bridge
+            .materialize_exact_w3d_render_object_snapshot(&submission)
+            .expect("complete mesh source should materialize");
+        assert_eq!(snapshot.render_object.name, "GhostMesh");
+        assert_eq!(snapshot.render_object.scale, 1.25);
+        assert_eq!(snapshot.render_object.color, 0x7f102030);
+        assert_eq!(snapshot.render_object.class_id, RenderObjectClass::Mesh);
+        assert_eq!(snapshot.render_object.sub_objects, Vec::new());
+        assert_eq!(
+            snapshot.render_object.transform,
+            gamelogic::object::w3d_ghost_object::Matrix3x4::from_logic_matrix(
+                submission.legacy_render_object_transform.unwrap()
+            )
+        );
     }
 
     #[test]

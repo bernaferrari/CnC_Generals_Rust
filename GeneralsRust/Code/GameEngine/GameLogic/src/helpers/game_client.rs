@@ -77,6 +77,14 @@ pub struct ModelDrawState {
     pub logic_drawable_id: u32,
     pub model_name: String,
     pub world_transform: Matrix3D,
+    /// Exact `RenderObjClass::Set_ObjectScale` input captured at the
+    /// W3DModelDraw commit boundary.  `None` means the owning Drawable was not
+    /// available; consumers must not substitute the usual scale of `1.0`.
+    pub render_object_scale: Option<Real>,
+    /// Exact `RenderObjClass::Set_ObjectColor` value captured at the
+    /// W3DModelDraw commit boundary.  This is optional so source records made
+    /// by non-W3D producers cannot accidentally acquire a guessed color.
+    pub render_object_color: Option<u32>,
     /// Raw ModelConditionFlags bits (u128); client maps to RenderConditionFlags.
     pub condition_flags_bits: u128,
     pub bone_overrides: Vec<BoneOverrideState>,
@@ -803,6 +811,8 @@ mod model_draw_bridge_tests {
             logic_drawable_id: 0,
             model_name: model_name.to_string(),
             world_transform: Matrix3D::IDENTITY,
+            render_object_scale: Some(1.0),
+            render_object_color: Some(0),
             condition_flags_bits: 0,
             bone_overrides: Vec::new(),
             animation_name: None,

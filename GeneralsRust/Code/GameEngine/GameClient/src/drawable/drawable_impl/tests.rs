@@ -406,6 +406,8 @@ fn model_draw_bridge_uses_bound_object_not_client_drawable_id() {
             logic_drawable_id: 0,
             model_name: "BridgeIdentityTank".to_string(),
             world_transform: Matrix3D::IDENTITY,
+            render_object_scale: Some(1.0),
+            render_object_color: Some(0),
             condition_flags_bits: 0,
             bone_overrides: Vec::new(),
             animation_name: None,
