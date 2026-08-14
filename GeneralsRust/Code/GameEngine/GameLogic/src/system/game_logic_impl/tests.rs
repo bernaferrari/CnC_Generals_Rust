@@ -1395,6 +1395,7 @@ mod tests {
             Matrix3x4, ParentGeometrySnapshot, RenderObjectClass, RenderObjectState,
         };
         crate::object::w3d_ghost_object::W3DGhostSnapshotCapture {
+            capture_window_generation: None,
             drawable_effectively_hidden: false,
             render_objects: vec![RenderObjectState {
                 name: name.to_string(),

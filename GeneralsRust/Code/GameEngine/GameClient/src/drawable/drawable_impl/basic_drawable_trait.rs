@@ -437,6 +437,7 @@ impl Drawable for BasicDrawable {
 
             let submission = crate::render_bridge::DrawSubmission {
                 drawable_id: crate::render_bridge::DrawableId(self.id.0),
+                capture_window_generation: None,
                 owner_object_id: self.object_id,
                 // Prison/captive visuals are objectless but retain the C++
                 // DrawableInfo controller identity. Keep it as a separate

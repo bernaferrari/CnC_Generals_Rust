@@ -146,6 +146,11 @@ pub struct FrozenW3DGhostSnapshot {
 /// name or asset defaults.
 #[derive(Debug, Clone, PartialEq)]
 pub struct W3DGhostSnapshotCapture {
+    /// Renderer-owned generation of the exact flushed W3DModelDraw handoff
+    /// that produced this capture.  A value is required by the device-side
+    /// final hook; logic-only fixtures may leave it absent until a renderer
+    /// has matched the source to a committed submission.
+    pub capture_window_generation: Option<u64>,
     pub drawable_effectively_hidden: bool,
     pub render_objects: Vec<RenderObjectState>,
     pub geometry: ParentGeometrySnapshot,
