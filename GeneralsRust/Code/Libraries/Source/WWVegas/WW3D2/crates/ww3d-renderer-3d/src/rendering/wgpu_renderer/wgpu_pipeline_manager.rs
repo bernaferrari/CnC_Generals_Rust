@@ -570,7 +570,9 @@ impl WgpuPipelineManager {
 mod tests {
     use super::*;
     use crate::rendering::projected_shroud::ProjectedShroudMaterialPassContract;
+    use std::sync::mpsc;
     use std::sync::Arc;
+    use wgpu::util::DeviceExt;
 
     /// Exercise the real WGPU shader/pipeline validator when a software or
     /// hardware adapter is available.  Headless CI is allowed to skip this
@@ -632,6 +634,415 @@ mod tests {
             0,
             false,
         );
+    }
+
+    /// Render one projected pass into a one-pixel target and read it back.
+    ///
+    /// This is intentionally a tiny, renderer-owned target rather than a
+    /// Main integration test: it proves the actual shader/bind layout and
+    /// `Zero / SrcColor` blend operation multiply an existing destination by
+    /// the frozen R8 shroud level.  Environments without a software adapter
+    /// may skip the test, just like the pipeline ABI test above.
+    #[test]
+    fn projected_shroud_headless_target_is_multiplied_by_frozen_level() {
+        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::all(),
+            ..Default::default()
+        });
+        let Some(adapter) =
+            pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::LowPower,
+                compatible_surface: None,
+                force_fallback_adapter: true,
+            }))
+            .ok()
+        else {
+            return;
+        };
+        let Ok((device, queue)) =
+            pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+                required_features: wgpu::Features::empty(),
+                required_limits: wgpu::Limits::default(),
+                label: Some("projected-shroud-headless-test"),
+                ..Default::default()
+            }))
+        else {
+            return;
+        };
+
+        let device = Arc::new(device);
+        let queue = Arc::new(queue);
+        let gpu = Arc::new(GpuDevice::from_shared(device.clone(), queue.clone()));
+        let mut manager = WgpuPipelineManager::new(gpu);
+        let shader = ProjectedShroudMaterialPassContract::CXX.shader();
+        let pipeline = manager.get_or_create(
+            &shader,
+            0,
+            false,
+            false,
+            false,
+            wgpu::PrimitiveTopology::TriangleList,
+            VertexFormat::ProjectedShroudBasic,
+            wgpu::TextureFormat::Rgba8Unorm,
+            Some(wgpu::TextureFormat::Depth32Float),
+            0,
+            true,
+        );
+
+        let color = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("projected-shroud-color"),
+            size: wgpu::Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+        let color_view = color.create_view(&wgpu::TextureViewDescriptor::default());
+        let depth = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("projected-shroud-depth"),
+            size: wgpu::Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Depth32Float,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        });
+        let depth_view = depth.create_view(&wgpu::TextureViewDescriptor::default());
+
+        let shroud = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("projected-shroud-r8"),
+            size: wgpu::Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::R8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &shroud,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            &[128],
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(1),
+                rows_per_image: Some(1),
+            },
+            wgpu::Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
+        );
+        let shroud_view = shroud.create_view(&wgpu::TextureViewDescriptor::default());
+        let cube = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("projected-shroud-cube-fallback"),
+            size: wgpu::Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 6,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &cube,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            &[255; 24],
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(4),
+                rows_per_image: Some(1),
+            },
+            wgpu::Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 6,
+            },
+        );
+        let cube_view = cube.create_view(&wgpu::TextureViewDescriptor {
+            dimension: Some(wgpu::TextureViewDimension::Cube),
+            ..Default::default()
+        });
+        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            mag_filter: wgpu::FilterMode::Nearest,
+            min_filter: wgpu::FilterMode::Nearest,
+            ..Default::default()
+        });
+
+        let mut camera = [0u32; 52];
+        for base in [0usize, 16, 32] {
+            camera[base] = 1.0f32.to_bits();
+            camera[base + 5] = 1.0f32.to_bits();
+            camera[base + 10] = 1.0f32.to_bits();
+            camera[base + 15] = 1.0f32.to_bits();
+        }
+        camera[48..52].copy_from_slice(&[0.0f32, 0.0, 0.0, 1.0].map(f32::to_bits));
+        let mut model = [0u32; 60];
+        for base in [0usize, 16] {
+            model[base] = 1.0f32.to_bits();
+            model[base + 5] = 1.0f32.to_bits();
+            model[base + 10] = 1.0f32.to_bits();
+            model[base + 15] = 1.0f32.to_bits();
+        }
+        model[40..44].copy_from_slice(&[1.0f32, 1.0, 0.0, 0.0].map(f32::to_bits));
+        model[52..56].copy_from_slice(&[1.0f32, 1.0, 1.0, 1.0].map(f32::to_bits));
+        model[56..60].copy_from_slice(&[1.0f32, 1.0, 1.0, 0.0].map(f32::to_bits));
+        let uv = [0u32; 16];
+
+        let camera_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("projected-shroud-camera"),
+            contents: bytemuck::cast_slice(&camera),
+            usage: wgpu::BufferUsages::UNIFORM,
+        });
+        let model_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("projected-shroud-model"),
+            contents: bytemuck::cast_slice(&model),
+            usage: wgpu::BufferUsages::UNIFORM,
+        });
+        let lighting_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("projected-shroud-lighting"),
+            size: 16,
+            usage: wgpu::BufferUsages::UNIFORM,
+            mapped_at_creation: false,
+        });
+        let csm_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("projected-shroud-csm"),
+            size: 16,
+            usage: wgpu::BufferUsages::UNIFORM,
+            mapped_at_creation: false,
+        });
+        let uv_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("projected-shroud-uv"),
+            contents: bytemuck::cast_slice(&uv),
+            usage: wgpu::BufferUsages::UNIFORM,
+        });
+        let csm_texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("projected-shroud-csm-depth"),
+            size: wgpu::Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Depth32Float,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        });
+        let csm_view = csm_texture.create_view(&wgpu::TextureViewDescriptor {
+            dimension: Some(wgpu::TextureViewDimension::D2Array),
+            ..Default::default()
+        });
+        let csm_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            compare: Some(wgpu::CompareFunction::LessEqual),
+            ..Default::default()
+        });
+
+        let camera_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("projected-shroud-camera-group"),
+            layout: &pipeline.get_bind_group_layout(0),
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: camera_buffer.as_entire_binding(),
+            }],
+        });
+        let model_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("projected-shroud-model-group"),
+            layout: &pipeline.get_bind_group_layout(1),
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: model_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: lighting_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: csm_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::TextureView(&csm_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: wgpu::BindingResource::Sampler(&csm_sampler),
+                },
+            ],
+        });
+        let uv_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("projected-shroud-uv-group"),
+            layout: &pipeline.get_bind_group_layout(2),
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: uv_buffer.as_entire_binding(),
+            }],
+        });
+        let texture_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("projected-shroud-texture-group"),
+            layout: &pipeline.get_bind_group_layout(3),
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&shroud_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&cube_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::Sampler(&sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::TextureView(&shroud_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: wgpu::BindingResource::TextureView(&cube_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 5,
+                    resource: wgpu::BindingResource::Sampler(&sampler),
+                },
+            ],
+        });
+
+        let mut vertices = Vec::with_capacity(3 * 14);
+        for position in [[-1.0f32, -1.0, 0.5], [3.0, -1.0, 0.5], [-1.0, 3.0, 0.5]] {
+            vertices.extend_from_slice(&position);
+            vertices.extend_from_slice(&[0.0, 0.0, 1.0]);
+            vertices.extend_from_slice(&[0.0; 8]);
+        }
+        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("projected-shroud-triangle"),
+            contents: bytemuck::cast_slice(&vertices),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
+
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("projected-shroud-headless-encoder"),
+        });
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("projected-shroud-headless-pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &color_view,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color {
+                            r: 0.8,
+                            g: 0.4,
+                            b: 0.2,
+                            a: 1.0,
+                        }),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &depth_view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(0.5),
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
+                }),
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+            pass.set_pipeline(&pipeline);
+            pass.set_bind_group(0, &camera_group, &[]);
+            pass.set_bind_group(1, &model_group, &[]);
+            pass.set_bind_group(2, &uv_group, &[]);
+            pass.set_bind_group(3, &texture_group, &[]);
+            pass.set_vertex_buffer(0, vertex_buffer.slice(..));
+            pass.draw(0..3, 0..1);
+        }
+
+        let readback = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("projected-shroud-readback"),
+            size: 256,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+        encoder.copy_texture_to_buffer(
+            wgpu::TexelCopyTextureInfo {
+                texture: &color,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::TexelCopyBufferInfo {
+                buffer: &readback,
+                layout: wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(256),
+                    rows_per_image: Some(1),
+                },
+            },
+            wgpu::Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
+        );
+        queue.submit(std::iter::once(encoder.finish()));
+        let slice = readback.slice(..);
+        let (sender, receiver) = mpsc::channel();
+        slice.map_async(wgpu::MapMode::Read, move |result| {
+            let _ = sender.send(result);
+        });
+        let _ = device.poll(wgpu::PollType::wait_indefinitely());
+        receiver
+            .recv()
+            .expect("readback callback")
+            .expect("readback map");
+        let bytes = slice.get_mapped_range();
+        let expected = [102u8, 51u8, 26u8, 255u8];
+        assert!(
+            bytes[..4]
+                .iter()
+                .zip(expected)
+                .all(|(actual, expected)| (*actual as i16 - expected as i16).abs() <= 2),
+            "projected pass output {:?} did not multiply destination {:?}",
+            &bytes[..4],
+            expected
+        );
+        drop(bytes);
+        readback.unmap();
     }
 }
 
