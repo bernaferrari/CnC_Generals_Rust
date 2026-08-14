@@ -3,6 +3,22 @@
 // so this stays one logical `game_client` module (public API identical).
 
 impl GameClient {
+    /// Publish the logic-owned W3D ghost source bridge at the same lifecycle
+    /// boundary as the live client.  The callback only exposes the exact
+    /// Drawable/ModelDraw source record; it does not fabricate a
+    /// W3DRenderObjectSnapshot or install a renderer hook.  The device layer
+    /// must still materialize the final class/color/sub-object payload before
+    /// PartitionData accepts a fog transition.
+    fn register_w3d_ghost_snapshot_source_bridge() {
+        let _ =
+            gamelogic::object::w3d_ghost_object::register_w3d_ghost_snapshot_capture_source_hook(
+                Some(Arc::new(|object_id| {
+                    TheGameClient::get()
+                        .and_then(|client| client.object_w3d_ghost_snapshot_source(object_id))
+                })),
+            );
+    }
+
     /// Creates a new GameClient instance
     pub fn new() -> GameClientResult<Self> {
         let mut client = Self {
@@ -52,6 +68,7 @@ impl GameClient {
         }
 
         register_live_game_client(self);
+        Self::register_w3d_ghost_snapshot_source_bridge();
 
         reset_script_action_runtime_state();
         init_video_player();
@@ -84,6 +101,7 @@ impl GameClient {
         // that fully prepared client at the same lifecycle boundary as
         // `GameClient::init`, so published input frame state is live.
         register_live_game_client(self);
+        Self::register_w3d_ghost_snapshot_source_bridge();
         self.initialized = true;
     }
 
