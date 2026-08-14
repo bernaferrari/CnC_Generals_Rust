@@ -93,6 +93,20 @@ pub struct RenderItem {
     /// Exact ownership domain for this item.
     pub owner: RenderItemOwner,
 
+    /// Exact C++ W3DModelDraw source identity carried by a GameClient
+    /// RenderBridge submission.  This is intentionally renderer metadata,
+    /// not an ObjectID alias: the runtime Draw-module ordinal and tag remain
+    /// the only stable way to distinguish equal model names from separate
+    /// C++ draw modules.
+    pub legacy_model_draw_source: Option<gamelogic::helpers::ModelDrawSourceIdentity>,
+
+    /// Source-authored WeaponFireFXBone/WeaponRecoilBone/
+    /// WeaponMuzzleFlash/WeaponLaunchBone bases for the selected Draw state.
+    /// Keep the names intact until the receiving W3D asset validates them;
+    /// this item-level bridge must never infer recoil from model names, mesh
+    /// suffixes, or a broadcast WeaponDischarged marker.
+    pub legacy_weapon_bone_bindings: Option<gamelogic::helpers::ModelDrawWeaponBoneBindings>,
+
     /// Debug name for render item
     pub debug_name: String,
 
@@ -211,6 +225,8 @@ impl RenderItem {
         Self {
             object_id,
             owner: RenderItemOwner::Object(object_id),
+            legacy_model_draw_source: None,
+            legacy_weapon_bone_bindings: None,
             debug_name: format!("{}_{}", object_id.0, mesh_key),
             model_name,
             mesh_index,
@@ -408,6 +424,12 @@ impl RenderItem {
         );
         self.presentation_opacity = parent.presentation_opacity;
         self.frozen_objectless_drawable_shroud = parent.frozen_objectless_drawable_shroud;
+        // AdditionalModels are C++ render-object children of the same
+        // DrawModule submission. Carry the exact source stamp and authored
+        // bases for diagnostics/future validated topology consumption, while
+        // leaving all recoil dispatch inert until an exact event route exists.
+        self.legacy_model_draw_source = parent.legacy_model_draw_source.clone();
+        self.legacy_weapon_bone_bindings = parent.legacy_weapon_bone_bindings.clone();
     }
 
     pub fn set_world_matrix(&mut self, matrix: Mat4) {

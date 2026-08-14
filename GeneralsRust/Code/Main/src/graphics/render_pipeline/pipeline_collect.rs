@@ -10,6 +10,21 @@
 use super::*;
 
 impl RenderPipeline {
+    /// Retain the exact source stamp and authored weapon-bone bases on every
+    /// RenderItem emitted from one GameClient DrawSubmission.  This is a pure
+    /// transport boundary: the active bridge still does not dispatch recoil
+    /// from these fields, and it never interprets a bare WeaponDischarged
+    /// event.  A later renderer path must validate the names against this
+    /// freshly loaded W3D hierarchy before producing any bone controls.
+    #[cfg(feature = "game_client")]
+    fn attach_bridge_draw_metadata(
+        item: &mut RenderItem,
+        submission: &game_client::render_bridge::DrawSubmission,
+    ) {
+        item.legacy_model_draw_source = submission.legacy_model_draw_source.clone();
+        item.legacy_weapon_bone_bindings = submission.legacy_weapon_bone_bindings.clone();
+    }
+
     /// Translate the frozen GameClient W3DModelDraw animation record into the
     /// exact W3D frame used by the bridge collector. `ModelDrawState` carries
     /// a normalized 0..=1 progress fraction, so it is the authority here; do
@@ -1255,6 +1270,7 @@ impl RenderPipeline {
                             item.animation_binding = animation_binding.clone();
                             item.capture_bone_controls = capture_bone_controls.clone();
                             item.set_mesh_local_transform(mesh_local_transform);
+                            Self::attach_bridge_draw_metadata(&mut item, &submission);
                             item.uv_offset_override =
                                 Self::mesh_uv_override_for_submission(&submission, &mesh.name);
                             self.render_items.push(item);
@@ -1303,6 +1319,10 @@ impl RenderPipeline {
                                     render_pass,
                                 ),
                             };
+                            Self::attach_bridge_draw_metadata(
+                                &mut aggregate_parent_item,
+                                &submission,
+                            );
                             aggregate_parent_item.set_fow_visibility(fow_vis);
                             if let Some(state) = objectless_shroud {
                                 aggregate_parent_item.set_frozen_objectless_drawable_shroud(state);
@@ -1696,6 +1716,55 @@ mod w3d_live_path_tests {
             bridge_body.contains("&& !has_source_aggregate_attachments"),
             "the debug fallback must not replace a valid aggregate-only source"
         );
+    }
+
+    #[cfg(feature = "game_client")]
+    #[test]
+    fn bridge_render_items_retain_exact_draw_module_weapon_topology() {
+        let mut item = RenderItem::new(
+            crate::game_logic::ObjectId(41),
+            "BridgeTopology".to_string(),
+            0,
+            Vec3::ZERO,
+            Mat4::IDENTITY,
+            &crate::assets::W3DMaterial::default(),
+            RenderPass::ForwardOpaque,
+        );
+        let source = gamelogic::helpers::ModelDrawSourceIdentity {
+            runtime_draw_ordinal: 3,
+            module_name: "W3DModelDraw".to_string(),
+            module_tag: "Turret".to_string(),
+            module_tag_name_key: 0x1234,
+        };
+        let mut bindings = gamelogic::helpers::ModelDrawWeaponBoneBindings::default();
+        bindings.fire_fx[0] = "WeaponFireFXBone".to_string();
+        bindings.recoil[0] = "WeaponRecoilBone".to_string();
+        bindings.muzzle_flash[0] = "WeaponMuzzleFlash".to_string();
+        bindings.launch[0] = "WeaponLaunchBone".to_string();
+
+        let mut submission = game_client::render_bridge::DrawSubmission::default();
+        submission.legacy_model_draw_source = Some(source.clone());
+        submission.legacy_weapon_bone_bindings = Some(bindings.clone());
+        RenderPipeline::attach_bridge_draw_metadata(&mut item, &submission);
+
+        assert_eq!(item.legacy_model_draw_source, Some(source.clone()));
+        assert_eq!(item.legacy_weapon_bone_bindings, Some(bindings.clone()));
+
+        // Aggregate render objects remain children of this exact DrawModule;
+        // the typed source metadata survives the child-item handoff without
+        // enabling any recoil/event behavior.
+        let mut child = RenderItem::new_unbound_client_drawable(
+            99,
+            "BridgeTopologyChild".to_string(),
+            0,
+            Vec3::ZERO,
+            Mat4::IDENTITY,
+            &crate::assets::W3DMaterial::default(),
+            RenderPass::ForwardOpaque,
+        );
+        child.copy_frozen_presentation_visuals_from(&item);
+        assert_eq!(child.legacy_model_draw_source, Some(source));
+        assert_eq!(child.legacy_weapon_bone_bindings, Some(bindings));
     }
 
     #[test]
