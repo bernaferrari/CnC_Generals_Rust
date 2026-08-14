@@ -61,6 +61,8 @@ impl RenderPipeline {
             drawable_visual_states: HashMap::new(),
             pending_client_drawable_restore: None,
             pending_client_drawable_imports: HashMap::new(),
+            #[cfg(feature = "game_client")]
+            frozen_ghost_scene: None,
             last_frame_time: 0.0,
             presentation_frame: None,
             presentation_direct_shroud_states: HashMap::new(),
@@ -157,6 +159,10 @@ impl RenderPipeline {
         self.presentation_direct_shroud_host_epoch = None;
         self.pending_client_drawable_restore = None;
         self.pending_client_drawable_imports.clear();
+        #[cfg(feature = "game_client")]
+        {
+            self.frozen_ghost_scene = None;
+        }
         self.hlod_aggregate_prewarm_attempts.clear();
     }
 
@@ -170,6 +176,11 @@ impl RenderPipeline {
         &mut self,
     ) -> Option<&mut crate::presentation_frame::PresentationFrame> {
         self.presentation_frame.as_mut()
+    }
+
+    #[cfg(feature = "game_client")]
+    pub fn frozen_ghost_scene(&self) -> Option<&game_client::render_bridge::FrozenGhostSceneFrame> {
+        self.frozen_ghost_scene.as_ref()
     }
 
     /// Live GameLogic identity reads during last unit mesh collect (0 when presentation owns pass).

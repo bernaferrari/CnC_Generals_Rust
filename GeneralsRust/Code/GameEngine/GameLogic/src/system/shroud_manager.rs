@@ -46,6 +46,7 @@ use crate::player::PLAYER_INDEX_INVALID;
 use crate::weapon::WeaponStore;
 use game_engine::common::system::radar::{get_radar_system, CellShroudStatus};
 use log::{debug, trace};
+use serde::{Deserialize, Serialize};
 use std::collections::{HashSet, VecDeque};
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
 
@@ -60,6 +61,93 @@ const VISION_RECALC_INTERVAL: u32 = 10;
 
 /// Grid-based shroud cell size in world units (for spatial optimization)
 const SHROUD_GRID_CELL_SIZE: f32 = 50.0;
+
+/// Persistent C++ `PartitionCell::ShroudLevel` payload.
+///
+/// The public snapshot deliberately carries both counters rather than the
+/// derived Hidden/Explored/Visible status.  The C++ save path transfers the
+/// raw `currentShroud` and `activeShroudLevel` values, and restoring only the
+/// derived status loses overlapping lookers and active shroud generators.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ShroudCellSnapshot {
+    pub current_shroud: [i32; MAX_PLAYER_COUNT],
+    pub active_shroud_level: [i32; MAX_PLAYER_COUNT],
+}
+
+impl Default for ShroudCellSnapshot {
+    fn default() -> Self {
+        Self {
+            current_shroud: [1; MAX_PLAYER_COUNT],
+            active_shroud_level: [0; MAX_PLAYER_COUNT],
+        }
+    }
+}
+
+/// Persistent `PartitionManager::SightingInfo` queue record.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ShroudPendingUndoRevealSnapshot {
+    pub where_pos: [f32; 3],
+    pub how_far: f32,
+    pub for_whom: PlayerMask,
+    pub expiration_frame: u32,
+}
+
+impl Default for ShroudPendingUndoRevealSnapshot {
+    fn default() -> Self {
+        Self {
+            where_pos: [0.0; 3],
+            how_far: 0.0,
+            for_whom: 0,
+            expiration_frame: 0,
+        }
+    }
+}
+
+/// Exact persistent shroud/FOW state transferred by a world save.
+///
+/// `grid` is `None` when the map has not initialized a partition grid yet.
+/// The cells retain the raw per-player counters, while the pending queue
+/// retains reveal expiry frames.  Object visibility sets and update caches
+/// are intentionally omitted: they are derived runtime state and are rebuilt
+/// after installation, matching C++ `PartitionManager::loadPostProcess`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ShroudSnapshot {
+    pub grid: Option<ShroudGridSnapshot>,
+    pub pending_undo_shroud_reveals: Vec<ShroudPendingUndoRevealSnapshot>,
+    pub pending_full_reveal_players: Vec<u32>,
+    pub pending_permanent_reveal_players: Vec<u32>,
+}
+
+impl Default for ShroudSnapshot {
+    fn default() -> Self {
+        Self {
+            grid: None,
+            pending_undo_shroud_reveals: Vec::new(),
+            pending_full_reveal_players: Vec::new(),
+            pending_permanent_reveal_players: Vec::new(),
+        }
+    }
+}
+
+/// Exact persistent grid dimensions/cell payload.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ShroudGridSnapshot {
+    pub width: u32,
+    pub height: u32,
+    pub cell_size: f32,
+    pub cells: Vec<ShroudCellSnapshot>,
+}
+
+impl Default for ShroudGridSnapshot {
+    fn default() -> Self {
+        Self {
+            width: 0,
+            height: 0,
+            cell_size: SHROUD_GRID_CELL_SIZE,
+            cells: Vec::new(),
+        }
+    }
+}
 
 /// Shroud visibility state for grid cells
 /// Matches C++ CellShroudStatus enum from PartitionManager.h
@@ -1165,6 +1253,166 @@ impl ShroudManager {
             }
         }
         Some(cells)
+    }
+
+    /// Capture the exact persistent shroud payload used by save/load.
+    ///
+    /// This is intentionally separate from `snapshot_grid_for_player`, which
+    /// exposes only a derived presentation status and cannot round-trip the
+    /// C++ counter state for overlapping lookers or active shroud generators.
+    pub fn snapshot_state(&self) -> ShroudSnapshot {
+        let grid = self.shroud_grid.as_ref().map(|grid| ShroudGridSnapshot {
+            width: grid.width as u32,
+            height: grid.height as u32,
+            cell_size: grid.cell_size,
+            cells: grid
+                .cells
+                .iter()
+                .map(|cell| ShroudCellSnapshot {
+                    current_shroud: std::array::from_fn(|player_id| {
+                        cell.shroud_levels[player_id].current_shroud
+                    }),
+                    active_shroud_level: std::array::from_fn(|player_id| {
+                        cell.shroud_levels[player_id].active_shroud_level
+                    }),
+                })
+                .collect(),
+        });
+
+        let mut pending_full_reveal_players: Vec<_> =
+            self.pending_full_reveal_players.iter().copied().collect();
+        pending_full_reveal_players.sort_unstable();
+        let mut pending_permanent_reveal_players: Vec<_> = self
+            .pending_permanent_reveal_players
+            .iter()
+            .copied()
+            .collect();
+        pending_permanent_reveal_players.sort_unstable();
+
+        ShroudSnapshot {
+            grid,
+            pending_undo_shroud_reveals: self
+                .pending_undo_shroud_reveals
+                .iter()
+                .map(|sighting| ShroudPendingUndoRevealSnapshot {
+                    where_pos: sighting.where_pos.to_array(),
+                    how_far: sighting.how_far,
+                    for_whom: sighting.for_whom,
+                    expiration_frame: sighting.expiration_frame,
+                })
+                .collect(),
+            pending_full_reveal_players,
+            pending_permanent_reveal_players,
+        }
+    }
+
+    /// Install an exact persistent shroud payload after a map has been staged.
+    ///
+    /// The derived object visibility sets and update cadence are cleared, then
+    /// the radar is refreshed from the restored cell counters.  A malformed
+    /// grid is rejected before replacing any current state so a staged load
+    /// can roll back without a partially installed singleton.
+    pub fn replace_state(&mut self, snapshot: &ShroudSnapshot) -> Result<(), String> {
+        let restored_grid = if let Some(grid) = &snapshot.grid {
+            let width = usize::try_from(grid.width)
+                .map_err(|_| "shroud snapshot width is not representable".to_string())?;
+            let height = usize::try_from(grid.height)
+                .map_err(|_| "shroud snapshot height is not representable".to_string())?;
+            if width == 0 || height == 0 {
+                return Err("shroud snapshot grid dimensions must be non-zero".to_string());
+            }
+            if !grid.cell_size.is_finite() || grid.cell_size <= 0.0 {
+                return Err("shroud snapshot cell size is invalid".to_string());
+            }
+            let expected_cells = width
+                .checked_mul(height)
+                .ok_or_else(|| "shroud snapshot grid dimensions overflow".to_string())?;
+            if grid.cells.len() != expected_cells {
+                return Err(format!(
+                    "shroud snapshot has {} cells, expected {expected_cells}",
+                    grid.cells.len()
+                ));
+            }
+
+            let cells = grid
+                .cells
+                .iter()
+                .map(|snapshot_cell| PartitionCell {
+                    shroud_levels: std::array::from_fn(|player_id| CellShroudLevel {
+                        current_shroud: snapshot_cell.current_shroud[player_id],
+                        active_shroud_level: snapshot_cell.active_shroud_level[player_id],
+                    }),
+                    // C++ PartitionCell::xfer does not persist threat/cash
+                    // values. Those are rebuilt by the active simulation.
+                    threat_values: [0; MAX_PLAYER_COUNT],
+                    cash_values: [0; MAX_PLAYER_COUNT],
+                })
+                .collect();
+            Some(ShroudGrid {
+                width,
+                height,
+                cell_size: grid.cell_size,
+                cells,
+            })
+        } else {
+            None
+        };
+
+        let mut pending_undo_shroud_reveals =
+            VecDeque::with_capacity(snapshot.pending_undo_shroud_reveals.len());
+        for sighting in &snapshot.pending_undo_shroud_reveals {
+            if sighting
+                .where_pos
+                .iter()
+                .any(|component| !component.is_finite())
+                || !sighting.how_far.is_finite()
+                || sighting.how_far < 0.0
+            {
+                return Err("shroud snapshot contains an invalid pending reveal".to_string());
+            }
+            pending_undo_shroud_reveals.push_back(SightingInfo {
+                where_pos: Coord3D::from_array(sighting.where_pos),
+                how_far: sighting.how_far,
+                for_whom: sighting.for_whom,
+                expiration_frame: sighting.expiration_frame,
+            });
+        }
+
+        let pending_full_reveal_players =
+            Self::validated_pending_player_set(&snapshot.pending_full_reveal_players)?;
+        let pending_permanent_reveal_players =
+            Self::validated_pending_player_set(&snapshot.pending_permanent_reveal_players)?;
+
+        self.shroud_grid = restored_grid;
+        self.pending_undo_shroud_reveals = pending_undo_shroud_reveals;
+        self.pending_full_reveal_players = pending_full_reveal_players;
+        self.pending_permanent_reveal_players = pending_permanent_reveal_players;
+        for visible in &mut self.player_visible_objects {
+            visible.clear();
+        }
+        for explored in &mut self.player_explored_objects {
+            explored.clear();
+        }
+        self.force_update();
+        self.refresh_shroud_for_local_player();
+        Ok(())
+    }
+
+    fn validated_pending_player_set(players: &[u32]) -> Result<HashSet<u32>, String> {
+        let mut result = HashSet::with_capacity(players.len());
+        for &player_id in players {
+            if (player_id as usize) >= MAX_PLAYER_COUNT {
+                return Err(format!(
+                    "shroud snapshot contains invalid pending player {player_id}"
+                ));
+            }
+            if !result.insert(player_id) {
+                return Err(format!(
+                    "shroud snapshot contains duplicate pending player {player_id}"
+                ));
+            }
+        }
+        Ok(result)
     }
 
     /// Create a new ShroudManager
@@ -2460,6 +2708,57 @@ mod tests {
             .snapshot_grid_for_player(0)
             .expect("after permanent");
         assert!(snap3.iter().all(|&c| c == ShroudState::Visible as u8));
+    }
+
+    #[test]
+    fn shroud_snapshot_round_trips_raw_counters_and_pending_expiry() {
+        let mut source = ShroudManager::new();
+        source.init_shroud_grid(100.0, 100.0);
+        let center = Coord3D::new(25.0, 0.0, 25.0);
+        {
+            let grid = source.shroud_grid.as_mut().expect("grid");
+            let cell = grid.cells.first_mut().expect("first cell");
+            cell.shroud_levels[0].current_shroud = -2;
+            cell.shroud_levels[0].active_shroud_level = 3;
+            cell.shroud_levels[1].current_shroud = 0;
+            cell.shroud_levels[1].active_shroud_level = 1;
+        }
+        source.pending_full_reveal_players.insert(2);
+        source.pending_permanent_reveal_players.insert(3);
+        source.queue_undo_shroud_reveal(&center, 40.0, 0b101, 17, 100);
+
+        let snapshot = source.snapshot_state();
+        let mut restored = ShroudManager::new();
+        restored
+            .replace_state(&snapshot)
+            .expect("exact shroud restore");
+
+        assert_eq!(restored.snapshot_state(), snapshot);
+        assert_eq!(
+            restored.shroud_grid.as_ref().expect("restored grid").cells[0].shroud_levels[0]
+                .current_shroud,
+            -2
+        );
+        assert_eq!(
+            restored
+                .pending_undo_shroud_reveals
+                .front()
+                .expect("pending reveal")
+                .expiration_frame,
+            117
+        );
+    }
+
+    #[test]
+    fn shroud_snapshot_rejects_mismatched_grid_without_mutating_state() {
+        let mut manager = ShroudManager::new();
+        manager.init_shroud_grid(100.0, 100.0);
+        let before = manager.snapshot_state();
+        let mut invalid = before.clone();
+        invalid.grid.as_mut().expect("grid").cells.pop();
+
+        assert!(manager.replace_state(&invalid).is_err());
+        assert_eq!(manager.snapshot_state(), before);
     }
 
     #[test]

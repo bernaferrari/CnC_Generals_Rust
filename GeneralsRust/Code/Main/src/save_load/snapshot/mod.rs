@@ -69,6 +69,7 @@ mod load_post_process;
 mod object;
 mod player;
 mod restore;
+mod shroud;
 mod special_powers;
 mod terrain;
 mod types;
@@ -81,6 +82,9 @@ pub use ai::*;
 pub use builder::*;
 pub use client_drawable::*;
 pub use game_state::*;
+pub use gamelogic::system::shroud_manager::{
+    ShroudCellSnapshot, ShroudGridSnapshot, ShroudPendingUndoRevealSnapshot, ShroudSnapshot,
+};
 pub(crate) use legacy_bincode::*;
 pub use object::*;
 pub use player::*;
@@ -100,6 +104,7 @@ pub const SNAPSHOT_SRC: &str = concat!(
     include_str!("object.rs"),
     include_str!("player.rs"),
     include_str!("restore.rs"),
+    include_str!("shroud.rs"),
     include_str!("special_powers.rs"),
     include_str!("terrain.rs"),
     include_str!("types.rs"),

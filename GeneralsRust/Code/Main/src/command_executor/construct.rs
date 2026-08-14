@@ -97,6 +97,24 @@ impl<'a> CommandExecutor<'a> {
                     .unit_command_set_orientation(building_id, orientation);
             }
 
+            // C++ DozerAIUpdate keeps the newly placed structure as the
+            // dozer's exclusive construction target.  Construction progress
+            // uses that target identity to count only the assigned dozer;
+            // an order target (rather than an attack target) preserves the
+            // Constructing state while still recording the target.
+            if !self
+                .game_logic
+                .unit_command_set_order_target(unit_id, Some(building_id))
+            {
+                if let Some(player) = self.game_logic.get_player_mut(self.current_player_id) {
+                    player.resources.supplies = player
+                        .resources
+                        .supplies
+                        .saturating_add(build_cost.supplies);
+                }
+                return CommandResult::InvalidCommand;
+            }
+
             let _ = self.path_to_goal_with_state(unit_id, location, AIState::Constructing);
 
             debug!(

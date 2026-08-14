@@ -352,6 +352,9 @@ pub struct MeshClass {
     pub material_pass_alpha_override: f32,
     pub material_pass_emissive_override: f32,
     frozen_fow_visibility: FrozenFowVisibility,
+    /// Exact presentation-owned `ObjectShroudStatus > Clear` decision. This
+    /// is intentionally independent from scalar FOW alpha.
+    projected_shroud_eligible: bool,
     pub lighting_environment: Option<Arc<LightEnvironmentClass>>,
     pub decal_meshes: Vec<Arc<MeshClass>>, // Equivalent to C++ Decal meshes
     pub base_vertex_offset: u32,           // Equivalent to C++ BaseVertexOffset

@@ -140,7 +140,14 @@ impl SnapshotBuilder {
             object.owner_player_id = runtime.owner_player_id;
             object.producer_id = runtime.producer_id;
             object.preferred_dock_id = runtime.preferred_dock_id;
-            object.set_target(runtime.target);
+            // Do not route snapshot restoration through `set_target`: the
+            // live order setter intentionally moves a target-less object to
+            // Idle, while the independently serialized AIState may be
+            // SpecialAbility, Gathering, or ReturningResources.
+            object.target = runtime.target;
+            if runtime.target.is_none() {
+                object.target_location = None;
+            }
             object.supply_center_spawn_behavior_fired = runtime.supply_center_spawn_behavior_fired;
             object.supply_truck_state = runtime.supply_truck_state;
             object.supply_truck_force_pending = runtime.supply_truck_force_pending;

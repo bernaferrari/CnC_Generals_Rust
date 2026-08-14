@@ -472,6 +472,17 @@ impl RenderItem {
         self.frozen_objectless_drawable_shroud = Some(state);
     }
 
+    /// Exact per-mesh projected-pass decision frozen by the W3D scene seam.
+    /// This deliberately ignores scalar `fow_visibility`.
+    #[inline]
+    pub fn pushes_projected_shroud_pass(&self) -> bool {
+        self.frozen_direct_scene_shroud
+            .is_some_and(|state| state.pushes_projected_shroud_pass)
+            || self
+                .frozen_objectless_drawable_shroud
+                .is_some_and(|state| state.pushes_projected_shroud_pass)
+    }
+
     /// Get FOW visibility for this render item
     pub fn get_fow_visibility(&self) -> ObjectVisibility {
         self.fow_visibility
@@ -589,6 +600,7 @@ mod tests {
             }),
             "the retained C++ scene decision must not be reconstructed from FOW alpha"
         );
+        assert!(item.pushes_projected_shroud_pass());
     }
 
     #[test]

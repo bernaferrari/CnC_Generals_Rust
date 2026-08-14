@@ -255,6 +255,26 @@ fn hierarchy_that_must_not_supply_skin_links() -> HierarchyPrototype {
     }
 
     #[test]
+    fn projected_shroud_eligibility_is_exact_instance_state_not_scalar_fow() {
+        let mut mesh = MeshClass::new();
+        mesh.set_frozen_fow_visibility(FrozenFowVisibility::new(0.3, 1.0, 1.0));
+        assert!(
+            !mesh.projected_shroud_eligible(),
+            "fog alpha alone cannot invent the C++ scene decision"
+        );
+
+        mesh.set_projected_shroud_eligible(true);
+        assert!(mesh.projected_shroud_eligible());
+        assert!(mesh.clone_mesh().projected_shroud_eligible());
+
+        mesh.set_frozen_fow_visibility(FrozenFowVisibility::CLEAR);
+        assert!(
+            mesh.projected_shroud_eligible(),
+            "exact PartialClear eligibility must survive a clear scalar value"
+        );
+    }
+
+    #[test]
     fn presentation_opacity_is_instance_alpha_without_changing_fow() {
         let mut mesh = MeshClass::new();
         assert!(!mesh.is_alpha());

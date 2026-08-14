@@ -29,6 +29,33 @@ pub struct PhysicsVisualXform {
     pub total_z: f32,
 }
 
+impl PhysicsVisualXform {
+    /// Apply the denormal hotfix from C++ `Drawable::calcPhysicsXform`.
+    ///
+    /// The original code clears values strictly inside `(-1e-20, 1e-20)`
+    /// before returning the calculated result.  Keep this on the frozen
+    /// value, rather than on the matrix, so the eventual frame collector can
+    /// also persist the exact post-hotfix totals and avoid platform-specific
+    /// denormal behavior.
+    #[must_use]
+    pub fn without_denormals(self) -> Self {
+        fn clear(value: f32) -> f32 {
+            if value > -1.0e-20 && value < 1.0e-20 {
+                0.0
+            } else {
+                value
+            }
+        }
+
+        Self {
+            total_pitch: clear(self.total_pitch),
+            total_roll: clear(self.total_roll),
+            total_yaw: clear(self.total_yaw),
+            total_z: clear(self.total_z),
+        }
+    }
+}
+
 /// Frozen inputs for one call to C++ `Drawable::applyPhysicsXform`.
 ///
 /// These fields intentionally mirror only the gates from
@@ -112,7 +139,7 @@ pub fn apply_physics_visual_xform(base_transform: Matrix4, input: PhysicsVisualI
 
     input
         .calculated_xform
-        .map(|xform| post_multiply_physics_visual_xform(base_transform, xform))
+        .map(|xform| post_multiply_physics_visual_xform(base_transform, xform.without_denormals()))
         .unwrap_or(base_transform)
 }
 
@@ -291,5 +318,28 @@ mod tests {
 
         assert_matrix_close(post_multiply_physics_visual_xform(base, xform), expected);
         assert_matrix_close(apply_physics_visual_xform(base, input), expected);
+    }
+
+    #[test]
+    fn physics_visual_applies_cpp_denormal_hotfix_before_transform() {
+        let base = Matrix4::translation(Vector3::new(3.0, -5.0, 7.0));
+        let input = PhysicsVisualInput {
+            calculated_xform: Some(PhysicsVisualXform {
+                total_pitch: 0.5e-20,
+                total_roll: -0.5e-20,
+                total_yaw: 0.5e-20,
+                total_z: -0.5e-20,
+            }),
+            ..enabled_input()
+        };
+
+        assert_eq!(
+            input
+                .calculated_xform
+                .expect("test input has xform")
+                .without_denormals(),
+            PhysicsVisualXform::default()
+        );
+        assert_eq!(apply_physics_visual_xform(base, input), base);
     }
 }

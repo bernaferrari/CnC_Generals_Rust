@@ -234,6 +234,11 @@ pub struct MeshRenderManager {
     decal_queue: Vec<Arc<MeshClass>>,
     fvf_containers: Vec<Arc<DX8FVFCategoryContainer>>,
     live_csm: crate::rendering::shadow_system::live_cascade_shadow::LiveCascadeShadowMap,
+    /// Frozen presentation texture installed for the current frame. The
+    /// dedicated rigid/skinned draw pipeline is intentionally separate work;
+    /// retaining it here closes the resource-ownership ingress without a live
+    /// simulation query or scalar substitute.
+    projected_shroud: Option<crate::rendering::projected_shroud::FrozenProjectedShroudTexture>,
 }
 
 impl MeshRenderManager {
@@ -279,7 +284,24 @@ impl MeshRenderManager {
             decal_queue: Vec::new(),
             fvf_containers: Vec::new(),
             live_csm,
+            projected_shroud: None,
         }
+    }
+
+    pub fn set_projected_shroud(
+        &mut self,
+        projected_shroud: Option<crate::rendering::projected_shroud::FrozenProjectedShroudTexture>,
+    ) {
+        self.projected_shroud = projected_shroud;
+    }
+
+    #[inline]
+    pub fn projected_shroud_projection(
+        &self,
+    ) -> Option<crate::rendering::projected_shroud::ProjectedShroudProjection> {
+        self.projected_shroud
+            .as_ref()
+            .map(|binding| binding.projection())
     }
 
     pub fn ensure_model(&mut self, model: &Arc<MeshModelClass>) -> W3dResult<()> {

@@ -61,7 +61,15 @@ fn install_smoke_templates(game_logic: &mut GameLogic) {
         ),
         template(
             "SmokeDozer",
-            &[KindOf::Vehicle, KindOf::Worker, KindOf::Selectable],
+            // C++ construction authority is the authored KINDOF_DOZER bit;
+            // Worker alone must not fabricate DozerConstruct capability.
+            &[
+                KindOf::Vehicle,
+                KindOf::Worker,
+                KindOf::Dozer,
+                KindOf::Harvester,
+                KindOf::Selectable,
+            ],
             300.0,
             1000,
             0.1,
@@ -91,12 +99,6 @@ fn install_smoke_templates(game_logic: &mut GameLogic) {
 
     for template in templates {
         game_logic.templates.insert(template.name.clone(), template);
-    }
-}
-
-fn run_frames(game_logic: &mut GameLogic, frames: usize) {
-    for _ in 0..frames {
-        game_logic.update();
     }
 }
 
@@ -187,9 +189,11 @@ fn run_basic_faction_flow(human_team: Team) {
         run_until(&mut game_logic, 90, |game_logic| game_logic
             .get_objects()
             .values()
-            .any(|object| object.template_name == "SmokeBarracks"
-                && object.team == human_team
-                && object.is_constructed())),
+            .any(|object| {
+                object.template_name == "SmokeBarracks"
+                    && object.team == human_team
+                    && object.is_constructed()
+            })),
         "{} barracks should finish construction",
         human_team.get_name()
     );
@@ -278,7 +282,10 @@ fn run_basic_faction_flow(human_team: Team) {
         Vec::new(),
     ));
     assert!(
-        run_until(&mut game_logic, 120, |g| {
+        // C++ keeps the scaffold for 45 frames, then sinks from 99.9% to
+        // -50% at 100/90 percentage points per frame: ~180 frames total.
+        // Give the authored multi-frame sell path enough time to finish.
+        run_until(&mut game_logic, 200, |g| {
             g.get_player(0)
                 .map(|p| p.resources.supplies > supplies_before_sell)
                 .unwrap_or(false)
@@ -647,6 +654,23 @@ fn dozer_construct_places_barracks_under_construction() {
             .get_player(0)
             .map(|p| p.resources.supplies)
             .unwrap_or(0)
+    );
+    let barracks_id = game_logic
+        .get_objects()
+        .values()
+        .find(|o| o.template_name == "SmokeBarracks")
+        .map(|o| o.id)
+        .expect("placed barracks id");
+    let dozer_state = game_logic.get_object(dozer).expect("dozer after construct");
+    assert_eq!(
+        dozer_state.target,
+        Some(barracks_id),
+        "DozerConstruct must retain the placed structure as its order target"
+    );
+    assert_eq!(
+        dozer_state.ai_state,
+        AIState::Constructing,
+        "DozerConstruct must enter the constructing state"
     );
     let supplies = game_logic.get_player(0).unwrap().resources.supplies;
     assert!(

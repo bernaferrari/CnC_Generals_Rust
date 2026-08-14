@@ -505,7 +505,19 @@ impl GameLogic {
                         segment_start,
                         goal
                     );
-                    return false;
+                    // C++ accepts a direct movement request before a map has
+                    // installed its terrain/path graph. Preserve the normal
+                    // fail-closed path policy for loaded maps, but keep the
+                    // mapless host-authority path usable during startup and
+                    // command validation.
+                    if !self.map_loaded {
+                        if full_path.is_empty() {
+                            full_path.push(segment_start);
+                        }
+                        full_path.push(goal);
+                    } else {
+                        return false;
+                    }
                 }
             }
 

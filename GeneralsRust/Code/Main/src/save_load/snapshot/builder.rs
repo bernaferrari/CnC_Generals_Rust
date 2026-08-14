@@ -64,6 +64,7 @@ impl SnapshotBuilder {
             // attaches it through the explicit companion-aware save API.
             client_drawables: ClientDrawableWorldSnapshot::default(),
             player_template_bindings: self.snapshot_player_template_bindings(game_logic)?,
+            shroud: self.snapshot_shroud_state()?,
         };
 
         log::info!(
@@ -73,6 +74,21 @@ impl SnapshotBuilder {
         );
 
         Ok(snapshot)
+    }
+
+    /// Capture the process-global PartitionManager equivalent. The host
+    /// transaction keeps this singleton aligned with the active GameLogic;
+    /// snapshotting the derived per-player presentation bytes here would lose
+    /// the raw C++ looker/shrouder counters and pending undo queue.
+    fn snapshot_shroud_state(
+        &self,
+    ) -> SaveLoadResult<gamelogic::system::shroud_manager::ShroudSnapshot> {
+        gamelogic::system::shroud_manager::get_shroud_manager()
+            .lock()
+            .map(|manager| manager.snapshot_state())
+            .map_err(|_| {
+                SaveLoadError::Corrupted("ShroudManager lock poisoned while saving".to_string())
+            })
     }
 
     /// Restore game state from world snapshot
@@ -110,6 +126,26 @@ impl SnapshotBuilder {
         // The runtime setter clamps legacy/malformed zero to one and clears
         // transient presentation events so a load cannot replay pre-save FX.
         game_logic.restore_weapon_discharge_next_sequence(snapshot.next_weapon_discharge_sequence);
+
+        // Map loading initializes a fresh shroud grid and may reveal
+        // staging-map objects. Replace that singleton only when this save
+        // actually carries the v6 shroud tail, after all object/team restore
+        // callbacks have finished mutating candidate state.
+        if snapshot.shroud.grid.is_some()
+            || !snapshot.shroud.pending_undo_shroud_reveals.is_empty()
+            || !snapshot.shroud.pending_full_reveal_players.is_empty()
+            || !snapshot.shroud.pending_permanent_reveal_players.is_empty()
+        {
+            gamelogic::system::shroud_manager::get_shroud_manager()
+                .lock()
+                .map_err(|_| {
+                    SaveLoadError::Corrupted(
+                        "ShroudManager lock poisoned while restoring".to_string(),
+                    )
+                })?
+                .replace_state(&snapshot.shroud)
+                .map_err(SaveLoadError::Corrupted)?;
+        }
 
         log::info!("World restoration complete");
         Ok(())

@@ -586,7 +586,8 @@ impl SaveFileManager {
             BincodeWorldSnapshotDecodePath::LegacyProductionV1
             | BincodeWorldSnapshotDecodePath::LegacyPreHackerDisableV2
             | BincodeWorldSnapshotDecodePath::LegacyPreV4V3
-            | BincodeWorldSnapshotDecodePath::LegacyPreV5V4 => {
+            | BincodeWorldSnapshotDecodePath::LegacyPreV5V4
+            | BincodeWorldSnapshotDecodePath::LegacyPreV6V5 => {
                 log::info!(
                     "Migrated legacy bincode WorldSnapshot ({path:?}) into schema v{}",
                     WORLD_SNAPSHOT_BINCODE_VERSION

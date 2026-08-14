@@ -8,6 +8,11 @@ struct StagedRestoreWorld {
     logic: crate::game_logic::GameLogic,
     info: SaveGameInfo,
     runtime_world: gamelogic::runtime_world_transaction::StagedRuntimeWorld,
+    shroud: gamelogic::system::shroud_manager::ShroudSnapshot,
+    /// Renderer-owned Drawable state decoded with the logical world.  It is
+    /// queued only after the staged world has committed, then validated
+    /// against the first fresh presentation topology by RenderPipeline.
+    client_drawables: crate::save_load::snapshot::ClientDrawableWorldSnapshot,
 }
 
 impl CnCGameEngine {
@@ -1044,6 +1049,8 @@ impl CnCGameEngine {
             logic,
             info: _,
             runtime_world,
+            shroud: _,
+            client_drawables,
         } = staged;
         let deferred_effects = runtime_world.install_globals();
         let old_logic = std::mem::replace(&mut self.game_logic, logic);
@@ -1059,6 +1066,13 @@ impl CnCGameEngine {
         #[cfg(feature = "game_client")]
         self.game_client.invalidate_presentation_drawable_world();
         self.render_pipeline.invalidate_world_visual_state();
+        // Keep the client companion staged until the first complete frozen
+        // frame after the successful world replacement.  `set_presentation_frame`
+        // performs source-identity validation before collection and removes
+        // each candidate once, so a failed/missing W3D asset cannot replay a
+        // stale timeline on a later frame.
+        self.render_pipeline
+            .queue_client_drawable_restore(client_drawables);
         self.invalidate_presentation_terrain_cache();
         if let Some(shadow) = self.gameworld_shadow.as_mut() {
             shadow.sync_from_host(&self.game_logic);
@@ -1071,8 +1085,18 @@ impl CnCGameEngine {
         save_info: &SaveGameInfo,
     ) -> Result<(), String> {
         // Wave 928: single save authority boundary.
+        // Capture the renderer-owned Drawable companion at the same host
+        // authority boundary as the logical snapshot.  The pipeline method
+        // is renderer-local and immutable here; an empty/unresolved cache is
+        // intentionally a valid fail-closed companion.
+        let client_drawables = self.render_pipeline.capture_client_drawable_snapshot();
         self.save_file_manager
-            .save_game(slot, &self.game_logic, save_info)
+            .save_game_with_client_drawable_snapshot(
+                slot,
+                &self.game_logic,
+                client_drawables,
+                save_info,
+            )
             .map_err(|e| format!("{e}"))
     }
 
@@ -1229,6 +1253,8 @@ impl CnCGameEngine {
             logic: staged,
             info: save_info,
             runtime_world,
+            shroud: snapshot.shroud.clone(),
+            client_drawables: snapshot.client_drawables.clone(),
         })
     }
 
@@ -1754,6 +1780,17 @@ mod staged_restore_tests {
         let mut source = GameLogic::new();
         source.start_new_game(GameMode::Skirmish);
         assert!(source.load_map(&map_name), "load source retail map");
+        // Seed a save-time FOW state that differs from map-start reveals. The
+        // staged candidate must carry these raw counters and the pending
+        // expiry queue rather than retaining its map-load singleton state.
+        let expected_shroud = {
+            let mut shroud = gamelogic::system::shroud_manager::get_shroud_manager()
+                .lock()
+                .expect("source shroud lock");
+            shroud.do_shroud_reveal(&glam::Vec3::ZERO, 75.0, 1);
+            shroud.queue_undo_shroud_reveal(&glam::Vec3::ZERO, 75.0, 1, 41, 321);
+            shroud.snapshot_state()
+        };
         // Make the AI fixture explicit: map files do not all provide a
         // configured skirmish roster, while save/load must preserve one when
         // the source match has it.
@@ -1766,10 +1803,22 @@ mod staged_restore_tests {
         let catalog = source.templates.clone();
         assert_eq!(source.host_ai_difficulty(71), Some(AIDifficulty::Hard));
         assert!(!source.is_host_ai_active(71));
+        let client_drawables = crate::save_load::ClientDrawableWorldSnapshot {
+            drawables: vec![crate::save_load::ClientDrawableStateSnapshot {
+                object_id: 71,
+                draw_module_index: 2,
+                source_template_name: "SavedDrawableSource".to_string(),
+                model_key: "SavedDrawableModel".to_string(),
+                selected_condition_state_index: 5,
+                last_seen_weapon_discharge_sequence: 19,
+                ..Default::default()
+            }],
+        };
         saves
-            .save_game(
+            .save_game_with_client_drawable_snapshot(
                 "valid_map",
                 &source,
+                client_drawables.clone(),
                 &save_info("valid_map", map_name.clone()),
             )
             .expect("write valid staged restore save");
@@ -1782,6 +1831,14 @@ mod staged_restore_tests {
         )
         .expect("saved map should load before restore");
         assert_eq!(restored.info.map_name, map_name);
+        assert_eq!(
+            restored.shroud, expected_shroud,
+            "staged restore must carry exact saved FOW rather than map-start reveals"
+        );
+        assert_eq!(
+            restored.client_drawables, client_drawables,
+            "staged restore must carry the renderer companion to the commit boundary"
+        );
         assert!(restored.logic.isInGame());
         assert_eq!(restored.logic.get_current_map_name(), map_name);
         assert_eq!(restored.logic.get_current_frame(), 321);
@@ -1881,8 +1938,8 @@ mod staged_restore_tests {
                 .unwrap_or_default();
             let shroud = gamelogic::system::shroud_manager::get_shroud_manager()
                 .lock()
-                .map(|shroud| shroud.grid_dimensions())
-                .unwrap_or(None);
+                .map(|shroud| shroud.snapshot_state())
+                .unwrap_or_default();
             let mut named = gamelogic::scripting::engine::get_named_object_tracker()
                 .get_all_named_objects()
                 .unwrap_or_default();

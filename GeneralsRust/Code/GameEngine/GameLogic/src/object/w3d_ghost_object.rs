@@ -3,6 +3,8 @@
 //! CPU-side parity port for `W3DDevice/GameLogic/W3DGhostObject.cpp`.
 
 use game_engine::common::game_common::MAX_PLAYER_COUNT;
+use once_cell::sync::Lazy;
+use std::sync::{Arc, RwLock};
 
 pub const INVALID_OBJECT_ID: u32 = u32::MAX;
 pub const INVALID_DRAWABLE_ID: u32 = 0;
@@ -100,6 +102,43 @@ pub enum GhostSceneEvent {
     },
 }
 
+/// Stable identity for one pooled W3D ghost. Vector positions are not identities:
+/// the C++ manager inserts at the list head and recycles modules from a free list.
+pub type W3DGhostSceneId = u64;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct W3DGhostSnapshotKey {
+    pub ghost_id: W3DGhostSceneId,
+    pub player_index: usize,
+    pub snapshot_index: usize,
+}
+
+/// Exact immutable payload handed from the logic-owned ghost manager to the
+/// client scene boundary. It deliberately carries DrawableInfo and geometry;
+/// neither ownership nor shroud alpha is inferred downstream.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FrozenW3DGhostSnapshot {
+    pub key: W3DGhostSnapshotKey,
+    pub parent_object_id: Option<u32>,
+    pub drawable_info: W3DDrawableInfo,
+    pub parent_geometry: Option<ParentGeometrySnapshot>,
+    pub render_object: W3DRenderObjectSnapshot,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum FrozenW3DGhostSceneEvent {
+    RemoveParentObject {
+        ghost_id: W3DGhostSceneId,
+        parent_object_id: u32,
+    },
+    RestoreParentObject {
+        ghost_id: W3DGhostSceneId,
+        parent_object_id: u32,
+    },
+    UpsertSnapshot(FrozenW3DGhostSnapshot),
+    RemoveSnapshot(W3DGhostSnapshotKey),
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct W3DDrawableInfo {
     pub drawable_id: u32,
@@ -129,6 +168,7 @@ pub struct ParentGeometrySnapshot {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct W3DGhostObject {
+    scene_id: W3DGhostSceneId,
     parent_object_id: Option<u32>,
     partition_data_attached: bool,
     parent_snapshots: Vec<Vec<W3DRenderObjectSnapshot>>,
@@ -148,6 +188,7 @@ impl Default for W3DGhostObject {
 impl W3DGhostObject {
     pub fn new() -> Self {
         Self {
+            scene_id: 0,
             parent_object_id: None,
             partition_data_attached: false,
             parent_snapshots: vec![Vec::new(); MAX_PLAYER_COUNT],
@@ -157,6 +198,10 @@ impl W3DGhostObject {
             scene_events: Vec::new(),
             previous_shroudedness: vec![None; MAX_PLAYER_COUNT],
         }
+    }
+
+    pub fn scene_id(&self) -> W3DGhostSceneId {
+        self.scene_id
     }
 
     pub fn update_parent_object(&mut self, object_id: Option<u32>, has_partition_data: bool) {
@@ -185,6 +230,58 @@ impl W3DGhostObject {
 
     pub fn scene_events(&self) -> &[GhostSceneEvent] {
         &self.scene_events
+    }
+
+    fn drain_frozen_scene_events(&mut self) -> Vec<FrozenW3DGhostSceneEvent> {
+        let events = std::mem::take(&mut self.scene_events);
+        events
+            .into_iter()
+            .filter_map(|event| match event {
+                GhostSceneEvent::RemoveParentObject(parent_object_id) => {
+                    Some(FrozenW3DGhostSceneEvent::RemoveParentObject {
+                        ghost_id: self.scene_id,
+                        parent_object_id,
+                    })
+                }
+                GhostSceneEvent::RestoreParentObject(parent_object_id) => {
+                    Some(FrozenW3DGhostSceneEvent::RestoreParentObject {
+                        ghost_id: self.scene_id,
+                        parent_object_id,
+                    })
+                }
+                GhostSceneEvent::AddSnapshot {
+                    player_index,
+                    snapshot,
+                } => self
+                    .parent_snapshots
+                    .get(player_index)
+                    .and_then(|snapshots| snapshots.get(snapshot))
+                    .cloned()
+                    .map(|render_object| {
+                        FrozenW3DGhostSceneEvent::UpsertSnapshot(FrozenW3DGhostSnapshot {
+                            key: W3DGhostSnapshotKey {
+                                ghost_id: self.scene_id,
+                                player_index,
+                                snapshot_index: snapshot,
+                            },
+                            parent_object_id: self.parent_object_id,
+                            drawable_info: self.drawable_info,
+                            parent_geometry: self.parent_geometry,
+                            render_object,
+                        })
+                    }),
+                GhostSceneEvent::RemoveSnapshot {
+                    player_index,
+                    snapshot,
+                } => Some(FrozenW3DGhostSceneEvent::RemoveSnapshot(
+                    W3DGhostSnapshotKey {
+                        ghost_id: self.scene_id,
+                        player_index,
+                        snapshot_index: snapshot,
+                    },
+                )),
+            })
+            .collect()
     }
 
     pub fn parent_fully_obscured(&self) -> bool {
@@ -333,6 +430,8 @@ pub struct W3DGhostObjectManager {
     local_player: usize,
     lock_ghost_objects: bool,
     save_lock_ghost_objects: bool,
+    next_scene_id: W3DGhostSceneId,
+    pending_scene_events: Vec<FrozenW3DGhostSceneEvent>,
 }
 
 impl W3DGhostObjectManager {
@@ -378,6 +477,8 @@ impl W3DGhostObjectManager {
         }
         let mut ghost = self.free_modules.pop().unwrap_or_else(W3DGhostObject::new);
         ghost.release();
+        self.next_scene_id = self.next_scene_id.wrapping_add(1).max(1);
+        ghost.scene_id = self.next_scene_id;
         ghost.parent_object_id = object_id;
         ghost.partition_data_attached = has_partition_data;
         ghost.drawable_info = W3DDrawableInfo {
@@ -395,8 +496,21 @@ impl W3DGhostObjectManager {
         }
         let mut ghost = self.used_modules.remove(index);
         ghost.free_all_snapshots(self.local_player);
+        self.pending_scene_events
+            .extend(ghost.drain_frozen_scene_events());
         ghost.release();
         self.free_modules.push(ghost);
+    }
+
+    /// Consume the scene mutations produced since the previous frame freeze.
+    /// Returned values own every string/vector and cannot alias later logic
+    /// updates or free-list reuse.
+    pub fn drain_scene_events(&mut self) -> Vec<FrozenW3DGhostSceneEvent> {
+        let mut result = std::mem::take(&mut self.pending_scene_events);
+        for ghost in &mut self.used_modules {
+            result.extend(ghost.drain_frozen_scene_events());
+        }
+        result
     }
 
     pub fn reset(&mut self) {
@@ -465,3 +579,9 @@ impl W3DGhostObjectManager {
 }
 
 pub const OBJECTSHROUD_FOGGED: u8 = 2;
+
+/// Active non-network W3D ghost scene owner used by the runtime hooks and Main
+/// render ingress. Keeping its scene queue separate from the generic
+/// Snapshotable manager preserves the C++ render payload without downcasts.
+pub static THE_W3D_GHOST_OBJECT_MANAGER: Lazy<Arc<RwLock<W3DGhostObjectManager>>> =
+    Lazy::new(|| Arc::new(RwLock::new(W3DGhostObjectManager::new())));

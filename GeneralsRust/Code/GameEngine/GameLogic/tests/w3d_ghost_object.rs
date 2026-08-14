@@ -1,8 +1,8 @@
 use game_engine::common::game_common::MAX_PLAYER_COUNT;
 use gamelogic::object::w3d_ghost_object::{
-    GhostSceneEvent, Matrix3x4, ParentGeometrySnapshot, RenderObjectClass, RenderObjectState,
-    RenderSubObjectSnapshot, W3DDrawableInfo, W3DGhostObject, W3DGhostObjectManager,
-    INVALID_DRAWABLE_ID, INVALID_OBJECT_ID, OBJECTSHROUD_FOGGED,
+    FrozenW3DGhostSceneEvent, GhostSceneEvent, Matrix3x4, ParentGeometrySnapshot,
+    RenderObjectClass, RenderObjectState, RenderSubObjectSnapshot, W3DDrawableInfo, W3DGhostObject,
+    W3DGhostObjectManager, INVALID_DRAWABLE_ID, INVALID_OBJECT_ID, OBJECTSHROUD_FOGGED,
 };
 
 fn geometry() -> ParentGeometrySnapshot {
@@ -14,6 +14,38 @@ fn geometry() -> ParentGeometrySnapshot {
         position: [1.0, 2.0, 3.0],
         angle: 0.5,
     }
+}
+
+#[test]
+fn manager_drains_owned_stable_scene_payload_across_pool_reuse() {
+    let mut manager = W3DGhostObjectManager::new();
+    manager.add_ghost_object(Some(42), true).unwrap();
+    let first_id = manager.used()[0].scene_id();
+    manager.used_mut()[0].snapshot(0, 0, false, &[render_object("Tank")], geometry());
+
+    let frozen = manager.drain_scene_events();
+    let snapshot = frozen
+        .iter()
+        .find_map(|event| match event {
+            FrozenW3DGhostSceneEvent::UpsertSnapshot(snapshot) => Some(snapshot),
+            _ => None,
+        })
+        .expect("snapshot event");
+    assert_eq!(snapshot.key.ghost_id, first_id);
+    assert_eq!(snapshot.parent_object_id, Some(42));
+    assert_eq!(snapshot.parent_geometry, Some(geometry()));
+    assert_eq!(snapshot.render_object.render_object.name, "Tank");
+
+    manager.remove_ghost_object(0);
+    let removals = manager.drain_scene_events();
+    assert!(removals.iter().any(|event| matches!(
+        event,
+        FrozenW3DGhostSceneEvent::RemoveSnapshot(key) if key.ghost_id == first_id
+    )));
+
+    manager.add_ghost_object(Some(43), true).unwrap();
+    assert_ne!(manager.used()[0].scene_id(), first_id);
+    assert!(manager.drain_scene_events().is_empty());
 }
 
 fn render_object(name: &str) -> RenderObjectState {
