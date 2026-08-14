@@ -26,17 +26,17 @@ pub struct PreparedMeshModel {
 impl PreparedMeshModel {
     fn frommodel(device: &wgpu::Device, model: &MeshModelClass) -> W3dResult<Self> {
         let vertex_count = model.vertices.len() as u32;
-        let has_normals = model.has_normals();
-        let has_tex_coords = model.has_tex_coords();
         let is_skinned = model.is_skinned();
 
-        let mut stride = 3;
-        if has_normals {
-            stride += 3;
-        }
-        if has_tex_coords {
-            stride += 2;
-        }
+        // The WGPU compatibility layouts always expose a normal and four UV
+        // channels (the same layout used by the normal and projected-shroud
+        // shaders).  The old variable-width packing only emitted authored
+        // channels, so a mesh without UVs or with fewer than four channels
+        // made the GPU read subsequent vertices as attributes.  Keep the
+        // source data faithful while padding absent channels with the same
+        // defaults as MeshModelClass::create_wgpu_buffers.
+        const MAX_VERTEX_UV_SETS: usize = 4;
+        let mut stride = 3 + 3 + (MAX_VERTEX_UV_SETS * 2);
         if is_skinned {
             stride += 8; // 4 indices + 4 weights as floats
         }
@@ -48,28 +48,21 @@ impl PreparedMeshModel {
             vertex_data.push(vertex.y);
             vertex_data.push(vertex.z);
 
-            if has_normals {
-                if index < model.normals.len() {
-                    let normal = &model.normals[index];
-                    vertex_data.push(normal.x);
-                    vertex_data.push(normal.y);
-                    vertex_data.push(normal.z);
-                } else {
-                    vertex_data.push(0.0);
-                    vertex_data.push(1.0);
-                    vertex_data.push(0.0);
-                }
+            if index < model.normals.len() {
+                let normal = &model.normals[index];
+                vertex_data.push(normal.x);
+                vertex_data.push(normal.y);
+                vertex_data.push(normal.z);
+            } else {
+                vertex_data.push(0.0);
+                vertex_data.push(1.0);
+                vertex_data.push(0.0);
             }
 
-            if has_tex_coords {
-                if index < model.texture_coords.len() {
-                    let tex = &model.texture_coords[index];
-                    vertex_data.push(tex.u);
-                    vertex_data.push(tex.v);
-                } else {
-                    vertex_data.push(0.0);
-                    vertex_data.push(0.0);
-                }
+            for channel in 0..MAX_VERTEX_UV_SETS {
+                let [u, v] = model.uv_channel_coords(channel, index);
+                vertex_data.push(u);
+                vertex_data.push(v);
             }
 
             if is_skinned {
@@ -266,9 +259,7 @@ impl MeshRenderManager {
             },
         ));
         let live_csm =
-            crate::rendering::shadow_system::live_cascade_shadow::LiveCascadeShadowMap::new(
-                device,
-            );
+            crate::rendering::shadow_system::live_cascade_shadow::LiveCascadeShadowMap::new(device);
 
         Self {
             gpu_device,
@@ -542,8 +533,203 @@ impl MeshRenderManager {
             )?;
         }
 
+        // C++ W3DScene appends W3DShroudMaterialPass after the authored
+        // material passes for a non-clear Drawable.  It is deliberately a
+        // separate world-projected pass: authored material UVs must not be
+        // reused for terrain shroud sampling.
+        if mesh.projected_shroud_eligible() && self.projected_shroud.is_some() {
+            self.draw_projected_shroud_pass(
+                mesh,
+                &prepared,
+                render_info,
+                render_pass,
+                arena,
+                resources,
+            )?;
+        }
+
         resources.clear();
         Ok(())
+    }
+
+    fn draw_projected_shroud_pass(
+        &mut self,
+        mesh: &MeshClass,
+        prepared: &PreparedMeshModel,
+        render_info: &RenderInfoClass,
+        render_pass: &mut wgpu::RenderPass<'_>,
+        arena: &mut FrameUniformArena,
+        resources: &mut RenderPassResources,
+    ) -> W3dResult<()> {
+        let Some(projected) = self.projected_shroud.as_ref() else {
+            return Ok(());
+        };
+
+        let shader =
+            crate::rendering::projected_shroud::ProjectedShroudMaterialPassContract::CXX.shader();
+        let vertex_format = if prepared.is_skinned {
+            VertexFormat::ProjectedShroudSkinned
+        } else {
+            VertexFormat::ProjectedShroudBasic
+        };
+        let pipeline = self.pipeline_mgr.get_or_create(
+            &shader,
+            0,
+            prepared.is_skinned,
+            false,
+            false,
+            wgpu::PrimitiveTopology::TriangleList,
+            vertex_format,
+            self.color_format,
+            self.depth_format,
+            0,
+            false,
+        );
+
+        let camera_binds = WgpuMaterialBinds::camera(
+            self.gpu_device.as_ref(),
+            pipeline.as_ref(),
+            0,
+            arena,
+            render_info,
+        )?;
+        let projection = projected.projection();
+        let model_binds = WgpuMaterialBinds::model(
+            self.gpu_device.as_ref(),
+            pipeline.as_ref(),
+            1,
+            &mesh.transform,
+            render_info,
+            0,
+            0,
+            0,
+            0,
+            0,
+            [
+                projection.uv_scale[0],
+                projection.uv_scale[1],
+                projection.uv_offset[0],
+                projection.uv_offset[1],
+            ],
+            [0.0; 4],
+            [0.0; 4],
+            [
+                projection.shroud_color[0],
+                projection.shroud_color[1],
+                projection.shroud_color[2],
+                1.0,
+            ],
+            arena,
+            Some(1.0),
+            Some(1.0),
+            Some(1.0),
+            Some(&self.live_csm),
+        )?;
+
+        resources.set_pipeline(render_pass, Arc::clone(&pipeline));
+        resources.retain_buffer(Arc::clone(&camera_binds.buffer));
+        resources.set_bind_group(render_pass, 0, Arc::clone(&camera_binds.bind_group));
+        resources.retain_buffer(Arc::clone(&model_binds.model_buffer));
+        resources.retain_buffer(Arc::clone(&model_binds.lighting_buffer));
+        resources.set_bind_group(render_pass, 1, Arc::clone(&model_binds.bind_group));
+
+        if prepared.is_skinned {
+            let identity_palette = [Mat4::IDENTITY];
+            let palette = mesh
+                .bone_palette_view()
+                .map(|view| view.matrices)
+                .filter(|matrices| !matrices.is_empty())
+                .unwrap_or(&identity_palette);
+            let binds = WgpuMaterialBinds::skinned_group2(
+                self.gpu_device.as_ref(),
+                pipeline.as_ref(),
+                2,
+                palette,
+                None,
+                render_info.time,
+                arena,
+            )?;
+            resources.retain_buffer(Arc::clone(&binds.bones_buffer));
+            resources.retain_buffer(Arc::clone(&binds.uv_transform_buffer));
+            resources.set_bind_group(render_pass, 2, Arc::clone(&binds.bind_group));
+        } else {
+            let binds = WgpuMaterialBinds::uv_transform(
+                self.gpu_device.wgpu_device(),
+                pipeline.as_ref(),
+                2,
+                None,
+                render_info.time,
+            )?;
+            resources.retain_buffer(Arc::clone(&binds.buffer));
+            resources.set_bind_group(render_pass, 2, Arc::clone(&binds.bind_group));
+        }
+
+        let projected_group = self.create_projected_shroud_bind_group(pipeline.as_ref(), projected);
+        resources.set_bind_group(render_pass, 3, projected_group);
+
+        resources.set_vertex_buffer(render_pass, 0, Arc::clone(&prepared.vertex_buffer));
+        if let Some(index_buffer) = prepared.index_buffer.as_ref() {
+            resources.set_index_buffer(
+                render_pass,
+                Arc::clone(index_buffer),
+                wgpu::IndexFormat::Uint32,
+            );
+        }
+
+        // The additional shroud pass covers every authored material range,
+        // while retaining each range's index selection and avoiding a second
+        // draw of any geometry that the source model does not own.
+        for pass in &prepared.material_passes {
+            self.issue_draw_call(prepared, pass, render_pass);
+        }
+        self.stats.material_passes += prepared.material_passes.len() as u32;
+        self.stats.shader_switches += 1;
+        Ok(())
+    }
+
+    fn create_projected_shroud_bind_group(
+        &self,
+        pipeline: &wgpu::RenderPipeline,
+        projected: &crate::rendering::projected_shroud::FrozenProjectedShroudTexture,
+    ) -> Arc<wgpu::BindGroup> {
+        let layout = pipeline.get_bind_group_layout(3);
+        let shroud_view = projected.texture_view();
+        let shroud_sampler = projected.sampler();
+        let cube_view = &self.fallback_textures.view_cube;
+        let bind_group =
+            self.gpu_device
+                .wgpu_device()
+                .create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("Projected W3D shroud texture bind group"),
+                    layout: &layout,
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: wgpu::BindingResource::TextureView(shroud_view),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: wgpu::BindingResource::TextureView(cube_view),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 2,
+                            resource: wgpu::BindingResource::Sampler(shroud_sampler),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 3,
+                            resource: wgpu::BindingResource::TextureView(shroud_view),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 4,
+                            resource: wgpu::BindingResource::TextureView(cube_view),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 5,
+                            resource: wgpu::BindingResource::Sampler(shroud_sampler),
+                        },
+                    ],
+                });
+        Arc::new(bind_group)
     }
 
     fn material_pass_with_uv_offset(
