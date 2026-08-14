@@ -23,7 +23,8 @@ impl GameClient {
                     )?;
                 let mut bridge_guard = crate::render_bridge::get_render_bridge().lock().ok()?;
                 let bridge = bridge_guard.as_mut()?;
-                bridge.materialize_exact_mesh_w3d_ghost_capture(&source)
+                let generation = bridge.capture_window_generation_for_source(&source)?;
+                bridge.materialize_exact_mesh_w3d_ghost_capture_at(&source, generation)
             }),
         ));
     }

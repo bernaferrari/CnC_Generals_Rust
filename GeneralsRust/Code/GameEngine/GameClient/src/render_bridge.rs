@@ -227,6 +227,11 @@ pub struct DrawSubmission {
     /// Client DrawableID allocated by the GameClient.  It is not a gameplay
     /// ObjectID and must never be cast to one by a renderer.
     pub drawable_id: DrawableId,
+    /// Renderer-owned generation assigned when this exact submission is
+    /// accepted by `RenderBridge::flush`.  It is intentionally absent while
+    /// the DrawModule result is merely pending, so ghost capture cannot use a
+    /// stale or guessed frame identity.
+    pub capture_window_generation: Option<u64>,
     /// Explicit gameplay ownership for Main/FOW/render-item association.  An
     /// unbound legacy submission is intentionally left as `None` so consumers
     /// can fail closed instead of guessing from independent ID counters.
@@ -272,6 +277,7 @@ impl Default for DrawSubmission {
     fn default() -> Self {
         Self {
             drawable_id: DrawableId(0),
+            capture_window_generation: None,
             owner_object_id: None,
             shroud_status_object_id: None,
             legacy_model_draw_source: None,
@@ -515,6 +521,11 @@ pub struct RenderBridge {
     render_info: RenderInfo,
     elapsed_time: f32,
     ghost_scene_revision: u64,
+    /// Monotonic identity for one renderer-owned flushed W3D handoff.  This
+    /// is deliberately independent from Main/GameClient logic frames and from
+    /// the ghost scene revision.
+    next_capture_window_generation: u64,
+    last_flushed_capture_submissions: Vec<DrawSubmission>,
     ghost_snapshots: HashMap<W3DGhostSnapshotKey, FrozenW3DGhostSnapshot>,
     ghost_hidden_parents: HashMap<W3DGhostSceneId, u32>,
 }
@@ -550,6 +561,8 @@ impl RenderBridge {
             render_info: RenderInfo::new(),
             elapsed_time: 0.0,
             ghost_scene_revision: 0,
+            next_capture_window_generation: 1,
+            last_flushed_capture_submissions: Vec::new(),
             ghost_snapshots: HashMap::new(),
             ghost_hidden_parents: HashMap::new(),
         }
@@ -643,10 +656,82 @@ impl RenderBridge {
         }
 
         Some(W3DGhostSnapshotCapture {
+            capture_window_generation: None,
             drawable_effectively_hidden: source.drawable_effectively_hidden,
             render_objects,
             geometry: source.geometry,
         })
+    }
+
+    /// Match a logic-side source to the exact W3D submissions accepted by the
+    /// most recent renderer flush.  Every committed DrawModule record must
+    /// match the same object, Drawable, source identity, model, and live
+    /// render-object fields; any missing or ambiguous record fails closed.
+    pub fn capture_window_generation_for_source(
+        &self,
+        source: &W3DGhostSnapshotCaptureSource,
+    ) -> Option<u64> {
+        if source.object_id == INVALID_OBJECT_ID
+            || source.drawable_id == INVALID_DRAWABLE_ID
+            || source.model_draws.is_empty()
+        {
+            return None;
+        }
+
+        let mut generation = None;
+        for model_draw in &source.model_draws {
+            let matches = self
+                .last_flushed_capture_submissions
+                .iter()
+                .filter(|submission| {
+                    submission.owner_object_id == Some(source.object_id)
+                        && submission.drawable_id == DrawableId(source.drawable_id)
+                        && submission.capture_window_generation.is_some()
+                        && submission.legacy_model_draw_source.as_ref() == Some(&model_draw.source)
+                        && submission
+                            .model_name
+                            .eq_ignore_ascii_case(&model_draw.model_name)
+                        && submission.legacy_render_object_scale == model_draw.render_object_scale
+                        && submission.legacy_render_object_color == model_draw.render_object_color
+                        && submission
+                            .legacy_render_object_transform
+                            .is_some_and(|transform| {
+                                transform.to_cols_array()
+                                    == model_draw.world_transform.to_cols_array()
+                            })
+                })
+                .filter_map(|submission| submission.capture_window_generation)
+                .collect::<Vec<_>>();
+
+            let Some(first) = matches.first().copied() else {
+                return None;
+            };
+            if matches.iter().any(|candidate| *candidate != first) {
+                return None;
+            }
+            if generation.is_some_and(|candidate| candidate != first) {
+                return None;
+            }
+            generation = Some(first);
+        }
+        generation
+    }
+
+    /// Final capture entry point used by the registered GameClient hook.  It
+    /// is impossible to materialize a production ghost without a generation
+    /// from the same flushed handoff, even when the lower-level Mesh adapter
+    /// can otherwise resolve the asset.
+    pub fn materialize_exact_mesh_w3d_ghost_capture_at(
+        &mut self,
+        source: &W3DGhostSnapshotCaptureSource,
+        expected_generation: u64,
+    ) -> Option<W3DGhostSnapshotCapture> {
+        if self.capture_window_generation_for_source(source)? != expected_generation {
+            return None;
+        }
+        let mut capture = self.materialize_exact_mesh_w3d_ghost_capture(source)?;
+        capture.capture_window_generation = Some(expected_generation);
+        Some(capture)
     }
 
     /// Convert one committed ModelDrawState into the DrawSubmission-shaped
@@ -784,6 +869,8 @@ impl RenderBridge {
     pub fn flush(&mut self) {
         let start = std::time::Instant::now();
 
+        self.last_flushed_capture_submissions.clear();
+
         let mut stats = RenderBridgeStats {
             submissions_received: self.pending.len(),
             ..Default::default()
@@ -844,7 +931,7 @@ impl RenderBridge {
             })
             .collect();
 
-        let resolved: Vec<DrawSubmission> = after_cull
+        let mut resolved: Vec<DrawSubmission> = after_cull
             .into_iter()
             .filter(|s| {
                 if self.model_cache.contains_key(&s.model_name.to_lowercase()) {
@@ -855,6 +942,14 @@ impl RenderBridge {
                 }
             })
             .collect();
+
+        let capture_window_generation = self.next_capture_window_generation;
+        self.next_capture_window_generation =
+            self.next_capture_window_generation.wrapping_add(1).max(1);
+        for submission in &mut resolved {
+            submission.capture_window_generation = Some(capture_window_generation);
+        }
+        self.last_flushed_capture_submissions = resolved.clone();
 
         // Phase 3: Partition into opaque / transparent.
         let mut opaque: Vec<DrawSubmission> = Vec::new();
@@ -1690,6 +1785,7 @@ impl DrawSubmission {
 
         Self {
             drawable_id: DrawableId(desc.drawable_id),
+            capture_window_generation: None,
             owner_object_id: None,
             shroud_status_object_id: None,
             legacy_model_draw_source: None,
@@ -2367,6 +2463,60 @@ mod tests {
         let animated_source = exact_mesh_ghost_source(37, animated);
         assert!(bridge
             .materialize_exact_mesh_w3d_ghost_capture(&animated_source)
+            .is_none());
+    }
+
+    #[test]
+    fn capture_window_generation_is_bound_to_the_flushed_draw_submission() {
+        let mut bridge = RenderBridge::new();
+        register_test_model(&mut bridge, "GhostMesh");
+        let mut camera = Camera::perspective(
+            "capture-window".to_string(),
+            60.0_f32.to_radians(),
+            16.0 / 9.0,
+            0.1,
+            100.0,
+        );
+        camera.set_position(WwVec3::new(0.0, 0.0, -20.0));
+        camera.look_at(WwVec3::ZERO, WwVec3::Y);
+        bridge.begin_frame(&camera, 1.0 / 30.0);
+
+        let source = exact_mesh_ghost_source(37, exact_mesh_ghost_model_draw(37));
+        let model_draw = &source.model_draws[0];
+        let mut submission = DrawSubmission::default();
+        submission.drawable_id = DrawableId(source.drawable_id);
+        submission.owner_object_id = Some(source.object_id);
+        submission.legacy_model_draw_source = Some(model_draw.source.clone());
+        submission.legacy_render_object_transform = Some(model_draw.world_transform);
+        submission.legacy_render_object_scale = model_draw.render_object_scale;
+        submission.legacy_render_object_color = model_draw.render_object_color;
+        submission.model_name = model_draw.model_name.clone();
+        submission.bounding_sphere = BoundingSphere::new(WwVec3::ZERO, 4.0);
+        bridge.submit(submission);
+        bridge.flush();
+
+        let drained = bridge.drain_scene_submissions();
+        assert_eq!(drained.len(), 1);
+        let generation = drained[0]
+            .submission
+            .capture_window_generation
+            .expect("flushed submission receives renderer generation");
+        assert_eq!(
+            bridge.capture_window_generation_for_source(&source),
+            Some(generation)
+        );
+        let capture = bridge
+            .materialize_exact_mesh_w3d_ghost_capture_at(&source, generation)
+            .expect("matching flushed submission is materializable");
+        assert_eq!(capture.capture_window_generation, Some(generation));
+
+        let mut stale = source.clone();
+        stale.model_draws[0].source.runtime_draw_ordinal = 1;
+        assert!(bridge
+            .capture_window_generation_for_source(&stale)
+            .is_none());
+        assert!(bridge
+            .materialize_exact_mesh_w3d_ghost_capture_at(&source, generation.wrapping_add(1))
             .is_none());
     }
 

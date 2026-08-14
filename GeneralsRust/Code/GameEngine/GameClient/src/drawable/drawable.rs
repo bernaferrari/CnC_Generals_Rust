@@ -4382,10 +4382,13 @@ impl Drawable for BasicDrawable {
 
         let submission = crate::render_bridge::DrawSubmission {
             drawable_id: crate::render_bridge::DrawableId(self.id.0),
+            capture_window_generation: None,
+            owner_object_id: self.object_id,
             shroud_status_object_id: {
                 let object_id = self.shroud_status_object_id();
                 (object_id != 0).then_some(object_id)
             },
+            legacy_model_draw_source: model_draw.as_ref().map(|state| state.source.clone()),
             legacy_render_object_transform: model_draw.as_ref().map(|state| state.world_transform),
             legacy_render_object_scale: model_draw
                 .as_ref()
