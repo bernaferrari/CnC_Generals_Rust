@@ -1,8 +1,20 @@
+#[cfg(feature = "game_client")]
+use crate::assets::W3DModel;
 use crate::assets::{W3DMaterial, W3dAnimationBinding};
 use crate::fow_rendering::ObjectVisibility;
 use crate::game_logic::ObjectId;
+#[cfg(feature = "game_client")]
+use game_client::render_bridge::FrozenGhostSceneFrame;
 use gamelogic::common::types::ObjectShroudStatus;
-use glam::{Mat4, Vec2, Vec3};
+use gamelogic::object::w3d_ghost_object::Matrix3x4;
+#[cfg(feature = "game_client")]
+use gamelogic::object::w3d_ghost_object::{
+    FrozenW3DGhostSnapshot, RenderObjectClass, RenderObjectState, W3DGhostSnapshotKey,
+    W3DRenderObjectSnapshot,
+};
+use glam::{Mat4, Vec2, Vec3, Vec4};
+#[cfg(feature = "game_client")]
+use std::sync::Arc;
 
 use super::render_pipeline::RenderPass;
 
@@ -29,6 +41,66 @@ pub enum GhostLightingRoute {
     AlwaysFogged,
 }
 
+/// Parent suppression captured with one immutable ghost scene revision.
+///
+/// The GameClient bridge sorts and de-duplicates this list before freezing it.
+/// Requiring that canonical order here prevents a renderer consumer from
+/// silently normalizing a stale or mixed-revision handoff.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GhostParentSuppression {
+    scene_revision: u64,
+    parent_object_ids: Vec<ObjectId>,
+}
+
+impl GhostParentSuppression {
+    #[cfg(feature = "game_client")]
+    pub fn from_frozen_scene(frame: &FrozenGhostSceneFrame) -> Option<Self> {
+        let ids = &frame.hidden_parent_object_ids;
+        if ids.windows(2).any(|pair| pair[0] >= pair[1]) {
+            return None;
+        }
+        Some(Self {
+            scene_revision: frame.revision,
+            parent_object_ids: ids.iter().copied().map(ObjectId).collect(),
+        })
+    }
+
+    #[inline]
+    pub const fn scene_revision(&self) -> u64 {
+        self.scene_revision
+    }
+
+    #[inline]
+    pub fn suppresses(&self, object_id: ObjectId) -> bool {
+        self.parent_object_ids.binary_search(&object_id).is_ok()
+    }
+
+    #[cfg(test)]
+    fn from_ids(scene_revision: u64, ids: &[u32]) -> Option<Self> {
+        if ids.windows(2).any(|pair| pair[0] >= pair[1]) {
+            return None;
+        }
+        Some(Self {
+            scene_revision,
+            parent_object_ids: ids.iter().copied().map(ObjectId).collect(),
+        })
+    }
+}
+
+/// Convert the exact row-major affine ghost payload to Main's column-major
+/// `glam::Mat4`. The final affine row is structural, not a render default.
+pub fn ghost_matrix3x4_to_mat4(matrix: Matrix3x4) -> Option<Mat4> {
+    if !matrix.rows.iter().flatten().all(|value| value.is_finite()) {
+        return None;
+    }
+    Some(Mat4::from_cols(
+        Vec4::new(matrix.rows[0][0], matrix.rows[1][0], matrix.rows[2][0], 0.0),
+        Vec4::new(matrix.rows[0][1], matrix.rows[1][1], matrix.rows[2][1], 0.0),
+        Vec4::new(matrix.rows[0][2], matrix.rows[1][2], matrix.rows[2][2], 0.0),
+        Vec4::new(matrix.rows[0][3], matrix.rows[1][3], matrix.rows[2][3], 1.0),
+    ))
+}
+
 /// Immutable renderer contract for one exact W3D ghost RenderObj.
 ///
 /// This is intentionally a data contract only.  It is not populated from a
@@ -42,7 +114,10 @@ pub struct GhostRenderState {
     pub model_name: String,
     pub world_transform: Mat4,
     pub object_scale: f32,
-    pub argb_color: [f32; 4],
+    /// Exact packed C++ ARGB color. Keep the source integer until a shader
+    /// material path explicitly consumes it; normalized floats lose the
+    /// authoritative payload identity.
+    pub argb_color: u32,
     pub lighting_route: GhostLightingRoute,
     pub suppress_parent: bool,
 }
@@ -54,7 +129,7 @@ impl GhostRenderState {
         model_name: String,
         world_transform: Mat4,
         object_scale: f32,
-        argb_color: [f32; 4],
+        argb_color: u32,
         suppress_parent: bool,
     ) -> Option<Self> {
         let valid_name = !model_name.trim().is_empty();
@@ -63,8 +138,7 @@ impl GhostRenderState {
             .into_iter()
             .all(|value| value.is_finite());
         let valid_scale = object_scale.is_finite() && object_scale > 0.0;
-        let finite_color = argb_color.into_iter().all(|value| value.is_finite());
-        (valid_name && finite_transform && valid_scale && finite_color).then_some(Self {
+        (valid_name && finite_transform && valid_scale).then_some(Self {
             key,
             parent_object_id,
             model_name,
@@ -75,6 +149,122 @@ impl GhostRenderState {
             suppress_parent,
         })
     }
+
+    /// Decode only at the eventual material boundary. The packed ARGB value
+    /// remains available for exact comparisons and snapshot diagnostics.
+    #[inline]
+    pub fn argb_color_rgba(&self) -> [f32; 4] {
+        [
+            ((self.argb_color >> 16) & 0xFF) as f32 / 255.0,
+            ((self.argb_color >> 8) & 0xFF) as f32 / 255.0,
+            (self.argb_color & 0xFF) as f32 / 255.0,
+            ((self.argb_color >> 24) & 0xFF) as f32 / 255.0,
+        ]
+    }
+
+    /// Materialize only the exact Mesh subset already frozen by GameClient.
+    /// HLOD/Other and any dynamic child state are rejected as a whole rather
+    /// than reconstructed from static prototypes.
+    #[cfg(feature = "game_client")]
+    pub fn from_frozen_snapshot(
+        frame: &FrozenGhostSceneFrame,
+        snapshot: &FrozenW3DGhostSnapshot,
+        parent_suppression: &GhostParentSuppression,
+    ) -> Option<Self> {
+        if parent_suppression.scene_revision() != frame.revision
+            || snapshot.render_object.render_object.class_id != RenderObjectClass::Mesh
+            || !snapshot.render_object.render_object.sub_objects.is_empty()
+            || snapshot.render_object.uv_animations_disabled
+            || snapshot.render_object.muzzle_fx_hidden
+        {
+            return None;
+        }
+
+        let world_transform =
+            ghost_matrix3x4_to_mat4(snapshot.render_object.render_object.transform)?;
+        let parent_object_id = snapshot.parent_object_id.map(ObjectId);
+        let suppress_parent = parent_object_id
+            .map(|object_id| parent_suppression.suppresses(object_id))
+            .unwrap_or(false);
+        if parent_object_id.is_some() && !suppress_parent {
+            return None;
+        }
+
+        Self::new(
+            GhostRenderKey {
+                ghost_id: snapshot.key.ghost_id,
+                player_index: snapshot.key.player_index,
+                snapshot_index: snapshot.key.snapshot_index,
+                scene_revision: frame.revision,
+            },
+            parent_object_id,
+            snapshot.render_object.render_object.name.clone(),
+            world_transform,
+            snapshot.render_object.render_object.scale,
+            snapshot.render_object.render_object.color,
+            suppress_parent,
+        )
+    }
+}
+
+/// A ghost item with the exact cached W3D asset retained for the item's full
+/// immutable frame lifetime. This is presentation infrastructure only; the
+/// ordinary FOW-bound `RenderItem` path must not consume it.
+#[cfg(feature = "game_client")]
+#[derive(Debug, Clone)]
+pub struct MaterializedW3DGhostRenderItem {
+    pub state: GhostRenderState,
+    pub asset: Arc<W3DModel>,
+}
+
+/// All-or-nothing Mesh-only ghost materialization for one frozen scene.
+#[cfg(feature = "game_client")]
+#[derive(Debug, Clone)]
+pub struct MaterializedW3DGhostScene {
+    pub revision: u64,
+    pub parent_suppression: GhostParentSuppression,
+    pub items: Vec<MaterializedW3DGhostRenderItem>,
+}
+
+/// Resolve and materialize one immutable GameClient ghost frame without
+/// placeholder assets. Returning `None` rejects the whole revision when any
+/// snapshot is HLOD/Other, stale, malformed, or missing its exact asset.
+#[cfg(feature = "game_client")]
+pub fn materialize_frozen_w3d_ghost_scene<F>(
+    frame: &FrozenGhostSceneFrame,
+    mut resolve_asset: F,
+) -> Option<MaterializedW3DGhostScene>
+where
+    F: FnMut(&str) -> Option<Arc<W3DModel>>,
+{
+    let parent_suppression = GhostParentSuppression::from_frozen_scene(frame)?;
+    let mut keys = std::collections::HashSet::with_capacity(frame.snapshots.len());
+    let mut items = Vec::with_capacity(frame.snapshots.len());
+
+    for snapshot in &frame.snapshots {
+        let key = GhostRenderKey {
+            ghost_id: snapshot.key.ghost_id,
+            player_index: snapshot.key.player_index,
+            snapshot_index: snapshot.key.snapshot_index,
+            scene_revision: frame.revision,
+        };
+        if !keys.insert(key) {
+            return None;
+        }
+
+        let state = GhostRenderState::from_frozen_snapshot(frame, snapshot, &parent_suppression)?;
+        let asset = resolve_asset(&state.model_name)?;
+        if !asset.name.eq_ignore_ascii_case(&state.model_name) {
+            return None;
+        }
+        items.push(MaterializedW3DGhostRenderItem { state, asset });
+    }
+
+    Some(MaterializedW3DGhostScene {
+        revision: frame.revision,
+        parent_suppression,
+        items,
+    })
 }
 
 /// Identity of the client-side source that produced a render item.
@@ -644,6 +834,37 @@ impl Eq for RenderItem {}
 mod tests {
     use super::*;
 
+    #[cfg(feature = "game_client")]
+    fn frozen_mesh_ghost_frame(
+        class_id: RenderObjectClass,
+        hidden_parent_object_ids: Vec<u32>,
+    ) -> FrozenGhostSceneFrame {
+        let parent_object_id = hidden_parent_object_ids.first().copied();
+        let render_object = RenderObjectState {
+            name: "GhostTank".to_string(),
+            scale: 0.75,
+            color: 0x804c6680,
+            transform: Matrix3x4::IDENTITY,
+            sub_objects: Vec::new(),
+            class_id,
+        };
+        FrozenGhostSceneFrame {
+            revision: 7,
+            snapshots: vec![FrozenW3DGhostSnapshot {
+                key: W3DGhostSnapshotKey {
+                    ghost_id: 11,
+                    player_index: 2,
+                    snapshot_index: 0,
+                },
+                parent_object_id,
+                drawable_info: gamelogic::object::w3d_ghost_object::W3DDrawableInfo::default(),
+                parent_geometry: None,
+                render_object: W3DRenderObjectSnapshot::new(render_object),
+            }],
+            hidden_parent_object_ids,
+        }
+    }
+
     #[test]
     fn unbound_client_drawable_keeps_its_identity_out_of_object_id_space() {
         let item = RenderItem::new_unbound_client_drawable(
@@ -700,7 +921,7 @@ mod tests {
             "GhostTank".to_string(),
             Mat4::from_translation(Vec3::new(4.0, 5.0, 6.0)),
             0.75,
-            [0.2, 0.3, 0.4, 0.5],
+            0x804c6680,
             true,
         )
         .expect("finite exact ghost state");
@@ -721,6 +942,66 @@ mod tests {
                 .map(|state| state.lighting_route),
             Some(GhostLightingRoute::AlwaysFogged)
         );
+        assert_eq!(
+            item.ghost_render_state
+                .as_ref()
+                .map(|state| state.argb_color),
+            Some(0x804c6680)
+        );
+        let rgba = item
+            .ghost_render_state
+            .as_ref()
+            .map(|state| state.argb_color_rgba())
+            .expect("packed ARGB retained at the render boundary");
+        assert_eq!(
+            rgba,
+            [
+                0x4c as f32 / 255.0,
+                0x66 as f32 / 255.0,
+                0x80 as f32 / 255.0,
+                0x80 as f32 / 255.0
+            ]
+        );
+    }
+
+    #[cfg(feature = "game_client")]
+    #[test]
+    fn frozen_mesh_ghost_materializes_exact_asset_and_parent_suppression() {
+        let frame = frozen_mesh_ghost_frame(RenderObjectClass::Mesh, vec![33]);
+        let scene = materialize_frozen_w3d_ghost_scene(&frame, |name| {
+            Some(Arc::new(W3DModel::new(name.to_string())))
+        })
+        .expect("a complete cached Mesh snapshot should materialize");
+
+        assert_eq!(scene.revision, 7);
+        assert!(scene.parent_suppression.suppresses(ObjectId(33)));
+        assert_eq!(scene.items.len(), 1);
+        let item = &scene.items[0];
+        assert_eq!(item.state.key.ghost_id, 11);
+        assert_eq!(item.state.parent_object_id, Some(ObjectId(33)));
+        assert!(item.state.suppress_parent);
+        assert_eq!(item.state.argb_color, 0x804c6680);
+        assert_eq!(item.asset.name, "GhostTank");
+    }
+
+    #[cfg(feature = "game_client")]
+    #[test]
+    fn frozen_ghost_materializer_rejects_hlod_unsorted_and_missing_assets() {
+        let hlod = frozen_mesh_ghost_frame(RenderObjectClass::HLod, vec![33]);
+        assert!(materialize_frozen_w3d_ghost_scene(&hlod, |_| {
+            Some(Arc::new(W3DModel::new("GhostTank".to_string())))
+        })
+        .is_none());
+
+        let mut unsorted = frozen_mesh_ghost_frame(RenderObjectClass::Mesh, vec![33, 12]);
+        unsorted.snapshots[0].parent_object_id = Some(33);
+        assert!(materialize_frozen_w3d_ghost_scene(&unsorted, |_| {
+            Some(Arc::new(W3DModel::new("GhostTank".to_string())))
+        })
+        .is_none());
+
+        let missing_parent = frozen_mesh_ghost_frame(RenderObjectClass::Mesh, vec![12]);
+        assert!(materialize_frozen_w3d_ghost_scene(&missing_parent, |_| None).is_none());
     }
 
     #[test]
@@ -737,7 +1018,7 @@ mod tests {
             "".to_string(),
             Mat4::IDENTITY,
             1.0,
-            [1.0; 4],
+            0xffff_ffff,
             false,
         )
         .is_none());
@@ -746,8 +1027,8 @@ mod tests {
             None,
             "Ghost".to_string(),
             Mat4::IDENTITY,
-            0.0,
-            [1.0; 4],
+            f32::NAN,
+            0xffff_ffff,
             false,
         )
         .is_none());
@@ -755,9 +1036,9 @@ mod tests {
             key,
             None,
             "Ghost".to_string(),
-            Mat4::IDENTITY,
+            Mat4::from_cols_array(&[f32::NAN; 16]),
             1.0,
-            [f32::NAN; 4],
+            0xffff_ffff,
             false,
         )
         .is_none());

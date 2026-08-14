@@ -54,6 +54,7 @@ fn resolve_map_activation_lighting(env: Option<&PresentationWorldEnv>) -> MapAct
             .or_else(|| object_primary.map(|lighting| lighting.ambient)),
         fog_color,
         fog_range,
+        fogged_light_fraction: Some(env.fogged_light_fraction()),
     });
 
     // TerrainVisual follows the authored terrain index-zero record directly,
@@ -71,6 +72,7 @@ fn resolve_map_activation_lighting(env: Option<&PresentationWorldEnv>) -> MapAct
             .or_else(|| terrain_primary.map(|lighting| lighting.ambient)),
         fog_color,
         fog_range,
+        fogged_light_fraction: Some(env.fogged_light_fraction()),
     });
 
     MapActivationLighting {

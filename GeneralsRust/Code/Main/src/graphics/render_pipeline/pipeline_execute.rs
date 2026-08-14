@@ -214,6 +214,12 @@ impl RenderPipeline {
                     camera_position,
                     &mut deferred_model_load_budget,
                 );
+                self.append_frozen_mesh_ghost_scene(
+                    graphics_system,
+                    camera_position,
+                    allow_sync_model_loads,
+                    &mut deferred_model_load_budget,
+                );
             }
 
             // Sort render items for optimal rendering - equivalent to C++ RenderPipeline::SortRenderItems()
@@ -352,6 +358,7 @@ impl RenderPipeline {
             ambient_color: env.ambient_color,
             fog_color: env.fog_color,
             fog_range: env.fog_range(),
+            fogged_light_fraction: Some(env.fogged_light_fraction()),
         };
 
         match &mut self.cached_lighting {
@@ -370,6 +377,9 @@ impl RenderPipeline {
                 }
                 if existing.fog_range.is_none() {
                     existing.fog_range = derived.fog_range;
+                }
+                if existing.fogged_light_fraction.is_none() {
+                    existing.fogged_light_fraction = derived.fogged_light_fraction;
                 }
             }
             None => {

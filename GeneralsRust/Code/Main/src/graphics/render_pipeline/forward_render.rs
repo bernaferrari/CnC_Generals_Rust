@@ -153,6 +153,7 @@ impl ForwardPass {
             device,
             queue,
             projected_shroud_uploader: crate::graphics::ProjectedShroudGpuUploader::default(),
+            ghost_lighting_environment: None,
             laser_vertex_buffer: None,
             laser_vertex_capacity: 0,
             laser_vertices_uploaded: 0,
@@ -521,6 +522,8 @@ impl ForwardPass {
         let projected_shroud_binding = self
             .projected_shroud_uploader
             .renderer_binding(projected_shroud);
+        self.ghost_lighting_environment =
+            Self::build_always_fogged_light_environment(lighting).map(Arc::new);
 
         // Begin frame - initialize render state
         self.renderer
@@ -710,6 +713,26 @@ impl ForwardPass {
             warn!(
                 "ForwardPass lighting metadata unavailable/incomplete; using fallback ambient+sun lighting"
             );
+        }
+        Some(env)
+    }
+
+    /// Build the C++ `m_foggedLightEnv` equivalent for W3D ghosts. The ratio
+    /// is frozen from GlobalData at the presentation boundary; no live FOW or
+    /// GameLogic query is permitted here.
+    pub(super) fn build_always_fogged_light_environment(
+        lighting: Option<&CachedLighting>,
+    ) -> Option<LightEnvironmentClass> {
+        let mut env = Self::build_light_environment(lighting)?;
+        let fraction = lighting
+            .and_then(|value| value.fogged_light_fraction)
+            .unwrap_or(0.5)
+            .clamp(0.0, 1.0);
+        env.ambient *= fraction;
+        for light in &env.lights {
+            if let Ok(mut light) = light.lock() {
+                light.color *= fraction;
+            }
         }
         Some(env)
     }
@@ -920,6 +943,13 @@ impl ForwardPass {
         ));
         mesh.set_projected_shroud_eligible(item.pushes_projected_shroud_pass());
         mesh.set_presentation_opacity(item.presentation_opacity);
+        if item
+            .ghost_render_state
+            .as_ref()
+            .is_some_and(|state| state.lighting_route == GhostLightingRoute::AlwaysFogged)
+        {
+            mesh.set_lighting_environment(self.ghost_lighting_environment.clone());
+        }
         mesh.alpha_override = item.fow_visibility.visibility_alpha;
         mesh.is_hidden = item.fow_visibility.visibility_alpha <= 0.01;
         mesh.set_uv_offset_override(item.uv_offset_override.map(|offset| [offset.x, offset.y]));
@@ -1103,5 +1133,30 @@ mod tests {
             .is_none(),
             "an out-of-range HMODEL definition must fail closed"
         );
+    }
+
+    #[test]
+    fn ghost_light_environment_scales_frozen_ambient_and_directional_light() {
+        let lighting = CachedLighting {
+            sun_direction: Some([0.0, -1.0, 0.0]),
+            sun_color: Some([0.8, 0.6, 0.4]),
+            ambient_color: Some([0.4, 0.3, 0.2]),
+            fog_color: None,
+            fog_range: None,
+            fogged_light_fraction: Some(0.25),
+        };
+
+        let ordinary = ForwardPass::build_light_environment(Some(&lighting))
+            .expect("frozen lighting metadata builds an ordinary environment");
+        let fogged = ForwardPass::build_always_fogged_light_environment(Some(&lighting))
+            .expect("the same frozen metadata builds the dedicated ghost environment");
+
+        assert_eq!(fogged.ambient, ordinary.ambient * 0.25);
+        let ordinary_color = ordinary.lights[0]
+            .lock()
+            .expect("ordinary light lock")
+            .color;
+        let fogged_color = fogged.lights[0].lock().expect("ghost light lock").color;
+        assert_eq!(fogged_color, ordinary_color * 0.25);
     }
 }

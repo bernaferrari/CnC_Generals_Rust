@@ -223,8 +223,13 @@ impl GameWorldShadow {
 
         let mut obj_ids: Vec<ObjectId> = logic.host_objects().keys().copied().collect();
         obj_ids.sort_by_key(|id| id.0);
+        // C++ GameLogic grows its ObjectID lookup vector when a newly
+        // allocated ID exceeds the current size (GameLogic.cpp:3827-3841).
+        // `max_entities` is only the initial/reset capacity hint; silently
+        // truncating this host set would leave later objects without a
+        // shadow lifecycle mapping and bypass every coupled authority channel.
         if obj_ids.len() > self.max_entities {
-            obj_ids.truncate(self.max_entities);
+            self.max_entities = obj_ids.len();
         }
         let host_set: HashSet<u32> = obj_ids.iter().map(|id| id.0).collect();
 

@@ -27,8 +27,8 @@ use super::minimap_renderer::{
     MinimapCoordinates, MinimapDimensions, MinimapTextureRenderer, UiTextureRegistrar,
 };
 use super::render_item::{
-    FrozenDirectSceneShroudRenderState, FrozenObjectlessDrawableShroudRenderState, RenderItem,
-    RenderItemOwner,
+    FrozenDirectSceneShroudRenderState, FrozenObjectlessDrawableShroudRenderState,
+    GhostLightingRoute, RenderItem, RenderItemOwner,
 };
 use crate::assets::textures::RawTexture;
 use crate::assets::{ModelPrewarmStats, W3DMaterial, W3DModel};
@@ -186,6 +186,9 @@ pub struct CachedLighting {
     pub ambient_color: Option<[f32; 3]>,
     pub fog_color: Option<[f32; 3]>,
     pub fog_range: Option<(f32, f32)>,
+    /// Frozen C++ `fog_alpha / clear_alpha` used by the always-fogged ghost
+    /// light environment. `None` means the caller has no presentation frame.
+    pub fogged_light_fraction: Option<f32>,
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -778,6 +781,9 @@ pub struct ForwardPass {
     queue: Arc<wgpu::Queue>,
     /// GPU lifetime for Main's immutable projected terrain-shroud snapshot.
     projected_shroud_uploader: crate::graphics::ProjectedShroudGpuUploader,
+    /// Per-frame C++ ghost light environment. Ghost meshes are always fogged
+    /// and must not inherit the ordinary object/FOW light environment.
+    ghost_lighting_environment: Option<Arc<LightEnvironmentClass>>,
     /// Live SegLine vertex buffer (created on first laser upload).
     laser_vertex_buffer: Option<Arc<wgpu::Buffer>>,
     laser_vertex_capacity: usize,

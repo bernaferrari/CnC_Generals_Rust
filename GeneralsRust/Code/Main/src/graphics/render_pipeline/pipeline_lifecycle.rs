@@ -23,6 +23,7 @@ impl RenderPipeline {
             ambient_color: Some(ambient_light),
             fog_color: None,
             fog_range: None,
+            fogged_light_fraction: None,
         };
 
         info!("RenderPipeline initialized successfully");

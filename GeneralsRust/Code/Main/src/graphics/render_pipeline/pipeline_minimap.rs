@@ -110,6 +110,7 @@ impl RenderPipeline {
             ambient_color,
             fog_color,
             fog_range,
+            fogged_light_fraction: None,
         };
         self.set_environment_lighting_with_terrain(Some(lighting.clone()), Some(lighting));
     }
