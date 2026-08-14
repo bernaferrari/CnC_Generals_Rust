@@ -6,6 +6,77 @@ use glam::{Mat4, Vec2, Vec3};
 
 use super::render_pipeline::RenderPass;
 
+/// Stable identity for a frozen W3D ghost snapshot.
+///
+/// Ghost IDs are pooled by the C++ manager, so the pool identity alone is not
+/// enough when a frame straddles a remove/reuse event.  The immutable scene
+/// revision and source snapshot coordinates are retained in the render item
+/// owner to prevent an old ghost payload from being attached to a new one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct GhostRenderKey {
+    pub ghost_id: u64,
+    pub player_index: usize,
+    pub snapshot_index: usize,
+    pub scene_revision: u64,
+}
+
+/// C++'s ghost branch uses a dedicated fogged light environment and does not
+/// derive its appearance from object FOW alpha.  Keeping the route explicit
+/// makes a future WGPU consumer choose the correct pass instead of silently
+/// reusing the ordinary object material.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GhostLightingRoute {
+    AlwaysFogged,
+}
+
+/// Immutable renderer contract for one exact W3D ghost RenderObj.
+///
+/// This is intentionally a data contract only.  It is not populated from a
+/// model name or a normal Drawable and it is not consumed by the ordinary
+/// FOW/lighting path.  A consumer must validate the exact asset and use the
+/// dedicated lighting route before submitting it to WGPU.
+#[derive(Debug, Clone, PartialEq)]
+pub struct GhostRenderState {
+    pub key: GhostRenderKey,
+    pub parent_object_id: Option<ObjectId>,
+    pub model_name: String,
+    pub world_transform: Mat4,
+    pub object_scale: f32,
+    pub argb_color: [f32; 4],
+    pub lighting_route: GhostLightingRoute,
+    pub suppress_parent: bool,
+}
+
+impl GhostRenderState {
+    pub fn new(
+        key: GhostRenderKey,
+        parent_object_id: Option<ObjectId>,
+        model_name: String,
+        world_transform: Mat4,
+        object_scale: f32,
+        argb_color: [f32; 4],
+        suppress_parent: bool,
+    ) -> Option<Self> {
+        let valid_name = !model_name.trim().is_empty();
+        let finite_transform = world_transform
+            .to_cols_array()
+            .into_iter()
+            .all(|value| value.is_finite());
+        let valid_scale = object_scale.is_finite() && object_scale > 0.0;
+        let finite_color = argb_color.into_iter().all(|value| value.is_finite());
+        (valid_name && finite_transform && valid_scale && finite_color).then_some(Self {
+            key,
+            parent_object_id,
+            model_name,
+            world_transform,
+            object_scale,
+            argb_color,
+            lighting_route: GhostLightingRoute::AlwaysFogged,
+            suppress_parent,
+        })
+    }
+}
+
 /// Identity of the client-side source that produced a render item.
 ///
 /// C++ `DrawableID` and gameplay `ObjectID` are independent domains.  Effects,
@@ -19,6 +90,9 @@ pub enum RenderItemOwner {
     /// ObjectID type, but are not GameClient direct-drawable bindings.
     PresentationProjectile(ObjectId),
     UnboundClientDrawable(u32),
+    /// Frozen W3D ghost RenderObj.  This is a separate identity domain from
+    /// gameplay objects and standalone Drawable IDs.
+    W3dGhost(GhostRenderKey),
 }
 
 /// Frozen direct-drawable scene outcome retained on an eligible object-owned
@@ -92,6 +166,10 @@ pub struct RenderItem {
 
     /// Exact ownership domain for this item.
     pub owner: RenderItemOwner,
+
+    /// Exact ghost-only state, present only for `RenderItemOwner::W3dGhost`.
+    /// Ordinary collection and FOW modifiers must leave this unset.
+    pub ghost_render_state: Option<GhostRenderState>,
 
     /// Exact C++ W3DModelDraw source identity carried by a GameClient
     /// RenderBridge submission.  This is intentionally renderer metadata,
@@ -225,6 +303,7 @@ impl RenderItem {
         Self {
             object_id,
             owner: RenderItemOwner::Object(object_id),
+            ghost_render_state: None,
             legacy_model_draw_source: None,
             legacy_weapon_bone_bindings: None,
             debug_name: format!("{}_{}", object_id.0, mesh_key),
@@ -314,6 +393,35 @@ impl RenderItem {
             projectile_id.0, item.mesh_key
         );
         item
+    }
+
+    /// Construct a typed ghost item from an already validated immutable
+    /// snapshot.  Callers should only pass state returned by
+    /// [`GhostRenderState::new`]; this option keeps the boundary fail-closed
+    /// if validation is extended later.
+    pub fn new_w3d_ghost(
+        state: GhostRenderState,
+        mesh_index: usize,
+        material: &W3DMaterial,
+        render_pass: RenderPass,
+    ) -> Option<Self> {
+        let object_id = state
+            .parent_object_id
+            .unwrap_or(crate::game_logic::INVALID_OBJECT_ID);
+        let world_position = state.world_transform.w_axis.truncate();
+        let mut item = Self::new(
+            object_id,
+            state.model_name.clone(),
+            mesh_index,
+            world_position,
+            state.world_transform,
+            material,
+            render_pass,
+        );
+        item.owner = RenderItemOwner::W3dGhost(state.key);
+        item.ghost_render_state = Some(state);
+        item.debug_name = format!("w3d_ghost_{}_{}", item.object_id.0, item.mesh_key);
+        Some(item)
     }
 
     /// Generate sorting key for render ordering - equivalent to C++ RenderItem::GenerateSortingKey()
@@ -576,6 +684,83 @@ mod tests {
         assert!(item.debug_name.starts_with("presentation_projectile_77_"));
         assert_eq!(item.fow_visibility, ObjectVisibility::default());
         assert_eq!(item.frozen_direct_scene_shroud, None);
+    }
+
+    #[test]
+    fn w3d_ghost_item_keeps_stable_identity_and_dedicated_fog_route() {
+        let key = GhostRenderKey {
+            ghost_id: 11,
+            player_index: 2,
+            snapshot_index: 4,
+            scene_revision: 9,
+        };
+        let state = GhostRenderState::new(
+            key,
+            Some(ObjectId(33)),
+            "GhostTank".to_string(),
+            Mat4::from_translation(Vec3::new(4.0, 5.0, 6.0)),
+            0.75,
+            [0.2, 0.3, 0.4, 0.5],
+            true,
+        )
+        .expect("finite exact ghost state");
+        let item = RenderItem::new_w3d_ghost(
+            state.clone(),
+            0,
+            &W3DMaterial::default(),
+            RenderPass::ForwardOpaque,
+        )
+        .expect("validated ghost state");
+
+        assert_eq!(item.owner, RenderItemOwner::W3dGhost(key));
+        assert_eq!(item.ghost_render_state, Some(state));
+        assert_eq!(item.fow_visibility, ObjectVisibility::default());
+        assert_eq!(
+            item.ghost_render_state
+                .as_ref()
+                .map(|state| state.lighting_route),
+            Some(GhostLightingRoute::AlwaysFogged)
+        );
+    }
+
+    #[test]
+    fn ghost_contract_rejects_incomplete_or_nonfinite_payloads() {
+        let key = GhostRenderKey {
+            ghost_id: 1,
+            player_index: 0,
+            snapshot_index: 0,
+            scene_revision: 1,
+        };
+        assert!(GhostRenderState::new(
+            key,
+            None,
+            "".to_string(),
+            Mat4::IDENTITY,
+            1.0,
+            [1.0; 4],
+            false,
+        )
+        .is_none());
+        assert!(GhostRenderState::new(
+            key,
+            None,
+            "Ghost".to_string(),
+            Mat4::IDENTITY,
+            0.0,
+            [1.0; 4],
+            false,
+        )
+        .is_none());
+        assert!(GhostRenderState::new(
+            key,
+            None,
+            "Ghost".to_string(),
+            Mat4::IDENTITY,
+            1.0,
+            [f32::NAN; 4],
+            false,
+        )
+        .is_none());
     }
 
     #[test]

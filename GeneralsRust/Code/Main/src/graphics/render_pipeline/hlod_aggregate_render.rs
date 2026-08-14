@@ -564,6 +564,11 @@ fn aggregate_render_item_from_parent(
                 RenderPipeline::render_pass_for_material(material),
             )
         }
+        // Ghost HLOD children require their own exact snapshot/materializer;
+        // the ordinary aggregate helper must never invent one from a child
+        // asset.  Keep this path fail-closed until the dedicated ghost
+        // consumer owns HLOD state.
+        RenderItemOwner::W3dGhost(_) => return parent_item.clone(),
     };
     item.copy_frozen_presentation_visuals_from(parent_item);
     item
