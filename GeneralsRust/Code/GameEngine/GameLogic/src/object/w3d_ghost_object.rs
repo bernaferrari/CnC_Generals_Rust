@@ -125,6 +125,33 @@ pub struct FrozenW3DGhostSnapshot {
     pub render_object: W3DRenderObjectSnapshot,
 }
 
+/// Exact device-owned state required when PartitionData crosses into fog.
+/// The partition layer accepts this payload but never derives it from a model
+/// name or asset defaults.
+#[derive(Debug, Clone, PartialEq)]
+pub struct W3DGhostSnapshotCapture {
+    pub drawable_effectively_hidden: bool,
+    pub render_objects: Vec<RenderObjectState>,
+    pub geometry: ParentGeometrySnapshot,
+}
+
+pub type W3DGhostSnapshotCaptureHook =
+    Arc<dyn Fn(u32) -> Option<W3DGhostSnapshotCapture> + Send + Sync>;
+
+static W3D_GHOST_SNAPSHOT_CAPTURE_HOOK: Lazy<RwLock<Option<W3DGhostSnapshotCaptureHook>>> =
+    Lazy::new(|| RwLock::new(None));
+
+pub fn register_w3d_ghost_snapshot_capture_hook(hook: Option<W3DGhostSnapshotCaptureHook>) {
+    if let Ok(mut slot) = W3D_GHOST_SNAPSHOT_CAPTURE_HOOK.write() {
+        *slot = hook;
+    }
+}
+
+pub fn capture_w3d_ghost_snapshot(object_id: u32) -> Option<W3DGhostSnapshotCapture> {
+    let hook = W3D_GHOST_SNAPSHOT_CAPTURE_HOOK.read().ok()?.clone()?;
+    hook(object_id)
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum FrozenW3DGhostSceneEvent {
     RemoveParentObject {
@@ -488,6 +515,83 @@ impl W3DGhostObjectManager {
         };
         self.used_modules.insert(0, ghost);
         Some(0)
+    }
+
+    /// Stable-link form used by PartitionData. List indices change whenever a
+    /// new module is inserted at the head and therefore cannot be retained.
+    pub fn add_linked_ghost_object(
+        &mut self,
+        object_id: Option<u32>,
+        has_partition_data: bool,
+    ) -> Option<W3DGhostSceneId> {
+        let index = self.add_ghost_object(object_id, has_partition_data)?;
+        self.used_modules.get(index).map(|ghost| ghost.scene_id)
+    }
+
+    fn linked_ghost_mut(&mut self, scene_id: W3DGhostSceneId) -> Option<&mut W3DGhostObject> {
+        self.used_modules
+            .iter_mut()
+            .find(|ghost| ghost.scene_id == scene_id)
+    }
+
+    pub fn snapshot_linked_ghost(
+        &mut self,
+        scene_id: W3DGhostSceneId,
+        player_index: usize,
+        capture: &W3DGhostSnapshotCapture,
+    ) -> bool {
+        let local_player = self.local_player;
+        let Some(ghost) = self.linked_ghost_mut(scene_id) else {
+            return false;
+        };
+        ghost.snapshot(
+            player_index,
+            local_player,
+            capture.drawable_effectively_hidden,
+            &capture.render_objects,
+            capture.geometry,
+        );
+        true
+    }
+
+    pub fn free_linked_ghost_snapshot(
+        &mut self,
+        scene_id: W3DGhostSceneId,
+        player_index: usize,
+    ) -> bool {
+        let local_player = self.local_player;
+        let Some(ghost) = self.linked_ghost_mut(scene_id) else {
+            return false;
+        };
+        ghost.free_snapshot(player_index, local_player);
+        true
+    }
+
+    pub fn orphan_linked_ghost(&mut self, scene_id: W3DGhostSceneId) -> bool {
+        let Some(ghost) = self.linked_ghost_mut(scene_id) else {
+            return false;
+        };
+        ghost.update_parent_object(None, true);
+        true
+    }
+
+    pub fn linked_ghost_has_any_snapshot(&self, scene_id: W3DGhostSceneId) -> bool {
+        self.used_modules
+            .iter()
+            .find(|ghost| ghost.scene_id == scene_id)
+            .is_some_and(|ghost| (0..MAX_PLAYER_COUNT).any(|player| ghost.has_snapshot(player)))
+    }
+
+    pub fn remove_linked_ghost(&mut self, scene_id: W3DGhostSceneId) -> bool {
+        let Some(index) = self
+            .used_modules
+            .iter()
+            .position(|ghost| ghost.scene_id == scene_id)
+        else {
+            return false;
+        };
+        self.remove_ghost_object(index);
+        true
     }
 
     pub fn remove_ghost_object(&mut self, index: usize) {

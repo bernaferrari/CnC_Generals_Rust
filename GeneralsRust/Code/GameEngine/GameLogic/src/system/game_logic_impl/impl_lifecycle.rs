@@ -79,6 +79,10 @@ impl GameLogic {
             self.event_queue.push(GameEvent::ObjectDestroyed(obj_id));
 
             // Remove from partition manager
+            if let Ok(mut ghost_manager) = crate::object::THE_W3D_GHOST_OBJECT_MANAGER.write() {
+                self.partition_manager
+                    .detach_object_ghost(obj_id, &mut ghost_manager);
+            }
             self.partition_manager.remove_object(obj_id);
 
             let _ = with_collision_system_mut(|system| {
@@ -164,6 +168,19 @@ impl GameLogic {
             let pos = obj.get_position();
             self.partition_manager
                 .add_object(object_id, (pos.x, pos.y, pos.z));
+            let ghost_eligible = obj.is_kind_of(KindOf::Immobile)
+                && !obj
+                    .get_template()
+                    .get_draw_module_info()
+                    .iter()
+                    .any(|module| module.name.as_str().eq_ignore_ascii_case("W3DDefaultDraw"));
+            if let Ok(mut ghost_manager) = crate::object::THE_W3D_GHOST_OBJECT_MANAGER.write() {
+                self.partition_manager.attach_object_ghost(
+                    object_id,
+                    ghost_eligible,
+                    &mut ghost_manager,
+                );
+            }
 
             let geom =
                 map_collision_geometry(&obj.get_geometry_info(), obj.get_template_geometry_type());
@@ -634,6 +651,10 @@ impl GameLogic {
     }
 
     pub fn clear_all_objects(&mut self) {
+        if let Ok(mut ghost_manager) = crate::object::THE_W3D_GHOST_OBJECT_MANAGER.write() {
+            self.partition_manager
+                .clear_ghost_objects(&mut ghost_manager);
+        }
         // Clear update module tracking first
         self.sleepy_updates.clear();
         self.normal_updates.clear();
