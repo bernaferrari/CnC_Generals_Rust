@@ -291,6 +291,7 @@ pub fn listening_outpost_upgraded_dummy_weapon() -> Weapon {
         projectile_speed: 0.0,
         pre_attack_delay: 0.0,
         splash_radius: 0.0,
+        suspend_fx_frame: 0,
     }
 }
 
@@ -311,6 +312,7 @@ pub fn combat_chinook_pdl_weapon() -> Weapon {
         projectile_speed: 999_999.0,
         pre_attack_delay: 0.0,
         splash_radius: 0.0,
+        suspend_fx_frame: 0,
     }
 }
 

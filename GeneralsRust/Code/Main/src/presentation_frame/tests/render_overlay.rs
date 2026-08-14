@@ -635,6 +635,7 @@ fn overlay_gameworld_shadow_copies_entity_residual() {
             projectile_speed: 0.0,
             pre_attack_delay: 0.0,
             splash_radius: 0.0,
+            suspend_fx_frame: 0,
         });
         obj.force_attack = true;
         obj.show_health_bar = false;

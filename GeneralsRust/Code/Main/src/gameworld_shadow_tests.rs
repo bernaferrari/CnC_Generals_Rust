@@ -433,6 +433,7 @@ fn sync_from_host_copies_entity_path_waypoints_residual() {
             projectile_speed: 0.0,
             pre_attack_delay: 0.0,
             splash_radius: 0.0,
+            suspend_fx_frame: 0,
         });
     }
     let mut shadow = GameWorldShadow::new(64);
@@ -700,6 +701,7 @@ fn sync_from_host_copies_entity_weapon_move_residual() {
             projectile_speed: 200.0,
             pre_attack_delay: 0.1,
             splash_radius: 0.0,
+            suspend_fx_frame: 0,
         });
         obj.secondary_weapon = Some(Weapon::default());
         obj.movement.max_speed = 12.5;

@@ -679,6 +679,7 @@ fn snapshot_restore_preserves_secondary_weapon_and_active_slot() {
         projectile_speed: 0.0,
         pre_attack_delay: 0.0,
         splash_radius: 0.0,
+        suspend_fx_frame: 0,
     };
     let secondary = Weapon {
         damage: 80.0,
@@ -694,6 +695,7 @@ fn snapshot_restore_preserves_secondary_weapon_and_active_slot() {
         projectile_speed: 40.0,
         pre_attack_delay: 0.1,
         splash_radius: 0.0,
+        suspend_fx_frame: 0,
     };
 
     {
@@ -787,6 +789,7 @@ fn snapshot_restore_preserves_secondary_only_weapon_slot() {
         projectile_speed: 100.0,
         pre_attack_delay: 0.0,
         splash_radius: 0.0,
+        suspend_fx_frame: 0,
     };
     {
         let unit = source.host_object_mut(id).expect("unit");
@@ -2351,6 +2354,127 @@ fn direct_xfer_v6_round_trips_exact_shroud_tail() {
 
     assert_eq!(restored.shroud, world.shroud);
     assert_eq!(sentinel, 0xC8D9_EAFB);
+}
+
+/// V7 appends the per-object C++ `Weapon::m_suspendFXFrame` values after the
+/// v5 collector tail.  Keep the vector aligned with the serialized weapon
+/// slots and prove a following world record is not consumed by the new tail.
+#[test]
+fn direct_xfer_v7_round_trips_weapon_suspend_fx_tail_and_keeps_alignment() {
+    use super::xfer_helpers::default_player_snapshot;
+    use crate::save_load::{Xfer, XferLoad, XferSave};
+    use std::io::Cursor;
+
+    let object_id = ObjectId(96);
+    let mut world = WorldSnapshot::default();
+    world.version = WORLD_SNAPSHOT_DIRECT_XFER_V7_TAIL_VERSION;
+    let mut object = ObjectSnapshot {
+        id: object_id,
+        ..super::xfer_helpers::default_object_snapshot()
+    };
+    object.template_name = "V7SuspendFxDirectXferObject".to_string();
+    object.weapons = vec![Weapon::default(), Weapon::default(), Weapon::default()];
+    object.weapon_suspend_fx_frames = vec![1_234, 0, 5_678];
+    world.objects.insert(object_id, object);
+    let mut player = default_player_snapshot();
+    player.id = 21;
+    player.name = "V7PostSuspendFxAlignment".to_string();
+    world.players.push(player);
+
+    let mut bytes = Cursor::new(Vec::new());
+    {
+        let mut writer = XferSave::new(&mut bytes);
+        world.xfer(&mut writer).expect("write direct v7 world");
+        let mut sentinel = 0xE9FA_0B1Cu32;
+        writer.xfer_u32(&mut sentinel).expect("write sentinel");
+    }
+
+    let mut restored = WorldSnapshot::default();
+    let mut sentinel = 0u32;
+    {
+        let mut reader = XferLoad::new(Cursor::new(bytes.into_inner()));
+        restored.xfer(&mut reader).expect("read direct v7 world");
+        reader.xfer_u32(&mut sentinel).expect("read sentinel");
+    }
+
+    let restored_object = restored
+        .objects
+        .get(&object_id)
+        .expect("restored v7 object");
+    assert_eq!(
+        restored_object.weapon_suspend_fx_frames,
+        vec![1_234, 0, 5_678]
+    );
+    assert_eq!(restored.players[0].name, "V7PostSuspendFxAlignment");
+    assert_eq!(sentinel, 0xE9FA_0B1C);
+}
+
+/// A direct v6 stream has no v7 parallel tail.  The current reader must clear
+/// any pre-seeded value and leave the trailing sentinel aligned.
+#[test]
+fn direct_xfer_v6_omits_weapon_suspend_fx_tail_and_keeps_alignment() {
+    use super::xfer_helpers::default_object_snapshot;
+    use crate::save_load::{Xfer, XferLoad, XferSave};
+    use std::io::Cursor;
+
+    let object_id = ObjectId(97);
+    let mut world = WorldSnapshot::default();
+    world.version = WORLD_SNAPSHOT_DIRECT_XFER_V6_TAIL_VERSION;
+    let mut object = default_object_snapshot();
+    object.id = object_id;
+    object.weapon_suspend_fx_frames = vec![9_999];
+    world.objects.insert(object_id, object);
+
+    let mut bytes = Cursor::new(Vec::new());
+    {
+        let mut writer = XferSave::new(&mut bytes);
+        world.xfer(&mut writer).expect("write direct v6 world");
+        let mut sentinel = 0xFA0B_1C2Du32;
+        writer.xfer_u32(&mut sentinel).expect("write sentinel");
+    }
+
+    let mut restored = WorldSnapshot::default();
+    let mut sentinel = 0u32;
+    {
+        let mut reader = XferLoad::new(Cursor::new(bytes.into_inner()));
+        restored.xfer(&mut reader).expect("read direct v6 world");
+        reader.xfer_u32(&mut sentinel).expect("read sentinel");
+    }
+
+    assert!(restored
+        .objects
+        .get(&object_id)
+        .expect("restored v6 object")
+        .weapon_suspend_fx_frames
+        .is_empty());
+    assert_eq!(sentinel, 0xFA0B_1C2D);
+}
+
+/// Bincode v6 had the collector/shroud tails but no per-object suspend-FX
+/// vector.  Decode an exact predecessor record and verify migration produces
+/// the current schema with a fail-closed empty vector.
+#[test]
+fn bincode_v6_migrates_without_weapon_suspend_fx_tail() {
+    let object_id = ObjectId(98);
+    let mut source = WorldSnapshot::default();
+    source.version = 6;
+    let mut object = super::xfer_helpers::default_object_snapshot();
+    object.id = object_id;
+    object.weapons = vec![Weapon::default()];
+    object.weapon_suspend_fx_frames = vec![7_777];
+    source.objects.insert(object_id, object);
+
+    let payload = serialize_pre_v7_v6_fixture(source).expect("serialize exact v6 fixture");
+    let (restored, path) = decode_bincode_world_snapshot(&payload).expect("migrate v6 fixture");
+
+    assert_eq!(path, BincodeWorldSnapshotDecodePath::LegacyPreV7V6);
+    assert_eq!(restored.version, WORLD_SNAPSHOT_BINCODE_VERSION);
+    let restored_object = restored
+        .objects
+        .get(&object_id)
+        .expect("migrated v6 object");
+    assert_eq!(restored_object.weapons.len(), 1);
+    assert!(restored_object.weapon_suspend_fx_frames.is_empty());
 }
 
 /// Direct Xfer must reject a future envelope before it consumes timestamp or

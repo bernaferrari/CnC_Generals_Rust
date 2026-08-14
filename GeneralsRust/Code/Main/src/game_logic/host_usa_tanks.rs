@@ -289,6 +289,7 @@ pub fn usa_tank_gun_weapon_for_template(template_name: &str) -> Weapon {
         projectile_speed,
         pre_attack_delay: 0.0,
         splash_radius: 0.0,
+        suspend_fx_frame: 0,
     }
 }
 

@@ -189,6 +189,12 @@ impl SnapshotBuilder {
         let object_type = self.snapshot_object_type(game_logic, object)?;
         let weapon_discharge_marker = object.weapon_discharge_marker();
 
+        let weapons = Self::snapshot_object_weapons(object);
+        let weapon_suspend_fx_frames = weapons
+            .iter()
+            .map(|weapon| weapon.suspend_fx_frame)
+            .collect();
+
         Ok(ObjectSnapshot {
             id: object.id,
             template_name: object.template_name.clone(),
@@ -217,7 +223,7 @@ impl SnapshotBuilder {
             // Concrete C++ WeaponSet layout: PRIMARY=0, SECONDARY=1,
             // TERTIARY=2.  Missing earlier slots are represented by an
             // explicit zero-value pad so later slot identity survives load.
-            weapons: Self::snapshot_object_weapons(object),
+            weapons,
             contained_objects: object.occupants.clone(),
             container_object: None, // Would need to track container
             modules: self.snapshot_object_modules(object)?,
@@ -252,6 +258,7 @@ impl SnapshotBuilder {
                 supply_truck_next_dock_action_frame: object.supply_truck_next_dock_action_frame,
                 stored_supply_boxes: object.stored_resources.supplies,
             }),
+            weapon_suspend_fx_frames,
         })
     }
 
@@ -292,6 +299,7 @@ impl SnapshotBuilder {
             projectile_speed: 0.0,
             pre_attack_delay: 0.0,
             splash_radius: 0.0,
+            suspend_fx_frame: 0,
         }
     }
 

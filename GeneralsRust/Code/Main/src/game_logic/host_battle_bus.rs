@@ -369,6 +369,7 @@ pub fn battle_bus_passenger_dummy_weapon() -> Weapon {
         projectile_speed: 0.0,
         pre_attack_delay: 0.0,
         splash_radius: 0.0,
+        suspend_fx_frame: 0,
     }
 }
 
@@ -388,6 +389,7 @@ pub fn battle_bus_dummy_weapon() -> Weapon {
         projectile_speed: 999_999.0,
         pre_attack_delay: 0.0,
         splash_radius: 0.0,
+        suspend_fx_frame: 0,
     }
 }
 

@@ -26,8 +26,10 @@ use std::time::SystemTime;
 /// Drawable companion. Version 5 appends exact offline `PlayerTemplate`
 /// bindings as a world tail, retaining v1-v4 nested PlayerSnapshot alignment.
 /// Version 6 appends exact persistent shroud/FOW counters and pending reveal
-/// expiry state as a final world tail.
-pub const WORLD_SNAPSHOT_BINCODE_VERSION: u32 = 6;
+/// expiry state as a final world tail. Version 7 appends each object's
+/// parallel `Weapon::m_suspendFXFrame` tail without changing historical
+/// nested Weapon records.
+pub const WORLD_SNAPSHOT_BINCODE_VERSION: u32 = 7;
 
 /// Direct Common Xfer keeps an independent positional envelope from bincode.
 ///
@@ -35,11 +37,12 @@ pub const WORLD_SNAPSHOT_BINCODE_VERSION: u32 = 6;
 /// and object records.  Do not derive object-tail gates from the bincode
 /// version: a historical direct v3 stream still contains HDB even once the
 /// bincode writer has advanced to v4.
-pub const WORLD_SNAPSHOT_DIRECT_XFER_VERSION: u32 = 6;
+pub const WORLD_SNAPSHOT_DIRECT_XFER_VERSION: u32 = 7;
 pub const WORLD_SNAPSHOT_DIRECT_XFER_HDB_VERSION: u32 = 3;
 pub const WORLD_SNAPSHOT_DIRECT_XFER_V4_TAIL_VERSION: u32 = 4;
 pub const WORLD_SNAPSHOT_DIRECT_XFER_V5_TAIL_VERSION: u32 = 5;
 pub const WORLD_SNAPSHOT_DIRECT_XFER_V6_TAIL_VERSION: u32 = 6;
+pub const WORLD_SNAPSHOT_DIRECT_XFER_V7_TAIL_VERSION: u32 = 7;
 
 /// Reject unknown direct-Xfer outer layouts before consuming any body bytes.
 /// Known historical writers are accepted so focused fixtures can verify their
@@ -49,7 +52,7 @@ pub(crate) fn validate_direct_world_snapshot_version(version: u32) -> SaveLoadRe
         // Keep these arms deliberately explicit. Advancing the current writer
         // must not accidentally make a future positional body acceptable
         // before its object/world gates and exact predecessor fixtures exist.
-        1 | 2 | 3 | 4 | 5 | 6 => Ok(()),
+        1 | 2 | 3 | 4 | 5 | 6 | 7 => Ok(()),
         actual => Err(crate::save_load::SaveLoadError::VersionMismatch {
             expected: WORLD_SNAPSHOT_DIRECT_XFER_VERSION,
             actual,

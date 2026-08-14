@@ -204,6 +204,7 @@ pub fn missile_defender_primary_weapon() -> Weapon {
         projectile_speed: MISSILE_DEFENDER_PROJECTILE_SPEED,
         pre_attack_delay: 0.0,
         splash_radius: 0.0,
+        suspend_fx_frame: 0,
     }
 }
 
@@ -223,6 +224,7 @@ pub fn missile_defender_laser_guided_weapon() -> Weapon {
         projectile_speed: MISSILE_DEFENDER_PROJECTILE_SPEED,
         pre_attack_delay: 0.0,
         splash_radius: 0.0,
+        suspend_fx_frame: 0,
     }
 }
 

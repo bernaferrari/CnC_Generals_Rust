@@ -28,6 +28,7 @@ use std::time::SystemTime;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum BincodeWorldSnapshotDecodePath {
     Current,
+    LegacyPreV7V6,
     LegacyPreV6V5,
     LegacyPreV5V4,
     LegacyPreV4V3,
@@ -44,6 +45,14 @@ pub(crate) fn decode_bincode_world_snapshot(
     match version {
         WORLD_SNAPSHOT_BINCODE_VERSION => bincode_exact::<WorldSnapshot>(payload)
             .map(|snapshot| (snapshot, BincodeWorldSnapshotDecodePath::Current))
+            .map_err(|error| SaveLoadError::Serialization(error.to_string())),
+        6 => bincode_exact::<PreV7WorldSnapshot>(payload)
+            .map(|snapshot| {
+                (
+                    snapshot.into(),
+                    BincodeWorldSnapshotDecodePath::LegacyPreV7V6,
+                )
+            })
             .map_err(|error| SaveLoadError::Serialization(error.to_string())),
         5 => bincode_exact::<PreV6WorldSnapshot>(payload)
             .map(|snapshot| {
@@ -146,6 +155,63 @@ struct PreV6WorldSnapshot {
     next_weapon_discharge_sequence: u64,
     client_drawables: ClientDrawableWorldSnapshot,
     player_template_bindings: Vec<PlayerTemplateBindingSnapshot>,
+}
+
+/// Complete v6 world record before the v7 per-object Weapon suspend-FX tail.
+/// This is intentionally a separate mirror: the v6 object record already
+/// includes collector runtime and the v6 world tail includes persistent
+/// shroud state.
+#[derive(Debug, Deserialize, Serialize)]
+struct PreV7WorldSnapshot {
+    version: u32,
+    timestamp: SystemTime,
+    frame_number: u64,
+    random_seed: u64,
+    objects: HashMap<ObjectId, PreV7ObjectSnapshot>,
+    players: Vec<PlayerSnapshot>,
+    teams: Vec<TeamSnapshot>,
+    terrain: TerrainSnapshot,
+    weather: WeatherSnapshot,
+    resource_manager: ResourceManagerSnapshot,
+    combat_tracker: CombatTrackerSnapshot,
+    experience_tracker: ExperienceTrackerSnapshot,
+    pathfinding_cache: PathfindingCacheSnapshot,
+    ai_players: Vec<AIPlayerSnapshot>,
+    global_ai_state: GlobalAIStateSnapshot,
+    special_power_strikes: SpecialPowerStrikeRegistrySnapshot,
+    combat_particles: CombatParticleRegistrySnapshot,
+    host_upgrades: HostUpgradeRegistrySnapshot,
+    next_weapon_discharge_sequence: u64,
+    client_drawables: ClientDrawableWorldSnapshot,
+    player_template_bindings: Vec<PlayerTemplateBindingSnapshot>,
+    shroud: ShroudSnapshot,
+}
+
+/// Exact v6 ObjectSnapshot positional record.  The v7 parallel suspend-FX
+/// vector is the only omitted field.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+struct PreV7ObjectSnapshot {
+    id: ObjectId,
+    template_name: String,
+    team: Team,
+    player_id: u32,
+    geometry: GeometryInfo,
+    status: ObjectStatusSnapshot,
+    health: Health,
+    movement: Movement,
+    experience: Experience,
+    weapons: Vec<Weapon>,
+    contained_objects: Vec<ObjectId>,
+    container_object: Option<ObjectId>,
+    modules: HashMap<String, ModuleSnapshot>,
+    object_type: ObjectTypeSnapshot,
+    hacker_disable_channel: Option<HackerDisableChannelState>,
+    weapon_barrel_states: [WeaponBarrelStateSnapshot; 3],
+    last_weapon_discharge_sequence: u64,
+    last_weapon_discharge_slot: u8,
+    last_weapon_discharge_barrel: u8,
+    last_weapon_discharge_frame: u32,
+    collector_runtime: Option<CollectorRuntimeSnapshot>,
 }
 
 /// Exact v4 `ObjectSnapshot` positional record. Version 4 already carried the
@@ -437,6 +503,7 @@ impl From<LegacyObjectSnapshot> for ObjectSnapshot {
             last_weapon_discharge_barrel: 0,
             last_weapon_discharge_frame: 0,
             collector_runtime: None,
+            weapon_suspend_fx_frames: Vec::new(),
         }
     }
 }
@@ -548,6 +615,7 @@ impl From<PreHackerDisableObjectSnapshot> for ObjectSnapshot {
             last_weapon_discharge_barrel: 0,
             last_weapon_discharge_frame: 0,
             collector_runtime: None,
+            weapon_suspend_fx_frames: Vec::new(),
         }
     }
 }
@@ -618,6 +686,68 @@ impl From<PreV6WorldSnapshot> for WorldSnapshot {
     }
 }
 
+impl From<PreV7WorldSnapshot> for WorldSnapshot {
+    fn from(snapshot: PreV7WorldSnapshot) -> Self {
+        Self {
+            version: WORLD_SNAPSHOT_BINCODE_VERSION,
+            timestamp: snapshot.timestamp,
+            frame_number: snapshot.frame_number,
+            random_seed: snapshot.random_seed,
+            objects: snapshot
+                .objects
+                .into_iter()
+                .map(|(id, object)| (id, object.into()))
+                .collect(),
+            players: snapshot.players,
+            teams: snapshot.teams,
+            terrain: snapshot.terrain,
+            weather: snapshot.weather,
+            resource_manager: snapshot.resource_manager,
+            combat_tracker: snapshot.combat_tracker,
+            experience_tracker: snapshot.experience_tracker,
+            pathfinding_cache: snapshot.pathfinding_cache,
+            ai_players: snapshot.ai_players,
+            global_ai_state: snapshot.global_ai_state,
+            special_power_strikes: snapshot.special_power_strikes,
+            combat_particles: snapshot.combat_particles,
+            host_upgrades: snapshot.host_upgrades,
+            next_weapon_discharge_sequence: snapshot.next_weapon_discharge_sequence,
+            client_drawables: snapshot.client_drawables,
+            player_template_bindings: snapshot.player_template_bindings,
+            shroud: snapshot.shroud,
+        }
+    }
+}
+
+impl From<PreV7ObjectSnapshot> for ObjectSnapshot {
+    fn from(snapshot: PreV7ObjectSnapshot) -> Self {
+        Self {
+            id: snapshot.id,
+            template_name: snapshot.template_name,
+            team: snapshot.team,
+            player_id: snapshot.player_id,
+            geometry: snapshot.geometry,
+            status: snapshot.status,
+            health: snapshot.health,
+            movement: snapshot.movement,
+            experience: snapshot.experience,
+            weapons: snapshot.weapons,
+            contained_objects: snapshot.contained_objects,
+            container_object: snapshot.container_object,
+            modules: snapshot.modules,
+            object_type: snapshot.object_type,
+            hacker_disable_channel: snapshot.hacker_disable_channel,
+            weapon_barrel_states: snapshot.weapon_barrel_states,
+            last_weapon_discharge_sequence: snapshot.last_weapon_discharge_sequence,
+            last_weapon_discharge_slot: snapshot.last_weapon_discharge_slot,
+            last_weapon_discharge_barrel: snapshot.last_weapon_discharge_barrel,
+            last_weapon_discharge_frame: snapshot.last_weapon_discharge_frame,
+            collector_runtime: snapshot.collector_runtime,
+            weapon_suspend_fx_frames: Vec::new(),
+        }
+    }
+}
+
 impl From<PreV5WorldSnapshot> for WorldSnapshot {
     fn from(snapshot: PreV5WorldSnapshot) -> Self {
         Self {
@@ -675,6 +805,7 @@ impl From<PreV5ObjectSnapshot> for ObjectSnapshot {
             last_weapon_discharge_barrel: snapshot.last_weapon_discharge_barrel,
             last_weapon_discharge_frame: snapshot.last_weapon_discharge_frame,
             collector_runtime: None,
+            weapon_suspend_fx_frames: Vec::new(),
         }
     }
 }
@@ -703,6 +834,7 @@ impl From<PreV4ObjectSnapshot> for ObjectSnapshot {
             last_weapon_discharge_barrel: 0,
             last_weapon_discharge_frame: 0,
             collector_runtime: None,
+            weapon_suspend_fx_frames: Vec::new(),
         }
     }
 }
@@ -958,6 +1090,74 @@ impl From<WorldSnapshot> for PreV6WorldSnapshot {
             player_template_bindings: snapshot.player_template_bindings,
         }
     }
+}
+
+#[cfg(test)]
+impl From<WorldSnapshot> for PreV7WorldSnapshot {
+    fn from(snapshot: WorldSnapshot) -> Self {
+        Self {
+            version: 6,
+            timestamp: snapshot.timestamp,
+            frame_number: snapshot.frame_number,
+            random_seed: snapshot.random_seed,
+            objects: snapshot
+                .objects
+                .into_iter()
+                .map(|(id, object)| (id, object.into()))
+                .collect(),
+            players: snapshot.players,
+            teams: snapshot.teams,
+            terrain: snapshot.terrain,
+            weather: snapshot.weather,
+            resource_manager: snapshot.resource_manager,
+            combat_tracker: snapshot.combat_tracker,
+            experience_tracker: snapshot.experience_tracker,
+            pathfinding_cache: snapshot.pathfinding_cache,
+            ai_players: snapshot.ai_players,
+            global_ai_state: snapshot.global_ai_state,
+            special_power_strikes: snapshot.special_power_strikes,
+            combat_particles: snapshot.combat_particles,
+            host_upgrades: snapshot.host_upgrades,
+            next_weapon_discharge_sequence: snapshot.next_weapon_discharge_sequence,
+            client_drawables: snapshot.client_drawables,
+            player_template_bindings: snapshot.player_template_bindings,
+            shroud: snapshot.shroud,
+        }
+    }
+}
+
+#[cfg(test)]
+impl From<ObjectSnapshot> for PreV7ObjectSnapshot {
+    fn from(snapshot: ObjectSnapshot) -> Self {
+        Self {
+            id: snapshot.id,
+            template_name: snapshot.template_name,
+            team: snapshot.team,
+            player_id: snapshot.player_id,
+            geometry: snapshot.geometry,
+            status: snapshot.status,
+            health: snapshot.health,
+            movement: snapshot.movement,
+            experience: snapshot.experience,
+            weapons: snapshot.weapons,
+            contained_objects: snapshot.contained_objects,
+            container_object: snapshot.container_object,
+            modules: snapshot.modules,
+            object_type: snapshot.object_type,
+            hacker_disable_channel: snapshot.hacker_disable_channel,
+            weapon_barrel_states: snapshot.weapon_barrel_states,
+            last_weapon_discharge_sequence: snapshot.last_weapon_discharge_sequence,
+            last_weapon_discharge_slot: snapshot.last_weapon_discharge_slot,
+            last_weapon_discharge_barrel: snapshot.last_weapon_discharge_barrel,
+            last_weapon_discharge_frame: snapshot.last_weapon_discharge_frame,
+            collector_runtime: snapshot.collector_runtime,
+        }
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn serialize_pre_v7_v6_fixture(snapshot: WorldSnapshot) -> bincode::Result<Vec<u8>> {
+    bincode::serialize(&PreV7WorldSnapshot::from(snapshot))
 }
 
 #[cfg(test)]

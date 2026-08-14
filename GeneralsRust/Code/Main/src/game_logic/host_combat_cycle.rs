@@ -252,6 +252,7 @@ pub fn combat_cycle_weapon_for_rider(rider: CombatCycleRider) -> Option<Weapon> 
             projectile_speed: 999_999.0,
             pre_attack_delay: 0.0,
             splash_radius: 0.0,
+            suspend_fx_frame: 0,
         }),
         CombatCycleRider::TunnelDefender => Some(Weapon {
             damage: RPG_DAMAGE,
@@ -267,6 +268,7 @@ pub fn combat_cycle_weapon_for_rider(rider: CombatCycleRider) -> Option<Weapon> 
             projectile_speed: 600.0,
             pre_attack_delay: 0.0,
             splash_radius: 0.0,
+            suspend_fx_frame: 0,
         }),
         CombatCycleRider::JarmenKell => Some(Weapon {
             damage: KELL_DAMAGE,
@@ -282,6 +284,7 @@ pub fn combat_cycle_weapon_for_rider(rider: CombatCycleRider) -> Option<Weapon> 
             projectile_speed: 999_999.0,
             pre_attack_delay: 0.0,
             splash_radius: 0.0,
+            suspend_fx_frame: 0,
         }),
         CombatCycleRider::Terrorist => Some(Weapon {
             // Host residual: use suicide primary as attack damage flag;
@@ -299,6 +302,7 @@ pub fn combat_cycle_weapon_for_rider(rider: CombatCycleRider) -> Option<Weapon> 
             projectile_speed: 999_999.0,
             pre_attack_delay: 0.0,
             splash_radius: 0.0,
+            suspend_fx_frame: 0,
         }),
         CombatCycleRider::None
         | CombatCycleRider::Worker
