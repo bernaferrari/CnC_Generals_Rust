@@ -1,9 +1,18 @@
 /// Partition manager for spatial partitioning (matches C++ PartitionManager grid behavior)
+#[derive(Debug, Clone)]
+struct PartitionGhostLink {
+    scene_id: crate::object::w3d_ghost_object::W3DGhostSceneId,
+    parent_alive: bool,
+    shroudedness_previous:
+        [crate::common::ObjectShroudStatus; game_engine::common::game_common::MAX_PLAYER_COUNT],
+}
+
 #[derive(Debug, Default)]
 pub struct PartitionManager {
     grid: HashMap<(i32, i32), Vec<ObjectID>>,
     object_cells: HashMap<ObjectID, (i32, i32)>,
     object_positions: HashMap<ObjectID, Coord3D>,
+    ghost_links: HashMap<ObjectID, PartitionGhostLink>,
     cell_size: Real,
 }
 
@@ -13,6 +22,7 @@ impl PartitionManager {
             grid: HashMap::new(),
             object_cells: HashMap::new(),
             object_positions: HashMap::new(),
+            ghost_links: HashMap::new(),
             cell_size: 100.0,
         }
     }
@@ -129,6 +139,141 @@ impl PartitionManager {
                 }
             }
         }
+    }
+
+    /// C++ `PartitionData::attachToObject` ghost allocation. Eligibility is
+    /// computed by the caller from the immutable ThingTemplate contract.
+    pub fn attach_object_ghost(
+        &mut self,
+        object_id: ObjectID,
+        eligible: bool,
+        manager: &mut crate::object::W3DGhostObjectManager,
+    ) -> Option<crate::object::w3d_ghost_object::W3DGhostSceneId> {
+        if !eligible {
+            return None;
+        }
+        if let Some(link) = self.ghost_links.get(&object_id) {
+            return Some(link.scene_id);
+        }
+        let scene_id = manager.add_linked_ghost_object(Some(object_id), true)?;
+        self.ghost_links.insert(
+            object_id,
+            PartitionGhostLink {
+                scene_id,
+                parent_alive: true,
+                shroudedness_previous: [crate::common::ObjectShroudStatus::Invalid;
+                    game_engine::common::game_common::MAX_PLAYER_COUNT],
+            },
+        );
+        Some(scene_id)
+    }
+
+    /// C++ `PartitionData::getShroudedStatus` transition side effects. The
+    /// caller supplies the already-resolved object status and exact optional
+    /// W3D capture; this layer never reconstructs render state.
+    pub fn apply_object_ghost_shroud_status(
+        &mut self,
+        object_id: ObjectID,
+        player_index: usize,
+        current: crate::common::ObjectShroudStatus,
+        capture: Option<&crate::object::w3d_ghost_object::W3DGhostSnapshotCapture>,
+        manager: &mut crate::object::W3DGhostObjectManager,
+    ) -> bool {
+        if player_index >= game_engine::common::game_common::MAX_PLAYER_COUNT {
+            return false;
+        }
+        let Some(link) = self.ghost_links.get_mut(&object_id) else {
+            return false;
+        };
+        let previous = link.shroudedness_previous[player_index];
+
+        match current {
+            crate::common::ObjectShroudStatus::Fogged
+                if link.parent_alive
+                    && (previous as u8) < (crate::common::ObjectShroudStatus::Fogged as u8) =>
+            {
+                if let Some(capture) = capture {
+                    manager.snapshot_linked_ghost(link.scene_id, player_index, capture);
+                }
+            }
+            crate::common::ObjectShroudStatus::Clear
+            | crate::common::ObjectShroudStatus::PartialClear
+            | crate::common::ObjectShroudStatus::Shrouded
+                if previous == crate::common::ObjectShroudStatus::Fogged =>
+            {
+                manager.free_linked_ghost_snapshot(link.scene_id, player_index);
+            }
+            _ => {}
+        }
+
+        if !matches!(
+            current,
+            crate::common::ObjectShroudStatus::Invalid
+                | crate::common::ObjectShroudStatus::InvalidButPreviousValid
+        ) {
+            link.shroudedness_previous[player_index] = current;
+        }
+
+        if !link.parent_alive && !manager.linked_ghost_has_any_snapshot(link.scene_id) {
+            let scene_id = link.scene_id;
+            manager.remove_linked_ghost(scene_id);
+            self.ghost_links.remove(&object_id);
+        }
+        true
+    }
+
+    /// C++ `PartitionManager::unRegisterObject`: retain a fog-memory module as
+    /// an orphan, otherwise return it to the manager free store immediately.
+    pub fn detach_object_ghost(
+        &mut self,
+        object_id: ObjectID,
+        manager: &mut crate::object::W3DGhostObjectManager,
+    ) -> bool {
+        let Some(link) = self.ghost_links.get_mut(&object_id) else {
+            return false;
+        };
+        if manager.linked_ghost_has_any_snapshot(link.scene_id) {
+            link.parent_alive = false;
+            manager.orphan_linked_ghost(link.scene_id);
+        } else {
+            let scene_id = link.scene_id;
+            manager.remove_linked_ghost(scene_id);
+            self.ghost_links.remove(&object_id);
+        }
+        true
+    }
+
+    pub fn ghost_link_scene_id(
+        &self,
+        object_id: ObjectID,
+    ) -> Option<crate::object::w3d_ghost_object::W3DGhostSceneId> {
+        self.ghost_links.get(&object_id).map(|link| link.scene_id)
+    }
+
+    pub fn object_ghost_needs_capture(
+        &self,
+        object_id: ObjectID,
+        player_index: usize,
+        current: crate::common::ObjectShroudStatus,
+    ) -> bool {
+        self.ghost_links.get(&object_id).is_some_and(|link| {
+            link.parent_alive
+                && player_index < game_engine::common::game_common::MAX_PLAYER_COUNT
+                && current == crate::common::ObjectShroudStatus::Fogged
+                && (link.shroudedness_previous[player_index] as u8)
+                    < (crate::common::ObjectShroudStatus::Fogged as u8)
+        })
+    }
+
+    pub fn ghost_link_object_ids(&self) -> Vec<ObjectID> {
+        self.ghost_links.keys().copied().collect()
+    }
+
+    pub fn clear_ghost_objects(&mut self, manager: &mut crate::object::W3DGhostObjectManager) {
+        for link in self.ghost_links.values() {
+            manager.remove_linked_ghost(link.scene_id);
+        }
+        self.ghost_links.clear();
     }
 
     /// Rebuild the spatial partition index

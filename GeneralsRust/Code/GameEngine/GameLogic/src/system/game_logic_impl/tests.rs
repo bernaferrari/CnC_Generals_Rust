@@ -1390,6 +1390,126 @@ mod tests {
         assert!(true);
     }
 
+    fn ghost_capture(name: &str) -> crate::object::w3d_ghost_object::W3DGhostSnapshotCapture {
+        use crate::object::w3d_ghost_object::{
+            Matrix3x4, ParentGeometrySnapshot, RenderObjectClass, RenderObjectState,
+        };
+        crate::object::w3d_ghost_object::W3DGhostSnapshotCapture {
+            drawable_effectively_hidden: false,
+            render_objects: vec![RenderObjectState {
+                name: name.to_string(),
+                scale: 1.25,
+                color: 0xff00_ff00,
+                transform: Matrix3x4::IDENTITY,
+                sub_objects: Vec::new(),
+                class_id: RenderObjectClass::HLod,
+            }],
+            geometry: ParentGeometrySnapshot {
+                geometry_type: 2,
+                is_small: false,
+                major_radius: 10.0,
+                minor_radius: 5.0,
+                position: [100.0, 100.0, 0.0],
+                angle: 0.5,
+            },
+        }
+    }
+
+    #[test]
+    fn partition_ghost_snapshots_only_on_clear_to_fogged_and_frees_on_clear() {
+        use crate::common::ObjectShroudStatus;
+        use crate::object::w3d_ghost_object::FrozenW3DGhostSceneEvent;
+
+        let mut partition = PartitionManager::new();
+        let mut manager = crate::object::W3DGhostObjectManager::new();
+        partition.add_object(41, (100.0, 100.0, 0.0));
+        let scene_id = partition
+            .attach_object_ghost(41, true, &mut manager)
+            .expect("eligible immobile object gets ghost link");
+
+        assert!(partition.apply_object_ghost_shroud_status(
+            41,
+            0,
+            ObjectShroudStatus::Clear,
+            None,
+            &mut manager,
+        ));
+        let capture = ghost_capture("Building");
+        assert!(partition.object_ghost_needs_capture(41, 0, ObjectShroudStatus::Fogged));
+        partition.apply_object_ghost_shroud_status(
+            41,
+            0,
+            ObjectShroudStatus::Fogged,
+            Some(&capture),
+            &mut manager,
+        );
+        assert!(manager.linked_ghost_has_any_snapshot(scene_id));
+        let first_events = manager.drain_scene_events();
+        assert_eq!(
+            first_events
+                .iter()
+                .filter(|event| matches!(event, FrozenW3DGhostSceneEvent::UpsertSnapshot(_)))
+                .count(),
+            1
+        );
+
+        partition.apply_object_ghost_shroud_status(
+            41,
+            0,
+            ObjectShroudStatus::Fogged,
+            Some(&ghost_capture("ChangedWhileFogged")),
+            &mut manager,
+        );
+        assert!(manager.drain_scene_events().is_empty());
+
+        partition.apply_object_ghost_shroud_status(
+            41,
+            0,
+            ObjectShroudStatus::Clear,
+            None,
+            &mut manager,
+        );
+        assert!(!manager.linked_ghost_has_any_snapshot(scene_id));
+        assert!(manager.drain_scene_events().iter().any(|event| matches!(
+            event,
+            FrozenW3DGhostSceneEvent::RemoveSnapshot(key) if key.ghost_id == scene_id
+        )));
+    }
+
+    #[test]
+    fn partition_ghost_orphan_survives_parent_then_releases_after_memory_clears() {
+        use crate::common::ObjectShroudStatus;
+
+        let mut partition = PartitionManager::new();
+        let mut manager = crate::object::W3DGhostObjectManager::new();
+        let scene_id = partition
+            .attach_object_ghost(52, true, &mut manager)
+            .expect("ghost link");
+        partition.apply_object_ghost_shroud_status(
+            52,
+            0,
+            ObjectShroudStatus::Fogged,
+            Some(&ghost_capture("DeadBuildingMemory")),
+            &mut manager,
+        );
+
+        assert!(partition.detach_object_ghost(52, &mut manager));
+        assert_eq!(partition.ghost_link_scene_id(52), Some(scene_id));
+        assert_eq!(manager.used_count(), 1);
+        assert_eq!(manager.used()[0].parent_object_id(), None);
+
+        partition.apply_object_ghost_shroud_status(
+            52,
+            0,
+            ObjectShroudStatus::Shrouded,
+            None,
+            &mut manager,
+        );
+        assert_eq!(partition.ghost_link_scene_id(52), None);
+        assert_eq!(manager.used_count(), 0);
+        assert_eq!(manager.free_count(), 1);
+    }
+
     #[test]
     fn test_empty_object_list() {
         let logic = GameLogic::new();

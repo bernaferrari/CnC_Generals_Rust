@@ -1006,9 +1006,10 @@ impl GameLogic {
         if !collision_ids.is_empty() {
             let _ = with_collision_system_mut(|system| {
                 for obj_id in collision_ids {
-                    let obj_arc = match self.find_object_by_id(obj_id).or_else(|| {
-                        OBJECT_REGISTRY.get_object(obj_id)
-                    }) {
+                    let obj_arc = match self
+                        .find_object_by_id(obj_id)
+                        .or_else(|| OBJECT_REGISTRY.get_object(obj_id))
+                    {
                         Some(v) => v,
                         None => continue,
                     };
@@ -1112,6 +1113,42 @@ impl GameLogic {
 
                     trace!("Updated vision for player {}", player_id);
                 }
+            }
+        }
+
+        // C++ PartitionData observes resolved per-object status after the
+        // shroud update. Retail W3D captures only the current local player.
+        let local_player = crate::object::THE_W3D_GHOST_OBJECT_MANAGER
+            .read()
+            .ok()
+            .map(|manager| manager.local_player_index())
+            .unwrap_or(0);
+        let ghost_object_ids = self.partition_manager.ghost_link_object_ids();
+        let mut transitions = Vec::with_capacity(ghost_object_ids.len());
+        for object_id in ghost_object_ids {
+            let Some(object) = self.objects.get(&object_id) else {
+                continue;
+            };
+            let Ok(object) = object.read() else {
+                continue;
+            };
+            let status = object.get_shrouded_status(local_player as i32);
+            let capture = self
+                .partition_manager
+                .object_ghost_needs_capture(object_id, local_player, status)
+                .then(|| crate::object::w3d_ghost_object::capture_w3d_ghost_snapshot(object_id))
+                .flatten();
+            transitions.push((object_id, status, capture));
+        }
+        if let Ok(mut manager) = crate::object::THE_W3D_GHOST_OBJECT_MANAGER.write() {
+            for (object_id, status, capture) in &transitions {
+                self.partition_manager.apply_object_ghost_shroud_status(
+                    *object_id,
+                    local_player,
+                    *status,
+                    capture.as_ref(),
+                    &mut manager,
+                );
             }
         }
 
@@ -1431,5 +1468,4 @@ impl GameLogic {
             }
         }
     }
-
 }
