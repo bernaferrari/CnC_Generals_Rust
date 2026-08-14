@@ -214,6 +214,40 @@ impl BasicDrawable {
         victim_pos: Option<&Vector3>,
         damage_radius: f32,
     ) -> bool {
+        self.handle_weapon_fire_fx_with_module_index(
+            wslot,
+            barrel,
+            fx_list,
+            weapon_speed,
+            recoil_amount,
+            recoil_angle,
+            victim_pos,
+            damage_radius,
+        )
+        .is_some()
+    }
+
+    /// Apply the C++ weapon-fire callback and return the declaration-order
+    /// draw-module index that consumed it, if any.
+    ///
+    /// The index is the smallest stable identity available at this boundary:
+    /// C++ walks the `DrawModule` array in declaration order and returns at
+    /// the first `ObjectDrawInterface` that reports the FX handled. Keeping
+    /// that identity here lets a future frozen presentation plan carry the
+    /// selected module without re-running the live loop after source state
+    /// has changed. The boolean wrapper above intentionally retains the old
+    /// public API for callers that only need the C++ handled result.
+    pub fn handle_weapon_fire_fx_with_module_index(
+        &mut self,
+        wslot: WeaponSlotType,
+        barrel: i32,
+        fx_list: Option<&FXListRef>,
+        weapon_speed: f32,
+        recoil_amount: f32,
+        recoil_angle: f32,
+        victim_pos: Option<&Vector3>,
+        damage_radius: f32,
+    ) -> Option<usize> {
         // Wave 980: host empty dual-world still applies recoil + draw-module FX.
         // Orientation residual comes from presentation pose when registry is empty.
 
@@ -239,7 +273,7 @@ impl BasicDrawable {
         }
 
         // C++ iterates draw modules and dispatches FX
-        for dm in &mut self.draw_modules {
+        for (module_index, dm) in self.draw_modules.iter_mut().enumerate() {
             if dm.handle_weapon_fire_fx(
                 wslot,
                 barrel,
@@ -248,10 +282,10 @@ impl BasicDrawable {
                 victim_pos,
                 damage_radius,
             ) {
-                return true;
+                return Some(module_index);
             }
         }
-        false
+        None
     }
 
     // -----------------------------------------------------------------------
