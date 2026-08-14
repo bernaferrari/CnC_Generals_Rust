@@ -24,10 +24,11 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crate::drawable::drawable_draw_pipeline::{with_drawable_pipeline, MeshVertex};
-use gamelogic::helpers::{ModelDrawSourceIdentity, ModelDrawWeaponBoneBindings};
+use gamelogic::helpers::{ModelDrawSourceIdentity, ModelDrawState, ModelDrawWeaponBoneBindings};
 use gamelogic::object::w3d_ghost_object::{
     FrozenW3DGhostSceneEvent, FrozenW3DGhostSnapshot, RenderObjectClass, RenderObjectState,
-    W3DGhostSceneId, W3DGhostSnapshotKey, W3DRenderObjectSnapshot,
+    W3DGhostSceneId, W3DGhostSnapshotCapture, W3DGhostSnapshotCaptureSource, W3DGhostSnapshotKey,
+    W3DRenderObjectSnapshot, INVALID_DRAWABLE_ID, INVALID_OBJECT_ID,
 };
 use ww3d_assets::prototypes::MeshPrototype;
 use ww3d_assets::AssetManager;
@@ -592,6 +593,126 @@ impl RenderBridge {
             .get(&submission.model_name.to_lowercase())?;
         let wrapper = model.as_any().downcast_ref::<WrapRenderObj>()?;
         wrapper.materialize_exact_ghost_snapshot(submission)
+    }
+
+    /// Materialize the strict Mesh-only portion of the W3D ghost capture
+    /// contract from a committed GameLogic model-draw frame.
+    ///
+    /// `ModelDrawState` is the only live W3D source currently crossing the
+    /// GameLogic/GameClient boundary.  It carries the render-object transform,
+    /// scale, and ARGB value captured by `W3DModelDraw`; this adapter does not
+    /// derive any of them from the presentation Drawable or an asset default.
+    /// The asset manager is consulted only to resolve the exact named asset
+    /// and its registered class.  A missing asset, identity mismatch, dynamic
+    /// Mesh control, HLOD/Other class, or stale Drawable identity returns
+    /// `None` rather than producing a partial ghost.
+    pub fn materialize_exact_mesh_w3d_ghost_capture(
+        &mut self,
+        source: &W3DGhostSnapshotCaptureSource,
+    ) -> Option<W3DGhostSnapshotCapture> {
+        if source.object_id == INVALID_OBJECT_ID
+            || source.drawable_id == INVALID_DRAWABLE_ID
+            || source.model_draws.is_empty()
+            || !matrix3x4_is_finite(&source.drawable_transform)
+            || !source.drawable_scale.iter().all(|value| value.is_finite())
+        {
+            return None;
+        }
+
+        let mut render_objects = Vec::with_capacity(source.model_draws.len());
+        for model_draw in &source.model_draws {
+            // `commit_active_object_model_draw` stamps the live DrawableID on
+            // every record.  Requiring the same ID prevents a retained frame
+            // from being attached to a rebound Drawable.
+            if model_draw.logic_drawable_id != source.drawable_id {
+                return None;
+            }
+
+            let snapshot = self.materialize_exact_w3d_render_object_snapshot_from_model_draw(
+                source.object_id,
+                model_draw,
+            )?;
+            if snapshot.render_object.class_id != RenderObjectClass::Mesh
+                || snapshot.uv_animations_disabled
+                || snapshot.muzzle_fx_hidden
+            {
+                return None;
+            }
+            render_objects.push(snapshot.render_object);
+        }
+
+        Some(W3DGhostSnapshotCapture {
+            drawable_effectively_hidden: source.drawable_effectively_hidden,
+            render_objects,
+            geometry: source.geometry,
+        })
+    }
+
+    /// Convert one committed ModelDrawState into the DrawSubmission-shaped
+    /// view required by the exact render-object materializer.  The conversion
+    /// preserves all dynamic controls so the Mesh adapter can reject them;
+    /// it never substitutes presentation state for a missing live field.
+    fn materialize_exact_w3d_render_object_snapshot_from_model_draw(
+        &mut self,
+        object_id: u32,
+        model_draw: &ModelDrawState,
+    ) -> Option<W3DRenderObjectSnapshot> {
+        if model_draw.model_name.trim().is_empty()
+            || model_draw.render_object_scale.is_none()
+            || model_draw.render_object_color.is_none()
+        {
+            return None;
+        }
+
+        if !self.is_model_loaded(&model_draw.model_name) {
+            // This resolves only an exact registered asset/prototype.  The
+            // resolver has no placeholder path, so an unavailable live asset
+            // remains fail-closed.
+            self.mark_model_loaded(&model_draw.model_name);
+        }
+
+        let world_transform = model_draw.world_transform;
+        let submission = DrawSubmission {
+            drawable_id: DrawableId(model_draw.logic_drawable_id),
+            owner_object_id: Some(object_id),
+            legacy_model_draw_source: Some(model_draw.source.clone()),
+            legacy_render_object_transform: Some(world_transform),
+            legacy_render_object_scale: model_draw.render_object_scale,
+            legacy_render_object_color: model_draw.render_object_color,
+            model_name: model_draw.model_name.clone(),
+            world_transform,
+            bone_overrides: model_draw
+                .bone_overrides
+                .iter()
+                .map(|override_state| BoneOverride {
+                    bone_index: override_state.bone_index,
+                    bone_name: None,
+                    transform: override_state.transform,
+                })
+                .collect(),
+            mesh_uv_overrides: model_draw
+                .mesh_uv_overrides
+                .iter()
+                .map(|uv| MeshUvOverride {
+                    mesh_name_prefix: uv.mesh_name_prefix.clone(),
+                    u_offset: uv.u_offset,
+                    v_offset: uv.v_offset,
+                })
+                .collect(),
+            sub_object_visibility: model_draw
+                .sub_object_visibility
+                .iter()
+                .map(|visibility| SubObjectVisibility {
+                    sub_object_name: visibility.sub_object_name.clone(),
+                    hidden: visibility.hidden,
+                })
+                .collect(),
+            animation_name: model_draw.animation_name.clone(),
+            animation_time: model_draw.animation_time,
+            ..Default::default()
+        };
+
+        self.materialize_exact_w3d_render_object_snapshot(&submission)
     }
 
     pub fn submit_projectile_stream(&mut self, submission: ProjectileStreamSubmission) {
@@ -1600,6 +1721,10 @@ fn game_logic_matrix3d_to_glam(m: &game_engine::common::system::geometry::Matrix
     glam::Mat4::from_cols_array(&cols)
 }
 
+fn matrix3x4_is_finite(matrix: &gamelogic::object::w3d_ghost_object::Matrix3x4) -> bool {
+    matrix.rows.iter().flatten().all(|value| value.is_finite())
+}
+
 // Global singleton instance
 use std::sync::Mutex;
 lazy_static::lazy_static! {
@@ -1984,6 +2109,90 @@ mod tests {
                 submission.legacy_render_object_transform.unwrap()
             )
         );
+    }
+
+    fn exact_mesh_ghost_model_draw(drawable_id: u32) -> ModelDrawState {
+        ModelDrawState {
+            source: ModelDrawSourceIdentity {
+                runtime_draw_ordinal: 0,
+                module_name: "W3DModelDraw".to_string(),
+                module_tag: "W3DModelDrawTag".to_string(),
+                module_tag_name_key: 17,
+            },
+            logic_drawable_id: drawable_id,
+            model_name: "GhostMesh".to_string(),
+            world_transform: glam::Mat4::IDENTITY,
+            render_object_scale: Some(1.5),
+            render_object_color: Some(0x7f10_2030),
+            condition_flags_bits: 0,
+            bone_overrides: Vec::new(),
+            animation_name: None,
+            animation_time: 0.0,
+            animation_mode: 0,
+            mesh_uv_overrides: Vec::new(),
+            sub_object_visibility: Vec::new(),
+            weapon_bone_bindings: ModelDrawWeaponBoneBindings::default(),
+        }
+    }
+
+    fn exact_mesh_ghost_source(
+        drawable_id: u32,
+        model_draw: ModelDrawState,
+    ) -> W3DGhostSnapshotCaptureSource {
+        W3DGhostSnapshotCaptureSource {
+            object_id: 9001,
+            drawable_id,
+            drawable_effectively_hidden: false,
+            drawable_transform: gamelogic::object::w3d_ghost_object::Matrix3x4::IDENTITY,
+            drawable_scale: [1.0, 1.0, 1.0],
+            model_draws: vec![model_draw],
+            geometry: gamelogic::object::w3d_ghost_object::ParentGeometrySnapshot {
+                geometry_type: 2,
+                is_small: false,
+                major_radius: 4.0,
+                minor_radius: 3.0,
+                position: [1.0, 2.0, 3.0],
+                angle: 0.25,
+            },
+        }
+    }
+
+    #[test]
+    fn exact_mesh_ghost_capture_materializes_committed_model_draw() {
+        let mut bridge = RenderBridge::new();
+        register_test_model(&mut bridge, "GhostMesh");
+
+        let source = exact_mesh_ghost_source(37, exact_mesh_ghost_model_draw(37));
+        let capture = bridge
+            .materialize_exact_mesh_w3d_ghost_capture(&source)
+            .expect("complete committed Mesh state should materialize");
+
+        assert!(!capture.drawable_effectively_hidden);
+        assert_eq!(capture.render_objects.len(), 1);
+        assert_eq!(capture.render_objects[0].name, "GhostMesh");
+        assert_eq!(capture.render_objects[0].scale, 1.5);
+        assert_eq!(capture.render_objects[0].color, 0x7f10_2030);
+        assert_eq!(capture.render_objects[0].class_id, RenderObjectClass::Mesh);
+        assert!(capture.render_objects[0].sub_objects.is_empty());
+        assert_eq!(capture.geometry.position, [1.0, 2.0, 3.0]);
+    }
+
+    #[test]
+    fn exact_mesh_ghost_capture_rejects_identity_and_dynamic_state() {
+        let mut bridge = RenderBridge::new();
+        register_test_model(&mut bridge, "GhostMesh");
+
+        let mismatched = exact_mesh_ghost_source(37, exact_mesh_ghost_model_draw(38));
+        assert!(bridge
+            .materialize_exact_mesh_w3d_ghost_capture(&mismatched)
+            .is_none());
+
+        let mut animated = exact_mesh_ghost_model_draw(37);
+        animated.animation_name = Some("Idle".to_string());
+        let animated_source = exact_mesh_ghost_source(37, animated);
+        assert!(bridge
+            .materialize_exact_mesh_w3d_ghost_capture(&animated_source)
+            .is_none());
     }
 
     #[test]
