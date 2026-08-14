@@ -4386,6 +4386,13 @@ impl Drawable for BasicDrawable {
                 let object_id = self.shroud_status_object_id();
                 (object_id != 0).then_some(object_id)
             },
+            legacy_render_object_transform: model_draw.as_ref().map(|state| state.world_transform),
+            legacy_render_object_scale: model_draw
+                .as_ref()
+                .and_then(|state| state.render_object_scale),
+            legacy_render_object_color: model_draw
+                .as_ref()
+                .and_then(|state| state.render_object_color),
             model_name,
             world_transform: glam::Mat4::from_cols_array_2d(&world_transform.elements),
             condition_flags,
