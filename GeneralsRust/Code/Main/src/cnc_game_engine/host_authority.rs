@@ -1030,6 +1030,11 @@ impl CnCGameEngine {
         self.game_logic = logic;
         if let Some(shadow) = self.gameworld_shadow.as_mut() {
             shadow.reset_for_world_boundary();
+            // The replacement is already a complete host world.  Seed the
+            // fresh GameWorld before any boot/menu probe can observe it; the
+            // staged-restore and successful map-load boundaries use the same
+            // reset-then-sync ordering.
+            shadow.sync_from_host(&self.game_logic);
         }
         self.host_advance_direct_visual_world_epoch();
         #[cfg(feature = "game_client")]

@@ -215,6 +215,16 @@ fn visual_world_state_invalidation_only_follows_successful_world_changes() {
         .find("fn host_replace_staged_restore_world(")
         .expect("next replacement-neighbor method")];
     assert_client_reset_precedes_renderer(replacement, "full GameLogic replacement");
+    let replacement_reset = replacement
+        .find("shadow.reset_for_world_boundary();")
+        .expect("full replacement must reset GameWorld identity state");
+    let replacement_sync = replacement
+        .find("shadow.sync_from_host(&self.game_logic);")
+        .expect("full replacement must seed the new GameWorld before probes");
+    assert!(
+        replacement_reset < replacement_sync,
+        "full GameLogic replacement must reset then immediately sync its fresh GameWorld"
+    );
 
     let staged_replacement = &authority[authority
         .find("fn host_replace_staged_restore_world(")
