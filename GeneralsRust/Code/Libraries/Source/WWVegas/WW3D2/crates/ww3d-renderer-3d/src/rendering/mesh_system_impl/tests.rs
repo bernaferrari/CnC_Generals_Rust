@@ -275,6 +275,31 @@ fn hierarchy_that_must_not_supply_skin_links() -> HierarchyPrototype {
     }
 
     #[test]
+    fn projected_shroud_draw_is_after_authored_passes_for_rigid_and_skinned_meshes() {
+        let source = include_str!("render_manager.rs");
+        let authored = source
+            .find("for extra_pass in &render_info.additional_material_passes")
+            .expect("authored additional passes must exist");
+        let projected = source
+            .find("self.draw_projected_shroud_pass(")
+            .expect("eligible meshes must invoke the projected pass");
+        assert!(authored < projected, "shroud pass must follow authored passes");
+        assert!(source.contains("VertexFormat::ProjectedShroudBasic"));
+        assert!(source.contains("VertexFormat::ProjectedShroudSkinned"));
+        assert!(source.contains("ProjectedShroudMaterialPassContract::CXX"));
+        assert!(source.contains("create_projected_shroud_bind_group"));
+
+        let rigid = include_str!("../shader_system/projected_shroud_basic.wgsl");
+        let skinned = include_str!("../shader_system/projected_shroud_skinned.wgsl");
+        for shader in [rigid, skinned] {
+            assert!(shader.contains("world_position.xz"));
+            assert!(shader.contains("textureSample(shroud_texture"));
+            assert!(shader.contains("model.material_diffuse"));
+        }
+        assert!(skinned.contains("bones.bones"));
+    }
+
+    #[test]
     fn presentation_opacity_is_instance_alpha_without_changing_fow() {
         let mut mesh = MeshClass::new();
         assert!(!mesh.is_alpha());

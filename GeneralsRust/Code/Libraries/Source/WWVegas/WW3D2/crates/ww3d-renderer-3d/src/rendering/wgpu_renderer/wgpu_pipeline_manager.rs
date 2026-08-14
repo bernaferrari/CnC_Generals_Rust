@@ -19,6 +19,13 @@ pub enum VertexFormat {
     Basic,   // position, normal, texture coordinates
     Skinned, // position, normal, texture coordinates, bone indices, bone weights
     Line,    // position, color
+    /// C++ `W3DShroudMaterialPass` rigid geometry.  This has a dedicated
+    /// shader because its texture coordinates are projected from world X/Z,
+    /// not read from authored mesh UVs.
+    ProjectedShroudBasic,
+    /// C++ `W3DShroudMaterialPass` skinned geometry.  The vertex stage keeps
+    /// the source bone palette path, then projects the resulting world X/Z.
+    ProjectedShroudSkinned,
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
@@ -74,6 +81,8 @@ impl WgpuPipelineManager {
             VertexFormat::Basic => 0,
             VertexFormat::Skinned => 1,
             VertexFormat::Line => 2,
+            VertexFormat::ProjectedShroudBasic => 3,
+            VertexFormat::ProjectedShroudSkinned => 4,
         };
 
         let key = PipelineKey {
@@ -98,6 +107,9 @@ impl WgpuPipelineManager {
         let shader_source = match vertex_format {
             VertexFormat::Line => include_str!("../shader_system/line.wgsl"),
             VertexFormat::Skinned => include_str!("../shader_system/skinned.wgsl"),
+            VertexFormat::ProjectedShroudSkinned => {
+                include_str!("../shader_system/projected_shroud_skinned.wgsl")
+            }
             VertexFormat::Basic => {
                 if shader.get_src_blend_func() == SrcBlendFuncType::SrcAlpha
                     && shader.get_dst_blend_func() == DstBlendFuncType::InvSrcAlpha
@@ -114,6 +126,9 @@ impl WgpuPipelineManager {
                 } else {
                     include_str!("../shader_system/opaque.wgsl")
                 }
+            }
+            VertexFormat::ProjectedShroudBasic => {
+                include_str!("../shader_system/projected_shroud_basic.wgsl")
             }
         };
 
@@ -220,8 +235,8 @@ impl WgpuPipelineManager {
         };
         let group2_bgl = match vertex_format {
             VertexFormat::Line => None,
-            VertexFormat::Skinned => Some(device.create_bind_group_layout(
-                &wgpu::BindGroupLayoutDescriptor {
+            VertexFormat::Skinned | VertexFormat::ProjectedShroudSkinned => Some(
+                device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                     label: Some("Skinned Group2 BGL"),
                     entries: &[
                         wgpu::BindGroupLayoutEntry {
@@ -245,10 +260,10 @@ impl WgpuPipelineManager {
                             count: None,
                         },
                     ],
-                },
-            )),
-            VertexFormat::Basic => Some(device.create_bind_group_layout(
-                &wgpu::BindGroupLayoutDescriptor {
+                }),
+            ),
+            VertexFormat::Basic | VertexFormat::ProjectedShroudBasic => Some(
+                device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                     label: Some("UV Transform BGL"),
                     entries: &[wgpu::BindGroupLayoutEntry {
                         binding: 0,
@@ -260,8 +275,8 @@ impl WgpuPipelineManager {
                         },
                         count: None,
                     }],
-                },
-            )),
+                }),
+            ),
         };
         let texture_bgls: Vec<wgpu::BindGroupLayout> =
             if matches!(vertex_format, VertexFormat::Line) {
@@ -381,9 +396,12 @@ impl WgpuPipelineManager {
                     ],
                 }
             }
-            VertexFormat::Skinned => {
-                let stride_bytes =
-                    (3 + 3 + (MAX_TEXTURE_STAGES * 2) + 4 + 4) * std::mem::size_of::<f32>();
+            VertexFormat::Skinned | VertexFormat::ProjectedShroudSkinned => {
+                // MeshRenderManager packs four UV sets, followed by the four
+                // bone indices and four weights.  Texture *stages* may be
+                // eight, but the vertex ABI is four UV attributes (the same
+                // ABI used by shader.rs and the WGSL inputs).
+                let stride_bytes = (3 + 3 + (4 * 2) + 4 + 4) * std::mem::size_of::<f32>();
                 wgpu::VertexBufferLayout {
                     array_stride: stride_bytes as u64,
                     step_mode: wgpu::VertexStepMode::Vertex,
@@ -431,8 +449,8 @@ impl WgpuPipelineManager {
                     ],
                 }
             }
-            VertexFormat::Basic => {
-                let stride_bytes = (3 + 3 + (MAX_TEXTURE_STAGES * 2)) * std::mem::size_of::<f32>();
+            VertexFormat::Basic | VertexFormat::ProjectedShroudBasic => {
+                let stride_bytes = (3 + 3 + (4 * 2)) * std::mem::size_of::<f32>();
                 wgpu::VertexBufferLayout {
                     array_stride: stride_bytes as u64,
                     step_mode: wgpu::VertexStepMode::Vertex,
@@ -545,6 +563,75 @@ impl WgpuPipelineManager {
         let arc = Arc::new(pipeline);
         self.cache.insert(key, arc.clone());
         arc
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::rendering::projected_shroud::ProjectedShroudMaterialPassContract;
+    use std::sync::Arc;
+
+    /// Exercise the real WGPU shader/pipeline validator when a software or
+    /// hardware adapter is available.  Headless CI is allowed to skip this
+    /// test, but environments that can render must validate both projected
+    /// shader modules and their bind-group/vertex ABI rather than only
+    /// compiling the Rust source that includes them.
+    #[test]
+    fn projected_shroud_pipelines_validate_on_available_adapter() {
+        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::all(),
+            ..Default::default()
+        });
+        let Some(adapter) =
+            pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::LowPower,
+                compatible_surface: None,
+                force_fallback_adapter: true,
+            }))
+            .ok()
+        else {
+            return;
+        };
+        let Ok((device, queue)) =
+            pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+                required_features: wgpu::Features::empty(),
+                required_limits: wgpu::Limits::default(),
+                label: Some("projected-shroud-pipeline-test"),
+                ..Default::default()
+            }))
+        else {
+            return;
+        };
+        let gpu = Arc::new(GpuDevice::from_shared(Arc::new(device), Arc::new(queue)));
+        let mut manager = WgpuPipelineManager::new(gpu);
+        let shader = ProjectedShroudMaterialPassContract::CXX.shader();
+        let _rigid = manager.get_or_create(
+            &shader,
+            0,
+            false,
+            false,
+            false,
+            wgpu::PrimitiveTopology::TriangleList,
+            VertexFormat::ProjectedShroudBasic,
+            wgpu::TextureFormat::Bgra8UnormSrgb,
+            Some(wgpu::TextureFormat::Depth32Float),
+            0,
+            false,
+        );
+        let _skinned = manager.get_or_create(
+            &shader,
+            0,
+            true,
+            false,
+            false,
+            wgpu::PrimitiveTopology::TriangleList,
+            VertexFormat::ProjectedShroudSkinned,
+            wgpu::TextureFormat::Bgra8UnormSrgb,
+            Some(wgpu::TextureFormat::Depth32Float),
+            0,
+            false,
+        );
     }
 }
 
