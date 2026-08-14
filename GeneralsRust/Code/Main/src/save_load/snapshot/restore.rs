@@ -68,7 +68,12 @@ impl SnapshotBuilder {
             t
         };
 
-        let mut object = Object::new(template, snapshot.id, snapshot.team);
+        let mut object = Object::new_with_logic_frame(
+            template,
+            snapshot.id,
+            snapshot.team,
+            game_logic.get_current_frame() as u32,
+        );
         object.name = snapshot.template_name.clone();
 
         // Geometry / transform
@@ -92,6 +97,21 @@ impl SnapshotBuilder {
         object.weapon = primary;
         object.secondary_weapon = secondary;
         object.tertiary_weapon = tertiary;
+        // v8 carries the source-keyed temporary behavior ownership tail. A
+        // missing legacy tail must not manufacture runtime state from a
+        // template name; it remains an explicitly inactive bundle.
+        if let Some(runtime) = &snapshot.temporary_weapon_runtime {
+            if !runtime.matches_thing_template(&object.thing.template) {
+                return Err(SaveLoadError::Corrupted(format!(
+                    "Temporary Weapon runtime source mismatch for object {}",
+                    snapshot.id
+                )));
+            }
+            object.temporary_weapon_runtime = runtime.clone();
+        } else {
+            object.temporary_weapon_runtime =
+                crate::game_logic::host_temporary_weapon_behavior::TemporaryWeaponRuntimeBundle::default();
+        }
         // v7 carries the C++ client-only SuspendFXFrame in a parallel object
         // tail.  Older streams intentionally leave the zero sentinel, while
         // a short/misaligned tail never manufactures a frame for a slot that

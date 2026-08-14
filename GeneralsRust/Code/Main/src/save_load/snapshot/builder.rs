@@ -194,6 +194,10 @@ impl SnapshotBuilder {
             .iter()
             .map(|weapon| weapon.suspend_fx_frame)
             .collect();
+        let temporary_weapon_runtime = object
+            .temporary_weapon_runtime
+            .has_behavior_modules()
+            .then(|| object.temporary_weapon_runtime.clone());
 
         Ok(ObjectSnapshot {
             id: object.id,
@@ -259,6 +263,7 @@ impl SnapshotBuilder {
                 stored_supply_boxes: object.stored_resources.supplies,
             }),
             weapon_suspend_fx_frames,
+            temporary_weapon_runtime,
         })
     }
 
