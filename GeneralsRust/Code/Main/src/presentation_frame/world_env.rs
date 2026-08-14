@@ -333,6 +333,12 @@ pub struct PresentationWorldEnv {
     pub fog_color: Option<[f32; 3]>,
     pub fog_start: Option<f32>,
     pub fog_end: Option<f32>,
+    /// Frozen C++ GlobalData shroud levels used by the W3D fogged-light
+    /// environment. These are presentation inputs, never a live FOW query.
+    #[serde(default = "default_clear_alpha")]
+    pub clear_alpha: u8,
+    #[serde(default = "default_fog_alpha")]
+    pub fog_alpha: u8,
     /// Primary `TerrainObjectsLighting*` GameData record for the active TOD.
     /// This is distinct from terrain lighting: C++ applies the former to the
     /// W3D scene and the latter to TerrainVisual.
@@ -485,6 +491,12 @@ impl PresentationWorldEnv {
         // Main does not rediscover global lighting while rendering.
         let (primary_object_lighting, primary_terrain_lighting) =
             freeze_current_primary_game_data_lighting();
+        let (clear_alpha, fog_alpha) = get_global_data()
+            .map(|global| {
+                let global = global.read();
+                (global.clear_alpha, global.fog_alpha)
+            })
+            .unwrap_or((default_clear_alpha(), default_fog_alpha()));
         Self {
             map_name: logic.get_current_map_name().trim().to_string(),
             is_snow,
@@ -504,6 +516,8 @@ impl PresentationWorldEnv {
                 .and_then(|m| m.fog_color.or(m.sky_color).or(m.sun_color)),
             fog_start: meta.as_ref().and_then(|m| m.fog_start),
             fog_end: meta.as_ref().and_then(|m| m.fog_end),
+            clear_alpha,
+            fog_alpha,
             primary_object_lighting,
             primary_terrain_lighting,
             map_object_count: meta.as_ref().map(|m| m.objects.len() as u32).unwrap_or(0),
@@ -517,6 +531,17 @@ impl PresentationWorldEnv {
             bridge_segments,
             runtime_heightmap,
             terrain_texture_classes,
+        }
+    }
+
+    /// C++ `W3DScene::updateFixedLightEnvironments` ratio, frozen with the
+    /// presentation frame so ghost rendering never reads live GlobalData.
+    #[inline]
+    pub fn fogged_light_fraction(&self) -> f32 {
+        if self.clear_alpha == 0 {
+            0.0
+        } else {
+            (self.fog_alpha as f32 / self.clear_alpha as f32).clamp(0.0, 1.0)
         }
     }
 
@@ -624,4 +649,12 @@ impl PresentationWorldEnv {
             shell_bypass
         )
     }
+}
+
+fn default_clear_alpha() -> u8 {
+    255
+}
+
+fn default_fog_alpha() -> u8 {
+    127
 }

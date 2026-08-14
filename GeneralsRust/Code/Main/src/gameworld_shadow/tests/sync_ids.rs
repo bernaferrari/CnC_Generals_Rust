@@ -58,6 +58,39 @@ fn shadow_world_boundary_reset_clears_previous_identity_map() {
 }
 
 #[test]
+fn sync_grows_beyond_initial_entity_hint_without_dropping_lifecycle_mappings() {
+    let mut logic = GameLogic::new();
+    let cfg = golden_skirmish_config("ShadowEntityGrowth");
+    apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+    ensure_template(&mut logic, "GrowthUnit", 100.0);
+
+    let ids: Vec<_> = (0..3)
+        .map(|index| {
+            logic
+                .create_object(
+                    "GrowthUnit",
+                    Team::USA,
+                    Vec3::new(index as f32 * 10.0, 0.0, 0.0),
+                )
+                .expect("growth unit")
+        })
+        .collect();
+
+    // The hint is deliberately smaller than the live host object set. C++
+    // expands its ObjectID lookup storage instead of omitting registrations.
+    let mut shadow = GameWorldShadow::new(1);
+    shadow.sync_from_host(&logic);
+
+    assert_eq!(shadow.mapped_count(), ids.len());
+    for id in ids {
+        assert!(
+            shadow.entity_for_host(id).is_some(),
+            "host object {id:?} must retain a lifecycle mapping"
+        );
+    }
+}
+
+#[test]
 fn same_faction_slots_keep_owner_authority_through_shadow_and_presentation() {
     use crate::game_logic::Player;
     use crate::presentation_frame::PresentationFrame;

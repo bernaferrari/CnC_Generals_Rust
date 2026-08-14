@@ -1082,6 +1082,105 @@ impl RenderPipeline {
     /// `GameClient::update()`; the render pipeline then consumes those
     /// submissions during `RenderPipeline::execute()`.
     #[cfg(feature = "game_client")]
+    pub(super) fn append_frozen_mesh_ghost_scene(
+        &mut self,
+        graphics_system: &mut GraphicsSystem,
+        camera_position: Vec3,
+        allow_sync_model_loads: bool,
+        deferred_model_load_budget: &mut usize,
+    ) {
+        let Some(frame) = self.frozen_ghost_scene.clone() else {
+            return;
+        };
+        if frame.snapshots.is_empty() {
+            return;
+        }
+
+        // The frozen scene names are the only permitted asset keys. Resolve
+        // each exact source through the ordinary cache admission path, but do
+        // not substitute a placeholder when a ghost asset is unavailable.
+        let mut model_names = frame
+            .snapshots
+            .iter()
+            .filter(|snapshot| {
+                snapshot.render_object.render_object.class_id
+                    == gamelogic::object::w3d_ghost_object::RenderObjectClass::Mesh
+            })
+            .map(|snapshot| snapshot.render_object.render_object.name.clone())
+            .collect::<Vec<_>>();
+        model_names.sort_unstable();
+        model_names.dedup();
+        for model_name in &model_names {
+            if graphics_system.get_model(model_name).is_some() {
+                continue;
+            }
+            if !matches!(
+                Self::ensure_render_model_loaded(
+                    graphics_system,
+                    model_name,
+                    model_name,
+                    allow_sync_model_loads,
+                    deferred_model_load_budget,
+                ),
+                RenderModelLoadResult::Ready(_)
+            ) {
+                return;
+            }
+        }
+
+        let Some(scene) = crate::graphics::render_item::materialize_frozen_w3d_ghost_scene(
+            &frame,
+            |model_name| graphics_system.get_model(model_name).cloned(),
+        ) else {
+            // The materializer is all-or-nothing: a stale revision, HLOD/
+            // Other object, duplicate key, malformed state, or missing exact
+            // asset leaves the normal world untouched and emits no ghost.
+            return;
+        };
+
+        // C++ removes the parent RenderObj from the scene before inserting a
+        // ghost snapshot. Preserve that ordering without touching projectile,
+        // objectless, or other standalone client ownership domains.
+        self.render_items.retain(|item| {
+            !matches!(
+                item.owner,
+                RenderItemOwner::Object(object_id)
+                    if scene.parent_suppression.suppresses(object_id)
+            )
+        });
+
+        for materialized in scene.items {
+            let state = materialized.state;
+            let model = materialized.asset;
+            let color = state.argb_color_rgba();
+            let color_rgb = Vec3::new(color[0], color[1], color[2]);
+            let scale = Mat4::from_scale(Vec3::splat(state.object_scale));
+            let world_position = state.world_transform.w_axis.truncate();
+            for (mesh_index, mesh) in model.meshes.iter().enumerate() {
+                let Some(mesh_local_transform) =
+                    model.mesh_local_transform_for_animation(mesh_index, usize::MAX, 0.0)
+                else {
+                    continue;
+                };
+                let mut material = mesh.material.clone();
+                material.diffuse_color *= color_rgb;
+                material.opacity *= color[3];
+                let render_pass = Self::render_pass_for_material(&material);
+                let Some(mut item) =
+                    RenderItem::new_w3d_ghost(state.clone(), mesh_index, &material, render_pass)
+                else {
+                    continue;
+                };
+                item.set_mesh_local_transform(scale * mesh_local_transform);
+                item.set_fow_visibility(ObjectVisibility::FULLY_VISIBLE);
+                item.distance = world_position.distance(camera_position);
+                self.render_items.push(item);
+            }
+        }
+    }
+
+    /// Drain submissions from the GameClient RenderBridge and convert them
+    #[cfg(feature = "game_client")]
     pub(super) fn drain_render_bridge_submissions(
         &mut self,
         graphics_system: &mut GraphicsSystem,
