@@ -1,10 +1,9 @@
 //! Renderer-owned contract for the C++ `W3DShroudMaterialPass`.
 //!
-//! This module deliberately describes the pass state without pretending that
-//! a projected texture is already bound to the active WGPU material pipeline.
 //! The Main presentation layer owns the frozen R8 snapshot and its texture
-//! lifetime; a later integration must supply that texture and the exact
-//! per-draw eligibility before invoking this contract.
+//! lifetime.  The mesh renderer consumes this contract through its dedicated
+//! rigid/skinned WGPU pass, while exact per-draw eligibility remains a frozen
+//! presentation decision rather than a renderer-side simulation query.
 
 use super::shader_system::shader::{
     ColorMaskType, CullModeType, DepthCompareType, DepthMaskType, DetailAlphaFuncType,
