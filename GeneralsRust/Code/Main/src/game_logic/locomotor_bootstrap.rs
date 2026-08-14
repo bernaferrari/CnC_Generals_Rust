@@ -169,6 +169,44 @@ pub struct HostMovementStats {
     pub turn_rate: f32,
 }
 
+/// Locomotor constants consumed by C++ `Drawable::calcPhysicsXform*`.
+///
+/// These values intentionally remain in the source `Locomotor.ini` units.
+/// Unlike [`HostMovementStats`], they are not converted to per-second host
+/// units: the GameClient visual calculation runs at the 30 Hz logic cadence
+/// and applies the authored spring/damping coefficients directly.  Keeping
+/// this as a separate value object lets the eventual per-visible-pass
+/// collector carry exact authored constants without silently treating
+/// movement-unit conversions as visual inputs.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct HostLocomotorVisualPhysics {
+    pub accel_pitch_limit: f32,
+    pub decel_pitch_limit: f32,
+    pub bounce_kick: f32,
+    pub pitch_stiffness: f32,
+    pub roll_stiffness: f32,
+    pub pitch_damping: f32,
+    pub roll_damping: f32,
+    pub pitch_by_z_vel_coef: f32,
+    pub thrust_roll: f32,
+    pub wobble_rate: f32,
+    pub min_wobble: f32,
+    pub max_wobble: f32,
+    pub forward_vel_coef: f32,
+    pub lateral_vel_coef: f32,
+    pub forward_accel_coef: f32,
+    pub lateral_accel_coef: f32,
+    pub uniform_axial_damping: f32,
+    pub has_suspension: bool,
+    pub maximum_wheel_extension: f32,
+    pub maximum_wheel_compression: f32,
+    pub wheel_turn_angle: f32,
+    pub rudder_correction_degree: f32,
+    pub rudder_correction_rate: f32,
+    pub elevator_correction_degree: f32,
+    pub elevator_correction_rate: f32,
+}
+
 /// Complete active-host projection of one exact Locomotor.ini template.
 /// `HostMovementStats` deliberately predates the physics representation and
 /// remains the light-weight spawn API; RiderChange needs this fuller record
@@ -176,6 +214,8 @@ pub struct HostMovementStats {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct HostLocomotorBinding {
     pub movement: HostMovementStats,
+    /// Exact authored inputs for the future GameClient physics-visual pass.
+    pub visual_physics: HostLocomotorVisualPhysics,
     pub max_speed_damaged: f32,
     pub acceleration_damaged: f32,
     pub turn_rate_damaged: f32,
@@ -646,6 +686,33 @@ fn host_locomotor_binding_from_template(t: &LocomotorTemplate) -> Option<HostLoc
     };
     Some(HostLocomotorBinding {
         movement,
+        visual_physics: HostLocomotorVisualPhysics {
+            accel_pitch_limit: t.accel_pitch_limit,
+            decel_pitch_limit: t.decel_pitch_limit,
+            bounce_kick: t.bounce_kick,
+            pitch_stiffness: t.pitch_stiffness,
+            roll_stiffness: t.roll_stiffness,
+            pitch_damping: t.pitch_damping,
+            roll_damping: t.roll_damping,
+            pitch_by_z_vel_coef: t.pitch_by_z_vel_coef,
+            thrust_roll: t.thrust_roll,
+            wobble_rate: t.wobble_rate,
+            min_wobble: t.min_wobble,
+            max_wobble: t.max_wobble,
+            forward_vel_coef: t.forward_vel_coef,
+            lateral_vel_coef: t.lateral_vel_coef,
+            forward_accel_coef: t.forward_accel_coef,
+            lateral_accel_coef: t.lateral_accel_coef,
+            uniform_axial_damping: t.uniform_axial_damping,
+            has_suspension: t.has_suspension,
+            maximum_wheel_extension: t.maximum_wheel_extension,
+            maximum_wheel_compression: t.maximum_wheel_compression,
+            wheel_turn_angle: t.wheel_turn_angle,
+            rudder_correction_degree: t.rudder_correction_degree,
+            rudder_correction_rate: t.rudder_correction_rate,
+            elevator_correction_degree: t.elevator_correction_degree,
+            elevator_correction_rate: t.elevator_correction_rate,
+        },
         max_speed_damaged: if t.max_speed_damaged > 0.0 {
             t.max_speed_damaged * FPS
         } else {
@@ -698,6 +765,7 @@ fn host_locomotor_binding_from_template(t: &LocomotorTemplate) -> Option<HostLoc
 
 fn same_host_locomotor_behavior(left: &HostLocomotorBinding, right: &HostLocomotorBinding) -> bool {
     left.movement == right.movement
+        && left.visual_physics == right.visual_physics
         && left.max_speed_damaged == right.max_speed_damaged
         && left.acceleration_damaged == right.acceleration_damaged
         && left.turn_rate_damaged == right.turn_rate_damaged
@@ -954,6 +1022,83 @@ mod tests {
             .set_locomotor_name(BASIC_HUMAN_LOCOMOTOR);
         let m = t.resolve_movement().expect("locomotor path");
         assert!((m.max_speed - 20.0).abs() < 0.05);
+    }
+
+    #[test]
+    fn host_binding_retains_exact_drawable_visual_locomotor_constants() {
+        let mut properties = HashMap::new();
+        properties.insert("Speed".to_string(), "30".to_string());
+        properties.insert("Surfaces".to_string(), "GROUND".to_string());
+        properties.insert("AccelerationPitchLimit".to_string(), "0.11".to_string());
+        properties.insert("DecelerationPitchLimit".to_string(), "0.22".to_string());
+        properties.insert("BounceAmount".to_string(), "0.33".to_string());
+        properties.insert("PitchStiffness".to_string(), "0.44".to_string());
+        properties.insert("RollStiffness".to_string(), "0.55".to_string());
+        properties.insert("PitchDamping".to_string(), "0.66".to_string());
+        properties.insert("RollDamping".to_string(), "0.77".to_string());
+        properties.insert(
+            "PitchInDirectionOfZVelFactor".to_string(),
+            "0.88".to_string(),
+        );
+        properties.insert("ThrustRoll".to_string(), "0.99".to_string());
+        properties.insert("ThrustWobbleRate".to_string(), "1.11".to_string());
+        properties.insert("ThrustMinWobble".to_string(), "1.22".to_string());
+        properties.insert("ThrustMaxWobble".to_string(), "1.33".to_string());
+        properties.insert("ForwardVelocityPitchFactor".to_string(), "1.44".to_string());
+        properties.insert("LateralVelocityRollFactor".to_string(), "1.55".to_string());
+        properties.insert(
+            "ForwardAccelerationPitchFactor".to_string(),
+            "1.66".to_string(),
+        );
+        properties.insert(
+            "LateralAccelerationRollFactor".to_string(),
+            "1.77".to_string(),
+        );
+        properties.insert("UniformAxialDamping".to_string(), "1.88".to_string());
+        properties.insert("HasSuspension".to_string(), "Yes".to_string());
+        properties.insert("MaximumWheelExtension".to_string(), "-1.99".to_string());
+        properties.insert("MaximumWheelCompression".to_string(), "2.11".to_string());
+        properties.insert("FrontWheelTurnAngle".to_string(), "2.22".to_string());
+        properties.insert("RudderCorrectionDegree".to_string(), "2.33".to_string());
+        properties.insert("RudderCorrectionRate".to_string(), "2.44".to_string());
+        properties.insert("ElevatorCorrectionDegree".to_string(), "2.55".to_string());
+        properties.insert("ElevatorCorrectionRate".to_string(), "2.66".to_string());
+
+        let template = parse_locomotor_template_definition("VisualProbe", &properties)
+            .expect("parse visual locomotor source");
+        let binding =
+            host_locomotor_binding_from_template(&template).expect("visual locomotor binding");
+        let visual = binding.visual_physics;
+
+        assert_eq!(visual.accel_pitch_limit, 0.11);
+        assert_eq!(visual.decel_pitch_limit, 0.22);
+        assert_eq!(visual.bounce_kick, 0.33);
+        assert_eq!(visual.pitch_stiffness, 0.44);
+        assert_eq!(visual.roll_stiffness, 0.55);
+        assert_eq!(visual.pitch_damping, 0.66);
+        assert_eq!(visual.roll_damping, 0.77);
+        assert_eq!(visual.pitch_by_z_vel_coef, 0.88);
+        assert_eq!(visual.thrust_roll, 0.99);
+        assert_eq!(visual.wobble_rate, 1.11);
+        assert_eq!(visual.min_wobble, 1.22);
+        assert_eq!(visual.max_wobble, 1.33);
+        assert_eq!(visual.forward_vel_coef, 1.44);
+        assert_eq!(visual.lateral_vel_coef, 1.55);
+        assert_eq!(visual.forward_accel_coef, 1.66);
+        assert_eq!(visual.lateral_accel_coef, 1.77);
+        assert_eq!(visual.uniform_axial_damping, 1.88);
+        assert!(visual.has_suspension);
+        assert_eq!(visual.maximum_wheel_extension, -1.99);
+        assert_eq!(visual.maximum_wheel_compression, 2.11);
+        assert_eq!(visual.wheel_turn_angle, 2.22);
+        assert_eq!(visual.rudder_correction_degree, 2.33);
+        assert_eq!(visual.rudder_correction_rate, 2.44);
+        assert_eq!(visual.elevator_correction_degree, 2.55);
+        assert_eq!(visual.elevator_correction_rate, 2.66);
+
+        let mut changed = binding;
+        changed.visual_physics.pitch_damping += 1.0;
+        assert!(!same_host_locomotor_behavior(&binding, &changed));
     }
 
     #[test]
