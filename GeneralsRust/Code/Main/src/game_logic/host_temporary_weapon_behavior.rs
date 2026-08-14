@@ -22,6 +22,7 @@ use crate::game_logic::host_enum_table_residual::{
     VETERANCY_LEVEL_COUNT,
 };
 use crate::game_logic::ObjectId;
+use crate::save_load::{SaveLoadError, SaveLoadResult, Xfer, XferData, XferMode};
 use serde::{Deserialize, Serialize};
 
 /// C++ `FireWeaponWhenDamagedBehavior::xfer` version.
@@ -326,6 +327,16 @@ pub struct TemporaryWeaponConstructionDefaults {
     /// C++ template property consulted when firing; construction itself
     /// still initializes `m_leechWeaponRangeActive` to false.
     pub leech_range_weapon: bool,
+    /// C++ `WeaponTemplate::m_clipSize`, retained for the initial
+    /// `FireWeaponWhenDamagedBehavior` `reloadAmmo` call.
+    pub clip_size: u32,
+    /// C++ `WeaponTemplate::getClipReloadTime` in logic frames.  The host
+    /// temporary bridge has no active upgrade-bonus authority yet, so this
+    /// is the authored store value, not a template-name approximation.
+    pub clip_reload_frames: u32,
+    /// Number of authored scatter target entries used to rebuild the C++
+    /// `m_scatterTargetsUnused` index list on reload.
+    pub scatter_target_count: u32,
 }
 
 impl Default for TemporaryWeaponConstructionDefaults {
@@ -336,6 +347,9 @@ impl Default for TemporaryWeaponConstructionDefaults {
             shots_per_barrel: 1,
             suspend_fx_delay: 0,
             leech_range_weapon: false,
+            clip_size: 0,
+            clip_reload_frames: 0,
+            scatter_target_count: 0,
         }
     }
 }
@@ -455,6 +469,151 @@ impl TemporaryWeaponRuntimeState {
         *self = assigned;
     }
 
+    /// Mirror the initial `Weapon::reloadAmmo(source)` performed by
+    /// `FireWeaponWhenDamagedBehavior` after construction.  This is kept
+    /// separate from [`Self::from_cxx_constructor`] because the C++ copy and
+    /// assignment operators deliberately do *not* reload their destination.
+    pub fn reload_ammo_from_cxx(
+        &mut self,
+        defaults: TemporaryWeaponConstructionDefaults,
+        logic_frame: u32,
+    ) {
+        self.ammo_in_clip = if defaults.clip_size == 0 {
+            TEMPORARY_WEAPON_NO_MAX_SHOTS_LIMIT as u32
+        } else {
+            defaults.clip_size
+        };
+        self.status = TemporaryWeaponStatus::ReloadingClip;
+        self.when_last_reload_started = logic_frame;
+        self.when_we_can_fire_again = logic_frame.wrapping_add(defaults.clip_reload_frames);
+        self.scatter_targets_unused = (0..defaults.scatter_target_count)
+            .filter_map(|index| i32::try_from(index).ok())
+            .collect();
+    }
+
+    fn empty_for_key(key: TemporaryWeaponRuntimeKey) -> Self {
+        Self {
+            key,
+            weapon_template_name: String::new(),
+            weapon_slot: TemporaryWeaponSlot::Primary,
+            status: TemporaryWeaponStatus::OutOfAmmo,
+            ammo_in_clip: 0,
+            when_we_can_fire_again: 0,
+            when_pre_attack_finished: 0,
+            when_last_reload_started: 0,
+            last_fire_frame: 0,
+            suspend_fx_frame: 0,
+            projectile_stream_id: crate::game_logic::INVALID_OBJECT_ID,
+            laser_object_id_unused: crate::game_logic::INVALID_OBJECT_ID,
+            max_shot_count: TEMPORARY_WEAPON_NO_MAX_SHOTS_LIMIT,
+            current_barrel: 0,
+            num_shots_for_current_barrel: 0,
+            scatter_targets_unused: Vec::new(),
+            pitch_limited: false,
+            leech_weapon_range_active: false,
+        }
+    }
+
+    /// Wire only the C++ `Weapon::xfer` payload.  The Rust ownership key is
+    /// supplied by the containing behavior's fixed role order and is never
+    /// serialized as an extra C++ Weapon field.
+    fn xfer_payload(&mut self, xfer: &mut dyn Xfer, key: TemporaryWeaponRuntimeKey) -> SaveLoadResult<()> {
+        const CURRENT_VERSION: crate::save_load::XferVersion = TEMPORARY_WEAPON_XFER_VERSION;
+        let mut version = CURRENT_VERSION;
+        xfer.xfer_version(&mut version, CURRENT_VERSION)?;
+
+        if version >= 2 {
+            xfer.xfer_marker_label("WeaponTemplateName")?;
+            self.weapon_template_name.xfer(xfer)?;
+        }
+
+        xfer.xfer_marker_label("WeaponSlot")?;
+        let mut slot = self.weapon_slot as i32;
+        xfer.xfer_i32(&mut slot)?;
+        self.weapon_slot = match slot {
+            0 => TemporaryWeaponSlot::Primary,
+            1 => TemporaryWeaponSlot::Secondary,
+            2 => TemporaryWeaponSlot::Tertiary,
+            3 => TemporaryWeaponSlot::Count,
+            other => {
+                return Err(SaveLoadError::Corrupted(format!(
+                    "Invalid temporary Weapon slot {other}"
+                )))
+            }
+        };
+
+        xfer.xfer_marker_label("WeaponStatus")?;
+        let mut status = self.status as i32;
+        xfer.xfer_i32(&mut status)?;
+        self.status = match status {
+            0 => TemporaryWeaponStatus::ReadyToFire,
+            1 => TemporaryWeaponStatus::OutOfAmmo,
+            2 => TemporaryWeaponStatus::BetweenFiringShots,
+            3 => TemporaryWeaponStatus::ReloadingClip,
+            4 => TemporaryWeaponStatus::PreAttack,
+            5 => TemporaryWeaponStatus::Count,
+            other => {
+                return Err(SaveLoadError::Corrupted(format!(
+                    "Invalid temporary Weapon status {other}"
+                )))
+            }
+        };
+        xfer.xfer_marker_label("AmmoInClip")?;
+        self.ammo_in_clip.xfer(xfer)?;
+        xfer.xfer_marker_label("WhenWeCanFireAgain")?;
+        self.when_we_can_fire_again.xfer(xfer)?;
+        xfer.xfer_marker_label("WhenPreAttackFinished")?;
+        self.when_pre_attack_finished.xfer(xfer)?;
+        xfer.xfer_marker_label("WhenLastReloadStarted")?;
+        self.when_last_reload_started.xfer(xfer)?;
+        xfer.xfer_marker_label("LastFireFrame")?;
+        self.last_fire_frame.xfer(xfer)?;
+        if version >= 3 {
+            xfer.xfer_marker_label("SuspendFxFrame")?;
+            self.suspend_fx_frame.xfer(xfer)?;
+        } else if xfer.get_mode() == XferMode::Load {
+            self.suspend_fx_frame = 0;
+        }
+        xfer.xfer_marker_label("ProjectileStreamId")?;
+        self.projectile_stream_id.xfer(xfer)?;
+        xfer.xfer_marker_label("LaserObjectIdUnused")?;
+        let mut laser_object_id_unused = crate::game_logic::INVALID_OBJECT_ID;
+        laser_object_id_unused.xfer(xfer)?;
+        self.laser_object_id_unused = crate::game_logic::INVALID_OBJECT_ID;
+        xfer.xfer_marker_label("MaxShotCount")?;
+        self.max_shot_count.xfer(xfer)?;
+        xfer.xfer_marker_label("CurrentBarrel")?;
+        self.current_barrel.xfer(xfer)?;
+        xfer.xfer_marker_label("NumShotsForCurrentBarrel")?;
+        self.num_shots_for_current_barrel.xfer(xfer)?;
+        xfer.xfer_marker_label("ScatterTargetsUnused")?;
+        let mut scatter_count = u16::try_from(self.scatter_targets_unused.len()).map_err(|_| {
+            SaveLoadError::Corrupted(
+                "Temporary Weapon scatter target count exceeds C++ UnsignedShort".to_string(),
+            )
+        })?;
+        xfer.xfer_u16(&mut scatter_count)?;
+        if xfer.get_mode() == XferMode::Load {
+            self.scatter_targets_unused.clear();
+            self.scatter_targets_unused.reserve(scatter_count as usize);
+            for _ in 0..scatter_count {
+                let mut target = 0i32;
+                target.xfer(xfer)?;
+                self.scatter_targets_unused.push(target);
+            }
+        } else {
+            for target in &mut self.scatter_targets_unused {
+                target.xfer(xfer)?;
+            }
+        }
+        xfer.xfer_marker_label("PitchLimited")?;
+        self.pitch_limited.xfer(xfer)?;
+        xfer.xfer_marker_label("LeechWeaponRangeActive")?;
+        self.leech_weapon_range_active.xfer(xfer)?;
+        self.key = key;
+        Ok(())
+    }
+
     /// A runtime state must stay paired to its exact allocation spec.  A
     /// future loader uses this to reject mismatched template/role data rather
     /// than silently transferring a cooldown into another temporary weapon.
@@ -465,6 +624,13 @@ impl TemporaryWeaponRuntimeState {
                 .weapon_template_name
                 .eq_ignore_ascii_case(&spec.weapon_template_name)
             && self.weapon_slot == spec.weapon_slot
+    }
+}
+
+impl XferData for TemporaryWeaponRuntimeState {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        let key = self.key;
+        self.xfer_payload(xfer, key)
     }
 }
 
@@ -657,6 +823,268 @@ pub struct FireWeaponWhenDeadEphemeralWeaponSpec {
     pub module_source_index: u32,
     pub weapon_template_name: String,
     pub weapon_slot: TemporaryWeaponSlot,
+}
+
+/// Object-owned temporary-behavior runtime.  The vectors are declaration
+/// ordered, matching C++'s module ownership order; each damaged behavior
+/// retains eight independent PRIMARY `Weapon` payloads and each dead behavior
+/// retains only its `UpgradeMux` bit because its PRIMARY weapon is created,
+/// fired, and deleted inside `onDie`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TemporaryWeaponRuntimeBundle {
+    pub damaged: Vec<FireWeaponWhenDamagedRuntimeState>,
+    pub dead: Vec<FireWeaponWhenDeadRuntimeState>,
+}
+
+impl TemporaryWeaponRuntimeBundle {
+    #[inline]
+    pub fn has_behavior_modules(&self) -> bool {
+        !self.damaged.is_empty() || !self.dead.is_empty()
+    }
+
+    /// Construct the exact inactive runtime records owned by an Object.
+    /// Missing WeaponStore templates fail closed for that individual C++
+    /// pointer, just as `findWeaponTemplate("None")` yields null; no
+    /// template-name or object-kind fallback is permitted here.
+    pub fn from_thing_template(template: &crate::game_logic::ThingTemplate, logic_frame: u32) -> Self {
+        let damaged = template
+            .fire_weapon_when_damaged_behaviors
+            .iter()
+            .map(|metadata| {
+                let mut runtime = FireWeaponWhenDamagedRuntimeState {
+                    module_source_index: metadata.module_source_index,
+                    ..Default::default()
+                };
+                for spec in metadata.runtime_specs() {
+                    let Some((defaults, _template_name)) =
+                        temporary_weapon_defaults_for_name(&spec.weapon_template_name)
+                    else {
+                        continue;
+                    };
+                    let mut state = TemporaryWeaponRuntimeState::from_cxx_constructor(
+                        &spec,
+                        defaults,
+                        logic_frame,
+                    );
+                    state.reload_ammo_from_cxx(defaults, logic_frame);
+                    let _ = runtime.replace_weapon_state(state);
+                }
+                runtime
+            })
+            .collect();
+
+        let dead = template
+            .fire_weapon_when_dead_behaviors
+            .iter()
+            .map(|metadata| FireWeaponWhenDeadRuntimeState {
+                module_source_index: metadata.module_source_index,
+                // C++ `StartsActive = Yes` executes the UpgradeMux on create.
+                upgrade_executed: metadata.starts_active,
+            })
+            .collect();
+
+        Self { damaged, dead }
+    }
+
+    /// Validate a loaded tail against the restored template's source-ordered
+    /// behavior metadata.  This prevents a same-template temporary weapon or
+    /// inherited module from receiving another module's cooldown/barrel state.
+    pub fn matches_thing_template(&self, template: &crate::game_logic::ThingTemplate) -> bool {
+        if self.damaged.len() != template.fire_weapon_when_damaged_behaviors.len()
+            || self.dead.len() != template.fire_weapon_when_dead_behaviors.len()
+        {
+            return false;
+        }
+
+        self.damaged
+            .iter()
+            .zip(&template.fire_weapon_when_damaged_behaviors)
+            .all(|(runtime, metadata)| {
+                runtime.belongs_to_metadata(metadata)
+                    && FireWeaponWhenDamagedWeaponRole::XFER_ORDER
+                        .into_iter()
+                        .enumerate()
+                        .all(|(index, role)| {
+                            runtime.weapons[index].as_ref().is_none_or(|state| {
+                                state.matches_spec(&TemporaryWeaponRuntimeSpec {
+                                    key: TemporaryWeaponRuntimeKey {
+                                        module_source_index: metadata.module_source_index,
+                                        role,
+                                    },
+                                    weapon_template_name: metadata
+                                        .weapon_template_name(role)
+                                        .unwrap_or_default()
+                                        .to_string(),
+                                    weapon_slot: TemporaryWeaponSlot::Primary,
+                                })
+                            })
+                        })
+            })
+            && self
+                .dead
+                .iter()
+                .zip(&template.fire_weapon_when_dead_behaviors)
+                .all(|(runtime, metadata)| runtime.belongs_to_metadata(metadata))
+    }
+}
+
+impl XferData for FireWeaponWhenDamagedRuntimeState {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        const CURRENT_VERSION: crate::save_load::XferVersion =
+            FIRE_WEAPON_WHEN_DAMAGED_XFER_VERSION;
+        let mut version = CURRENT_VERSION;
+        xfer.xfer_version(&mut version, CURRENT_VERSION)?;
+        if version == 0 {
+            return Err(SaveLoadError::Corrupted(
+                "Invalid FireWeaponWhenDamagedBehavior Xfer version 0".to_string(),
+            ));
+        }
+
+        // `module_source_index` is a Rust-side source identity envelope.  It
+        // is outside the C++ behavior body, whose fixed declaration order is
+        // represented by the surrounding bundle/vector.
+        xfer.xfer_marker_label("ModuleSourceIndex")?;
+        self.module_source_index.xfer(xfer)?;
+        xfer.xfer_marker_label("NextCallFrameAndPhase")?;
+        self.next_call_frame_and_phase.xfer(xfer)?;
+        xfer.xfer_marker_label("UpgradeExecuted")?;
+        self.upgrade_executed.xfer(xfer)?;
+
+        for role in FireWeaponWhenDamagedWeaponRole::XFER_ORDER {
+            let index = role.index();
+            xfer.xfer_marker_label("WeaponPresent")?;
+            let mut present = self.weapons[index].is_some();
+            xfer.xfer_bool(&mut present)?;
+            if present {
+                if self.weapons[index].is_none() {
+                    self.weapons[index] = Some(TemporaryWeaponRuntimeState::empty_for_key(
+                        TemporaryWeaponRuntimeKey {
+                            module_source_index: self.module_source_index,
+                            role,
+                        },
+                    ));
+                }
+                self.weapons[index]
+                    .as_mut()
+                    .expect("present temporary Weapon state")
+                    .xfer_payload(
+                        xfer,
+                        TemporaryWeaponRuntimeKey {
+                            module_source_index: self.module_source_index,
+                            role,
+                        },
+                    )?;
+            } else if xfer.get_mode() == XferMode::Load {
+                self.weapons[index] = None;
+            }
+        }
+        Ok(())
+    }
+}
+
+impl XferData for FireWeaponWhenDeadRuntimeState {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        const CURRENT_VERSION: crate::save_load::XferVersion = FIRE_WEAPON_WHEN_DEAD_XFER_VERSION;
+        let mut version = CURRENT_VERSION;
+        xfer.xfer_version(&mut version, CURRENT_VERSION)?;
+        if version == 0 {
+            return Err(SaveLoadError::Corrupted(
+                "Invalid FireWeaponWhenDeadBehavior Xfer version 0".to_string(),
+            ));
+        }
+        xfer.xfer_marker_label("ModuleSourceIndex")?;
+        self.module_source_index.xfer(xfer)?;
+        xfer.xfer_marker_label("UpgradeExecuted")?;
+        self.upgrade_executed.xfer(xfer)?;
+        Ok(())
+    }
+}
+
+impl XferData for TemporaryWeaponRuntimeBundle {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        const CURRENT_VERSION: crate::save_load::XferVersion = 1;
+        let mut version = CURRENT_VERSION;
+        xfer.xfer_version(&mut version, CURRENT_VERSION)?;
+        if version == 0 {
+            return Err(SaveLoadError::Corrupted(
+                "Invalid temporary Weapon runtime bundle Xfer version 0".to_string(),
+            ));
+        }
+
+        xfer.xfer_marker_label("DamagedBehaviorCount")?;
+        let mut damaged_count = u32::try_from(self.damaged.len()).map_err(|_| {
+            SaveLoadError::Corrupted("Temporary damaged behavior count overflow".to_string())
+        })?;
+        xfer.xfer_u32(&mut damaged_count)?;
+        if xfer.get_mode() == XferMode::Load {
+            if damaged_count > 4096 {
+                return Err(SaveLoadError::Corrupted(
+                    "Temporary damaged behavior count is unreasonable".to_string(),
+                ));
+            }
+            self.damaged.clear();
+            self.damaged.reserve(damaged_count as usize);
+            for _ in 0..damaged_count {
+                let mut state = FireWeaponWhenDamagedRuntimeState::default();
+                state.xfer(xfer)?;
+                self.damaged.push(state);
+            }
+        } else {
+            for state in &mut self.damaged {
+                state.xfer(xfer)?;
+            }
+        }
+
+        xfer.xfer_marker_label("DeadBehaviorCount")?;
+        let mut dead_count = u32::try_from(self.dead.len()).map_err(|_| {
+            SaveLoadError::Corrupted("Temporary dead behavior count overflow".to_string())
+        })?;
+        xfer.xfer_u32(&mut dead_count)?;
+        if xfer.get_mode() == XferMode::Load {
+            if dead_count > 4096 {
+                return Err(SaveLoadError::Corrupted(
+                    "Temporary dead behavior count is unreasonable".to_string(),
+                ));
+            }
+            self.dead.clear();
+            self.dead.reserve(dead_count as usize);
+            for _ in 0..dead_count {
+                let mut state = FireWeaponWhenDeadRuntimeState::default();
+                state.xfer(xfer)?;
+                self.dead.push(state);
+            }
+        } else {
+            for state in &mut self.dead {
+                state.xfer(xfer)?;
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Resolve authored construction fields from the authoritative GameLogic
+/// WeaponStore.  The returned name is only a diagnostic identity; all fields
+/// used by construction/reload come from the store record itself.
+fn temporary_weapon_defaults_for_name(
+    name: &str,
+) -> Option<(TemporaryWeaponConstructionDefaults, String)> {
+    let template = gamelogic::weapon::with_weapon_store(|store| {
+        store.find_weapon_template(name).cloned()
+    })
+    .ok()??;
+    Some((
+        TemporaryWeaponConstructionDefaults {
+            min_target_pitch: template.min_target_pitch,
+            max_target_pitch: template.max_target_pitch,
+            shots_per_barrel: template.shots_per_barrel,
+            suspend_fx_delay: template.suspend_fx_delay,
+            leech_range_weapon: template.leech_range_weapon,
+            clip_size: template.clip_size.max(0) as u32,
+            clip_reload_frames: template.clip_reload_time.max(0) as u32,
+            scatter_target_count: template.scatter_targets.len() as u32,
+        },
+        template.name.clone(),
+    ))
 }
 
 fn source_tokens(value: &str) -> impl Iterator<Item = &str> {
@@ -1318,6 +1746,9 @@ mod tests {
             shots_per_barrel: 3,
             suspend_fx_delay: 4,
             leech_range_weapon: true,
+            clip_size: 6,
+            clip_reload_frames: 7,
+            scatter_target_count: 2,
         };
         let destination_defaults = TemporaryWeaponConstructionDefaults {
             min_target_pitch: -std::f32::consts::PI,
@@ -1325,6 +1756,9 @@ mod tests {
             shots_per_barrel: 7,
             suspend_fx_delay: 100,
             leech_range_weapon: true,
+            clip_size: 0,
+            clip_reload_frames: 11,
+            scatter_target_count: 0,
         };
 
         let mut source = TemporaryWeaponRuntimeState::from_cxx_constructor(

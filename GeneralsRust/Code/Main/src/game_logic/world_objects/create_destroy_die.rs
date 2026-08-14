@@ -380,7 +380,7 @@ impl GameLogic {
             // Sentry residual: detect explicit template primary before move.
             let sentry_had_explicit_primary =
                 template.primary_weapon.is_some() || template.primary_weapon_name.is_some();
-            let mut object = Object::new(template, id, team);
+            let mut object = Object::new_with_logic_frame(template, id, team, self.frame);
             object.owner_player_id = owner_player_id;
             object.set_position(position);
             if crate::gameworld_shadow::gameworld_movement_authority_live() {

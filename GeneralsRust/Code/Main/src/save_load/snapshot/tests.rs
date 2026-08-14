@@ -2409,6 +2409,107 @@ fn direct_xfer_v7_round_trips_weapon_suspend_fx_tail_and_keeps_alignment() {
     assert_eq!(sentinel, 0xE9FA_0B1C);
 }
 
+/// V8 appends the source-keyed temporary Weapon behavior bundle after the v7
+/// suspend-FX tail.  Its damaged roles are independent PRIMARY allocations;
+/// the following player record proves the new tail consumes exactly its own
+/// bytes and does not steal the next direct-Xfer record.
+#[test]
+fn direct_xfer_v8_round_trips_temporary_weapon_tail_and_keeps_alignment() {
+    use super::xfer_helpers::{default_object_snapshot, default_player_snapshot};
+    use crate::game_logic::host_temporary_weapon_behavior::{
+        FireWeaponWhenDamagedRuntimeState, FireWeaponWhenDamagedWeaponRole,
+        FireWeaponWhenDeadRuntimeState, TemporaryWeaponConstructionDefaults,
+        TemporaryWeaponRuntimeBundle, TemporaryWeaponRuntimeKey, TemporaryWeaponRuntimeSpec,
+        TemporaryWeaponRuntimeState, TemporaryWeaponSlot,
+    };
+    use crate::save_load::{Xfer, XferLoad, XferSave};
+    use std::io::Cursor;
+
+    let object_id = ObjectId(99);
+    let key = TemporaryWeaponRuntimeKey {
+        module_source_index: 41,
+        role: FireWeaponWhenDamagedWeaponRole::ReactionDamaged,
+    };
+    let spec = TemporaryWeaponRuntimeSpec {
+        key,
+        weapon_template_name: "V8TemporaryReactionWeapon".to_string(),
+        weapon_slot: TemporaryWeaponSlot::Primary,
+    };
+    let mut weapon = TemporaryWeaponRuntimeState::from_cxx_constructor(
+        &spec,
+        TemporaryWeaponConstructionDefaults {
+            clip_size: 6,
+            clip_reload_frames: 17,
+            scatter_target_count: 2,
+            ..Default::default()
+        },
+        1234,
+    );
+    weapon.reload_ammo_from_cxx(
+        TemporaryWeaponConstructionDefaults {
+            clip_size: 6,
+            clip_reload_frames: 17,
+            scatter_target_count: 2,
+            ..Default::default()
+        },
+        1234,
+    );
+    weapon.last_fire_frame = 1250;
+    weapon.current_barrel = 2;
+    weapon.suspend_fx_frame = 1300;
+
+    let mut damaged = FireWeaponWhenDamagedRuntimeState {
+        module_source_index: key.module_source_index,
+        ..Default::default()
+    };
+    assert!(damaged.replace_weapon_state(weapon));
+    let runtime = TemporaryWeaponRuntimeBundle {
+        damaged: vec![damaged],
+        dead: vec![FireWeaponWhenDeadRuntimeState {
+            module_source_index: 42,
+            upgrade_executed: true,
+        }],
+    };
+
+    let mut world = WorldSnapshot::default();
+    world.version = WORLD_SNAPSHOT_DIRECT_XFER_V8_TAIL_VERSION;
+    let mut object = default_object_snapshot();
+    object.id = object_id;
+    object.temporary_weapon_runtime = Some(runtime.clone());
+    world.objects.insert(object_id, object);
+    let mut player = default_player_snapshot();
+    player.id = 22;
+    player.name = "V8PostTemporaryWeaponAlignment".to_string();
+    world.players.push(player);
+
+    let mut bytes = Cursor::new(Vec::new());
+    {
+        let mut writer = XferSave::new(&mut bytes);
+        world.xfer(&mut writer).expect("write direct v8 world");
+        let mut sentinel = 0xABCD_0123_u32;
+        writer.xfer_u32(&mut sentinel).expect("write sentinel");
+    }
+
+    let mut restored = WorldSnapshot::default();
+    let mut sentinel = 0u32;
+    {
+        let mut reader = XferLoad::new(Cursor::new(bytes.into_inner()));
+        restored.xfer(&mut reader).expect("read direct v8 world");
+        reader.xfer_u32(&mut sentinel).expect("read sentinel");
+    }
+
+    assert_eq!(
+        restored
+            .objects
+            .get(&object_id)
+            .expect("restored v8 object")
+            .temporary_weapon_runtime,
+        Some(runtime)
+    );
+    assert_eq!(restored.players[0].name, "V8PostTemporaryWeaponAlignment");
+    assert_eq!(sentinel, 0xABCD_0123);
+}
+
 /// A direct v6 stream has no v7 parallel tail.  The current reader must clear
 /// any pre-seeded value and leave the trailing sentinel aligned.
 #[test]

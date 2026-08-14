@@ -1142,6 +1142,13 @@ pub struct Object {
     #[serde(default)]
     pub fire_weapon_when_damaged:
         Option<crate::game_logic::host_fire_weapon_when_damaged::HostFireWeaponWhenDamagedData>,
+    /// Object-owned source-keyed C++ temporary Weapon allocations for the
+    /// parsed FireWeaponWhenDamaged/Dead behavior modules.  This bundle is
+    /// state ownership only; live damage/death execution remains explicitly
+    /// gated until its behavior callbacks and visual source are complete.
+    #[serde(default)]
+    pub temporary_weapon_runtime:
+        crate::game_logic::host_temporary_weapon_behavior::TemporaryWeaponRuntimeBundle,
     /// Pending reaction weapon name from last onDamage residual (drained by GameLogic).
     #[serde(default)]
     pub pending_fire_when_damaged_weapon: Option<String>,

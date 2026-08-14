@@ -121,6 +121,14 @@ pub struct ObjectSnapshot {
     /// malformed entries restore as the fail-closed zero sentinel.
     #[serde(default)]
     pub weapon_suspend_fx_frames: Vec<u32>,
+
+    /// v8 source-keyed C++ FireWeaponWhenDamaged/Dead behavior runtime.
+    /// This tail is deliberately separate from ordinary WeaponSet slots:
+    /// every damaged role owns an independent PRIMARY Weapon allocation.
+    #[serde(default)]
+    pub temporary_weapon_runtime: Option<
+        crate::game_logic::host_temporary_weapon_behavior::TemporaryWeaponRuntimeBundle,
+    >,
 }
 
 /// Object status snapshot
@@ -551,6 +559,17 @@ impl ObjectSnapshot {
             xfer.xfer_vec_u32(&mut self.weapon_suspend_fx_frames)?;
         } else if xfer.get_mode() == XferMode::Load {
             self.weapon_suspend_fx_frames.clear();
+        }
+
+        if world_version >= WORLD_SNAPSHOT_DIRECT_XFER_V8_TAIL_VERSION {
+            xfer.xfer_marker_label("TemporaryWeaponRuntime")?;
+            xfer_option(
+                xfer,
+                &mut self.temporary_weapon_runtime,
+                crate::game_logic::host_temporary_weapon_behavior::TemporaryWeaponRuntimeBundle::default(),
+            )?;
+        } else if xfer.get_mode() == XferMode::Load {
+            self.temporary_weapon_runtime = None;
         }
 
         Ok(())

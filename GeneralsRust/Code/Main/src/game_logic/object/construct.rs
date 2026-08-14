@@ -2,9 +2,24 @@ use super::*;
 
 impl Object {
     pub fn new(template: ThingTemplate, id: ObjectId, team: Team) -> Self {
+        Self::new_with_logic_frame(template, id, team, 0)
+    }
+
+    /// Construct an Object with the authoritative logic frame used by C++
+    /// `Weapon::Weapon` when it schedules each temporary weapon's
+    /// `SuspendFXFrame`.  The legacy constructor remains frame-zero for
+    /// command/test callers that do not own a GameLogic clock.
+    pub fn new_with_logic_frame(
+        template: ThingTemplate,
+        id: ObjectId,
+        team: Team,
+        logic_frame: u32,
+    ) -> Self {
         let max_health = template.max_health;
         let position = Vec3::ZERO; // Default position
         let template_name = template.name.clone();
+        let temporary_weapon_runtime = crate::game_logic::host_temporary_weapon_behavior::
+            TemporaryWeaponRuntimeBundle::from_thing_template(&template, logic_frame);
         // A normal player Enter requires a real Contain module.  Capture its
         // authored capacity before the template moves into `Thing`; do not
         // synthesize slots from the vehicle's footprint or selection radius.
@@ -151,6 +166,7 @@ impl Object {
             defection_helper: None,
             fire_weapon_power: None,
             fire_weapon_when_damaged: None,
+            temporary_weapon_runtime,
             pending_fire_when_damaged_weapon: None,
             transition_damage_fx: None,
             pending_transition_damage_fx: Vec::new(),
@@ -717,6 +733,8 @@ impl Object {
     pub fn new_simple(id: ObjectId, object_type: ObjectType, template_name: String) -> Self {
         let template = ThingTemplate::new(&template_name);
         let team = Team::Neutral;
+        let temporary_weapon_runtime = crate::game_logic::host_temporary_weapon_behavior::
+            TemporaryWeaponRuntimeBundle::from_thing_template(&template, 0);
         let selection_radius = match object_type {
             ObjectType::Infantry => 8.0,
             ObjectType::Vehicle => 15.0,
@@ -791,6 +809,7 @@ impl Object {
             defection_helper: None,
             fire_weapon_power: None,
             fire_weapon_when_damaged: None,
+            temporary_weapon_runtime,
             pending_fire_when_damaged_weapon: None,
             transition_damage_fx: None,
             pending_transition_damage_fx: Vec::new(),
