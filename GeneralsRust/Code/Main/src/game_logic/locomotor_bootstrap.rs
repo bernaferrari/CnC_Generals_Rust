@@ -1111,7 +1111,10 @@ mod tests {
             locomotor_name_for_unit("USA_Humvee"),
             Some(HUMVEE_LOCOMOTOR)
         );
-        assert_eq!(locomotor_name_for_unit("USA_Dozer"), None);
+        assert_eq!(
+            locomotor_name_for_unit("USA_Dozer"),
+            Some(AMERICA_DOZER_LOCOMOTOR)
+        );
         assert_eq!(
             locomotor_name_for_unit("China_Soldier"),
             Some(REDGUARD_LOCOMOTOR)
