@@ -1491,6 +1491,10 @@ fn ensure_upgrade_test_templates(logic: &mut GameLogic) {
             .add_kind_of(KindOf::Attackable)
             .set_health(80.0)
             .set_cost(100, 0);
+        // Model the explicit Object INI capture SpecialAbility; capture is
+        // data-driven and must not depend on the fixture name.
+        t.capture_power = crate::game_logic::CapturePowerKind::Ranger;
+        t.capture_start_ability_range = Some(5.0);
         logic.templates.insert("TestInfantry".to_string(), t);
     }
     if !logic.templates.contains_key("TestBuilding") {
@@ -1628,7 +1632,18 @@ fn host_upgrade_capture_mid_flight_save_load_completes_unlock() {
         "must still be mid-research after load"
     );
 
-    // Complete research after load.
+    // C++ Upgrade.ini BuildTime=30s is 900 logic frames at 30 FPS.  A single
+    // update must preserve the pending queue, not unlock it early.
+    for _ in 0..899 {
+        restored.update();
+    }
+    assert!(
+        !restored
+            .get_player(0)
+            .unwrap()
+            .has_unlocked_upgrade(UPGRADE_INFANTRY_CAPTURE),
+        "capture must remain locked before the authored 30-second duration"
+    );
     restored.update();
 
     assert!(
@@ -1654,6 +1669,16 @@ fn host_upgrade_capture_mid_flight_save_load_completes_unlock() {
             .honesty_host_path_ok(HostUpgradeKind::CaptureBuilding),
         "host path honesty for Capture after load"
     );
+    // The 900-frame research interval intentionally advances the simulation
+    // far beyond the original test's one-frame window.  Re-establish the
+    // authored in-range capture setup before testing the now-unlocked ability;
+    // this keeps the assertion about snapshot/research state independent of
+    // autonomous movement during the elapsed research time.
+    if let Some(captor) = restored.host_object_mut(captor_id) {
+        captor.set_position(Vec3::ZERO);
+        captor.target = None;
+        captor.set_ai_state(AIState::Idle);
+    }
     let captor = restored
         .host_object(captor_id)
         .expect("captor after complete");
@@ -1746,7 +1771,9 @@ fn save_file_roundtrip_preserves_pending_host_upgrade() {
     assert!(loaded
         .host_upgrades()
         .honesty_queue_ok(HostUpgradeKind::CaptureBuilding));
-    loaded.update();
+    for _ in 0..900 {
+        loaded.update();
+    }
     assert!(
         loaded
             .get_player(0)
