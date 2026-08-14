@@ -152,6 +152,7 @@ impl ForwardPass {
             camera: CameraClass::new(),
             device,
             queue,
+            projected_shroud_uploader: crate::graphics::ProjectedShroudGpuUploader::default(),
             laser_vertex_buffer: None,
             laser_vertex_capacity: 0,
             laser_vertices_uploaded: 0,
@@ -483,6 +484,7 @@ impl ForwardPass {
         projection_matrix: &Mat4,
         camera_position: Vec3,
         lighting: Option<&CachedLighting>,
+        projected_shroud: Option<&crate::fow_rendering::ProjectedShroudSnapshot>,
     ) -> Result<()> {
         // Check if renderer is ready before attempting to render
         // This prevents crashes when engine is shutting down or not initialized
@@ -499,6 +501,26 @@ impl ForwardPass {
         if fp_frame < 5 {
             info!("ForwardPass::render #{} begin_frame_start", fp_frame);
         }
+
+        // Freeze GPU resource state before the renderer frame. An absent or
+        // inactive presentation snapshot explicitly releases stale map data.
+        let inactive_projected_shroud;
+        let projected_shroud = match projected_shroud {
+            Some(snapshot) => snapshot,
+            None => {
+                inactive_projected_shroud =
+                    crate::fow_rendering::ProjectedShroudSnapshot::inactive();
+                &inactive_projected_shroud
+            }
+        };
+        self.projected_shroud_uploader.sync(
+            self.device.as_ref(),
+            self.queue.as_ref(),
+            projected_shroud,
+        );
+        let projected_shroud_binding = self
+            .projected_shroud_uploader
+            .renderer_binding(projected_shroud);
 
         // Begin frame - initialize render state
         self.renderer
@@ -540,6 +562,7 @@ impl ForwardPass {
             self.camera.set_position(camera_position);
             renderer.set_camera(self.camera.clone());
             renderer.set_light_environment(Self::build_light_environment(lighting));
+            renderer.set_projected_shroud(projected_shroud_binding);
             Self::log_visibility_probe(
                 render_items,
                 view_matrix,
@@ -895,6 +918,7 @@ impl ForwardPass {
             frozen_fow.visibility_falloff,
             frozen_fow.is_explored,
         ));
+        mesh.set_projected_shroud_eligible(item.pushes_projected_shroud_pass());
         mesh.set_presentation_opacity(item.presentation_opacity);
         mesh.alpha_override = item.fow_visibility.visibility_alpha;
         mesh.is_hidden = item.fow_visibility.visibility_alpha <= 0.01;

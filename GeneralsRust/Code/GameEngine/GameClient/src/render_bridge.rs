@@ -25,6 +25,9 @@ use std::sync::Arc;
 
 use crate::drawable::drawable_draw_pipeline::{with_drawable_pipeline, MeshVertex};
 use gamelogic::helpers::{ModelDrawSourceIdentity, ModelDrawWeaponBoneBindings};
+use gamelogic::object::w3d_ghost_object::{
+    FrozenW3DGhostSceneEvent, FrozenW3DGhostSnapshot, W3DGhostSceneId, W3DGhostSnapshotKey,
+};
 use ww3d_assets::prototypes::MeshPrototype;
 use ww3d_assets::AssetManager;
 use ww3d_core::animation::{AnimationController, AnimationMode, Hierarchy, Pivot};
@@ -474,6 +477,14 @@ pub struct DrainedDrawSubmission {
     pub model_resolution: Option<ModelResolution>,
 }
 
+/// Immutable, fully-owned W3D ghost scene at one Main render boundary.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FrozenGhostSceneFrame {
+    pub revision: u64,
+    pub snapshots: Vec<FrozenW3DGhostSnapshot>,
+    pub hidden_parent_object_ids: Vec<u32>,
+}
+
 pub struct RenderBridge {
     scene: Scene,
     pending: Vec<DrawSubmission>,
@@ -489,6 +500,9 @@ pub struct RenderBridge {
     last_frame_objects: Vec<RenderObjectStateSummary>,
     render_info: RenderInfo,
     elapsed_time: f32,
+    ghost_scene_revision: u64,
+    ghost_snapshots: HashMap<W3DGhostSnapshotKey, FrozenW3DGhostSnapshot>,
+    ghost_hidden_parents: HashMap<W3DGhostSceneId, u32>,
 }
 
 struct SceneLineEntry {
@@ -521,6 +535,9 @@ impl RenderBridge {
             last_frame_objects: Vec::new(),
             render_info: RenderInfo::new(),
             elapsed_time: 0.0,
+            ghost_scene_revision: 0,
+            ghost_snapshots: HashMap::new(),
+            ghost_hidden_parents: HashMap::new(),
         }
     }
 
@@ -549,6 +566,63 @@ impl RenderBridge {
 
     pub fn submit_projectile_stream(&mut self, submission: ProjectileStreamSubmission) {
         self.pending_projectile_streams.push(submission);
+    }
+
+    /// Apply logic-owned scene mutations without translating them into normal
+    /// DrawSubmissions. Ghosts retain their own identity and fog-light route.
+    pub fn apply_ghost_scene_events(
+        &mut self,
+        events: impl IntoIterator<Item = FrozenW3DGhostSceneEvent>,
+    ) {
+        let mut changed = false;
+        for event in events {
+            changed = true;
+            match event {
+                FrozenW3DGhostSceneEvent::RemoveParentObject {
+                    ghost_id,
+                    parent_object_id,
+                } => {
+                    self.ghost_hidden_parents.insert(ghost_id, parent_object_id);
+                }
+                FrozenW3DGhostSceneEvent::RestoreParentObject { ghost_id, .. } => {
+                    self.ghost_hidden_parents.remove(&ghost_id);
+                }
+                FrozenW3DGhostSceneEvent::UpsertSnapshot(snapshot) => {
+                    self.ghost_snapshots.insert(snapshot.key, snapshot);
+                }
+                FrozenW3DGhostSceneEvent::RemoveSnapshot(key) => {
+                    self.ghost_snapshots.remove(&key);
+                }
+            }
+        }
+        if changed {
+            self.ghost_scene_revision = self.ghost_scene_revision.wrapping_add(1);
+        }
+    }
+
+    /// Freeze the active ghost scene. Sorting makes the handoff deterministic
+    /// even though the bridge uses hash tables for event application.
+    pub fn freeze_ghost_scene(&self) -> FrozenGhostSceneFrame {
+        let mut snapshots = self.ghost_snapshots.values().cloned().collect::<Vec<_>>();
+        snapshots.sort_by_key(|snapshot| {
+            (
+                snapshot.key.ghost_id,
+                snapshot.key.player_index,
+                snapshot.key.snapshot_index,
+            )
+        });
+        let mut hidden_parent_object_ids = self
+            .ghost_hidden_parents
+            .values()
+            .copied()
+            .collect::<Vec<_>>();
+        hidden_parent_object_ids.sort_unstable();
+        hidden_parent_object_ids.dedup();
+        FrozenGhostSceneFrame {
+            revision: self.ghost_scene_revision,
+            snapshots,
+            hidden_parent_object_ids,
+        }
     }
 
     pub fn drain_projectile_stream_submissions(&mut self) -> Vec<ProjectileStreamSubmission> {
@@ -2193,6 +2267,71 @@ mod tests {
         assert!((converted.x - 1.0).abs() < f32::EPSILON);
         assert!((converted.y - 2.0).abs() < f32::EPSILON);
         assert!((converted.z - 3.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn ghost_scene_freeze_is_owned_stable_and_event_driven() {
+        use gamelogic::object::w3d_ghost_object::{
+            Matrix3x4, ParentGeometrySnapshot, RenderObjectClass, RenderObjectState,
+            W3DDrawableInfo, W3DRenderObjectSnapshot,
+        };
+
+        let key = W3DGhostSnapshotKey {
+            ghost_id: 9,
+            player_index: 0,
+            snapshot_index: 0,
+        };
+        let snapshot = FrozenW3DGhostSnapshot {
+            key,
+            parent_object_id: Some(77),
+            drawable_info: W3DDrawableInfo {
+                drawable_id: 0,
+                flags: 0x20,
+                shroud_status_object_id: 77,
+            },
+            parent_geometry: Some(ParentGeometrySnapshot {
+                geometry_type: 2,
+                is_small: false,
+                major_radius: 4.0,
+                minor_radius: 3.0,
+                position: [1.0, 2.0, 3.0],
+                angle: 0.5,
+            }),
+            render_object: W3DRenderObjectSnapshot::new(RenderObjectState {
+                name: "Tank".to_string(),
+                scale: 1.25,
+                color: 0xff00ff00,
+                transform: Matrix3x4::IDENTITY,
+                sub_objects: Vec::new(),
+                class_id: RenderObjectClass::HLod,
+            }),
+        };
+
+        let mut bridge = RenderBridge::new();
+        bridge.apply_ghost_scene_events([
+            FrozenW3DGhostSceneEvent::RemoveParentObject {
+                ghost_id: 9,
+                parent_object_id: 77,
+            },
+            FrozenW3DGhostSceneEvent::UpsertSnapshot(snapshot.clone()),
+        ]);
+        let frozen = bridge.freeze_ghost_scene();
+        assert_eq!(frozen.revision, 1);
+        assert_eq!(frozen.snapshots, vec![snapshot]);
+        assert_eq!(frozen.hidden_parent_object_ids, vec![77]);
+
+        bridge.apply_ghost_scene_events([
+            FrozenW3DGhostSceneEvent::RemoveSnapshot(key),
+            FrozenW3DGhostSceneEvent::RestoreParentObject {
+                ghost_id: 9,
+                parent_object_id: 77,
+            },
+        ]);
+        let removed = bridge.freeze_ghost_scene();
+        assert_eq!(removed.revision, 2);
+        assert!(removed.snapshots.is_empty());
+        assert!(removed.hidden_parent_object_ids.is_empty());
+        assert_eq!(frozen.snapshots[0].render_object.render_object.name, "Tank");
     }
 
     #[test]

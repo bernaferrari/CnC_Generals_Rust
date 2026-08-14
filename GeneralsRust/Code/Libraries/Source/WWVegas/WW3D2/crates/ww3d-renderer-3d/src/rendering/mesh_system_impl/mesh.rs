@@ -38,6 +38,7 @@ impl MeshClass {
             material_pass_alpha_override: 1.0,
             material_pass_emissive_override: 1.0,
             frozen_fow_visibility: FrozenFowVisibility::default(),
+            projected_shroud_eligible: false,
             lighting_environment: None,
             decal_meshes: Vec::new(),
             base_vertex_offset: 0,
@@ -120,6 +121,20 @@ impl MeshClass {
     #[inline]
     pub fn frozen_fow_visibility(&self) -> FrozenFowVisibility {
         self.frozen_fow_visibility
+    }
+
+    /// Install the exact frozen scene decision for the projected additional
+    /// pass. This must never be derived from `FrozenFowVisibility`.
+    pub fn set_projected_shroud_eligible(&mut self, eligible: bool) {
+        self.projected_shroud_eligible = eligible;
+        for decal_mesh in &mut self.decal_meshes {
+            Arc::make_mut(decal_mesh).set_projected_shroud_eligible(eligible);
+        }
+    }
+
+    #[inline]
+    pub fn projected_shroud_eligible(&self) -> bool {
+        self.projected_shroud_eligible
     }
 
     /// Install per-vertex bone links on the underlying model geometry.
@@ -949,6 +964,7 @@ impl MeshClass {
         new_mesh.material_pass_alpha_override = self.material_pass_alpha_override;
         new_mesh.material_pass_emissive_override = self.material_pass_emissive_override;
         new_mesh.frozen_fow_visibility = self.frozen_fow_visibility;
+        new_mesh.projected_shroud_eligible = self.projected_shroud_eligible;
         new_mesh.collision_type = self.collision_type;
         new_mesh.w3d_attributes = self.w3d_attributes;
         new_mesh.is_decal_instance = self.is_decal_instance;
@@ -1073,6 +1089,7 @@ impl MeshClass {
             decal_mesh.material_pass_alpha_override = 1.0;
             decal_mesh.material_pass_emissive_override = 1.0;
             decal_mesh.frozen_fow_visibility = self.frozen_fow_visibility;
+            decal_mesh.projected_shroud_eligible = self.projected_shroud_eligible;
             decal_mesh.is_decal_instance = true;
 
             let bounding_box = AABoxClass::from_min_max(min, max);

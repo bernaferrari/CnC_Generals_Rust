@@ -128,9 +128,9 @@ impl EnergyObjectLookup for GameLogicEnergyLookup {
         // Wave 344: dual_world_registry_unavailable is not an early skip;
         // try OBJECT_REGISTRY then GameLogic.objects, else 0.
         let object_id = obj.value() as ObjectID;
-        if let Some(value) = OBJECT_REGISTRY.with_object(object_id, |guard| {
-            guard.get_template().get_energy_bonus()
-        }) {
+        if let Some(value) =
+            OBJECT_REGISTRY.with_object(object_id, |guard| guard.get_template().get_energy_bonus())
+        {
             return value;
         }
         get_game_logic()
@@ -247,6 +247,9 @@ fn install_save_game_counter_integration() {
     register_save_lock_ghost_objects_hook(Some(Arc::new(|enable| {
         if let Ok(mut manager) = THE_GHOST_OBJECT_MANAGER.write() {
             manager.save_lock_ghost_objects(enable);
+        }
+        if let Ok(mut manager) = crate::object::THE_W3D_GHOST_OBJECT_MANAGER.write() {
+            manager.set_save_lock_ghost_objects(enable);
         }
     })));
 

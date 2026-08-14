@@ -749,6 +749,24 @@ impl Renderer {
         self.light_environment = environment;
     }
 
+    /// Replace the projected-shroud resource for the current frozen
+    /// presentation frame. `None` explicitly releases an earlier map's
+    /// binding before any mesh draw can observe it.
+    pub fn set_projected_shroud(
+        &mut self,
+        projected_shroud: Option<rendering::projected_shroud::FrozenProjectedShroudTexture>,
+    ) {
+        self.mesh_render_manager
+            .set_projected_shroud(projected_shroud);
+    }
+
+    #[inline]
+    pub fn projected_shroud_projection(
+        &self,
+    ) -> Option<rendering::projected_shroud::ProjectedShroudProjection> {
+        self.mesh_render_manager.projected_shroud_projection()
+    }
+
     /// Add a decal mesh to the render list
     /// Equivalent to C++ Add_To_Render_List for decals
     pub fn add_decal_mesh_to_render_list(

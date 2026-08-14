@@ -630,6 +630,10 @@ pub struct RenderPipeline {
         (u32, u32),
         crate::save_load::snapshot::ClientDrawableStateSnapshot,
     >,
+    /// Exact active W3D ghost scene frozen at the latest GameClient bridge
+    /// boundary. It is not a normal Drawable/FOW-alpha stream.
+    #[cfg(feature = "game_client")]
+    frozen_ghost_scene: Option<game_client::render_bridge::FrozenGhostSceneFrame>,
     last_frame_time: f32,
     /// When set, collect_render_items prefers presentation-owned transforms/model keys.
     presentation_frame: Option<crate::presentation_frame::PresentationFrame>,
@@ -772,6 +776,8 @@ pub struct ForwardPass {
     camera: CameraClass,
     device: Arc<wgpu::Device>,
     queue: Arc<wgpu::Queue>,
+    /// GPU lifetime for Main's immutable projected terrain-shroud snapshot.
+    projected_shroud_uploader: crate::graphics::ProjectedShroudGpuUploader,
     /// Live SegLine vertex buffer (created on first laser upload).
     laser_vertex_buffer: Option<Arc<wgpu::Buffer>>,
     laser_vertex_capacity: usize,

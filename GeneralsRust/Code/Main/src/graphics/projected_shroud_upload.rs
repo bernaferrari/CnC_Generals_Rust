@@ -6,6 +6,10 @@
 //! material pass.  The latter belongs to the dependent renderer task.
 
 use crate::fow_rendering::ProjectedShroudSnapshot;
+use std::sync::Arc;
+use ww3d_renderer_3d::rendering::projected_shroud::{
+    FrozenProjectedShroudTexture, ProjectedShroudProjection,
+};
 
 /// WGPU format for the source-shaped one-channel shroud level texture.
 pub const PROJECTED_SHROUD_TEXTURE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::R8Unorm;
@@ -106,8 +110,8 @@ impl ProjectedShroudUploadPlan {
 
 struct ProjectedShroudGpuTexture {
     texture: wgpu::Texture,
-    view: wgpu::TextureView,
-    sampler: wgpu::Sampler,
+    view: Arc<wgpu::TextureView>,
+    sampler: Arc<wgpu::Sampler>,
 }
 
 /// Presentation-owned GPU texture cache for the projected W3D shroud input.
@@ -187,10 +191,10 @@ impl ProjectedShroudGpuUploader {
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
         });
-        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let view = Arc::new(texture.create_view(&wgpu::TextureViewDescriptor::default()));
         let (mag_filter, min_filter, mipmap_filter) =
             PROJECTED_SHROUD_SAMPLER_POLICY.wgpu_filters();
-        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+        let sampler = Arc::new(device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("Projected W3D shroud default-filter mapping"),
             address_mode_u: wgpu::AddressMode::ClampToEdge,
             address_mode_v: wgpu::AddressMode::ClampToEdge,
@@ -199,7 +203,7 @@ impl ProjectedShroudGpuUploader {
             min_filter,
             mipmap_filter,
             ..Default::default()
-        });
+        }));
         ProjectedShroudGpuTexture {
             texture,
             view,
@@ -243,12 +247,43 @@ impl ProjectedShroudGpuUploader {
 
     #[inline]
     pub fn texture_view(&self) -> Option<&wgpu::TextureView> {
-        self.texture.as_ref().map(|texture| &texture.view)
+        self.texture.as_ref().map(|texture| texture.view.as_ref())
     }
 
     #[inline]
     pub fn sampler(&self) -> Option<&wgpu::Sampler> {
-        self.texture.as_ref().map(|texture| &texture.sampler)
+        self.texture
+            .as_ref()
+            .map(|texture| texture.sampler.as_ref())
+    }
+
+    /// Freeze the current uploaded resource together with this frame's exact
+    /// C++ projection/tint metadata for renderer ingress. A stale or mismatched
+    /// snapshot cannot borrow the resident texture.
+    pub fn renderer_binding(
+        &self,
+        snapshot: &ProjectedShroudSnapshot,
+    ) -> Option<FrozenProjectedShroudTexture> {
+        let extent = snapshot.texture_extent()?;
+        let resident = self.resident?;
+        if resident.extent != extent
+            || resident.texture_fingerprint != snapshot.texture_fingerprint()
+        {
+            return None;
+        }
+        let texture = self.texture.as_ref()?;
+        let projection = ProjectedShroudProjection::from_cpp_grid(
+            snapshot.draw_origin_xy,
+            snapshot.cell_size_xy,
+            extent,
+            snapshot.metadata.shroud_color_rgb,
+            snapshot.content_fingerprint(),
+        )?;
+        Some(FrozenProjectedShroudTexture::new(
+            Arc::clone(&texture.view),
+            Arc::clone(&texture.sampler),
+            projection,
+        ))
     }
 
     #[inline]
@@ -368,5 +403,18 @@ mod tests {
                 "GPU upload must only consume frozen presentation data: {forbidden_use}"
             );
         }
+    }
+
+    #[test]
+    fn projected_shroud_resource_and_exact_mesh_eligibility_reach_renderer_ingress() {
+        let execute = include_str!("render_pipeline/pipeline_execute.rs");
+        let forward = include_str!("render_pipeline/forward_render.rs");
+        assert!(execute.contains("frame.terrain_projected_shroud()"));
+        assert!(forward.contains("projected_shroud_uploader.sync("));
+        assert!(forward.contains(".renderer_binding(projected_shroud)"));
+        assert!(forward.contains("renderer.set_projected_shroud(projected_shroud_binding)"));
+        assert!(forward
+            .contains("mesh.set_projected_shroud_eligible(item.pushes_projected_shroud_pass())"));
+        assert!(!forward.contains("get_shroud_manager"));
     }
 }

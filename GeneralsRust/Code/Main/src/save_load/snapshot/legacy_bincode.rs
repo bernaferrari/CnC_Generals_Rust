@@ -11,6 +11,7 @@ use super::*;
 use crate::game_logic::*;
 use crate::save_load::{SaveLoadError, SaveLoadResult};
 use bincode::Options;
+use gamelogic::system::shroud_manager::ShroudSnapshot;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::SystemTime;
@@ -21,12 +22,13 @@ use std::time::SystemTime;
 ///
 /// Every known schema is decoded only through its exact historical record:
 /// v1 has float-only production, v2 predates the HDB channel, v3 has HDB but
-/// predates the v4 barrel/discharge/client tails, and v4 is the current
-/// record. Unknown versions fail closed rather than relying on field prefixes
-/// or serde defaults.
+/// predates the v4 barrel/discharge/client tails, v4 predates the v5
+/// PlayerTemplate tail, and v5 predates the v6 shroud tail. Unknown versions
+/// fail closed rather than relying on field prefixes or serde defaults.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum BincodeWorldSnapshotDecodePath {
     Current,
+    LegacyPreV6V5,
     LegacyPreV5V4,
     LegacyPreV4V3,
     LegacyPreHackerDisableV2,
@@ -42,6 +44,14 @@ pub(crate) fn decode_bincode_world_snapshot(
     match version {
         WORLD_SNAPSHOT_BINCODE_VERSION => bincode_exact::<WorldSnapshot>(payload)
             .map(|snapshot| (snapshot, BincodeWorldSnapshotDecodePath::Current))
+            .map_err(|error| SaveLoadError::Serialization(error.to_string())),
+        5 => bincode_exact::<PreV6WorldSnapshot>(payload)
+            .map(|snapshot| {
+                (
+                    snapshot.into(),
+                    BincodeWorldSnapshotDecodePath::LegacyPreV6V5,
+                )
+            })
             .map_err(|error| SaveLoadError::Serialization(error.to_string())),
         4 => bincode_exact::<PreV5WorldSnapshot>(payload)
             .map(|snapshot| {
@@ -108,6 +118,34 @@ struct PreV5WorldSnapshot {
     host_upgrades: HostUpgradeRegistrySnapshot,
     next_weapon_discharge_sequence: u64,
     client_drawables: ClientDrawableWorldSnapshot,
+}
+
+/// Complete v5 world record before the v6 persistent shroud tail was
+/// appended. Keep this exact positional mirror so an old v5 payload cannot
+/// consume the first shroud byte as part of a current record.
+#[derive(Debug, Deserialize, Serialize)]
+struct PreV6WorldSnapshot {
+    version: u32,
+    timestamp: SystemTime,
+    frame_number: u64,
+    random_seed: u64,
+    objects: HashMap<ObjectId, PreV5ObjectSnapshot>,
+    players: Vec<PlayerSnapshot>,
+    teams: Vec<TeamSnapshot>,
+    terrain: TerrainSnapshot,
+    weather: WeatherSnapshot,
+    resource_manager: ResourceManagerSnapshot,
+    combat_tracker: CombatTrackerSnapshot,
+    experience_tracker: ExperienceTrackerSnapshot,
+    pathfinding_cache: PathfindingCacheSnapshot,
+    ai_players: Vec<AIPlayerSnapshot>,
+    global_ai_state: GlobalAIStateSnapshot,
+    special_power_strikes: SpecialPowerStrikeRegistrySnapshot,
+    combat_particles: CombatParticleRegistrySnapshot,
+    host_upgrades: HostUpgradeRegistrySnapshot,
+    next_weapon_discharge_sequence: u64,
+    client_drawables: ClientDrawableWorldSnapshot,
+    player_template_bindings: Vec<PlayerTemplateBindingSnapshot>,
 }
 
 /// Exact v4 `ObjectSnapshot` positional record. Version 4 already carried the
@@ -366,6 +404,7 @@ impl From<LegacyWorldSnapshot> for WorldSnapshot {
             next_weapon_discharge_sequence: default_next_weapon_discharge_sequence(),
             client_drawables: ClientDrawableWorldSnapshot::default(),
             player_template_bindings: Vec::new(),
+            shroud: ShroudSnapshot::default(),
         }
     }
 }
@@ -480,6 +519,7 @@ impl From<PreHackerDisableWorldSnapshot> for WorldSnapshot {
             next_weapon_discharge_sequence: default_next_weapon_discharge_sequence(),
             client_drawables: ClientDrawableWorldSnapshot::default(),
             player_template_bindings: Vec::new(),
+            shroud: ShroudSnapshot::default(),
         }
     }
 }
@@ -540,6 +580,40 @@ impl From<PreV4WorldSnapshot> for WorldSnapshot {
             next_weapon_discharge_sequence: default_next_weapon_discharge_sequence(),
             client_drawables: ClientDrawableWorldSnapshot::default(),
             player_template_bindings: Vec::new(),
+            shroud: ShroudSnapshot::default(),
+        }
+    }
+}
+
+impl From<PreV6WorldSnapshot> for WorldSnapshot {
+    fn from(snapshot: PreV6WorldSnapshot) -> Self {
+        Self {
+            version: WORLD_SNAPSHOT_BINCODE_VERSION,
+            timestamp: snapshot.timestamp,
+            frame_number: snapshot.frame_number,
+            random_seed: snapshot.random_seed,
+            objects: snapshot
+                .objects
+                .into_iter()
+                .map(|(id, object)| (id, object.into()))
+                .collect(),
+            players: snapshot.players,
+            teams: snapshot.teams,
+            terrain: snapshot.terrain,
+            weather: snapshot.weather,
+            resource_manager: snapshot.resource_manager,
+            combat_tracker: snapshot.combat_tracker,
+            experience_tracker: snapshot.experience_tracker,
+            pathfinding_cache: snapshot.pathfinding_cache,
+            ai_players: snapshot.ai_players,
+            global_ai_state: snapshot.global_ai_state,
+            special_power_strikes: snapshot.special_power_strikes,
+            combat_particles: snapshot.combat_particles,
+            host_upgrades: snapshot.host_upgrades,
+            next_weapon_discharge_sequence: snapshot.next_weapon_discharge_sequence,
+            client_drawables: snapshot.client_drawables,
+            player_template_bindings: snapshot.player_template_bindings,
+            shroud: ShroudSnapshot::default(),
         }
     }
 }
@@ -572,6 +646,7 @@ impl From<PreV5WorldSnapshot> for WorldSnapshot {
             next_weapon_discharge_sequence: snapshot.next_weapon_discharge_sequence,
             client_drawables: snapshot.client_drawables,
             player_template_bindings: Vec::new(),
+            shroud: ShroudSnapshot::default(),
         }
     }
 }
@@ -853,6 +928,39 @@ impl From<WorldSnapshot> for PreV5WorldSnapshot {
 }
 
 #[cfg(test)]
+impl From<WorldSnapshot> for PreV6WorldSnapshot {
+    fn from(snapshot: WorldSnapshot) -> Self {
+        Self {
+            version: 5,
+            timestamp: snapshot.timestamp,
+            frame_number: snapshot.frame_number,
+            random_seed: snapshot.random_seed,
+            objects: snapshot
+                .objects
+                .into_iter()
+                .map(|(id, object)| (id, object.into()))
+                .collect(),
+            players: snapshot.players,
+            teams: snapshot.teams,
+            terrain: snapshot.terrain,
+            weather: snapshot.weather,
+            resource_manager: snapshot.resource_manager,
+            combat_tracker: snapshot.combat_tracker,
+            experience_tracker: snapshot.experience_tracker,
+            pathfinding_cache: snapshot.pathfinding_cache,
+            ai_players: snapshot.ai_players,
+            global_ai_state: snapshot.global_ai_state,
+            special_power_strikes: snapshot.special_power_strikes,
+            combat_particles: snapshot.combat_particles,
+            host_upgrades: snapshot.host_upgrades,
+            next_weapon_discharge_sequence: snapshot.next_weapon_discharge_sequence,
+            client_drawables: snapshot.client_drawables,
+            player_template_bindings: snapshot.player_template_bindings,
+        }
+    }
+}
+
+#[cfg(test)]
 impl From<ObjectSnapshot> for PreV5ObjectSnapshot {
     fn from(snapshot: ObjectSnapshot) -> Self {
         Self {
@@ -911,6 +1019,11 @@ pub(crate) fn serialize_pre_v4_v3_fixture(snapshot: WorldSnapshot) -> bincode::R
 #[cfg(test)]
 pub(crate) fn serialize_pre_v5_v4_fixture(snapshot: WorldSnapshot) -> bincode::Result<Vec<u8>> {
     bincode::serialize(&PreV5WorldSnapshot::from(snapshot))
+}
+
+#[cfg(test)]
+pub(crate) fn serialize_pre_v6_v5_fixture(snapshot: WorldSnapshot) -> bincode::Result<Vec<u8>> {
+    bincode::serialize(&PreV6WorldSnapshot::from(snapshot))
 }
 
 #[cfg(test)]

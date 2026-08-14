@@ -7,6 +7,7 @@ use super::xfer_helpers::{
 use super::*;
 use crate::game_logic::*;
 use crate::save_load::{SaveLoadError, SaveLoadResult, Xfer, XferData, XferMode};
+use gamelogic::system::shroud_manager::ShroudSnapshot;
 use glam::Vec3;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -176,6 +177,13 @@ impl Snapshot for WorldSnapshot {
             )?;
         } else if xfer.get_mode() == XferMode::Load {
             self.player_template_bindings.clear();
+        }
+
+        if self.version >= WORLD_SNAPSHOT_DIRECT_XFER_V6_TAIL_VERSION {
+            xfer.xfer_marker_label("Shroud")?;
+            self.shroud.xfer(xfer)?;
+        } else if xfer.get_mode() == XferMode::Load {
+            self.shroud = ShroudSnapshot::default();
         }
 
         Ok(())

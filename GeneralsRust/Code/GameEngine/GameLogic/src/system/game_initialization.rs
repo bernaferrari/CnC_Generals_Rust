@@ -706,6 +706,9 @@ impl GameInitializer {
 
         if let Some(local_index) = system_list.get_local_player_index() {
             logic_list.set_local_player_index(local_index as i32);
+            if let Ok(mut manager) = crate::object::THE_W3D_GHOST_OBJECT_MANAGER.write() {
+                manager.set_local_player_index(local_index as usize);
+            }
         }
 
         let system_players = system_list.get_all_players();

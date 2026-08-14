@@ -287,6 +287,10 @@ impl RenderPipeline {
                 self.render_items.len()
             );
         }
+        let projected_shroud = self
+            .presentation_frame
+            .as_ref()
+            .and_then(|frame| frame.terrain_projected_shroud());
         self.forward_pass.render(
             graphics_system,
             &self.render_items,
@@ -294,6 +298,7 @@ impl RenderPipeline {
             projection_matrix,
             camera_position,
             self.cached_lighting.as_ref(),
+            projected_shroud,
         )?;
         let forward_elapsed = forward_started.elapsed();
         if self.frame_number <= 5 {

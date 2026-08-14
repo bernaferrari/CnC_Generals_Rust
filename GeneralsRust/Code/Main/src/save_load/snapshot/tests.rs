@@ -2098,7 +2098,7 @@ fn direct_xfer_v4_round_trips_logical_and_client_drawable_tails() {
 
     let object_id = ObjectId(95);
     let mut world = WorldSnapshot::default();
-    world.version = WORLD_SNAPSHOT_DIRECT_XFER_VERSION;
+    world.version = WORLD_SNAPSHOT_DIRECT_XFER_V4_TAIL_VERSION;
     world.next_weapon_discharge_sequence = 43;
     let mut object = default_object_snapshot();
     object.id = object_id;
@@ -2217,7 +2217,7 @@ fn direct_xfer_v5_round_trips_exact_player_template_binding_tail() {
     use std::io::Cursor;
 
     let mut world = WorldSnapshot::default();
-    world.version = WORLD_SNAPSHOT_DIRECT_XFER_VERSION;
+    world.version = WORLD_SNAPSHOT_DIRECT_XFER_V5_TAIL_VERSION;
     world
         .player_template_bindings
         .push(PlayerTemplateBindingSnapshot {
@@ -2283,6 +2283,74 @@ fn direct_xfer_v5_round_trips_exact_player_template_binding_tail() {
         }
     );
     assert_eq!(sentinel, 0xB7C8_D9EA);
+}
+
+/// V6 appends exact raw PartitionManager shroud counters and pending reveal
+/// expiry records after the v5 PlayerTemplate tail. The sentinel proves the
+/// full grid payload remains bounded by the world tail.
+#[test]
+fn direct_xfer_v6_round_trips_exact_shroud_tail() {
+    use crate::save_load::{Xfer, XferLoad, XferSave};
+    use gamelogic::system::shroud_manager::{
+        ShroudCellSnapshot, ShroudGridSnapshot, ShroudPendingUndoRevealSnapshot, ShroudSnapshot,
+    };
+    use std::io::Cursor;
+
+    let mut world = WorldSnapshot::default();
+    world.version = WORLD_SNAPSHOT_DIRECT_XFER_VERSION;
+    world.shroud = ShroudSnapshot {
+        grid: Some(ShroudGridSnapshot {
+            width: 2,
+            height: 1,
+            cell_size: 50.0,
+            cells: vec![
+                ShroudCellSnapshot {
+                    current_shroud: std::array::from_fn(|player| match player {
+                        0 => -2,
+                        1 => 0,
+                        _ => 1,
+                    }),
+                    active_shroud_level: std::array::from_fn(
+                        |player| {
+                            if player == 1 {
+                                3
+                            } else {
+                                0
+                            }
+                        },
+                    ),
+                },
+                ShroudCellSnapshot::default(),
+            ],
+        }),
+        pending_undo_shroud_reveals: vec![ShroudPendingUndoRevealSnapshot {
+            where_pos: [12.0, 0.0, -8.0],
+            how_far: 75.0,
+            for_whom: 5,
+            expiration_frame: 7_654,
+        }],
+        pending_full_reveal_players: vec![2],
+        pending_permanent_reveal_players: vec![3],
+    };
+
+    let mut bytes = Cursor::new(Vec::new());
+    {
+        let mut writer = XferSave::new(&mut bytes);
+        world.xfer(&mut writer).expect("write direct v6 world");
+        let mut sentinel = 0xC8D9_EAFB_u32;
+        writer.xfer_u32(&mut sentinel).expect("write sentinel");
+    }
+
+    let mut restored = WorldSnapshot::default();
+    let mut sentinel = 0u32;
+    {
+        let mut reader = XferLoad::new(Cursor::new(bytes.into_inner()));
+        restored.xfer(&mut reader).expect("read direct v6 world");
+        reader.xfer_u32(&mut sentinel).expect("read sentinel");
+    }
+
+    assert_eq!(restored.shroud, world.shroud);
+    assert_eq!(sentinel, 0xC8D9_EAFB);
 }
 
 /// Direct Xfer must reject a future envelope before it consumes timestamp or

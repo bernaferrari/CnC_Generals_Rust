@@ -32,6 +32,7 @@ pub mod weapon;
 // pub mod concrete_update_modules;
 pub mod drawable;
 pub use drawable::{apply_debris_draw, DebrisDrawAnims, DrawableArcExt};
+pub mod crate_registry_bind;
 pub mod experience_tracker;
 pub mod firing_tracker;
 pub mod ghost_object;
@@ -42,7 +43,6 @@ pub mod object_creation_list;
 pub mod object_factory;
 pub mod object_types;
 pub mod partition_manager;
-pub mod crate_registry_bind;
 pub mod registry;
 pub mod simple_object;
 pub mod simple_object_iterator;
@@ -55,7 +55,10 @@ pub mod weapon_set;
 pub use crate::common::types::ObjectStatusTypes;
 pub use crate::template::ObjectTemplate;
 pub use ghost_object::{GhostObject, GhostObjectManager, THE_GHOST_OBJECT_MANAGER};
-pub use w3d_ghost_object::{W3DGhostObject, W3DGhostObjectManager, W3DRenderObjectSnapshot};
+pub use w3d_ghost_object::{
+    FrozenW3DGhostSceneEvent, FrozenW3DGhostSnapshot, W3DGhostObject, W3DGhostObjectManager,
+    W3DGhostSnapshotKey, W3DRenderObjectSnapshot, THE_W3D_GHOST_OBJECT_MANAGER,
+};
 
 use once_cell::sync::Lazy;
 use parking_lot::Mutex as ParkingMutex;
@@ -2731,23 +2734,22 @@ fn weapon_set_model_condition(flag: WeaponSetType) -> Option<ModelConditionFlags
     }
 }
 
-
 // Inherent Object methods and later trait impls live in sibling files.
+mod object_combat;
 mod object_impl_imports;
 mod object_lifecycle;
-mod object_status;
-mod object_combat;
 mod object_modules;
-mod object_vision;
-mod object_special_power;
-mod object_triggers;
-mod object_upgrade;
-mod object_update;
 mod object_queries;
-mod object_xfer;
-mod object_thing;
+mod object_special_power;
+mod object_status;
 #[cfg(test)]
 mod object_tests;
+mod object_thing;
+mod object_triggers;
+mod object_update;
+mod object_upgrade;
+mod object_vision;
+mod object_xfer;
 
 pub use object_thing::ObjectArcExt;
 pub(crate) use object_thing::{make_drawable_module_thing_handle, ObjectThingHandle};
