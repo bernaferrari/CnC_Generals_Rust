@@ -868,3 +868,5 @@
 {"id":"int-606fd9a8","kind":"field_change","created_at":"2026-08-14T04:29:24.022469Z","actor":"Bernardo Ferrari","issue_id":"hq-79qs","extra":{"field":"status","new_value":"in_progress","old_value":"blocked"}}
 {"id":"int-80d6118d","kind":"field_change","created_at":"2026-08-14T04:50:53.360673Z","actor":"Bernardo Ferrari","issue_id":"hq-5ymh","extra":{"field":"status","new_value":"closed","old_value":"in_progress","reason":"Bounded exact Mesh ghost WGPU consumer verified; broad HLOD/Other/capture timing remains open in parent beads."}}
 {"id":"int-74172e11","kind":"field_change","created_at":"2026-08-14T04:53:50.321476Z","actor":"Bernardo Ferrari","issue_id":"hq-j6kk","extra":{"field":"status","new_value":"blocked","old_value":"open"}}
+{"id":"int-fd1185b0","kind":"field_change","created_at":"2026-08-14T05:05:50.916528Z","actor":"Bernardo Ferrari","issue_id":"hq-cddj","extra":{"field":"status","new_value":"blocked","old_value":"open"}}
+{"id":"int-ef67b373","kind":"field_change","created_at":"2026-08-14T05:10:23.44182Z","actor":"Bernardo Ferrari","issue_id":"hq-mevr","extra":{"field":"status","new_value":"blocked","old_value":"open"}}

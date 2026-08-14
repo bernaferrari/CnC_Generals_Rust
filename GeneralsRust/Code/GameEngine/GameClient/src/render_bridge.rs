@@ -1937,6 +1937,23 @@ mod tests {
         );
     }
 
+    fn register_test_hlod(bridge: &mut RenderBridge, name: &str) {
+        bridge.asset_manager_mut().add_prototype(
+            name.to_string(),
+            Box::new(ww3d_assets::prototypes::HlodPrototype {
+                name: name.to_string(),
+                hierarchy_name: "GhostTestHierarchy".to_string(),
+                version: 1,
+                lods: vec![ww3d_assets::prototypes::HlodLodEntry {
+                    max_screen_size: 0.0,
+                    models: Vec::new(),
+                }],
+                aggregates: Vec::new(),
+                proxy_entries: Vec::new(),
+            }),
+        );
+    }
+
     #[test]
     fn test_render_condition_flags_from_empty() {
         let flags = RenderConditionFlags::empty();
@@ -2109,6 +2126,52 @@ mod tests {
                 submission.legacy_render_object_transform.unwrap()
             )
         );
+    }
+
+    #[test]
+    fn exact_hlod_ghost_adapter_remains_fail_closed_without_live_child_state() {
+        let mut bridge = RenderBridge::new();
+        register_test_hlod(&mut bridge, "GhostHlod");
+
+        let mut camera = Camera::perspective(
+            "ghost_hlod_adapter".to_string(),
+            60.0_f32.to_radians(),
+            16.0 / 9.0,
+            0.1,
+            1000.0,
+        );
+        camera.set_position(WwVec3::new(0.0, 0.0, -20.0));
+        camera.look_at(WwVec3::ZERO, WwVec3::Y);
+        bridge.begin_frame(&camera, 0.016);
+
+        let submission = DrawSubmission {
+            drawable_id: DrawableId(92),
+            owner_object_id: Some(9002),
+            model_name: "GhostHlod".to_string(),
+            world_transform: GameMat4::IDENTITY,
+            legacy_render_object_transform: Some(GameMat4::from_translation(GameVec3::new(
+                2.0, 3.0, 4.0,
+            ))),
+            legacy_render_object_scale: Some(1.25),
+            legacy_render_object_color: Some(0x7f102030),
+            animation_name: Some("Idle".to_string()),
+            animation_time: 0.5,
+            bounding_sphere: BoundingSphere::new(WwVec3::ZERO, 10.0),
+            opaque: true,
+            transparent: false,
+            cast_shadow: true,
+            ..Default::default()
+        };
+        bridge.submit(submission.clone());
+        bridge.flush();
+
+        // The C++ ghost snapshot clones the live HLOD, restores its animation,
+        // freezes every child name/visibility/transform, and disables UV and
+        // muzzle state.  The active wrapper has no equivalent live child-state
+        // query, so a static HLOD prototype must never be persisted as a ghost.
+        assert!(bridge
+            .materialize_exact_w3d_render_object_snapshot(&submission)
+            .is_none());
     }
 
     fn exact_mesh_ghost_model_draw(drawable_id: u32) -> ModelDrawState {
