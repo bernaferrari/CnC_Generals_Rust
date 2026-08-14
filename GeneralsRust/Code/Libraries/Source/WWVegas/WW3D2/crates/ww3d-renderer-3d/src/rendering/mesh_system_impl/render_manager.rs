@@ -481,6 +481,20 @@ impl MeshRenderManager {
         Ok(())
     }
 
+    /// Select the lighting environment owned by this MeshClass when one has
+    /// been frozen by its source Drawable.  The ordinary scene environment
+    /// remains the fallback.  C++ allows a render object to carry a distinct
+    /// environment (the W3D ghost branch uses its always-fogged environment),
+    /// so dropping this field at the WGPU boundary would make such objects
+    /// indistinguishable from normal geometry.
+    fn render_info_for_mesh(mesh: &MeshClass, render_info: &RenderInfoClass) -> RenderInfoClass {
+        let mut selected = render_info.clone();
+        if let Some(environment) = mesh.get_lighting_environment() {
+            selected.set_lighting_environment((**environment).clone());
+        }
+        selected
+    }
+
     fn render_mesh(
         &mut self,
         mesh: &Arc<MeshClass>,
@@ -498,6 +512,8 @@ impl MeshRenderManager {
             let model = mesh.model.as_ref().unwrap();
             self.preparemodel(model)?
         };
+        let mesh_render_info = Self::render_info_for_mesh(mesh, render_info);
+        let render_info = &mesh_render_info;
 
         resources.set_vertex_buffer(render_pass, 0, Arc::clone(&prepared.vertex_buffer));
 
@@ -1270,5 +1286,37 @@ impl MeshRenderManager {
     pub fn clear_frame_data(&mut self) {
         self.decal_queue.clear();
         self.fvf_containers.clear();
+    }
+}
+
+#[cfg(test)]
+mod per_mesh_lighting_tests {
+    use super::*;
+    use crate::rendering::camera_system::CameraClass;
+    use crate::rendering::lighting_system::LightEnvironmentClass;
+
+    #[test]
+    fn mesh_owned_lighting_overrides_only_the_selected_render_info() {
+        let camera = Arc::new(CameraClass::new());
+        let mut scene_info = RenderInfoClass::new(camera);
+        scene_info.frame_count = 37;
+        scene_info.set_lighting_environment(LightEnvironmentClass::new());
+
+        let mut mesh = MeshClass::new();
+        assert!(MeshRenderManager::render_info_for_mesh(&mesh, &scene_info)
+            .lighting
+            .is_some());
+
+        let mesh_environment = Arc::new(LightEnvironmentClass::new());
+        mesh.set_lighting_environment(Some(Arc::clone(&mesh_environment)));
+        let selected = MeshRenderManager::render_info_for_mesh(&mesh, &scene_info);
+
+        assert_eq!(selected.frame_count, 37);
+        assert!(selected.lighting.is_some());
+        assert!(
+            mesh.get_lighting_environment()
+                .is_some_and(|environment| Arc::ptr_eq(environment, &mesh_environment)),
+            "the MeshClass keeps ownership of the exact environment selected for this draw"
+        );
     }
 }
