@@ -22,6 +22,22 @@ impl Matrix3x4 {
             [0.0, 0.0, 1.0, 0.0],
         ],
     };
+
+    /// Copy the affine portion of the logic-side matrix without changing its
+    /// row/column convention.  The active GameLogic `Matrix3D` is a glam
+    /// `Mat4`; this adapter transposes its column-major storage into the
+    /// row-major three-row payload used by the C++ ghost snapshot. It does
+    /// not derive any mesh-local transform.
+    pub fn from_logic_matrix(matrix: glam::Mat4) -> Self {
+        let columns = matrix.to_cols_array_2d();
+        Self {
+            rows: [
+                [columns[0][0], columns[1][0], columns[2][0], columns[3][0]],
+                [columns[0][1], columns[1][1], columns[2][1], columns[3][1]],
+                [columns[0][2], columns[1][2], columns[2][2], columns[3][2]],
+            ],
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -135,11 +151,36 @@ pub struct W3DGhostSnapshotCapture {
     pub geometry: ParentGeometrySnapshot,
 }
 
+/// Exact logic-owned inputs available before a renderer-side W3D clone exists.
+///
+/// `W3DGhostSnapshotCapture` deliberately remains the only type accepted by
+/// the PartitionData transition.  This source record exists so a device layer
+/// can consume the real Drawable/W3DModelDraw output and materialize the
+/// missing render-object fields later.  Keeping `model_draws` as the original
+/// `ModelDrawState` prevents this seam from silently inventing a class, scale,
+/// color, or sub-object transform from an asset name.
+#[derive(Debug, Clone)]
+pub struct W3DGhostSnapshotCaptureSource {
+    pub object_id: u32,
+    pub drawable_id: u32,
+    pub drawable_effectively_hidden: bool,
+    pub drawable_transform: Matrix3x4,
+    pub drawable_scale: [f32; 3],
+    pub model_draws: Vec<crate::helpers::ModelDrawState>,
+    pub geometry: ParentGeometrySnapshot,
+}
+
+pub type W3DGhostSnapshotCaptureSourceHook =
+    Arc<dyn Fn(u32) -> Option<W3DGhostSnapshotCaptureSource> + Send + Sync>;
+
 pub type W3DGhostSnapshotCaptureHook =
     Arc<dyn Fn(u32) -> Option<W3DGhostSnapshotCapture> + Send + Sync>;
 
 static W3D_GHOST_SNAPSHOT_CAPTURE_HOOK: Lazy<RwLock<Option<W3DGhostSnapshotCaptureHook>>> =
     Lazy::new(|| RwLock::new(None));
+static W3D_GHOST_SNAPSHOT_CAPTURE_SOURCE_HOOK: Lazy<
+    RwLock<Option<W3DGhostSnapshotCaptureSourceHook>>,
+> = Lazy::new(|| RwLock::new(None));
 
 pub fn register_w3d_ghost_snapshot_capture_hook(hook: Option<W3DGhostSnapshotCaptureHook>) {
     if let Ok(mut slot) = W3D_GHOST_SNAPSHOT_CAPTURE_HOOK.write() {
@@ -149,6 +190,25 @@ pub fn register_w3d_ghost_snapshot_capture_hook(hook: Option<W3DGhostSnapshotCap
 
 pub fn capture_w3d_ghost_snapshot(object_id: u32) -> Option<W3DGhostSnapshotCapture> {
     let hook = W3D_GHOST_SNAPSHOT_CAPTURE_HOOK.read().ok()?.clone()?;
+    hook(object_id)
+}
+
+/// Register the device-facing source hook.  Unlike the final capture hook,
+/// this cannot be consumed by PartitionData until a renderer has materialized
+/// exact `RenderObjectState` values from the live W3D object.
+pub fn register_w3d_ghost_snapshot_capture_source_hook(
+    hook: Option<W3DGhostSnapshotCaptureSourceHook>,
+) {
+    if let Ok(mut slot) = W3D_GHOST_SNAPSHOT_CAPTURE_SOURCE_HOOK.write() {
+        *slot = hook;
+    }
+}
+
+pub fn capture_w3d_ghost_snapshot_source(object_id: u32) -> Option<W3DGhostSnapshotCaptureSource> {
+    let hook = W3D_GHOST_SNAPSHOT_CAPTURE_SOURCE_HOOK
+        .read()
+        .ok()?
+        .clone()?;
     hook(object_id)
 }
 
@@ -689,3 +749,20 @@ pub const OBJECTSHROUD_FOGGED: u8 = 2;
 /// Snapshotable manager preserves the C++ render payload without downcasts.
 pub static THE_W3D_GHOST_OBJECT_MANAGER: Lazy<Arc<RwLock<W3DGhostObjectManager>>> =
     Lazy::new(|| Arc::new(RwLock::new(W3DGhostObjectManager::new())));
+
+#[cfg(test)]
+mod tests {
+    use super::Matrix3x4;
+
+    #[test]
+    fn logic_matrix_snapshot_rows_preserve_affine_translation() {
+        let matrix = glam::Mat4::from_translation(glam::Vec3::new(4.0, -2.0, 7.5));
+        let snapshot = Matrix3x4::from_logic_matrix(matrix);
+        assert_eq!(snapshot.rows[0][3], 4.0);
+        assert_eq!(snapshot.rows[1][3], -2.0);
+        assert_eq!(snapshot.rows[2][3], 7.5);
+        assert_eq!(snapshot.rows[0][0], 1.0);
+        assert_eq!(snapshot.rows[1][1], 1.0);
+        assert_eq!(snapshot.rows[2][2], 1.0);
+    }
+}
