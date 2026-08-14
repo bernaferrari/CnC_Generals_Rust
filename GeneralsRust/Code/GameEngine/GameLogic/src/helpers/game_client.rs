@@ -588,6 +588,60 @@ impl TheGameClient {
             .unwrap_or_default()
     }
 
+    /// Build the exact logic-side input record available to a W3D ghost
+    /// snapshot provider for one object.
+    ///
+    /// This is intentionally a source bridge, not a final
+    /// `W3DGhostSnapshotCapture`: the logic side has the current Drawable
+    /// transform/geometry and committed W3DModelDraw records, but it does not
+    /// own the cloned W3D render object (class, object color/scale, and
+    /// per-sub-object transforms). A device adapter must materialize those
+    /// fields before registering the final capture hook.
+    pub fn object_w3d_ghost_snapshot_source(
+        &self,
+        object_id: ObjectID,
+    ) -> Option<crate::object::w3d_ghost_object::W3DGhostSnapshotCaptureSource> {
+        if object_id == INVALID_ID {
+            return None;
+        }
+
+        let object = TheGameLogic::find_object_by_id(object_id)?;
+        let (drawable, geometry, position, angle) = {
+            let object_guard = object.read().ok()?;
+            (
+                object_guard.get_drawable()?,
+                object_guard.get_geometry_info().clone(),
+                *object_guard.get_position(),
+                object_guard.get_orientation(),
+            )
+        };
+
+        let drawable_guard = drawable.read().ok()?;
+        let drawable_id = drawable_guard.get_drawable_id();
+        let world_scale = drawable_guard.get_world_scale();
+        let source = crate::object::w3d_ghost_object::W3DGhostSnapshotCaptureSource {
+            object_id,
+            drawable_id,
+            drawable_effectively_hidden: drawable_guard.is_drawable_effectively_hidden(),
+            drawable_transform: crate::object::w3d_ghost_object::Matrix3x4::from_logic_matrix(
+                drawable_guard.get_transform_matrix(),
+            ),
+            drawable_scale: [world_scale.x, world_scale.y, world_scale.z],
+            model_draws: self.object_model_draws(object_id),
+            geometry: crate::object::w3d_ghost_object::ParentGeometrySnapshot {
+                geometry_type: crate::common::types::geometry_type_to_u32(
+                    geometry.get_geometry_type(),
+                ),
+                is_small: geometry.get_is_small(),
+                major_radius: geometry.get_major_radius(),
+                minor_radius: geometry.get_minor_radius(),
+                position: [position.x, position.y, position.z],
+                angle,
+            },
+        };
+        Some(source)
+    }
+
     /// Remove all retained bridge state for an object that is being destroyed
     /// or rebound.  This is separate from `destroy_drawable`, because a
     /// DrawableID is not an ObjectID.
