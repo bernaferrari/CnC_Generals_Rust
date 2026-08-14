@@ -107,6 +107,27 @@ impl DrawModule for ProjectileLaunchTestDrawModule {
     }
 }
 
+#[derive(Debug)]
+struct WeaponFireDispatchTestDrawModule {
+    handled: bool,
+    calls: Arc<Mutex<u32>>,
+}
+
+impl DrawModule for WeaponFireDispatchTestDrawModule {
+    fn handle_weapon_fire_fx(
+        &mut self,
+        _wslot: WeaponSlotType,
+        _barrel: i32,
+        _fx_list: Option<&FXListRef>,
+        _weapon_speed: f32,
+        _victim_pos: Option<&Vector3>,
+        _damage_radius: f32,
+    ) -> bool {
+        *self.calls.lock() += 1;
+        self.handled
+    }
+}
+
 #[test]
 fn test_drawable_creation() {
     let drawable = BasicDrawable::new(DrawableId(1));
@@ -1607,6 +1628,67 @@ fn weapon_fire_recoil_subtracts_bound_object_orientation() {
     assert_near(loco.acceleration_roll_rate, 0.0);
 
     OBJECT_REGISTRY.unregister_object(object_id);
+}
+
+#[test]
+fn weapon_fire_dispatch_reports_first_handled_draw_module_index() {
+    let first_calls = Arc::new(Mutex::new(0));
+    let second_calls = Arc::new(Mutex::new(0));
+    let mut drawable = BasicDrawable::new(DrawableId(900_003));
+    drawable.add_draw_module(Box::new(WeaponFireDispatchTestDrawModule {
+        handled: false,
+        calls: Arc::clone(&first_calls),
+    }));
+    drawable.add_draw_module(Box::new(WeaponFireDispatchTestDrawModule {
+        handled: true,
+        calls: Arc::clone(&second_calls),
+    }));
+
+    let fx_name = "FireFX_Test";
+    let handled_by = drawable.handle_weapon_fire_fx_with_module_index(
+        WeaponSlotType::Primary,
+        0,
+        Some(&fx_name),
+        0.0,
+        0.0,
+        0.0,
+        None,
+        0.0,
+    );
+
+    assert_eq!(handled_by, Some(1));
+    assert_eq!(*first_calls.lock(), 1);
+    assert_eq!(*second_calls.lock(), 1);
+}
+
+#[test]
+fn weapon_fire_dispatch_without_handler_visits_all_modules_in_order() {
+    let first_calls = Arc::new(Mutex::new(0));
+    let second_calls = Arc::new(Mutex::new(0));
+    let mut drawable = BasicDrawable::new(DrawableId(900_004));
+    drawable.add_draw_module(Box::new(WeaponFireDispatchTestDrawModule {
+        handled: false,
+        calls: Arc::clone(&first_calls),
+    }));
+    drawable.add_draw_module(Box::new(WeaponFireDispatchTestDrawModule {
+        handled: false,
+        calls: Arc::clone(&second_calls),
+    }));
+
+    let handled_by = drawable.handle_weapon_fire_fx_with_module_index(
+        WeaponSlotType::Primary,
+        0,
+        None,
+        0.0,
+        0.0,
+        0.0,
+        None,
+        0.0,
+    );
+
+    assert_eq!(handled_by, None);
+    assert_eq!(*first_calls.lock(), 1);
+    assert_eq!(*second_calls.lock(), 1);
 }
 
 #[test]
