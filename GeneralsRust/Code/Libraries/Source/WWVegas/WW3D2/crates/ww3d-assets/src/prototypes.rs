@@ -255,6 +255,8 @@ pub struct HlodAggregateEntry {
 pub struct HlodModelInstance {
     pub name: String,
     pub bone_index: i32,
+    /// Bind-pose pivot transform supplied by the owning HTree.
+    local_transform: Mat4,
     pub object: Option<Box<dyn RenderObj>>,
 }
 
@@ -263,6 +265,7 @@ impl Clone for HlodModelInstance {
         Self {
             name: self.name.clone(),
             bone_index: self.bone_index,
+            local_transform: self.local_transform,
             object: self.object.as_ref().map(|obj| obj.clone_box()),
         }
     }
@@ -273,6 +276,24 @@ impl HlodModelInstance {
         Self {
             name,
             bone_index,
+            local_transform: Mat4::IDENTITY,
+            object,
+        }
+    }
+
+    pub fn with_local_transform(
+        name: String,
+        bone_index: i32,
+        local_transform: Mat4,
+        object: Option<Box<dyn RenderObj>>,
+    ) -> Self {
+        Self {
+            name,
+            bone_index,
+            local_transform: local_transform
+                .is_finite()
+                .then_some(local_transform)
+                .unwrap_or(Mat4::IDENTITY),
             object,
         }
     }
@@ -283,6 +304,10 @@ impl HlodModelInstance {
 
     pub fn bone_index(&self) -> i32 {
         self.bone_index
+    }
+
+    pub fn local_transform(&self) -> &Mat4 {
+        &self.local_transform
     }
 
     pub fn object(&self) -> Option<&dyn RenderObj> {
@@ -301,7 +326,7 @@ impl HlodModelInstance {
 
     fn set_transform(&mut self, transform: Mat4) {
         if let Some(obj) = self.object.as_mut() {
-            obj.set_transform(transform);
+            obj.set_transform(transform * self.local_transform);
         }
     }
 }
@@ -414,6 +439,18 @@ impl fmt::Debug for HlodAggregateGroup {
     }
 }
 
+/// Immutable child state exposed to an exact renderer snapshot adapter.
+///
+/// The current asset instance has no animation or child-visibility mutator;
+/// callers must therefore only use this bind/current-pose view after proving
+/// that no dynamic child controls were requested for the source frame.
+#[derive(Debug, Clone, PartialEq)]
+pub struct HlodSubObjectState {
+    pub name: String,
+    pub visible: bool,
+    pub transform: Mat4,
+}
+
 pub struct HlodInstance {
     name: String,
     hierarchy_name: String,
@@ -524,6 +561,37 @@ impl HlodInstance {
 
     pub fn transform(&self) -> &Mat4 {
         &self.transform
+    }
+
+    /// Return the selected-LOD children followed by additional models in the
+    /// same order used by `render`.  Missing or malformed child instances
+    /// reject the view instead of synthesizing static/default state.
+    pub fn bind_pose_sub_object_states(&self) -> Option<Vec<HlodSubObjectState>> {
+        let lod = self.current_lod()?;
+        let total = lod.models.len()
+            + self
+                .aggregates
+                .iter()
+                .map(|aggregate| aggregate.models.len())
+                .sum::<usize>();
+        let mut states = Vec::with_capacity(total);
+        for model in lod.models.iter().chain(
+            self.aggregates
+                .iter()
+                .flat_map(|aggregate| aggregate.models.iter()),
+        ) {
+            let object = model.object.as_deref()?;
+            let transform = *object.get_transform();
+            if model.name.trim().is_empty() || !transform.is_finite() {
+                return None;
+            }
+            states.push(HlodSubObjectState {
+                name: model.name.clone(),
+                visible: true,
+                transform,
+            });
+        }
+        Some(states)
     }
 
     fn propagate_transform(&mut self) {
@@ -830,6 +898,57 @@ mod tests {
         assert_eq!(inverse, expected_inverse);
     }
 
+    #[test]
+    fn hlod_instance_applies_hierarchy_bind_pivot_before_root_world() {
+        let mut assets = AssetManager::new();
+        let mut hierarchy = HierarchyPrototype::new("HLOD_HIERARCHY".into());
+        hierarchy.bind_transforms = vec![
+            Mat4::IDENTITY,
+            Mat4::from_translation(Vec3::new(2.0, 0.0, 0.0)),
+        ];
+        hierarchy.inverse_bind_transforms = vec![Mat4::IDENTITY; 2];
+        assets.add_prototype(hierarchy.name.clone(), Box::new(hierarchy));
+        assets.add_prototype(
+            "HLOD_CHILD".into(),
+            Box::new(DummyPrototype::new("HLOD_CHILD")),
+        );
+        assets.add_prototype(
+            "HLOD_ROOT".into(),
+            Box::new(HlodPrototype {
+                name: "HLOD_ROOT".into(),
+                hierarchy_name: "HLOD_HIERARCHY".into(),
+                version: 1,
+                lods: vec![HlodLodEntry {
+                    max_screen_size: 0.0,
+                    models: vec![HlodSubObject {
+                        name: "HLOD_CHILD".into(),
+                        bone_index: 1,
+                    }],
+                }],
+                aggregates: Vec::new(),
+                proxy_entries: Vec::new(),
+            }),
+        );
+
+        let mut render_obj = assets
+            .create_render_obj("HLOD_ROOT")
+            .expect("HLOD instance");
+        render_obj.set_transform(Mat4::from_translation(Vec3::new(5.0, 0.0, 0.0)));
+        let hlod = render_obj
+            .as_any()
+            .downcast_ref::<HlodInstance>()
+            .expect("typed HLOD instance");
+        let child = hlod
+            .current_lod()
+            .and_then(|lod| lod.models.first())
+            .and_then(|model| model.object())
+            .expect("child instance");
+        assert_eq!(
+            child.get_transform(),
+            &Mat4::from_translation(Vec3::new(7.0, 0.0, 0.0))
+        );
+    }
+
     fn make_pivot(name: &str, parent_idx: i32, translation: [f32; 3]) -> W3dPivotStruct {
         let mut name_bytes = [0u8; 16];
         let raw = name.as_bytes();
@@ -859,6 +978,21 @@ impl Prototype for HlodPrototype {
             return None;
         }
 
+        // HLodClass attaches every selected child at the owning HTree pivot.
+        // Keep the bind transforms immutable in the instance; a missing named
+        // HTree follows C++'s default one-root identity behavior.
+        let bind_transforms = assets
+            .get_hierarchy_prototype(&self.hierarchy_name)
+            .map(|hierarchy| hierarchy.bind_transforms.clone())
+            .unwrap_or_default();
+        let bind_for = |bone_index: u32| {
+            bind_transforms
+                .get(bone_index as usize)
+                .copied()
+                .filter(|transform| transform.is_finite())
+                .unwrap_or(Mat4::IDENTITY)
+        };
+
         let mut lod_levels = Vec::with_capacity(self.lods.len());
         for lod in &self.lods {
             let mut level = HlodLodLevel::new(lod.max_screen_size);
@@ -867,9 +1001,10 @@ impl Prototype for HlodPrototype {
                 if object.is_none() {
                     println!("HLOD '{}' missing sub-object '{}'", self.name, model.name);
                 }
-                level.models.push(HlodModelInstance::new(
+                level.models.push(HlodModelInstance::with_local_transform(
                     model.name.clone(),
                     model.bone_index as i32,
+                    bind_for(model.bone_index),
                     object,
                 ));
             }
@@ -884,9 +1019,10 @@ impl Prototype for HlodPrototype {
                 if object.is_none() {
                     println!("HLOD '{}' missing aggregate '{}'", self.name, model.name);
                 }
-                group.models.push(HlodModelInstance::new(
+                group.models.push(HlodModelInstance::with_local_transform(
                     model.name.clone(),
                     model.bone_index as i32,
+                    bind_for(model.bone_index),
                     object,
                 ));
             }

@@ -27,8 +27,9 @@ use crate::drawable::drawable_draw_pipeline::{with_drawable_pipeline, MeshVertex
 use gamelogic::helpers::{ModelDrawSourceIdentity, ModelDrawState, ModelDrawWeaponBoneBindings};
 use gamelogic::object::w3d_ghost_object::{
     FrozenW3DGhostSceneEvent, FrozenW3DGhostSnapshot, RenderObjectClass, RenderObjectState,
-    W3DGhostSceneId, W3DGhostSnapshotCapture, W3DGhostSnapshotCaptureSource, W3DGhostSnapshotKey,
-    W3DRenderObjectSnapshot, INVALID_DRAWABLE_ID, INVALID_OBJECT_ID,
+    RenderSubObjectSnapshot, W3DGhostSceneId, W3DGhostSnapshotCapture,
+    W3DGhostSnapshotCaptureSource, W3DGhostSnapshotKey, W3DRenderObjectSnapshot,
+    INVALID_DRAWABLE_ID, INVALID_OBJECT_ID,
 };
 use ww3d_assets::prototypes::MeshPrototype;
 use ww3d_assets::AssetManager;
@@ -1457,11 +1458,39 @@ impl WrapRenderObj {
                 }
                 (RenderObjectClass::Mesh, Vec::new())
             }
-            // HLOD child transforms and animation/bone state are not retained
-            // by the current asset wrapper after a submission is rendered.
-            // Returning `None` here prevents a static prototype transform from
-            // masquerading as the live C++ snapshot.
-            ww3d_core::RenderObjClassId::Hlod => return None,
+            ww3d_core::RenderObjClassId::Hlod => {
+                // The asset instance now retains the exact HTree bind-pose
+                // child transforms.  This branch remains deliberately strict:
+                // animated/bone/UV/visibility controls require the live W3D
+                // HTree and are rejected until that controller state crosses
+                // the frame boundary.
+                if !submission.bone_overrides.is_empty()
+                    || !submission.mesh_uv_overrides.is_empty()
+                    || !submission.sub_object_visibility.is_empty()
+                    || submission.animation_name.is_some()
+                    || submission.animation_mode.is_some()
+                    || submission.animation_time != 0.0
+                {
+                    return None;
+                }
+                let hlod = self
+                    .inner
+                    .as_any()
+                    .downcast_ref::<ww3d_assets::prototypes::HlodInstance>()?;
+                let children = hlod.bind_pose_sub_object_states()?;
+                let sub_objects = children
+                    .into_iter()
+                    .map(|child| RenderSubObjectSnapshot {
+                        name: child.name,
+                        visible: child.visible,
+                        transform:
+                            gamelogic::object::w3d_ghost_object::Matrix3x4::from_logic_matrix(
+                                child.transform,
+                            ),
+                    })
+                    .collect();
+                (RenderObjectClass::HLod, sub_objects)
+            }
             _ => return None,
         };
 
@@ -2172,6 +2201,89 @@ mod tests {
         assert!(bridge
             .materialize_exact_w3d_render_object_snapshot(&submission)
             .is_none());
+    }
+
+    #[test]
+    fn exact_hlod_ghost_adapter_materializes_static_bind_pose_children() {
+        let mut bridge = RenderBridge::new();
+        let mut hierarchy =
+            ww3d_assets::prototypes::HierarchyPrototype::new("GhostBindHierarchy".to_string());
+        hierarchy.bind_transforms = vec![
+            GameMat4::IDENTITY,
+            GameMat4::from_translation(GameVec3::new(2.0, 0.0, 0.0)),
+        ];
+        hierarchy.inverse_bind_transforms = vec![GameMat4::IDENTITY; 2];
+        bridge
+            .asset_manager_mut()
+            .add_prototype(hierarchy.name.clone(), Box::new(hierarchy));
+        bridge.asset_manager_mut().add_prototype(
+            "GhostHlodChild".to_string(),
+            Box::new(ww3d_assets::prototypes::MeshPrototype::new(
+                "GhostHlodChild".to_string(),
+            )),
+        );
+        bridge.asset_manager_mut().add_prototype(
+            "GhostBindHlod".to_string(),
+            Box::new(ww3d_assets::prototypes::HlodPrototype {
+                name: "GhostBindHlod".to_string(),
+                hierarchy_name: "GhostBindHierarchy".to_string(),
+                version: 1,
+                lods: vec![ww3d_assets::prototypes::HlodLodEntry {
+                    max_screen_size: 0.0,
+                    models: vec![ww3d_assets::prototypes::HlodSubObject {
+                        name: "GhostHlodChild".to_string(),
+                        bone_index: 1,
+                    }],
+                }],
+                aggregates: Vec::new(),
+                proxy_entries: Vec::new(),
+            }),
+        );
+
+        let mut camera = Camera::perspective(
+            "ghost_hlod_bind_pose".to_string(),
+            60.0_f32.to_radians(),
+            16.0 / 9.0,
+            0.1,
+            1000.0,
+        );
+        camera.set_position(WwVec3::new(0.0, 0.0, -20.0));
+        camera.look_at(WwVec3::ZERO, WwVec3::Y);
+        bridge.begin_frame(&camera, 0.016);
+
+        let submission = DrawSubmission {
+            drawable_id: DrawableId(93),
+            owner_object_id: Some(9003),
+            model_name: "GhostBindHlod".to_string(),
+            world_transform: GameMat4::IDENTITY,
+            legacy_render_object_transform: Some(GameMat4::from_translation(GameVec3::new(
+                2.0, 3.0, 4.0,
+            ))),
+            legacy_render_object_scale: Some(1.25),
+            legacy_render_object_color: Some(0x7f102030),
+            bounding_sphere: BoundingSphere::new(WwVec3::ZERO, 10.0),
+            opaque: true,
+            transparent: false,
+            cast_shadow: true,
+            ..Default::default()
+        };
+        bridge.submit(submission.clone());
+        bridge.flush();
+
+        let snapshot = bridge
+            .materialize_exact_w3d_render_object_snapshot(&submission)
+            .expect("static HLOD bind pose should be exact");
+        assert_eq!(snapshot.render_object.class_id, RenderObjectClass::HLod);
+        assert_eq!(snapshot.render_object.sub_objects.len(), 1);
+        assert_eq!(snapshot.render_object.sub_objects[0].name, "GhostHlodChild");
+        assert!(snapshot.render_object.sub_objects[0].visible);
+        assert_eq!(
+            snapshot.render_object.sub_objects[0].transform,
+            gamelogic::object::w3d_ghost_object::Matrix3x4::from_logic_matrix(
+                GameMat4::from_translation(GameVec3::new(2.0, 0.0, 0.0))
+            )
+        );
+        assert!(snapshot.uv_animations_disabled);
     }
 
     fn exact_mesh_ghost_model_draw(drawable_id: u32) -> ModelDrawState {
