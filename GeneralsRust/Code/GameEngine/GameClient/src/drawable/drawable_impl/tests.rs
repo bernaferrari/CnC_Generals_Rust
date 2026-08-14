@@ -1610,6 +1610,46 @@ fn weapon_fire_recoil_subtracts_bound_object_orientation() {
 }
 
 #[test]
+fn render_does_not_apply_persisted_loco_info_without_exact_frozen_source() {
+    #[derive(Debug)]
+    struct TransformCaptureModule {
+        observed: Arc<Mutex<Option<Matrix4>>>,
+    }
+
+    impl DrawModule for TransformCaptureModule {
+        fn do_draw(&mut self, transform: &Matrix4, _view: &Matrix4, _projection: &Matrix4) {
+            *self.observed.lock() = Some(*transform);
+        }
+    }
+
+    let observed = Arc::new(Mutex::new(None));
+    let mut drawable = BasicDrawable::new(DrawableId(900_002));
+    drawable.set_position(Vector3::new(12.0, -4.0, 7.0));
+    drawable.set_instance_transform(Matrix4::rotation_z(0.25));
+    drawable.loco_info = Some(LocoInfo {
+        pitch: 0.4,
+        roll: -0.3,
+        yaw: 0.2,
+        acceleration_pitch: 0.15,
+        acceleration_roll: -0.1,
+        overlap_z: 5.0,
+        ..LocoInfo::default()
+    });
+    drawable.add_draw_module(Box::new(TransformCaptureModule {
+        observed: observed.clone(),
+    }));
+
+    let expected = drawable.get_transform();
+    drawable.render(&Matrix4::identity(), &Matrix4::identity());
+
+    assert_eq!(
+        *observed.lock(),
+        Some(expected),
+        "persisted LocoInfo is client history, not a complete frozen calcPhysicsXform input"
+    );
+}
+
+#[test]
 fn projectile_launch_offset_forwards_pitch_pointer_to_draw_module() {
     let observed_pitch_pointer = Arc::new(Mutex::new(false));
     let mut drawable = BasicDrawable::new(DrawableId(1));
