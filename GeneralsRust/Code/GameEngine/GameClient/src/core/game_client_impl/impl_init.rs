@@ -3,13 +3,11 @@
 // so this stays one logical `game_client` module (public API identical).
 
 impl GameClient {
-    /// Publish the logic-owned W3D ghost source bridge at the same lifecycle
-    /// boundary as the live client.  The callback only exposes the exact
-    /// Drawable/ModelDraw source record; it does not fabricate a
-    /// W3DRenderObjectSnapshot or install a renderer hook.  The device layer
-    /// must still materialize the final class/color/sub-object payload before
-    /// PartitionData accepts a fog transition.
-    fn register_w3d_ghost_snapshot_source_bridge() {
+    /// Publish the logic-owned W3D ghost source and the strict Mesh-only final
+    /// capture bridge at the same lifecycle boundary as the live client.
+    /// HLOD/Other classes and dynamic Mesh state remain fail-closed until the
+    /// renderer owns their live child/animation/material state.
+    fn register_w3d_ghost_snapshot_bridges() {
         let _ =
             gamelogic::object::w3d_ghost_object::register_w3d_ghost_snapshot_capture_source_hook(
                 Some(Arc::new(|object_id| {
@@ -17,6 +15,17 @@ impl GameClient {
                         .and_then(|client| client.object_w3d_ghost_snapshot_source(object_id))
                 })),
             );
+        gamelogic::object::w3d_ghost_object::register_w3d_ghost_snapshot_capture_hook(Some(
+            Arc::new(|object_id| {
+                let source =
+                    gamelogic::object::w3d_ghost_object::capture_w3d_ghost_snapshot_source(
+                        object_id,
+                    )?;
+                let mut bridge_guard = crate::render_bridge::get_render_bridge().lock().ok()?;
+                let bridge = bridge_guard.as_mut()?;
+                bridge.materialize_exact_mesh_w3d_ghost_capture(&source)
+            }),
+        ));
     }
 
     /// Creates a new GameClient instance
@@ -68,7 +77,7 @@ impl GameClient {
         }
 
         register_live_game_client(self);
-        Self::register_w3d_ghost_snapshot_source_bridge();
+        Self::register_w3d_ghost_snapshot_bridges();
 
         reset_script_action_runtime_state();
         init_video_player();
@@ -101,7 +110,7 @@ impl GameClient {
         // that fully prepared client at the same lifecycle boundary as
         // `GameClient::init`, so published input frame state is live.
         register_live_game_client(self);
-        Self::register_w3d_ghost_snapshot_source_bridge();
+        Self::register_w3d_ghost_snapshot_bridges();
         self.initialized = true;
     }
 
