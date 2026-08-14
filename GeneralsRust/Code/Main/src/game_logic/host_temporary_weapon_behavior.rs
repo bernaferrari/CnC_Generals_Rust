@@ -309,6 +309,37 @@ pub struct TemporaryWeaponRuntimeSpec {
     pub weapon_slot: TemporaryWeaponSlot,
 }
 
+/// Authored template values consumed by the C++ `Weapon` constructor and
+/// copy/assignment operators. This is deliberately an explicit value object
+/// rather than a lookup by template name: temporary behavior state must never
+/// guess these fields from an object or weapon basename.
+///
+/// The live Main Object does not own this contract yet. A future Object
+/// runtime bridge must obtain these values from the authoritative WeaponStore
+/// before constructing a retained temporary Weapon.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TemporaryWeaponConstructionDefaults {
+    pub min_target_pitch: f32,
+    pub max_target_pitch: f32,
+    pub shots_per_barrel: i32,
+    pub suspend_fx_delay: u32,
+    /// C++ template property consulted when firing; construction itself
+    /// still initializes `m_leechWeaponRangeActive` to false.
+    pub leech_range_weapon: bool,
+}
+
+impl Default for TemporaryWeaponConstructionDefaults {
+    fn default() -> Self {
+        Self {
+            min_target_pitch: -std::f32::consts::PI,
+            max_target_pitch: std::f32::consts::PI,
+            shots_per_barrel: 1,
+            suspend_fx_delay: 0,
+            leech_range_weapon: false,
+        }
+    }
+}
+
 /// Mutable C++ `Weapon::xfer` payload for one damaged-behavior allocation.
 ///
 /// `key` is Rust-side ownership identity and is not an additional C++ wire
@@ -347,6 +378,83 @@ pub struct TemporaryWeaponRuntimeState {
 }
 
 impl TemporaryWeaponRuntimeState {
+    /// Construct the mutable state initialized by C++ `Weapon::Weapon`.
+    ///
+    /// This mirrors `Weapon.cpp:1724-1743`: a new Weapon starts empty, uses
+    /// the supplied slot, derives pitch limitation from the authored pitch
+    /// window, initializes barrel cadence from `ShotsPerBarrel`, and schedules
+    /// SuspendFX from the current logic frame. No reload or fire side effect
+    /// occurs here; those belong to the eventual live Object/WeaponStore
+    /// bridge.
+    pub fn from_cxx_constructor(
+        spec: &TemporaryWeaponRuntimeSpec,
+        defaults: TemporaryWeaponConstructionDefaults,
+        logic_frame: u32,
+    ) -> Self {
+        Self {
+            key: spec.key,
+            weapon_template_name: spec.weapon_template_name.clone(),
+            weapon_slot: spec.weapon_slot,
+            status: TemporaryWeaponStatus::OutOfAmmo,
+            ammo_in_clip: 0,
+            when_we_can_fire_again: 0,
+            when_pre_attack_finished: 0,
+            when_last_reload_started: 0,
+            last_fire_frame: 0,
+            // C++ UnsignedInt addition wraps on overflow.
+            suspend_fx_frame: logic_frame.wrapping_add(defaults.suspend_fx_delay),
+            projectile_stream_id: crate::game_logic::INVALID_OBJECT_ID,
+            // `Weapon::xfer` consumes this local placeholder but never stores
+            // it as live state.
+            laser_object_id_unused: crate::game_logic::INVALID_OBJECT_ID,
+            max_shot_count: TEMPORARY_WEAPON_NO_MAX_SHOTS_LIMIT,
+            current_barrel: 0,
+            num_shots_for_current_barrel: defaults.shots_per_barrel,
+            scatter_targets_unused: Vec::new(),
+            pitch_limited: defaults.min_target_pitch > -std::f32::consts::PI
+                || defaults.max_target_pitch < std::f32::consts::PI,
+            leech_weapon_range_active: false,
+        }
+    }
+
+    /// Mirror C++ `Weapon(const Weapon&)`.
+    ///
+    /// C++ copies the template/slot identity and the source's
+    /// `m_suspendFXFrame`, but intentionally drops every other mutable value:
+    /// copied Weapons lose ammo, cooldown, projectile ownership, barrel
+    /// progress, scatter targets, and active leech state. The destination
+    /// defaults are explicit so the copied template's authored fields remain
+    /// available without a template-name lookup.
+    pub fn from_cxx_copy(source: &Self, defaults: TemporaryWeaponConstructionDefaults) -> Self {
+        // C++ copies m_template and m_wslot from `that`. The Rust ownership
+        // key is likewise copied; assignment below deliberately preserves
+        // the receiving owner's key because it is not a C++ wire field.
+        let source_spec = TemporaryWeaponRuntimeSpec {
+            key: source.key,
+            weapon_template_name: source.weapon_template_name.clone(),
+            weapon_slot: source.weapon_slot,
+        };
+        let mut copied = Self::from_cxx_constructor(&source_spec, defaults, 0);
+        copied.suspend_fx_frame = source.suspend_fx_frame;
+        copied
+    }
+
+    /// Mirror C++ `Weapon::operator=`.
+    ///
+    /// Assignment has the same reset semantics as copy construction and
+    /// preserves only the source SuspendFX frame. The destination identity is
+    /// supplied by its owner, never copied from another behavior role.
+    pub fn assign_from_cxx(
+        &mut self,
+        source: &Self,
+        defaults: TemporaryWeaponConstructionDefaults,
+    ) {
+        let destination_key = self.key;
+        let mut assigned = Self::from_cxx_copy(source, defaults);
+        assigned.key = destination_key;
+        *self = assigned;
+    }
+
     /// A runtime state must stay paired to its exact allocation spec.  A
     /// future loader uses this to reject mismatched template/role data rather
     /// than silently transferring a cooldown into another temporary weapon.
@@ -1184,5 +1292,113 @@ mod tests {
             .unwrap()
             .matches_spec(&specs[1]));
         assert_eq!(runtime.next_call_frame_and_phase, 0x1234_567a);
+    }
+
+    #[test]
+    fn cxx_constructor_copy_and_assignment_reset_state_exactly() {
+        let source_spec = TemporaryWeaponRuntimeSpec {
+            key: TemporaryWeaponRuntimeKey {
+                module_source_index: 3,
+                role: FireWeaponWhenDamagedWeaponRole::ReactionDamaged,
+            },
+            weapon_template_name: "SourceTempWeapon".to_string(),
+            weapon_slot: TemporaryWeaponSlot::Primary,
+        };
+        let destination_spec = TemporaryWeaponRuntimeSpec {
+            key: TemporaryWeaponRuntimeKey {
+                module_source_index: 3,
+                role: FireWeaponWhenDamagedWeaponRole::ContinuousDamaged,
+            },
+            weapon_template_name: "DestinationTempWeapon".to_string(),
+            weapon_slot: TemporaryWeaponSlot::Primary,
+        };
+        let source_defaults = TemporaryWeaponConstructionDefaults {
+            min_target_pitch: -1.0,
+            max_target_pitch: 1.0,
+            shots_per_barrel: 3,
+            suspend_fx_delay: 4,
+            leech_range_weapon: true,
+        };
+        let destination_defaults = TemporaryWeaponConstructionDefaults {
+            min_target_pitch: -std::f32::consts::PI,
+            max_target_pitch: std::f32::consts::PI,
+            shots_per_barrel: 7,
+            suspend_fx_delay: 100,
+            leech_range_weapon: true,
+        };
+
+        let mut source = TemporaryWeaponRuntimeState::from_cxx_constructor(
+            &source_spec,
+            source_defaults,
+            u32::MAX - 1,
+        );
+        assert_eq!(source.suspend_fx_frame, 2, "C++ UnsignedInt addition wraps");
+        assert!(source.pitch_limited);
+        assert_eq!(source.num_shots_for_current_barrel, 3);
+        assert!(!source.leech_weapon_range_active);
+        assert_eq!(
+            source.projectile_stream_id,
+            crate::game_logic::INVALID_OBJECT_ID
+        );
+        assert_eq!(
+            source.laser_object_id_unused,
+            crate::game_logic::INVALID_OBJECT_ID
+        );
+
+        // Simulate a live source Weapon. C++ copy/assignment intentionally
+        // discard all of these mutable fields except SuspendFXFrame.
+        source.status = TemporaryWeaponStatus::BetweenFiringShots;
+        source.ammo_in_clip = 11;
+        source.when_we_can_fire_again = 12;
+        source.when_pre_attack_finished = 13;
+        source.when_last_reload_started = 14;
+        source.last_fire_frame = 15;
+        source.projectile_stream_id = crate::game_logic::ObjectId(99);
+        source.laser_object_id_unused = crate::game_logic::ObjectId(98);
+        source.max_shot_count = 17;
+        source.current_barrel = 2;
+        source.num_shots_for_current_barrel = 1;
+        source.scatter_targets_unused = vec![4, 5];
+        source.leech_weapon_range_active = true;
+        let source_suspend_fx_frame = source.suspend_fx_frame;
+
+        let copied = TemporaryWeaponRuntimeState::from_cxx_copy(&source, destination_defaults);
+        assert_eq!(copied.key, source_spec.key);
+        assert_eq!(
+            copied.weapon_template_name,
+            source_spec.weapon_template_name
+        );
+        assert_eq!(copied.weapon_slot, source_spec.weapon_slot);
+        assert_eq!(copied.status, TemporaryWeaponStatus::OutOfAmmo);
+        assert_eq!(copied.ammo_in_clip, 0);
+        assert_eq!(copied.when_we_can_fire_again, 0);
+        assert_eq!(copied.when_pre_attack_finished, 0);
+        assert_eq!(copied.when_last_reload_started, 0);
+        assert_eq!(copied.last_fire_frame, 0);
+        assert_eq!(copied.suspend_fx_frame, source_suspend_fx_frame);
+        assert_eq!(
+            copied.projectile_stream_id,
+            crate::game_logic::INVALID_OBJECT_ID
+        );
+        assert_eq!(
+            copied.laser_object_id_unused,
+            crate::game_logic::INVALID_OBJECT_ID
+        );
+        assert_eq!(copied.max_shot_count, TEMPORARY_WEAPON_NO_MAX_SHOTS_LIMIT);
+        assert_eq!(copied.current_barrel, 0);
+        assert_eq!(copied.num_shots_for_current_barrel, 7);
+        assert!(copied.scatter_targets_unused.is_empty());
+        assert!(!copied.pitch_limited);
+        assert!(!copied.leech_weapon_range_active);
+
+        let mut assigned = TemporaryWeaponRuntimeState::from_cxx_constructor(
+            &destination_spec,
+            destination_defaults,
+            1_000,
+        );
+        assigned.assign_from_cxx(&source, destination_defaults);
+        let mut expected_assigned = copied.clone();
+        expected_assigned.key = destination_spec.key;
+        assert_eq!(assigned, expected_assigned);
     }
 }
