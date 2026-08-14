@@ -1,6 +1,6 @@
 //! Wave 551 residual peels: time-frozen residual is centralized through
 //! `presentation_or_boot_time_frozen` — presentation freeze owns the flag when
-//! installed; boot residual without freeze uses host GameLogic probe.
+//! installed; boot residual without freeze uses the host match timing latch.
 //! Call sites: host tick, shell visual delta, render time delta, camera shake.
 //! Never flips shell `playable_claim`.
 //!
@@ -8,7 +8,7 @@
 //! Host residual only — network deferred.
 //!
 //! Sources:
-//! - `cnc_game_engine.rs` presentation_or_boot_time_frozen / call sites
+//! - `camera_drain.rs` presentation_or_boot_time_frozen / call sites
 //!
 //! Fail-closed:
 //! - Shell `playable_claim` stays false; network deferred
@@ -26,7 +26,7 @@ pub const LIVE_TIME_FROZEN_PRESENTATION_HELPER_METHOD_NAMES_WAVE551: &[&str] = &
     "presentation_or_boot_time_frozen",
     "last_presentation_frame",
     "time_frozen_for_simulation",
-    "is_time_frozen_for_simulation",
+    "host_match_time_frozen",
     "Wave 551",
     "playable_claim = false",
 ];
@@ -41,7 +41,7 @@ pub const LIVE_TIME_FROZEN_PRESENTATION_HELPER_NAV_STEPS_WAVE551: &[&str] = &[
 pub const RUNTIME_HOST_LIVE_TIME_FROZEN_PRESENTATION_HELPER_CMD_NAMES_WAVE551: &[&str] = &[
     "time_frozen_presentation_helper",
     "presentation_time_frozen_owns",
-    "boot_is_time_frozen_for_simulation",
+    "boot_host_match_time_frozen",
 ];
 
 #[repr(u8)]
@@ -112,7 +112,7 @@ pub fn honesty_time_frozen_presentation_helper_method_names_residual_wave551() -
     let ok = residual_name_index(names, "presentation_or_boot_time_frozen").is_some()
         && residual_name_index(names, "last_presentation_frame").is_some()
         && residual_name_index(names, "time_frozen_for_simulation").is_some()
-        && residual_name_index(names, "is_time_frozen_for_simulation").is_some()
+        && residual_name_index(names, "host_match_time_frozen").is_some()
         && residual_name_index(names, "Wave 551").is_some()
         && residual_name_index(names, "playable_claim = false").is_some();
     residual_action_store(ResidualTimeFrozenPresentationHelperAction::MethodNames);
@@ -127,12 +127,12 @@ pub fn honesty_time_frozen_presentation_helper_source_markers_residual_wave551()
     };
     let helper_ok = body.contains("Wave 551")
         && body.contains("pres.time_frozen_for_simulation")
-        && body.contains("self.game_logic.is_time_frozen_for_simulation()");
+        && body.contains("self.host_match_time_frozen");
     let calls = eng.matches("presentation_or_boot_time_frozen()").count();
     let raw = eng
         .matches("self.game_logic.is_time_frozen_for_simulation()")
         .count();
-    let ok = helper_ok && calls >= 4 && raw == 1 && !eng.contains("playable_claim = true");
+    let ok = helper_ok && calls >= 4 && raw == 0 && !eng.contains("playable_claim = true");
     residual_action_store(ResidualTimeFrozenPresentationHelperAction::SourceMarkers);
     ok
 }
@@ -146,7 +146,7 @@ pub fn honesty_time_frozen_presentation_helper_nav_commands_residual_wave551() -
         && residual_name_index(steps, "LIVE_PLAYABLE_CLAIM_FALSE").is_some()
         && residual_name_index(cmds, "time_frozen_presentation_helper").is_some()
         && residual_name_index(cmds, "presentation_time_frozen_owns").is_some()
-        && residual_name_index(cmds, "boot_is_time_frozen_for_simulation").is_some();
+        && residual_name_index(cmds, "boot_host_match_time_frozen").is_some();
     residual_action_store(ResidualTimeFrozenPresentationHelperAction::NavCommands);
     ok
 }
@@ -168,7 +168,7 @@ pub fn simulate_time_frozen_presentation_helper_dispatch_source() -> bool {
     };
     let ok = body.contains("Wave 551")
         && body.contains("pres.time_frozen_for_simulation")
-        && body.contains("self.game_logic.is_time_frozen_for_simulation()")
+        && body.contains("self.host_match_time_frozen")
         && eng.matches("presentation_or_boot_time_frozen()").count() >= 4;
     residual_action_store(ResidualTimeFrozenPresentationHelperAction::DispatchSource);
     ok
