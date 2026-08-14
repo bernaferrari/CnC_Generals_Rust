@@ -1552,6 +1552,8 @@ impl ThingTemplate {
         } else {
             wt.weapon_speed
         };
+        let suspend_fx_frame = crate::game_logic::host_historic_bonus::logic_frame()
+            .saturating_add(wt.suspend_fx_delay);
         Some(Weapon {
             damage: wt.primary_damage,
             range: wt.attack_range,
@@ -1580,6 +1582,7 @@ impl ThingTemplate {
             projectile_speed,
             pre_attack_delay,
             splash_radius: wt.primary_damage_radius.max(0.0),
+            suspend_fx_frame,
         })
     }
 

@@ -284,6 +284,7 @@ pub fn technical_weapon_for_tier(tier: TechnicalWeaponTier) -> Weapon {
         },
         pre_attack_delay: 0.0,
         splash_radius: 0.0,
+        suspend_fx_frame: 0,
     }
 }
 

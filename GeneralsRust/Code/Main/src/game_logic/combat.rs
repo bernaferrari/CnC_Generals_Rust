@@ -700,6 +700,7 @@ pub fn drain_pending_projectiles(combat: &mut CombatSystem, objects: &HashMap<Ob
             projectile_speed: flight_speed,
             pre_attack_delay: 0.0,
             splash_radius: p.splash_radius,
+            suspend_fx_frame: 0,
         };
         let pid = combat.fire_projectile_ex(
             p.shooter_pos,
@@ -2157,6 +2158,7 @@ mod tests {
                 projectile_speed: 0.0,
                 pre_attack_delay: 0.0,
                 splash_radius: 0.0,
+                suspend_fx_frame: 0,
             },
             shooter,
             Some(target),

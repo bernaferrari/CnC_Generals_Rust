@@ -240,6 +240,7 @@ pub fn tank_hunter_weapon(in_horde: bool, has_nationalism: bool) -> Weapon {
         projectile_speed: speed,
         pre_attack_delay: 0.0,
         splash_radius: splash,
+        suspend_fx_frame: 0,
     }
 }
 

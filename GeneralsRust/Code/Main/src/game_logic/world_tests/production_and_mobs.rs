@@ -266,6 +266,7 @@ fn overlord_gattling_addon_residual_install_and_fire() {
             projectile_speed: 300.0,
             pre_attack_delay: 0.0,
             splash_radius: 0.0,
+            suspend_fx_frame: 0,
         });
     }
 
@@ -570,6 +571,7 @@ fn nuke_cannon_primary_residual_area_and_radiation() {
                 projectile_speed: 200.0,
                 pre_attack_delay: 0.0,
                 splash_radius: 0.0,
+                suspend_fx_frame: 0,
             });
         }
         // Place cannon within residual range of targets.
@@ -1308,6 +1310,7 @@ fn deploy_style_nuke_launcher_normal_attack_waits_for_range_and_unpack() {
             projectile_speed: 0.0,
             pre_attack_delay: 0.0,
             splash_radius: 0.0,
+            suspend_fx_frame: 0,
         });
     // Retail ChinaVehicleNukeLauncher has 3333ms Pack/Unpack, parsed with
     // C++ duration rounding into 100 logic frames. The source flags remain
@@ -1483,6 +1486,7 @@ fn deploy_style_sentry_auto_target_loss_clears_pending_attack() {
             projectile_speed: 0.0,
             pre_attack_delay: 0.0,
             splash_radius: 0.0,
+            suspend_fx_frame: 0,
         });
     }
 

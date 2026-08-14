@@ -272,6 +272,7 @@ pub fn comanche_cannon_weapon() -> Weapon {
         projectile_speed: 999_999.0,
         pre_attack_delay: 0.0,
         splash_radius: 0.0,
+        suspend_fx_frame: 0,
     }
 }
 
@@ -291,6 +292,7 @@ pub fn comanche_antitank_weapon() -> Weapon {
         projectile_speed: 99999.0,
         pre_attack_delay: 0.0,
         splash_radius: 0.0,
+        suspend_fx_frame: 0,
     }
 }
 
@@ -310,6 +312,7 @@ pub fn comanche_rocket_pod_weapon() -> Weapon {
         projectile_speed: 99999.0,
         pre_attack_delay: 0.0,
         splash_radius: 0.0,
+        suspend_fx_frame: 0,
     }
 }
 

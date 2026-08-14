@@ -257,6 +257,7 @@ pub fn dragon_flame_weapon(upgraded: bool) -> Weapon {
         projectile_speed: DRAGON_PROJECTILE_SPEED,
         pre_attack_delay: 0.0,
         splash_radius: 0.0,
+        suspend_fx_frame: 0,
     }
 }
 

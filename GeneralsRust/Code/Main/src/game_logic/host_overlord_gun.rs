@@ -255,6 +255,7 @@ pub fn overlord_gun_weapon(has_uranium: bool) -> Weapon {
         projectile_speed: OVERLORD_PROJECTILE_SPEED,
         pre_attack_delay: 0.0,
         splash_radius: 0.0,
+        suspend_fx_frame: 0,
     }
 }
 

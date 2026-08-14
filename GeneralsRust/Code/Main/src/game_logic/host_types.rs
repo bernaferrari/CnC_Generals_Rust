@@ -543,6 +543,13 @@ pub struct Weapon {
     /// 0.0 = no splash (direct hit only).
     #[serde(default)]
     pub splash_radius: f32,
+    /// C++ `Weapon::m_suspendFXFrame` (Weapon.cpp:1742).  This is client-only
+    /// runtime state: FireFX is suppressed while the current logic frame is
+    /// below this absolute frame, but recoil still broadcasts.  Keep it out
+    /// of the nested serde/bincode Weapon payload; ObjectSnapshot owns the
+    /// versioned parallel tail so historical positional records remain safe.
+    #[serde(skip)]
+    pub suspend_fx_frame: u32,
 }
 
 impl Default for Weapon {
@@ -561,6 +568,39 @@ impl Default for Weapon {
             projectile_speed: 200.0,
             pre_attack_delay: 0.0,
             splash_radius: 0.0,
+            suspend_fx_frame: 0,
         }
+    }
+}
+
+impl Weapon {
+    /// C++ `TheGameLogic->getFrame() < getSuspendFXFrame()` gate used by
+    /// Weapon::fireWeapon.  The renderer/DrawModule route remains fail-closed
+    /// until its pre-mutation owner snapshot exists; this helper only exposes
+    /// the authoritative source state.
+    #[inline]
+    pub fn fire_fx_is_suspended_at(&self, logic_frame: u32) -> bool {
+        logic_frame < self.suspend_fx_frame
+    }
+
+    /// Set the absolute frame at which FireFX becomes eligible.  This mirrors
+    /// construction/copy state without deriving a delay from a model name.
+    #[inline]
+    pub fn set_suspend_fx_frame(&mut self, frame: u32) {
+        self.suspend_fx_frame = frame;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Weapon;
+
+    #[test]
+    fn suspend_fx_frame_is_an_absolute_logic_frame_and_clone_preserves_it() {
+        let mut weapon = Weapon::default();
+        weapon.set_suspend_fx_frame(42);
+        assert!(weapon.fire_fx_is_suspended_at(41));
+        assert!(!weapon.fire_fx_is_suspended_at(42));
+        assert_eq!(weapon.clone().suspend_fx_frame, 42);
     }
 }

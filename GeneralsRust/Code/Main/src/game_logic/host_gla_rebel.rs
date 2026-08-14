@@ -238,6 +238,7 @@ pub fn rebel_weapon(has_ap_bullets: bool) -> Weapon {
         projectile_speed: 999_999.0,
         pre_attack_delay: 0.0,
         splash_radius: 0.0,
+        suspend_fx_frame: 0,
     }
 }
 

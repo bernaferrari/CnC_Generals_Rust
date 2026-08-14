@@ -432,6 +432,7 @@ pub fn battle_drone_weapon() -> Weapon {
         projectile_speed: 999_999.0,
         pre_attack_delay: 0.0,
         splash_radius: 0.0,
+        suspend_fx_frame: 0,
     }
 }
 

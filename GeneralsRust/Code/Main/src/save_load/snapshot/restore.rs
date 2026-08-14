@@ -92,6 +92,15 @@ impl SnapshotBuilder {
         object.weapon = primary;
         object.secondary_weapon = secondary;
         object.tertiary_weapon = tertiary;
+        // v7 carries the C++ client-only SuspendFXFrame in a parallel object
+        // tail.  Older streams intentionally leave the zero sentinel, while
+        // a short/misaligned tail never manufactures a frame for a slot that
+        // was not restored as a concrete Weapon.
+        for slot in 0..3u8 {
+            if let Some(&suspend_fx_frame) = snapshot.weapon_suspend_fx_frames.get(slot as usize) {
+                object.restore_weapon_suspend_fx_frame_for_slot(slot, suspend_fx_frame);
+            }
+        }
         // v4 stores only the mutable C++ Weapon cursor. Authored cadence and
         // draw topology are rebuilt by Object; a saved multi-barrel cursor is
         // staged losslessly until that topology is validated, rather than

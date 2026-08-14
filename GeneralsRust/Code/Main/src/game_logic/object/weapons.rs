@@ -127,6 +127,26 @@ impl Object {
         }
     }
 
+    /// Restore the C++ client-only `Weapon::m_suspendFXFrame` parallel
+    /// snapshot tail without exposing slot storage to save/load code.
+    pub(crate) fn restore_weapon_suspend_fx_frame_for_slot(
+        &mut self,
+        slot: u8,
+        frame: u32,
+    ) -> bool {
+        let weapon = match slot {
+            0 => self.weapon.as_mut(),
+            1 => self.secondary_weapon.as_mut(),
+            2 => self.tertiary_weapon.as_mut(),
+            _ => None,
+        };
+        let Some(weapon) = weapon else {
+            return false;
+        };
+        weapon.set_suspend_fx_frame(frame);
+        true
+    }
+
     /// First concrete WeaponSet slot currently bound on this object.
     pub fn first_available_weapon_slot(&self) -> Option<u8> {
         [0u8, 1u8, 2u8]

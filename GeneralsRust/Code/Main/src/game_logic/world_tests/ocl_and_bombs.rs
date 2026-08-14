@@ -981,6 +981,7 @@ fn residual_auto_fire_ai_decision_writeback_sets_host_target() {
             projectile_speed: 0.0,
             pre_attack_delay: 0.0,
             splash_radius: 0.0,
+            suspend_fx_frame: 0,
         });
     }
     assert!(logic.host_object(attacker).unwrap().target.is_none());

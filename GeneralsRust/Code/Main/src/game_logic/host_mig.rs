@@ -363,6 +363,7 @@ pub fn mig_weapon(loadout: MigLoadout) -> Weapon {
         projectile_speed: MIG_PROJECTILE_SPEED,
         pre_attack_delay: 0.0,
         splash_radius: 0.0,
+        suspend_fx_frame: 0,
     }
 }
 

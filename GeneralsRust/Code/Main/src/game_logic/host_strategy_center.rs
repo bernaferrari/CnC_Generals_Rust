@@ -771,6 +771,7 @@ pub fn strategy_center_gun_weapon() -> Weapon {
         projectile_speed: STRATEGY_CENTER_GUN_PROJECTILE_SPEED,
         pre_attack_delay: 0.0,
         splash_radius: 0.0,
+        suspend_fx_frame: 0,
     }
 }
 

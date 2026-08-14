@@ -195,6 +195,7 @@ pub fn rpg_trooper_weapon(has_ap_rockets: bool) -> Weapon {
         projectile_speed: speed,
         pre_attack_delay: 0.0,
         splash_radius: 0.0,
+        suspend_fx_frame: 0,
     }
 }
 

@@ -240,6 +240,7 @@ pub fn marauder_weapon_for_tier(tier: MarauderWeaponTier) -> Weapon {
         projectile_speed: speed,
         pre_attack_delay: 0.0,
         splash_radius: 0.0,
+        suspend_fx_frame: 0,
     }
 }
 

@@ -286,6 +286,7 @@ pub fn scorpion_gun_weapon(tier: ScorpionSalvageTier) -> Weapon {
         projectile_speed: speed,
         pre_attack_delay: 0.0,
         splash_radius: 0.0,
+        suspend_fx_frame: 0,
     }
 }
 
@@ -318,6 +319,7 @@ pub fn scorpion_missile_weapon(has_ap: bool, dual_clip: bool) -> Weapon {
         projectile_speed: SCORPION_MISSILE_PROJECTILE_SPEED,
         pre_attack_delay: 0.0,
         splash_radius: 0.0,
+        suspend_fx_frame: 0,
     }
 }
 

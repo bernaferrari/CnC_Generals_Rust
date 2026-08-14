@@ -250,6 +250,7 @@ pub fn burton_sniper_weapon() -> Weapon {
         projectile_speed: 999_999.0,
         pre_attack_delay: 0.0,
         splash_radius: 0.0,
+        suspend_fx_frame: 0,
     }
 }
 
@@ -269,6 +270,7 @@ pub fn burton_knife_weapon() -> Weapon {
         projectile_speed: 999_999.0,
         pre_attack_delay: delay_frames_to_reload_secs(BURTON_KNIFE_PRE_ATTACK_FRAMES),
         splash_radius: 0.0,
+        suspend_fx_frame: 0,
     }
 }
 

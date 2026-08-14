@@ -286,6 +286,7 @@ pub fn humvee_gun_weapon() -> Weapon {
         projectile_speed: HUMVEE_GUN_WEAPON_SPEED,
         pre_attack_delay: 0.0,
         splash_radius: 0.0,
+        suspend_fx_frame: 0,
     }
 }
 
@@ -305,6 +306,7 @@ pub fn humvee_ground_tow_weapon() -> Weapon {
         projectile_speed: HUMVEE_GROUND_TOW_WEAPON_SPEED,
         pre_attack_delay: 0.0,
         splash_radius: 0.0,
+        suspend_fx_frame: 0,
     }
 }
 
@@ -324,6 +326,7 @@ pub fn humvee_air_tow_weapon() -> Weapon {
         projectile_speed: HUMVEE_AIR_TOW_WEAPON_SPEED,
         pre_attack_delay: 0.0,
         splash_radius: 0.0,
+        suspend_fx_frame: 0,
     }
 }
 
