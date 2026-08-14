@@ -55,6 +55,19 @@ impl GameWorldShadow {
         }
     }
 
+    /// Discard all shadow state at a host-world replacement boundary.
+    ///
+    /// Host `ObjectId`s are allocator-local and may be reused by a reset,
+    /// map load, or staged save restore.  Keeping the old `GameWorld` and its
+    /// per-host residual queues would therefore alias entities from the
+    /// previous match into the new authoritative world.  Reconstructing the
+    /// shadow also clears the GameWorld's pending mutations/projectile and AI
+    /// residuals, while retaining the configured entity capacity.
+    pub fn reset_for_world_boundary(&mut self) {
+        let max_entities = self.max_entities;
+        *self = Self::new(max_entities);
+    }
+
     pub fn world(&self) -> &GameWorld {
         &self.world
     }

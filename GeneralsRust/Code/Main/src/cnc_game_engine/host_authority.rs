@@ -389,6 +389,9 @@ impl CnCGameEngine {
         // Wave 584/871/933: host reset residual via session-control authority.
         self.host_game_logic_mut()
             .apply_session_control_op(crate::game_logic::SessionControlOp::Reset);
+        if let Some(shadow) = self.gameworld_shadow.as_mut() {
+            shadow.reset_for_world_boundary();
+        }
         self.host_advance_direct_visual_world_epoch();
         #[cfg(feature = "game_client")]
         self.game_client.invalidate_presentation_drawable_world();
@@ -1025,6 +1028,9 @@ impl CnCGameEngine {
         self.host_invalidate_active_popup_for_world_boundary();
 
         self.game_logic = logic;
+        if let Some(shadow) = self.gameworld_shadow.as_mut() {
+            shadow.reset_for_world_boundary();
+        }
         self.host_advance_direct_visual_world_epoch();
         #[cfg(feature = "game_client")]
         self.game_client.invalidate_presentation_drawable_world();
@@ -1075,6 +1081,7 @@ impl CnCGameEngine {
             .queue_client_drawable_restore(client_drawables);
         self.invalidate_presentation_terrain_cache();
         if let Some(shadow) = self.gameworld_shadow.as_mut() {
+            shadow.reset_for_world_boundary();
             shadow.sync_from_host(&self.game_logic);
         }
     }

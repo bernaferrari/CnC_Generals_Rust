@@ -665,6 +665,10 @@ impl CnCGameEngine {
             );
             return None;
         };
+        if let Some(shadow) = self.gameworld_shadow.as_mut() {
+            shadow.reset_for_world_boundary();
+            shadow.sync_from_host(&self.game_logic);
+        }
         // The new logical world is now authoritative. Prime exact source W3D
         // topology before a post-load combat tick can accept a shot; failure
         // remains cache-miss/one-barrel fail-closed rather than doing I/O from
