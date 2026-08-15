@@ -3,10 +3,39 @@
 use super::*;
 use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
 use gamelogic::world::{
-    ctor_helper_tags, EntityModuleInstallSpec, HELPER_TAG_DEFECTION, HELPER_TAG_FIRING_TRACKER,
-    HELPER_TAG_SMC, HELPER_TAG_STATUS, HELPER_TAG_SUBDUAL, HELPER_TAG_TEMP_WEAPON_BONUS,
-    HELPER_TAG_WEAPON_STATUS,
+    EntityModuleInstallSpec, HELPER_TAG_DEFECTION, HELPER_TAG_FIRING_TRACKER, HELPER_TAG_SMC,
+    HELPER_TAG_STATUS, HELPER_TAG_SUBDUAL, HELPER_TAG_TEMP_WEAPON_BONUS, HELPER_TAG_WEAPON_STATUS,
+    ctor_helper_tags,
 };
+
+#[test]
+fn entity_modules_default_on_installs_live_instances() {
+    let _env = AuthorityEnvGuard::lock().set("GENERALS_GAMEWORLD_SHADOW", "1");
+    crate::env_compat::remove_var("GENERALS_GAMEWORLD_ENTITY_MODULES");
+    crate::gameworld_shadow::refresh_gameworld_authority_env_caches();
+    assert!(crate::gameworld_shadow::gameworld_entity_modules_enabled());
+
+    let mut logic = GameLogic::new();
+    let cfg = golden_skirmish_config("ModDefault");
+    apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+    ensure_template(&mut logic, "ModDefaultUnit", 50.0);
+    let id = logic
+        .create_object("ModDefaultUnit", Team::USA, Vec3::new(8.0, 0.0, 8.0))
+        .expect("id");
+    let mut shadow = GameWorldShadow::new(64);
+    shadow.sync_from_host(&logic);
+    let eid = *shadow.host_to_entity.get(&id.0).expect("map");
+    let tags = shadow.world().entity_module_tags(eid).to_vec();
+    assert!(!tags.is_empty());
+    assert_eq!(shadow.world().entity_live_module_count(eid), tags.len());
+    let installed = shadow
+        .world()
+        .entity(eid)
+        .and_then(|e| e.entity_modules.clone())
+        .expect("installed");
+    assert!(installed.on_created);
+    assert_eq!(installed.live_instances, tags.len());
+}
 
 #[test]
 fn entity_modules_flag_off_does_not_install() {

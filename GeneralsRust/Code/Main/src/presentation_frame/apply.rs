@@ -11,9 +11,15 @@ impl PresentationFrame {
 
         // Wave 1106: selection display residual fail-closed on sold/unselectable/
         // masked/disabled (not only destroyed) so ControlBar/RTS panel does not
-        // keep UI for unusable selected objects.
+        // keep UI for unusable selected objects. Under-construction is disabled
+        // for combat, but C++ still shows the structure so CancelConstruction
+        // remains reachable.
         let usable = |o: &RenderableObject| {
-            !o.destroyed && !o.sold && !o.unselectable && !o.masked && !o.disabled
+            !o.destroyed
+                && !o.sold
+                && !o.unselectable
+                && !o.masked
+                && (!o.disabled || o.under_construction)
         };
         let by_id: std::collections::HashMap<ObjectId, &RenderableObject> =
             self.objects.iter().map(|o| (o.id, o)).collect();
@@ -1196,8 +1202,14 @@ impl PresentationFrame {
             return Vec::new();
         };
         // Wave 1107: unit command buttons residual fail-closed on sold/unusable primary.
+        // Under-construction is combat-disabled but must still expose CancelConstruction.
         let Some(ro) = self.objects.iter().find(|o| {
-            o.id == id && !o.destroyed && !o.sold && !o.unselectable && !o.masked && !o.disabled
+            o.id == id
+                && !o.destroyed
+                && !o.sold
+                && !o.unselectable
+                && !o.masked
+                && (!o.disabled || o.under_construction)
         }) else {
             return Vec::new();
         };

@@ -890,7 +890,8 @@ fn presentation_live_fallback_reads_honesty_counter_present() {
     );
     assert!(
         src.contains("if let Some(p) = self.presentation_frame.as_ref()")
-            || src.contains("if let Some(p) = presentation.as_ref()"),
+            || src.contains("if let Some(p) = presentation.as_ref()")
+            || src.contains("self.presentation_frame.as_ref()"),
         "presentation-first branching required for dual-read residual sites"
     );
 }

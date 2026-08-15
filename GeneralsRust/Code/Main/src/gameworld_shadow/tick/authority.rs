@@ -273,24 +273,26 @@ pub fn gameworld_production_sole_tick_enabled() -> bool {
 /// Env: `GENERALS_GAMEWORLD_WEAPON_AUTHORITY=0|false` off; unset/`1` = **on**.
 /// GameWorld owns per-slot weapon facts; host is last-writer reader.
 pub fn gameworld_weapon_authority_enabled() -> bool {
-    env_flag_cached(&WEAPON_AUTH_CACHE, "GENERALS_GAMEWORLD_WEAPON_AUTHORITY", true)
+    env_flag_cached(
+        &WEAPON_AUTH_CACHE,
+        "GENERALS_GAMEWORLD_WEAPON_AUTHORITY",
+        true,
+    )
 }
 
-/// Preview: attach crate module-graph participants on GameWorld spawn.
-/// Default OFF. Not simulation authority.
+/// Attach live crate helper instances on GameWorld spawn; `on_delete` before remove.
+/// Env: `GENERALS_GAMEWORLD_ENTITY_MODULES=0|false` off; unset/`1` = **on**.
 pub fn gameworld_entity_modules_enabled() -> bool {
     env_flag_cached(
         &ENTITY_MODULES_CACHE,
         "GENERALS_GAMEWORLD_ENTITY_MODULES",
-        false,
+        true,
     )
 }
 
 #[inline]
 pub fn gameworld_entity_modules_live() -> bool {
-    gameworld_entity_modules_enabled()
-        && gameworld_shadow_enabled()
-        && shadow_coupled_tick_active()
+    gameworld_entity_modules_enabled() && gameworld_shadow_enabled() && shadow_coupled_tick_active()
 }
 
 #[inline]

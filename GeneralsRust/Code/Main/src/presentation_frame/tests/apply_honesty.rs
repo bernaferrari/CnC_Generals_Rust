@@ -182,6 +182,7 @@ fn structure_exposes_command_sell_residual() {
         buildings::{BuildingData, BuildingType},
         KindOf, Team, ThingTemplate,
     };
+    crate::gameworld_shadow::clear_active_shadow_for_coupled_tick();
     let mut logic = crate::game_logic::GameLogic::new();
     let mut tb = ThingTemplate::new("SellBarracks");
     tb.set_health(1000.0);
@@ -209,6 +210,7 @@ fn structure_exposes_command_sell_residual() {
     // Under construction: CancelConstruction, not Sell.
     if let Some(o) = logic.host_object_mut(id) {
         o.status.under_construction = true;
+        o.construction_percent = 0.4;
     }
     let frame2 = PresentationFrame::build_from_logic(&logic, 0);
     let cmds2 = frame2.unit_command_buttons();
