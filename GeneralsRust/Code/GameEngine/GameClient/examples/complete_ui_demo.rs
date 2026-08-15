@@ -78,7 +78,7 @@ impl UIDemo {
             .await
             .ok_or("Failed to create adapter")?;
 
-        // Create device and queue
+        // STANDALONE DEVICE: GameClient example binary, not on the game path.
         let (device, queue) = adapter
             .request_device(
                 &wgpu::DeviceDescriptor {

@@ -40,6 +40,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
     println!("✅ Adapter found: {}", adapter.get_info().name);
 
+    // STANDALONE DEVICE: isolated wgpu smoke binary, not on the game path.
     let (device, queue) = adapter
         .request_device(&wgpu::DeviceDescriptor {
             required_features: wgpu::Features::empty(),

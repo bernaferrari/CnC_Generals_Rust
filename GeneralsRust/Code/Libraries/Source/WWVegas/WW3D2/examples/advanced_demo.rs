@@ -54,6 +54,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         force_fallback_adapter: false,
     }).await?;
 
+    // STANDALONE DEVICE: WW3D2 example binary, not on the game path.
     let (device, queue) = adapter
         .request_device(
             &wgpu::DeviceDescriptor {

@@ -1142,6 +1142,7 @@ mod tests {
         let adapter =
             pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
                 .unwrap();
+        // STANDALONE DEVICE: #[cfg(test)] unit test, not on the game path.
         let (device, queue) =
             pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).unwrap();
 
@@ -1166,6 +1167,7 @@ mod tests {
         let adapter =
             pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
                 .unwrap();
+        // STANDALONE DEVICE: #[cfg(test)] unit test, not on the game path.
         let (device, queue) =
             pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).unwrap();
 

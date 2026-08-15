@@ -94,6 +94,7 @@ impl GpuProcessor {
                     ))
                 })?;
 
+            // STANDALONE DEVICE: offline asset-pipeline tool, not on the game path.
             let (device, queue) = adapter
                 .request_device(&wgpu::DeviceDescriptor {
                     label: Some("AssetPipeline GPU Device"),

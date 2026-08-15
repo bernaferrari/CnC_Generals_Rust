@@ -49,6 +49,7 @@ impl GpuBenchmarks {
                 .await
                 .ok_or_else(|| BenchmarkError::InitializationFailed("No GPU adapter found".to_string()))?;
 
+            // STANDALONE DEVICE: benchmark harness, not on the game path.
             let (device, queue) = adapter
                 .request_device(
                     &wgpu::DeviceDescriptor {

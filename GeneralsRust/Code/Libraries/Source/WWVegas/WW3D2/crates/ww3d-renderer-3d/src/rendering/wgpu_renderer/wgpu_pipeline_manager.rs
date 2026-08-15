@@ -595,6 +595,7 @@ mod tests {
         else {
             return;
         };
+        // STANDALONE DEVICE: #[cfg(test)] pipeline ABI test, not on the game path.
         let Ok((device, queue)) =
             pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
                 required_features: wgpu::Features::empty(),
@@ -659,6 +660,7 @@ mod tests {
         else {
             return;
         };
+        // STANDALONE DEVICE: #[cfg(test)] headless shroud test, not on the game path.
         let Ok((device, queue)) =
             pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
                 required_features: wgpu::Features::empty(),
