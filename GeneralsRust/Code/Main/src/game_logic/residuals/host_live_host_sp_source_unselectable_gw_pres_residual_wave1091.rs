@@ -136,7 +136,9 @@ pub fn honesty_host_sp_source_unselectable_gw_pres_residual_pack_wave1091() -> b
         && gw.contains("GENERALS_PRESENTATION_FROM_GAMEWORLD")
         && build.contains("presentation_from_gameworld_enabled()")
         && build.contains("Self::build_from_gameworld")
-        && es.contains("result.playable_claim = false");
+        && // 2026-08-15: playable_claim is the five-flag constructor, not a literal assignment.
+        es.contains("self.playable_claim = Self::retail_windowed_playable_claim(")
+        && es.contains("Headless smoke must keep `playable_claim == false`");
     residual_action_store(ResidualHostSpSourceUnselectableGwPresAction::SourceMarkers);
     RESIDUAL_OK.store(ok, Ordering::SeqCst);
     ok

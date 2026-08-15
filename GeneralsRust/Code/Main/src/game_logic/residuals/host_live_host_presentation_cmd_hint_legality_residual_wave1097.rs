@@ -101,7 +101,9 @@ pub fn honesty_host_presentation_cmd_hint_legality_residual_pack_wave1097() -> b
         && s.contains("o.unselectable")
         && cnc.contains("host_presentation_mouse_game_logic")
         && cnc.contains("// No live GameLogic dual-read for cursor/command classification.")
-        && es.contains("result.playable_claim = false");
+        && // 2026-08-15: playable_claim is the five-flag constructor, not a literal assignment.
+        es.contains("self.playable_claim = Self::retail_windowed_playable_claim(")
+        && es.contains("Headless smoke must keep `playable_claim == false`");
     residual_action_store(ResidualHostPresentationCmdHintLegalityAction::SourceMarkers);
     RESIDUAL_OK.store(ok, Ordering::SeqCst);
     ok

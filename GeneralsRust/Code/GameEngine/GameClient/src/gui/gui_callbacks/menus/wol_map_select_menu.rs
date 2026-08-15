@@ -7,15 +7,15 @@ use crate::gui::callbacks::wol_map_select_menu::{
 };
 use crate::gui::{GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled};
 
-pub fn WOLMapSelectMenuInit(layout: &WindowLayout, user_data: Option<&mut dyn std::any::Any>) {
+pub fn WOLMapSelectMenuInit(layout: &WindowLayout, user_data: Option<&dyn std::any::Any>) {
     wol_map_select_menu_init(layout, user_data);
 }
 
-pub fn WOLMapSelectMenuUpdate(layout: &WindowLayout, user_data: Option<&mut dyn std::any::Any>) {
+pub fn WOLMapSelectMenuUpdate(layout: &WindowLayout, user_data: Option<&dyn std::any::Any>) {
     wol_map_select_menu_update(layout, user_data);
 }
 
-pub fn WOLMapSelectMenuShutdown(layout: &WindowLayout, user_data: Option<&mut dyn std::any::Any>) {
+pub fn WOLMapSelectMenuShutdown(layout: &WindowLayout, user_data: Option<&dyn std::any::Any>) {
     wol_map_select_menu_shutdown(layout, user_data);
 }
 

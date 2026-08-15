@@ -8,6 +8,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::display::image::get_mapped_image_collection;
 use crate::game_text::GameText;
+use crate::gui::callbacks::online_callback_support::packed_ui_color;
 use crate::gamespy_game::{with_gamespy_game_info, with_gamespy_game_info_mut};
 use crate::gamespy_overlay::{
     close_all_overlays, close_overlay, gs_message_box_ok, open_overlay, raise_gs_message_box,
@@ -95,10 +96,12 @@ struct WolQuickMatchState {
     next_screen: Option<String>,
 }
 
-static WOL_QUICKMATCH_STATE: OnceLock<Mutex<WolQuickMatchState>> = OnceLock::new();
+thread_local! {
+    static WOL_QUICKMATCH_STATE: Rc<RefCell<WolQuickMatchState>> = Rc::new(RefCell::new(WolQuickMatchState::default()));
+}
 
-fn quickmatch_state() -> &'static Mutex<WolQuickMatchState> {
-    WOL_QUICKMATCH_STATE.get_or_init(|| Mutex::new(WolQuickMatchState::default()))
+fn quickmatch_state() -> Rc<RefCell<WolQuickMatchState>> {
+    WOL_QUICKMATCH_STATE.with(Rc::clone)
 }
 
 fn name_to_id(name: &str) -> i32 {
@@ -160,7 +163,7 @@ fn is_info_shown(state: &WolQuickMatchState) -> bool {
     let Some(parent) = state.parent.as_ref() else {
         return false;
     };
-    if let Some(win) = parent.borrow().find_child_by_id(parent_stats_id as u32) {
+    if let Some(win) = parent.borrow().find_child_by_id(parent_stats_id) {
         return !win.borrow().is_hidden();
     }
     false
@@ -169,7 +172,7 @@ fn is_info_shown(state: &WolQuickMatchState) -> bool {
 fn hide_info_gadgets(state: &WolQuickMatchState, hide: bool) {
     let parent_stats_id = name_to_id("WOLQuickMatchMenu.wnd:ParentStats");
     if let Some(parent) = state.parent.as_ref() {
-        if let Some(win) = parent.borrow().find_child_by_id(parent_stats_id as u32) {
+        if let Some(win) = parent.borrow().find_child_by_id(parent_stats_id) {
             let _ = win.borrow_mut().hide(hide);
         }
     }
@@ -178,7 +181,7 @@ fn hide_info_gadgets(state: &WolQuickMatchState, hide: bool) {
 fn hide_options_gadgets(state: &WolQuickMatchState, hide: bool) {
     let parent_options_id = name_to_id("WOLQuickMatchMenu.wnd:ParentOptions");
     if let Some(parent) = state.parent.as_ref() {
-        if let Some(win) = parent.borrow().find_child_by_id(parent_options_id as u32) {
+        if let Some(win) = parent.borrow().find_child_by_id(parent_options_id) {
             let _ = win.borrow_mut().hide(hide);
         }
     }
@@ -195,7 +198,7 @@ fn hide_options_gadgets(state: &WolQuickMatchState, hide: bool) {
 fn enable_options_gadgets(state: &WolQuickMatchState, enable: bool) {
     let parent_options_id = name_to_id("WOLQuickMatchMenu.wnd:ParentOptions");
     if let Some(parent) = state.parent.as_ref() {
-        if let Some(win) = parent.borrow().find_child_by_id(parent_options_id as u32) {
+        if let Some(win) = parent.borrow().find_child_by_id(parent_options_id) {
             let _ = win.borrow_mut().enable(enable);
         }
     }
@@ -541,7 +544,7 @@ fn populate_quickmatch_map_select_listbox(
             if md.num_players < num_players {
                 continue;
             }
-            let display = md.display_name.to_string();
+            let display = md.display_name.as_str().to_string();
             let mut is_selected = pref.is_map_selected(&map);
             if ladder.as_ref().map(|lad| lad.random_maps).unwrap_or(false) {
                 is_selected = true;
@@ -793,9 +796,10 @@ fn set_listbox_selection(
 
 pub fn wol_quick_match_menu_init(
     layout: &WindowLayout,
-    _user_data: Option<&mut dyn std::any::Any>,
+    _user_data: Option<&dyn std::any::Any>,
 ) {
-    let mut state = quickmatch_state().lock().unwrap_or_else(|e| e.into_inner());
+    let state_slot = quickmatch_state();
+    let mut state = state_slot.borrow_mut();
     state.is_in_init = true;
 
     if with_gamespy_game_info(|info| info.is_game_in_progress()) {
@@ -854,48 +858,48 @@ pub fn wol_quick_match_menu_init(
             .find_child_by_id(state.button_back_id as WindowMsgData);
         state.button_start = parent
             .borrow()
-            .find_child_by_id(state.button_start_id as WindowMsgData);
+            .find_child_by_id(state.button_start_id);
         state.button_stop = parent
             .borrow()
-            .find_child_by_id(state.button_stop_id as WindowMsgData);
+            .find_child_by_id(state.button_stop_id);
         state.button_widen = parent
             .borrow()
-            .find_child_by_id(state.button_widen_id as WindowMsgData);
+            .find_child_by_id(state.button_widen_id);
         state.quickmatch_text_window = parent
             .borrow()
-            .find_child_by_id(state.listbox_quick_match_id as u32);
+            .find_child_by_id(state.listbox_quick_match_id);
         state.listbox_map_select = parent
             .borrow()
-            .find_child_by_id(state.listbox_map_select_id as u32);
+            .find_child_by_id(state.listbox_map_select_id);
         state.text_entry_wait_time = parent
             .borrow()
-            .find_child_by_id(state.text_entry_wait_time_id as u32);
+            .find_child_by_id(state.text_entry_wait_time_id);
         state.combo_box_max_ping = parent
             .borrow()
-            .find_child_by_id(state.combo_box_max_ping_id as u32);
+            .find_child_by_id(state.combo_box_max_ping_id);
         state.combo_box_num_players = parent
             .borrow()
-            .find_child_by_id(state.combo_box_num_players_id as u32);
+            .find_child_by_id(state.combo_box_num_players_id);
         state.combo_box_ladder = parent
             .borrow()
-            .find_child_by_id(state.combo_box_ladder_id as u32);
+            .find_child_by_id(state.combo_box_ladder_id);
         state.combo_box_max_disconnects = parent
             .borrow()
-            .find_child_by_id(state.combo_box_max_disconnects_id as u32);
+            .find_child_by_id(state.combo_box_max_disconnects_id);
         state.static_text_num_players = parent
             .borrow()
-            .find_child_by_id(state.static_text_num_players_id as u32);
+            .find_child_by_id(state.static_text_num_players_id);
         state.combo_box_side = parent
             .borrow()
-            .find_child_by_id(state.combo_box_side_id as u32);
+            .find_child_by_id(state.combo_box_side_id);
         state.combo_box_color = parent
             .borrow()
-            .find_child_by_id(state.combo_box_color_id as u32);
+            .find_child_by_id(state.combo_box_color_id);
     }
 
     if let Some(info) = get_gamespy_info() {
         if let Ok(mut info) = info.lock() {
-            info.register_text_window(state.listbox_quick_match_id as u32);
+            info.register_text_window(state.listbox_quick_match_id);
         }
     }
 
@@ -913,7 +917,7 @@ pub fn wol_quick_match_menu_init(
     if let Some(parent) = state.parent.as_ref() {
         if let Some(static_text) = parent
             .borrow()
-            .find_child_by_id(name_to_id("WOLQuickMatchMenu.wnd:StaticTextTitle") as u32)
+            .find_child_by_id(name_to_id("WOLQuickMatchMenu.wnd:StaticTextTitle"))
         {
             let name = get_gamespy_info()
                 .and_then(|info| {
@@ -1023,12 +1027,13 @@ pub fn wol_quick_match_menu_init(
 }
 
 fn shutdown_complete(layout: &WindowLayout) {
-    let mut state = quickmatch_state().lock().unwrap_or_else(|e| e.into_inner());
+    let state_slot = quickmatch_state();
+    let mut state = state_slot.borrow_mut();
     state.is_shutting_down = false;
     layout.hide(true);
     let next = state.next_screen.clone();
     let mut shell = get_shell();
-    let _ = shell.shutdown_complete(Some(layout), next.is_some());
+    let _ = shell.shutdown_complete(None, next.is_some());
     if let Some(screen) = next {
         let _ = shell.push(&screen, false);
     }
@@ -1037,7 +1042,7 @@ fn shutdown_complete(layout: &WindowLayout) {
 
 pub fn wol_quick_match_menu_shutdown(
     layout: &WindowLayout,
-    user_data: Option<&mut dyn std::any::Any>,
+    user_data: Option<&dyn std::any::Any>,
 ) {
     if let Some(info) = get_gamespy_info() {
         if let Ok(mut info) = info.lock() {
@@ -1047,7 +1052,8 @@ pub fn wol_quick_match_menu_shutdown(
         }
     }
 
-    let mut state = quickmatch_state().lock().unwrap_or_else(|e| e.into_inner());
+    let state_slot = quickmatch_state();
+    let mut state = state_slot.borrow_mut();
 
     let quitting = get_game_engine()
         .and_then(|engine| engine.lock().ok().map(|guard| guard.get_quitting()))
@@ -1079,9 +1085,10 @@ pub fn wol_quick_match_menu_shutdown(
 
 pub fn wol_quick_match_menu_update(
     layout: &WindowLayout,
-    _user_data: Option<&mut dyn std::any::Any>,
+    _user_data: Option<&dyn std::any::Any>,
 ) {
-    let mut state = quickmatch_state().lock().unwrap_or_else(|e| e.into_inner());
+    let state_slot = quickmatch_state();
+    let mut state = state_slot.borrow_mut();
     let shell_finished = get_shell().is_anim_finished();
     let transitions_finished = with_window_manager(|manager| manager.transitions_finished());
     if state.is_shutting_down && shell_finished && transitions_finished {
@@ -1125,7 +1132,7 @@ pub fn wol_quick_match_menu_update(
                         let Some(resp) = peer_queue.get_response() else {
                             break;
                         };
-                        if resp.response_type == PeerResponseType::Disconnect {
+                        if matches!(resp.response_type, PeerResponseType::Disconnect) {
                             saw_important = true;
                             let reason_key =
                                 format!("GUI:GSDisconReason{}", resp.discon_reason as i32);
@@ -1139,7 +1146,10 @@ pub fn wol_quick_match_menu_update(
                                 {
                                     listbox.add_item_with_color(
                                         &GameText::fetch(&reason_key),
-                                        default_gamespy_colors()[GameSpyColor::Default as usize],
+                                        packed_ui_color(
+                                            default_gamespy_colors()
+                                                [GameSpyColor::Default as usize],
+                                        ),
                                     );
                                 }
                             } else {
@@ -1287,7 +1297,7 @@ pub fn wol_quick_match_menu_update(
                                             info.set_map(map_name);
                                             let cache = get_map_cache_manager();
                                             let cache_guard =
-                                                cache.lock().unwrap_or_else(|e| e.into_inner());
+                                                cache.borrow_mut();
                                             if let Some(md) = cache_guard.find_map(info.get_map()) {
                                                 info.set_map_crc(md.crc);
                                                 info.set_map_size(md.filesize);
@@ -1380,7 +1390,8 @@ pub fn wol_quick_match_menu_input(
         return WindowMsgHandled::Handled;
     }
 
-    let state = quickmatch_state().lock().unwrap_or_else(|e| e.into_inner());
+    let state_slot = quickmatch_state();
+    let state = state_slot.borrow_mut();
     if state.button_pushed {
         return WindowMsgHandled::Handled;
     }
@@ -1406,7 +1417,8 @@ pub fn wol_quick_match_menu_system(
         WindowMessage::Create | WindowMessage::Destroy => WindowMsgHandled::Handled,
         WindowMessage::InputFocus => write_input_focus_response(data1, data2, true),
         WindowMessage::GadgetSelected => {
-            let mut state = quickmatch_state().lock().unwrap_or_else(|e| e.into_inner());
+            let state_slot = quickmatch_state();
+    let mut state = state_slot.borrow_mut();
             let control_id = data1 as i32;
             if state.button_pushed {
                 return WindowMsgHandled::Handled;
@@ -1440,7 +1452,7 @@ pub fn wol_quick_match_menu_system(
                         info.add_text(
                             GameText::fetch("GUI:QMAborted"),
                             default_gamespy_colors()[GameSpyColor::Default as usize],
-                            Some(state.listbox_quick_match_id as u32),
+                            Some(state.listbox_quick_match_id),
                         );
                     }
                 }
@@ -1694,12 +1706,14 @@ fn start_quickmatch(state: &mut WolQuickMatchState) {
     }
     req.qm_discons = num_discons;
 
-    if let Some(info) = get_gamespy_info().and_then(|info| info.lock().ok()) {
+    if let Some(slot) = get_gamespy_info() {
+            if let Ok(info) = slot.lock() {
         let ping = info.get_ping_string().as_str();
         for (dst, src) in req.qm_pings.iter_mut().zip(ping.as_bytes().iter()) {
             *dst = *src;
         }
     }
+}
 
     let (bot_id, room_id) = config.get_qm_config();
     req.qm_bot_id = bot_id;

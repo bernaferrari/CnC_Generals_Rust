@@ -40,10 +40,12 @@ struct PopupHostState {
     check_box_use_stats: Option<Rc<RefCell<GameWindow>>>,
 }
 
-static POPUP_HOST_STATE: OnceLock<Mutex<PopupHostState>> = OnceLock::new();
+thread_local! {
+    static POPUP_HOST_STATE: Rc<RefCell<PopupHostState>> = Rc::new(RefCell::new(PopupHostState::default()));
+}
 
-fn popup_host_state() -> &'static Mutex<PopupHostState> {
-    POPUP_HOST_STATE.get_or_init(|| Mutex::new(PopupHostState::default()))
+fn popup_host_state() -> Rc<RefCell<PopupHostState>> {
+    POPUP_HOST_STATE.with(Rc::clone)
 }
 
 fn name_to_id(name: &str) -> i32 {
@@ -51,7 +53,8 @@ fn name_to_id(name: &str) -> i32 {
 }
 
 pub fn custom_match_hide_host_popup(hide: bool) {
-    let mut state = popup_host_state().lock().unwrap_or_else(|e| e.into_inner());
+    let state_slot = popup_host_state();
+    let mut state = state_slot.borrow_mut();
     if let Some(parent) = state.parent.as_ref() {
         let _ = parent.borrow_mut().hide(hide);
         return;
@@ -59,7 +62,7 @@ pub fn custom_match_hide_host_popup(hide: bool) {
     if state.parent_id == 0 {
         state.parent_id = name_to_id("PopupHostGame.wnd:ParentHostPopUp");
     }
-    state.parent = with_window_manager(|manager| manager.get_window_by_id(state.parent_id as u32));
+    state.parent = with_window_manager(|manager| manager.get_window_by_id(state.parent_id));
     if let Some(parent) = state.parent.as_ref() {
         let _ = parent.borrow_mut().hide(hide);
     }
@@ -103,7 +106,7 @@ fn selected_combo_data(window: &GameWindow) -> Option<i32> {
         _ => return None,
     };
     let selected = combo.selected_index()?;
-    combo.items().get(selected)?.data
+    combo.items().get(selected)?.data.map(|data| data as i32)
 }
 
 fn set_checkbox(window: &Option<Rc<RefCell<GameWindow>>>, checked: bool) {
@@ -156,8 +159,9 @@ fn clear_popup_host_refs(state: &mut PopupHostState) {
     state.check_box_use_stats = None;
 }
 
-pub fn popup_host_game_init(_layout: &WindowLayout, _user_data: Option<&mut dyn std::any::Any>) {
-    let mut state = popup_host_state().lock().unwrap_or_else(|e| e.into_inner());
+pub fn popup_host_game_init(_layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
+    let state_slot = popup_host_state();
+    let mut state = state_slot.borrow_mut();
 
     state.parent_id = name_to_id("PopupHostGame.wnd:ParentHostPopUp");
     state.text_entry_game_name_id = name_to_id("PopupHostGame.wnd:TextEntryGameName");
@@ -172,25 +176,25 @@ pub fn popup_host_game_init(_layout: &WindowLayout, _user_data: Option<&mut dyn 
 
     state.parent = with_window_manager(|manager| manager.get_window_by_id(state.parent_id));
 
-    if let Some(parent) = state.parent.as_ref() {
+    if let Some(parent) = state.parent.clone() {
         state.text_entry_game_name = parent
             .borrow()
-            .find_child_by_id(state.text_entry_game_name_id as u32);
+            .find_child_by_id(state.text_entry_game_name_id);
         state.text_entry_game_description = parent
             .borrow()
-            .find_child_by_id(state.text_entry_game_description_id as u32);
+            .find_child_by_id(state.text_entry_game_description_id);
         state.text_entry_game_password = parent
             .borrow()
-            .find_child_by_id(state.text_entry_game_password_id as u32);
+            .find_child_by_id(state.text_entry_game_password_id);
         state.check_box_allow_observers = parent
             .borrow()
-            .find_child_by_id(state.check_box_allow_observers_id as u32);
+            .find_child_by_id(state.check_box_allow_observers_id);
         state.check_box_limit_armies = parent
             .borrow()
-            .find_child_by_id(state.check_box_limit_armies_id as u32);
+            .find_child_by_id(state.check_box_limit_armies_id);
         state.check_box_use_stats = parent
             .borrow()
-            .find_child_by_id(state.check_box_use_stats_id as u32);
+            .find_child_by_id(state.check_box_use_stats_id);
     }
 
     let mut prefs = CustomMatchPreferencesStore::new();
@@ -219,7 +223,8 @@ pub fn popup_host_game_init(_layout: &WindowLayout, _user_data: Option<&mut dyn 
 
     let _ = populate_custom_ladder_combo_box();
 
-    let state = popup_host_state().lock().unwrap_or_else(|e| e.into_inner());
+    let state_slot = popup_host_state();
+    let state = state_slot.borrow_mut();
     if let Some(parent) = state.parent.as_ref() {
         with_window_manager(|manager| {
             let _ = manager.set_focus(Some(parent));
@@ -228,8 +233,9 @@ pub fn popup_host_game_init(_layout: &WindowLayout, _user_data: Option<&mut dyn 
     }
 }
 
-pub fn popup_host_game_update(_layout: &WindowLayout, _user_data: Option<&mut dyn std::any::Any>) {
-    let state = popup_host_state().lock().unwrap_or_else(|e| e.into_inner());
+pub fn popup_host_game_update(_layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
+    let state_slot = popup_host_state();
+    let state = state_slot.borrow_mut();
     sync_limit_armies_state(&state);
 }
 
@@ -249,7 +255,8 @@ pub fn popup_host_game_input(
         return WindowMsgHandled::Handled;
     }
 
-    let mut state = popup_host_state().lock().unwrap_or_else(|e| e.into_inner());
+    let state_slot = popup_host_state();
+    let mut state = state_slot.borrow_mut();
     if let Some(parent) = state.parent.as_ref() {
         let _ = parent.borrow_mut().send_system_message(
             WindowMessage::GadgetSelected,
@@ -270,14 +277,16 @@ pub fn popup_host_game_system(
     match msg {
         WindowMessage::InputFocus => write_input_focus_response(data1, data2, true),
         WindowMessage::GadgetValueChanged => {
-            let state = popup_host_state().lock().unwrap_or_else(|e| e.into_inner());
+            let state_slot = popup_host_state();
+    let state = state_slot.borrow_mut();
             if data1 as i32 == state.text_entry_game_name_id {
                 trim_game_name_leading_whitespace(&state);
             }
             WindowMsgHandled::Handled
         }
         WindowMessage::User(code) if code == GCM_SELECTED => {
-            let state = popup_host_state().lock().unwrap_or_else(|e| e.into_inner());
+            let state_slot = popup_host_state();
+    let state = state_slot.borrow_mut();
             if data1 as i32 == state.combo_box_ladder_name_id
                 && selected_combo_data(window).is_some_and(|ladder_id| ladder_id < 0)
             {
@@ -288,7 +297,8 @@ pub fn popup_host_game_system(
             WindowMsgHandled::Handled
         }
         WindowMessage::GadgetSelected => {
-            let mut state = popup_host_state().lock().unwrap_or_else(|e| e.into_inner());
+            let state_slot = popup_host_state();
+    let mut state = state_slot.borrow_mut();
             let control_id = data1 as i32;
             if control_id == state.button_cancel_id {
                 // Clear modal before closing - matches C++ GWM_DESTROY handling
@@ -353,7 +363,8 @@ pub fn popup_host_game_system(
             WindowMsgHandled::Handled
         }
         WindowMessage::GadgetEditDone => {
-            let state = popup_host_state().lock().unwrap_or_else(|e| e.into_inner());
+            let state_slot = popup_host_state();
+    let state = state_slot.borrow_mut();
             if data1 as i32 == state.text_entry_game_name_id {
                 trim_game_name_leading_whitespace(&state);
                 return WindowMsgHandled::Handled;
@@ -361,7 +372,8 @@ pub fn popup_host_game_system(
             WindowMsgHandled::Handled
         }
         WindowMessage::Destroy => {
-            let mut state = popup_host_state().lock().unwrap_or_else(|e| e.into_inner());
+            let state_slot = popup_host_state();
+    let mut state = state_slot.borrow_mut();
             state.parent = None;
             WindowMsgHandled::Handled
         }

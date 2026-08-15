@@ -232,18 +232,33 @@ impl<T: DLListNode> DLListClass<T> {
                 // SAFETY: ref_ptr is a valid NonNull<T> in the list (maintained by invariants)
                 let ref_mut = ref_ptr.as_ptr();
                 link.next = Some(ref_ptr);
-                // SAFETY: Accessing link of reference node which is valid in the list
-                link.prev = (*ref_mut).link().prev;
+                // SAFETY: [Category 3 — dangling]
+                // `ref_mut` is derived from `NonNull<T>` of a node already linked in
+                // this list (`insert_before` caller contract; C++ `Insert_Before` in
+                // WW3D2/dllist.h). The node outlives this read of its `prev` link.
+                link.prev = unsafe { (*ref_mut).link().prev };
 
                 if let Some(prev_ptr) = link.prev {
-                    // SAFETY: prev_ptr is a valid node pointer from the list structure
-                    (*prev_ptr.as_ptr()).link_mut().next = Some(node_ptr);
+                    // SAFETY: [Category 3 — dangling / Category 10 — OOB]
+                    // `prev_ptr` is the predecessor stored on `reference`, which is a live
+                    // list member (caller contract of `insert_before`, mirroring
+                    // `DLNodeClass::Insert_Before` in WW3D2/dllist.h). The node remains
+                    // owned by the embedding caller for the duration of this splice.
+                    unsafe {
+                        (*prev_ptr.as_ptr()).link_mut().next = Some(node_ptr);
+                    }
                 } else {
                     self.head = Some(node_ptr);
                 }
 
-                // SAFETY: ref_mut points to a valid node in the list
-                (*ref_mut).link_mut().prev = Some(node_ptr);
+                // SAFETY: [Category 3 — dangling]
+                // `ref_mut` is `NonNull<T>::as_ptr()` of a node already in this list
+                // (same `Insert_Before` contract as dllist.h). Exclusive `&mut self`
+                // on the list plus the caller's `&mut T` for `node` keep the splice
+                // from aliasing another `&mut` to `reference`.
+                unsafe {
+                    (*ref_mut).link_mut().prev = Some(node_ptr);
+                }
             }
             None => {
                 // Inserting at end of list
@@ -251,8 +266,13 @@ impl<T: DLListNode> DLListClass<T> {
                 link.next = None;
 
                 if let Some(tail_ptr) = self.tail {
-                    // SAFETY: tail_ptr is a valid node pointer maintained by list invariants
-                    (*tail_ptr.as_ptr()).link_mut().next = Some(node_ptr);
+                    // SAFETY: [Category 3 — dangling]
+                    // `self.tail` is either `None` or a node inserted by this list
+                    // (dllist.h `Add_Tail` / `Insert_Before` at end). The tail node
+                    // is still owned by the caller and remains linked until `unlink`.
+                    unsafe {
+                        (*tail_ptr.as_ptr()).link_mut().next = Some(node_ptr);
+                    }
                 } else {
                     self.head = Some(node_ptr);
                 }
@@ -291,18 +311,29 @@ impl<T: DLListNode> DLListClass<T> {
                 // SAFETY: ref_ptr is a valid NonNull<T> in the list (maintained by invariants)
                 let ref_mut = ref_ptr.as_ptr();
                 link.prev = Some(ref_ptr);
-                // SAFETY: Accessing link of reference node which is valid in the list
-                link.next = (*ref_mut).link().next;
+                // SAFETY: [Category 3 — dangling]
+                // `ref_mut` is a live list member (`insert_after` caller contract;
+                // C++ `DLNodeClass::Insert_After` in WW3D2/dllist.h). Reading its
+                // `next` link does not outlive the node.
+                link.next = unsafe { (*ref_mut).link().next };
 
                 if let Some(next_ptr) = link.next {
-                    // SAFETY: next_ptr is a valid node pointer from the list structure
-                    (*next_ptr.as_ptr()).link_mut().prev = Some(node_ptr);
+                    // SAFETY: [Category 3 — dangling]
+                    // `next_ptr` is the successor stored on `reference`, which is
+                    // already linked in this list (dllist.h `Insert_After`).
+                    unsafe {
+                        (*next_ptr.as_ptr()).link_mut().prev = Some(node_ptr);
+                    }
                 } else {
                     self.tail = Some(node_ptr);
                 }
 
-                // SAFETY: ref_mut points to a valid node in the list
-                (*ref_mut).link_mut().next = Some(node_ptr);
+                // SAFETY: [Category 3 — dangling]
+                // `ref_mut` still points at the same in-list node used above;
+                // `&mut self` serializes the splice.
+                unsafe {
+                    (*ref_mut).link_mut().next = Some(node_ptr);
+                }
             }
             None => {
                 // Inserting at beginning of list
@@ -310,8 +341,13 @@ impl<T: DLListNode> DLListClass<T> {
                 link.next = self.head;
 
                 if let Some(head_ptr) = self.head {
-                    // SAFETY: head_ptr is a valid node pointer maintained by list invariants
-                    (*head_ptr.as_ptr()).link_mut().prev = Some(node_ptr);
+                    // SAFETY: [Category 3 — dangling]
+                    // `self.head` is a node previously inserted into this list
+                    // (dllist.h `Add_Head` / `Insert_After` at front) and still owned
+                    // by the caller.
+                    unsafe {
+                        (*head_ptr.as_ptr()).link_mut().prev = Some(node_ptr);
+                    }
                 } else {
                     self.tail = Some(node_ptr);
                 }
@@ -337,8 +373,11 @@ impl<T: DLListNode> DLListClass<T> {
     unsafe fn unlink(&mut self, node_ptr: NonNull<T>) {
         // SAFETY: node_ptr is guaranteed valid by caller (either from NonNull::from or list member)
         let node_ref = node_ptr.as_ptr();
-        // SAFETY: Accessing link of a valid node
-        let link = (*node_ref).link_mut();
+        // SAFETY: [Category 3 — dangling]
+        // `node_ptr` is a member of this list (`unlink` contract; C++
+        // `DLNodeClass::Remove` in WW3D2/dllist.h). The node is still allocated
+        // by the embedding owner for the duration of this call.
+        let link = unsafe { (*node_ref).link_mut() };
 
         // Critical invariant: prevent double-removal which would corrupt list structure
         assert!(
@@ -354,12 +393,21 @@ impl<T: DLListNode> DLListClass<T> {
         }
 
         if let Some(prev_ptr) = link.prev {
-            // SAFETY: prev_ptr is a valid node pointer from the list structure
-            (*prev_ptr.as_ptr()).link_mut().next = link.next;
+            // SAFETY: [Category 3 — dangling]
+            // `prev_ptr` is the predecessor recorded on the node being unlinked;
+            // it remains a live list member until this splice completes
+            // (`DLNodeClass::Remove` in WW3D2/dllist.h).
+            unsafe {
+                (*prev_ptr.as_ptr()).link_mut().next = link.next;
+            }
         }
         if let Some(next_ptr) = link.next {
-            // SAFETY: next_ptr is a valid node pointer from the list structure
-            (*next_ptr.as_ptr()).link_mut().prev = link.prev;
+            // SAFETY: [Category 3 — dangling]
+            // `next_ptr` is the successor recorded on the node being unlinked;
+            // same `Remove` invariant as dllist.h.
+            unsafe {
+                (*next_ptr.as_ptr()).link_mut().prev = link.prev;
+            }
         }
 
         link.detach();

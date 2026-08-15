@@ -67,7 +67,7 @@ pub fn residual_host_lifetime_kill_no_damage_auth_hp_stomp_last_action(
     )
 }
 fn gl_source() -> &'static str {
-    include_str!("../game_logic.rs")
+    super::GAME_LOGIC_HOST_SRC
 }
 pub fn honesty_host_lifetime_kill_no_damage_auth_hp_stomp_method_names_residual_wave745() -> bool {
     let names = LIVE_HOST_LIFETIME_KILL_NO_DAMAGE_AUTH_HP_STOMP_METHOD_NAMES_WAVE745;

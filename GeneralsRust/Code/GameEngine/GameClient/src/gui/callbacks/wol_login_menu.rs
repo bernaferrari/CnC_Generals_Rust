@@ -8,6 +8,7 @@ use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use crate::game_text::GameText;
+use crate::gui::callbacks::online_callback_support::packed_ui_color;
 use crate::gamespy_overlay::{gs_message_box_ok, raise_gs_message_box};
 use crate::gui::gadgets::ComboBoxItem;
 use crate::gui::{
@@ -39,24 +40,24 @@ const PREF_FILENAME: &str = "GameSpyLogin.ini";
 
 #[derive(Default)]
 struct WolLoginState {
-    parent_id: u32,
-    button_back_id: u32,
-    button_login_id: u32,
-    button_create_account_id: u32,
-    button_use_account_id: u32,
-    button_dont_use_account_id: u32,
-    button_tos_id: u32,
-    parent_tos_id: u32,
-    button_tos_ok_id: u32,
-    listbox_tos_id: u32,
-    combo_box_email_id: u32,
-    combo_box_login_name_id: u32,
-    text_entry_login_name_id: u32,
-    text_entry_password_id: u32,
-    check_box_remember_password_id: u32,
-    text_entry_month_id: u32,
-    text_entry_day_id: u32,
-    text_entry_year_id: u32,
+    parent_id: i32,
+    button_back_id: i32,
+    button_login_id: i32,
+    button_create_account_id: i32,
+    button_use_account_id: i32,
+    button_dont_use_account_id: i32,
+    button_tos_id: i32,
+    parent_tos_id: i32,
+    button_tos_ok_id: i32,
+    listbox_tos_id: i32,
+    combo_box_email_id: i32,
+    combo_box_login_name_id: i32,
+    text_entry_login_name_id: i32,
+    text_entry_password_id: i32,
+    check_box_remember_password_id: i32,
+    text_entry_month_id: i32,
+    text_entry_day_id: i32,
+    text_entry_year_id: i32,
     parent: Option<Rc<RefCell<GameWindow>>>,
     button_back: Option<Rc<RefCell<GameWindow>>>,
     button_login: Option<Rc<RefCell<GameWindow>>>,
@@ -85,10 +86,12 @@ struct WolLoginState {
     use_web_browser_for_tos: bool,
 }
 
-static WOL_LOGIN_STATE: OnceLock<Mutex<WolLoginState>> = OnceLock::new();
+thread_local! {
+    static WOL_LOGIN_STATE: Rc<RefCell<WolLoginState>> = Rc::new(RefCell::new(WolLoginState::default()));
+}
 
-fn wol_login_state() -> &'static Mutex<WolLoginState> {
-    WOL_LOGIN_STATE.get_or_init(|| Mutex::new(WolLoginState::default()))
+fn wol_login_state() -> Rc<RefCell<WolLoginState>> {
+    WOL_LOGIN_STATE.with(Rc::clone)
 }
 
 #[derive(Default)]
@@ -434,7 +437,7 @@ fn show_tos(state: &mut WolLoginState) {
                 for line in content.lines() {
                     let trimmed = line.trim_end();
                     if !trimmed.is_empty() {
-                        widget.add_item_with_color(trimmed, color);
+                        widget.add_item_with_color(trimmed, packed_ui_color(color));
                     }
                 }
             }
@@ -536,8 +539,10 @@ fn check_login(state: &mut WolLoginState) {
 
         let misc = GameSpyMiscPreferences::new();
         let mut stats = GameSpyPSMessageQueue::parse_player_kv_pairs(&misc.get_cached_stats());
-        if let Some(info) = get_gamespy_info().and_then(|info| info.lock().ok()) {
-            stats.id = info.get_local_profile_id();
+        if let Some(slot) = get_gamespy_info() {
+            if let Ok(info) = slot.lock() {
+                stats.id = info.get_local_profile_id();
+            }
         }
         if let Some(info) = get_gamespy_info() {
             if let Ok(mut info) = info.lock() {
@@ -555,7 +560,7 @@ fn shutdown_complete(
     state.is_shutting_down = false;
     layout.hide(true);
     let mut shell = get_shell();
-    let _ = shell.shutdown_complete(Some(layout), next_screen.is_some());
+    let _ = shell.shutdown_complete(None, next_screen.is_some());
     if let Some(screen) = next_screen {
         if let Some(pref) = state.login_pref.take() {
             pref.write(PREF_FILENAME);
@@ -567,8 +572,9 @@ fn shutdown_complete(
     state.next_screen = None;
 }
 
-pub fn wol_login_menu_init(layout: &WindowLayout, _user_data: Option<&mut dyn std::any::Any>) {
-    let mut state = wol_login_state().lock().unwrap_or_else(|e| e.into_inner());
+pub fn wol_login_menu_init(layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
+    let state_slot = wol_login_state();
+    let mut state = state_slot.borrow_mut();
     state.next_screen = None;
     state.button_pushed = false;
     state.is_shutting_down = false;
@@ -583,8 +589,8 @@ pub fn wol_login_menu_init(layout: &WindowLayout, _user_data: Option<&mut dyn st
         state.login_pref = Some(pref);
     }
 
-    let esrb_title_id = NameKeyGenerator::name_to_key("GameSpyLoginProfile.wnd:StaticTextESRBTop");
-    let esrb_parent_id = NameKeyGenerator::name_to_key("GameSpyLoginProfile.wnd:ParentESRB");
+    let esrb_title_id = NameKeyGenerator::name_to_key("GameSpyLoginProfile.wnd:StaticTextESRBTop") as i32;
+    let esrb_parent_id = NameKeyGenerator::name_to_key("GameSpyLoginProfile.wnd:ParentESRB") as i32;
     let esrb_title = with_window_manager(|manager| manager.get_window_by_id(esrb_title_id));
     let esrb_parent = with_window_manager(|manager| manager.get_window_by_id(esrb_parent_id));
     if let (Some(title), Some(parent)) = (esrb_title.as_ref(), esrb_parent.as_ref()) {
@@ -601,34 +607,34 @@ pub fn wol_login_menu_init(layout: &WindowLayout, _user_data: Option<&mut dyn st
         }
     }
 
-    state.parent_id = NameKeyGenerator::name_to_key("GameSpyLoginProfile.wnd:WOLLoginMenuParent");
-    state.button_back_id = NameKeyGenerator::name_to_key("GameSpyLoginProfile.wnd:ButtonBack");
-    state.button_login_id = NameKeyGenerator::name_to_key("GameSpyLoginProfile.wnd:ButtonLogin");
+    state.parent_id = NameKeyGenerator::name_to_key("GameSpyLoginProfile.wnd:WOLLoginMenuParent") as i32;
+    state.button_back_id = NameKeyGenerator::name_to_key("GameSpyLoginProfile.wnd:ButtonBack") as i32;
+    state.button_login_id = NameKeyGenerator::name_to_key("GameSpyLoginProfile.wnd:ButtonLogin") as i32;
     state.button_create_account_id =
-        NameKeyGenerator::name_to_key("GameSpyLoginProfile.wnd:ButtonCreateAccount");
+        NameKeyGenerator::name_to_key("GameSpyLoginProfile.wnd:ButtonCreateAccount") as i32;
     state.button_use_account_id =
-        NameKeyGenerator::name_to_key("GameSpyLoginProfile.wnd:ButtonUseAccount");
+        NameKeyGenerator::name_to_key("GameSpyLoginProfile.wnd:ButtonUseAccount") as i32;
     state.button_dont_use_account_id =
-        NameKeyGenerator::name_to_key("GameSpyLoginProfile.wnd:ButtonDontUseAccount");
-    state.button_tos_id = NameKeyGenerator::name_to_key("GameSpyLoginProfile.wnd:ButtonTOS");
-    state.parent_tos_id = NameKeyGenerator::name_to_key("GameSpyLoginProfile.wnd:ParentTOS");
-    state.button_tos_ok_id = NameKeyGenerator::name_to_key("GameSpyLoginProfile.wnd:ButtonTOSOK");
-    state.listbox_tos_id = NameKeyGenerator::name_to_key("GameSpyLoginProfile.wnd:ListboxTOS");
+        NameKeyGenerator::name_to_key("GameSpyLoginProfile.wnd:ButtonDontUseAccount") as i32;
+    state.button_tos_id = NameKeyGenerator::name_to_key("GameSpyLoginProfile.wnd:ButtonTOS") as i32;
+    state.parent_tos_id = NameKeyGenerator::name_to_key("GameSpyLoginProfile.wnd:ParentTOS") as i32;
+    state.button_tos_ok_id = NameKeyGenerator::name_to_key("GameSpyLoginProfile.wnd:ButtonTOSOK") as i32;
+    state.listbox_tos_id = NameKeyGenerator::name_to_key("GameSpyLoginProfile.wnd:ListboxTOS") as i32;
     state.combo_box_email_id =
-        NameKeyGenerator::name_to_key("GameSpyLoginProfile.wnd:ComboBoxEmail");
+        NameKeyGenerator::name_to_key("GameSpyLoginProfile.wnd:ComboBoxEmail") as i32;
     state.combo_box_login_name_id =
-        NameKeyGenerator::name_to_key("GameSpyLoginProfile.wnd:ComboBoxLoginName");
+        NameKeyGenerator::name_to_key("GameSpyLoginProfile.wnd:ComboBoxLoginName") as i32;
     state.text_entry_login_name_id =
-        NameKeyGenerator::name_to_key("GameSpyLoginProfile.wnd:TextEntryLoginName");
+        NameKeyGenerator::name_to_key("GameSpyLoginProfile.wnd:TextEntryLoginName") as i32;
     state.text_entry_password_id =
-        NameKeyGenerator::name_to_key("GameSpyLoginProfile.wnd:TextEntryPassword");
+        NameKeyGenerator::name_to_key("GameSpyLoginProfile.wnd:TextEntryPassword") as i32;
     state.check_box_remember_password_id =
-        NameKeyGenerator::name_to_key("GameSpyLoginProfile.wnd:CheckBoxRememberInfo");
+        NameKeyGenerator::name_to_key("GameSpyLoginProfile.wnd:CheckBoxRememberInfo") as i32;
     state.text_entry_month_id =
-        NameKeyGenerator::name_to_key("GameSpyLoginProfile.wnd:TextEntryMonth");
-    state.text_entry_day_id = NameKeyGenerator::name_to_key("GameSpyLoginProfile.wnd:TextEntryDay");
+        NameKeyGenerator::name_to_key("GameSpyLoginProfile.wnd:TextEntryMonth") as i32;
+    state.text_entry_day_id = NameKeyGenerator::name_to_key("GameSpyLoginProfile.wnd:TextEntryDay") as i32;
     state.text_entry_year_id =
-        NameKeyGenerator::name_to_key("GameSpyLoginProfile.wnd:TextEntryYear");
+        NameKeyGenerator::name_to_key("GameSpyLoginProfile.wnd:TextEntryYear") as i32;
 
     with_window_manager(|manager| {
         state.parent = manager.get_window_by_id(state.parent_id);
@@ -734,13 +740,14 @@ pub fn wol_login_menu_init(layout: &WindowLayout, _user_data: Option<&mut dyn st
     with_window_manager(|manager| manager.transition_set_group("GameSpyLoginProfileFade", false));
 }
 
-pub fn wol_login_menu_shutdown(layout: &WindowLayout, user_data: Option<&mut dyn std::any::Any>) {
+pub fn wol_login_menu_shutdown(layout: &WindowLayout, user_data: Option<&dyn std::any::Any>) {
     let pop_immediate = user_data
         .and_then(|data| data.downcast_ref::<bool>())
         .copied()
         .unwrap_or(false);
 
-    let mut state = wol_login_state().lock().unwrap_or_else(|e| e.into_inner());
+    let state_slot = wol_login_state();
+    let mut state = state_slot.borrow_mut();
     state.is_shutting_down = true;
     state.logged_in_ok = false;
     with_window_manager(|manager| manager.clear_tab_list());
@@ -759,8 +766,9 @@ pub fn wol_login_menu_shutdown(layout: &WindowLayout, user_data: Option<&mut dyn
     with_window_manager(|manager| manager.transition_reverse("GameSpyLoginProfileFade"));
 }
 
-pub fn wol_login_menu_update(layout: &WindowLayout, _user_data: Option<&mut dyn std::any::Any>) {
-    let mut state = wol_login_state().lock().unwrap_or_else(|e| e.into_inner());
+pub fn wol_login_menu_update(layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
+    let state_slot = wol_login_state();
+    let mut state = state_slot.borrow_mut();
 
     let shell_finished = get_shell().is_anim_finished();
     let transitions_finished = with_window_manager(|manager| manager.transitions_finished());
@@ -863,10 +871,11 @@ pub fn wol_login_menu_input(
     if msg != WindowMessage::Char {
         return WindowMsgHandled::Ignored;
     }
-    let key = data1 as u32;
+    let key = data1 as i32;
     let state_up = data2 & 0x0001;
     if key == 0x1B && state_up != 0 {
-        let mut state = wol_login_state().lock().unwrap_or_else(|e| e.into_inner());
+        let state_slot = wol_login_state();
+    let mut state = state_slot.borrow_mut();
         if state.button_pushed {
             return WindowMsgHandled::Handled;
         }
@@ -967,8 +976,9 @@ pub fn wol_login_menu_system(
         WindowMessage::Create | WindowMessage::Destroy => WindowMsgHandled::Handled,
         WindowMessage::InputFocus => write_input_focus_response(data1, data2, true),
         WindowMessage::GadgetValueChanged => {
-            let control_id = data1 as u32;
-            let mut state = wol_login_state().lock().unwrap_or_else(|e| e.into_inner());
+            let control_id = data1 as i32;
+            let state_slot = wol_login_state();
+    let mut state = state_slot.borrow_mut();
             if state.button_pushed {
                 return WindowMsgHandled::Handled;
             }
@@ -983,8 +993,9 @@ pub fn wol_login_menu_system(
             WindowMsgHandled::Handled
         }
         WindowMessage::GadgetSelected => {
-            let control_id = data1 as u32;
-            let mut state = wol_login_state().lock().unwrap_or_else(|e| e.into_inner());
+            let control_id = data1 as i32;
+            let state_slot = wol_login_state();
+    let mut state = state_slot.borrow_mut();
             if state.button_pushed {
                 return WindowMsgHandled::Handled;
             }
@@ -1075,14 +1086,16 @@ pub fn wol_login_menu_system(
                     }
                 }
 
+                let remember = is_check_box_checked(&state.check_box_remember_password);
+                let is_login = control_id == state.button_login_id;
                 if let Some(pref) = state.login_pref.as_mut() {
-                    if is_check_box_checked(&state.check_box_remember_password) {
+                    if remember {
                         pref.set_pref("lastName", login.clone());
                         pref.set_pref("lastEmail", email.clone());
                         pref.set_pref("useProfiles", "yes".to_string());
                         let date = format!("{}{}{}", month, day, year);
                         pref.add_login(&email, &login, &password, &date);
-                    } else if control_id == state.button_login_id {
+                    } else if is_login {
                         pref.forget_login(&email);
                     }
                 }

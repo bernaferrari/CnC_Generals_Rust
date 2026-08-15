@@ -89,7 +89,7 @@ pub fn honesty_execute_rally_records_source() -> bool {
     let body = &src[i..src.len().min(i + 900)];
     // Wave 233: executor may call unit_command_set_rally_point (records host_rally_log).
     if body.contains("unit_command_set_rally_point") {
-        let gl = include_str!("../game_logic.rs");
+        let gl = super::GAME_LOGIC_HOST_SRC;
         let gi = match gl.find("pub fn unit_command_set_rally_point") {
             Some(gi) => gi,
             None => return false,

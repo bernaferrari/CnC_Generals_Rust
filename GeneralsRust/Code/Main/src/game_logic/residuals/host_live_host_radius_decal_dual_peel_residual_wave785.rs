@@ -67,7 +67,7 @@ fn sh_source() -> &'static str {
     crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC
 }
 fn gl_source() -> &'static str {
-    include_str!("../game_logic.rs")
+    super::GAME_LOGIC_HOST_SRC
 }
 pub fn honesty_host_radius_decal_dual_peel_method_names_residual_wave785() -> bool {
     let names = LIVE_HOST_RADIUS_DECAL_DUAL_PEEL_METHOD_NAMES_WAVE785;

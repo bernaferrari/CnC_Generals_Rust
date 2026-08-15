@@ -8,15 +8,15 @@ use crate::gui::callbacks::wol_buddy_overlay::{
 };
 use crate::gui::{GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled};
 
-pub fn WOLBuddyOverlayInit(layout: &WindowLayout, user_data: Option<&mut dyn std::any::Any>) {
+pub fn WOLBuddyOverlayInit(layout: &WindowLayout, user_data: Option<&dyn std::any::Any>) {
     wol_buddy_overlay_init(layout, user_data);
 }
 
-pub fn WOLBuddyOverlayUpdate(layout: &WindowLayout, user_data: Option<&mut dyn std::any::Any>) {
+pub fn WOLBuddyOverlayUpdate(layout: &WindowLayout, user_data: Option<&dyn std::any::Any>) {
     wol_buddy_overlay_update(layout, user_data);
 }
 
-pub fn WOLBuddyOverlayShutdown(layout: &WindowLayout, user_data: Option<&mut dyn std::any::Any>) {
+pub fn WOLBuddyOverlayShutdown(layout: &WindowLayout, user_data: Option<&dyn std::any::Any>) {
     wol_buddy_overlay_shutdown(layout, user_data);
 }
 
@@ -47,7 +47,7 @@ pub fn PopupBuddyNotificationSystem(
     popup_buddy_notification_system(window, msg, data1, data2)
 }
 
-pub fn WOLBuddyOverlayRCMenuInit(layout: &WindowLayout, user_data: Option<&mut dyn std::any::Any>) {
+pub fn WOLBuddyOverlayRCMenuInit(layout: &WindowLayout, user_data: Option<&dyn std::any::Any>) {
     wol_buddy_overlay_rc_menu_init(layout, user_data);
 }
 

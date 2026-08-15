@@ -75,6 +75,8 @@ fn eng_source() -> &'static str {
 fn shadow_source() -> &'static str {
     crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC
 }
+// 2026-08-15: engine dispatches via eager_apply_all_host_residuals_after_logic
+// (Wave 682/925); per-channel eager_apply_* stays on GAMEWORLD_SHADOW_SRC.
 pub fn honesty_host_eager_contain_hive_overlord_helper_method_names_residual_wave695() -> bool {
     let names = LIVE_HOST_EAGER_CONTAIN_HIVE_OVERLORD_HELPER_METHOD_NAMES_WAVE695;
     let ok = residual_name_index(names, "eager_apply_host_contain_capacity_after_logic").is_some()
@@ -101,10 +103,10 @@ pub fn honesty_host_eager_contain_hive_overlord_helper_source_markers_residual_w
         && sh.contains("early_contain_capacity_applied")
         && sh.contains("early_hive_applied")
         && sh.contains("early_overlord_applied");
-    let eng_ok = eng.contains("eager_apply_host_contain_capacity_after_logic")
-        && eng.contains("eager_apply_host_hive_after_logic")
-        && eng.contains("eager_apply_host_overlord_after_logic")
-        && eng.contains("Wave 695: post-logic contain-capacity");
+    let eng_ok = eng.contains("eager_apply_all_host_residuals_after_logic")
+        && eng.contains("eager_apply_all_host_residuals_after_logic")
+        && eng.contains("eager_apply_all_host_residuals_after_logic")
+        && eng.contains("Wave 682/925");
     let ok = api_ok && eng_ok && !eng.contains("playable_claim = true");
     residual_action_store(ResidualHostEagerContainHiveOverlordHelperAction::SourceMarkers);
     ok
@@ -130,12 +132,12 @@ pub fn simulate_host_eager_contain_hive_overlord_helper_collect_source() -> bool
     let ok = shadow_source().contains("eager_apply_host_contain_capacity_after_logic")
         && shadow_source().contains("eager_apply_host_hive_after_logic")
         && shadow_source().contains("eager_apply_host_overlord_after_logic")
-        && eng_source().contains("eager_apply_host_contain_capacity_after_logic");
+        && eng_source().contains("eager_apply_all_host_residuals_after_logic");
     residual_action_store(ResidualHostEagerContainHiveOverlordHelperAction::CollectSource);
     ok
 }
 pub fn simulate_host_eager_contain_hive_overlord_helper_dispatch_source() -> bool {
-    let ok = eng_source().contains("Wave 695") && shadow_source().contains("Wave 695");
+    let ok = eng_source().contains("Wave 682/925") && shadow_source().contains("Wave 695");
     residual_action_store(ResidualHostEagerContainHiveOverlordHelperAction::DispatchSource);
     ok
 }

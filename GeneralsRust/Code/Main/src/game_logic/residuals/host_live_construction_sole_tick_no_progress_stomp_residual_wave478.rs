@@ -95,7 +95,7 @@ pub fn residual_construction_sole_tick_no_progress_stomp_last_action(
 }
 
 fn gl_source() -> &'static str {
-    include_str!("../game_logic.rs")
+    super::GAME_LOGIC_HOST_SRC
 }
 
 fn log_source() -> &'static str {

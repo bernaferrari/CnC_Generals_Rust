@@ -63,7 +63,7 @@ fn sh_source() -> &'static str {
     crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC
 }
 fn gl_source() -> &'static str {
-    include_str!("../game_logic.rs")
+    super::GAME_LOGIC_HOST_SRC
 }
 pub fn honesty_host_field_object_expire_dual_peel_method_names_residual_wave802() -> bool {
     let names = LIVE_HOST_FIELD_OBJECT_EXPIRE_DUAL_PEEL_METHOD_NAMES_WAVE802;

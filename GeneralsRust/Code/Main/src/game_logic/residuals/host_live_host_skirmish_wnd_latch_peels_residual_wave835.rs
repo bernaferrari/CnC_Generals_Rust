@@ -94,7 +94,9 @@ pub fn honesty_host_skirmish_wnd_latch_peels_residual_pack_wave835() -> bool {
         && (sm.contains("Wave 835: no live window") || sm.contains("Wave 835/837: no live window"))
         && sm.contains("start_skirmish_game(state)")
         && es.contains("Wave 836: playable_claim stays always false")
-        && es.contains("result.playable_claim = false;")
+        // 2026-08-15: playable_claim is the five-flag constructor, not a literal assignment.
+        && es.contains("self.playable_claim = Self::retail_windowed_playable_claim(")
+        && es.contains("Headless smoke must keep `playable_claim == false`")
         && (es.contains("Wave 836: host vertical slice absorbs Wave 835")
             || es.contains("Wave 836/839: host vertical slice absorbs Wave 835"))
         && es.contains("result.skirmish_map_select_wnd_ok")

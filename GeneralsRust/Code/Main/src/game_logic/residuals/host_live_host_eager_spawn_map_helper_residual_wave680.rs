@@ -65,7 +65,7 @@ pub fn residual_host_eager_spawn_map_helper_last_action() -> ResidualHostEagerSp
     ResidualHostEagerSpawnMapHelperAction::from_u8(RESIDUAL_ACTION.load(Ordering::SeqCst))
 }
 fn gl_source() -> &'static str {
-    include_str!("../game_logic.rs")
+    super::GAME_LOGIC_HOST_SRC
 }
 fn eng_source() -> &'static str {
     crate::cnc_game_engine::ENGINE_SRC
@@ -93,7 +93,7 @@ pub fn honesty_host_eager_spawn_map_helper_source_markers_residual_wave680() -> 
         && sh.contains("Wave 680");
     let eng_ok = eng.contains("install_active_shadow_for_coupled_tick")
         && eng.contains("clear_active_shadow_for_coupled_tick")
-        && eng.contains("Wave 680");
+        && eng.contains("Wave 682/925");
     let create_ok = gl.contains("eager_map_host_spawn_if_coupled")
         && gl.contains("Wave 680: mid-frame GameWorld map")
         && gl.matches("eager_map_host_spawn_if_coupled").count() >= 2;
@@ -126,7 +126,7 @@ pub fn simulate_host_eager_spawn_map_helper_collect_source() -> bool {
     ok
 }
 pub fn simulate_host_eager_spawn_map_helper_dispatch_source() -> bool {
-    let ok = eng_source().contains("Wave 680")
+    let ok = eng_source().contains("Wave 682/925")
         && gl_source().contains("Wave 680")
         && shadow_source().contains("Wave 680");
     residual_action_store(ResidualHostEagerSpawnMapHelperAction::DispatchSource);

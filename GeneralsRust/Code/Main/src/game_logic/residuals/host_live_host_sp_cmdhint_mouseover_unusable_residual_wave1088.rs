@@ -113,7 +113,9 @@ pub fn honesty_host_sp_cmdhint_mouseover_unusable_residual_pack_wave1088() -> bo
         && hint.contains("entry.destroyed || entry.sold || entry.masked || entry.disabled")
         && mo.contains("Wave 1088: mouseover lookup residual fail-closed on destroyed/sold/masked")
         && mo.contains("return Self::INVALID_DRAWABLE_ID")
-        && es.contains("result.playable_claim = false");
+        && // 2026-08-15: playable_claim is the five-flag constructor, not a literal assignment.
+        es.contains("self.playable_claim = Self::retail_windowed_playable_claim(")
+        && es.contains("Headless smoke must keep `playable_claim == false`");
     residual_action_store(ResidualHostSpCmdhintMouseoverUnusableAction::SourceMarkers);
     RESIDUAL_OK.store(ok, Ordering::SeqCst);
     ok

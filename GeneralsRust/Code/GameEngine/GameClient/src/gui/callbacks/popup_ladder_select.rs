@@ -6,6 +6,7 @@ use std::rc::Rc;
 use std::sync::{Mutex, OnceLock};
 
 use crate::game_text::GameText;
+use crate::gui::callbacks::online_callback_support::packed_ui_color;
 use crate::gamespy_overlay::{close_overlay, GameSpyOverlayType};
 use crate::gui::callbacks::popup_host_game::custom_match_hide_host_popup;
 use crate::gui::gadgets::{ComboBoxItem, ListBox, ListBoxItemData};
@@ -30,8 +31,9 @@ const KEY_ESC: usize = 0x1B;
 const KEY_STATE_UP: usize = 0x0001;
 const GGM_CLOSE: u32 = 16384 + 5;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 enum PasswordMode {
+    #[default]
     None,
     Entry,
     Error,
@@ -39,18 +41,18 @@ enum PasswordMode {
 
 #[derive(Default)]
 struct PopupLadderSelectState {
-    parent_id: u32,
-    listbox_ladder_select_id: u32,
-    listbox_ladder_details_id: u32,
-    static_text_ladder_name_id: u32,
-    button_ok_id: u32,
-    button_cancel_id: u32,
-    password_parent_id: u32,
-    button_password_ok_id: u32,
-    button_password_cancel_id: u32,
-    text_entry_password_id: u32,
-    bad_password_parent_id: u32,
-    button_bad_password_ok_id: u32,
+    parent_id: i32,
+    listbox_ladder_select_id: i32,
+    listbox_ladder_details_id: i32,
+    static_text_ladder_name_id: i32,
+    button_ok_id: i32,
+    button_cancel_id: i32,
+    password_parent_id: i32,
+    button_password_ok_id: i32,
+    button_password_cancel_id: i32,
+    text_entry_password_id: i32,
+    bad_password_parent_id: i32,
+    button_bad_password_ok_id: i32,
     parent: Option<Rc<RefCell<GameWindow>>>,
     listbox_ladder_select: Option<Rc<RefCell<GameWindow>>>,
     listbox_ladder_details: Option<Rc<RefCell<GameWindow>>>,
@@ -64,14 +66,16 @@ struct PopupLadderSelectState {
     ladder_index: i32,
 }
 
-static POPUP_STATE: OnceLock<Mutex<PopupLadderSelectState>> = OnceLock::new();
-
-fn popup_state() -> &'static Mutex<PopupLadderSelectState> {
-    POPUP_STATE.get_or_init(|| Mutex::new(PopupLadderSelectState::default()))
+thread_local! {
+    static POPUP_STATE: Rc<RefCell<PopupLadderSelectState>> = Rc::new(RefCell::new(PopupLadderSelectState::default()));
 }
 
-fn name_to_id(name: &str) -> u32 {
-    NameKeyGenerator::name_to_key(name) as u32
+fn popup_state() -> Rc<RefCell<PopupLadderSelectState>> {
+    POPUP_STATE.with(Rc::clone)
+}
+
+fn name_to_id(name: &str) -> i32 {
+    NameKeyGenerator::name_to_key(name) as i32
 }
 
 fn set_window_enabled(window: &Option<Rc<RefCell<GameWindow>>>, enabled: bool) {
@@ -236,62 +240,62 @@ fn update_ladder_details(
     let _ = static_text.borrow_mut().set_text(&name_line);
 
     if !info.location.is_empty() {
-        listbox.add_item_with_data_and_color(-1, &info.location, None, Some(caption_color));
+        listbox.add_item_with_data_and_color(-1, &info.location, None, Some(packed_ui_color(caption_color)));
     }
 
     // C++ always adds the homepage URL line, even if empty
     let url_template = GameText::fetch("GUI:LadderURL");
     let url_line = format_single(&url_template, info.homepage_url.as_str());
-    listbox.add_item_with_data_and_color(-1, &url_line, None, Some(caption_color));
+    listbox.add_item_with_data_and_color(-1, &url_line, None, Some(packed_ui_color(caption_color)));
 
     if !info.description.is_empty() {
-        listbox.add_item_with_data_and_color(-1, &info.description, None, Some(color));
+        listbox.add_item_with_data_and_color(-1, &info.description, None, Some(packed_ui_color(color)));
     }
 
     if !info.crypted_password.is_empty() {
         let line = GameText::fetch("GUI:LadderHasPassword");
-        listbox.add_item_with_data_and_color(-1, &line, None, Some(caption_color));
+        listbox.add_item_with_data_and_color(-1, &line, None, Some(packed_ui_color(caption_color)));
     }
 
     if info.min_wins > 0 {
         let template = GameText::fetch("GUI:LadderMinWins");
         let line = replace_first(&template, "%d", &info.min_wins.to_string());
-        listbox.add_item_with_data_and_color(-1, &line, None, Some(caption_color));
+        listbox.add_item_with_data_and_color(-1, &line, None, Some(packed_ui_color(caption_color)));
     }
     if info.max_wins > 0 {
         let template = GameText::fetch("GUI:LadderMaxWins");
         let line = replace_first(&template, "%d", &info.max_wins.to_string());
-        listbox.add_item_with_data_and_color(-1, &line, None, Some(caption_color));
+        listbox.add_item_with_data_and_color(-1, &line, None, Some(packed_ui_color(caption_color)));
     }
 
     if info.random_factions {
         let line = GameText::fetch("GUI:LadderRandomFactions");
-        listbox.add_item_with_data_and_color(-1, &line, None, Some(caption_color));
+        listbox.add_item_with_data_and_color(-1, &line, None, Some(packed_ui_color(caption_color)));
     } else {
         let line = GameText::fetch("GUI:LadderFactions");
-        listbox.add_item_with_data_and_color(-1, &line, None, Some(caption_color));
+        listbox.add_item_with_data_and_color(-1, &line, None, Some(packed_ui_color(caption_color)));
     }
 
     for faction in &info.valid_factions {
         let key = format!("INI:Faction{}", faction.as_str());
         let line = GameText::fetch(&key);
-        listbox.add_item_with_data_and_color(-1, &line, None, Some(color));
+        listbox.add_item_with_data_and_color(-1, &line, None, Some(packed_ui_color(color)));
     }
 
     if info.random_maps {
         let line = GameText::fetch("GUI:LadderRandomMaps");
-        listbox.add_item_with_data_and_color(-1, &line, None, Some(caption_color));
+        listbox.add_item_with_data_and_color(-1, &line, None, Some(packed_ui_color(caption_color)));
     } else {
         let line = GameText::fetch("GUI:LadderMaps");
-        listbox.add_item_with_data_and_color(-1, &line, None, Some(caption_color));
+        listbox.add_item_with_data_and_color(-1, &line, None, Some(packed_ui_color(caption_color)));
     }
 
     let cache = get_map_cache_manager();
     let cache_guard = cache.lock().unwrap_or_else(|e| e.into_inner());
     for map_name in &info.valid_maps {
         if let Some(meta) = cache_guard.find_map(map_name.as_str()) {
-            let display_name = meta.display_name.to_string();
-            listbox.add_item_with_data_and_color(-1, &display_name, None, Some(color));
+            let display_name = meta.display_name.as_str().to_string();
+            listbox.add_item_with_data_and_color(-1, &display_name, None, Some(packed_ui_color(color)));
         }
     }
 }
@@ -309,7 +313,7 @@ fn ladder_stats_wins() -> i32 {
         return 0;
     };
     let stats = queue.find_player_stats_by_id(profile);
-    stats.wins.values().sum::<i32>()
+    stats.wins.values().map(|value| *value as i32).sum()
 }
 
 fn is_valid_qm_ladder(info: &LadderInfo) -> bool {
@@ -354,7 +358,7 @@ fn populate_qm_ladder_listbox(listbox: &mut ListBox) -> bool {
         0,
         &no_ladder,
         Some(ListBoxItemData::Integer(0)),
-        Some(normal_color),
+        Some(packed_ui_color(normal_color)),
     );
 
     let mut pref = QuickmatchPreferences::new();
@@ -368,7 +372,7 @@ fn populate_qm_ladder_listbox(listbox: &mut ListBox) -> bool {
                 info.index,
                 &info.name,
                 Some(ListBoxItemData::Integer(info.index)),
-                Some(favorite_color),
+                Some(packed_ui_color(favorite_color)),
             );
             selected_index = index;
         }
@@ -391,7 +395,7 @@ fn populate_qm_ladder_listbox(listbox: &mut ListBox) -> bool {
                     info.index,
                     &info.name,
                     Some(ListBoxItemData::Integer(info.index)),
-                    Some(favorite_color),
+                    Some(packed_ui_color(favorite_color)),
                 );
             }
         }
@@ -404,7 +408,7 @@ fn populate_qm_ladder_listbox(listbox: &mut ListBox) -> bool {
                 info.index,
                 &info.name,
                 Some(ListBoxItemData::Integer(info.index)),
-                Some(special_color),
+                Some(packed_ui_color(special_color)),
             );
         }
     }
@@ -416,7 +420,7 @@ fn populate_qm_ladder_listbox(listbox: &mut ListBox) -> bool {
                 info.index,
                 &info.name,
                 Some(ListBoxItemData::Integer(info.index)),
-                Some(normal_color),
+                Some(packed_ui_color(normal_color)),
             );
         }
     }
@@ -457,7 +461,7 @@ fn populate_custom_ladder_listbox(listbox: &mut ListBox) -> bool {
         0,
         &no_ladder,
         Some(ListBoxItemData::Integer(0)),
-        Some(normal_color),
+        Some(packed_ui_color(normal_color)),
     );
 
     let pref = CustomMatchPreferences::new();
@@ -471,7 +475,7 @@ fn populate_custom_ladder_listbox(listbox: &mut ListBox) -> bool {
                 info.index,
                 &info.name,
                 Some(ListBoxItemData::Integer(info.index)),
-                Some(favorite_color),
+                Some(packed_ui_color(favorite_color)),
             );
             selected_index = index;
         }
@@ -494,7 +498,7 @@ fn populate_custom_ladder_listbox(listbox: &mut ListBox) -> bool {
                     info.index,
                     &info.name,
                     Some(ListBoxItemData::Integer(info.index)),
-                    Some(favorite_color),
+                    Some(packed_ui_color(favorite_color)),
                 );
             }
         }
@@ -507,7 +511,7 @@ fn populate_custom_ladder_listbox(listbox: &mut ListBox) -> bool {
                 info.index,
                 &info.name,
                 Some(ListBoxItemData::Integer(info.index)),
-                Some(local_color),
+                Some(packed_ui_color(local_color)),
             );
         }
     }
@@ -519,7 +523,7 @@ fn populate_custom_ladder_listbox(listbox: &mut ListBox) -> bool {
                 info.index,
                 &info.name,
                 Some(ListBoxItemData::Integer(info.index)),
-                Some(special_color),
+                Some(packed_ui_color(special_color)),
             );
         }
     }
@@ -531,7 +535,7 @@ fn populate_custom_ladder_listbox(listbox: &mut ListBox) -> bool {
                 info.index,
                 &info.name,
                 Some(ListBoxItemData::Integer(info.index)),
-                Some(normal_color),
+                Some(packed_ui_color(normal_color)),
             );
         }
     }
@@ -807,9 +811,10 @@ fn handle_ladder_selection(ladder_id: i32) {
 
 pub fn popup_ladder_select_init(
     _layout: &WindowLayout,
-    _user_data: Option<&mut dyn std::any::Any>,
+    _user_data: Option<&dyn std::any::Any>,
 ) {
-    let mut state = popup_state().lock().unwrap_or_else(|e| e.into_inner());
+    let state_slot = popup_state();
+    let mut state = state_slot.borrow_mut();
 
     state.parent_id = name_to_id("PopupLadderSelect.wnd:Parent");
     state.listbox_ladder_select_id = name_to_id("PopupLadderSelect.wnd:ListBoxLadderSelect");
@@ -852,15 +857,16 @@ pub fn popup_ladder_select_init(
 
 pub fn popup_ladder_select_update(
     _layout: &WindowLayout,
-    _user_data: Option<&mut dyn std::any::Any>,
+    _user_data: Option<&dyn std::any::Any>,
 ) {
 }
 
 pub fn popup_ladder_select_shutdown(
     _layout: &WindowLayout,
-    _user_data: Option<&mut dyn std::any::Any>,
+    _user_data: Option<&dyn std::any::Any>,
 ) {
-    let mut state = popup_state().lock().unwrap_or_else(|e| e.into_inner());
+    let state_slot = popup_state();
+    let mut state = state_slot.borrow_mut();
     state.parent = None;
     state.listbox_ladder_select = None;
     state.listbox_ladder_details = None;
@@ -885,7 +891,8 @@ pub fn popup_ladder_select_input(
         return WindowMsgHandled::Handled;
     }
 
-    let mut state = popup_state().lock().unwrap_or_else(|e| e.into_inner());
+    let state_slot = popup_state();
+    let mut state = state_slot.borrow_mut();
     match state.password_mode {
         PasswordMode::None => {
             populate_ladder_combo_box();
@@ -910,7 +917,8 @@ pub fn popup_ladder_select_system(
     data1: WindowMsgData,
     data2: WindowMsgData,
 ) -> WindowMsgHandled {
-    let mut state = popup_state().lock().unwrap_or_else(|e| e.into_inner());
+    let state_slot = popup_state();
+    let mut state = state_slot.borrow_mut();
 
     match msg {
         WindowMessage::Create => WindowMsgHandled::Handled,
@@ -923,7 +931,7 @@ pub fn popup_ladder_select_system(
         }
         WindowMessage::InputFocus => write_input_focus_response(data1, data2, true),
         WindowMessage::GadgetSelected => {
-            let control_id = data1 as u32;
+            let control_id = data1 as i32;
             if control_id == state.button_ok_id {
                 if let Some(ladder_id) = listbox_selected_ladder_id(&state.listbox_ladder_select) {
                     state.ladder_index = ladder_id;
@@ -985,7 +993,7 @@ pub fn popup_ladder_select_system(
             WindowMsgHandled::Handled
         }
         WindowMessage::User(0x8000) => {
-            if data1 as u32 == state.listbox_ladder_select_id {
+            if data1 as i32 == state.listbox_ladder_select_id {
                 if let Some(parent) = state.parent.as_ref() {
                     let _ = parent.borrow_mut().send_system_message(
                         WindowMessage::GadgetSelected,
@@ -997,7 +1005,7 @@ pub fn popup_ladder_select_system(
             WindowMsgHandled::Handled
         }
         WindowMessage::GadgetEditDone => {
-            if data1 as u32 == state.text_entry_password_id {
+            if data1 as i32 == state.text_entry_password_id {
                 if let Some(parent) = state.parent.as_ref() {
                     let _ = parent.borrow_mut().send_system_message(
                         WindowMessage::GadgetSelected,
@@ -1014,7 +1022,7 @@ pub fn popup_ladder_select_system(
 
 pub fn rc_game_details_menu_init(
     _layout: &WindowLayout,
-    _user_data: Option<&mut dyn std::any::Any>,
+    _user_data: Option<&dyn std::any::Any>,
 ) {
 }
 
@@ -1034,7 +1042,7 @@ pub fn rc_game_details_menu_system(
             WindowMsgHandled::Handled
         }
         WindowMessage::GadgetSelected => {
-            let control_id = data1 as u32;
+            let control_id = data1 as i32;
             let ladder_button = name_to_id("RCGameDetailsMenu.wnd:ButtonLadderDetails");
             if control_id != ladder_button {
                 return WindowMsgHandled::Handled;
@@ -1084,7 +1092,7 @@ pub fn rc_game_details_menu_system(
                 first.borrow_mut().set_user_data(selected_id);
                 with_window_manager(|manager| manager.set_lone_window(Some(&first)));
                 let _ = first.borrow_mut().hide(false);
-                first.borrow_mut().bring_to_top();
+                let _ = first.borrow_mut().bring_to_front();
             }
 
             let static_text_id = name_to_id("PopupLadderDetails.wnd:StaticTextLadderName");

@@ -114,7 +114,9 @@ pub fn honesty_host_cursor_cmd_hint_selectable_sold_residual_pack_wave1098() -> 
         && t.contains("!o.masked")
         && cl.contains("Wave 1098: sold residual fail-closed")
         && cl.contains("!hint.sold && any_attacker()")
-        && es.contains("result.playable_claim = false");
+        && // 2026-08-15: playable_claim is the five-flag constructor, not a literal assignment.
+        es.contains("self.playable_claim = Self::retail_windowed_playable_claim(")
+        && es.contains("Headless smoke must keep `playable_claim == false`");
     residual_action_store(ResidualHostCursorCmdHintSelectableSoldAction::SourceMarkers);
     RESIDUAL_OK.store(ok, Ordering::SeqCst);
     ok

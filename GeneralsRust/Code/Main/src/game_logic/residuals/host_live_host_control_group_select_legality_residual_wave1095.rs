@@ -117,7 +117,9 @@ pub fn honesty_host_control_group_select_legality_residual_pack_wave1095() -> bo
         && single.contains("presentation_is_selectable(o)")
         && add.contains("Wave 1095: presentation freeze fail-closed on unusable add-to-selection")
         && add.contains("presentation_is_selectable(o)")
-        && es.contains("result.playable_claim = false");
+        && // 2026-08-15: playable_claim is the five-flag constructor, not a literal assignment.
+        es.contains("self.playable_claim = Self::retail_windowed_playable_claim(")
+        && es.contains("Headless smoke must keep `playable_claim == false`");
     residual_action_store(ResidualHostControlGroupSelectLegalityAction::SourceMarkers);
     RESIDUAL_OK.store(ok, Ordering::SeqCst);
     ok

@@ -2700,6 +2700,68 @@ mod tests {
         }
     }
 
+    /// C++ FunctionLexicon.cpp gameWinSystemTable WOL block order
+    /// (lines 91-106) plus the immediately following popup names.
+    #[cfg(feature = "online_ui")]
+    const ONLINE_SYSTEM_NAMES: &[&str] = &[
+        "WOLLadderScreenSystem",
+        "WOLLoginMenuSystem",
+        "WOLLocaleSelectSystem",
+        "WOLLobbyMenuSystem",
+        "WOLGameSetupMenuSystem",
+        "WOLMapSelectMenuSystem",
+        "WOLBuddyOverlaySystem",
+        "WOLBuddyOverlayRCMenuSystem",
+        "RCGameDetailsMenuSystem",
+        "GameSpyPlayerInfoOverlaySystem",
+        "WOLMessageWindowSystem",
+        "WOLQuickMatchMenuSystem",
+        "WOLWelcomeMenuSystem",
+        "WOLStatusMenuSystem",
+        "WOLQMScoreScreenSystem",
+        "WOLCustomScoreScreenSystem",
+        "NetworkDirectConnectSystem",
+        "PopupHostGameSystem",
+        "PopupJoinGameSystem",
+        "PopupLadderSelectSystem",
+    ];
+
+    #[cfg(feature = "online_ui")]
+    #[test]
+    fn online_ui_binds_concrete_wol_gamespy_callbacks_in_lexicon_order() {
+        let mut registry = ScriptCallbackRegistry::new();
+        registry.populate_defaults();
+
+        for name in ONLINE_SYSTEM_NAMES {
+            assert!(
+                registry.get_win_system(name).is_some(),
+                "missing online system {name}"
+            );
+        }
+        for name in [
+            "WOLLoginMenuInit",
+            "WOLWelcomeMenuInit",
+            "WOLLobbyMenuInit",
+            "WOLGameSetupMenuInit",
+            "WOLBuddyOverlayInit",
+            "GameSpyPlayerInfoOverlayInit",
+            "PopupHostGameInit",
+        ] {
+            assert!(registry.get_layout_init(name).is_some(), "missing {name}");
+        }
+
+        let win = GameWindow::new();
+        let login = registry.get_win_system("WOLLoginMenuSystem").unwrap();
+        assert_eq!(
+            login(&win, WindowMessage::Create, 0, 0),
+            WindowMsgHandled::Handled
+        );
+        assert_eq!(
+            login(&win, WindowMessage::User(1), 0, 0),
+            WindowMsgHandled::Ignored
+        );
+    }
+
     #[test]
     fn create_system_callback_survives_registry_replace() {
         use std::sync::atomic::{AtomicUsize, Ordering};

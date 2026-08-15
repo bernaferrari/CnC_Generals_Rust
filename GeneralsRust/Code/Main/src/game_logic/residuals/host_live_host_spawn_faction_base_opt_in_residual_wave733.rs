@@ -65,7 +65,7 @@ pub fn residual_host_spawn_faction_base_opt_in_last_action(
     ResidualHostSpawnFactionBaseOptInAction::from_u8(RESIDUAL_ACTION.load(Ordering::SeqCst))
 }
 fn gl_source() -> &'static str {
-    include_str!("../game_logic.rs")
+    super::GAME_LOGIC_HOST_SRC
 }
 pub fn honesty_host_spawn_faction_base_opt_in_method_names_residual_wave733() -> bool {
     let names = LIVE_HOST_SPAWN_FACTION_BASE_OPT_IN_METHOD_NAMES_WAVE733;

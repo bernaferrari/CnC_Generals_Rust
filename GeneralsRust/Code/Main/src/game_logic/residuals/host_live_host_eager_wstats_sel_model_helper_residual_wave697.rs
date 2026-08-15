@@ -73,6 +73,8 @@ fn eng_source() -> &'static str {
 fn shadow_source() -> &'static str {
     crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC
 }
+// 2026-08-15: engine dispatches via eager_apply_all_host_residuals_after_logic
+// (Wave 682/925); per-channel eager_apply_* stays on GAMEWORLD_SHADOW_SRC.
 pub fn honesty_host_eager_wstats_sel_model_helper_method_names_residual_wave697() -> bool {
     let names = LIVE_HOST_EAGER_WSTATS_SEL_MODEL_HELPER_METHOD_NAMES_WAVE697;
     let ok = residual_name_index(names, "eager_apply_host_weapon_stats_after_logic").is_some()
@@ -99,10 +101,10 @@ pub fn honesty_host_eager_wstats_sel_model_helper_source_markers_residual_wave69
         && sh.contains("early_weapon_stats_applied")
         && sh.contains("early_selection_radius_applied")
         && sh.contains("early_model_condition_applied");
-    let eng_ok = eng.contains("eager_apply_host_weapon_stats_after_logic")
-        && eng.contains("eager_apply_host_selection_radius_after_logic")
-        && eng.contains("eager_apply_host_model_condition_after_logic")
-        && eng.contains("Wave 697: post-logic weapon-stats");
+    let eng_ok = eng.contains("eager_apply_all_host_residuals_after_logic")
+        && eng.contains("eager_apply_all_host_residuals_after_logic")
+        && eng.contains("eager_apply_all_host_residuals_after_logic")
+        && eng.contains("Wave 682/925");
     let ok = api_ok && eng_ok && !eng.contains("playable_claim = true");
     residual_action_store(ResidualHostEagerWstatsSelModelHelperAction::SourceMarkers);
     ok
@@ -128,12 +130,12 @@ pub fn simulate_host_eager_wstats_sel_model_helper_collect_source() -> bool {
     let ok = shadow_source().contains("eager_apply_host_weapon_stats_after_logic")
         && shadow_source().contains("eager_apply_host_selection_radius_after_logic")
         && shadow_source().contains("eager_apply_host_model_condition_after_logic")
-        && eng_source().contains("eager_apply_host_weapon_stats_after_logic");
+        && eng_source().contains("eager_apply_all_host_residuals_after_logic");
     residual_action_store(ResidualHostEagerWstatsSelModelHelperAction::CollectSource);
     ok
 }
 pub fn simulate_host_eager_wstats_sel_model_helper_dispatch_source() -> bool {
-    let ok = eng_source().contains("Wave 697") && shadow_source().contains("Wave 697");
+    let ok = eng_source().contains("Wave 682/925") && shadow_source().contains("Wave 697");
     residual_action_store(ResidualHostEagerWstatsSelModelHelperAction::DispatchSource);
     ok
 }

@@ -65,7 +65,7 @@ pub fn residual_host_production_spawn_requires_gw_bind_last_action(
     ResidualHostProductionSpawnRequiresGwBindAction::from_u8(RESIDUAL_ACTION.load(Ordering::SeqCst))
 }
 fn gl_source() -> &'static str {
-    include_str!("../game_logic.rs")
+    super::GAME_LOGIC_HOST_SRC
 }
 pub fn honesty_host_production_spawn_requires_gw_bind_method_names_residual_wave738() -> bool {
     let names = LIVE_HOST_PRODUCTION_SPAWN_REQUIRES_GW_BIND_METHOD_NAMES_WAVE738;

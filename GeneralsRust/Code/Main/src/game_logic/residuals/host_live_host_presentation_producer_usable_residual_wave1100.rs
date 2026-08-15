@@ -101,7 +101,9 @@ pub fn honesty_host_presentation_producer_usable_residual_pack_wave1100() -> boo
         && b.contains("!o.under_construction")
         && b.contains("!o.disabled")
         && cnc.contains("first_constructed_producer_id")
-        && es.contains("result.playable_claim = false");
+        && // 2026-08-15: playable_claim is the five-flag constructor, not a literal assignment.
+        es.contains("self.playable_claim = Self::retail_windowed_playable_claim(")
+        && es.contains("Headless smoke must keep `playable_claim == false`");
     residual_action_store(ResidualHostPresentationProducerUsableAction::SourceMarkers);
     RESIDUAL_OK.store(ok, Ordering::SeqCst);
     ok

@@ -86,7 +86,7 @@ pub fn residual_host_guard_ready_log_helper_last_action() -> ResidualHostGuardRe
 }
 
 fn gl_source() -> &'static str {
-    include_str!("../game_logic.rs")
+    super::GAME_LOGIC_HOST_SRC
 }
 fn shadow_source() -> &'static str {
     crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC

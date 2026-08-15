@@ -64,7 +64,7 @@ pub fn residual_host_radar_extend_no_dual_complete_last_action(
     ResidualHostRadarExtendNoDualCompleteAction::from_u8(RESIDUAL_ACTION.load(Ordering::SeqCst))
 }
 fn gl_source() -> &'static str {
-    include_str!("../game_logic.rs")
+    super::GAME_LOGIC_HOST_SRC
 }
 fn ready_source() -> &'static str {
     include_str!("../host_radar_extend_ready_log.rs")

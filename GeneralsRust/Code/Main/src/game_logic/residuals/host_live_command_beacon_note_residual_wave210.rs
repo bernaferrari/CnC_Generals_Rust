@@ -95,7 +95,7 @@ pub fn honesty_place_beacon_notes_host_source() -> bool {
 
 /// Source residual: note_beacon_placed pushes recent_beacons.
 pub fn honesty_note_beacon_api_source() -> bool {
-    let src = include_str!("../game_logic.rs");
+    let src = super::GAME_LOGIC_HOST_SRC;
     let i = match src.find("fn note_beacon_placed") {
         Some(i) => i,
         None => return false,

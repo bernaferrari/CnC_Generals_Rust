@@ -94,7 +94,9 @@ pub fn honesty_host_dual_source_combat_latch_residual_pack_wave1112() -> bool {
         && tr.contains("Wave 1111: masked/unselectable local source residual fail-closed")
         && es.contains("Wave 1112: longer window for attack residual + damage")
         && es.contains("Duration::from_secs(6)")
-        && es.contains("result.playable_claim = false")
+        && // 2026-08-15: playable_claim is the five-flag constructor, not a literal assignment.
+        es.contains("self.playable_claim = Self::retail_windowed_playable_claim(")
+        && es.contains("Headless smoke must keep `playable_claim == false`")
         && !es.contains("playable_claim = true");
     residual_action_store(ResidualHostDualSourceCombatLatchAction::SourceMarkers);
     RESIDUAL_OK.store(ok, Ordering::SeqCst);

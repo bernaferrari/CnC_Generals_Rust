@@ -5,6 +5,7 @@ use std::rc::Rc;
 use std::sync::{Mutex, OnceLock};
 
 use crate::game_text::GameText;
+use crate::gui::callbacks::online_callback_support::packed_ui_color;
 use crate::gamespy_overlay::{check_reopen_player_info, close_overlay, GameSpyOverlayType};
 use crate::gui::{
     get_shell, with_window_manager, write_input_focus_response, GameWindow, WindowLayout,
@@ -19,26 +20,29 @@ use game_network::gamespy::persistent_storage_thread::{
 
 #[derive(Default)]
 struct WolLocaleSelectState {
-    parent_id: u32,
-    button_ok_id: u32,
-    listbox_locale_id: u32,
+    parent_id: i32,
+    button_ok_id: i32,
+    listbox_locale_id: i32,
     parent: Option<Rc<RefCell<GameWindow>>>,
     button_ok: Option<Rc<RefCell<GameWindow>>>,
     listbox_locale: Option<Rc<RefCell<GameWindow>>>,
 }
 
-static WOL_LOCALE_SELECT_STATE: OnceLock<Mutex<WolLocaleSelectState>> = OnceLock::new();
+thread_local! {
+    static WOL_LOCALE_SELECT_STATE: Rc<RefCell<WolLocaleSelectState>> = Rc::new(RefCell::new(WolLocaleSelectState::default()));
+}
 
-fn wol_locale_state() -> &'static Mutex<WolLocaleSelectState> {
-    WOL_LOCALE_SELECT_STATE.get_or_init(|| Mutex::new(WolLocaleSelectState::default()))
+fn wol_locale_state() -> Rc<RefCell<WolLocaleSelectState>> {
+    WOL_LOCALE_SELECT_STATE.with(Rc::clone)
 }
 
 pub fn wol_locale_select_init(layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
-    let mut state = wol_locale_state().lock().unwrap_or_else(|e| e.into_inner());
-    state.parent_id = NameKeyGenerator::name_to_key("PopupLocaleSelect.wnd:ParentLocaleSelect");
-    state.button_ok_id = NameKeyGenerator::name_to_key("PopupLocaleSelect.wnd:ButtonOk");
+    let state_slot = wol_locale_state();
+    let mut state = state_slot.borrow_mut();
+    state.parent_id = NameKeyGenerator::name_to_key("PopupLocaleSelect.wnd:ParentLocaleSelect") as i32;
+    state.button_ok_id = NameKeyGenerator::name_to_key("PopupLocaleSelect.wnd:ButtonOk") as i32;
     state.listbox_locale_id =
-        NameKeyGenerator::name_to_key("PopupLocaleSelect.wnd:ListBoxLocaleSelect");
+        NameKeyGenerator::name_to_key("PopupLocaleSelect.wnd:ListBoxLocaleSelect") as i32;
 
     with_window_manager(|manager| {
         state.parent = manager.get_window_by_id(state.parent_id);
@@ -55,7 +59,7 @@ pub fn wol_locale_select_init(layout: &WindowLayout, _user_data: Option<&dyn std
             for locale in LOC_MIN..=LOC_MAX {
                 let id = format!("WOL:Locale{:02}", locale);
                 let text = GameText::fetch(&id);
-                widget.add_item_with_color(&text, color);
+                widget.add_item_with_color(&text, packed_ui_color(color));
             }
             if !widget.items().is_empty() {
                 widget.set_selected_indices(&[0]);
@@ -75,7 +79,7 @@ pub fn wol_locale_select_init(layout: &WindowLayout, _user_data: Option<&dyn std
 
 pub fn wol_locale_select_shutdown(layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
     layout.hide(true);
-    let _ = get_shell().shutdown_complete(Some(layout), false);
+    let _ = get_shell().shutdown_complete(None, false);
 }
 
 pub fn wol_locale_select_update(_layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {}
@@ -103,8 +107,9 @@ pub fn wol_locale_select_system(
         WindowMessage::Destroy => WindowMsgHandled::Handled,
         WindowMessage::InputFocus => write_input_focus_response(data1, data2, true),
         WindowMessage::GadgetSelected => {
-            let control_id = data1 as u32;
-            let mut state = wol_locale_state().lock().unwrap_or_else(|e| e.into_inner());
+            let control_id = data1 as i32;
+            let state_slot = wol_locale_state();
+    let mut state = state_slot.borrow_mut();
             if control_id != state.button_ok_id {
                 return WindowMsgHandled::Handled;
             }
@@ -125,7 +130,10 @@ pub fn wol_locale_select_system(
             }
 
             let locale = LOC_MIN + selected as i32;
-            let Some(info) = get_gamespy_info().and_then(|info| info.lock().ok()) else {
+            let Some(slot) = get_gamespy_info() else {
+                return WindowMsgHandled::Handled;
+            };
+            let Ok(info) = slot.lock() else {
                 return WindowMsgHandled::Handled;
             };
             let profile_id = info.get_local_profile_id();
@@ -183,7 +191,7 @@ pub fn wol_locale_select_system(
             check_reopen_player_info();
             WindowMsgHandled::Handled
         }
-        WindowMessage::EditDone => WindowMsgHandled::Handled,
+        WindowMessage::GadgetEditDone => WindowMsgHandled::Handled,
         _ => WindowMsgHandled::Ignored,
     }
 }

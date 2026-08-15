@@ -50,7 +50,7 @@ fn assets_source() -> &'static str {
 }
 
 fn gl_source() -> &'static str {
-    include_str!("../game_logic.rs")
+    super::GAME_LOGIC_HOST_SRC
 }
 
 pub fn honesty_host_assets_big_unpack_method_names_residual_wave882() -> bool {

@@ -49,7 +49,7 @@ fn residual_action_store(a: ResidualHostMapStartArmySpawnAction) {
     RESIDUAL_ACTION.store(a as u8, Ordering::SeqCst);
 }
 fn gl_source() -> &'static str {
-    include_str!("../game_logic.rs")
+    super::GAME_LOGIC_HOST_SRC
 }
 fn sl_source() -> &'static str {
     include_str!("../script_loader.rs")

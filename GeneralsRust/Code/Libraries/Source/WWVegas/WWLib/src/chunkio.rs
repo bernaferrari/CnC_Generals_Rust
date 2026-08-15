@@ -450,9 +450,19 @@ impl<'a> ChunkLoadClass<'a> {
 }
 
 unsafe fn as_bytes<T: Copy>(value: &T) -> &[u8] {
-    std::slice::from_raw_parts((value as *const T) as *const u8, std::mem::size_of::<T>())
+    // SAFETY: [Category 10 — OOB / Category 11 — provenance]
+    // `value` is a live `&T`; the slice covers exactly `size_of::<T>()` bytes
+    // of that object (WWLib chunkio.cpp typed read/write of POD chunk fields).
+    unsafe {
+        std::slice::from_raw_parts((value as *const T) as *const u8, std::mem::size_of::<T>())
+    }
 }
 
 unsafe fn as_bytes_mut<T: Copy>(value: &mut T) -> &mut [u8] {
-    std::slice::from_raw_parts_mut((value as *mut T) as *mut u8, std::mem::size_of::<T>())
+    // SAFETY: [Category 1 — aliasing / Category 10 — OOB]
+    // `value` is a live `&mut T`; the mutable slice covers exactly that object
+    // and does not outlive the borrow (WWLib chunkio.cpp POD field IO).
+    unsafe {
+        std::slice::from_raw_parts_mut((value as *mut T) as *mut u8, std::mem::size_of::<T>())
+    }
 }

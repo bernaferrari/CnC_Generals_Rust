@@ -7,15 +7,15 @@ use crate::gui::callbacks::wol_login_menu::{
 };
 use crate::gui::{GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled};
 
-pub fn WOLLoginMenuInit(layout: &WindowLayout, user_data: Option<&mut dyn std::any::Any>) {
+pub fn WOLLoginMenuInit(layout: &WindowLayout, user_data: Option<&dyn std::any::Any>) {
     wol_login_menu_init(layout, user_data);
 }
 
-pub fn WOLLoginMenuUpdate(layout: &WindowLayout, user_data: Option<&mut dyn std::any::Any>) {
+pub fn WOLLoginMenuUpdate(layout: &WindowLayout, user_data: Option<&dyn std::any::Any>) {
     wol_login_menu_update(layout, user_data);
 }
 
-pub fn WOLLoginMenuShutdown(layout: &WindowLayout, user_data: Option<&mut dyn std::any::Any>) {
+pub fn WOLLoginMenuShutdown(layout: &WindowLayout, user_data: Option<&dyn std::any::Any>) {
     wol_login_menu_shutdown(layout, user_data);
 }
 

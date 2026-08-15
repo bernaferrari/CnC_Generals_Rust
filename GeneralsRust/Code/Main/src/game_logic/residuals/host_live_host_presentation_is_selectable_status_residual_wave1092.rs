@@ -103,7 +103,9 @@ pub fn honesty_host_presentation_is_selectable_status_residual_pack_wave1092() -
         && window.contains("!o.destroyed")
         && pick.contains("Self::presentation_is_selectable(o)")
         && cnc.contains("UnitControlSystem::presentation_is_selectable(o)")
-        && es.contains("result.playable_claim = false");
+        && // 2026-08-15: playable_claim is the five-flag constructor, not a literal assignment.
+        es.contains("self.playable_claim = Self::retail_windowed_playable_claim(")
+        && es.contains("Headless smoke must keep `playable_claim == false`");
     residual_action_store(ResidualHostPresentationIsSelectableStatusAction::SourceMarkers);
     RESIDUAL_OK.store(ok, Ordering::SeqCst);
     ok

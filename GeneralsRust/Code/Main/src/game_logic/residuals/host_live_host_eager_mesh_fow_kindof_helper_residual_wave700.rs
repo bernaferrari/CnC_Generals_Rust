@@ -73,6 +73,8 @@ fn eng_source() -> &'static str {
 fn shadow_source() -> &'static str {
     crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC
 }
+// 2026-08-15: engine dispatches via eager_apply_all_host_residuals_after_logic
+// (Wave 682/925); per-channel eager_apply_* stays on GAMEWORLD_SHADOW_SRC.
 pub fn honesty_host_eager_mesh_fow_kindof_helper_method_names_residual_wave700() -> bool {
     let names = LIVE_HOST_EAGER_MESH_FOW_KINDOF_HELPER_METHOD_NAMES_WAVE700;
     let ok = residual_name_index(names, "eager_apply_host_model_mesh_after_logic").is_some()
@@ -99,10 +101,10 @@ pub fn honesty_host_eager_mesh_fow_kindof_helper_source_markers_residual_wave700
         && sh.contains("early_model_mesh_applied")
         && sh.contains("early_fow_applied")
         && sh.contains("early_kind_of_applied");
-    let eng_ok = eng.contains("eager_apply_host_model_mesh_after_logic")
-        && eng.contains("eager_apply_host_fow_after_logic")
-        && eng.contains("eager_apply_host_kind_of_after_logic")
-        && eng.contains("Wave 700: post-logic model-mesh");
+    let eng_ok = eng.contains("eager_apply_all_host_residuals_after_logic")
+        && eng.contains("eager_apply_all_host_residuals_after_logic")
+        && eng.contains("eager_apply_all_host_residuals_after_logic")
+        && eng.contains("Wave 682/925");
     let ok = api_ok && eng_ok && !eng.contains("playable_claim = true");
     residual_action_store(ResidualHostEagerMeshFowKindofHelperAction::SourceMarkers);
     ok
@@ -128,12 +130,12 @@ pub fn simulate_host_eager_mesh_fow_kindof_helper_collect_source() -> bool {
     let ok = shadow_source().contains("eager_apply_host_model_mesh_after_logic")
         && shadow_source().contains("eager_apply_host_fow_after_logic")
         && shadow_source().contains("eager_apply_host_kind_of_after_logic")
-        && eng_source().contains("eager_apply_host_model_mesh_after_logic");
+        && eng_source().contains("eager_apply_all_host_residuals_after_logic");
     residual_action_store(ResidualHostEagerMeshFowKindofHelperAction::CollectSource);
     ok
 }
 pub fn simulate_host_eager_mesh_fow_kindof_helper_dispatch_source() -> bool {
-    let ok = eng_source().contains("Wave 700") && shadow_source().contains("Wave 700");
+    let ok = eng_source().contains("Wave 682/925") && shadow_source().contains("Wave 700");
     residual_action_store(ResidualHostEagerMeshFowKindofHelperAction::DispatchSource);
     ok
 }

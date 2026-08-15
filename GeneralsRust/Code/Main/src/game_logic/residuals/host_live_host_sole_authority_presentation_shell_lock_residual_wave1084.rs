@@ -100,7 +100,9 @@ pub fn honesty_host_sole_authority_presentation_shell_lock_residual_pack_wave108
         && cnc.contains("fn host_tick_game_client_presentation_shell")
         && cnc.contains("update_presentation_shell")
         && cnc.contains("update_drawables_local")
-        && es.contains("result.playable_claim = false")
+        && // 2026-08-15: playable_claim is the five-flag constructor, not a literal assignment.
+        es.contains("self.playable_claim = Self::retail_windowed_playable_claim(")
+        && es.contains("Headless smoke must keep `playable_claim == false`")
         && !cnc.contains("playable_claim = true")
         && rp.contains("presentation_live_fallback_honesty_ok")
         && rp.contains("unit_render_inputs")

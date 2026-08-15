@@ -7,15 +7,15 @@ use crate::gui::callbacks::wolqm_score_screen::{
 };
 use crate::gui::{GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled};
 
-pub fn WOLQMScoreScreenInit(layout: &WindowLayout, user_data: Option<&mut dyn std::any::Any>) {
+pub fn WOLQMScoreScreenInit(layout: &WindowLayout, user_data: Option<&dyn std::any::Any>) {
     wol_qm_score_screen_init(layout, user_data);
 }
 
-pub fn WOLQMScoreScreenUpdate(layout: &WindowLayout, user_data: Option<&mut dyn std::any::Any>) {
+pub fn WOLQMScoreScreenUpdate(layout: &WindowLayout, user_data: Option<&dyn std::any::Any>) {
     wol_qm_score_screen_update(layout, user_data);
 }
 
-pub fn WOLQMScoreScreenShutdown(layout: &WindowLayout, user_data: Option<&mut dyn std::any::Any>) {
+pub fn WOLQMScoreScreenShutdown(layout: &WindowLayout, user_data: Option<&dyn std::any::Any>) {
     wol_qm_score_screen_shutdown(layout, user_data);
 }
 

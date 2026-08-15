@@ -15,25 +15,27 @@ const KEY_STATE_UP: usize = 0x0001;
 
 #[derive(Default)]
 struct WolQmScoreState {
-    parent_id: u32,
-    button_disconnect_id: u32,
-    button_quickmatch_id: u32,
+    parent_id: i32,
+    button_disconnect_id: i32,
+    button_quickmatch_id: i32,
     parent: Option<Rc<RefCell<GameWindow>>>,
     button_disconnect: Option<Rc<RefCell<GameWindow>>>,
     button_quickmatch: Option<Rc<RefCell<GameWindow>>>,
 }
 
-static WOL_QM_SCORE_STATE: OnceLock<Mutex<WolQmScoreState>> = OnceLock::new();
-
-fn wol_qm_score_state() -> &'static Mutex<WolQmScoreState> {
-    WOL_QM_SCORE_STATE.get_or_init(|| Mutex::new(WolQmScoreState::default()))
+thread_local! {
+    static WOL_QM_SCORE_STATE: Rc<RefCell<WolQmScoreState>> = Rc::new(RefCell::new(WolQmScoreState::default()));
 }
 
-fn name_to_id(name: &str) -> u32 {
-    NameKeyGenerator::name_to_key(name) as u32
+fn wol_qm_score_state() -> Rc<RefCell<WolQmScoreState>> {
+    WOL_QM_SCORE_STATE.with(Rc::clone)
 }
 
-pub fn wol_qm_score_screen_init(layout: &WindowLayout, _user_data: Option<&mut dyn std::any::Any>) {
+fn name_to_id(name: &str) -> i32 {
+    NameKeyGenerator::name_to_key(name) as i32
+}
+
+pub fn wol_qm_score_screen_init(layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
     let parent_id = name_to_id("WOLQMScoreScreen.wnd:WOLQMScoreScreenParent");
     let button_disconnect_id = name_to_id("WOLQMScoreScreen.wnd:ButtonDisconnect");
     let button_quickmatch_id = name_to_id("WOLQMScoreScreen.wnd:ButtonQuickMatch");
@@ -50,9 +52,8 @@ pub fn wol_qm_score_screen_init(layout: &WindowLayout, _user_data: Option<&mut d
         let _ = with_window_manager(|manager| manager.set_focus(Some(parent)));
     }
 
-    let mut state = wol_qm_score_state()
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
+    let state_slot = wol_qm_score_state();
+    let mut state = state_slot.borrow_mut();
     state.parent_id = parent_id;
     state.button_disconnect_id = button_disconnect_id;
     state.button_quickmatch_id = button_quickmatch_id;
@@ -63,15 +64,15 @@ pub fn wol_qm_score_screen_init(layout: &WindowLayout, _user_data: Option<&mut d
 
 pub fn wol_qm_score_screen_shutdown(
     layout: &WindowLayout,
-    _user_data: Option<&mut dyn std::any::Any>,
+    _user_data: Option<&dyn std::any::Any>,
 ) {
     layout.hide(true);
-    get_shell().shutdown_complete(layout);
+    let _ = get_shell().shutdown_complete(None, false);
 }
 
 pub fn wol_qm_score_screen_update(
     _layout: &WindowLayout,
-    _user_data: Option<&mut dyn std::any::Any>,
+    _user_data: Option<&dyn std::any::Any>,
 ) {
     // WOL update hooks are handled elsewhere in the Rust port.
 }
@@ -89,14 +90,13 @@ pub fn wol_qm_score_screen_input(
         return WindowMsgHandled::Handled;
     }
 
-    let state = wol_qm_score_state()
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
+    let state_slot = wol_qm_score_state();
+    let state = state_slot.borrow_mut();
     if let Some(parent) = state.parent.as_ref() {
         let _ = parent.borrow_mut().send_system_message(
             WindowMessage::GadgetSelected,
-            state.button_disconnect_id,
-            state.button_disconnect_id,
+            state.button_disconnect_id as WindowMsgData,
+            state.button_disconnect_id as WindowMsgData,
         );
     }
 
@@ -114,7 +114,7 @@ pub fn wol_qm_score_screen_system(
         WindowMessage::Destroy => WindowMsgHandled::Handled,
         WindowMessage::InputFocus => write_input_focus_response(data1, data2, true),
         WindowMessage::GadgetSelected => WindowMsgHandled::Handled,
-        WindowMessage::EditDone => WindowMsgHandled::Handled,
+        WindowMessage::GadgetEditDone => WindowMsgHandled::Handled,
         _ => WindowMsgHandled::Ignored,
     }
 }

@@ -81,7 +81,7 @@ pub fn honesty_live_command_sell_deselect_log_residual_pack_wave212() -> bool {
 
 /// Source residual: start_sell_object uses deselect, not bare selected=false.
 pub fn honesty_start_sell_uses_deselect_source() -> bool {
-    let src = include_str!("../game_logic.rs");
+    let src = super::GAME_LOGIC_HOST_SRC;
     let i = match src.find("fn start_sell_object") {
         Some(i) => i,
         None => return false,

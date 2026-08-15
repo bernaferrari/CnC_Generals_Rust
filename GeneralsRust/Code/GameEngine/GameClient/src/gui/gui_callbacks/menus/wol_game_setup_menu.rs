@@ -7,15 +7,15 @@ use crate::gui::callbacks::wol_game_setup_menu::{
 };
 use crate::gui::{GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled};
 
-pub fn WOLGameSetupMenuInit(layout: &WindowLayout, user_data: Option<&mut dyn std::any::Any>) {
+pub fn WOLGameSetupMenuInit(layout: &WindowLayout, user_data: Option<&dyn std::any::Any>) {
     wol_game_setup_menu_init(layout, user_data);
 }
 
-pub fn WOLGameSetupMenuUpdate(layout: &WindowLayout, user_data: Option<&mut dyn std::any::Any>) {
+pub fn WOLGameSetupMenuUpdate(layout: &WindowLayout, user_data: Option<&dyn std::any::Any>) {
     wol_game_setup_menu_update(layout, user_data);
 }
 
-pub fn WOLGameSetupMenuShutdown(layout: &WindowLayout, user_data: Option<&mut dyn std::any::Any>) {
+pub fn WOLGameSetupMenuShutdown(layout: &WindowLayout, user_data: Option<&dyn std::any::Any>) {
     wol_game_setup_menu_shutdown(layout, user_data);
 }
 

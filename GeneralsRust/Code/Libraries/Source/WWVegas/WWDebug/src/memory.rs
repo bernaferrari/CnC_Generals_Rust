@@ -162,7 +162,11 @@ impl ProfileMemoryBlock {
         if self.ptr.is_null() || self.size == 0 {
             &[]
         } else {
-            std::slice::from_raw_parts(self.ptr, self.size)
+            // SAFETY: [Category 10 — OOB / Category 3 — dangling]
+            // `ptr`/`size` come from `ProfileMemory::alloc` (C++ ProfileAllocMemory
+            // equivalent) and remain live for `&self`; the allocation is at least
+            // `size` bytes and uniquely owned by this block.
+            unsafe { std::slice::from_raw_parts(self.ptr, self.size) }
         }
     }
 
@@ -171,7 +175,10 @@ impl ProfileMemoryBlock {
         if self.ptr.is_null() || self.size == 0 {
             &mut []
         } else {
-            std::slice::from_raw_parts_mut(self.ptr, self.size)
+            // SAFETY: [Category 1 — aliasing / Category 10 — OOB]
+            // `&mut self` excludes other borrows; `ptr`/`size` describe the live
+            // `ProfileMemory::alloc` region (C++ ProfileAllocMemory / ProfileReAllocMemory).
+            unsafe { std::slice::from_raw_parts_mut(self.ptr, self.size) }
         }
     }
 

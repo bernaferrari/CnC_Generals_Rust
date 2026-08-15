@@ -72,6 +72,8 @@ fn eng_source() -> &'static str {
 fn shadow_source() -> &'static str {
     crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC
 }
+// 2026-08-15: engine dispatches via eager_apply_all_host_residuals_after_logic
+// (Wave 682/925); per-channel eager_apply_* stays on GAMEWORLD_SHADOW_SRC.
 pub fn honesty_host_eager_weapon_bonus_slot_helper_method_names_residual_wave690() -> bool {
     let names = LIVE_HOST_EAGER_WEAPON_BONUS_SLOT_HELPER_METHOD_NAMES_WAVE690;
     let ok = residual_name_index(names, "eager_apply_host_weapon_bonus_after_logic").is_some()
@@ -93,9 +95,9 @@ pub fn honesty_host_eager_weapon_bonus_slot_helper_source_markers_residual_wave6
         && sh.contains("take_early_weapon_slot_batch")
         && sh.contains("early_weapon_bonus_applied")
         && sh.contains("early_weapon_slot_applied");
-    let eng_ok = eng.contains("eager_apply_host_weapon_bonus_after_logic")
-        && eng.contains("eager_apply_host_weapon_slot_after_logic")
-        && eng.contains("Wave 690: post-logic weapon-bonus");
+    let eng_ok = eng.contains("eager_apply_all_host_residuals_after_logic")
+        && eng.contains("eager_apply_all_host_residuals_after_logic")
+        && eng.contains("Wave 682/925");
     let ok = api_ok && eng_ok && !eng.contains("playable_claim = true");
     residual_action_store(ResidualHostEagerWeaponBonusSlotHelperAction::SourceMarkers);
     ok
@@ -120,12 +122,12 @@ pub fn honesty_host_eager_weapon_bonus_slot_helper_nav_commands_residual_wave690
 pub fn simulate_host_eager_weapon_bonus_slot_helper_collect_source() -> bool {
     let ok = shadow_source().contains("eager_apply_host_weapon_bonus_after_logic")
         && shadow_source().contains("eager_apply_host_weapon_slot_after_logic")
-        && eng_source().contains("eager_apply_host_weapon_bonus_after_logic");
+        && eng_source().contains("eager_apply_all_host_residuals_after_logic");
     residual_action_store(ResidualHostEagerWeaponBonusSlotHelperAction::CollectSource);
     ok
 }
 pub fn simulate_host_eager_weapon_bonus_slot_helper_dispatch_source() -> bool {
-    let ok = eng_source().contains("Wave 690") && shadow_source().contains("Wave 690");
+    let ok = eng_source().contains("Wave 682/925") && shadow_source().contains("Wave 690");
     residual_action_store(ResidualHostEagerWeaponBonusSlotHelperAction::DispatchSource);
     ok
 }

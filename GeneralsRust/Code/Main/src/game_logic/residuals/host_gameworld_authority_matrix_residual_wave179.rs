@@ -111,12 +111,17 @@ pub fn honesty_authority_matrix_default_on_source() -> bool {
 }
 
 /// Source residual: engine couples shadow tick around host logic update.
+/// 2026-08-15: `begin_shadow_coupled_tick()` / `end_shadow_coupled_tick()`
+/// moved into `CoupledTickGuard::enter` (`gameworld_shadow/tick/couple.rs`).
+/// Engine couples via RAII guard around host logic + post-logic writeback.
 pub fn honesty_engine_couple_shadow_tick_source() -> bool {
     let src = crate::cnc_game_engine::ENGINE_SRC;
-    src.contains("begin_shadow_coupled_tick()")
-        && src.contains("end_shadow_coupled_tick()")
-        && src.contains("couple_shadow")
+    let gw = crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC;
+    src.contains("couple_shadow")
         && src.contains("gameworld_shadow.is_some()")
+        && src.contains("CoupledTickGuard::enter")
+        && gw.contains("pub fn begin_shadow_coupled_tick")
+        && gw.contains("pub fn end_shadow_coupled_tick")
 }
 
 /// Live residual: after gate ensure, all authorities report enabled.

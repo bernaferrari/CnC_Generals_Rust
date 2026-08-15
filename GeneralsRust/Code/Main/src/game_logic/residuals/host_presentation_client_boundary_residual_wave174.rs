@@ -108,7 +108,7 @@ pub fn honesty_game_client_os_input_disconnected_source() -> bool {
 
 /// Source residual: host GameLogic owns objects by ObjectId HashMap.
 pub fn honesty_host_objectid_store_source() -> bool {
-    let src = include_str!("../game_logic.rs");
+    let src = super::GAME_LOGIC_HOST_SRC;
     src.contains("pub objects: HostObjectStore")
         && src.contains("struct HostObjectStore")
         && src.contains("HashMap<ObjectId, Object>")

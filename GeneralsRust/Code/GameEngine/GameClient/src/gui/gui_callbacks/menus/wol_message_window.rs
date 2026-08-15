@@ -7,15 +7,15 @@ use crate::gui::callbacks::wol_message_window::{
 };
 use crate::gui::{GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled};
 
-pub fn WOLMessageWindowInit(layout: &WindowLayout, user_data: Option<&mut dyn std::any::Any>) {
+pub fn WOLMessageWindowInit(layout: &WindowLayout, user_data: Option<&dyn std::any::Any>) {
     wol_message_window_init(layout, user_data);
 }
 
-pub fn WOLMessageWindowUpdate(layout: &WindowLayout, user_data: Option<&mut dyn std::any::Any>) {
+pub fn WOLMessageWindowUpdate(layout: &WindowLayout, user_data: Option<&dyn std::any::Any>) {
     wol_message_window_update(layout, user_data);
 }
 
-pub fn WOLMessageWindowShutdown(layout: &WindowLayout, user_data: Option<&mut dyn std::any::Any>) {
+pub fn WOLMessageWindowShutdown(layout: &WindowLayout, user_data: Option<&dyn std::any::Any>) {
     wol_message_window_shutdown(layout, user_data);
 }
 

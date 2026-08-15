@@ -15,27 +15,29 @@ const KEY_STATE_UP: usize = 0x0001;
 
 #[derive(Default)]
 struct WolCustomScoreState {
-    parent_id: u32,
-    button_disconnect_id: u32,
-    button_lobby_id: u32,
+    parent_id: i32,
+    button_disconnect_id: i32,
+    button_lobby_id: i32,
     parent: Option<Rc<RefCell<GameWindow>>>,
     button_disconnect: Option<Rc<RefCell<GameWindow>>>,
     button_lobby: Option<Rc<RefCell<GameWindow>>>,
 }
 
-static WOL_CUSTOM_SCORE_STATE: OnceLock<Mutex<WolCustomScoreState>> = OnceLock::new();
-
-fn wol_custom_score_state() -> &'static Mutex<WolCustomScoreState> {
-    WOL_CUSTOM_SCORE_STATE.get_or_init(|| Mutex::new(WolCustomScoreState::default()))
+thread_local! {
+    static WOL_CUSTOM_SCORE_STATE: Rc<RefCell<WolCustomScoreState>> = Rc::new(RefCell::new(WolCustomScoreState::default()));
 }
 
-fn name_to_id(name: &str) -> u32 {
-    NameKeyGenerator::name_to_key(name) as u32
+fn wol_custom_score_state() -> Rc<RefCell<WolCustomScoreState>> {
+    WOL_CUSTOM_SCORE_STATE.with(Rc::clone)
+}
+
+fn name_to_id(name: &str) -> i32 {
+    NameKeyGenerator::name_to_key(name) as i32
 }
 
 pub fn wol_custom_score_screen_init(
     layout: &WindowLayout,
-    _user_data: Option<&mut dyn std::any::Any>,
+    _user_data: Option<&dyn std::any::Any>,
 ) {
     let parent_id = name_to_id("WOLCustomScoreScreen.wnd:WOLCustomScoreScreenParent");
     let button_disconnect_id = name_to_id("WOLCustomScoreScreen.wnd:ButtonDisconnect");
@@ -53,9 +55,8 @@ pub fn wol_custom_score_screen_init(
         let _ = with_window_manager(|manager| manager.set_focus(Some(parent)));
     }
 
-    let mut state = wol_custom_score_state()
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
+    let state_slot = wol_custom_score_state();
+    let mut state = state_slot.borrow_mut();
     state.parent_id = parent_id;
     state.button_disconnect_id = button_disconnect_id;
     state.button_lobby_id = button_lobby_id;
@@ -66,15 +67,15 @@ pub fn wol_custom_score_screen_init(
 
 pub fn wol_custom_score_screen_shutdown(
     layout: &WindowLayout,
-    _user_data: Option<&mut dyn std::any::Any>,
+    _user_data: Option<&dyn std::any::Any>,
 ) {
     layout.hide(true);
-    get_shell().shutdown_complete(layout);
+    let _ = get_shell().shutdown_complete(None, false);
 }
 
 pub fn wol_custom_score_screen_update(
     _layout: &WindowLayout,
-    _user_data: Option<&mut dyn std::any::Any>,
+    _user_data: Option<&dyn std::any::Any>,
 ) {
     // WOL update hooks are handled elsewhere in the Rust port.
 }
@@ -92,14 +93,13 @@ pub fn wol_custom_score_screen_input(
         return WindowMsgHandled::Handled;
     }
 
-    let state = wol_custom_score_state()
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
+    let state_slot = wol_custom_score_state();
+    let state = state_slot.borrow_mut();
     if let Some(parent) = state.parent.as_ref() {
         let _ = parent.borrow_mut().send_system_message(
             WindowMessage::GadgetSelected,
-            state.button_disconnect_id,
-            state.button_disconnect_id,
+            state.button_disconnect_id as WindowMsgData,
+            state.button_disconnect_id as WindowMsgData,
         );
     }
 
@@ -115,9 +115,9 @@ pub fn wol_custom_score_screen_system(
     match msg {
         WindowMessage::Create => WindowMsgHandled::Handled,
         WindowMessage::Destroy => WindowMsgHandled::Handled,
-        WindowMessage::InputFocus => write_input_focus_response(data1, data2, true),
+        WindowMessage::InputFocus => write_input_focus_response(_data1, _data2, true),
         WindowMessage::GadgetSelected => WindowMsgHandled::Handled,
-        WindowMessage::EditDone => WindowMsgHandled::Handled,
+        WindowMessage::GadgetEditDone => WindowMsgHandled::Handled,
         _ => WindowMsgHandled::Ignored,
     }
 }

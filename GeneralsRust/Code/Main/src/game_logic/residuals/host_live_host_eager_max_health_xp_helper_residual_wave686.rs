@@ -72,6 +72,8 @@ fn eng_source() -> &'static str {
 fn shadow_source() -> &'static str {
     crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC
 }
+// 2026-08-15: engine dispatches via eager_apply_all_host_residuals_after_logic
+// (Wave 682/925); per-channel eager_apply_* stays on GAMEWORLD_SHADOW_SRC.
 pub fn honesty_host_eager_max_health_xp_helper_method_names_residual_wave686() -> bool {
     let names = LIVE_HOST_EAGER_MAX_HEALTH_XP_HELPER_METHOD_NAMES_WAVE686;
     let ok = residual_name_index(names, "eager_apply_host_max_health_after_logic").is_some()
@@ -93,9 +95,9 @@ pub fn honesty_host_eager_max_health_xp_helper_source_markers_residual_wave686()
         && sh.contains("take_early_experience_batch")
         && sh.contains("early_max_health_applied")
         && sh.contains("early_experience_applied");
-    let eng_ok = eng.contains("eager_apply_host_max_health_after_logic")
-        && eng.contains("eager_apply_host_experience_after_logic")
-        && eng.contains("Wave 686: post-logic max-health");
+    let eng_ok = eng.contains("eager_apply_all_host_residuals_after_logic")
+        && eng.contains("eager_apply_all_host_residuals_after_logic")
+        && eng.contains("Wave 682/925");
     let ok = api_ok && eng_ok && !eng.contains("playable_claim = true");
     residual_action_store(ResidualHostEagerMaxHealthXpHelperAction::SourceMarkers);
     ok
@@ -120,12 +122,12 @@ pub fn honesty_host_eager_max_health_xp_helper_nav_commands_residual_wave686() -
 pub fn simulate_host_eager_max_health_xp_helper_collect_source() -> bool {
     let ok = shadow_source().contains("eager_apply_host_max_health_after_logic")
         && shadow_source().contains("eager_apply_host_experience_after_logic")
-        && eng_source().contains("eager_apply_host_max_health_after_logic");
+        && eng_source().contains("eager_apply_all_host_residuals_after_logic");
     residual_action_store(ResidualHostEagerMaxHealthXpHelperAction::CollectSource);
     ok
 }
 pub fn simulate_host_eager_max_health_xp_helper_dispatch_source() -> bool {
-    let ok = eng_source().contains("Wave 686") && shadow_source().contains("Wave 686");
+    let ok = eng_source().contains("Wave 682/925") && shadow_source().contains("Wave 686");
     residual_action_store(ResidualHostEagerMaxHealthXpHelperAction::DispatchSource);
     ok
 }

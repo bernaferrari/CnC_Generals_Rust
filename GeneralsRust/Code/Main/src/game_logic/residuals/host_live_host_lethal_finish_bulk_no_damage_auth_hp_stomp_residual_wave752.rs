@@ -68,7 +68,7 @@ pub fn residual_host_lethal_finish_bulk_no_damage_auth_hp_stomp_last_action(
     )
 }
 fn gl_source() -> &'static str {
-    include_str!("../game_logic.rs")
+    super::GAME_LOGIC_HOST_SRC
 }
 pub fn honesty_host_lethal_finish_bulk_no_damage_auth_hp_stomp_method_names_residual_wave752(
 ) -> bool {

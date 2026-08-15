@@ -15,23 +15,25 @@ const KEY_STATE_UP: usize = 0x0001;
 
 #[derive(Default)]
 struct WolMessageWindowState {
-    parent_id: u32,
-    button_cancel_id: u32,
+    parent_id: i32,
+    button_cancel_id: i32,
     parent: Option<Rc<RefCell<GameWindow>>>,
     button_cancel: Option<Rc<RefCell<GameWindow>>>,
 }
 
-static WOL_MESSAGE_WINDOW_STATE: OnceLock<Mutex<WolMessageWindowState>> = OnceLock::new();
-
-fn wol_message_window_state() -> &'static Mutex<WolMessageWindowState> {
-    WOL_MESSAGE_WINDOW_STATE.get_or_init(|| Mutex::new(WolMessageWindowState::default()))
+thread_local! {
+    static WOL_MESSAGE_WINDOW_STATE: Rc<RefCell<WolMessageWindowState>> = Rc::new(RefCell::new(WolMessageWindowState::default()));
 }
 
-fn name_to_id(name: &str) -> u32 {
-    NameKeyGenerator::name_to_key(name) as u32
+fn wol_message_window_state() -> Rc<RefCell<WolMessageWindowState>> {
+    WOL_MESSAGE_WINDOW_STATE.with(Rc::clone)
 }
 
-pub fn wol_message_window_init(layout: &WindowLayout, _user_data: Option<&mut dyn std::any::Any>) {
+fn name_to_id(name: &str) -> i32 {
+    NameKeyGenerator::name_to_key(name) as i32
+}
+
+pub fn wol_message_window_init(layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
     let parent_id = name_to_id("WOLMessageWindow.wnd:WOLMessageWindowParent");
     let button_cancel_id = name_to_id("WOLMessageWindow.wnd:ButtonCancel");
 
@@ -45,9 +47,8 @@ pub fn wol_message_window_init(layout: &WindowLayout, _user_data: Option<&mut dy
         let _ = with_window_manager(|manager| manager.set_focus(Some(parent)));
     }
 
-    let mut state = wol_message_window_state()
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
+    let state_slot = wol_message_window_state();
+    let mut state = state_slot.borrow_mut();
     state.parent_id = parent_id;
     state.button_cancel_id = button_cancel_id;
     state.parent = parent;
@@ -56,15 +57,15 @@ pub fn wol_message_window_init(layout: &WindowLayout, _user_data: Option<&mut dy
 
 pub fn wol_message_window_shutdown(
     layout: &WindowLayout,
-    _user_data: Option<&mut dyn std::any::Any>,
+    _user_data: Option<&dyn std::any::Any>,
 ) {
     layout.hide(true);
-    get_shell().shutdown_complete(layout);
+    let _ = get_shell().shutdown_complete(None, false);
 }
 
 pub fn wol_message_window_update(
     _layout: &WindowLayout,
-    _user_data: Option<&mut dyn std::any::Any>,
+    _user_data: Option<&dyn std::any::Any>,
 ) {
     // WOL update hooks are handled elsewhere in the Rust port.
 }
@@ -82,14 +83,13 @@ pub fn wol_message_window_input(
         return WindowMsgHandled::Handled;
     }
 
-    let state = wol_message_window_state()
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
+    let state_slot = wol_message_window_state();
+    let state = state_slot.borrow_mut();
     if let Some(parent) = state.parent.as_ref() {
         let _ = parent.borrow_mut().send_system_message(
             WindowMessage::GadgetSelected,
-            state.button_cancel_id,
-            state.button_cancel_id,
+            state.button_cancel_id as WindowMsgData,
+            state.button_cancel_id as WindowMsgData,
         );
     }
 
@@ -107,7 +107,7 @@ pub fn wol_message_window_system(
         WindowMessage::Destroy => WindowMsgHandled::Handled,
         WindowMessage::InputFocus => write_input_focus_response(data1, data2, true),
         WindowMessage::GadgetSelected => WindowMsgHandled::Handled,
-        WindowMessage::EditDone => WindowMsgHandled::Handled,
+        WindowMessage::GadgetEditDone => WindowMsgHandled::Handled,
         _ => WindowMsgHandled::Ignored,
     }
 }

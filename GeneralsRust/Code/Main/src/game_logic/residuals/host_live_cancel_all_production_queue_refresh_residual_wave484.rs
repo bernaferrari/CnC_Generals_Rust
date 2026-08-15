@@ -94,7 +94,7 @@ pub fn residual_cancel_all_production_queue_refresh_last_action(
 }
 
 fn gl_source() -> &'static str {
-    include_str!("../game_logic.rs")
+    super::GAME_LOGIC_HOST_SRC
 }
 
 fn gw_source() -> &'static str {

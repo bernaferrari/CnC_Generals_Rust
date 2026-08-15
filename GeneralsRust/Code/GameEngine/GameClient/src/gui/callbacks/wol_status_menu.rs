@@ -15,25 +15,27 @@ const KEY_STATE_UP: usize = 0x0001;
 
 #[derive(Default)]
 struct WolStatusState {
-    parent_id: u32,
-    button_disconnect_id: u32,
-    progress_text_id: u32,
+    parent_id: i32,
+    button_disconnect_id: i32,
+    progress_text_id: i32,
     parent: Option<Rc<RefCell<GameWindow>>>,
     button_disconnect: Option<Rc<RefCell<GameWindow>>>,
     progress_text: Option<Rc<RefCell<GameWindow>>>,
 }
 
-static WOL_STATUS_STATE: OnceLock<Mutex<WolStatusState>> = OnceLock::new();
-
-fn wol_status_state() -> &'static Mutex<WolStatusState> {
-    WOL_STATUS_STATE.get_or_init(|| Mutex::new(WolStatusState::default()))
+thread_local! {
+    static WOL_STATUS_STATE: Rc<RefCell<WolStatusState>> = Rc::new(RefCell::new(WolStatusState::default()));
 }
 
-fn name_to_id(name: &str) -> u32 {
-    NameKeyGenerator::name_to_key(name) as u32
+fn wol_status_state() -> Rc<RefCell<WolStatusState>> {
+    WOL_STATUS_STATE.with(Rc::clone)
 }
 
-pub fn wol_status_menu_init(layout: &WindowLayout, _user_data: Option<&mut dyn std::any::Any>) {
+fn name_to_id(name: &str) -> i32 {
+    NameKeyGenerator::name_to_key(name) as i32
+}
+
+pub fn wol_status_menu_init(layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
     let parent_id = name_to_id("WOLStatusMenu.wnd:WOLStatusMenuParent");
     let button_disconnect_id = name_to_id("WOLStatusMenu.wnd:ButtonDisconnect");
     let progress_text_id = name_to_id("WOLStatusMenu.wnd:ListboxStatus");
@@ -50,7 +52,8 @@ pub fn wol_status_menu_init(layout: &WindowLayout, _user_data: Option<&mut dyn s
         let _ = with_window_manager(|manager| manager.set_focus(Some(parent)));
     }
 
-    let mut state = wol_status_state().lock().unwrap_or_else(|e| e.into_inner());
+    let state_slot = wol_status_state();
+    let mut state = state_slot.borrow_mut();
     state.parent_id = parent_id;
     state.button_disconnect_id = button_disconnect_id;
     state.progress_text_id = progress_text_id;
@@ -59,12 +62,12 @@ pub fn wol_status_menu_init(layout: &WindowLayout, _user_data: Option<&mut dyn s
     state.progress_text = progress_text;
 }
 
-pub fn wol_status_menu_shutdown(layout: &WindowLayout, _user_data: Option<&mut dyn std::any::Any>) {
+pub fn wol_status_menu_shutdown(layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
     layout.hide(true);
-    get_shell().shutdown_complete(layout);
+    let _ = get_shell().shutdown_complete(None, false);
 }
 
-pub fn wol_status_menu_update(_layout: &WindowLayout, _user_data: Option<&mut dyn std::any::Any>) {
+pub fn wol_status_menu_update(_layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
     // WOL update hooks are handled elsewhere in the Rust port.
 }
 
@@ -81,12 +84,13 @@ pub fn wol_status_menu_input(
         return WindowMsgHandled::Handled;
     }
 
-    let state = wol_status_state().lock().unwrap_or_else(|e| e.into_inner());
+    let state_slot = wol_status_state();
+    let state = state_slot.borrow_mut();
     if let Some(parent) = state.parent.as_ref() {
         let _ = parent.borrow_mut().send_system_message(
             WindowMessage::GadgetSelected,
-            state.button_disconnect_id,
-            state.button_disconnect_id,
+            state.button_disconnect_id as WindowMsgData,
+            state.button_disconnect_id as WindowMsgData,
         );
     }
 
@@ -104,7 +108,42 @@ pub fn wol_status_menu_system(
         WindowMessage::Destroy => WindowMsgHandled::Handled,
         WindowMessage::InputFocus => write_input_focus_response(data1, data2, true),
         WindowMessage::GadgetSelected => WindowMsgHandled::Handled,
-        WindowMessage::EditDone => WindowMsgHandled::Handled,
+        WindowMessage::GadgetEditDone => WindowMsgHandled::Handled,
         _ => WindowMsgHandled::Ignored,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn status_system_handles_create_and_ignores_unknown_when_dispatched() {
+        let window = GameWindow::new();
+        assert_eq!(
+            wol_status_menu_system(&window, WindowMessage::Create, 0, 0),
+            WindowMsgHandled::Handled
+        );
+        assert_eq!(
+            wol_status_menu_system(&window, WindowMessage::User(1), 0, 0),
+            WindowMsgHandled::Ignored
+        );
+        assert_eq!(
+            wol_status_menu_system(&window, WindowMessage::GadgetEditDone, 0, 0),
+            WindowMsgHandled::Handled
+        );
+    }
+
+    #[test]
+    fn status_input_ignores_non_escape_when_char_is_other_key() {
+        let window = GameWindow::new();
+        assert_eq!(
+            wol_status_menu_input(&window, WindowMessage::Char, 0x41, KEY_STATE_UP),
+            WindowMsgHandled::Ignored
+        );
+        assert_eq!(
+            wol_status_menu_input(&window, WindowMessage::LeftDown, KEY_ESC, KEY_STATE_UP),
+            WindowMsgHandled::Ignored
+        );
     }
 }

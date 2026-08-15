@@ -71,6 +71,8 @@ fn eng_source() -> &'static str {
 fn shadow_source() -> &'static str {
     crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC
 }
+// 2026-08-15: engine dispatches via eager_apply_all_host_residuals_after_logic
+// (Wave 682/925); per-channel eager_apply_* stays on GAMEWORLD_SHADOW_SRC.
 pub fn honesty_host_eager_loco_bounce_helper_method_names_residual_wave703() -> bool {
     let names = LIVE_HOST_EAGER_LOCO_BOUNCE_HELPER_METHOD_NAMES_WAVE703;
     let ok = residual_name_index(names, "eager_apply_host_locomotor_after_logic").is_some()
@@ -92,9 +94,9 @@ pub fn honesty_host_eager_loco_bounce_helper_source_markers_residual_wave703() -
         && sh.contains("take_early_bounce_land_batch")
         && sh.contains("early_locomotor_applied")
         && sh.contains("early_bounce_land_applied");
-    let eng_ok = eng.contains("eager_apply_host_locomotor_after_logic")
-        && eng.contains("eager_apply_host_bounce_land_after_logic")
-        && eng.contains("Wave 703: post-logic locomotor");
+    let eng_ok = eng.contains("eager_apply_all_host_residuals_after_logic")
+        && eng.contains("eager_apply_all_host_residuals_after_logic")
+        && eng.contains("Wave 682/925");
     let ok = api_ok && eng_ok && !eng.contains("playable_claim = true");
     residual_action_store(ResidualHostEagerLocoBounceHelperAction::SourceMarkers);
     ok
@@ -119,12 +121,12 @@ pub fn honesty_host_eager_loco_bounce_helper_nav_commands_residual_wave703() -> 
 pub fn simulate_host_eager_loco_bounce_helper_collect_source() -> bool {
     let ok = shadow_source().contains("eager_apply_host_locomotor_after_logic")
         && shadow_source().contains("eager_apply_host_bounce_land_after_logic")
-        && eng_source().contains("eager_apply_host_locomotor_after_logic");
+        && eng_source().contains("eager_apply_all_host_residuals_after_logic");
     residual_action_store(ResidualHostEagerLocoBounceHelperAction::CollectSource);
     ok
 }
 pub fn simulate_host_eager_loco_bounce_helper_dispatch_source() -> bool {
-    let ok = eng_source().contains("Wave 703") && shadow_source().contains("Wave 703");
+    let ok = eng_source().contains("Wave 682/925") && shadow_source().contains("Wave 703");
     residual_action_store(ResidualHostEagerLocoBounceHelperAction::DispatchSource);
     ok
 }

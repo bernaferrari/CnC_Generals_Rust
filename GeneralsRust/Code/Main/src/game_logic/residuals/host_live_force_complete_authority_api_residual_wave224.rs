@@ -81,7 +81,7 @@ pub fn honesty_live_force_complete_authority_api_residual_pack_wave224() -> bool
 
 /// Source residual: GameLogic owns force-complete APIs; engine train path calls them.
 pub fn honesty_force_complete_authority_api_source() -> bool {
-    let gl = include_str!("../game_logic.rs");
+    let gl = super::GAME_LOGIC_HOST_SRC;
     let eng = crate::cnc_game_engine::ENGINE_SRC;
     gl.contains("pub fn force_complete_construction")
         && gl.contains("pub fn ensure_barracks_building_data")
