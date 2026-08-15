@@ -148,10 +148,7 @@ fn special_power_module_percent_ready(
     get_special_power_ready_percent(obj, sp_template.get_special_power_type())
 }
 
-fn special_ability_object_counts(
-    obj: &Object,
-    power_type: SpecialPowerType,
-) -> Option<(u32, u32)> {
+fn special_ability_object_counts(obj: &Object, power_type: SpecialPowerType) -> Option<(u32, u32)> {
     use crate::object::behavior::special_ability_update::SpecialAbilityUpdate as SpecialAbilityUpdateBehavior;
 
     for behavior in obj.get_behavior_modules() {
@@ -2716,10 +2713,7 @@ mod tests {
         ));
 
         let enemy_team = Arc::new(RwLock::new(Team::new("EnemyShip".into(), 0x00A0_8917)));
-        if let (Ok(mut mine), Ok(theirs)) = (
-            obj.get_team().unwrap().write(),
-            enemy_team.read(),
-        ) {
+        if let (Ok(mut mine), Ok(theirs)) = (obj.get_team().unwrap().write(), enemy_team.read()) {
             mine.set_override_team_relationship(theirs.get_id(), Relationship::Enemies);
         }
         let mut enemy = Object::new_test(8918, 100.0);
@@ -2837,11 +2831,7 @@ mod tests {
             CommandSourceType::FromPlayer
         ));
 
-        let no_garrison = object_with_kinds(
-            8932,
-            100.0,
-            &[KindOf::Infantry, KindOf::NoGarrison],
-        );
+        let no_garrison = object_with_kinds(8932, 100.0, &[KindOf::Infantry, KindOf::NoGarrison]);
         assert!(!TheActionManager::can_garrison(
             &no_garrison,
             &building,

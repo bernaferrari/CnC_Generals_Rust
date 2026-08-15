@@ -362,7 +362,10 @@ impl AIPlayer {
     }
 
     /// C++ `AIPlayer::buildStructureNow` via priority residual (no BuildListInfo ptr).
-    pub(super) fn build_structure_now(&mut self, priority: &ConstructionPriority) -> Result<(), AiError> {
+    pub(super) fn build_structure_now(
+        &mut self,
+        priority: &ConstructionPriority,
+    ) -> Result<(), AiError> {
         let location = if let Some(loc) = priority.desired_location {
             loc
         } else {

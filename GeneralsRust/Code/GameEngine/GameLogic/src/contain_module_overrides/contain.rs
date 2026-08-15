@@ -1,8 +1,8 @@
 //! Contain-module adapters and helix/mob/garrison/transport factories.
 //! Split from `contain_module_overrides.rs`. Factory names stay identical.
 
-use super::*;
 use super::helpers::*;
+use super::*;
 
 #[derive(Debug, Clone)]
 pub struct ContainModuleDataAdapter<T: Clone + Send + Sync + std::fmt::Debug + 'static> {
@@ -382,7 +382,9 @@ pub(super) fn helix_contain_module_factory(
     build_contain_module("HelixContain", thing, module_data, contain)
 }
 
-pub(super) fn railed_transport_contain_module_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+pub(super) fn railed_transport_contain_module_data_factory(
+    ini: Option<&mut INI>,
+) -> Box<dyn ModuleData> {
     let mut data = RailedTransportContainModuleData::default();
     if let Some(ini) = ini {
         if let Err(err) = data.parse_from_ini(ini) {
@@ -414,7 +416,9 @@ pub(super) fn railed_transport_contain_module_factory(
     build_contain_module("RailedTransportContain", thing, module_data, contain)
 }
 
-pub(super) fn rider_change_contain_module_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+pub(super) fn rider_change_contain_module_data_factory(
+    ini: Option<&mut INI>,
+) -> Box<dyn ModuleData> {
     let mut data = RiderChangeContainModuleData::default();
     if let Some(ini) = ini {
         if let Err(err) = data.parse_from_ini(ini) {
@@ -444,7 +448,9 @@ pub(super) fn rider_change_contain_module_factory(
     build_contain_module("RiderChangeContain", thing, module_data, contain)
 }
 
-pub(super) fn internet_hack_contain_module_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+pub(super) fn internet_hack_contain_module_data_factory(
+    ini: Option<&mut INI>,
+) -> Box<dyn ModuleData> {
     let mut data = InternetHackContainModuleData::default();
     if let Some(ini) = ini {
         if let Err(err) = data.parse_from_ini(ini) {
@@ -598,7 +604,10 @@ pub(super) fn mob_nexus_contain_module_factory(
     build_contain_module("MobNexusContain", thing, module_data, contain)
 }
 
-pub(super) fn contain_adapter_data<'a, T>(module_name: &str, module_data: &'a Arc<dyn ModuleData>) -> &'a T
+pub(super) fn contain_adapter_data<'a, T>(
+    module_name: &str,
+    module_data: &'a Arc<dyn ModuleData>,
+) -> &'a T
 where
     T: Clone + Send + Sync + std::fmt::Debug + 'static,
 {

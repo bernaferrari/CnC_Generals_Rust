@@ -351,7 +351,10 @@ impl Player {
         use crate::common::{ALL_KIND_OF, KIND_OF_MASK_ALL, KIND_OF_MASK_NONE};
         use crate::object::registry::OBJECT_REGISTRY;
 
-        pub(super) fn matches_any_kind_of(object: &Object, mask: crate::common::KindOfMaskType) -> bool {
+        pub(super) fn matches_any_kind_of(
+            object: &Object,
+            mask: crate::common::KindOfMaskType,
+        ) -> bool {
             if mask == KIND_OF_MASK_ALL {
                 return true;
             }

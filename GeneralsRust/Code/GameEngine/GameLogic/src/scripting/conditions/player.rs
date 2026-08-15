@@ -3,8 +3,7 @@
 use super::helpers::{
     compare_f64, compare_i64, dual_world_registry_unavailable, event_type_from_name,
     get_player_arc, get_str_param, get_str_param_optional, lookup_named_object_id,
-    parse_nested_condition, parse_object_status_mask, perform_comparison,
-    with_script_engine_mut,
+    parse_nested_condition, parse_object_status_mask, perform_comparison, with_script_engine_mut,
 };
 use super::{ConditionRegistry, ScriptCondition, ScriptContext, ScriptValue};
 use crate::common::{Coord3D, KindOf, Relationship, LOGICFRAMES_PER_SECOND};
@@ -25,12 +24,10 @@ use game_engine::common::rts::{get_science_store, SCIENCE_INVALID};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
-
 // Built-in condition implementations
 
 /// Player alive condition
 pub(super) struct PlayerAliveCondition;
-
 
 #[async_trait]
 impl ScriptCondition for PlayerAliveCondition {
@@ -75,10 +72,8 @@ impl ScriptCondition for PlayerAliveCondition {
     }
 }
 
-
 /// Player defeated condition
 pub(super) struct PlayerDefeatedCondition;
-
 
 #[async_trait]
 impl ScriptCondition for PlayerDefeatedCondition {
@@ -122,10 +117,8 @@ impl ScriptCondition for PlayerDefeatedCondition {
     }
 }
 
-
 /// Player has resource condition
 pub(super) struct PlayerHasResourceCondition;
-
 
 #[async_trait]
 impl ScriptCondition for PlayerHasResourceCondition {
@@ -135,7 +128,8 @@ impl ScriptCondition for PlayerHasResourceCondition {
         _context: &ScriptContext,
     ) -> GameLogicResult<bool> {
         let player = crate::scripting::actions::get_int_param(parameters, "player")?;
-        let resource_type = crate::scripting::actions::get_string_param(parameters, "resource_type")?;
+        let resource_type =
+            crate::scripting::actions::get_string_param(parameters, "resource_type")?;
         let amount = crate::scripting::actions::get_int_param(parameters, "amount")?;
 
         log::debug!(
@@ -181,10 +175,8 @@ impl ScriptCondition for PlayerHasResourceCondition {
     }
 }
 
-
 /// Player has units condition
 pub(super) struct PlayerHasUnitsCondition;
-
 
 #[async_trait]
 impl ScriptCondition for PlayerHasUnitsCondition {
@@ -274,10 +266,8 @@ impl ScriptCondition for PlayerHasUnitsCondition {
     }
 }
 
-
 /// Player has buildings condition
 pub(super) struct PlayerHasBuildingsCondition;
-
 
 #[async_trait]
 impl ScriptCondition for PlayerHasBuildingsCondition {
@@ -287,7 +277,8 @@ impl ScriptCondition for PlayerHasBuildingsCondition {
         _context: &ScriptContext,
     ) -> GameLogicResult<bool> {
         let player = crate::scripting::actions::get_int_param(parameters, "player")?;
-        let building_type = crate::scripting::actions::get_string_param(parameters, "building_type")?;
+        let building_type =
+            crate::scripting::actions::get_string_param(parameters, "building_type")?;
         let count = crate::scripting::actions::get_int_param(parameters, "count")?;
 
         log::debug!(
@@ -369,10 +360,8 @@ impl ScriptCondition for PlayerHasBuildingsCondition {
     }
 }
 
-
 /// Players allied condition
 pub(super) struct PlayersAlliedCondition;
-
 
 #[async_trait]
 impl ScriptCondition for PlayersAlliedCondition {
@@ -419,10 +408,8 @@ impl ScriptCondition for PlayersAlliedCondition {
     }
 }
 
-
 /// Player has technology condition
 pub(super) struct PlayerHasTechnologyCondition;
-
 
 #[async_trait]
 impl ScriptCondition for PlayerHasTechnologyCondition {
@@ -475,10 +462,8 @@ impl ScriptCondition for PlayerHasTechnologyCondition {
     }
 }
 
-
 /// Player has upgrade condition
 pub(super) struct PlayerHasUpgradeCondition;
-
 
 #[async_trait]
 impl ScriptCondition for PlayerHasUpgradeCondition {
@@ -527,10 +512,8 @@ impl ScriptCondition for PlayerHasUpgradeCondition {
     }
 }
 
-
 /// Special power available condition
 pub(super) struct SpecialPowerAvailableCondition;
-
 
 #[async_trait]
 impl ScriptCondition for SpecialPowerAvailableCondition {
@@ -594,10 +577,8 @@ impl ScriptCondition for SpecialPowerAvailableCondition {
     }
 }
 
-
 /// Resources Exceed Condition - Player has more resources than threshold
 pub(super) struct ResourcesExceedCondition;
-
 
 #[async_trait]
 impl ScriptCondition for ResourcesExceedCondition {
@@ -648,10 +629,8 @@ impl ScriptCondition for ResourcesExceedCondition {
     }
 }
 
-
 /// Structure Built Condition - Player has built specific building
 pub(super) struct StructureBuiltCondition;
-
 
 #[async_trait]
 impl ScriptCondition for StructureBuiltCondition {
@@ -661,7 +640,8 @@ impl ScriptCondition for StructureBuiltCondition {
         _context: &ScriptContext,
     ) -> GameLogicResult<bool> {
         let player = crate::scripting::actions::get_int_param(parameters, "player")?;
-        let building_type = crate::scripting::actions::get_string_param(parameters, "building_type")?;
+        let building_type =
+            crate::scripting::actions::get_string_param(parameters, "building_type")?;
 
         log::debug!(
             "Checking if player {} has built building '{}'",
@@ -717,10 +697,8 @@ impl ScriptCondition for StructureBuiltCondition {
     }
 }
 
-
 /// Unit Type Count Exceeds - Player has N or more units of type
 pub(super) struct UnitTypeCountExceedsCondition;
-
 
 #[async_trait]
 impl ScriptCondition for UnitTypeCountExceedsCondition {
@@ -784,10 +762,8 @@ impl ScriptCondition for UnitTypeCountExceedsCondition {
     }
 }
 
-
 /// Player Won - Matches C++ victory condition check
 pub(super) struct PlayerWonCondition;
-
 
 #[async_trait]
 impl ScriptCondition for PlayerWonCondition {
@@ -859,10 +835,8 @@ impl ScriptCondition for PlayerWonCondition {
     }
 }
 
-
 /// Allies With Team - Players are allied
 pub(super) struct AlliesWithTeamCondition;
-
 
 #[async_trait]
 impl ScriptCondition for AlliesWithTeamCondition {
@@ -910,10 +884,8 @@ impl ScriptCondition for AlliesWithTeamCondition {
     }
 }
 
-
 /// Research Complete - Player has completed science/upgrade
 pub(super) struct ResearchCompleteCondition;
-
 
 #[async_trait]
 impl ScriptCondition for ResearchCompleteCondition {
@@ -968,10 +940,8 @@ impl ScriptCondition for ResearchCompleteCondition {
     }
 }
 
-
 /// Special Power Ready - Player can use special power
 pub(super) struct SpecialPowerReadyCondition;
-
 
 #[async_trait]
 impl ScriptCondition for SpecialPowerReadyCondition {
@@ -1040,7 +1010,6 @@ impl ScriptCondition for SpecialPowerReadyCondition {
     }
 }
 
-
 //=================================================================================================
 // C++ Parity Script Conditions
 // Ported from GeneralsMD/Code/GameEngine/Source/GameLogic/ScriptEngine/ScriptConditions.cpp
@@ -1051,7 +1020,6 @@ impl ScriptCondition for SpecialPowerReadyCondition {
 // Returns true if player has no objects (everything destroyed).
 //-------------------------------------------------------------------------------------------------
 pub(super) struct PlayerAllDestroyedCondition;
-
 
 #[async_trait]
 impl ScriptCondition for PlayerAllDestroyedCondition {
@@ -1084,13 +1052,11 @@ impl ScriptCondition for PlayerAllDestroyedCondition {
     }
 }
 
-
 //-------------------------------------------------------------------------------------------------
 // PLAYER_HAS_CREDITS - evaluatePlayerHasCredits
 // Compares player's money against a threshold using a comparison operator.
 //-------------------------------------------------------------------------------------------------
 pub(super) struct PlayerHasCreditsCondition;
-
 
 #[async_trait]
 impl ScriptCondition for PlayerHasCreditsCondition {
@@ -1131,13 +1097,11 @@ impl ScriptCondition for PlayerHasCreditsCondition {
     }
 }
 
-
 //-------------------------------------------------------------------------------------------------
 // PLAYER_HAS_POWER - evaluatePlayerHasPower
 // Returns true if player has sufficient power.
 //-------------------------------------------------------------------------------------------------
 pub(super) struct PlayerHasPowerCondition;
-
 
 #[async_trait]
 impl ScriptCondition for PlayerHasPowerCondition {
@@ -1170,12 +1134,10 @@ impl ScriptCondition for PlayerHasPowerCondition {
     }
 }
 
-
 //-------------------------------------------------------------------------------------------------
 // PLAYER_HAS_NO_POWER - !evaluatePlayerHasPower
 //-------------------------------------------------------------------------------------------------
 pub(super) struct PlayerHasNoPowerCondition;
-
 
 #[async_trait]
 impl ScriptCondition for PlayerHasNoPowerCondition {
@@ -1204,12 +1166,10 @@ impl ScriptCondition for PlayerHasNoPowerCondition {
     }
 }
 
-
 //-------------------------------------------------------------------------------------------------
 // BUILT_BY_PLAYER - evaluateBuiltByPlayer
 //-------------------------------------------------------------------------------------------------
 pub(super) struct BuiltByPlayerCondition;
-
 
 #[async_trait]
 impl ScriptCondition for BuiltByPlayerCondition {
@@ -1274,12 +1234,10 @@ impl ScriptCondition for BuiltByPlayerCondition {
     }
 }
 
-
 //-------------------------------------------------------------------------------------------------
 // PLAYER_TRIGGERED_SPECIAL_POWER
 //-------------------------------------------------------------------------------------------------
 pub(super) struct PlayerTriggeredSpecialPowerCondition;
-
 
 #[async_trait]
 impl ScriptCondition for PlayerTriggeredSpecialPowerCondition {
@@ -1323,12 +1281,10 @@ impl ScriptCondition for PlayerTriggeredSpecialPowerCondition {
     }
 }
 
-
 //-------------------------------------------------------------------------------------------------
 // PLAYER_TRIGGERED_SPECIAL_POWER_FROM_NAMED
 //-------------------------------------------------------------------------------------------------
 pub(super) struct PlayerTriggeredSpecialPowerFromNamedCondition;
-
 
 #[async_trait]
 impl ScriptCondition for PlayerTriggeredSpecialPowerFromNamedCondition {
@@ -1375,12 +1331,10 @@ impl ScriptCondition for PlayerTriggeredSpecialPowerFromNamedCondition {
     }
 }
 
-
 //-------------------------------------------------------------------------------------------------
 // PLAYER_MIDWAY_SPECIAL_POWER
 //-------------------------------------------------------------------------------------------------
 pub(super) struct PlayerMidwaySpecialPowerCondition;
-
 
 #[async_trait]
 impl ScriptCondition for PlayerMidwaySpecialPowerCondition {
@@ -1424,12 +1378,10 @@ impl ScriptCondition for PlayerMidwaySpecialPowerCondition {
     }
 }
 
-
 //-------------------------------------------------------------------------------------------------
 // PLAYER_MIDWAY_SPECIAL_POWER_FROM_NAMED
 //-------------------------------------------------------------------------------------------------
 pub(super) struct PlayerMidwaySpecialPowerFromNamedCondition;
-
 
 #[async_trait]
 impl ScriptCondition for PlayerMidwaySpecialPowerFromNamedCondition {
@@ -1476,12 +1428,10 @@ impl ScriptCondition for PlayerMidwaySpecialPowerFromNamedCondition {
     }
 }
 
-
 //-------------------------------------------------------------------------------------------------
 // PLAYER_COMPLETED_SPECIAL_POWER
 //-------------------------------------------------------------------------------------------------
 pub(super) struct PlayerCompletedSpecialPowerCondition;
-
 
 #[async_trait]
 impl ScriptCondition for PlayerCompletedSpecialPowerCondition {
@@ -1525,12 +1475,10 @@ impl ScriptCondition for PlayerCompletedSpecialPowerCondition {
     }
 }
 
-
 //-------------------------------------------------------------------------------------------------
 // PLAYER_COMPLETED_SPECIAL_POWER_FROM_NAMED
 //-------------------------------------------------------------------------------------------------
 pub(super) struct PlayerCompletedSpecialPowerFromNamedCondition;
-
 
 #[async_trait]
 impl ScriptCondition for PlayerCompletedSpecialPowerFromNamedCondition {
@@ -1577,12 +1525,10 @@ impl ScriptCondition for PlayerCompletedSpecialPowerFromNamedCondition {
     }
 }
 
-
 //-------------------------------------------------------------------------------------------------
 // PLAYER_BUILT_UPGRADE
 //-------------------------------------------------------------------------------------------------
 pub(super) struct PlayerBuiltUpgradeCondition;
-
 
 #[async_trait]
 impl ScriptCondition for PlayerBuiltUpgradeCondition {
@@ -1629,12 +1575,10 @@ impl ScriptCondition for PlayerBuiltUpgradeCondition {
     }
 }
 
-
 //-------------------------------------------------------------------------------------------------
 // PLAYER_BUILT_UPGRADE_FROM_NAMED
 //-------------------------------------------------------------------------------------------------
 pub(super) struct PlayerBuiltUpgradeFromNamedCondition;
-
 
 #[async_trait]
 impl ScriptCondition for PlayerBuiltUpgradeFromNamedCondition {
@@ -1689,12 +1633,10 @@ impl ScriptCondition for PlayerBuiltUpgradeFromNamedCondition {
     }
 }
 
-
 //-------------------------------------------------------------------------------------------------
 // PLAYER_ACQUIRED_SCIENCE
 //-------------------------------------------------------------------------------------------------
 pub(super) struct PlayerAcquiredScienceCondition;
-
 
 #[async_trait]
 impl ScriptCondition for PlayerAcquiredScienceCondition {
@@ -1746,12 +1688,10 @@ impl ScriptCondition for PlayerAcquiredScienceCondition {
     }
 }
 
-
 //-------------------------------------------------------------------------------------------------
 // PLAYER_CAN_PURCHASE_SCIENCE
 //-------------------------------------------------------------------------------------------------
 pub(super) struct PlayerCanPurchaseScienceCondition;
-
 
 #[async_trait]
 impl ScriptCondition for PlayerCanPurchaseScienceCondition {
@@ -1795,12 +1735,10 @@ impl ScriptCondition for PlayerCanPurchaseScienceCondition {
     }
 }
 
-
 //-------------------------------------------------------------------------------------------------
 // PLAYER_HAS_SCIENCEPURCHASEPOINTS
 //-------------------------------------------------------------------------------------------------
 pub(super) struct PlayerHasSciencePurchasePointsCondition;
-
 
 #[async_trait]
 impl ScriptCondition for PlayerHasSciencePurchasePointsCondition {
@@ -1836,12 +1774,10 @@ impl ScriptCondition for PlayerHasSciencePurchasePointsCondition {
     }
 }
 
-
 //-------------------------------------------------------------------------------------------------
 // PLAYER_POWER_COMPARE_PERCENT - evaluatePlayerHasComparisonPercentPower
 //-------------------------------------------------------------------------------------------------
 pub(super) struct PlayerPowerComparePercentCondition;
-
 
 #[async_trait]
 impl ScriptCondition for PlayerPowerComparePercentCondition {
@@ -1887,12 +1823,10 @@ impl ScriptCondition for PlayerPowerComparePercentCondition {
     }
 }
 
-
 //-------------------------------------------------------------------------------------------------
 // PLAYER_EXCESS_POWER_COMPARE_VALUE - evaluatePlayerHasComparisonValueExcessPower
 //-------------------------------------------------------------------------------------------------
 pub(super) struct PlayerExcessPowerCompareValueCondition;
-
 
 #[async_trait]
 impl ScriptCondition for PlayerExcessPowerCompareValueCondition {
@@ -1935,12 +1869,10 @@ impl ScriptCondition for PlayerExcessPowerCompareValueCondition {
     }
 }
 
-
 //-------------------------------------------------------------------------------------------------
 // PLAYER_LOST_OBJECT_TYPE - evaluatePlayerLostObjectType
 //-------------------------------------------------------------------------------------------------
 pub(super) struct PlayerLostObjectTypeCondition;
-
 
 #[async_trait]
 impl ScriptCondition for PlayerLostObjectTypeCondition {
@@ -2034,7 +1966,6 @@ impl ScriptCondition for PlayerLostObjectTypeCondition {
         vec![]
     }
 }
-
 
 //-------------------------------------------------------------------------------------------------
 // PLAYER_HAS_OBJECT_COMPARISON - C++ ScriptConditions::evaluatePlayerUnitCondition

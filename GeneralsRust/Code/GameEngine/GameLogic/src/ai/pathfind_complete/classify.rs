@@ -885,7 +885,12 @@ impl PathfindingSystem {
     }
 
     /// C++ `Pathfinder::classifyFence` (AIPathfind.cpp:3983+).
-    pub(crate) fn classify_fence(&mut self, obj: &crate::object::Object, insert: bool, fence_width: f32) {
+    pub(crate) fn classify_fence(
+        &mut self,
+        obj: &crate::object::Object,
+        insert: bool,
+        fence_width: f32,
+    ) {
         let pos = obj.get_position();
         let angle = obj.get_orientation();
         let halfsize_x = fence_width * 0.5;
@@ -939,7 +944,11 @@ impl PathfindingSystem {
     }
 
     /// C++ `internal_classifyObjectFootprint` box/cylinder raster.
-    pub(crate) fn internal_classify_object_footprint(&mut self, obj: &crate::object::Object, insert: bool) {
+    pub(crate) fn internal_classify_object_footprint(
+        &mut self,
+        obj: &crate::object::Object,
+        insert: bool,
+    ) {
         let pos = obj.get_position();
         let geo = obj.get_geometry_info();
         let obj_id = obj.get_id();

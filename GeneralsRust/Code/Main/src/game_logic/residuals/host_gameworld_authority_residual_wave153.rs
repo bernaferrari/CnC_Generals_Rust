@@ -42,10 +42,11 @@ pub const GAMEWORLD_AUTHORITY_ENV_NAMES_WAVE153: &[&str] = &[
     "GENERALS_GAMEWORLD_SPECIAL_POWER_AUTHORITY",
     "GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY",
     "GENERALS_GAMEWORLD_WEAPON_AUTHORITY",
+    "GENERALS_GAMEWORLD_ENTITY_MODULES",
 ];
 
-/// Expected default-on authority flag count residual (all 12 env names).
-pub const GAMEWORLD_AUTHORITY_DEFAULT_ON_COUNT_WAVE153: usize = 12;
+/// Expected env-name table length residual (preview ENTITY_MODULES is default off).
+pub const GAMEWORLD_AUTHORITY_DEFAULT_ON_COUNT_WAVE153: usize = 13;
 
 /// GameWorld authority method residual names.
 pub const GAMEWORLD_AUTHORITY_METHOD_NAMES_WAVE153: &[&str] = &[
@@ -189,7 +190,7 @@ mod tests {
         assert!(residual_gameworld_shadow_enabled_latch());
         assert!(
             residual_gameworld_authority_enabled_count()
-                >= GAMEWORLD_AUTHORITY_DEFAULT_ON_COUNT_WAVE153
+                >= GAMEWORLD_AUTHORITY_DEFAULT_ON_COUNT_WAVE153 - 1
         );
         assert_eq!(
             residual_gameworld_authority_last_action(),

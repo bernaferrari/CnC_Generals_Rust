@@ -1,8 +1,8 @@
 //! Collide and crate-collide module factories/wrappers.
 //! Split from `contain_module_overrides.rs`. Factory names stay identical.
 
-use super::*;
 use super::helpers::*;
+use super::*;
 
 #[derive(Clone)]
 struct SharedCollideModule<T> {
@@ -240,7 +240,9 @@ where
     }
 }
 
-pub(super) fn convert_to_car_bomb_crate_collide_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+pub(super) fn convert_to_car_bomb_crate_collide_data_factory(
+    ini: Option<&mut INI>,
+) -> Box<dyn ModuleData> {
     let mut data = ConvertToCarBombCrateCollideModuleData::default();
     if let Some(ini) = ini {
         if let Err(err) = data.parse_from_ini(ini) {
@@ -379,7 +381,9 @@ pub(super) fn sabotage_command_center_crate_collide_module_factory(
         object_id,
     ))
 }
-pub(super) fn sabotage_fake_building_crate_collide_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+pub(super) fn sabotage_fake_building_crate_collide_data_factory(
+    ini: Option<&mut INI>,
+) -> Box<dyn ModuleData> {
     let mut data = SabotageFakeBuildingCrateCollideModuleData::default();
     if let Some(ini) = ini {
         if let Err(err) = data.parse_from_ini(ini) {
@@ -486,7 +490,9 @@ pub(super) fn sabotage_military_factory_crate_collide_module_factory(
         object_id,
     ))
 }
-pub(super) fn sabotage_power_plant_crate_collide_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+pub(super) fn sabotage_power_plant_crate_collide_data_factory(
+    ini: Option<&mut INI>,
+) -> Box<dyn ModuleData> {
     let mut data = SabotagePowerPlantCrateCollideModuleData::default();
     if let Some(ini) = ini {
         if let Err(err) = data.parse_from_ini(ini) {
@@ -520,7 +526,9 @@ pub(super) fn sabotage_power_plant_crate_collide_module_factory(
         object_id,
     ))
 }
-pub(super) fn sabotage_superweapon_crate_collide_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+pub(super) fn sabotage_superweapon_crate_collide_data_factory(
+    ini: Option<&mut INI>,
+) -> Box<dyn ModuleData> {
     let mut data = SabotageSuperweaponCrateCollideModuleData::default();
     if let Some(ini) = ini {
         if let Err(err) = data.parse_from_ini(ini) {
@@ -555,7 +563,9 @@ pub(super) fn sabotage_superweapon_crate_collide_module_factory(
         object_id,
     ))
 }
-pub(super) fn sabotage_supply_center_crate_collide_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+pub(super) fn sabotage_supply_center_crate_collide_data_factory(
+    ini: Option<&mut INI>,
+) -> Box<dyn ModuleData> {
     let mut data = SabotageSupplyCenterCrateCollideModuleData::default();
     if let Some(ini) = ini {
         if let Err(err) = data.parse_from_ini(ini) {

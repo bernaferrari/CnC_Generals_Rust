@@ -6,7 +6,10 @@
 use super::*;
 
 impl ScriptActionDispatcher {
-    pub(crate) fn do_team_flash(&mut self, action: &ScriptAction) -> Result<ScriptActionResult, ScriptError> {
+    pub(crate) fn do_team_flash(
+        &mut self,
+        action: &ScriptAction,
+    ) -> Result<ScriptActionResult, ScriptError> {
         let team_name = self.resolve_team_name_token(&self.get_string_param(action, 0)?);
         let time_in_seconds = self.get_int_param(action, 1)?;
         log::debug!("Flashing team '{}' for {}s", team_name, time_in_seconds);
@@ -1031,8 +1034,8 @@ impl ScriptActionDispatcher {
                 .get_attack_info(&priority_set)
                 .map(|info| info.get_name().to_string())
         })
-            .flatten()
-            .unwrap_or_default();
+        .flatten()
+        .unwrap_or_default();
 
         let mut prototype_updated = false;
         let mut team_members = Vec::new();
@@ -1147,7 +1150,8 @@ impl ScriptActionDispatcher {
         // clone through the lexically active engine, then leave engine state
         // unlocked while issuing the AI command.
         let Some(script) =
-            with_script_engine_ref(|engine| engine.find_script_clone_by_name(&script_name)).flatten()
+            with_script_engine_ref(|engine| engine.find_script_clone_by_name(&script_name))
+                .flatten()
         else {
             return Ok(ScriptActionResult::Success);
         };
@@ -1194,7 +1198,8 @@ impl ScriptActionDispatcher {
         // Preserve C++ lookup-before-idle order without holding an engine
         // lock across the AI command.
         let Some(script) =
-            with_script_engine_ref(|engine| engine.find_script_clone_by_name(&script_name)).flatten()
+            with_script_engine_ref(|engine| engine.find_script_clone_by_name(&script_name))
+                .flatten()
         else {
             return Ok(ScriptActionResult::Success);
         };

@@ -8,9 +8,11 @@ use super::*;
 impl ScriptConditionEvaluator {
     pub(crate) fn resolve_string_token(&self, raw: &str) -> String {
         match raw {
-            THE_PLAYER | THIS_PLAYER => with_script_engine_ref(|engine| engine.get_current_player_name())
-                .flatten()
-                .unwrap_or_else(|| raw.to_string()),
+            THE_PLAYER | THIS_PLAYER => {
+                with_script_engine_ref(|engine| engine.get_current_player_name())
+                    .flatten()
+                    .unwrap_or_else(|| raw.to_string())
+            }
             LOCAL_PLAYER => player_list()
                 .read()
                 .ok()
@@ -27,7 +29,7 @@ impl ScriptConditionEvaluator {
                     .or_else(|| engine.get_calling_team_name())
             })
             .flatten()
-                .unwrap_or_else(|| raw.to_string()),
+            .unwrap_or_else(|| raw.to_string()),
             TEAM_THE_PLAYER => {
                 let current_player =
                     with_script_engine_ref(|engine| engine.get_current_player_name()).flatten();
@@ -388,7 +390,10 @@ impl ScriptConditionEvaluator {
     }
 
     /// Evaluate an AND chain of conditions
-    pub(crate) fn evaluate_and_chain(&mut self, condition: &mut Condition) -> Result<bool, ScriptError> {
+    pub(crate) fn evaluate_and_chain(
+        &mut self,
+        condition: &mut Condition,
+    ) -> Result<bool, ScriptError> {
         let mut current = Some(condition);
         while let Some(cond) = current {
             match self.evaluate_condition(cond)? {
@@ -414,7 +419,10 @@ impl ScriptConditionEvaluator {
     // ============================================================================
 
     /// C++ Reference: ScriptEngine::evaluateCounter() line 6319-6332
-    pub(crate) fn eval_counter(&self, condition: &Condition) -> Result<ScriptConditionResult, ScriptError> {
+    pub(crate) fn eval_counter(
+        &self,
+        condition: &Condition,
+    ) -> Result<ScriptConditionResult, ScriptError> {
         let counter_name = self.get_condition_string_param(condition, 0)?;
         let comparison = self.get_condition_comparison_param(condition, 1)?;
         let target_value = self.get_condition_int_param(condition, 2)?;
@@ -452,7 +460,10 @@ impl ScriptConditionEvaluator {
     }
 
     /// C++ Reference: ScriptEngine::evaluateFlag() line 6442-6450
-    pub(crate) fn eval_flag(&self, condition: &Condition) -> Result<ScriptConditionResult, ScriptError> {
+    pub(crate) fn eval_flag(
+        &self,
+        condition: &Condition,
+    ) -> Result<ScriptConditionResult, ScriptError> {
         let flag_name = self.get_condition_string_param(condition, 0)?;
         let expected = self.get_condition_bool_param(condition, 1)?;
         log::debug!("Evaluating flag '{}' == {}", flag_name, expected);
@@ -947,10 +958,9 @@ impl ScriptConditionEvaluator {
             return Ok(ScriptConditionResult::False);
         };
 
-        let current_count = with_script_engine_ref(|engine| {
-            engine.get_object_count(player_index, &object_type)
-        })
-        .unwrap_or(0);
+        let current_count =
+            with_script_engine_ref(|engine| engine.get_object_count(player_index, &object_type))
+                .unwrap_or(0);
 
         let object_manager = get_object_manager();
         let sum_of_objs = object_manager
@@ -1105,7 +1115,9 @@ impl ScriptConditionEvaluator {
         };
 
         condition.custom_data = if result { 1 } else { -1 };
-        if let Some(frame) = with_script_engine_ref(|engine| engine.get_frame_object_count_changed()) {
+        if let Some(frame) =
+            with_script_engine_ref(|engine| engine.get_frame_object_count_changed())
+        {
             condition.custom_frame = frame;
         }
 

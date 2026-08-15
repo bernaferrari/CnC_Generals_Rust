@@ -10,6 +10,7 @@ use crate::ai::integration::with_ai_integration_mut;
 use crate::ai::{AiCommandInterface, AiCommandParams, AiCommandType, AiGroup, GuardMode, THE_AI};
 use crate::commands::command::CommandType;
 use crate::commands::{get_command_queue_manager, Command, CommandPriority, QueuedCommand};
+use crate::common::PlayerIndex;
 use crate::common::{
     AsciiString, CommandSourceType, Coord3D, LocomotorSetType, Real, Relationship,
     INVALID_OBJECT_ID,
@@ -22,7 +23,6 @@ use crate::object::object_factory::{get_object_factory, GameObjectInstance};
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::special_power_template::find_or_create_special_power_template;
 use crate::object_manager::{get_object_manager, ObjectCreationFlags};
-use crate::common::PlayerIndex;
 use crate::player::{player_list, PlayerType};
 use crate::scripting::core::{LOCAL_PLAYER, TEAM_THE_PLAYER, THE_PLAYER, THIS_PLAYER, THIS_TEAM};
 use crate::scripting::engine::{get_named_object_tracker, get_script_engine};
@@ -37,7 +37,6 @@ use game_engine::common::system::radar::{get_radar_system, RadarEventType};
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
-
 
 /// Destroy object action
 pub(super) struct DestroyObjectAction;
@@ -83,7 +82,6 @@ impl ScriptAction for DestroyObjectAction {
     }
 }
 
-
 /// Set object health action
 pub(super) struct SetObjectHealthAction;
 
@@ -119,7 +117,6 @@ impl ScriptAction for SetObjectHealthAction {
     }
 }
 
-
 /// Set object experience action
 pub(super) struct SetObjectExperienceAction;
 
@@ -154,7 +151,6 @@ impl ScriptAction for SetObjectExperienceAction {
         vec![]
     }
 }
-
 
 /// Create Explosion Action - Matches C++ explosion creation
 pub(super) struct CreateExplosionAction;
@@ -217,7 +213,6 @@ impl ScriptAction for CreateExplosionAction {
         vec!["z".to_string(), "damage".to_string()]
     }
 }
-
 
 /// Damage Object Action - Matches C++ ScriptActions::doNamedDamage (line 2312)
 pub(super) struct DamageObjectAction;
@@ -305,7 +300,6 @@ impl ScriptAction for DamageObjectAction {
     }
 }
 
-
 /// Kill Object Action - Matches C++ ScriptActions::doNamedKill (line 2483)
 pub(super) struct KillObjectAction;
 
@@ -371,7 +365,6 @@ impl ScriptAction for KillObjectAction {
         vec![]
     }
 }
-
 
 /// Heal Object Action - Restores object health
 pub(super) struct HealObjectAction;

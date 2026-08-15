@@ -3,8 +3,7 @@
 use super::helpers::{
     compare_f64, compare_i64, dual_world_registry_unavailable, event_type_from_name,
     get_player_arc, get_str_param, get_str_param_optional, lookup_named_object_id,
-    parse_nested_condition, parse_object_status_mask, perform_comparison,
-    with_script_engine_mut,
+    parse_nested_condition, parse_object_status_mask, perform_comparison, with_script_engine_mut,
 };
 use super::{ConditionRegistry, ScriptCondition, ScriptContext, ScriptValue};
 use crate::common::{Coord3D, KindOf, Relationship, LOGICFRAMES_PER_SECOND};
@@ -25,13 +24,11 @@ use game_engine::common::rts::{get_science_store, SCIENCE_INVALID};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
-
 //-------------------------------------------------------------------------------------------------
 // NAMED_NOT_DESTROYED - evaluateNamedUnitExists
 // Returns true if named unit exists and is not effectively dead.
 //-------------------------------------------------------------------------------------------------
 pub(super) struct NamedUnitExistsCondition;
-
 
 #[async_trait]
 impl ScriptCondition for NamedUnitExistsCondition {
@@ -43,8 +40,10 @@ impl ScriptCondition for NamedUnitExistsCondition {
         let unit_name = get_str_param(parameters, "unit_name")?;
         // Host path: name→id map / host query, no crate Object required.
         if dual_world_registry_unavailable() {
-            return Ok(super::helpers::host_script_named_unit_id(&unit_name).is_some()
-                || lookup_named_object_id(&unit_name)?.is_some());
+            return Ok(
+                super::helpers::host_script_named_unit_id(&unit_name).is_some()
+                    || lookup_named_object_id(&unit_name)?.is_some(),
+            );
         }
 
         let object_id = match lookup_named_object_id(&unit_name)? {
@@ -70,13 +69,11 @@ impl ScriptCondition for NamedUnitExistsCondition {
     }
 }
 
-
 //-------------------------------------------------------------------------------------------------
 // NAMED_DESTROYED - evaluateNamedUnitDestroyed
 // Returns true if named unit is effectively dead, or existed previously but no longer exists.
 //-------------------------------------------------------------------------------------------------
 pub(super) struct NamedUnitDestroyedCondition;
-
 
 #[async_trait]
 impl ScriptCondition for NamedUnitDestroyedCondition {
@@ -125,13 +122,11 @@ impl ScriptCondition for NamedUnitDestroyedCondition {
     }
 }
 
-
 //-------------------------------------------------------------------------------------------------
 // NAMED_DYING - evaluateNamedUnitDying
 // Returns true if named unit exists and is effectively dead (dying but not yet fully removed).
 //-------------------------------------------------------------------------------------------------
 pub(super) struct NamedUnitDyingCondition;
-
 
 #[async_trait]
 impl ScriptCondition for NamedUnitDyingCondition {
@@ -169,13 +164,11 @@ impl ScriptCondition for NamedUnitDyingCondition {
     }
 }
 
-
 //-------------------------------------------------------------------------------------------------
 // NAMED_TOTALLY_DEAD - evaluateNamedUnitTotallyDead
 // Returns true if named unit previously existed but no longer exists in the object registry.
 //-------------------------------------------------------------------------------------------------
 pub(super) struct NamedUnitTotallyDeadCondition;
-
 
 #[async_trait]
 impl ScriptCondition for NamedUnitTotallyDeadCondition {
@@ -221,12 +214,10 @@ impl ScriptCondition for NamedUnitTotallyDeadCondition {
     }
 }
 
-
 //-------------------------------------------------------------------------------------------------
 // NAMED_OWNED_BY_PLAYER - evaluateNamedOwnedByPlayer
 //-------------------------------------------------------------------------------------------------
 pub(super) struct NamedOwnedByPlayerCondition;
-
 
 #[async_trait]
 impl ScriptCondition for NamedOwnedByPlayerCondition {
@@ -276,12 +267,10 @@ impl ScriptCondition for NamedOwnedByPlayerCondition {
     }
 }
 
-
 //-------------------------------------------------------------------------------------------------
 // NAMED_INSIDE_AREA - evaluateNamedInsideArea
 //-------------------------------------------------------------------------------------------------
 pub(super) struct NamedInsideAreaCondition;
-
 
 #[async_trait]
 impl ScriptCondition for NamedInsideAreaCondition {
@@ -294,10 +283,10 @@ impl ScriptCondition for NamedInsideAreaCondition {
         let area_name = get_str_param(parameters, "area_name")?;
         if dual_world_registry_unavailable() {
             // Existence is not inside-area. Require mapped host AABB bounds.
-            return Ok(
-                super::helpers::host_script_named_unit_in_named_area(&unit_name, &area_name)
-                    .unwrap_or(false),
-            );
+            return Ok(super::helpers::host_script_named_unit_in_named_area(
+                &unit_name, &area_name,
+            )
+            .unwrap_or(false));
         }
 
         let object_id = match lookup_named_object_id(&unit_name)? {
@@ -330,12 +319,10 @@ impl ScriptCondition for NamedInsideAreaCondition {
     }
 }
 
-
 //-------------------------------------------------------------------------------------------------
 // NAMED_OUTSIDE_AREA - evaluateNamedOutsideArea
 //-------------------------------------------------------------------------------------------------
 pub(super) struct NamedOutsideAreaCondition;
-
 
 #[async_trait]
 impl ScriptCondition for NamedOutsideAreaCondition {
@@ -375,12 +362,10 @@ impl ScriptCondition for NamedOutsideAreaCondition {
     }
 }
 
-
 //-------------------------------------------------------------------------------------------------
 // NAMED_DISCOVERED - evaluateNamedDiscovered
 //-------------------------------------------------------------------------------------------------
 pub(super) struct NamedDiscoveredCondition;
-
 
 #[async_trait]
 impl ScriptCondition for NamedDiscoveredCondition {
@@ -434,12 +419,10 @@ impl ScriptCondition for NamedDiscoveredCondition {
     }
 }
 
-
 //-------------------------------------------------------------------------------------------------
 // NAMED_BUILDING_IS_EMPTY - evaluateIsBuildingEmpty
 //-------------------------------------------------------------------------------------------------
 pub(super) struct NamedBuildingIsEmptyCondition;
-
 
 #[async_trait]
 impl ScriptCondition for NamedBuildingIsEmptyCondition {
@@ -487,12 +470,10 @@ impl ScriptCondition for NamedBuildingIsEmptyCondition {
     }
 }
 
-
 //-------------------------------------------------------------------------------------------------
 // NAMED_HAS_FREE_CONTAINER_SLOTS - evaluateNamedHasFreeContainerSlots
 //-------------------------------------------------------------------------------------------------
 pub(super) struct NamedHasFreeContainerSlotsCondition;
-
 
 #[async_trait]
 impl ScriptCondition for NamedHasFreeContainerSlotsCondition {
@@ -544,12 +525,10 @@ impl ScriptCondition for NamedHasFreeContainerSlotsCondition {
     }
 }
 
-
 //-------------------------------------------------------------------------------------------------
 // NAMED_CREATED - evaluateNamedCreated
 //-------------------------------------------------------------------------------------------------
 pub(super) struct NamedCreatedCondition;
-
 
 #[async_trait]
 impl ScriptCondition for NamedCreatedCondition {
@@ -587,12 +566,10 @@ impl ScriptCondition for NamedCreatedCondition {
     }
 }
 
-
 //-------------------------------------------------------------------------------------------------
 // NAMED_SELECTED - evaluateNamedSelected
 //-------------------------------------------------------------------------------------------------
 pub(super) struct NamedSelectedCondition;
-
 
 #[async_trait]
 impl ScriptCondition for NamedSelectedCondition {
@@ -629,12 +606,10 @@ impl ScriptCondition for NamedSelectedCondition {
     }
 }
 
-
 //-------------------------------------------------------------------------------------------------
 // NAMED_REACHED_WAYPOINTS_END - evaluateNamedReachedWaypointsEnd
 //-------------------------------------------------------------------------------------------------
 pub(super) struct NamedReachedWaypointsEndCondition;
-
 
 #[async_trait]
 impl ScriptCondition for NamedReachedWaypointsEndCondition {
@@ -682,7 +657,6 @@ impl ScriptCondition for NamedReachedWaypointsEndCondition {
     }
 }
 
-
 //-------------------------------------------------------------------------------------------------
 // C++ Parity Conditions - Session 8 additions
 // Area entry/exit, special power, science, power, multiplayer, audio/video, misc
@@ -693,7 +667,6 @@ impl ScriptCondition for NamedReachedWaypointsEndCondition {
 // Returns true if named unit has entered a trigger area.
 //-------------------------------------------------------------------------------------------------
 pub(super) struct NamedEnteredAreaCondition;
-
 
 #[async_trait]
 impl ScriptCondition for NamedEnteredAreaCondition {
@@ -743,13 +716,11 @@ impl ScriptCondition for NamedEnteredAreaCondition {
     }
 }
 
-
 //-------------------------------------------------------------------------------------------------
 // NAMED_EXITED_AREA - evaluateNamedExitedArea
 // Returns true if named unit has exited a trigger area (was inside, now outside).
 //-------------------------------------------------------------------------------------------------
 pub(super) struct NamedExitedAreaCondition;
-
 
 #[async_trait]
 impl ScriptCondition for NamedExitedAreaCondition {

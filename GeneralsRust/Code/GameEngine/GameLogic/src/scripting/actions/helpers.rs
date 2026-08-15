@@ -183,7 +183,10 @@ pub fn get_float_param(
     }
 }
 
-pub(super) fn get_bool_param_optional(parameters: &HashMap<String, ScriptValue>, name: &str) -> Option<bool> {
+pub(super) fn get_bool_param_optional(
+    parameters: &HashMap<String, ScriptValue>,
+    name: &str,
+) -> Option<bool> {
     match parameters.get(name) {
         Some(ScriptValue::Bool(value)) => Some(*value),
         Some(ScriptValue::Int(value)) => Some(*value != 0),
@@ -217,7 +220,10 @@ pub(super) fn radar_event_type_from_int(event_type: i32) -> RadarEventType {
     }
 }
 
-pub(super) fn create_radar_event_for_position(position: Coord3D, event_type: i32) -> GameLogicResult<()> {
+pub(super) fn create_radar_event_for_position(
+    position: Coord3D,
+    event_type: i32,
+) -> GameLogicResult<()> {
     if let Ok(mut radar) = get_radar_system().write() {
         let radar_pos =
             game_engine::common::system::radar::Coord3D::new(position.x, position.y, position.z);

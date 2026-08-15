@@ -8,6 +8,7 @@ pub mod asset_manager;
 pub mod assets;
 pub mod chunk_reader;
 pub mod dazzle;
+pub mod hlod_anim_pose;
 pub mod loader;
 pub mod loaders;
 pub use loaders::{animation_loader, hierarchy_loader, mesh_loader};
@@ -79,6 +80,10 @@ pub use dazzle::{
     DazzleInitClass, DazzleLayerClass, DazzleLibrary, DazzleRenderObjClass, DazzleTypeClass,
     DazzleVertex, DepthCompare as DazzleDepthCompare, LensflareInitClass, LensflareTypeClass,
     Matrix3D, Matrix4, ShaderState, Vector3, Vector4,
+};
+pub use hlod_anim_pose::{
+    child_world_from_anim_bones, evaluate_htree_anim_worlds, fraction_to_hanim_frame,
+    resolve_hlod_anim_applied_bones,
 };
 pub use loader::w3d_streaming_loader::*;
 pub use material::{

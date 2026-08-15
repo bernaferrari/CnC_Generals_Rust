@@ -384,9 +384,7 @@ impl ObjectCreationNugget for DeliverPayloadNugget {
                 .and_then(|transport_read| transport_read.get_ai_update_interface())
                 .and_then(|ai| {
                     ai.lock().ok().map(|mut ai_guard| {
-                        ai_guard
-                            .get_deliver_payload_ai_update_interface()
-                            .is_some()
+                        ai_guard.get_deliver_payload_ai_update_interface().is_some()
                     })
                 })
                 .unwrap_or(false);
@@ -787,9 +785,7 @@ impl ObjectCreationNugget for ApplyRandomForceNugget {
 mod tests {
     use super::*;
     use crate::modules::{AIUpdateInterface, PhysicsBehavior};
-    use crate::object_creation_list::{
-        GameLogicContext, TerrainLogicContext, ThingFactoryContext,
-    };
+    use crate::object_creation_list::{GameLogicContext, TerrainLogicContext, ThingFactoryContext};
     use std::sync::Mutex;
 
     struct TestLogic;
@@ -980,8 +976,9 @@ mod tests {
         let wing = DeliverPayloadNugget::formation_flight_pose(
             &primary, &secondary, 1, 3, spacing, 0.0, 0.0, None,
         );
-        let expected_off =
-            DeliverPayloadNugget::calculate_formation_offset(1, 3, spacing, ccw_x, ccw_y, cw_x, cw_y);
+        let expected_off = DeliverPayloadNugget::calculate_formation_offset(
+            1, 3, spacing, ccw_x, ccw_y, cw_x, cw_y,
+        );
         assert!((wing.start_pos.x - (primary.x + expected_off.x)).abs() < 1e-4);
         assert!((wing.start_pos.y - (primary.y + expected_off.y)).abs() < 1e-4);
         assert!((wing.move_to_pos.x - (secondary.x + expected_off.x)).abs() < 1e-4);
@@ -1013,8 +1010,9 @@ mod tests {
             0.0,
             Some((10.0, 0.0)),
         );
-        let off2 =
-            DeliverPayloadNugget::calculate_formation_offset(2, 3, spacing, ccw_x, ccw_y, cw_x, cw_y);
+        let off2 = DeliverPayloadNugget::calculate_formation_offset(
+            2, 3, spacing, ccw_x, ccw_y, cw_x, cw_y,
+        );
         assert!((err.target_pos.x - (secondary.x + off2.x + 10.0)).abs() < 1e-4);
     }
 
@@ -1111,20 +1109,11 @@ mod tests {
             max_pitch: 0.0,
         };
         assert!(nugget
-            .create_with_angle(
-                &ctx,
-                Some(&obj),
-                &Coord3D::ZERO,
-                &Coord3D::ZERO,
-                0.0,
-                0
-            )
+            .create_with_angle(&ctx, Some(&obj), &Coord3D::ZERO, &Coord3D::ZERO, 0.0, 0)
             .is_none());
         assert!(record.lock().unwrap().force.is_none());
 
-        assert!(nugget
-            .create_with_objects(&ctx, &obj, None, 7)
-            .is_none());
+        assert!(nugget.create_with_objects(&ctx, &obj, None, 7).is_none());
         let rec = record.lock().unwrap();
         let force = rec.force.expect("force applied");
         assert!((force.x - 10.0).abs() < 1e-4);

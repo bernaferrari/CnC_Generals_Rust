@@ -29,7 +29,6 @@ use std::ops::{Deref, DerefMut}; // InnerMutGuard only; ScriptEngine has no Dere
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
-
 /// Wave 348: host-only path has no dual-world factory objects.
 #[inline]
 fn dual_world_registry_unavailable() -> bool {

@@ -59,11 +59,14 @@ pub(super) use crate::ai::HackerAttackMode;
 pub(super) use crate::common::xfer::Xfer;
 pub(super) use crate::contain_module_overrides::ContainModuleDataKind;
 
+pub(super) use super::CommandSource;
 pub(super) use crate::ai::AIGroup;
 pub(super) use crate::attack::{AbleToAttackType, CanAttackResult, ATTACKRESULT_POSSIBLE};
 pub(super) use crate::common::types::WeaponBonusConditionType;
 pub(super) use crate::common::ArmorSetType;
-pub(super) use crate::damage::{DamageInfo, DamageInfoInput, DamageType, DeathType, HUGE_DAMAGE_AMOUNT};
+pub(super) use crate::damage::{
+    DamageInfo, DamageInfoInput, DamageType, DeathType, HUGE_DAMAGE_AMOUNT,
+};
 pub(super) use crate::experience::ExperienceTracker;
 pub(super) use crate::helpers::{
     FiringTracker, ObjectDisabledHelper, ObjectHeldHelper, TheGameLogic, ThePartitionManager,
@@ -84,7 +87,9 @@ pub(super) use crate::object::behavior::queue_production_exit_behavior::QueuePro
 pub(super) use crate::object::behavior::special_ability_update::SpecialAbilityUpdate as SpecialAbilityUpdateBehavior;
 pub(super) use crate::object::body::body_module::MaxHealthChangeType;
 pub(super) use crate::object::die::DieModuleWrapper;
-pub(super) use crate::object::drawable::{Drawable, DrawableExt, DrawableModuleHandle, DrawableThingHandle};
+pub(super) use crate::object::drawable::{
+    Drawable, DrawableExt, DrawableModuleHandle, DrawableThingHandle,
+};
 pub(super) use crate::object::helper::{
     ObjectDefectionHelper, ObjectDefectionHelperModuleData, ObjectHelperInterface,
     ObjectRepulsorHelper, ObjectRepulsorHelperModuleData, ObjectSMCHelper,
@@ -112,4 +117,3 @@ pub(super) use crate::weapon::{
     WeaponStatus,
 };
 pub(super) use crate::GameLogicResult;
-pub(super) use super::CommandSource;

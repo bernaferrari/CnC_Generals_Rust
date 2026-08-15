@@ -8,7 +8,6 @@ use super::object_impl_imports::*;
 use super::*;
 
 impl Object {
-
     /// Set the disabled/held state for this object
     /// Used by containment modules to disable contained units
     pub fn set_disabled_held(
@@ -298,12 +297,14 @@ impl Object {
     /// Get the spawn behavior interface if this object has one.
     /// Used for handling spawns-as-weapons disable propagation.
     #[allow(dead_code)]
-    pub(in super) fn get_spawn_behavior_interface(&self) -> Option<Arc<Mutex<dyn SpawnBehaviorInterface>>> {
+    pub(super) fn get_spawn_behavior_interface(
+        &self,
+    ) -> Option<Arc<Mutex<dyn SpawnBehaviorInterface>>> {
         None // Placeholder - spawn behavior is accessed directly through behaviors
     }
 
     /// Call order_slaves_to_clear_disabled on any spawn behavior modules
-    pub(in super) fn order_spawn_slaves_to_clear_disabled(&mut self, disabled_type: DisabledType) {
+    pub(super) fn order_spawn_slaves_to_clear_disabled(&mut self, disabled_type: DisabledType) {
         for behavior in &self.behaviors {
             if let Ok(mut guard) = behavior.lock() {
                 if let Some(spawn) = guard.get_spawn_behavior_interface() {
@@ -314,7 +315,7 @@ impl Object {
         }
     }
 
-    pub(in super) fn on_disabled_edge(&mut self, becoming_disabled: bool) {
+    pub(super) fn on_disabled_edge(&mut self, becoming_disabled: bool) {
         for behavior in &self.behaviors {
             if let Ok(mut guard) = behavior.lock() {
                 guard.on_disabled_edge(becoming_disabled);
@@ -545,7 +546,7 @@ impl Object {
         crate::object::upgrade::status_bits_upgrade::apply_registered_status_upgrades(self);
     }
 
-    pub(in super) fn collect_upgrade_modules(&self) -> Vec<UpgradeModuleHandle> {
+    pub(super) fn collect_upgrade_modules(&self) -> Vec<UpgradeModuleHandle> {
         let mut modules = Vec::new();
         if self.id != INVALID_ID {
             for handle in StatusBitsUpgradeHandle::for_object(self.id) {
@@ -561,7 +562,7 @@ impl Object {
         modules
     }
 
-    pub(in super) fn apply_upgrade_modules(&mut self, mask: UpgradeMaskType) {
+    pub(super) fn apply_upgrade_modules(&mut self, mask: UpgradeMaskType) {
         if mask.is_empty() {
             return;
         }
@@ -597,7 +598,7 @@ impl Object {
         }
     }
 
-    pub(in super) fn notify_upgrade_removed_internal(&mut self, mask: crate::upgrade::UpgradeMask) {
+    pub(super) fn notify_upgrade_removed_internal(&mut self, mask: crate::upgrade::UpgradeMask) {
         if mask.is_empty() {
             return;
         }
@@ -613,7 +614,7 @@ impl Object {
         }
     }
 
-    pub(in super) fn get_disabled_type_index(&self, _disabled_type: DisabledType) -> Option<usize> {
+    pub(super) fn get_disabled_type_index(&self, _disabled_type: DisabledType) -> Option<usize> {
         // Convert disabled type to an index in `disabled_till_frame`.
         //
         // The C++ engine stores per-disabled-type expiration frames (see Object.cpp).
@@ -710,7 +711,10 @@ impl Object {
             .unwrap_or(false)
     }
 
-    pub(in super) fn queue_unit_via_production(&self, template: &Arc<dyn crate::common::ThingTemplate>) -> bool {
+    pub(super) fn queue_unit_via_production(
+        &self,
+        template: &Arc<dyn crate::common::ThingTemplate>,
+    ) -> bool {
         let template_name = template.get_name().to_string();
         let player_id = self.get_controlling_player_id().unwrap_or(0) as ObjectID;
         let build_cost = template.calc_cost_to_build(None);
@@ -747,7 +751,7 @@ impl Object {
         false
     }
 
-    pub(in super) fn queue_unit_via_production_id(
+    pub(super) fn queue_unit_via_production_id(
         &self,
         template: &Arc<dyn crate::common::ThingTemplate>,
         production_id: u32,
@@ -794,7 +798,7 @@ impl Object {
         self.queue_unit_via_production(template)
     }
 
-    pub(in super) fn queue_upgrade_via_production(&self, upgrade: &Arc<UpgradeTemplate>) -> bool {
+    pub(super) fn queue_upgrade_via_production(&self, upgrade: &Arc<UpgradeTemplate>) -> bool {
         let upgrade_name = upgrade.get_name().to_string();
         let player_id = self.get_controlling_player_id().unwrap_or(0) as ObjectID;
         let (build_cost, build_time) = if let Some(player_arc) = self.get_controlling_player() {
@@ -847,7 +851,7 @@ impl Object {
         false
     }
 
-    pub(in super) fn cancel_upgrade_via_production(&self, upgrade: &Arc<UpgradeTemplate>) -> bool {
+    pub(super) fn cancel_upgrade_via_production(&self, upgrade: &Arc<UpgradeTemplate>) -> bool {
         let upgrade_name = upgrade.get_name().to_string();
 
         for entry in &self.modules {
@@ -885,7 +889,7 @@ impl Object {
         false
     }
 
-    pub(in super) fn cancel_unit_via_production_id(&self, production_id: u32) -> bool {
+    pub(super) fn cancel_unit_via_production_id(&self, production_id: u32) -> bool {
         for entry in &self.modules {
             let canceled = entry.with_module(|module| {
                 module_production_queue_kind(module).and_then(|kind| {
@@ -915,7 +919,10 @@ impl Object {
         false
     }
 
-    pub(in super) fn cancel_unit_via_template(&self, template: &Arc<dyn crate::common::ThingTemplate>) -> bool {
+    pub(super) fn cancel_unit_via_template(
+        &self,
+        template: &Arc<dyn crate::common::ThingTemplate>,
+    ) -> bool {
         let template_name = template.get_name().to_string();
 
         for entry in &self.modules {
@@ -1013,7 +1020,7 @@ impl Object {
         self.cancel_unit_via_production_id(production_id)
     }
 
-    pub(in super) fn cancel_and_refund_all_production_for_capture_or_defection(&mut self) {
+    pub(super) fn cancel_and_refund_all_production_for_capture_or_defection(&mut self) {
         for entry in &self.modules {
             entry.with_module(|module| {
                 if let Some(kind) = module_production_queue_kind(module) {
@@ -1032,7 +1039,7 @@ impl Object {
         }
     }
 
-    pub(in super) fn cancel_production_queue_entries(prod: &mut dyn ProductionUpdateInterface) {
+    pub(super) fn cancel_production_queue_entries(prod: &mut dyn ProductionUpdateInterface) {
         let mut safety = 0usize;
         let mut previous_size = usize::MAX;
 

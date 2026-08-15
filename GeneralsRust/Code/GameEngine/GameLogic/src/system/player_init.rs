@@ -601,7 +601,10 @@ mod tests {
         // Common `PlayerTemplate::new` defaults playable=false (C++ ctor).
         // Faction helpers must still seed PlayableSide=Yes like PlayerTemplate.ini.
         let usa = make_player_template("Player 1", "USA");
-        assert!(usa.playable, "make_player_template must set PlayableSide=Yes");
+        assert!(
+            usa.playable,
+            "make_player_template must set PlayableSide=Yes"
+        );
         assert!(usa.is_playable_side());
         assert_eq!(usa.side, "USA");
 

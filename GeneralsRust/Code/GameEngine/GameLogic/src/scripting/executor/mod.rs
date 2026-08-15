@@ -76,7 +76,8 @@ static SCRIPT_TEMP_GROUP_ID: AtomicU32 = AtomicU32::new(1);
 /// available there. More importantly, host callbacks may synchronously enter
 /// script execution again, so the scoped engine access must end before the
 /// callback is invoked.
-fn current_script_action_handler() -> Option<Arc<dyn crate::scripting::engine::ScriptActionHandler>> {
+fn current_script_action_handler() -> Option<Arc<dyn crate::scripting::engine::ScriptActionHandler>>
+{
     with_script_engine_ref(|script_engine| script_engine.action_handler()).flatten()
 }
 
@@ -182,12 +183,10 @@ pub struct ScriptActionDispatcher {
     context: Arc<RwLock<ScriptContext>>,
 }
 
-
 impl ScriptActionDispatcher {
     pub fn new(context: Arc<RwLock<ScriptContext>>) -> Self {
         Self { context }
     }
-
 }
 
 /// Script condition evaluator
@@ -199,26 +198,24 @@ pub struct ScriptConditionEvaluator {
     context: Arc<RwLock<ScriptContext>>,
 }
 
-
 impl ScriptConditionEvaluator {
     pub fn new(context: Arc<RwLock<ScriptContext>>) -> Self {
         Self { context }
     }
-
 }
 
-mod dispatch;
-mod actions_victory_team;
-mod actions_player_display_camera;
-mod actions_team_build;
-mod actions_team_relations;
-mod actions_team_command;
+mod actions_attack_priority;
+mod actions_camera;
 mod actions_named;
 mod actions_player;
-mod actions_camera;
-mod actions_world;
-mod actions_attack_priority;
+mod actions_player_display_camera;
 mod actions_skirmish;
+mod actions_team_build;
+mod actions_team_command;
+mod actions_team_relations;
+mod actions_victory_team;
+mod actions_world;
+mod dispatch;
 mod eval_basic;
 mod eval_named;
 mod eval_skirmish;

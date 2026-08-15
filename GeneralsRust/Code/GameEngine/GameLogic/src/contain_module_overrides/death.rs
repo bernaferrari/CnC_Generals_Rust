@@ -1,16 +1,19 @@
 //! Die / slow-death module factories.
 //! Split from `contain_module_overrides.rs`. Factory names stay identical.
 
-use super::*;
-use super::helpers::*;
 use super::body::{parse_instant_death_behavior_data, parse_slow_death_behavior_data};
+use super::helpers::*;
+use super::*;
 
 pub(super) fn parse_die_data(ini: &mut INI, data: &mut DieModuleData) -> Result<(), String> {
     data.parse_from_ini(ini)
         .map_err(|err| format!("{} at line {}", err, ini.get_line_num()))
 }
 
-pub(super) fn parse_upgrade_die_data(ini: &mut INI, data: &mut UpgradeDieModuleData) -> Result<(), String> {
+pub(super) fn parse_upgrade_die_data(
+    ini: &mut INI,
+    data: &mut UpgradeDieModuleData,
+) -> Result<(), String> {
     data.parse_from_ini(ini)
         .map_err(|err| format!("{} at line {}", err, ini.get_line_num()))
 }
@@ -31,12 +34,18 @@ pub(super) fn parse_create_crate_die_data(
         .map_err(|err| format!("{} at line {}", err, ini.get_line_num()))
 }
 
-pub(super) fn parse_fx_list_die_data(ini: &mut INI, data: &mut FXListDieModuleData) -> Result<(), String> {
+pub(super) fn parse_fx_list_die_data(
+    ini: &mut INI,
+    data: &mut FXListDieModuleData,
+) -> Result<(), String> {
     data.parse_from_ini(ini)
         .map_err(|err| format!("{} at line {}", err, ini.get_line_num()))
 }
 
-pub(super) fn parse_crush_die_data(ini: &mut INI, data: &mut CrushDieModuleData) -> Result<(), String> {
+pub(super) fn parse_crush_die_data(
+    ini: &mut INI,
+    data: &mut CrushDieModuleData,
+) -> Result<(), String> {
     data.parse_from_ini(ini)
         .map_err(|err| format!("{} at line {}", err, ini.get_line_num()))
 }
@@ -226,7 +235,9 @@ die_factories!(
     parse_instant_death_behavior_data
 );
 
-pub(super) fn slow_death_behavior_module_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+pub(super) fn slow_death_behavior_module_data_factory(
+    ini: Option<&mut INI>,
+) -> Box<dyn ModuleData> {
     let mut data = SlowDeathBehaviorModuleData::new();
     if let Some(ini) = ini {
         if let Err(err) = parse_slow_death_behavior_data(ini, &mut data) {

@@ -8,9 +8,11 @@ use super::*;
 impl ScriptActionDispatcher {
     pub(crate) fn resolve_player_name_token(&self, raw: &str) -> String {
         match raw {
-            THE_PLAYER | THIS_PLAYER => with_script_engine_ref(|engine| engine.get_current_player_name())
-                .flatten()
-                .unwrap_or_else(|| raw.to_string()),
+            THE_PLAYER | THIS_PLAYER => {
+                with_script_engine_ref(|engine| engine.get_current_player_name())
+                    .flatten()
+                    .unwrap_or_else(|| raw.to_string())
+            }
             LOCAL_PLAYER => player_list()
                 .read()
                 .ok()
@@ -33,7 +35,7 @@ impl ScriptActionDispatcher {
                     .or_else(|| engine.get_calling_team_name())
             })
             .flatten()
-                .unwrap_or_else(|| raw.to_string()),
+            .unwrap_or_else(|| raw.to_string()),
             TEAM_THE_PLAYER => {
                 let current_player =
                     with_script_engine_ref(|engine| engine.get_current_player_name()).flatten();
@@ -62,7 +64,12 @@ impl ScriptActionDispatcher {
         }
     }
 
-    pub(crate) fn flash_object_by_id(&self, object_id: ObjectID, time_in_seconds: i32, color: Option<Color>) {
+    pub(crate) fn flash_object_by_id(
+        &self,
+        object_id: ObjectID,
+        time_in_seconds: i32,
+        color: Option<Color>,
+    ) {
         if time_in_seconds <= 0 {
             return;
         }
@@ -89,7 +96,12 @@ impl ScriptActionDispatcher {
         };
     }
 
-    pub(crate) fn emoticon_object_by_id(&self, object_id: ObjectID, emoticon: &str, duration_frames: i32) {
+    pub(crate) fn emoticon_object_by_id(
+        &self,
+        object_id: ObjectID,
+        emoticon: &str,
+        duration_frames: i32,
+    ) {
         if emoticon.is_empty() || duration_frames <= 0 {
             return;
         }
@@ -117,8 +129,12 @@ impl ScriptActionDispatcher {
         Some(template.get_name().to_string())
     }
 
-    pub(crate) fn with_named_special_power_module_mut<F>(&self, unit_name: &str, power_name: &str, func: F)
-    where
+    pub(crate) fn with_named_special_power_module_mut<F>(
+        &self,
+        unit_name: &str,
+        power_name: &str,
+        func: F,
+    ) where
         F: FnOnce(&mut dyn crate::modules::SpecialPowerModuleInterface),
     {
         let tracker = get_named_object_tracker();
@@ -992,28 +1008,44 @@ impl ScriptActionDispatcher {
     // HELPER METHODS FOR PARAMETER EXTRACTION
     // ============================================================================
 
-    pub(crate) fn get_string_param(&self, action: &ScriptAction, index: usize) -> Result<String, ScriptError> {
+    pub(crate) fn get_string_param(
+        &self,
+        action: &ScriptAction,
+        index: usize,
+    ) -> Result<String, ScriptError> {
         action
             .get_parameter(index)
             .ok_or_else(|| ScriptError::ParameterNotFound(format!("Parameter {} not found", index)))
             .map(|p| p.get_string().to_string())
     }
 
-    pub(crate) fn get_int_param(&self, action: &ScriptAction, index: usize) -> Result<i32, ScriptError> {
+    pub(crate) fn get_int_param(
+        &self,
+        action: &ScriptAction,
+        index: usize,
+    ) -> Result<i32, ScriptError> {
         action
             .get_parameter(index)
             .ok_or_else(|| ScriptError::ParameterNotFound(format!("Parameter {} not found", index)))
             .map(|p| p.get_int())
     }
 
-    pub(crate) fn get_real_param(&self, action: &ScriptAction, index: usize) -> Result<f32, ScriptError> {
+    pub(crate) fn get_real_param(
+        &self,
+        action: &ScriptAction,
+        index: usize,
+    ) -> Result<f32, ScriptError> {
         action
             .get_parameter(index)
             .ok_or_else(|| ScriptError::ParameterNotFound(format!("Parameter {} not found", index)))
             .map(|p| p.get_real())
     }
 
-    pub(crate) fn get_coord_param(&self, action: &ScriptAction, index: usize) -> Result<Coord3D, ScriptError> {
+    pub(crate) fn get_coord_param(
+        &self,
+        action: &ScriptAction,
+        index: usize,
+    ) -> Result<Coord3D, ScriptError> {
         action
             .get_parameter(index)
             .ok_or_else(|| ScriptError::ParameterNotFound(format!("Parameter {} not found", index)))
@@ -1023,7 +1055,11 @@ impl ScriptActionDispatcher {
             })
     }
 
-    pub(crate) fn get_bool_param_optional(&self, action: &ScriptAction, index: usize) -> Option<bool> {
+    pub(crate) fn get_bool_param_optional(
+        &self,
+        action: &ScriptAction,
+        index: usize,
+    ) -> Option<bool> {
         action.get_parameter(index).map(|p| p.get_int() != 0)
     }
 
@@ -1402,7 +1438,10 @@ impl ScriptActionDispatcher {
 
     /// Get waypoint position from terrain logic
     #[allow(dead_code)] // C++ parity: script engine helper, will be wired to script actions
-    pub(crate) fn get_waypoint_position(&self, waypoint_name: &str) -> Result<Coord3D, ScriptError> {
+    pub(crate) fn get_waypoint_position(
+        &self,
+        waypoint_name: &str,
+    ) -> Result<Coord3D, ScriptError> {
         let waypoint_name_ascii = AsciiString::from(waypoint_name);
         if let Ok(terrain) = get_terrain_logic().read() {
             if let Some(waypoint) = terrain.get_waypoint_by_name(&waypoint_name_ascii) {

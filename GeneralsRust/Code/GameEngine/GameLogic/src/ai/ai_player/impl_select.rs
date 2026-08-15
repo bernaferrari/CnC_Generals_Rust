@@ -788,7 +788,9 @@ impl AIPlayer {
         Ok(())
     }
 
-    pub(super) fn select_current_enemy_player(&self) -> Result<Option<(Arc<RwLock<Player>>, i32)>, AiError> {
+    pub(super) fn select_current_enemy_player(
+        &self,
+    ) -> Result<Option<(Arc<RwLock<Player>>, i32)>, AiError> {
         let Ok(list) = player_list().read() else {
             return Ok(None);
         };

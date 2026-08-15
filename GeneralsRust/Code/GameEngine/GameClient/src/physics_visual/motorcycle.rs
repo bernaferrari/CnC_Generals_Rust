@@ -1,8 +1,8 @@
 //! C++ `Drawable::calcPhysicsXformMotorcycle` (`Drawable.cpp:2190-2482`).
 
+use super::loco_state::PhysicsVisualLocoState;
 use super::rng::ClientVisualRng;
 use super::spring::{finish_accel_totals, ground_pitch_roll};
-use super::loco_state::PhysicsVisualLocoState;
 use super::types::{LocomotorVisualParams, PhysicsVisualBody};
 use super::wheels::apply_grounded_z;
 use super::wheels_suspension::{
@@ -29,8 +29,8 @@ pub fn calc_motorcycle(
         if params.has_suspension {
             apply_airborne_rear_extension_mirrored(loco, params, body);
         }
-        let pitch_height = body.major_radius
-            * (loco.pitch + loco.acceleration_pitch - ground_pitch).sin();
+        let pitch_height =
+            body.major_radius * (loco.pitch + loco.acceleration_pitch - ground_pitch).sin();
         info.total_z = pitch_height.abs() / 4.0;
         // C++ Drawable.cpp:2273 — `return` is commented out; fall through.
     }

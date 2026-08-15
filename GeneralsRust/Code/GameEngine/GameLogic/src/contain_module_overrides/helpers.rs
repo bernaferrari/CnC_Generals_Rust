@@ -61,7 +61,10 @@ impl Snapshotable for MissingOwnerModule {
     }
 }
 
-pub(super) fn missing_owner_module(module_name: &str, module_data: Arc<dyn ModuleData>) -> Box<dyn Module> {
+pub(super) fn missing_owner_module(
+    module_name: &str,
+    module_data: Arc<dyn ModuleData>,
+) -> Box<dyn Module> {
     warn!("Wave 449: {module_name} factory missing owner object; installing no-op module");
     Box::new(MissingOwnerModule::new(module_name, module_data))
 }
@@ -86,7 +89,10 @@ pub(super) fn owner_weak(owner_id: ObjectID) -> Weak<RwLock<crate::object::Objec
         .unwrap_or_else(Weak::new)
 }
 
-pub(super) fn attach_contain_to_object(object_id: ObjectID, contain: Arc<Mutex<dyn ContainModuleInterface>>) {
+pub(super) fn attach_contain_to_object(
+    object_id: ObjectID,
+    contain: Arc<Mutex<dyn ContainModuleInterface>>,
+) {
     if let Some(object) = TheGameLogic::find_object_by_id(object_id) {
         if let Ok(mut guard) = object.write() {
             guard.set_contain(Some(contain));
@@ -94,7 +100,10 @@ pub(super) fn attach_contain_to_object(object_id: ObjectID, contain: Arc<Mutex<d
     }
 }
 
-pub(super) fn attach_body_to_object(object_id: ObjectID, body: Arc<Mutex<dyn BodyModuleInterface>>) {
+pub(super) fn attach_body_to_object(
+    object_id: ObjectID,
+    body: Arc<Mutex<dyn BodyModuleInterface>>,
+) {
     if let Some(object) = TheGameLogic::find_object_by_id(object_id) {
         if let Ok(mut guard) = object.write() {
             guard.set_body_module(Some(body));
@@ -190,7 +199,10 @@ where
     ))
 }
 
-pub(super) fn cloned_module_data<TData>(module_name: &str, module_data: &Arc<dyn ModuleData>) -> Arc<TData>
+pub(super) fn cloned_module_data<TData>(
+    module_name: &str,
+    module_data: &Arc<dyn ModuleData>,
+) -> Arc<TData>
 where
     TData: ModuleData + Clone + 'static,
 {

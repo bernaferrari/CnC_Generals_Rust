@@ -1,25 +1,25 @@
 #![allow(deprecated, unused_imports, dead_code)]
 
-use super::*;
-use super::helpers::*;
-use super::follow_path_core::*;
-use super::types::*;
-use super::state_machine::*;
-use super::idle::*;
-use super::r#move::*;
-use super::follow_path::*;
-use super::wait_busy::*;
-use super::wander_panic::*;
-use super::face::*;
-use super::hack::*;
-use super::rappel::*;
 use super::attack::*;
 use super::attack_machine::*;
-use super::guard::*;
-use super::hunt::*;
+use super::dead::*;
 use super::dock::*;
 use super::enter::*;
-use super::dead::*;
+use super::face::*;
+use super::follow_path::*;
+use super::follow_path_core::*;
+use super::guard::*;
+use super::hack::*;
+use super::helpers::*;
+use super::hunt::*;
+use super::idle::*;
+use super::r#move::*;
+use super::rappel::*;
+use super::state_machine::*;
+use super::types::*;
+use super::wait_busy::*;
+use super::wander_panic::*;
+use super::*;
 
 use crate::action_manager::{CanEnterType, TheActionManager};
 use crate::ai::dock::AIDockMachine;
@@ -71,14 +71,12 @@ use crate::common::INVALID_ID;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock, Weak};
 
-
 /// Follow waypoint path as team
 #[derive(Debug)]
 pub struct AIFollowWaypointPathAsTeamState {
     pub(crate) base: State,
     pub(crate) core: FollowWaypointPathCore,
 }
-
 
 impl AIFollowWaypointPathAsTeamState {
     pub fn new(machine: &StateMachine) -> Self {
@@ -88,7 +86,6 @@ impl AIFollowWaypointPathAsTeamState {
         }
     }
 }
-
 
 impl StateImplementation for AIFollowWaypointPathAsTeamState {
     fn on_enter(&mut self) -> StateReturnType {
@@ -107,7 +104,6 @@ impl StateImplementation for AIFollowWaypointPathAsTeamState {
         Snapshotable::xfer(self, xfer)
     }
 }
-
 
 impl ClassicState for AIFollowWaypointPathAsTeamState {
     fn base_state(&self) -> &State {
@@ -425,7 +421,6 @@ impl ClassicState for AIFollowWaypointPathAsTeamState {
     }
 }
 
-
 /// Follow waypoint path exact as team (no pathfinding, follow waypoint links exactly).
 #[derive(Debug)]
 pub struct AIFollowWaypointPathAsTeamExactState {
@@ -433,7 +428,6 @@ pub struct AIFollowWaypointPathAsTeamExactState {
     pub(crate) move_as_group: bool,
     pub(crate) last_waypoint: Option<Arc<Waypoint>>,
 }
-
 
 impl AIFollowWaypointPathAsTeamExactState {
     pub fn new(machine: &StateMachine) -> Self {
@@ -444,7 +438,6 @@ impl AIFollowWaypointPathAsTeamExactState {
         }
     }
 }
-
 
 impl StateImplementation for AIFollowWaypointPathAsTeamExactState {
     fn on_enter(&mut self) -> StateReturnType {
@@ -463,7 +456,6 @@ impl StateImplementation for AIFollowWaypointPathAsTeamExactState {
         Snapshotable::xfer(self, xfer)
     }
 }
-
 
 impl ClassicState for AIFollowWaypointPathAsTeamExactState {
     fn base_state(&self) -> &State {
@@ -587,7 +579,6 @@ pub struct AIFollowWaypointPathAsIndividualsState {
     pub(crate) core: FollowWaypointPathCore,
 }
 
-
 impl AIFollowWaypointPathAsIndividualsState {
     pub fn new(machine: &StateMachine) -> Self {
         Self {
@@ -596,7 +587,6 @@ impl AIFollowWaypointPathAsIndividualsState {
         }
     }
 }
-
 
 impl StateImplementation for AIFollowWaypointPathAsIndividualsState {
     fn on_enter(&mut self) -> StateReturnType {
@@ -615,7 +605,6 @@ impl StateImplementation for AIFollowWaypointPathAsIndividualsState {
         Snapshotable::xfer(self, xfer)
     }
 }
-
 
 impl ClassicState for AIFollowWaypointPathAsIndividualsState {
     fn base_state(&self) -> &State {
@@ -814,7 +803,6 @@ impl ClassicState for AIFollowWaypointPathAsIndividualsState {
     }
 }
 
-
 /// Follow waypoint path exact as individuals (no pathfinding).
 #[derive(Debug)]
 pub struct AIFollowWaypointPathAsIndividualsExactState {
@@ -822,7 +810,6 @@ pub struct AIFollowWaypointPathAsIndividualsExactState {
     pub(crate) move_as_group: bool,
     pub(crate) last_waypoint: Option<Arc<Waypoint>>,
 }
-
 
 impl AIFollowWaypointPathAsIndividualsExactState {
     pub fn new(machine: &StateMachine) -> Self {
@@ -833,7 +820,6 @@ impl AIFollowWaypointPathAsIndividualsExactState {
         }
     }
 }
-
 
 impl StateImplementation for AIFollowWaypointPathAsIndividualsExactState {
     fn on_enter(&mut self) -> StateReturnType {
@@ -852,7 +838,6 @@ impl StateImplementation for AIFollowWaypointPathAsIndividualsExactState {
         Snapshotable::xfer(self, xfer)
     }
 }
-
 
 impl ClassicState for AIFollowWaypointPathAsIndividualsExactState {
     fn base_state(&self) -> &State {
@@ -951,7 +936,6 @@ impl ClassicState for AIFollowWaypointPathAsIndividualsExactState {
     }
 }
 
-
 impl Snapshotable for AIFollowWaypointPathAsTeamState {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
         let mut version: game_engine::common::system::xfer::XferVersion = 1;
@@ -974,7 +958,6 @@ impl Snapshotable for AIFollowWaypointPathAsTeamState {
     }
 }
 
-
 impl Snapshotable for AIFollowWaypointPathAsIndividualsState {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
         let mut version: game_engine::common::system::xfer::XferVersion = 1;
@@ -996,7 +979,6 @@ impl Snapshotable for AIFollowWaypointPathAsIndividualsState {
         Ok(())
     }
 }
-
 
 impl Snapshotable for AIFollowWaypointPathAsTeamExactState {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
@@ -1042,7 +1024,6 @@ impl Snapshotable for AIFollowWaypointPathAsTeamExactState {
         Ok(())
     }
 }
-
 
 impl Snapshotable for AIFollowWaypointPathAsIndividualsExactState {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {

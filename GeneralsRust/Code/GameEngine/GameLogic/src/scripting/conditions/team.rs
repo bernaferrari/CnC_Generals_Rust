@@ -3,8 +3,7 @@
 use super::helpers::{
     compare_f64, compare_i64, dual_world_registry_unavailable, event_type_from_name,
     get_player_arc, get_str_param, get_str_param_optional, lookup_named_object_id,
-    parse_nested_condition, parse_object_status_mask, perform_comparison,
-    with_script_engine_mut,
+    parse_nested_condition, parse_object_status_mask, perform_comparison, with_script_engine_mut,
 };
 use super::{ConditionRegistry, ScriptCondition, ScriptContext, ScriptValue};
 use crate::common::{Coord3D, KindOf, Relationship, LOGICFRAMES_PER_SECOND};
@@ -25,10 +24,8 @@ use game_engine::common::rts::{get_science_store, SCIENCE_INVALID};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
-
 /// Team All Units Destroyed - All units in team are dead
 pub(super) struct TeamAllUnitsDestroyedCondition;
-
 
 #[async_trait]
 impl ScriptCondition for TeamAllUnitsDestroyedCondition {
@@ -91,10 +88,8 @@ impl ScriptCondition for TeamAllUnitsDestroyedCondition {
     }
 }
 
-
 /// Units In Formation - Team members are grouped
 pub(super) struct UnitsInFormationCondition;
-
 
 #[async_trait]
 impl ScriptCondition for UnitsInFormationCondition {
@@ -105,7 +100,8 @@ impl ScriptCondition for UnitsInFormationCondition {
     ) -> GameLogicResult<bool> {
         let team_name = crate::scripting::actions::get_string_param(parameters, "team_name")?;
         let max_distance =
-            crate::scripting::actions::get_float_param_optional(parameters, "max_distance").unwrap_or(50.0);
+            crate::scripting::actions::get_float_param_optional(parameters, "max_distance")
+                .unwrap_or(50.0);
 
         log::debug!(
             "Checking if team '{}' is in formation (max distance: {})",
@@ -181,12 +177,10 @@ impl ScriptCondition for UnitsInFormationCondition {
     }
 }
 
-
 //-------------------------------------------------------------------------------------------------
 // TEAM_DESTROYED - evaluateIsDestroyed
 //-------------------------------------------------------------------------------------------------
 pub(super) struct TeamDestroyedCondition;
-
 
 #[async_trait]
 impl ScriptCondition for TeamDestroyedCondition {
@@ -233,12 +227,10 @@ impl ScriptCondition for TeamDestroyedCondition {
     }
 }
 
-
 //-------------------------------------------------------------------------------------------------
 // TEAM_HAS_UNITS - evaluateHasUnits
 //-------------------------------------------------------------------------------------------------
 pub(super) struct TeamHasUnitsCondition;
-
 
 #[async_trait]
 impl ScriptCondition for TeamHasUnitsCondition {
@@ -296,12 +288,10 @@ impl ScriptCondition for TeamHasUnitsCondition {
     }
 }
 
-
 //-------------------------------------------------------------------------------------------------
 // TEAM_STATE_IS - evaluateTeamStateIs
 //-------------------------------------------------------------------------------------------------
 pub(super) struct TeamStateIsCondition;
-
 
 #[async_trait]
 impl ScriptCondition for TeamStateIsCondition {
@@ -350,12 +340,10 @@ impl ScriptCondition for TeamStateIsCondition {
     }
 }
 
-
 //-------------------------------------------------------------------------------------------------
 // TEAM_STATE_IS_NOT - evaluateTeamStateIsNot
 //-------------------------------------------------------------------------------------------------
 pub(super) struct TeamStateIsNotCondition;
-
 
 #[async_trait]
 impl ScriptCondition for TeamStateIsNotCondition {
@@ -384,12 +372,10 @@ impl ScriptCondition for TeamStateIsNotCondition {
     }
 }
 
-
 //-------------------------------------------------------------------------------------------------
 // TEAM_OWNED_BY_PLAYER - evaluateTeamOwnedByPlayer
 //-------------------------------------------------------------------------------------------------
 pub(super) struct TeamOwnedByPlayerCondition;
-
 
 #[async_trait]
 impl ScriptCondition for TeamOwnedByPlayerCondition {
@@ -446,13 +432,11 @@ impl ScriptCondition for TeamOwnedByPlayerCondition {
     }
 }
 
-
 //-------------------------------------------------------------------------------------------------
 // TEAM_DISCOVERED - evaluateTeamDiscovered
 // Returns true if any member of the team is visible to the specified player.
 //-------------------------------------------------------------------------------------------------
 pub(super) struct TeamDiscoveredCondition;
-
 
 #[async_trait]
 impl ScriptCondition for TeamDiscoveredCondition {
@@ -525,12 +509,10 @@ impl ScriptCondition for TeamDiscoveredCondition {
     }
 }
 
-
 //-------------------------------------------------------------------------------------------------
 // TEAM_CREATED - evaluateTeamCreated
 //-------------------------------------------------------------------------------------------------
 pub(super) struct TeamCreatedCondition;
-
 
 #[async_trait]
 impl ScriptCondition for TeamCreatedCondition {
@@ -577,12 +559,10 @@ impl ScriptCondition for TeamCreatedCondition {
     }
 }
 
-
 //-------------------------------------------------------------------------------------------------
 // TEAM_INSIDE_AREA_PARTIALLY - evaluateTeamInsideAreaPartially
 //-------------------------------------------------------------------------------------------------
 pub(super) struct TeamInsideAreaPartiallyCondition;
-
 
 #[async_trait]
 impl ScriptCondition for TeamInsideAreaPartiallyCondition {
@@ -644,12 +624,10 @@ impl ScriptCondition for TeamInsideAreaPartiallyCondition {
     }
 }
 
-
 //-------------------------------------------------------------------------------------------------
 // TEAM_INSIDE_AREA_ENTIRELY - evaluateTeamInsideAreaEntirely
 //-------------------------------------------------------------------------------------------------
 pub(super) struct TeamInsideAreaEntirelyCondition;
-
 
 #[async_trait]
 impl ScriptCondition for TeamInsideAreaEntirelyCondition {
@@ -712,12 +690,10 @@ impl ScriptCondition for TeamInsideAreaEntirelyCondition {
     }
 }
 
-
 //-------------------------------------------------------------------------------------------------
 // TEAM_OUTSIDE_AREA_ENTIRELY - evaluateTeamOutsideAreaEntirely
 //-------------------------------------------------------------------------------------------------
 pub(super) struct TeamOutsideAreaEntirelyCondition;
-
 
 #[async_trait]
 impl ScriptCondition for TeamOutsideAreaEntirelyCondition {
@@ -750,12 +726,10 @@ impl ScriptCondition for TeamOutsideAreaEntirelyCondition {
     }
 }
 
-
 //-------------------------------------------------------------------------------------------------
 // TEAM_ALL_HAS_OBJECT_STATUS - evaluateTeamHasObjectStatus(entireTeam=true)
 //-------------------------------------------------------------------------------------------------
 pub(super) struct TeamAllHasObjectStatusCondition;
-
 
 #[async_trait]
 impl ScriptCondition for TeamAllHasObjectStatusCondition {
@@ -820,12 +794,10 @@ impl ScriptCondition for TeamAllHasObjectStatusCondition {
     }
 }
 
-
 //-------------------------------------------------------------------------------------------------
 // TEAM_SOME_HAS_OBJECT_STATUS - evaluateTeamHasObjectStatus(entireTeam=false)
 //-------------------------------------------------------------------------------------------------
 pub(super) struct TeamSomeHasObjectStatusCondition;
-
 
 #[async_trait]
 impl ScriptCondition for TeamSomeHasObjectStatusCondition {
@@ -889,12 +861,10 @@ impl ScriptCondition for TeamSomeHasObjectStatusCondition {
     }
 }
 
-
 //-------------------------------------------------------------------------------------------------
 // TEAM_ENTERED_AREA_ENTIRELY - evaluateTeamEnteredAreaEntirely
 //-------------------------------------------------------------------------------------------------
 pub(super) struct TeamEnteredAreaEntirelyCondition;
-
 
 #[async_trait]
 impl ScriptCondition for TeamEnteredAreaEntirelyCondition {
@@ -957,12 +927,10 @@ impl ScriptCondition for TeamEnteredAreaEntirelyCondition {
     }
 }
 
-
 //-------------------------------------------------------------------------------------------------
 // TEAM_ENTERED_AREA_PARTIALLY - evaluateTeamEnteredAreaPartially
 //-------------------------------------------------------------------------------------------------
 pub(super) struct TeamEnteredAreaPartiallyCondition;
-
 
 #[async_trait]
 impl ScriptCondition for TeamEnteredAreaPartiallyCondition {
@@ -1020,12 +988,10 @@ impl ScriptCondition for TeamEnteredAreaPartiallyCondition {
     }
 }
 
-
 //-------------------------------------------------------------------------------------------------
 // TEAM_EXITED_AREA_ENTIRELY - evaluateTeamExitedAreaEntirely
 //-------------------------------------------------------------------------------------------------
 pub(super) struct TeamExitedAreaEntirelyCondition;
-
 
 #[async_trait]
 impl ScriptCondition for TeamExitedAreaEntirelyCondition {
@@ -1058,12 +1024,10 @@ impl ScriptCondition for TeamExitedAreaEntirelyCondition {
     }
 }
 
-
 //-------------------------------------------------------------------------------------------------
 // TEAM_EXITED_AREA_PARTIALLY - evaluateTeamExitedAreaPartially
 //-------------------------------------------------------------------------------------------------
 pub(super) struct TeamExitedAreaPartiallyCondition;
-
 
 #[async_trait]
 impl ScriptCondition for TeamExitedAreaPartiallyCondition {

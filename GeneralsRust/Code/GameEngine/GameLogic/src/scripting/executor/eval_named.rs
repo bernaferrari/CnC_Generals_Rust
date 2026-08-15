@@ -6,7 +6,6 @@
 use super::*;
 
 impl ScriptConditionEvaluator {
-
     // ============================================================================
     // NAMED OBJECT CONDITION HANDLERS
     // ============================================================================
@@ -29,11 +28,8 @@ impl ScriptConditionEvaluator {
             // Match named.rs: existence is not inside-area. Missing host AABB
             // is False (do not fall through to NamedObjectTracker).
             return Ok(
-                if crate::scripting::host_script_named_unit_in_named_area(
-                    &object_name,
-                    &area_name,
-                )
-                .unwrap_or(false)
+                if crate::scripting::host_script_named_unit_in_named_area(&object_name, &area_name)
+                    .unwrap_or(false)
                 {
                     ScriptConditionResult::True
                 } else {

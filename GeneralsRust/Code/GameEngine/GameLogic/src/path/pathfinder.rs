@@ -967,10 +967,7 @@ mod tests {
             .find_path(0, &crusher, &from, &to)
             .expect("crusher must path through a fence wall");
         let nodes = path_nodes(&pf, handle);
-        assert!(
-            !nodes.is_empty(),
-            "crusher fence path must contain nodes"
-        );
+        assert!(!nodes.is_empty(), "crusher fence path must contain nodes");
         assert_eq!(world_to_grid(&nodes[0]), start);
         assert_eq!(world_to_grid(nodes.last().unwrap()), goal);
         assert!(

@@ -38,6 +38,7 @@ mod deferred_destroy;
 mod continue_attack;
 mod economy_construction;
 mod entity_channels;
+mod entity_modules;
 mod factory_contain_commands;
 mod fire_damage;
 mod host_log_combat;

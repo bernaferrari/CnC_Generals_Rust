@@ -1,25 +1,25 @@
 #![allow(deprecated, unused_imports, dead_code)]
 
-use super::*;
-use super::helpers::*;
-use super::follow_path_core::*;
-use super::types::*;
-use super::state_machine::*;
-use super::idle::*;
-use super::r#move::*;
-use super::follow_path::*;
-use super::wait_busy::*;
-use super::wander_panic::*;
-use super::face::*;
-use super::hack::*;
-use super::rappel::*;
-use super::waypoint::*;
 use super::attack::*;
 use super::attack_machine::*;
-use super::guard::*;
-use super::hunt::*;
 use super::dock::*;
 use super::enter::*;
+use super::face::*;
+use super::follow_path::*;
+use super::follow_path_core::*;
+use super::guard::*;
+use super::hack::*;
+use super::helpers::*;
+use super::hunt::*;
+use super::idle::*;
+use super::r#move::*;
+use super::rappel::*;
+use super::state_machine::*;
+use super::types::*;
+use super::wait_busy::*;
+use super::wander_panic::*;
+use super::waypoint::*;
+use super::*;
 
 use crate::action_manager::{CanEnterType, TheActionManager};
 use crate::ai::dock::AIDockMachine;
@@ -71,13 +71,11 @@ use crate::common::INVALID_ID;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock, Weak};
 
-
 /// Dead state - unit is dead
 #[derive(Debug)]
 pub struct AIDeadState {
     pub(crate) base: State,
 }
-
 
 impl AIDeadState {
     pub fn new(machine: &StateMachine) -> Self {
@@ -86,7 +84,6 @@ impl AIDeadState {
         }
     }
 }
-
 
 impl StateImplementation for AIDeadState {
     fn on_enter(&mut self) -> StateReturnType {
@@ -101,7 +98,6 @@ impl StateImplementation for AIDeadState {
         let _ = self.classic_on_exit(_status);
     }
 }
-
 
 impl ClassicState for AIDeadState {
     fn base_state(&self) -> &State {
@@ -176,7 +172,6 @@ impl ClassicState for AIDeadState {
     }
 }
 
-
 // ---------------------------------------------------------------------------
 // Container enemy detection helpers
 // Matches C++ AIStates.cpp:findEnemyInContainer() (lines 391-412)
@@ -220,11 +215,14 @@ pub(crate) fn find_enemy_in_container(killer: &Object, building: &Object) -> Opt
     None
 }
 
-
 /// Kill enemies inside a container, up to max_to_kill.
 /// Returns the number of enemies killed.
 /// C++ Reference: AIStates.cpp:415 killEnemiesInContainer()
-pub(crate) fn kill_enemies_in_container(killer_id: ObjectID, building: &Object, max_to_kill: i32) -> i32 {
+pub(crate) fn kill_enemies_in_container(
+    killer_id: ObjectID,
+    building: &Object,
+    max_to_kill: i32,
+) -> i32 {
     // Wave 257: empty dual-world → zero.
     if dual_world_registry_unavailable() {
         return 0;

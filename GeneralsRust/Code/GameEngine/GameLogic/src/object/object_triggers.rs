@@ -8,7 +8,6 @@ use super::object_impl_imports::*;
 use super::*;
 
 impl Object {
-
     /// Get unit direction vector in 2D (x, y) based on the object's facing angle.
     /// Returns (cos(angle), sin(angle)) representing the forward direction.
     /// C++ Reference: Object::getUnitDirectionVector2D
@@ -217,7 +216,7 @@ impl Object {
     ///
     /// C++ Object::calculateHeightAboveTerrain uses `TheTerrainLogic->getLayerHeight`.
     /// Missing terrain (unit tests) stubs ground height as 0.
-    pub(in super) fn ground_height_for_above_terrain(&self) -> Real {
+    pub(super) fn ground_height_for_above_terrain(&self) -> Real {
         let pos = self.get_position();
         if let Some(terrain) = crate::helpers::TheTerrainLogic::get() {
             terrain.get_layer_height(pos.x, pos.y, self.layer)
@@ -280,7 +279,7 @@ impl Object {
     /// - Updates pathfinding position
     /// - Checks for exited/entered trigger areas
     /// - Updates integer position tracking for efficient trigger checks
-    pub(in super) fn set_trigger_area_flags_for_change_in_position(&mut self) {
+    pub(super) fn set_trigger_area_flags_for_change_in_position(&mut self) {
         // projectiles cannot trigger areas. (jkmcd)
         // neither can inert objects, like the radar ping, etc. (jkmcd)
         if self.is_kind_of(KindOf::Projectile) || self.is_kind_of(KindOf::Inert) {
@@ -343,7 +342,7 @@ impl Object {
 
     /// Update trigger area flags, clearing entered/exited markers.
     /// C++ Reference: Object.cpp lines 2351-2365
-    pub(in super) fn update_trigger_area_flags(&mut self) {
+    pub(super) fn update_trigger_area_flags(&mut self) {
         let mut j = 0;
         for i in 0..(self.num_trigger_areas_active as usize) {
             if !self.trigger_info[i].is_inside {
@@ -427,7 +426,7 @@ impl Object {
         false
     }
 
-    pub(in super) fn collision_geometry_from_bounds(
+    pub(super) fn collision_geometry_from_bounds(
         info: &crate::common::GeometryInfo,
         template_type: Option<game_engine::system::geometry::GeometryType>,
     ) -> crate::object::collide::collision_geometry::GeometryInfo {
@@ -547,7 +546,7 @@ impl Object {
 
     /// Best-effort C++ Pathfinder::removePos / updatePos around a layer change.
     /// No-ops when AI/pathfinder is not constructed (unit tests, early boot).
-    pub(in super) fn sync_pathfinder_pos(&self, remove_only: bool) {
+    pub(super) fn sync_pathfinder_pos(&self, remove_only: bool) {
         let Ok(ai_guard) = crate::ai::THE_AI.read() else {
             return;
         };

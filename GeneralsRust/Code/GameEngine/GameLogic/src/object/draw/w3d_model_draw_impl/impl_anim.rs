@@ -537,7 +537,7 @@ impl W3DModelDraw {
         // TREADSL/TREADSR mesh sub-objects. Other draw modules (truck, etc.)
         // do similar UV scrolling on moving parts.
         let mesh_uv_overrides = self.collect_mesh_uv_overrides();
-        let sub_object_visibility = self
+        let sub_object_visibility: Vec<SubObjectVisibilityState> = self
             .sub_object_vec
             .iter()
             .map(|entry| SubObjectVisibilityState {
@@ -545,6 +545,20 @@ impl W3DModelDraw {
                 hidden: entry.hide,
             })
             .collect();
+
+        // C++ W3DGhostObject.cpp:113-120 Peek/Set_Animation freeze happens on
+        // the live HLOD at snapshot time. The optional renderer hook walks the
+        // cached instance; headless / unregistered hooks stay fail-closed.
+        if let Some(states) = try_capture_hlod_live_child_states(&HlodLiveChildCaptureRequest {
+            object_id: owner_id,
+            model_name: &model_name,
+            bone_overrides: &bone_overrides,
+            sub_object_visibility: &sub_object_visibility,
+            animation_name: anim_name.as_deref(),
+            animation_time: anim_time,
+        }) {
+            publish_hlod_live_child_states(owner_id, states);
+        }
 
         // Keep the authored source bases, not resolved local bone indices.
         // Renderer-local indices are nonportable across a save/load or asset

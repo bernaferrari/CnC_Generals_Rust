@@ -839,5 +839,4 @@ impl PathfindingSystem {
             }
         }
     }
-
 }

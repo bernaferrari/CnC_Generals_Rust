@@ -1,25 +1,25 @@
 #![allow(deprecated, unused_imports, dead_code)]
 
-use super::*;
-use super::helpers::*;
-use super::follow_path_core::*;
-use super::types::*;
-use super::state_machine::*;
-use super::idle::*;
-use super::r#move::*;
-use super::follow_path::*;
-use super::wait_busy::*;
-use super::wander_panic::*;
-use super::face::*;
-use super::hack::*;
-use super::rappel::*;
-use super::waypoint::*;
 use super::attack::*;
 use super::attack_machine::*;
-use super::hunt::*;
+use super::dead::*;
 use super::dock::*;
 use super::enter::*;
-use super::dead::*;
+use super::face::*;
+use super::follow_path::*;
+use super::follow_path_core::*;
+use super::hack::*;
+use super::helpers::*;
+use super::hunt::*;
+use super::idle::*;
+use super::r#move::*;
+use super::rappel::*;
+use super::state_machine::*;
+use super::types::*;
+use super::wait_busy::*;
+use super::wander_panic::*;
+use super::waypoint::*;
+use super::*;
 
 use crate::action_manager::{CanEnterType, TheActionManager};
 use crate::ai::dock::AIDockMachine;
@@ -71,14 +71,12 @@ use crate::common::INVALID_ID;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock, Weak};
 
-
 /// Guard state
 #[derive(Debug)]
 pub struct AIGuardState {
     pub(crate) base: State,
     pub(crate) guard_machine: Option<AIGuardMachine>,
 }
-
 
 impl AIGuardState {
     pub fn new(machine: &StateMachine) -> Self {
@@ -88,7 +86,6 @@ impl AIGuardState {
         }
     }
 }
-
 
 impl StateImplementation for AIGuardState {
     fn on_enter(&mut self) -> StateReturnType {
@@ -107,7 +104,6 @@ impl StateImplementation for AIGuardState {
         Snapshotable::xfer(self, xfer)
     }
 }
-
 
 impl ClassicState for AIGuardState {
     fn base_state(&self) -> &State {
@@ -207,14 +203,12 @@ impl ClassicState for AIGuardState {
     }
 }
 
-
 /// Guard retaliate state
 #[derive(Debug)]
 pub struct AIGuardRetaliateState {
     pub(crate) base: State,
     pub(crate) guard_machine: Option<AIGuardRetaliateMachine>,
 }
-
 
 impl AIGuardRetaliateState {
     pub fn new(machine: &StateMachine) -> Self {
@@ -224,7 +218,6 @@ impl AIGuardRetaliateState {
         }
     }
 }
-
 
 impl StateImplementation for AIGuardRetaliateState {
     fn on_enter(&mut self) -> StateReturnType {
@@ -243,7 +236,6 @@ impl StateImplementation for AIGuardRetaliateState {
         Snapshotable::xfer(self, xfer)
     }
 }
-
 
 impl ClassicState for AIGuardRetaliateState {
     fn base_state(&self) -> &State {
@@ -314,14 +306,12 @@ impl ClassicState for AIGuardRetaliateState {
     }
 }
 
-
 /// Tunnel network guard state
 #[derive(Debug)]
 pub struct AITunnelNetworkGuardState {
     pub(crate) base: State,
     pub(crate) guard_machine: Option<AITNGuardMachine>,
 }
-
 
 impl AITunnelNetworkGuardState {
     pub fn new(machine: &StateMachine) -> Self {
@@ -331,7 +321,6 @@ impl AITunnelNetworkGuardState {
         }
     }
 }
-
 
 impl StateImplementation for AITunnelNetworkGuardState {
     fn on_enter(&mut self) -> StateReturnType {
@@ -350,7 +339,6 @@ impl StateImplementation for AITunnelNetworkGuardState {
         Snapshotable::xfer(self, xfer)
     }
 }
-
 
 impl ClassicState for AITunnelNetworkGuardState {
     fn base_state(&self) -> &State {
@@ -422,7 +410,6 @@ impl ClassicState for AITunnelNetworkGuardState {
     }
 }
 
-
 impl Snapshotable for AIGuardState {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
         let mut version: game_engine::common::system::xfer::XferVersion = 1;
@@ -472,7 +459,6 @@ impl Snapshotable for AIGuardState {
     }
 }
 
-
 impl Snapshotable for AIGuardRetaliateState {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
         let mut version: game_engine::common::system::xfer::XferVersion = 1;
@@ -521,7 +507,6 @@ impl Snapshotable for AIGuardRetaliateState {
         Ok(())
     }
 }
-
 
 impl Snapshotable for AITunnelNetworkGuardState {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {

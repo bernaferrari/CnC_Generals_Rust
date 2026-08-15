@@ -250,7 +250,10 @@ impl Player {
         }
     }
 
-    pub(super) fn lookup_production_change(map: &HashMap<NameKeyType, Real>, template_name: &str) -> Real {
+    pub(super) fn lookup_production_change(
+        map: &HashMap<NameKeyType, Real>,
+        template_name: &str,
+    ) -> Real {
         let key = NameKeyGenerator::name_to_key(template_name);
         map.get(&key).copied().unwrap_or(0.0)
     }

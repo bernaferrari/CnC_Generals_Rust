@@ -162,8 +162,7 @@ impl CaveSystem {
             for _ in 0..count {
                 let mut tracker = TunnelTracker::new();
                 tracker.xfer_game_logic(xfer)?;
-                self.trackers
-                    .push(Some(Arc::new(RwLock::new(tracker))));
+                self.trackers.push(Some(Arc::new(RwLock::new(tracker))));
             }
         }
         Ok(())

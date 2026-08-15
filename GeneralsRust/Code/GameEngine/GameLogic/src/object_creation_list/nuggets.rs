@@ -26,9 +26,7 @@ use crate::helpers::{
 use crate::modules::{
     BodyModuleInterfaceExt, ContainModuleInterfaceExt, PhysicsBehavior, PhysicsBehaviorExt,
 };
-use crate::object::drawable::{
-    apply_debris_draw, DebrisDrawAnims, DrawableArcExt, DrawableExt,
-};
+use crate::object::drawable::{apply_debris_draw, DebrisDrawAnims, DrawableArcExt, DrawableExt};
 use crate::object::Object;
 use crate::weapon::WeaponTemplate;
 use std::any::Any;
@@ -891,11 +889,7 @@ impl GenericObjectCreationNugget {
     }
 
     /// C++ ObjectCreationList.cpp:1387-1401
-    fn apply_fade_to_object(
-        &self,
-        debris: &Arc<RwLock<Object>>,
-        source_obj: Option<&Object>,
-    ) {
+    fn apply_fade_to_object(&self, debris: &Arc<RwLock<Object>>, source_obj: Option<&Object>) {
         if self.fade_in {
             play_ocl_fade_sound(&self.fade_sound_name, source_obj);
             if let Ok(debris_guard) = debris.read() {
@@ -1129,11 +1123,11 @@ fn apply_dies_on_bad_land(
     let mut water_z = 0.0;
     let mut terrain_z = 0.0;
 
-    let flooded = ctx
-        .terrain_logic
-        .is_underwater(rider_pos.x, rider_pos.y, &mut water_z, &mut terrain_z)
-        && rider_pos.z <= water_z + 10.0
-        && layer == PathfindLayerEnum::Ground;
+    let flooded =
+        ctx.terrain_logic
+            .is_underwater(rider_pos.x, rider_pos.y, &mut water_z, &mut terrain_z)
+            && rider_pos.z <= water_z + 10.0
+            && layer == PathfindLayerEnum::Ground;
 
     let cell_type = pathfind_cell_type_at(&rider_pos, layer);
     let off_map = obj_read.is_off_map();
@@ -1244,9 +1238,7 @@ mod tests {
     use crate::object_creation_list::store::{
         get_object_creation_list_store, load_object_creation_lists_from_str,
     };
-    use crate::object_creation_list::{
-        GameLogicContext, TerrainLogicContext, ThingFactoryContext,
-    };
+    use crate::object_creation_list::{GameLogicContext, TerrainLogicContext, ThingFactoryContext};
     use crate::player::{Player, PlayerType, ThePlayerList};
     use crate::team::Team;
     use std::sync::atomic::{AtomicU32, Ordering};
@@ -1446,12 +1438,8 @@ mod tests {
                 }))));
             }
             if self.options.attach_drawable || self.options.attach_debris_draw {
-                let mut drawable = Drawable::new(
-                    id,
-                    id,
-                    "TestModel".to_string(),
-                    DrawableType::Static,
-                );
+                let mut drawable =
+                    Drawable::new(id, id, "TestModel".to_string(), DrawableType::Static);
                 if self.options.attach_debris_draw {
                     drawable.attach_w3d_debris_draw();
                 }
@@ -1467,8 +1455,8 @@ mod tests {
             if self.options.attach_float {
                 let data: Arc<dyn crate::common::ModuleData> =
                     Arc::new(FloatUpdateModuleData::default());
-                let float_update = FloatUpdate::new(Arc::clone(&arc), data)
-                    .expect("FloatUpdate::new");
+                let float_update =
+                    FloatUpdate::new(Arc::clone(&arc), data).expect("FloatUpdate::new");
                 arc.write()
                     .unwrap()
                     .push_behavior_module_for_test(Arc::new(Mutex::new(float_update)));
@@ -1476,8 +1464,8 @@ mod tests {
             if self.options.attach_lifetime {
                 let data: Arc<dyn crate::common::ModuleData> =
                     Arc::new(LifetimeUpdateModuleData::default());
-                let lifetime = LifetimeUpdate::new(Arc::clone(&arc), data)
-                    .expect("LifetimeUpdate::new");
+                let lifetime =
+                    LifetimeUpdate::new(Arc::clone(&arc), data).expect("LifetimeUpdate::new");
                 arc.write()
                     .unwrap()
                     .push_behavior_module_for_test(Arc::new(Mutex::new(lifetime)));
@@ -1713,7 +1701,10 @@ mod tests {
         let nugget = object_nugget("AmericaInfantryRanger");
         let pos = Coord3D::new(10.0, 20.0, 0.0);
         let created = nugget.create_with_angle(&ctx, None, &pos, &pos, 0.0, 0);
-        assert!(created.is_some(), "C++ still creates via Neutral default team");
+        assert!(
+            created.is_some(),
+            "C++ still creates via Neutral default team"
+        );
         assert_eq!(factory.created.lock().unwrap().len(), 1);
     }
 
@@ -1839,7 +1830,10 @@ mod tests {
         let created = nugget
             .create_with_angle(&ctx, Some(&source), &pos, &pos, 0.0, 0)
             .expect("created layered object");
-        assert_eq!(created.read().unwrap().get_layer(), PathfindLayerEnum::Bridge1);
+        assert_eq!(
+            created.read().unwrap().get_layer(),
+            PathfindLayerEnum::Bridge1
+        );
     }
 
     #[test]
@@ -1852,7 +1846,10 @@ mod tests {
         nugget.particle_sys_name = "OclDummyNoSuchParticleTemplate".to_string();
         let pos = Coord3D::new(0.0, 0.0, 0.0);
         let created = nugget.create_with_angle(&ctx, None, &pos, &pos, 0.0, 0);
-        assert!(created.is_some(), "object create must succeed without particle template");
+        assert!(
+            created.is_some(),
+            "object create must succeed without particle template"
+        );
     }
 
     #[test]
@@ -1980,7 +1977,10 @@ End
             .expect("water path must attempt_damage, not skip");
         assert_eq!(last.input.damage_type, crate::damage::DamageType::Water);
         assert_eq!(last.input.death_type, crate::damage::DeathType::Flooded);
-        assert_eq!(obj.get_last_death_type(), Some(crate::damage::DeathType::Flooded));
+        assert_eq!(
+            obj.get_last_death_type(),
+            Some(crate::damage::DeathType::Flooded)
+        );
     }
 
     #[test]
@@ -2113,7 +2113,9 @@ End
             .create_with_angle(&ctx, None, &pos, &pos, 0.0, 0)
             .expect("created structure");
         assert_eq!(
-            terrain.flatten_count.load(std::sync::atomic::Ordering::SeqCst),
+            terrain
+                .flatten_count
+                .load(std::sync::atomic::Ordering::SeqCst),
             1,
             "LIKE_EXISTING KINDOF_STRUCTURE must flatten terrain"
         );

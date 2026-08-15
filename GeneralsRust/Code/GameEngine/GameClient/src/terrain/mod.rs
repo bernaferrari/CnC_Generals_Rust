@@ -74,9 +74,7 @@ use game_engine::common::ini::ini_terrain::TerrainError as IniTerrainError;
 // Re-export main types for convenience
 pub use chunk::{ChunkId, TerrainChunk};
 pub use collision::TerrainCollision;
-pub use height_map::{
-    ExtraAlphaUvData, ExtraBlendDrawMesh, ExtraBlendDrawVertex, HeightMap,
-};
+pub use height_map::{ExtraAlphaUvData, ExtraBlendDrawMesh, ExtraBlendDrawVertex, HeightMap};
 pub use manager::TerrainManager;
 pub use roads::{Road, RoadSystem, RoadType};
 pub use scorch_mesh::{

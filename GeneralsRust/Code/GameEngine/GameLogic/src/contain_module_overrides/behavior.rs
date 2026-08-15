@@ -1,8 +1,8 @@
 //! Behavior-module data/module factory functions.
 //! Split from `contain_module_overrides.rs`. Factory names stay identical.
 
-use super::*;
 use super::helpers::*;
+use super::*;
 
 active_behavior_factories!(
     bunker_buster_behavior_data_factory,
@@ -160,7 +160,9 @@ active_behavior_factories!(
     "LeafletDropBehavior"
 );
 
-pub(super) fn missile_launcher_building_update_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+pub(super) fn missile_launcher_building_update_data_factory(
+    ini: Option<&mut INI>,
+) -> Box<dyn ModuleData> {
     let mut data = MissileLauncherBuildingUpdateModuleData::default();
     if let Some(ini) = ini {
         if let Err(err) = data.parse_from_ini(ini) {

@@ -473,4 +473,3 @@ pub(super) struct KindOfPercentProductionChange {
     pub(super) percent: Real,
     pub(super) refs: u32,
 }
-

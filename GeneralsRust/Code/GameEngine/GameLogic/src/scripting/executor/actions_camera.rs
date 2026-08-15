@@ -65,7 +65,9 @@ impl ScriptActionDispatcher {
         );
 
         if let Some(handler) = current_script_action_handler() {
-            if let Err(err) = handler.rotate_camera(rotations, seconds, ease_in_seconds, ease_out_seconds) {
+            if let Err(err) =
+                handler.rotate_camera(rotations, seconds, ease_in_seconds, ease_out_seconds)
+            {
                 log::warn!("Script action handler rotate_camera failed: {}", err);
             }
         }
@@ -183,8 +185,7 @@ impl ScriptActionDispatcher {
 
         if let Some(handler) = current_script_action_handler() {
             if let Err(err) = handler.setup_camera(
-                position.x, position.y, position.z, zoom, pitch, look_at.x, look_at.y,
-                look_at.z,
+                position.x, position.y, position.z, zoom, pitch, look_at.x, look_at.y, look_at.z,
             ) {
                 log::warn!("Script action handler setup_camera failed: {}", err);
             }
@@ -220,7 +221,10 @@ impl ScriptActionDispatcher {
         Ok(ScriptActionResult::Success)
     }
 
-    pub(crate) fn do_zoom_camera(&mut self, action: &ScriptAction) -> Result<ScriptActionResult, ScriptError> {
+    pub(crate) fn do_zoom_camera(
+        &mut self,
+        action: &ScriptAction,
+    ) -> Result<ScriptActionResult, ScriptError> {
         let zoom = self.get_real_param(action, 0)?;
         let seconds = action.get_parameter(1).map(|p| p.get_real()).unwrap_or(0.0);
         let ease_in_seconds = action.get_parameter(2).map(|p| p.get_real()).unwrap_or(0.0);
@@ -234,7 +238,8 @@ impl ScriptActionDispatcher {
         );
 
         if let Some(handler) = current_script_action_handler() {
-            if let Err(err) = handler.zoom_camera(zoom, seconds, ease_in_seconds, ease_out_seconds) {
+            if let Err(err) = handler.zoom_camera(zoom, seconds, ease_in_seconds, ease_out_seconds)
+            {
                 log::warn!("Script action handler zoom_camera failed: {}", err);
             }
         }
@@ -529,7 +534,9 @@ impl ScriptActionDispatcher {
         );
 
         if let Some(handler) = current_script_action_handler() {
-            if let Err(err) = handler.camera_motion_blur_jump(target.x, target.y, target.z, saturate) {
+            if let Err(err) =
+                handler.camera_motion_blur_jump(target.x, target.y, target.z, saturate)
+            {
                 log::warn!(
                     "Script action handler camera_motion_blur_jump failed: {}",
                     err
@@ -560,7 +567,9 @@ impl ScriptActionDispatcher {
         Ok(ScriptActionResult::Success)
     }
 
-    pub(crate) fn do_camera_motion_blur_end_follow(&mut self) -> Result<ScriptActionResult, ScriptError> {
+    pub(crate) fn do_camera_motion_blur_end_follow(
+        &mut self,
+    ) -> Result<ScriptActionResult, ScriptError> {
         log::debug!("Ending camera motion blur follow");
 
         if let Some(handler) = current_script_action_handler() {
@@ -635,7 +644,9 @@ impl ScriptActionDispatcher {
         Ok(ScriptActionResult::Success)
     }
 
-    pub(crate) fn do_camera_stop_tether_named(&mut self) -> Result<ScriptActionResult, ScriptError> {
+    pub(crate) fn do_camera_stop_tether_named(
+        &mut self,
+    ) -> Result<ScriptActionResult, ScriptError> {
         log::debug!("Stopping camera tether");
 
         if let Some(handler) = current_script_action_handler() {
@@ -976,7 +987,9 @@ impl ScriptActionDispatcher {
         Ok(ScriptActionResult::Success)
     }
 
-    pub(crate) fn do_camera_disable_slave_mode(&mut self) -> Result<ScriptActionResult, ScriptError> {
+    pub(crate) fn do_camera_disable_slave_mode(
+        &mut self,
+    ) -> Result<ScriptActionResult, ScriptError> {
         log::debug!("Disabling camera slave mode");
 
         if let Some(handler) = current_script_action_handler() {
@@ -1024,10 +1037,7 @@ impl ScriptActionDispatcher {
                     duration_seconds,
                     radius,
                 ) {
-                    log::warn!(
-                        "Script action handler camera_add_shaker_at failed: {}",
-                        err
-                    );
+                    log::warn!("Script action handler camera_add_shaker_at failed: {}", err);
                 }
             }
         } else {

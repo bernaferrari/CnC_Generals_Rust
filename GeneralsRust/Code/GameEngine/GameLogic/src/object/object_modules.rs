@@ -8,7 +8,6 @@ use super::object_impl_imports::*;
 use super::*;
 
 impl Object {
-
     // Module access
     pub fn get_body_module(&self) -> Option<Arc<Mutex<dyn BodyModuleInterface>>> {
         self.body.clone()
@@ -412,7 +411,7 @@ impl Object {
     }
 
     /// C++ Object.cpp:299-384 — helpers first on `m_behaviors`, then template modules.
-    pub(in super) fn install_ctor_helpers(&mut self) {
+    pub(super) fn install_ctor_helpers(&mut self) {
         // Object.cpp:301-305 — always ObjectSMCHelper / ModuleTag_SMCHelper.
         if self.smc_helper.is_none() {
             self.smc_helper = Some(Arc::new(Mutex::new(
@@ -460,9 +459,7 @@ impl Object {
         }
 
         // Object.cpp:354-362 — shrubbery cannot defect.
-        if self.defection_helper.is_none()
-            && !self.thing_template.is_kind_of(KindOf::Shrubbery)
-        {
+        if self.defection_helper.is_none() && !self.thing_template.is_kind_of(KindOf::Shrubbery) {
             self.defection_helper = Some(Arc::new(Mutex::new(
                 crate::object::helper::ObjectDefectionHelper::new(
                     crate::object::helper::ObjectDefectionHelperModuleData::new(),
@@ -498,13 +495,11 @@ impl Object {
 
     /// C++ Object.cpp:458-462 — call onObjectCreated in m_behaviors list order
     /// after helpers + template modules are all installed.
-    pub(in super) fn invoke_on_object_created_after_install(&mut self) {
+    pub(super) fn invoke_on_object_created_after_install(&mut self) {
         #[cfg(test)]
         {
-            LAST_ON_CREATED_SIBLING_COUNT.store(
-                self.behaviors.len(),
-                std::sync::atomic::Ordering::Relaxed,
-            );
+            LAST_ON_CREATED_SIBLING_COUNT
+                .store(self.behaviors.len(), std::sync::atomic::Ordering::Relaxed);
         }
         for entry in &self.modules {
             entry.with_module(|module| module.on_object_created());
@@ -512,7 +507,7 @@ impl Object {
     }
 
     /// `get_behavior_modules()` == C++ Object.cpp:299-384 helper order, then template modules.
-    pub(in super) fn rebuild_behavior_list(&mut self) {
+    pub(super) fn rebuild_behavior_list(&mut self) {
         let mut behaviors: Vec<Arc<Mutex<dyn BehaviorModuleInterface>>> = Vec::new();
         if self.smc_helper.is_some() {
             behaviors.push(Arc::new(Mutex::new(CtorHelperBehavior {
@@ -774,7 +769,7 @@ impl Object {
     }
 
     // Private helper methods
-    pub(in super) fn init_modules_for(
+    pub(super) fn init_modules_for(
         object: &Arc<RwLock<Self>>,
         thing_template: &dyn ThingTemplate,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -1140,7 +1135,12 @@ fn template_wants_repulsor_helper(template: &dyn ThingTemplate) -> bool {
     crate::ai::THE_AI
         .read()
         .ok()
-        .and_then(|ai| ai.get_ai_data().read().ok().map(|data| data.enable_repulsors))
+        .and_then(|ai| {
+            ai.get_ai_data()
+                .read()
+                .ok()
+                .map(|data| data.enable_repulsors)
+        })
         .unwrap_or(false)
 }
 

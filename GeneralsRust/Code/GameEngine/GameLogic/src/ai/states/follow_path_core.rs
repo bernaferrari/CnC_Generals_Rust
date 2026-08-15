@@ -1,25 +1,25 @@
 #![allow(deprecated, unused_imports, dead_code)]
 
-use super::*;
-use super::helpers::*;
-use super::types::*;
-use super::state_machine::*;
-use super::idle::*;
-use super::r#move::*;
-use super::follow_path::*;
-use super::wait_busy::*;
-use super::wander_panic::*;
-use super::face::*;
-use super::hack::*;
-use super::rappel::*;
-use super::waypoint::*;
 use super::attack::*;
 use super::attack_machine::*;
-use super::guard::*;
-use super::hunt::*;
+use super::dead::*;
 use super::dock::*;
 use super::enter::*;
-use super::dead::*;
+use super::face::*;
+use super::follow_path::*;
+use super::guard::*;
+use super::hack::*;
+use super::helpers::*;
+use super::hunt::*;
+use super::idle::*;
+use super::r#move::*;
+use super::rappel::*;
+use super::state_machine::*;
+use super::types::*;
+use super::wait_busy::*;
+use super::wander_panic::*;
+use super::waypoint::*;
+use super::*;
 
 use crate::action_manager::{CanEnterType, TheActionManager};
 use crate::ai::dock::AIDockMachine;
@@ -71,7 +71,6 @@ use crate::common::INVALID_ID;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock, Weak};
 
-
 #[derive(Debug)]
 pub(crate) struct FollowWaypointPathCore {
     pub(crate) move_as_group: bool,
@@ -85,7 +84,6 @@ pub(crate) struct FollowWaypointPathCore {
     pub(crate) goal_position: Coord3D,
     pub(crate) goal_layer: PathfindLayerEnum,
 }
-
 
 impl FollowWaypointPathCore {
     pub(crate) fn new(move_as_group: bool, is_follow_waypoint_path_state: bool) -> Self {

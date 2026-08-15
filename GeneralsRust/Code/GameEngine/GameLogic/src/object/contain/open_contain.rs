@@ -2561,7 +2561,11 @@ mod tests {
         );
         assert!(loaded.module_data.passengers_allowed_to_fire);
         let ids: Vec<ObjectID> = loaded.object_enter_exit_info.keys().copied().collect();
-        assert_eq!(ids, vec![303, 404], "enter/exit xfer must be ObjectID-ordered");
+        assert_eq!(
+            ids,
+            vec![303, 404],
+            "enter/exit xfer must be ObjectID-ordered"
+        );
     }
 
     #[test]

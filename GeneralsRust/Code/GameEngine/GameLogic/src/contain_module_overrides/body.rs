@@ -1,8 +1,8 @@
 //! Body-module factory helpers (Active/Structure/Highlander/etc).
 //! Split from `contain_module_overrides.rs`. Factory names stay identical.
 
-use super::*;
 use super::helpers::*;
+use super::*;
 
 struct BodyBindingModule<T>
 where
@@ -127,7 +127,10 @@ pub(super) fn undead_body_instance(
     Arc::new(Mutex::new(UndeadBody::new(data, owner_id)))
 }
 
-pub(super) fn parse_active_body_data(ini: &mut INI, data: &mut ActiveBodyModuleData) -> Result<(), String> {
+pub(super) fn parse_active_body_data(
+    ini: &mut INI,
+    data: &mut ActiveBodyModuleData,
+) -> Result<(), String> {
     data.parse_from_ini(ini)
         .map_err(|err| format!("{} at line {}", err, ini.get_line_num()))
 }
@@ -148,7 +151,10 @@ pub(super) fn parse_hive_structure_body_data(
         .map_err(|err| format!("{} at line {}", err, ini.get_line_num()))
 }
 
-pub(super) fn parse_undead_body_data(ini: &mut INI, data: &mut UndeadBodyModuleData) -> Result<(), String> {
+pub(super) fn parse_undead_body_data(
+    ini: &mut INI,
+    data: &mut UndeadBodyModuleData,
+) -> Result<(), String> {
     data.parse_from_ini(ini)
         .map_err(|err| format!("{} at line {}", err, ini.get_line_num()))
 }

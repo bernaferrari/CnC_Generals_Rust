@@ -779,7 +779,9 @@ impl ScriptConditionEvaluator {
 
         let comparison = count > 0;
         condition.custom_data = if comparison { 1 } else { -1 };
-        if let Some(frame) = with_script_engine_ref(|engine| engine.get_frame_object_count_changed()) {
+        if let Some(frame) =
+            with_script_engine_ref(|engine| engine.get_frame_object_count_changed())
+        {
             condition.custom_frame = frame;
         }
 
@@ -1027,7 +1029,9 @@ impl ScriptConditionEvaluator {
 
         let comparison_result = Self::compare_i32(comparison, count, target_count);
         condition.custom_data = if comparison_result { 1 } else { -1 };
-        if let Some(frame) = with_script_engine_ref(|engine| engine.get_frame_object_count_changed()) {
+        if let Some(frame) =
+            with_script_engine_ref(|engine| engine.get_frame_object_count_changed())
+        {
             condition.custom_frame = frame;
         }
 
@@ -1151,7 +1155,9 @@ impl ScriptConditionEvaluator {
         let comparison_result = Self::compare_i32(comparison, count, target_count);
 
         // Match C++ behavior: this writes frame object count into custom_data (legacy quirk).
-        if let Some(frame) = with_script_engine_ref(|engine| engine.get_frame_object_count_changed()) {
+        if let Some(frame) =
+            with_script_engine_ref(|engine| engine.get_frame_object_count_changed())
+        {
             condition.custom_data = frame as i32;
         }
 

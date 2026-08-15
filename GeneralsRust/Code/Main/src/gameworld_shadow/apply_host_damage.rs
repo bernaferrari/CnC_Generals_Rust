@@ -220,18 +220,7 @@ impl GameWorldShadow {
     /// Apply pending GameWorld mutations (damage/destroy/…).
     pub fn apply_pending(&mut self) -> usize {
         let applied = self.world.apply_pending_mutations();
-        // Drop map entries for destroyed entities.
-        let dead: Vec<u32> = self
-            .entity_to_host
-            .keys()
-            .copied()
-            .filter(|eid| self.world.entity(EntityId::from_raw(*eid)).is_none())
-            .collect();
-        for eid in dead {
-            if let Some(hid) = self.entity_to_host.remove(&eid) {
-                self.host_to_entity.remove(&hid);
-            }
-        }
+        self.invalidate_dead_entity_maps();
         applied
     }
 

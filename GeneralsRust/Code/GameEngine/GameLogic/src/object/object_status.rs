@@ -8,7 +8,6 @@ use super::object_impl_imports::*;
 use super::*;
 
 impl Object {
-
     pub fn is_airborne_target(&self) -> bool {
         self.test_status(ObjectStatusTypes::AirborneTarget)
     }
@@ -221,7 +220,7 @@ impl Object {
         }
     }
 
-    pub(in super) fn populate_radar_object_from_state(&self, radar_obj: &mut RadarObject) {
+    pub(super) fn populate_radar_object_from_state(&self, radar_obj: &mut RadarObject) {
         radar_obj.is_hero = self.is_hero();
         radar_obj.is_local = self.is_locally_controlled();
         radar_obj.is_stealth =
@@ -231,7 +230,7 @@ impl Object {
         radar_obj.is_enemy = self.is_enemy_to_local_player();
     }
 
-    pub(in super) fn is_enemy_to_local_player(&self) -> bool {
+    pub(super) fn is_enemy_to_local_player(&self) -> bool {
         let Some(team) = self.get_team() else {
             return false;
         };

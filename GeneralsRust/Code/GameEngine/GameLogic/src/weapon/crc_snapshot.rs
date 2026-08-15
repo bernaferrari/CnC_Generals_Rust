@@ -116,11 +116,9 @@ impl Snapshotable for Weapon {
             .map_err(|e| e.to_string())?;
 
         let mut max_shots = snap.max_shot_count;
-        xfer.xfer_int(&mut max_shots)
-            .map_err(|e| e.to_string())?;
+        xfer.xfer_int(&mut max_shots).map_err(|e| e.to_string())?;
         let mut cur_barrel = snap.cur_barrel;
-        xfer.xfer_int(&mut cur_barrel)
-            .map_err(|e| e.to_string())?;
+        xfer.xfer_int(&mut cur_barrel).map_err(|e| e.to_string())?;
         let mut shots_for_barrel = snap.num_shots_for_cur_barrel;
         xfer.xfer_int(&mut shots_for_barrel)
             .map_err(|e| e.to_string())?;
@@ -251,4 +249,3 @@ impl Snapshotable for Weapon {
         Ok(())
     }
 }
-

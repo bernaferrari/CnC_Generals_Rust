@@ -26,7 +26,6 @@ use crate::ai::guard::{AIGuardMachine, GuardStateType};
 use crate::ai::guard_retaliate::{AIGuardRetaliateMachine, GuardRetaliateStateType};
 use crate::ai::integration::with_ai_integration;
 use crate::ai::object_registry::get_legacy_object;
-use crate::path::PATHFIND_CLOSE_ENOUGH;
 use crate::ai::states::{AIAttackThenIdleStateMachine, AIStateType as LegacyAIStateType};
 use crate::ai::tn_guard::{AITNGuardMachine, TNGuardStateType};
 use crate::ai::GuardMode;
@@ -44,6 +43,7 @@ use crate::helpers::{
 use crate::modules::{AIUpdateInterfaceExt, ContainWant};
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::Object as GameObject;
+use crate::path::PATHFIND_CLOSE_ENOUGH;
 use crate::path::{PATHFIND_CELL_SIZE_F, SURFACE_GROUND};
 use crate::player::PlayerType;
 use crate::state_machine::{StateExitType, StateReturnType};

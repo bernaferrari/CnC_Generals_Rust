@@ -1,25 +1,25 @@
 #![allow(deprecated, unused_imports, dead_code)]
 
-use super::*;
-use super::helpers::*;
-use super::follow_path_core::*;
-use super::types::*;
-use super::state_machine::*;
-use super::r#move::*;
-use super::follow_path::*;
-use super::wait_busy::*;
-use super::wander_panic::*;
-use super::face::*;
-use super::hack::*;
-use super::rappel::*;
-use super::waypoint::*;
 use super::attack::*;
 use super::attack_machine::*;
-use super::guard::*;
-use super::hunt::*;
+use super::dead::*;
 use super::dock::*;
 use super::enter::*;
-use super::dead::*;
+use super::face::*;
+use super::follow_path::*;
+use super::follow_path_core::*;
+use super::guard::*;
+use super::hack::*;
+use super::helpers::*;
+use super::hunt::*;
+use super::r#move::*;
+use super::rappel::*;
+use super::state_machine::*;
+use super::types::*;
+use super::wait_busy::*;
+use super::wander_panic::*;
+use super::waypoint::*;
+use super::*;
 
 use crate::action_manager::{CanEnterType, TheActionManager};
 use crate::ai::dock::AIDockMachine;
@@ -71,7 +71,6 @@ use crate::common::INVALID_ID;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock, Weak};
 
-
 // AI State implementations
 
 /// Idle state - do nothing
@@ -86,7 +85,6 @@ pub struct AIIdleState {
     /// Whether initialization has been done
     pub(crate) inited: bool,
 }
-
 
 impl AIIdleState {
     /// Create new idle state
@@ -170,7 +168,6 @@ impl AIIdleState {
     }
 }
 
-
 impl StateImplementation for AIIdleState {
     fn on_enter(&mut self) -> StateReturnType {
         self.classic_on_enter().unwrap_or(StateReturnType::Failure)
@@ -188,7 +185,6 @@ impl StateImplementation for AIIdleState {
         Snapshotable::xfer(self, xfer)
     }
 }
-
 
 impl ClassicState for AIIdleState {
     fn base_state(&self) -> &State {
@@ -375,7 +371,6 @@ impl ClassicState for AIIdleState {
         true
     }
 }
-
 
 impl Snapshotable for AIIdleState {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {

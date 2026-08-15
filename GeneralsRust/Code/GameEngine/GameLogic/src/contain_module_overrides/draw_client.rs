@@ -1,8 +1,8 @@
 //! Draw and client-update module factories.
 //! Split from `contain_module_overrides.rs`. Factory names stay identical.
 
-use super::*;
 use super::helpers::*;
+use super::*;
 
 macro_rules! draw_data_factory {
     ($factory:ident, $data_ty:ty, $module_name:literal, parse) => {
@@ -339,7 +339,9 @@ pub(super) fn laser_update_module_factory(
     ))
 }
 
-pub(super) fn beacon_client_update_module_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+pub(super) fn beacon_client_update_module_data_factory(
+    ini: Option<&mut INI>,
+) -> Box<dyn ModuleData> {
     let mut data = BeaconClientUpdateModuleData::default();
     if let Some(ini) = ini {
         if let Err(err) = data.parse_from_ini(ini) {
@@ -368,7 +370,9 @@ pub(super) fn beacon_client_update_module_factory(
     ))
 }
 
-pub(super) fn base_client_update_module_data_factory(_ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+pub(super) fn base_client_update_module_data_factory(
+    _ini: Option<&mut INI>,
+) -> Box<dyn ModuleData> {
     Box::new(BaseModuleData::new())
 }
 

@@ -321,7 +321,10 @@ impl AIPlayer {
         }
     }
 
-    pub(super) fn try_reattach_loose_harvester(&mut self, center_id: ObjectID) -> Result<bool, AiError> {
+    pub(super) fn try_reattach_loose_harvester(
+        &mut self,
+        center_id: ObjectID,
+    ) -> Result<bool, AiError> {
         // Wave 255: empty dual-world → Ok(false).
 
         if dual_world_registry_unavailable() {

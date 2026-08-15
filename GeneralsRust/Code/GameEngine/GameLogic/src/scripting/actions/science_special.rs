@@ -10,6 +10,7 @@ use crate::ai::integration::with_ai_integration_mut;
 use crate::ai::{AiCommandInterface, AiCommandParams, AiCommandType, AiGroup, GuardMode, THE_AI};
 use crate::commands::command::CommandType;
 use crate::commands::{get_command_queue_manager, Command, CommandPriority, QueuedCommand};
+use crate::common::PlayerIndex;
 use crate::common::{
     AsciiString, CommandSourceType, Coord3D, LocomotorSetType, Real, Relationship,
     INVALID_OBJECT_ID,
@@ -22,7 +23,6 @@ use crate::object::object_factory::{get_object_factory, GameObjectInstance};
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::special_power_template::find_or_create_special_power_template;
 use crate::object_manager::{get_object_manager, ObjectCreationFlags};
-use crate::common::PlayerIndex;
 use crate::player::{player_list, PlayerType};
 use crate::scripting::core::{LOCAL_PLAYER, TEAM_THE_PLAYER, THE_PLAYER, THIS_PLAYER, THIS_TEAM};
 use crate::scripting::engine::{get_named_object_tracker, get_script_engine};
@@ -37,7 +37,6 @@ use game_engine::common::system::radar::{get_radar_system, RadarEventType};
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
-
 
 /// Trigger special power action
 pub(super) struct TriggerSpecialPowerAction;
@@ -87,7 +86,6 @@ impl ScriptAction for TriggerSpecialPowerAction {
     }
 }
 
-
 /// Enable special power action
 pub(super) struct EnableSpecialPowerAction;
 
@@ -126,7 +124,6 @@ impl ScriptAction for EnableSpecialPowerAction {
         vec![]
     }
 }
-
 
 /// Disable special power action
 pub(super) struct DisableSpecialPowerAction;
@@ -167,7 +164,6 @@ impl ScriptAction for DisableSpecialPowerAction {
     }
 }
 
-
 /// Grant upgrade action
 pub(super) struct GrantUpgradeAction;
 
@@ -202,7 +198,6 @@ impl ScriptAction for GrantUpgradeAction {
         vec![]
     }
 }
-
 
 /// Enable science action
 pub(super) struct EnableScienceAction;
@@ -239,7 +234,6 @@ impl ScriptAction for EnableScienceAction {
     }
 }
 
-
 /// Disable science action
 pub(super) struct DisableScienceAction;
 
@@ -274,7 +268,6 @@ impl ScriptAction for DisableScienceAction {
         vec![]
     }
 }
-
 
 // ============================================================================
 // PLAYER ACTIONS (10 critical actions)
@@ -348,7 +341,6 @@ impl ScriptAction for PlayerGrantScienceAction {
         vec![]
     }
 }
-
 
 /// Give Special Power Action - Matches C++ special power grant logic
 pub(super) struct GiveSpecialPowerAction;

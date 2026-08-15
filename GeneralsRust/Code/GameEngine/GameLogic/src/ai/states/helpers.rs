@@ -1,25 +1,25 @@
 #![allow(deprecated, unused_imports, dead_code)]
 
-use super::*;
-use super::follow_path_core::*;
-use super::types::*;
-use super::state_machine::*;
-use super::idle::*;
-use super::r#move::*;
-use super::follow_path::*;
-use super::wait_busy::*;
-use super::wander_panic::*;
-use super::face::*;
-use super::hack::*;
-use super::rappel::*;
-use super::waypoint::*;
 use super::attack::*;
 use super::attack_machine::*;
-use super::guard::*;
-use super::hunt::*;
+use super::dead::*;
 use super::dock::*;
 use super::enter::*;
-use super::dead::*;
+use super::face::*;
+use super::follow_path::*;
+use super::follow_path_core::*;
+use super::guard::*;
+use super::hack::*;
+use super::hunt::*;
+use super::idle::*;
+use super::r#move::*;
+use super::rappel::*;
+use super::state_machine::*;
+use super::types::*;
+use super::wait_busy::*;
+use super::wander_panic::*;
+use super::waypoint::*;
+use super::*;
 
 use crate::action_manager::{CanEnterType, TheActionManager};
 use crate::ai::dock::AIDockMachine;
@@ -77,14 +77,12 @@ pub(crate) fn dual_world_registry_unavailable() -> bool {
     OBJECT_REGISTRY.is_empty()
 }
 
-
 pub(crate) fn is_cliff_at(pos: &Coord3D) -> bool {
     get_terrain_logic()
         .read()
         .map(|terrain| terrain.is_cliff_cell(pos.x, pos.y))
         .unwrap_or(false)
 }
-
 
 pub(crate) fn normalize_angle(angle: Real) -> Real {
     let mut a = angle;
@@ -98,14 +96,12 @@ pub(crate) fn normalize_angle(angle: Real) -> Real {
     a
 }
 
-
 pub(crate) fn is_in_region_no_z(region: &Region3D, position: &Coord3D) -> bool {
     position.x >= region.lo.x
         && position.x <= region.hi.x
         && position.y >= region.lo.y
         && position.y <= region.hi.y
 }
-
 
 pub(crate) fn is_point_on_wall(pos: &Coord3D) -> bool {
     let cell_pad = PATHFIND_CELL_SIZE_F * 0.5;
@@ -135,7 +131,6 @@ pub(crate) fn is_point_on_wall(pos: &Coord3D) -> bool {
     false
 }
 
-
 pub(crate) fn get_wall_height() -> Real {
     THE_AI
         .read()
@@ -143,7 +138,6 @@ pub(crate) fn get_wall_height() -> Real {
         .and_then(|ai| ai.get_ai_data().read().ok().map(|data| data.wall_height))
         .unwrap_or(0.0)
 }
-
 
 pub(crate) fn resolve_waypoint_by_id(id: WaypointId) -> Option<Arc<Waypoint>> {
     let terrain = get_terrain_logic().read().ok()?;

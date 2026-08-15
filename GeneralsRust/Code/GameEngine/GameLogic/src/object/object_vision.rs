@@ -8,7 +8,6 @@ use super::object_impl_imports::*;
 use super::*;
 
 impl Object {
-
     pub fn get_shroud_clearing_range(&self) -> Real {
         self.shroud_clearing_range
     }
@@ -111,7 +110,7 @@ impl Object {
         self.safe_occlusion_frame = frame;
     }
 
-    pub(in super) fn update_partition_object_position(&self) {
+    pub(super) fn update_partition_object_position(&self) {
         if crate::object_manager::is_resetting() {
             return;
         }
@@ -121,24 +120,24 @@ impl Object {
         }
     }
 
-    pub(in super) fn handle_shroud(&mut self) {
+    pub(super) fn handle_shroud(&mut self) {
         self.unlook();
         self.unshroud();
         self.shroud();
         self.look();
     }
 
-    pub(in super) fn handle_value_map(&mut self) {
+    pub(super) fn handle_value_map(&mut self) {
         self.remove_value();
         self.add_value();
     }
 
-    pub(in super) fn handle_threat_map(&mut self) {
+    pub(super) fn handle_threat_map(&mut self) {
         self.remove_threat();
         self.add_threat();
     }
 
-    pub(in super) fn look(&mut self) {
+    pub(super) fn look(&mut self) {
         // Wave 264: empty dual-world → no factory object walks.
         if dual_world_registry_unavailable() {
             return;
@@ -258,7 +257,7 @@ impl Object {
         }
     }
 
-    pub(in super) fn unlook(&mut self) {
+    pub(super) fn unlook(&mut self) {
         if self.partition_last_look.is_invalid() {
             return;
         }
@@ -284,7 +283,7 @@ impl Object {
         }
     }
 
-    pub(in super) fn shroud(&mut self) {
+    pub(super) fn shroud(&mut self) {
         if !self.partition_last_shroud.is_invalid() {
             warn!("Object {} shroud called without unshroud", self.id);
             return;
@@ -334,7 +333,7 @@ impl Object {
         }
     }
 
-    pub(in super) fn unshroud(&mut self) {
+    pub(super) fn unshroud(&mut self) {
         if self.partition_last_shroud.is_invalid() {
             return;
         }
@@ -349,7 +348,7 @@ impl Object {
         self.partition_last_shroud.reset();
     }
 
-    pub(in super) fn add_value(&mut self) {
+    pub(super) fn add_value(&mut self) {
         if !self.partition_last_value.is_invalid() {
             warn!("Object {} add_value called without remove_value", self.id);
             return;
@@ -384,7 +383,7 @@ impl Object {
         }
     }
 
-    pub(in super) fn remove_value(&mut self) {
+    pub(super) fn remove_value(&mut self) {
         if self.partition_last_value.is_invalid() {
             return;
         }
@@ -399,7 +398,7 @@ impl Object {
         self.partition_last_value.reset();
     }
 
-    pub(in super) fn add_threat(&mut self) {
+    pub(super) fn add_threat(&mut self) {
         if !self.partition_last_threat.is_invalid() {
             warn!("Object {} add_threat called without remove_threat", self.id);
             return;
@@ -433,7 +432,7 @@ impl Object {
         }
     }
 
-    pub(in super) fn remove_threat(&mut self) {
+    pub(super) fn remove_threat(&mut self) {
         if self.partition_last_threat.is_invalid() {
             return;
         }

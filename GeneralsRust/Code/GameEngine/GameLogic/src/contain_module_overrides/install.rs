@@ -1,17 +1,17 @@
 //! Module-override installation / registration.
 //! Split from `contain_module_overrides.rs`. Registered factory names stay identical.
 
-use super::*;
-use super::helpers::*;
-use super::update_modules::*;
 use super::behavior::*;
-use super::collide_crates::*;
-use super::production::*;
-use super::death::*;
-use super::contain::*;
 use super::body::*;
+use super::collide_crates::*;
+use super::contain::*;
+use super::death::*;
 use super::draw_client::*;
+use super::helpers::*;
 use super::leftover::*;
+use super::production::*;
+use super::update_modules::*;
+use super::*;
 
 pub(super) fn install_contain_overrides() -> Result<(), String> {
     register_module_override(

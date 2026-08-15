@@ -90,15 +90,19 @@ pub fn host_script_area_unit_ids(min_x: f32, min_z: f32, max_x: f32, max_z: f32)
         slot.borrow()
             .objects
             .iter()
-            .filter(|o| {
-                o.alive && o.x >= min_x && o.x <= max_x && o.z >= min_z && o.z <= max_z
-            })
+            .filter(|o| o.alive && o.x >= min_x && o.x <= max_x && o.z >= min_z && o.z <= max_z)
             .map(|o| o.id)
             .collect()
     })
 }
 
-pub fn host_script_named_unit_in_area(name: &str, min_x: f32, min_z: f32, max_x: f32, max_z: f32) -> bool {
+pub fn host_script_named_unit_in_area(
+    name: &str,
+    min_x: f32,
+    min_z: f32,
+    max_x: f32,
+    max_z: f32,
+) -> bool {
     HOST_SCRIPT_QUERY.with(|slot| {
         let snap = slot.borrow();
         snap.objects.iter().any(|o| {
@@ -127,13 +131,11 @@ pub fn host_script_named_unit_in_named_area(unit_name: &str, area_name: &str) ->
     ))
 }
 
-
 /// Wave 271: host-only path has no dual-world factory objects.
 #[inline]
 pub(super) fn dual_world_registry_unavailable() -> bool {
     OBJECT_REGISTRY.is_empty()
 }
-
 
 pub(super) fn normalize_event_name(name: &str) -> String {
     name.trim()
@@ -141,7 +143,6 @@ pub(super) fn normalize_event_name(name: &str) -> String {
         .trim_matches('\'')
         .to_ascii_lowercase()
 }
-
 
 pub(super) fn event_type_from_name(name: &str) -> GameEventType {
     let normalized = normalize_event_name(name);
@@ -161,7 +162,6 @@ pub(super) fn event_type_from_name(name: &str) -> GameEventType {
     }
 }
 
-
 pub(super) fn compare_i64(actual: i64, comparison: &str, expected: i64) -> GameLogicResult<bool> {
     Ok(match comparison {
         "greater" => actual > expected,
@@ -178,7 +178,6 @@ pub(super) fn compare_i64(actual: i64, comparison: &str, expected: i64) -> GameL
     })
 }
 
-
 pub(super) fn compare_f64(actual: f64, comparison: &str, expected: f64) -> GameLogicResult<bool> {
     Ok(match comparison {
         "greater" => actual > expected,
@@ -194,7 +193,6 @@ pub(super) fn compare_f64(actual: f64, comparison: &str, expected: f64) -> GameL
         }
     })
 }
-
 
 /// Helper: get string parameter from condition parameters
 pub(crate) fn get_str_param(
@@ -214,15 +212,16 @@ pub(crate) fn get_str_param(
     }
 }
 
-
 /// Helper: get optional string parameter
-pub(super) fn get_str_param_optional(parameters: &HashMap<String, ScriptValue>, key: &str) -> Option<String> {
+pub(super) fn get_str_param_optional(
+    parameters: &HashMap<String, ScriptValue>,
+    key: &str,
+) -> Option<String> {
     match parameters.get(key) {
         Some(ScriptValue::String(s)) => Some(s.clone()),
         _ => None,
     }
 }
-
 
 /// Helper: get player arc from parameter value
 pub(crate) fn get_player_arc(
@@ -270,14 +269,12 @@ pub(crate) fn get_player_arc(
     }
 }
 
-
 /// Helper: look up a named object from the script engine's named object tracker.
 /// Returns the ObjectID if found.
 pub(crate) fn lookup_named_object_id(name: &str) -> GameLogicResult<Option<u32>> {
     let tracker = get_named_object_tracker();
     tracker.get_object_id(name)
 }
-
 
 /// Helper: perform C++-style comparison (less_than, less_equal, equal, etc.)
 pub(crate) fn perform_comparison(actual: i64, comparison: &str, expected: i64) -> bool {
@@ -292,7 +289,6 @@ pub(crate) fn perform_comparison(actual: i64, comparison: &str, expected: i64) -
     }
 }
 
-
 pub(super) fn with_script_engine_mut<R>(
     f: impl FnOnce(&mut crate::scripting::engine::ScriptEngine) -> R,
 ) -> Option<R> {
@@ -300,7 +296,6 @@ pub(super) fn with_script_engine_mut<R>(
     let mut engine_guard = engine.write().ok()?;
     engine_guard.as_mut().map(f)
 }
-
 
 pub(super) fn parse_nested_condition(
     value: &ScriptValue,
@@ -339,7 +334,6 @@ pub(super) fn parse_nested_condition(
         )),
     }
 }
-
 
 //-------------------------------------------------------------------------------------------------
 // Helper: parse object status mask from string name

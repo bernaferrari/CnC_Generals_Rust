@@ -69,7 +69,10 @@ mod create_module_tests {
     #[test]
     fn test_lock_weapon_create_module_exists() {
         let data = Arc::new(LockWeaponCreateData::default());
-        assert_eq!(data.slot_to_lock, gamelogic::weapon::WeaponSlotType::Primary);
+        assert_eq!(
+            data.slot_to_lock,
+            gamelogic::weapon::WeaponSlotType::Primary
+        );
         let module = LockWeaponCreate::new(test_thing(), data);
         assert!(module.should_do_on_build_complete());
         module.on_create();

@@ -58,9 +58,8 @@ static PHASE_LOG: Mutex<Vec<ClientDrawPhase>> = Mutex::new(Vec::new());
 static DRAW_ID_LOG: Mutex<Vec<u32>> = Mutex::new(Vec::new());
 
 pub fn extra_freeze_from_engine() -> bool {
-    let camera_frozen = with_tactical_view_ref(|view| {
-        view.is_time_frozen() && !view.is_camera_movement_finished()
-    });
+    let camera_frozen =
+        with_tactical_view_ref(|view| view.is_time_frozen() && !view.is_camera_movement_finished());
     camera_frozen
         || TheScriptEngine::is_time_frozen_debug()
         || TheScriptEngine::is_time_frozen_script()
@@ -203,12 +202,18 @@ fn view_aabb_from_tactical(view: &crate::display::view::View) -> ViewAabb {
 
 #[cfg(test)]
 pub fn take_phase_log() -> Vec<ClientDrawPhase> {
-    PHASE_LOG.lock().map(|mut log| std::mem::take(&mut *log)).unwrap_or_default()
+    PHASE_LOG
+        .lock()
+        .map(|mut log| std::mem::take(&mut *log))
+        .unwrap_or_default()
 }
 
 #[cfg(test)]
 pub fn take_draw_id_log() -> Vec<u32> {
-    DRAW_ID_LOG.lock().map(|mut log| std::mem::take(&mut *log)).unwrap_or_default()
+    DRAW_ID_LOG
+        .lock()
+        .map(|mut log| std::mem::take(&mut *log))
+        .unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -243,7 +248,11 @@ mod tests {
             lo: [0.0, 0.0, -10.0],
             hi: [10.0, 10.0, 10.0],
         };
-        let candidates = [(3, [1.0, 1.0, 0.0]), (1, [20.0, 0.0, 0.0]), (2, [2.0, 2.0, 0.0])];
+        let candidates = [
+            (3, [1.0, 1.0, 0.0]),
+            (1, [20.0, 0.0, 0.0]),
+            (2, [2.0, 2.0, 0.0]),
+        ];
         let first = drawables_in_region_order(&candidates, region);
         assert_eq!(first, vec![3, 2]);
         let second = drawables_in_region_order(&candidates, region);
@@ -284,7 +293,7 @@ mod tests {
                 draws.push("parent");
                 draws.push("rider");
             },
-            || {}
+            || {},
         );
         assert_eq!(draws, ["parent", "rider"]);
         assert_eq!(phases[1], ClientDrawPhase::UpdateViews);

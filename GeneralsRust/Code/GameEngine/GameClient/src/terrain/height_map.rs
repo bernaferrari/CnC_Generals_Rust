@@ -1304,13 +1304,10 @@ mod tests {
                 .try_into()
                 .expect("source tile array size");
         let mut blend_tiles: Box<[crate::terrain::textures::BlendTileInfo; NUM_BLEND_TILES]> =
-            vec![
-                crate::terrain::textures::BlendTileInfo::new();
-                NUM_BLEND_TILES
-            ]
-            .into_boxed_slice()
-            .try_into()
-            .expect("blend tile array size");
+            vec![crate::terrain::textures::BlendTileInfo::new(); NUM_BLEND_TILES]
+                .into_boxed_slice()
+                .try_into()
+                .expect("blend tile array size");
         blend_tiles[1].blend_ndx = 4;
         blend_tiles[1].horiz = 1;
         blend_tiles[2].blend_ndx = 8;

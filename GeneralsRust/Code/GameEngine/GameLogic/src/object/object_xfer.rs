@@ -383,8 +383,8 @@ impl Object {
             if let Some(helper) = &self.temp_weapon_bonus_helper {
                 self.xfer_one_helper_block(xfer, HELPER_TAG_TEMP_WEAPON_BONUS, helper.as_ref());
             }
-            let remaining = (module_count as usize)
-                .saturating_sub(self.ctor_helper_xfer_tags().len());
+            let remaining =
+                (module_count as usize).saturating_sub(self.ctor_helper_xfer_tags().len());
             for entry in self.modules.iter().take(remaining) {
                 let mut module_identifier = entry
                     .with_module(|module| {

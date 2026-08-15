@@ -1,25 +1,25 @@
 #![allow(deprecated, unused_imports, dead_code)]
 
-use super::*;
-use super::helpers::*;
-use super::follow_path_core::*;
-use super::types::*;
-use super::state_machine::*;
-use super::idle::*;
-use super::r#move::*;
-use super::follow_path::*;
-use super::wait_busy::*;
-use super::wander_panic::*;
-use super::face::*;
-use super::hack::*;
-use super::rappel::*;
-use super::waypoint::*;
 use super::attack::*;
 use super::attack_machine::*;
-use super::guard::*;
-use super::hunt::*;
-use super::dock::*;
 use super::dead::*;
+use super::dock::*;
+use super::face::*;
+use super::follow_path::*;
+use super::follow_path_core::*;
+use super::guard::*;
+use super::hack::*;
+use super::helpers::*;
+use super::hunt::*;
+use super::idle::*;
+use super::r#move::*;
+use super::rappel::*;
+use super::state_machine::*;
+use super::types::*;
+use super::wait_busy::*;
+use super::wander_panic::*;
+use super::waypoint::*;
+use super::*;
 
 use crate::action_manager::{CanEnterType, TheActionManager};
 use crate::ai::dock::AIDockMachine;
@@ -71,7 +71,6 @@ use crate::common::INVALID_ID;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock, Weak};
 
-
 /// Enter state - enter a transport or building
 #[derive(Debug)]
 pub struct AIEnterState {
@@ -79,7 +78,6 @@ pub struct AIEnterState {
     pub(crate) entry_to_clear: ObjectID,
     pub(crate) goal_position: Coord3D,
 }
-
 
 impl AIEnterState {
     pub fn new(machine: &StateMachine) -> Self {
@@ -92,7 +90,6 @@ impl AIEnterState {
         }
     }
 }
-
 
 impl StateImplementation for AIEnterState {
     fn on_enter(&mut self) -> StateReturnType {
@@ -111,7 +108,6 @@ impl StateImplementation for AIEnterState {
         Snapshotable::xfer(self, xfer)
     }
 }
-
 
 impl ClassicState for AIEnterState {
     fn base_state(&self) -> &State {
@@ -344,14 +340,12 @@ impl ClassicState for AIEnterState {
     }
 }
 
-
 /// Exit state - exit from transport or building
 #[derive(Debug)]
 pub struct AIExitState {
     pub(crate) base: State,
     pub(crate) entry_to_clear: ObjectID,
 }
-
 
 impl AIExitState {
     pub fn new(machine: &StateMachine) -> Self {
@@ -361,7 +355,6 @@ impl AIExitState {
         }
     }
 }
-
 
 impl StateImplementation for AIExitState {
     fn on_enter(&mut self) -> StateReturnType {
@@ -380,7 +373,6 @@ impl StateImplementation for AIExitState {
         Snapshotable::xfer(self, xfer)
     }
 }
-
 
 impl ClassicState for AIExitState {
     fn base_state(&self) -> &State {
@@ -521,14 +513,12 @@ impl ClassicState for AIExitState {
     }
 }
 
-
 /// Exit instantly state - exit from transport or building immediately
 #[derive(Debug)]
 pub struct AIExitInstantlyState {
     pub(crate) base: State,
     pub(crate) entry_to_clear: ObjectID,
 }
-
 
 impl AIExitInstantlyState {
     pub fn new(machine: &StateMachine) -> Self {
@@ -538,7 +528,6 @@ impl AIExitInstantlyState {
         }
     }
 }
-
 
 impl StateImplementation for AIExitInstantlyState {
     fn on_enter(&mut self) -> StateReturnType {
@@ -557,7 +546,6 @@ impl StateImplementation for AIExitInstantlyState {
         Snapshotable::xfer(self, xfer)
     }
 }
-
 
 impl ClassicState for AIExitInstantlyState {
     fn base_state(&self) -> &State {
@@ -662,7 +650,6 @@ impl ClassicState for AIExitInstantlyState {
     }
 }
 
-
 impl Snapshotable for AIExitState {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
         let mut version: game_engine::common::system::xfer::XferVersion = 1;
@@ -690,7 +677,6 @@ impl Snapshotable for AIExitState {
     }
 }
 
-
 impl Snapshotable for AIExitInstantlyState {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
         let mut version: game_engine::common::system::xfer::XferVersion = 1;
@@ -717,7 +703,6 @@ impl Snapshotable for AIExitInstantlyState {
         Ok(())
     }
 }
-
 
 impl Snapshotable for AIEnterState {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {

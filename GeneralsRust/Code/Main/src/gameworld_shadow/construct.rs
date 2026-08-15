@@ -91,6 +91,20 @@ impl GameWorldShadow {
         self.host_to_entity.len()
     }
 
+    pub(super) fn invalidate_dead_entity_maps(&mut self) {
+        let dead: Vec<u32> = self
+            .entity_to_host
+            .keys()
+            .copied()
+            .filter(|eid| self.world.entity(EntityId::from_raw(*eid)).is_none())
+            .collect();
+        for eid in dead {
+            if let Some(hid) = self.entity_to_host.remove(&eid) {
+                self.host_to_entity.remove(&hid);
+            }
+        }
+    }
+
     /// Full/delta sync from host: create, update health/transform/owner, destroy missing.
     /// Preserves EntityId for host objects that still exist.
     pub(super) fn host_building_type_ordinal(t: crate::game_logic::BuildingType) -> u8 {
@@ -1757,10 +1771,10 @@ impl GameWorldShadow {
                     // Map pointed at dead entity — respawn.
                     self.host_to_entity.remove(&oid.0);
                     self.entity_to_host.remove(&eid.get());
-                    self.spawn_mapped(oid, obj.template_name.clone(), owner, transform, health);
+                    self.spawn_mapped(oid, obj, owner, transform, health);
                 }
             } else {
-                self.spawn_mapped(oid, obj.template_name.clone(), owner, transform, health);
+                self.spawn_mapped(oid, obj, owner, transform, health);
             }
         }
 
@@ -2331,16 +2345,23 @@ impl GameWorldShadow {
     pub(super) fn spawn_mapped(
         &mut self,
         host: ObjectId,
-        template: String,
+        obj: &crate::game_logic::Object,
         owner: Option<PlayerId>,
         transform: Transform,
         health: f32,
     ) {
-        let eid = self
-            .world
-            .spawn_entity(TemplateRef::new(template), owner, transform, health);
+        let eid = self.world.spawn_entity(
+            TemplateRef::new(obj.template_name.clone()),
+            owner,
+            transform,
+            health,
+        );
         self.host_to_entity.insert(host.0, eid);
         self.entity_to_host.insert(eid.get(), host.0);
+        if crate::gameworld_shadow::gameworld_entity_modules_enabled() {
+            let spec = entity_module_spec_from_host(obj);
+            let _ = self.world.install_entity_modules(eid, &spec);
+        }
         // Defaults for residual fields until second-pass/host refresh fills them.
         if let Some(e) = self.world.world_mut().entity_mut(eid) {
             e.max_health = health.max(1.0);
@@ -2680,5 +2701,25 @@ impl GameWorldShadow {
         object
             .owner_player_id
             .and_then(|player_id| self.host_player_to_gw.get(&player_id).copied())
+    }
+}
+
+fn entity_module_spec_from_host(
+    obj: &crate::game_logic::Object,
+) -> gamelogic::world::EntityModuleInstallSpec {
+    let template = obj.thing.get_template();
+    let mut template_module_tags = Vec::new();
+    if template.garrison_contain_max.is_some() {
+        template_module_tags.push("GarrisonContain".to_string());
+    }
+    if obj.building_data.is_some() {
+        template_module_tags.push("ProductionUpdate".to_string());
+    }
+    gamelogic::world::EntityModuleInstallSpec {
+        template_module_tags,
+        inactive_body: false,
+        shrubbery: false,
+        can_be_repulsed: obj.thing.is_kind_of(crate::game_logic::KindOf::CanBeRepulsed),
+        has_weapons: obj.weapon.is_some(),
     }
 }

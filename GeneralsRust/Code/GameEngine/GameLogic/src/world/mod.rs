@@ -2,8 +2,20 @@
 
 pub mod contain_roster;
 pub mod entities;
+pub mod entity_fixup;
+pub mod entity_generation;
+pub mod entity_inventory_audit;
+pub mod entity_modules;
 pub mod weapon_slots;
 pub use contain_roster::GameWorldContainRoster;
+pub use entity_fixup::{ContainFixup, ProducerFixup};
+pub use entity_generation::EntityHandle;
+pub use entity_inventory_audit::{ENTITY_ONLY_GROUPS, KNOWN_GAPS};
+pub use entity_modules::{
+    ctor_helper_tags, EntityModuleInstallSpec, GameWorldEntityModules, HELPER_TAG_DEFECTION,
+    HELPER_TAG_FIRING_TRACKER, HELPER_TAG_REPULSOR, HELPER_TAG_SMC, HELPER_TAG_STATUS,
+    HELPER_TAG_SUBDUAL, HELPER_TAG_TEMP_WEAPON_BONUS, HELPER_TAG_WEAPON_STATUS,
+};
 pub use weapon_slots::{
     GameWorldWeaponSlots, WeaponSlotFacts, WEAPON_SLOT_COUNT, WEAPON_SLOT_MINE_CLEAR,
     WEAPON_SLOT_PRIMARY, WEAPON_SLOT_SECONDARY, WEAPON_SLOT_TERTIARY,
@@ -1276,7 +1288,7 @@ pub struct AiDecisionResidual {
 #[derive(Debug)]
 pub struct GameWorld {
     inner: World,
-    pending: Vec<WorldMutation>,
+    pending: Vec<entity_generation::GuardedMutation>,
     /// Most recent entity created via `WorldMutation::Spawn` (shadow ID map).
     last_spawned_entity: Option<EntityId>,
     /// Host CombatSystem in-flight projectile residual (keyed by host projectile id).
@@ -1289,6 +1301,7 @@ pub struct GameWorld {
     weapon_slots: GameWorldWeaponSlots,
     /// Occupant roster (Entity keeps host-id residual only).
     contain_roster: GameWorldContainRoster,
+    entity_modules: entity_modules::GameWorldEntityModules,
 }
 
 impl GameWorld {
@@ -1303,6 +1316,7 @@ impl GameWorld {
             pending_destroy: Vec::new(),
             weapon_slots: GameWorldWeaponSlots::default(),
             contain_roster: GameWorldContainRoster::default(),
+            entity_modules: entity_modules::GameWorldEntityModules::default(),
         }
     }
 
@@ -1464,7 +1478,9 @@ impl GameWorld {
 
     /// Queue a mutation for end-of-phase apply (does not mutate entities yet).
     pub fn queue_mutation(&mut self, m: WorldMutation) {
-        self.pending.push(m);
+        let guard = entity_generation::guard_for(&self.inner.entities, &m);
+        self.pending
+            .push(entity_generation::GuardedMutation { mutation: m, guard });
     }
 
     /// Apply all pending mutations in queue order. Returns how many succeeded.
@@ -1477,7 +1493,13 @@ impl GameWorld {
     pub fn apply_pending_mutations(&mut self) -> usize {
         let pending = std::mem::take(&mut self.pending);
         let mut applied = 0;
-        for m in pending {
+        for item in pending {
+            if let Some(handle) = item.guard {
+                if self.inner.entities.resolve(handle).is_none() {
+                    continue;
+                }
+            }
+            let m = item.mutation;
             match m {
                 WorldMutation::Damage { target, amount } => {
                     let kill = if let Some(e) = self.inner.entity_mut(target) {
@@ -2882,6 +2904,27 @@ impl GameWorld {
         self.inner.spawn_entity(template, owner, transform, health)
     }
 
+    pub fn spawn_entity_at(
+        &mut self,
+        id: EntityId,
+        template: TemplateRef,
+        owner: Option<PlayerId>,
+        transform: Transform,
+        health: f32,
+    ) -> Option<EntityId> {
+        self.inner
+            .entities
+            .spawn_at(id, template, owner, transform, health)
+    }
+
+    pub fn entity_handle(&self, id: EntityId) -> Option<EntityHandle> {
+        self.inner.entities.handle_of(id)
+    }
+
+    pub fn resolve_entity(&self, handle: EntityHandle) -> Option<&entities::Entity> {
+        self.inner.entities.resolve(handle)
+    }
+
     pub fn allocate_player_with_name(
         &mut self,
         name: Option<String>,
@@ -2924,6 +2967,7 @@ impl GameWorld {
         self.pending_destroy.clear();
         self.contain_roster.clear();
         self.weapon_slots.clear();
+        self.entity_modules.clear();
     }
 
     /// C++ GameLogic::destroyObject mark: status bit + queue, still findable by id.
@@ -2966,6 +3010,7 @@ impl GameWorld {
             if let Some(container) = self.contain_roster.contained_by(id) {
                 let _ = self.contain_roster.exit(container, id);
             }
+            let _ = self.walk_entity_modules_on_delete(id);
             if self.inner.remove_entity(id) {
                 self.weapon_slots.remove(id);
                 self.contain_roster.remove(id);

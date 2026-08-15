@@ -1,9 +1,9 @@
 //! C++ `Drawable::calcPhysicsXformHoverOrWings` (`Drawable.cpp:1525-1633`).
 
+use super::loco_state::PhysicsVisualLocoState;
 use super::spring::{
     apply_motive_accel_kick, clamp_accel_pitch_roll, integrate_accel_axis, integrate_chassis_axis,
 };
-use super::loco_state::PhysicsVisualLocoState;
 use super::types::{LocomotorVisualParams, PhysicsVisualBody};
 use super::PhysicsVisualXform;
 

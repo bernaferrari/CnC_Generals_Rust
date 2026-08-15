@@ -65,6 +65,7 @@ mod client_drawable;
 mod client_drawable_xfer;
 mod game_state;
 mod legacy_bincode;
+mod lifecycle_tail;
 mod load_post_process;
 mod object;
 mod player;
@@ -87,6 +88,11 @@ pub use gamelogic::system::shroud_manager::{
     ShroudCellSnapshot, ShroudGridSnapshot, ShroudPendingUndoRevealSnapshot, ShroudSnapshot,
 };
 pub(crate) use legacy_bincode::*;
+pub use lifecycle_tail::{
+    apply_lifecycle_tail_to_host, capture_lifecycle_tail, contain_fixups_from_tail,
+    decode_lifecycle_tail, encode_lifecycle_tail, producer_fixups_from_tail, ContainLink,
+    LifecycleTail, ProducerLink,
+};
 pub use object::*;
 pub use player::*;
 pub use special_powers::*;
@@ -106,6 +112,7 @@ pub const SNAPSHOT_SRC: &str = concat!(
     include_str!("client_drawable.rs"),
     include_str!("client_drawable_xfer.rs"),
     include_str!("game_state.rs"),
+    include_str!("lifecycle_tail.rs"),
     include_str!("load_post_process.rs"),
     include_str!("object.rs"),
     include_str!("player.rs"),

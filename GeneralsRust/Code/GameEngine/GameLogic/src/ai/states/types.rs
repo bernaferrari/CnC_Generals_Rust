@@ -1,25 +1,25 @@
 #![allow(deprecated, unused_imports, dead_code)]
 
-use super::*;
-use super::helpers::*;
-use super::follow_path_core::*;
-use super::state_machine::*;
-use super::idle::*;
-use super::r#move::*;
-use super::follow_path::*;
-use super::wait_busy::*;
-use super::wander_panic::*;
-use super::face::*;
-use super::hack::*;
-use super::rappel::*;
-use super::waypoint::*;
 use super::attack::*;
 use super::attack_machine::*;
-use super::guard::*;
-use super::hunt::*;
+use super::dead::*;
 use super::dock::*;
 use super::enter::*;
-use super::dead::*;
+use super::face::*;
+use super::follow_path::*;
+use super::follow_path_core::*;
+use super::guard::*;
+use super::hack::*;
+use super::helpers::*;
+use super::hunt::*;
+use super::idle::*;
+use super::r#move::*;
+use super::rappel::*;
+use super::state_machine::*;
+use super::wait_busy::*;
+use super::wander_panic::*;
+use super::waypoint::*;
+use super::*;
 
 use crate::action_manager::{CanEnterType, TheActionManager};
 use crate::ai::dock::AIDockMachine;
@@ -70,7 +70,6 @@ use crate::common::INVALID_ID;
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock, Weak};
-
 
 /// AI state types
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -131,7 +130,6 @@ pub type AICommandType = crate::ai::AiCommandType;
 
 pub type AiCommandType = AICommandType;
 
-
 /// AI command parameters
 pub struct AICommandParms {
     /// The command type
@@ -163,7 +161,6 @@ pub struct AICommandParms {
     pub coords: Vec<Coord3D>,
 }
 
-
 impl AICommandParms {
     pub fn new(cmd: AICommandType, cmd_source: CommandSourceType) -> Self {
         Self {
@@ -185,7 +182,6 @@ impl AICommandParms {
     }
 }
 
-
 /// Storage for AI command parameters (for serialization)
 pub struct AICommandParmsStorage {
     pub cmd: AICommandType,
@@ -203,7 +199,6 @@ pub struct AICommandParmsStorage {
     pub command_button_name: String,
     pub path: Option<Arc<Mutex<Path>>>,
 }
-
 
 impl AICommandParmsStorage {
     /// Store command parameters for serialization
@@ -392,7 +387,6 @@ impl AICommandParmsStorage {
     }
 }
 
-
 pub(crate) fn ai_command_type_from_i32(value: i32) -> AICommandType {
     match value {
         -1 => AiCommandType::NoCommand,
@@ -456,7 +450,6 @@ pub(crate) fn ai_command_type_from_i32(value: i32) -> AICommandType {
         _ => AiCommandType::NoCommand,
     }
 }
-
 
 pub(crate) fn command_source_type_from_i32(value: i32) -> CommandSourceType {
     match value {

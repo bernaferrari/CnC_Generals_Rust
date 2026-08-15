@@ -142,7 +142,11 @@ impl PathfindingSystem {
         goal == INVALID_ID || goal == unit_id
     }
 
-    pub(crate) fn goal_cell_fixed_occupied(&self, cell: GridCoord, layer: PathfindLayerEnum) -> bool {
+    pub(crate) fn goal_cell_fixed_occupied(
+        &self,
+        cell: GridCoord,
+        layer: PathfindLayerEnum,
+    ) -> bool {
         let Ok(goals) = self.goal_cells.lock() else {
             return false;
         };

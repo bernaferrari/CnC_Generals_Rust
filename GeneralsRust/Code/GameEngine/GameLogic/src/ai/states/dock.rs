@@ -1,25 +1,25 @@
 #![allow(deprecated, unused_imports, dead_code)]
 
-use super::*;
-use super::helpers::*;
-use super::follow_path_core::*;
-use super::types::*;
-use super::state_machine::*;
-use super::idle::*;
-use super::r#move::*;
-use super::follow_path::*;
-use super::wait_busy::*;
-use super::wander_panic::*;
-use super::face::*;
-use super::hack::*;
-use super::rappel::*;
-use super::waypoint::*;
 use super::attack::*;
 use super::attack_machine::*;
-use super::guard::*;
-use super::hunt::*;
-use super::enter::*;
 use super::dead::*;
+use super::enter::*;
+use super::face::*;
+use super::follow_path::*;
+use super::follow_path_core::*;
+use super::guard::*;
+use super::hack::*;
+use super::helpers::*;
+use super::hunt::*;
+use super::idle::*;
+use super::r#move::*;
+use super::rappel::*;
+use super::state_machine::*;
+use super::types::*;
+use super::wait_busy::*;
+use super::wander_panic::*;
+use super::waypoint::*;
+use super::*;
 
 use crate::action_manager::{CanEnterType, TheActionManager};
 use crate::ai::dock::AIDockMachine;
@@ -71,7 +71,6 @@ use crate::common::INVALID_ID;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock, Weak};
 
-
 /// Dock state - dock with a goal object that supports docking
 #[derive(Debug)]
 pub struct AIDockState {
@@ -79,7 +78,6 @@ pub struct AIDockState {
     pub(crate) dock_machine: Option<AIDockMachine>,
     pub(crate) using_precision_movement: bool,
 }
-
 
 impl AIDockState {
     pub fn new(machine: &StateMachine) -> Self {
@@ -90,7 +88,6 @@ impl AIDockState {
         }
     }
 }
-
 
 impl StateImplementation for AIDockState {
     fn on_enter(&mut self) -> StateReturnType {
@@ -109,7 +106,6 @@ impl StateImplementation for AIDockState {
         Snapshotable::xfer(self, xfer)
     }
 }
-
 
 impl ClassicState for AIDockState {
     fn base_state(&self) -> &State {
@@ -222,7 +218,6 @@ impl ClassicState for AIDockState {
         Ok(())
     }
 }
-
 
 impl Snapshotable for AIDockState {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {

@@ -19,19 +19,19 @@ mod team;
 pub use super::{ScriptContext, ScriptValue};
 pub use registry::ConditionRegistry;
 
-pub(crate) use helpers::{
-    get_player_arc, get_str_param, lookup_named_object_id, perform_comparison,
-};
 pub use helpers::{
     clear_host_script_query_snapshot, host_script_area_bounds, host_script_area_unit_ids,
     host_script_named_unit_alive, host_script_named_unit_id, host_script_named_unit_in_area,
     host_script_named_unit_in_named_area, host_script_query_has_any, host_script_team_unit_ids,
     set_host_script_query_snapshot, HostScriptQueryObject, HostScriptQuerySnapshot,
 };
+pub(crate) use helpers::{
+    get_player_arc, get_str_param, lookup_named_object_id, perform_comparison,
+};
 
+use crate::GameLogicResult;
 use async_trait::async_trait;
 use std::collections::HashMap;
-use crate::GameLogicResult;
 
 /// Script condition trait
 #[async_trait]
@@ -58,13 +58,11 @@ pub trait ScriptCondition: Send + Sync {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use super::leftover::{
-        BridgeBrokenCondition, BridgeRepairedCondition, GameTimeCondition,
-    };
+    use super::leftover::{BridgeBrokenCondition, BridgeRepairedCondition, GameTimeCondition};
     use super::logic::{FlagComparisonCondition, VariableEqualsCondition};
     use super::object::ObjectHealthCondition;
     use super::player::{PlayerHasResourceCondition, ResearchCompleteCondition};
+    use super::*;
     use crate::player::player_list;
     use crate::scripting::engine::{get_named_object_tracker, get_script_engine};
     use crate::terrain::get_terrain_logic;

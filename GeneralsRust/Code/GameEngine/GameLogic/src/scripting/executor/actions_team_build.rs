@@ -10,7 +10,10 @@ impl ScriptActionDispatcher {
     // ADDITIONAL TEAM ACTION IMPLEMENTATIONS
     // ============================================================================
 
-    pub(crate) fn do_build_team(&mut self, action: &ScriptAction) -> Result<ScriptActionResult, ScriptError> {
+    pub(crate) fn do_build_team(
+        &mut self,
+        action: &ScriptAction,
+    ) -> Result<ScriptActionResult, ScriptError> {
         let team_name = self.resolve_team_name_token(&self.get_string_param(action, 0)?);
         log::debug!("Building team '{}'", team_name);
 
@@ -749,7 +752,10 @@ impl ScriptActionDispatcher {
 
     /// C++ Reference: ScriptActions::doTeamWander()
     /// Iterates team members, selects wander locomotor, and issues waypoint wander.
-    pub(crate) fn do_team_wander(&mut self, action: &ScriptAction) -> Result<ScriptActionResult, ScriptError> {
+    pub(crate) fn do_team_wander(
+        &mut self,
+        action: &ScriptAction,
+    ) -> Result<ScriptActionResult, ScriptError> {
         let team_name = self.get_string_param(action, 0)?;
         let waypoint_path_label = self.get_string_param(action, 1)?;
         log::info!(
@@ -849,7 +855,10 @@ impl ScriptActionDispatcher {
 
     /// C++ Reference: ScriptActions::doTeamPanic()
     /// Iterates team members, selects panic locomotor, and issues waypoint panic.
-    pub(crate) fn do_team_panic(&mut self, action: &ScriptAction) -> Result<ScriptActionResult, ScriptError> {
+    pub(crate) fn do_team_panic(
+        &mut self,
+        action: &ScriptAction,
+    ) -> Result<ScriptActionResult, ScriptError> {
         let team_name = self.get_string_param(action, 0)?;
         let waypoint_path_label = self.get_string_param(action, 1)?;
         log::debug!(
@@ -904,7 +913,10 @@ impl ScriptActionDispatcher {
 
     /// C++ Reference: ScriptActions::doTeamStop()
     /// Issues stop command to team AI group
-    pub(crate) fn do_team_stop(&mut self, action: &ScriptAction) -> Result<ScriptActionResult, ScriptError> {
+    pub(crate) fn do_team_stop(
+        &mut self,
+        action: &ScriptAction,
+    ) -> Result<ScriptActionResult, ScriptError> {
         let team_name = self.resolve_team_name_token(&self.get_string_param(action, 0)?);
         log::info!("Team '{}' stopping", team_name);
 
@@ -1014,7 +1026,10 @@ impl ScriptActionDispatcher {
         Ok(ScriptActionResult::Success)
     }
 
-    pub(crate) fn do_team_merge(&mut self, action: &ScriptAction) -> Result<ScriptActionResult, ScriptError> {
+    pub(crate) fn do_team_merge(
+        &mut self,
+        action: &ScriptAction,
+    ) -> Result<ScriptActionResult, ScriptError> {
         let source_team = self.resolve_team_name_token(&self.get_string_param(action, 0)?);
         let target_team = self.resolve_team_name_token(&self.get_string_param(action, 1)?);
         log::debug!("Merging team '{}' into '{}'", source_team, target_team);

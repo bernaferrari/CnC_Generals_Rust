@@ -1,11 +1,9 @@
 //! C++ `Drawable::calcPhysicsXformTreads` (`Drawable.cpp:1637-1891`).
 
+use super::loco_state::PhysicsVisualLocoState;
 use super::rng::ClientVisualRng;
 use super::spring::{cross3, finish_accel_totals, ground_pitch_roll, normalize3};
-use super::loco_state::PhysicsVisualLocoState;
-use super::types::{
-    LocomotorVisualParams, OverlapVisualTarget, PhysicsVisualBody, CPP_PI,
-};
+use super::types::{LocomotorVisualParams, OverlapVisualTarget, PhysicsVisualBody, CPP_PI};
 use super::PhysicsVisualXform;
 
 const OVERLAP_SHRINK_FACTOR: f32 = 0.8;
@@ -100,7 +98,8 @@ fn apply_overlap_surface(
 
     let center_dist = center_dist_sqr.sqrt();
     let amount = (1.0 - center_dist / max_center_dist).clamp(0.0, 1.0);
-    let mut rough = (body.vel_x * body.vel_x + body.vel_y * body.vel_y) * OVERLAP_ROUGH_VIBRATION_FACTOR;
+    let mut rough =
+        (body.vel_x * body.vel_x + body.vel_y * body.vel_y) * OVERLAP_ROUGH_VIBRATION_FACTOR;
     if rough > MAX_ROUGH_VIBRATION {
         rough = MAX_ROUGH_VIBRATION;
     }

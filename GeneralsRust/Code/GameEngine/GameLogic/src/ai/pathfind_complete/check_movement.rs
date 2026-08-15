@@ -910,5 +910,4 @@ impl PathfindingSystem {
         );
         nudged
     }
-
 }

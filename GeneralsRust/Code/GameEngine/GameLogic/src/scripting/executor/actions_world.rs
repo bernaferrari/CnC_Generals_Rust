@@ -6,7 +6,6 @@
 use super::*;
 
 impl ScriptActionDispatcher {
-
     // ============================================================================
     // ADDITIONAL AUDIO/VIDEO ACTION IMPLEMENTATIONS
     // ============================================================================
@@ -32,7 +31,9 @@ impl ScriptActionDispatcher {
         Ok(ScriptActionResult::Success)
     }
 
-    pub(crate) fn do_suspend_background_sounds(&mut self) -> Result<ScriptActionResult, ScriptError> {
+    pub(crate) fn do_suspend_background_sounds(
+        &mut self,
+    ) -> Result<ScriptActionResult, ScriptError> {
         log::debug!("Suspending background sounds");
         if let Some(audio) = TheAudio::get() {
             audio.pause_audio(EngineAudioAffect::Sound);
@@ -40,7 +41,9 @@ impl ScriptActionDispatcher {
         Ok(ScriptActionResult::Success)
     }
 
-    pub(crate) fn do_resume_background_sounds(&mut self) -> Result<ScriptActionResult, ScriptError> {
+    pub(crate) fn do_resume_background_sounds(
+        &mut self,
+    ) -> Result<ScriptActionResult, ScriptError> {
         log::debug!("Resuming background sounds");
         if let Some(audio) = TheAudio::get() {
             audio.resume_audio(EngineAudioAffect::Sound);
@@ -133,7 +136,9 @@ impl ScriptActionDispatcher {
         Ok(ScriptActionResult::Success)
     }
 
-    pub(crate) fn do_audio_restore_volume_all_type(&mut self) -> Result<ScriptActionResult, ScriptError> {
+    pub(crate) fn do_audio_restore_volume_all_type(
+        &mut self,
+    ) -> Result<ScriptActionResult, ScriptError> {
         log::debug!("Restoring all audio volumes");
         if let Some(audio) = TheAudio::get() {
             audio.set_audio_event_volume_override("", -1.0);
@@ -167,7 +172,9 @@ impl ScriptActionDispatcher {
         Ok(ScriptActionResult::Success)
     }
 
-    pub(crate) fn do_sound_remove_all_disabled(&mut self) -> Result<ScriptActionResult, ScriptError> {
+    pub(crate) fn do_sound_remove_all_disabled(
+        &mut self,
+    ) -> Result<ScriptActionResult, ScriptError> {
         log::debug!("Removing all disabled sounds");
         if let Some(audio) = TheAudio::get() {
             audio.remove_disabled_events();
@@ -586,10 +593,7 @@ impl ScriptActionDispatcher {
                 }
                 if let Some(handler) = current_script_action_handler() {
                     if let Err(err) = handler.create_radar_event(pos.x, pos.y, pos.z, event_type) {
-                        log::warn!(
-                            "Script action handler create_radar_event failed: {}",
-                            err
-                        );
+                        log::warn!("Script action handler create_radar_event failed: {}", err);
                     }
                 }
             }
@@ -643,7 +647,10 @@ impl ScriptActionDispatcher {
     // ADDITIONAL DISPLAY/UI ACTION IMPLEMENTATIONS
     // ============================================================================
 
-    pub(crate) fn do_cameo_flash(&mut self, action: &ScriptAction) -> Result<ScriptActionResult, ScriptError> {
+    pub(crate) fn do_cameo_flash(
+        &mut self,
+        action: &ScriptAction,
+    ) -> Result<ScriptActionResult, ScriptError> {
         let cameo_name = self.get_string_param(action, 0)?;
         let time_in_seconds = self.get_int_param(action, 1)?;
         log::debug!("Flashing cameo '{}' for {}s", cameo_name, time_in_seconds);
@@ -702,7 +709,9 @@ impl ScriptActionDispatcher {
         Ok(ScriptActionResult::Success)
     }
 
-    pub(crate) fn do_enable_countdown_timer_display(&mut self) -> Result<ScriptActionResult, ScriptError> {
+    pub(crate) fn do_enable_countdown_timer_display(
+        &mut self,
+    ) -> Result<ScriptActionResult, ScriptError> {
         log::debug!("Enabling countdown timer display");
 
         if let Some(handler) = current_script_action_handler() {
@@ -717,7 +726,9 @@ impl ScriptActionDispatcher {
         Ok(ScriptActionResult::Success)
     }
 
-    pub(crate) fn do_disable_countdown_timer_display(&mut self) -> Result<ScriptActionResult, ScriptError> {
+    pub(crate) fn do_disable_countdown_timer_display(
+        &mut self,
+    ) -> Result<ScriptActionResult, ScriptError> {
         log::debug!("Disabling countdown timer display");
 
         if let Some(handler) = current_script_action_handler() {
@@ -769,7 +780,9 @@ impl ScriptActionDispatcher {
         Ok(ScriptActionResult::Success)
     }
 
-    pub(crate) fn do_disable_special_power_display(&mut self) -> Result<ScriptActionResult, ScriptError> {
+    pub(crate) fn do_disable_special_power_display(
+        &mut self,
+    ) -> Result<ScriptActionResult, ScriptError> {
         log::debug!("Disabling special power display");
 
         if let Some(handler) = current_script_action_handler() {
@@ -784,7 +797,9 @@ impl ScriptActionDispatcher {
         Ok(ScriptActionResult::Success)
     }
 
-    pub(crate) fn do_enable_special_power_display(&mut self) -> Result<ScriptActionResult, ScriptError> {
+    pub(crate) fn do_enable_special_power_display(
+        &mut self,
+    ) -> Result<ScriptActionResult, ScriptError> {
         log::debug!("Enabling special power display");
 
         if let Some(handler) = current_script_action_handler() {
@@ -1022,13 +1037,7 @@ impl ScriptActionDispatcher {
         );
 
         let _ = with_script_engine_mut(|script_engine| {
-            script_engine.set_breeze_info(
-                direction,
-                intensity,
-                lean,
-                breeze_period,
-                randomness,
-            );
+            script_engine.set_breeze_info(direction, intensity, lean, breeze_period, randomness);
         });
 
         Ok(ScriptActionResult::Success)
@@ -1137,7 +1146,9 @@ impl ScriptActionDispatcher {
         Ok(ScriptActionResult::Success)
     }
 
-    pub(crate) fn do_reset_infantry_lighting_override(&mut self) -> Result<ScriptActionResult, ScriptError> {
+    pub(crate) fn do_reset_infantry_lighting_override(
+        &mut self,
+    ) -> Result<ScriptActionResult, ScriptError> {
         if let Ok(mut gd) = global_data::write_safe() {
             gd.script_override_infantry_light_scale = -1.0;
         }

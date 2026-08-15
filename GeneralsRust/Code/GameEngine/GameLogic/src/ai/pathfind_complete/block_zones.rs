@@ -435,7 +435,10 @@ impl ZoneManager {
         self.calculate_zones_with_types(None);
     }
 
-    pub(crate) fn calculate_zones_with_types(&mut self, cell_types: Option<&[Vec<PathfindCellType>]>) {
+    pub(crate) fn calculate_zones_with_types(
+        &mut self,
+        cell_types: Option<&[Vec<PathfindCellType>]>,
+    ) {
         self.calculate_zones_with_types_and_fences(cell_types, None, None, None);
     }
 

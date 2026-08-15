@@ -12,7 +12,10 @@ impl ScriptActionDispatcher {
     // ============================================================================
 
     /// C++ Reference: ScriptActions::doSetMoney() line (in header)
-    pub(crate) fn do_set_money(&mut self, action: &ScriptAction) -> Result<ScriptActionResult, ScriptError> {
+    pub(crate) fn do_set_money(
+        &mut self,
+        action: &ScriptAction,
+    ) -> Result<ScriptActionResult, ScriptError> {
         let player_name = self.resolve_player_name_token(&self.get_string_param(action, 0)?);
         let money_amount = self.get_int_param(action, 1)?;
 
@@ -35,7 +38,10 @@ impl ScriptActionDispatcher {
     }
 
     /// C++ Reference: ScriptActions::doGiveMoney() line (in header)
-    pub(crate) fn do_give_money(&mut self, action: &ScriptAction) -> Result<ScriptActionResult, ScriptError> {
+    pub(crate) fn do_give_money(
+        &mut self,
+        action: &ScriptAction,
+    ) -> Result<ScriptActionResult, ScriptError> {
         let player_name = self.resolve_player_name_token(&self.get_string_param(action, 0)?);
         let money_amount = self.get_int_param(action, 1)?;
 
@@ -106,7 +112,10 @@ impl ScriptActionDispatcher {
 
     /// C++ Reference: ScriptActions::doPlayerKill()
     /// Kills all units and buildings belonging to a player
-    pub(crate) fn do_player_kill(&mut self, action: &ScriptAction) -> Result<ScriptActionResult, ScriptError> {
+    pub(crate) fn do_player_kill(
+        &mut self,
+        action: &ScriptAction,
+    ) -> Result<ScriptActionResult, ScriptError> {
         let player_name = self.resolve_player_name_token(&self.get_string_param(action, 0)?);
 
         log::info!("Killing all units for player '{}' (scripted)", player_name);
@@ -145,7 +154,10 @@ impl ScriptActionDispatcher {
         Ok(ScriptActionResult::Success)
     }
 
-    pub(crate) fn do_player_hunt(&mut self, action: &ScriptAction) -> Result<ScriptActionResult, ScriptError> {
+    pub(crate) fn do_player_hunt(
+        &mut self,
+        action: &ScriptAction,
+    ) -> Result<ScriptActionResult, ScriptError> {
         let player_name = self.resolve_player_name_token(&self.get_string_param(action, 0)?);
 
         log::info!("Player '{}' units hunting", player_name);
@@ -406,7 +418,9 @@ impl ScriptActionDispatcher {
         };
 
         if let Some(handler) = current_script_action_handler() {
-            if let Err(err) = handler.reset_camera_to(target.x, target.y, target.z, duration_seconds) {
+            if let Err(err) =
+                handler.reset_camera_to(target.x, target.y, target.z, duration_seconds)
+            {
                 log::warn!("Script action handler reset_camera_to failed: {}", err);
             }
         }
@@ -466,7 +480,9 @@ impl ScriptActionDispatcher {
         };
 
         if let Some(handler) = current_script_action_handler() {
-            if let Err(err) = handler.play_sound_effect_at(&sound_name, target.x, target.y, target.z) {
+            if let Err(err) =
+                handler.play_sound_effect_at(&sound_name, target.x, target.y, target.z)
+            {
                 log::warn!("Script action handler play_sound_effect_at failed: {}", err);
             }
         }
@@ -474,7 +490,10 @@ impl ScriptActionDispatcher {
         Ok(ScriptActionResult::Success)
     }
 
-    pub(crate) fn do_speech_play(&mut self, action: &ScriptAction) -> Result<ScriptActionResult, ScriptError> {
+    pub(crate) fn do_speech_play(
+        &mut self,
+        action: &ScriptAction,
+    ) -> Result<ScriptActionResult, ScriptError> {
         let speech_name = self.get_string_param(action, 0)?;
         let allow_overlap = self.get_bool_param_optional(action, 1).unwrap_or(false);
 
@@ -695,7 +714,10 @@ impl ScriptActionDispatcher {
     // ============================================================================
 
     /// C++ Reference: ScriptActions::doSetFlag()
-    pub(crate) fn do_set_flag(&mut self, action: &ScriptAction) -> Result<ScriptActionResult, ScriptError> {
+    pub(crate) fn do_set_flag(
+        &mut self,
+        action: &ScriptAction,
+    ) -> Result<ScriptActionResult, ScriptError> {
         let flag_name = self.get_string_param(action, 0)?;
         let value = self.get_int_param(action, 1)? != 0;
         log::debug!("Setting flag '{}' to {}", flag_name, value);
@@ -706,7 +728,10 @@ impl ScriptActionDispatcher {
     }
 
     /// C++ Reference: ScriptActions::doSetCounter()
-    pub(crate) fn do_set_counter(&mut self, action: &ScriptAction) -> Result<ScriptActionResult, ScriptError> {
+    pub(crate) fn do_set_counter(
+        &mut self,
+        action: &ScriptAction,
+    ) -> Result<ScriptActionResult, ScriptError> {
         let counter_name = self.get_string_param(action, 0)?;
         let value = self.get_int_param(action, 1)?;
         log::debug!("Setting counter '{}' to {}", counter_name, value);
@@ -740,7 +765,10 @@ impl ScriptActionDispatcher {
     }
 
     /// C++ Reference: ScriptActions::doSetTimer()
-    pub(crate) fn do_set_timer(&mut self, action: &ScriptAction) -> Result<ScriptActionResult, ScriptError> {
+    pub(crate) fn do_set_timer(
+        &mut self,
+        action: &ScriptAction,
+    ) -> Result<ScriptActionResult, ScriptError> {
         let timer_name = self.get_string_param(action, 0)?;
         let seconds = self.get_real_param(action, 1)?;
         log::debug!("Setting timer '{}' to {} seconds", timer_name, seconds);
@@ -813,7 +841,10 @@ impl ScriptActionDispatcher {
     }
 
     /// C++ Reference: ScriptActions::doStopTimer()
-    pub(crate) fn do_stop_timer(&mut self, action: &ScriptAction) -> Result<ScriptActionResult, ScriptError> {
+    pub(crate) fn do_stop_timer(
+        &mut self,
+        action: &ScriptAction,
+    ) -> Result<ScriptActionResult, ScriptError> {
         let timer_name = self.get_string_param(action, 0)?;
         log::debug!("Stopping timer '{}'", timer_name);
 

@@ -1,25 +1,25 @@
 #![allow(deprecated, unused_imports, dead_code)]
 
-use super::*;
-use super::helpers::*;
-use super::follow_path_core::*;
-use super::types::*;
-use super::idle::*;
-use super::r#move::*;
-use super::follow_path::*;
-use super::wait_busy::*;
-use super::wander_panic::*;
-use super::face::*;
-use super::hack::*;
-use super::rappel::*;
-use super::waypoint::*;
 use super::attack::*;
 use super::attack_machine::*;
-use super::guard::*;
-use super::hunt::*;
+use super::dead::*;
 use super::dock::*;
 use super::enter::*;
-use super::dead::*;
+use super::face::*;
+use super::follow_path::*;
+use super::follow_path_core::*;
+use super::guard::*;
+use super::hack::*;
+use super::helpers::*;
+use super::hunt::*;
+use super::idle::*;
+use super::r#move::*;
+use super::rappel::*;
+use super::types::*;
+use super::wait_busy::*;
+use super::wander_panic::*;
+use super::waypoint::*;
+use super::*;
 
 use crate::action_manager::{CanEnterType, TheActionManager};
 use crate::ai::dock::AIDockMachine;
@@ -71,7 +71,6 @@ use crate::common::INVALID_ID;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock, Weak};
 
-
 /// The AI state machine - implements all AI commands
 pub struct AIStateMachine {
     /// Base state machine
@@ -90,7 +89,6 @@ pub struct AIStateMachine {
     pub(crate) temporary_state_frame_end: u32,
 }
 
-
 impl std::fmt::Debug for AIStateMachine {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("AIStateMachine")
@@ -103,7 +101,6 @@ impl std::fmt::Debug for AIStateMachine {
             .finish()
     }
 }
-
 
 impl AIStateMachine {
     pub fn new(owner: Weak<RwLock<Object>>, name: &str) -> Self {
@@ -852,7 +849,6 @@ impl AIStateMachine {
     }
 }
 
-
 impl AiCommandInterface for AIStateMachine {
     fn ai_do_command(&mut self, params: &AiCommandParams) -> Result<(), crate::ai::AiError> {
         let is_follow_path_cmd = matches!(
@@ -1023,7 +1019,6 @@ impl AiCommandInterface for AIStateMachine {
         Ok(())
     }
 }
-
 
 impl Snapshotable for AIStateMachine {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {

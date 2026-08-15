@@ -4763,11 +4763,7 @@ mod debris_draw_tests {
 
         let color = Color::new(0x66, 0x33, 0xFF, 0x00);
         drawable.for_each_debris_draw_interface(|di| {
-            di.set_model_name(
-                AsciiString::from("EXDebrisChunk"),
-                color,
-                ShadowType::Decal,
-            );
+            di.set_model_name(AsciiString::from("EXDebrisChunk"), color, ShadowType::Decal);
         });
 
         let handle = drawable
@@ -4801,10 +4797,7 @@ mod debris_draw_tests {
             }),
         );
         assert_eq!(applied, 1);
-        assert_eq!(
-            read_debris_model(&drawable).as_deref(),
-            Some("EXRockChunk")
-        );
+        assert_eq!(read_debris_model(&drawable).as_deref(), Some("EXRockChunk"));
 
         drawable
             .module_by_name(&AsciiString::from("W3DDebrisDraw"))

@@ -23,7 +23,11 @@ impl PathfindingSystem {
             .unwrap_or(false)
     }
 
-    pub(crate) fn destination_only_result(from: Coord3D, to: Coord3D, layer: PathfindLayerEnum) -> PathResult {
+    pub(crate) fn destination_only_result(
+        from: Coord3D,
+        to: Coord3D,
+        layer: PathfindLayerEnum,
+    ) -> PathResult {
         let mut waypoints = Vec::with_capacity(2);
         let mut layers = Vec::with_capacity(2);
         if (from.x - to.x).abs() > f32::EPSILON
