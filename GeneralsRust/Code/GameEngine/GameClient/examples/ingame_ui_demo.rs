@@ -62,6 +62,7 @@ pub fn run() {
     }))
     .unwrap();
 
+    // STANDALONE DEVICE: GameClient example binary, not on the game path.
     let (device, queue) = pollster::block_on(adapter.request_device(
         &wgpu::DeviceDescriptor {
             label: Some("GPU Device"),

@@ -391,6 +391,7 @@ pub async fn integration_example() -> Result<(), Box<dyn std::error::Error>> {
         .request_adapter(&wgpu::RequestAdapterOptions::default())
         .await?;
 
+    // STANDALONE DEVICE: effects example, not on the game path.
     let (device, queue) = adapter
         .request_device(&wgpu::DeviceDescriptor::default())
         .await?;

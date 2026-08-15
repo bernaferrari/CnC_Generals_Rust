@@ -103,6 +103,7 @@ impl SimpleRenderer {
             })
             .await?;
 
+        // STANDALONE DEVICE: dev-tools demo binary, not on the game path.
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor {
                 required_features: wgpu::Features::empty(),

@@ -26,6 +26,7 @@ impl GpuCompressor {
                 ZlibError::CompressionFailed(format!("Failed to find GPU adapter: {}", e))
             })?;
 
+        // STANDALONE DEVICE: optional zlib GPU helper, not on the game path.
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor::default())
             .await

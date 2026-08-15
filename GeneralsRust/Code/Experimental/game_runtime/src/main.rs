@@ -81,6 +81,7 @@ async fn run() -> Result<()> {
             force_fallback_adapter: false,
         })
         .await?;
+    // STANDALONE DEVICE: experimental runtime binary, not on the game path.
     let (device, queue) = adapter
         .request_device(&wgpu::DeviceDescriptor {
             required_features: wgpu::Features::empty(),
