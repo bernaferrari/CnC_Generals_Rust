@@ -4,6 +4,9 @@
 //! `#[cfg(any(test, feature = "host-residuals"))]`. Re-exported as
 //! `crate::game_logic::<name>` so public paths stay stable.
 
+pub mod harness;
+pub use harness::GAME_LOGIC_HOST_SRC;
+
 pub mod host_ai_ability_upgrade_residual;
 pub mod host_beacon_residual_wave142;
 pub mod host_challenge_generals_residual_wave152;

@@ -139,10 +139,13 @@ pub fn honesty_boot_camera_helper_source_markers_residual_wave572() -> bool {
         && pending.contains("apply_boot_camera_residual()")
         // no direct live take inside dispatcher after peel
         && !pending.contains("take_camera_focus_request");
+    // 2026-08-15: Wave 899 peeled live take_* dual-reads out of boot camera.
+    // Boot now applies `host_match_camera_follow_position` only.
     let boot_ok = boot.contains("Wave 572")
-        && boot.contains("take_camera_focus_request()")
-        && boot.contains("camera_follow_target_position()")
-        && boot.contains("take_camera_zoom_request()");
+        && boot.contains("host_match_camera_follow_position")
+        && boot.contains("center_camera_on")
+        && !boot.contains("take_camera_focus_request()")
+        && !boot.contains("take_camera_zoom_request()");
     let pres_ok = pres.contains("camera_follow_position")
         && !pres.contains("camera_follow_target_position")
         && !pres.contains("take_camera_focus_request");

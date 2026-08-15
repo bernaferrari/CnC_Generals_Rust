@@ -27,14 +27,14 @@ const KEY_STATE_UP: usize = 0x0001;
 
 #[derive(Default)]
 struct PopupPlayerInfoState {
-    parent_id: u32,
-    listbox_info_id: u32,
-    button_close_id: u32,
-    button_buddies_id: u32,
-    button_set_locale_id: u32,
-    button_delete_account_id: u32,
-    checkbox_asian_id: u32,
-    checkbox_non_asian_id: u32,
+    parent_id: i32,
+    listbox_info_id: i32,
+    button_close_id: i32,
+    button_buddies_id: i32,
+    button_set_locale_id: i32,
+    button_delete_account_id: i32,
+    checkbox_asian_id: i32,
+    checkbox_non_asian_id: i32,
     parent: Option<Rc<RefCell<GameWindow>>>,
     listbox_info: Option<Rc<RefCell<GameWindow>>>,
     button_close: Option<Rc<RefCell<GameWindow>>>,
@@ -47,14 +47,16 @@ struct PopupPlayerInfoState {
     raise_message_box: bool,
 }
 
-static POPUP_STATE: OnceLock<Mutex<PopupPlayerInfoState>> = OnceLock::new();
-
-fn popup_state() -> &'static Mutex<PopupPlayerInfoState> {
-    POPUP_STATE.get_or_init(|| Mutex::new(PopupPlayerInfoState::default()))
+thread_local! {
+    static POPUP_STATE: Rc<RefCell<PopupPlayerInfoState>> = Rc::new(RefCell::new(PopupPlayerInfoState::default()));
 }
 
-fn name_to_id(name: &str) -> u32 {
-    NameKeyGenerator::name_to_key(name) as u32
+fn popup_state() -> Rc<RefCell<PopupPlayerInfoState>> {
+    POPUP_STATE.with(Rc::clone)
+}
+
+fn name_to_id(name: &str) -> i32 {
+    NameKeyGenerator::name_to_key(name) as i32
 }
 
 fn checkbox_checked(window: &Rc<RefCell<GameWindow>>) -> bool {
@@ -80,13 +82,16 @@ fn message_box_yes() {
             queue.add_request(request);
         }
     }
-    if let Some(mut info) = get_gamespy_info().and_then(|info| info.lock().ok()) {
-        info.set_local_profile_id(0);
+    if let Some(slot) = get_gamespy_info() {
+        if let Ok(mut info) = slot.lock() {
+            info.set_local_profile_id(0);
+        }
     }
 }
 
-pub fn popup_player_info_init(layout: &WindowLayout, _user_data: Option<&mut dyn std::any::Any>) {
-    let mut state = popup_state().lock().unwrap_or_else(|e| e.into_inner());
+pub fn popup_player_info_init(layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
+    let state_slot = popup_state();
+    let mut state = state_slot.borrow_mut();
     state.parent_id = name_to_id("PopupPlayerInfo.wnd:PopupParent");
     state.button_close_id = name_to_id("PopupPlayerInfo.wnd:ButtonClose");
     state.button_buddies_id = name_to_id("PopupPlayerInfo.wnd:ButtonCommunicator");
@@ -150,19 +155,21 @@ pub fn popup_player_info_init(layout: &WindowLayout, _user_data: Option<&mut dyn
 
 pub fn popup_player_info_shutdown(
     layout: &WindowLayout,
-    _user_data: Option<&mut dyn std::any::Any>,
+    _user_data: Option<&dyn std::any::Any>,
 ) {
     layout.hide(true);
-    let mut state = popup_state().lock().unwrap_or_else(|e| e.into_inner());
+    let state_slot = popup_state();
+    let mut state = state_slot.borrow_mut();
     state.parent = None;
     state.is_overlay_active = false;
 }
 
 pub fn popup_player_info_update(
     _layout: &WindowLayout,
-    _user_data: Option<&mut dyn std::any::Any>,
+    _user_data: Option<&dyn std::any::Any>,
 ) {
-    let mut state = popup_state().lock().unwrap_or_else(|e| e.into_inner());
+    let state_slot = popup_state();
+    let mut state = state_slot.borrow_mut();
     if state.raise_message_box {
         raise_gs_message_box();
         state.raise_message_box = false;
@@ -181,12 +188,13 @@ pub fn popup_player_info_input(
     if (data2 & KEY_STATE_UP) == 0 {
         return WindowMsgHandled::Handled;
     }
-    let state = popup_state().lock().unwrap_or_else(|e| e.into_inner());
+    let state_slot = popup_state();
+    let state = state_slot.borrow_mut();
     if let Some(parent) = state.parent.as_ref() {
         let _ = parent.borrow_mut().send_system_message(
             WindowMessage::GadgetSelected,
-            state.button_close_id,
-            state.button_close_id,
+            state.button_close_id as WindowMsgData,
+            state.button_close_id as WindowMsgData,
         );
     }
     WindowMsgHandled::Handled
@@ -196,15 +204,16 @@ pub fn popup_player_info_system(
     _window: &GameWindow,
     msg: WindowMessage,
     data1: WindowMsgData,
-    _data2: WindowMsgData,
+    data2: WindowMsgData,
 ) -> WindowMsgHandled {
-    let mut state = popup_state().lock().unwrap_or_else(|e| e.into_inner());
+    let state_slot = popup_state();
+    let mut state = state_slot.borrow_mut();
 
     match msg {
         WindowMessage::Create | WindowMessage::Destroy => WindowMsgHandled::Handled,
         WindowMessage::InputFocus => write_input_focus_response(data1, data2, true),
         WindowMessage::GadgetSelected => {
-            let control_id = data1 as u32;
+            let control_id = data1 as i32;
             if control_id == state.button_close_id {
                 refresh_game_list_boxes();
                 close_overlay(GameSpyOverlayType::PlayerInfo);
@@ -234,8 +243,10 @@ pub fn popup_player_info_system(
                     let mut prefs = CustomMatchPreferencesStore::new();
                     prefs.prefs_mut().set_disallow_asian_text(disallow_asian);
                     prefs.write();
-                    if let Some(mut info) = get_gamespy_info().and_then(|info| info.lock().ok()) {
-                        info.set_disallow_asian_text(disallow_asian);
+                    if let Some(slot) = get_gamespy_info() {
+                        if let Ok(mut info) = slot.lock() {
+                            info.set_disallow_asian_text(disallow_asian);
+                        }
                     }
                     if disallow_asian {
                         if let Some(other) = state.checkbox_non_asian.as_ref() {
@@ -244,10 +255,10 @@ pub fn popup_player_info_system(
                                 let mut prefs = CustomMatchPreferencesStore::new();
                                 prefs.prefs_mut().set_disallow_non_asian_text(false);
                                 prefs.write();
-                                if let Some(mut info) =
-                                    get_gamespy_info().and_then(|info| info.lock().ok())
-                                {
-                                    info.set_disallow_non_asian_text(false);
+                                if let Some(slot) = get_gamespy_info() {
+                                    if let Ok(mut info) = slot.lock() {
+                                        info.set_disallow_non_asian_text(false);
+                                    }
                                 }
                             }
                         }
@@ -262,8 +273,10 @@ pub fn popup_player_info_system(
                         .prefs_mut()
                         .set_disallow_non_asian_text(disallow_non_asian);
                     prefs.write();
-                    if let Some(mut info) = get_gamespy_info().and_then(|info| info.lock().ok()) {
-                        info.set_disallow_non_asian_text(disallow_non_asian);
+                    if let Some(slot) = get_gamespy_info() {
+                        if let Ok(mut info) = slot.lock() {
+                            info.set_disallow_non_asian_text(disallow_non_asian);
+                        }
                     }
                     if disallow_non_asian {
                         if let Some(other) = state.checkbox_asian.as_ref() {
@@ -272,10 +285,10 @@ pub fn popup_player_info_system(
                                 let mut prefs = CustomMatchPreferencesStore::new();
                                 prefs.prefs_mut().set_disallow_asian_text(false);
                                 prefs.write();
-                                if let Some(mut info) =
-                                    get_gamespy_info().and_then(|info| info.lock().ok())
-                                {
-                                    info.set_disallow_asian_text(false);
+                                if let Some(slot) = get_gamespy_info() {
+                                    if let Ok(mut info) = slot.lock() {
+                                        info.set_disallow_asian_text(false);
+                                    }
                                 }
                             }
                         }

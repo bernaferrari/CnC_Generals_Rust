@@ -87,7 +87,9 @@ pub fn honesty_host_hover_cmd_hint_unusable_fow_residual_pack_wave1087() -> bool
         && window.contains("ObjectShroudStatus::Shrouded")
         && window.contains("return (false, false, false)")
         && window.contains("return (entry.selectable, local, is_mine)")
-        && es.contains("result.playable_claim = false");
+        && // 2026-08-15: playable_claim is the five-flag constructor, not a literal assignment.
+        es.contains("self.playable_claim = Self::retail_windowed_playable_claim(")
+        && es.contains("Headless smoke must keep `playable_claim == false`");
     residual_action_store(ResidualHostHoverCmdHintUnusableFowAction::SourceMarkers);
     RESIDUAL_OK.store(ok, Ordering::SeqCst);
     ok

@@ -72,6 +72,8 @@ fn eng_source() -> &'static str {
 fn shadow_source() -> &'static str {
     crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC
 }
+// 2026-08-15: engine dispatches via eager_apply_all_host_residuals_after_logic
+// (Wave 682/925); per-channel eager_apply_* stays on GAMEWORLD_SHADOW_SRC.
 pub fn honesty_host_eager_ai_fire_intent_helper_method_names_residual_wave687() -> bool {
     let names = LIVE_HOST_EAGER_AI_FIRE_INTENT_HELPER_METHOD_NAMES_WAVE687;
     let ok = residual_name_index(names, "eager_apply_host_ai_state_after_logic").is_some()
@@ -93,9 +95,9 @@ pub fn honesty_host_eager_ai_fire_intent_helper_source_markers_residual_wave687(
         && sh.contains("take_early_fire_intent_batch")
         && sh.contains("early_ai_state_applied")
         && sh.contains("early_fire_intent_applied");
-    let eng_ok = eng.contains("eager_apply_host_ai_state_after_logic")
-        && eng.contains("eager_apply_host_fire_intent_after_logic")
-        && eng.contains("Wave 687: post-logic AI-state");
+    let eng_ok = eng.contains("eager_apply_all_host_residuals_after_logic")
+        && eng.contains("eager_apply_all_host_residuals_after_logic")
+        && eng.contains("Wave 682/925");
     let ok = api_ok && eng_ok && !eng.contains("playable_claim = true");
     residual_action_store(ResidualHostEagerAiFireIntentHelperAction::SourceMarkers);
     ok
@@ -120,12 +122,12 @@ pub fn honesty_host_eager_ai_fire_intent_helper_nav_commands_residual_wave687() 
 pub fn simulate_host_eager_ai_fire_intent_helper_collect_source() -> bool {
     let ok = shadow_source().contains("eager_apply_host_ai_state_after_logic")
         && shadow_source().contains("eager_apply_host_fire_intent_after_logic")
-        && eng_source().contains("eager_apply_host_ai_state_after_logic");
+        && eng_source().contains("eager_apply_all_host_residuals_after_logic");
     residual_action_store(ResidualHostEagerAiFireIntentHelperAction::CollectSource);
     ok
 }
 pub fn simulate_host_eager_ai_fire_intent_helper_dispatch_source() -> bool {
-    let ok = eng_source().contains("Wave 687") && shadow_source().contains("Wave 687");
+    let ok = eng_source().contains("Wave 682/925") && shadow_source().contains("Wave 687");
     residual_action_store(ResidualHostEagerAiFireIntentHelperAction::DispatchSource);
     ok
 }

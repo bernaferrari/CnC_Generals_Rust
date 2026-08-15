@@ -110,7 +110,9 @@ pub fn honesty_host_force_attack_selected_enemy_usable_residual_pack_wave1103() 
         && sel.contains("presentation_is_selectable")
         && en.contains("Wave 1103: fail-closed on non-local FOW unless Clear")
         && en.contains("visibility_alpha >= 0.95")
-        && es.contains("result.playable_claim = false");
+        && // 2026-08-15: playable_claim is the five-flag constructor, not a literal assignment.
+        es.contains("self.playable_claim = Self::retail_windowed_playable_claim(")
+        && es.contains("Headless smoke must keep `playable_claim == false`");
     residual_action_store(ResidualHostForceAttackSelectedEnemyUsableAction::SourceMarkers);
     RESIDUAL_OK.store(ok, Ordering::SeqCst);
     ok

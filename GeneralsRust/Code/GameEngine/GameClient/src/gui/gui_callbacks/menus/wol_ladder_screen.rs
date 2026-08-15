@@ -7,15 +7,15 @@ use crate::gui::callbacks::wol_ladder_screen::{
 };
 use crate::gui::{GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled};
 
-pub fn WOLLadderScreenInit(layout: &WindowLayout, user_data: Option<&mut dyn std::any::Any>) {
+pub fn WOLLadderScreenInit(layout: &WindowLayout, user_data: Option<&dyn std::any::Any>) {
     wol_ladder_screen_init(layout, user_data);
 }
 
-pub fn WOLLadderScreenUpdate(layout: &WindowLayout, user_data: Option<&mut dyn std::any::Any>) {
+pub fn WOLLadderScreenUpdate(layout: &WindowLayout, user_data: Option<&dyn std::any::Any>) {
     wol_ladder_screen_update(layout, user_data);
 }
 
-pub fn WOLLadderScreenShutdown(layout: &WindowLayout, user_data: Option<&mut dyn std::any::Any>) {
+pub fn WOLLadderScreenShutdown(layout: &WindowLayout, user_data: Option<&dyn std::any::Any>) {
     wol_ladder_screen_shutdown(layout, user_data);
 }
 

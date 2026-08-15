@@ -109,7 +109,9 @@ pub fn honesty_host_presentation_pick_fow_residual_pack_wave1094() -> bool {
         && screen.contains("visibility_alpha < 0.95")
         && find.contains("pick_object_id_at_world_from_presentation")
         && find.contains("presentation-only pick")
-        && es.contains("result.playable_claim = false");
+        && // 2026-08-15: playable_claim is the five-flag constructor, not a literal assignment.
+        es.contains("self.playable_claim = Self::retail_windowed_playable_claim(")
+        && es.contains("Headless smoke must keep `playable_claim == false`");
     residual_action_store(ResidualHostPresentationPickFowAction::SourceMarkers);
     RESIDUAL_OK.store(ok, Ordering::SeqCst);
     ok

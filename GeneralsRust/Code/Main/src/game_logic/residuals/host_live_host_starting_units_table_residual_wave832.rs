@@ -47,7 +47,7 @@ fn residual_action_store(a: ResidualHostStartingUnitsTableAction) {
     RESIDUAL_ACTION.store(a as u8, Ordering::SeqCst);
 }
 fn gl_source() -> &'static str {
-    include_str!("../game_logic.rs")
+    super::GAME_LOGIC_HOST_SRC
 }
 fn res_source() -> &'static str {
     include_str!("../host_faction_skirmish_residual.rs")

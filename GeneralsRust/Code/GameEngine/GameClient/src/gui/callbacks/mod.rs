@@ -29,6 +29,8 @@ pub mod message_box;
 pub mod motd;
 #[cfg(feature = "online_ui")]
 pub mod network_direct_connect;
+#[cfg(feature = "online_ui")]
+pub mod online_callback_support;
 // The online feature supplies the real callback implementations below.  Keep
 // the no-op network table out of that build: exporting both tables creates
 // duplicate callback names and makes every window-manager binding ambiguous.

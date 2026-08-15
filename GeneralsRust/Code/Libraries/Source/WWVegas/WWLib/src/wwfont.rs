@@ -423,30 +423,65 @@ impl FontClass for WWFontClass {
 unsafe fn write_pixel(ptr: *mut u8, bbp: i32, color: u32) {
     match bbp {
         1 => {
-            *ptr = color as u8;
+            // SAFETY: [Category 3 — dangling / Category 10 — OOB]
+            // Caller (WWFont.cpp blit) supplies a lock-valid pixel pointer with
+            // at least `bbp` writable bytes.
+            unsafe {
+                *ptr = color as u8;
+            }
         }
         2 => {
             let bytes = (color as u16).to_le_bytes();
-            *ptr = bytes[0];
-            *ptr.add(1) = bytes[1];
+            // SAFETY: [Category 10 — OOB]
+            // `bbp == 2`: destination has two writable bytes (WWFont.cpp 16-bit store).
+            unsafe {
+                *ptr = bytes[0];
+            }
+            let p1 = unsafe { ptr.add(1) };
+            unsafe {
+                *p1 = bytes[1];
+            }
         }
         3 => {
             let b = (color & 0xFF) as u8;
             let g = ((color >> 8) & 0xFF) as u8;
             let r = ((color >> 16) & 0xFF) as u8;
-            *ptr = b;
-            *ptr.add(1) = g;
-            *ptr.add(2) = r;
+            // SAFETY: [Category 10 — OOB]
+            // `bbp == 3`: destination has three writable bytes (WWFont.cpp 24-bit store).
+            unsafe {
+                *ptr = b;
+            }
+            let p1 = unsafe { ptr.add(1) };
+            unsafe {
+                *p1 = g;
+            }
+            let p2 = unsafe { ptr.add(2) };
+            unsafe {
+                *p2 = r;
+            }
         }
         4 => {
             let b = (color & 0xFF) as u8;
             let g = ((color >> 8) & 0xFF) as u8;
             let r = ((color >> 16) & 0xFF) as u8;
             let a = ((color >> 24) & 0xFF) as u8;
-            *ptr = b;
-            *ptr.add(1) = g;
-            *ptr.add(2) = r;
-            *ptr.add(3) = a;
+            // SAFETY: [Category 10 — OOB]
+            // `bbp == 4`: destination has four writable bytes (WWFont.cpp 32-bit store).
+            unsafe {
+                *ptr = b;
+            }
+            let p1 = unsafe { ptr.add(1) };
+            unsafe {
+                *p1 = g;
+            }
+            let p2 = unsafe { ptr.add(2) };
+            unsafe {
+                *p2 = r;
+            }
+            let p3 = unsafe { ptr.add(3) };
+            unsafe {
+                *p3 = a;
+            }
         }
         _ => {}
     }

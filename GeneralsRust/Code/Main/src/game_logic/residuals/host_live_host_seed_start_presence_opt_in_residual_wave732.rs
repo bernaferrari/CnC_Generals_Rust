@@ -65,7 +65,7 @@ pub fn residual_host_seed_start_presence_opt_in_last_action(
     ResidualHostSeedStartPresenceOptInAction::from_u8(RESIDUAL_ACTION.load(Ordering::SeqCst))
 }
 fn gl_source() -> &'static str {
-    include_str!("../game_logic.rs")
+    super::GAME_LOGIC_HOST_SRC
 }
 pub fn honesty_host_seed_start_presence_opt_in_method_names_residual_wave732() -> bool {
     let names = LIVE_HOST_SEED_START_PRESENCE_OPT_IN_METHOD_NAMES_WAVE732;

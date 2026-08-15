@@ -103,7 +103,7 @@ fn fn_body<'a>(src: &'a str, name: &str) -> Option<&'a str> {
 
 /// Source residual: APIs exist; execute bodies call them without get_object_mut.
 pub fn honesty_command_unit_more_authority_api_source() -> bool {
-    let gl = include_str!("../game_logic.rs");
+    let gl = super::GAME_LOGIC_HOST_SRC;
     let cs = crate::command_system::COMMAND_SYSTEM_SRC;
     for api in [
         "pub fn unit_command_attack_move_to",

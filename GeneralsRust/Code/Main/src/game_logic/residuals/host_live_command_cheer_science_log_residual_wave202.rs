@@ -97,7 +97,7 @@ pub fn honesty_cheer_uses_begin_cheer_source() -> bool {
 
 /// Source residual: attempt_to_purchase_science records progress after unlock.
 pub fn honesty_science_purchase_logs_progress_source() -> bool {
-    let src = include_str!("../game_logic.rs");
+    let src = super::GAME_LOGIC_HOST_SRC;
     let i = match src.find("fn attempt_to_purchase_science") {
         Some(i) => i,
         None => return false,

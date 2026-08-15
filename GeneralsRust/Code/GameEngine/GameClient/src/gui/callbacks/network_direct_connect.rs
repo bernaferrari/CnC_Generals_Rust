@@ -40,11 +40,13 @@ struct NetworkDirectConnectState {
     is_shutting_down: bool,
 }
 
-static NETWORK_DIRECT_CONNECT_STATE: OnceLock<Mutex<NetworkDirectConnectState>> = OnceLock::new();
+thread_local! {
+    static NETWORK_DIRECT_CONNECT_STATE: Rc<RefCell<NetworkDirectConnectState>> = Rc::new(RefCell::new(NetworkDirectConnectState::default()));
+}
 static LAN_API: OnceLock<tokio::sync::Mutex<Option<LanApi>>> = OnceLock::new();
 
-fn network_direct_connect_state() -> &'static Mutex<NetworkDirectConnectState> {
-    NETWORK_DIRECT_CONNECT_STATE.get_or_init(|| Mutex::new(NetworkDirectConnectState::default()))
+fn network_direct_connect_state() -> Rc<RefCell<NetworkDirectConnectState>> {
+    NETWORK_DIRECT_CONNECT_STATE.with(Rc::clone)
 }
 
 fn lan_api_cell() -> &'static tokio::sync::Mutex<Option<LanApi>> {
@@ -240,7 +242,7 @@ fn request_set_name(name: String) {
             return;
         };
         if let Some(api) = guard.as_mut() {
-            if let Err(err) = api.request_set_name(name).await {
+            if let Err(err) = api.request_set_name(name.clone()).await {
                 log::warn!("Failed to set LAN name: {}", err);
             }
         }
@@ -338,11 +340,10 @@ fn handle_back(state: &mut NetworkDirectConnectState) {
 
 pub fn network_direct_connect_init(
     layout: &WindowLayout,
-    _user_data: Option<&mut dyn std::any::Any>,
+    _user_data: Option<&dyn std::any::Any>,
 ) {
-    let mut state = network_direct_connect_state()
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
+    let state_slot = network_direct_connect_state();
+    let mut state = state_slot.borrow_mut();
 
     state.button_pushed = false;
     state.is_shutting_down = false;
@@ -388,16 +389,14 @@ pub fn network_direct_connect_init(
 
     show_shell_map_if_available(true);
     layout.hide(false);
-    layout.bring_forward();
 }
 
 pub fn network_direct_connect_update(
     layout: &WindowLayout,
-    _user_data: Option<&mut dyn std::any::Any>,
+    _user_data: Option<&dyn std::any::Any>,
 ) {
-    let mut state = network_direct_connect_state()
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
+    let state_slot = network_direct_connect_state();
+    let mut state = state_slot.borrow_mut();
     if state.is_shutting_down
         && try_with_shell_mut(|shell| shell.is_anim_finished()).unwrap_or(false)
         && with_window_manager(|manager| manager.transitions_finished())
@@ -410,7 +409,7 @@ pub fn network_direct_connect_update(
 
 pub fn network_direct_connect_shutdown(
     layout: &WindowLayout,
-    user_data: Option<&mut dyn std::any::Any>,
+    user_data: Option<&dyn std::any::Any>,
 ) {
     let pop_immediate = user_data
         .and_then(|data| data.downcast_ref::<bool>())
@@ -426,9 +425,8 @@ pub fn network_direct_connect_shutdown(
     let _ = try_with_shell_mut(|shell| shell.reverse_animate_window());
     with_window_manager(|manager| manager.transition_reverse("NetworkDirectConnectFade"));
 
-    let mut state = network_direct_connect_state()
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
+    let state_slot = network_direct_connect_state();
+    let mut state = state_slot.borrow_mut();
     state.is_shutting_down = true;
 }
 
@@ -438,9 +436,8 @@ pub fn network_direct_connect_system(
     data1: WindowMsgData,
     data2: WindowMsgData,
 ) -> WindowMsgHandled {
-    let mut state = network_direct_connect_state()
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
+    let state_slot = network_direct_connect_state();
+    let mut state = state_slot.borrow_mut();
 
     match msg {
         WindowMessage::Create => return WindowMsgHandled::Handled,
@@ -478,12 +475,9 @@ pub fn network_direct_connect_input(
     data2: WindowMsgData,
 ) -> WindowMsgHandled {
     if msg == WindowMessage::Char {
-        let key = data1 as u32;
-        let state = data2 as u32;
-        if key == KEY_ESC && (state & KEY_STATE_UP) != 0 {
-            let state = network_direct_connect_state()
-                .lock()
-                .unwrap_or_else(|e| e.into_inner());
+        if data1 == KEY_ESC && (data2 & KEY_STATE_UP) != 0 {
+            let state_slot = network_direct_connect_state();
+    let state = state_slot.borrow_mut();
             if state.button_pushed {
                 return WindowMsgHandled::Handled;
             }

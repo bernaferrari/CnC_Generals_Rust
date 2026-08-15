@@ -135,14 +135,15 @@ pub fn honesty_boot_movie_helper_source_markers_residual_wave567() -> bool {
         residual_action_store(ResidualBootMovieHelperAction::SourceMarkers);
         return false;
     };
-    let boot_ok = boot.contains("Wave 567")
-        && boot.contains("take_pending_movie()")
-        && boot.contains("take_pending_radar_movie()");
+    // 2026-08-15: Wave 899 peeled live take_* dual-reads out of boot movies
+    // (fail-closed no-op). Presentation apply peeks freeze fields; Wave 900
+    // removed the post-apply take_* drain.
+    let boot_ok = boot.contains("Wave 567") && !boot.contains("take_pending_movie()");
     let pres_ok = (pres.contains("Wave 567") || eng.contains("Wave 567: pairs with"))
         && pres.contains("pres.pending_movie")
         && pres.contains("pres.pending_radar_movie")
-        && pres.contains("take_pending_movie()")
-        && pres.contains("take_pending_radar_movie()");
+        && !pres.contains("take_pending_movie()")
+        && !pres.contains("take_pending_radar_movie()");
     // Call sites: freeze path uses presentation helper; boot uses boot helper.
     let call_ok = eng.contains("self.apply_boot_movie_residual()")
         && eng.contains("self.apply_presentation_movie_residual(&pres)");

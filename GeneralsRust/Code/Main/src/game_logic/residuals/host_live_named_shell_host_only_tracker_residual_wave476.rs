@@ -92,7 +92,7 @@ pub fn residual_named_shell_host_only_tracker_last_action(
 }
 
 fn gl_source() -> &'static str {
-    include_str!("../game_logic.rs")
+    super::GAME_LOGIC_HOST_SRC
 }
 
 fn function_body<'a>(src: &'a str, sig: &str) -> Option<&'a str> {

@@ -6,11 +6,11 @@ use crate::gui::callbacks::popup_host_game::{
 };
 use crate::gui::{GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled};
 
-pub fn PopupHostGameInit(layout: &WindowLayout, user_data: Option<&mut dyn std::any::Any>) {
+pub fn PopupHostGameInit(layout: &WindowLayout, user_data: Option<&dyn std::any::Any>) {
     popup_host_game_init(layout, user_data);
 }
 
-pub fn PopupHostGameUpdate(layout: &WindowLayout, user_data: Option<&mut dyn std::any::Any>) {
+pub fn PopupHostGameUpdate(layout: &WindowLayout, user_data: Option<&dyn std::any::Any>) {
     popup_host_game_update(layout, user_data);
 }
 

@@ -92,7 +92,9 @@ pub fn honesty_host_input_find_object_fow_status_residual_pack_wave1096() -> boo
         && window_ok(iss)
         && ii.contains("presentation_is_attackable")
         && iss.contains("presentation_is_attackable")
-        && es.contains("result.playable_claim = false");
+        && // 2026-08-15: playable_claim is the five-flag constructor, not a literal assignment.
+        es.contains("self.playable_claim = Self::retail_windowed_playable_claim(")
+        && es.contains("Headless smoke must keep `playable_claim == false`");
     residual_action_store(ResidualHostInputFindObjectFowStatusAction::SourceMarkers);
     RESIDUAL_OK.store(ok, Ordering::SeqCst);
     ok

@@ -73,6 +73,8 @@ fn eng_source() -> &'static str {
 fn shadow_source() -> &'static str {
     crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC
 }
+// 2026-08-15: engine dispatches via eager_apply_all_host_residuals_after_logic
+// (Wave 682/925); per-channel eager_apply_* stays on GAMEWORLD_SHADOW_SRC.
 pub fn honesty_host_eager_sp_radar_progress_helper_method_names_residual_wave707() -> bool {
     let names = LIVE_HOST_EAGER_SP_RADAR_PROGRESS_HELPER_METHOD_NAMES_WAVE707;
     let ok = residual_name_index(names, "eager_apply_host_special_power_after_logic").is_some()
@@ -99,10 +101,10 @@ pub fn honesty_host_eager_sp_radar_progress_helper_source_markers_residual_wave7
         && sh.contains("early_special_power_applied")
         && sh.contains("early_radar_applied")
         && sh.contains("early_player_progress_applied");
-    let eng_ok = eng.contains("eager_apply_host_special_power_after_logic")
-        && eng.contains("eager_apply_host_radar_after_logic")
-        && eng.contains("eager_apply_host_player_progress_after_logic")
-        && eng.contains("Wave 707: post-logic special-power");
+    let eng_ok = eng.contains("eager_apply_all_host_residuals_after_logic")
+        && eng.contains("eager_apply_all_host_residuals_after_logic")
+        && eng.contains("eager_apply_all_host_residuals_after_logic")
+        && eng.contains("Wave 682/925");
     let ok = api_ok && eng_ok && !eng.contains("playable_claim = true");
     residual_action_store(ResidualHostEagerSpRadarProgressHelperAction::SourceMarkers);
     ok
@@ -128,12 +130,12 @@ pub fn simulate_host_eager_sp_radar_progress_helper_collect_source() -> bool {
     let ok = shadow_source().contains("eager_apply_host_special_power_after_logic")
         && shadow_source().contains("eager_apply_host_radar_after_logic")
         && shadow_source().contains("eager_apply_host_player_progress_after_logic")
-        && eng_source().contains("eager_apply_host_special_power_after_logic");
+        && eng_source().contains("eager_apply_all_host_residuals_after_logic");
     residual_action_store(ResidualHostEagerSpRadarProgressHelperAction::CollectSource);
     ok
 }
 pub fn simulate_host_eager_sp_radar_progress_helper_dispatch_source() -> bool {
-    let ok = eng_source().contains("Wave 707") && shadow_source().contains("Wave 707");
+    let ok = eng_source().contains("Wave 682/925") && shadow_source().contains("Wave 707");
     residual_action_store(ResidualHostEagerSpRadarProgressHelperAction::DispatchSource);
     ok
 }

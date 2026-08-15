@@ -92,7 +92,9 @@ pub fn honesty_host_rmb_gather_enter_service_sold_residual_pack_wave1099() -> bo
         && w.contains("Wave 1099: sold residual fail-closed on repair pad")
         && w.contains("&& !hint.sold")
         && w.contains("CommandType::GetRepaired")
-        && es.contains("result.playable_claim = false");
+        && // 2026-08-15: playable_claim is the five-flag constructor, not a literal assignment.
+        es.contains("self.playable_claim = Self::retail_windowed_playable_claim(")
+        && es.contains("Headless smoke must keep `playable_claim == false`");
     residual_action_store(ResidualHostRmbGatherEnterServiceSoldAction::SourceMarkers);
     RESIDUAL_OK.store(ok, Ordering::SeqCst);
     ok

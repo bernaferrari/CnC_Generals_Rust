@@ -89,7 +89,7 @@ pub fn residual_host_production_complete_apply_helper_last_action(
 }
 
 fn gl_source() -> &'static str {
-    include_str!("../game_logic.rs")
+    super::GAME_LOGIC_HOST_SRC
 }
 
 fn last_sig_index(src: &str, sig: &str) -> Option<usize> {

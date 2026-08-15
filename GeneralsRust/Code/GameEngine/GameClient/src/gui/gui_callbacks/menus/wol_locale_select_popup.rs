@@ -7,15 +7,15 @@ use crate::gui::callbacks::wol_locale_select_popup::{
 };
 use crate::gui::{GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled};
 
-pub fn WOLLocaleSelectInit(layout: &WindowLayout, user_data: Option<&mut dyn std::any::Any>) {
+pub fn WOLLocaleSelectInit(layout: &WindowLayout, user_data: Option<&dyn std::any::Any>) {
     wol_locale_select_init(layout, user_data);
 }
 
-pub fn WOLLocaleSelectUpdate(layout: &WindowLayout, user_data: Option<&mut dyn std::any::Any>) {
+pub fn WOLLocaleSelectUpdate(layout: &WindowLayout, user_data: Option<&dyn std::any::Any>) {
     wol_locale_select_update(layout, user_data);
 }
 
-pub fn WOLLocaleSelectShutdown(layout: &WindowLayout, user_data: Option<&mut dyn std::any::Any>) {
+pub fn WOLLocaleSelectShutdown(layout: &WindowLayout, user_data: Option<&dyn std::any::Any>) {
     wol_locale_select_shutdown(layout, user_data);
 }
 

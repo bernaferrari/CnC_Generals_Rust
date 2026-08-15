@@ -74,6 +74,8 @@ fn eng_source() -> &'static str {
 fn shadow_source() -> &'static str {
     crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC
 }
+// 2026-08-15: engine dispatches via eager_apply_all_host_residuals_after_logic
+// (Wave 682/925); per-channel eager_apply_* stays on GAMEWORLD_SHADOW_SRC.
 pub fn honesty_host_eager_turret_guard_rally_helper_method_names_residual_wave692() -> bool {
     let names = LIVE_HOST_EAGER_TURRET_GUARD_RALLY_HELPER_METHOD_NAMES_WAVE692;
     let ok = residual_name_index(names, "eager_apply_host_turret_after_logic").is_some()
@@ -100,10 +102,10 @@ pub fn honesty_host_eager_turret_guard_rally_helper_source_markers_residual_wave
         && sh.contains("early_turret_applied")
         && sh.contains("early_guard_applied")
         && sh.contains("early_rally_applied");
-    let eng_ok = eng.contains("eager_apply_host_turret_after_logic")
-        && eng.contains("eager_apply_host_guard_after_logic")
-        && eng.contains("eager_apply_host_rally_after_logic")
-        && eng.contains("Wave 692: post-logic turret");
+    let eng_ok = eng.contains("eager_apply_all_host_residuals_after_logic")
+        && eng.contains("eager_apply_all_host_residuals_after_logic")
+        && eng.contains("eager_apply_all_host_residuals_after_logic")
+        && eng.contains("Wave 682/925");
     let ok = api_ok && eng_ok && !eng.contains("playable_claim = true");
     residual_action_store(ResidualHostEagerTurretGuardRallyHelperAction::SourceMarkers);
     ok
@@ -129,12 +131,12 @@ pub fn simulate_host_eager_turret_guard_rally_helper_collect_source() -> bool {
     let ok = shadow_source().contains("eager_apply_host_turret_after_logic")
         && shadow_source().contains("eager_apply_host_guard_after_logic")
         && shadow_source().contains("eager_apply_host_rally_after_logic")
-        && eng_source().contains("eager_apply_host_turret_after_logic");
+        && eng_source().contains("eager_apply_all_host_residuals_after_logic");
     residual_action_store(ResidualHostEagerTurretGuardRallyHelperAction::CollectSource);
     ok
 }
 pub fn simulate_host_eager_turret_guard_rally_helper_dispatch_source() -> bool {
-    let ok = eng_source().contains("Wave 692") && shadow_source().contains("Wave 692");
+    let ok = eng_source().contains("Wave 682/925") && shadow_source().contains("Wave 692");
     residual_action_store(ResidualHostEagerTurretGuardRallyHelperAction::DispatchSource);
     ok
 }

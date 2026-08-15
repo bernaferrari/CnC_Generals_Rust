@@ -65,7 +65,7 @@ pub fn residual_host_production_ready_no_empty_scan_last_action(
     ResidualHostProductionReadyNoEmptyScanAction::from_u8(RESIDUAL_ACTION.load(Ordering::SeqCst))
 }
 fn gl_source() -> &'static str {
-    include_str!("../game_logic.rs")
+    super::GAME_LOGIC_HOST_SRC
 }
 pub fn honesty_host_production_ready_no_empty_scan_method_names_residual_wave713() -> bool {
     let names = LIVE_HOST_PRODUCTION_READY_NO_EMPTY_SCAN_METHOD_NAMES_WAVE713;

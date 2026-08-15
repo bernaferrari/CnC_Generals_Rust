@@ -92,7 +92,7 @@ pub fn residual_cancel_clears_exit_delay_last_action() -> ResidualCancelClearsEx
 }
 
 fn gl_source() -> &'static str {
-    include_str!("../game_logic.rs")
+    super::GAME_LOGIC_HOST_SRC
 }
 
 fn function_body<'a>(src: &'a str, sig: &str) -> Option<&'a str> {

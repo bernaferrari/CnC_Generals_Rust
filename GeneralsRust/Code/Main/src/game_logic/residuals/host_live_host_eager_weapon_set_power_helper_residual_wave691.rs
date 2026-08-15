@@ -72,6 +72,8 @@ fn eng_source() -> &'static str {
 fn shadow_source() -> &'static str {
     crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC
 }
+// 2026-08-15: engine dispatches via eager_apply_all_host_residuals_after_logic
+// (Wave 682/925); per-channel eager_apply_* stays on GAMEWORLD_SHADOW_SRC.
 pub fn honesty_host_eager_weapon_set_power_helper_method_names_residual_wave691() -> bool {
     let names = LIVE_HOST_EAGER_WEAPON_SET_POWER_HELPER_METHOD_NAMES_WAVE691;
     let ok = residual_name_index(names, "eager_apply_host_weapon_set_after_logic").is_some()
@@ -94,9 +96,9 @@ pub fn honesty_host_eager_weapon_set_power_helper_source_markers_residual_wave69
         && sh.contains("early_weapon_set_applied")
         && sh.contains("early_entity_power_applied")
         && sh.contains("EARLY_WEAPON_BONUS_BATCH.with(|c| *c.borrow_mut() = None)");
-    let eng_ok = eng.contains("eager_apply_host_weapon_set_after_logic")
-        && eng.contains("eager_apply_host_entity_power_after_logic")
-        && eng.contains("Wave 691: post-logic weapon-set");
+    let eng_ok = eng.contains("eager_apply_all_host_residuals_after_logic")
+        && eng.contains("eager_apply_all_host_residuals_after_logic")
+        && eng.contains("Wave 682/925");
     let ok = api_ok && eng_ok && !eng.contains("playable_claim = true");
     residual_action_store(ResidualHostEagerWeaponSetPowerHelperAction::SourceMarkers);
     ok
@@ -121,12 +123,12 @@ pub fn honesty_host_eager_weapon_set_power_helper_nav_commands_residual_wave691(
 pub fn simulate_host_eager_weapon_set_power_helper_collect_source() -> bool {
     let ok = shadow_source().contains("eager_apply_host_weapon_set_after_logic")
         && shadow_source().contains("eager_apply_host_entity_power_after_logic")
-        && eng_source().contains("eager_apply_host_weapon_set_after_logic");
+        && eng_source().contains("eager_apply_all_host_residuals_after_logic");
     residual_action_store(ResidualHostEagerWeaponSetPowerHelperAction::CollectSource);
     ok
 }
 pub fn simulate_host_eager_weapon_set_power_helper_dispatch_source() -> bool {
-    let ok = eng_source().contains("Wave 691") && shadow_source().contains("Wave 691");
+    let ok = eng_source().contains("Wave 682/925") && shadow_source().contains("Wave 691");
     residual_action_store(ResidualHostEagerWeaponSetPowerHelperAction::DispatchSource);
     ok
 }

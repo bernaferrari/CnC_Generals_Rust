@@ -94,7 +94,7 @@ pub fn residual_special_power_sole_tick_no_cooldown_stomp_last_action(
 }
 
 fn gl_source() -> &'static str {
-    include_str!("../game_logic.rs")
+    super::GAME_LOGIC_HOST_SRC
 }
 
 fn shadow_source() -> &'static str {

@@ -94,7 +94,7 @@ fn shadow_source() -> &'static str {
 }
 
 fn game_logic_source() -> &'static str {
-    include_str!("../game_logic.rs")
+    super::GAME_LOGIC_HOST_SRC
 }
 
 pub fn honesty_production_exit_delay_sole_tick_method_names_residual_wave464() -> bool {

@@ -45,10 +45,12 @@ struct WolMapSelectState {
     raise_message_boxes: bool,
 }
 
-static WOL_MAP_SELECT_STATE: OnceLock<Mutex<WolMapSelectState>> = OnceLock::new();
+thread_local! {
+    static WOL_MAP_SELECT_STATE: Rc<RefCell<WolMapSelectState>> = Rc::new(RefCell::new(WolMapSelectState::default()));
+}
 
-fn map_select_state() -> &'static Mutex<WolMapSelectState> {
-    WOL_MAP_SELECT_STATE.get_or_init(|| Mutex::new(WolMapSelectState::default()))
+fn map_select_state() -> Rc<RefCell<WolMapSelectState>> {
+    WOL_MAP_SELECT_STATE.with(Rc::clone)
 }
 
 fn name_to_id(name: &str) -> i32 {
@@ -77,12 +79,10 @@ fn set_window_image(win: &Option<Rc<RefCell<GameWindow>>>, image_name: &str) {
         return;
     }
 
-    let mut image = crate::display::image::Image::with_name(image_name);
-    if let Some(collection) = crate::display::image::get_mapped_image_collection().try_read() {
-        if let Some(found) = collection.find_image_by_name(image_name) {
-            image.set_filename(found.get_filename());
-        }
-    }
+    let Some(image) = crate::gui::callbacks::online_callback_support::lookup_window_image(image_name)
+    else {
+        return;
+    };
 
     let mut win_guard = win.borrow_mut();
     if win_guard.set_enabled_image(0, image).is_ok() {
@@ -230,8 +230,9 @@ fn show_underlying_game_options(show: bool) {
     });
 }
 
-pub fn wol_map_select_menu_init(layout: &WindowLayout, _user_data: Option<&mut dyn std::any::Any>) {
-    let mut state = map_select_state().lock().unwrap_or_else(|e| e.into_inner());
+pub fn wol_map_select_menu_init(layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
+    let state_slot = map_select_state();
+    let mut state = state_slot.borrow_mut();
 
     state.parent_id = name_to_id("WOLMapSelectMenu.wnd:WOLMapSelectMenuParent");
     state.button_back_id = name_to_id("WOLMapSelectMenu.wnd:ButtonBack");
@@ -259,13 +260,15 @@ pub fn wol_map_select_menu_init(layout: &WindowLayout, _user_data: Option<&mut d
         state.selected_map = Some(current_map);
     }
 
-    if let Some(info) = get_gamespy_info().and_then(|info| info.lock().ok()) {
-        if let Some(room) = info.get_current_staging_room() {
-            if !room.map_name.as_str().is_empty() {
-                state.selected_map = Some(room.map_name.as_str().to_string());
-            }
-            if room.use_stats {
-                state.use_system_maps = true;
+    if let Some(slot) = get_gamespy_info() {
+        if let Ok(info) = slot.lock() {
+            if let Some(room) = info.get_current_staging_room() {
+                if !room.map_name.as_str().is_empty() {
+                    state.selected_map = Some(room.map_name.as_str().to_string());
+                }
+                if room.use_stats {
+                    state.use_system_maps = true;
+                }
             }
         }
     }
@@ -275,23 +278,27 @@ pub fn wol_map_select_menu_init(layout: &WindowLayout, _user_data: Option<&mut d
     let radio_user =
         with_window_manager(|manager| manager.get_window_by_id(state.radio_user_maps_id));
 
-    if let Some(info) = get_gamespy_info().and_then(|info| info.lock().ok()) {
-        if let Some(room) = info.get_current_staging_room() {
-            if room.use_stats {
-                set_radio_selected(&radio_system, true);
-                if let Some(user) = radio_user.as_ref() {
-                    let _ = user.borrow_mut().enable(false);
+    if let Some(slot) = get_gamespy_info() {
+        if let Ok(info) = slot.lock() {
+            if let Some(room) = info.get_current_staging_room() {
+                if room.use_stats {
+                    set_radio_selected(&radio_system, true);
+                    if let Some(user) = radio_user.as_ref() {
+                        let _ = user.borrow_mut().enable(false);
+                    }
+                } else if state.use_system_maps {
+                    set_radio_selected(&radio_system, true);
+                } else {
+                    set_radio_selected(&radio_user, true);
                 }
-            } else if state.use_system_maps {
-                set_radio_selected(&radio_system, true);
-            } else {
-                set_radio_selected(&radio_user, true);
             }
         }
     }
 
-    if let Some(map_cache) = get_map_cache_manager().lock().ok() {
-        map_cache.update_cache();
+    {
+        let map_cache = get_map_cache_manager();
+        let mut cache_guard = map_cache.lock().unwrap_or_else(|e| e.into_inner());
+        cache_guard.update_cache();
     }
 
     populate_map_list(&mut state);
@@ -310,24 +317,26 @@ pub fn wol_map_select_menu_init(layout: &WindowLayout, _user_data: Option<&mut d
 
 pub fn wol_map_select_menu_shutdown(
     layout: &WindowLayout,
-    _user_data: Option<&mut dyn std::any::Any>,
+    _user_data: Option<&dyn std::any::Any>,
 ) {
     {
-        let mut state = map_select_state().lock().unwrap_or_else(|e| e.into_inner());
+        let state_slot = map_select_state();
+    let mut state = state_slot.borrow_mut();
         state.parent = None;
         state.listbox_map = None;
         state.map_preview = None;
         state.selected_map = None;
     }
     layout.hide(true);
-    let _ = try_with_shell_mut(|shell| shell.shutdown_complete(layout));
+    let _ = try_with_shell_mut(|shell| shell.shutdown_complete(None, false));
 }
 
 pub fn wol_map_select_menu_update(
     _layout: &WindowLayout,
-    _user_data: Option<&mut dyn std::any::Any>,
+    _user_data: Option<&dyn std::any::Any>,
 ) {
-    let mut state = map_select_state().lock().unwrap_or_else(|e| e.into_inner());
+    let state_slot = map_select_state();
+    let mut state = state_slot.borrow_mut();
     if state.raise_message_boxes {
         raise_gs_message_box();
         state.raise_message_boxes = false;
@@ -347,7 +356,8 @@ pub fn wol_map_select_menu_input(
         return WindowMsgHandled::Handled;
     }
 
-    let state = map_select_state().lock().unwrap_or_else(|e| e.into_inner());
+    let state_slot = map_select_state();
+    let state = state_slot.borrow_mut();
     if let Some(parent) = state.parent.as_ref() {
         let _ = parent.borrow_mut().send_system_message(
             WindowMessage::GadgetSelected,
@@ -366,18 +376,20 @@ pub fn wol_map_select_menu_system(
     data2: WindowMsgData,
 ) -> WindowMsgHandled {
     match msg {
-        WindowMessage::Create => WindowMsgHandled::Handled,
+        WindowMessage::Create => return WindowMsgHandled::Handled,
         WindowMessage::Destroy => {
-            let mut state = map_select_state().lock().unwrap_or_else(|e| e.into_inner());
+            let state_slot = map_select_state();
+    let mut state = state_slot.borrow_mut();
             state.parent = None;
             state.listbox_map = None;
             state.map_preview = None;
             state.selected_map = None;
-            WindowMsgHandled::Handled
+            return WindowMsgHandled::Handled;
         }
-        WindowMessage::InputFocus => write_input_focus_response(data1, data2, true),
+        WindowMessage::InputFocus => return write_input_focus_response(data1, data2, true),
         WindowMessage::GadgetSelected => {
-            let mut state = map_select_state().lock().unwrap_or_else(|e| e.into_inner());
+            let state_slot = map_select_state();
+    let mut state = state_slot.borrow_mut();
             let control_id = data1 as i32;
             if control_id == state.button_back_id {
                 show_underlying_game_options(true);
@@ -412,13 +424,13 @@ pub fn wol_map_select_menu_system(
                     let map_cache = get_map_cache_manager();
                     let mut cache_guard = map_cache.lock().unwrap_or_else(|e| e.into_inner());
                     cache_guard.update_cache();
-                    let meta = cache_guard.find_map(&map_name).cloned();
+                    let meta = cache_guard.find_map(&map_name).map(|m| (m.crc, m.filesize));
 
                     with_gamespy_game_info_mut(|info| {
                         info.set_map(map_name.clone());
-                        if let Some(meta) = meta.as_ref() {
-                            info.set_map_crc(meta.crc);
-                            info.set_map_size(meta.filesize);
+                        if let Some((crc, filesize)) = meta {
+                            info.set_map_crc(crc);
+                            info.set_map_size(filesize);
                         }
                         if let Some(slot) = info.get_slot_mut(0) {
                             slot.set_map_availability(true);
@@ -439,17 +451,21 @@ pub fn wol_map_select_menu_system(
                 close_overlay(GameSpyOverlayType::MapSelect);
                 return WindowMsgHandled::Handled;
             }
+            return WindowMsgHandled::Ignored;
         }
         WindowMessage::GadgetValueChanged => {
-            let mut state = map_select_state().lock().unwrap_or_else(|e| e.into_inner());
+            let state_slot = map_select_state();
+    let mut state = state_slot.borrow_mut();
             if data1 as i32 == state.listbox_map_id {
                 update_selected_map(&mut state);
                 update_preview(&mut state);
                 return WindowMsgHandled::Handled;
             }
+            return WindowMsgHandled::Ignored;
         }
         WindowMessage::User(0x8000) => {
-            let mut state = map_select_state().lock().unwrap_or_else(|e| e.into_inner());
+            let state_slot = map_select_state();
+    let mut state = state_slot.borrow_mut();
             if data1 as i32 == state.listbox_map_id {
                 update_selected_map(&mut state);
                 update_preview(&mut state);
@@ -457,13 +473,13 @@ pub fn wol_map_select_menu_system(
                     let map_cache = get_map_cache_manager();
                     let mut cache_guard = map_cache.lock().unwrap_or_else(|e| e.into_inner());
                     cache_guard.update_cache();
-                    let meta = cache_guard.find_map(&map_name).cloned();
+                    let meta = cache_guard.find_map(&map_name).map(|m| (m.crc, m.filesize));
 
                     with_gamespy_game_info_mut(|info| {
                         info.set_map(map_name.clone());
-                        if let Some(meta) = meta.as_ref() {
-                            info.set_map_crc(meta.crc);
-                            info.set_map_size(meta.filesize);
+                        if let Some((crc, filesize)) = meta {
+                            info.set_map_crc(crc);
+                            info.set_map_size(filesize);
                         }
                         if let Some(slot) = info.get_slot_mut(0) {
                             slot.set_map_availability(true);
@@ -483,6 +499,7 @@ pub fn wol_map_select_menu_system(
                 close_overlay(GameSpyOverlayType::MapSelect);
                 return WindowMsgHandled::Handled;
             }
+            return WindowMsgHandled::Ignored;
         }
         _ => {}
     }

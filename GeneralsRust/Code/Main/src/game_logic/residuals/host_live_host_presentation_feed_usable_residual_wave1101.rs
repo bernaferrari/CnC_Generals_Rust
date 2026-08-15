@@ -112,7 +112,9 @@ pub fn honesty_host_presentation_feed_usable_residual_pack_wave1101() -> bool {
             "Wave 1101: fail-closed on sold/disabled construct builders",
         ),
     ];
-    let mut ok = es.contains("result.playable_claim = false");
+    let mut ok = // 2026-08-15: playable_claim is the five-flag constructor, not a literal assignment.
+        es.contains("self.playable_claim = Self::retail_windowed_playable_claim(")
+        && es.contains("Headless smoke must keep `playable_claim == false`");
     for (fn_name, wave) in checks {
         let Some(i) = pf.find(fn_name) else {
             ok = false;

@@ -7,15 +7,15 @@ use crate::gui::callbacks::wol_quick_match_menu::{
 };
 use crate::gui::{GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled};
 
-pub fn WOLQuickMatchMenuInit(layout: &WindowLayout, user_data: Option<&mut dyn std::any::Any>) {
+pub fn WOLQuickMatchMenuInit(layout: &WindowLayout, user_data: Option<&dyn std::any::Any>) {
     wol_quick_match_menu_init(layout, user_data);
 }
 
-pub fn WOLQuickMatchMenuUpdate(layout: &WindowLayout, user_data: Option<&mut dyn std::any::Any>) {
+pub fn WOLQuickMatchMenuUpdate(layout: &WindowLayout, user_data: Option<&dyn std::any::Any>) {
     wol_quick_match_menu_update(layout, user_data);
 }
 
-pub fn WOLQuickMatchMenuShutdown(layout: &WindowLayout, user_data: Option<&mut dyn std::any::Any>) {
+pub fn WOLQuickMatchMenuShutdown(layout: &WindowLayout, user_data: Option<&dyn std::any::Any>) {
     wol_quick_match_menu_shutdown(layout, user_data);
 }
 

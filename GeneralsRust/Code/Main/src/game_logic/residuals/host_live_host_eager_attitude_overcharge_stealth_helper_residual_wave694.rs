@@ -76,6 +76,8 @@ fn eng_source() -> &'static str {
 fn shadow_source() -> &'static str {
     crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC
 }
+// 2026-08-15: engine dispatches via eager_apply_all_host_residuals_after_logic
+// (Wave 682/925); per-channel eager_apply_* stays on GAMEWORLD_SHADOW_SRC.
 pub fn honesty_host_eager_attitude_overcharge_stealth_helper_method_names_residual_wave694() -> bool
 {
     let names = LIVE_HOST_EAGER_ATTITUDE_OVERCHARGE_STEALTH_HELPER_METHOD_NAMES_WAVE694;
@@ -104,10 +106,10 @@ pub fn honesty_host_eager_attitude_overcharge_stealth_helper_source_markers_resi
         && sh.contains("early_ai_attitude_applied")
         && sh.contains("early_overcharge_applied")
         && sh.contains("early_stealth_flags_applied");
-    let eng_ok = eng.contains("eager_apply_host_ai_attitude_after_logic")
-        && eng.contains("eager_apply_host_overcharge_after_logic")
-        && eng.contains("eager_apply_host_stealth_flags_after_logic")
-        && eng.contains("Wave 694: post-logic AI-attitude");
+    let eng_ok = eng.contains("eager_apply_all_host_residuals_after_logic")
+        && eng.contains("eager_apply_all_host_residuals_after_logic")
+        && eng.contains("eager_apply_all_host_residuals_after_logic")
+        && eng.contains("Wave 682/925");
     let ok = api_ok && eng_ok && !eng.contains("playable_claim = true");
     residual_action_store(ResidualHostEagerAttitudeOverchargeStealthHelperAction::SourceMarkers);
     ok
@@ -135,12 +137,12 @@ pub fn simulate_host_eager_attitude_overcharge_stealth_helper_collect_source() -
     let ok = shadow_source().contains("eager_apply_host_ai_attitude_after_logic")
         && shadow_source().contains("eager_apply_host_overcharge_after_logic")
         && shadow_source().contains("eager_apply_host_stealth_flags_after_logic")
-        && eng_source().contains("eager_apply_host_ai_attitude_after_logic");
+        && eng_source().contains("eager_apply_all_host_residuals_after_logic");
     residual_action_store(ResidualHostEagerAttitudeOverchargeStealthHelperAction::CollectSource);
     ok
 }
 pub fn simulate_host_eager_attitude_overcharge_stealth_helper_dispatch_source() -> bool {
-    let ok = eng_source().contains("Wave 694") && shadow_source().contains("Wave 694");
+    let ok = eng_source().contains("Wave 682/925") && shadow_source().contains("Wave 694");
     residual_action_store(ResidualHostEagerAttitudeOverchargeStealthHelperAction::DispatchSource);
     ok
 }

@@ -19,29 +19,32 @@ const KEY_STATE_UP: usize = 0x0001;
 
 #[derive(Default)]
 struct WolLadderState {
-    parent_id: u32,
-    button_back_id: u32,
-    window_ladder_id: u32,
+    parent_id: i32,
+    button_back_id: i32,
+    window_ladder_id: i32,
     parent: Option<Rc<RefCell<GameWindow>>>,
     button_back: Option<Rc<RefCell<GameWindow>>>,
     window_ladder: Option<Rc<RefCell<GameWindow>>>,
 }
 
-static WOL_LADDER_STATE: OnceLock<Mutex<WolLadderState>> = OnceLock::new();
+thread_local! {
+    static WOL_LADDER_STATE: Rc<RefCell<WolLadderState>> = Rc::new(RefCell::new(WolLadderState::default()));
+}
 static WEBPAGES_LOADED: OnceLock<Mutex<bool>> = OnceLock::new();
 
-fn wol_ladder_state() -> &'static Mutex<WolLadderState> {
-    WOL_LADDER_STATE.get_or_init(|| Mutex::new(WolLadderState::default()))
+fn wol_ladder_state() -> Rc<RefCell<WolLadderState>> {
+    WOL_LADDER_STATE.with(Rc::clone)
 }
 
-fn name_to_id(name: &str) -> u32 {
-    NameKeyGenerator::name_to_key(name) as u32
+fn name_to_id(name: &str) -> i32 {
+    NameKeyGenerator::name_to_key(name) as i32
 }
 
 fn locate_webpages_ini() -> Option<PathBuf> {
     let mut candidates = Vec::new();
-    if let Some(engine) = get_game_engine().and_then(|engine| engine.lock().ok()) {
-        for base in engine.data_paths() {
+    if let Some(engine) = get_game_engine() {
+        let guard = engine.lock();
+        for base in guard.data_paths() {
             candidates.push(PathBuf::from(base).join("INI").join("Webpages.ini"));
             candidates.push(
                 PathBuf::from(base)
@@ -79,7 +82,7 @@ fn ensure_webpages_loaded() -> bool {
     false
 }
 
-pub fn wol_ladder_screen_init(layout: &WindowLayout, _user_data: Option<&mut dyn std::any::Any>) {
+pub fn wol_ladder_screen_init(layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
     get_shell().show_shell_map(true);
 
     let parent_id = name_to_id("WOLLadderScreen.wnd:LadderParent");
@@ -103,7 +106,8 @@ pub fn wol_ladder_screen_init(layout: &WindowLayout, _user_data: Option<&mut dyn
         let _ = with_window_manager(|manager| manager.set_focus(Some(parent)));
     }
 
-    let mut state = wol_ladder_state().lock().unwrap_or_else(|e| e.into_inner());
+    let state_slot = wol_ladder_state();
+    let mut state = state_slot.borrow_mut();
     state.parent_id = parent_id;
     state.button_back_id = button_back_id;
     state.window_ladder_id = window_ladder_id;
@@ -114,17 +118,17 @@ pub fn wol_ladder_screen_init(layout: &WindowLayout, _user_data: Option<&mut dyn
 
 pub fn wol_ladder_screen_shutdown(
     layout: &WindowLayout,
-    _user_data: Option<&mut dyn std::any::Any>,
+    _user_data: Option<&dyn std::any::Any>,
 ) {
     // TODO: C++ calls TheWebBrowser->closeBrowserWindow() here to close any
     // open browser window from the ladder/message board page.
     layout.hide(true);
-    get_shell().shutdown_complete(layout);
+    let _ = get_shell().shutdown_complete(None, false);
 }
 
 pub fn wol_ladder_screen_update(
     _layout: &WindowLayout,
-    _user_data: Option<&mut dyn std::any::Any>,
+    _user_data: Option<&dyn std::any::Any>,
 ) {
 }
 
@@ -141,12 +145,13 @@ pub fn wol_ladder_screen_input(
         return WindowMsgHandled::Handled;
     }
 
-    let state = wol_ladder_state().lock().unwrap_or_else(|e| e.into_inner());
+    let state_slot = wol_ladder_state();
+    let state = state_slot.borrow_mut();
     if let Some(parent) = state.parent.as_ref() {
         let _ = parent.borrow_mut().send_system_message(
             WindowMessage::GadgetSelected,
-            state.button_back_id,
-            state.button_back_id,
+            state.button_back_id as WindowMsgData,
+            state.button_back_id as WindowMsgData,
         );
     }
 
@@ -164,15 +169,16 @@ pub fn wol_ladder_screen_system(
         WindowMessage::Destroy => WindowMsgHandled::Handled,
         WindowMessage::InputFocus => write_input_focus_response(data1, data2, true),
         WindowMessage::GadgetSelected => {
-            let control_id = data1 as u32;
-            let state = wol_ladder_state().lock().unwrap_or_else(|e| e.into_inner());
+            let control_id = data1 as i32;
+            let state_slot = wol_ladder_state();
+    let state = state_slot.borrow_mut();
             if control_id == state.button_back_id {
                 let _ = get_shell().pop();
                 return WindowMsgHandled::Handled;
             }
             WindowMsgHandled::Handled
         }
-        WindowMessage::EditDone => WindowMsgHandled::Handled,
+        WindowMessage::GadgetEditDone => WindowMsgHandled::Handled,
         _ => WindowMsgHandled::Ignored,
     }
 }

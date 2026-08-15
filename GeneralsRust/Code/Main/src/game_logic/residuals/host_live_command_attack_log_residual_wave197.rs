@@ -88,7 +88,7 @@ pub fn honesty_execute_attack_records_source() -> bool {
     let body = &src[i..src.len().min(i + 2500)];
     // Wave 232: executor routes through GameLogic::unit_command_attack which records.
     if body.contains("unit_command_attack") {
-        let gl = include_str!("../game_logic.rs");
+        let gl = super::GAME_LOGIC_HOST_SRC;
         let gi = match gl.find("pub fn unit_command_attack(") {
             Some(gi) => gi,
             None => return false,

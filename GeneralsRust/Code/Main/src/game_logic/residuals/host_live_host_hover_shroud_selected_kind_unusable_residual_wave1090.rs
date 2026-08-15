@@ -107,7 +107,9 @@ pub fn honesty_host_hover_shroud_selected_kind_unusable_residual_pack_wave1090()
         && any.contains("u.destroyed || u.sold || u.masked || u.unselectable")
         && all.contains("Wave 1090: evaluate only usable selected entries")
         && all.contains("u.destroyed || u.sold || u.masked || u.unselectable")
-        && es.contains("result.playable_claim = false");
+        && // 2026-08-15: playable_claim is the five-flag constructor, not a literal assignment.
+        es.contains("self.playable_claim = Self::retail_windowed_playable_claim(")
+        && es.contains("Headless smoke must keep `playable_claim == false`");
     residual_action_store(ResidualHostHoverShroudSelectedKindUnusableAction::SourceMarkers);
     RESIDUAL_OK.store(ok, Ordering::SeqCst);
     ok

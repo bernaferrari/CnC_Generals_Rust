@@ -46,7 +46,7 @@ fn cnc_source() -> &'static str {
     crate::cnc_game_engine::ENGINE_SRC
 }
 fn gl_source() -> &'static str {
-    include_str!("../game_logic.rs")
+    super::GAME_LOGIC_HOST_SRC
 }
 fn client_source() -> &'static str {
     game_client::core::game_client::GAME_CLIENT_SRC

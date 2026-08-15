@@ -10,7 +10,7 @@
 //! - Memory-efficient storage using the memory pool system
 
 use base_types::*;
-use std::alloc::{alloc, dealloc, Layout};
+use std::alloc::{Layout, alloc, dealloc};
 use std::cmp::Ordering;
 use std::fmt;
 use std::ptr;
@@ -83,22 +83,63 @@ impl AsciiStringData {
     /// Get the string as a &str (unsafe, caller must ensure validity)
     unsafe fn as_str<'a>(data: *const Self) -> &'a str {
         let data_ptr = Self::data_ptr_const(data);
-        let len = libc::strlen(data_ptr as *const libc::c_char);
-        std::str::from_utf8_unchecked(std::slice::from_raw_parts(data_ptr, len))
+        // SAFETY: [Category 8 — FFI / Category 3 — dangling]
+        // `data` is a live `AsciiStringData` from `new()`; the flexible buffer
+        // after the header is a NUL-terminated C string (AsciiString.cpp
+        // `m_data->peek()` / `strlen` contract).
+        let len = unsafe { libc::strlen(data_ptr as *const libc::c_char) };
+        // SAFETY: [Category 10 — OOB / Category 5 — invalid values]
+        // `strlen` counted bytes up to the terminator written by `set_from_str`
+        // or `new`; those bytes are UTF-8 because they were copied from `&str`.
+        let bytes = unsafe { std::slice::from_raw_parts(data_ptr, len) };
+        // SAFETY: [Category 5 — invalid values]
+        // Buffer contents are a `&str` copy plus a trailing NUL that `strlen`
+        // excluded, matching AsciiString.cpp peek/strlen usage.
+        unsafe { std::str::from_utf8_unchecked(bytes) }
     }
 
     /// Set the string data from a &str
     unsafe fn set_from_str(data: *mut Self, s: &str) {
         let data_ptr = Self::data_ptr(data);
-        let capacity = (*data).num_chars_allocated as usize;
+        // SAFETY: [Category 3 — dangling]
+        // `data` is a live allocation from `AsciiStringData::new`; the header
+        // field is initialized before any `set_from_str` call (AsciiString.cpp
+        // ensureUniqueBufferOfSize / copy path).
+        let capacity = unsafe { (*data).num_chars_allocated as usize };
 
         if s.len() >= capacity {
             // String is too long, truncate
-            ptr::copy_nonoverlapping(s.as_ptr(), data_ptr, capacity - 1);
-            *data_ptr.add(capacity - 1) = 0;
+            // SAFETY: [Category 10 — OOB]
+            // Destination has `capacity` bytes; we write `capacity - 1` source
+            // bytes then a NUL, matching C++ truncation into the allocated peek
+            // buffer (AsciiString.cpp).
+            unsafe {
+                ptr::copy_nonoverlapping(s.as_ptr(), data_ptr, capacity - 1);
+            }
+            // SAFETY: [Category 10 — OOB]
+            // `capacity - 1` is in-range because `new` rejects capacity 0 for
+            // a populated set and allocated at least `capacity` payload bytes.
+            let term = unsafe { data_ptr.add(capacity - 1) };
+            // SAFETY: [Category 3 — dangling]
+            // `term` is inside the same allocation as `data_ptr`.
+            unsafe {
+                *term = 0;
+            }
         } else {
-            ptr::copy_nonoverlapping(s.as_ptr(), data_ptr, s.len());
-            *data_ptr.add(s.len()) = 0;
+            // SAFETY: [Category 10 — OOB]
+            // `s.len() < capacity`, so `s.len()` payload bytes plus a NUL fit
+            // in the flexible array (AsciiString.cpp copy + terminator).
+            unsafe {
+                ptr::copy_nonoverlapping(s.as_ptr(), data_ptr, s.len());
+            }
+            // SAFETY: [Category 10 — OOB]
+            // `s.len()` is strictly less than `capacity`, so this slot exists.
+            let term = unsafe { data_ptr.add(s.len()) };
+            // SAFETY: [Category 3 — dangling]
+            // `term` is inside the same allocation as `data_ptr`.
+            unsafe {
+                *term = 0;
+            }
         }
     }
 
@@ -121,9 +162,21 @@ impl AsciiStringData {
 
     /// Free the string data
     unsafe fn free(data: *mut Self) {
-        let total_size = std::mem::size_of::<Self>() + (*data).num_chars_allocated as usize;
-        let layout = Layout::from_size_align_unchecked(total_size, std::mem::align_of::<Self>());
-        dealloc(data as *mut u8, layout);
+        // SAFETY: [Category 3 — dangling]
+        // `data` is the unique remaining owner (ref_count just hit zero),
+        // allocated by `new` with `num_chars_allocated` payload bytes
+        // (AsciiString.cpp `freeBytes`).
+        let payload = unsafe { (*data).num_chars_allocated as usize };
+        let total_size = std::mem::size_of::<Self>() + payload;
+        // SAFETY: [Category 13 — library contract]
+        // Size/align match the `Layout` used in `new`; align is `align_of::<Self>()`.
+        let layout =
+            unsafe { Layout::from_size_align_unchecked(total_size, std::mem::align_of::<Self>()) };
+        // SAFETY: [Category 12 — invalid free]
+        // Same allocator/layout as `alloc` in `new`; pointer is not used after this.
+        unsafe {
+            dealloc(data as *mut u8, layout);
+        }
     }
 }
 
@@ -727,10 +780,21 @@ impl UnicodeStringData {
 
     /// Free the string data
     unsafe fn free(data: *mut Self) {
-        let total_size = std::mem::size_of::<Self>()
-            + ((*data).num_chars_allocated as usize) * std::mem::size_of::<u16>();
-        let layout = Layout::from_size_align_unchecked(total_size, std::mem::align_of::<Self>());
-        dealloc(data as *mut u8, layout);
+        // SAFETY: [Category 3 — dangling]
+        // `data` is the unique remaining owner (ref_count just hit zero),
+        // allocated with `num_chars_allocated` UTF-16 code units
+        // (UnicodeString.cpp `freeBytes`).
+        let chars = unsafe { (*data).num_chars_allocated as usize };
+        let total_size = std::mem::size_of::<Self>() + chars * std::mem::size_of::<u16>();
+        // SAFETY: [Category 13 — library contract]
+        // Size/align match the allocation layout used to create this block.
+        let layout =
+            unsafe { Layout::from_size_align_unchecked(total_size, std::mem::align_of::<Self>()) };
+        // SAFETY: [Category 12 — invalid free]
+        // Same allocator/layout as the matching `alloc`; pointer is not reused.
+        unsafe {
+            dealloc(data as *mut u8, layout);
+        }
     }
 }
 

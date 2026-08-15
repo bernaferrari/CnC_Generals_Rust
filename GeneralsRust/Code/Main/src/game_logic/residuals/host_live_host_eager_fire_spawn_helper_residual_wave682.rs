@@ -74,6 +74,8 @@ fn eng_source() -> &'static str {
 fn shadow_source() -> &'static str {
     crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC
 }
+// 2026-08-15: engine dispatches via eager_apply_all_host_residuals_after_logic
+// (Wave 682/925); per-channel eager_apply_* stays on GAMEWORLD_SHADOW_SRC.
 pub fn honesty_host_eager_fire_spawn_helper_method_names_residual_wave682() -> bool {
     let names = LIVE_HOST_EAGER_FIRE_SPAWN_HELPER_METHOD_NAMES_WAVE682;
     let ok = residual_name_index(names, "eager_apply_host_fire_spawns_after_logic").is_some()
@@ -91,8 +93,8 @@ pub fn honesty_host_eager_fire_spawn_helper_source_markers_residual_wave682() ->
     let api_ok = sh.contains("pub fn eager_apply_host_fire_spawns_after_logic")
         && sh.contains("Wave 682")
         && sh.contains("host_fire_spawn_log::drain");
-    let eng_ok = eng.contains("eager_apply_host_fire_spawns_after_logic")
-        && eng.contains("Wave 682: post-logic fire-spawn");
+    let eng_ok = eng.contains("eager_apply_all_host_residuals_after_logic")
+        && eng.contains("Wave 682/925");
     let queue_ok = combat.contains("host_fire_spawn_log::record")
         && combat.contains("gameworld_fire_spawn_authority_live")
         && combat.contains("Wave 682");
@@ -119,13 +121,13 @@ pub fn honesty_host_eager_fire_spawn_helper_nav_commands_residual_wave682() -> b
 }
 pub fn simulate_host_eager_fire_spawn_helper_collect_source() -> bool {
     let ok = shadow_source().contains("eager_apply_host_fire_spawns_after_logic")
-        && eng_source().contains("eager_apply_host_fire_spawns_after_logic")
+        && eng_source().contains("eager_apply_all_host_residuals_after_logic")
         && combat_source().contains("host_fire_spawn_log::record");
     residual_action_store(ResidualHostEagerFireSpawnHelperAction::CollectSource);
     ok
 }
 pub fn simulate_host_eager_fire_spawn_helper_dispatch_source() -> bool {
-    let ok = eng_source().contains("Wave 682")
+    let ok = eng_source().contains("Wave 682/925")
         && combat_source().contains("Wave 682")
         && shadow_source().contains("Wave 682");
     residual_action_store(ResidualHostEagerFireSpawnHelperAction::DispatchSource);

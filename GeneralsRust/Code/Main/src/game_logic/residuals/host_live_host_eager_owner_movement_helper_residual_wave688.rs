@@ -72,6 +72,8 @@ fn eng_source() -> &'static str {
 fn shadow_source() -> &'static str {
     crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC
 }
+// 2026-08-15: engine dispatches via eager_apply_all_host_residuals_after_logic
+// (Wave 682/925); per-channel eager_apply_* stays on GAMEWORLD_SHADOW_SRC.
 pub fn honesty_host_eager_owner_movement_helper_method_names_residual_wave688() -> bool {
     let names = LIVE_HOST_EAGER_OWNER_MOVEMENT_HELPER_METHOD_NAMES_WAVE688;
     let ok = residual_name_index(names, "eager_apply_host_owner_after_logic").is_some()
@@ -93,9 +95,9 @@ pub fn honesty_host_eager_owner_movement_helper_source_markers_residual_wave688(
         && sh.contains("take_early_movement_batch")
         && sh.contains("early_owner_applied")
         && sh.contains("early_movement_applied");
-    let eng_ok = eng.contains("eager_apply_host_owner_after_logic")
-        && eng.contains("eager_apply_host_movement_after_logic")
-        && eng.contains("Wave 688: post-logic owner");
+    let eng_ok = eng.contains("eager_apply_all_host_residuals_after_logic")
+        && eng.contains("eager_apply_all_host_residuals_after_logic")
+        && eng.contains("Wave 682/925");
     let ok = api_ok && eng_ok && !eng.contains("playable_claim = true");
     residual_action_store(ResidualHostEagerOwnerMovementHelperAction::SourceMarkers);
     ok
@@ -120,12 +122,12 @@ pub fn honesty_host_eager_owner_movement_helper_nav_commands_residual_wave688() 
 pub fn simulate_host_eager_owner_movement_helper_collect_source() -> bool {
     let ok = shadow_source().contains("eager_apply_host_owner_after_logic")
         && shadow_source().contains("eager_apply_host_movement_after_logic")
-        && eng_source().contains("eager_apply_host_owner_after_logic");
+        && eng_source().contains("eager_apply_all_host_residuals_after_logic");
     residual_action_store(ResidualHostEagerOwnerMovementHelperAction::CollectSource);
     ok
 }
 pub fn simulate_host_eager_owner_movement_helper_dispatch_source() -> bool {
-    let ok = eng_source().contains("Wave 688") && shadow_source().contains("Wave 688");
+    let ok = eng_source().contains("Wave 682/925") && shadow_source().contains("Wave 688");
     residual_action_store(ResidualHostEagerOwnerMovementHelperAction::DispatchSource);
     ok
 }

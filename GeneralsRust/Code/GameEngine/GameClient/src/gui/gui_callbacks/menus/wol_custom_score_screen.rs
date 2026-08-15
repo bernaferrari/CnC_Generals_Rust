@@ -7,20 +7,20 @@ use crate::gui::callbacks::wol_custom_score_screen::{
 };
 use crate::gui::{GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled};
 
-pub fn WOLCustomScoreScreenInit(layout: &WindowLayout, user_data: Option<&mut dyn std::any::Any>) {
+pub fn WOLCustomScoreScreenInit(layout: &WindowLayout, user_data: Option<&dyn std::any::Any>) {
     wol_custom_score_screen_init(layout, user_data);
 }
 
 pub fn WOLCustomScoreScreenUpdate(
     layout: &WindowLayout,
-    user_data: Option<&mut dyn std::any::Any>,
+    user_data: Option<&dyn std::any::Any>,
 ) {
     wol_custom_score_screen_update(layout, user_data);
 }
 
 pub fn WOLCustomScoreScreenShutdown(
     layout: &WindowLayout,
-    user_data: Option<&mut dyn std::any::Any>,
+    user_data: Option<&dyn std::any::Any>,
 ) {
     wol_custom_score_screen_shutdown(layout, user_data);
 }

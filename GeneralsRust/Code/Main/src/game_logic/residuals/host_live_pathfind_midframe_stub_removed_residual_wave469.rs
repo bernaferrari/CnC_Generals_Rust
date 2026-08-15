@@ -95,7 +95,7 @@ fn cnc_source() -> &'static str {
 }
 
 fn game_logic_source() -> &'static str {
-    include_str!("../game_logic.rs")
+    super::GAME_LOGIC_HOST_SRC
 }
 
 fn shadow_source() -> &'static str {

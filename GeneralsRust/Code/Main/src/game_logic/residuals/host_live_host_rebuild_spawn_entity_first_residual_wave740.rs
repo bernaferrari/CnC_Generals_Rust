@@ -65,7 +65,7 @@ pub fn residual_host_rebuild_spawn_entity_first_last_action(
     ResidualHostRebuildSpawnEntityFirstAction::from_u8(RESIDUAL_ACTION.load(Ordering::SeqCst))
 }
 fn gl_source() -> &'static str {
-    include_str!("../game_logic.rs")
+    super::GAME_LOGIC_HOST_SRC
 }
 fn ready_source() -> &'static str {
     include_str!("../host_rebuild_ready_log.rs")

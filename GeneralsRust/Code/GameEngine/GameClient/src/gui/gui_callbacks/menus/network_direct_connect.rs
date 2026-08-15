@@ -7,20 +7,20 @@ use crate::gui::callbacks::network_direct_connect::{
 };
 use crate::gui::{GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled};
 
-pub fn NetworkDirectConnectInit(layout: &WindowLayout, user_data: Option<&mut dyn std::any::Any>) {
+pub fn NetworkDirectConnectInit(layout: &WindowLayout, user_data: Option<&dyn std::any::Any>) {
     network_direct_connect_init(layout, user_data);
 }
 
 pub fn NetworkDirectConnectUpdate(
     layout: &WindowLayout,
-    user_data: Option<&mut dyn std::any::Any>,
+    user_data: Option<&dyn std::any::Any>,
 ) {
     network_direct_connect_update(layout, user_data);
 }
 
 pub fn NetworkDirectConnectShutdown(
     layout: &WindowLayout,
-    user_data: Option<&mut dyn std::any::Any>,
+    user_data: Option<&dyn std::any::Any>,
 ) {
     network_direct_connect_shutdown(layout, user_data);
 }

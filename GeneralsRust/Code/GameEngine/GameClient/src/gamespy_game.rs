@@ -1,6 +1,7 @@
 //! GameSpy game state helpers (GameInfo + SetGameOptions sync).
 
-use std::sync::{Mutex, OnceLock};
+use std::cell::RefCell;
+use std::rc::Rc;
 
 use game_engine::common::ascii_string::AsciiString;
 use game_network::gamespy::peer_defs::{get_gamespy_info, GameSpyStagingRoom};
@@ -9,23 +10,23 @@ use game_network::{
     game_info_to_ascii_string, GameInfo, SlotState, MAX_SLOTS, PLAYERTEMPLATE_OBSERVER,
 };
 
-static GAMESPY_GAME_INFO: OnceLock<Mutex<GameInfo>> = OnceLock::new();
+thread_local! {
+    static GAMESPY_GAME_INFO: Rc<RefCell<GameInfo>> = Rc::new(RefCell::new(GameInfo::new()));
+}
 
-fn gamespy_game_info() -> &'static Mutex<GameInfo> {
-    GAMESPY_GAME_INFO.get_or_init(|| Mutex::new(GameInfo::new()))
+fn gamespy_game_info() -> Rc<RefCell<GameInfo>> {
+    GAMESPY_GAME_INFO.with(Rc::clone)
 }
 
 pub fn with_gamespy_game_info<R>(f: impl FnOnce(&GameInfo) -> R) -> R {
-    let guard = gamespy_game_info()
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
+    let slot = gamespy_game_info();
+    let guard = slot.borrow();
     f(&guard)
 }
 
 pub fn with_gamespy_game_info_mut<R>(f: impl FnOnce(&mut GameInfo) -> R) -> R {
-    let mut guard = gamespy_game_info()
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
+    let guard_slot = gamespy_game_info();
+    let mut guard = guard_slot.borrow_mut();
     f(&mut guard)
 }
 
@@ -58,15 +59,13 @@ pub fn push_gamespy_game_options() -> bool {
             )
         });
 
-    let player_info_map = get_gamespy_info()
-        .and_then(|info| {
-            info.lock()
-                .ok()
-                .map(|guard| guard.get_player_info_map().clone())
-        })
-        .unwrap_or_default();
+    let player_info_map = crate::gui::callbacks::online_callback_support::with_gamespy_info(
+        |info| info.get_player_info_map().clone(),
+    )
+    .unwrap_or_default();
 
-    if let Some(info) = get_gamespy_info().and_then(|info| info.lock().ok()) {
+    if let Some(info_slot) = get_gamespy_info() {
+        if let Ok(mut info) = info_slot.lock() {
         if let Some(room) = info.get_current_staging_room().cloned() {
             let mut updated = room;
             updated.map_name = AsciiString::from(&map_name);
@@ -109,6 +108,7 @@ pub fn push_gamespy_game_options() -> bool {
             }
             info.update_staging_room(updated);
         }
+        }
     }
 
     let Some(queue) = get_peer_message_queue() else {
@@ -120,7 +120,7 @@ pub fn push_gamespy_game_options() -> bool {
         req.request_type = PeerRequestType::SetGameOptions;
         req.options = options;
         req.game_opts_map_name = map_name;
-        req.game_opts_player_names = player_names;
+        req.game_opts_player_names = player_names.clone();
         req.use_stats = use_stats;
         req.num_players = 0;
         req.num_observers = 0;

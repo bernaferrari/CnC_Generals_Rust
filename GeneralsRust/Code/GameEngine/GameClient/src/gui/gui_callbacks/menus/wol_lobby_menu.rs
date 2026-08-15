@@ -6,21 +6,21 @@ use crate::gui::{GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowM
 
 pub fn wol_lobby_menu_init_callback(
     layout: &WindowLayout,
-    user_data: Option<&mut dyn std::any::Any>,
+    user_data: Option<&dyn std::any::Any>,
 ) {
     wol_lobby_menu_init(layout, user_data);
 }
 
 pub fn wol_lobby_menu_update_callback(
     layout: &WindowLayout,
-    user_data: Option<&mut dyn std::any::Any>,
+    user_data: Option<&dyn std::any::Any>,
 ) {
     wol_lobby_menu_update(layout, user_data);
 }
 
 pub fn wol_lobby_menu_shutdown_callback(
     layout: &WindowLayout,
-    user_data: Option<&mut dyn std::any::Any>,
+    user_data: Option<&dyn std::any::Any>,
 ) {
     wol_lobby_menu_shutdown(layout, user_data);
 }

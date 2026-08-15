@@ -3,8 +3,6 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
-use std::sync::{Mutex, OnceLock};
-
 use crate::gui::callbacks::message_box::{
     message_box_ok, message_box_ok_cancel, message_box_yes_no, MessageBoxFunc,
 };
@@ -56,10 +54,12 @@ struct GameSpyOverlayState {
     reopen_player_info: bool,
 }
 
-static OVERLAY_STATE: OnceLock<Mutex<GameSpyOverlayState>> = OnceLock::new();
+thread_local! {
+    static OVERLAY_STATE: Rc<RefCell<GameSpyOverlayState>> = Rc::new(RefCell::new(GameSpyOverlayState::default()));
+}
 
-fn overlay_state() -> &'static Mutex<GameSpyOverlayState> {
-    OVERLAY_STATE.get_or_init(|| Mutex::new(GameSpyOverlayState::default()))
+fn overlay_state() -> Rc<RefCell<GameSpyOverlayState>> {
+    OVERLAY_STATE.with(Rc::clone)
 }
 
 fn overlay_script(overlay: GameSpyOverlayType) -> &'static str {
@@ -78,7 +78,8 @@ fn overlay_script(overlay: GameSpyOverlayType) -> &'static str {
 
 fn clear_gs_message_boxes() {
     let window = {
-        let mut state = overlay_state().lock().unwrap_or_else(|e| e.into_inner());
+        let state_slot = overlay_state();
+    let mut state = state_slot.borrow_mut();
         state.message_box_ok = None;
         state.message_box_cancel = None;
         state.message_box_window.take()
@@ -93,7 +94,8 @@ fn clear_gs_message_boxes() {
 
 fn message_box_ok_clicked() {
     let callback = {
-        let mut state = overlay_state().lock().unwrap_or_else(|e| e.into_inner());
+        let state_slot = overlay_state();
+    let mut state = state_slot.borrow_mut();
         state.message_box_window = None;
         state.message_box_ok.take()
     };
@@ -104,7 +106,8 @@ fn message_box_ok_clicked() {
 
 fn message_box_cancel_clicked() {
     let callback = {
-        let mut state = overlay_state().lock().unwrap_or_else(|e| e.into_inner());
+        let state_slot = overlay_state();
+    let mut state = state_slot.borrow_mut();
         state.message_box_window = None;
         state.message_box_cancel.take()
     };
@@ -116,7 +119,8 @@ fn message_box_cancel_clicked() {
 pub fn gs_message_box_ok(title: &str, body: &str, ok_callback: Option<MessageBoxFunc>) {
     clear_gs_message_boxes();
     let window = message_box_ok(title, body, Some(Box::new(message_box_ok_clicked)));
-    let mut state = overlay_state().lock().unwrap_or_else(|e| e.into_inner());
+    let state_slot = overlay_state();
+    let mut state = state_slot.borrow_mut();
     state.message_box_window = window;
     state.message_box_ok = ok_callback;
 }
@@ -134,7 +138,8 @@ pub fn gs_message_box_ok_cancel(
         Some(Box::new(message_box_ok_clicked)),
         Some(Box::new(message_box_cancel_clicked)),
     );
-    let mut state = overlay_state().lock().unwrap_or_else(|e| e.into_inner());
+    let state_slot = overlay_state();
+    let mut state = state_slot.borrow_mut();
     state.message_box_window = window;
     state.message_box_ok = ok_callback;
     state.message_box_cancel = cancel_callback;
@@ -153,7 +158,8 @@ pub fn gs_message_box_yes_no(
         Some(Box::new(message_box_ok_clicked)),
         Some(Box::new(message_box_cancel_clicked)),
     );
-    let mut state = overlay_state().lock().unwrap_or_else(|e| e.into_inner());
+    let state_slot = overlay_state();
+    let mut state = state_slot.borrow_mut();
     state.message_box_window = window;
     state.message_box_ok = yes_callback;
     state.message_box_cancel = no_callback;
@@ -161,10 +167,8 @@ pub fn gs_message_box_yes_no(
 
 pub fn raise_gs_message_box() {
     raise_overlays();
-    let window = overlay_state()
-        .lock()
-        .ok()
-        .and_then(|state| state.message_box_window.clone());
+    let slot = overlay_state();
+    let window = slot.borrow().message_box_window.clone();
     if let Some(window) = window {
         let _ = window.borrow_mut().bring_to_front();
     }
@@ -207,7 +211,8 @@ pub fn open_overlay(overlay: GameSpyOverlayType) {
     }
 
     let layout = {
-        let mut state = overlay_state().lock().unwrap_or_else(|e| e.into_inner());
+        let state_slot = overlay_state();
+    let mut state = state_slot.borrow_mut();
         if let Some(layout) = state.overlays.get(&overlay).cloned() {
             layout.borrow_mut().hide(false);
             Some(layout)
@@ -218,8 +223,7 @@ pub fn open_overlay(overlay: GameSpyOverlayType) {
                     .create_layout_with_windows(script)
                     .ok()
                     .map(|(layout, _)| layout)
-            })
-            .flatten();
+            });
             if let Some(layout) = layout.clone() {
                 layout.borrow().run_init(None);
                 layout.borrow_mut().hide(false);
@@ -238,7 +242,8 @@ pub fn open_overlay(overlay: GameSpyOverlayType) {
 
 pub fn close_overlay(overlay: GameSpyOverlayType) {
     let layout = {
-        let mut state = overlay_state().lock().unwrap_or_else(|e| e.into_inner());
+        let state_slot = overlay_state();
+    let mut state = state_slot.borrow_mut();
         state.overlays.remove(&overlay)
     };
     if let Some(layout) = layout {
@@ -249,7 +254,8 @@ pub fn close_overlay(overlay: GameSpyOverlayType) {
 
 pub fn close_all_overlays() {
     let overlays = {
-        let mut state = overlay_state().lock().unwrap_or_else(|e| e.into_inner());
+        let state_slot = overlay_state();
+    let mut state = state_slot.borrow_mut();
         let overlays = state.overlays.drain().map(|(_, v)| v).collect::<Vec<_>>();
         overlays
     };
@@ -261,10 +267,8 @@ pub fn close_all_overlays() {
 }
 
 pub fn is_overlay_open(overlay: GameSpyOverlayType) -> bool {
-    overlay_state()
-        .lock()
-        .map(|state| state.overlays.contains_key(&overlay))
-        .unwrap_or(false)
+    let slot = overlay_state();
+    slot.borrow().overlays.contains_key(&overlay)
 }
 
 pub fn toggle_overlay(overlay: GameSpyOverlayType) {
@@ -276,22 +280,16 @@ pub fn toggle_overlay(overlay: GameSpyOverlayType) {
 }
 
 pub fn update_overlays() {
-    let overlays = overlay_state()
-        .lock()
-        .ok()
-        .map(|state| state.overlays.values().cloned().collect::<Vec<_>>())
-        .unwrap_or_default();
+    let slot = overlay_state();
+    let overlays = slot.borrow().overlays.values().cloned().collect::<Vec<_>>();
     for layout in overlays {
         layout.borrow().run_update(None);
     }
 }
 
 fn raise_overlays() {
-    let overlays = overlay_state()
-        .lock()
-        .ok()
-        .map(|state| state.overlays.values().cloned().collect::<Vec<_>>())
-        .unwrap_or_default();
+    let slot = overlay_state();
+    let overlays = slot.borrow().overlays.values().cloned().collect::<Vec<_>>();
     for layout in overlays {
         for window in layout.borrow().windows() {
             let _ = window.borrow_mut().bring_to_front();
@@ -300,13 +298,15 @@ fn raise_overlays() {
 }
 
 pub fn reopen_player_info() {
-    let mut state = overlay_state().lock().unwrap_or_else(|e| e.into_inner());
+    let state_slot = overlay_state();
+    let mut state = state_slot.borrow_mut();
     state.reopen_player_info = true;
 }
 
 pub fn check_reopen_player_info() {
     let reopen = {
-        let mut state = overlay_state().lock().unwrap_or_else(|e| e.into_inner());
+        let state_slot = overlay_state();
+    let mut state = state_slot.borrow_mut();
         if state.reopen_player_info {
             state.reopen_player_info = false;
             true
@@ -332,66 +332,62 @@ pub fn is_overlay_visible(overlay: GameSpyOverlayType) -> bool {
 }
 
 pub fn set_lobby_attempt_host_join(enabled: bool) {
-    let mut state = overlay_state().lock().unwrap_or_else(|e| e.into_inner());
+    let state_slot = overlay_state();
+    let mut state = state_slot.borrow_mut();
     state.lobby_attempt_host_join = enabled;
 }
 
 pub fn lobby_attempt_host_join() -> bool {
-    overlay_state()
-        .lock()
-        .map(|state| state.lobby_attempt_host_join)
-        .unwrap_or(false)
+    let slot = overlay_state();
+    slot.borrow().lobby_attempt_host_join
 }
 
 pub fn set_current_staging_room_id(id: Option<i32>) {
-    let mut state = overlay_state().lock().unwrap_or_else(|e| e.into_inner());
+    let state_slot = overlay_state();
+    let mut state = state_slot.borrow_mut();
     state.current_staging_room_id = id;
 }
 
 pub fn current_staging_room_id() -> Option<i32> {
-    overlay_state()
-        .lock()
-        .map(|state| state.current_staging_room_id)
-        .unwrap_or(None)
+    let slot = overlay_state();
+    slot.borrow().current_staging_room_id
 }
 
 pub fn register_staging_room(room: GameSpyStagingRoom) {
-    let mut state = overlay_state().lock().unwrap_or_else(|e| e.into_inner());
+    let state_slot = overlay_state();
+    let mut state = state_slot.borrow_mut();
     state.staging_rooms.insert(room.id, room);
 }
 
 pub fn remove_staging_room(id: i32) {
-    let mut state = overlay_state().lock().unwrap_or_else(|e| e.into_inner());
+    let state_slot = overlay_state();
+    let mut state = state_slot.borrow_mut();
     state.staging_rooms.remove(&id);
 }
 
 pub fn find_staging_room_by_id(id: i32) -> Option<GameSpyStagingRoom> {
-    overlay_state()
-        .lock()
-        .ok()
-        .and_then(|state| state.staging_rooms.get(&id).cloned())
+    let slot = overlay_state();
+    slot.borrow().staging_rooms.get(&id).cloned()
 }
 
 pub fn queue_join_request(room_id: i32, password: String) {
-    let mut state = overlay_state().lock().unwrap_or_else(|e| e.into_inner());
+    let state_slot = overlay_state();
+    let mut state = state_slot.borrow_mut();
     state.last_join_request = Some((room_id, password));
 }
 
 pub fn last_join_request() -> Option<(i32, String)> {
-    overlay_state()
-        .lock()
-        .ok()
-        .and_then(|state| state.last_join_request.clone())
+    let slot = overlay_state();
+    slot.borrow().last_join_request.clone()
 }
 
 pub fn queue_host_request(request: GameSpyHostRequest) {
-    let mut state = overlay_state().lock().unwrap_or_else(|e| e.into_inner());
+    let state_slot = overlay_state();
+    let mut state = state_slot.borrow_mut();
     state.last_host_request = Some(request);
 }
 
 pub fn last_host_request() -> Option<GameSpyHostRequest> {
-    overlay_state()
-        .lock()
-        .ok()
-        .and_then(|state| state.last_host_request.clone())
+    let slot = overlay_state();
+    slot.borrow().last_host_request.clone()
 }

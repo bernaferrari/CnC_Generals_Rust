@@ -48,7 +48,7 @@ fn cnc_source() -> &'static str {
 }
 
 fn gl_source() -> &'static str {
-    include_str!("../game_logic.rs")
+    super::GAME_LOGIC_HOST_SRC
 }
 
 fn ownership_source() -> &'static str {
@@ -117,7 +117,7 @@ pub fn honesty_host_main_dual_read_free_seal_residual_pack_wave961() -> bool {
         crate::cnc_game_engine::ENGINE_SRC,
         include_str!("../../executable_smoke.rs"),
         include_str!("../../golden_skirmish.rs"),
-        include_str!("../game_logic.rs"),
+        super::GAME_LOGIC_HOST_SRC,
     ];
     let any_forbidden = surfaces.iter().any(|s| forbidden_dual_read_callsites(s));
     let ok = !any_forbidden

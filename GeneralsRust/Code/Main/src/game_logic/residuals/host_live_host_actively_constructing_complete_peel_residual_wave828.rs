@@ -46,7 +46,7 @@ fn residual_action_store(a: ResidualHostActivelyConstructingCompletePeelAction) 
     RESIDUAL_ACTION.store(a as u8, Ordering::SeqCst);
 }
 fn gl_source() -> &'static str {
-    include_str!("../game_logic.rs")
+    super::GAME_LOGIC_HOST_SRC
 }
 pub fn honesty_host_actively_constructing_complete_peel_method_names_residual_wave828() -> bool {
     let names = LIVE_HOST_ACTIVELY_CONSTRUCTING_COMPLETE_PEEL_METHOD_NAMES_WAVE828;
