@@ -36,6 +36,7 @@
 extern crate ww3d_renderer_3d as ww3d_renderer_3d;
 
 pub mod assets;
+pub mod env_compat;
 pub mod cnc_game_engine;
 pub mod fow_rendering;
 pub mod game_engine;

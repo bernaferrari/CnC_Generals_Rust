@@ -240,8 +240,8 @@ mod tests {
         let _guard = crate::gameworld_shadow::authority_env_lock();
         let prev_s = std::env::var_os("GENERALS_GAMEWORLD_SHADOW");
         let prev_f = std::env::var_os("GENERALS_GAMEWORLD_FIRE_SPAWN_AUTHORITY");
-        std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
-        std::env::set_var("GENERALS_GAMEWORLD_FIRE_SPAWN_AUTHORITY", "1");
+        crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+        crate::env_compat::set_var("GENERALS_GAMEWORLD_FIRE_SPAWN_AUTHORITY", "1");
         host_fire_spawn_log::clear();
         combat::clear_pending_projectile_queue_for_test();
 
@@ -276,12 +276,12 @@ mod tests {
         combat::clear_pending_projectile_queue_for_test();
 
         match prev_s {
-            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_SHADOW", v),
-            None => std::env::remove_var("GENERALS_GAMEWORLD_SHADOW"),
+            Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", v),
+            None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_SHADOW"),
         }
         match prev_f {
-            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_FIRE_SPAWN_AUTHORITY", v),
-            None => std::env::remove_var("GENERALS_GAMEWORLD_FIRE_SPAWN_AUTHORITY"),
+            Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_FIRE_SPAWN_AUTHORITY", v),
+            None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_FIRE_SPAWN_AUTHORITY"),
         }
     }
 }

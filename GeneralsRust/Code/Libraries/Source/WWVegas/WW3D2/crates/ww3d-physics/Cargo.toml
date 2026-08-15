@@ -1,7 +1,7 @@
 [package]
 name = "ww3d-physics"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 description = "WW3D physics facade built on the original collision/physics integration layer"
 
 [dependencies]

@@ -16,7 +16,8 @@ use tokio::signal;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize logging
     if std::env::var("RUST_LOG").is_err() {
-        std::env::set_var("RUST_LOG", "info");
+        // SAFETY: example init before workers spawn.
+        unsafe { std::env::set_var("RUST_LOG", "info") };
     }
     tracing_subscriber::fmt::init();
 

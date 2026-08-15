@@ -186,7 +186,7 @@ mod tests {
     fn eager_unmap_drops_host_map_during_coupled_tick() {
         let _guard = crate::gameworld_shadow::authority_env_lock();
         let prev = std::env::var_os("GENERALS_GAMEWORLD_SHADOW");
-        std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+        crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
 
         let mut logic = GameLogic::new();
         ensure_template(&mut logic, "EagerDestroyUnit", 100.0);
@@ -219,8 +219,8 @@ mod tests {
         let _ = ObjectId;
 
         match prev {
-            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_SHADOW", v),
-            None => std::env::remove_var("GENERALS_GAMEWORLD_SHADOW"),
+            Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", v),
+            None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_SHADOW"),
         }
     }
 }

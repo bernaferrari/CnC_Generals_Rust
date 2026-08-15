@@ -188,8 +188,8 @@ mod tests {
         let _guard = crate::gameworld_shadow::authority_env_lock();
         let prev_sh = std::env::var_os("GENERALS_GAMEWORLD_SHADOW");
         let prev_pr = std::env::var_os("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY");
-        std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
-        std::env::set_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", "1");
+        crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+        crate::env_compat::set_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", "1");
         host_production_ready_log::clear();
 
         let mut logic = GameLogic::new();
@@ -253,12 +253,12 @@ mod tests {
         let _ = ObjectId;
 
         match prev_sh {
-            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_SHADOW", v),
-            None => std::env::remove_var("GENERALS_GAMEWORLD_SHADOW"),
+            Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", v),
+            None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_SHADOW"),
         }
         match prev_pr {
-            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", v),
-            None => std::env::remove_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY"),
+            Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", v),
+            None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY"),
         }
     }
 }

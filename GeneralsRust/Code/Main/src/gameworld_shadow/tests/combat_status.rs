@@ -1167,7 +1167,7 @@ fn production_authority_writeback_is_queue_last_writer() {
         ThingTemplate,
     };
     let prev = std::env::var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY").ok();
-    std::env::set_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", "1");
     assert!(gameworld_production_authority_enabled());
     host_production_progress_log::clear();
 
@@ -1245,7 +1245,7 @@ fn production_authority_writeback_is_queue_last_writer() {
     );
 
     // Authority off: writeback is a no-op.
-    std::env::set_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", "0");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", "0");
     assert!(!gameworld_production_authority_enabled());
     {
         let o = logic.host_object_mut(oid).expect("o");
@@ -1263,8 +1263,8 @@ fn production_authority_writeback_is_queue_last_writer() {
 
     host_production_progress_log::clear();
     match prev {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY"),
     }
 }
 

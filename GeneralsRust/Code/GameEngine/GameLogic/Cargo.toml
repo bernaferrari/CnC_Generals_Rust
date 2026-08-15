@@ -1,7 +1,7 @@
 [package]
 name = "gamelogic"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 description = "Game Logic system - Rust conversion of C++ GameLogic for Command & Conquer Generals Zero Hour"
 authors = ["C&C Generals Zero Hour Rust Project"]
 

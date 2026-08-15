@@ -1,7 +1,7 @@
 [package]
 name = "generals_main"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 
 [features]
 # Default features for a standard game build

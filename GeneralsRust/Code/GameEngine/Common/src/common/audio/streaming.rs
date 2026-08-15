@@ -429,7 +429,7 @@ impl AudioStreamer {
     /// Read samples from the stream
     pub fn read_samples(&self, buffer: &mut [f32]) -> usize {
         let mut read_count = 0;
-        if let Some((_, ref consumer)) = &self.ring_buffer {
+        if let Some((_, consumer)) = &self.ring_buffer {
             for slot in buffer.iter_mut() {
                 match consumer.try_recv() {
                     Ok(sample) => {
@@ -445,7 +445,7 @@ impl AudioStreamer {
 
     /// Get buffer level (0.0 - 1.0)
     pub fn buffer_level(&self) -> f32 {
-        if let Some((_, ref consumer)) = &self.ring_buffer {
+        if let Some((_, consumer)) = &self.ring_buffer {
             consumer.len() as f32 / 65536.0
         } else {
             0.0

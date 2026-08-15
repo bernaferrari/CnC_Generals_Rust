@@ -166,7 +166,7 @@ impl PathfindCell {
 
     /// Return estimated cost from this cell to reach goal cell
     pub fn cost_to_goal(&self, goal: &PathfindCell) -> u32 {
-        if let (Some(ref self_info), Some(ref goal_info)) = (&self.info, &goal.info) {
+        if let (Some(self_info), Some(goal_info)) = (&self.info, &goal.info) {
             let dx = (self_info.get_pos().x - goal_info.get_pos().x).abs();
             let dy = (self_info.get_pos().y - goal_info.get_pos().y).abs();
 
@@ -183,7 +183,7 @@ impl PathfindCell {
 
     /// Return estimated cost from parent cell to this cell
     pub fn cost_so_far(&self, parent: &PathfindCell) -> u32 {
-        if let (Some(ref self_info), Some(ref parent_info)) = (&self.info, &parent.info) {
+        if let (Some(self_info), Some(parent_info)) = (&self.info, &parent.info) {
             let dx = (self_info.get_pos().x - parent_info.get_pos().x).abs();
             let dy = (self_info.get_pos().y - parent_info.get_pos().y).abs();
 

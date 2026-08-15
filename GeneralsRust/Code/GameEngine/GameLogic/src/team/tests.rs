@@ -232,14 +232,14 @@ mod tests {
                 && !create_w.contains("ScriptEvaluator::new"),
             "createInactiveTeam path must friend_executeAction with NULL team"
         );
-        let gen = src
+        let generic = src
             .find("fn execute_pending_team_generic_script_evals")
             .expect("generic scripts");
-        let gen_w = &src[gen..src.len().min(gen + 3500)];
+        let generic_w = &src[generic..src.len().min(generic + 3500)];
         assert!(
-            gen_w.contains("friend_execute_action")
-                && gen_w.contains("pending.team_name")
-                && !gen_w.contains("evaluator.execute_action_sequence"),
+            generic_w.contains("friend_execute_action")
+                && generic_w.contains("pending.team_name")
+                && !generic_w.contains("evaluator.execute_action_sequence"),
             "updateGenericScripts path must friend_executeAction with team"
         );
     }

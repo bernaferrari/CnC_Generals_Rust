@@ -202,7 +202,7 @@ fn cancel_production_refund_economy_authority_writeback() {
     use crate::game_logic::host_economy_log;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let prev = std::env::var("GENERALS_GAMEWORLD_ECONOMY_AUTHORITY").ok();
-    std::env::set_var("GENERALS_GAMEWORLD_ECONOMY_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_ECONOMY_AUTHORITY", "1");
     host_economy_log::clear();
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("EconRef");
@@ -272,8 +272,8 @@ fn cancel_production_refund_economy_authority_writeback() {
         "refund must log effective supplies; got {evs:?}"
     );
     match prev {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_ECONOMY_AUTHORITY", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_ECONOMY_AUTHORITY"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_ECONOMY_AUTHORITY", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_ECONOMY_AUTHORITY"),
     }
     end_shadow_coupled_tick();
 }
@@ -322,7 +322,7 @@ fn start_sell_sets_construction_percent_under_authority() {
     use crate::game_logic::host_construction_progress_log;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let prev = std::env::var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY").ok();
-    std::env::set_var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY", "1");
     host_construction_progress_log::clear();
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("SellPct");
@@ -355,8 +355,8 @@ fn start_sell_sets_construction_percent_under_authority() {
         "sell start must log 0.999 progress; got {evs:?}"
     );
     match prev {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY"),
     }
 }
 
@@ -365,7 +365,7 @@ fn sell_deconstruction_negative_percent_survives_shadow_writeback() {
     use crate::game_logic::host_construction_progress_log;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let prev = std::env::var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY").ok();
-    std::env::set_var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY", "1");
     host_construction_progress_log::clear();
 
     let mut logic = GameLogic::new();
@@ -444,8 +444,8 @@ fn sell_deconstruction_negative_percent_survives_shadow_writeback() {
 
     host_construction_progress_log::clear();
     match prev {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY"),
     }
 }
 
@@ -632,7 +632,7 @@ fn heal_crate_defers_host_hp_under_damage_authority() {
     use crate::game_logic::host_heal_log;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let prev = std::env::var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY").ok();
-    std::env::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", "1");
     host_heal_log::clear();
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("HealAuth");
@@ -668,8 +668,8 @@ fn heal_crate_defers_host_hp_under_damage_authority() {
         "heal log must carry absolute HP; got {evs:?}"
     );
     match prev {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY"),
     }
 }
 

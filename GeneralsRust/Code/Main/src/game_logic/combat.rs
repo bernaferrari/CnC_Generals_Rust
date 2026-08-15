@@ -1511,7 +1511,7 @@ mod tests {
     /// CombatSystem unit tests apply damage without a GameWorld shadow session,
     /// so host HP must mutate directly (opt out of damage authority last-writer).
     fn ensure_unit_test_direct_damage() {
-        std::env::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", "0");
+        crate::env_compat::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", "0");
     }
 
     use super::*;
@@ -1715,8 +1715,8 @@ mod tests {
         let _authority_guard = crate::gameworld_shadow::authority_env_lock();
         let prior_shadow = std::env::var("GENERALS_GAMEWORLD_SHADOW").ok();
         let prior_projectile = std::env::var("GENERALS_GAMEWORLD_PROJECTILE_AUTHORITY").ok();
-        std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
-        std::env::set_var("GENERALS_GAMEWORLD_PROJECTILE_AUTHORITY", "1");
+        crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+        crate::env_compat::set_var("GENERALS_GAMEWORLD_PROJECTILE_AUTHORITY", "1");
         crate::game_logic::host_projectile_log::clear();
 
         let mut combat = CombatSystem::new();
@@ -1756,12 +1756,12 @@ mod tests {
         );
 
         match prior_shadow {
-            Some(value) => std::env::set_var("GENERALS_GAMEWORLD_SHADOW", value),
-            None => std::env::remove_var("GENERALS_GAMEWORLD_SHADOW"),
+            Some(value) => crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", value),
+            None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_SHADOW"),
         }
         match prior_projectile {
-            Some(value) => std::env::set_var("GENERALS_GAMEWORLD_PROJECTILE_AUTHORITY", value),
-            None => std::env::remove_var("GENERALS_GAMEWORLD_PROJECTILE_AUTHORITY"),
+            Some(value) => crate::env_compat::set_var("GENERALS_GAMEWORLD_PROJECTILE_AUTHORITY", value),
+            None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_PROJECTILE_AUTHORITY"),
         }
     }
 

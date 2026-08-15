@@ -1,7 +1,7 @@
 [package]
 name = "profile"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 description = "Performance profiling library - Rust conversion of C++ profile library for Command & Conquer Generals Zero Hour"
 authors = ["C&C Generals Zero Hour Rust Project"]
 

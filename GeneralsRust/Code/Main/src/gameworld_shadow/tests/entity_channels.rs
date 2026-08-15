@@ -1111,8 +1111,8 @@ fn projectile_authority_steps_flight_and_writeback() {
 
     use crate::game_logic::host_projectile_log;
     let prev = std::env::var("GENERALS_GAMEWORLD_PROJECTILE_AUTHORITY").ok();
-    std::env::set_var("GENERALS_GAMEWORLD_PROJECTILE_AUTHORITY", "1");
-    std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_PROJECTILE_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
     assert!(gameworld_projectile_authority_enabled());
     host_projectile_log::clear();
     let mut logic = GameLogic::new();
@@ -1179,7 +1179,7 @@ fn projectile_authority_steps_flight_and_writeback() {
         .unwrap();
     assert!((p.position.x - after).abs() < 1e-4);
     match prev {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_PROJECTILE_AUTHORITY", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_PROJECTILE_AUTHORITY"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_PROJECTILE_AUTHORITY", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_PROJECTILE_AUTHORITY"),
     }
 }

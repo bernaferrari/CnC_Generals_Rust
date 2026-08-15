@@ -624,7 +624,7 @@ mod tests {
     impl EnvVarGuard {
         fn set(key: &'static str, value: &Path) -> Self {
             let previous = std::env::var(key).ok();
-            std::env::set_var(key, value);
+            crate::env_compat::set_var(key, value);
             Self { key, previous }
         }
     }
@@ -632,9 +632,9 @@ mod tests {
     impl Drop for EnvVarGuard {
         fn drop(&mut self) {
             if let Some(previous) = &self.previous {
-                std::env::set_var(self.key, previous);
+                crate::env_compat::set_var(self.key, previous);
             } else {
-                std::env::remove_var(self.key);
+                crate::env_compat::remove_var(self.key);
             }
         }
     }

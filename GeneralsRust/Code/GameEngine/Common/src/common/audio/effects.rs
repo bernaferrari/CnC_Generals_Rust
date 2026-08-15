@@ -226,7 +226,7 @@ impl SoundEffectDescriptor {
 
     /// Check if sound should play based on probability
     pub fn should_play(&self, rng: &mut impl Rng) -> bool {
-        rng.gen::<f32>() < self.variation.play_probability
+        rng.r#gen::<f32>() < self.variation.play_probability
     }
 }
 

@@ -591,7 +591,7 @@ impl FireWeaponWhenDamagedBehavior {
             if weapon.is_none() {
                 *weapon = Some(Self::ensure_weapon_for_xfer(template, object_id)?);
             }
-            if let Some(ref weapon_arc) = weapon {
+            if let Some(weapon_arc) = &weapon {
                 if let Ok(mut weapon_guard) = weapon_arc.lock() {
                     weapon_guard.xfer(xfer)?;
                 }

@@ -254,7 +254,7 @@ impl MeshDamage {
 
         // Select random vertices to damage
         for (i, vertex) in mesh.vertices.iter().enumerate() {
-            if rng.gen::<f32>() < affected_vertex_ratio {
+            if rng.r#gen::<f32>() < affected_vertex_ratio {
                 // Random displacement
                 let displacement = Vector3::new(
                     rng.gen_range(-displacement_amount..displacement_amount),

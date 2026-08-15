@@ -307,7 +307,7 @@ impl ParticleEmitter {
             if self.color_variation > 0.0 {
                 for i in 0..3 {
                     // Don't vary alpha
-                    let variation = (rng.gen::<f32>() - 0.5) * 2.0 * self.color_variation;
+                    let variation = (rng.r#gen::<f32>() - 0.5) * 2.0 * self.color_variation;
                     color[i] = (color[i] + variation).clamp(0.0, 1.0);
                 }
             }

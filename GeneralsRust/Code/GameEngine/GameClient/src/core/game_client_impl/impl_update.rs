@@ -153,7 +153,7 @@ impl GameClient {
             audio.lock().unwrap_or_else(|e| e.into_inner()).update()?;
         }
 
-        if let (Some(ref mut queue), Some(ref mut engine)) =
+        if let (Some(queue), Some(engine)) =
             (&mut self.audio_event_queue, &mut self.audio_engine)
         {
             for request in queue.drain() {
@@ -172,13 +172,13 @@ impl GameClient {
             }
         }
 
-        if let (Some(ref mut music), Some(ref mut engine)) =
+        if let (Some(music), Some(engine)) =
             (&mut self.music_system, &mut self.audio_engine)
         {
             music.update(engine);
         }
 
-        if let (Some(ref mut speech), Some(ref mut engine)) =
+        if let (Some(speech), Some(engine)) =
             (&mut self.speech_system, &mut self.audio_engine)
         {
             speech.update(engine);

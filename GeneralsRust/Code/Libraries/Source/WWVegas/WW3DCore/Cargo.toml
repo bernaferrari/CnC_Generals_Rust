@@ -1,7 +1,7 @@
 [package]
 name = "ww3d_core"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 description = "Core W3D format types, constants, and errors reused across WW3D crates"
 license = "GPL-3.0"
 

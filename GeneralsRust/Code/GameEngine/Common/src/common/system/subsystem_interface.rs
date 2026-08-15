@@ -217,7 +217,7 @@ impl SubsystemManager {
 
         let mut ready: Vec<String> = indegree
             .iter()
-            .filter(|(_, &deg)| deg == 0)
+            .filter(|(_, deg)| **deg == 0)
             .map(|(name, _)| name.clone())
             .collect();
         ready.sort();

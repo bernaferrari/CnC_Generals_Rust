@@ -208,7 +208,7 @@ mod tests {
     fn post_logic_meta_cooldown_door_apply_once_through_session() {
         let _guard = crate::gameworld_shadow::authority_env_lock();
         let prev = std::env::var_os("GENERALS_GAMEWORLD_SHADOW");
-        std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+        crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
         host_player_meta_log::clear();
         host_player_cooldown_log::clear();
         host_production_door_log::clear();
@@ -252,8 +252,8 @@ mod tests {
         let _ = ObjectId;
 
         match prev {
-            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_SHADOW", v),
-            None => std::env::remove_var("GENERALS_GAMEWORLD_SHADOW"),
+            Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", v),
+            None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_SHADOW"),
         }
     }
 }

@@ -62,9 +62,9 @@ impl Vector3Randomizer for Vector3SolidBoxRandomizer {
     fn get_vector(&mut self) -> Vector3 {
         let mut rng = thread_rng();
         Vector3::new(
-            (rng.gen::<f32>() - 0.5) * 2.0 * self.extents.x,
-            (rng.gen::<f32>() - 0.5) * 2.0 * self.extents.y,
-            (rng.gen::<f32>() - 0.5) * 2.0 * self.extents.z,
+            (rng.r#gen::<f32>() - 0.5) * 2.0 * self.extents.x,
+            (rng.r#gen::<f32>() - 0.5) * 2.0 * self.extents.y,
+            (rng.r#gen::<f32>() - 0.5) * 2.0 * self.extents.z,
         )
     }
 
@@ -113,9 +113,9 @@ impl Vector3Randomizer for Vector3SolidSphereRandomizer {
 
         loop {
             let vector = Vector3::new(
-                (rng.gen::<f32>() - 0.5) * 2.0 * self.radius,
-                (rng.gen::<f32>() - 0.5) * 2.0 * self.radius,
-                (rng.gen::<f32>() - 0.5) * 2.0 * self.radius,
+                (rng.r#gen::<f32>() - 0.5) * 2.0 * self.radius,
+                (rng.r#gen::<f32>() - 0.5) * 2.0 * self.radius,
+                (rng.r#gen::<f32>() - 0.5) * 2.0 * self.radius,
             );
 
             if vector.length_squared() <= rad_squared {
@@ -166,9 +166,9 @@ impl Vector3Randomizer for Vector3HollowSphereRandomizer {
 
         loop {
             let vector = Vector3::new(
-                (rng.gen::<f32>() - 0.5) * 2.0,
-                (rng.gen::<f32>() - 0.5) * 2.0,
-                (rng.gen::<f32>() - 0.5) * 2.0,
+                (rng.r#gen::<f32>() - 0.5) * 2.0,
+                (rng.r#gen::<f32>() - 0.5) * 2.0,
+                (rng.r#gen::<f32>() - 0.5) * 2.0,
             );
 
             let v_l2 = vector.length_squared();
@@ -225,13 +225,13 @@ impl Vector3Randomizer for Vector3SolidCylinderRandomizer {
 
     fn get_vector(&mut self) -> Vector3 {
         let mut rng = thread_rng();
-        let x = (rng.gen::<f32>() - 0.5) * 2.0 * self.extent;
+        let x = (rng.r#gen::<f32>() - 0.5) * 2.0 * self.extent;
 
         // Generate 2D vectors in a square and discard the ones not in a circle
         let rad_squared = self.radius * self.radius;
         loop {
-            let y = (rng.gen::<f32>() - 0.5) * 2.0 * self.radius;
-            let z = (rng.gen::<f32>() - 0.5) * 2.0 * self.radius;
+            let y = (rng.r#gen::<f32>() - 0.5) * 2.0 * self.radius;
+            let z = (rng.r#gen::<f32>() - 0.5) * 2.0 * self.radius;
 
             if y * y + z * z <= rad_squared {
                 return Vector3::new(x, y, z);

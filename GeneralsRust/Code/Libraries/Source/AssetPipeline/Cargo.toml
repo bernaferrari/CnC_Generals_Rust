@@ -1,7 +1,7 @@
 [package]
 name = "asset_pipeline"
 version = "1.0.0"
-edition = "2021"
+edition = "2024"
 authors = ["GeneralsRust Team"]
 description = "Modern asset pipeline replacing Max4SDK with advanced import/export and processing capabilities"
 license = "GPL-3.0"

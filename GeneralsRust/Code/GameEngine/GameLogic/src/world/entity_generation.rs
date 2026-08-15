@@ -89,9 +89,9 @@ impl EntityStore {
 
     pub(crate) fn allocate_live_generation(&mut self, id: EntityId) -> u32 {
         let raw = id.get();
-        let gen = self.generations.get(&raw).copied().unwrap_or(1);
-        self.generations.insert(raw, gen);
-        gen
+        let generation = self.generations.get(&raw).copied().unwrap_or(1);
+        self.generations.insert(raw, generation);
+        generation
     }
 
     pub(crate) fn bump_generation(&mut self, id: EntityId) {

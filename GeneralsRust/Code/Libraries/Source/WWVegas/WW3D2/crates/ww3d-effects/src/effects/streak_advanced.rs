@@ -245,11 +245,11 @@ impl StreakSubdivider {
         } else {
             // Random perpendicular offset
             let perpendicular = Self::get_perpendicular(direction);
-            let angle = self.rng.gen::<f32>() * 2.0 * std::f32::consts::PI;
+            let angle = self.rng.r#gen::<f32>() * 2.0 * std::f32::consts::PI;
             let rotation = glam::Quat::from_axis_angle(*direction, angle);
             let offset_dir = rotation * perpendicular;
 
-            offset_dir * amplitude * self.rng.gen::<f32>()
+            offset_dir * amplitude * self.rng.r#gen::<f32>()
         }
     }
 
@@ -405,9 +405,9 @@ impl LightningStreak {
 
             // Add some randomness
             let perpendicular = Self::get_perpendicular(&direction);
-            let angle = rng.gen::<f32>() * 2.0 * std::f32::consts::PI;
+            let angle = rng.r#gen::<f32>() * 2.0 * std::f32::consts::PI;
             let rotation = glam::Quat::from_axis_angle(direction, angle);
-            let offset = rotation * perpendicular * rng.gen::<f32>() * segment_length * 0.3;
+            let offset = rotation * perpendicular * rng.r#gen::<f32>() * segment_length * 0.3;
 
             current_pos = target_pos + offset;
 
@@ -417,7 +417,7 @@ impl LightningStreak {
             self.main_streak.add_point(point);
 
             // Maybe create branch
-            if rng.gen::<f32>() < self.branch_probability {
+            if rng.r#gen::<f32>() < self.branch_probability {
                 self.create_branch(current_pos, direction, t);
             }
         }
@@ -436,11 +436,11 @@ impl LightningStreak {
 
         // Random branch direction
         let perpendicular = Self::get_perpendicular(&main_direction);
-        let angle = rng.gen::<f32>() * 2.0 * std::f32::consts::PI;
+        let angle = rng.r#gen::<f32>() * 2.0 * std::f32::consts::PI;
         let rotation = glam::Quat::from_axis_angle(main_direction, angle);
         let side_dir = rotation * perpendicular;
 
-        let branch_angle = self.branch_angle * (rng.gen::<f32>() * 0.5 + 0.5);
+        let branch_angle = self.branch_angle * (rng.r#gen::<f32>() * 0.5 + 0.5);
         let branch_rotation = glam::Quat::from_axis_angle(side_dir, branch_angle);
         let branch_dir = branch_rotation * main_direction;
 

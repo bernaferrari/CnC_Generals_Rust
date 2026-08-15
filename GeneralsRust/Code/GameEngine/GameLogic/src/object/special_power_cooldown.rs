@@ -256,8 +256,8 @@ impl CooldownManager {
     pub fn get_powers_in_group(&self, group: CooldownGroup) -> Vec<SpecialPowerType> {
         self.power_to_group
             .iter()
-            .filter(|(_, &g)| g == group)
-            .map(|(&power, _)| power)
+            .filter(|(_, g)| **g == group)
+            .map(|(power, _)| *power)
             .collect()
     }
 

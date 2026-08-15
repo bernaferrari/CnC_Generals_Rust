@@ -424,7 +424,7 @@ impl AABTreeCullSystem {
         let mut best_child: Option<Rc<RefCell<AABTreeNode>>> = None;
 
         // Order children by volume (prefer smaller child first for better fit)
-        if let (Some(ref front), Some(ref back)) = (&node_ref.front, &node_ref.back) {
+        if let (Some(front), Some(back)) = (&node_ref.front, &node_ref.back) {
             let front_vol = front.borrow().compute_volume();
             let back_vol = back.borrow().compute_volume();
 

@@ -64,8 +64,8 @@ impl DesyncRecord {
         // Find players with mismatching CRCs
         let desynced_players: Vec<PlayerId> = remote_crcs
             .iter()
-            .filter(|(_, &crc)| crc != local_crc)
-            .map(|(&player_id, _)| player_id)
+            .filter(|(_, crc)| **crc != local_crc)
+            .map(|(player_id, _)| *player_id)
             .collect();
 
         Self {
@@ -154,8 +154,8 @@ impl<G: GameState> DesyncHandler<G> {
         // Check if any remote CRC differs from local
         let desynced_players: Vec<PlayerId> = remote_crcs
             .iter()
-            .filter(|(_, &crc)| crc != local_crc)
-            .map(|(&player_id, _)| player_id)
+            .filter(|(_, crc)| **crc != local_crc)
+            .map(|(player_id, _)| *player_id)
             .collect();
 
         if desynced_players.is_empty() {
@@ -360,8 +360,8 @@ impl MultiPlayerCRCValidator {
         // Find players with mismatching CRCs
         let desynced_players: Vec<PlayerId> = crcs
             .iter()
-            .filter(|(_, &crc)| crc != reference_crc)
-            .map(|(&player_id, _)| player_id)
+            .filter(|(_, crc)| **crc != reference_crc)
+            .map(|(player_id, _)| *player_id)
             .collect();
 
         if desynced_players.is_empty() {

@@ -114,7 +114,7 @@ impl DefaultCommandHandler {
         if let Some(ai_manager) = &context.ai_manager {
             if let Ok(mut ai) = ai_manager.write() {
                 for (object_id, pos) in positions {
-                    let angle = rng.gen::<f32>() * std::f32::consts::TAU;
+                    let angle = rng.r#gen::<f32>() * std::f32::consts::TAU;
                     let radius = rng.gen_range(8.0f32..22.0f32);
                     let dx = radius * angle.cos();
                     let dz = radius * angle.sin();

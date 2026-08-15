@@ -368,9 +368,9 @@ pub mod utils {
     /// Generate random position within a sphere
     pub fn random_sphere_position(center: Point3<f32>, radius: f32) -> Point3<f32> {
         let mut rng = thread_rng();
-        let theta = rng.gen::<f32>() * 2.0 * std::f32::consts::PI;
-        let phi = rng.gen::<f32>() * std::f32::consts::PI;
-        let r = rng.gen::<f32>().powf(1.0 / 3.0) * radius; // Uniform distribution in sphere
+        let theta = rng.r#gen::<f32>() * 2.0 * std::f32::consts::PI;
+        let phi = rng.r#gen::<f32>() * std::f32::consts::PI;
+        let r = rng.r#gen::<f32>().powf(1.0 / 3.0) * radius; // Uniform distribution in sphere
 
         let x = r * phi.sin() * theta.cos();
         let y = r * phi.sin() * theta.sin();
@@ -389,8 +389,8 @@ pub mod utils {
         let mut rng = thread_rng();
 
         // Generate random direction within cone
-        let theta = rng.gen::<f32>() * 2.0 * std::f32::consts::PI;
-        let phi = rng.gen::<f32>() * angle_radians;
+        let theta = rng.r#gen::<f32>() * 2.0 * std::f32::consts::PI;
+        let phi = rng.r#gen::<f32>() * angle_radians;
 
         // Create rotation matrix to align with desired direction
         let up = if direction.y.abs() < 0.9 {

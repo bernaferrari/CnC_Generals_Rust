@@ -356,8 +356,8 @@ impl GameLogic {
         let candidates: Vec<_> = self
             .objects
             .iter()
-            .filter(|(&id, _)| id != passenger_id && id != cid)
-            .map(|(&id, obj)| {
+            .filter(|(id, _)| **id != passenger_id && **id != cid)
+            .map(|(id, obj)| {
                 let combat_kind = crate::game_logic::host_residual_acquire::residual_combat_kind(
                     obj.is_kind_of(KindOf::Attackable),
                     obj.is_kind_of(KindOf::Structure),
@@ -366,7 +366,7 @@ impl GameLogic {
                     obj.is_kind_of(KindOf::Aircraft),
                 );
                 crate::game_logic::host_residual_acquire::ResidualAcquireCandidate {
-                    id,
+                    id: *id,
                     team: obj.team,
                     position: obj.get_position(),
                     is_alive: obj.is_alive(),
@@ -496,8 +496,8 @@ impl GameLogic {
         let candidates: Vec<_> = self
             .objects
             .iter()
-            .filter(|(&id, _)| id != garrisoned_id && Some(id) != container_id)
-            .map(|(&id, obj)| {
+            .filter(|(id, _)| **id != garrisoned_id && Some(**id) != container_id)
+            .map(|(id, obj)| {
                 let combat_kind = crate::game_logic::host_residual_acquire::residual_combat_kind(
                     obj.is_kind_of(KindOf::Attackable),
                     obj.is_kind_of(KindOf::Structure),
@@ -506,7 +506,7 @@ impl GameLogic {
                     obj.is_kind_of(KindOf::Aircraft),
                 );
                 crate::game_logic::host_residual_acquire::ResidualAcquireCandidate {
-                    id,
+                    id: *id,
                     team: obj.team,
                     position: obj.get_position(),
                     is_alive: obj.is_alive(),

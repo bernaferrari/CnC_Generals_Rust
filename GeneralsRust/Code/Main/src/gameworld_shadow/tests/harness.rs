@@ -84,7 +84,7 @@ impl AuthorityEnvGuard {
     }
 
     pub fn set(self, key: &str, value: &str) -> Self {
-        std::env::set_var(key, value);
+        crate::env_compat::set_var(key, value);
         refresh_gameworld_authority_env_caches();
         self
     }
@@ -101,8 +101,8 @@ impl Drop for AuthorityEnvGuard {
     fn drop(&mut self) {
         for (key, prev) in self.saved.drain(..) {
             match prev {
-                Some(v) => std::env::set_var(&key, v),
-                None => std::env::remove_var(&key),
+                Some(v) => crate::env_compat::set_var(&key, v),
+                None => crate::env_compat::remove_var(&key),
             }
         }
         refresh_gameworld_authority_env_caches();

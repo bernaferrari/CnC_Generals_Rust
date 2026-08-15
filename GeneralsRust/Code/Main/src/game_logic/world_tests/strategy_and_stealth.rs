@@ -326,7 +326,7 @@ fn path_follow_owned_by_update_movement_single_step() {
     // Engine mid-frame PathfindingSystem::move_unit_along_path was removed.
     // Path following is sole ownership of GameLogic::update_movement.
     // This unit test exercises the host integrator; GameWorld authority is off.
-    std::env::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "0");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "0");
     let mut logic = GameLogic::new();
     let id = ObjectId(9001);
     let mut obj = Object::new_simple(
@@ -365,7 +365,7 @@ fn path_follow_owned_by_update_movement_single_step() {
 #[test]
 fn camera_mod_freeze_time_blocks_simulation_movement_updates() {
     // Host update_with_dt path (no shadow session): disable GameWorld movement authority.
-    std::env::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "0");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "0");
     let mut baseline = GameLogic::new();
     ensure_test_tank_template(&mut baseline);
     let baseline_unit = baseline
