@@ -1351,6 +1351,40 @@ mod tests {
     }
 
     #[test]
+    fn host_march_closes_range_without_teleport() {
+        use crate::game_logic::{Object, ObjectId, Team, ThingTemplate};
+        let mut sys = PathfindingSystem::new(400.0, 400.0);
+        let mut objects = HashMap::new();
+        let tmpl = ThingTemplate::new("Ranger");
+        let mut unit = Object::new(tmpl, ObjectId(1), Team::USA);
+        let start = Vec3::new(20.0, 0.0, 20.0);
+        let goal = Vec3::new(220.0, 0.0, 20.0);
+        unit.set_position(start);
+        unit.movement.max_speed = 20.0;
+        objects.insert(unit.id, unit);
+
+        let path = sys
+            .find_path_ex(start, goal, &objects, false)
+            .expect("open-field path");
+        assert!(path.len() >= 2);
+        {
+            let u = objects.get_mut(&ObjectId(1)).unwrap();
+            u.movement.path = path;
+            u.movement.current_path_index = 0;
+        }
+        for _ in 0..400 {
+            let _ = sys.move_unit_along_path(ObjectId(1), &mut objects, 1.0 / 30.0);
+        }
+        let end = objects[&ObjectId(1)].get_position();
+        let dx = end.x - goal.x;
+        let dz = end.z - goal.z;
+        assert!(
+            (dx * dx + dz * dz).sqrt() < 30.0,
+            "unit must walk into range without set_position pull, end={end:?}"
+        );
+    }
+
+    #[test]
     fn host_astar_snaps_blocked_start_to_nearest_open() {
         let mut g = open_grid(12, 12);
         g.set_blocked(GridPos::new(2, 2), true);
