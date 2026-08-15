@@ -1087,8 +1087,8 @@ fn completed_production_waits_for_open_door_before_entity_first_spawn() {
     let _env_guard = authority_env_lock();
     let prev_shadow = std::env::var("GENERALS_GAMEWORLD_SHADOW").ok();
     let prev_production = std::env::var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY").ok();
-    std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
-    std::env::set_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", "1");
     let _coupled = ShadowCoupleGuard::enter();
 
     use crate::game_logic::host_production_ready_log;
@@ -1163,12 +1163,12 @@ fn completed_production_waits_for_open_door_before_entity_first_spawn() {
     assert_eq!(host_production_ready_log::drain().len(), 1);
 
     match prev_shadow {
-        Some(value) => std::env::set_var("GENERALS_GAMEWORLD_SHADOW", value),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_SHADOW"),
+        Some(value) => crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", value),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_SHADOW"),
     }
     match prev_production {
-        Some(value) => std::env::set_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", value),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY"),
+        Some(value) => crate::env_compat::set_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", value),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY"),
     }
 }
 
@@ -1177,8 +1177,8 @@ fn completed_quantity_batch_emits_every_entity_first_unit_after_open_door() {
     let _env_guard = authority_env_lock();
     let prev_shadow = std::env::var("GENERALS_GAMEWORLD_SHADOW").ok();
     let prev_production = std::env::var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY").ok();
-    std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
-    std::env::set_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", "1");
     let _coupled = ShadowCoupleGuard::enter();
 
     use crate::game_logic::host_production_ready_log;
@@ -1268,12 +1268,12 @@ fn completed_quantity_batch_emits_every_entity_first_unit_after_open_door() {
 
     host_production_ready_log::clear();
     match prev_shadow {
-        Some(value) => std::env::set_var("GENERALS_GAMEWORLD_SHADOW", value),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_SHADOW"),
+        Some(value) => crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", value),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_SHADOW"),
     }
     match prev_production {
-        Some(value) => std::env::set_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", value),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY"),
+        Some(value) => crate::env_compat::set_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", value),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY"),
     }
 }
 
@@ -1282,8 +1282,8 @@ fn queue_exit_sole_tick_releases_one_then_waits_exact_nine_frames() {
     let _env_guard = authority_env_lock();
     let prev_shadow = std::env::var("GENERALS_GAMEWORLD_SHADOW").ok();
     let prev_production = std::env::var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY").ok();
-    std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
-    std::env::set_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", "1");
     let _coupled = ShadowCoupleGuard::enter();
 
     use crate::game_logic::host_production_progress_log;
@@ -1386,12 +1386,12 @@ fn queue_exit_sole_tick_releases_one_then_waits_exact_nine_frames() {
     );
 
     match prev_shadow {
-        Some(value) => std::env::set_var("GENERALS_GAMEWORLD_SHADOW", value),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_SHADOW"),
+        Some(value) => crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", value),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_SHADOW"),
     }
     match prev_production {
-        Some(value) => std::env::set_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", value),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY"),
+        Some(value) => crate::env_compat::set_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", value),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY"),
     }
 }
 
@@ -1401,8 +1401,8 @@ fn construction_authority_sole_ticks_percent() {
 
     let prev_a = std::env::var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY").ok();
     let prev_s = std::env::var("GENERALS_GAMEWORLD_SHADOW").ok();
-    std::env::set_var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY", "1");
-    std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
     // Tick path is authority-gated; sole-tick freeze is host-side (coupled frame).
     assert!(gameworld_construction_authority_enabled());
     use crate::game_logic::host_construction_progress_log::{self};
@@ -1440,12 +1440,12 @@ fn construction_authority_sole_ticks_percent() {
     let obj = logic.host_object(oid).expect("obj");
     assert!((obj.construction_percent - 0.5).abs() < 1e-4);
     match prev_a {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY"),
     }
     match prev_s {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_SHADOW", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_SHADOW"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_SHADOW"),
     }
 }
 
@@ -1500,8 +1500,8 @@ fn special_power_authority_sole_ticks_cooldown() {
 fn shared_special_power_sole_ticks_player_cds() {
     let prev_a = std::env::var("GENERALS_GAMEWORLD_SPECIAL_POWER_AUTHORITY").ok();
     let prev_s = std::env::var("GENERALS_GAMEWORLD_SHADOW").ok();
-    std::env::set_var("GENERALS_GAMEWORLD_SPECIAL_POWER_AUTHORITY", "1");
-    std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_SPECIAL_POWER_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
     // Sole-tick tick path requires coupled engine frame (same as host freeze).
     begin_shadow_coupled_tick();
     assert!(gameworld_special_power_sole_tick_enabled());
@@ -1513,12 +1513,12 @@ fn shared_special_power_sole_ticks_player_cds() {
     let Some(p) = logic.get_player_mut(pid) else {
         end_shadow_coupled_tick();
         match prev_a {
-            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_SPECIAL_POWER_AUTHORITY", v),
-            None => std::env::remove_var("GENERALS_GAMEWORLD_SPECIAL_POWER_AUTHORITY"),
+            Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_SPECIAL_POWER_AUTHORITY", v),
+            None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_SPECIAL_POWER_AUTHORITY"),
         }
         match prev_s {
-            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_SHADOW", v),
-            None => std::env::remove_var("GENERALS_GAMEWORLD_SHADOW"),
+            Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", v),
+            None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_SHADOW"),
         }
         return;
     };
@@ -1546,12 +1546,12 @@ fn shared_special_power_sole_ticks_player_cds() {
     );
     end_shadow_coupled_tick();
     match prev_a {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_SPECIAL_POWER_AUTHORITY", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_SPECIAL_POWER_AUTHORITY"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_SPECIAL_POWER_AUTHORITY", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_SPECIAL_POWER_AUTHORITY"),
     }
     match prev_s {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_SHADOW", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_SHADOW"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_SHADOW"),
     }
 }
 

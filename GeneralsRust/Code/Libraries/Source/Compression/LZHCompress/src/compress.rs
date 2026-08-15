@@ -484,8 +484,8 @@ fn build_huffman_tree(frequencies: &[u32]) -> Option<HuffmanNode> {
     let mut heap: BinaryHeap<Reverse<(u32, usize, HuffmanNode)>> = frequencies
         .iter()
         .enumerate()
-        .filter(|(_, &freq)| freq > 0)
-        .map(|(sym, &freq)| Reverse((freq, sym, HuffmanNode::leaf(sym, freq))))
+        .filter(|(_, freq)| **freq > 0)
+        .map(|(sym, freq)| Reverse((*freq, sym, HuffmanNode::leaf(sym, *freq))))
         .collect();
 
     if heap.is_empty() {
@@ -524,7 +524,7 @@ fn generate_codes(tree: &Option<HuffmanNode>, codes: &mut [HuffmanCode]) {
         }
     }
 
-    if let Some(ref root) = tree {
+    if let Some(root) = &tree {
         traverse(root, 0, 0, codes);
     }
 }

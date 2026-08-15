@@ -1,7 +1,7 @@
 [package]
 name = "ww3d-validation"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 description = "WW3D2 Rust/C++ Compatibility Validation Framework"
 
 [lib]

@@ -1,7 +1,7 @@
 [package]
 name = "eac_compression"
 version = "2.0.0"
-edition = "2021"
+edition = "2024"
 authors = ["GeneralsRust Team"]
 description = "Modern Rust implementation of EA Compression (EAC) algorithms with SIMD optimizations"
 license = "GPL-3.0"

@@ -2930,8 +2930,8 @@ fn heal_pad_seeking_healing_residual_recovers_infantry_hp() {
     let prev_dec = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
     let prev_dmg = std::env::var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY").ok();
     // Host-state residual honesty without shadow writeback.
-    std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "0");
-    std::env::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", "0");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "0");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", "0");
 
     let mut game_logic = GameLogic::new();
     ensure_test_infantry_template(&mut game_logic);
@@ -2994,12 +2994,12 @@ fn heal_pad_seeking_healing_residual_recovers_infantry_hp() {
     assert!(game_logic.honesty_heal_ok());
 
     match prev_dec {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
     }
     match prev_dmg {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY"),
     }
 }
 

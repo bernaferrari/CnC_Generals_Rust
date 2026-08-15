@@ -587,7 +587,7 @@ impl Snapshotable for Player {
                 if slot.is_none() {
                     *slot = Some(Squad::new());
                 }
-                if let Some(ref mut squad) = slot {
+                if let Some(squad) = slot.as_mut() {
                     squad.xfer(xfer)?;
                 }
             }

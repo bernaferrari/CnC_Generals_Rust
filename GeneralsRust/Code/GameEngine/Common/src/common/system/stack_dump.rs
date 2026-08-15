@@ -153,11 +153,11 @@ impl fmt::Display for StackFrame {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "0x{:08x}", self.address)?;
 
-        if let Some(ref func_name) = self.function_name {
+        if let Some(func_name) = &self.function_name {
             write!(f, " in {}", func_name)?;
         }
 
-        if let (Some(ref file), Some(line)) = (&self.file_name, self.line_number) {
+        if let (Some(file), Some(line)) = (&self.file_name, self.line_number) {
             write!(f, " at {}:{}", file, line)?;
         }
 

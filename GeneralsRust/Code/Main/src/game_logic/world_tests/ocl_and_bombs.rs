@@ -948,9 +948,9 @@ fn residual_auto_fire_ai_decision_writeback_sets_host_target() {
     let prev_d = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
     let prev_a = std::env::var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY").ok();
     let prev_s = std::env::var("GENERALS_GAMEWORLD_SHADOW").ok();
-    std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
-    std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
-    std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
     assert!(gameworld_ai_decision_authority_enabled());
     assert!(gameworld_ai_attack_authority_enabled());
     host_ai_decision_log::clear();
@@ -1004,16 +1004,16 @@ fn residual_auto_fire_ai_decision_writeback_sets_host_target() {
 
     end_shadow_coupled_tick();
     match prev_d {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
     }
     match prev_a {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY"),
     }
     match prev_s {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_SHADOW", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_SHADOW"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_SHADOW"),
     }
 }
 

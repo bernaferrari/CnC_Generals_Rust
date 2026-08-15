@@ -162,8 +162,8 @@ fn bump_startup_worker_generation() {
     STARTUP_WORKER_GENERATION.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
 }
 
-fn startup_worker_owns(gen: u64) -> bool {
-    startup_worker_generation() == gen
+fn startup_worker_owns(generation: u64) -> bool {
+    startup_worker_generation() == generation
 }
 
 #[cfg(test)]

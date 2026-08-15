@@ -547,7 +547,7 @@ impl MouseState {
         // Clear old click info
         let now = Instant::now();
         for click in &mut self.click_info {
-            if let Some(ref info) = click {
+            if let Some(info) = click.as_ref() {
                 if now.duration_since(info.timestamp) > self.double_click_time * 2 {
                     *click = None;
                 }

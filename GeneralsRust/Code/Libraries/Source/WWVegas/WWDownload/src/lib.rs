@@ -175,7 +175,8 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub fn init() {
     // Initialize logging if not already done
     if std::env::var("RUST_LOG").is_err() {
-        std::env::set_var("RUST_LOG", "download=info");
+        // SAFETY: one-shot init before threads spawn.
+        unsafe { std::env::set_var("RUST_LOG", "download=info") };
     }
 
     // Initialize tracing subscriber if none exists

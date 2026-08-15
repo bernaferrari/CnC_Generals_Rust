@@ -186,9 +186,9 @@ fn economy_authority_writeback_supplies() {
 fn economy_authority_pending_blocks_double_spend() {
     let _env_guard = authority_env_lock();
 
-    std::env::set_var("GENERALS_GAMEWORLD_ECONOMY_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_ECONOMY_AUTHORITY", "1");
 
-    std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
     assert!(gameworld_economy_authority_enabled());
     crate::game_logic::host_economy_log::clear();
     let mut logic = GameLogic::new();
@@ -227,8 +227,8 @@ fn economy_authority_mutates_host_supplies_when_shadow_disabled() {
     let _env_guard = authority_env_lock();
     let prev_e = std::env::var("GENERALS_GAMEWORLD_ECONOMY_AUTHORITY").ok();
     let prev_s = std::env::var("GENERALS_GAMEWORLD_SHADOW").ok();
-    std::env::set_var("GENERALS_GAMEWORLD_ECONOMY_AUTHORITY", "1");
-    std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "0");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_ECONOMY_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "0");
     assert!(gameworld_economy_authority_enabled());
     assert!(!gameworld_economy_authority_live());
     let mut logic = GameLogic::new();
@@ -252,12 +252,12 @@ fn economy_authority_mutates_host_supplies_when_shadow_disabled() {
         assert_eq!(p.pending_supply_delta, 0, "no pending when shadow off");
     }
     match prev_e {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_ECONOMY_AUTHORITY", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_ECONOMY_AUTHORITY"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_ECONOMY_AUTHORITY", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_ECONOMY_AUTHORITY"),
     }
     match prev_s {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_SHADOW", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_SHADOW"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_SHADOW"),
     }
 }
 
@@ -265,9 +265,9 @@ fn economy_authority_mutates_host_supplies_when_shadow_disabled() {
 fn credit_supplies_defers_under_economy_authority() {
     let _env_guard = authority_env_lock();
 
-    std::env::set_var("GENERALS_GAMEWORLD_ECONOMY_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_ECONOMY_AUTHORITY", "1");
 
-    std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
     assert!(gameworld_economy_authority_enabled());
     crate::game_logic::host_economy_log::clear();
     let mut logic = GameLogic::new();
@@ -347,7 +347,7 @@ fn construction_complete_heal_log_sets_full_hp_via_writeback() {
     use crate::game_logic::{
         host_construction_progress_log, host_heal_log, KindOf, Team, ThingTemplate,
     };
-    std::env::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", "1");
     assert!(gameworld_damage_authority_enabled());
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("ConstHp");
@@ -395,7 +395,7 @@ fn construction_complete_heal_log_sets_full_hp_via_writeback() {
 #[test]
 fn construction_authority_last_writes_percent() {
     use crate::game_logic::{host_construction_progress_log, KindOf, Team, ThingTemplate};
-    std::env::set_var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY", "1");
     assert!(gameworld_construction_authority_enabled());
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("ConstAuth");
@@ -450,7 +450,7 @@ fn construction_authority_last_writes_percent() {
 #[test]
 fn construction_tick_advances_when_rate_logged_without_entity_uc() {
     use crate::game_logic::{host_construction_progress_log, KindOf, Team, ThingTemplate};
-    std::env::set_var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY", "1");
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("RateOnlyUc");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");

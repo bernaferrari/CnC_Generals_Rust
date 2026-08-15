@@ -8,8 +8,8 @@ fn gameworld_step_movement_advances_move_target() {
 
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     // Force movement authority path.
-    std::env::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "1");
-    std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("MvAuth");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -54,7 +54,7 @@ fn damage_authority_defers_host_hp_until_writeback() {
     let _env_guard = authority_env_lock();
 
     use crate::game_logic::{host_damage_log, KindOf, Team, ThingTemplate};
-    std::env::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", "1");
     assert!(gameworld_damage_authority_enabled());
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("DmgAuth");
@@ -112,7 +112,7 @@ fn damage_authority_defers_host_hp_until_writeback() {
 #[test]
 fn heal_authority_defers_host_hp_until_writeback() {
     use crate::game_logic::{host_heal_log, KindOf, Team, ThingTemplate};
-    std::env::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", "1");
     assert!(gameworld_damage_authority_enabled());
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("HealAuth");
@@ -165,7 +165,7 @@ fn heal_authority_defers_host_hp_until_writeback() {
 #[test]
 fn experience_authority_defers_host_xp_until_writeback() {
     use crate::game_logic::{host_experience_log, KindOf, Team, ThingTemplate};
-    std::env::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", "1");
     assert!(gameworld_damage_authority_enabled());
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("XpAuth");
@@ -243,8 +243,8 @@ fn experience_authority_defers_host_xp_until_writeback() {
 fn host_update_movement_skips_when_gameworld_movement_authority() {
     let _env_guard = authority_env_lock();
 
-    std::env::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "1");
-    std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
     assert!(gameworld_movement_authority_enabled());
     // Shipped host integrate lives in world_tick/movement.rs (split from game_logic.rs).
     let src = include_str!("../../game_logic/world_tick/movement.rs");
@@ -741,13 +741,13 @@ fn production_authority_defaults_on() {
         assert!(gameworld_production_authority_enabled());
     }
     let prev = std::env::var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY").ok();
-    std::env::set_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", "0");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", "0");
     assert!(!gameworld_production_authority_enabled());
-    std::env::set_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", "1");
     assert!(gameworld_production_authority_enabled());
     match prev {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY"),
     }
 }
 
@@ -1166,8 +1166,8 @@ fn stale_engine_id_does_not_skip_host_movement() {
         return;
     }
     // Host-only update_with_dt (no shadow session): keep host integrator on.
-    std::env::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "0");
-    std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "0");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("MoveBridge");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -1304,8 +1304,8 @@ fn engine_object_bridge_off_by_default() {
 #[test]
 fn host_damage_move_write_appears_in_gameworld_single_hp() {
     let _env_guard = authority_env_lock();
-    std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
-    std::env::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", "1");
     assert!(
         matches!(
             crate::authoritative_world::dual_tick_policy(),
@@ -1372,7 +1372,7 @@ fn host_damage_move_write_appears_in_gameworld_single_hp() {
 #[test]
 fn host_object_mut_overlays_and_commits_view_to_gameworld() {
     let _env_guard = authority_env_lock();
-    std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
     assert!(gameworld_shadow_enabled());
 
     let mut logic = GameLogic::new();
@@ -1420,7 +1420,7 @@ fn host_object_mut_overlays_and_commits_view_to_gameworld() {
 #[test]
 fn host_fat_fields_write_through_to_gameworld() {
     let _env_guard = authority_env_lock();
-    std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
     assert!(
         matches!(
             crate::authoritative_world::dual_tick_policy(),
@@ -1583,7 +1583,7 @@ fn world_tick_split_borrow_still_reads_frame() {
 #[test]
 fn host_object_store_hashmap_poke_is_not_authoritative_truth() {
     let _env_guard = authority_env_lock();
-    std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
     assert!(
         matches!(
             crate::authoritative_world::dual_tick_policy(),
@@ -1678,8 +1678,8 @@ fn host_object_store_hashmap_poke_is_not_authoritative_truth() {
 #[test]
 fn is_alive_uses_coupled_gameworld_health() {
     let _env_guard = authority_env_lock();
-    std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
-    std::env::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", "1");
 
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("AliveAuth");
@@ -1723,7 +1723,7 @@ fn is_alive_uses_coupled_gameworld_health() {
 #[test]
 fn snapshot_builder_uses_authoritative_health() {
     let _env_guard = authority_env_lock();
-    std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
 
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("SnapAuth");

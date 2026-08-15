@@ -3728,11 +3728,11 @@ mod tests {
         let fake = dir.path().join("generals_override_bin");
         fs::write(&fake, b"ok").unwrap();
         let prev = std::env::var_os("GENERALS_RUNTIME_EXE");
-        std::env::set_var("GENERALS_RUNTIME_EXE", &fake);
+        crate::env_compat::set_var("GENERALS_RUNTIME_EXE", &fake);
         let got = resolve_runtime_exe();
         match prev {
-            Some(v) => std::env::set_var("GENERALS_RUNTIME_EXE", v),
-            None => std::env::remove_var("GENERALS_RUNTIME_EXE"),
+            Some(v) => crate::env_compat::set_var("GENERALS_RUNTIME_EXE", v),
+            None => crate::env_compat::remove_var("GENERALS_RUNTIME_EXE"),
         }
         assert_eq!(got.as_deref(), Some(fake.as_path()));
     }
@@ -4337,7 +4337,7 @@ mod tests {
         let _guard = std::env::var("GENERALS_RUNTIME_HOST_WND");
         // Safety: process-local env for this test only.
         unsafe {
-            std::env::set_var("GENERALS_RUNTIME_HOST_WND", "1");
+            crate::env_compat::set_var("GENERALS_RUNTIME_HOST_WND", "1");
         }
         assert!(
             !executable_host_ok_from_residuals(true, false),
@@ -4346,7 +4346,7 @@ mod tests {
         assert!(executable_host_ok_from_residuals(true, true));
         assert!(!executable_host_ok_from_residuals(false, true));
         unsafe {
-            std::env::set_var("GENERALS_RUNTIME_HOST_WND", "0");
+            crate::env_compat::set_var("GENERALS_RUNTIME_HOST_WND", "0");
         }
         assert!(
             executable_host_ok_from_residuals(true, false),
@@ -4354,8 +4354,8 @@ mod tests {
         );
         // restore
         match _guard {
-            Ok(v) => unsafe { std::env::set_var("GENERALS_RUNTIME_HOST_WND", v) },
-            Err(_) => unsafe { std::env::remove_var("GENERALS_RUNTIME_HOST_WND") },
+            Ok(v) => unsafe { crate::env_compat::set_var("GENERALS_RUNTIME_HOST_WND", v) },
+            Err(_) => unsafe { crate::env_compat::remove_var("GENERALS_RUNTIME_HOST_WND") },
         }
     }
 

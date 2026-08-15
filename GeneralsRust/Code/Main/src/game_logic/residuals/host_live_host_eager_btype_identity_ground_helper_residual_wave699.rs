@@ -209,7 +209,7 @@ mod tests {
     fn post_logic_btype_identity_ground_apply_once_through_session() {
         let _guard = crate::gameworld_shadow::authority_env_lock();
         let prev = std::env::var_os("GENERALS_GAMEWORLD_SHADOW");
-        std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+        crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
         host_building_type_log::clear();
         host_identity_log::clear();
         host_ground_height_log::clear();
@@ -250,8 +250,8 @@ mod tests {
         let _ = ObjectId;
 
         match prev {
-            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_SHADOW", v),
-            None => std::env::remove_var("GENERALS_GAMEWORLD_SHADOW"),
+            Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", v),
+            None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_SHADOW"),
         }
     }
 }

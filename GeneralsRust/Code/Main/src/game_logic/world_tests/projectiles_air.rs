@@ -43,10 +43,10 @@ fn unpause_special_power_upgrade_enables_capture() {
 fn defector_special_power_defects_enemy() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
-    let mut gen = ThingTemplate::new("AmericaCommandCenter");
-    gen.set_health(1000.0);
-    gen.add_kind_of(KindOf::Structure);
-    logic.templates.insert("AmericaCommandCenter".into(), gen);
+    let mut template = ThingTemplate::new("AmericaCommandCenter");
+    template.set_health(1000.0);
+    template.add_kind_of(KindOf::Structure);
+    logic.templates.insert("AmericaCommandCenter".into(), template);
     let mut tank = ThingTemplate::new("TestTank");
     tank.set_health(200.0);
     tank.add_kind_of(KindOf::Vehicle);
@@ -2130,8 +2130,8 @@ fn pilot_find_vehicle_collide_module_would_like_residual() {
         .unwrap_or_else(|e| e.into_inner());
     let prev_dec = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
     let prev_dmg = std::env::var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY").ok();
-    std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "0");
-    std::env::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", "0");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "0");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", "0");
 
     use crate::game_logic::host_usa_pilot::{
         significantly_above_terrain_threshold, PILOT_FIND_VEHICLE_SCAN_FRAMES,
@@ -2259,12 +2259,12 @@ fn pilot_find_vehicle_collide_module_would_like_residual() {
     );
 
     match prev_dec {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
     }
     match prev_dmg {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY"),
     }
 }
 
@@ -2385,8 +2385,8 @@ fn pilot_find_vehicle_ai_auto_scan_min_health_residual() {
         .unwrap_or_else(|e| e.into_inner());
     let prev_dec = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
     let prev_dmg = std::env::var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY").ok();
-    std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "0");
-    std::env::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", "0");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "0");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", "0");
 
     use crate::game_logic::host_usa_pilot::{
         is_pilot_template, PILOT_FIND_VEHICLE_MIN_HEALTH, PILOT_FIND_VEHICLE_SCAN_FRAMES,
@@ -2542,12 +2542,12 @@ fn pilot_find_vehicle_ai_auto_scan_min_health_residual() {
     );
 
     match prev_dec {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
     }
     match prev_dmg {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY"),
     }
 }
 
@@ -2563,8 +2563,8 @@ fn pilot_find_vehicle_base_center_fallback_residual() {
         .unwrap_or_else(|e| e.into_inner());
     let prev_dec = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
     let prev_dmg = std::env::var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY").ok();
-    std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "0");
-    std::env::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", "0");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "0");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", "0");
 
     use crate::game_logic::host_usa_pilot::PILOT_FIND_VEHICLE_SCAN_FRAMES;
 
@@ -2699,12 +2699,12 @@ fn pilot_find_vehicle_base_center_fallback_residual() {
     assert_eq!(human_logic.usa_pilot_residual().base_center_moves, 0);
 
     match prev_dec {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
     }
     match prev_dmg {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY"),
     }
 }
 
@@ -2721,8 +2721,8 @@ fn pilot_auto_find_healing_hospital_path_residual() {
     let prev_dec = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
     let prev_dmg = std::env::var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY").ok();
     // Host-state residual honesty without shadow writeback.
-    std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "0");
-    std::env::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", "0");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "0");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", "0");
 
     use crate::game_logic::host_usa_pilot::{
         AUTO_FIND_HEALING_NEVER_HEAL, AUTO_FIND_HEALING_SCAN_FRAMES,
@@ -2876,12 +2876,12 @@ fn pilot_auto_find_healing_hospital_path_residual() {
     );
 
     match prev_dec {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
     }
     match prev_dmg {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY"),
     }
 }
 
@@ -2899,8 +2899,8 @@ fn usa_infantry_auto_find_healing_hospital_path_residual() {
     let prev_dec = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
     let prev_dmg = std::env::var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY").ok();
     // Host-state residual honesty without shadow writeback.
-    std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "0");
-    std::env::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", "0");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "0");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", "0");
 
     use crate::game_logic::host_usa_pilot::{
         is_auto_find_healing_template, AUTO_FIND_HEALING_SCAN_FRAMES,
@@ -3016,12 +3016,12 @@ fn usa_infantry_auto_find_healing_hospital_path_residual() {
     );
 
     match prev_dec {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
     }
     match prev_dmg {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY"),
     }
 }
 
@@ -3200,8 +3200,8 @@ fn pilot_find_vehicle_same_player_partition_filter_residual() {
         .unwrap_or_else(|e| e.into_inner());
     let prev_dec = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
     let prev_dmg = std::env::var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY").ok();
-    std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "0");
-    std::env::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", "0");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "0");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", "0");
 
     use crate::game_logic::host_usa_pilot::PILOT_FIND_VEHICLE_SCAN_FRAMES;
     use crate::game_logic::VeterancyLevel;
@@ -3301,12 +3301,12 @@ fn pilot_find_vehicle_same_player_partition_filter_residual() {
     );
 
     match prev_dec {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
     }
     match prev_dmg {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY"),
     }
 }
 

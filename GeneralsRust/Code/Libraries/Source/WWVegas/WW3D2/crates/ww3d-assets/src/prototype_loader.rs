@@ -1092,7 +1092,7 @@ impl PrototypeLoader for HModelLoader {
 
         for chunk in &hmodel_chunks {
             match chunk {
-                ww3d_core::w3d_io::W3DChunk::HModelHeader(ref header) => {
+                ww3d_core::w3d_io::W3DChunk::HModelHeader(header) => {
                     version = header.version;
                     let model_name_bytes: Vec<u8> = header
                         .name
@@ -1118,7 +1118,7 @@ impl PrototypeLoader for HModelLoader {
                         }
                     }
                 }
-                ww3d_core::w3d_io::W3DChunk::HModelNode(ref node) => {
+                ww3d_core::w3d_io::W3DChunk::HModelNode(node) => {
                     let render_obj_name = node.render_obj_name_str();
                     if render_obj_name.is_empty() {
                         continue;

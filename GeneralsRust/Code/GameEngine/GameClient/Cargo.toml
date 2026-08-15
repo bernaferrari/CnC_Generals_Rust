@@ -1,7 +1,7 @@
 [package]
 name = "game-client-rust"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 description = "Rust conversion of Command & Conquer Generals Zero Hour GameClient"
 license = "GPL-3.0-or-later"
 authors = ["Command & Conquer Generals Zero Hour Contributors"]

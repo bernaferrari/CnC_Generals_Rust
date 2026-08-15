@@ -315,7 +315,7 @@ impl BenchmarkRunner {
         
         // Generate test data
         let mut vectors: Vec<Vec3> = (0..iterations)
-            .map(|_| Vec3::new(rng.gen(), rng.gen(), rng.gen()))
+            .map(|_| Vec3::new(rng.r#gen(), rng.r#gen(), rng.r#gen()))
             .collect();
         
         let start = Instant::now();

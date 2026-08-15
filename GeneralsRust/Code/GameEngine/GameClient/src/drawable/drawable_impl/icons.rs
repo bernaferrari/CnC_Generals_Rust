@@ -130,8 +130,8 @@ impl IconInfo {
         let expired_icons: Vec<IconType> = self
             .keep_till_frame
             .iter()
-            .filter(|(_, &frame)| frame <= current_frame)
-            .map(|(&icon_type, _)| icon_type)
+            .filter(|(_, frame)| **frame <= current_frame)
+            .map(|(icon_type, _)| *icon_type)
             .collect();
 
         for icon_type in expired_icons {

@@ -2290,7 +2290,7 @@ mod replay_fast_forward_probe {
     impl EnvRestore {
         fn set(key: &'static str, value: &str) -> Self {
             let previous = std::env::var_os(key);
-            std::env::set_var(key, value);
+            crate::env_compat::set_var(key, value);
             Self { key, previous }
         }
     }
@@ -2298,8 +2298,8 @@ mod replay_fast_forward_probe {
     impl Drop for EnvRestore {
         fn drop(&mut self) {
             match self.previous.take() {
-                Some(value) => std::env::set_var(self.key, value),
-                None => std::env::remove_var(self.key),
+                Some(value) => crate::env_compat::set_var(self.key, value),
+                None => crate::env_compat::remove_var(self.key),
             }
             refresh_gameworld_authority_env_caches();
         }

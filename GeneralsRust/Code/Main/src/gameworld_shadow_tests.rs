@@ -867,7 +867,7 @@ fn writeback_production_and_rally_to_host() {
 #[test]
 fn production_authority_sole_ticks_queue_progress() {
     let prev = std::env::var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY").ok();
-    std::env::set_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", "1");
     assert!(gameworld_production_authority_enabled());
     use crate::game_logic::host_production_progress_log::{self, HostProductionQueueItem};
     use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
@@ -918,8 +918,8 @@ fn production_authority_sole_ticks_queue_progress() {
     let hp = b.production_queue.first().expect("hq");
     assert!((hp.progress - 1.0).abs() < 1e-4);
     match prev {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY"),
     }
 }
 
@@ -929,8 +929,8 @@ fn construction_authority_sole_ticks_percent() {
 
     let prev_a = std::env::var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY").ok();
     let prev_s = std::env::var("GENERALS_GAMEWORLD_SHADOW").ok();
-    std::env::set_var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY", "1");
-    std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
     // Tick path is authority-gated; sole-tick freeze is host-side (coupled frame).
     assert!(gameworld_construction_authority_enabled());
     use crate::game_logic::host_construction_progress_log::{self};
@@ -968,12 +968,12 @@ fn construction_authority_sole_ticks_percent() {
     let obj = logic.host_object(oid).expect("obj");
     assert!((obj.construction_percent - 0.5).abs() < 1e-4);
     match prev_a {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY"),
     }
     match prev_s {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_SHADOW", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_SHADOW"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_SHADOW"),
     }
 }
 
@@ -981,8 +981,8 @@ fn construction_authority_sole_ticks_percent() {
 fn special_power_authority_sole_ticks_cooldown() {
     let prev_a = std::env::var("GENERALS_GAMEWORLD_SPECIAL_POWER_AUTHORITY").ok();
     let prev_s = std::env::var("GENERALS_GAMEWORLD_SHADOW").ok();
-    std::env::set_var("GENERALS_GAMEWORLD_SPECIAL_POWER_AUTHORITY", "1");
-    std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_SPECIAL_POWER_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
     assert!(gameworld_special_power_sole_tick_enabled());
     use crate::game_logic::host_special_power_log::{self};
     use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
@@ -1023,12 +1023,12 @@ fn special_power_authority_sole_ticks_cooldown() {
     assert!(shadow.apply_host_special_power_events(&events) >= 1);
     assert_eq!(shadow.tick_special_power_cooldowns(1.0), 0);
     match prev_a {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_SPECIAL_POWER_AUTHORITY", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_SPECIAL_POWER_AUTHORITY"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_SPECIAL_POWER_AUTHORITY", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_SPECIAL_POWER_AUTHORITY"),
     }
     match prev_s {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_SHADOW", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_SHADOW"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_SHADOW"),
     }
 }
 
@@ -1036,8 +1036,8 @@ fn special_power_authority_sole_ticks_cooldown() {
 fn shared_special_power_sole_ticks_player_cds() {
     let prev_a = std::env::var("GENERALS_GAMEWORLD_SPECIAL_POWER_AUTHORITY").ok();
     let prev_s = std::env::var("GENERALS_GAMEWORLD_SHADOW").ok();
-    std::env::set_var("GENERALS_GAMEWORLD_SPECIAL_POWER_AUTHORITY", "1");
-    std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_SPECIAL_POWER_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
     // Sole-tick tick path requires coupled engine frame (same as host freeze).
     begin_shadow_coupled_tick();
     assert!(gameworld_special_power_sole_tick_enabled());
@@ -1049,12 +1049,12 @@ fn shared_special_power_sole_ticks_player_cds() {
     let Some(p) = logic.get_player_mut(pid) else {
         end_shadow_coupled_tick();
         match prev_a {
-            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_SPECIAL_POWER_AUTHORITY", v),
-            None => std::env::remove_var("GENERALS_GAMEWORLD_SPECIAL_POWER_AUTHORITY"),
+            Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_SPECIAL_POWER_AUTHORITY", v),
+            None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_SPECIAL_POWER_AUTHORITY"),
         }
         match prev_s {
-            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_SHADOW", v),
-            None => std::env::remove_var("GENERALS_GAMEWORLD_SHADOW"),
+            Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", v),
+            None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_SHADOW"),
         }
         return;
     };
@@ -1082,12 +1082,12 @@ fn shared_special_power_sole_ticks_player_cds() {
     );
     end_shadow_coupled_tick();
     match prev_a {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_SPECIAL_POWER_AUTHORITY", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_SPECIAL_POWER_AUTHORITY"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_SPECIAL_POWER_AUTHORITY", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_SPECIAL_POWER_AUTHORITY"),
     }
     match prev_s {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_SHADOW", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_SHADOW"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_SHADOW"),
     }
 }
 
@@ -2309,7 +2309,7 @@ fn production_authority_writeback_is_queue_last_writer() {
         ThingTemplate,
     };
     let prev = std::env::var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY").ok();
-    std::env::set_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", "1");
     assert!(gameworld_production_authority_enabled());
     host_production_progress_log::clear();
 
@@ -2387,7 +2387,7 @@ fn production_authority_writeback_is_queue_last_writer() {
     );
 
     // Authority off: writeback is a no-op.
-    std::env::set_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", "0");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", "0");
     assert!(!gameworld_production_authority_enabled());
     {
         let o = logic.host_object_mut(oid).expect("o");
@@ -2405,8 +2405,8 @@ fn production_authority_writeback_is_queue_last_writer() {
 
     host_production_progress_log::clear();
     match prev {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY"),
     }
 }
 
@@ -5281,8 +5281,8 @@ fn gameworld_step_movement_advances_move_target() {
 
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     // Force movement authority path.
-    std::env::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "1");
-    std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("MvAuth");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -5327,7 +5327,7 @@ fn damage_authority_defers_host_hp_until_writeback() {
     let _env_guard = authority_env_lock();
 
     use crate::game_logic::{host_damage_log, KindOf, Team, ThingTemplate};
-    std::env::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", "1");
     assert!(gameworld_damage_authority_enabled());
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("DmgAuth");
@@ -5385,7 +5385,7 @@ fn damage_authority_defers_host_hp_until_writeback() {
 #[test]
 fn heal_authority_defers_host_hp_until_writeback() {
     use crate::game_logic::{host_heal_log, KindOf, Team, ThingTemplate};
-    std::env::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", "1");
     assert!(gameworld_damage_authority_enabled());
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("HealAuth");
@@ -5438,7 +5438,7 @@ fn heal_authority_defers_host_hp_until_writeback() {
 #[test]
 fn experience_authority_defers_host_xp_until_writeback() {
     use crate::game_logic::{host_experience_log, KindOf, Team, ThingTemplate};
-    std::env::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", "1");
     assert!(gameworld_damage_authority_enabled());
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("XpAuth");
@@ -5516,8 +5516,8 @@ fn experience_authority_defers_host_xp_until_writeback() {
 fn host_update_movement_skips_when_gameworld_movement_authority() {
     let _env_guard = authority_env_lock();
 
-    std::env::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "1");
-    std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
     assert!(gameworld_movement_authority_enabled());
     let src = include_str!("game_logic/game_logic.rs");
     assert!(
@@ -6013,13 +6013,13 @@ fn production_authority_defaults_on() {
         assert!(gameworld_production_authority_enabled());
     }
     let prev = std::env::var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY").ok();
-    std::env::set_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", "0");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", "0");
     assert!(!gameworld_production_authority_enabled());
-    std::env::set_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", "1");
     assert!(gameworld_production_authority_enabled());
     match prev {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY"),
     }
 }
 
@@ -6438,8 +6438,8 @@ fn stale_engine_id_does_not_skip_host_movement() {
         return;
     }
     // Host-only update_with_dt (no shadow session): keep host integrator on.
-    std::env::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "0");
-    std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "0");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("MoveBridge");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -6757,9 +6757,9 @@ fn economy_authority_writeback_supplies() {
 fn economy_authority_pending_blocks_double_spend() {
     let _env_guard = authority_env_lock();
 
-    std::env::set_var("GENERALS_GAMEWORLD_ECONOMY_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_ECONOMY_AUTHORITY", "1");
 
-    std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
     assert!(gameworld_economy_authority_enabled());
     crate::game_logic::host_economy_log::clear();
     let mut logic = GameLogic::new();
@@ -6798,8 +6798,8 @@ fn economy_authority_mutates_host_supplies_when_shadow_disabled() {
     let _env_guard = authority_env_lock();
     let prev_e = std::env::var("GENERALS_GAMEWORLD_ECONOMY_AUTHORITY").ok();
     let prev_s = std::env::var("GENERALS_GAMEWORLD_SHADOW").ok();
-    std::env::set_var("GENERALS_GAMEWORLD_ECONOMY_AUTHORITY", "1");
-    std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "0");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_ECONOMY_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "0");
     assert!(gameworld_economy_authority_enabled());
     assert!(!gameworld_economy_authority_live());
     let mut logic = GameLogic::new();
@@ -6823,12 +6823,12 @@ fn economy_authority_mutates_host_supplies_when_shadow_disabled() {
         assert_eq!(p.pending_supply_delta, 0, "no pending when shadow off");
     }
     match prev_e {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_ECONOMY_AUTHORITY", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_ECONOMY_AUTHORITY"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_ECONOMY_AUTHORITY", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_ECONOMY_AUTHORITY"),
     }
     match prev_s {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_SHADOW", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_SHADOW"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_SHADOW"),
     }
 }
 
@@ -6836,9 +6836,9 @@ fn economy_authority_mutates_host_supplies_when_shadow_disabled() {
 fn credit_supplies_defers_under_economy_authority() {
     let _env_guard = authority_env_lock();
 
-    std::env::set_var("GENERALS_GAMEWORLD_ECONOMY_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_ECONOMY_AUTHORITY", "1");
 
-    std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
     assert!(gameworld_economy_authority_enabled());
     crate::game_logic::host_economy_log::clear();
     let mut logic = GameLogic::new();
@@ -6918,7 +6918,7 @@ fn construction_complete_heal_log_sets_full_hp_via_writeback() {
     use crate::game_logic::{
         host_construction_progress_log, host_heal_log, KindOf, Team, ThingTemplate,
     };
-    std::env::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", "1");
     assert!(gameworld_damage_authority_enabled());
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("ConstHp");
@@ -6966,7 +6966,7 @@ fn construction_complete_heal_log_sets_full_hp_via_writeback() {
 #[test]
 fn construction_authority_last_writes_percent() {
     use crate::game_logic::{host_construction_progress_log, KindOf, Team, ThingTemplate};
-    std::env::set_var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY", "1");
     assert!(gameworld_construction_authority_enabled());
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("ConstAuth");
@@ -8814,8 +8814,8 @@ fn projectile_authority_steps_flight_and_writeback() {
 
     use crate::game_logic::host_projectile_log;
     let prev = std::env::var("GENERALS_GAMEWORLD_PROJECTILE_AUTHORITY").ok();
-    std::env::set_var("GENERALS_GAMEWORLD_PROJECTILE_AUTHORITY", "1");
-    std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_PROJECTILE_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
     assert!(gameworld_projectile_authority_enabled());
     host_projectile_log::clear();
     let mut logic = GameLogic::new();
@@ -8882,8 +8882,8 @@ fn projectile_authority_steps_flight_and_writeback() {
         .unwrap();
     assert!((p.position.x - after).abs() < 1e-4);
     match prev {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_PROJECTILE_AUTHORITY", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_PROJECTILE_AUTHORITY"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_PROJECTILE_AUTHORITY", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_PROJECTILE_AUTHORITY"),
     }
 }
 
@@ -8892,8 +8892,8 @@ fn ai_decision_buffer_channel_via_push_ai_decision() {
     let _env_guard = authority_env_lock();
     use crate::game_logic::host_ai_decision_log;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
-    std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
-    std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
     host_ai_decision_log::clear();
     let _couple = super::ShadowCoupleGuard::enter();
     let mut logic = GameLogic::new();
@@ -8942,12 +8942,12 @@ fn ai_decision_authority_applies_attack_via_gameworld() {
     use crate::game_logic::host_ai_decision_log;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let prev = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
-    std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
-    std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
     assert!(gameworld_ai_decision_authority_enabled());
     // Attack writeback must also be on for last-write.
     let prev_atk = std::env::var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY").ok();
-    std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
     host_ai_decision_log::clear();
     let _couple = super::ShadowCoupleGuard::enter();
     let mut logic = GameLogic::new();
@@ -8977,12 +8977,12 @@ fn ai_decision_authority_applies_attack_via_gameworld() {
     let o = logic.host_objects().get(&oid).unwrap();
     assert_eq!(o.target, Some(vid));
     match prev {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
     }
     match prev_atk {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY"),
     }
 }
 
@@ -8994,10 +8994,10 @@ fn apply_ai_command_logs_and_host_applies_under_authority() {
     use crate::game_logic::host_ai_decision_log;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let prev = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
-    std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
-    std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
     let prev_atk = std::env::var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY").ok();
-    std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
     host_ai_decision_log::clear();
     let _couple = super::ShadowCoupleGuard::enter();
     let mut logic = GameLogic::new();
@@ -9057,12 +9057,12 @@ fn apply_ai_command_logs_and_host_applies_under_authority() {
     let _ = crate::game_logic::host_attack_target_ready_log::drain();
     assert_eq!(logic.host_objects().get(&oid).unwrap().target, Some(vid));
     match prev {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
     }
     match prev_atk {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY"),
     }
 }
 
@@ -9073,10 +9073,10 @@ fn continue_attack_after_kill_decision_authority() {
     use crate::game_logic::host_ai_decision_log;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let prev = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
-    std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
-    std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
     let prev_atk = std::env::var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY").ok();
-    std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
     host_ai_decision_log::clear();
     let _couple = super::ShadowCoupleGuard::enter();
     let mut logic = GameLogic::new();
@@ -9131,12 +9131,12 @@ fn continue_attack_after_kill_decision_authority() {
         Some(next)
     );
     match prev {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
     }
     match prev_atk {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY"),
     }
 }
 
@@ -9147,10 +9147,10 @@ fn assign_unit_attack_path_decision_authority() {
     use crate::game_logic::host_ai_decision_log;
     use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
     let prev = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
-    std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
-    std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
     let prev_atk = std::env::var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY").ok();
-    std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
     host_ai_decision_log::clear();
     let _couple = super::ShadowCoupleGuard::enter();
     let mut logic = GameLogic::new();
@@ -9215,12 +9215,12 @@ fn assign_unit_attack_path_decision_authority() {
     let _ = crate::game_logic::host_attack_target_ready_log::drain();
     assert_eq!(logic.host_objects().get(&uid).unwrap().target, Some(vid));
     match prev {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
     }
     match prev_atk {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY"),
     }
 }
 
@@ -9231,8 +9231,8 @@ fn path_approach_with_state_decision_authority() {
     use crate::game_logic::host_ai_decision_log;
     use crate::game_logic::{AIState, KindOf, Team, ThingTemplate};
     let prev = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
-    std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
-    std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
     host_ai_decision_log::clear();
     let _couple = super::ShadowCoupleGuard::enter();
     let mut logic = GameLogic::new();
@@ -9275,8 +9275,8 @@ fn path_approach_with_state_decision_authority() {
         AIState::Gathering
     );
     match prev {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
     }
 }
 
@@ -9287,10 +9287,10 @@ fn troop_crawler_assault_decision_authority() {
     use crate::game_logic::host_ai_decision_log;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let prev = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
-    std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
-    std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
     let prev_atk = std::env::var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY").ok();
-    std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
     host_ai_decision_log::clear();
     let _couple = super::ShadowCoupleGuard::enter();
     let mut logic = GameLogic::new();
@@ -9359,12 +9359,12 @@ fn troop_crawler_assault_decision_authority() {
         .any(|(id, o)| o.target == Some(enemy) && *id != enemy);
     assert!(hit, "writeback must set some unit target to enemy");
     match prev {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
     }
     match prev_atk {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY"),
     }
 }
 
@@ -9375,10 +9375,10 @@ fn missile_defender_laser_guided_decision_authority() {
     use crate::game_logic::host_ai_decision_log;
     use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
     let prev = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
-    std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
-    std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
     let prev_atk = std::env::var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY").ok();
-    std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
     host_ai_decision_log::clear();
     let _couple = super::ShadowCoupleGuard::enter();
     let mut logic = GameLogic::new();
@@ -9444,12 +9444,12 @@ fn missile_defender_laser_guided_decision_authority() {
     let _ = crate::game_logic::host_attack_target_ready_log::drain();
     assert_eq!(logic.host_objects().get(&mid).unwrap().target, Some(eid));
     match prev {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
     }
     match prev_atk {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY"),
     }
 }
 
@@ -9460,10 +9460,10 @@ fn private_attack_object_decision_authority() {
     use crate::game_logic::host_ai_decision_log;
     use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
     let prev = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
-    std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
-    std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
     let prev_atk = std::env::var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY").ok();
-    std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
     host_ai_decision_log::clear();
     let _couple = super::ShadowCoupleGuard::enter();
     let mut logic = GameLogic::new();
@@ -9513,12 +9513,12 @@ fn private_attack_object_decision_authority() {
     let _ = crate::game_logic::host_attack_target_ready_log::drain();
     assert_eq!(logic.host_objects().get(&uid).unwrap().target, Some(vid));
     match prev {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
     }
     match prev_atk {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY"),
     }
 }
 
@@ -9529,10 +9529,10 @@ fn transfer_attack_decision_authority() {
     use crate::game_logic::host_ai_decision_log;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let prev = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
-    std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
-    std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
     let prev_atk = std::env::var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY").ok();
-    std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
     host_ai_decision_log::clear();
     let _couple = super::ShadowCoupleGuard::enter();
     let mut logic = GameLogic::new();
@@ -9587,12 +9587,12 @@ fn transfer_attack_decision_authority() {
         Some(to)
     );
     match prev {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
     }
     match prev_atk {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY"),
     }
 }
 
@@ -9668,10 +9668,10 @@ fn apply_engagement_decision_aware_writeback() {
     use crate::game_logic::host_ai_decision_log;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let prev = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
-    std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
-    std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
     let prev_atk = std::env::var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY").ok();
-    std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
     host_ai_decision_log::clear();
     let _couple = super::ShadowCoupleGuard::enter();
     let mut logic = GameLogic::new();
@@ -9709,12 +9709,12 @@ fn apply_engagement_decision_aware_writeback() {
     let _ = crate::game_logic::host_attack_target_ready_log::drain();
     assert_eq!(logic.host_objects().get(&uid).unwrap().target, Some(vid));
     match prev {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
     }
     match prev_atk {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY"),
     }
 }
 
@@ -9725,10 +9725,10 @@ fn mood_auto_acquire_logs_decision_under_authority() {
     use crate::game_logic::host_ai_decision_log;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let prev = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
-    std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
-    std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
     let prev_atk = std::env::var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY").ok();
-    std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
     host_ai_decision_log::clear();
     let _couple = super::ShadowCoupleGuard::enter();
     let mut logic = GameLogic::new();
@@ -9778,12 +9778,12 @@ fn mood_auto_acquire_logs_decision_under_authority() {
     let _ = crate::game_logic::host_attack_target_ready_log::drain();
     assert_eq!(logic.host_objects().get(&oid).unwrap().target, Some(vid));
     match prev {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
     }
     match prev_atk {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY"),
     }
 }
 
@@ -9794,10 +9794,10 @@ fn support_guard_engage_uses_decision_authority() {
     use crate::game_logic::host_ai_decision_log;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let prev = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
-    std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
-    std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
     let prev_atk = std::env::var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY").ok();
-    std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
     host_ai_decision_log::clear();
     let _couple = super::ShadowCoupleGuard::enter();
     let mut logic = GameLogic::new();
@@ -9838,12 +9838,12 @@ fn support_guard_engage_uses_decision_authority() {
     let _ = crate::game_logic::host_attack_target_ready_log::drain();
     assert_eq!(logic.host_objects().get(&oid).unwrap().target, Some(vid));
     match prev {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
     }
     match prev_atk {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY"),
     }
 }
 
@@ -9855,11 +9855,11 @@ fn faction_ai_launch_attack_decision_authority_writeback() {
     use crate::game_logic::host_ai_decision_log;
     use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
     let prev = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
-    std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
 
-    std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
     let prev_atk = std::env::var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY").ok();
-    std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
     host_ai_decision_log::clear();
     let _couple = super::ShadowCoupleGuard::enter();
     let mut logic = GameLogic::new();
@@ -9937,12 +9937,12 @@ fn faction_ai_launch_attack_decision_authority_writeback() {
         Some(enemy)
     );
     match prev {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
     }
     match prev_atk {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY"),
     }
 }
 
@@ -9953,10 +9953,10 @@ fn stop_attack_decision_authority_clears_via_writeback() {
     use crate::game_logic::host_ai_decision_log;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let prev = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
-    std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
-    std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
     let prev_atk = std::env::var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY").ok();
-    std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
     host_ai_decision_log::clear();
     let _couple = super::ShadowCoupleGuard::enter();
     let mut logic = GameLogic::new();
@@ -10005,12 +10005,12 @@ fn stop_attack_decision_authority_clears_via_writeback() {
     let _ = crate::game_logic::host_attack_target_ready_log::drain();
     assert!(logic.host_objects().get(&oid).unwrap().target.is_none());
     match prev {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
     }
     match prev_atk {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY"),
     }
 }
 
@@ -10022,8 +10022,8 @@ fn fire_spawn_authority_defers_queue_until_shadow() {
     let _env_guard = authority_env_lock();
     let prev = std::env::var("GENERALS_GAMEWORLD_FIRE_SPAWN_AUTHORITY").ok();
     let prev_shadow = std::env::var("GENERALS_GAMEWORLD_SHADOW").ok();
-    std::env::set_var("GENERALS_GAMEWORLD_FIRE_SPAWN_AUTHORITY", "1");
-    std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_FIRE_SPAWN_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
     assert!(gameworld_fire_spawn_authority_enabled());
     assert!(gameworld_shadow_enabled());
     host_fire_spawn_log::clear();
@@ -10082,12 +10082,12 @@ fn fire_spawn_authority_defers_queue_until_shadow() {
         "shadow apply must spawn into CombatSystem"
     );
     match prev {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_FIRE_SPAWN_AUTHORITY", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_FIRE_SPAWN_AUTHORITY"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_FIRE_SPAWN_AUTHORITY", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_FIRE_SPAWN_AUTHORITY"),
     }
     match prev_shadow {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_SHADOW", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_SHADOW"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_SHADOW"),
     }
 }
 
@@ -10099,8 +10099,8 @@ fn fire_spawn_authority_enqueues_host_when_shadow_disabled() {
     let _env_guard = authority_env_lock();
     let prev = std::env::var("GENERALS_GAMEWORLD_FIRE_SPAWN_AUTHORITY").ok();
     let prev_shadow = std::env::var("GENERALS_GAMEWORLD_SHADOW").ok();
-    std::env::set_var("GENERALS_GAMEWORLD_FIRE_SPAWN_AUTHORITY", "1");
-    std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "0");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_FIRE_SPAWN_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "0");
     assert!(gameworld_fire_spawn_authority_enabled());
     assert!(!gameworld_shadow_enabled());
     host_fire_spawn_log::clear();
@@ -10153,12 +10153,12 @@ fn fire_spawn_authority_enqueues_host_when_shadow_disabled() {
     );
     combat::clear_pending_projectile_queue_for_test();
     match prev {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_FIRE_SPAWN_AUTHORITY", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_FIRE_SPAWN_AUTHORITY"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_FIRE_SPAWN_AUTHORITY", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_FIRE_SPAWN_AUTHORITY"),
     }
     match prev_shadow {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_SHADOW", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_SHADOW"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_SHADOW"),
     }
 }
 
@@ -10167,8 +10167,8 @@ fn ai_decision_authority_applies_host_state_when_shadow_disabled() {
     let _env_guard = authority_env_lock();
     let prev_d = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
     let prev_s = std::env::var("GENERALS_GAMEWORLD_SHADOW").ok();
-    std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
-    std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "0");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "0");
     assert!(gameworld_ai_decision_authority_enabled());
     assert!(!gameworld_ai_decision_authority_live());
     crate::game_logic::host_ai_decision_log::clear();
@@ -10201,12 +10201,12 @@ fn ai_decision_authority_applies_host_state_when_shadow_disabled() {
         "must not defer decisions when shadow is off"
     );
     match prev_d {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
     }
     match prev_s {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_SHADOW", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_SHADOW"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_SHADOW"),
     }
 }
 
@@ -10215,8 +10215,8 @@ fn projectile_authority_steps_host_when_shadow_disabled() {
     let _env_guard = authority_env_lock();
     let prev_p = std::env::var("GENERALS_GAMEWORLD_PROJECTILE_AUTHORITY").ok();
     let prev_s = std::env::var("GENERALS_GAMEWORLD_SHADOW").ok();
-    std::env::set_var("GENERALS_GAMEWORLD_PROJECTILE_AUTHORITY", "1");
-    std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "0");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_PROJECTILE_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "0");
     assert!(gameworld_projectile_authority_enabled());
     assert!(!gameworld_projectile_authority_live());
     // Source must contain live gate so host update_projectiles is not skipped.
@@ -10226,12 +10226,12 @@ fn projectile_authority_steps_host_when_shadow_disabled() {
         "host combat must gate projectile defer on live shadow"
     );
     match prev_p {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_PROJECTILE_AUTHORITY", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_PROJECTILE_AUTHORITY"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_PROJECTILE_AUTHORITY", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_PROJECTILE_AUTHORITY"),
     }
     match prev_s {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_SHADOW", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_SHADOW"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_SHADOW"),
     }
 }
 
@@ -10240,8 +10240,8 @@ fn movement_authority_integrates_host_when_shadow_disabled() {
     let _env_guard = authority_env_lock();
     let prev_m = std::env::var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY").ok();
     let prev_s = std::env::var("GENERALS_GAMEWORLD_SHADOW").ok();
-    std::env::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "1");
-    std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "0");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "0");
     assert!(gameworld_movement_authority_enabled());
     assert!(!gameworld_movement_authority_live());
     let mut logic = GameLogic::new();
@@ -10269,12 +10269,12 @@ fn movement_authority_integrates_host_when_shadow_disabled() {
         "host-only movement must integrate path; pre={pre:?} post={post:?} dist={dist}"
     );
     match prev_m {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY"),
     }
     match prev_s {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_SHADOW", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_SHADOW"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_SHADOW"),
     }
 }
 
@@ -10283,8 +10283,8 @@ fn construction_authority_sets_host_percent_when_shadow_disabled() {
     let _env_guard = authority_env_lock();
     let prev_c = std::env::var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY").ok();
     let prev_s = std::env::var("GENERALS_GAMEWORLD_SHADOW").ok();
-    std::env::set_var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY", "1");
-    std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "0");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "0");
     assert!(gameworld_construction_authority_enabled());
     assert!(!gameworld_construction_authority_live());
     assert!(!gameworld_construction_sole_tick_enabled());
@@ -10311,12 +10311,12 @@ fn construction_authority_sets_host_percent_when_shadow_disabled() {
         );
     }
     match prev_c {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY"),
     }
     match prev_s {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_SHADOW", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_SHADOW"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_SHADOW"),
     }
 }
 
@@ -10328,8 +10328,8 @@ fn ai_attack_authority_gates_fire_intent_writeback() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     host_fire_intent_log::clear();
     let prev = std::env::var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY").ok();
-    std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "0");
-    std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "0");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
     assert!(!gameworld_ai_attack_authority_enabled());
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("AiAtkAuth");
@@ -10351,7 +10351,7 @@ fn ai_attack_authority_gates_fire_intent_writeback() {
     let _ = crate::game_logic::host_fire_intent_ready_log::drain();
     let o = logic.host_objects().get(&oid).unwrap();
     assert_eq!(o.fire_intent_count, 0);
-    std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
     assert!(gameworld_ai_attack_authority_enabled());
     assert!(shadow.writeback_fire_intent_to_host(&mut logic) >= 1);
     let _ = crate::game_logic::host_fire_intent_ready_log::drain();
@@ -10359,8 +10359,8 @@ fn ai_attack_authority_gates_fire_intent_writeback() {
     assert_eq!(o.fire_intent_count, 1);
     assert_eq!(o.last_fire_victim_host, 9);
     match prev {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY"),
     }
 }
 
@@ -10372,8 +10372,8 @@ fn fire_at_records_fire_intent_residual() {
     use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
     let prev = std::env::var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY").ok();
     // Default path: authority on — log intent, host last_fire_* deferred to writeback.
-    std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
-    std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
     host_fire_intent_log::clear();
     crate::game_logic::host_historic_bonus::set_logic_frame(77);
     let mut logic = GameLogic::new();
@@ -10424,7 +10424,7 @@ fn fire_at_records_fire_intent_residual() {
     assert!((o.last_fire_damage - 15.0).abs() < 1e-5);
 
     // Legacy path: authority off — host last_fire_* applied same-frame.
-    std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "0");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "0");
     host_fire_intent_log::clear();
     {
         let o = logic.host_object_mut(oid).expect("o");
@@ -10443,8 +10443,8 @@ fn fire_at_records_fire_intent_residual() {
     }
     assert!(!host_fire_intent_log::drain().is_empty());
     match prev {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY"),
     }
 }
 
@@ -10455,9 +10455,9 @@ fn assign_unit_path_decision_authority() {
     use crate::game_logic::host_ai_decision_log;
     use crate::game_logic::{AIState, KindOf, Team, ThingTemplate};
     let prev = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
-    std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
 
-    std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
     host_ai_decision_log::clear();
     let _couple = super::ShadowCoupleGuard::enter();
     let mut logic = GameLogic::new();
@@ -10519,8 +10519,8 @@ fn assign_unit_path_decision_authority() {
         AIState::Moving
     );
     match prev {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
     }
 }
 
@@ -10531,11 +10531,11 @@ fn private_idle_decision_authority() {
     use crate::game_logic::host_ai_decision_log;
     use crate::game_logic::{AIState, KindOf, Team, ThingTemplate};
     let prev = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
-    std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
 
-    std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
     let prev_atk = std::env::var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY").ok();
-    std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
     host_ai_decision_log::clear();
     let _couple = super::ShadowCoupleGuard::enter();
     let mut logic = GameLogic::new();
@@ -10587,12 +10587,12 @@ fn private_idle_decision_authority() {
     assert!(o.target.is_none());
     assert_eq!(o.ai_state, AIState::Idle);
     match prev {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
     }
     match prev_atk {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY"),
     }
 }
 
@@ -10644,8 +10644,8 @@ fn append_unit_waypoint_decision_authority() {
     use crate::game_logic::host_ai_decision_log;
     use crate::game_logic::{AIState, KindOf, Team, ThingTemplate};
     let prev = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
-    std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
-    std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
     host_ai_decision_log::clear();
     let _couple = super::ShadowCoupleGuard::enter();
     let mut logic = GameLogic::new();
@@ -10686,8 +10686,8 @@ fn append_unit_waypoint_decision_authority() {
         AIState::Moving
     );
     match prev {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
     }
 }
 
@@ -10698,8 +10698,8 @@ fn set_ai_state_decision_aware_writeback() {
     use crate::game_logic::host_ai_decision_log;
     use crate::game_logic::{AIState, KindOf, Team, ThingTemplate};
     let prev = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
-    std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
-    std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
     host_ai_decision_log::clear();
     let _couple = super::ShadowCoupleGuard::enter();
     let mut logic = GameLogic::new();
@@ -10737,8 +10737,8 @@ fn set_ai_state_decision_aware_writeback() {
         AIState::Gathering
     );
     match prev {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
     }
 }
 
@@ -10858,7 +10858,7 @@ fn radar_extend_channel_via_set_radar_extend() {
 fn special_power_tick_records_host_special_power_log() {
     // Host-only advance residual: disable SP sole-tick authority for this probe.
     let prev = std::env::var("GENERALS_GAMEWORLD_SPECIAL_POWER_AUTHORITY").ok();
-    std::env::set_var("GENERALS_GAMEWORLD_SPECIAL_POWER_AUTHORITY", "0");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_SPECIAL_POWER_AUTHORITY", "0");
 
     use crate::game_logic::{host_special_power_log, KindOf, Team, ThingTemplate};
     host_special_power_log::clear();
@@ -10891,8 +10891,8 @@ fn special_power_tick_records_host_special_power_log() {
     );
 
     match prev {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_SPECIAL_POWER_AUTHORITY", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_SPECIAL_POWER_AUTHORITY"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_SPECIAL_POWER_AUTHORITY", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_SPECIAL_POWER_AUTHORITY"),
     }
 }
 
@@ -10949,7 +10949,7 @@ fn damage_authority_writeback_is_last_writer() {
     shadow.sync_from_host(&logic);
     let pre = logic.host_objects().get(&id).unwrap().health.current;
 
-    std::env::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", "1");
     assert!(gameworld_damage_authority_enabled());
     // Wave 758: couple for damage_authority_live.
     let _couple = ShadowCoupleGuard::enter();
@@ -11010,8 +11010,8 @@ fn damage_authority_applies_host_hp_when_shadow_disabled() {
     // Authority must couple to shadow_enabled so host-only combat still hits.
     let prev_shadow = std::env::var("GENERALS_GAMEWORLD_SHADOW").ok();
     let prev_auth = std::env::var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY").ok();
-    std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "0");
-    std::env::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "0");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", "1");
     assert!(!gameworld_shadow_enabled());
     assert!(gameworld_damage_authority_enabled());
 
@@ -11035,12 +11035,12 @@ fn damage_authority_applies_host_hp_when_shadow_disabled() {
 
     // restore env
     match prev_shadow {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_SHADOW", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_SHADOW"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_SHADOW"),
     }
     match prev_auth {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY"),
     }
 }
 
@@ -11049,8 +11049,8 @@ fn damage_authority_lethal_marks_destroyed_without_host_hp() {
     let _env_guard = authority_env_lock();
     let prev_shadow = std::env::var("GENERALS_GAMEWORLD_SHADOW").ok();
     let prev_auth = std::env::var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY").ok();
-    std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
-    std::env::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", "1");
 
     // Deferred lethal must flip status.destroyed so mid-frame is_alive is false
     // while HP stays full until shadow writeback (last-writer for numeric health).
@@ -11082,12 +11082,12 @@ fn damage_authority_lethal_marks_destroyed_without_host_hp() {
     }
     drop(_couple);
     match prev_shadow {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_SHADOW", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_SHADOW"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_SHADOW"),
     }
     match prev_auth {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY"),
     }
 }
 
@@ -11242,8 +11242,8 @@ fn dozer_bored_repair_state_decision_authority() {
     use crate::game_logic::host_ai_decision_log;
     use crate::game_logic::{AIState, KindOf, Team, ThingTemplate};
     let prev = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
-    std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
-    std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
     host_ai_decision_log::clear();
     let _couple = super::ShadowCoupleGuard::enter();
     let mut logic = GameLogic::new();
@@ -11283,8 +11283,8 @@ fn dozer_bored_repair_state_decision_authority() {
         AIState::Repairing
     );
     match prev {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
     }
 }
 
@@ -11337,9 +11337,9 @@ fn hijacker_docked_state_decision_authority() {
     use crate::game_logic::host_ai_decision_log;
     use crate::game_logic::{AIState, KindOf, Team, ThingTemplate};
     let prev = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
-    std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
 
-    std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
     host_ai_decision_log::clear();
     let _couple = super::ShadowCoupleGuard::enter();
     let mut logic = GameLogic::new();
@@ -11378,8 +11378,8 @@ fn hijacker_docked_state_decision_authority() {
         AIState::Docked
     );
     match prev {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
     }
 }
 
@@ -11519,7 +11519,7 @@ fn residual_auto_fire_damage_source_writeback_channel() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     host_damage_log::clear();
     let prev = std::env::var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY").ok();
-    std::env::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", "1");
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("DmgSrc");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -11560,8 +11560,8 @@ fn residual_auto_fire_damage_source_writeback_channel() {
         "expected damage apply {applied:?}"
     );
     match prev {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY"),
     }
 }
 
@@ -11618,9 +11618,9 @@ fn private_stop_decision_authority_clears_via_writeback() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let prev = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
     let prev_atk = std::env::var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY").ok();
-    std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
-    std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
-    std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
     host_ai_decision_log::clear();
     let _couple = super::ShadowCoupleGuard::enter();
     let mut logic = GameLogic::new();
@@ -11671,12 +11671,12 @@ fn private_stop_decision_authority_clears_via_writeback() {
         "host remains clear after stop + GameWorld stop apply"
     );
     match prev {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
     }
     match prev_atk {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY"),
     }
 }
 
@@ -11916,7 +11916,7 @@ fn cancel_production_refund_economy_authority_writeback() {
     use crate::game_logic::host_economy_log;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let prev = std::env::var("GENERALS_GAMEWORLD_ECONOMY_AUTHORITY").ok();
-    std::env::set_var("GENERALS_GAMEWORLD_ECONOMY_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_ECONOMY_AUTHORITY", "1");
     host_economy_log::clear();
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("EconRef");
@@ -11986,8 +11986,8 @@ fn cancel_production_refund_economy_authority_writeback() {
         "refund must log effective supplies; got {evs:?}"
     );
     match prev {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_ECONOMY_AUTHORITY", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_ECONOMY_AUTHORITY"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_ECONOMY_AUTHORITY", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_ECONOMY_AUTHORITY"),
     }
     end_shadow_coupled_tick();
 }
@@ -12036,7 +12036,7 @@ fn start_sell_sets_construction_percent_under_authority() {
     use crate::game_logic::host_construction_progress_log;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let prev = std::env::var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY").ok();
-    std::env::set_var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY", "1");
     host_construction_progress_log::clear();
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("SellPct");
@@ -12069,8 +12069,8 @@ fn start_sell_sets_construction_percent_under_authority() {
         "sell start must log 0.999 progress; got {evs:?}"
     );
     match prev {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY"),
     }
 }
 
@@ -12079,7 +12079,7 @@ fn sell_deconstruction_negative_percent_survives_shadow_writeback() {
     use crate::game_logic::host_construction_progress_log;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let prev = std::env::var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY").ok();
-    std::env::set_var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY", "1");
     host_construction_progress_log::clear();
 
     let mut logic = GameLogic::new();
@@ -12158,8 +12158,8 @@ fn sell_deconstruction_negative_percent_survives_shadow_writeback() {
 
     host_construction_progress_log::clear();
     match prev {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY"),
     }
 }
 
@@ -12217,7 +12217,7 @@ fn heal_crate_defers_host_hp_under_damage_authority() {
     use crate::game_logic::host_heal_log;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let prev = std::env::var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY").ok();
-    std::env::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", "1");
     host_heal_log::clear();
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("HealAuth");
@@ -12253,8 +12253,8 @@ fn heal_crate_defers_host_hp_under_damage_authority() {
         "heal log must carry absolute HP; got {evs:?}"
     );
     match prev {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY"),
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY"),
     }
 }
 

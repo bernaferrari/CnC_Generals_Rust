@@ -2001,7 +2001,7 @@ impl ParticleSystem {
             EmissionVolume::Point => Vector3::zeros(),
 
             EmissionVolume::Line { start, end } => {
-                let t = rng.gen::<f32>();
+                let t = rng.r#gen::<f32>();
                 (end - start) * t
             }
 
@@ -2044,8 +2044,8 @@ impl ParticleSystem {
             EmissionVolume::Sphere { radius } => {
                 if info.is_emission_volume_hollow {
                     // On sphere surface
-                    let theta = rng.gen::<f32>() * 2.0 * std::f32::consts::PI;
-                    let phi = rng.gen::<f32>() * std::f32::consts::PI;
+                    let theta = rng.r#gen::<f32>() * 2.0 * std::f32::consts::PI;
+                    let phi = rng.r#gen::<f32>() * std::f32::consts::PI;
                     Vector3::new(
                         radius * phi.sin() * theta.cos(),
                         radius * phi.sin() * theta.sin(),
@@ -2053,9 +2053,9 @@ impl ParticleSystem {
                     )
                 } else {
                     // Inside sphere
-                    let r = rng.gen::<f32>().powf(1.0 / 3.0) * radius;
-                    let theta = rng.gen::<f32>() * 2.0 * std::f32::consts::PI;
-                    let phi = rng.gen::<f32>() * std::f32::consts::PI;
+                    let r = rng.r#gen::<f32>().powf(1.0 / 3.0) * radius;
+                    let theta = rng.r#gen::<f32>() * 2.0 * std::f32::consts::PI;
+                    let phi = rng.r#gen::<f32>() * std::f32::consts::PI;
                     Vector3::new(
                         r * phi.sin() * theta.cos(),
                         r * phi.sin() * theta.sin(),
@@ -2070,12 +2070,12 @@ impl ParticleSystem {
 
                 if info.is_emission_volume_hollow {
                     // On cylinder surface
-                    let theta = rng.gen::<f32>() * 2.0 * std::f32::consts::PI;
+                    let theta = rng.r#gen::<f32>() * 2.0 * std::f32::consts::PI;
                     Vector3::new(radius * theta.cos(), radius * theta.sin(), z)
                 } else {
                     // Inside cylinder
-                    let r = rng.gen::<f32>().sqrt() * radius;
-                    let theta = rng.gen::<f32>() * 2.0 * std::f32::consts::PI;
+                    let r = rng.r#gen::<f32>().sqrt() * radius;
+                    let theta = rng.r#gen::<f32>() * 2.0 * std::f32::consts::PI;
                     Vector3::new(r * theta.cos(), r * theta.sin(), z)
                 }
             }
@@ -2104,8 +2104,8 @@ impl ParticleSystem {
 
             EmissionVelocity::Spherical { speed } => {
                 let speed_val = speed.sample();
-                let theta = rng.gen::<f32>() * 2.0 * std::f32::consts::PI;
-                let phi = rng.gen::<f32>() * std::f32::consts::PI;
+                let theta = rng.r#gen::<f32>() * 2.0 * std::f32::consts::PI;
+                let phi = rng.r#gen::<f32>() * std::f32::consts::PI;
                 Vector3::new(
                     speed_val * phi.sin() * theta.cos(),
                     speed_val * phi.sin() * theta.sin(),
@@ -2115,8 +2115,8 @@ impl ParticleSystem {
 
             EmissionVelocity::Hemispherical { speed } => {
                 let speed_val = speed.sample();
-                let theta = rng.gen::<f32>() * 2.0 * std::f32::consts::PI;
-                let phi = rng.gen::<f32>() * std::f32::consts::PI * 0.5; // Only upper hemisphere
+                let theta = rng.r#gen::<f32>() * 2.0 * std::f32::consts::PI;
+                let phi = rng.r#gen::<f32>() * std::f32::consts::PI * 0.5; // Only upper hemisphere
                 Vector3::new(
                     speed_val * phi.sin() * theta.cos(),
                     speed_val * phi.sin() * theta.sin(),
@@ -2127,7 +2127,7 @@ impl ParticleSystem {
             EmissionVelocity::Cylindrical { radial, normal } => {
                 let radial_speed = radial.sample();
                 let normal_speed = normal.sample();
-                let theta = rng.gen::<f32>() * 2.0 * std::f32::consts::PI;
+                let theta = rng.r#gen::<f32>() * 2.0 * std::f32::consts::PI;
                 Vector3::new(
                     radial_speed * theta.cos(),
                     radial_speed * theta.sin(),
@@ -2167,8 +2167,8 @@ impl ParticleSystem {
                                 speed_val * dz / len,
                             )
                         } else {
-                            let theta = rng.gen::<f32>() * 2.0 * std::f32::consts::PI;
-                            let phi = rng.gen::<f32>() * std::f32::consts::PI;
+                            let theta = rng.r#gen::<f32>() * 2.0 * std::f32::consts::PI;
+                            let phi = rng.r#gen::<f32>() * std::f32::consts::PI;
                             Vector3::new(
                                 speed_val * phi.sin() * theta.cos(),
                                 speed_val * phi.sin() * theta.sin(),
@@ -2189,8 +2189,8 @@ impl ParticleSystem {
                         }
                     }
                     EmissionVolumeType::Point => {
-                        let theta = rng.gen::<f32>() * 2.0 * std::f32::consts::PI;
-                        let phi = rng.gen::<f32>() * std::f32::consts::PI;
+                        let theta = rng.r#gen::<f32>() * 2.0 * std::f32::consts::PI;
+                        let phi = rng.r#gen::<f32>() * std::f32::consts::PI;
                         Vector3::new(
                             speed_val * phi.sin() * theta.cos(),
                             speed_val * phi.sin() * theta.sin(),
@@ -2619,7 +2619,7 @@ mod tests {
 
         // This would require the actual computation logic
         // which is implemented in compute_particle_position
-        let _ = (rng.gen::<f32>(), sphere);
+        let _ = (rng.r#gen::<f32>(), sphere);
     }
 
     #[test]

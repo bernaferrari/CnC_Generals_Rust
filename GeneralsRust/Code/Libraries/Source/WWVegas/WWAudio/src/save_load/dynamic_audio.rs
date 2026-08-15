@@ -831,8 +831,8 @@ fn parse_voice_chunk(chunk: &Chunk<'_>) -> Option<SavedMixerVoiceRecord> {
     }
 
     match (handle_id, generation) {
-        (Some(id), Some(gen)) => {
-            record.handle = VoiceHandle::new(id, gen);
+        (Some(id), Some(generation)) => {
+            record.handle = VoiceHandle::new(id, generation);
             if record.timeline.source_rate == 0 {
                 record.timeline.source_rate = record.params.playback_rate;
             }

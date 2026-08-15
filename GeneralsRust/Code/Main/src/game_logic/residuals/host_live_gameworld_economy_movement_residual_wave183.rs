@@ -138,9 +138,9 @@ pub fn simulate_live_gameworld_economy_movement_honesty() -> bool {
     ensure_gate_damage_authority();
     // Wave 757: restore authority env if earlier tests forced off (process-global).
     unsafe {
-        std::env::set_var("GENERALS_GAMEWORLD_ECONOMY_AUTHORITY", "1");
-        std::env::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "1");
-        std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+        crate::env_compat::set_var("GENERALS_GAMEWORLD_ECONOMY_AUTHORITY", "1");
+        crate::env_compat::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "1");
+        crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
     }
     crate::gameworld_shadow::refresh_gameworld_authority_env_caches();
     if !gameworld_economy_authority_enabled() || !gameworld_movement_authority_enabled() {

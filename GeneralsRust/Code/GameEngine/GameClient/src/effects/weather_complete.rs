@@ -131,7 +131,7 @@ impl WeatherParticle {
             alpha: rng.gen_range(0.8..1.0),
             age: 0.0,
             lifetime: 10.0,
-            rotation: rng.gen::<f32>() * std::f32::consts::TAU,
+            rotation: rng.r#gen::<f32>() * std::f32::consts::TAU,
             rotation_speed: rng.gen_range(-2.0..2.0),
             color: [1.0, 1.0, 1.0, 1.0], // Pure white
         }
@@ -154,7 +154,7 @@ impl WeatherParticle {
             alpha: rng.gen_range(0.3..0.7),
             age: 0.0,
             lifetime: 15.0,
-            rotation: rng.gen::<f32>() * std::f32::consts::TAU,
+            rotation: rng.r#gen::<f32>() * std::f32::consts::TAU,
             rotation_speed: rng.gen_range(-1.0..1.0),
             color: [
                 0.7 * dust_color_variation,

@@ -1,6 +1,19 @@
 
 use super::*;
 
+
+#[allow(dead_code)]
+fn set_var(key: &str, value: &str) {
+    // SAFETY: AI env toggles; test access is serialized (--test-threads=1 convention).
+    unsafe { set_var(key, value) }
+}
+
+#[allow(dead_code)]
+fn remove_var(key: &str) {
+    // SAFETY: AI env toggles; test access is serialized (--test-threads=1 convention).
+    unsafe { remove_var(key) }
+}
+
 #[test]
 fn test_ai_player_creation() {
     let ai_player = AIPlayer::new(1);
@@ -566,9 +579,9 @@ fn update_with_frame_source_order_matches_cpp_do_methods() {
 #[test]
 fn host_attack_disabled_by_default_like_cpp_update() {
     // Unset env in test process may inherit; function treats missing as false.
-    std::env::remove_var("GENERALS_AI_HOST_ATTACK");
+    remove_var("GENERALS_AI_HOST_ATTACK");
     assert!(!AIPlayer::host_attack_enabled());
-    std::env::remove_var("GENERALS_AI_HOST_ANALYSIS");
+    remove_var("GENERALS_AI_HOST_ANALYSIS");
     assert!(!AIPlayer::host_analysis_enabled());
 }
 

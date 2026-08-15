@@ -321,7 +321,7 @@ impl Object {
         }
 
         // Don't count kills that I do on my own buildings or units, cause that's just silly.
-        if let (Some(ref controller_player), Some(ref victim_player)) =
+        if let (Some(controller_player), Some(victim_player)) =
             (&controller, &victim_controller)
         {
             let controller_idx = controller_player.read().ok().map(|g| g.get_player_index());

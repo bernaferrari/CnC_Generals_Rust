@@ -6,7 +6,7 @@ fn generate_test_data(size: usize, pattern: TestPattern) -> Vec<u8> {
     let mut rng = SmallRng::seed_from_u64(42); // Deterministic for consistent benchmarks
 
     match pattern {
-        TestPattern::Random => (0..size).map(|_| rng.gen()).collect(),
+        TestPattern::Random => (0..size).map(|_| rng.r#gen()).collect(),
         TestPattern::Repetitive => {
             let pattern = b"ABCDEFGH";
             (0..size).map(|i| pattern[i % pattern.len()]).collect()
@@ -24,7 +24,7 @@ fn generate_test_data(size: usize, pattern: TestPattern) -> Vec<u8> {
                     } else if i % 16 < 8 {
                         (i / 16) as u8 // Sequential data
                     } else {
-                        rng.gen() // Random payload
+                        rng.r#gen() // Random payload
                     }
                 })
                 .collect()
@@ -32,7 +32,7 @@ fn generate_test_data(size: usize, pattern: TestPattern) -> Vec<u8> {
         TestPattern::Sparse => {
             // Mostly zeros with occasional data
             (0..size)
-                .map(|i| if i % 100 < 5 { rng.gen() } else { 0x00 })
+                .map(|i| if i % 100 < 5 { rng.r#gen() } else { 0x00 })
                 .collect()
         }
     }

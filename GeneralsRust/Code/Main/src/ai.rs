@@ -3470,8 +3470,8 @@ mod cpp_parity_tests {
 
         // Default AI_DECISION_AUTHORITY is on: launch_attack engages host + logs decisions.
         let prev = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
-        std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
-        std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+        crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
+        crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
         // Decision logs require coupled shadow writeback frame (live gate).
         crate::gameworld_shadow::refresh_gameworld_authority_env_caches();
         crate::gameworld_shadow::begin_shadow_coupled_tick();
@@ -3545,7 +3545,7 @@ mod cpp_parity_tests {
             "launch_attack must still pathfind on host under decision authority"
         );
         // Legacy residual path when decision authority is off.
-        std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "0");
+        crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "0");
         host_attack_log::clear();
         host_ai_decision_log::clear();
         if let Some(o) = logic.host_object_mut(usa_unit) {
@@ -3567,8 +3567,8 @@ mod cpp_parity_tests {
         assert_eq!(unit.ai_state, AIState::AttackMoving);
         crate::gameworld_shadow::end_shadow_coupled_tick();
         match prev {
-            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
-            None => std::env::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
+            Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
+            None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
         }
     }
 

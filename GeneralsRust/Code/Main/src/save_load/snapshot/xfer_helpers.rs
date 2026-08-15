@@ -45,7 +45,7 @@ pub(super) fn xfer_option<T: XferData>(
         if data.is_none() {
             *data = Some(default);
         }
-        if let Some(ref mut val) = data {
+        if let Some(val) = data.as_mut() {
             val.xfer(xfer)?;
         }
     } else {

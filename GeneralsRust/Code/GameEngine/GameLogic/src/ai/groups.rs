@@ -822,7 +822,7 @@ impl AiUnitGroup {
         let mut valid_positions = 0;
 
         for unit in self.units.values() {
-            if let (Some(current_pos), Some(ref formation_pos)) =
+            if let (Some(current_pos), Some(formation_pos)) =
                 (unit.last_position, &unit.formation_position)
             {
                 let ideal_pos = Coord3D::new(

@@ -677,8 +677,8 @@ async fn test_eight_player_200_frame_sync() {
         // 1. Collect commands from all 8 players (deterministic)
         let mut all_commands: Vec<(PlayerId, GameCommandData)> = Vec::new();
 
-        for (player_id, gen) in cmd_gens.iter_mut().enumerate() {
-            if let Some(cmd) = gen.generate_random_command(&players[0]) {
+        for (player_id, generator) in cmd_gens.iter_mut().enumerate() {
+            if let Some(cmd) = generator.generate_random_command(&players[0]) {
                 all_commands.push((player_id as u8, cmd));
                 metrics.record_command(player_id as u8);
             }
@@ -848,8 +848,8 @@ async fn test_eight_player_maximum_commands() {
         // Generate up to 3 commands per player
         let mut all_commands: Vec<GameCommandData> = Vec::new();
 
-        for (player_id, gen) in cmd_gens.iter_mut().enumerate() {
-            let commands = gen.generate_multiple_commands(&players[0], 3);
+        for (player_id, generator) in cmd_gens.iter_mut().enumerate() {
+            let commands = generator.generate_multiple_commands(&players[0], 3);
             for cmd in commands {
                 all_commands.push(cmd);
                 metrics.record_command(player_id as u8);

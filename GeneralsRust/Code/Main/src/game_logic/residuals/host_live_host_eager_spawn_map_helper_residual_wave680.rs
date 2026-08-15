@@ -197,7 +197,7 @@ mod tests {
     fn eager_map_maps_host_id_during_coupled_tick() {
         let _guard = crate::gameworld_shadow::authority_env_lock();
         let prev = std::env::var_os("GENERALS_GAMEWORLD_SHADOW");
-        std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+        crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
 
         let mut logic = GameLogic::new();
         ensure_template(&mut logic, "EagerMapUnit", 100.0);
@@ -237,8 +237,8 @@ mod tests {
         let _ = ObjectId; // silence unused in some cfgs
 
         match prev {
-            Some(v) => std::env::set_var("GENERALS_GAMEWORLD_SHADOW", v),
-            None => std::env::remove_var("GENERALS_GAMEWORLD_SHADOW"),
+            Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", v),
+            None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_SHADOW"),
         }
     }
 }

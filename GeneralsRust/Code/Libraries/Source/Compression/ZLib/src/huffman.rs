@@ -188,7 +188,7 @@ impl HuffmanEncoder {
         let non_zero: Vec<_> = frequencies
             .iter()
             .enumerate()
-            .filter(|(_, &freq)| freq > 0)
+            .filter(|(_, freq)| **freq > 0)
             .collect();
 
         if non_zero.is_empty() {
@@ -198,7 +198,7 @@ impl HuffmanEncoder {
         // Build Huffman tree
         let mut nodes: Vec<HuffmanNode> = non_zero
             .iter()
-            .map(|(idx, &freq)| HuffmanNode::leaf(*idx as u16, freq))
+            .map(|(idx, freq)| HuffmanNode::leaf(*idx as u16, **freq))
             .collect();
 
         if nodes.len() == 1 {
