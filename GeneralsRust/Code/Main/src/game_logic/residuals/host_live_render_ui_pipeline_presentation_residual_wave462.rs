@@ -142,8 +142,8 @@ pub fn honesty_render_ui_pipeline_presentation_nav_commands_residual_wave462() -
 pub fn simulate_render_ui_pipeline_presentation_source() -> bool {
     let src = cnc_source();
     // Wave 591: real consumer lives in host_build_render_ui_state_from_presentation.
-    let marker =
-        "fn host_build_render_ui_state_from_presentation(&mut self) -> crate::ui::GameUIState";
+    // 2026-08-15: rustfmt split the signature (camera_drain.rs:1431).
+    let marker = "fn host_build_render_ui_state_from_presentation(";
     let mut at = None;
     let mut from = 0usize;
     while let Some(rel) = src[from..].find(marker) {

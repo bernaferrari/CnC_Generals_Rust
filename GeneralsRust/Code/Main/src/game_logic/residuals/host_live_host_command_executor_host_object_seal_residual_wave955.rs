@@ -60,9 +60,9 @@ fn ce_source() -> &'static str {
 }
 
 fn non_comment_prod(src: &str) -> String {
-    let ti = src.find("\n#[cfg(test)]").unwrap_or(src.len());
-    src[..ti]
-        .lines()
+    // 2026-08-15: COMMAND_EXECUTOR_SRC concat hits `#[cfg(test)] mod tests;`
+    // in mod.rs first — do not truncate the impl splits after that.
+    src.lines()
         .filter(|l| !l.trim_start().starts_with("//"))
         .collect::<Vec<_>>()
         .join("\n")

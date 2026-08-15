@@ -169,7 +169,13 @@ pub fn simulate_cancel_clears_exit_delay_cancel_all_source() -> bool {
 }
 
 pub fn simulate_cancel_clears_exit_delay_cancel_one_source() -> bool {
-    let Some(body) = function_body(&gl_source(), "fn cancel_production(") else {
+    // 2026-08-15: first `fn cancel_production` is buildings.rs queue helper;
+    // Wave 485 lives on GameLogic::cancel_production(producer_id, template).
+    let Some(body) = function_body(
+        &gl_source(),
+        "fn cancel_production(&mut self, producer_id: ObjectId, template_name: String)",
+    )
+    .or_else(|| function_body(&gl_source(), "fn cancel_production(")) else {
         return false;
     };
     let ok = body.contains("Wave 485: last cancelled item clears factory exit-delay residual")

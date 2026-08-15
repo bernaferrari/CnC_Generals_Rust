@@ -101,8 +101,11 @@ pub fn honesty_host_production_same_frame_ready_complete_source_markers_residual
         && gl.contains("gameworld_production_sole_tick_enabled()")
         && gl.contains("return;"); // sole early-return in update_production
                                    // update_production sole path returns before collect
+    // 2026-08-15: first `fn update_production` is buildings.rs; Wave 714 sole
+    // early-return is world_tick/production.rs:381.
     let upd_ok = gl
-        .find("fn update_production")
+        .find("fn update_production(&mut self, dt: f32)")
+        .or_else(|| gl.find("fn update_production"))
         .map(|i| {
             let end = (i + 900).min(gl.len());
             let chunk = &gl[i..end];
@@ -115,14 +118,18 @@ pub fn honesty_host_production_same_frame_ready_complete_source_markers_residual
         && sh.contains("writeback_production_to_host")
         && sh.contains("Wave 714");
     // writeback then same-frame complete order
-    let complete_at = sh
-        .find("host_apply_production_completions_after_ready_writeback")
-        .or_else(|| sh.find("ApplyCompletionsAfterReadyWriteback"))
-        .or_else(|| sh.find("apply_production_authority_op"));
-    let order_ok = match (sh.find("writeback_production_to_host(logic)"), complete_at) {
-        (Some(w), Some(c)) => c > w && c - w < 800,
-        _ => false,
-    };
+    // 2026-08-15: first apply_production_authority_op is earlier in session.rs;
+    // same-frame complete is immediately after writeback_production_to_host.
+    let order_ok = sh
+        .find("writeback_production_to_host(logic)")
+        .and_then(|w| {
+            let after = &sh[w..w.saturating_add(500).min(sh.len())];
+            Some(
+                after.contains("ApplyCompletionsAfterReadyWriteback")
+                    || after.contains("host_apply_production_completions_after_ready_writeback"),
+            )
+        })
+        .unwrap_or(false);
     let ok = gl_ok && upd_ok && sh_ok && order_ok && !gl.contains("playable_claim = true");
     residual_action_store(ResidualHostProductionSameFrameReadyCompleteAction::SourceMarkers);
     ok

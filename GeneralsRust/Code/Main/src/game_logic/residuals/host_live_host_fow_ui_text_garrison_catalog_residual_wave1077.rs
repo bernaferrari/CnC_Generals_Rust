@@ -81,7 +81,8 @@ pub fn honesty_host_fow_ui_text_garrison_catalog_residual_residual_pack_wave1077
     let cb = cb_source();
     let ok = d.contains("Wave 1077: FOW fully-obscured residual hides dual presentation UI text")
         && d.contains("if self.drawable_fully_obscured_by_shroud")
-        && cb.contains("Wave 1077: catalog occupant residual when freeze count unset")
+        && (cb.contains("Wave 1077: catalog occupant residual when freeze count unset")
+            || cb.contains("Wave 1077: catalog occupant residual when freeze count unset; clear on unusable"))
         && cb.contains("entry.occupant_count")
         && !cnc.contains("playable_claim = true")
         && !gl.contains("playable_claim = true");

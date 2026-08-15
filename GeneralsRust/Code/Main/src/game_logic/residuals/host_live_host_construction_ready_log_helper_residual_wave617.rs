@@ -155,7 +155,13 @@ pub fn honesty_host_construction_ready_log_helper_source_markers_residual_wave61
         residual_action_store(ResidualHostConstructionReadyLogHelperAction::SourceMarkers);
         return false;
     };
-    let Some(update) = fn_body(&gl, "fn update_construction(") else {
+    // 2026-08-15: last `fn update_construction` is object/update.rs; Wave 617
+    // readiness lives on the host tick overload in world_tick/production.rs.
+    let Some(update) = fn_body(
+        &gl,
+        "fn update_construction(&mut self, object_ids: &[ObjectId], dt: f32)",
+    )
+    .or_else(|| fn_body(&gl, "fn update_construction(")) else {
         residual_action_store(ResidualHostConstructionReadyLogHelperAction::SourceMarkers);
         return false;
     };
@@ -213,8 +219,11 @@ pub fn simulate_host_construction_ready_log_helper_collect_source() -> bool {
 pub fn simulate_host_construction_ready_log_helper_dispatch_source() -> bool {
     let gl = gl_source();
     let sh = shadow_source();
+    // 2026-08-15: host tick comment reworded to readiness-gated-by-log
+    // (world_tick/production.rs). Writeback still records ready structures.
     let ok = sh.contains("Wave 617: GameWorld sole-tick construction-ready residual")
-        && gl.contains("Wave 617: under sole-tick, GameWorld writeback records ready structures")
+        && (gl.contains("Wave 617: under sole-tick, GameWorld writeback records ready structures")
+            || gl.contains("Wave 617: readiness gated by host_construction_ready_log"))
         && gl.contains("ready_structures.contains(&id)");
     residual_action_store(ResidualHostConstructionReadyLogHelperAction::DispatchSource);
     ok

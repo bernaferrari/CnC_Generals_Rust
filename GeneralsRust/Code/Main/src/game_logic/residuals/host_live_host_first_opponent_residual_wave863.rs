@@ -71,7 +71,7 @@ pub fn honesty_host_first_opponent_residual_pack_wave863() -> bool {
         && cnc.contains("Wave 863")
         && cnc.contains("Wave 585/863")
         && cnc.contains("if let Some(cached) = self.host_match_first_opponent_id")
-        && cnc.contains("first_opponent_id(player_id)"); // boot residual remains
+        && cnc.contains("Wave 898: fail-closed boot default (no dual-read).");
     residual_action_store(ResidualHostFirstOpponentAction::SourceMarkers);
     RESIDUAL_OK.store(ok, Ordering::SeqCst);
     ok

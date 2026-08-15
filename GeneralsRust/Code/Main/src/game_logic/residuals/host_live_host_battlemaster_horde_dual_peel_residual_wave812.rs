@@ -112,8 +112,11 @@ pub fn simulate_host_battlemaster_horde_dual_peel_collect_source() -> bool {
     ok
 }
 pub fn simulate_host_battlemaster_horde_dual_peel_dispatch_source() -> bool {
+    // 2026-08-15: refresh_battlemaster_weapon lives on host GameLogic
+    // (world_combat/air_and_mig.rs), drain stays in shadow session.rs.
     let ok = sh_source().contains("host_battlemaster_horde_log::drain")
-        && sh_source().contains("refresh_battlemaster_weapon")
+        && (sh_source().contains("refresh_battlemaster_weapon")
+            || gl_source().contains("refresh_battlemaster_weapon"))
         && gl_source().contains("update_battlemaster_horde_status")
         && gl_source().contains("shadow_coupled_tick_active()");
     residual_action_store(ResidualHostBattlemasterHordeDualPeelAction::DispatchSource);

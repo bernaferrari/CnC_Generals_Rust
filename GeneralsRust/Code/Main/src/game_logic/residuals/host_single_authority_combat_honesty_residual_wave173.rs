@@ -92,11 +92,12 @@ pub fn honesty_dual_tick_default_authority_only_source() -> bool {
         Some(i) => i,
         None => return false,
     };
+    // 2026-08-15: production dual_tick_policy is always AuthorityOnly
+    // (authoritative_world.rs:87-89). Env opt-in no longer gates the live path.
     let body = &src[i..src.len().min(i + 900)];
-    body.contains("GENERALS_ALLOW_DUAL_TICK")
+    src.contains("Production path is always")
         && body.contains("DualTickPolicy::AuthorityOnly")
-        && body.contains("opt-in")
-        && body.contains("DualLegacyNonFatal")
+        && !body.contains("GENERALS_ALLOW_DUAL_TICK")
 }
 
 /// Source residual: golden teleport pull is env opt-in only.

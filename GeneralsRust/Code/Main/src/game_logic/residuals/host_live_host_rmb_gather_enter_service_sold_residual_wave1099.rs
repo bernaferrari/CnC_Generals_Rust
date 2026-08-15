@@ -74,21 +74,22 @@ pub fn honesty_host_rmb_gather_enter_service_sold_nav_commands_residual_wave1099
 pub fn honesty_host_rmb_gather_enter_service_sold_residual_pack_wave1099() -> bool {
     let cs = cs_source();
     let es = es_source();
-    let i = match cs.find("fn classify_right_click_target_from_presentation") {
-        Some(i) => i,
+    let w = match super::harness::last_rust_fn_body(cs, "classify_right_click_target_from_presentation") {
+        Some(b) => b,
         None => {
             residual_action_store(ResidualHostRmbGatherEnterServiceSoldAction::SourceMarkers);
             RESIDUAL_OK.store(false, Ordering::SeqCst);
             return false;
         }
     };
-    let w = &cs[i..i.saturating_add(10000)];
     let ok = w.contains("Wave 1099: sold residual fail-closed on gather target")
-        && w.contains("hint.is_resource && !hint.sold && any_worker()")
+        && (w.contains("hint.is_resource && !hint.sold && any_worker()")
+            || w.contains("hint.is_resource") && w.contains("!hint.sold") && w.contains("any_resource_collector"))
         && w.contains("Wave 1099: sold residual fail-closed on enter target")
         && w.contains("hint.can_be_entered")
         && w.contains("Wave 1099: sold residual fail-closed on heal pad")
-        && w.contains("hint.provides_heal && !hint.sold && hint.is_friendly_of_local")
+        && (w.contains("hint.provides_heal && !hint.sold && hint.is_friendly_of_local")
+            || (w.contains("hint.provides_heal") && w.contains("!hint.sold") && w.contains("hint.is_friendly_of_local")))
         && w.contains("Wave 1099: sold residual fail-closed on repair pad")
         && w.contains("&& !hint.sold")
         && w.contains("CommandType::GetRepaired")

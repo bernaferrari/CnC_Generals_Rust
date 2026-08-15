@@ -147,7 +147,8 @@ pub fn simulate_presentation_jam_die_reload_pack_input_source() -> bool {
         && pf.contains("jammed: ro.weapons_jammed")
         && pf.contains("destroyed: ro.destroyed")
         && pf.contains("continuous_fire_coast_until_frame: ro.continuous_fire_coast_until_frame")
-        && pf.contains("input.logic_frame = self.frame.0");
+        && (pf.contains("input.logic_frame = self.frame.0")
+            || pf.contains("input.logic_frame = logic_frame"));
     residual_action_store(ResidualPresentationJamDieReloadPackAction::InputSource);
     ok
 }

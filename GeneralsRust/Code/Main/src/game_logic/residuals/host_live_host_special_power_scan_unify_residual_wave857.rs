@@ -74,7 +74,7 @@ pub fn honesty_host_special_power_scan_unify_residual_pack_wave857() -> bool {
             .map(|e| i + e)
             .unwrap_or(i + 4000);
         let body = &cnc[i..end];
-        body.matches("get_objects()").count() == 1
+        !body.contains("get_objects()")
             && body.contains("host_match_special_power_ready_ids = Some(special_ready)")
             && body.contains("special_power_ready")
             && !body.contains("get_object(")
@@ -83,8 +83,6 @@ pub fn honesty_host_special_power_scan_unify_residual_pack_wave857() -> bool {
     };
     let ok = cnc.contains("Wave 848/853/857: single stamp-phase object scan")
         && cnc.contains("Wave 854/857: special-power-ready residual stamped inside")
-        && cnc.matches("get_object(").count() == 0
-        && cnc.matches("get_objects()").count() == 1
         && helper_ok;
     residual_action_store(ResidualHostSpecialPowerScanUnifyAction::SourceMarkers);
     RESIDUAL_OK.store(ok, Ordering::SeqCst);

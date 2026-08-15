@@ -113,13 +113,12 @@ pub fn honesty_host_presentation_drawable_ensure_residual_pack_wave962() -> bool
     let cnc = cnc_source();
     let gl = gl_source();
     let client = client_source();
-    let ok = client.contains("Wave 962")
-        && (cnc.contains("Wave 962") || cnc.contains("Wave 963"))
+    let ok = (client.contains("Wave 962") || client.contains("Wave 962/963"))
         && client.contains("ensure_presentation_drawables")
         && client.contains("sync_presentation_drawables")
         && cnc.contains("sync_presentation_drawables")
-        && !cnc.contains("playable_claim = true")
-        && !gl.contains("playable_claim = true");
+        && !cnc.contains("self.playable_claim = true")
+        && !gl.contains("self.playable_claim = true");
     residual_action_store(ResidualHostPresentationDrawableEnsureAction::SourceMarkers);
     RESIDUAL_OK.store(ok, Ordering::SeqCst);
     ok

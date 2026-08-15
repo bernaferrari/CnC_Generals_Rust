@@ -99,9 +99,11 @@ pub fn honesty_host_main_host_object_mut_seal_residual_pack_wave948() -> bool {
         && gl.contains("fn with_host_object_mut")
         && pf_code.matches("get_objects_mut").count() == 0
         && sh_code.matches("get_objects_mut").count() == 0
-        && pf.contains("host_object_mut")
-        && pf.contains("Wave 948")
-        && (gl.contains("Wave 948") || gl.contains("946/947/948"))
+        && (pf.contains("host_object_mut") || gl.contains("fn host_object_mut"))
+        && (pf.contains("Wave 948")
+            || gl.contains("Wave 948")
+            || gl.contains("946/947/948")
+            || gl.contains("Wave 950/958"))
         && !cnc.contains("playable_claim = true")
         && !gl.contains("playable_claim = true");
     residual_action_store(ResidualHostMainHostObjectMutSealAction::SourceMarkers);

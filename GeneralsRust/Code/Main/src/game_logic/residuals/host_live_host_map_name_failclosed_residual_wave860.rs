@@ -66,20 +66,14 @@ pub fn honesty_host_map_name_failclosed_nav_commands_residual_wave860() -> bool 
 
 pub fn honesty_host_map_name_failclosed_residual_pack_wave860() -> bool {
     let cnc = cnc_source();
-    let body_at = cnc.find("fn presentation_or_boot_map_name");
-    let body_ok = if let Some(i) = body_at {
-        let end = cnc[i..]
-            .find("\n    fn ")
-            .map(|e| i + e)
-            .unwrap_or(i + 1200);
-        let body = &cnc[i..end];
-        body.contains("Wave 554/860")
-            && body.contains("Wave 860: warm residual still shell")
-            && body.matches("get_current_map_name()").count() == 2 // cold freeze path + boot
-            && body.contains("host_match_map_name")
-    } else {
-        false
-    };
+    let body_ok = super::harness::last_rust_fn_body(cnc, "presentation_or_boot_map_name")
+        .map(|body| {
+            body.contains("Wave 554/860")
+                && body.contains("Wave 860: warm residual still shell")
+                && !body.contains("self.game_logic.get_current_map_name")
+                && body.contains("host_match_map_name")
+        })
+        .unwrap_or(false);
     residual_action_store(ResidualHostMapNameFailclosedAction::SourceMarkers);
     RESIDUAL_OK.store(body_ok, Ordering::SeqCst);
     body_ok

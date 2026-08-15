@@ -170,7 +170,8 @@ pub fn simulate_map_lighting_presentation_only_source() -> bool {
     let ok = body.contains("Wave 456")
         && body.contains("presentation_frame()")
         && body.contains("world_env")
-        && body.contains("set_environment_lighting")
+        && (body.contains("set_environment_lighting")
+            || body.contains("set_environment_lighting_with_terrain"))
         && body.contains("has_map_metadata")
         && !body.contains("game_logic: &GameLogic")
         && !body.contains("last_parsed_map_settings()");
@@ -188,20 +189,36 @@ pub fn simulate_map_lighting_presentation_only_callsites() -> bool {
     let mut from = 0usize;
     while let Some(rel) = src[from..].find("Self::apply_map_lighting(") {
         let i = from + rel;
-        let win = &src[i..];
+        let win = src[i..].get(..160).unwrap_or(&src[i..]);
         if win.contains("&self.game_logic") {
             three_arg_calls += 1;
         }
         from = i + 24;
     }
-    let sig_at = src.find("fn apply_map_lighting(");
-    let sig_ok = match sig_at {
-        Some(i) => {
-            let sig = &src[i..];
-            !sig.contains("game_logic")
-        }
-        None => false,
-    };
+    // 2026-08-15: bound the signature check to the function body — later
+    // GameLogic mentions must not poison this residual.
+    let sig_ok = src
+        .find("fn apply_map_lighting(")
+        .and_then(|i| {
+            let after = &src[i..];
+            let brace = after.find('{')?;
+            let mut depth = 0i32;
+            for (j, ch) in after[brace..].char_indices() {
+                match ch {
+                    '{' => depth += 1,
+                    '}' => {
+                        depth -= 1;
+                        if depth == 0 {
+                            let body = &after[..=brace + j];
+                            return Some(!body.contains("game_logic:"));
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            None
+        })
+        .unwrap_or(false);
     let ok = ensure_n >= 3 && apply_n >= 3 && three_arg_calls == 0 && sig_ok;
     residual_action_store(ResidualMapLightingPresentationOnlyAction::CallSites);
     ok

@@ -146,7 +146,9 @@ pub fn simulate_presentation_topple_freefall_weather_freeze_source() -> bool {
         && pf.contains("parachute_open: obj.is_parachute_open()")
         && pf.contains("parachute_open: ent.parachute_open")
         && pf.contains("let is_snow = weather.contains")
-        && pf.contains("input.world_is_snow = self.world_env.is_snow");
+        // 2026-08-15: queries.rs passes world_env.is_snow into unit_render setter.
+        && pf.contains("input.world_is_snow = world_is_snow")
+        && pf.contains("self.world_env.is_snow");
     residual_action_store(ResidualPresentationToppleFreefallWeatherAction::FreezeSource);
     ok
 }

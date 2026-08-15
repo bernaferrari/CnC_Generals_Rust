@@ -158,9 +158,11 @@ pub fn simulate_presentation_mesh_sold_condition_resolve_source() -> bool {
 
 pub fn simulate_presentation_mesh_sold_condition_render_source() -> bool {
     let rp = rp_source();
+    // 2026-08-15: collect uses authored draw_models (pipeline_collect.rs:178-216),
+    // not a live u.model_condition_bits reconstruct.
     let ok = rp.contains("Presentation has already selected the exact source-authored")
         && rp.contains("for draw_model in draw_models")
-        && rp.contains("u.model_condition_bits")
+        && rp.contains("u.draw_models")
         && !rp.contains("model_key_with_presentation_state(")
         && !rp.contains("model_key_with_presentation_conditions(");
     residual_action_store(ResidualPresentationMeshSoldConditionAction::RenderSource);

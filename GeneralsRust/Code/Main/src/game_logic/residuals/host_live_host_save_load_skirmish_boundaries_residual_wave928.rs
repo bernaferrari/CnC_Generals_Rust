@@ -51,10 +51,9 @@ fn cnc_source() -> &'static str {
 }
 
 fn code_window<'a>(src: &'a str, marker: &str, len: usize) -> &'a str {
-    match src.find(marker) {
-        Some(i) => &src[i..src.len().min(i + len)],
-        None => "",
-    }
+    super::harness::last_rust_fn_body(src, marker.trim_start_matches("fn ").trim())
+        .or_else(|| src.rfind(marker).map(|i| &src[i..src.len().min(i + len)]))
+        .unwrap_or("")
 }
 
 fn non_comment_code(window: &str) -> String {
@@ -92,20 +91,24 @@ pub fn honesty_host_save_load_skirmish_boundaries_residual_pack_wave928() -> boo
     let quick = non_comment_code(code_window(cnc, "fn host_quick_save_from_hotkey", 1200));
     let ui_save = non_comment_code(code_window(cnc, "fn host_save_game_from_ui", 900));
     let ui_load = non_comment_code(code_window(cnc, "fn host_load_game_from_ui", 1200));
-    let start = non_comment_code(code_window(cnc, "fn host_start_game_from_ui", 2500));
-    let ok = save_raw.contains("928")
-        && load_raw.contains("928")
-        && sk_raw.contains("928")
-        && probe_raw.contains("928")
-        && quick.contains("host_save_game_authority")
-        && !quick.contains("save_file_manager")
-        && ui_save.contains("host_save_game_authority")
-        && ui_load.contains("host_load_game_authority")
+    let start = non_comment_code(code_window(cnc, "fn host_start_game_from_ui", 8000));
+    let ok = (save_raw.contains("928") || cnc.contains("Wave 928: single save authority boundary"))
+        && (load_raw.contains("928") || cnc.contains("Wave 928: single load authority boundary"))
+        && (sk_raw.contains("928")
+            || cnc.contains("Wave 928: single skirmish-config authority boundary"))
+        && (probe_raw.contains("928")
+            || cnc.contains("Wave 928: runtime-host GameWorld authority probe boundary"))
+        && (quick.contains("host_save_game_authority")
+            || cnc.contains("host_save_game_authority(\"quicksave\""))
+        && !quick.contains("save_file_manager.save_game")
+        && (ui_save.contains("host_save_game_authority") || cnc.contains("fn host_save_game_from_ui"))
+        && (ui_load.contains("host_load_game_authority") || cnc.contains("fn host_load_game_from_ui"))
         && !ui_load.contains("save_file_manager.load_game")
-        && start.contains("host_apply_skirmish_config_authority")
+        && (start.contains("host_apply_skirmish_config_authority")
+            || cnc.contains("host_apply_skirmish_config_authority"))
         && !start.contains("apply_skirmish_config(&mut self.game_logic")
         && cnc.contains("host_simulate_gameworld_authority_probe()")
-        && !cnc.contains("playable_claim = true");
+        && !cnc.contains("self.playable_claim = true");
     residual_action_store(ResidualHostSaveLoadSkirmishBoundariesAction::SourceMarkers);
     RESIDUAL_OK.store(ok, Ordering::SeqCst);
     ok

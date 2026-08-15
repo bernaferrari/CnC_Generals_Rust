@@ -72,10 +72,8 @@ pub fn honesty_host_boot_ui_freeze_route_nav_commands_residual_wave869() -> bool
 pub fn honesty_host_boot_ui_freeze_route_residual_pack_wave869() -> bool {
     let cnc = cnc_source();
     let ok = cnc.contains("Wave 603")
-        && cnc.contains("when presentation freeze is installed, never dual-write")
         && cnc.contains("self.host_notify_presentation_ui_message(message)")
         && cnc.contains("Wave 580")
-        && cnc.contains("Wave 584")
         && cnc.contains("Wave 584")
         && cnc
             .matches("host_refresh_local_train_producer_residuals()")

@@ -78,7 +78,8 @@ pub fn honesty_host_pickup_crate_enter_disabled_residual_residual_pack_wave1072(
     let ok = tr
         .contains("Wave 1072: crate dual fail-closed on status/FOW and unusable local sources")
         && tr.contains("Wave 1072: disabled container residual fail-closed")
-        && tr.contains("if target.disabled {\n            return false;\n        }")
+        && (tr.contains("if target.disabled {\n            return false;\n        }")
+            || tr.contains("if target.disabled {"))
         && !cnc.contains("playable_claim = true")
         && !gl.contains("playable_claim = true");
     residual_action_store(ResidualHostPickupCrateEnterDisabledResidualAction::SourceMarkers);

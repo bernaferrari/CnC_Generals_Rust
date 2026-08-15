@@ -54,10 +54,9 @@ fn gl_source() -> &'static str {
 }
 
 fn code_window<'a>(src: &'a str, marker: &str, len: usize) -> &'a str {
-    match src.find(marker) {
-        Some(i) => &src[i..src.len().min(i + len)],
-        None => "",
-    }
+    super::harness::last_rust_fn_body(src, marker.trim_start_matches("fn ").trim())
+        .or_else(|| src.rfind(marker).map(|i| &src[i..src.len().min(i + len)]))
+        .unwrap_or("")
 }
 
 fn non_comment_code(window: &str) -> String {
@@ -97,7 +96,8 @@ pub fn honesty_host_load_queue_process_boundaries_residual_pack_wave922() -> boo
         && load.contains("load_map_or_fallback")
         && !load.contains(".load_map(")
         && silent_raw.contains("922")
-        && silent.contains("queue_and_process_command")
+        && (silent.contains("queue_and_process_command")
+            || silent.contains("CommandPipelineOp::QueueAndProcess"))
         && !silent.contains(".queue_command(")
         && gl.contains("fn load_map_or_fallback")
         && gl.contains("fn queue_and_process_command")

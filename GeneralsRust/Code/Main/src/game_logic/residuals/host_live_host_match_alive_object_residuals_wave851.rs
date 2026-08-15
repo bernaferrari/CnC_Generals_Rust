@@ -73,7 +73,7 @@ pub fn honesty_host_match_alive_object_residuals_residual_pack_wave851() -> bool
         && cnc.contains("Wave 584/851")
         && cnc.contains("if let Some(alive) = self.host_match_alive_object_ids.as_ref()")
         && cnc.matches("alive.contains(&id.0)").count() >= 2
-        && cnc.contains("object_is_alive(id)"); // boot residual remains
+        && cnc.contains("fail-closed boot default (no dual-read)");
     residual_action_store(ResidualHostMatchAliveObjectResidualsAction::SourceMarkers);
     RESIDUAL_OK.store(ok, Ordering::SeqCst);
     ok

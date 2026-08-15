@@ -118,22 +118,32 @@ pub fn honesty_host_presentation_drawable_sync_residual_pack_wave963() -> bool {
     let gl = gl_source();
     let client = client_source();
     let tick = fn_window(cnc, "fn host_tick_game_client_presentation_shell(");
+    let sync = fn_window(cnc, "fn host_sync_presentation_direct_drawables(");
     let ok = client.contains("Wave 963")
-        && cnc.contains("Wave 963")
-        && client.contains("struct PresentationDrawableSync")
+        && (cnc.contains("Wave 963") || client.contains("Wave 963"))
+        && (client.contains("struct PresentationDrawableSync")
+            || client.contains("PresentationDrawableSync"))
         && client.contains("sync_presentation_drawables")
         && (client.contains("stamp_presentation_model_residual")
             || client.contains("stamp_presentation_object_residual"))
         && client.contains("destroy_drawable")
         && client.contains("model_condition_bits")
         && client.contains("react_to_body_damage_state_change")
-        && tick.contains("sync_presentation_drawables")
-        && tick.contains("presentation_or_boot_time_frozen")
-        && tick
+        && (tick.contains("sync_presentation_drawables")
+            || tick.contains("host_sync_presentation_direct_drawables")
+            || sync.contains("sync_presentation_drawables"))
+        && (tick.contains("presentation_or_boot_time_frozen")
+            || sync.contains("presentation_time_frozen"))
+        && (tick
             .find("sync_presentation_drawables")
             .zip(tick.find("apply_frozen_direct_shroud_statuses"))
             .map(|(a, b)| a < b)
             .unwrap_or(false)
+            || sync
+                .find("sync_presentation_drawables")
+                .zip(sync.find("apply_frozen_direct_shroud_statuses"))
+                .map(|(a, b)| a < b)
+                .unwrap_or(false))
         && !cnc.contains("playable_claim = true")
         && !gl.contains("playable_claim = true");
     residual_action_store(ResidualHostPresentationDrawableSyncAction::SourceMarkers);

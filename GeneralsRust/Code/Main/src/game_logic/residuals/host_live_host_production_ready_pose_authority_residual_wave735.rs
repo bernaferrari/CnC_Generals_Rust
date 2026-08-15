@@ -125,7 +125,8 @@ pub fn simulate_host_production_ready_pose_authority_collect_source() -> bool {
 }
 pub fn simulate_host_production_ready_pose_authority_dispatch_source() -> bool {
     let ok = shadow_source().contains("record_with_pose")
-        && gl_source().contains("if let Some(p) = ev.spawn_pos");
+        && (gl_source().contains("if let Some(p) = ev.spawn_pos")
+            || gl_source().contains("if let Some(p) = event.spawn_pos"));
     residual_action_store(ResidualHostProductionReadyPoseAuthorityAction::DispatchSource);
     ok
 }

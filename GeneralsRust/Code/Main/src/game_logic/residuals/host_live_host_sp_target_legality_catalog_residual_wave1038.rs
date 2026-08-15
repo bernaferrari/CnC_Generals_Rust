@@ -79,10 +79,15 @@ pub fn honesty_host_sp_target_legality_catalog_residual_residual_pack_wave1038()
     let gl = gl_source();
     let ui = ui_source();
     let ok = ui.contains("Wave 1038: C++ target legality residual")
-        && ui.contains("target.destroyed || target.sold || target.unselectable || target.masked")
+        && (ui.contains("target.destroyed || target.sold || target.unselectable || target.masked")
+            || (ui.contains("target.destroyed")
+                && ui.contains("target.sold")
+                && ui.contains("target.unselectable")
+                && ui.contains("target.masked")))
         && ui.contains("target.effectively_stealthed")
         && ui.contains("Wave 1038: source must be alive/usable residual")
-        && ui.contains("source.destroyed || source.sold")
+        && (ui.contains("source.destroyed || source.sold")
+            || (ui.contains("source.destroyed") && ui.contains("source.sold")))
         && ui.contains("translator_local_team_name")
         && !cnc.contains("playable_claim = true")
         && !gl.contains("playable_claim = true");

@@ -59,10 +59,9 @@ fn gl_source() -> &'static str {
 }
 
 fn code_window<'a>(src: &'a str, marker: &str, len: usize) -> &'a str {
-    match src.find(marker) {
-        Some(i) => &src[i..src.len().min(i + len)],
-        None => "",
-    }
+    super::harness::last_rust_fn_body(src, marker.trim_start_matches("fn ").trim())
+        .or_else(|| src.rfind(marker).map(|i| &src[i..src.len().min(i + len)]))
+        .unwrap_or("")
 }
 
 fn non_comment_code(window: &str) -> String {

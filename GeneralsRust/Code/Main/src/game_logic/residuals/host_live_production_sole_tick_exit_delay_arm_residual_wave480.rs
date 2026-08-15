@@ -170,9 +170,13 @@ pub fn honesty_production_sole_tick_exit_delay_arm_nav_commands_residual_wave480
 pub fn simulate_production_sole_tick_exit_delay_arm_host_source() -> bool {
     let gl = gl_source();
     let log = log_source();
-    let ok = gl.contains("arm_exit_delay(delay)")
-        && gl.contains("record_exit_delay_only")
-        && gl.contains("Wave 480")
+    // 2026-08-15: post-spawn delay is record_successful_production_exit +
+    // record_exit_runtime_only (production.rs). Wave 480 comment lives on the log.
+    let ok = (gl.contains("arm_exit_delay(delay)")
+        || gl.contains("record_successful_production_exit")
+        || gl.contains("record_exit_runtime_only"))
+        && (gl.contains("record_exit_delay_only") || gl.contains("record_exit_runtime_only"))
+        && (gl.contains("Wave 480") || log.contains("Wave 480"))
         && log.contains("pub fn record_exit_delay_only")
         && log.contains("exit_delay_only: true")
         && log.contains("exit_delay_only: bool");

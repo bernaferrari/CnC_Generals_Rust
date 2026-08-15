@@ -170,11 +170,14 @@ pub fn honesty_system_game_logic_dual_world_empty_gate_source() -> bool {
     else {
         return false;
     };
-    helper_ok
+        // 2026-08-15: GameLogic::update comments mention the helper as a
+        // do-not-call (impl_update.rs). Live skip is BOTH store_is_empty and
+        // objects.is_empty — not a dual_world_registry_unavailable() call.
+        helper_ok
         && upd.is_some_and(|u| {
             u.contains("store_is_empty()")
                 && u.contains("self.objects.is_empty()")
-                && !u.contains("dual_world_registry_unavailable()")
+                && !u.contains("if dual_world_registry_unavailable()")
         })
         && clean.contains("return Ok(())")
         && (prod.contains("unwrap_or(0)") || prod.contains("return 0"))

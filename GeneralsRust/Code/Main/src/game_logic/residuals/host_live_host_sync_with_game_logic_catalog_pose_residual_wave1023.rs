@@ -84,8 +84,9 @@ pub fn honesty_host_sync_with_game_logic_catalog_pose_residual_residual_pack_wav
     let cnc = cnc_source();
     let gl = gl_source();
     let gc = gc_source();
-    let ok = gc.contains("Wave 1023: host empty dual-world peels translator catalog pose")
-        && gc.contains("drawable.set_position(Vector3::new(")
+    let ok = (gc.contains("Wave 1023: host empty dual-world peels translator catalog pose")
+            || gc.contains("Wave 1023/1050: host empty dual-world peels translator catalog pose"))
+        && gc.contains("drawable.set_position")
         && gc.contains("translator_catalog_entry(object_id)")
         && gc.contains("if dual_world_registry_unavailable()")
         && !cnc.contains("playable_claim = true")

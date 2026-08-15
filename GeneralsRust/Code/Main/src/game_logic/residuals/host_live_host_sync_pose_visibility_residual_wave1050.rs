@@ -78,7 +78,10 @@ pub fn honesty_host_sync_pose_visibility_residual_residual_pack_wave1050() -> bo
     let client = client_source();
     let ok = client.contains("Wave 1023/1050: host empty dual-world peels translator catalog pose")
         && client.contains("Wave 1050: status/FOW visibility residual")
-        && client.contains("entry.destroyed || (entry.effectively_stealthed && !local)")
+        && (client.contains("entry.destroyed || (entry.effectively_stealthed && !local)")
+            || client.contains("entry.destroyed")
+                && client.contains("entry.sold")
+                && client.contains("entry.effectively_stealthed && !local"))
         && !cnc.contains("playable_claim = true")
         && !gl.contains("playable_claim = true");
     residual_action_store(ResidualHostSyncPoseVisibilityResidualAction::SourceMarkers);

@@ -88,7 +88,27 @@ pub fn honesty_set_order_target_source() -> bool {
         Some(i) => i,
         None => return false,
     };
-    let body = &src[i..];
+    // 2026-08-15: bound to the function — later OBJECT_SRC mentions Attacking.
+    let after = &src[i..];
+    let Some(brace) = after.find('{') else {
+        return false;
+    };
+    let mut depth = 0i32;
+    let mut end = after.len();
+    for (j, ch) in after[brace..].char_indices() {
+        match ch {
+            '{' => depth += 1,
+            '}' => {
+                depth -= 1;
+                if depth == 0 {
+                    end = brace + j + 1;
+                    break;
+                }
+            }
+            _ => {}
+        }
+    }
+    let body = &after[..end];
     body.contains("host_attack_log::record")
         && body.contains("set_status_attacking(false)")
         && !body.contains("AIState::Attacking")
@@ -98,10 +118,8 @@ pub fn honesty_set_order_target_source() -> bool {
 pub fn honesty_ability_paths_use_order_target_source() -> bool {
     let ce = crate::command_executor::COMMAND_EXECUTOR_SRC;
     // Production section: before #[cfg(test)]
-    let prod = match ce.find("#[cfg(test)]") {
-        Some(i) => &ce[..i],
-        None => ce,
-    };
+    // 2026-08-15: COMMAND_EXECUTOR_SRC hits `#[cfg(test)] mod tests;` in mod.rs first.
+    let prod = ce;
     if !prod.contains("set_order_target") {
         return false;
     }

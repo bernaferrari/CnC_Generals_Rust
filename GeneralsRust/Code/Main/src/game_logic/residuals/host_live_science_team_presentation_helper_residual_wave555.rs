@@ -132,11 +132,14 @@ pub fn honesty_science_team_presentation_helper_source_markers_residual_wave555(
         residual_action_store(ResidualScienceTeamPresentationHelperAction::SourceMarkers);
         return false;
     };
+    // 2026-08-15: Wave 894/895/898 fail-closed — sciences/team use host_match_*
+    // (host_authority.rs), not player_unlocked_sciences / player_team dual-reads.
     let sci_ok = sci.contains("Wave 555")
         && sci.contains("local_unlocked_sciences")
-        && sci.contains("player_unlocked_sciences");
-    let team_ok =
-        team.contains("Wave 555") && team.contains("local_team()") && team.contains("player_team");
+        && sci.contains("host_match_unlocked_sciences");
+    let team_ok = team.contains("Wave 555")
+        && team.contains("local_team()")
+        && team.contains("host_match_local_team");
     let routes = eng.contains("presentation_or_boot_unlocked_sciences(player_id)")
         && eng.contains("presentation_or_boot_local_team()");
     let lp = fn_body(eng, "fn host_local_player_id_for_ui(")

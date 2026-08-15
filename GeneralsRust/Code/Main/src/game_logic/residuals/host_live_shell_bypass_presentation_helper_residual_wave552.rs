@@ -181,7 +181,8 @@ pub fn simulate_shell_bypass_presentation_helper_dispatch_source() -> bool {
     let ok = eng.contains("presentation_or_boot_shell_bypass()")
         && eng.contains("presentation_affirms_shell_or_boot()")
         && eng.contains("shell_bypass_from_presentation(startup_camera_presentation)")
-        && eng.matches("self.game_logic.isInShellGame()").count() == 1
+        // 2026-08-15: Wave 895 fail-closed — last isInShellGame dual-read peeled.
+        && eng.matches("self.game_logic.isInShellGame()").count() == 0
         && eng.contains("self.host_is_in_shell_game()");
     residual_action_store(ResidualShellBypassPresentationHelperAction::DispatchSource);
     ok

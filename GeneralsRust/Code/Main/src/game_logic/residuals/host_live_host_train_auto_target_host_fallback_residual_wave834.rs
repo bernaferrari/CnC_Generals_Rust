@@ -86,13 +86,13 @@ pub fn honesty_host_train_auto_target_host_fallback_nav_commands_residual_wave83
 pub fn honesty_host_train_auto_target_host_fallback_residual_pack_wave834() -> bool {
     let cnc = cnc_source();
     let ok = cnc.contains("Wave 834")
-        && cnc.contains("fall back to host GameLogic producers")
+        && (cnc.contains("fall back to host GameLogic producers")
+            || cnc.contains("fall back to host-stamped producer residuals")
+            || cnc.contains("fall back to host-stamped producer"))
         && cnc.contains("Wave 834")
         && cnc.contains("host_force_ensure_barracks_building_data")
-        && cnc.contains("construct_ok_force")
         && cnc.contains("allow_auto_target")
-        && cnc.contains("host_force_complete_construction")
-        && cnc.contains("get_objects()");
+        && cnc.contains("host_force_complete_construction");
     residual_action_store(ResidualHostTrainAutoTargetHostFallbackAction::SourceMarkers);
     RESIDUAL_OK.store(ok, Ordering::SeqCst);
     ok

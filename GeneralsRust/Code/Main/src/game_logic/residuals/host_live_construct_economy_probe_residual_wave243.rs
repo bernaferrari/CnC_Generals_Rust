@@ -106,7 +106,8 @@ pub fn honesty_construct_economy_probe_source() -> bool {
     // 2026-08-15: scan host plus extra world_* splits.
     let gl = super::host_logic_scan_src();
     let cs = crate::command_system::COMMAND_SYSTEM_SRC;
-    if !(gl.contains("pub fn unit_team_if_can_construct(")
+    if !(gl.contains("pub fn unit_owner_if_can_construct(")
+        && gl.contains("pub fn unit_team_if_can_construct(")
         && gl.contains("pub fn player_id_for_team(")
         && gl.contains("pub fn try_spend_player_resources(")
         && gl.contains("pub fn player_refund_supplies("))
@@ -116,8 +117,8 @@ pub fn honesty_construct_economy_probe_source() -> bool {
     let Some(construct) = fn_body(cs, "fn execute_construct_command(") else {
         return false;
     };
-    construct.contains("Wave 243")
-        && construct.contains("unit_team_if_can_construct")
+    // 2026-08-15: construct bills the owner slot via unit_owner_if_can_construct.
+    construct.contains("unit_owner_if_can_construct")
         && construct.contains("try_spend_player_resources")
         && construct.contains("player_refund_supplies")
         && !construct.contains("get_player_mut_by_team")

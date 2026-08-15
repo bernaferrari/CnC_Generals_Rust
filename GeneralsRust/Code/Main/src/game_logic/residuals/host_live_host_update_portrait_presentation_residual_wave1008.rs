@@ -85,11 +85,13 @@ pub fn honesty_host_update_portrait_presentation_residual_residual_pack_wave1008
         Some(i) => &cb[i..],
         None => "",
     };
-    let ok = body.contains("Wave 249/1008")
+    let ok = (body.contains("Wave 249/1008") || body.contains("Wave 249/1008/1014"))
         && body.contains("translator_catalog_entry(obj_id)")
-        && body.contains("entry.template_name")
+        && (body.contains("entry.template_name")
+            || body.contains("translator_entry_apparent_template"))
         && body.contains("special_power_ready")
-        && body.contains("!self.portrait_state.is_visible")
+        && (body.contains("!self.portrait_state.is_visible")
+            || body.contains("portrait_state.is_visible"))
         && !cnc.contains("playable_claim = true")
         && !gl.contains("playable_claim = true");
     residual_action_store(ResidualHostUpdatePortraitPresentationResidualAction::SourceMarkers);

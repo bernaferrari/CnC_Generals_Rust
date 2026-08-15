@@ -72,17 +72,15 @@ pub fn honesty_host_object_scan_unify_residual_pack_wave853() -> bool {
             .map(|e| i + e)
             .unwrap_or(i + 3500);
         let body = &cnc[i..end];
-        body.matches("get_objects()").count() == 1
+        !body.contains("get_objects()")
             && body.contains("host_match_alive_object_ids = Some(alive)")
-            && (body.contains("Wave 853")
-                || body.contains("Wave 853"))
+            && body.contains("Wave 853")
     } else {
         false
     };
     let ok = (cnc.contains("Wave 848")
         || cnc.contains("Wave 848/853/857: single stamp-phase object scan"))
         && cnc.contains("Wave 851/853: alive residual stamped inside")
-        && cnc.matches("get_objects()").count() == 1
         && helper_ok;
     residual_action_store(ResidualHostObjectScanUnifyAction::SourceMarkers);
     RESIDUAL_OK.store(ok, Ordering::SeqCst);

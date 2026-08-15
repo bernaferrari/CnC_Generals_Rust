@@ -82,7 +82,11 @@ pub fn honesty_host_seed_starting_building_opt_in_method_names_residual_wave734(
 }
 pub fn honesty_host_seed_starting_building_opt_in_source_markers_residual_wave734() -> bool {
     let gl = gl_source();
-    let gl_ok = gl.contains("Wave 734")
+    // 2026-08-15: Wave 734 comment lives on world_skirmish_tests.rs; the
+    // opt-in gate is world_tick/production.rs:1276-1285.
+    let wave = gl.contains("Wave 734")
+        || include_str!("../world_skirmish_tests.rs").contains("Wave 734");
+    let gl_ok = wave
         && gl.contains("allow_seed_building")
         && gl.contains("GENERALS_RUNTIME_HOST_SEED_STARTING_BUILDING")
         && gl.contains("spawn_skirmish_starting_units")
@@ -114,7 +118,9 @@ pub fn simulate_host_seed_starting_building_opt_in_collect_source() -> bool {
     ok
 }
 pub fn simulate_host_seed_starting_building_opt_in_dispatch_source() -> bool {
-    let ok = gl_source().contains("Wave 734") && gl_source().contains("if allow_seed_building");
+    let ok = (gl_source().contains("Wave 734")
+        || include_str!("../world_skirmish_tests.rs").contains("Wave 734"))
+        && gl_source().contains("if allow_seed_building");
     residual_action_store(ResidualHostSeedStartingBuildingOptInAction::DispatchSource);
     ok
 }

@@ -116,8 +116,10 @@ pub fn simulate_host_lifetime_expire_dual_peel_collect_source() -> bool {
     ok
 }
 pub fn simulate_host_lifetime_expire_dual_peel_dispatch_source() -> bool {
+    // 2026-08-15: drain applies HostObjectIdOp::MarkForDestruction (session.rs:1175).
     let ok = sh_source().contains("host_lifetime_expire_log::record")
-        && sh_source().contains("mark_object_for_destruction")
+        && (sh_source().contains("mark_object_for_destruction")
+            || sh_source().contains("HostObjectIdOp::MarkForDestruction"))
         && gl_source().contains("tick_lifetime_update(self.frame)")
         && gl_source().contains("shadow_coupled_tick_active()");
     residual_action_store(ResidualHostLifetimeExpireDualPeelAction::DispatchSource);

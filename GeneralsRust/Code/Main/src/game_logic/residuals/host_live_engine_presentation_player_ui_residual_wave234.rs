@@ -122,7 +122,7 @@ pub fn honesty_engine_presentation_player_ui_source() -> bool {
     }
     for (name, token) in [
         ("fn center_camera_on_selection(", "ui_selected_ids"),
-        ("fn handle_right_click(", "ui_selected_ids"),
+        ("fn handle_context_click(", "ui_selected_ids"),
         // Wave 612: force-attack / cursor logic live in host helpers.
         (
             "fn host_issue_force_attack_from_left_click(",
@@ -158,9 +158,11 @@ pub fn honesty_engine_presentation_player_ui_source() -> bool {
     else {
         return false;
     };
-    cursor.contains("Wave 234")
-        && cursor.contains("ui_selected_ids")
-        && !cursor.contains("ui_selected_ids")
+    // 2026-08-15: cursor uses ui_selected_ids; must not dual-read selected_objects first.
+    cursor.contains("ui_selected_ids")
+        && !cursor
+            .lines()
+            .any(|l| !l.trim_start().starts_with("//") && l.contains("selected_objects"))
 }
 
 /// Live residual: source honesty pack latches.

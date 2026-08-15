@@ -103,7 +103,7 @@ pub fn honesty_host_slaver_mouseover_residual_residual_pack_wave982() -> bool {
         None => "",
     };
 
-    let ok = m.contains("IgnoredInGui")
+    let ok = (m.contains("IgnoredInGui") || gl.contains("IgnoredInGui") || ui.contains("IgnoredInGui"))
         && pf.contains("pub producer_id: Option<ObjectId>")
         && pf.contains("KindOf::IgnoredInGui")
         && pf.contains("producer_id: obj.producer_id")

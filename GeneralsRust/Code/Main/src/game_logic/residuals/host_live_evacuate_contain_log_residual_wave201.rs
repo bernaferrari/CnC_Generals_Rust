@@ -82,12 +82,35 @@ pub fn honesty_live_evacuate_contain_log_residual_pack_wave201() -> bool {
 
 /// Source residual: evacuate uses set_contained_by(None), no direct field write.
 pub fn honesty_evacuate_uses_set_contained_by_source() -> bool {
-    let src = super::host_logic_scan_src();
+    // 2026-08-15: evacuate_container_now lives in world_combat/registries.rs.
+    let src = concat!(
+        include_str!("../world_combat/registries.rs"),
+        include_str!("../world_scripts/unit_commands.rs"),
+    );
     let i = match src.find("fn evacuate_container_now") {
         Some(i) => i,
         None => return false,
     };
-    let body = &src[i..];
+    let after = &src[i..];
+    let Some(brace) = after.find('{') else {
+        return false;
+    };
+    let mut depth = 0i32;
+    let mut end = after.len();
+    for (j, ch) in after[brace..].char_indices() {
+        match ch {
+            '{' => depth += 1,
+            '}' => {
+                depth -= 1;
+                if depth == 0 {
+                    end = brace + j + 1;
+                    break;
+                }
+            }
+            _ => {}
+        }
+    }
+    let body = &after[..end];
     body.contains("set_contained_by(None)")
         && !body.contains("contained_by = None")
         && body.contains("remove_occupant")

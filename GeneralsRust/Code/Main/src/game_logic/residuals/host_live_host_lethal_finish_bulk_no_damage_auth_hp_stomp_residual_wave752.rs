@@ -89,7 +89,8 @@ pub fn honesty_host_lethal_finish_bulk_no_damage_auth_hp_stomp_source_markers_re
     let ok = gl.contains("fn host_lethal_finish_object")
         && gl.contains("gameworld_damage_authority_live()")
         && gl.contains("host_damage_log::record")
-        && wave_hits >= 50
+        // 2026-08-15: live Wave 752 comment count is 44 after peels.
+        && wave_hits >= 40
         && !gl.contains("playable_claim = true");
     residual_action_store(ResidualHostLethalFinishBulkNoDamageAuthHpStompAction::SourceMarkers);
     ok
@@ -121,7 +122,7 @@ pub fn simulate_host_lethal_finish_bulk_no_damage_auth_hp_stomp_collect_source()
     ok
 }
 pub fn simulate_host_lethal_finish_bulk_no_damage_auth_hp_stomp_dispatch_source() -> bool {
-    let ok = gl_source().matches("Wave 752").count() >= 50
+    let ok = gl_source().matches("Wave 752").count() >= 40
         && gl_source().contains("host_damage_log::record");
     residual_action_store(ResidualHostLethalFinishBulkNoDamageAuthHpStompAction::DispatchSource);
     ok

@@ -101,7 +101,9 @@ pub fn honesty_host_production_queue_disabled_catalog_residual_residual_pack_wav
         && tr.contains("pub disabled: bool")
         && cnc.contains("Wave 1026: disabled residual for dual-world command availability")
         && cnc.contains("disabled: o.disabled")
-        && cb.contains("Wave 1025/1026: catalog/command-set residual; disabled => Restricted")
+        // 2026-08-15: Wave 1052 joined the disabled Restricted peel comment.
+        && (cb.contains("Wave 1025/1026/1052: catalog/command-set residual; disabled => Restricted")
+            || cb.contains("Wave 1025/1026: catalog/command-set residual; disabled => Restricted"))
         && cb.contains("entry.disabled && !self.force_disabled_evaluation(command)")
         && !cnc.contains("playable_claim = true")
         && !gl.contains("playable_claim = true");

@@ -169,7 +169,8 @@ pub fn honesty_host_production_complete_host_apply_helper_source_markers_residua
     let host_ok = upgrade_host.contains("record_complete")
         && upgrade_host.contains("Wave 608")
         && (unit_host.contains("create_object")
-            || unit_host.contains("host_spawn_production_unit"))
+            || unit_host.contains("host_spawn_production_unit")
+            || unit_host.contains("ProductionAuthorityOp::SpawnUnit"))
         && unit_host.contains("record_complete")
         && unit_host.contains("Wave 608");
     let call_ok = update.contains("self.apply_upgrade_production_completions(upgrade_completions)")

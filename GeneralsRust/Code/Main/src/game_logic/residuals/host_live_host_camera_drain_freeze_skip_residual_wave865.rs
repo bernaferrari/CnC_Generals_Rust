@@ -69,11 +69,8 @@ pub fn honesty_host_camera_drain_freeze_skip_nav_commands_residual_wave865() -> 
 pub fn honesty_host_camera_drain_freeze_skip_residual_pack_wave865() -> bool {
     let cnc = cnc_source();
     let ok = cnc.contains("Wave 596")
-        && cnc.contains(
-            "Wave 865: when presentation freeze owns the frame, skip live queue dual-reads",
-        )
-        && cnc.contains("if self.last_presentation_frame.is_some()")
-        && cnc.contains("Wave 585")
+        && cnc.contains("Wave 596/865/899")
+        && cnc.contains("self.last_presentation_frame.as_ref()")
         && cnc.contains("self.host_match_world_bounds = Some((min, max))");
     residual_action_store(ResidualHostCameraDrainFreezeSkipAction::SourceMarkers);
     RESIDUAL_OK.store(ok, Ordering::SeqCst);

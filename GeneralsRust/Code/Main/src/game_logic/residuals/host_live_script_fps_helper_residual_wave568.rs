@@ -136,24 +136,21 @@ pub fn honesty_script_fps_helper_source_markers_residual_wave568() -> bool {
         residual_action_store(ResidualScriptFpsHelperAction::SourceMarkers);
         return false;
     };
+    // 2026-08-15: Wave 900/910 fail-closed — no live take_script_fps_limit_request.
     let ingame_ok = ingame.contains("Wave 568")
         && ingame.contains("p.script_fps_limit")
-        && ingame.contains("take_script_fps_limit_request()");
+        && !ingame.contains("self.game_logic.take_script_fps_limit_request()");
     let shell_ok = shell.contains("Wave 568")
         && shell.contains("fow_shell_bypass")
         && shell.contains("p.script_fps_limit")
-        && shell.contains("take_script_fps_limit_request()");
+        && !shell.contains("self.game_logic.take_script_fps_limit_request()");
     let call_ok = eng.contains("self.apply_ingame_script_fps_limit_residual()")
         && eng.contains("self.apply_shell_script_fps_limit_residual()");
-    let raw = eng
-        .matches("script_fps_limit")
-        .count();
-    // only inside helpers
     let ok = field_ok
         && ingame_ok
         && shell_ok
         && call_ok
-        && raw == 3
+        && !eng.contains("self.game_logic.take_script_fps_limit_request()")
         && !eng.contains("playable_claim = true");
     residual_action_store(ResidualScriptFpsHelperAction::SourceMarkers);
     ok

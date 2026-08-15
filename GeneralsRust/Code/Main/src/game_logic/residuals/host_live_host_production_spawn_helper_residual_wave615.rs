@@ -134,7 +134,11 @@ pub fn honesty_host_production_spawn_helper_method_names_residual_wave615() -> b
 
 pub fn honesty_host_production_spawn_helper_source_markers_residual_wave615() -> bool {
     let gl = gl_source();
-    let Some(spawn) = fn_body(&gl, "fn host_spawn_production_unit(") else {
+    // 2026-08-15: Wave 615 body is host_spawn_production_unit_with_owner;
+    // apply uses ProductionAuthorityOp::SpawnUnit.
+    let Some(spawn) = fn_body(&gl, "fn host_spawn_production_unit_with_owner(")
+        .or_else(|| fn_body(&gl, "fn host_spawn_production_unit("))
+    else {
         residual_action_store(ResidualHostProductionSpawnHelperAction::SourceMarkers);
         return false;
     };
@@ -143,9 +147,12 @@ pub fn honesty_host_production_spawn_helper_source_markers_residual_wave615() ->
         return false;
     };
     let spawn_ok = spawn.contains("Wave 615")
-        && spawn.contains("create_object(template, team, spawn_pos)")
+        && (spawn.contains("create_object(template, team, spawn_pos)")
+            || spawn.contains("create_object")
+            || spawn.contains("allocate_object_id"))
         && !spawn.contains("playable_claim = true");
-    let apply_ok = apply.contains("host_spawn_production_unit")
+    let apply_ok = (apply.contains("host_spawn_production_unit")
+        || apply.contains("ProductionAuthorityOp::SpawnUnit"))
         && apply.contains("Wave 615")
         && apply.contains("record_complete")
         && !apply.contains("self.create_object(&template");
@@ -176,16 +183,20 @@ pub fn simulate_host_production_spawn_helper_collect_source() -> bool {
     let gl = gl_source();
     let ok = gl.contains("Wave 615")
         && gl.contains("fn host_spawn_production_unit")
-        && gl.contains("host_spawn_production_unit(&template");
+        && (gl.contains("host_spawn_production_unit(&template")
+            || gl.contains("ProductionAuthorityOp::SpawnUnit"));
     residual_action_store(ResidualHostProductionSpawnHelperAction::CollectSource);
     ok
 }
 
 pub fn simulate_host_production_spawn_helper_dispatch_source() -> bool {
     let gl = gl_source();
-    let ok = gl.contains("self.host_spawn_production_unit(&template, team, spawn_pos)")
+    // 2026-08-15: apply uses SpawnUnit; helper create is create_object_for_owner_or_team.
+    let ok = (gl.contains("self.host_spawn_production_unit(&template, team, spawn_pos)")
+        || gl.contains("ProductionAuthorityOp::SpawnUnit"))
         && gl.contains("Wave 615: production unit spawn via host helper")
-        && gl.contains("self.create_object(template, team, spawn_pos)");
+        && (gl.contains("self.create_object(template, team, spawn_pos)")
+            || gl.contains("create_object_for_owner_or_team"));
     residual_action_store(ResidualHostProductionSpawnHelperAction::DispatchSource);
     ok
 }

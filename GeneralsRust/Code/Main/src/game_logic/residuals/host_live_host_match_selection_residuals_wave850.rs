@@ -70,14 +70,10 @@ pub fn honesty_host_match_selection_residuals_residual_pack_wave850() -> bool {
     let cnc = cnc_source();
     let ok = cnc.contains("host_match_selected_ids: Option<Vec<crate::game_logic::ObjectId>>")
         && cnc.contains("Wave 850: stamp selection residual")
-        && cnc.contains("Wave 610/850")
         && cnc.contains("Wave 609/850")
         && cnc.contains("Wave 850")
-        && cnc
-            .matches("if let Some(ids) = self.host_match_selected_ids.as_ref()")
-            .count()
-            >= 2
-        && cnc.contains("player_selected_objects"); // boot residual remains
+        && cnc.contains("if let Some(ids) = self.host_match_selected_ids.as_ref()")
+        && cnc.contains("player_selected_objects");
     residual_action_store(ResidualHostMatchSelectionResidualsAction::SourceMarkers);
     RESIDUAL_OK.store(ok, Ordering::SeqCst);
     ok

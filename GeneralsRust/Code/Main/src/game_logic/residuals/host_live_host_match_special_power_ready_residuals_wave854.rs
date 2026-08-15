@@ -72,8 +72,9 @@ pub fn honesty_host_match_special_power_ready_residuals_residual_pack_wave854() 
             || cnc.contains("Wave 854/857: special-power-ready residual stamped inside"))
         && cnc.contains("Wave 584/854")
         && cnc.contains("if let Some(ready) = self.host_match_special_power_ready_ids.as_ref()")
-        && cnc.contains("if !ready.contains(&id.0)")
-        && cnc.contains("is_special_power_ready_for(id, power)"); // live residual remains
+        && (cnc.contains("if !ready.contains(&id.0)")
+            || cnc.contains("return ready.contains(&id.0)"))
+        && cnc.contains("host_is_special_power_ready_for");
     residual_action_store(ResidualHostMatchSpecialPowerReadyResidualsAction::SourceMarkers);
     RESIDUAL_OK.store(ok, Ordering::SeqCst);
     ok

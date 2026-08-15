@@ -115,8 +115,10 @@ pub fn simulate_host_china_infantry_horde_dual_peel_collect_source() -> bool {
     ok
 }
 pub fn simulate_host_china_infantry_horde_dual_peel_dispatch_source() -> bool {
+    // 2026-08-15: refresh_*_weapon lives on host GameLogic (tanks_and_upgrades.rs).
     let ok = sh_source().contains("host_china_infantry_horde_log::drain")
-        && sh_source().contains("refresh_red_guard_weapon")
+        && (sh_source().contains("refresh_red_guard_weapon")
+            || gl_source().contains("refresh_red_guard_weapon"))
         && gl_source().contains("update_china_infantry_horde_status")
         && gl_source().contains("shadow_coupled_tick_active()");
     residual_action_store(ResidualHostChinaInfantryHordeDualPeelAction::DispatchSource);

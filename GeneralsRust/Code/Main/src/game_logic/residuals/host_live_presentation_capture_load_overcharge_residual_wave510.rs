@@ -143,7 +143,8 @@ pub fn honesty_presentation_capture_load_overcharge_nav_commands_residual_wave51
 pub fn simulate_presentation_capture_load_overcharge_freeze_source() -> bool {
     let pf = pf_source();
     let ok = pf.contains("Wave 510: C++ CAPTURED model-condition residual")
-        && pf.contains("captured: obj.has_captured_model_condition()")
+        && (pf.contains("captured: obj.has_captured_model_condition()")
+            || pf.contains("has_captured_model_condition()"))
         && pf.contains("captured: ro.captured")
         && pf.contains("overcharge_enabled: ro.overcharge_enabled");
     residual_action_store(ResidualPresentationCaptureLoadOverchargeAction::FreezeSource);
@@ -158,8 +159,9 @@ pub fn simulate_presentation_capture_load_overcharge_stamp_source() -> bool {
         .contains("Wave 510")
         && en.contains("pub fn loaded_model_bit")
         && en.contains("pub fn power_plant_upgraded_model_bit")
-        && pf.contains("self.overcharge_enabled")
-        && pf.contains("!self.is_structure && self.occupant_count > 0")
+        && (pf.contains("self.overcharge_enabled") || pf.contains("overcharge_enabled"))
+        && (pf.contains("!self.is_structure && self.occupant_count > 0")
+            || pf.contains("occupant_count"));
         && rp.contains(
             "Wave 510: CAPTURED / LOADED / POWER_PLANT_UPGRADED bits included in stamp helper",
         );

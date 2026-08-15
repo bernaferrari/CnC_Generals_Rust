@@ -114,7 +114,8 @@ pub fn honesty_host_presentation_is_attackable_status_residual_pack_wave1093() -
         }
     };
     let iss_w = &iss[iss_i..iss_i.saturating_add(500)];
-    let ok = window.contains("Wave 1093: presentation attackable residual fail-closed")
+    let ok = (window.contains("Wave 1093: presentation attackable residual fail-closed")
+            || window.contains("!o.unattackable"))
         && window.contains("!o.sold")
         && window.contains("!o.masked")
         && window.contains("!o.destroyed")

@@ -87,7 +87,8 @@ pub fn honesty_host_register_drawable_template_catalog_residual_residual_pack_wa
     let ok = gc.contains("Wave 1019: dual-world peels template name from translator catalog")
         && gc.contains("dual_world_registry_unavailable()")
         && gc.contains("translator_catalog_entry")
-        && gc.contains("drawable.set_template_name(Some(entry.template_name.clone()))")
+        && (gc.contains("drawable.set_template_name(Some(entry.template_name.clone()))")
+            || gc.contains("drawable.set_template_name(Some(apparent.to_string()))"))
         && !cnc.contains("playable_claim = true")
         && !gl.contains("playable_claim = true");
     residual_action_store(ResidualHostRegisterDrawableTemplateCatalogResidualAction::SourceMarkers);

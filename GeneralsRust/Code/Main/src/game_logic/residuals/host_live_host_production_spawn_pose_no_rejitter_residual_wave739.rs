@@ -84,7 +84,8 @@ pub fn honesty_host_production_spawn_pose_no_rejitter_source_markers_residual_wa
     let j = gl
         .find("fn host_apply_production_spawn_ready_completions")
         .unwrap_or(0);
-    let body = &gl[j..j + 4500.min(gl.len().saturating_sub(j))];
+    // 2026-08-15: jitter/reposition block sits ~80 lines into the helper.
+    let body = &gl[j..j + 8000.min(gl.len().saturating_sub(j))];
     let ok = body.contains("Wave 739")
         && body.contains(
             "let sole = crate::gameworld_shadow::gameworld_production_sole_tick_enabled()",

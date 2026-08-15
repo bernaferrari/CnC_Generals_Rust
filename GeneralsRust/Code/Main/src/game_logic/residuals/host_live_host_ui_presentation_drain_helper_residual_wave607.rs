@@ -187,8 +187,9 @@ pub fn honesty_host_ui_presentation_drain_helper_source_markers_residual_wave607
         && script_wrap.contains("Wave 607")
         && local_wrap.contains("host_local_player_id_for_ui")
         && local_wrap.contains("Wave 607");
+    // 2026-08-15: Wave 900 fail-closed — clone freeze messages, no live take.
     let host_ok = script_host.contains("new_script_messages")
-        && script_host.contains("take_new_script_messages()")
+        && !script_host.contains("self.game_logic.take_new_script_messages()")
         && local_host.contains("boot_local_player_id_from_host()");
     let call_ok = eng.contains("self.take_presentation_or_boot_new_script_messages()")
         && eng.contains("self.host_take_presentation_or_boot_new_script_messages()")
