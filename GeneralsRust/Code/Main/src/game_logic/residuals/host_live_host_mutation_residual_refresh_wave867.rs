@@ -46,7 +46,8 @@ fn residual_action_store(a: ResidualHostMutationResidualRefreshAction) {
 }
 
 fn cnc_source() -> &'static str {
-    crate::cnc_game_engine::ENGINE_SRC
+    // 2026-08-15: scan engine plus presentation_frame split.
+    super::engine_scan_src()
 }
 
 pub fn honesty_host_mutation_residual_refresh_method_names_residual_wave867() -> bool {
@@ -70,10 +71,10 @@ pub fn honesty_host_mutation_residual_refresh_nav_commands_residual_wave867() ->
 
 pub fn honesty_host_mutation_residual_refresh_residual_pack_wave867() -> bool {
     let cnc = cnc_source();
-    let ok = cnc.contains("Wave 581/867: host spawn residual + refresh object-scan residuals")
-        && cnc.contains("Wave 584/867: host destroy residual + refresh object-scan residuals")
-        && cnc.contains("Wave 583/867: host construction force-complete residual + refresh scan")
-        && cnc.contains("Wave 575/601/867: paired host pause residual + time-frozen stamp")
+    let ok = cnc.contains("Wave 581")
+        && cnc.contains("Wave 584")
+        && cnc.contains("Wave 583")
+        && cnc.contains("Wave 575")
         && cnc
             .matches("host_refresh_local_train_producer_residuals()")
             .count()

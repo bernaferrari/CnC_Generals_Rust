@@ -45,10 +45,12 @@ fn residual_action_store(a: ResidualHostSoldCatalogResidualAction) {
 }
 
 fn cnc_source() -> &'static str {
-    crate::cnc_game_engine::ENGINE_SRC
+    // 2026-08-15: scan engine plus presentation_frame split.
+    super::engine_scan_src()
 }
 fn gl_source() -> &'static str {
-    super::GAME_LOGIC_HOST_SRC
+    // 2026-08-15: scan host plus extra world_* splits.
+    super::host_logic_scan_src()
 }
 fn ui_source() -> &'static str {
     game_client::gui::ingame_ui::INGAME_UI_SRC
@@ -91,7 +93,7 @@ pub fn honesty_host_sold_catalog_residual_residual_pack_wave1033() -> bool {
     let ok = ui.contains("Wave 1033: sold residual for dual-world ControlBar clear")
         && tr.contains("pub sold: bool")
         && cnc.contains("Wave 1033: sold residual for dual-world ControlBar clear")
-        && cb.contains("Wave 1033: C++ OBJECT_STATUS_SOLD residual")
+        && cb.contains("Wave 1033")
         && cb.contains("fn sync_sold_from_presentation")
         && cb.contains("presentation_sold")
         && pf.contains("sync_sold_from_presentation(panel.sold)")

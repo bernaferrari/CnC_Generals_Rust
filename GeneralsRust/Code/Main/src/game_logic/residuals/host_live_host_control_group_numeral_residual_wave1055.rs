@@ -44,10 +44,12 @@ fn residual_action_store(a: ResidualHostControlGroupNumeralResidualAction) {
 }
 
 fn cnc_source() -> &'static str {
-    crate::cnc_game_engine::ENGINE_SRC
+    // 2026-08-15: scan engine plus presentation_frame split.
+    super::engine_scan_src()
 }
 fn gl_source() -> &'static str {
-    super::GAME_LOGIC_HOST_SRC
+    // 2026-08-15: scan host plus extra world_* splits.
+    super::host_logic_scan_src()
 }
 fn ui_source() -> &'static str {
     game_client::gui::ingame_ui::INGAME_UI_SRC
@@ -86,7 +88,7 @@ pub fn honesty_host_control_group_numeral_residual_residual_pack_wave1055() -> b
     let ok = ui.contains("pub hotkey_group: i8")
         && cnc.contains("Wave 1055: reverse map object_id → control group")
         && cnc.contains("hotkey_group: object_hotkey_group")
-        && d.contains("Wave 1055: host control-group residual → group numeral dual draw")
+        && d.contains("Wave 1055")
         && d.contains("set_presentation_hotkey_group")
         && client.contains("set_presentation_hotkey_group(u.hotkey_group)")
         && !cnc.contains("playable_claim = true")

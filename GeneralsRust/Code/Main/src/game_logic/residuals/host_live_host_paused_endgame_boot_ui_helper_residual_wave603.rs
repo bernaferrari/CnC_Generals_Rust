@@ -86,7 +86,8 @@ pub fn residual_host_paused_endgame_boot_ui_helper_last_action(
 }
 
 fn eng_source() -> &'static str {
-    crate::cnc_game_engine::ENGINE_SRC
+    // 2026-08-15: scan engine plus presentation_frame split.
+    super::engine_scan_src()
 }
 
 fn last_sig_index(src: &str, sig: &str) -> Option<usize> {

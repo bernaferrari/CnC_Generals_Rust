@@ -42,7 +42,8 @@ fn residual_action_store(a: ResidualHostMapNameFailclosedAction) {
 }
 
 fn cnc_source() -> &'static str {
-    crate::cnc_game_engine::ENGINE_SRC
+    // 2026-08-15: scan engine plus presentation_frame split.
+    super::engine_scan_src()
 }
 
 pub fn honesty_host_map_name_failclosed_method_names_residual_wave860() -> bool {

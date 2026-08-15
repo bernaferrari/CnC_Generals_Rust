@@ -98,7 +98,8 @@ pub fn residual_host_tick_mutation_helper_last_action() -> ResidualHostTickMutat
 }
 
 fn eng_source() -> &'static str {
-    crate::cnc_game_engine::ENGINE_SRC
+    // 2026-08-15: scan engine plus presentation_frame split.
+    super::engine_scan_src()
 }
 
 fn fn_body<'a>(src: &'a str, sig: &str) -> Option<&'a str> {
@@ -170,7 +171,9 @@ pub fn honesty_host_tick_mutation_helper_source_markers_residual_wave584() -> bo
             break;
         }
     }
-    let call_ok = eng.contains("self.host_update_logic_frame(")
+    // 2026-08-15: call is rustfmt-split (`self\n.host_update_logic_frame(`).
+    let call_ok = (eng.contains("self.host_update_logic_frame(")
+        || eng.contains(".host_update_logic_frame("))
         && eng.contains("self.host_update_shell_with_budget(")
         && eng.contains("self.host_is_in_multiplayer_game()")
         && eng.contains("self.presentation_or_boot_object_alive(")
@@ -240,7 +243,9 @@ pub fn simulate_host_tick_mutation_helper_collect_source() -> bool {
 
 pub fn simulate_host_tick_mutation_helper_dispatch_source() -> bool {
     let eng = eng_source();
-    let ok = eng.contains("self.host_update_logic_frame(dt, headless_step_budget)")
+    // 2026-08-15: rustfmt-split call site in camera_drain.rs.
+    let ok = (eng.contains("self.host_update_logic_frame(dt, headless_step_budget)")
+        || eng.contains(".host_update_logic_frame(dt, headless_step_budget)"))
         && eng.contains("self.host_update_shell_with_budget(dt, 1)")
         && eng.contains("self.presentation_or_boot_object_alive(pid)")
         && eng.contains("self.presentation_or_boot_victory_summary(winner)")

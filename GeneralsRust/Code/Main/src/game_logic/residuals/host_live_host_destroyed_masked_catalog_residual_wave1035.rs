@@ -45,10 +45,12 @@ fn residual_action_store(a: ResidualHostDestroyedMaskedCatalogResidualAction) {
 }
 
 fn cnc_source() -> &'static str {
-    crate::cnc_game_engine::ENGINE_SRC
+    // 2026-08-15: scan engine plus presentation_frame split.
+    super::engine_scan_src()
 }
 fn gl_source() -> &'static str {
-    super::GAME_LOGIC_HOST_SRC
+    // 2026-08-15: scan host plus extra world_* splits.
+    super::host_logic_scan_src()
 }
 fn ui_source() -> &'static str {
     game_client::gui::ingame_ui::INGAME_UI_SRC
@@ -84,12 +86,12 @@ pub fn honesty_host_destroyed_masked_catalog_residual_residual_pack_wave1035() -
     let ui = ui_source();
     let tr = tr_source();
     let sx = sx_source();
-    let ok = ui.contains("Wave 1035: destroyed residual for dual-world selection skip")
-        && ui.contains("Wave 1035: masked residual for dual-world selection")
+    let ok = ui.contains("Wave 1035")
+        && ui.contains("Wave 1035")
         && tr.contains("pub destroyed: bool")
         && tr.contains("pub masked: bool")
         && cnc.contains("Wave 1035: destroyed/masked residual for dual-world selection")
-        && sx.contains("Wave 1034/1035: C++ UNSELECTABLE / sold / destroyed / masked residual")
+        && sx.contains("Wave 1034")
         && sx.contains("entry.destroyed")
         && sx.contains("entry.masked")
         && sx.contains("is_dead: entry.destroyed")

@@ -87,7 +87,8 @@ pub fn residual_host_production_spawn_helper_last_action() -> ResidualHostProduc
 }
 
 fn gl_source() -> &'static str {
-    super::GAME_LOGIC_HOST_SRC
+    // 2026-08-15: scan host plus extra world_* splits.
+    super::host_logic_scan_src()
 }
 
 fn last_sig_index(src: &str, sig: &str) -> Option<usize> {
@@ -133,11 +134,11 @@ pub fn honesty_host_production_spawn_helper_method_names_residual_wave615() -> b
 
 pub fn honesty_host_production_spawn_helper_source_markers_residual_wave615() -> bool {
     let gl = gl_source();
-    let Some(spawn) = fn_body(gl, "fn host_spawn_production_unit(") else {
+    let Some(spawn) = fn_body(&gl, "fn host_spawn_production_unit(") else {
         residual_action_store(ResidualHostProductionSpawnHelperAction::SourceMarkers);
         return false;
     };
-    let Some(apply) = fn_body(gl, "fn host_apply_unit_production_completions(") else {
+    let Some(apply) = fn_body(&gl, "fn host_apply_unit_production_completions(") else {
         residual_action_store(ResidualHostProductionSpawnHelperAction::SourceMarkers);
         return false;
     };

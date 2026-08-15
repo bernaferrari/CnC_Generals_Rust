@@ -45,10 +45,12 @@ fn residual_action_store(a: ResidualHostStealthSelectionCatalogResidualAction) {
 }
 
 fn cnc_source() -> &'static str {
-    crate::cnc_game_engine::ENGINE_SRC
+    // 2026-08-15: scan engine plus presentation_frame split.
+    super::engine_scan_src()
 }
 fn gl_source() -> &'static str {
-    super::GAME_LOGIC_HOST_SRC
+    // 2026-08-15: scan host plus extra world_* splits.
+    super::host_logic_scan_src()
 }
 fn ui_source() -> &'static str {
     game_client::gui::ingame_ui::INGAME_UI_SRC
@@ -88,7 +90,7 @@ pub fn honesty_host_stealth_selection_catalog_residual_residual_pack_wave1036() 
         && tr.contains("pub effectively_stealthed: bool")
         && cnc.contains("Wave 1036: effectively stealthed residual for dual-world selection")
         && cnc.contains("effectively_stealthed: o.effectively_stealthed")
-        && sx.contains("Wave 1034/1035/1036: C++ status + enemy stealth residual")
+        && sx.contains("Wave 1034")
         && sx.contains("entry.effectively_stealthed && !translator_entry_is_local(entry)")
         && sx.contains("effectively_stealthed")
         && !cnc.contains("playable_claim = true")

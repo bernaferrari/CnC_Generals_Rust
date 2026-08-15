@@ -77,7 +77,8 @@ pub fn residual_script_msg_helper_last_action() -> ResidualScriptMsgHelperAction
 }
 
 fn eng_source() -> &'static str {
-    crate::cnc_game_engine::ENGINE_SRC
+    // 2026-08-15: scan engine plus presentation_frame split.
+    super::engine_scan_src()
 }
 
 fn pf_source() -> &'static str {

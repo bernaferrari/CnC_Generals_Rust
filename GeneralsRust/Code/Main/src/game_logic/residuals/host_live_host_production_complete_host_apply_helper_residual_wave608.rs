@@ -93,7 +93,8 @@ pub fn residual_host_production_complete_host_apply_helper_last_action(
 }
 
 fn gl_source() -> &'static str {
-    super::GAME_LOGIC_HOST_SRC
+    // 2026-08-15: scan host plus extra world_* splits.
+    super::host_logic_scan_src()
 }
 
 fn last_sig_index(src: &str, sig: &str) -> Option<usize> {
@@ -141,23 +142,23 @@ pub fn honesty_host_production_complete_host_apply_helper_method_names_residual_
 pub fn honesty_host_production_complete_host_apply_helper_source_markers_residual_wave608() -> bool
 {
     let gl = gl_source();
-    let Some(upgrade_wrap) = fn_body(gl, "fn apply_upgrade_production_completions(") else {
+    let Some(upgrade_wrap) = fn_body(&gl, "fn apply_upgrade_production_completions(") else {
         residual_action_store(ResidualHostProductionCompleteHostApplyHelperAction::SourceMarkers);
         return false;
     };
-    let Some(unit_wrap) = fn_body(gl, "fn apply_unit_production_completions(") else {
+    let Some(unit_wrap) = fn_body(&gl, "fn apply_unit_production_completions(") else {
         residual_action_store(ResidualHostProductionCompleteHostApplyHelperAction::SourceMarkers);
         return false;
     };
-    let Some(upgrade_host) = fn_body(gl, "fn host_apply_upgrade_production_completions(") else {
+    let Some(upgrade_host) = fn_body(&gl, "fn host_apply_upgrade_production_completions(") else {
         residual_action_store(ResidualHostProductionCompleteHostApplyHelperAction::SourceMarkers);
         return false;
     };
-    let Some(unit_host) = fn_body(gl, "fn host_apply_unit_production_completions(") else {
+    let Some(unit_host) = fn_body(&gl, "fn host_apply_unit_production_completions(") else {
         residual_action_store(ResidualHostProductionCompleteHostApplyHelperAction::SourceMarkers);
         return false;
     };
-    let Some(update) = fn_body(gl, "fn update_production(") else {
+    let Some(update) = fn_body(&gl, "fn update_production(") else {
         residual_action_store(ResidualHostProductionCompleteHostApplyHelperAction::SourceMarkers);
         return false;
     };

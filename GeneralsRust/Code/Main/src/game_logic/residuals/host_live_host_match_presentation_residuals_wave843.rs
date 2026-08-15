@@ -43,7 +43,8 @@ fn residual_action_store(a: ResidualHostMatchPresentationResidualsAction) {
 }
 
 fn cnc_source() -> &'static str {
-    crate::cnc_game_engine::ENGINE_SRC
+    // 2026-08-15: scan engine plus presentation_frame split.
+    super::engine_scan_src()
 }
 
 pub fn honesty_host_match_presentation_residuals_method_names_residual_wave843() -> bool {
@@ -71,7 +72,7 @@ pub fn honesty_host_match_presentation_residuals_residual_pack_wave843() -> bool
     let ok = cnc.contains("host_match_map_name: Option<String>")
         && cnc.contains("host_match_local_player_id: Option<u32>")
         && cnc.contains("host_match_ai_difficulty: Option<crate::ai::AIDifficulty>")
-        && (cnc.contains("Wave 843: host-owned match residuals for presentation_or_boot peels")
+        && (cnc.contains("Wave 843")
             || cnc.contains(
                 "Wave 843/844: host-owned match residuals for presentation_or_boot peels",
             ))

@@ -69,7 +69,8 @@ pub fn residual_host_production_same_frame_ready_complete_last_action(
     )
 }
 fn gl_source() -> &'static str {
-    super::GAME_LOGIC_HOST_SRC
+    // 2026-08-15: scan host plus extra world_* splits.
+    super::host_logic_scan_src()
 }
 fn shadow_source() -> &'static str {
     crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC

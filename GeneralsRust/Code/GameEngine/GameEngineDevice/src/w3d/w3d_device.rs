@@ -790,18 +790,19 @@ impl W3DDevice {
             ..Limits::default()
         };
 
-        // Create device and queue
-        let (device, queue) = adapter
-            .request_device(&wgpu::DeviceDescriptor {
+        let (device, queue) = ww3d_gpu::acquire_device(
+            &adapter,
+            &wgpu::DeviceDescriptor {
                 label: Some("W3D Device"),
                 required_features: required_features & adapter.features(),
                 required_limits: required_limits.using_resolution(adapter.limits()),
                 ..Default::default()
-            })
-            .await
-            .map_err(|e| {
-                W3DError::InitializationFailed(format!("Failed to create device: {:?}", e))
-            })?;
+            },
+        )
+        .await
+        .map_err(|e| {
+            W3DError::InitializationFailed(format!("Failed to create device: {:?}", e))
+        })?;
 
         tracing::info!("Created wgpu device with features: {:?}", device.features());
 

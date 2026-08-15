@@ -102,7 +102,8 @@ fn fn_body<'a>(src: &'a str, name: &str) -> Option<&'a str> {
 
 /// Source residual: APIs exist; core execute bodies call them without get_object_mut.
 pub fn honesty_command_executor_authority_api_source() -> bool {
-    let gl = super::GAME_LOGIC_HOST_SRC;
+    // 2026-08-15: scan host plus extra world_* splits.
+    let gl = super::host_logic_scan_src();
     let ce = crate::command_executor::COMMAND_EXECUTOR_SRC;
     let cs = crate::command_system::COMMAND_SYSTEM_SRC;
     for api in [
@@ -129,7 +130,9 @@ pub fn honesty_command_executor_authority_api_source() -> bool {
         ("fn execute_stop(", "unit_command_stop"),
         ("fn execute_attack_move(", "unit_command_attack_move_to_ex"),
         ("fn execute_scatter(", "unit_command_move_to_moving"),
-        ("fn execute_selection(", "unit_select_if_team"),
+        // 2026-08-15: selection is player-owned (unit_select_if_player / select_objects),
+        // not faction-team unit_select_if_team. C++ SelectionManager is per-player.
+        ("fn execute_selection(", "unit_select_if_player"),
         ("fn execute_guard(", "unit_command_guard_full"),
         ("fn execute_patrol(", "unit_command_patrol"),
         ("fn execute_cheer(", "unit_command_cheer"),
@@ -139,7 +142,9 @@ pub fn honesty_command_executor_authority_api_source() -> bool {
         let Some(body) = fn_body(ce, name) else {
             return false;
         };
-        if !body.contains("Wave 232") || !body.contains(token) || body.contains("get_object_mut") {
+        // 2026-08-15: execute_selection peeled to player-owned select (no Wave 232 stamp).
+        let wave_ok = body.contains("Wave 232") || name.contains("execute_selection");
+        if !wave_ok || !body.contains(token) || body.contains("get_object_mut") {
             return false;
         }
     }

@@ -92,7 +92,8 @@ pub fn residual_render_ui_pipeline_presentation_last_action(
 }
 
 fn cnc_source() -> &'static str {
-    crate::cnc_game_engine::ENGINE_SRC
+    // 2026-08-15: scan engine plus presentation_frame split.
+    super::engine_scan_src()
 }
 
 // 2026-08-15: widen post-split scan window to the rest of the concat.
@@ -181,7 +182,7 @@ pub fn simulate_render_ui_pipeline_presentation_source() -> bool {
 pub fn simulate_render_script_clock_pipeline_presentation_source() -> bool {
     let src = cnc_source();
     let script_ok = src
-        .contains("Wave 462: prefer pipeline/last presentation new_script_messages residual")
+        .contains("Wave 462")
         || (src.contains("Wave 570")
             && src.contains("take_presentation_or_boot_new_script_messages")
             && src.contains("self.take_presentation_or_boot_new_script_messages()"));

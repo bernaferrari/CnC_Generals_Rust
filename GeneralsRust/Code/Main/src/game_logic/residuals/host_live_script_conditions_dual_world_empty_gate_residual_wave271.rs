@@ -106,7 +106,16 @@ fn fn_body_after<'a>(src: &'a str, marker: &str) -> Option<&'a str> {
 
 /// Source residual: script conditions empty dual-world short-circuits.
 pub fn honesty_script_conditions_dual_world_empty_gate_source() -> bool {
-    let g = include_str!("../../../../GameEngine/GameLogic/src/scripting/conditions/mod.rs");
+    // 2026-08-15: conditions god-file split — scan the live modules.
+    let g = concat!(
+        include_str!("../../../../GameEngine/GameLogic/src/scripting/conditions/mod.rs"),
+        include_str!("../../../../GameEngine/GameLogic/src/scripting/conditions/helpers.rs"),
+        include_str!("../../../../GameEngine/GameLogic/src/scripting/conditions/named.rs"),
+        include_str!("../../../../GameEngine/GameLogic/src/scripting/conditions/object.rs"),
+        include_str!("../../../../GameEngine/GameLogic/src/scripting/conditions/player.rs"),
+        include_str!("../../../../GameEngine/GameLogic/src/scripting/conditions/combat.rs"),
+        include_str!("../../../../GameEngine/GameLogic/src/scripting/conditions/logic.rs"),
+    );
     if !(g.contains("Wave 271")
         && g.contains("fn dual_world_registry_unavailable")
         && (g.contains("let _host_empty") || g.contains("OBJECT_REGISTRY.is_empty()"))

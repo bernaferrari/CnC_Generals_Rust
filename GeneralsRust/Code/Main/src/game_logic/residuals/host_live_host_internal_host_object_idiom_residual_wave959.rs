@@ -44,11 +44,13 @@ fn residual_action_store(a: ResidualHostInternalHostObjectIdiomAction) {
 }
 
 fn cnc_source() -> &'static str {
-    crate::cnc_game_engine::ENGINE_SRC
+    // 2026-08-15: scan engine plus presentation_frame split.
+    super::engine_scan_src()
 }
 
 fn gl_source() -> &'static str {
-    super::GAME_LOGIC_HOST_SRC
+    // 2026-08-15: scan host plus extra world_* splits.
+    super::host_logic_scan_src()
 }
 
 fn non_comment_prod_prefix(src: &str) -> String {
@@ -83,7 +85,7 @@ pub fn honesty_host_internal_host_object_idiom_nav_commands_residual_wave959() -
 pub fn honesty_host_internal_host_object_idiom_residual_pack_wave959() -> bool {
     let gl = gl_source();
     let cnc = cnc_source();
-    let prod = non_comment_prod_prefix(gl);
+    let prod = non_comment_prod_prefix(&gl);
     let host_calls = prod.matches("self.host_object(").count()
         + prod.matches("self.host_objects()").count()
         + prod.matches("self.objects.get").count();

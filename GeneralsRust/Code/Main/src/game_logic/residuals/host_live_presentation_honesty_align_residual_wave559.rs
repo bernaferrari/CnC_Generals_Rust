@@ -84,7 +84,8 @@ pub fn residual_presentation_honesty_align_last_action() -> ResidualPresentation
 }
 
 fn eng_source() -> &'static str {
-    crate::cnc_game_engine::ENGINE_SRC
+    // 2026-08-15: scan engine plus presentation_frame split.
+    super::engine_scan_src()
 }
 
 fn pf_source() -> &'static str {
@@ -145,9 +146,12 @@ pub fn honesty_presentation_honesty_align_source_markers_residual_wave559() -> b
     let snap_ok = snap.contains("Presentation-only")
         && snap.contains("local_team_base_position")
         && !snap.contains("team_base_position(team)");
-    let tests_ok = pf.contains("Wave 559")
-        && pf.contains("dual_world_registry_unavailable")
-        && pf.contains("local_team_for_ui()");
+    // 2026-08-15: Wave 559 honesty tests live in presentation_frame/tests.
+    let pf_tests = include_str!("../../presentation_frame/tests/dual_tick_registry.rs");
+    let tests_ok = pf_tests.contains("Wave 559")
+        && (pf_tests.contains("dual_world_registry_unavailable")
+            || pf.contains("dual_world_registry_unavailable"))
+        && (pf_tests.contains("local_team_for_ui()") || pf.contains("local_team_for_ui()"));
     let ok = status_ok && snap_ok && tests_ok && !eng.contains("playable_claim = true");
     residual_action_store(ResidualPresentationHonestyAlignAction::SourceMarkers);
     ok

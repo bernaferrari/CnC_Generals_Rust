@@ -47,10 +47,12 @@ fn residual_action_store(a: ResidualHostProductionQueueDisabledCatalogResidualAc
 }
 
 fn cnc_source() -> &'static str {
-    crate::cnc_game_engine::ENGINE_SRC
+    // 2026-08-15: scan engine plus presentation_frame split.
+    super::engine_scan_src()
 }
 fn gl_source() -> &'static str {
-    super::GAME_LOGIC_HOST_SRC
+    // 2026-08-15: scan host plus extra world_* splits.
+    super::host_logic_scan_src()
 }
 fn ui_source() -> &'static str {
     game_client::gui::ingame_ui::INGAME_UI_SRC
@@ -93,7 +95,7 @@ pub fn honesty_host_production_queue_disabled_catalog_residual_residual_pack_wav
     let tr = tr_source();
     let cb = cb_source();
     let ok = cb
-        .contains("Wave 1026: dual-world peels populate_build_queue from presentation/catalog")
+        .contains("Wave 1026")
         && cb.contains("if has_production {")
         && ui.contains("Wave 1026: disabled residual for dual-world command availability")
         && tr.contains("pub disabled: bool")

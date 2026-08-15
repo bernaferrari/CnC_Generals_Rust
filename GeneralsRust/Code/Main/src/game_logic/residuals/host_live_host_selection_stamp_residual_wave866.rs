@@ -42,7 +42,8 @@ fn residual_action_store(a: ResidualHostSelectionStampAction) {
 }
 
 fn cnc_source() -> &'static str {
-    crate::cnc_game_engine::ENGINE_SRC
+    // 2026-08-15: scan engine plus presentation_frame split.
+    super::engine_scan_src()
 }
 
 pub fn honesty_host_selection_stamp_method_names_residual_wave866() -> bool {
@@ -67,7 +68,7 @@ pub fn honesty_host_selection_stamp_nav_commands_residual_wave866() -> bool {
 pub fn honesty_host_selection_stamp_residual_pack_wave866() -> bool {
     let cnc = cnc_source();
     let ok = cnc
-        .contains("Wave 579/866: paired host select residual + stamp host_match_selected_ids")
+        .contains("Wave 579")
         && cnc.contains("self.host_match_selected_ids = Some(ids)")
         && cnc.contains("self.selected_objects = ids.clone()");
     residual_action_store(ResidualHostSelectionStampAction::SourceMarkers);

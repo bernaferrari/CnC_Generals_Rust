@@ -112,7 +112,8 @@ pub fn honesty_command_system_selection_uses_object_select_source() -> bool {
 /// Source residual: production has no formation_id = 0 field write.
 pub fn honesty_formation_dissolve_uses_set_formation_source() -> bool {
     let ce = crate::command_executor::COMMAND_EXECUTOR_SRC;
-    let gl = super::GAME_LOGIC_HOST_SRC;
+    // 2026-08-15: scan host plus extra world_* splits.
+    let gl = super::host_logic_scan_src();
     let prod = match ce.find("#[cfg(test)]") {
         Some(i) => &ce[..i],
         None => ce,

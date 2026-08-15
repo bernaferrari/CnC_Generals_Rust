@@ -29,7 +29,7 @@ use super::transforms::*;
 use super::types::*;
 
 /// Draw indexed primitive - matches original W3DDevice::DrawIndexedPrimitive(type, vertices, indices)
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn W3DDevice_DrawIndexedPrimitive(
     device: W3D_DEVICE,
     primitive_type: W3D_PRIMITIVE_TYPE,
@@ -101,29 +101,26 @@ pub unsafe extern "C" fn W3DDevice_DrawIndexedPrimitive(
     let draw_texture_stage = active_draw_texture_stage(device_ref);
     let material_id = resolve_draw_material_id(device_ref, draw_texture_stage);
 
-    match device_ref.runtime.block_on(async {
-        draw_indexed_primitive_internal(
-            device_ref,
-            &device_ref.device,
-            primitive_type,
-            resolved_vertex_buffer,
-            resolved_vertex_count,
-            resolved_index_buffer,
-            resolved_index_count,
-            staged_base_vertex_index,
-            &mesh_id,
-            world_matrix,
-            material_id,
-        )
-        .await
-    }) {
-        Ok(_) => 1,  // Success
-        Err(_) => 0, // Failure
+    match draw_indexed_primitive_internal(
+        device_ref,
+        &device_ref.device,
+        primitive_type,
+        resolved_vertex_buffer,
+        resolved_vertex_count,
+        resolved_index_buffer,
+        resolved_index_count,
+        staged_base_vertex_index,
+        &mesh_id,
+        world_matrix,
+        material_id,
+    ) {
+        Ok(_) => 1,
+        Err(_) => 0,
     }
 }
 
 /// Draw indexed primitive from staged stream/index state using DX8-style arguments.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn W3DDevice_DrawIndexedPrimitiveLegacy(
     device: W3D_DEVICE,
     primitive_type: W3D_PRIMITIVE_TYPE,
@@ -180,28 +177,25 @@ pub unsafe extern "C" fn W3DDevice_DrawIndexedPrimitiveLegacy(
     let draw_texture_stage = active_draw_texture_stage(device_ref);
     let material_id = resolve_draw_material_id(device_ref, draw_texture_stage);
 
-    match device_ref.runtime.block_on(async {
-        draw_indexed_primitive_internal(
-            device_ref,
-            &device_ref.device,
-            primitive_type,
-            vertices.as_ptr(),
-            vertices.len() as u32,
-            indices.as_ptr(),
-            indices.len() as u32,
-            staged_base_vertex_index,
-            &mesh_id,
-            world_matrix,
-            material_id,
-        )
-        .await
-    }) {
+    match draw_indexed_primitive_internal(
+        device_ref,
+        &device_ref.device,
+        primitive_type,
+        vertices.as_ptr(),
+        vertices.len() as u32,
+        indices.as_ptr(),
+        indices.len() as u32,
+        staged_base_vertex_index,
+        &mesh_id,
+        world_matrix,
+        material_id,
+    ) {
         Ok(_) => 1,
         Err(_) => 0,
     }
 }
 /// Draw primitive from staged stream data (non-indexed path).
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn W3DDevice_DrawPrimitive(
     device: W3D_DEVICE,
     primitive_type: W3D_PRIMITIVE_TYPE,
@@ -239,26 +233,23 @@ pub unsafe extern "C" fn W3DDevice_DrawPrimitive(
     let material_id = resolve_draw_material_id(device_ref, draw_texture_stage);
     let alpha_blend_enabled = is_alpha_blend_enabled(device_ref);
 
-    match device_ref.runtime.block_on(async {
-        submit_transient_draw_internal(
-            &device_ref.device,
-            primitive_type,
-            &vertices,
-            &indices,
-            &mesh_id,
-            world_matrix,
-            material_id,
-            alpha_blend_enabled,
-        )
-        .await
-    }) {
+    match submit_transient_draw_internal(
+        &device_ref.device,
+        primitive_type,
+        &vertices,
+        &indices,
+        &mesh_id,
+        world_matrix,
+        material_id,
+        alpha_blend_enabled,
+    ) {
         Ok(_) => 1,
         Err(_) => 0,
     }
 }
 
 /// Draw primitive UP - legacy immediate-mode compatibility entry point.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn W3DDevice_DrawPrimitiveUP(
     device: W3D_DEVICE,
     primitive_type: W3D_PRIMITIVE_TYPE,
@@ -305,26 +296,23 @@ pub unsafe extern "C" fn W3DDevice_DrawPrimitiveUP(
     let material_id = resolve_draw_material_id(device_ref, draw_texture_stage);
     let alpha_blend_enabled = is_alpha_blend_enabled(device_ref);
 
-    match device_ref.runtime.block_on(async {
-        submit_transient_draw_internal(
-            &device_ref.device,
-            primitive_type,
-            &vertices,
-            &indices,
-            &mesh_id,
-            world_matrix,
-            material_id,
-            alpha_blend_enabled,
-        )
-        .await
-    }) {
+    match submit_transient_draw_internal(
+        &device_ref.device,
+        primitive_type,
+        &vertices,
+        &indices,
+        &mesh_id,
+        world_matrix,
+        material_id,
+        alpha_blend_enabled,
+    ) {
         Ok(_) => 1,
         Err(_) => 0,
     }
 }
 
 /// Draw indexed primitive from immediate-mode UP buffers.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn W3DDevice_DrawIndexedPrimitiveUP(
     device: W3D_DEVICE,
     primitive_type: W3D_PRIMITIVE_TYPE,
@@ -401,24 +389,21 @@ pub unsafe extern "C" fn W3DDevice_DrawIndexedPrimitiveUP(
     let material_id = resolve_draw_material_id(device_ref, draw_texture_stage);
     let alpha_blend_enabled = is_alpha_blend_enabled(device_ref);
 
-    match device_ref.runtime.block_on(async {
-        submit_transient_draw_internal(
-            &device_ref.device,
-            primitive_type,
-            &vertices,
-            &indices,
-            &mesh_id,
-            world_matrix,
-            material_id,
-            alpha_blend_enabled,
-        )
-        .await
-    }) {
+    match submit_transient_draw_internal(
+        &device_ref.device,
+        primitive_type,
+        &vertices,
+        &indices,
+        &mesh_id,
+        world_matrix,
+        material_id,
+        alpha_blend_enabled,
+    ) {
         Ok(_) => 1,
         Err(_) => 0,
     }
 }
-pub(super) async fn draw_indexed_primitive_internal(
+pub(super) fn draw_indexed_primitive_internal(
     device_ref: &W3DDeviceC,
     device: &Arc<RwLock<W3DDevice>>,
     primitive_type: W3D_PRIMITIVE_TYPE,
@@ -454,11 +439,10 @@ pub(super) async fn draw_indexed_primitive_internal(
         material_id,
         is_alpha_blend_enabled(device_ref),
     )
-    .await
 }
 
-pub(super) async fn submit_transient_draw_internal(
-    device: &Arc<RwLock<W3DDevice>>,
+pub(super) fn submit_transient_draw_internal(
+    _device: &Arc<RwLock<W3DDevice>>,
     primitive_type: W3D_PRIMITIVE_TYPE,
     vertices: &[W3D_VERTEX],
     indices: &[u32],
@@ -467,16 +451,10 @@ pub(super) async fn submit_transient_draw_internal(
     material_id: Option<String>,
     alpha_blend_enabled: bool,
 ) -> Result<()> {
-    let render_material_id = material_id.clone();
-    // Convert W3D vertices to modern W3DVertex format.
     let modern_vertices: Vec<W3DVertex> = vertices.iter().map(w3d_vertex_to_modern).collect();
-    // Create temporary mesh and render it
     let mesh_data = bytemuck::cast_slice(&modern_vertices).to_vec();
-    let (local_min, local_max) = compute_vertex_bounds(&modern_vertices);
-    let temp_mesh = Mesh {
-        id: mesh_id.to_string(),
-        name: format!("Temporary Draw Call {mesh_id}"),
-        vertex_format: crate::w3d::VertexFormat::PositionNormalUvColor,
+    crate::w3d::renderer::stage_up_draw(crate::w3d::renderer::StagedUpDraw {
+        mesh_id: mesh_id.to_string(),
         vertices: mesh_data,
         indices: indices.to_vec(),
         topology: match primitive_type {
@@ -487,61 +465,11 @@ pub(super) async fn submit_transient_draw_internal(
             W3D_PRIMITIVE_TYPE::W3D_LINE_STRIP => crate::w3d::PrimitiveTopology::LineStrip,
             W3D_PRIMITIVE_TYPE::W3D_POINTS => crate::w3d::PrimitiveTopology::PointList,
         },
+        world_matrix: world_matrix.m,
         material_id,
-        bounding_box: crate::w3d::BoundingBox::new(local_min, local_max),
-    };
-
-    let world_mat4 = Mat4::from(world_matrix);
-    let (world_min, world_max) = transform_bounds(local_min, local_max, world_mat4);
-
-    // Add mesh and transient render object to the scene for this present call.
-    let device_lock = device.read().await;
-    device_lock.add_mesh(temp_mesh).await?;
-    let transparent_by_material = if let Some(material_id) = render_material_id.as_deref() {
-        device_lock
-            .get_material(material_id)
-            .await
-            .map(|material| material.properties.transparent)
-            .unwrap_or(false)
-    } else {
-        false
-    };
-    let transparent = transparent_by_material || alpha_blend_enabled;
-    let (material_params, priority) = if let Some(material_id) = render_material_id.as_deref() {
-        if let Some(material) = device_lock.get_material(material_id).await {
-            (
-                batch_material_params(Some(&material)),
-                batch_priority(Some(&material)),
-            )
-        } else {
-            (batch_material_params(None), batch_priority(None))
-        }
-    } else {
-        (batch_material_params(None), batch_priority(None))
-    };
-    let mut scene = device_lock.get_scene().await;
-    scene.render_objects.push(RenderObject {
-        mesh_id: mesh_id.to_string(),
-        material_id: render_material_id,
-        transform: world_matrix.m,
-        world_bounds: crate::w3d::BoundingBox::new(world_min, world_max),
-        lod_bias: 0.0,
-        cast_shadows: false,
-        receive_shadows: false,
-        visible: true,
-        transparent,
-        material_params,
-        priority,
+        alpha_blend_enabled,
+        render_states: crate::w3d::renderer::deferred_render_state_snapshot(),
     });
-    device_lock.set_scene(scene).await?;
-
-    tracing::trace!(
-        "Submitted transient primitive: {:?}, {} vertices, {} indices",
-        primitive_type,
-        vertices.len(),
-        indices.len()
-    );
-
     Ok(())
 }
 pub(super) fn primitive_vertex_count(primitive_type: W3D_PRIMITIVE_TYPE, primitive_count: u32) -> Option<u32> {

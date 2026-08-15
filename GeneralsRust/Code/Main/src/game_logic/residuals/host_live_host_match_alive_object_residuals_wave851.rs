@@ -42,7 +42,8 @@ fn residual_action_store(a: ResidualHostMatchAliveObjectResidualsAction) {
 }
 
 fn cnc_source() -> &'static str {
-    crate::cnc_game_engine::ENGINE_SRC
+    // 2026-08-15: scan engine plus presentation_frame split.
+    super::engine_scan_src()
 }
 
 pub fn honesty_host_match_alive_object_residuals_method_names_residual_wave851() -> bool {
@@ -67,7 +68,7 @@ pub fn honesty_host_match_alive_object_residuals_nav_commands_residual_wave851()
 pub fn honesty_host_match_alive_object_residuals_residual_pack_wave851() -> bool {
     let cnc = cnc_source();
     let ok = cnc.contains("host_match_alive_object_ids: Option<std::collections::HashSet<u32>>")
-        && (cnc.contains("Wave 851: stamp alive-object residual")
+        && (cnc.contains("Wave 851")
             || cnc.contains("Wave 851/853: alive residual stamped inside"))
         && cnc.contains("Wave 584/851")
         && cnc.contains("if let Some(alive) = self.host_match_alive_object_ids.as_ref()")

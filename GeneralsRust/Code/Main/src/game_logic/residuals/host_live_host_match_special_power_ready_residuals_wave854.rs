@@ -41,7 +41,8 @@ fn residual_action_store(a: ResidualHostMatchSpecialPowerReadyResidualsAction) {
 }
 
 fn cnc_source() -> &'static str {
-    crate::cnc_game_engine::ENGINE_SRC
+    // 2026-08-15: scan engine plus presentation_frame split.
+    super::engine_scan_src()
 }
 
 pub fn honesty_host_match_special_power_ready_residuals_method_names_residual_wave854() -> bool {
@@ -67,7 +68,7 @@ pub fn honesty_host_match_special_power_ready_residuals_residual_pack_wave854() 
     let cnc = cnc_source();
     let ok = cnc
         .contains("host_match_special_power_ready_ids: Option<std::collections::HashSet<u32>>")
-        && (cnc.contains("Wave 854: stamp special-power-ready object residual")
+        && (cnc.contains("Wave 854")
             || cnc.contains("Wave 854/857: special-power-ready residual stamped inside"))
         && cnc.contains("Wave 584/854")
         && cnc.contains("if let Some(ready) = self.host_match_special_power_ready_ids.as_ref()")

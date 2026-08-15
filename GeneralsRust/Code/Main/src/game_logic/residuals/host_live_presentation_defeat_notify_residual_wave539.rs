@@ -83,7 +83,8 @@ pub fn residual_presentation_defeat_notify_last_action() -> ResidualPresentation
 }
 
 fn eng_source() -> &'static str {
-    crate::cnc_game_engine::ENGINE_SRC
+    // 2026-08-15: scan engine plus presentation_frame split.
+    super::engine_scan_src()
 }
 
 pub fn honesty_presentation_defeat_notify_method_names_residual_wave539() -> bool {
@@ -99,15 +100,17 @@ pub fn honesty_presentation_defeat_notify_method_names_residual_wave539() -> boo
 
 pub fn honesty_presentation_defeat_notify_source_markers_residual_wave539() -> bool {
     let eng = eng_source();
+    // 2026-08-15: Wave 566/900 peel — defeat notify is presentation/boot helpers,
+    // not GameLogic queue_radar_message_for_team / play_ui_sound dual-write.
     let ok = eng.contains("Wave 539")
         && eng.contains("fn notify_presentation_ui_message")
         && eng.contains("defeated_player_ids")
         && eng.contains("hud.message.player_defeated")
         && eng.contains("self.notify_presentation_ui_message(&message)")
         && eng.contains("no GameLogic dual-write")
-        // Boot residual still has host dual-write path.
-        && eng.contains("queue_radar_message_for_team")
-        && eng.contains("play_ui_sound(\"GUIMessageReceived\")")
+        && eng.contains("notify_boot_ui_message")
+        && !eng.contains("self.game_logic.queue_radar_message_for_team")
+        && !eng.contains("self.game_logic.play_ui_sound(\"GUIMessageReceived\")")
         && !eng.contains("playable_claim = true");
     residual_action_store(ResidualPresentationDefeatNotifyAction::SourceMarkers);
     ok
@@ -129,8 +132,9 @@ pub fn honesty_presentation_defeat_notify_nav_commands_residual_wave539() -> boo
 
 pub fn simulate_presentation_defeat_notify_collect_source() -> bool {
     let eng = eng_source();
+    // 2026-08-15: Wave 569 helper owns the drain (no live take_defeat_events dual-read).
     let ok = eng.contains("Wave 539")
-        && eng.contains("take_defeat_events")
+        && eng.contains("take_presentation_or_boot_defeat_events")
         && eng.contains("defeated_player_ids");
     residual_action_store(ResidualPresentationDefeatNotifyAction::CollectSource);
     ok

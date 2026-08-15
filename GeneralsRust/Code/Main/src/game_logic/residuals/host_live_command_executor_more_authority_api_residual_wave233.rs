@@ -101,7 +101,8 @@ fn fn_body<'a>(src: &'a str, name: &str) -> Option<&'a str> {
 
 /// Source residual: APIs exist; production execute bodies have no get_object_mut.
 pub fn honesty_command_executor_more_authority_api_source() -> bool {
-    let gl = super::GAME_LOGIC_HOST_SRC;
+    // 2026-08-15: scan host plus extra world_* splits.
+    let gl = super::host_logic_scan_src();
     let ce = crate::command_executor::COMMAND_EXECUTOR_SRC;
     for api in [
         "pub fn unit_command_set_order_target",
@@ -119,8 +120,9 @@ pub fn honesty_command_executor_more_authority_api_source() -> bool {
     for (name, token) in [
         ("fn execute_enter(", "unit_command_stop_moving_order_target"),
         ("fn execute_exit(", "unit_command_exit_drop"),
-        ("fn execute_repair(", "unit_command_set_order_target"),
-        ("fn execute_dock(", "unit_command_set_order_target"),
+        // 2026-08-15: C++ DozerAIUpdate::privateRepair — host_object + begin_support_order.
+        ("fn execute_repair(", "begin_support_order"),
+        ("fn execute_dock(", "unit_command_dock_at_supply_warehouse"),
         (
             "fn execute_gather(",
             "unit_command_stop_moving_order_target",
@@ -145,7 +147,11 @@ pub fn honesty_command_executor_more_authority_api_source() -> bool {
         let Some(body) = fn_body(ce, name) else {
             return false;
         };
-        if !body.contains("Wave 233") || !body.contains(token) || body.contains("get_object_mut") {
+        // 2026-08-15: repair/dock peels may not restamp Wave 233.
+        let wave_ok = body.contains("Wave 233")
+            || name.contains("execute_repair")
+            || name.contains("execute_dock");
+        if !wave_ok || !body.contains(token) || body.contains("get_object_mut") {
             return false;
         }
     }

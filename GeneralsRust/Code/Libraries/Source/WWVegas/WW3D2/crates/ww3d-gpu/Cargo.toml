@@ -6,7 +6,7 @@ description = "WW3D GPU Abstraction Layer - Cross-platform graphics API wrapper"
 
 [dependencies]
 ww3d-core = { path = "../ww3d-core" }
-wgpu = "27.0.1"
+wgpu = { workspace = true }
 winit = { version = "0.29", optional = true }
 raw-window-handle = "0.6"
 bytemuck = { version = "1.24", features = ["derive"] }

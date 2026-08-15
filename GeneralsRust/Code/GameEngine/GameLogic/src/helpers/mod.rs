@@ -86,6 +86,7 @@ include!("game_client.rs");
 include!("object_helpers.rs");
 include!("globals.rs");
 include!("leftover.rs");
+include!("select_object_apply.rs");
 
 /// Concatenated live sources for residual `include_str!` scans.
 pub const HELPERS_SRC: &str = concat!(

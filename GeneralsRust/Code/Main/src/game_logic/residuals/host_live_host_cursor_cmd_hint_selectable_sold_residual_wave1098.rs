@@ -49,7 +49,8 @@ fn residual_action_store(a: ResidualHostCursorCmdHintSelectableSoldAction) {
 }
 
 fn cnc_source() -> &'static str {
-    crate::cnc_game_engine::ENGINE_SRC
+    // 2026-08-15: scan engine plus presentation_frame split.
+    super::engine_scan_src()
 }
 fn cs_source() -> &'static str {
     crate::command_system::COMMAND_SYSTEM_SRC

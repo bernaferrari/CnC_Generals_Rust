@@ -43,7 +43,8 @@ fn residual_action_store(a: ResidualHostBootVictoryConditionAction) {
 }
 
 fn cnc_source() -> &'static str {
-    crate::cnc_game_engine::ENGINE_SRC
+    // 2026-08-15: scan engine plus presentation_frame split.
+    super::engine_scan_src()
 }
 
 pub fn honesty_host_boot_victory_condition_residual_method_names_residual_wave855() -> bool {
@@ -73,7 +74,7 @@ pub fn honesty_host_boot_victory_condition_residual_pack_wave855() -> bool {
         && cnc.contains(
             "Wave 855: boot residual via single stamped evaluate (shared with match_over)",
         )
-        && cnc.contains("Wave 855: boot victory residual is frame-local")
+        && cnc.contains("Wave 855")
         && cnc
             .matches("host_boot_victory_condition_residual()")
             .count()

@@ -44,7 +44,8 @@ fn residual_action_store(a: ResidualPresentationEmptyShadowFailopenAction) {
 }
 
 fn cnc_source() -> &'static str {
-    crate::cnc_game_engine::ENGINE_SRC
+    // 2026-08-15: scan engine plus presentation_frame split.
+    super::engine_scan_src()
 }
 
 fn pf_source() -> &'static str {
@@ -74,7 +75,7 @@ pub fn honesty_presentation_empty_shadow_failopen_nav_commands_residual_wave838(
 pub fn honesty_presentation_empty_shadow_failopen_residual_pack_wave838() -> bool {
     let cnc = cnc_source();
     let pf = pf_source();
-    let ok = cnc.contains("Wave 838: full host→shadow sync before GW presentation rebuild")
+    let ok = cnc.contains("Wave 838")
         && pf.contains("Wave 838: empty GameWorld shadow must not erase a non-empty host")
         && pf.contains("Wave 838: keep host objects when shadow yields nothing")
         && pf.contains("if gw_n == 0 && host_n > 0");

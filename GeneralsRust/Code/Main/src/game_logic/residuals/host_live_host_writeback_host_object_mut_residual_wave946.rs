@@ -49,11 +49,13 @@ fn residual_action_store(a: ResidualHostWritebackHostObjectMutAction) {
 }
 
 fn cnc_source() -> &'static str {
-    crate::cnc_game_engine::ENGINE_SRC
+    // 2026-08-15: scan engine plus presentation_frame split.
+    super::engine_scan_src()
 }
 
 fn gl_source() -> &'static str {
-    super::GAME_LOGIC_HOST_SRC
+    // 2026-08-15: scan host plus extra world_* splits.
+    super::host_logic_scan_src()
 }
 
 fn shadow_source() -> &'static str {
@@ -138,8 +140,8 @@ pub fn honesty_host_writeback_host_object_mut_residual_pack_wave946() -> bool {
     let gl = gl_source();
     let sh = shadow_source();
     let cnc = cnc_source();
-    let api = non_comment_code(code_window(gl, "fn host_object_mut", 800));
-    let with_api = non_comment_code(code_window(gl, "fn with_host_object_mut", 800));
+    let api = non_comment_code(code_window(&gl, "fn host_object_mut", 800));
+    let with_api = non_comment_code(code_window(&gl, "fn with_host_object_mut", 800));
     let bodies = writeback_fn_bodies(sh);
     let mut mut_count = 0usize;
     let mut host_mut_count = 0usize;

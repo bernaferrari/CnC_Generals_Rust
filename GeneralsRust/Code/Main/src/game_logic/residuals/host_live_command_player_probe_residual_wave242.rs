@@ -102,7 +102,8 @@ fn fn_body<'a>(src: &'a str, name: &str) -> Option<&'a str> {
 
 /// Source residual: selection/view use player probes; no get_player dual-read.
 pub fn honesty_command_player_probe_source() -> bool {
-    let gl = super::GAME_LOGIC_HOST_SRC;
+    // 2026-08-15: scan host plus extra world_* splits.
+    let gl = super::host_logic_scan_src();
     let cs = crate::command_system::COMMAND_SYSTEM_SRC;
     if !(gl.contains("pub fn player_extend_selection(")
         && gl.contains("pub fn player_selected_count("))

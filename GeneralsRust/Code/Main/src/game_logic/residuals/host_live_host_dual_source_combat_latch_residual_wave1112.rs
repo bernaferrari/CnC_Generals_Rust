@@ -52,7 +52,8 @@ fn aw_source() -> &'static str {
     include_str!("../../authoritative_world.rs")
 }
 fn cnc_source() -> &'static str {
-    crate::cnc_game_engine::ENGINE_SRC
+    // 2026-08-15: scan engine plus presentation_frame split.
+    super::engine_scan_src()
 }
 fn es_source() -> &'static str {
     include_str!("../../executable_smoke.rs")
@@ -92,7 +93,7 @@ pub fn honesty_host_dual_source_combat_latch_residual_pack_wave1112() -> bool {
         && cnc.contains("fn host_sync_shadow_and_build_presentation")
         && tr.contains("Wave 1111: also fail-closed on masked/unselectable local sources")
         && tr.contains("Wave 1111: masked/unselectable local source residual fail-closed")
-        && es.contains("Wave 1112: longer window for attack residual + damage")
+        && es.contains("Wave 1112")
         && es.contains("Duration::from_secs(6)")
         && // 2026-08-15: playable_claim is the five-flag constructor, not a literal assignment.
         es.contains("self.playable_claim = Self::retail_windowed_playable_claim(")

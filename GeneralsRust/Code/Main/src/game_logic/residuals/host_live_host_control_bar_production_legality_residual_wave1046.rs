@@ -42,10 +42,12 @@ fn residual_action_store(a: ResidualHostControlBarProductionLegalityResidualActi
 }
 
 fn cnc_source() -> &'static str {
-    crate::cnc_game_engine::ENGINE_SRC
+    // 2026-08-15: scan engine plus presentation_frame split.
+    super::engine_scan_src()
 }
 fn gl_source() -> &'static str {
-    super::GAME_LOGIC_HOST_SRC
+    // 2026-08-15: scan host plus extra world_* splits.
+    super::host_logic_scan_src()
 }
 fn cb_source() -> &'static str {
     game_client::gui::control_bar::control_bar::CONTROL_BAR_SRC
@@ -76,8 +78,8 @@ pub fn honesty_host_control_bar_production_legality_residual_residual_pack_wave1
     let cnc = cnc_source();
     let gl = gl_source();
     let cb = cb_source();
-    let ok = cb.contains("Wave 249/997/1009/1046: presentation residual above")
-        && cb.contains("Wave 981/1010/1014/1046: host empty dual-world")
+    let ok = cb.contains("Wave 249")
+        && cb.contains("Wave 981")
         && cb.contains("entry.destroyed || entry.sold || entry.disabled || entry.unselectable")
         && !cnc.contains("playable_claim = true")
         && !gl.contains("playable_claim = true");

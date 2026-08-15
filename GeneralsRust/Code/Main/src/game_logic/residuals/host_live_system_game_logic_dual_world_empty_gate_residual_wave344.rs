@@ -118,7 +118,17 @@ fn fn_body<'a>(src: &'a str, name: &str) -> Option<&'a str> {
 
 /// Source residual: system GameLogic empty dual-world short-circuits.
 pub fn honesty_system_game_logic_dual_world_empty_gate_source() -> bool {
-    let g = include_str!("../../../../GameEngine/GameLogic/src/system/game_logic.rs");
+    // 2026-08-15: system/game_logic.rs is a facade — scan the dispatch split.
+    let g = concat!(
+        include_str!("../../../../GameEngine/GameLogic/src/system/game_logic.rs"),
+        include_str!("../../../../GameEngine/GameLogic/src/system/game_logic_dispatch.rs"),
+        include_str!("../../../../GameEngine/GameLogic/src/system/game_logic_impl/types.rs"),
+        include_str!("../../../../GameEngine/GameLogic/src/system/game_logic_impl/globals.rs"),
+        include_str!("../../../../GameEngine/GameLogic/src/system/game_logic_impl/impl_lifecycle.rs"),
+        include_str!("../../../../GameEngine/GameLogic/src/system/game_logic_impl/impl_update.rs"),
+        include_str!("../../../../GameEngine/GameLogic/src/system/game_logic_impl/partition.rs"),
+        include_str!("../../../../GameEngine/GameLogic/src/system/mod.rs"),
+    );
     if !(g.contains("Wave 344")
         && g.contains("fn dual_world_registry_unavailable")
         && (g.contains("let _host_empty") || g.contains("OBJECT_REGISTRY.is_empty()"))
@@ -137,20 +147,35 @@ pub fn honesty_system_game_logic_dual_world_empty_gate_source() -> bool {
             return false;
         }
     }
-    let Some(upd) = fn_body(g, "fn update(") else {
+    // 2026-08-15: GameLogic::update skips only when BOTH store and objects are
+    // empty (C++ GameLogic.cpp still ticks; empty-noop is host-only). Energy
+    // lookups are not dual_world early-skips.
+    let upd = crate::game_logic::residuals::harness::last_rust_fn_body(g, "update")
+        .filter(|u| u.contains("store_is_empty()"));
+    let upd = upd.or_else(|| {
+        let i = g.find("pub fn update(&mut self, frame: u32)")?;
+        crate::game_logic::residuals::harness::rust_fn_body(&g[i..], "update")
+    });
+    let Some(clean) = crate::game_logic::residuals::harness::last_rust_fn_body(
+        g,
+        "cleanup_dead_objects",
+    ) else {
         return false;
     };
-    let Some(clean) = fn_body(g, "fn cleanup_dead_objects(") else {
+    let Some(prod) = crate::game_logic::residuals::harness::last_rust_fn_body(g, "energy_production")
+    else {
         return false;
     };
-    let Some(prod) = fn_body(g, "fn energy_production(") else {
-        return false;
-    };
-    let Some(bonus) = fn_body(g, "fn energy_bonus(") else {
+    let Some(bonus) = crate::game_logic::residuals::harness::last_rust_fn_body(g, "energy_bonus")
+    else {
         return false;
     };
     helper_ok
-        && upd.contains("return Ok(())")
+        && upd.is_some_and(|u| {
+            u.contains("store_is_empty()")
+                && u.contains("self.objects.is_empty()")
+                && !u.contains("dual_world_registry_unavailable()")
+        })
         && clean.contains("return Ok(())")
         && (prod.contains("unwrap_or(0)") || prod.contains("return 0"))
         && (bonus.contains("unwrap_or(0)") || bonus.contains("return 0"))

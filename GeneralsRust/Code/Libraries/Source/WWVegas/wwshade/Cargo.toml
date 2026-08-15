@@ -10,6 +10,7 @@ license = "GPL-3.0"
 # Graphics and math libraries
 wgpu = { version = "27.0.1", features = ["wgsl"] }
 ww3d-gpu = { path = "../WW3D2/crates/ww3d-gpu" }
+ww3d-engine = { path = "../WW3D2/crates/ww3d-engine" }
 bytemuck = { version = "1.14", features = ["derive"] }
 glam = { version = "0.28", features = ["serde"] }
 bitflags = "2.4"

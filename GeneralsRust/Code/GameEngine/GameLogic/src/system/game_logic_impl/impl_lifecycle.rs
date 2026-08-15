@@ -813,47 +813,80 @@ impl GameLogic {
     // C++ Parity: selectObject / deselectObject
     // =========================================================================
 
-    /// PARITY_NOTE: GameLogic::selectObject(Object*, Bool, PlayerMaskType, Bool) C++ line 2595.
+    /// PARITY_NOTE: GameLogic::selectObject(Object*, Bool, PlayerMaskType, Bool)
+    /// C++ `GameLogic.cpp:2595-2641`:
+    /// - reject null / non-mass-selectable unless `createNewSelection`
+    /// - for each player in `playerMask`: `TheAI->createGroup()`, `group->add(obj)`,
+    ///   then `setCurrentlySelectedAIGroup` or `addAIGroupToCurrentSelection`
+    /// - if `affectClient`: `TheInGameUI->selectDrawable(obj->getDrawable())`
+    ///
+    /// Delegates to the live helper's player-assignment (`apply_select_object`).
+    /// The `&Object` helper cannot run while this method holds the object
+    /// `RwLock` — `AIGroup::add` try-reads the same Arc (Darwin deadlock).
     pub fn select_object(
         &mut self,
         object_id: ObjectID,
         create_new_selection: bool,
-        _player_mask: PlayerMaskType,
-        _affect_client: bool,
+        player_mask: PlayerMaskType,
+        affect_client: bool,
     ) {
         let Some(obj_ref) = self.find_object_by_id(object_id) else {
             return;
         };
-        let Ok(obj) = obj_ref.read() else {
-            return;
+        let (allowed, can_add, drawable) = {
+            let Ok(obj) = obj_ref.read() else {
+                return;
+            };
+            let allowed = obj.is_mass_selectable() || create_new_selection;
+            let can_add = obj.get_ai_update_interface().is_some()
+                || obj.is_any_kind_of(&[KindOf::Structure, KindOf::AlwaysSelectable]);
+            let drawable = if affect_client {
+                obj.get_drawable()
+            } else {
+                None
+            };
+            (allowed, can_add, drawable)
         };
-        if !obj.is_mass_selectable() && !create_new_selection {
-            trace!(
-                "selectObject: object {} not mass-selectable, skipping",
-                object_id
-            );
+        if !allowed {
             return;
         }
-        // C++ creates an AIGroup, adds to player selection — deferred to InGameUI integration
-        trace!(
-            "selectObject: id={}, createNew={}",
+        crate::helpers::TheGameLogic::apply_select_object(
             object_id,
-            create_new_selection
+            create_new_selection,
+            player_mask,
+            can_add,
+            affect_client,
+            drawable,
         );
     }
 
-    /// PARITY_NOTE: GameLogic::deselectObject(Object*, PlayerMaskType, Bool) C++ line 2646.
+    /// PARITY_NOTE: GameLogic::deselectObject(Object*, PlayerMaskType, Bool)
+    /// C++ `GameLogic.cpp:2646-2690`.
     pub fn deselect_object(
         &mut self,
         object_id: ObjectID,
-        _player_mask: PlayerMaskType,
-        _affect_client: bool,
+        player_mask: PlayerMaskType,
+        affect_client: bool,
     ) {
-        if self.find_object_by_id(object_id).is_none() {
+        let Some(obj_ref) = self.find_object_by_id(object_id) else {
             return;
-        }
-        // C++ removes from player's AIGroup selection — deferred to InGameUI integration
-        trace!("deselectObject: id={}", object_id);
+        };
+        let drawable = {
+            let Ok(obj) = obj_ref.read() else {
+                return;
+            };
+            if affect_client {
+                obj.get_drawable()
+            } else {
+                None
+            }
+        };
+        crate::helpers::TheGameLogic::apply_deselect_object(
+            object_id,
+            player_mask,
+            affect_client,
+            drawable,
+        );
     }
 
     // =========================================================================

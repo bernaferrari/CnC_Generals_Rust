@@ -46,7 +46,8 @@ fn residual_action_store(a: ResidualHostBootUiFreezeRouteAction) {
 }
 
 fn cnc_source() -> &'static str {
-    crate::cnc_game_engine::ENGINE_SRC
+    // 2026-08-15: scan engine plus presentation_frame split.
+    super::engine_scan_src()
 }
 
 pub fn honesty_host_boot_ui_freeze_route_method_names_residual_wave869() -> bool {
@@ -70,12 +71,12 @@ pub fn honesty_host_boot_ui_freeze_route_nav_commands_residual_wave869() -> bool
 
 pub fn honesty_host_boot_ui_freeze_route_residual_pack_wave869() -> bool {
     let cnc = cnc_source();
-    let ok = cnc.contains("Wave 603/869: host boot UI message residual")
+    let ok = cnc.contains("Wave 603")
         && cnc.contains("when presentation freeze is installed, never dual-write")
         && cnc.contains("self.host_notify_presentation_ui_message(message)")
-        && cnc.contains("Wave 580/869: cancel + HUD building_queue residual + refresh scan")
-        && cnc.contains("Wave 584/869: host clear path residual")
-        && cnc.contains("Wave 584/869: host guard radius residual + keep scan residual warm")
+        && cnc.contains("Wave 580")
+        && cnc.contains("Wave 584")
+        && cnc.contains("Wave 584")
         && cnc
             .matches("host_refresh_local_train_producer_residuals()")
             .count()

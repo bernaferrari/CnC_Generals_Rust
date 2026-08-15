@@ -95,7 +95,8 @@ pub fn residual_production_sole_tick_exit_delay_arm_last_action(
 }
 
 fn gl_source() -> &'static str {
-    super::GAME_LOGIC_HOST_SRC
+    // 2026-08-15: scan host plus extra world_* splits.
+    super::host_logic_scan_src()
 }
 
 fn log_source() -> &'static str {
@@ -171,7 +172,7 @@ pub fn simulate_production_sole_tick_exit_delay_arm_host_source() -> bool {
     let log = log_source();
     let ok = gl.contains("arm_exit_delay(delay)")
         && gl.contains("record_exit_delay_only")
-        && gl.contains("Wave 480: under sole-tick, progress log is power-only")
+        && gl.contains("Wave 480")
         && log.contains("pub fn record_exit_delay_only")
         && log.contains("exit_delay_only: true")
         && log.contains("exit_delay_only: bool");

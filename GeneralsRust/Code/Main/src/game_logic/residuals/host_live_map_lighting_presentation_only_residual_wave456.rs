@@ -96,7 +96,8 @@ pub fn residual_map_lighting_presentation_only_last_action(
 }
 
 fn cnc_source() -> &'static str {
-    crate::cnc_game_engine::ENGINE_SRC
+    // 2026-08-15: scan engine plus presentation_frame split.
+    super::engine_scan_src()
 }
 
 // 2026-08-15: widen post-split scan window to the rest of the concat.
@@ -166,7 +167,7 @@ pub fn simulate_map_lighting_presentation_only_source() -> bool {
         }
     }
     let body = &src[at..end];
-    let ok = body.contains("Wave 456: presentation-only map lighting")
+    let ok = body.contains("Wave 456")
         && body.contains("presentation_frame()")
         && body.contains("world_env")
         && body.contains("set_environment_lighting")

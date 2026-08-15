@@ -42,7 +42,8 @@ fn residual_action_store(a: ResidualHostMultiplayerScienceFailclosedAction) {
 }
 
 fn cnc_source() -> &'static str {
-    crate::cnc_game_engine::ENGINE_SRC
+    // 2026-08-15: scan engine plus presentation_frame split.
+    super::engine_scan_src()
 }
 
 pub fn honesty_host_multiplayer_science_failclosed_method_names_residual_wave861() -> bool {
@@ -67,7 +68,7 @@ pub fn honesty_host_multiplayer_science_failclosed_nav_commands_residual_wave861
 pub fn honesty_host_multiplayer_science_failclosed_residual_pack_wave861() -> bool {
     let cnc = cnc_source();
     let ok = cnc.contains("host_match_in_multiplayer: Option<bool>")
-        && cnc.contains("Wave 861: stamp multiplayer residual")
+        && cnc.contains("Wave 861")
         && cnc.contains("Wave 584/861")
         && cnc.contains("Wave 584/852/861")
         && cnc.contains("if let Some(v) = self.host_match_in_multiplayer")

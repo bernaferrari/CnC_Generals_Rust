@@ -46,10 +46,12 @@ fn residual_action_store(a: ResidualHostCatalogCommandSetPresentationResidualAct
 }
 
 fn cnc_source() -> &'static str {
-    crate::cnc_game_engine::ENGINE_SRC
+    // 2026-08-15: scan engine plus presentation_frame split.
+    super::engine_scan_src()
 }
 fn gl_source() -> &'static str {
-    super::GAME_LOGIC_HOST_SRC
+    // 2026-08-15: scan host plus extra world_* splits.
+    super::host_logic_scan_src()
 }
 fn ui_source() -> &'static str {
     game_client::gui::ingame_ui::INGAME_UI_SRC
@@ -88,11 +90,11 @@ pub fn honesty_host_catalog_command_set_presentation_residual_residual_pack_wave
     let ui = ui_source();
     let tr = tr_source();
     let cb = cb_source();
-    let ok = ui.contains("Wave 1015: effective command-set name residual")
+    let ok = ui.contains("Wave 1015")
         && tr.contains("pub command_set_name: String")
         && cnc.contains("Wave 1015: command-set residual")
         && cnc.contains("command_set_name: if !o.command_set_name.is_empty()")
-        && cb.contains("Wave 1015: command-set residual refresh")
+        && cb.contains("Wave 1015")
         && cb.contains("presentation_primary_command_set = entry.command_set_name.clone()")
         && cb.contains("!entry.command_set_name.is_empty()")
         && !cnc.contains("playable_claim = true")

@@ -93,7 +93,8 @@ pub fn residual_sell_deconstruction_sole_tick_no_stomp_last_action(
 }
 
 fn gl_source() -> &'static str {
-    super::GAME_LOGIC_HOST_SRC
+    // 2026-08-15: scan host plus extra world_* splits.
+    super::host_logic_scan_src()
 }
 
 fn shadow_source() -> &'static str {
@@ -162,7 +163,7 @@ pub fn honesty_sell_deconstruction_sole_tick_no_stomp_nav_commands_residual_wave
 
 pub fn simulate_sell_deconstruction_sole_tick_no_stomp_host_source() -> bool {
     let gl = gl_source();
-    let Some(body) = function_body(gl, "fn update_sell_list(") else {
+    let Some(body) = function_body(&gl, "fn update_sell_list(") else {
         return false;
     };
     let ok = body.contains("Wave 481: GW sole-ticks sell percent via negative rate")

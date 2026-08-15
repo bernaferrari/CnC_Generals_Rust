@@ -99,7 +99,8 @@ fn fn_body<'a>(src: &'a str, name: &str) -> Option<&'a str> {
 
 /// Source residual: pick API exists; integration find uses it without objects walk.
 pub fn honesty_world_pick_probe_source() -> bool {
-    let gl = super::GAME_LOGIC_HOST_SRC;
+    // 2026-08-15: scan host plus extra world_* splits.
+    let gl = super::host_logic_scan_src();
     let ci_full = include_str!("../../command_integration.rs");
     let ci = ci_full.split("#[cfg(test)]").next().unwrap_or(ci_full);
     if !gl.contains("pub fn pick_object_id_at_world(") {

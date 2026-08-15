@@ -23,6 +23,13 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use ww3d_core::ensure_class_registry_initialized;
 use ww3d_gpu::{GpuDevice, GpuError};
 
+mod frame_submit;
+pub use frame_submit::{
+    frame_is_active, last_frame_submit_count, last_out_of_frame_submit_count, on_begin_frame,
+    reset_submit_debug, submit_out_of_frame, submit_owned_frame, submit_recorded,
+    total_owned_submits, FrameCommandPhase, OutOfFrameReason, SUBMIT_DEBUG_ENV,
+};
+
 // Re-export core types
 pub use glam;
 pub use ww3d_gpu::wgpu;
@@ -1001,6 +1008,7 @@ impl Engine {
                 let depth_view = surface_state.depth_view();
 
                 self.frame_active = true;
+                frame_submit::on_begin_frame();
                 Ok(RenderFrame {
                     device: Arc::clone(&self.device),
                     queue: Arc::clone(&self.queue),
@@ -1019,6 +1027,7 @@ impl Engine {
                 let depth_view = target.depth_view();
 
                 self.frame_active = true;
+                frame_submit::on_begin_frame();
                 Ok(RenderFrame {
                     device: Arc::clone(&self.device),
                     queue: Arc::clone(&self.queue),
@@ -1070,7 +1079,8 @@ impl Engine {
         } = frame;
 
         let command_buffer = encoder.finish();
-        self.queue.submit(std::iter::once(command_buffer));
+        // Frame-owned submit: uploads + this encoder + overlays in one queue.submit.
+        frame_submit::submit_owned_frame(&self.queue, command_buffer, self.frame_index);
 
         self.process_pending_screenshots(surface_texture.as_ref())?;
 
@@ -1301,6 +1311,7 @@ impl Engine {
         &mut self,
         surface_texture: Option<&wgpu::SurfaceTexture>,
     ) -> EngineResult<()> {
+        // Not a submit: poll outstanding screenshot MAP_READ completions.
         let _ = self.device.poll(wgpu::PollType::Poll);
         self.flush_pending_screenshot_readbacks();
 
@@ -1463,7 +1474,12 @@ impl Engine {
             },
         );
 
-        self.queue.submit(std::iter::once(encoder.finish()));
+        // Out-of-frame: copy must run after the frame encoder has already been submitted.
+        frame_submit::submit_out_of_frame(
+            &self.queue,
+            std::iter::once(encoder.finish()),
+            frame_submit::OutOfFrameReason::ScreenshotReadback,
+        );
 
         let buffer_slice = buffer.slice(..);
         let (sender, receiver) = mpsc::channel();
@@ -1601,13 +1617,19 @@ impl Engine {
             },
         );
 
-        self.queue.submit(std::iter::once(encoder.finish()));
+        // Out-of-frame: blocking debug capture, not the game present path.
+        frame_submit::submit_out_of_frame(
+            &self.queue,
+            std::iter::once(encoder.finish()),
+            frame_submit::OutOfFrameReason::BlockingScreenshotCapture,
+        );
 
         let buffer_slice = buffer.slice(..);
         let (sender, receiver) = mpsc::channel();
         buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
             let _ = sender.send(result);
         });
+        // Not a submit: wait for the debug readback map.
         let _ = self.device.poll(wgpu::PollType::wait_indefinitely());
         receiver
             .recv()

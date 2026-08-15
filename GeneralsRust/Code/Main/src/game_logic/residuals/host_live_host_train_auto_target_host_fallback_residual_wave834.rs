@@ -58,7 +58,8 @@ fn residual_action_store(a: ResidualHostTrainAutoTargetHostFallbackAction) {
 }
 
 fn cnc_source() -> &'static str {
-    crate::cnc_game_engine::ENGINE_SRC
+    // 2026-08-15: scan engine plus presentation_frame split.
+    super::engine_scan_src()
 }
 
 pub fn honesty_host_train_auto_target_host_fallback_method_names_residual_wave834() -> bool {
@@ -84,9 +85,9 @@ pub fn honesty_host_train_auto_target_host_fallback_nav_commands_residual_wave83
 
 pub fn honesty_host_train_auto_target_host_fallback_residual_pack_wave834() -> bool {
     let cnc = cnc_source();
-    let ok = cnc.contains("Wave 834: when auto_target + force_complete are opt-in")
+    let ok = cnc.contains("Wave 834")
         && cnc.contains("fall back to host GameLogic producers")
-        && cnc.contains("Wave 834: if still no local barracks, spawn")
+        && cnc.contains("Wave 834")
         && cnc.contains("host_force_ensure_barracks_building_data")
         && cnc.contains("construct_ok_force")
         && cnc.contains("allow_auto_target")

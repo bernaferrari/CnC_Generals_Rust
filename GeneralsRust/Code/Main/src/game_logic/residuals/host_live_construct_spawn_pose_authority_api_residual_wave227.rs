@@ -89,7 +89,8 @@ pub fn honesty_live_construct_spawn_pose_authority_api_residual_pack_wave227() -
 
 /// Source residual: spawn pose + object_is_alive; engine has no `.get_object(`.
 pub fn honesty_construct_spawn_pose_authority_api_source() -> bool {
-    let gl = super::GAME_LOGIC_HOST_SRC;
+    // 2026-08-15: scan host plus extra world_* splits.
+    let gl = super::host_logic_scan_src();
     let eng = crate::cnc_game_engine::ENGINE_SRC;
     gl.contains("pub fn object_is_alive")
         && gl.contains("pub fn object_position")

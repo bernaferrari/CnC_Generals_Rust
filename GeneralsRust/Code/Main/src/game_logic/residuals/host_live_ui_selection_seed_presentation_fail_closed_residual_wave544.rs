@@ -87,7 +87,8 @@ pub fn residual_ui_selection_seed_presentation_fail_closed_last_action(
 }
 
 fn eng_source() -> &'static str {
-    crate::cnc_game_engine::ENGINE_SRC
+    // 2026-08-15: scan engine plus presentation_frame split.
+    super::engine_scan_src()
 }
 
 fn fn_body<'a>(src: &'a str, sig: &str) -> Option<&'a str> {
@@ -135,7 +136,9 @@ pub fn honesty_ui_selection_seed_presentation_fail_closed_source_markers_residua
     let pres_return = body.contains("Wave 544")
         && body.contains("last_presentation_frame")
         && body.contains("return None;");
-    let boot = !body.contains("player_selected_objects");
+    // 2026-08-15: comments name the peeled dual-read; live code must not call it.
+    let boot = !body.contains("player_selected_objects(")
+        && !body.contains(".player_selected_objects");
     let pres_arm_ok = body.contains("selected_objects.first()");
     let ok = pres_return && boot && pres_arm_ok && !eng.contains("playable_claim = true");
     residual_action_store(ResidualUiSelectionSeedPresentationFailClosedAction::SourceMarkers);
@@ -180,7 +183,8 @@ pub fn simulate_ui_selection_seed_presentation_fail_closed_dispatch_source() -> 
     };
     let ok = body.contains("Wave 544")
         && body.contains("return None;")
-        && !body.contains("player_selected_objects");
+        && !body.contains("player_selected_objects(")
+        && !body.contains(".player_selected_objects");
     residual_action_store(ResidualUiSelectionSeedPresentationFailClosedAction::DispatchSource);
     ok
 }

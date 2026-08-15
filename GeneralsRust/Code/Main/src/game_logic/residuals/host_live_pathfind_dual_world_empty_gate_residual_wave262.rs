@@ -124,7 +124,10 @@ pub fn honesty_pathfind_dual_world_empty_gate_source() -> bool {
     let Some(vehicle) = fn_body(g, "fn object_is_vehicle(") else {
         return false;
     };
-    queue.contains("dual_world_registry_unavailable")
+    // 2026-08-15: C++ AIPathfind.cpp:5857-5860 processPathfindQueue drains
+    // on empty maps (`if (!m_isMapReady) return` only). Per-object lookups stay fail-closed.
+    !queue.contains("dual_world_registry_unavailable")
+        && queue.contains("if !self.is_map_ready")
         && dest.contains("dual_world_registry_unavailable")
         && vehicle.contains("dual_world_registry_unavailable")
 }

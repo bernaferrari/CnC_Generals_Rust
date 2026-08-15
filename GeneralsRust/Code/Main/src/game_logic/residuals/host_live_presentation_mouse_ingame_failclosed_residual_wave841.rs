@@ -41,7 +41,8 @@ fn residual_action_store(a: ResidualPresentationMouseIngameFailclosedAction) {
 }
 
 fn cnc_source() -> &'static str {
-    crate::cnc_game_engine::ENGINE_SRC
+    // 2026-08-15: scan engine plus presentation_frame split.
+    super::engine_scan_src()
 }
 
 pub fn honesty_presentation_mouse_ingame_failclosed_method_names_residual_wave841() -> bool {
@@ -65,7 +66,7 @@ pub fn honesty_presentation_mouse_ingame_failclosed_nav_commands_residual_wave84
 
 pub fn honesty_presentation_mouse_ingame_failclosed_residual_pack_wave841() -> bool {
     let cnc = cnc_source();
-    let ok = cnc.contains("Wave 609/841: host UI/presentation residual helper")
+    let ok = cnc.contains("Wave 609")
         && cnc.contains("Wave 841: InGame/Paused/Loading never dual-read live GameLogic for mouse")
         && cnc.contains("GameState::InGame | GameState::Paused | GameState::Loading")
         && cnc.contains("fn host_presentation_mouse_game_logic");

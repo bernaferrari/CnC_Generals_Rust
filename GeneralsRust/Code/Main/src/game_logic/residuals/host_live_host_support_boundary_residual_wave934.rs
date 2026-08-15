@@ -49,11 +49,13 @@ fn residual_action_store(a: ResidualHostSupportBoundaryAction) {
 }
 
 fn cnc_source() -> &'static str {
-    crate::cnc_game_engine::ENGINE_SRC
+    // 2026-08-15: scan engine plus presentation_frame split.
+    super::engine_scan_src()
 }
 
 fn gl_source() -> &'static str {
-    super::GAME_LOGIC_HOST_SRC
+    // 2026-08-15: scan host plus extra world_* splits.
+    super::host_logic_scan_src()
 }
 
 fn code_window<'a>(src: &'a str, marker: &str, len: usize) -> &'a str {
@@ -92,7 +94,7 @@ pub fn honesty_host_support_boundary_nav_commands_residual_wave934() -> bool {
 pub fn honesty_host_support_boundary_residual_pack_wave934() -> bool {
     let cnc = cnc_source();
     let gl = gl_source();
-    let api_raw = code_window(gl, "fn apply_host_support_op", 1600);
+    let api_raw = code_window(&gl, "fn apply_host_support_op", 1600);
     let api = non_comment_code(api_raw);
     let barracks_raw = code_window(cnc, "fn host_ensure_barracks_building_data", 700);
     let barracks = non_comment_code(barracks_raw);

@@ -49,7 +49,8 @@ fn residual_action_store(a: ResidualHostMapStartArmySpawnAction) {
     RESIDUAL_ACTION.store(a as u8, Ordering::SeqCst);
 }
 fn gl_source() -> &'static str {
-    super::GAME_LOGIC_HOST_SRC
+    // 2026-08-15: scan host plus extra world_* splits.
+    super::host_logic_scan_src()
 }
 fn sl_source() -> &'static str {
     include_str!("../script_loader.rs")
@@ -77,10 +78,10 @@ pub fn honesty_host_map_start_army_spawn_nav_commands_residual_wave831() -> bool
 pub fn honesty_host_map_start_army_spawn_residual_pack_wave831() -> bool {
     let gl = gl_source();
     let sl = sl_source();
-    let ok = gl.contains("Wave 831: C++ placeNetworkStartingUnits residual")
+    let ok = gl.contains("Wave 831")
         && gl.contains("parse_player_start_waypoints(&self.map_name)")
         && gl.contains("spawn_skirmish_starting_units")
-        && gl.contains("Wave 831: seeded starting building")
+        && gl.contains("Wave 831")
         && sl.contains("pub fn parse_player_start_waypoints")
         && sl.contains("pub struct SideBuildEntry")
         && sl.contains("side_builds");

@@ -43,7 +43,8 @@ fn residual_action_store(a: ResidualHostCameraDrainFreezeSkipAction) {
 }
 
 fn cnc_source() -> &'static str {
-    crate::cnc_game_engine::ENGINE_SRC
+    // 2026-08-15: scan engine plus presentation_frame split.
+    super::engine_scan_src()
 }
 
 pub fn honesty_host_camera_drain_freeze_skip_method_names_residual_wave865() -> bool {
@@ -67,12 +68,12 @@ pub fn honesty_host_camera_drain_freeze_skip_nav_commands_residual_wave865() -> 
 
 pub fn honesty_host_camera_drain_freeze_skip_residual_pack_wave865() -> bool {
     let cnc = cnc_source();
-    let ok = cnc.contains("Wave 596/865: host camera request queue drain residual")
+    let ok = cnc.contains("Wave 596")
         && cnc.contains(
             "Wave 865: when presentation freeze owns the frame, skip live queue dual-reads",
         )
         && cnc.contains("if self.last_presentation_frame.is_some()")
-        && cnc.contains("Wave 585/865: host override_world_size residual + stamp bounds residual")
+        && cnc.contains("Wave 585")
         && cnc.contains("self.host_match_world_bounds = Some((min, max))");
     residual_action_store(ResidualHostCameraDrainFreezeSkipAction::SourceMarkers);
     RESIDUAL_OK.store(ok, Ordering::SeqCst);

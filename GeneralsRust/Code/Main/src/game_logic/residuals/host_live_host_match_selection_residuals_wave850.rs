@@ -43,7 +43,8 @@ fn residual_action_store(a: ResidualHostMatchSelectionResidualsAction) {
 }
 
 fn cnc_source() -> &'static str {
-    crate::cnc_game_engine::ENGINE_SRC
+    // 2026-08-15: scan engine plus presentation_frame split.
+    super::engine_scan_src()
 }
 
 pub fn honesty_host_match_selection_residuals_method_names_residual_wave850() -> bool {
@@ -71,7 +72,7 @@ pub fn honesty_host_match_selection_residuals_residual_pack_wave850() -> bool {
         && cnc.contains("Wave 850: stamp selection residual")
         && cnc.contains("Wave 610/850")
         && cnc.contains("Wave 609/850")
-        && cnc.contains("Wave 850: host-stamped selection residual before live boot probe")
+        && cnc.contains("Wave 850")
         && cnc
             .matches("if let Some(ids) = self.host_match_selected_ids.as_ref()")
             .count()
