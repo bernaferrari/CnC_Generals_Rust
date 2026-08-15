@@ -142,7 +142,6 @@ pub mod rc4;
 pub mod rcfile;
 pub mod readline;
 pub mod realcrc;
-pub mod ref_ptr;
 pub mod refcount;
 pub mod regexpr;
 #[cfg(windows)]
@@ -255,7 +254,6 @@ pub use random::{
 };
 pub use rawfile::*;
 pub use realcrc::{crc_memory, crc_string, crc_stringi};
-pub use ref_ptr::{RefCountPtr, RefCounted};
 #[cfg(windows)]
 pub use registry::RegistryClass;
 pub use rgb::*;

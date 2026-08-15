@@ -42,11 +42,13 @@ fn residual_action_store(a: ResidualHostDestroyListIfNeededAction) {
 }
 
 fn cnc_source() -> &'static str {
-    crate::cnc_game_engine::ENGINE_SRC
+    // 2026-08-15: scan engine plus presentation_frame split.
+    super::engine_scan_src()
 }
 
 fn gl_source() -> &'static str {
-    super::GAME_LOGIC_HOST_SRC
+    // 2026-08-15: scan host plus extra world_* splits.
+    super::host_logic_scan_src()
 }
 
 fn ready_source() -> &'static str {
@@ -92,7 +94,7 @@ pub fn honesty_host_destroy_list_if_needed_residual_pack_wave912() -> bool {
     let ready = ready_source();
     let host_raw = code_window(cnc, "fn host_run_gameworld_shadow_after_logic", 2400);
     let host = non_comment_code(host_raw);
-    let helper_raw = code_window(gl, "fn process_destroy_list_if_needed", 500);
+    let helper_raw = code_window(&gl, "fn process_destroy_list_if_needed", 500);
     let helper = non_comment_code(helper_raw);
     let ok = host_raw.contains("912")
         && host.contains("process_destroy_list_if_needed")

@@ -81,7 +81,8 @@ pub fn honesty_live_path_guard_authority_api_residual_pack_wave225() -> bool {
 
 /// Source residual: GameLogic APIs + engine helpers presentation-first.
 pub fn honesty_path_guard_authority_api_source() -> bool {
-    let gl = super::GAME_LOGIC_HOST_SRC;
+    // 2026-08-15: scan host plus extra world_* splits.
+    let gl = super::host_logic_scan_src();
     let eng = crate::cnc_game_engine::ENGINE_SRC;
     gl.contains("pub fn clear_unit_movement_path")
         && gl.contains("pub fn adjust_unit_guard_radius")

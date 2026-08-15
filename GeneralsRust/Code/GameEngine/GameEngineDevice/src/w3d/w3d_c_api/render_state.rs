@@ -23,7 +23,7 @@ use super::leftover::*;
 use super::types::*;
 
 /// Set render state - matches original W3DDevice::SetRenderState(state, value)
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn W3DDevice_SetRenderState(
     device: W3D_DEVICE,
     state: W3D_RENDER_STATE,
@@ -37,15 +37,11 @@ pub unsafe extern "C" fn W3DDevice_SetRenderState(
     if let Ok(mut states) = device_ref.render_states.lock() {
         states.insert(state, value);
     }
-    match device_ref
-        .runtime
-        .block_on(async { set_render_state_internal(&device_ref.device, state, value).await })
-    {
-        Ok(_) => 1,  // Success
-        Err(_) => 0, // Failure
-    }
+    crate::w3d::renderer::record_deferred_render_state(state as u32, value);
+    1
 }
 
+#[allow(dead_code)]
 pub(super) async fn set_render_state_internal(
     device: &Arc<RwLock<W3DDevice>>,
     state: W3D_RENDER_STATE,
@@ -216,7 +212,7 @@ pub(super) async fn set_render_state_internal(
 }
 
 /// Set fixed-function vertex format - legacy compatibility entry point.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn W3DDevice_SetFVF(device: W3D_DEVICE, fvf: u32) -> i32 {
     if device.is_null() {
         return 0;
@@ -231,7 +227,7 @@ pub unsafe extern "C" fn W3DDevice_SetFVF(device: W3D_DEVICE, fvf: u32) -> i32 {
 }
 
 /// Get fixed-function vertex format - legacy compatibility entry point.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn W3DDevice_GetFVF(device: W3D_DEVICE) -> u32 {
     if device.is_null() {
         return 0;
@@ -245,7 +241,7 @@ pub unsafe extern "C" fn W3DDevice_GetFVF(device: W3D_DEVICE) -> u32 {
 }
 
 /// Set current vertex declaration handle - legacy compatibility entry point.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn W3DDevice_SetVertexDeclaration(
     device: W3D_DEVICE,
     declaration: u32,
@@ -263,7 +259,7 @@ pub unsafe extern "C" fn W3DDevice_SetVertexDeclaration(
 }
 
 /// Get current vertex declaration handle - legacy compatibility entry point.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn W3DDevice_GetVertexDeclaration(device: W3D_DEVICE) -> u32 {
     if device.is_null() {
         return 0;
@@ -277,7 +273,7 @@ pub unsafe extern "C" fn W3DDevice_GetVertexDeclaration(device: W3D_DEVICE) -> u
 }
 
 /// Define or replace declaration metadata for a legacy declaration handle.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn W3DDevice_DefineVertexDeclaration(
     device: W3D_DEVICE,
     declaration: u32,
@@ -319,7 +315,7 @@ pub unsafe extern "C" fn W3DDevice_DefineVertexDeclaration(
 }
 
 /// Clear declaration metadata for a legacy declaration handle.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn W3DDevice_ClearVertexDeclaration(
     device: W3D_DEVICE,
     declaration: u32,
@@ -336,7 +332,7 @@ pub unsafe extern "C" fn W3DDevice_ClearVertexDeclaration(
 }
 
 /// Set current vertex shader handle - legacy compatibility entry point.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn W3DDevice_SetVertexShader(device: W3D_DEVICE, shader: u32) -> i32 {
     if device.is_null() {
         return 0;
@@ -351,7 +347,7 @@ pub unsafe extern "C" fn W3DDevice_SetVertexShader(device: W3D_DEVICE, shader: u
 }
 
 /// Get current vertex shader handle - legacy compatibility entry point.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn W3DDevice_GetVertexShader(device: W3D_DEVICE) -> u32 {
     if device.is_null() {
         return 0;
@@ -365,7 +361,7 @@ pub unsafe extern "C" fn W3DDevice_GetVertexShader(device: W3D_DEVICE) -> u32 {
 }
 
 /// Set current pixel shader handle - legacy compatibility entry point.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn W3DDevice_SetPixelShader(device: W3D_DEVICE, shader: u32) -> i32 {
     if device.is_null() {
         return 0;
@@ -380,7 +376,7 @@ pub unsafe extern "C" fn W3DDevice_SetPixelShader(device: W3D_DEVICE, shader: u3
 }
 
 /// Get current pixel shader handle - legacy compatibility entry point.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn W3DDevice_GetPixelShader(device: W3D_DEVICE) -> u32 {
     if device.is_null() {
         return 0;
@@ -393,7 +389,7 @@ pub unsafe extern "C" fn W3DDevice_GetPixelShader(device: W3D_DEVICE) -> u32 {
     0
 }
 /// Get render state - matches original API
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn W3DDevice_GetRenderState(
     device: W3D_DEVICE,
     state: W3D_RENDER_STATE,

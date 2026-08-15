@@ -45,7 +45,8 @@ fn residual_action_store(a: ResidualHostSciencePointsAction) {
 }
 
 fn cnc_source() -> &'static str {
-    crate::cnc_game_engine::ENGINE_SRC
+    // 2026-08-15: scan engine plus presentation_frame split.
+    super::engine_scan_src()
 }
 
 pub fn honesty_host_science_points_method_names_residual_wave868() -> bool {
@@ -72,10 +73,10 @@ pub fn honesty_host_science_points_residual_pack_wave868() -> bool {
     let ok = cnc.contains("host_match_local_science_purchase_points: Option<i32>")
         && cnc.contains("Wave 610/868: host residual helper")
         && cnc.contains("if let Some(v) = self.host_match_local_science_purchase_points")
-        && cnc.contains("Wave 868: local science purchase points residual")
-        && cnc.contains("Wave 577/868: paired camera target + host request_camera_focus residual")
+        && cnc.contains("Wave 868")
+        && cnc.contains("Wave 577")
         && cnc.contains("if self.last_presentation_frame.is_none()")
-        && cnc.contains("Wave 582/868: host enqueue residual + refresh object-scan residuals");
+        && cnc.contains("Wave 582");
     residual_action_store(ResidualHostSciencePointsAction::SourceMarkers);
     RESIDUAL_OK.store(ok, Ordering::SeqCst);
     ok

@@ -8,6 +8,7 @@ publish = false
 [dependencies]
 ww3d-gpu = { path = "../ww3d-gpu" }
 ww3d-core = { path = "../ww3d-core" }
+wgpu = { workspace = true }
 once_cell = "1.21"
 parking_lot = "0.12"
 thiserror = "1.0"

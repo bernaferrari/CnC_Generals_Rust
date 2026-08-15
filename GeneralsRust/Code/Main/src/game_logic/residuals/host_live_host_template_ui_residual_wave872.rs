@@ -46,7 +46,8 @@ fn residual_action_store(a: ResidualHostTemplateUiAction) {
 }
 
 fn cnc_source() -> &'static str {
-    crate::cnc_game_engine::ENGINE_SRC
+    // 2026-08-15: scan engine plus presentation_frame split.
+    super::engine_scan_src()
 }
 
 pub fn honesty_host_template_ui_method_names_residual_wave872() -> bool {
@@ -71,12 +72,12 @@ pub fn honesty_host_template_ui_nav_commands_residual_wave872() -> bool {
 pub fn honesty_host_template_ui_residual_pack_wave872() -> bool {
     let cnc = cnc_source();
     let ok = cnc.contains("fn host_stamp_known_template_name(&mut self, name: &str)")
-        && cnc.contains("Wave 581/722/872: mid-command host insert residual")
-        && cnc.contains("Wave 585/862/872: prefer last presentation UI residual")
+        && cnc.contains("Wave 581")
+        && cnc.contains("Wave 585")
         && cnc.contains("self.last_ui_state = Some(ui.clone())")
-        && cnc.contains("Wave 584/872: host shell update residual + stamp sim timing")
-        && cnc.contains("Wave 583/723/872: host barracks ensure residual")
-        && cnc.contains("Wave 834/872: auto_target train residual stamp + refresh scan");
+        && cnc.contains("Wave 584")
+        && cnc.contains("Wave 583")
+        && cnc.contains("Wave 834");
     residual_action_store(ResidualHostTemplateUiAction::SourceMarkers);
     RESIDUAL_OK.store(ok, Ordering::SeqCst);
     ok

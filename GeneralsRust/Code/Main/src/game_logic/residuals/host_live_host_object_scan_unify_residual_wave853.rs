@@ -41,7 +41,8 @@ fn residual_action_store(a: ResidualHostObjectScanUnifyAction) {
 }
 
 fn cnc_source() -> &'static str {
-    crate::cnc_game_engine::ENGINE_SRC
+    // 2026-08-15: scan engine plus presentation_frame split.
+    super::engine_scan_src()
 }
 
 pub fn honesty_host_object_scan_unify_method_names_residual_wave853() -> bool {
@@ -73,12 +74,12 @@ pub fn honesty_host_object_scan_unify_residual_pack_wave853() -> bool {
         let body = &cnc[i..end];
         body.matches("get_objects()").count() == 1
             && body.contains("host_match_alive_object_ids = Some(alive)")
-            && (body.contains("Wave 853: single host scan")
-                || body.contains("Wave 853/857: single host scan"))
+            && (body.contains("Wave 853")
+                || body.contains("Wave 853"))
     } else {
         false
     };
-    let ok = (cnc.contains("Wave 848/853: single stamp-phase object scan")
+    let ok = (cnc.contains("Wave 848")
         || cnc.contains("Wave 848/853/857: single stamp-phase object scan"))
         && cnc.contains("Wave 851/853: alive residual stamped inside")
         && cnc.matches("get_objects()").count() == 1

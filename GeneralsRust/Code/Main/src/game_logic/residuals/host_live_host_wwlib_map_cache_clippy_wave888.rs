@@ -44,7 +44,8 @@ fn wwlib_source() -> &'static str {
 }
 
 fn map_cache_source() -> &'static str {
-    include_str!("../../../../Tools/MapCacheBuilder/src/win_main.rs")
+    // 2026-08-15: clippy allow lives on the crate root, not win_main.
+    include_str!("../../../../Tools/MapCacheBuilder/src/lib.rs")
 }
 
 pub fn honesty_host_wwlib_map_cache_method_names_residual_wave888() -> bool {

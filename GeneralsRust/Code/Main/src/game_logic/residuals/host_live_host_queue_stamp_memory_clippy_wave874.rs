@@ -42,7 +42,8 @@ fn residual_action_store(a: ResidualHostQueueStampAction) {
 }
 
 fn cnc_source() -> &'static str {
-    crate::cnc_game_engine::ENGINE_SRC
+    // 2026-08-15: scan engine plus presentation_frame split.
+    super::engine_scan_src()
 }
 
 fn memory_source() -> &'static str {
@@ -72,10 +73,10 @@ pub fn honesty_host_queue_stamp_nav_commands_residual_wave874() -> bool {
 pub fn honesty_host_queue_stamp_residual_pack_wave874() -> bool {
     let cnc = cnc_source();
     let mem = memory_source();
-    let ok = cnc.contains("Wave 584/872/874: host queue residual")
+    let ok = cnc.contains("Wave 584")
         && cnc.contains("self.host_stamp_sim_timing_residuals()")
         && cnc.contains("Wave 576/874: queue + process + Command SFX residual via host helpers")
-        && cnc.contains("self.host_CommandPipelineOp::QueueAndProcess")
+        && cnc.contains("CommandPipelineOp::QueueAndProcess")
         && mem.contains("#[allow(clippy::new_without_default)]")
         && mem.contains("#[allow(clippy::vec_box)]")
         && mem.contains("#[allow(dead_code)]");

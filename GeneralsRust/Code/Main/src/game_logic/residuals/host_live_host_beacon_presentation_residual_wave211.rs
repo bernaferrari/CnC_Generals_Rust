@@ -83,7 +83,7 @@ pub fn honesty_live_host_beacon_presentation_residual_pack_wave211() -> bool {
 
 /// Source residual: host beacon APIs exist on GameLogic.
 pub fn honesty_host_beacons_api_source() -> bool {
-    let src = super::GAME_LOGIC_HOST_SRC;
+    let src = super::host_logic_scan_src();
     src.contains("host_beacons: Vec<Vec3>")
         && src.contains("fn note_beacon_placed")
         && src.contains("fn note_beacon_removed_latest")

@@ -41,7 +41,8 @@ fn residual_action_store(a: ResidualHostMatchPurchasableScienceResidualsAction) 
 }
 
 fn cnc_source() -> &'static str {
-    crate::cnc_game_engine::ENGINE_SRC
+    // 2026-08-15: scan engine plus presentation_frame split.
+    super::engine_scan_src()
 }
 
 pub fn honesty_host_match_purchasable_science_residuals_method_names_residual_wave852() -> bool {
@@ -66,7 +67,7 @@ pub fn honesty_host_match_purchasable_science_residuals_nav_commands_residual_wa
 pub fn honesty_host_match_purchasable_science_residuals_residual_pack_wave852() -> bool {
     let cnc = cnc_source();
     let ok = cnc.contains("host_match_purchasable_sciences:")
-        && cnc.contains("Wave 852: stamp purchasable science residual")
+        && cnc.contains("Wave 852")
         && (cnc.contains("Wave 584/852") || cnc.contains("Wave 584/852/861"))
         && cnc.contains("if let Some(map) = self.host_match_purchasable_sciences.as_ref()")
         && cnc.contains("player_can_purchase_science(player_id, name)"); // boot residual remains

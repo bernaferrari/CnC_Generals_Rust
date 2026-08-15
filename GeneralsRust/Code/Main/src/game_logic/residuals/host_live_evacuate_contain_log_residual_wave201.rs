@@ -82,7 +82,7 @@ pub fn honesty_live_evacuate_contain_log_residual_pack_wave201() -> bool {
 
 /// Source residual: evacuate uses set_contained_by(None), no direct field write.
 pub fn honesty_evacuate_uses_set_contained_by_source() -> bool {
-    let src = super::GAME_LOGIC_HOST_SRC;
+    let src = super::host_logic_scan_src();
     let i = match src.find("fn evacuate_container_now") {
         Some(i) => i,
         None => return false,

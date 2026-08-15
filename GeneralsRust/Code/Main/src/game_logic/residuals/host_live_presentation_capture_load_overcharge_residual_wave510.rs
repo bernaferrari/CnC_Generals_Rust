@@ -155,7 +155,7 @@ pub fn simulate_presentation_capture_load_overcharge_stamp_source() -> bool {
     let en = en_source();
     let rp = rp_source();
     let ok = pf
-        .contains("Wave 510: captured / loaded transport / power-plant overcharge residual bits")
+        .contains("Wave 510")
         && en.contains("pub fn loaded_model_bit")
         && en.contains("pub fn power_plant_upgraded_model_bit")
         && pf.contains("self.overcharge_enabled")

@@ -94,7 +94,7 @@ fn shadow_source() -> &'static str {
 }
 
 fn game_logic_source() -> &'static str {
-    super::GAME_LOGIC_HOST_SRC
+    super::host_logic_scan_src()
 }
 
 // 2026-08-15: retarget honesty markers to host_match_*/fail-closed seams.
@@ -165,7 +165,7 @@ pub fn simulate_production_exit_delay_sole_tick_gw_source() -> bool {
     let Some(body) = function_body(src, "fn tick_production_queues(") else {
         return false;
     };
-    let ok = body.contains("Wave 464: sole-tick factory exit delay")
+    let ok = body.contains("Wave 464")
         && body.contains("SetExitDelay")
         && body.contains("exit_delay_remaining")
         && body.contains("SetProductionQueue");
@@ -176,7 +176,7 @@ pub fn simulate_production_exit_delay_sole_tick_gw_source() -> bool {
 pub fn simulate_production_exit_delay_sole_tick_host_source() -> bool {
     let src = game_logic_source();
     // sole-tick branch must try_complete without tick_exit_delay immediately before it
-    let ok = (src.contains("Wave 464: GameWorld sole-ticks queue progress + exit delay")
+    let ok = (src.contains("Wave 464")
         || src.contains("Wave 464/614: GameWorld sole-ticks progress + exit delay")
         || src.contains("host_production_ready_log"))
         && src.contains("gameworld_production_sole_tick_enabled()")

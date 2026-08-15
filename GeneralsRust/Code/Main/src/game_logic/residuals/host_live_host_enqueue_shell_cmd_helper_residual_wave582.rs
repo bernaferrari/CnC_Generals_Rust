@@ -83,7 +83,8 @@ pub fn residual_host_enqueue_shell_cmd_helper_last_action(
 }
 
 fn eng_source() -> &'static str {
-    crate::cnc_game_engine::ENGINE_SRC
+    // 2026-08-15: scan engine plus presentation_frame split.
+    super::engine_scan_src()
 }
 
 fn fn_body<'a>(src: &'a str, sig: &str) -> Option<&'a str> {
@@ -135,13 +136,13 @@ pub fn honesty_host_enqueue_shell_cmd_helper_source_markers_residual_wave582() -
     let call_ok = eng.contains("self.host_enqueue_production(")
         && eng.contains("self.host_process_shell_menu_commands()");
     let raw_enq = eng.matches("self.game_logic.enqueue_production").count();
-    // process_commands: sound helper + silent helper + shell helper = 3
-    let raw_proc = eng.matches("self.game_logic.self.game_logic.process_commands()").count();
+    // 2026-08-15: process_commands peeled onto CommandPipelineOp helpers (count 0).
+    let raw_proc = eng.matches("self.game_logic.process_commands()").count();
     let ok = enq_ok
         && shell_ok
         && call_ok
         && raw_enq == 0
-        && raw_proc == 3
+        && raw_proc == 0
         && !eng.contains("playable_claim = true");
     residual_action_store(ResidualHostEnqueueShellCmdHelperAction::SourceMarkers);
     ok
@@ -172,7 +173,9 @@ pub fn simulate_host_enqueue_shell_cmd_helper_collect_source() -> bool {
 
 pub fn simulate_host_enqueue_shell_cmd_helper_dispatch_source() -> bool {
     let eng = eng_source();
-    let ok = eng.contains("self.host_enqueue_production(pid, name.to_string())")
+    // 2026-08-15: enqueue call uses name.clone() (gameplay.rs).
+    let ok = (eng.contains("self.host_enqueue_production(pid, name.to_string())")
+        || eng.contains("self.host_enqueue_production(pid, name.clone())"))
         && eng.contains("self.host_process_shell_menu_commands()")
         && eng.contains("train_ok");
     residual_action_store(ResidualHostEnqueueShellCmdHelperAction::DispatchSource);

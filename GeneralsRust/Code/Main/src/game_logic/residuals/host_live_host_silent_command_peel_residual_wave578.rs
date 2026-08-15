@@ -83,7 +83,8 @@ pub fn residual_host_silent_command_peel_last_action() -> ResidualHostSilentComm
 }
 
 fn eng_source() -> &'static str {
-    crate::cnc_game_engine::ENGINE_SRC
+    // 2026-08-15: scan engine plus presentation_frame split.
+    super::engine_scan_src()
 }
 
 fn fn_body<'a>(src: &'a str, sig: &str) -> Option<&'a str> {

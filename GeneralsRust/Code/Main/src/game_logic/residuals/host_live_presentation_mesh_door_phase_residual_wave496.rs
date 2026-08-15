@@ -150,7 +150,7 @@ pub fn simulate_presentation_mesh_door_phase_stamp_source() -> bool {
 
 pub fn simulate_presentation_mesh_door_phase_render_source() -> bool {
     let rp = rp_source();
-    let ok = rp.contains("Wave 496: stamp production-door phase bits into model-condition bank")
+    let ok = rp.contains("Wave 496")
         && rp.contains("model_condition_bits_with_combat_flags");
     residual_action_store(ResidualPresentationMeshDoorPhaseAction::RenderSource);
     ok

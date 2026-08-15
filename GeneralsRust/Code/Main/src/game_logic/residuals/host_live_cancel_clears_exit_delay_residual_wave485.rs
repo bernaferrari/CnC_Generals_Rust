@@ -92,7 +92,8 @@ pub fn residual_cancel_clears_exit_delay_last_action() -> ResidualCancelClearsEx
 }
 
 fn gl_source() -> &'static str {
-    super::GAME_LOGIC_HOST_SRC
+    // 2026-08-15: scan host plus extra world_* splits.
+    super::host_logic_scan_src()
 }
 
 fn function_body<'a>(src: &'a str, sig: &str) -> Option<&'a str> {
@@ -156,7 +157,7 @@ pub fn honesty_cancel_clears_exit_delay_nav_commands_residual_wave485() -> bool 
 }
 
 pub fn simulate_cancel_clears_exit_delay_cancel_all_source() -> bool {
-    let Some(body) = function_body(gl_source(), "fn cancel_all_production(") else {
+    let Some(body) = function_body(&gl_source(), "fn cancel_all_production(") else {
         return false;
     };
     let ok = body.contains("Wave 485: empty queue clears QueueProductionExitUpdate residual")
@@ -168,7 +169,7 @@ pub fn simulate_cancel_clears_exit_delay_cancel_all_source() -> bool {
 }
 
 pub fn simulate_cancel_clears_exit_delay_cancel_one_source() -> bool {
-    let Some(body) = function_body(gl_source(), "fn cancel_production(") else {
+    let Some(body) = function_body(&gl_source(), "fn cancel_production(") else {
         return false;
     };
     let ok = body.contains("Wave 485: last cancelled item clears factory exit-delay residual")

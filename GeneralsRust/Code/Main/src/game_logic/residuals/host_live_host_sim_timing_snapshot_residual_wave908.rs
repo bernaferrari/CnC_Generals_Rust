@@ -47,11 +47,13 @@ fn residual_action_store(a: ResidualHostSimTimingSnapshotAction) {
 }
 
 fn cnc_source() -> &'static str {
-    crate::cnc_game_engine::ENGINE_SRC
+    // 2026-08-15: scan engine plus presentation_frame split.
+    super::engine_scan_src()
 }
 
 fn gl_source() -> &'static str {
-    super::GAME_LOGIC_HOST_SRC
+    // 2026-08-15: scan host plus extra world_* splits.
+    super::host_logic_scan_src()
 }
 
 fn code_window<'a>(src: &'a str, marker: &str, len: usize) -> &'a str {
@@ -94,7 +96,7 @@ pub fn honesty_host_sim_timing_snapshot_residual_pack_wave908() -> bool {
     let upd = non_comment_code(upd_raw);
     let stamp_raw = code_window(cnc, "fn host_stamp_sim_timing_residuals", 900);
     let stamp = non_comment_code(stamp_raw);
-    let snap_raw = code_window(gl, "struct SimTimingSnapshot", 400);
+    let snap_raw = code_window(&gl, "struct SimTimingSnapshot", 400);
     let ok = upd_raw.contains("908")
         && upd.contains("host_stamp_sim_timing_from_snapshot")
         && !upd.contains("get_frame")

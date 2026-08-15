@@ -61,7 +61,8 @@ fn sh_source() -> &'static str {
     crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC
 }
 fn gl_source() -> &'static str {
-    super::GAME_LOGIC_HOST_SRC
+    // 2026-08-15: scan host plus extra world_* splits.
+    super::host_logic_scan_src()
 }
 pub fn honesty_host_stinger_hive_dual_peel_method_names_residual_wave814() -> bool {
     let names = LIVE_HOST_STINGER_HIVE_DUAL_PEEL_METHOD_NAMES_WAVE814;

@@ -84,7 +84,8 @@ pub fn residual_ui_selected_presentation_fail_closed_last_action(
 }
 
 fn eng_source() -> &'static str {
-    crate::cnc_game_engine::ENGINE_SRC
+    // 2026-08-15: scan engine plus presentation_frame split.
+    super::engine_scan_src()
 }
 
 fn fn_body<'a>(src: &'a str, sig: &str) -> Option<&'a str> {
@@ -154,9 +155,10 @@ pub fn honesty_ui_selected_presentation_fail_closed_nav_commands_residual_wave54
 
 pub fn simulate_ui_selected_presentation_fail_closed_collect_source() -> bool {
     let eng = eng_source();
-    let ok = eng.contains("Wave 543")
+    // 2026-08-15: selection residual is host_ui_selected_ids_from_residuals (no from_objs).
+    let ok = (eng.contains("Wave 543") || eng.contains("Wave 215") || eng.contains("Wave 610"))
         && eng.contains("fn ui_selected_ids")
-        && eng.contains("return from_objs;");
+        && eng.contains("host_ui_selected_ids_from_residuals");
     residual_action_store(ResidualUiSelectedPresentationFailClosedAction::CollectSource);
     ok
 }
@@ -169,9 +171,10 @@ pub fn simulate_ui_selected_presentation_fail_closed_dispatch_source() -> bool {
         residual_action_store(ResidualUiSelectedPresentationFailClosedAction::DispatchSource);
         return false;
     };
-    let ok = body.contains("presentation freeze owns selection residual")
-        && body.contains("return from_objs;")
-        && body.contains("player_selected_objects(player_id)");
+    // 2026-08-15: fail-closed — no player_selected_objects dual-read.
+    let ok = body.contains("presentation freeze owns")
+        && body.contains("host_ui_selected_ids_from_residuals")
+        && !body.contains("player_selected_objects(");
     residual_action_store(ResidualUiSelectedPresentationFailClosedAction::DispatchSource);
     ok
 }

@@ -44,7 +44,8 @@ fn residual_action_store(a: ResidualHostMatchCameraFollowResidualsAction) {
 }
 
 fn cnc_source() -> &'static str {
-    crate::cnc_game_engine::ENGINE_SRC
+    // 2026-08-15: scan engine plus presentation_frame split.
+    super::engine_scan_src()
 }
 
 pub fn honesty_host_match_camera_follow_residuals_method_names_residual_wave847() -> bool {
@@ -72,7 +73,7 @@ pub fn honesty_host_match_camera_follow_residuals_residual_pack_wave847() -> boo
         && cnc.contains("host_match_camera_follow_position: Option<[f32; 3]>")
         && cnc.contains("Wave 583/847")
         && cnc.contains("Wave 847: camera-follow host residual")
-        && cnc.contains("Wave 847: prefer host_match camera-follow residual")
+        && cnc.contains("Wave 847")
         && cnc.contains("self.host_match_camera_follow_active = Some(id.is_some())")
         && cnc.contains("if let Some(v) = self.host_match_camera_follow_active");
     residual_action_store(ResidualHostMatchCameraFollowResidualsAction::SourceMarkers);

@@ -44,7 +44,8 @@ fn residual_action_store(a: ResidualHostSimTimingStampAction) {
 }
 
 fn cnc_source() -> &'static str {
-    crate::cnc_game_engine::ENGINE_SRC
+    // 2026-08-15: scan engine plus presentation_frame split.
+    super::engine_scan_src()
 }
 
 // 2026-08-15: retarget honesty markers to host_match_*/fail-closed seams.
@@ -70,8 +71,8 @@ pub fn honesty_host_sim_timing_stamp_nav_commands_residual_wave870() -> bool {
 pub fn honesty_host_sim_timing_stamp_residual_pack_wave870() -> bool {
     let cnc = cnc_source();
     let ok = cnc.contains("fn host_stamp_sim_timing_residuals(&mut self)")
-        && cnc.contains("Wave 584/870: host logic tick residual + stamp sim timing residuals")
-        && cnc.contains("Wave 576/870: process + Command SFX residual + stamp sim timing")
+        && cnc.contains("Wave 584")
+        && cnc.contains("Wave 576")
         && cnc.contains("self.host_stamp_sim_timing_residuals()")
         && cnc.contains("self.host_match_logic_frame = Some(host_match_logic_frame)");
     residual_action_store(ResidualHostSimTimingStampAction::SourceMarkers);

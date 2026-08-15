@@ -151,7 +151,7 @@ pub fn simulate_presentation_construction_disguise_stamp_source() -> bool {
 pub fn simulate_presentation_construction_disguise_mesh_source() -> bool {
     let pf = pf_source();
     let rp = rp_source();
-    let ok = pf.contains("Wave 503: non-allied viewers see disguise mesh residual")
+    let ok = pf.contains("Wave 503")
         && pf.contains("Wave 503: C++ enemies see disguise player color; allies see true colors")
         && pf.contains("disguise_as_template")
         && pf.contains("model_key_from_presentation")

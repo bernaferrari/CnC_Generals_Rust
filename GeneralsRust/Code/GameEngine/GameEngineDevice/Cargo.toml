@@ -26,6 +26,7 @@ video = [
     "bytemuck",
     "glam",
     "ww3d-gpu",
+    "ww3d-engine",
 ]
 w3d = ["video", "wgpu", "bytemuck", "glam"]
 input = ["gilrs"]
@@ -67,6 +68,7 @@ bitflags = "2.10"  # For modifier key flags
 game_client = { path = "../GameClient", package = "game-client-rust" }
 game_engine = { path = "../Common" }
 ww3d-gpu = { path = "../../Libraries/Source/WWVegas/WW3D2/crates/ww3d-gpu", optional = true }
+ww3d-engine = { path = "../../Libraries/Source/WWVegas/WW3D2/crates/ww3d-engine", optional = true }
 libc = { version = "0.2", optional = true } # Platform syscall bridge for legacy parity paths
 
 # File system operations

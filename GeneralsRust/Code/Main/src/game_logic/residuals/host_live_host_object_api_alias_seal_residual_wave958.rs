@@ -48,11 +48,13 @@ fn residual_action_store(a: ResidualHostObjectApiAliasSealAction) {
 }
 
 fn cnc_source() -> &'static str {
-    crate::cnc_game_engine::ENGINE_SRC
+    // 2026-08-15: scan engine plus presentation_frame split.
+    super::engine_scan_src()
 }
 
 fn gl_source() -> &'static str {
-    super::GAME_LOGIC_HOST_SRC
+    // 2026-08-15: scan host plus extra world_* splits.
+    super::host_logic_scan_src()
 }
 
 fn fn_window<'a>(src: &'a str, marker: &str) -> &'a str {
@@ -111,11 +113,11 @@ pub fn honesty_host_object_api_alias_seal_nav_commands_residual_wave958() -> boo
 pub fn honesty_host_object_api_alias_seal_residual_pack_wave958() -> bool {
     let gl = gl_source();
     let cnc = cnc_source();
-    let host = non_comment(fn_window(gl, "pub fn host_object(&self, id: ObjectId)"));
-    let host_map = non_comment(fn_window(gl, "pub fn host_objects("));
-    let get = non_comment(fn_window(gl, "pub fn get_object(&self, id: ObjectId)"));
-    let find = non_comment(fn_window(gl, "pub fn find_object(&self, id: ObjectId)"));
-    let get_map = non_comment(fn_window(gl, "pub fn get_objects(&self)"));
+    let host = non_comment(fn_window(&gl, "pub fn host_object(&self, id: ObjectId)"));
+    let host_map = non_comment(fn_window(&gl, "pub fn host_objects("));
+    let get = non_comment(fn_window(&gl, "pub fn get_object(&self, id: ObjectId)"));
+    let find = non_comment(fn_window(&gl, "pub fn find_object(&self, id: ObjectId)"));
+    let get_map = non_comment(fn_window(&gl, "pub fn get_objects(&self)"));
     let ok = host.contains("self.objects.get")
         && host_map.contains("&self.objects")
         && get.contains("host_object(id)")

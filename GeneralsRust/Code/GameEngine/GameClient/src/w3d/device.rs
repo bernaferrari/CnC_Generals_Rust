@@ -367,18 +367,19 @@ impl W3DDevice {
             adapter_info.vendor
         );
 
-        // Create device and queue with advanced features
-        let (device, queue) = adapter
-            .request_device(&DeviceDescriptor {
+        let (device, queue) = ww3d_gpu::acquire_device(
+            &adapter,
+            &DeviceDescriptor {
                 required_features: settings.required_features,
                 required_limits: settings.required_limits.clone(),
                 label: Some("W3D Revolutionary Device"),
                 memory_hints: MemoryHints::Performance,
                 trace: wgpu::Trace::Off,
                 ..Default::default()
-            })
-            .await
-            .map_err(W3DDeviceError::from)?;
+            },
+        )
+        .await
+        .map_err(|e| W3DDeviceError::InvalidState(e.to_string()))?;
 
         let device = Arc::new(device);
         let queue = Arc::new(queue);

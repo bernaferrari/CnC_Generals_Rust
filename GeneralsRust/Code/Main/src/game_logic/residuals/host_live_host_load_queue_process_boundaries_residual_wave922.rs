@@ -44,11 +44,13 @@ fn residual_action_store(a: ResidualHostLoadQueueProcessBoundariesAction) {
 }
 
 fn cnc_source() -> &'static str {
-    crate::cnc_game_engine::ENGINE_SRC
+    // 2026-08-15: scan engine plus presentation_frame split.
+    super::engine_scan_src()
 }
 
 fn gl_source() -> &'static str {
-    super::GAME_LOGIC_HOST_SRC
+    // 2026-08-15: scan host plus extra world_* splits.
+    super::host_logic_scan_src()
 }
 
 fn code_window<'a>(src: &'a str, marker: &str, len: usize) -> &'a str {

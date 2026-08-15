@@ -64,7 +64,8 @@ pub fn residual_host_cmd_auto_pick_opt_in_last_action() -> ResidualHostCmdAutoPi
     ResidualHostCmdAutoPickOptInAction::from_u8(RESIDUAL_ACTION.load(Ordering::SeqCst))
 }
 fn eng_source() -> &'static str {
-    crate::cnc_game_engine::ENGINE_SRC
+    // 2026-08-15: scan engine plus presentation_frame split.
+    super::engine_scan_src()
 }
 fn smoke_source() -> &'static str {
     include_str!("../../executable_smoke.rs")

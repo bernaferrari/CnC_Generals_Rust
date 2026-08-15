@@ -64,7 +64,8 @@ pub fn residual_host_production_ready_pose_authority_last_action(
     ResidualHostProductionReadyPoseAuthorityAction::from_u8(RESIDUAL_ACTION.load(Ordering::SeqCst))
 }
 fn gl_source() -> &'static str {
-    super::GAME_LOGIC_HOST_SRC
+    // 2026-08-15: scan host plus extra world_* splits.
+    super::host_logic_scan_src()
 }
 fn ready_source() -> &'static str {
     include_str!("../host_production_ready_log.rs")

@@ -64,7 +64,8 @@ pub fn residual_host_eject_pilot_die_death_start_last_action(
     ResidualHostEjectPilotDieDeathStartAction::from_u8(RESIDUAL_ACTION.load(Ordering::SeqCst))
 }
 fn gl_source() -> &'static str {
-    super::GAME_LOGIC_HOST_SRC
+    // 2026-08-15: scan host plus extra world_* splits.
+    super::host_logic_scan_src()
 }
 fn obj_source() -> &'static str {
     crate::game_logic::object::OBJECT_SRC

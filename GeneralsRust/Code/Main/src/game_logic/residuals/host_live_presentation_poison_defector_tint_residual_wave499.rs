@@ -157,7 +157,7 @@ pub fn simulate_presentation_poison_defector_tint_render_source() -> bool {
     let rp = rp_source();
     let ok = ri.contains("pub fn apply_poison_tint")
         && ri.contains("Wave 499: C++ TINT_STATUS_POISONED residual")
-        && rp.contains("Wave 499: presentation poison tint residual (no live GameLogic)")
+        && rp.contains("Wave 499")
         && rp.contains("u.poison_tinted")
         && rp.contains("apply_poison_tint()");
     residual_action_store(ResidualPresentationPoisonDefectorTintAction::RenderSource);

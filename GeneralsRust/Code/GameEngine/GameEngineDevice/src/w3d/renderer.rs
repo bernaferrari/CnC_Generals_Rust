@@ -18,7 +18,7 @@ use super::{
 use bytemuck::{Pod, Zeroable};
 use glam::Mat4;
 use std::collections::{HashMap, VecDeque};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 #[cfg(feature = "w3d")]
 use wgpu::{
@@ -61,6 +61,60 @@ struct PipelineCacheKey {
     double_sided: bool,
     depth_write_enabled: bool,
     depth_test_enabled: bool,
+}
+
+/// Record-time DX8 UP draw (CPU copy + ordered render-state snapshot).
+#[derive(Debug, Clone)]
+pub struct StagedUpDraw {
+    pub mesh_id: String,
+    pub vertices: Vec<u8>,
+    pub indices: Vec<u32>,
+    pub topology: super::PrimitiveTopology,
+    pub world_matrix: [[f32; 4]; 4],
+    pub material_id: Option<String>,
+    pub alpha_blend_enabled: bool,
+    pub render_states: Vec<(u32, u32)>,
+}
+
+static UP_STAGING: Mutex<Vec<StagedUpDraw>> = Mutex::new(Vec::new());
+static RENDER_STATE_LOG: Mutex<Vec<(u32, u32)>> = Mutex::new(Vec::new());
+
+/// Queue a UP/transient draw for the next `end_frame` record (no GPU wait).
+pub fn stage_up_draw(draw: StagedUpDraw) {
+    if let Ok(mut staged) = UP_STAGING.lock() {
+        staged.push(draw);
+    }
+}
+
+/// Snapshot of deferred `SetRenderState` calls in application order.
+pub fn record_deferred_render_state(state: u32, value: u32) {
+    if let Ok(mut log) = RENDER_STATE_LOG.lock() {
+        log.push((state, value));
+    }
+}
+
+/// Copy of the deferred render-state log (applied at the next recorded draw).
+pub fn deferred_render_state_snapshot() -> Vec<(u32, u32)> {
+    RENDER_STATE_LOG
+        .lock()
+        .map(|log| log.clone())
+        .unwrap_or_default()
+}
+
+/// Drain staged UP draws (frame record / tests).
+pub fn drain_staged_up_draws() -> Vec<StagedUpDraw> {
+    UP_STAGING
+        .lock()
+        .map(|mut staged| std::mem::take(&mut *staged))
+        .unwrap_or_default()
+}
+
+/// Drain the render-state log (tests).
+pub fn drain_deferred_render_states() -> Vec<(u32, u32)> {
+    RENDER_STATE_LOG
+        .lock()
+        .map(|mut log| std::mem::take(&mut *log))
+        .unwrap_or_default()
 }
 
 /// Advanced render batch for efficient GPU rendering
@@ -386,16 +440,13 @@ impl W3DRenderer {
 
     /// Begin a new frame with proper GPU synchronization
     pub async fn begin_frame(&mut self) -> Result<()> {
-        // Clear all render queues
+        // CPU queues only. GPU acquire/submit/present is owned by ww3d-engine.
         self.opaque_queue.clear();
         self.transparent_queue.clear();
         self.ui_queue.clear();
         self.active_lights.clear();
 
-        // Reset render state for new frame
         self.state = RenderState::default();
-
-        // Reset performance stats
         self.stats = RendererStats::default();
 
         self.frame_count += 1;
@@ -642,7 +693,18 @@ impl W3DRenderer {
         &mut self,
         external_color_view: Option<&TextureView>,
     ) -> Result<()> {
-        // Sort render queue for optimal rendering
+        let color_view = if let Some(view) = external_color_view {
+            view.clone()
+        } else if let Some(view) = self.frame_color_view.as_ref() {
+            view.clone()
+        } else {
+            tracing::trace!(
+                "Skipping W3D frame submission because no frame color target is initialized"
+            );
+            return Ok(());
+        };
+
+        self.absorb_staged_up_draws();
         self.sort_render_queue();
 
         let opaque_batches = std::mem::take(&mut self.opaque_queue);
@@ -654,17 +716,6 @@ impl W3DRenderer {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("W3D Frame Encoder"),
             });
-
-        let color_view = if let Some(view) = external_color_view {
-            view.clone()
-        } else if let Some(view) = self.frame_color_view.as_ref() {
-            view.clone()
-        } else {
-            tracing::trace!(
-                "Skipping W3D frame submission because no frame color target is initialized"
-            );
-            return Ok(());
-        };
 
         // Clear the frame target once, then let each batch load from it.
         self.clear_frame_target(&mut encoder, &color_view);
@@ -692,9 +743,77 @@ impl W3DRenderer {
                 .await?;
         }
 
-        self.queue.submit(std::iter::once(encoder.finish()));
+        #[cfg(feature = "w3d")]
+        ww3d_engine::submit_recorded(
+            &self.queue,
+            ww3d_engine::FrameCommandPhase::Overlay,
+            encoder.finish(),
+            ww3d_engine::OutOfFrameReason::StandaloneW3dRenderer,
+        );
+        #[cfg(not(feature = "w3d"))]
+        {
+            // Compile-only fallback: `w3d` feature (game path) always uses submit_recorded.
+            self.queue.submit(std::iter::once(encoder.finish()));
+        }
 
         Ok(())
+    }
+
+    fn absorb_staged_up_draws(&mut self) {
+        for staged in drain_staged_up_draws() {
+            let mesh = Mesh {
+                id: staged.mesh_id.clone(),
+                name: format!("Temporary Draw Call {}", staged.mesh_id),
+                vertex_format: crate::w3d::VertexFormat::PositionNormalUvColor,
+                vertices: staged.vertices,
+                indices: staged.indices,
+                topology: staged.topology,
+                material_id: staged.material_id.clone(),
+                bounding_box: crate::w3d::BoundingBox::new([-1.0, -1.0, -1.0], [1.0, 1.0, 1.0]),
+            };
+            let identity = [
+                [1.0, 0.0, 0.0, 0.0],
+                [0.0, 1.0, 0.0, 0.0],
+                [0.0, 0.0, 1.0, 0.0],
+                [0.0, 0.0, 0.0, 1.0],
+            ];
+            let model_matrix = if staged.world_matrix == [[0.0; 4]; 4] {
+                identity
+            } else {
+                staged.world_matrix
+            };
+            let normal_matrix = compute_normal_matrix(model_matrix);
+            let camera_distance = mesh_camera_distance(
+                &mesh,
+                self.current_camera.as_ref(),
+                model_matrix,
+                None,
+            );
+            let batch = RenderBatch {
+                mesh_id: staged.mesh_id,
+                mesh: Some(mesh),
+                material_id: staged.material_id,
+                material: None,
+                instances: vec![InstanceData {
+                    model_matrix,
+                    normal_matrix,
+                    material_index: 0,
+                    lod_level: 0,
+                    animation_frame: 0.0,
+                    custom_data: 0.0,
+                    color: [1.0, 1.0, 1.0, 1.0],
+                    material_params: batch_material_params(None),
+                }],
+                camera_distance,
+                priority: batch_priority(None),
+                transparent: staged.alpha_blend_enabled,
+            };
+            if batch.transparent {
+                self.transparent_queue.push_back(batch);
+            } else {
+                self.opaque_queue.push_back(batch);
+            }
+        }
     }
 
     /// Set render state
@@ -1956,5 +2075,66 @@ mod tests {
             .expect("render state should enable depth by default");
 
         assert_eq!(depth_state.format, wgpu::TextureFormat::Depth24PlusStencil8);
+    }
+
+    #[test]
+    fn up_path_golden_vertex_index_data_matches_eager_bytes() {
+        let _ = drain_staged_up_draws();
+        let vertices = vec![1u8, 2, 3, 4, 5, 6, 7, 8];
+        let indices = vec![0u32, 1, 2];
+        stage_up_draw(StagedUpDraw {
+            mesh_id: "up_golden".to_string(),
+            vertices: vertices.clone(),
+            indices: indices.clone(),
+            topology: crate::w3d::PrimitiveTopology::TriangleList,
+            world_matrix: [[1.0, 0.0, 0.0, 0.0]; 4],
+            material_id: None,
+            alpha_blend_enabled: false,
+            render_states: Vec::new(),
+        });
+        let drained = drain_staged_up_draws();
+        assert_eq!(drained.len(), 1);
+        assert_eq!(drained[0].vertices, vertices);
+        assert_eq!(drained[0].indices, indices);
+    }
+
+    #[test]
+    fn two_set_render_state_calls_between_draws_apply_in_order() {
+        let _ = drain_deferred_render_states();
+        let _ = drain_staged_up_draws();
+        record_deferred_render_state(1, 0);
+        stage_up_draw(StagedUpDraw {
+            mesh_id: "draw_a".to_string(),
+            vertices: vec![0; 12],
+            indices: vec![0, 1, 2],
+            topology: crate::w3d::PrimitiveTopology::TriangleList,
+            world_matrix: [[1.0, 0.0, 0.0, 0.0]; 4],
+            material_id: None,
+            alpha_blend_enabled: false,
+            render_states: deferred_render_state_snapshot(),
+        });
+        record_deferred_render_state(14, 1);
+        record_deferred_render_state(1, 1);
+        stage_up_draw(StagedUpDraw {
+            mesh_id: "draw_b".to_string(),
+            vertices: vec![0; 12],
+            indices: vec![0, 1, 2],
+            topology: crate::w3d::PrimitiveTopology::TriangleList,
+            world_matrix: [[1.0, 0.0, 0.0, 0.0]; 4],
+            material_id: None,
+            alpha_blend_enabled: true,
+            render_states: deferred_render_state_snapshot(),
+        });
+        let draws = drain_staged_up_draws();
+        assert_eq!(draws.len(), 2);
+        assert_eq!(draws[0].render_states, vec![(1, 0)]);
+        assert_eq!(draws[1].render_states, vec![(1, 0), (14, 1), (1, 1)]);
+        let last_zenable = draws[1]
+            .render_states
+            .iter()
+            .rev()
+            .find(|(state, _)| *state == 1)
+            .map(|(_, value)| *value);
+        assert_eq!(last_zenable, Some(1));
     }
 }

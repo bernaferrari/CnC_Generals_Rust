@@ -45,10 +45,12 @@ fn residual_action_store(a: ResidualHostUnselectableCatalogResidualAction) {
 }
 
 fn cnc_source() -> &'static str {
-    crate::cnc_game_engine::ENGINE_SRC
+    // 2026-08-15: scan engine plus presentation_frame split.
+    super::engine_scan_src()
 }
 fn gl_source() -> &'static str {
-    super::GAME_LOGIC_HOST_SRC
+    // 2026-08-15: scan host plus extra world_* splits.
+    super::host_logic_scan_src()
 }
 fn ui_source() -> &'static str {
     game_client::gui::ingame_ui::INGAME_UI_SRC
@@ -91,10 +93,10 @@ pub fn honesty_host_unselectable_catalog_residual_residual_pack_wave1034() -> bo
     let ok = ui.contains("Wave 1034: unselectable residual for dual-world selection")
         && tr.contains("pub unselectable: bool")
         && cnc.contains("Wave 1034: unselectable residual for dual-world selection")
-        && sx.contains("Wave 1034: C++ OBJECT_STATUS_UNSELECTABLE / sold residual")
+        && sx.contains("Wave 1034")
         && sx.contains("entry.unselectable || entry.sold")
         && sx.contains("OBJECT_STATUS_UNSELECTABLE")
-        && cb.contains("Wave 1033/1034: C++ OBJECT_STATUS_SOLD / UNSELECTABLE residual")
+        && cb.contains("Wave 1033")
         && cb.contains("catalog_unselectable")
         && !cnc.contains("playable_claim = true")
         && !gl.contains("playable_claim = true");

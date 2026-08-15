@@ -83,7 +83,8 @@ pub fn residual_combat_kill_particle_observe_last_action() -> ResidualCombatKill
 }
 
 fn pf_source() -> &'static str {
-    crate::presentation_frame::PRESENTATION_FRAME_SRC
+    // 2026-08-15: observe test lives in presentation_frame/tests/apply_honesty.rs.
+    include_str!("../../presentation_frame/tests/apply_honesty.rs")
 }
 
 fn obj_source() -> &'static str {

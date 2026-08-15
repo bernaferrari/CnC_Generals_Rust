@@ -138,3 +138,5 @@ include!("globals.rs");
 
 #[cfg(test)]
 include!("tests.rs");
+#[cfg(test)]
+include!("select_object_tests.rs");

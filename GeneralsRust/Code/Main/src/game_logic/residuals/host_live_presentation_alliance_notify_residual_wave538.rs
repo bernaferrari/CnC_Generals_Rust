@@ -86,7 +86,8 @@ pub fn residual_presentation_alliance_notify_last_action(
 }
 
 fn eng_source() -> &'static str {
-    crate::cnc_game_engine::ENGINE_SRC
+    // 2026-08-15: scan engine plus presentation_frame split.
+    super::engine_scan_src()
 }
 
 pub fn honesty_presentation_alliance_notify_method_names_residual_wave538() -> bool {
@@ -108,12 +109,11 @@ pub fn honesty_presentation_alliance_notify_source_markers_residual_wave538() ->
         && eng.contains("no GameLogic dual-write mid-frame")
         && eng.contains("if self.last_presentation_frame.is_some()")
         && eng.contains("notify_presentation_ui_message")
-        && eng.contains("add_radar_message")
         && eng.contains("GUIMessageReceived")
         && eng.contains("AudioEventRequest::new(\"GUIMessageReceived\")")
-        && eng.contains("queue_radar_message_for_team")
-        && eng.contains("play_ui_sound(\"GUIMessageReceived\")")
-        // Boot residual else still present.
+        && eng.contains("notify_boot_ui_message")
+        && !eng.contains("self.game_logic.queue_radar_message_for_team")
+        && !eng.contains("self.game_logic.play_ui_sound(\"GUIMessageReceived\")")
         && eng.contains("} else {")
         && !eng.contains("playable_claim = true");
     residual_action_store(ResidualPresentationAllianceNotifyAction::SourceMarkers);

@@ -65,7 +65,8 @@ pub fn residual_host_production_spawn_pose_no_rejitter_last_action(
     ResidualHostProductionSpawnPoseNoRejitterAction::from_u8(RESIDUAL_ACTION.load(Ordering::SeqCst))
 }
 fn gl_source() -> &'static str {
-    super::GAME_LOGIC_HOST_SRC
+    // 2026-08-15: scan host plus extra world_* splits.
+    super::host_logic_scan_src()
 }
 pub fn honesty_host_production_spawn_pose_no_rejitter_method_names_residual_wave739() -> bool {
     let names = LIVE_HOST_PRODUCTION_SPAWN_POSE_NO_REJITTER_METHOD_NAMES_WAVE739;

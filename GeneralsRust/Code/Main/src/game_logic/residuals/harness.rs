@@ -76,6 +76,49 @@ pub const GAME_LOGIC_UNIT_COMMANDS_SRC: &str =
 pub const GAME_LOGIC_OBJECT_ORDERS_SRC: &str = include_str!("../object/orders.rs");
 pub const GAME_LOGIC_OBJECT_CONSTRUCT_SRC: &str = include_str!("../object/construct.rs");
 
+/// Extra host splits kept out of `GAME_LOGIC_HOST_SRC` so exact
+/// `.matches().count()` honesty packs do not shift (2026-08-15).
+pub const GAME_LOGIC_EVA_CAMERA_SRC: &str = include_str!("../world_scripts/eva_camera.rs");
+pub const GAME_LOGIC_UI_PRODUCTION_SRC: &str = include_str!("../world_scripts/ui_production.rs");
+pub const GAME_LOGIC_SCRIPTS_CAMERA_SRC: &str = include_str!("../world_scripts/scripts_camera.rs");
+pub const GAME_LOGIC_OBJECT_WEAPONS_SRC: &str = include_str!("../object/weapons.rs");
+pub const GAME_LOGIC_TANKS_SRC: &str = include_str!("../world_combat/tanks_and_upgrades.rs");
+
+/// Host GameLogic plus the extra splits. Use this when looking up symbols
+/// that moved out of the original god-file; do not use for exact counts.
+pub fn host_logic_scan_src() -> &'static str {
+    static SRC: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    SRC.get_or_init(|| {
+        format!(
+            "{}{}{}{}{}{}{}{}{}",
+            GAME_LOGIC_HOST_SRC,
+            GAME_LOGIC_UNIT_COMMANDS_SRC,
+            GAME_LOGIC_OBJECT_ORDERS_SRC,
+            GAME_LOGIC_OBJECT_CONSTRUCT_SRC,
+            GAME_LOGIC_EVA_CAMERA_SRC,
+            GAME_LOGIC_UI_PRODUCTION_SRC,
+            GAME_LOGIC_SCRIPTS_CAMERA_SRC,
+            GAME_LOGIC_OBJECT_WEAPONS_SRC,
+            GAME_LOGIC_TANKS_SRC,
+        )
+    })
+    .as_str()
+}
+
+/// Engine plus presentation_frame. Presentation honesty packs that used to
+/// scan the god-file `cnc_game_engine.rs` must look here after the split.
+pub fn engine_scan_src() -> &'static str {
+    static SRC: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    SRC.get_or_init(|| {
+        format!(
+            "{}{}",
+            crate::cnc_game_engine::ENGINE_SRC,
+            crate::presentation_frame::PRESENTATION_FRAME_SRC,
+        )
+    })
+    .as_str()
+}
+
 /// Weapon crate after the god-file split (2026-08-15). Dual-world residuals
 /// must scan these seams, not the leftover `weapon/mod.rs` facade.
 pub const WEAPON_SRC: &str = concat!(

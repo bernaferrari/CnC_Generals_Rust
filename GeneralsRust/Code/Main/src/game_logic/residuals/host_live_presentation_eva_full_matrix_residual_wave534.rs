@@ -84,7 +84,8 @@ pub fn residual_presentation_eva_full_matrix_last_action() -> ResidualPresentati
 }
 
 fn gl_source() -> &'static str {
-    super::GAME_LOGIC_HOST_SRC
+    // 2026-08-15: scan host plus extra world_* splits.
+    super::host_logic_scan_src()
 }
 
 fn log_source() -> &'static str {

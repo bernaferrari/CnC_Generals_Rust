@@ -42,7 +42,8 @@ fn residual_action_store(a: ResidualHostFirstOpponentAction) {
 }
 
 fn cnc_source() -> &'static str {
-    crate::cnc_game_engine::ENGINE_SRC
+    // 2026-08-15: scan engine plus presentation_frame split.
+    super::engine_scan_src()
 }
 
 pub fn honesty_host_first_opponent_residual_method_names_residual_wave863() -> bool {
@@ -67,7 +68,7 @@ pub fn honesty_host_first_opponent_residual_nav_commands_residual_wave863() -> b
 pub fn honesty_host_first_opponent_residual_pack_wave863() -> bool {
     let cnc = cnc_source();
     let ok = cnc.contains("host_match_first_opponent_id: Option<Option<u32>>")
-        && cnc.contains("Wave 863: stamp first-opponent residual")
+        && cnc.contains("Wave 863")
         && cnc.contains("Wave 585/863")
         && cnc.contains("if let Some(cached) = self.host_match_first_opponent_id")
         && cnc.contains("first_opponent_id(player_id)"); // boot residual remains

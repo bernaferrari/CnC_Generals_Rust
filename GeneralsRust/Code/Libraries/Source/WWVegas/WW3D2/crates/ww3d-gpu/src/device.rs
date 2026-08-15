@@ -69,15 +69,16 @@ impl GpuDevice {
         features: wgpu::Features,
         limits: wgpu::Limits,
     ) -> Result<Self, GpuError> {
-        let (device, queue) = adapter
-            .request_device(&wgpu::DeviceDescriptor {
+        let (device, queue) = crate::request_device(
+            adapter,
+            &wgpu::DeviceDescriptor {
                 label: Some("WW3D GPU Device"),
                 required_features: features,
                 required_limits: limits,
                 ..Default::default()
-            })
-            .await
-            .map_err(|_e| GpuError::DeviceLost)?;
+            },
+        )
+        .await?;
 
         let downlevel = adapter.get_downlevel_capabilities();
 

@@ -116,7 +116,7 @@ macro_rules! c_try {
 
 /// Initialize the video system
 /// Returns a handle to the video device, or null on failure
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn video_device_create() -> *mut CVideoDevice {
     let rt = get_runtime();
 
@@ -133,7 +133,7 @@ pub unsafe extern "C" fn video_device_create() -> *mut CVideoDevice {
 }
 
 /// Initialize video device with specific parameters
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn video_device_initialize(
     device: *mut CVideoDevice,
     width: c_uint,
@@ -153,7 +153,7 @@ pub unsafe extern "C" fn video_device_initialize(
 }
 
 /// Destroy the video device and free resources
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn video_device_destroy(device: *mut CVideoDevice) -> CVideoResult {
     if device.is_null() {
         return CVideoResult::ErrorInvalidParameter;
@@ -169,7 +169,7 @@ pub unsafe extern "C" fn video_device_destroy(device: *mut CVideoDevice) -> CVid
 }
 
 /// Create a texture
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn video_device_create_texture(
     device: *mut CVideoDevice,
     width: c_uint,
@@ -201,7 +201,7 @@ pub unsafe extern "C" fn video_device_create_texture(
 }
 
 /// Set render target
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn video_device_set_render_target(
     device: *mut CVideoDevice,
     texture_id: c_uint,
@@ -219,7 +219,7 @@ pub unsafe extern "C" fn video_device_set_render_target(
 }
 
 /// Draw primitive with vertices and optional indices
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn video_device_draw_primitive(
     device: *mut CVideoDevice,
     vertices: *const CVertex,
@@ -250,7 +250,7 @@ pub unsafe extern "C" fn video_device_draw_primitive(
 }
 
 /// Present the current frame
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn video_device_present(device: *mut CVideoDevice) -> CVideoResult {
     if device.is_null() {
         return CVideoResult::ErrorInvalidParameter;
@@ -265,7 +265,7 @@ pub unsafe extern "C" fn video_device_present(device: *mut CVideoDevice) -> CVid
 }
 
 /// Get device statistics
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn video_device_get_statistics(
     device: *mut CVideoDevice,
     stats: *mut CVideoStatistics,
@@ -286,7 +286,7 @@ pub unsafe extern "C" fn video_device_get_statistics(
 }
 
 /// Set display resolution
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn video_device_set_resolution(
     device: *mut CVideoDevice,
     width: c_uint,
@@ -311,7 +311,7 @@ pub unsafe extern "C" fn video_device_set_resolution(
 }
 
 /// Toggle fullscreen mode
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn video_device_set_fullscreen(
     device: *mut CVideoDevice,
     fullscreen: c_int,
@@ -329,7 +329,7 @@ pub unsafe extern "C" fn video_device_set_fullscreen(
 }
 
 /// Set VSync mode
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn video_device_set_vsync(
     device: *mut CVideoDevice,
     vsync_mode: c_uint,
@@ -355,7 +355,7 @@ pub unsafe extern "C" fn video_device_set_vsync(
 }
 
 /// Get adapter name (caller must free the returned string)
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn video_device_get_adapter_name(device: *mut CVideoDevice) -> *mut c_char {
     if device.is_null() {
         return ptr::null_mut();
@@ -371,7 +371,7 @@ pub unsafe extern "C" fn video_device_get_adapter_name(device: *mut CVideoDevice
 }
 
 /// Free a string allocated by the video device API
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn video_device_free_string(string: *mut c_char) {
     if !string.is_null() {
         let _ = CString::from_raw(string);
@@ -383,7 +383,7 @@ thread_local! {
     static LAST_ERROR: std::cell::RefCell<Option<CString>> = std::cell::RefCell::new(None);
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn video_device_get_last_error() -> *const c_char {
     LAST_ERROR.with(|error| match error.borrow().as_ref() {
         Some(c_string) => c_string.as_ptr(),
@@ -392,7 +392,7 @@ pub unsafe extern "C" fn video_device_get_last_error() -> *const c_char {
 }
 
 /// Check if video device is initialized
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn video_device_is_initialized(device: *mut CVideoDevice) -> c_int {
     if device.is_null() {
         return 0;
@@ -414,7 +414,7 @@ pub unsafe extern "C" fn video_device_is_initialized(device: *mut CVideoDevice) 
 }
 
 /// Get GPU memory usage in bytes
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn video_device_get_gpu_memory_usage(device: *mut CVideoDevice) -> u64 {
     if device.is_null() {
         return 0;
@@ -436,7 +436,7 @@ fn set_last_error(message: &str) {
 // Additional utility functions for C++ integration
 
 /// Create vertex from components
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn create_vertex(
     pos_x: f32,
     pos_y: f32,
@@ -460,7 +460,7 @@ pub extern "C" fn create_vertex(
 }
 
 /// Create a simple quad (2 triangles)
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn create_quad_vertices(vertices: *mut CVertex, indices: *mut u16) -> c_int {
     if vertices.is_null() || indices.is_null() {
         return -1;

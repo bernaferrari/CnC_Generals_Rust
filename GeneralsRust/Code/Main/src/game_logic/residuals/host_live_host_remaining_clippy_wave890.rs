@@ -109,14 +109,15 @@ pub fn honesty_host_remaining_clippy_residual_pack_wave890() -> bool {
     let f = ww_file_system_source();
     let main = generals_main_source();
     let gl = gamelogic_source();
-    let ok = l.contains("#![allow(clippy::all)]")
-        && w.contains("#![allow(clippy::all)]")
-        && r.contains("#![allow(clippy::all)]")
-        && g.contains("#![allow(clippy::all)]")
+    // 2026-08-15: crates moved from clippy::all to pedantic/nursery/cargo groups.
+    let ok = l.contains("#![allow(clippy::pedantic)]")
+        && w.contains("#![allow(clippy::pedantic)]")
+        && r.contains("#![allow(clippy::pedantic)]")
+        && g.contains("#![allow(clippy::pedantic)]")
         && a.contains("#![allow(missing_docs)]")
-        && f.contains("#![allow(clippy::all)]")
-        && main.contains("#![allow(clippy::all)]")
-        && gl.contains("#![allow(clippy::all)]")
+        && f.contains("#![allow(clippy::pedantic)]")
+        && main.contains("#![allow(clippy::pedantic)]")
+        && gl.contains("#![allow(clippy::pedantic)]")
         && !g.contains("playable_claim = true");
     residual_action_store(ResidualHostRemainingClippyAction::SourceMarkers);
     RESIDUAL_OK.store(ok, Ordering::SeqCst);

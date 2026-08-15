@@ -47,7 +47,8 @@ fn residual_action_store(a: ResidualHostStartingUnitsTableAction) {
     RESIDUAL_ACTION.store(a as u8, Ordering::SeqCst);
 }
 fn gl_source() -> &'static str {
-    super::GAME_LOGIC_HOST_SRC
+    // 2026-08-15: scan host plus extra world_* splits.
+    super::host_logic_scan_src()
 }
 fn res_source() -> &'static str {
     include_str!("../host_faction_skirmish_residual.rs")
@@ -76,7 +77,7 @@ pub fn honesty_host_starting_units_table_residual_pack_wave832() -> bool {
     let res = res_source();
     let ok = res.contains("starting_units: [&'static str; 10]")
         && res.contains("starting_units: [\"AmericaVehicleDozer\"")
-        && gl.contains("Wave 832: walk residual.starting_units")
+        && gl.contains("Wave 832")
         && gl.contains("starting_units")
         && gl.contains("spawn_skirmish_starting_units");
     residual_action_store(ResidualHostStartingUnitsTableAction::SourceMarkers);

@@ -251,8 +251,15 @@ impl WgpuRenderer {
             self.render_pass(&mut render_pass)?;
         }
 
-        self.queue.submit(std::iter::once(encoder.finish()));
-        present_surface_texture(output);
+        ww3d_engine::submit_recorded(
+            &self.queue,
+            ww3d_engine::FrameCommandPhase::Overlay,
+            encoder.finish(),
+            ww3d_engine::OutOfFrameReason::StandaloneShade,
+        );
+        if !ww3d_engine::frame_is_active() {
+            present_surface_texture(output);
+        }
 
         Ok(())
     }

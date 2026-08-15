@@ -43,7 +43,8 @@ fn residual_action_store(a: ResidualHostMatchShellTeamResidualsAction) {
 }
 
 fn cnc_source() -> &'static str {
-    crate::cnc_game_engine::ENGINE_SRC
+    // 2026-08-15: scan engine plus presentation_frame split.
+    super::engine_scan_src()
 }
 
 pub fn honesty_host_match_shell_team_residuals_method_names_residual_wave845() -> bool {
@@ -73,7 +74,7 @@ pub fn honesty_host_match_shell_team_residuals_residual_pack_wave845() -> bool {
         && cnc.contains("Wave 555/845")
         && cnc.contains("Wave 585/845")
         && cnc.contains("Wave 845: shell residual")
-        && cnc.contains("Wave 845: match is not shell once started")
+        && cnc.contains("Wave 845")
         && cnc.contains("if let Some(v) = self.host_match_in_shell")
         && cnc.contains("if let Some(team) = self.host_match_local_team");
     residual_action_store(ResidualHostMatchShellTeamResidualsAction::SourceMarkers);

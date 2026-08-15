@@ -103,7 +103,8 @@ fn fn_body<'a>(src: &'a str, name: &str) -> Option<&'a str> {
 
 /// Source residual: construct uses probes; no get_player_mut_by_team dual-read.
 pub fn honesty_construct_economy_probe_source() -> bool {
-    let gl = super::GAME_LOGIC_HOST_SRC;
+    // 2026-08-15: scan host plus extra world_* splits.
+    let gl = super::host_logic_scan_src();
     let cs = crate::command_system::COMMAND_SYSTEM_SRC;
     if !(gl.contains("pub fn unit_team_if_can_construct(")
         && gl.contains("pub fn player_id_for_team(")

@@ -402,28 +402,34 @@ impl AssetManagerExt {
     /// }
     /// ```
     pub fn create_render_obj(&mut self, name: &str) -> Option<Box<dyn RenderObj>> {
-        // Try to find prototype
-        if let Some(_proto) = self.find_prototype(name) {
+        // Same instantiation seam as live `assets::AssetManager::create_render_obj`
+        // (`proto.create_instance`). MeshPrototype ignores the manager argument.
+        // Unknown names stay None — C++ `Create_Render_Obj` fail-closed
+        // (assetmgr.cpp:799-842). Game draw uses the live manager, not Ext.
+        let instantiate = |proto: &Arc<dyn Prototype>| {
+            proto.create_instance(&crate::assets::AssetManager::new())
+        };
+
+        if let Some(proto) = self.find_prototype(name) {
             self.stats.cache_hits += 1;
-            self.stats.total_instances_created += 1;
-            // Note: Full implementation would call proto.create_instance() to instantiate
-            // the render object. This requires prototype system integration which is
-            // handled by the concrete AssetManager implementation.
-            // C++ equivalent: W3DAssetManager::Create_Render_Obj (w3dassetmanager.cpp)
-            eprintln!("STUB: create_render_obj not fully implemented for AssetManagerExt");
-            return None;
+            let instance = instantiate(&proto);
+            if instance.is_some() {
+                self.stats.total_instances_created += 1;
+            }
+            return instance;
         }
 
-        // Load on demand if enabled
         if self.load_on_demand {
             self.stats.cache_misses += 1;
 
             let filename = format!("{}.w3d", name);
             if self.load_3d_assets(&filename).is_ok() {
-                if let Some(_proto) = self.find_prototype(name) {
-                    self.stats.total_instances_created += 1;
-                    // Same as above - requires prototype instantiation
-                    return None;
+                if let Some(proto) = self.find_prototype(name) {
+                    let instance = instantiate(&proto);
+                    if instance.is_some() {
+                        self.stats.total_instances_created += 1;
+                    }
+                    return instance;
                 }
             }
         }
@@ -514,5 +520,16 @@ mod tests {
         assert_eq!(stats.prototype_count, 0);
         assert_eq!(stats.cache_hits, 0);
         assert_eq!(stats.cache_misses, 0);
+    }
+
+    #[test]
+    fn create_render_obj_returns_some_for_registered_mesh() {
+        let mut manager = AssetManagerExt::new();
+        manager.add_prototype(
+            "CaseMesh".to_string(),
+            Box::new(crate::prototypes::MeshPrototype::new("CaseMesh".to_string())),
+        );
+        assert!(manager.create_render_obj("CASEMESH").is_some());
+        assert!(manager.create_render_obj("missing").is_none());
     }
 }

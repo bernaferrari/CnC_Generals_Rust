@@ -69,7 +69,8 @@ pub fn residual_host_production_object_id_prefers_gw_entity_last_action(
     )
 }
 fn gl_source() -> &'static str {
-    super::GAME_LOGIC_HOST_SRC
+    // 2026-08-15: scan host plus extra world_* splits.
+    super::host_logic_scan_src()
 }
 pub fn honesty_host_production_object_id_prefers_gw_entity_method_names_residual_wave737() -> bool {
     let names = LIVE_HOST_PRODUCTION_OBJECT_ID_PREFERS_GW_ENTITY_METHOD_NAMES_WAVE737;

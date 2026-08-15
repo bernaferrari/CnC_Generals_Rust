@@ -66,7 +66,8 @@ pub fn residual_host_seed_starting_building_opt_in_last_action(
     ResidualHostSeedStartingBuildingOptInAction::from_u8(RESIDUAL_ACTION.load(Ordering::SeqCst))
 }
 fn gl_source() -> &'static str {
-    super::GAME_LOGIC_HOST_SRC
+    // 2026-08-15: scan host plus extra world_* splits.
+    super::host_logic_scan_src()
 }
 pub fn honesty_host_seed_starting_building_opt_in_method_names_residual_wave734() -> bool {
     let names = LIVE_HOST_SEED_STARTING_BUILDING_OPT_IN_METHOD_NAMES_WAVE734;

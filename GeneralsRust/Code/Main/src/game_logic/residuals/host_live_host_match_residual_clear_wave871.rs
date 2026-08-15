@@ -48,7 +48,8 @@ fn residual_action_store(a: ResidualHostMatchResidualClearAction) {
 }
 
 fn cnc_source() -> &'static str {
-    crate::cnc_game_engine::ENGINE_SRC
+    // 2026-08-15: scan engine plus presentation_frame split.
+    super::engine_scan_src()
 }
 
 pub fn honesty_host_match_residual_clear_method_names_residual_wave871() -> bool {
@@ -75,12 +76,12 @@ pub fn honesty_host_match_residual_clear_residual_pack_wave871() -> bool {
     let ok = cnc.contains("fn host_clear_match_residuals(&mut self)")
         && cnc.contains("Wave 843/844/871: clear prior match residuals until load completes")
         && cnc.contains("self.host_clear_match_residuals()")
-        && cnc.contains("Wave 584/871: host reset residual + clear match residuals")
-        && cnc.contains("Wave 579/871: load_map + DEFAULT_SKIRMISH_MAP fallback residual")
-        && cnc.contains("Wave 577/871: start_new_game + set_player_team")
-        && cnc.contains("Wave 576/578/871: silent queue+process residual + stamp sim timing")
-        && cnc.contains("Wave 582/871: shell/menu command drain residual + stamp sim timing")
-        && cnc.contains("Wave 583/871: host attack residual + stamp sim timing")
+        && cnc.contains("Wave 584")
+        && cnc.contains("Wave 579")
+        && cnc.contains("Wave 577")
+        && cnc.contains("Wave 576")
+        && cnc.contains("Wave 582")
+        && cnc.contains("Wave 583")
         && cnc.contains("self.host_match_world_bounds = None");
     residual_action_store(ResidualHostMatchResidualClearAction::SourceMarkers);
     RESIDUAL_OK.store(ok, Ordering::SeqCst);

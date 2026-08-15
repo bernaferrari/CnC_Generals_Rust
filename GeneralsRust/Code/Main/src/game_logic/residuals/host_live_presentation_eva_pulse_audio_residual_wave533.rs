@@ -89,7 +89,8 @@ fn pf_source() -> &'static str {
 }
 
 fn gl_source() -> &'static str {
-    super::GAME_LOGIC_HOST_SRC
+    // 2026-08-15: scan host plus extra world_* splits.
+    super::host_logic_scan_src()
 }
 
 fn log_source() -> &'static str {

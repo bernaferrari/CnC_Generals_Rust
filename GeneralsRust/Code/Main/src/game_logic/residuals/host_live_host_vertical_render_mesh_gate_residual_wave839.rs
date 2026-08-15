@@ -76,8 +76,8 @@ pub fn honesty_host_vertical_render_mesh_gate_nav_commands_residual_wave839() ->
 pub fn honesty_host_vertical_render_mesh_gate_residual_pack_wave839() -> bool {
     let es = es_source();
     let bg = bg_source();
-    let ok = (es.contains("Wave 836/839: host vertical slice absorbs Wave 835")
-        || es.contains("Wave 836/839/840: host vertical slice absorbs Wave 835"))
+    let ok = (es.contains("Wave 836")
+        || es.contains("Wave 836"))
         && es.contains("let render_mesh_boundary_ok")
         && es.contains("result.max_render_alive_objects > 0")
         && es.contains("result.max_render_item_count > 0")

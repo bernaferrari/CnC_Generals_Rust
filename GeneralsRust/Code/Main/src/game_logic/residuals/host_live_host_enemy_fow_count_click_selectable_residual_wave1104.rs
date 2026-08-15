@@ -49,7 +49,8 @@ fn pf_source() -> &'static str {
     crate::presentation_frame::PRESENTATION_FRAME_SRC
 }
 fn cnc_source() -> &'static str {
-    crate::cnc_game_engine::ENGINE_SRC
+    // 2026-08-15: scan engine plus presentation_frame split.
+    super::engine_scan_src()
 }
 fn es_source() -> &'static str {
     include_str!("../../executable_smoke.rs")

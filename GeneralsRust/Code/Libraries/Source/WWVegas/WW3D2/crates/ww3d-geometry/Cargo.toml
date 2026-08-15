@@ -14,9 +14,7 @@ ww3d-assets = { path = "../ww3d-assets", optional = true }
 binrw = "0.11"
 rand = "0.8"
 
-[dependencies.wgpu]
-version = "0.19"
-optional = true
+wgpu = { workspace = true, optional = true }
 
 [features]
 default = []

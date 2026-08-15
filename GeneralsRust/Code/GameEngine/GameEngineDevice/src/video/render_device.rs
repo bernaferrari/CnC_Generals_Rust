@@ -1136,7 +1136,12 @@ impl RenderContext {
         {
             if let Some(encoder) = self.encoder.take() {
                 let command_buffer = encoder.finish();
-                self.queue.submit(std::iter::once(command_buffer));
+                ww3d_engine::submit_recorded(
+                    &self.queue,
+                    ww3d_engine::FrameCommandPhase::Overlay,
+                    command_buffer,
+                    ww3d_engine::OutOfFrameReason::StandaloneVideo,
+                );
 
                 tracing::trace!(
                     "Submitted commands - Draw calls: {}, Dispatches: {}, Triangles: {}",

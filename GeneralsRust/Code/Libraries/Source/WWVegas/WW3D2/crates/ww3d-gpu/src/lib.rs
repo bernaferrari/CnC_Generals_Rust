@@ -24,6 +24,7 @@ pub mod buffer;
 pub mod caps;
 pub mod command;
 pub mod device;
+pub mod device_authority;
 pub mod dynamic_buffer;
 pub mod fvf;
 pub mod pipeline;
@@ -45,6 +46,10 @@ pub use caps::*;
 pub use command::*;
 pub use device::MemoryType;
 pub use device::{DeviceBuffer, GpuDevice, MemoryStats};
+pub use device_authority::{
+    acquire_device, adopt_device, is_device_acquired, request_device, shared_device,
+    SharedGpuDevice,
+};
 pub use dynamic_buffer::*;
 pub use fvf::*;
 pub use pipeline::*;
@@ -213,8 +218,16 @@ pub struct GpuContext {
 }
 
 impl GpuContext {
-    /// Create a new GPU context
-    pub async fn new() -> Result<Self, Box<dyn std::error::Error>> {
+    /// Create a new GPU context.
+    ///
+    /// Device acquisition goes through [`request_device`]: the first call wins,
+    /// a second call returns [`GpuError::AlreadyInitialised`].
+    pub async fn new() -> Result<Self, GpuError> {
+        Self::init().await
+    }
+
+    /// Same contract as [`GpuContext::new`]: first init wins, second hard-fails.
+    pub async fn init() -> Result<Self, GpuError> {
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
             backends: wgpu::Backends::all(),
             ..Default::default()
@@ -226,16 +239,19 @@ impl GpuContext {
                 compatible_surface: None,
                 force_fallback_adapter: false,
             })
-            .await?;
+            .await
+            .map_err(|_| GpuError::NoAdapter)?;
 
-        let (device, queue) = adapter
-            .request_device(&wgpu::DeviceDescriptor {
+        let (device, queue) = request_device(
+            &adapter,
+            &wgpu::DeviceDescriptor {
                 required_features: wgpu::Features::empty(),
                 required_limits: wgpu::Limits::default(),
                 label: Some("WW3D GPU Device"),
                 ..Default::default()
-            })
-            .await?;
+            },
+        )
+        .await?;
 
         let limits = GpuLimits::from(adapter.limits());
         let features = Self::detect_features(&adapter);
@@ -259,7 +275,7 @@ impl GpuContext {
         window: W,
         width: u32,
         height: u32,
-    ) -> Result<Self, Box<dyn std::error::Error>>
+    ) -> Result<Self, GpuError>
     where
         W: Into<wgpu::SurfaceTarget<'static>> + Send + Sync + 'static,
     {
@@ -477,11 +493,15 @@ impl FrameTimer {
 
 /// Global GPU context instance
 static GPU_CONTEXT: std::sync::OnceLock<GpuContext> = std::sync::OnceLock::new();
-/// Initialize global GPU context
-pub async fn init_gpu_context() -> Result<(), Box<dyn std::error::Error>> {
-    let context = GpuContext::new().await?;
-    let _ = GPU_CONTEXT.set(context);
-    Ok(())
+/// Initialize global GPU context. Second call hard-fails (engine `AlreadyInitialised` style).
+pub async fn init_gpu_context() -> Result<(), GpuError> {
+    if GPU_CONTEXT.get().is_some() {
+        return Err(GpuError::AlreadyInitialised);
+    }
+    let context = GpuContext::init().await?;
+    GPU_CONTEXT
+        .set(context)
+        .map_err(|_| GpuError::AlreadyInitialised)
 }
 
 /// Get global GPU context
@@ -500,6 +520,14 @@ pub enum GpuError {
     SurfaceError(#[from] wgpu::SurfaceError),
     #[error("GPU not initialized")]
     NotInitialized,
+    #[error(
+        "GPU device already initialised; a second request_device is forbidden — share Device/Queue via ww3d_gpu::acquire_device / shared_device"
+    )]
+    AlreadyInitialised,
+    #[error("No compatible GPU adapter was found")]
+    NoAdapter,
+    #[error("Failed to request GPU device: {0}")]
+    RequestDevice(String),
     #[error("Unsupported feature: {0}")]
     UnsupportedFeature(String),
     #[error("Invalid operation: {0}")]

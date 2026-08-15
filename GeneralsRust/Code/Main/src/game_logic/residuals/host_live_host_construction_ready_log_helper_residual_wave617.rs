@@ -90,7 +90,8 @@ pub fn residual_host_construction_ready_log_helper_last_action(
 }
 
 fn gl_source() -> &'static str {
-    super::GAME_LOGIC_HOST_SRC
+    // 2026-08-15: scan host plus extra world_* splits.
+    super::host_logic_scan_src()
 }
 
 fn shadow_source() -> &'static str {
@@ -154,17 +155,15 @@ pub fn honesty_host_construction_ready_log_helper_source_markers_residual_wave61
         residual_action_store(ResidualHostConstructionReadyLogHelperAction::SourceMarkers);
         return false;
     };
-    let Some(update) = fn_body(gl, "fn update_construction(") else {
+    let Some(update) = fn_body(&gl, "fn update_construction(") else {
         residual_action_store(ResidualHostConstructionReadyLogHelperAction::SourceMarkers);
         return false;
     };
-    let post = fn_body(
-        gl,
+    let post = fn_body(&gl,
         "pub(crate) fn host_apply_construction_completions_after_ready_writeback(",
     )
     .or_else(|| {
-        fn_body(
-            gl,
+        fn_body(&gl,
             "fn host_apply_construction_completions_after_ready_writeback(",
         )
     });

@@ -151,10 +151,13 @@ pub fn simulate_presentation_mesh_combat_flags_input_source() -> bool {
 }
 
 pub fn simulate_presentation_mesh_combat_flags_render_source() -> bool {
+    // 2026-08-15: Wave 495 stamp lives in presentation_frame/unit_render.rs.
+    let pf = pf_source();
     let rp = rp_source();
-    let ok = rp.contains("Wave 495: stamp moving/attacking/firing bits then honor sold residual")
-        && rp.contains("model_condition_bits_with_combat_flags")
-        && rp.contains("_combat_model_bits");
+    let ok = (pf.contains("Wave 495") || rp.contains("Wave 495"))
+        && (pf.contains("model_condition_bits_with_combat_flags")
+            || rp.contains("model_condition_bits_with_combat_flags"))
+        && (pf.contains("is_firing_weapon") || rp.contains("_combat_model_bits"));
     residual_action_store(ResidualPresentationMeshCombatFlagsAction::RenderSource);
     ok
 }

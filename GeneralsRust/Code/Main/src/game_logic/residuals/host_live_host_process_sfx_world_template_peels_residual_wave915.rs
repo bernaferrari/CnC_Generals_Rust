@@ -47,11 +47,13 @@ fn residual_action_store(a: ResidualHostProcessSfxWorldTemplatePeelsAction) {
 }
 
 fn cnc_source() -> &'static str {
-    crate::cnc_game_engine::ENGINE_SRC
+    // 2026-08-15: scan engine plus presentation_frame split.
+    super::engine_scan_src()
 }
 
 fn gl_source() -> &'static str {
-    super::GAME_LOGIC_HOST_SRC
+    // 2026-08-15: scan host plus extra world_* splits.
+    super::host_logic_scan_src()
 }
 
 fn code_window<'a>(src: &'a str, marker: &str, len: usize) -> &'a str {
@@ -96,7 +98,7 @@ pub fn honesty_host_process_sfx_world_template_peels_residual_pack_wave915() -> 
     let over = non_comment_code(over_raw);
     let gold_raw = code_window(cnc, "fn host_ensure_golden_ranger_template", 1200);
     let gold = non_comment_code(gold_raw);
-    let helper_raw = code_window(gl, "fn process_commands_if_needed", 500);
+    let helper_raw = code_window(&gl, "fn process_commands_if_needed", 500);
     let helper = non_comment_code(helper_raw);
     let ok = sound_raw.contains("915")
         && !sound.contains("has_pending_commands")

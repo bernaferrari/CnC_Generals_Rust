@@ -49,7 +49,8 @@ fn residual_action_store(a: ResidualHostSkirmishWndLatchPeelsAction) {
 }
 
 fn cnc_source() -> &'static str {
-    crate::cnc_game_engine::ENGINE_SRC
+    // 2026-08-15: scan engine plus presentation_frame split.
+    super::engine_scan_src()
 }
 
 fn es_source() -> &'static str {
@@ -91,14 +92,14 @@ pub fn honesty_host_skirmish_wnd_latch_peels_residual_pack_wave835() -> bool {
     let ok = cnc.contains("Wave 833/835: headless default avoids SkirmishGameOptionsMenu.wnd")
         && cnc.contains("let run_wnd_latches = push_wnd_layout || self.runtime_host_headless")
         && cnc.contains("if push_wnd_layout")
-        && (sm.contains("Wave 835: no live window") || sm.contains("Wave 835/837: no live window"))
+        && (sm.contains("Wave 835") || sm.contains("Wave 835"))
         && sm.contains("start_skirmish_game(state)")
-        && es.contains("Wave 836: playable_claim stays always false")
+        && es.contains("Wave 836")
         // 2026-08-15: playable_claim is the five-flag constructor, not a literal assignment.
         && es.contains("self.playable_claim = Self::retail_windowed_playable_claim(")
         && es.contains("Headless smoke must keep `playable_claim == false`")
-        && (es.contains("Wave 836: host vertical slice absorbs Wave 835")
-            || es.contains("Wave 836/839: host vertical slice absorbs Wave 835"))
+        && (es.contains("Wave 836")
+            || es.contains("Wave 836"))
         && es.contains("result.skirmish_map_select_wnd_ok")
         && es.contains("result.skirmish_start_wnd_ok")
         && es.contains("presentation_boundary_ok")

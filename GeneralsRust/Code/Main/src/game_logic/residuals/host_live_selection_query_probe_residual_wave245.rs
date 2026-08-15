@@ -103,7 +103,8 @@ fn fn_body<'a>(src: &'a str, name: &str) -> Option<&'a str> {
 
 /// Source residual: selection/context use query probes; no get_object dual-read in prod.
 pub fn honesty_selection_query_probe_source() -> bool {
-    let gl = super::GAME_LOGIC_HOST_SRC;
+    // 2026-08-15: scan host plus extra world_* splits.
+    let gl = super::host_logic_scan_src();
     let cs_full = crate::command_system::COMMAND_SYSTEM_SRC;
     let cs = cs_full.split("#[cfg(test)]").next().unwrap_or(cs_full);
     let ci_full = include_str!("../../command_integration.rs");

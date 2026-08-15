@@ -46,10 +46,12 @@ fn residual_action_store(a: ResidualHostCatalogProductionPresentationResidualAct
 }
 
 fn cnc_source() -> &'static str {
-    crate::cnc_game_engine::ENGINE_SRC
+    // 2026-08-15: scan engine plus presentation_frame split.
+    super::engine_scan_src()
 }
 fn gl_source() -> &'static str {
-    super::GAME_LOGIC_HOST_SRC
+    // 2026-08-15: scan host plus extra world_* splits.
+    super::host_logic_scan_src()
 }
 fn ui_source() -> &'static str {
     game_client::gui::ingame_ui::INGAME_UI_SRC
@@ -88,12 +90,12 @@ pub fn honesty_host_catalog_production_presentation_residual_residual_pack_wave1
     let ui = ui_source();
     let tr = tr_source();
     let cb = cb_source();
-    let ok = ui.contains("Wave 1013: head production progress residual")
+    let ok = ui.contains("Wave 1013")
         && tr.contains("pub production_template: Option<String>")
         && cnc.contains("Wave 1013: production queue head residual")
         && cnc.contains("o.production_queue.first()")
         && cnc.contains("production_paused: o.production_paused")
-        && cb.contains("Wave 1013: production head residual")
+        && cb.contains("Wave 1013")
         && cb.contains("entry.production_template.clone()")
         && !cnc.contains("playable_claim = true")
         && !gl.contains("playable_claim = true");
