@@ -272,21 +272,20 @@ impl VideoDevice {
 
             let adapter = Arc::new(adapter);
 
-            // Request device
-            let (device, queue) = adapter
-                .request_device(&wgpu::DeviceDescriptor {
+            // Share the process-wide GpuContext device (first request wins).
+            let (device, queue) = ww3d_gpu::acquire_device(
+                &adapter,
+                &wgpu::DeviceDescriptor {
                     label: Some("VideoDevice"),
                     required_features: Self::get_required_features() & adapter.features(),
                     required_limits: adapter.limits(),
                     ..Default::default()
-                })
-                .await
-                .map_err(|e| {
-                    VideoDeviceError::InitializationFailed(format!(
-                        "Failed to create device: {}",
-                        e
-                    ))
-                })?;
+                },
+            )
+            .await
+            .map_err(|e| {
+                VideoDeviceError::InitializationFailed(format!("Failed to create device: {}", e))
+            })?;
 
             let device = Arc::new(device);
             let queue = Arc::new(queue);

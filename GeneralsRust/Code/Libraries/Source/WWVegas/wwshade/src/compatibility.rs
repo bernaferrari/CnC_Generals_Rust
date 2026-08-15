@@ -43,17 +43,19 @@ async fn initialize_wgpu() -> ShdResult<WgpuContext> {
         .await
         .map_err(|_| ShdError::HardwareUnsupported("No suitable WGPU adapter found".to_string()))?;
 
-    let (device, queue) = adapter
-        .request_device(&wgpu::DeviceDescriptor {
+    let (device, queue) = ww3d_gpu::acquire_device(
+        &adapter,
+        &wgpu::DeviceDescriptor {
             label: Some("WWShade WGPU Device"),
             required_features: wgpu::Features::empty(),
             required_limits: wgpu::Limits::default(),
             ..Default::default()
-        })
-        .await
-        .map_err(|e| {
-            ShdError::HardwareUnsupported(format!("Failed to create WGPU device: {}", e))
-        })?;
+        },
+    )
+    .await
+    .map_err(|e| {
+        ShdError::HardwareUnsupported(format!("Failed to create WGPU device: {}", e))
+    })?;
 
     Ok(WgpuContext {
         device: Arc::new(device),

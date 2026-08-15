@@ -966,6 +966,13 @@ impl GpuCuller {
             pass.dispatch_workgroups(groups.max(1), 1, 1);
         }
         encoder.copy_buffer_to_buffer(visibility_buffer, 0, &readback_buffer, 0, readback_size);
+        #[cfg(feature = "w3d")]
+        ww3d_engine::submit_out_of_frame(
+            queue,
+            std::iter::once(encoder.finish()),
+            ww3d_engine::OutOfFrameReason::BlockingGpuReadback,
+        );
+        #[cfg(not(feature = "w3d"))]
         queue.submit(std::iter::once(encoder.finish()));
 
         let slice = readback_buffer.slice(..readback_size);

@@ -131,16 +131,17 @@ impl RuntimeBuilder {
             .map_err(|e| Error::AdapterNotFound(format!("No compatible adapter found: {e}")))?,
         );
 
-        let (device, queue) = pollster::block_on(
-            adapter.request_device(&wgpu::DeviceDescriptor {
+        let (device, queue) = pollster::block_on(ww3d_gpu::acquire_device(
+            &adapter,
+            &wgpu::DeviceDescriptor {
                 label: Some("WW3D Headless Device"),
                 required_features: self.required_features,
                 required_limits: self
                     .required_limits
                     .unwrap_or_else(wgpu::Limits::downlevel_defaults),
                 ..Default::default()
-            }),
-        )
+            },
+        ))
         .map_err(|e| Error::Generic(format!("Failed to request device: {e}")))?;
 
         let surface_config = SurfaceConfiguration {
@@ -197,16 +198,17 @@ impl RuntimeBuilder {
             required_features |= wgpu::Features::TEXTURE_COMPRESSION_BC;
         }
 
-        let (device, queue) = pollster::block_on(
-            adapter.request_device(&wgpu::DeviceDescriptor {
+        let (device, queue) = pollster::block_on(ww3d_gpu::acquire_device(
+            &adapter,
+            &wgpu::DeviceDescriptor {
                 label: Some("WW3D Surface Device"),
                 required_features,
                 required_limits: self
                     .required_limits
                     .unwrap_or_else(wgpu::Limits::downlevel_defaults),
                 ..Default::default()
-            }),
-        )
+            },
+        ))
         .map_err(|e| Error::Generic(format!("Failed to request device: {e}")))?;
 
         let capabilities = surface.get_capabilities(&adapter);

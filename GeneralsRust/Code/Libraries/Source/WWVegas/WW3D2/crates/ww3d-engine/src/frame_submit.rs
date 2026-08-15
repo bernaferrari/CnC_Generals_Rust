@@ -37,6 +37,8 @@ pub enum OutOfFrameReason {
     StandaloneVideo,
     /// wwshade examples / tests without WW3D `begin_render`.
     StandaloneShade,
+    /// Blocking GPU readback (cull/map) that must complete before CPU continues.
+    BlockingGpuReadback,
 }
 
 struct PendingCommand {
@@ -172,5 +174,21 @@ mod tests {
     fn phase_orders_uploads_before_overlays() {
         assert!(FrameCommandPhase::Upload < FrameCommandPhase::Overlay);
         assert!(FrameCommandPhase::Overlay < FrameCommandPhase::Post);
+    }
+
+    #[test]
+    fn noop_begin_end_bookkeeping_without_gpu() {
+        reset_submit_debug();
+        assert!(!frame_is_active());
+        assert_eq!(last_frame_submit_count(), 0);
+        assert_eq!(last_out_of_frame_submit_count(), 0);
+
+        on_begin_frame();
+        assert!(frame_is_active());
+        assert_eq!(last_frame_submit_count(), 0);
+
+        reset_submit_debug();
+        assert!(!frame_is_active());
+        assert_eq!(last_frame_submit_count(), 0);
     }
 }

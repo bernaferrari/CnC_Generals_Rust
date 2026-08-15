@@ -97,19 +97,17 @@ impl WgpuRenderer {
                 ShdError::HardwareUnsupported("No suitable adapter found".to_string())
             })?;
 
-        let (device, queue) = adapter
-            .request_device(
-                &DeviceDescriptor {
-                    label: Some("WGPU Device"),
-                    required_features: Features::empty(),
-                    required_limits: Limits::default(),
-                },
-                None,
-            )
-            .await
-            .map_err(|e| {
-                ShdError::HardwareUnsupported(format!("Failed to create device: {}", e))
-            })?;
+        let (device, queue) = ww3d_gpu::acquire_device(
+            &adapter,
+            &DeviceDescriptor {
+                label: Some("WGPU Device"),
+                required_features: Features::empty(),
+                required_limits: Limits::default(),
+                ..Default::default()
+            },
+        )
+        .await
+        .map_err(|e| ShdError::HardwareUnsupported(format!("Failed to create device: {}", e)))?;
 
         Ok(Self {
             instance,
