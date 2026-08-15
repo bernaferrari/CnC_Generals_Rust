@@ -208,14 +208,16 @@ impl WgpuUIRenderer {
             })
             .await?;
 
-        let (device, queue) = adapter
-            .request_device(&wgpu::DeviceDescriptor {
+        let (device, queue) = ww3d_gpu::acquire_device(
+            &adapter,
+            &wgpu::DeviceDescriptor {
                 label: None,
                 required_features: wgpu::Features::empty(),
                 required_limits: wgpu::Limits::default(),
                 ..Default::default()
-            })
-            .await?;
+            },
+        )
+        .await?;
 
         let surface_caps = surface.get_capabilities(&adapter);
         let surface_format = surface_caps
@@ -636,7 +638,12 @@ impl WgpuUIRenderer {
             }
         }
 
-        self.queue.submit(std::iter::once(encoder.finish()));
+        ww3d_engine::submit_recorded(
+            &self.queue,
+            ww3d_engine::FrameCommandPhase::Overlay,
+            encoder.finish(),
+            ww3d_engine::OutOfFrameReason::StandaloneW3dRenderer,
+        );
         present_surface_texture(output);
 
         Ok(())

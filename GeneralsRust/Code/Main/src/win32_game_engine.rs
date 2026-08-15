@@ -99,14 +99,16 @@ impl Win32GameEngine {
             })
             .await?;
 
-        let (device, queue) = adapter
-            .request_device(&wgpu::DeviceDescriptor {
+        let (device, queue) = ww3d_gpu::acquire_device(
+            &adapter,
+            &wgpu::DeviceDescriptor {
                 required_features: wgpu::Features::empty(),
                 required_limits: wgpu::Limits::default(),
                 label: None,
                 ..Default::default()
-            })
-            .await?;
+            },
+        )
+        .await?;
 
         let surface_caps = surface.get_capabilities(&adapter);
         let surface_format = surface_caps
@@ -416,7 +418,12 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             self.render_game_objects(&mut render_pass);
         }
 
-        self.queue.submit(std::iter::once(encoder.finish()));
+        ww3d_engine::submit_recorded(
+            &self.queue,
+            ww3d_engine::FrameCommandPhase::Overlay,
+            encoder.finish(),
+            ww3d_engine::OutOfFrameReason::StandaloneW3dRenderer,
+        );
         present_surface_texture(output);
 
         Ok(())

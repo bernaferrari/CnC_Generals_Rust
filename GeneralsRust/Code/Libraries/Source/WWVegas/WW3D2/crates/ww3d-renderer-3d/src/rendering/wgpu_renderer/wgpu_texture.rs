@@ -265,7 +265,12 @@ impl WgpuTexture {
             copy_size,
         );
 
-        queue.submit(std::iter::once(encoder.finish()));
+        ww3d_engine::submit_recorded(
+            queue,
+            ww3d_engine::FrameCommandPhase::Upload,
+            encoder.finish(),
+            ww3d_engine::OutOfFrameReason::StandaloneW3dRenderer,
+        );
         Ok(())
     }
 
@@ -299,7 +304,12 @@ impl WgpuTexture {
             );
         }
 
-        queue.submit(std::iter::once(encoder.finish()));
+        ww3d_engine::submit_recorded(
+            queue,
+            ww3d_engine::FrameCommandPhase::Upload,
+            encoder.finish(),
+            ww3d_engine::OutOfFrameReason::StandaloneW3dRenderer,
+        );
         Ok(())
     }
 

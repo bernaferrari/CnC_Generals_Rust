@@ -542,21 +542,20 @@ impl RenderDevice {
             let features = adapter.features();
             let limits = adapter.limits();
 
-            // Request device with maximum features
-            let (device, queue) = adapter
-                .request_device(&wgpu::DeviceDescriptor {
+            // Share the process-wide GpuContext device (first request wins).
+            let (device, queue) = ww3d_gpu::acquire_device(
+                &adapter,
+                &wgpu::DeviceDescriptor {
                     label: Some("RenderDevice"),
                     required_features: features & Self::get_required_features(),
                     required_limits: limits.clone(),
                     ..Default::default()
-                })
-                .await
-                .map_err(|e| {
-                    VideoDeviceError::InitializationFailed(format!(
-                        "Failed to create device: {}",
-                        e
-                    ))
-                })?;
+                },
+            )
+            .await
+            .map_err(|e| {
+                VideoDeviceError::InitializationFailed(format!("Failed to create device: {}", e))
+            })?;
 
             let device = Arc::new(device);
             let queue = Arc::new(queue);

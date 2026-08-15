@@ -98,16 +98,18 @@ impl ModernShaderSystem {
                 ShdError::HardwareUnsupported("No suitable GPU adapter found".to_string())
             })?;
 
-        // Get device and queue
-        let (device, queue) = adapter
-            .request_device(&wgpu::DeviceDescriptor {
+        // Share the process-wide GpuContext device (first request wins).
+        let (device, queue) = ww3d_gpu::acquire_device(
+            &adapter,
+            &wgpu::DeviceDescriptor {
                 label: Some("WWShade Modern Device"),
                 required_features: wgpu::Features::empty(),
                 required_limits: wgpu::Limits::default(),
                 ..Default::default()
-            })
-            .await
-            .map_err(|e| ShdError::HardwareUnsupported(format!("Failed to get device: {}", e)))?;
+            },
+        )
+        .await
+        .map_err(|e| ShdError::HardwareUnsupported(format!("Failed to get device: {}", e)))?;
 
         // Create uniform buffers
         let camera_buffer = device.create_buffer(&wgpu::BufferDescriptor {

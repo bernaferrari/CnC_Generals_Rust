@@ -21,7 +21,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{mpsc, Arc};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use ww3d_core::ensure_class_registry_initialized;
-use ww3d_gpu::{GpuDevice, GpuError};
+use ww3d_gpu::{GpuDevice, GpuError, shared_device};
 
 mod frame_submit;
 pub use frame_submit::{
@@ -804,11 +804,12 @@ impl Engine {
         let adapter = request_adapter(&instance, Some(&surface), config.power_preference).await?;
         let adapter_info = adapter.get_info();
 
-        let gpu_device = Arc::new(
-            GpuDevice::create_device(&adapter, config.features, config.limits.clone())
-                .await
-                .map_err(EngineError::Gpu)?,
-        );
+        let gpu_device = acquire_or_create_gpu_device(
+            &adapter,
+            config.features,
+            config.limits.clone(),
+        )
+        .await?;
 
         let device = gpu_device.device_arc();
         let queue = gpu_device.queue_arc();
@@ -860,11 +861,12 @@ impl Engine {
         let adapter = request_adapter(&instance, None, config.power_preference).await?;
         let adapter_info = adapter.get_info();
 
-        let gpu_device = Arc::new(
-            GpuDevice::create_device(&adapter, config.features, config.limits.clone())
-                .await
-                .map_err(EngineError::Gpu)?,
-        );
+        let gpu_device = acquire_or_create_gpu_device(
+            &adapter,
+            config.features,
+            config.limits.clone(),
+        )
+        .await?;
 
         let device = gpu_device.device_arc();
         let queue = gpu_device.queue_arc();
@@ -1807,6 +1809,26 @@ fn convert_row_to_rgba(
             other
         ))),
     }
+}
+
+/// Adopt a process-wide device if one already exists; otherwise first-wins via
+/// [`GpuDevice::create_device`] (`ww3d_gpu::request_device`).
+async fn acquire_or_create_gpu_device(
+    adapter: &wgpu::Adapter,
+    features: wgpu::Features,
+    limits: wgpu::Limits,
+) -> EngineResult<Arc<GpuDevice>> {
+    if let Some(shared) = shared_device() {
+        return Ok(Arc::new(GpuDevice::from_shared(
+            Arc::new(shared.device),
+            Arc::new(shared.queue),
+        )));
+    }
+    Ok(Arc::new(
+        GpuDevice::create_device(adapter, features, limits)
+            .await
+            .map_err(EngineError::Gpu)?,
+    ))
 }
 
 async fn request_adapter(

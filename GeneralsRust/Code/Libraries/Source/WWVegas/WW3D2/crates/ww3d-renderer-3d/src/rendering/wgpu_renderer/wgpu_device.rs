@@ -30,12 +30,15 @@ impl WgpuDeviceManager {
         }))
         .map_err(|e| Error::Generic(format!("Failed to find suitable adapter: {e}")))?;
 
-        let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
-            required_features: wgpu::Features::empty(),
-            required_limits: wgpu::Limits::default(),
-            label: Some("WW3D Device"),
-            ..Default::default()
-        }))
+        let (device, queue) = pollster::block_on(ww3d_gpu::acquire_device(
+            &adapter,
+            &wgpu::DeviceDescriptor {
+                required_features: wgpu::Features::empty(),
+                required_limits: wgpu::Limits::default(),
+                label: Some("WW3D Device"),
+                ..Default::default()
+            },
+        ))
         .map_err(|e| Error::Generic(format!("Failed to request device: {}", e)))?;
 
         Ok(Self {

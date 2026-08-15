@@ -264,12 +264,15 @@ impl WgpuWrapper {
             required_features |= wgpu::Features::TEXTURE_COMPRESSION_BC;
         }
 
-        let (device, queue) = block_on(adapter.request_device(&wgpu::DeviceDescriptor {
-            label: Some("WW3D Renderer Device"),
-            required_features,
-            required_limits: adapter.limits(),
-            ..Default::default()
-        }))
+        let (device, queue) = block_on(ww3d_gpu::acquire_device(
+            &adapter,
+            &wgpu::DeviceDescriptor {
+                label: Some("WW3D Renderer Device"),
+                required_features,
+                required_limits: adapter.limits(),
+                ..Default::default()
+            },
+        ))
         .map_err(|e| Error::Generic(format!("Failed to request device: {e}")))?;
 
         let device = Arc::new(device);
@@ -323,12 +326,15 @@ impl WgpuWrapper {
             .map_err(|e| Error::AdapterNotFound(format!("No adapter available: {e}")))?,
         );
 
-        let (device, queue) = block_on(adapter.request_device(&wgpu::DeviceDescriptor {
-            label: Some("WW3D Headless Device"),
-            required_features: wgpu::Features::empty(),
-            required_limits: adapter.limits(),
-            ..Default::default()
-        }))
+        let (device, queue) = block_on(ww3d_gpu::acquire_device(
+            &adapter,
+            &wgpu::DeviceDescriptor {
+                label: Some("WW3D Headless Device"),
+                required_features: wgpu::Features::empty(),
+                required_limits: adapter.limits(),
+                ..Default::default()
+            },
+        ))
         .map_err(|e| Error::Generic(format!("Failed to request device: {e}")))?;
 
         let surface_config = SurfaceConfiguration {
@@ -428,7 +434,12 @@ impl WgpuWrapper {
     pub fn end_scene(&mut self, flip_frame: bool) -> Result<()> {
         if let Some(mut frame) = self.active_frame.take() {
             let command_buffer = frame.encoder.finish();
-            self.queue.submit(std::iter::once(command_buffer));
+            ww3d_engine::submit_recorded(
+                &self.queue,
+                ww3d_engine::FrameCommandPhase::Overlay,
+                command_buffer,
+                ww3d_engine::OutOfFrameReason::StandaloneW3dRenderer,
+            );
 
             if flip_frame {
                 if let Some(output) = frame.surface_output.take() {
