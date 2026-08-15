@@ -219,6 +219,69 @@ mod tests {
         assert_eq!(INVENTORY_TAGS[0], "UpgradeDie");
         assert_eq!(INVENTORY_TAGS[3], "CaptureChannel");
         assert_eq!(INVENTORY_TAGS[19], "SlowDeath");
-        assert_eq!(*INVENTORY_TAGS.last().expect("tags"), "CommandButtonHuntUpdate");
+        assert_eq!(INVENTORY_TAGS[48], "CommandButtonHuntUpdate");
+        assert_eq!(
+            *INVENTORY_TAGS.last().expect("tags"),
+            "ProjectileFlightResiduals"
+        );
+    }
+
+    #[test]
+    fn persistent_gap_clusters_round_trip() {
+        use crate::command_system::SpecialPowerType;
+        use crate::game_logic::object::WeaponLockType;
+        use glam::Vec3;
+
+        let mut src = test_object();
+        src.fire_weapon_when_dead_fired = true;
+        src.create_object_die_transfer_damage = 17.5;
+        src.special_power_ready = false;
+        src.special_power_cooldown = 30.0;
+        src.special_power_cooldown_remaining = 12.0;
+        src.special_power_cooldowns
+            .insert(SpecialPowerType::DaisyCutter, 8.0);
+        src.special_power_override_destination = Some(Vec3::new(1.0, 2.0, 3.0));
+        src.weapon_lock_type = WeaponLockType::LockedPermanently;
+        src.weapon_lock_slot = 1;
+        src.emoticon_name = "Cheer".to_string();
+        src.emoticon_frames_left = 45;
+        src.is_surrendered = true;
+        src.carpet_bomb_payload = true;
+        src.booby_trap_attached_to = Some(ObjectId(22));
+        src.stealth_jet_missile_projectile = true;
+        src.stealth_jet_missile_travelled = 40.0;
+
+        let envelope = src.entity_lifecycle_envelope();
+        let tags: Vec<&str> = envelope
+            .module_states
+            .iter()
+            .map(|m| m.tag.as_str())
+            .collect();
+        assert!(tags.contains(&"FireWeaponWhenDead"));
+        assert!(tags.contains(&"CreateObjectDieTransfer"));
+        assert!(tags.contains(&"SpecialPowerCooldown"));
+        assert!(tags.contains(&"WeaponLock"));
+        assert!(tags.contains(&"EmoticonSurrender"));
+        assert!(tags.contains(&"ProjectileFlightResiduals"));
+
+        let mut dst = test_object();
+        dst.entity_apply_lifecycle_envelope(&envelope)
+            .expect("apply");
+        assert!(dst.fire_weapon_when_dead_fired);
+        assert_eq!(dst.create_object_die_transfer_damage, 17.5);
+        assert!(!dst.special_power_ready);
+        assert_eq!(
+            dst.special_power_cooldowns
+                .get(&SpecialPowerType::DaisyCutter)
+                .copied(),
+            Some(8.0)
+        );
+        assert_eq!(dst.weapon_lock_type, WeaponLockType::LockedPermanently);
+        assert_eq!(dst.emoticon_frames_left, 45);
+        assert!(dst.is_surrendered);
+        assert!(dst.carpet_bomb_payload);
+        assert_eq!(dst.booby_trap_attached_to, Some(ObjectId(22)));
+        assert!(dst.stealth_jet_missile_projectile);
+        assert_eq!(dst.stealth_jet_missile_travelled, 40.0);
     }
 }

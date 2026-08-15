@@ -6,7 +6,13 @@
 
 /// Concatenated host GameLogic sources after the world_* split.
 pub const GAME_LOGIC_HOST_SRC: &str = concat!(
-    include_str!("../game_logic.rs"),
+    include_str!("../game_logic/crate_tick.rs"),
+    include_str!("../game_logic/player.rs"),
+    include_str!("../game_logic/host.rs"),
+    include_str!("../game_logic/script_camera.rs"),
+    include_str!("../game_logic/authority.rs"),
+    include_str!("../game_logic/construct.rs"),
+    include_str!("../game_logic/mod.rs"),
     include_str!("../buildings.rs"),
     include_str!("../world_save.rs"),
     include_str!("../host_usa_pilot.rs"),

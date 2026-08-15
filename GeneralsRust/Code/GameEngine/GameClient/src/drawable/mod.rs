@@ -41,7 +41,6 @@
 //! manager.render(&view_matrix, &projection_matrix);
 //! ```
 
-#[path = "drawable_impl/mod.rs"]
 pub mod drawable;
 pub mod drawable_draw_pipeline;
 pub mod drawable_manager;

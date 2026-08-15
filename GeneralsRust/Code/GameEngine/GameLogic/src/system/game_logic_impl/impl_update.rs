@@ -350,9 +350,8 @@ impl GameLogic {
         if let Err(e) = self.update_vision_and_shroud() {
             warn!("Vision update failed: {}", e);
         }
-        if let Ok(mut team_factory) = get_team_factory().lock() {
-            team_factory.update();
-        }
+        // Team::updateState runs from ScriptEngine after executeScripts
+        // (C++ ScriptEngine.cpp:5573). Flush leftover events only.
         flush_pending_team_script_events();
 
         // -----------------------------------------------------------------------

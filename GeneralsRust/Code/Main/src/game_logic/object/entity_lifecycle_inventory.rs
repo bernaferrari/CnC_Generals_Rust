@@ -1,5 +1,10 @@
 //! Produce ordered module-state payloads from a live Main `Object`.
 
+use super::entity_lifecycle_projectiles::ProjectileFlightResiduals;
+use super::entity_lifecycle_residuals::{
+    CreateObjectDieTransferResidual, EmoticonSurrenderResidual, FireWeaponWhenDeadResidual,
+    SpecialPowerCooldownResidual, WeaponLockResidual,
+};
 use super::entity_lifecycle_tags::*;
 use super::Object;
 use crate::game_logic::host_temporary_weapon_behavior::TemporaryWeaponRuntimeBundle;
@@ -176,5 +181,56 @@ pub(crate) fn collect_module_states(
     push_opt(&mut out, TAG_ASSAULT_TRANSPORT, &object.assault_transport)?;
     push_opt(&mut out, TAG_DEPLOY_STYLE, &object.deploy_style)?;
     push_opt(&mut out, TAG_COMMAND_BUTTON_HUNT, &object.command_button_hunt)?;
+    push_present(
+        &mut out,
+        TAG_FIRE_WEAPON_WHEN_DEAD,
+        FireWeaponWhenDeadResidual::present(object),
+        &FireWeaponWhenDeadResidual::from_object(object),
+    )?;
+    push_present(
+        &mut out,
+        TAG_CREATE_OBJECT_DIE_TRANSFER,
+        CreateObjectDieTransferResidual::present(object),
+        &CreateObjectDieTransferResidual::from_object(object),
+    )?;
+    push_present(
+        &mut out,
+        TAG_SPECIAL_POWER_COOLDOWNS,
+        SpecialPowerCooldownResidual::present(object),
+        &SpecialPowerCooldownResidual::from_object(object),
+    )?;
+    push_present(
+        &mut out,
+        TAG_WEAPON_LOCK,
+        WeaponLockResidual::present(object),
+        &WeaponLockResidual::from_object(object),
+    )?;
+    push_present(
+        &mut out,
+        TAG_EMOTICON_SURRENDER,
+        EmoticonSurrenderResidual::present(object),
+        &EmoticonSurrenderResidual::from_object(object),
+    )?;
+    push_present(
+        &mut out,
+        TAG_PROJECTILE_FLIGHT,
+        ProjectileFlightResiduals::present(object),
+        &ProjectileFlightResiduals::from_object(object),
+    )?;
     Ok(out)
+}
+
+fn push_present<T: Serialize>(
+    out: &mut Vec<EntityModuleState>,
+    tag: &'static str,
+    present: bool,
+    value: &T,
+) -> Result<(), EntityLifecycleCodecError> {
+    if present {
+        out.push(EntityModuleState {
+            tag: tag.to_string(),
+            payload: encode_payload(value)?,
+        });
+    }
+    Ok(())
 }

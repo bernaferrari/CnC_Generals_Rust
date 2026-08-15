@@ -2738,6 +2738,7 @@ fn weapon_set_model_condition(flag: WeaponSetType) -> Option<ModelConditionFlags
 // Inherent Object methods and later trait impls live in sibling files.
 mod object_combat;
 mod object_impl_imports;
+mod entity_module_host;
 mod object_lifecycle;
 mod object_modules;
 mod object_queries;

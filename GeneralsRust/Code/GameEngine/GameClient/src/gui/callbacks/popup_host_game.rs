@@ -2,12 +2,12 @@
 
 use std::cell::RefCell;
 use std::rc::Rc;
-use std::sync::{Mutex, OnceLock};
 
 use crate::gamespy_overlay::{
     close_overlay, open_overlay, queue_host_request, set_lobby_attempt_host_join,
     GameSpyHostRequest, GameSpyOverlayType,
 };
+use crate::gui::callbacks::online_callback_support::dispatch_esc_gadget_selected;
 use crate::gui::callbacks::popup_ladder_select::populate_custom_ladder_combo_box;
 use crate::gui::{
     with_window_manager, write_input_focus_response, CustomMatchPreferencesStore, GameWindow,
@@ -255,15 +255,11 @@ pub fn popup_host_game_input(
         return WindowMsgHandled::Handled;
     }
 
-    let state_slot = popup_host_state();
-    let mut state = state_slot.borrow_mut();
-    if let Some(parent) = state.parent.as_ref() {
-        let _ = parent.borrow_mut().send_system_message(
-            WindowMessage::GadgetSelected,
-            state.button_cancel_id as WindowMsgData,
-            state.button_cancel_id as WindowMsgData,
-        );
-    }
+    let (parent, button_id) = {
+        let state = popup_host_state().borrow();
+        (state.parent.clone(), state.button_cancel_id)
+    };
+    dispatch_esc_gadget_selected(parent, button_id);
 
     WindowMsgHandled::Handled
 }

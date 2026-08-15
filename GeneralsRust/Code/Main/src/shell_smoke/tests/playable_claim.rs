@@ -12,5 +12,8 @@ fn shell_host_playable_ok_never_implies_retail_playable_claim() {
             "shell_host_playable_ok must never flip playable_claim"
         );
     }
-    assert!(!r.playable_claim);
+    assert!(
+        !r.playable_claim,
+        "playable_claim stays false until the honesty contract in claim.rs is met"
+    );
 }

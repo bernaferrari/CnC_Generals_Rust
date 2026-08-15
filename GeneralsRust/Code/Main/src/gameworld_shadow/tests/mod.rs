@@ -31,6 +31,7 @@ pub(super) fn ensure_template(logic: &mut GameLogic, name: &str, hp: f32) {
     logic.templates.insert(name.into(), t);
 }
 
+mod authority_dry_run;
 mod authority_writeback;
 mod combat_status;
 mod command_authority;

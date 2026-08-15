@@ -1294,7 +1294,15 @@ fn engine_object_bridge_off_by_default() {
         .expect("id");
     let _ = id;
     // create_object no longer dual-creates into ObjectFactory.
-    let src = include_str!("../../game_logic/game_logic.rs");
+    let src = concat!(
+        include_str!("../../game_logic/game_logic/crate_tick.rs"),
+        include_str!("../../game_logic/game_logic/player.rs"),
+        include_str!("../../game_logic/game_logic/host.rs"),
+        include_str!("../../game_logic/game_logic/script_camera.rs"),
+        include_str!("../../game_logic/game_logic/authority.rs"),
+        include_str!("../../game_logic/game_logic/construct.rs"),
+        include_str!("../../game_logic/game_logic/mod.rs"),
+    );
     assert!(
         !src.contains("obj.engine_object_id = Some(engine_id)"),
         "create_object must not stamp dual-world engine ids"
@@ -1571,7 +1579,15 @@ fn world_tick_split_borrow_still_reads_frame() {
         src.contains("let frame = self.frame") && src.contains("self.objects.get_mut(&id)"),
         "host_stamp_attack_substate_at_frame must split-borrow objects + frame"
     );
-    let store = include_str!("../../game_logic/game_logic.rs");
+    let store = concat!(
+        include_str!("../../game_logic/game_logic/crate_tick.rs"),
+        include_str!("../../game_logic/game_logic/player.rs"),
+        include_str!("../../game_logic/game_logic/host.rs"),
+        include_str!("../../game_logic/game_logic/script_camera.rs"),
+        include_str!("../../game_logic/game_logic/authority.rs"),
+        include_str!("../../game_logic/game_logic/construct.rs"),
+        include_str!("../../game_logic/game_logic/mod.rs"),
+    );
     assert!(
         store.contains("pub objects: HostObjectStore")
             && store.contains("struct HostObjectStore")

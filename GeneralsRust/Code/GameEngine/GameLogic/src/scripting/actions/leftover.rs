@@ -1,5 +1,8 @@
 //! Script control, variable, wait, and timer actions
 //!
+//! C++: ScriptActions.cpp timers L4018–4060. Enable/disable/execute script
+//! are ScriptEngine-side, not ScriptActions `do*`.
+//!
 //! Split from `scripting/actions.rs` for module-size parity.
 //! Observable script behavior is unchanged.
 

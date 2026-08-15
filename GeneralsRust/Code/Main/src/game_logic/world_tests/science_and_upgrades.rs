@@ -2848,7 +2848,7 @@ fn do_sabotage_feedback_fx_flash_and_audio_by_kind() {
 
 #[test]
 fn select_objects_flashes_selection_residual() {
-    let src = include_str!("../game_logic.rs");
+    let src = crate::game_logic::game_logic::GAME_LOGIC_FACADE_SRC;
     let start = src.find("pub fn select_objects").expect("select_objects");
     let body = &src[start..src.len().min(start + 2500)];
     assert!(
@@ -2859,7 +2859,7 @@ fn select_objects_flashes_selection_residual() {
 
 #[test]
 fn assign_unit_path_undeploys_residual() {
-    let src = include_str!("../game_logic.rs");
+    let src = crate::game_logic::game_logic::GAME_LOGIC_FACADE_SRC;
     let start = src
         .find("pub fn assign_unit_path")
         .expect("assign_unit_path");
@@ -2872,7 +2872,7 @@ fn assign_unit_path_undeploys_residual() {
 
 #[test]
 fn find_nearest_harvestable_supply_residual() {
-    let src = include_str!("../game_logic.rs");
+    let src = crate::game_logic::game_logic::GAME_LOGIC_FACADE_SRC;
     assert!(
         src.contains("fn find_nearest_harvestable_supply")
             && src.contains("find_nearest_harvestable_supply(team, position)"),
@@ -2882,7 +2882,7 @@ fn find_nearest_harvestable_supply_residual() {
 
 #[test]
 fn auto_find_repair_residual_test() {
-    let src = include_str!("../game_logic.rs");
+    let src = crate::game_logic::game_logic::GAME_LOGIC_FACADE_SRC;
     assert!(
         src.contains("fn try_auto_find_repair_residual")
             && src.contains("AIState::SeekingRepair")
@@ -2893,7 +2893,7 @@ fn auto_find_repair_residual_test() {
 
 #[test]
 fn auto_resume_construction_residual_test() {
-    let src = include_str!("../game_logic.rs");
+    let src = crate::game_logic::game_logic::GAME_LOGIC_FACADE_SRC;
     assert!(
         src.contains("fn try_auto_resume_construction_residual")
             && src.contains("try_auto_resume_construction_residual(object_id)"),
@@ -2903,7 +2903,7 @@ fn auto_resume_construction_residual_test() {
 
 #[test]
 fn player_idle_auto_acquire_residual() {
-    let src = include_str!("../game_logic.rs");
+    let src = crate::game_logic::game_logic::GAME_LOGIC_FACADE_SRC;
     let start = src
         .find("fn tick_mood_auto_acquire")
         .expect("tick_mood_auto_acquire");
@@ -2921,7 +2921,7 @@ fn player_idle_auto_acquire_residual() {
 
 #[test]
 fn voice_select_on_select_objects_residual() {
-    let src = include_str!("../game_logic.rs");
+    let src = crate::game_logic::game_logic::GAME_LOGIC_FACADE_SRC;
     let start = src.find("pub fn select_objects").expect("select_objects");
     let end = src[start + 1..]
         .find(

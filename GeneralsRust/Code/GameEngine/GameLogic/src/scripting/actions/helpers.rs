@@ -1,5 +1,7 @@
 //! Shared helpers for script actions.
 //!
+//! C++: no direct analog (`getParameter` lives on C++ `ScriptAction`).
+//!
 //! Split from `scripting/actions.rs` for module-size parity.
 //! Observable script behavior is unchanged.
 

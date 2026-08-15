@@ -1,5 +1,8 @@
 //! Unit create/move/attack/reinforcement script actions
 //!
+//! C++: ScriptActions.cpp `createUnitOnTeamAt` L1143, `doCreateReinforcements` L480,
+//! `doAttack` L1018.
+//!
 //! Split from `scripting/actions.rs` for module-size parity.
 //! Observable script behavior is unchanged.
 

@@ -5,6 +5,7 @@ use std::net::{IpAddr, Ipv4Addr, UdpSocket};
 use std::rc::Rc;
 use std::sync::{Mutex, OnceLock};
 
+use crate::gui::callbacks::online_callback_support::dispatch_esc_gadget_selected;
 use crate::gui::callbacks::{set_lan_button_pushed, set_lan_is_shutting_down};
 use crate::gui::gadgets::ComboBoxItem;
 use crate::gui::{
@@ -476,18 +477,14 @@ pub fn network_direct_connect_input(
 ) -> WindowMsgHandled {
     if msg == WindowMessage::Char {
         if data1 == KEY_ESC && (data2 & KEY_STATE_UP) != 0 {
-            let state_slot = network_direct_connect_state();
-    let state = state_slot.borrow_mut();
-            if state.button_pushed {
+            let (button_pushed, parent, back_id) = {
+                let state = network_direct_connect_state().borrow();
+                (state.button_pushed, state.parent.clone(), state.button_back_id)
+            };
+            if button_pushed {
                 return WindowMsgHandled::Handled;
             }
-            if let Some(parent) = state.parent.as_ref() {
-                let _ = parent.borrow_mut().send_system_message(
-                    WindowMessage::GadgetSelected,
-                    state.button_back_id as WindowMsgData,
-                    state.button_back_id as WindowMsgData,
-                );
-            }
+            dispatch_esc_gadget_selected(parent, back_id);
             return WindowMsgHandled::Handled;
         }
     }

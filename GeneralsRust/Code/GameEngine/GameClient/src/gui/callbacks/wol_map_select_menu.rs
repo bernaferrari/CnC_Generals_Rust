@@ -2,12 +2,12 @@
 
 use std::cell::RefCell;
 use std::rc::Rc;
-use std::sync::{Mutex, OnceLock};
 
 use crate::gamespy_game::{
     push_gamespy_game_options, with_gamespy_game_info, with_gamespy_game_info_mut,
 };
 use crate::gamespy_overlay::{close_overlay, raise_gs_message_box, GameSpyOverlayType};
+use crate::gui::callbacks::online_callback_support::dispatch_esc_gadget_selected;
 use crate::gui::callbacks::wol_game_setup_menu::refresh_map_selection_ui;
 use crate::gui::gadgets::ListBoxItemData;
 use crate::gui::{
@@ -356,15 +356,11 @@ pub fn wol_map_select_menu_input(
         return WindowMsgHandled::Handled;
     }
 
-    let state_slot = map_select_state();
-    let state = state_slot.borrow_mut();
-    if let Some(parent) = state.parent.as_ref() {
-        let _ = parent.borrow_mut().send_system_message(
-            WindowMessage::GadgetSelected,
-            state.button_back_id as WindowMsgData,
-            state.button_back_id as WindowMsgData,
-        );
-    }
+    let (parent, button_id) = {
+        let state = map_select_state().borrow();
+        (state.parent.clone(), state.button_back_id)
+    };
+    dispatch_esc_gadget_selected(parent, button_id);
 
     WindowMsgHandled::Handled
 }

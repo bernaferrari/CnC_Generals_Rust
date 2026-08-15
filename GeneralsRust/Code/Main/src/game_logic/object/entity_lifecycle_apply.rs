@@ -1,6 +1,11 @@
 //! Apply known envelope tags onto a Main `Object`. Unknown tags are skipped.
 
 use super::entity_lifecycle_inventory::{decode_payload, FireWeaponWhenDamagedBundle};
+use super::entity_lifecycle_projectiles::ProjectileFlightResiduals;
+use super::entity_lifecycle_residuals::{
+    CreateObjectDieTransferResidual, EmoticonSurrenderResidual, FireWeaponWhenDeadResidual,
+    SpecialPowerCooldownResidual, WeaponLockResidual,
+};
 use super::entity_lifecycle_tags::*;
 use super::Object;
 use gamelogic::world::entities::{EntityLifecycleCodecError, EntityModuleState};
@@ -89,6 +94,30 @@ fn apply_one(
         TAG_ASSAULT_TRANSPORT => object.assault_transport = Some(decode_payload(payload)?),
         TAG_DEPLOY_STYLE => object.deploy_style = Some(decode_payload(payload)?),
         TAG_COMMAND_BUTTON_HUNT => object.command_button_hunt = Some(decode_payload(payload)?),
+        TAG_FIRE_WEAPON_WHEN_DEAD => {
+            let residual: FireWeaponWhenDeadResidual = decode_payload(payload)?;
+            residual.apply(object);
+        }
+        TAG_CREATE_OBJECT_DIE_TRANSFER => {
+            let residual: CreateObjectDieTransferResidual = decode_payload(payload)?;
+            residual.apply(object);
+        }
+        TAG_SPECIAL_POWER_COOLDOWNS => {
+            let residual: SpecialPowerCooldownResidual = decode_payload(payload)?;
+            residual.apply(object);
+        }
+        TAG_WEAPON_LOCK => {
+            let residual: WeaponLockResidual = decode_payload(payload)?;
+            residual.apply(object);
+        }
+        TAG_EMOTICON_SURRENDER => {
+            let residual: EmoticonSurrenderResidual = decode_payload(payload)?;
+            residual.apply(object);
+        }
+        TAG_PROJECTILE_FLIGHT => {
+            let residual: ProjectileFlightResiduals = decode_payload(payload)?;
+            residual.apply(object);
+        }
         _ => {}
     }
     Ok(())

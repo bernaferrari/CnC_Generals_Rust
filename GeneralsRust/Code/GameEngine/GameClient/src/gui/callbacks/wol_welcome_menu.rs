@@ -7,7 +7,9 @@ use std::sync::{Mutex, OnceLock};
 
 use crate::display::image::Image;
 use crate::game_text::GameText;
-use crate::gui::callbacks::online_callback_support::packed_ui_color;
+use crate::gui::callbacks::online_callback_support::{
+    dispatch_esc_gadget_selected, packed_ui_color,
+};
 use crate::gamespy_overlay::{
     gs_message_box_ok, open_overlay, raise_gs_message_box, toggle_overlay, GameSpyOverlayType,
 };
@@ -1001,23 +1003,37 @@ pub fn wol_welcome_menu_shutdown(layout: &WindowLayout, user_data: Option<&dyn s
 
 pub fn wol_welcome_menu_update(layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
     let state_slot = wol_state();
-    let mut state = state_slot.borrow_mut();
     let shell_finished = get_shell().is_anim_finished();
     let transitions_finished = with_window_manager(|manager| manager.transitions_finished());
-    if state.is_shutting_down && shell_finished && transitions_finished {
-        let next = state.next_screen.clone();
-        shutdown_complete(layout, next);
+    let (should_shutdown, next_screen, raise_boxes, should_poll) = {
+        let mut state = state_slot.borrow_mut();
+        if state.is_shutting_down && shell_finished && transitions_finished {
+            (true, state.next_screen.clone(), false, false)
+        } else {
+            let raise = state.raise_message_boxes;
+            if raise {
+                state.raise_message_boxes = false;
+            }
+            let poll = shell_finished && !state.button_pushed;
+            (false, None, raise, poll)
+        }
+    };
+
+    if should_shutdown {
+        // C++ WOLWelcomeMenu.cpp:585-586 calls shutdownComplete while using
+        // file-static isShuttingDown. Drop RefCell first — shutdown_complete
+        // borrow_muts the same cell.
+        shutdown_complete(layout, next_screen);
         return;
     }
 
-    if state.raise_message_boxes {
+    if raise_boxes {
         raise_gs_message_box();
-        state.raise_message_boxes = false;
     }
 
     // TODO: C++ calls TheFirewallHelper->behaviorDetectionUpdate() here to detect firewall type each frame
 
-    if shell_finished && !state.button_pushed {
+    if should_poll {
         handle_buddy_responses();
         handle_persistent_storage_responses();
 
@@ -1046,6 +1062,7 @@ pub fn wol_welcome_menu_update(layout: &WindowLayout, _user_data: Option<&dyn st
                                     };
                                     info.add_group_room(room);
                                     if resp.group_room_id == 0 {
+                                        let mut state = state_slot.borrow_mut();
                                         enable_controls(&mut state, true);
                                     }
                                 }
@@ -1053,15 +1070,21 @@ pub fn wol_welcome_menu_update(layout: &WindowLayout, _user_data: Option<&dyn st
                         }
                         PeerResponseType::JoinGroupRoom => {
                             saw_important = true;
-                            enable_controls(&mut state, true);
+                            {
+                                let mut state = state_slot.borrow_mut();
+                                enable_controls(&mut state, true);
+                            }
                             if resp.join_group_ok {
                                 if let Some(info) = get_gamespy_info() {
                                     if let Ok(mut info) = info.lock() {
                                         info.set_current_group_room(resp.group_room_id);
                                     }
                                 }
-                                state.button_pushed = true;
-                                state.next_screen = Some("Menus/WOLCustomLobby.wnd".to_string());
+                                {
+                                    let mut state = state_slot.borrow_mut();
+                                    state.button_pushed = true;
+                                    state.next_screen = Some("Menus/WOLCustomLobby.wnd".to_string());
+                                }
                                 let _ = get_shell().pop();
                             } else {
                                 gs_message_box_ok(
@@ -1100,17 +1123,18 @@ pub fn wol_welcome_menu_input(
     if msg != WindowMessage::Char || data1 != KEY_ESC {
         return WindowMsgHandled::Ignored;
     }
+    // C++ WOLWelcomeMenu.cpp:693-694 — buttonPushed breaks GWM_CHAR → MSG_IGNORED.
+    let (button_pushed, parent, back_id) = {
+        let state = wol_state().borrow();
+        (state.button_pushed, state.parent.clone(), state.button_back_id)
+    };
+    if button_pushed {
+        return WindowMsgHandled::Ignored;
+    }
     if (data2 & KEY_STATE_UP) == 0 {
         return WindowMsgHandled::Handled;
     }
-    let state_slot = wol_state();
-    let mut state = state_slot.borrow_mut();
-    if state.button_pushed {
-        return WindowMsgHandled::Handled;
-    }
-    state.button_pushed = true;
-    logout_gamespy();
-    let _ = get_shell().pop();
+    dispatch_esc_gadget_selected(parent, back_id);
     WindowMsgHandled::Handled
 }
 
@@ -1249,6 +1273,8 @@ pub fn wol_welcome_menu_system(
             }
             return WindowMsgHandled::Ignored;
         }
+        // C++ WOLWelcomeMenu.cpp:872-875 — empty GEM_EDIT_DONE returns MSG_HANDLED.
+        WindowMessage::GadgetEditDone => return WindowMsgHandled::Handled,
         _ => {}
     }
     WindowMsgHandled::Ignored

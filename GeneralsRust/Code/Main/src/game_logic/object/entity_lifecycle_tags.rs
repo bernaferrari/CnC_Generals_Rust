@@ -101,6 +101,18 @@ pub const TAG_ASSAULT_TRANSPORT: &str = "AssaultTransport";
 pub const TAG_DEPLOY_STYLE: &str = "DeployStyleAIUpdate";
 /// C++ CommandButtonHuntUpdate residual.
 pub const TAG_COMMAND_BUTTON_HUNT: &str = "CommandButtonHuntUpdate";
+/// C++ FireWeaponWhenDeadBehavior once-fired residual (`Object.cpp` module xfer).
+pub const TAG_FIRE_WEAPON_WHEN_DEAD: &str = "FireWeaponWhenDead";
+/// C++ CreateObjectDie TransferPreviousHealth residual.
+pub const TAG_CREATE_OBJECT_DIE_TRANSFER: &str = "CreateObjectDieTransfer";
+/// C++ SpecialPowerModule per-power cooldown map + override dest.
+pub const TAG_SPECIAL_POWER_COOLDOWNS: &str = "SpecialPowerCooldown";
+/// C++ WeaponSet lock residual (`WeaponLockType` + slot).
+pub const TAG_WEAPON_LOCK: &str = "WeaponLock";
+/// C++ Drawable::setEmoticon + AIUpdateInterface::setSurrendered timers.
+pub const TAG_EMOTICON_SURRENDER: &str = "EmoticonSurrender";
+/// C++ MissileAIUpdate / DumbProjectileBehavior / LifetimeUpdate flight residuals.
+pub const TAG_PROJECTILE_FLIGHT: &str = "ProjectileFlightResiduals";
 
 /// Declaration-order inventory. Producer emits tags in this sequence.
 pub const INVENTORY_TAGS: &[&str] = &[
@@ -153,4 +165,10 @@ pub const INVENTORY_TAGS: &[&str] = &[
     TAG_ASSAULT_TRANSPORT,
     TAG_DEPLOY_STYLE,
     TAG_COMMAND_BUTTON_HUNT,
+    TAG_FIRE_WEAPON_WHEN_DEAD,
+    TAG_CREATE_OBJECT_DIE_TRANSFER,
+    TAG_SPECIAL_POWER_COOLDOWNS,
+    TAG_WEAPON_LOCK,
+    TAG_EMOTICON_SURRENDER,
+    TAG_PROJECTILE_FLIGHT,
 ];

@@ -2634,7 +2634,7 @@ mod tests {
     fn main_crate_vision_xz_plane_residual() {
         // Regression: update_main_crate_vision must feed shroud (x,z) so build
         // placement LBC_SHROUD matches unit vision on the gameplay XZ plane.
-        let src = include_str!("game_logic/game_logic.rs");
+        let src = crate::game_logic::game_logic::GAME_LOGIC_FACADE_SRC;
         let vision = src
             .split("fn update_main_crate_vision")
             .nth(1)

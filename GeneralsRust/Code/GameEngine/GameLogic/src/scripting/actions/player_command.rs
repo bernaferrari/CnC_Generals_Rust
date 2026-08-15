@@ -1,5 +1,8 @@
 //! Player relation, hunt, factory, victory, and alliance script actions
 //!
+//! C++: ScriptActions.cpp player cluster L189–237 / L2152–2260
+//! (`doVictory`, `doDefeat`, `doPlayerHunt`, `doPlayerGrantScience` L5905).
+//!
 //! Split from `scripting/actions.rs` for module-size parity.
 //! Observable script behavior is unchanged.
 

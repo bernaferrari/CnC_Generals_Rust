@@ -1,5 +1,8 @@
 //! Music, speech, movie, and sound script actions
 //!
+//! C++: ScriptActions.cpp `doPlaySoundEffect` L329, `doPlaySoundEffectAt` L341,
+//! `doMusicTrackChange` L3269, `doSpeechPlay` L2737.
+//!
 //! Split from `scripting/actions.rs` for module-size parity.
 //! Observable script behavior is unchanged.
 

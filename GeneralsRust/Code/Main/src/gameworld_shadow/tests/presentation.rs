@@ -53,7 +53,7 @@ fn presentation_shell_drains_client_audio_source() {
     // GameClient lives outside Main crate; read by relative path from Main.
     let path = concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../GameEngine/GameClient/src/core/game_client.rs"
+        "/../GameEngine/GameClient/src/core/game_client/impl_update.rs"
     );
     let gc = std::fs::read_to_string(path).expect("game_client.rs");
     let body = rust_fn_body(&gc, "update_presentation_shell").expect("update_presentation_shell");
@@ -216,7 +216,7 @@ fn game_client_shared_input_devices_source() {
     );
     let gc_path = concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../GameEngine/GameClient/src/core/game_client.rs"
+        "/../GameEngine/GameClient/src/core/game_client/impl_update.rs"
     );
     let gc = std::fs::read_to_string(gc_path).expect("game_client.rs");
     let body = rust_fn_body(&gc, "update_presentation_shell").expect("presentation shell");

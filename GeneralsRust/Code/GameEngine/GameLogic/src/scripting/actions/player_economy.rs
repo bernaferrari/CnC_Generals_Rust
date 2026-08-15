@@ -1,5 +1,7 @@
 //! Player money, resource, and handicap script actions
 //!
+//! C++: ScriptActions.cpp `doSetMoney` L3980, `doGiveMoney` L3999.
+//!
 //! Split from `scripting/actions.rs` for module-size parity.
 //! Observable script behavior is unchanged.
 

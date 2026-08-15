@@ -1,5 +1,8 @@
 //! Weather, shroud, and radar script actions
 //!
+//! C++: ScriptActions.cpp reveal/shroud L2984–3090, radar L2840–2898,
+//! weather L3801.
+//!
 //! Split from `scripting/actions.rs` for module-size parity.
 //! Observable script behavior is unchanged.
 

@@ -11,7 +11,7 @@ use gamelogic::world::entities::{
     ENTITY_LIFECYCLE_ENVELOPE_VERSION,
 };
 
-const EXPECTED_INVENTORY_LEN: usize = 49;
+const EXPECTED_INVENTORY_LEN: usize = 55;
 
 const ENTITY_ONLY_GROUPS: &[&str] = &[
     "health",
@@ -40,13 +40,11 @@ const MAIN_ONLY_TODO_GROUPS: &[&str] = &[
     "Locomotor",
     "WeaponSlots",
     "Turret",
-    "SpecialPowerCooldown",
     "StatusBits",
     "ModelCondition",
     "ContinuousFire",
     "SubdualDamage",
     "OverlordAddon",
-    "ProjectileFlightResiduals",
 ];
 
 fn representative_object() -> Object {
@@ -78,6 +76,7 @@ fn inventory_len_and_declaration_order_are_locked() {
     assert_eq!(INVENTORY_TAGS.len(), EXPECTED_INVENTORY_LEN);
     assert_eq!(INVENTORY_TAGS[0], "UpgradeDie");
     assert_eq!(INVENTORY_TAGS[48], "CommandButtonHuntUpdate");
+    assert_eq!(INVENTORY_TAGS[54], "ProjectileFlightResiduals");
 }
 
 #[test]
@@ -128,7 +127,7 @@ fn read_inventory_audit_buckets() {
     assert_eq!(covered, EXPECTED_INVENTORY_LEN);
     assert_eq!(envelope_only, 0);
     assert_eq!(entity_only, 14);
-    assert_eq!(main_only, 16);
+    assert_eq!(main_only, 14);
 
     for todo in MAIN_ONLY_TODO_GROUPS {
         assert!(

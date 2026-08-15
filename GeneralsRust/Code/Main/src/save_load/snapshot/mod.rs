@@ -78,6 +78,8 @@ mod w3d_ghost_save;
 mod xfer_helpers;
 
 #[cfg(test)]
+mod lifecycle_save_file;
+#[cfg(test)]
 mod tests;
 
 pub use ai::*;

@@ -6,54 +6,14 @@
 //! fails the Main source-scan. Inventoring a gap requires removing it here
 //! and adding the matching tag to Main `INVENTORY_TAGS`.
 
-/// Main-only flattened bool/frame residuals not yet in the envelope inventory.
-/// Window: `fire_weapon_when_dead_fired` … `weapon_laser_beam_expires_frame`.
-/// Later projectile clusters are the grouped `ProjectileFlightResiduals` TODO.
+/// Transient presentation drain queues in the residual window.
+/// These are not C++ Object::xfer fields (Object.cpp:3995-4364); C++ FX/audio
+/// is module-side or client-side and is drained same-frame by Main.
 pub const KNOWN_GAPS: &[&str] = &[
-    "fire_weapon_when_dead_fired",
     "pending_transition_damage_fx",
     "pending_death_fx",
     "pending_death_audio",
     "pending_create_object_die_spawns",
-    "create_object_die_transfer_damage",
-    "carpet_bomb_payload",
-    "artillery_barrage_shell",
-    "a10_strike_missile",
-    "leaflet_transport_target",
-    "leaflet_container",
-    "paradrop_transport_target",
-    "paradrop_parachute",
-    "daisy_cutter_bomb",
-    "anthrax_bomb_payload",
-    "sneak_tunnel_start",
-    "cluster_mines_bomb",
-    "emp_pulse_bomb",
-    "emp_pulse_spheroid",
-    "emp_pulse_spheroid_expires_frame",
-    "particle_trail_remnant",
-    "particle_trail_remnant_expires_frame",
-    "nuke_radiation_field",
-    "nuke_radiation_field_expires_frame",
-    "anthrax_toxin_field",
-    "anthrax_toxin_field_expires_frame",
-    "spectre_howitzer_shell",
-    "spectre_howitzer_shell_expires_frame",
-    "particle_orbital_laser",
-    "particle_orbital_laser_expires_frame",
-    "particle_connector_laser",
-    "particle_connector_laser_expires_frame",
-    "point_defense_laser_beam",
-    "point_defense_laser_beam_expires_frame",
-    "missile_defender_laser_beam",
-    "missile_defender_laser_beam_expires_frame",
-    "booby_trap_special",
-    "booby_trap_attached_to",
-    "countermeasure_flare",
-    "countermeasure_flare_expires_frame",
-    "angry_mob_member",
-    "angry_mob_nexus_id",
-    "weapon_laser_beam",
-    "weapon_laser_beam_expires_frame",
 ];
 
 /// Entity flattened write-surface families that are not envelope tags.
@@ -91,9 +51,9 @@ mod tests {
 
     #[test]
     fn known_gaps_are_unique_and_declaration_ordered() {
-        assert_eq!(KNOWN_GAPS.len(), 44);
-        assert_eq!(KNOWN_GAPS[0], "fire_weapon_when_dead_fired");
-        assert_eq!(KNOWN_GAPS[43], "weapon_laser_beam_expires_frame");
+        assert_eq!(KNOWN_GAPS.len(), 4);
+        assert_eq!(KNOWN_GAPS[0], "pending_transition_damage_fx");
+        assert_eq!(KNOWN_GAPS[3], "pending_create_object_die_spawns");
         assert!(unique(KNOWN_GAPS), "KNOWN_GAPS must stay unique");
         for gap in KNOWN_GAPS {
             assert!(

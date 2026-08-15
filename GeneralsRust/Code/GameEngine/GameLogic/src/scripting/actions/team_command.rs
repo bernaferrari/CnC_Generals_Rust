@@ -1,5 +1,8 @@
 //! Team command and movement script actions
 //!
+//! C++: ScriptActions.cpp team cluster L389–2161 / L2341–2495
+//! (`doTeamFollowWaypoints`, `doTeamGuard*`, `doTeamHunt`, `doTeamAttackArea`).
+//!
 //! Split from `scripting/actions.rs` for module-size parity.
 //! Observable script behavior is unchanged.
 

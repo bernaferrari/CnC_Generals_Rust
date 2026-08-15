@@ -3,6 +3,11 @@
 //! Compares present residual groups vs envelope tags vs Entity attach for a
 //! representative object set, and locks `KNOWN_GAPS` against object/mod.rs.
 
+use super::entity_lifecycle_projectiles::ProjectileFlightResiduals;
+use super::entity_lifecycle_residuals::{
+    CreateObjectDieTransferResidual, EmoticonSurrenderResidual, FireWeaponWhenDeadResidual,
+    SpecialPowerCooldownResidual, WeaponLockResidual,
+};
 use super::entity_lifecycle_tags::*;
 use super::Object;
 use crate::game_logic::host_lifetime_update::HostLifetimeUpdateData;
@@ -12,6 +17,7 @@ use gamelogic::world::entities::{EntityStore, TemplateRef, Transform};
 use gamelogic::world::{ENTITY_ONLY_GROUPS, KNOWN_GAPS};
 
 const INVENTORIED_IN_WINDOW: &[&str] = &[
+    "fire_weapon_when_dead_fired",
     "bone_fx_damage",
     "poisoned_behavior",
     "defection_helper",
@@ -22,24 +28,63 @@ const INVENTORIED_IN_WINDOW: &[&str] = &[
     "transition_damage_fx",
     "fx_list_die",
     "create_object_die",
+    "create_object_die_transfer_damage",
     "lifetime_update",
     "slow_death",
     "height_die",
     "fuel_air_gas_slow_death",
     "neutron_missile_update",
     "scud_storm_missile_flight",
+    "carpet_bomb_payload",
     "carpet_bomb_transport",
+    "artillery_barrage_shell",
     "artillery_barrage_transport",
+    "a10_strike_missile",
     "a10_strike_transport",
+    "leaflet_transport_target",
+    "leaflet_container",
+    "paradrop_transport_target",
+    "paradrop_parachute",
     "daisy_cutter_transport",
+    "daisy_cutter_bomb",
     "anthrax_bomb_transport",
+    "anthrax_bomb_payload",
+    "sneak_tunnel_start",
     "cluster_mines_transport",
+    "cluster_mines_bomb",
     "emp_pulse_transport",
+    "emp_pulse_bomb",
+    "emp_pulse_spheroid",
+    "emp_pulse_spheroid_expires_frame",
+    "particle_trail_remnant",
+    "particle_trail_remnant_expires_frame",
+    "nuke_radiation_field",
+    "nuke_radiation_field_expires_frame",
+    "anthrax_toxin_field",
+    "anthrax_toxin_field_expires_frame",
+    "spectre_howitzer_shell",
+    "spectre_howitzer_shell_expires_frame",
+    "particle_orbital_laser",
+    "particle_orbital_laser_expires_frame",
+    "particle_connector_laser",
+    "particle_connector_laser_expires_frame",
+    "point_defense_laser_beam",
+    "point_defense_laser_beam_expires_frame",
+    "missile_defender_laser_beam",
+    "missile_defender_laser_beam_expires_frame",
+    "booby_trap_special",
+    "booby_trap_attached_to",
+    "countermeasure_flare",
+    "countermeasure_flare_expires_frame",
+    "angry_mob_member",
+    "angry_mob_nexus_id",
+    "weapon_laser_beam",
+    "weapon_laser_beam_expires_frame",
 ];
 
 fn present_groups(object: &Object) -> Vec<&'static str> {
     let mut out = Vec::new();
-    let pairs: [(&'static str, bool); 49] = [
+    let pairs: [(&'static str, bool); 55] = [
         (TAG_UPGRADE_DIE, object.upgrade_die.is_some()),
         (
             TAG_SPECIAL_POWER_COMPLETION,
@@ -141,6 +186,27 @@ fn present_groups(object: &Object) -> Vec<&'static str> {
         (TAG_ASSAULT_TRANSPORT, object.assault_transport.is_some()),
         (TAG_DEPLOY_STYLE, object.deploy_style.is_some()),
         (TAG_COMMAND_BUTTON_HUNT, object.command_button_hunt.is_some()),
+        (
+            TAG_FIRE_WEAPON_WHEN_DEAD,
+            FireWeaponWhenDeadResidual::present(object),
+        ),
+        (
+            TAG_CREATE_OBJECT_DIE_TRANSFER,
+            CreateObjectDieTransferResidual::present(object),
+        ),
+        (
+            TAG_SPECIAL_POWER_COOLDOWNS,
+            SpecialPowerCooldownResidual::present(object),
+        ),
+        (TAG_WEAPON_LOCK, WeaponLockResidual::present(object)),
+        (
+            TAG_EMOTICON_SURRENDER,
+            EmoticonSurrenderResidual::present(object),
+        ),
+        (
+            TAG_PROJECTILE_FLIGHT,
+            ProjectileFlightResiduals::present(object),
+        ),
     ];
     for (tag, present) in pairs {
         if present {

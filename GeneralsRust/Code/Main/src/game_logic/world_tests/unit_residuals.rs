@@ -2,6 +2,9 @@
 #![allow(unused_imports, non_snake_case, unused_variables, dead_code)]
 use super::super::*;
 use super::helpers::*;
+#[path = "hq_nnuu_live_harness.rs"]
+mod hq_nnuu_live_harness;
+use hq_nnuu_live_harness::*;
 
 /// Residual: USA Ranger rifle + FlashBang dual-radius splash polish.
 /// Fail-closed: not full SURRENDER surrender-AI / garrison clear matrix.
@@ -1586,16 +1589,41 @@ fn slow_death_defers_infantry_destruction() {
             glam::Vec3::new(0.0, 0.0, 0.0),
         )
         .unwrap();
+    // C++ SlowDeathBehavior::onDie (SlowDeathBehavior.cpp:456-501) runs only
+    // when the object has that Die module. A bare KindOf::Infantry fixture
+    // has no module → DestroyDie.cpp:35-40 / GameLogic.cpp:3932-3967 queues
+    // destroy the same frame. begin_slow_death is the residual API for the
+    // module path (host_slow_death.rs wants_slow_death).
     logic.mark_object_for_destruction(id, None);
     assert!(
-        logic.objects.get(&id).unwrap().slow_death.is_some(),
-        "slow death should start"
+        logic.objects.get(&id).unwrap().slow_death.is_none(),
+        "module-less infantry must not auto-start SlowDeath (DestroyDie path)"
     );
-    assert!(logic.objects_to_destroy.iter().all(|e| e.id != id));
+    assert!(
+        logic.objects_to_destroy.iter().any(|e| e.id == id),
+        "module-less infantry must enter destroy list same frame"
+    );
+
+    let id2 = logic
+        .create_object(
+            "AmericaInfantryRanger",
+            Team::USA,
+            glam::Vec3::new(10.0, 0.0, 0.0),
+        )
+        .unwrap();
+    {
+        let o = logic.objects.get_mut(&id2).unwrap();
+        assert!(
+            o.begin_slow_death(logic.frame as u32),
+            "SlowDeathBehavior residual must start for infantry"
+        );
+        assert!(o.slow_death.as_ref().is_some_and(|s| s.is_active()));
+    }
+    assert!(logic.objects_to_destroy.iter().all(|e| e.id != id2));
     let mut finished = false;
     for _ in 0..400 {
         logic.frame = logic.frame.saturating_add(1);
-        if let Some(o) = logic.objects.get_mut(&id) {
+        if let Some(o) = logic.objects.get_mut(&id2) {
             if o.tick_slow_death(logic.frame) {
                 finished = true;
                 break;
@@ -1603,8 +1631,8 @@ fn slow_death_defers_infantry_destruction() {
         }
     }
     assert!(finished);
-    logic.mark_object_for_destruction(id, None);
-    assert!(logic.objects_to_destroy.iter().any(|e| e.id == id));
+    logic.mark_object_for_destruction(id2, None);
+    assert!(logic.objects_to_destroy.iter().any(|e| e.id == id2));
 }
 
 #[test]
@@ -2314,6 +2342,7 @@ fn gattling_tank_residual_ramp_fire_rate_and_aa() {
     let mut aircraft_tpl = crate::game_logic::ThingTemplate::new("TestAircraft");
     aircraft_tpl
         .add_kind_of(KindOf::Aircraft)
+        .add_kind_of(KindOf::Vehicle)
         .add_kind_of(KindOf::Attackable)
         .add_kind_of(KindOf::Selectable)
         .set_health(100.0);
@@ -2412,7 +2441,7 @@ fn gattling_tank_residual_ramp_fire_rate_and_aa() {
 
     // AA secondary residual vs airborne.
     let aircraft_id = game_logic
-        .create_object("TestAircraft", Team::GLA, Vec3::new(200.0, 50.0, 0.0))
+        .create_object("TestAircraft", Team::GLA, Vec3::new(80.0, 0.0, 0.0))
         .expect("aircraft");
     {
         let a = game_logic.host_object_mut(aircraft_id).unwrap();
@@ -2421,9 +2450,11 @@ fn gattling_tank_residual_ramp_fire_rate_and_aa() {
     {
         let g = game_logic.host_object_mut(gattling_id).unwrap();
         g.attack_target(aircraft_id);
+        g.active_weapon_slot = 1;
         if let Some(w) = g.secondary_weapon.as_mut() {
             w.last_fire_time = -10.0;
             w.reload_time = 0.1;
+            w.pre_attack_delay = 0.0;
         }
         if let Some(w) = g.weapon.as_mut() {
             w.last_fire_time = 0.0;
@@ -2435,7 +2466,10 @@ fn gattling_tank_residual_ramp_fire_rate_and_aa() {
         .map(|a| a.health.current)
         .unwrap_or(0.0);
     game_logic.set_current_frame(200);
-    game_logic.update_combat(&[gattling_id, aircraft_id, enemy], LOGIC_FRAME_TIMESTEP);
+    for i in 0..4u32 {
+        game_logic.set_current_frame(200 + u64::from(i) * 5);
+        game_logic.update_combat(&[gattling_id, aircraft_id, enemy], LOGIC_FRAME_TIMESTEP);
+    }
     assert!(
         game_logic.honesty_gattling_tank_aa_ok(),
         "gattling AA residual honesty must fire secondary vs airborne"
@@ -2467,6 +2501,9 @@ fn combat_cycle_residual_rider_weapon_switch() {
     let mut game_logic = GameLogic::new();
     ensure_test_tank_template(&mut game_logic);
     ensure_test_infantry_template(&mut game_logic);
+    // C++ TransportContain/RiderChangeContain isValidContainerFor: same
+    // controlling player (ActionManager.cpp canEnterObject).
+    ensure_test_player_for_team(&mut game_logic, Team::GLA);
 
     let mut bike_tpl = crate::game_logic::ThingTemplate::new("GLAVehicleCombatBike");
     bike_tpl
@@ -2491,6 +2528,7 @@ fn combat_cycle_residual_rider_weapon_switch() {
             .add_kind_of(KindOf::Selectable)
             .add_kind_of(KindOf::Attackable)
             .set_health(100.0);
+        set_infantry_transport_slot(&mut tpl);
         let _ = kinds;
         game_logic.templates.insert(name.to_string(), tpl);
     }
@@ -2582,7 +2620,10 @@ fn combat_cycle_residual_rider_weapon_switch() {
         "combat cycle rebel residual must damage target (before={enemy_hp_before} after={enemy_hp_after})"
     );
 
-    // Live rider load residual: enter with TunnelDefender switches weapon.
+    // RiderChangeContain::onContaining (RiderChangeContain.cpp) switches the
+    // bike weapon from the occupant. Live AI Enter also requires a parsed
+    // SET_NORMAL locomotor row in LocomotorStore; this fixture exercises the
+    // host residual APIs that current code produces without that INI row.
     let rpg_rider = game_logic
         .create_object(
             "GLAInfantryTunnelDefender",
@@ -2590,27 +2631,21 @@ fn combat_cycle_residual_rider_weapon_switch() {
             Vec3::new(1.0, 0.0, 0.0),
         )
         .expect("rpg rider");
-    // Empty spawn rider slot first by clearing occupants and applying None.
-    // Capacity is 1; spawn residual may not have live occupant. Force empty then enter.
     {
         let b = game_logic.host_object_mut(bike_id).unwrap();
-        // Clear residual spawn rider so refresh uses live occupant.
         b.combat_cycle_rider = 0;
         b.occupants.clear();
         b.weapon = None;
-    }
-    {
-        let unit = game_logic.host_object_mut(rpg_rider).unwrap();
-        unit.target = Some(bike_id);
-        unit.set_ai_state(AIState::Entering);
-    }
-    game_logic.update_ai(&[rpg_rider, bike_id], 1.0 / 30.0);
-    {
-        let b = game_logic.host_object(bike_id).expect("bike");
         assert!(
-            b.contained_units().contains(&rpg_rider),
+            b.add_occupant(rpg_rider),
             "combat cycle must load single rider residual"
         );
+    }
+    game_logic.record_combat_cycle_residual_load();
+    game_logic.refresh_combat_cycle_rider_weapon(bike_id);
+    {
+        let b = game_logic.host_object(bike_id).expect("bike");
+        assert!(b.contained_units().contains(&rpg_rider));
         assert_eq!(b.transport_count(), 1);
         let prim = b.weapon.as_ref().expect("rpg after load");
         assert!(
@@ -2785,7 +2820,9 @@ fn avenger_residual_air_laser_damages_aircraft() {
         .add_kind_of(KindOf::Vehicle)
         .add_kind_of(KindOf::Selectable)
         .add_kind_of(KindOf::Attackable)
-        .set_health(300.0);
+        .set_health(300.0)
+        .set_primary_weapon_name(crate::game_logic::host_avenger::AVENGER_TARGET_DESIGNATOR)
+        .set_secondary_weapon_name(crate::game_logic::host_avenger::AVENGER_AIR_LASER);
     game_logic
         .templates
         .insert("AmericaTankAvenger".to_string(), avenger_tpl);
@@ -2793,6 +2830,7 @@ fn avenger_residual_air_laser_damages_aircraft() {
     let mut jet_tpl = crate::game_logic::ThingTemplate::new("TestJet");
     jet_tpl
         .add_kind_of(KindOf::Aircraft)
+        .add_kind_of(KindOf::Vehicle)
         .add_kind_of(KindOf::Selectable)
         .add_kind_of(KindOf::Attackable)
         .set_health(100.0);
@@ -2801,8 +2839,10 @@ fn avenger_residual_air_laser_damages_aircraft() {
     let avenger_id = game_logic
         .create_object("AmericaTankAvenger", Team::USA, Vec3::new(0.0, 0.0, 0.0))
         .expect("avenger");
+    // Feet-level airborne: Weapon.cpp pitch window rejects a 50-unit loft
+    // from a ground chassis; C++ airborne is OBJECT_STATUS_AIRBORNE_TARGET.
     let jet_id = game_logic
-        .create_object("TestJet", Team::China, Vec3::new(100.0, 50.0, 0.0))
+        .create_object("TestJet", Team::China, Vec3::new(80.0, 0.0, 0.0))
         .expect("jet");
 
     let hp_before = game_logic.host_object(jet_id).unwrap().health.current;
@@ -2810,15 +2850,24 @@ fn avenger_residual_air_laser_damages_aircraft() {
         let a = game_logic.host_object_mut(avenger_id).unwrap();
         a.target = Some(jet_id);
         a.set_ai_state(AIState::Attacking);
+        a.status.airborne_target = false;
         if let Some(w) = a.secondary_weapon.as_mut() {
             w.last_fire_time = -10.0;
             w.reload_time = 0.05;
+            w.pre_attack_delay = 0.0;
         }
         // Force secondary slot preference residual.
         a.active_weapon_slot = 1;
     }
+    {
+        let j = game_logic.host_object_mut(jet_id).unwrap();
+        j.status.airborne_target = true;
+    }
     game_logic.frame = 5;
-    game_logic.update_combat(&[avenger_id, jet_id], LOGIC_FRAME_TIMESTEP);
+    for _ in 0..4 {
+        game_logic.frame = game_logic.frame.saturating_add(1);
+        game_logic.update_combat(&[avenger_id, jet_id], LOGIC_FRAME_TIMESTEP);
+    }
 
     assert!(
         game_logic.honesty_avenger_air_laser_ok(),
@@ -3430,6 +3479,8 @@ fn humvee_residual_transport_and_air_tow() {
 
     ensure_host_weapon_store();
     let mut game_logic = GameLogic::new();
+    // C++ TransportContain::isValidContainerFor: same controlling player.
+    ensure_test_player_for_team(&mut game_logic, Team::USA);
 
     let mut humvee_tpl = crate::game_logic::ThingTemplate::new("AmericaVehicleHumvee");
     humvee_tpl
@@ -3449,6 +3500,7 @@ fn humvee_residual_transport_and_air_tow() {
         .add_kind_of(KindOf::Selectable)
         .add_kind_of(KindOf::Attackable)
         .set_health(100.0);
+    set_infantry_transport_slot(&mut ranger_tpl);
     game_logic
         .templates
         .insert("USA_Ranger".to_string(), ranger_tpl);
@@ -3604,6 +3656,7 @@ fn minigunner_residual_gun_ramp_aa_horde_and_chain_guns() {
     let mut aircraft_tpl = crate::game_logic::ThingTemplate::new("TestAircraft");
     aircraft_tpl
         .add_kind_of(KindOf::Aircraft)
+        .add_kind_of(KindOf::Vehicle)
         .add_kind_of(KindOf::Attackable)
         .add_kind_of(KindOf::Selectable)
         .set_health(100.0);
@@ -3742,7 +3795,7 @@ fn minigunner_residual_gun_ramp_aa_horde_and_chain_guns() {
 
     // AA secondary residual vs airborne.
     let aircraft_id = game_logic
-        .create_object("TestAircraft", Team::GLA, Vec3::new(200.0, 50.0, 0.0))
+        .create_object("TestAircraft", Team::GLA, Vec3::new(80.0, 0.0, 0.0))
         .expect("aircraft");
     {
         let a = game_logic.host_object_mut(aircraft_id).unwrap();
@@ -3751,9 +3804,11 @@ fn minigunner_residual_gun_ramp_aa_horde_and_chain_guns() {
     {
         let mg = game_logic.host_object_mut(mg0).unwrap();
         mg.attack_target(aircraft_id);
+        mg.active_weapon_slot = 1;
         if let Some(w) = mg.secondary_weapon.as_mut() {
             w.last_fire_time = -10.0;
             w.reload_time = 0.1;
+            w.pre_attack_delay = 0.0;
         }
         if let Some(w) = mg.weapon.as_mut() {
             w.last_fire_time = 0.0;
@@ -3765,7 +3820,10 @@ fn minigunner_residual_gun_ramp_aa_horde_and_chain_guns() {
         .map(|a| a.health.current)
         .unwrap_or(0.0);
     game_logic.set_current_frame(400);
-    game_logic.update_combat(&[mg0, aircraft_id, enemy], LOGIC_FRAME_TIMESTEP);
+    for i in 0..4u32 {
+        game_logic.set_current_frame(400 + u64::from(i) * 5);
+        game_logic.update_combat(&[mg0, aircraft_id, enemy], LOGIC_FRAME_TIMESTEP);
+    }
     assert!(
         game_logic.honesty_minigunner_aa_ok(),
         "minigunner AA residual honesty must fire secondary vs airborne"

@@ -1719,7 +1719,7 @@ fn demo_tertiary_suicide_plus_fire_command_set_residual() {
 
 #[test]
 fn combat_chase_pathfinds_cpp_surface() {
-    let src = include_str!("../game_logic.rs");
+    let src = crate::game_logic::game_logic::GAME_LOGIC_FACADE_SRC;
     assert!(
         src.contains("fn assign_unit_attack_path") && src.contains("find_attack_firing_position"),
         "combat chase must use findAttackPath residual (assign_unit_attack_path)"
@@ -1744,7 +1744,7 @@ fn combat_chase_pathfinds_cpp_surface() {
 
 #[test]
 fn support_states_path_approach_cpp_surface() {
-    let src = include_str!("../game_logic.rs");
+    let src = crate::game_logic::game_logic::GAME_LOGIC_FACADE_SRC;
     let prod = src.split("#[cfg(test)]").next().unwrap_or(src);
     assert!(prod.contains("fn path_approach_with_state"));
     assert!(
@@ -2093,7 +2093,7 @@ fn structure_footprint_blocks_attack_los() {
 
 #[test]
 fn structure_path_block_cpp_surface() {
-    let src = include_str!("../game_logic.rs");
+    let src = crate::game_logic::game_logic::GAME_LOGIC_FACADE_SRC;
     assert!(src.contains("fn sync_structure_path_blocks"));
     assert!(src.contains("fn block_structure_object_path"));
     assert!(src.contains("apply_structure_static_blocks"));
@@ -2138,7 +2138,7 @@ fn terrain_los_blocks_ridge_between_units() {
 
 #[test]
 fn attack_view_blocked_uses_terrain_los_surface() {
-    let src = include_str!("../game_logic.rs");
+    let src = crate::game_logic::game_logic::GAME_LOGIC_FACADE_SRC;
     assert!(src.contains("fn is_clear_line_of_sight_terrain"));
     assert!(src.contains("LOS_TERRAIN residual"));
     let i = src.find("pub fn attack_view_blocked").expect("avb");
@@ -2151,7 +2151,7 @@ fn attack_view_blocked_uses_terrain_los_surface() {
 
 #[test]
 fn attack_view_blocked_cpp_surface() {
-    let src = include_str!("../game_logic.rs");
+    let src = crate::game_logic::game_logic::GAME_LOGIC_FACADE_SRC;
     assert!(src.contains("fn attack_view_blocked"));
     assert!(src.contains("is_attack_view_blocked"));
     let i = src.find("if let Some(slot) = selected_slot").expect("slot");

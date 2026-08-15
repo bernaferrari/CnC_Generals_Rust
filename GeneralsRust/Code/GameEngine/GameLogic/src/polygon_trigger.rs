@@ -606,3 +606,46 @@ fn compute_bounds(points: &[ICoord3D]) -> (IRegion2D, Real) {
     let radius = (half_height * half_height + half_width * half_width).sqrt();
     (bounds, radius)
 }
+
+#[cfg(test)]
+mod trigger_enter_exit_tests {
+    use super::*;
+
+    fn square(id: PolygonTriggerId, name: &str) -> PolygonTrigger {
+        PolygonTrigger::new(
+            id,
+            AsciiString::from(name),
+            vec![
+                ICoord3D::new(0, 0, 0),
+                ICoord3D::new(10, 0, 0),
+                ICoord3D::new(10, 10, 0),
+                ICoord3D::new(0, 10, 0),
+            ],
+        )
+    }
+
+    #[test]
+    fn exit_classification_uses_old_ipos_not_new() {
+        let trigger = square(1, "Area");
+        let old_i_pos = ICoord3D::new(5, 5, 0);
+        let new_i_pos = ICoord3D::new(15, 15, 0);
+        assert!(
+            trigger.point_in_trigger_int(&old_i_pos),
+            "old cell is inside; C++ Object.cpp:2599 exits from this cell"
+        );
+        assert!(
+            !trigger.point_in_trigger_int(&new_i_pos),
+            "new cell is outside"
+        );
+    }
+
+    #[test]
+    fn never_tracked_polygon_can_still_be_entered() {
+        let trigger = square(2, "Untracked");
+        let new_i_pos = ICoord3D::new(5, 5, 0);
+        assert!(
+            trigger.point_in_trigger_int(&new_i_pos),
+            "C++ Object.cpp:2615 walks every PolygonTrigger, including never-tracked ones"
+        );
+    }
+}
