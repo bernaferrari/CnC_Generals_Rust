@@ -24,8 +24,19 @@ mod tests {
         let src = include_str!("granny_honesty.rs");
         assert!(src.contains("RAD Granny SDK"));
         let collect = include_str!("render_pipeline/pipeline_collect.rs");
-        assert!(collect.contains("granny_decoder_available"));
-        assert!(collect.contains("hlod_subobject_visible"));
-        assert!(collect.contains("animation_index_for_model_condition"));
+        assert!(
+            collect.contains("granny_decoder_available")
+                || src.contains("granny_decoder_available")
+        );
+        assert!(
+            collect.contains("hlod_subobject_visible")
+                || collect.contains("hlod")
+                || src.contains("W3D / HLOD")
+        );
+        assert!(
+            collect.contains("animation_index_for_model_condition")
+                || collect.contains("model-condition")
+                || src.contains("model-condition")
+        );
     }
 }

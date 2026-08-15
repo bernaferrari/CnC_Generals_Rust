@@ -1,12 +1,12 @@
 //! Mechanical split from `game_logic/game_logic.rs`. No behavior change.
 #![allow(non_snake_case, unused_imports, dead_code)]
-use super::prelude::*;
-use super::*;
 use super::authority::*;
 use super::construct::*;
 use super::crate_tick::*;
 use super::player::*;
+use super::prelude::*;
 use super::script_camera::*;
+use super::*;
 
 pub struct GameLogic {
     /// Named AttackPriorityInfo residual map (script sets).
@@ -22,28 +22,30 @@ pub struct GameLogic {
     /// Own field (not a method on `&mut GameLogic`) so ticks can
     /// `self.objects.get_mut` while still reading `self.frame`.
     /// When a GameWorld shadow session is coupled this map is an ID roster /
-    /// read-through **view**. HP / pose / attack-target live in GameWorld;
-    /// [`Self::host_object_mut`] overlays those fields from GameWorld, marks the
-    /// id dirty, and [`Self::commit_dirty_host_objects_to_gameworld`] pushes
-    /// them back. Fail-open host fields only when shadow is off.
+    /// read-view. HP / pose / attack-target live in GameWorld;
+    /// [`Self::host_object_mut`] overlays those fields from GameWorld.
+    /// Coupled ticks do not dirty-push HashMap mutations back. Fail-open host
+    /// fields only when shadow is off. Main still allocates ObjectId.
     pub objects: HostObjectStore,
     /// Host ids mutated this tick that must write through to GameWorld.
-    pub(in super) host_view_dirty: HashSet<ObjectId>,
+    pub(super) host_view_dirty: HashSet<ObjectId>,
 
-    /// Players in the game
-    pub(in super) players: HashMap<u32, Player>,
+    /// Players in the game. Coupled shadow: supplies/power/sciences last-write
+    /// from GameWorld `PlayerData` (economy writeback). This map is a read-view
+    /// plus residual UI/selection fields.
+    pub(super) players: HashMap<u32, Player>,
     /// Exact Campaign/Challenge PlayerTemplate binding for each host player.
     ///
     /// This is deliberately GameLogic session state rather than a `Player`
     /// field until the shared save schema owns its Xfer representation.  It is
     /// reset with a match, survives the existing SP/skirmish map-load preserve
     /// path, and never mutates GameNetwork.
-    pub(in super) player_template_bindings: HashMap<u32, PlayerTemplateIdentity>,
+    pub(super) player_template_bindings: HashMap<u32, PlayerTemplateIdentity>,
 
     /// Object ID counter
-    pub(in super) next_object_id: ObjectId,
+    pub(super) next_object_id: ObjectId,
     /// C++ TheAI next formation id residual (starts at 1; 0 = none).
-    pub(in super) next_formation_id: u32,
+    pub(super) next_formation_id: u32,
 
     /// Simulation frame counter
     pub(crate) frame: u32,
@@ -52,36 +54,37 @@ pub struct GameLogic {
     ///
     /// This is logical-world state, not renderer cadence. Sequence zero stays
     /// reserved for an Object with no accepted discharge marker.
-    pub(in super) next_weapon_discharge_sequence: u64,
+    pub(super) next_weapon_discharge_sequence: u64,
     /// Host-only, presentation-facing accepted-discharge queue. It is not
     /// serialized: the durable Object marker + counter establish restore
     /// baselines, while pre-save transient cues must not replay after load.
-    pub(in super) weapon_discharge_log: crate::game_logic::host_weapon_discharge_log::HostWeaponDischargeLog,
+    pub(super) weapon_discharge_log:
+        crate::game_logic::host_weapon_discharge_log::HostWeaponDischargeLog,
     /// Runtime-only world identity so recycled ObjectIds cannot inherit a stale plan.
-    pub(in super) visual_world_epoch: u64,
-    pub(in super) next_visual_object_generation: u64,
+    pub(super) visual_world_epoch: u64,
+    pub(super) next_visual_object_generation: u64,
 
     /// Game mode
-    pub(in super) game_mode: GameMode,
+    pub(super) game_mode: GameMode,
 
     /// Active skirmish/match rules (from skirmish UI config).
-    pub(in super) skirmish_rules: SkirmishRulesState,
+    pub(super) skirmish_rules: SkirmishRulesState,
 
     /// Game world dimensions
-    pub(in super) world_width: f32,
-    pub(in super) world_height: f32,
-    pub(in super) world_min: Vec3,
-    pub(in super) world_max: Vec3,
+    pub(super) world_width: f32,
+    pub(super) world_height: f32,
+    pub(super) world_min: Vec3,
+    pub(super) world_max: Vec3,
 
     /// Victory conditions subsystem (mirrors SAGE VictoryConditions)
-    pub(in super) victory_conditions: VictoryConditions,
+    pub(super) victory_conditions: VictoryConditions,
 
     /// Objects to destroy at end of frame
-    pub(in super) objects_to_destroy: VecDeque<DestructionEvent>,
+    pub(super) objects_to_destroy: VecDeque<DestructionEvent>,
 
     /// Host combat particle registry (kill/fire → observably registered systems).
     /// Residual hq-gq7n: not full W3D GPU parity; PresentationFrame can observe entries.
-    pub(in super) combat_particles: CombatParticleRegistry,
+    pub(super) combat_particles: CombatParticleRegistry,
 
     /// Host superweapon strike residual (DaisyCutter / A10 / ScudStorm / ParticleCannon /
     /// NuclearMissile / AnthraxBomb / SpectreGunship / CarpetBomb / ArtilleryBarrage /
@@ -101,13 +104,13 @@ pub struct GameLogic {
     /// Host GLA Rebel Ambush residual.
     /// Queues on DoSpecialPower and spawns infantry near target after fade delay —
     /// fail-closed vs full OCL CreateObject / science upgrade tiers.
-    pub(in super) host_ambushes: crate::game_logic::host_ambush::HostAmbushRegistry,
+    pub(super) host_ambushes: crate::game_logic::host_ambush::HostAmbushRegistry,
     /// Residual: last SuperweaponCashHack requested science-tier amount.
-    pub(in super) last_cash_hack_request_amount: u32,
+    pub(super) last_cash_hack_request_amount: u32,
     /// Residual: last SuperweaponCashHack stolen amount.
-    pub(in super) last_cash_hack_stolen_amount: u32,
+    pub(super) last_cash_hack_stolen_amount: u32,
     /// Residual: last SuperweaponCrateDrop spawned crate count.
-    pub(in super) last_crate_drop_spawned: u32,
+    pub(super) last_crate_drop_spawned: u32,
 
     /// Host USA Leaflet Drop residual.
     /// Queues on DoSpecialPower; after Delay disables enemy infantry/vehicles
@@ -117,97 +120,104 @@ pub struct GameLogic {
     /// Host GLA Sneak Attack residual.
     /// Queues on DoSpecialPower; after Lifetime delay spawns tunnel structure +
     /// residual shockwave damage — fail-closed vs full OCL Start animation / TunnelContain.
-    pub(in super) host_sneak_attacks: crate::game_logic::host_sneak_attack::HostSneakAttackRegistry,
+    pub(super) host_sneak_attacks: crate::game_logic::host_sneak_attack::HostSneakAttackRegistry,
 
     /// Host upgrade queue/complete residual (Capture / FlashBang / TOW / SupplyLines).
     /// Completes research into unlocked_sciences and applies observable unit unlocks.
-    pub(in super) host_upgrades: crate::game_logic::host_upgrades::HostUpgradeRegistry,
+    pub(super) host_upgrades: crate::game_logic::host_upgrades::HostUpgradeRegistry,
 
     /// Supply Lines economy residual: total bonus cash credited on drop-off deposits.
     /// Matches C++ SupplyCenterDockUpdate + Chinook `getUpgradedSupplyBoost` path.
     /// Fail-closed: not per-template INI boost matrix / WorkerShoes / multiplayer.
-    pub(in super) supply_lines_bonus_cash_total: u32,
+    pub(super) supply_lines_bonus_cash_total: u32,
 
     /// Host cash bounty residual (GLA SCIENCE_CashBounty → kill awards cash).
     /// Fail-closed: not full CashBountyPower palace module / floating text.
-    pub(in super) cash_bounty: crate::game_logic::host_cash_bounty::HostCashBountyRegistry,
+    pub(super) cash_bounty: crate::game_logic::host_cash_bounty::HostCashBountyRegistry,
 
     /// Host garrison residual honesty counters (enter / exit / fire-from-garrison).
     /// Fail-closed: not C++ GarrisonContain fire-point bones or full weapon matrix.
-    pub(in super) garrison_residual_enters: u32,
-    pub(in super) garrison_residual_exits: u32,
-    pub(in super) garrison_residual_fires: u32,
+    pub(super) garrison_residual_enters: u32,
+    pub(super) garrison_residual_exits: u32,
+    pub(super) garrison_residual_fires: u32,
 
     /// Host transport residual honesty counters (load / unload-all / evacuate).
     /// Fail-closed: not multi-door or Chinook air-transport path parity.
-    pub(in super) transport_residual_loads: u32,
-    pub(in super) transport_residual_unloads: u32,
+    pub(super) transport_residual_loads: u32,
+    pub(super) transport_residual_unloads: u32,
 
     /// Host China Overlord BattleBunker residual honesty counters (enter / exit).
     /// Fail-closed: not full OverlordContain redirect / portable-structure spawn.
-    pub(in super) overlord_bunker_residual_enters: u32,
-    pub(in super) overlord_bunker_residual_exits: u32,
+    pub(super) overlord_bunker_residual_enters: u32,
+    pub(super) overlord_bunker_residual_exits: u32,
 
     /// Host GLA Battle Bus residual honesty counters
     /// (load / unload / passenger fire / armed-riders weapon-set).
     /// Fail-closed: not SlowDeath undeath SECOND_LIFE / multi-door exit matrix.
-    pub(in super) battle_bus: crate::game_logic::host_battle_bus::HostBattleBusRegistry,
+    pub(super) battle_bus: crate::game_logic::host_battle_bus::HostBattleBusRegistry,
     /// C++ HighlanderBody residual clamps.
-    pub(in super) highlander_body_reg: crate::game_logic::host_highlander_body::HostHighlanderBodyRegistry,
+    pub(super) highlander_body_reg:
+        crate::game_logic::host_highlander_body::HostHighlanderBodyRegistry,
     /// C++ DeployStyleAIUpdate residual counters.
-    pub(in super) deploy_style_reg: crate::game_logic::host_deploy_style::HostDeployStyleRegistry,
+    pub(super) deploy_style_reg: crate::game_logic::host_deploy_style::HostDeployStyleRegistry,
     /// C++ TensileFormationUpdate residual counters.
-    pub(in super) tensile_formation_reg: crate::game_logic::host_tensile_formation::HostTensileFormationRegistry,
+    pub(super) tensile_formation_reg:
+        crate::game_logic::host_tensile_formation::HostTensileFormationRegistry,
     /// C++ StatusBitsUpgrade residual counters.
-    pub(in super) status_bits_upgrade_reg:
+    pub(super) status_bits_upgrade_reg:
         crate::game_logic::host_status_bits_upgrade::HostStatusBitsUpgradeRegistry,
     /// C++ FireSpreadUpdate residual counters.
-    pub(in super) fire_spread_reg: crate::game_logic::host_fire_spread::HostFireSpreadRegistry,
+    pub(super) fire_spread_reg: crate::game_logic::host_fire_spread::HostFireSpreadRegistry,
     /// C++ BaseRegenerateUpdate residual counters.
-    pub(in super) base_regenerate_reg: crate::game_logic::host_base_regenerate::HostBaseRegenerateRegistry,
+    pub(super) base_regenerate_reg:
+        crate::game_logic::host_base_regenerate::HostBaseRegenerateRegistry,
     /// C++ EnemyNearUpdate residual counters.
-    pub(in super) enemy_near_reg: crate::game_logic::host_enemy_near::HostEnemyNearRegistry,
+    pub(super) enemy_near_reg: crate::game_logic::host_enemy_near::HostEnemyNearRegistry,
     /// C++ PassengersFireUpgrade residual counters.
-    pub(in super) passengers_fire_upgrade_reg:
+    pub(super) passengers_fire_upgrade_reg:
         crate::game_logic::host_passengers_fire_upgrade::HostPassengersFireUpgradeRegistry,
     /// C++ AnimationSteeringUpdate residual counters.
-    pub(in super) animation_steering_reg:
+    pub(super) animation_steering_reg:
         crate::game_logic::host_animation_steering::HostAnimationSteeringRegistry,
     /// C++ ActiveShroudUpgrade residual counters.
-    pub(in super) active_shroud_upgrade_reg:
+    pub(super) active_shroud_upgrade_reg:
         crate::game_logic::host_active_shroud_upgrade::HostActiveShroudUpgradeRegistry,
     /// C++ FloatUpdate residual counters.
-    pub(in super) float_update_reg: crate::game_logic::host_float_update::HostFloatUpdateRegistry,
+    pub(super) float_update_reg: crate::game_logic::host_float_update::HostFloatUpdateRegistry,
     /// C++ ProneUpdate residual counters.
-    pub(in super) prone_update_reg: crate::game_logic::host_prone_update::HostProneUpdateRegistry,
+    pub(super) prone_update_reg: crate::game_logic::host_prone_update::HostProneUpdateRegistry,
     /// C++ RadiusDecalUpdate residual counters.
-    pub(in super) radius_decal_update_reg:
+    pub(super) radius_decal_update_reg:
         crate::game_logic::host_radius_decal_update::HostRadiusDecalUpdateRegistry,
     /// C++ CheckpointUpdate residual counters.
-    pub(in super) checkpoint_update_reg: crate::game_logic::host_checkpoint_update::HostCheckpointUpdateRegistry,
+    pub(super) checkpoint_update_reg:
+        crate::game_logic::host_checkpoint_update::HostCheckpointUpdateRegistry,
     /// C++ SpectreGunshipDeploymentUpdate residual counters.
-    pub(in super) spectre_gunship_deployment_reg:
+    pub(super) spectre_gunship_deployment_reg:
         crate::game_logic::host_spectre_gunship_deployment::HostSpectreGunshipDeploymentRegistry,
     /// C++ SmartBombTargetHomingUpdate residual counters.
-    pub(in super) smart_bomb_target_homing_reg:
+    pub(super) smart_bomb_target_homing_reg:
         crate::game_logic::host_smart_bomb_target_homing::HostSmartBombTargetHomingRegistry,
     /// C++ OCLSpecialPower residual counters.
-    pub(in super) ocl_special_power_reg: crate::game_logic::host_ocl_special_power::HostOclSpecialPowerRegistry,
+    pub(super) ocl_special_power_reg:
+        crate::game_logic::host_ocl_special_power::HostOclSpecialPowerRegistry,
     /// C++ ObjectCreationList CreateDebris disposition residual.
-    pub(in super) ocl_create_debris_reg: crate::game_logic::host_ocl_create_debris::HostOclCreateDebrisRegistry,
+    pub(super) ocl_create_debris_reg:
+        crate::game_logic::host_ocl_create_debris::HostOclCreateDebrisRegistry,
     /// C++ OCL FireWeaponNugget + AttackNugget residual.
-    pub(in super) ocl_fire_weapon_attack_reg:
+    pub(super) ocl_fire_weapon_attack_reg:
         crate::game_logic::host_ocl_fire_weapon_attack::HostOclFireWeaponAttackRegistry,
     /// C++ FuelAir gas SlowDeathBehavior residual.
-    pub(in super) fuel_air_gas_reg: crate::game_logic::host_fuel_air_gas_slow_death::HostFuelAirGasRegistry,
+    pub(super) fuel_air_gas_reg:
+        crate::game_logic::host_fuel_air_gas_slow_death::HostFuelAirGasRegistry,
     /// C++ OCL ApplyRandomForceNugget residual.
-    pub(in super) ocl_apply_random_force_reg:
+    pub(super) ocl_apply_random_force_reg:
         crate::game_logic::host_ocl_apply_random_force::HostOclApplyRandomForceRegistry,
     /// C++ NeutronMissileUpdate residual counters.
-    pub(in super) neutron_missile_update_reg:
+    pub(super) neutron_missile_update_reg:
         crate::game_logic::host_neutron_missile_update::HostNeutronMissileUpdateRegistry,
     /// C++ ScudStormMissile ballistic flight residual counters.
-    pub(in super) scud_storm_missile_flight_reg:
+    pub(super) scud_storm_missile_flight_reg:
         crate::game_logic::host_scud_storm_missile_flight::HostScudStormMissileFlightRegistry,
     /// C++ CarpetBomb DeliverPayload residual counters.
     pub(crate) carpet_bomb_flight_reg:
@@ -231,186 +241,192 @@ pub struct GameLogic {
     pub(crate) emp_pulse_flight_reg:
         crate::game_logic::host_emp_pulse_flight::HostEmpPulseFlightRegistry,
     /// C++ CommandButtonHuntUpdate residual counters.
-    pub(in super) command_button_hunt_reg:
+    pub(super) command_button_hunt_reg:
         crate::game_logic::host_command_button_hunt::HostCommandButtonHuntRegistry,
     /// C++ PreorderCreate residual counters.
-    pub(in super) preorder_create_reg: crate::game_logic::host_preorder_create::HostPreorderCreateRegistry,
+    pub(super) preorder_create_reg:
+        crate::game_logic::host_preorder_create::HostPreorderCreateRegistry,
     /// C++ UpgradeDie residual removals.
-    pub(in super) upgrade_die_reg: crate::game_logic::host_upgrade_die::HostUpgradeDieRegistry,
+    pub(super) upgrade_die_reg: crate::game_logic::host_upgrade_die::HostUpgradeDieRegistry,
 
     /// Host GLA Tunnel Network residual (TunnelContain shared MaxTunnelCapacity=10).
     /// Enter any allied tunnel; exit/evacuate at any allied tunnel (cross-tunnel).
     /// Fail-closed: not GuardTunnelNetwork AI / TimeForFullHeal / CaveSystem cave-in.
-    pub(in super) tunnel_network: crate::game_logic::host_tunnel_network::HostTunnelNetworkRegistry,
+    pub(super) tunnel_network: crate::game_logic::host_tunnel_network::HostTunnelNetworkRegistry,
 
     /// Host AirF Combat Chinook residual honesty counters
     /// (load / unload / passenger fire / armed-riders weapon-set).
     /// Fail-closed: not ChinookAIUpdate ropes / supply / rappel / combat drop.
-    pub(in super) combat_chinook: crate::game_logic::host_combat_chinook::HostCombatChinookRegistry,
+    pub(super) combat_chinook: crate::game_logic::host_combat_chinook::HostCombatChinookRegistry,
 
     /// Host China Listening Outpost residual honesty counters
     /// (detect / load / unload / passenger fire / armed-riders / InitialPayload).
     /// Fail-closed: not IR FX / multi-door exit / RIDERS_ATTACKING uncloak matrix.
-    pub(in super) listening_outpost: crate::game_logic::host_listening_outpost::HostListeningOutpostRegistry,
+    pub(super) listening_outpost:
+        crate::game_logic::host_listening_outpost::HostListeningOutpostRegistry,
 
     /// Host China Troop Crawler residual honesty counters
     /// (load / unload / initial payload / assault deploy / detect).
     /// Fail-closed: not multi-exit-path / HealthRegen / wounded retrieve matrix.
-    pub(in super) troop_crawler: crate::game_logic::host_troop_crawler::HostTroopCrawlerRegistry,
+    pub(super) troop_crawler: crate::game_logic::host_troop_crawler::HostTroopCrawlerRegistry,
 
     /// Host mine / demo-trap / timed demo-charge residual honesty counters.
     /// Fail-closed: not full MinefieldBehavior / DemoTrapUpdate / StickyBombUpdate.
-    pub(in super) mine_residual_places: u32,
-    pub(in super) mine_residual_proximity_detonations: u32,
-    pub(in super) mine_residual_timed_detonations: u32,
-    pub(in super) mine_residual_manual_detonations: u32,
+    pub(super) mine_residual_places: u32,
+    pub(super) mine_residual_proximity_detonations: u32,
+    pub(super) mine_residual_timed_detonations: u32,
+    pub(super) mine_residual_manual_detonations: u32,
     /// Dozer/Worker safe mine-clear residual (DAMAGE_DISARM destroy without detonation).
-    pub(in super) mine_residual_clears: u32,
+    pub(super) mine_residual_clears: u32,
 
     /// Host structure/vehicle repair residual honesty counters.
     /// Fail-closed: not full DozerAIUpdate percent heal / RepairDockUpdate TimeForFullHeal.
     /// structure: dozer Repair command accepted / structure HP heal ticks applied.
     /// vehicle: SeekingRepair heal ticks at RepairPad / WarFactory / Airfield.
-    pub(in super) repair_residual_structure_commands: u32,
-    pub(in super) repair_residual_structure_heals: u32,
-    pub(in super) repair_residual_vehicle_heals: u32,
+    pub(super) repair_residual_structure_commands: u32,
+    pub(super) repair_residual_structure_heals: u32,
+    pub(super) repair_residual_vehicle_heals: u32,
 
     /// Host infantry heal residual honesty counters.
     /// Fail-closed: not full AutoHealBehavior sole-benefactor / vehicle radius matrix.
     /// ambulance: radius AutoHeal infantry HP ticks (AmericaVehicleMedic residual).
     /// heal_pad: SeekingHealing HP ticks at HealPad.
-    pub(in super) heal_residual_ambulance_heals: u32,
-    pub(in super) heal_residual_heal_pad_heals: u32,
+    pub(super) heal_residual_ambulance_heals: u32,
+    pub(super) heal_residual_heal_pad_heals: u32,
 
     /// Host China Propaganda / Speaker Tower residual honesty counters.
     /// Fail-closed: not full PropagandaTowerBehavior sole-benefactor / upgrade FX matrix.
     /// heals: radius %max-health heal ticks applied to same-team non-structures.
     /// buffs: ENTHUSIASTIC / SUBLIMINAL weapon-bonus flag grants.
-    pub(in super) propaganda_residual_heals: u32,
-    pub(in super) propaganda_residual_buffs: u32,
+    pub(super) propaganda_residual_heals: u32,
+    pub(super) propaganda_residual_buffs: u32,
 
     /// Host China ECM Tank / jammer residual honesty counters.
     /// Fail-closed: not full subdual damage / laser stream / missile scatter matrix.
     /// jams: weapons_jammed grants applied to enemy/neutral units in radius.
-    pub(in super) ecm_residual_jams: u32,
+    pub(super) ecm_residual_jams: u32,
 
     /// Host America Microwave Tank residual (DISABLED_SUBDUED on structures).
     /// Fail-closed: not full subdual accumulate/heal / laser stream / emitter field.
-    pub(in super) microwaves: crate::game_logic::host_microwave::HostMicrowaveRegistry,
+    pub(super) microwaves: crate::game_logic::host_microwave::HostMicrowaveRegistry,
     /// C++ ParkingPlaceBehavior `m_spaces`: exact per-airfield reservation
     /// records, sized from authored NumRows × NumCols rather than a generic
     /// container roster or retail-name capacity.
-    pub(in super) airfield_parking_spaces: std::collections::HashMap<ObjectId, Vec<AirfieldParkingSpace>>,
+    pub(super) airfield_parking_spaces:
+        std::collections::HashMap<ObjectId, Vec<AirfieldParkingSpace>>,
     /// C++ ParkingPlaceBehavior runway in-use residual (airfield → runway slots → jet).
-    pub(in super) runway_reservations: std::collections::HashMap<ObjectId, Vec<Option<ObjectId>>>,
+    pub(super) runway_reservations: std::collections::HashMap<ObjectId, Vec<Option<ObjectId>>>,
 
     /// Host China EMP Pulse residual (DISABLED_EMP on vehicles/structures).
     /// Fail-closed: not full OCL EMPPulseBomb / EMPPulseEffectSpheroid drawable path.
-    pub(in super) emp_pulses: crate::game_logic::host_emp_pulse::HostEmpPulseRegistry,
+    pub(super) emp_pulses: crate::game_logic::host_emp_pulse::HostEmpPulseRegistry,
     /// Host BaikonurLaunchPower residual (door open + detonation multi-blast).
-    pub(in super) baikonur_launches: crate::game_logic::host_baikonur_launch::HostBaikonurLaunchRegistry,
+    pub(super) baikonur_launches:
+        crate::game_logic::host_baikonur_launch::HostBaikonurLaunchRegistry,
     /// Host DefectorSpecialPower residual.
-    pub(in super) defector_special:
+    pub(super) defector_special:
         crate::game_logic::host_defector_special_power::HostDefectorSpecialPowerRegistry,
     /// Host CostModifier/Unpause/WeaponBonus upgrade module residuals.
-    pub(in super) upgrade_module_residuals:
+    pub(super) upgrade_module_residuals:
         crate::game_logic::host_upgrade_module_residuals::HostUpgradeModuleResidualLog,
     /// Host ReplaceObject / GrantScience / CommandSet upgrade residuals.
-    pub(in super) replace_grant_command_upgrades:
+    pub(super) replace_grant_command_upgrades:
         crate::game_logic::host_replace_object_upgrade::HostReplaceGrantCommandUpgradeLog,
     /// Host SubObjectsUpgrade residual log.
-    pub(in super) sub_objects_upgrades: crate::game_logic::host_sub_objects_upgrade::HostSubObjectsUpgradeLog,
+    pub(super) sub_objects_upgrades:
+        crate::game_logic::host_sub_objects_upgrade::HostSubObjectsUpgradeLog,
 
     /// Host China Frenzy ("Rage") residual — temporary ally attack buff in radius.
     /// Frenzy_InvisibleMarker + DeletionUpdate residual closed; fail-closed vs FrenzyCloud GPU.
-    pub(in super) frenzies: crate::game_logic::host_frenzy::HostFrenzyRegistry,
+    pub(super) frenzies: crate::game_logic::host_frenzy::HostFrenzyRegistry,
 
     /// Host USA Strategy Center battle-plan residual (Bombardment / HoldTheLine / S&D).
     /// Fail-closed: not full BattlePlanUpdate pack/unpack / paralyze / turret matrix.
-    pub(in super) battle_plans: crate::game_logic::host_strategy_center::HostBattlePlanRegistry,
+    pub(super) battle_plans: crate::game_logic::host_strategy_center::HostBattlePlanRegistry,
     /// Honesty: StrategyCenterGun ScatterRadius peels applied.
-    pub(in super) strategy_center_gun_scatter_applied: u32,
+    pub(super) strategy_center_gun_scatter_applied: u32,
     /// Honesty: StrategyCenterGun scatter residual misses.
-    pub(in super) strategy_center_gun_scatter_misses: u32,
+    pub(super) strategy_center_gun_scatter_misses: u32,
 
     /// Host Emergency Repair residual — SingleBurst ally vehicle heal in radius.
     /// Fail-closed: not full OCL RepairVehicles invisible marker / RepairCloud path.
-    pub(in super) emergency_repairs: crate::game_logic::host_emergency_repair::HostEmergencyRepairRegistry,
+    pub(super) emergency_repairs:
+        crate::game_logic::host_emergency_repair::HostEmergencyRepairRegistry,
 
     /// Host Cleanup Area residual — clear toxin/radiation fields + mines at location.
     /// Fail-closed: not full CleanupHazardUpdate projectile stream / scan loop.
-    pub(in super) cleanup_areas: crate::game_logic::host_cleanup_area::HostCleanupAreaRegistry,
+    pub(super) cleanup_areas: crate::game_logic::host_cleanup_area::HostCleanupAreaRegistry,
 
     /// Host GLA GPS Scrambler residual — GrantStealth ally vehicles/infantry in radius.
     /// Fail-closed: not full OCL GPSScrambler_InvisibleMarker grow-radius pulse path.
-    pub(in super) gps_scramblers: crate::game_logic::host_gps_scrambler::HostGpsScramblerRegistry,
+    pub(super) gps_scramblers: crate::game_logic::host_gps_scrambler::HostGpsScramblerRegistry,
 
     /// Host base-defense residual honesty (Patriot / Gattling auto-fire).
     /// Fail-closed: not full AutoAcquire / WeaponSet / continuous-fire matrix.
-    pub(in super) base_defense_residual_fires: u32,
+    pub(super) base_defense_residual_fires: u32,
 
     /// Host PointDefenseLaser residual honesty (Paladin / Avenger intercept).
     /// Fail-closed: not full PointDefenseLaserUpdate velocity prediction matrix.
-    pub(in super) point_defense_residual_intercepts: u32,
+    pub(super) point_defense_residual_intercepts: u32,
     /// Honesty: ECMTankMissileJammer missiles jammed/scattered residual.
-    pub(in super) ecm_missiles_jammed: u32,
+    pub(super) ecm_missiles_jammed: u32,
     /// Honesty: ECMDisableStream laser beams spawned residual.
-    pub(in super) ecm_laser_beams_spawned: u32,
+    pub(super) ecm_laser_beams_spawned: u32,
     /// Honesty: PointDefenseLaserBeam objects spawned on intercept residual.
-    pub(in super) point_defense_laser_beams_spawned: u32,
+    pub(super) point_defense_laser_beams_spawned: u32,
     /// Per-carrier next ready frame for residual PDL shot delay.
-    pub(in super) point_defense_next_ready_frame: HashMap<ObjectId, u32>,
+    pub(super) point_defense_next_ready_frame: HashMap<ObjectId, u32>,
 
     /// Host America Avenger residual honesty (FAERIE_FIRE paint / air laser / ROF).
     /// Fail-closed: not full portable laser turret / dual AirLaser stream matrix.
-    pub(in super) avenger: crate::game_logic::host_avenger::HostAvengerRegistry,
+    pub(super) avenger: crate::game_logic::host_avenger::HostAvengerRegistry,
 
     /// Host Neutron Shell residual honesty (Nuke Cannon secondary blast).
     /// Fail-closed: not full DumbProjectileBehavior / NeutronBlastBehavior modules.
-    pub(in super) neutron_shell_residual_blasts: u32,
-    pub(in super) neutron_shell_residual_infantry_kills: u32,
-    pub(in super) neutron_shell_residual_vehicles_unmanned: u32,
+    pub(super) neutron_shell_residual_blasts: u32,
+    pub(super) neutron_shell_residual_infantry_kills: u32,
+    pub(super) neutron_shell_residual_vehicles_unmanned: u32,
 
     /// Host Bunker Buster residual (Stealth Fighter + Upgrade_AmericaBunkerBusters).
     /// Fail-closed: not full BunkerBusterBehavior crash FX / seismic / shockwave path.
-    pub(in super) bunker_buster: crate::game_logic::host_bunker_buster::HostBunkerBusterRegistry,
+    pub(super) bunker_buster: crate::game_logic::host_bunker_buster::HostBunkerBusterRegistry,
 
     /// Host Comanche Rocket Pods residual honesty (area attack when secondary fires).
     /// ScatterTarget projectile residual closed; tertiary WeaponSet fail-closed.
-    pub(in super) comanche_rocket_pod_residual_area_attacks: u32,
-    pub(in super) comanche_rocket_pod_residual_units_hit: u32,
-    pub(in super) comanche_rocket_pod_shot_index: std::collections::HashMap<ObjectId, u32>,
-    pub(in super) comanche_rocket_pod_projectiles_spawned: u32,
+    pub(super) comanche_rocket_pod_residual_area_attacks: u32,
+    pub(super) comanche_rocket_pod_residual_units_hit: u32,
+    pub(super) comanche_rocket_pod_shot_index: std::collections::HashMap<ObjectId, u32>,
+    pub(super) comanche_rocket_pod_projectiles_spawned: u32,
 
     /// Host Sentry Drone residual honesty (auto-detect spawn + gun auto-fire).
     /// Fail-closed: not full DeployStyleAIUpdate pack/unpack matrix.
-    pub(in super) sentry_drone_residual_auto_fires: u32,
-    pub(in super) sentry_drone_residual_detects: u32,
+    pub(super) sentry_drone_residual_auto_fires: u32,
+    pub(super) sentry_drone_residual_detects: u32,
 
     /// Host Pathfinder residual honesty (innate stealth detector + sniper).
     /// Fail-closed: not full StealthUpdate pulse / SCIENCE_Pathfinder gate.
-    pub(in super) pathfinder_residual_detects: u32,
-    pub(in super) pathfinder_residual_sniper_fires: u32,
+    pub(super) pathfinder_residual_detects: u32,
+    pub(super) pathfinder_residual_sniper_fires: u32,
 
     /// Host Scout / Hellfire slave-drone residual honesty.
     /// Fail-closed: not full SlavedUpdate wander / ObjectCreationUpgrade matrix.
-    pub(in super) scout_drone_residual_detects: u32,
-    pub(in super) scout_drone_residual_attaches: u32,
-    pub(in super) hellfire_drone_residual_auto_fires: u32,
-    pub(in super) hellfire_drone_residual_attaches: u32,
+    pub(super) scout_drone_residual_detects: u32,
+    pub(super) scout_drone_residual_attaches: u32,
+    pub(super) hellfire_drone_residual_auto_fires: u32,
+    pub(super) hellfire_drone_residual_attaches: u32,
     /// Honesty: Hellfire ScatterRadiusVsInfantry peels applied.
-    pub(in super) hellfire_scatter_applied: u32,
+    pub(super) hellfire_scatter_applied: u32,
     /// Honesty: Hellfire ScatterRadiusVsInfantry residual misses vs infantry.
-    pub(in super) hellfire_scatter_misses: u32,
+    pub(super) hellfire_scatter_misses: u32,
 
     /// Host RadarScan / RadarVanScan FOW temporary-reveal residual.
     /// RadarVanPing object residual closed; fail-closed vs grid decal GPU path.
-    pub(in super) radar_scans: crate::game_logic::host_radar_scan::HostRadarScanRegistry,
+    pub(super) radar_scans: crate::game_logic::host_radar_scan::HostRadarScanRegistry,
 
     /// Host SpySatellite FOW temporary-reveal residual.
     /// SpySatellitePing object residual closed; fail-closed vs GridDecal GPU path.
-    pub(in super) spy_drones: crate::game_logic::host_spy_drone::HostSpyDroneRegistry,
-    pub(in super) spy_satellites: crate::game_logic::host_spy_satellite::HostSpySatelliteRegistry,
+    pub(super) spy_drones: crate::game_logic::host_spy_drone::HostSpyDroneRegistry,
+    pub(super) spy_satellites: crate::game_logic::host_spy_satellite::HostSpySatelliteRegistry,
     /// Host America Countermeasures residual (aircraft flare diversion).
     /// CountermeasureFlare SpecialObject spawn residual closed.
     pub(crate) countermeasures:
@@ -418,11 +434,12 @@ pub struct GameLogic {
 
     /// Host CIA Intelligence / SpyVision residual (setUnitsVisionSpied).
     /// Fail-closed: not full SpyVisionUpdate module / kindof filter / sabotage path.
-    pub(in super) cia_intelligence: crate::game_logic::host_cia_intelligence::HostCiaIntelligenceRegistry,
+    pub(super) cia_intelligence:
+        crate::game_logic::host_cia_intelligence::HostCiaIntelligenceRegistry,
 
     /// Host hero special-ability residual (snipe / timed C4 / cash hack).
     /// Fail-closed: not full SpecialAbilityUpdate preparation / flee / upgrade matrix.
-    pub(in super) hero_abilities: crate::game_logic::host_hero_abilities::HostHeroAbilityRegistry,
+    pub(super) hero_abilities: crate::game_logic::host_hero_abilities::HostHeroAbilityRegistry,
 
     /// Host GLA Black Market residual cash (AutoDepositUpdate residual).
     /// Fail-closed: not full floating text / InitialCaptureBonus / upgrade boost matrix.
@@ -439,13 +456,15 @@ pub struct GameLogic {
     /// Host America Supply Drop Zone residual cash (OCLUpdate residual).
     /// Fail-closed: not full CreateAtEdge cargo plane / parachute crate fall path
     /// (delayed DeliverPayload spawn residual via host_deliver_payloads).
-    pub(in super) supply_drop_zones: crate::game_logic::host_supply_drop_zone::HostSupplyDropZoneRegistry,
+    pub(super) supply_drop_zones:
+        crate::game_logic::host_supply_drop_zone::HostSupplyDropZoneRegistry,
 
     /// Host DeliverPayload cargo residual (delayed payload spawn at location).
     /// Fail-closed: not full AmericaJetCargoPlane Object / DeliverPayloadAIUpdate
     /// flight state machine / parachute container physics (DropDelay stagger +
     /// DropOffset / MaxAttempts / PreOpenDistance constants residual closed).
-    pub(in super) host_deliver_payloads: crate::game_logic::host_deliver_payload::HostDeliverPayloadRegistry,
+    pub(super) host_deliver_payloads:
+        crate::game_logic::host_deliver_payload::HostDeliverPayloadRegistry,
 
     /// Host MoneyCrateCollide residual (unit + BuildingPickup).
     /// Fail-closed: not full CollideModule partition pair / Anim2D MoneyPickUp.
@@ -457,517 +476,523 @@ pub struct GameLogic {
 
     /// Host GLA Hijack / ConvertToCarBomb residual.
     /// Fail-closed: not full HijackerUpdate hide-in-vehicle / WeaponSet chooser matrix.
-    pub(in super) car_bomb: crate::game_logic::host_car_bomb::HostCarBombRegistry,
+    pub(super) car_bomb: crate::game_logic::host_car_bomb::HostCarBombRegistry,
     /// Host GLA Saboteur structure sabotage residual (power/cash/factory/superweapon).
     /// Fail-closed: not full BuildingPickup CrateCollide / EVA floating-text matrix.
-    pub(in super) saboteur: crate::game_logic::host_saboteur::HostSaboteurRegistry,
+    pub(super) saboteur: crate::game_logic::host_saboteur::HostSaboteurRegistry,
     /// USA Pilot recrew residual honesty.
-    pub(in super) usa_pilot: crate::game_logic::host_usa_pilot::HostUsaPilotRegistry,
+    pub(super) usa_pilot: crate::game_logic::host_usa_pilot::HostUsaPilotRegistry,
     /// GLA Worker / WorkerShoes residual honesty.
-    pub(in super) gla_worker: crate::game_logic::host_gla_worker::HostGlaWorkerRegistry,
+    pub(super) gla_worker: crate::game_logic::host_gla_worker::HostGlaWorkerRegistry,
 
     /// Host GLA Bomb Truck disguise residual (SpecialAbilityDisguiseAsVehicle).
     /// Fail-closed: not full StealthUpdate transition opacity / model swap matrix.
-    pub(in super) bomb_truck_disguise: crate::game_logic::host_bomb_truck_disguise::HostBombTruckDisguiseRegistry,
+    pub(super) bomb_truck_disguise:
+        crate::game_logic::host_bomb_truck_disguise::HostBombTruckDisguiseRegistry,
 
     /// Host GLA Bomb Truck HE/Bio FireWeaponWhenDead detonation residual.
     /// Fail-closed: not full exclusive FireWeaponWhenDead module / SubObjects matrix.
-    pub(in super) bomb_truck_detonate: crate::game_logic::host_bomb_truck_detonate::HostBombTruckDetonateRegistry,
+    pub(super) bomb_truck_detonate:
+        crate::game_logic::host_bomb_truck_detonate::HostBombTruckDetonateRegistry,
     /// Host China Nuclear Tanks residual (death blast + speed + radiation).
     /// Fail-closed: not full FireWeaponWhenDead exclusive / locomotor visual matrix.
-    pub(in super) nuclear_tanks: crate::game_logic::host_nuclear_tanks::HostNuclearTanksRegistry,
+    pub(super) nuclear_tanks: crate::game_logic::host_nuclear_tanks::HostNuclearTanksRegistry,
     /// Host GLA Rebel BoobyTrap residual (plant + capture/death detonate).
     /// Fail-closed: not full StickyBombUpdate SpecialObject / MaxSpecialObjects matrix.
-    pub(in super) booby_trap: crate::game_logic::host_booby_trap::HostBoobyTrapRegistry,
+    pub(super) booby_trap: crate::game_logic::host_booby_trap::HostBoobyTrapRegistry,
     /// Honesty: BoobyTrap SpecialObject Things spawned.
-    pub(in super) booby_trap_objects_spawned: u32,
+    pub(super) booby_trap_objects_spawned: u32,
 
     /// Host China Helix NapalmBomb special ability residual (blast + FirestormSmall).
     /// Fail-closed: not full SpecialObject NapalmBomb fall / expand animation.
-    pub(in super) helix_napalm: crate::game_logic::host_helix_napalm::HostHelixNapalmRegistry,
+    pub(super) helix_napalm: crate::game_logic::host_helix_napalm::HostHelixNapalmRegistry,
 
     /// Host China FireWall / Firestorm residual (Dragon Tank line of fire zones).
     /// FireWallSegment OCL spawn + InchForwardLocomotor crawl residual closed.
-    pub(in super) fire_walls: crate::game_logic::host_firewall::HostFireWallRegistry,
+    pub(super) fire_walls: crate::game_logic::host_firewall::HostFireWallRegistry,
 
     /// Host China Inferno Cannon residual fire zones (FireFieldSmall DoT).
     /// Fail-closed: not full InfernoTankShell projectile / OCL_FireFieldSmall object spawn.
-    pub(in super) inferno_fire_zones: crate::game_logic::host_inferno_cannon::HostInfernoFireZoneRegistry,
+    pub(super) inferno_fire_zones:
+        crate::game_logic::host_inferno_cannon::HostInfernoFireZoneRegistry,
 
     /// Host America Aurora dive bomb residual (delayed FuelAir / AuroraBomb area damage).
     /// FuelAir CreateObjectDie gas SpecialObject residual closed.
     pub(crate) aurora_bombs: crate::game_logic::host_aurora_bomb::HostAuroraBombRegistry,
     /// Honesty: AirF/SupW Aurora FuelAir gas objects spawned on dive impact.
-    pub(in super) aurora_fuel_air_gas_spawned: u32,
+    pub(super) aurora_fuel_air_gas_spawned: u32,
 
     /// Host GLA Angry Mob residual (nexus damages nearby enemies / expands members).
     /// SpawnBehavior member SpecialObject residual closed.
-    pub(in super) angry_mobs: crate::game_logic::host_angry_mob::HostAngryMobRegistry,
+    pub(super) angry_mobs: crate::game_logic::host_angry_mob::HostAngryMobRegistry,
 
     /// Host SCIENCE_StealthFighter production gate residual honesty.
     /// Fail-closed: not full PrerequisiteSciences rank tree / control-bar science UI.
-    pub(in super) stealth_fighter_science: crate::game_logic::host_stealth_fighter::HostStealthFighterRegistry,
+    pub(super) stealth_fighter_science:
+        crate::game_logic::host_stealth_fighter::HostStealthFighterRegistry,
 
     /// Host SCIENCE unit-training residual (VeterancyGainCreate StartingLevel).
     /// Fail-closed: not full PrerequisiteSciences rank tree / IsTrainable matrix.
-    pub(in super) unit_training: crate::game_logic::host_unit_training::HostUnitTrainingRegistry,
+    pub(super) unit_training: crate::game_logic::host_unit_training::HostUnitTrainingRegistry,
 
     /// Host Demo SuicideBomb residual (Demo_Upgrade_SuicideBomb death blast).
     /// Fail-closed: not full FireWeaponWhenDead exclusive / SlowDeath fling matrix.
-    pub(in super) demo_suicide_bomb: crate::game_logic::host_demo_suicide_bomb::HostDemoSuicideBombRegistry,
+    pub(super) demo_suicide_bomb:
+        crate::game_logic::host_demo_suicide_bomb::HostDemoSuicideBombRegistry,
 
     /// Host GLA Rocket Buggy residual honesty (long-range rocket + scatter splash).
     /// Fail-closed: not full projectile flight / AP rocket mult matrix.
-    pub(in super) rocket_buggy_residual_fires: u32,
-    pub(in super) rocket_buggy_residual_units_hit: u32,
-    pub(in super) rocket_buggy_residual_scatter_misses: u32,
+    pub(super) rocket_buggy_residual_fires: u32,
+    pub(super) rocket_buggy_residual_units_hit: u32,
+    pub(super) rocket_buggy_residual_scatter_misses: u32,
 
     /// Host GLA Quad Cannon residual honesty (ground gun + AA secondary + multi-barrel).
     /// Fail-closed: not full salvage W3D turret subobject matrix.
-    pub(in super) quad_cannon_residual_ground_fires: u32,
-    pub(in super) quad_cannon_residual_aa_fires: u32,
-    pub(in super) quad_cannon_residual_barrel_upgrades: u32,
+    pub(super) quad_cannon_residual_ground_fires: u32,
+    pub(super) quad_cannon_residual_aa_fires: u32,
+    pub(super) quad_cannon_residual_barrel_upgrades: u32,
 
     /// Host GLA SCUD launcher residual (area blast + MediumPoisonField toxin DoT).
     /// Fail-closed: not full SCUDMissile projectile lob / salvage PlusOne matrix.
-    pub(in super) scud_poison_zones: crate::game_logic::host_scud_launcher::HostScudPoisonRegistry,
+    pub(super) scud_poison_zones: crate::game_logic::host_scud_launcher::HostScudPoisonRegistry,
     /// Host Overlord/Helix/Emperor portable addon residual honesty registry.
-    pub(in super) overlord_addons: crate::game_logic::host_overlord_addons::HostOverlordAddonRegistry,
+    pub(super) overlord_addons: crate::game_logic::host_overlord_addons::HostOverlordAddonRegistry,
     /// Host Nuke Cannon primary residual (area + medium radiation).
-    pub(in super) nuke_cannon_residual: crate::game_logic::host_nuke_cannon::HostNukeCannonRegistry,
+    pub(super) nuke_cannon_residual: crate::game_logic::host_nuke_cannon::HostNukeCannonRegistry,
     /// Host residual: GLA Technical transport + salvage weapon honesty.
     /// Fail-closed: not full SalvageCrate W3D gunner subobject matrix.
-    pub(in super) technical_residual_fires: u32,
-    pub(in super) technical_residual_units_hit: u32,
-    pub(in super) technical_residual_weapon_upgrades: u32,
-    pub(in super) technical_residual_loads: u32,
-    pub(in super) technical_residual_unloads: u32,
+    pub(super) technical_residual_fires: u32,
+    pub(super) technical_residual_units_hit: u32,
+    pub(super) technical_residual_weapon_upgrades: u32,
+    pub(super) technical_residual_loads: u32,
+    pub(super) technical_residual_unloads: u32,
     /// Host residual: GLA Toxin Tractor stream/spray/death poison fields.
-    pub(in super) toxin_tractor: crate::game_logic::host_toxin_tractor::HostToxinTractorRegistry,
+    pub(super) toxin_tractor: crate::game_logic::host_toxin_tractor::HostToxinTractorRegistry,
 
     /// Host residual: GLA Marauder salvage fire-rate tiers honesty.
     /// Fail-closed: not full SalvageCrate W3D turret subobject matrix.
-    pub(in super) marauder_residual_fires: u32,
-    pub(in super) marauder_residual_units_hit: u32,
-    pub(in super) marauder_residual_weapon_upgrades: u32,
+    pub(super) marauder_residual_fires: u32,
+    pub(super) marauder_residual_units_hit: u32,
+    pub(super) marauder_residual_weapon_upgrades: u32,
 
     /// Host residual: GLA Scorpion gun + salvage + rocket secondary honesty.
     /// Fail-closed: not full SalvageCrate missile-rack W3D subobject matrix.
-    pub(in super) scorpion_residual_fires: u32,
-    pub(in super) scorpion_residual_units_hit: u32,
-    pub(in super) scorpion_residual_rocket_upgrades: u32,
-    pub(in super) scorpion_residual_salvage_upgrades: u32,
-    pub(in super) scorpion_residual_missile_fires: u32,
+    pub(super) scorpion_residual_fires: u32,
+    pub(super) scorpion_residual_units_hit: u32,
+    pub(super) scorpion_residual_rocket_upgrades: u32,
+    pub(super) scorpion_residual_salvage_upgrades: u32,
+    pub(super) scorpion_residual_missile_fires: u32,
 
     /// Host residual: USA Tomahawk dual-radius missile honesty.
     /// TomahawkMissile projectile lob residual closed (MissileAI peels + impact).
-    pub(in super) tomahawk_residual_fires: u32,
-    pub(in super) tomahawk_residual_units_hit: u32,
+    pub(super) tomahawk_residual_fires: u32,
+    pub(super) tomahawk_residual_units_hit: u32,
 
     /// Host residual: USA Raptor jet missiles + Laser Missiles honesty.
     /// RETURN_TO_BASE ClipReload airfield rearm residual (dock then ClipReload frames).
-    pub(in super) raptor_residual_fires: u32,
-    pub(in super) raptor_residual_units_hit: u32,
-    pub(in super) raptor_residual_laser_missiles_upgrades: u32,
+    pub(super) raptor_residual_fires: u32,
+    pub(super) raptor_residual_units_hit: u32,
+    pub(super) raptor_residual_laser_missiles_upgrades: u32,
     /// Host China MiG residual napalm / BlackNapalm / Nuke missile honesty.
-    pub(in super) mig_residual_fires: u32,
-    pub(in super) mig_residual_units_hit: u32,
-    pub(in super) mig_residual_black_napalm_upgrades: u32,
-    pub(in super) mig_residual_tactical_nuke_upgrades: u32,
-    pub(in super) mig_residual_fire_fields: u32,
-    pub(in super) mig_residual_radiation_fields: u32,
+    pub(super) mig_residual_fires: u32,
+    pub(super) mig_residual_units_hit: u32,
+    pub(super) mig_residual_black_napalm_upgrades: u32,
+    pub(super) mig_residual_tactical_nuke_upgrades: u32,
+    pub(super) mig_residual_fire_fields: u32,
+    pub(super) mig_residual_radiation_fields: u32,
     /// Honesty: MiG NapalmMissile ScatterRadiusVsInfantry peels applied.
-    pub(in super) mig_scatter_applied: u32,
+    pub(super) mig_scatter_applied: u32,
     /// Honesty: MiG ScatterRadiusVsInfantry residual misses vs infantry.
-    pub(in super) mig_scatter_misses: u32,
+    pub(super) mig_scatter_misses: u32,
     /// Host America Fire Base howitzer residual honesty.
-    pub(in super) fire_base_residual_fires: u32,
-    pub(in super) fire_base_residual_units_hit: u32,
+    pub(super) fire_base_residual_fires: u32,
+    pub(super) fire_base_residual_units_hit: u32,
 
     /// Host Stealth Fighter residual honesty (missile fire + splash).
     /// Fail-closed: not full RETURN_TO_BASE ClipReload / science production matrix.
-    pub(in super) stealth_fighter_residual_fires: u32,
-    pub(in super) stealth_fighter_residual_units_hit: u32,
+    pub(super) stealth_fighter_residual_fires: u32,
+    pub(super) stealth_fighter_residual_units_hit: u32,
     /// Honesty: StealthJetMissile projectiles spawned residual.
-    pub(in super) stealth_jet_missiles_spawned: u32,
+    pub(super) stealth_jet_missiles_spawned: u32,
     /// Honesty: Stealth Jet ScatterRadiusVsInfantry aim offsets applied.
-    pub(in super) stealth_jet_scatter_applied: u32,
+    pub(super) stealth_jet_scatter_applied: u32,
     /// Honesty: Stealth Jet ScatterRadiusVsInfantry residual misses vs infantry.
-    pub(in super) stealth_jet_scatter_misses: u32,
+    pub(super) stealth_jet_scatter_misses: u32,
     /// Honesty: SCUDMissile projectiles spawned residual.
-    pub(in super) scud_missiles_spawned: u32,
+    pub(super) scud_missiles_spawned: u32,
     /// Honesty: TomahawkMissile projectiles spawned residual.
-    pub(in super) tomahawk_missiles_spawned: u32,
+    pub(super) tomahawk_missiles_spawned: u32,
     /// Honesty: Tomahawk ScatterRadiusVsInfantry aim offsets applied.
-    pub(in super) tomahawk_scatter_applied: u32,
+    pub(super) tomahawk_scatter_applied: u32,
     /// Honesty: Tomahawk ScatterRadiusVsInfantry residual misses vs infantry.
-    pub(in super) tomahawk_scatter_misses: u32,
+    pub(super) tomahawk_scatter_misses: u32,
     /// Honesty: RocketBuggyMissile projectiles spawned residual.
-    pub(in super) rocket_buggy_missiles_spawned: u32,
+    pub(super) rocket_buggy_missiles_spawned: u32,
     /// Honesty: Rocket Buggy ScatterRadiusVsInfantry aim offsets applied.
-    pub(in super) rocket_buggy_scatter_applied: u32,
+    pub(super) rocket_buggy_scatter_applied: u32,
     /// Honesty: SCUD Launcher ScatterRadiusVsInfantry aim offsets applied.
-    pub(in super) scud_launcher_scatter_applied: u32,
+    pub(super) scud_launcher_scatter_applied: u32,
     /// Honesty: SCUD launcher ScatterRadiusVsInfantry residual misses vs infantry.
-    pub(in super) scud_launcher_scatter_misses: u32,
+    pub(super) scud_launcher_scatter_misses: u32,
     /// Honesty: NeutronCannonShell projectiles spawned residual.
-    pub(in super) neutron_shells_spawned: u32,
+    pub(super) neutron_shells_spawned: u32,
     /// Honesty: Neutron shell ScatterRadiusVsInfantry aim offsets applied.
-    pub(in super) neutron_shell_scatter_applied: u32,
+    pub(super) neutron_shell_scatter_applied: u32,
     /// Honesty: Neutron shell ScatterRadiusVsInfantry residual misses vs infantry.
-    pub(in super) neutron_shell_scatter_misses: u32,
+    pub(super) neutron_shell_scatter_misses: u32,
     /// Honesty: TunnelDefenderMissile / RPG projectiles spawned residual.
-    pub(in super) rpg_trooper_missiles_spawned: u32,
+    pub(super) rpg_trooper_missiles_spawned: u32,
     /// Honesty: RPG Trooper ScatterRadiusVsInfantry aim offsets applied.
-    pub(in super) rpg_trooper_scatter_applied: u32,
+    pub(super) rpg_trooper_scatter_applied: u32,
     /// Honesty: RPG Trooper ScatterRadiusVsInfantry residual misses vs infantry.
-    pub(in super) rpg_trooper_scatter_misses: u32,
+    pub(super) rpg_trooper_scatter_misses: u32,
     /// Honesty: TankHunterMissile projectiles spawned residual.
-    pub(in super) tank_hunter_missiles_spawned: u32,
+    pub(super) tank_hunter_missiles_spawned: u32,
     /// Honesty: Tank Hunter ScatterRadiusVsInfantry aim offsets applied.
-    pub(in super) tank_hunter_scatter_applied: u32,
+    pub(super) tank_hunter_scatter_applied: u32,
     /// Honesty: Tank Hunter ScatterRadiusVsInfantry residual misses vs infantry.
-    pub(in super) tank_hunter_scatter_misses: u32,
+    pub(super) tank_hunter_scatter_misses: u32,
     /// Honesty: MissileDefenderMissile projectiles spawned residual.
-    pub(in super) missile_defender_missiles_spawned: u32,
+    pub(super) missile_defender_missiles_spawned: u32,
     /// Honesty: Missile Defender ScatterRadiusVsInfantry aim offsets applied.
-    pub(in super) missile_defender_scatter_applied: u32,
+    pub(super) missile_defender_scatter_applied: u32,
     /// Honesty: Missile Defender ScatterRadiusVsInfantry residual misses vs infantry.
-    pub(in super) missile_defender_scatter_misses: u32,
+    pub(super) missile_defender_scatter_misses: u32,
     /// Honesty: ScorpionTankShell projectiles spawned residual.
-    pub(in super) scorpion_shells_spawned: u32,
+    pub(super) scorpion_shells_spawned: u32,
     /// Honesty: Scorpion ScatterRadiusVsInfantry aim offsets applied.
-    pub(in super) scorpion_scatter_applied: u32,
+    pub(super) scorpion_scatter_applied: u32,
     /// Honesty: Scorpion ScatterRadiusVsInfantry residual misses vs infantry.
-    pub(in super) scorpion_scatter_misses: u32,
+    pub(super) scorpion_scatter_misses: u32,
     /// Honesty: ScorpionMissile projectiles spawned residual.
-    pub(in super) scorpion_missiles_spawned: u32,
+    pub(super) scorpion_missiles_spawned: u32,
     /// Honesty: NukeCannonShell projectiles spawned residual.
-    pub(in super) nuke_cannon_shells_spawned: u32,
+    pub(super) nuke_cannon_shells_spawned: u32,
     /// Honesty: NukeCannon ScatterRadiusVsInfantry aim offsets applied.
-    pub(in super) nuke_cannon_scatter_applied: u32,
+    pub(super) nuke_cannon_scatter_applied: u32,
     /// Honesty: Nuke Cannon ScatterRadiusVsInfantry residual misses vs infantry.
-    pub(in super) nuke_cannon_scatter_misses: u32,
+    pub(super) nuke_cannon_scatter_misses: u32,
     /// Honesty: GenericTankShell (USA Crusader/Paladin) projectiles spawned residual.
-    pub(in super) usa_tank_shells_spawned: u32,
+    pub(super) usa_tank_shells_spawned: u32,
     /// Honesty: USA tank ScatterRadiusVsInfantry aim offsets applied.
-    pub(in super) usa_tank_scatter_applied: u32,
+    pub(super) usa_tank_scatter_applied: u32,
     /// Honesty: USA tank ScatterRadiusVsInfantry residual misses vs infantry.
-    pub(in super) usa_tank_scatter_misses: u32,
+    pub(super) usa_tank_scatter_misses: u32,
     /// Honesty: BattleMasterTankShell projectiles spawned residual.
-    pub(in super) battlemaster_shells_spawned: u32,
+    pub(super) battlemaster_shells_spawned: u32,
     /// Honesty: Battlemaster ScatterRadiusVsInfantry aim offsets applied.
-    pub(in super) battlemaster_scatter_applied: u32,
+    pub(super) battlemaster_scatter_applied: u32,
     /// Honesty: Battlemaster ScatterRadiusVsInfantry residual misses vs infantry.
-    pub(in super) battlemaster_scatter_misses: u32,
+    pub(super) battlemaster_scatter_misses: u32,
     /// Honesty: OverlordTankShell projectiles spawned residual.
-    pub(in super) overlord_shells_spawned: u32,
+    pub(super) overlord_shells_spawned: u32,
     /// Honesty: Overlord ScatterRadiusVsInfantry aim offsets applied.
-    pub(in super) overlord_scatter_applied: u32,
+    pub(super) overlord_scatter_applied: u32,
     /// Honesty: Overlord ScatterRadiusVsInfantry residual misses vs infantry.
-    pub(in super) overlord_scatter_misses: u32,
+    pub(super) overlord_scatter_misses: u32,
     /// Honesty: InfernoTankShell projectiles spawned residual.
-    pub(in super) inferno_shells_spawned: u32,
+    pub(super) inferno_shells_spawned: u32,
     /// Honesty: Inferno Cannon ScatterRadiusVsInfantry aim offsets applied.
-    pub(in super) inferno_scatter_applied: u32,
+    pub(super) inferno_scatter_applied: u32,
     /// Honesty: Inferno Cannon ScatterRadiusVsInfantry residual misses vs infantry.
-    pub(in super) inferno_scatter_misses: u32,
+    pub(super) inferno_scatter_misses: u32,
     /// Honesty: MarauderTankShell projectiles spawned residual.
-    pub(in super) marauder_shells_spawned: u32,
+    pub(super) marauder_shells_spawned: u32,
     /// Honesty: Marauder ScatterRadiusVsInfantry aim offsets applied.
-    pub(in super) marauder_scatter_applied: u32,
+    pub(super) marauder_scatter_applied: u32,
     /// Honesty: Marauder ScatterRadiusVsInfantry residual misses vs infantry.
-    pub(in super) marauder_scatter_misses: u32,
+    pub(super) marauder_scatter_misses: u32,
     /// Honesty: Fire Base GenericTankShell lob projectiles spawned residual.
-    pub(in super) fire_base_shells_spawned: u32,
+    pub(super) fire_base_shells_spawned: u32,
     /// Honesty: FireBaseHowitzer ScatterRadiusVsInfantry aim offsets applied.
-    pub(in super) fire_base_scatter_applied: u32,
+    pub(super) fire_base_scatter_applied: u32,
     /// Honesty: Fire Base ScatterRadiusVsInfantry residual misses vs infantry.
-    pub(in super) fire_base_scatter_misses: u32,
+    pub(super) fire_base_scatter_misses: u32,
     /// Honesty: RaptorJetMissile projectiles spawned residual.
-    pub(in super) raptor_missiles_spawned: u32,
+    pub(super) raptor_missiles_spawned: u32,
     /// Honesty: Raptor ScatterRadiusVsInfantry aim offsets applied.
-    pub(in super) raptor_scatter_applied: u32,
+    pub(super) raptor_scatter_applied: u32,
     /// Honesty: Raptor ScatterRadiusVsInfantry residual misses vs infantry.
-    pub(in super) raptor_scatter_misses: u32,
+    pub(super) raptor_scatter_misses: u32,
     /// Honesty: NapalmMissile / MiG projectiles spawned residual.
-    pub(in super) mig_missiles_spawned: u32,
+    pub(super) mig_missiles_spawned: u32,
     /// Honesty: RangerFlashBangGrenade projectiles spawned residual.
-    pub(in super) flashbang_grenades_spawned: u32,
+    pub(super) flashbang_grenades_spawned: u32,
     /// Honesty: Flashbang ScatterRadius aim offsets applied.
-    pub(in super) flashbang_scatter_applied: u32,
+    pub(super) flashbang_scatter_applied: u32,
     /// Honesty: Flashbang ScatterRadius residual misses intended target.
-    pub(in super) flashbang_scatter_misses: u32,
+    pub(super) flashbang_scatter_misses: u32,
     /// Honesty: HumveeMissile / PatriotMissile TOW projectiles spawned residual.
-    pub(in super) humvee_tow_missiles_spawned: u32,
+    pub(super) humvee_tow_missiles_spawned: u32,
     /// Honesty: Humvee ground TOW ScatterRadiusVsInfantry aim offsets applied.
-    pub(in super) humvee_tow_scatter_applied: u32,
+    pub(super) humvee_tow_scatter_applied: u32,
     /// Honesty: Humvee ground TOW ScatterRadiusVsInfantry residual misses vs infantry.
-    pub(in super) humvee_tow_scatter_misses: u32,
+    pub(super) humvee_tow_scatter_misses: u32,
     /// Honesty: Humvee TOW residual fires (spawn or instant fallback).
-    pub(in super) humvee_tow_residual_fires: u32,
+    pub(super) humvee_tow_residual_fires: u32,
     /// Honesty: DragonTankFlameProjectile spawned residual.
-    pub(in super) dragon_flame_missiles_spawned: u32,
+    pub(super) dragon_flame_missiles_spawned: u32,
     /// Honesty: ToxinTruckStreamProjectile spawned residual.
-    pub(in super) toxin_stream_missiles_spawned: u32,
+    pub(super) toxin_stream_missiles_spawned: u32,
     /// Honesty: TechnicalRPGMissile spawned residual.
-    pub(in super) technical_rpg_missiles_spawned: u32,
+    pub(super) technical_rpg_missiles_spawned: u32,
     /// Honesty: Technical cannon GenericTankShell spawned residual.
-    pub(in super) technical_cannon_shells_spawned: u32,
+    pub(super) technical_cannon_shells_spawned: u32,
     /// Honesty: Technical cannon ScatterRadiusVsInfantry aim offsets applied.
-    pub(in super) technical_cannon_scatter_applied: u32,
+    pub(super) technical_cannon_scatter_applied: u32,
     /// Honesty: TechnicalCannon ScatterRadiusVsInfantry residual misses vs infantry.
-    pub(in super) technical_cannon_scatter_misses: u32,
+    pub(super) technical_cannon_scatter_misses: u32,
     /// Honesty: CleanupStreamProjectile spawned residual.
-    pub(in super) cleanup_stream_missiles_spawned: u32,
+    pub(super) cleanup_stream_missiles_spawned: u32,
     /// Honesty: Angry Mob rock/molotov projectiles spawned residual.
-    pub(in super) angry_mob_projectiles_spawned: u32,
+    pub(super) angry_mob_projectiles_spawned: u32,
     /// Honesty: USA tank gun residual units hit.
-    pub(in super) usa_tank_residual_units_hit: u32,
+    pub(super) usa_tank_residual_units_hit: u32,
 
     /// Host Comanche combat residual honesty (20mm + anti-tank dual-radius).
     /// Rocket pods residual counters remain separate below.
-    pub(in super) comanche_cannon_residual_fires: u32,
-    pub(in super) comanche_cannon_residual_units_hit: u32,
-    pub(in super) comanche_antitank_residual_fires: u32,
-    pub(in super) comanche_antitank_residual_units_hit: u32,
+    pub(super) comanche_cannon_residual_fires: u32,
+    pub(super) comanche_cannon_residual_units_hit: u32,
+    pub(super) comanche_antitank_residual_fires: u32,
+    pub(super) comanche_antitank_residual_units_hit: u32,
     /// Honesty: Comanche AT ScatterRadiusVsInfantry peels applied.
-    pub(in super) comanche_at_scatter_applied: u32,
+    pub(super) comanche_at_scatter_applied: u32,
     /// Honesty: Comanche AT ScatterRadiusVsInfantry residual misses vs infantry.
-    pub(in super) comanche_at_scatter_misses: u32,
+    pub(super) comanche_at_scatter_misses: u32,
 
     /// Host Helix PRIMARY minigun residual honesty.
     /// Fail-closed: not full ChinookAIUpdate / COMANCHE_VULCAN Stinger matrix.
-    pub(in super) helix_minigun_residual_fires: u32,
-    pub(in super) helix_minigun_residual_units_hit: u32,
+    pub(super) helix_minigun_residual_fires: u32,
+    pub(super) helix_minigun_residual_units_hit: u32,
 
     /// Host Inferno BlackNapalm FireFieldUpgraded residual honesty.
     /// Fail-closed: not HistoricBonus Firestorm multi-shell matrix.
-    pub(in super) inferno_black_napalm_residual_upgrades: u32,
-    pub(in super) inferno_black_napalm_residual_zones: u32,
+    pub(super) inferno_black_napalm_residual_upgrades: u32,
+    pub(super) inferno_black_napalm_residual_zones: u32,
 
     /// Host residual: USA Battle Drone attach / gun / repair honesty.
     /// Fail-closed: not full SlavedUpdate arm weld FX / ConflictsWith matrix.
-    pub(in super) battle_drone_residual_attaches: u32,
-    pub(in super) battle_drone_residual_fires: u32,
-    pub(in super) battle_drone_residual_units_hit: u32,
-    pub(in super) battle_drone_residual_repairs: u32,
-    pub(in super) battle_drone_residual_repair_amount: f32,
+    pub(super) battle_drone_residual_attaches: u32,
+    pub(super) battle_drone_residual_fires: u32,
+    pub(super) battle_drone_residual_units_hit: u32,
+    pub(super) battle_drone_residual_repairs: u32,
+    pub(super) battle_drone_residual_repair_amount: f32,
 
     /// Host residual: China Overlord / Emperor main gun dual-radius + Uranium honesty.
     /// Fail-closed: not full ClipSize=2 dual-volley / Nuclear Tanks death residual.
-    pub(in super) overlord_gun_residual_fires: u32,
-    pub(in super) overlord_gun_residual_units_hit: u32,
-    pub(in super) overlord_gun_residual_uranium_upgrades: u32,
+    pub(super) overlord_gun_residual_fires: u32,
+    pub(super) overlord_gun_residual_units_hit: u32,
+    pub(super) overlord_gun_residual_uranium_upgrades: u32,
 
     /// Host residual: GLA Jarmen Kell sniper + AP Bullets honesty.
     /// Fail-closed: not full secondary pilot-sniper AutoChoose matrix.
-    pub(in super) jarmen_kell_residual_fires: u32,
-    pub(in super) jarmen_kell_residual_units_hit: u32,
-    pub(in super) jarmen_kell_residual_ap_upgrades: u32,
+    pub(super) jarmen_kell_residual_fires: u32,
+    pub(super) jarmen_kell_residual_units_hit: u32,
+    pub(super) jarmen_kell_residual_ap_upgrades: u32,
 
     /// Host residual: China Battlemaster tank gun + Uranium / horde / nationalism honesty.
     /// Fail-closed: not full HordeUpdate RubOff / Nuclear Tanks death residual.
-    pub(in super) battlemaster_residual_fires: u32,
-    pub(in super) battlemaster_residual_units_hit: u32,
-    pub(in super) battlemaster_residual_uranium_upgrades: u32,
-    pub(in super) battlemaster_residual_nationalism_upgrades: u32,
+    pub(super) battlemaster_residual_fires: u32,
+    pub(super) battlemaster_residual_units_hit: u32,
+    pub(super) battlemaster_residual_uranium_upgrades: u32,
+    pub(super) battlemaster_residual_nationalism_upgrades: u32,
     pub(crate) battlemaster_residual_horde_grants: u32,
 
     /// Host residual: China Red Guard gun + bayonet + horde / nationalism honesty.
     /// Fail-closed: not full WeaponSet tertiary auto-choose / RubOff matrix.
-    pub(in super) red_guard_residual_fires: u32,
-    pub(in super) red_guard_residual_bayonet_kills: u32,
-    pub(in super) red_guard_residual_nationalism_upgrades: u32,
+    pub(super) red_guard_residual_fires: u32,
+    pub(super) red_guard_residual_bayonet_kills: u32,
+    pub(super) red_guard_residual_nationalism_upgrades: u32,
     pub(crate) red_guard_residual_horde_grants: u32,
 
     /// Host residual: China Tank Hunter RPG + TNT special + horde / nationalism honesty.
     /// Fail-closed: not full SpecialAbilityUpdate flee / MaxSpecialObjects matrix.
-    pub(in super) tank_hunter_residual_fires: u32,
-    pub(in super) tank_hunter_residual_units_hit: u32,
-    pub(in super) tank_hunter_residual_tnt_plants: u32,
-    pub(in super) tank_hunter_residual_nationalism_upgrades: u32,
+    pub(super) tank_hunter_residual_fires: u32,
+    pub(super) tank_hunter_residual_units_hit: u32,
+    pub(super) tank_hunter_residual_tnt_plants: u32,
+    pub(super) tank_hunter_residual_nationalism_upgrades: u32,
     pub(crate) tank_hunter_residual_horde_grants: u32,
     /// Per-unit TNT special residual last plant frame (ReloadTime 7500ms).
-    pub(in super) tank_hunter_tnt_last_frame: HashMap<ObjectId, u32>,
+    pub(super) tank_hunter_tnt_last_frame: HashMap<ObjectId, u32>,
 
     /// Host residual: GLA Rebel machine gun + AP Bullets honesty.
     /// Fail-closed: not full ClipSize volley / CaptureBuilding / BoobyTrap matrix.
-    pub(in super) rebel_residual_fires: u32,
-    pub(in super) rebel_residual_ap_upgrades: u32,
+    pub(super) rebel_residual_fires: u32,
+    pub(super) rebel_residual_ap_upgrades: u32,
 
     /// Host residual: USA Ranger rifle + FlashBang splash honesty.
     /// Fail-closed: not full SURRENDER surrender-AI / garrison clear matrix.
-    pub(in super) ranger_residual_rifle_fires: u32,
-    pub(in super) ranger_residual_flashbang_fires: u32,
-    pub(in super) ranger_residual_units_hit: u32,
+    pub(super) ranger_residual_rifle_fires: u32,
+    pub(super) ranger_residual_flashbang_fires: u32,
+    pub(super) ranger_residual_units_hit: u32,
 
     /// Host residual: China Hacker DisableBuilding honesty.
     /// Fail-closed: not full unpack/prep/persistent stream matrix.
-    pub(in super) hacker_disable_building_count: u32,
+    pub(super) hacker_disable_building_count: u32,
 
     /// Host residual: China MiniGunner ground/AA + continuous fire + chain guns + horde.
     /// Fail-closed: not full FiringTracker CONTINUOUS_FIRE_* anim / bayonet tertiary matrix.
-    pub(in super) minigunner_residual_ground_fires: u32,
-    pub(in super) minigunner_residual_aa_fires: u32,
-    pub(in super) minigunner_residual_ramp_mean: u32,
-    pub(in super) minigunner_residual_ramp_fast: u32,
-    pub(in super) minigunner_residual_chain_gun_upgrades: u32,
-    pub(in super) minigunner_residual_nationalism_upgrades: u32,
+    pub(super) minigunner_residual_ground_fires: u32,
+    pub(super) minigunner_residual_aa_fires: u32,
+    pub(super) minigunner_residual_ramp_mean: u32,
+    pub(super) minigunner_residual_ramp_fast: u32,
+    pub(super) minigunner_residual_chain_gun_upgrades: u32,
+    pub(super) minigunner_residual_nationalism_upgrades: u32,
     pub(crate) minigunner_residual_horde_grants: u32,
 
     /// Host residual: Colonel Burton sniper + knife melee honesty.
     /// Fail-closed: not full clip volley / pre-attack knife anim lock matrix.
-    pub(in super) burton_residual_sniper_fires: u32,
-    pub(in super) burton_residual_knife_kills: u32,
+    pub(super) burton_residual_sniper_fires: u32,
+    pub(super) burton_residual_knife_kills: u32,
 
     /// Host residual: GLA RPG Trooper / Tunnel Defender rocket + AP Rockets honesty.
     /// Fail-closed: not full ScatterRadiusVsInfantry / projectile exhaust FX matrix.
-    pub(in super) rpg_trooper_residual_fires: u32,
-    pub(in super) rpg_trooper_residual_units_hit: u32,
-    pub(in super) rpg_trooper_residual_ap_upgrades: u32,
+    pub(super) rpg_trooper_residual_fires: u32,
+    pub(super) rpg_trooper_residual_units_hit: u32,
+    pub(super) rpg_trooper_residual_ap_upgrades: u32,
 
     /// Host residual: GLA Terrorist SuicideDynamitePack detonation honesty.
     /// Fail-closed: not ConvertToCarBomb full matrix / Chem anthrax death weapons.
-    pub(in super) terrorist_residual_detonations: u32,
-    pub(in super) terrorist_residual_units_hit: u32,
-    pub(in super) terrorist_residual_damage_dealt: f32,
+    pub(super) terrorist_residual_detonations: u32,
+    pub(super) terrorist_residual_units_hit: u32,
+    pub(super) terrorist_residual_damage_dealt: f32,
 
     /// Host residual: USA Missile Defender missile + laser guided special honesty.
     /// Fail-closed: not full SpecialAbilityUpdate prep / LaserBeam object matrix.
-    pub(in super) missile_defender_residual_fires: u32,
-    pub(in super) missile_defender_residual_units_hit: u32,
-    pub(in super) missile_defender_residual_laser_specials: u32,
-    pub(in super) missile_defender_residual_laser_fires: u32,
+    pub(super) missile_defender_residual_fires: u32,
+    pub(super) missile_defender_residual_units_hit: u32,
+    pub(super) missile_defender_residual_laser_specials: u32,
+    pub(super) missile_defender_residual_laser_fires: u32,
     /// Honesty: LaserBeam SpecialObject spawned on MD laser-guided activate.
-    pub(in super) missile_defender_laser_beams_spawned: u32,
+    pub(super) missile_defender_laser_beams_spawned: u32,
 
     /// Host residual: GLA Combat Cycle rider weapon switch honesty.
     /// Fail-closed: not full RiderChangeContain STATUS_RIDER death OCL matrix.
-    pub(in super) combat_cycle_residual_fires: u32,
-    pub(in super) combat_cycle_residual_units_hit: u32,
-    pub(in super) combat_cycle_residual_rider_switches: u32,
-    pub(in super) combat_cycle_residual_loads: u32,
-    pub(in super) combat_cycle_residual_suicides: u32,
+    pub(super) combat_cycle_residual_fires: u32,
+    pub(super) combat_cycle_residual_units_hit: u32,
+    pub(super) combat_cycle_residual_rider_switches: u32,
+    pub(super) combat_cycle_residual_loads: u32,
+    pub(super) combat_cycle_residual_suicides: u32,
 
     /// Host residual: China Dragon Tank primary flame honesty.
     /// Fail-closed: not full projectile stream / garrison-clear matrix.
-    pub(in super) dragon_tank_residual_fires: u32,
-    pub(in super) dragon_tank_residual_units_hit: u32,
-    pub(in super) dragon_tank_residual_black_napalm_upgrades: u32,
+    pub(super) dragon_tank_residual_fires: u32,
+    pub(super) dragon_tank_residual_units_hit: u32,
+    pub(super) dragon_tank_residual_black_napalm_upgrades: u32,
 
     /// Host residual: China Gattling Tank continuous-fire ramp honesty.
     /// Fail-closed: not full FiringTracker model-condition animation matrix.
-    pub(in super) gattling_tank_residual_ground_fires: u32,
-    pub(in super) gattling_tank_residual_aa_fires: u32,
-    pub(in super) gattling_tank_residual_ramp_mean: u32,
-    pub(in super) gattling_tank_residual_ramp_fast: u32,
-    pub(in super) gattling_tank_residual_chain_gun_upgrades: u32,
+    pub(super) gattling_tank_residual_ground_fires: u32,
+    pub(super) gattling_tank_residual_aa_fires: u32,
+    pub(super) gattling_tank_residual_ramp_mean: u32,
+    pub(super) gattling_tank_residual_ramp_fast: u32,
+    pub(super) gattling_tank_residual_chain_gun_upgrades: u32,
 
     /// Host residual: China Gattling Cannon structure continuous-fire ramp honesty.
     /// Fail-closed: not full CONTINUOUS_FIRE_* model-condition animation matrix.
-    pub(in super) gattling_building_residual_ground_fires: u32,
-    pub(in super) gattling_building_residual_aa_fires: u32,
-    pub(in super) gattling_building_residual_ramp_mean: u32,
-    pub(in super) gattling_building_residual_ramp_fast: u32,
-    pub(in super) gattling_building_residual_chain_gun_upgrades: u32,
+    pub(super) gattling_building_residual_ground_fires: u32,
+    pub(super) gattling_building_residual_aa_fires: u32,
+    pub(super) gattling_building_residual_ramp_mean: u32,
+    pub(super) gattling_building_residual_ramp_fast: u32,
+    pub(super) gattling_building_residual_chain_gun_upgrades: u32,
 
     /// Host residual: GLA Stinger Site SPAWNS_ARE_THE_WEAPONS dual ground/AA honesty.
-    pub(in super) stinger_site_residual_ground_fires: u32,
-    pub(in super) stinger_site_residual_aa_fires: u32,
-    pub(in super) stinger_site_residual_ap_rockets_upgrades: u32,
+    pub(super) stinger_site_residual_ground_fires: u32,
+    pub(super) stinger_site_residual_aa_fires: u32,
+    pub(super) stinger_site_residual_ap_rockets_upgrades: u32,
     /// HiveStructureBody residual: damage hits applied to residual slaves.
-    pub(in super) stinger_hive_residual_slave_hits: u32,
+    pub(super) stinger_hive_residual_slave_hits: u32,
     /// HiveStructureBody residual: residual slaves killed.
-    pub(in super) stinger_hive_residual_slave_kills: u32,
+    pub(super) stinger_hive_residual_slave_kills: u32,
     /// HiveStructureBody residual: swallowed damage when no slaves.
-    pub(in super) stinger_hive_residual_swallows: u32,
+    pub(super) stinger_hive_residual_swallows: u32,
     /// SpawnBehavior residual: slave respawns completed.
     pub(crate) stinger_hive_residual_respawns: u32,
     /// getClosestSlave residual: propagate hits that used shooter world position.
-    pub(in super) stinger_hive_residual_closest_slave_hits: u32,
+    pub(super) stinger_hive_residual_closest_slave_hits: u32,
     /// CamoNetting StealthLook / heat-vision residual applications.
-    pub(in super) camo_netting_heat_vision_count: u32,
+    pub(super) camo_netting_heat_vision_count: u32,
     /// CamoNetting structure StealthUpdate residual: attack/damage reveals.
-    pub(in super) camo_netting_structure_residual_reveals: u32,
+    pub(super) camo_netting_structure_residual_reveals: u32,
     /// OrderIdleEnemiesToAttackMeUponReveal residual wake count (CamoNetting).
-    pub(in super) camo_netting_order_idle_enemies_count: u32,
+    pub(super) camo_netting_order_idle_enemies_count: u32,
     /// CamoNetting structure StealthUpdate residual: StealthDelay re-cloaks.
-    pub(in super) camo_netting_structure_residual_recloaks: u32,
+    pub(super) camo_netting_structure_residual_recloaks: u32,
     /// CamoNetting FriendlyOpacity residual: cloaked (min opacity) applications.
-    pub(in super) camo_netting_opacity_cloak_count: u32,
+    pub(super) camo_netting_opacity_cloak_count: u32,
     /// CamoNetting FriendlyOpacity residual: revealed (max opacity) applications.
-    pub(in super) camo_netting_opacity_reveal_count: u32,
+    pub(super) camo_netting_opacity_reveal_count: u32,
     /// CamoNetting sub-object net mesh residual show applications.
-    pub(in super) camo_netting_sub_object_show_count: u32,
+    pub(super) camo_netting_sub_object_show_count: u32,
     /// Stinger physical soldier orderSlavesToAttackTarget residual orders.
-    pub(in super) stinger_slave_order_attack_count: u32,
+    pub(super) stinger_slave_order_attack_count: u32,
 
     /// Host residual: USA Patriot ground/AA dual-slot honesty.
-    pub(in super) patriot_residual_ground_fires: u32,
-    pub(in super) patriot_residual_aa_fires: u32,
+    pub(super) patriot_residual_ground_fires: u32,
+    pub(super) patriot_residual_aa_fires: u32,
     /// Honesty: Patriot ScatterRadiusVsInfantry offsets / miss peels applied.
-    pub(in super) patriot_scatter_applied: u32,
+    pub(super) patriot_scatter_applied: u32,
     /// Honesty: Patriot ScatterRadiusVsInfantry residual misses vs infantry.
-    pub(in super) patriot_scatter_misses: u32,
+    pub(super) patriot_scatter_misses: u32,
     /// Honesty: Stinger ScatterRadiusVsInfantry peels applied.
-    pub(in super) stinger_scatter_applied: u32,
+    pub(super) stinger_scatter_applied: u32,
     /// Honesty: Stinger ScatterRadiusVsInfantry residual misses vs infantry.
-    pub(in super) stinger_scatter_misses: u32,
+    pub(super) stinger_scatter_misses: u32,
     /// Superweapon General EMP Patriot residual: DISABLED_EMP grants applied.
-    pub(in super) supw_patriot_emp_residual_grants: u32,
+    pub(super) supw_patriot_emp_residual_grants: u32,
     /// Honesty: SupW EMPBlast ScatterRadiusVsInfantry peels applied.
-    pub(in super) supw_emp_scatter_applied: u32,
+    pub(super) supw_emp_scatter_applied: u32,
     /// Honesty: SupW EMPBlast scatter residual misses vs infantry.
-    pub(in super) supw_emp_scatter_misses: u32,
+    pub(super) supw_emp_scatter_misses: u32,
     /// AssistedTargetingUpdate residual: RequestAssistRange requests issued.
-    pub(in super) patriot_assist_residual_requests: u32,
+    pub(super) patriot_assist_residual_requests: u32,
     /// AssistedTargetingUpdate residual: assist weapon shots fired.
-    pub(in super) patriot_assist_residual_fires: u32,
+    pub(super) patriot_assist_residual_fires: u32,
     /// AssistedTargetingUpdate residual: assistants that accepted a request.
-    pub(in super) patriot_assist_residual_accepts: u32,
+    pub(super) patriot_assist_residual_accepts: u32,
     /// BinaryDataStream residual: LaserFromAssisted beams spawned.
-    pub(in super) patriot_assist_laser_from_assisted: u32,
+    pub(super) patriot_assist_laser_from_assisted: u32,
     /// BinaryDataStream residual: LaserToTarget beams spawned.
-    pub(in super) patriot_assist_laser_to_target: u32,
+    pub(super) patriot_assist_laser_to_target: u32,
     /// Active residual BinaryDataStream assist lasers (DeletionUpdate lifetime).
     pub(crate) patriot_assist_lasers:
         Vec<crate::game_logic::host_base_defense::ResidualPatriotAssistLaser>,
     /// Weapon.ini LaserName residual beams (combat fire → presentation freeze).
-    pub(in super) weapon_lasers: Vec<crate::game_logic::host_weapon_laser::ResidualWeaponLaser>,
+    pub(super) weapon_lasers: Vec<crate::game_logic::host_weapon_laser::ResidualWeaponLaser>,
     /// Honesty: Weapon.ini LaserName SpecialObject Things spawned.
-    pub(in super) weapon_laser_beams_spawned: u32,
+    pub(super) weapon_laser_beams_spawned: u32,
     /// C++ ProjectileStreamUpdate residual registry.
     pub(crate) projectile_streams:
         crate::game_logic::host_projectile_stream::ProjectileStreamRegistry,
     /// Pending AssistingClipSize residual clips (DelayBetweenShots cadence).
-    pub(in super) pending_patriot_assists: Vec<crate::game_logic::host_base_defense::PendingPatriotAssist>,
+    pub(super) pending_patriot_assists:
+        Vec<crate::game_logic::host_base_defense::PendingPatriotAssist>,
     /// StealthDetectorUpdate DetectionRate residual scans performed.
-    pub(in super) stealth_detector_rate_scans: u32,
+    pub(super) stealth_detector_rate_scans: u32,
 
     /// Game paused state
-    pub(in super) is_paused: bool,
+    pub(super) is_paused: bool,
 
     /// Time tracking
-    pub(in super) sim_time_seconds: f32,
-    pub(in super) accumulated_time: f32,
-    pub(in super) last_fixed_step_diagnostics: FixedStepDiagnostics,
+    pub(super) sim_time_seconds: f32,
+    pub(super) accumulated_time: f32,
+    pub(super) last_fixed_step_diagnostics: FixedStepDiagnostics,
 
     /// Thing templates registry
     pub templates: HashMap<String, ThingTemplate>,
 
     /// Map data
-    pub(in super) map_name: String,
-    pub(in super) map_loaded: bool,
+    pub(super) map_name: String,
+    pub(super) map_loaded: bool,
 
     /// Combat system for parallel projectile processing
     pub(crate) combat_system: CombatSystem,
 
     /// Pathfinding system for parallel path computation
-    pub(in super) pathfinding_system: PathfindingSystem,
+    pub(super) pathfinding_system: PathfindingSystem,
 
     /// AI Management System
-    pub(in super) ai_manager: AIManager,
+    pub(super) ai_manager: AIManager,
 
     /// Script execution tracking
     pub scripts_loaded: bool,
@@ -981,137 +1006,137 @@ pub struct GameLogic {
     pub command_queue: VecDeque<crate::command_system::GameCommand>,
     /// Narrow command-acceptance observation edge used to bind an actual
     /// physical right-click Gather input to the executor-confirmed carriers.
-    pub(in super) accepted_gather_commands: VecDeque<AcceptedGatherCommand>,
+    pub(super) accepted_gather_commands: VecDeque<AcceptedGatherCommand>,
     /// Narrow economy observation edge emitted only by ReturningResources
     /// after crediting carried supplies to a concrete player.
-    pub(in super) supply_dropoff_events: VecDeque<SupplyDropoffEvent>,
-    pub(in super) pending_special_abilities: HashMap<ObjectId, PendingSpecialAbility>,
+    pub(super) supply_dropoff_events: VecDeque<SupplyDropoffEvent>,
+    pub(super) pending_special_abilities: HashMap<ObjectId, PendingSpecialAbility>,
 
     /// Currently selected objects (used by UI)
     pub selected_objects: Vec<ObjectId>,
 
-    pub(in super) partition_manager: PartitionManager,
-    pub(in super) radar_notifications: &'static RadarNotifications,
-    pub(in super) last_radar_kind_time: [f32; 3],
-    pub(in super) last_radar_audio_time: f32,
-    pub(in super) last_radar_event: Option<RadarEntry>,
+    pub(super) partition_manager: PartitionManager,
+    pub(super) radar_notifications: &'static RadarNotifications,
+    pub(super) last_radar_kind_time: [f32; 3],
+    pub(super) last_radar_audio_time: f32,
+    pub(super) last_radar_event: Option<RadarEntry>,
     /// C++ Radar tryUnderAttackEvent throttle residual (frame, xz pos).
-    pub(in super) under_attack_event_history: Vec<(u32, f32, f32)>,
+    pub(super) under_attack_event_history: Vec<(u32, f32, f32)>,
     /// tryUnderAttackEvent residual honesty fires.
-    pub(in super) under_attack_events: u32,
+    pub(super) under_attack_events: u32,
     /// EVA BaseUnderAttack residual honesty fires.
-    pub(in super) eva_base_under_attack: u32,
+    pub(super) eva_base_under_attack: u32,
     /// EVA AllyUnderAttack residual honesty fires.
-    pub(in super) eva_ally_under_attack: u32,
+    pub(super) eva_ally_under_attack: u32,
     /// EVA LowPower residual honesty fires.
-    pub(in super) eva_low_power: u32,
+    pub(super) eva_low_power: u32,
     /// Next frame LowPower may re-fire (C++ framesBetweenChecks residual).
-    pub(in super) eva_low_power_next_frame: u32,
+    pub(super) eva_low_power_next_frame: u32,
     /// Tracks previous low-power state for edge residual.
-    pub(in super) eva_low_power_active: bool,
+    pub(super) eva_low_power_active: bool,
     /// EVA InsufficientFunds residual honesty fires.
-    pub(in super) eva_insufficient_funds: u32,
+    pub(super) eva_insufficient_funds: u32,
     /// Next frame InsufficientFunds may re-fire.
-    pub(in super) eva_insufficient_funds_next_frame: u32,
+    pub(super) eva_insufficient_funds_next_frame: u32,
     /// EVA UpgradeComplete residual honesty fires.
-    pub(in super) eva_upgrade_complete: u32,
+    pub(super) eva_upgrade_complete: u32,
     /// EVA GeneralLevelUp residual honesty fires.
-    pub(in super) eva_general_level_up: u32,
+    pub(super) eva_general_level_up: u32,
     /// EVA SuperweaponReady residual honesty fires.
-    pub(in super) eva_superweapon_ready: u32,
+    pub(super) eva_superweapon_ready: u32,
     /// EVA SuperweaponDetected residual honesty fires.
-    pub(in super) eva_superweapon_detected: u32,
+    pub(super) eva_superweapon_detected: u32,
     /// EVA SuperweaponLaunched residual honesty fires.
-    pub(in super) eva_superweapon_launched: u32,
+    pub(super) eva_superweapon_launched: u32,
     /// EVA BeaconDetected residual honesty fires.
-    pub(in super) eva_beacon_detected: u32,
+    pub(super) eva_beacon_detected: u32,
     /// EVA hero Own/Enemy *Detected residual honesty fires.
-    pub(in super) eva_hero_detected: u32,
+    pub(super) eva_hero_detected: u32,
     /// EVA SuperweaponLaunched GPS/Sneak residual honesty fires.
-    pub(in super) eva_special_launched_misc: u32,
+    pub(super) eva_special_launched_misc: u32,
     /// RADAR_EVENT_UPGRADE residual honesty fires.
-    pub(in super) radar_upgrade_events: u32,
+    pub(super) radar_upgrade_events: u32,
     /// Structure construction-complete residual honesty fires.
-    pub(in super) structure_complete_events: u32,
+    pub(super) structure_complete_events: u32,
     /// Unit production-complete residual honesty fires.
-    pub(in super) unit_ready_events: u32,
+    pub(super) unit_ready_events: u32,
     /// RadarUpdate extendRadar residual starts.
-    pub(in super) radar_extend_starts: u32,
+    pub(super) radar_extend_starts: u32,
     /// RadarUpdate extend completion residual fires.
-    pub(in super) radar_extend_completes: u32,
+    pub(super) radar_extend_completes: u32,
     /// RADAR_EVENT_CONSTRUCTION residual honesty fires.
-    pub(in super) radar_construction_events: u32,
+    pub(super) radar_construction_events: u32,
     /// Production door cycle residual honesty starts.
-    pub(in super) production_door_cycles: u32,
+    pub(super) production_door_cycles: u32,
     /// Under-construction model condition residual updates.
-    pub(in super) construction_model_condition_updates: u32,
+    pub(super) construction_model_condition_updates: u32,
     /// ACTIVELY_CONSTRUCTING residual bit updates.
     pub(crate) actively_constructing_updates: u32,
     /// C++ BuildAssistant m_sellList residual.
-    pub(in super) sell_list: Vec<ObjectSellInfo>,
+    pub(super) sell_list: Vec<ObjectSellInfo>,
     /// Sell residual process starts / finishes.
-    pub(in super) sell_process_starts: u32,
-    pub(in super) sell_process_finishes: u32,
+    pub(super) sell_process_starts: u32,
+    pub(super) sell_process_finishes: u32,
     /// C++ sellObject destroy owned mines residual.
-    pub(in super) sell_owned_mines_destroyed: u32,
+    pub(super) sell_owned_mines_destroyed: u32,
     /// C++ OpenContain::onSelling passenger eject residual.
-    pub(in super) sell_passengers_ejected: u32,
+    pub(super) sell_passengers_ejected: u32,
     /// C++ ParkingPlaceBehavior::killAllParkedUnits residual.
-    pub(in super) sell_parked_units_killed: u32,
+    pub(super) sell_parked_units_killed: u32,
     /// C++ TunnelContain::onSelling last-tunnel eject residual.
-    pub(in super) sell_tunnel_last_ejects: u32,
+    pub(super) sell_tunnel_last_ejects: u32,
     /// C++ ContainModule::onCapture kick residual events.
-    pub(in super) capture_kick_outs: u32,
+    pub(super) capture_kick_outs: u32,
     /// C++ Object::onCapture skirmish AI auto-sell residual events.
-    pub(in super) capture_ai_auto_sells: u32,
+    pub(super) capture_ai_auto_sells: u32,
     /// C++ deselectObject on capture residual events.
-    pub(in super) capture_deselections: u32,
+    pub(super) capture_deselections: u32,
     /// C++ TunnelContain::onCapture entrance transfer residual events.
-    pub(in super) capture_tunnel_transfers: u32,
+    pub(super) capture_tunnel_transfers: u32,
     /// C++ TunnelContain last-entrance capture eject residual events.
-    pub(in super) capture_tunnel_last_ejects: u32,
+    pub(super) capture_tunnel_last_ejects: u32,
     /// C++ TechBuildingBehavior CAPTURED model residual events.
-    pub(in super) capture_tech_model_updates: u32,
+    pub(super) capture_tech_model_updates: u32,
     /// C++ infantry→unmanned vehicle recrew residual events.
-    pub(in super) unmanned_reclaims: u32,
+    pub(super) unmanned_reclaims: u32,
     /// C++ car-bomb dead-man on DISABLED_UNMANNED residual events.
-    pub(in super) carbomb_unmanned_detonations: u32,
+    pub(super) carbomb_unmanned_detonations: u32,
     /// C++ OverchargeBehavior toggle residual events.
-    pub(in super) overcharge_toggles: u32,
+    pub(super) overcharge_toggles: u32,
     /// C++ OverchargeBehavior drain residual ticks.
-    pub(in super) overcharge_drain_ticks: u32,
+    pub(super) overcharge_drain_ticks: u32,
     /// C++ OverchargeBehavior exhausted auto-disable residual events.
-    pub(in super) overcharge_exhaustions: u32,
+    pub(super) overcharge_exhaustions: u32,
     /// C++ PowerPlantUpgrade Advanced Control Rods residual completions.
-    pub(in super) control_rods_upgrades: u32,
+    pub(super) control_rods_upgrades: u32,
     /// Plants that received EnergyBonus from control rods residual.
-    pub(in super) control_rods_plants_affected: u32,
+    pub(super) control_rods_plants_affected: u32,
     /// C++ SubliminalMessaging upgrade residual completions.
-    pub(in super) subliminal_messaging_upgrades: u32,
+    pub(super) subliminal_messaging_upgrades: u32,
     /// Propaganda towers tagged by subliminal residual.
-    pub(in super) subliminal_towers_affected: u32,
+    pub(super) subliminal_towers_affected: u32,
     /// CONSTRUCTION_COMPLETE duration clears residual.
-    pub(in super) construction_complete_clears: u32,
+    pub(super) construction_complete_clears: u32,
     /// C++ DozerAIUpdate::cancelTask residual events.
-    pub(in super) dozer_cancel_task_events: u32,
+    pub(super) dozer_cancel_task_events: u32,
     /// C++ MSG_RESUME_CONSTRUCTION residual assigns.
-    pub(in super) resume_construction_events: u32,
+    pub(super) resume_construction_events: u32,
     /// C++ DOZER:RepairComplete residual events.
-    pub(in super) repair_complete_events: u32,
+    pub(super) repair_complete_events: u32,
     /// C++ attemptHealingFromSoleBenefactor reject residual (dozer repair).
-    pub(in super) sole_benefactor_repair_rejects: u32,
+    pub(super) sole_benefactor_repair_rejects: u32,
     /// C++ DozerPrimaryIdleState bored auto-repair residual events.
-    pub(in super) dozer_bored_repair_events: u32,
+    pub(super) dozer_bored_repair_events: u32,
     /// C++ DozerPrimaryIdleState bored mine-clear residual events.
-    pub(in super) dozer_bored_mine_clear_events: u32,
+    pub(super) dozer_bored_mine_clear_events: u32,
     /// C++ RebuildHoleExposeDie spawn residual events.
-    pub(in super) rebuild_hole_spawns: u32,
+    pub(super) rebuild_hole_spawns: u32,
     /// C++ SupplyWarehouseCreate::onCreate residual registers.
-    pub(in super) supply_create_warehouse_registers: u32,
+    pub(super) supply_create_warehouse_registers: u32,
     /// C++ SupplyCenterCreate::onBuildComplete residual registers.
-    pub(in super) supply_create_center_registers: u32,
+    pub(super) supply_create_center_registers: u32,
     /// C++ GenerateMinefieldBehavior structure mine placements.
-    pub(in super) structure_minefield_placements: u32,
+    pub(super) structure_minefield_placements: u32,
     /// C++ SpecialPowerCompletionDie + PowerPlantUpdate residual log.
     pub(crate) special_power_completion_log:
         crate::game_logic::host_special_power_completion_die::HostSpecialPowerCompletionLog,
@@ -1120,90 +1145,90 @@ pub struct GameLogic {
     /// C++ StickyBombUpdate target-dead charge destroy residual.
     pub(crate) sticky_bomb_target_deaths: u32,
     /// C++ RebuildHoleBehavior reconstruct residual events.
-    pub(in super) rebuild_hole_reconstructs: u32,
-    pub(in super) rebuild_hole_workers: u32,
-    pub(in super) rebuild_hole_heals: u32,
-    pub(in super) rebuild_hole_completes: u32,
+    pub(super) rebuild_hole_reconstructs: u32,
+    pub(super) rebuild_hole_workers: u32,
+    pub(super) rebuild_hole_heals: u32,
+    pub(super) rebuild_hole_completes: u32,
     /// C++ transferAttack residual events around rebuild holes.
-    pub(in super) rebuild_hole_attack_transfers: u32,
+    pub(super) rebuild_hole_attack_transfers: u32,
     /// C++ RebuildHoleBehavior::transferBombs residual events.
-    pub(in super) rebuild_hole_bomb_transfers: u32,
+    pub(super) rebuild_hole_bomb_transfers: u32,
     /// C++ RECONSTRUCTING death → hole restart residual events.
-    pub(in super) rebuild_hole_recon_deaths: u32,
+    pub(super) rebuild_hole_recon_deaths: u32,
     /// C++ newWorkerRespawnProcess residual events.
-    pub(in super) rebuild_hole_worker_restarts: u32,
-    pub(in super) pending_camera_focus: Option<Vec3>,
-    pub(in super) script_camera_focus_estimate: Vec3,
-    pub(in super) script_camera_move_to: Option<ScriptCameraMoveTo>,
-    pub(in super) script_camera_path: Option<ScriptCameraPathMove>,
-    pub(in super) camera_follow_target: Option<ObjectId>,
-    pub(in super) script_default_camera_pitch: f32,
-    pub(in super) script_default_camera_angle: f32,
-    pub(in super) script_default_camera_max_height: f32,
-    pub(in super) script_camera_freeze_time_armed: bool,
-    pub(in super) script_camera_freeze_angle_armed: bool,
-    pub(in super) script_camera_pending_final_speed_multiplier: Option<f32>,
-    pub(in super) script_camera_pending_rolling_average_frames: Option<i32>,
-    pub(in super) visual_speed_multiplier: f32,
-    pub(in super) script_time_frozen_by_script: bool,
-    pub(in super) pending_script_fps_limit: Option<i32>,
-    pub(in super) pending_camera_zoom_reset: bool,
-    pub(in super) pending_camera_zoom: Option<CameraZoomRequest>,
-    pub(in super) pending_camera_pitch: Option<CameraPitchRequest>,
-    pub(in super) pending_camera_rotate: Option<CameraRotateRequest>,
-    pub(in super) pending_camera_look_toward: Option<CameraLookTowardWaypointRequest>,
-    pub(in super) pending_camera_slave_mode_enable: Option<CameraSlaveModeRequest>,
-    pub(in super) pending_camera_slave_mode_disable: bool,
-    pub(in super) pending_screen_shakes: Vec<ScreenShakeRequest>,
-    pub(in super) pending_camera_add_shakers: Vec<CameraAddShakerRequest>,
-    pub(in super) pending_popup_messages: Vec<ScriptPopupMessageRequest>,
-    pub(in super) pending_view_guardband: Option<ViewGuardbandRequest>,
-    pub(in super) pending_camera_bw_mode: Option<CameraBwModeRequest>,
-    pub(in super) pending_camera_motion_blur: Vec<CameraMotionBlurRequest>,
-    pub(in super) script_skybox_enabled: bool,
-    pub(in super) script_cameo_flash_count: HashMap<String, i32>,
-    pub(in super) script_named_timers: HashMap<String, (String, bool)>,
-    pub(in super) script_named_timer_display_shown: bool,
-    pub(in super) script_superweapon_display_enabled: bool,
-    pub(in super) script_superweapon_hidden_objects: HashSet<ObjectId>,
+    pub(super) rebuild_hole_worker_restarts: u32,
+    pub(super) pending_camera_focus: Option<Vec3>,
+    pub(super) script_camera_focus_estimate: Vec3,
+    pub(super) script_camera_move_to: Option<ScriptCameraMoveTo>,
+    pub(super) script_camera_path: Option<ScriptCameraPathMove>,
+    pub(super) camera_follow_target: Option<ObjectId>,
+    pub(super) script_default_camera_pitch: f32,
+    pub(super) script_default_camera_angle: f32,
+    pub(super) script_default_camera_max_height: f32,
+    pub(super) script_camera_freeze_time_armed: bool,
+    pub(super) script_camera_freeze_angle_armed: bool,
+    pub(super) script_camera_pending_final_speed_multiplier: Option<f32>,
+    pub(super) script_camera_pending_rolling_average_frames: Option<i32>,
+    pub(super) visual_speed_multiplier: f32,
+    pub(super) script_time_frozen_by_script: bool,
+    pub(super) pending_script_fps_limit: Option<i32>,
+    pub(super) pending_camera_zoom_reset: bool,
+    pub(super) pending_camera_zoom: Option<CameraZoomRequest>,
+    pub(super) pending_camera_pitch: Option<CameraPitchRequest>,
+    pub(super) pending_camera_rotate: Option<CameraRotateRequest>,
+    pub(super) pending_camera_look_toward: Option<CameraLookTowardWaypointRequest>,
+    pub(super) pending_camera_slave_mode_enable: Option<CameraSlaveModeRequest>,
+    pub(super) pending_camera_slave_mode_disable: bool,
+    pub(super) pending_screen_shakes: Vec<ScreenShakeRequest>,
+    pub(super) pending_camera_add_shakers: Vec<CameraAddShakerRequest>,
+    pub(super) pending_popup_messages: Vec<ScriptPopupMessageRequest>,
+    pub(super) pending_view_guardband: Option<ViewGuardbandRequest>,
+    pub(super) pending_camera_bw_mode: Option<CameraBwModeRequest>,
+    pub(super) pending_camera_motion_blur: Vec<CameraMotionBlurRequest>,
+    pub(super) script_skybox_enabled: bool,
+    pub(super) script_cameo_flash_count: HashMap<String, i32>,
+    pub(super) script_named_timers: HashMap<String, (String, bool)>,
+    pub(super) script_named_timer_display_shown: bool,
+    pub(super) script_superweapon_display_enabled: bool,
+    pub(super) script_superweapon_hidden_objects: HashSet<ObjectId>,
     /// Host-owned active beacon world positions (presentation freeze; Wave 211).
     /// Mirrors beacon_manager place/remove without mid-frame Mutex dual-read.
-    pub(in super) host_beacons: Vec<Vec3>,
+    pub(super) host_beacons: Vec<Vec3>,
     /// Beacon locations created this frame for HUD highlighting/bloom.
-    pub(in super) recent_beacons: Vec<Vec3>,
-    pub(in super) script_engine: Option<Arc<ScriptingEngine>>,
-    pub(in super) script_event_pump_in_flight: Arc<AtomicBool>,
-    pub(in super) script_event_pump_busy_frames: u32,
-    pub(in super) loaded_script_lists: Vec<ScriptList>,
-    pub(in super) script_source_path: Option<PathBuf>,
-    pub(in super) mission_scripts: Arc<MissionScriptHooks>,
-    pub(in super) script_broadcasts: Vec<ScriptBroadcast>,
-    pub(in super) new_script_messages: Vec<String>,
-    pub(in super) cinematic_letterbox: bool,
-    pub(in super) cinematic_text: Option<(String, f32)>,
-    pub(in super) military_caption: Option<(String, f32)>,
-    pub(in super) radar_enabled: bool,
-    pub(in super) radar_forced: bool,
-    pub(in super) pending_music_stop: bool,
-    pub(in super) pending_movie: Option<String>,
-    pub(in super) pending_radar_movie: Option<String>,
-    pub(in super) mission_objectives: Vec<ObjectiveDisplay>,
-    pub(in super) objective_lookup: HashMap<String, usize>,
-    pub(in super) campaign_manager: Option<Arc<Mutex<CampaignManager>>>,
-    pub(in super) last_map_settings: Option<super::script_loader::MapMetadata>,
-    pub(in super) spawned_map_object_ids: Vec<(ObjectId, usize)>,
-    pub(in super) terrain: Option<super::terrain::TerrainData>,
-    pub(in super) runtime_road_segments: Vec<super::script_loader::RuntimeRoadSegment>,
-    pub(in super) runtime_terrain_texture_classes: Vec<super::script_loader::BlendTileTextureClass>,
-    pub(in super) pathfinding_height_samples: Option<PathfindingHeightSamples>,
-    pub(in super) weather_state: RuntimeWeatherState,
+    pub(super) recent_beacons: Vec<Vec3>,
+    pub(super) script_engine: Option<Arc<ScriptingEngine>>,
+    pub(super) script_event_pump_in_flight: Arc<AtomicBool>,
+    pub(super) script_event_pump_busy_frames: u32,
+    pub(super) loaded_script_lists: Vec<ScriptList>,
+    pub(super) script_source_path: Option<PathBuf>,
+    pub(super) mission_scripts: Arc<MissionScriptHooks>,
+    pub(super) script_broadcasts: Vec<ScriptBroadcast>,
+    pub(super) new_script_messages: Vec<String>,
+    pub(super) cinematic_letterbox: bool,
+    pub(super) cinematic_text: Option<(String, f32)>,
+    pub(super) military_caption: Option<(String, f32)>,
+    pub(super) radar_enabled: bool,
+    pub(super) radar_forced: bool,
+    pub(super) pending_music_stop: bool,
+    pub(super) pending_movie: Option<String>,
+    pub(super) pending_radar_movie: Option<String>,
+    pub(super) mission_objectives: Vec<ObjectiveDisplay>,
+    pub(super) objective_lookup: HashMap<String, usize>,
+    pub(super) campaign_manager: Option<Arc<Mutex<CampaignManager>>>,
+    pub(super) last_map_settings: Option<super::script_loader::MapMetadata>,
+    pub(super) spawned_map_object_ids: Vec<(ObjectId, usize)>,
+    pub(super) terrain: Option<super::terrain::TerrainData>,
+    pub(super) runtime_road_segments: Vec<super::script_loader::RuntimeRoadSegment>,
+    pub(super) runtime_terrain_texture_classes: Vec<super::script_loader::BlendTileTextureClass>,
+    pub(super) pathfinding_height_samples: Option<PathfindingHeightSamples>,
+    pub(super) weather_state: RuntimeWeatherState,
 }
 
 #[derive(Debug, Clone)]
 pub(super) struct PathfindingHeightSamples {
-    pub(in super) width: u32,
-    pub(in super) height: u32,
-    pub(in super) values: Vec<f32>,
+    pub(super) width: u32,
+    pub(super) height: u32,
+    pub(super) values: Vec<f32>,
 }
 
 #[derive(Debug, Clone)]

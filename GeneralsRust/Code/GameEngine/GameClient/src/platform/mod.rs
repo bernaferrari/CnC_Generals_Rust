@@ -69,12 +69,15 @@ impl GraphicsContext {
         }))
         .map_err(|_| PlatformError::AdapterNotFound)?;
 
-        let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
-            label: Some("GameClient Device"),
-            required_features: wgpu::Features::empty(),
-            required_limits: wgpu::Limits::default(),
-            ..Default::default()
-        }))
+        let (device, queue) = pollster::block_on(ww3d_gpu::acquire_device(
+            &adapter,
+            &wgpu::DeviceDescriptor {
+                label: Some("GameClient Device"),
+                required_features: wgpu::Features::empty(),
+                required_limits: wgpu::Limits::default(),
+                ..Default::default()
+            },
+        ))
         .map_err(|e| PlatformError::DeviceCreation(e.to_string()))?;
         let device: Arc<wgpu::Device> = Arc::new(device);
         let queue = Arc::new(queue);

@@ -1,12 +1,12 @@
 //! Mechanical split from `game_logic/game_logic.rs`. No behavior change.
 #![allow(non_snake_case, unused_imports, dead_code)]
-use super::prelude::*;
-use super::*;
 use super::authority::*;
 use super::construct::*;
 use super::crate_tick::*;
 use super::host::*;
+use super::prelude::*;
 use super::script_camera::*;
+use super::*;
 
 /// Player structure
 #[derive(Debug, Clone)]
@@ -735,7 +735,7 @@ impl Player {
     pub fn apply_faction_intrinsic_sciences(&mut self) {
         use crate::game_logic::host_faction_skirmish_residual::intrinsic_science_for_team;
         use crate::game_logic::host_science_rank::{
-            retail_rank_for_level, RANK_SCIENCE_POINTS_DEFAULT, SCIENCE_RANK1,
+            RANK_SCIENCE_POINTS_DEFAULT, SCIENCE_RANK1, retail_rank_for_level,
         };
         if let Some(sci) = intrinsic_science_for_team(self.team) {
             self.unlocked_sciences.insert(sci.to_string());
@@ -767,7 +767,7 @@ impl Player {
         template: &game_engine::common::rts::player_template::PlayerTemplate,
     ) {
         use crate::game_logic::host_science_rank::{
-            retail_rank_for_level, RANK_SCIENCE_POINTS_DEFAULT, SCIENCE_RANK1,
+            RANK_SCIENCE_POINTS_DEFAULT, SCIENCE_RANK1, retail_rank_for_level,
         };
 
         let starting_money = template.get_money().count_money();
@@ -947,8 +947,8 @@ pub(super) const SELL_FINISH_CONSTRUCTION_PERCENT_RESIDUAL: f32 = -0.5;
 /// C++ ObjectSellInfo residual.
 #[derive(Debug, Clone)]
 pub(super) struct ObjectSellInfo {
-    pub(in super) id: ObjectId,
-    pub(in super) sell_frame: u32,
+    pub(super) id: ObjectId,
+    pub(super) sell_frame: u32,
 }
 
 /// One live C++ `ParkingPlaceBehavior::ParkingPlaceInfo` slot.
@@ -970,10 +970,10 @@ pub(super) struct AirfieldParkingSpace {
 ///
 /// Deref to the inner `HashMap` so existing `self.objects.get_mut` call sites
 /// keep compiling. When a GameWorld session is coupled the map is a roster /
-/// write-through view — `host_authoritative_*` is truth.
+/// read-view — `host_authoritative_*` is truth.
 #[derive(Debug, Default)]
 pub struct HostObjectStore {
-    pub(in super) map: HashMap<ObjectId, Object>,
+    pub(super) map: HashMap<ObjectId, Object>,
 }
 
 impl HostObjectStore {

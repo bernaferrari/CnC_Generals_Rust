@@ -1751,7 +1751,7 @@ pub fn honesty_upgrades_cost_time_application_wave79_ok() -> bool {
         && entry.build_cost_paid == 800
         && entry.retail_research_frames == HostUpgradeKind::SupplyLines.retail_research_frames()
         && entry.retail_research_frames == 900
-        && entry.residual_research_frames == 1
+        && entry.residual_research_frames == entry.retail_research_frames
         && HostUpgradeKind::WorkerShoes.retail_build_cost() == 1000
         && HostUpgradeKind::CamoNetting.retail_build_cost() == 500
         && HostUpgradeKind::NuclearTanks.retail_research_frames() == 1800
@@ -1993,6 +1993,6 @@ mod camo_netting_and_gamma_tests {
         let e = reg.get(id).unwrap();
         assert_eq!(e.build_cost_paid, 1000);
         assert_eq!(e.retail_research_frames, 300); // 10s * 30
-        assert_eq!(e.residual_research_frames, 1);
+        assert_eq!(e.residual_research_frames, e.retail_research_frames);
     }
 }

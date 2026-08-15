@@ -1039,9 +1039,9 @@ impl GameLogic {
     /// Shadow writebacks mutate host objects only through this boundary
     /// (no direct `get_objects_mut` dual-writes from the shadow crate).
     ///
-    /// When a GameWorld shadow session is coupled, HP/pose/target writes are
-    /// also applied as `WorldMutation`s so the HashMap is a read-through view
-    /// (single source of truth after writeback). Shadow-off keeps the host field.
+    /// When a GameWorld shadow session is coupled the HashMap is a read-view:
+    /// overlay from GameWorld, apply residual side effects, do not last-write
+    /// HP/pose/target/weapon/contain back. Shadow-off keeps the host field.
     pub fn with_host_object_mut<R>(
         &mut self,
         id: ObjectId,
@@ -1049,7 +1049,9 @@ impl GameLogic {
     ) -> Option<R> {
         let obj = self.host_object_mut(id)?;
         let r = f(obj);
-        self.push_coupled_host_object_mutations(id);
+        if !crate::gameworld_shadow::shadow_coupled_tick_active() {
+            self.push_coupled_host_object_mutations(id);
+        }
         self.host_view_dirty.remove(&id);
         Some(r)
     }
@@ -1156,13 +1158,13 @@ impl GameLogic {
         }
     }
 
-    /// Push dirty HashMap HP / pose / target into GameWorld (coupled only).
-    ///
-    /// Also writes through every mapped id so mid-frame `objects.get_mut`
-    /// (needed for split-borrow of `self.frame`) still lands in GameWorld.
+    /// Drain the dirty set. Coupled shadow: no-op — phases 0–6 last-write via
+    /// logs/mutations; the HashMap is a read-view. Uncoupled: push residual.
     pub fn commit_dirty_host_objects_to_gameworld(&mut self) {
-        let mut dirty = std::mem::take(&mut self.host_view_dirty);
-        // Overlay *or* commit: never re-push every mapped id after overlay.
+        let dirty = std::mem::take(&mut self.host_view_dirty);
+        if crate::gameworld_shadow::shadow_coupled_tick_active() {
+            return;
+        }
         for id in dirty {
             self.push_coupled_host_object_mutations(id);
         }
@@ -1171,8 +1173,8 @@ impl GameLogic {
     /// Push HP/pose/target from the host ID-map view into GameWorld (coupled only).
     fn push_coupled_host_object_mutations(&self, id: ObjectId) {
         use crate::gameworld_shadow::{push_coupled_world_mutation, with_active_shadow};
-        use gamelogic::world::entities::EntityProductionItem;
         use gamelogic::world::WorldMutation;
+        use gamelogic::world::entities::EntityProductionItem;
         let Some(obj) = self.host_objects().get(&id) else {
             return;
         };
@@ -1260,8 +1262,8 @@ impl GameLogic {
                 });
             }
             use gamelogic::world::{
-                WeaponSlotFacts, WEAPON_SLOT_MINE_CLEAR, WEAPON_SLOT_PRIMARY,
-                WEAPON_SLOT_SECONDARY, WEAPON_SLOT_TERTIARY,
+                WEAPON_SLOT_MINE_CLEAR, WEAPON_SLOT_PRIMARY, WEAPON_SLOT_SECONDARY,
+                WEAPON_SLOT_TERTIARY, WeaponSlotFacts,
             };
             let slot_facts = |slot: u8, w: Option<&crate::game_logic::Weapon>| {
                 w.map(|w| WeaponSlotFacts {
@@ -1466,7 +1468,9 @@ impl GameLogic {
         let obj = self.objects.get_mut(&id)?;
         obj.attack_substate = sub;
         obj.approach_timestamp = frame;
-        self.host_view_dirty.insert(id);
+        if !crate::gameworld_shadow::shadow_coupled_tick_active() {
+            self.host_view_dirty.insert(id);
+        }
         Some(frame)
     }
 
@@ -1594,7 +1598,8 @@ impl GameLogic {
         id: ObjectId,
     ) -> Option<&mut crate::game_logic::object::Object> {
         self.overlay_object_from_gameworld(id);
-        if self.objects.contains_key(&id) {
+        if !crate::gameworld_shadow::shadow_coupled_tick_active() && self.objects.contains_key(&id)
+        {
             self.host_view_dirty.insert(id);
         }
         self.objects.get_mut(&id)

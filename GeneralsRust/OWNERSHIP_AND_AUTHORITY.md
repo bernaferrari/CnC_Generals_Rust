@@ -34,8 +34,9 @@ Wave 961 residual pack locks this seal. `playable_claim` stays false until retai
 
 | Concern | Production default | Opt out |
 |---------|-------------------|---------|
-| Dual `gamelogic` crate tick | **off** (`AuthorityOnly`) | `GENERALS_ALLOW_DUAL_TICK` |
+| Dual `gamelogic` crate tick | **removed** (`AuthorityOnly` only) | — |
 | Shadow session | **on** | `GENERALS_GAMEWORLD_SHADOW=0` |
+| Entity live modules | **on** (install at spawn; `on_delete` before deferred remove) | `GENERALS_GAMEWORLD_ENTITY_MODULES=0` |
 | HP last-writer (damage auth) | **on** (defers host HP only while shadow live; host-only applies immediately; unmapped shadow fallback) | `GENERALS_GAMEWORLD_DAMAGE_AUTHORITY=0` |
 | Movement integrate (path follow) | **on** (host skips integrate only while shadow live; host-only steps paths) | `GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY=0` |
 | Construction percent | **on** (defer host percent only while shadow live; rebuild holes set host percent immediately when shadow off) | `GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY=0` |
@@ -98,7 +99,7 @@ Wave 961 residual pack locks this seal. `playable_claim` stays false until retai
 ## Frame phase order (InGame logic tick)
 
 1. `GameLogic::update` (AI, production, movement, combat modules mid-frame)
-2. Dual-crate tick (**off** by default)
+2. Dual-crate tick (**removed** — `AuthorityOnly` only)
 3. Projectiles + pathfinding side systems
 4. `process_commands` (player/AI command queue)
 5. `GameWorldShadow` session (drain logs → mutations → HP/cash/pose/target writeback)
@@ -1770,18 +1771,19 @@ Under GENERALS_GAMEWORLD_SPECIAL_POWER_AUTHORITY+shadow (default on), GameWorld 
 
 Superweapon/strike residual uses `take_damage_from_immediate` so host HP mutates even under DAMAGE_AUTHORITY (combat fire still defers HP to GameWorld writeback).
 
-## Authority-switch runbook (hq-48k / hq-a8z) — defaults stay OFF
+## Authority-switch runbook (hq-48k / hq-a8z) — production truth 2026-08-15
 
-Do **not** flip production defaults until every step's probe is green. Rollback is `GENERALS_GAMEWORLD_<NAME>=0` (or unset for default-on channels). Main-store retirement is last and ordered **objects → players → commands**.
+Dry-run (all `GENERALS_GAMEWORLD_*=1`, 4 golden frames, every probe bit true) was green. Cutover landed:
 
-| Step | Flag | Probe criteria | Rollback |
-|------|------|----------------|----------|
-| 0 | `GENERALS_GAMEWORLD_SHADOW=1` (already default on) | `counts_match` + mapped host ObjectId set equals live host count | `=0` |
-| 1 | `GENERALS_GAMEWORLD_ENTITY_MODULES=1` | flag-ON spawn tags == crate `Object::installed_module_tags`; `on_delete` order matches; no OBJECT_REGISTRY insert | `=0` |
-| 2 | Keep damage/economy/movement/weapon/production/construction/SP/AI/fire-spawn at current defaults | `health_match`, `economy_match`, `pose_match`, `weapon_match`, `production_match`, `contain_match`, `destroy_visibility_match` stay true on a multi-frame golden tick | per-flag `=0` |
-| 3 | Dry-run: flip **all** `GAMEWORLD_AUTHORITY_ENV_NAMES` to `1` inside `AuthorityEnvGuard` only | every probe bit in `GameWorldShadowProbe` true after ≥3 logic frames | guard drop restores env |
-| 4 | Retire Main object HashMap | read-inventory: envelope-only=0, persistent KNOWN_GAPS=0, no `host_object_mut` dirty path | revert store; do not ship |
-| 5 | Retire Main player store | player supplies/power/sciences match GameWorld `PlayerData` | revert store |
-| 6 | Retire Main command queue as authority | Phase 6 ingest is sole writer; host `process_commands` becomes side-effect adapter only | revert queue |
+| Step | Production truth | Rollback |
+|------|------------------|----------|
+| 0 | Shadow default **on** | `GENERALS_GAMEWORLD_SHADOW=0` |
+| 1 | `GENERALS_GAMEWORLD_ENTITY_MODULES` default **on** — live helper instances at spawn; `on_delete` before `process_destroy_list` remove | `=0` |
+| 2 | Damage/economy/movement/weapon/production/construction/SP/AI/fire-spawn stay default-on | per-flag `=0` |
+| 3 | Dry-run guard remains as a regression probe | guard drop restores env |
+| 4 | Main object HashMap is a **read-view** while shadow is coupled (no `host_object_mut` dirty last-write). Main still allocates `ObjectId`. | restore dirty push |
+| 5 | Main player map is a **read-view** for supplies/power/sciences (GW `PlayerData` writeback last-writes) | restore host last-write |
+| 6 | `ingest_command_queue_view` is the GW writer; host `process_commands` is side-effect adapter only | restore queue authority |
+| 7 | Dual crate tick **removed**. `dual_tick_policy()` is always `AuthorityOnly`. | — |
 
-Fail-closed: any dry-run probe false is a flip blocker (record on hq-48k / hq-a8z). Dual-tick and `GENERALS_BRIDGE_ENGINE_OBJECTS` stay opt-in.
+`GENERALS_BRIDGE_ENGINE_OBJECTS` stays opt-in. Fail-closed: any dry-run probe false is a flip blocker (record on hq-48k / hq-a8z).

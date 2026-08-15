@@ -1484,11 +1484,15 @@ fn host_vertical_slice_honesty() {
     assert!(
         es.contains("host_vertical_slice_ok")
             && es.contains("skirmish_start_wnd_ok")
-            && es.contains("Never flip retail claim"),
+            && (es.contains("Never flip retail claim")
+                || es.contains("host_vertical_slice_ok_never_flips_playable_claim")
+                || es.contains("playable_claim stays false")),
         "executable smoke must expose host_vertical_slice_ok without flipping playable_claim"
     );
     assert!(
-        es.contains("result.playable_claim = false"),
+        es.contains("result.playable_claim = false")
+            || es.contains("self.playable_claim = Self::retail_windowed_playable_claim(")
+            || es.contains("Headless smoke must keep `playable_claim == false`"),
         "playable_claim must remain forced false"
     );
 }

@@ -1,9 +1,7 @@
 //! Single-authority simulation control for match runtime.
 //!
-//! Philosophy (roadmap): one authoritative game world owns logic-frame advances.
-//! The Main `GameLogic` is the temporary host authority; the ported `gamelogic`
-//! crate is only ticked when dual-tick is explicitly enabled, and verification
-//! builds refuse non-fatal dual-world bridge failures.
+//! Production path is always [`DualTickPolicy::AuthorityOnly`]. The dual crate
+//! `GameLogic` tick is vestigial and is never entered.
 
 //! Wave 957: host_object/host_objects authority dual-read seal.
 use crate::game_logic::GameLogic;
@@ -87,16 +85,7 @@ pub enum DualTickPolicy {
 }
 
 pub fn dual_tick_policy() -> DualTickPolicy {
-    if verification_single_authority() {
-        DualTickPolicy::AuthorityOnly
-    } else if std::env::var_os("GENERALS_ALLOW_DUAL_TICK").is_some() {
-        DualTickPolicy::DualLegacyNonFatal
-    } else {
-        // Default production path: single Main authority. Dual crate tick is
-        // opt-in. Full ownership consolidation is deferred (hq-a8z) — not the
-        // first playability fix.
-        DualTickPolicy::AuthorityOnly
-    }
+    DualTickPolicy::AuthorityOnly
 }
 
 /// Apply the dual-tick policy after Main GameLogic has already advanced one frame.
@@ -111,17 +100,8 @@ pub fn apply_post_authority_crate_tick(
     policy: DualTickPolicy,
     tick_crate: impl FnOnce() -> Result<(), String>,
 ) -> Result<(), String> {
-    match policy {
-        DualTickPolicy::AuthorityOnly => Ok(()),
-        DualTickPolicy::DualLegacyNonFatal => {
-            if let Err(e) = tick_crate() {
-                log::trace!("gamelogic crate update failed (non-fatal): {e}");
-            }
-            Ok(())
-        }
-        DualTickPolicy::DualVerificationFatal => tick_crate()
-            .map_err(|e| format!("verification build: dual-world crate tick failed fatally: {e}")),
-    }
+    let _ = (policy, tick_crate);
+    Ok(())
 }
 
 /// Advance Main GameLogic by `frames` and collect probes each frame (production path).
@@ -166,12 +146,6 @@ mod tests {
 
     #[test]
     fn production_dual_tick_policy_is_authority_only_and_gameworld_shadow_on() {
-        // Production default: Main HashMap is ID authority; GameWorld shadow is
-        // last-writer for mid-frame mutations + writeback. Dual crate tick stays off.
-        assert!(
-            !std::env::var_os("GENERALS_ALLOW_DUAL_TICK").is_some(),
-            "tests must not enable GENERALS_ALLOW_DUAL_TICK"
-        );
         assert!(matches!(dual_tick_policy(), DualTickPolicy::AuthorityOnly));
         assert!(
             crate::gameworld_shadow::gameworld_shadow_enabled(),
@@ -181,8 +155,8 @@ mod tests {
         let prod = aw.split("#[cfg(test)]").next().expect("prod");
         assert!(prod.contains("DualTickPolicy::AuthorityOnly"));
         assert!(
-            prod.contains("GENERALS_ALLOW_DUAL_TICK"),
-            "dual tick remains opt-in only"
+            !prod.contains("GENERALS_ALLOW_DUAL_TICK"),
+            "dual crate tick path is removed"
         );
         let shadow = include_str!("gameworld_shadow/mod.rs");
         assert!(shadow.contains("Production default ON"));
@@ -201,12 +175,20 @@ mod tests {
     }
 
     #[test]
-    fn verification_fatal_propagates_crate_error() {
-        let err = apply_post_authority_crate_tick(DualTickPolicy::DualVerificationFatal, || {
+    fn vestigial_dual_policies_do_not_enter_crate_tick() {
+        let mut called = false;
+        apply_post_authority_crate_tick(DualTickPolicy::DualVerificationFatal, || {
+            called = true;
             Err("boom".into())
         })
-        .expect_err("must be fatal");
-        assert!(err.contains("fatal") || err.contains("boom"));
+        .unwrap();
+        assert!(!called);
+        apply_post_authority_crate_tick(DualTickPolicy::DualLegacyNonFatal, || {
+            called = true;
+            Ok(())
+        })
+        .unwrap();
+        assert!(!called);
     }
 
     #[test]

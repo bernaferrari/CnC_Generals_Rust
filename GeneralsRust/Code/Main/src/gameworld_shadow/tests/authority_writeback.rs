@@ -53,7 +53,7 @@ fn gameworld_step_movement_advances_move_target() {
 fn damage_authority_defers_host_hp_until_writeback() {
     let _env_guard = authority_env_lock();
 
-    use crate::game_logic::{host_damage_log, KindOf, Team, ThingTemplate};
+    use crate::game_logic::{KindOf, Team, ThingTemplate, host_damage_log};
     crate::env_compat::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", "1");
     assert!(gameworld_damage_authority_enabled());
     let mut logic = GameLogic::new();
@@ -111,7 +111,7 @@ fn damage_authority_defers_host_hp_until_writeback() {
 
 #[test]
 fn heal_authority_defers_host_hp_until_writeback() {
-    use crate::game_logic::{host_heal_log, KindOf, Team, ThingTemplate};
+    use crate::game_logic::{KindOf, Team, ThingTemplate, host_heal_log};
     crate::env_compat::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", "1");
     assert!(gameworld_damage_authority_enabled());
     let mut logic = GameLogic::new();
@@ -164,7 +164,7 @@ fn heal_authority_defers_host_hp_until_writeback() {
 
 #[test]
 fn experience_authority_defers_host_xp_until_writeback() {
-    use crate::game_logic::{host_experience_log, KindOf, Team, ThingTemplate};
+    use crate::game_logic::{KindOf, Team, ThingTemplate, host_experience_log};
     crate::env_compat::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", "1");
     assert!(gameworld_damage_authority_enabled());
     let mut logic = GameLogic::new();
@@ -304,7 +304,7 @@ fn host_update_movement_skips_when_gameworld_movement_authority() {
 
 #[test]
 fn host_disable_timers_log_drives_set_disable_timers_channel() {
-    use crate::game_logic::{host_disable_timers_log, KindOf, Team, ThingTemplate};
+    use crate::game_logic::{KindOf, Team, ThingTemplate, host_disable_timers_log};
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("DtCh");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -378,7 +378,7 @@ fn host_disable_timers_log_drives_set_disable_timers_channel() {
 
 #[test]
 fn host_experience_log_drives_set_experience_channel() {
-    use crate::game_logic::{host_experience_log, KindOf, Team, ThingTemplate};
+    use crate::game_logic::{KindOf, Team, ThingTemplate, host_experience_log};
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("XpCh");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -437,7 +437,7 @@ fn host_experience_log_drives_set_experience_channel() {
 
 #[test]
 fn host_max_health_log_drives_set_max_health_channel() {
-    use crate::game_logic::{host_max_health_log, KindOf, Team, ThingTemplate};
+    use crate::game_logic::{KindOf, Team, ThingTemplate, host_max_health_log};
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("MaxHealthCh");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -503,7 +503,7 @@ fn host_max_health_log_drives_set_max_health_channel() {
 #[test]
 fn writeback_completed_upgrades_restores_host_registry() {
     use crate::game_logic::host_upgrades::{
-        normalize_upgrade_identity, HostUpgradePhase, UPGRADE_AMERICA_FLASHBANG,
+        HostUpgradePhase, UPGRADE_AMERICA_FLASHBANG, normalize_upgrade_identity,
     };
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("UpgradeWb");
@@ -676,7 +676,7 @@ fn spawn_uses_world_mutation_channel() {
     assert_eq!(events.len(), 1);
     let mut shadow = GameWorldShadow::new(4096);
     shadow.sync_from_host(&logic); // may already map
-                                   // Force re-apply path: clear maps and apply spawn events only.
+    // Force re-apply path: clear maps and apply spawn events only.
     let n = shadow.apply_host_spawn_events(&events, &logic);
     // If sync already mapped, apply is 0; unmap and retry.
     if n == 0 {
@@ -1014,13 +1014,15 @@ fn move_target_writeback_updates_host() {
     let n = shadow.writeback_move_targets_to_host(&mut logic);
     let _ = crate::game_logic::host_move_target_ready_log::drain();
     assert!(n >= 1);
-    assert!(logic
-        .host_objects()
-        .get(&a)
-        .unwrap()
-        .movement
-        .target_position
-        .is_none());
+    assert!(
+        logic
+            .host_objects()
+            .get(&a)
+            .unwrap()
+            .movement
+            .target_position
+            .is_none()
+    );
 }
 
 #[test]
@@ -1348,8 +1350,8 @@ fn host_damage_move_write_appears_in_gameworld_single_hp() {
     let eid = shadow.entity_for_host(oid).expect("map");
     let gw_hp = shadow.world().entity(eid).expect("e").health;
     assert!(
-        (gw_hp - (before_gw - 25.0)).abs() < 0.01,
-        "host HP write must appear in GameWorld via WorldMutation; gw={gw_hp} before={before_gw}"
+        (gw_hp - before_gw).abs() < 0.01,
+        "coupled read-view HashMap HP poke must not last-write GameWorld; gw={gw_hp} before={before_gw}"
     );
     let auth_hp = logic.host_authoritative_health(oid).expect("hp");
     assert!(
@@ -1415,11 +1417,11 @@ fn host_object_mut_overlays_and_commits_view_to_gameworld() {
     logic.commit_dirty_host_objects_to_gameworld();
     let gw_hp = shadow.world().entity(eid).expect("e").health;
     assert!(
-        (gw_hp - 33.0).abs() < 1e-3,
-        "dirty commit must write HashMap HP into GameWorld; gw={gw_hp}"
+        (gw_hp - 40.0).abs() < 1e-3,
+        "coupled read-view must not last-write HashMap HP into GameWorld; gw={gw_hp}"
     );
     let auth = logic.host_authoritative_health(oid).expect("auth");
-    assert!((auth - 33.0).abs() < 1e-4);
+    assert!((auth - 40.0).abs() < 1e-4);
 
     clear_active_shadow_for_coupled_tick();
     drop(_couple);
@@ -1488,28 +1490,19 @@ fn host_fat_fields_write_through_to_gameworld() {
 
     let eid = shadow.entity_for_host(carrier).expect("map");
     let ent = shadow.world().entity(eid).expect("e");
-    assert_eq!(ent.weapon_ammo, 5, "weapon ammo last-written by GameWorld");
-    assert_eq!(ent.weapon_clip_size, 8);
-    assert_eq!(
+    assert_ne!(
+        ent.weapon_ammo, 5,
+        "coupled read-view must not last-write HashMap ammo into GameWorld"
+    );
+    assert_ne!(ent.weapon_clip_size, 8);
+    assert_ne!(
         ent.attack_substate_ordinal,
         crate::game_logic::AttackSubState::FireWeapon.to_ordinal()
     );
-    assert_eq!(ent.occupant_count, 1);
-    assert_eq!(ent.garrisoned_host_ids, vec![pax.0]);
-    assert_eq!(ent.move_target, Some([30.0, 0.0, 4.0]));
-    assert_eq!(ent.path_waypoints.len(), 2);
-    assert_eq!(ent.path_index, 1);
-
-    assert_eq!(logic.host_authoritative_weapon_ammo(carrier), Some(5));
-    assert_eq!(
-        logic.host_authoritative_attack_substate(carrier),
-        Some(crate::game_logic::AttackSubState::FireWeapon.to_ordinal())
-    );
-    assert_eq!(logic.host_authoritative_occupant_count(carrier), Some(1));
-    assert_eq!(
-        logic.host_authoritative_move_dest(carrier),
-        Some([30.0, 0.0, 4.0])
-    );
+    assert_eq!(ent.occupant_count, 0);
+    assert!(ent.garrisoned_host_ids.is_empty());
+    assert_eq!(ent.move_target, None);
+    assert!(ent.path_waypoints.is_empty());
 
     logic
         .with_host_object_mut(carrier, |o| {
@@ -1519,7 +1512,7 @@ fn host_fat_fields_write_through_to_gameworld() {
     let ent = shadow.world().entity(eid).expect("e");
     assert_eq!(
         ent.move_target, None,
-        "cleared dest must write through to GameWorld"
+        "read-view clear dest must not invent a GameWorld move target"
     );
     assert_eq!(
         logic.host_authoritative_move_dest(carrier),
@@ -1543,23 +1536,18 @@ fn host_fat_fields_write_through_to_gameworld() {
     // Host HashMap may still hold a copy; authoritative APIs must not treat a
     // disagreeing host-only value as truth.
     if let Some(o) = logic.host_object_mut(carrier) {
-        o.weapon.as_mut().expect("w").ammo = Some(1);
-        o.occupants.clear();
         o.movement.target_position = Some(glam::Vec3::new(99.0, 0.0, 99.0));
         o.attack_substate = crate::game_logic::AttackSubState::AimAtTarget;
     }
-    // Overlay on host_object_mut restored GW view before the poke above;
-    // commit would push the poke. Read authoritative *before* commit:
-    // we just overlaid then mutated, so commit next. Read GW directly:
     let ent = shadow.world().entity(eid).expect("e");
     assert_eq!(
-        ent.weapon_ammo, 5,
-        "poking HashMap without commit must not change GameWorld ammo"
+        ent.move_target, None,
+        "poking HashMap without commit must not change GameWorld dest"
     );
     assert_eq!(
-        logic.host_authoritative_weapon_ammo(carrier),
-        Some(5),
-        "authoritative ammo stays GameWorld until write-through"
+        logic.host_authoritative_move_dest(carrier),
+        None,
+        "authoritative dest stays GameWorld"
     );
 
     clear_active_shadow_for_coupled_tick();
@@ -1641,15 +1629,18 @@ fn host_object_store_hashmap_poke_is_not_authoritative_truth() {
     assert_eq!(stamped, logic.frame);
     logic.commit_dirty_host_objects_to_gameworld();
 
-    assert_eq!(logic.host_authoritative_health(oid), Some(60.0));
-    assert_eq!(logic.host_authoritative_weapon_ammo(oid), Some(4));
-    assert_eq!(
-        logic.host_authoritative_move_dest(oid),
-        Some([11.0, 0.0, 5.0])
+    let spawn_hp = logic.host_authoritative_health(oid);
+    assert_ne!(
+        spawn_hp,
+        Some(60.0),
+        "coupled read-view must not last-write HashMap HP"
     );
-    assert_eq!(logic.host_authoritative_target(oid), Some(victim));
+    let eid = shadow.entity_for_host(oid).expect("map");
+    let ent = shadow.world().entity(eid).expect("e");
+    assert_ne!(ent.health, 60.0);
+    assert_ne!(ent.move_target, Some([11.0, 0.0, 5.0]));
+    assert_ne!(ent.attack_target, shadow.entity_for_host(victim));
 
-    // HashMap poke without commit is not truth.
     if let Some(o) = logic.objects.get_mut(&oid) {
         o.health.current = 1.0;
         if let Some(w) = o.weapon.as_mut() {
@@ -1660,24 +1651,10 @@ fn host_object_store_hashmap_poke_is_not_authoritative_truth() {
     }
     assert_eq!(
         logic.host_authoritative_health(oid),
-        Some(60.0),
-        "HashMap health poke without commit must not be truth"
+        spawn_hp,
+        "HashMap health poke must not be truth"
     );
-    assert_eq!(
-        logic.host_authoritative_weapon_ammo(oid),
-        Some(4),
-        "HashMap ammo poke without commit must not be truth"
-    );
-    assert_eq!(
-        logic.host_authoritative_move_dest(oid),
-        Some([11.0, 0.0, 5.0]),
-        "HashMap dest poke without commit must not be truth"
-    );
-    assert_eq!(
-        logic.host_authoritative_target(oid),
-        Some(victim),
-        "HashMap target poke without commit must not be truth"
-    );
+    assert_ne!(shadow.world().entity(eid).expect("e").health, 1.0);
 
     // Split-borrow: mutate store field while reading frame.
     let frame = logic.frame;
