@@ -323,14 +323,28 @@ fn update_buddy_info() {
 
     listbox.clear();
 
-    let info_guard = get_gamespy_info().and_then(|info| info.lock().ok());
-    let Some(info_guard) = info_guard else {
+    let Some((buddies, requests, group_rooms)) =
+        crate::gui::callbacks::online_callback_support::with_gamespy_info(|info| {
+            let buddies = info
+                .get_buddy_map()
+                .iter()
+                .map(|(id, buddy)| (*id, buddy.clone(), info.is_saved_ignored(*id)))
+                .collect::<Vec<_>>();
+            let requests = info
+                .get_buddy_request_map()
+                .iter()
+                .map(|(id, buddy)| (*id, buddy.clone()))
+                .collect::<Vec<_>>();
+            let group_rooms = info.get_group_room_list().clone();
+            (buddies, requests, group_rooms)
+        })
+    else {
         return;
     };
 
-    for (profile_id, buddy_info) in info_guard.get_buddy_map().iter() {
+    for (profile_id, buddy_info, ignored) in buddies.iter() {
         let name = buddy_info.name.as_str().to_string();
-        let name_color = if info_guard.is_saved_ignored(*profile_id) {
+        let name_color = if *ignored {
             default_gamespy_colors()[GameSpyColor::PlayerIgnored as usize]
         } else {
             default_gamespy_colors()[GameSpyColor::PlayerBuddy as usize]
@@ -354,7 +368,7 @@ fn update_buddy_info() {
             "chatting" => {
                 let mut room_name = String::new();
                 if let Ok(room_id) = buddy_info.location_string.parse::<i32>() {
-                    if let Some(room) = info_guard.get_group_room_list().get(&room_id) {
+                    if let Some(room) = group_rooms.get(&room_id) {
                         let key = format!("GUI:{}", room.name.as_str());
                         room_name = GameText::fetch(&key);
                     }
@@ -386,7 +400,7 @@ fn update_buddy_info() {
         }
     }
 
-    for (profile_id, buddy_info) in info_guard.get_buddy_request_map().iter() {
+    for (profile_id, buddy_info) in requests.iter() {
         let name = buddy_info.name.as_str().to_string();
         let index = listbox.add_item_with_color(
             &name,
@@ -566,11 +580,13 @@ pub fn handle_buddy_responses() {
         }
     }
 
-    if let Ok(state) = wol_buddy_state().borrow_mut() {
-        if state.notice_layout.is_some() && now_ms() > state.notice_expires {
-            drop(state);
-            delete_notification_box();
-        }
+    let expired = {
+        let slot = wol_buddy_state();
+        let state = slot.borrow();
+        state.notice_layout.is_some() && now_ms() > state.notice_expires
+    };
+    if expired {
+        delete_notification_box();
     }
 }
 
@@ -590,7 +606,8 @@ fn show_notification_box(nick: AsciiString, message: &str) {
         }
     }
 
-    let Some(layout) = state.notice_layout.as_ref() else {
+    let layout = state.notice_layout.clone();
+    let Some(layout) = layout else {
         return;
     };
     layout.borrow_mut().hide(false);
@@ -620,8 +637,8 @@ fn show_notification_box(nick: AsciiString, message: &str) {
 
     let _ = window.borrow_mut().set_text(&final_message);
     state.notice_expires = now_ms() + NOTIFICATION_EXPIRES_MS;
-    layout.borrow_mut().bring_forward();
     drop(state);
+    layout.borrow_mut().bring_forward();
 
     if let Some(audio) = TheAudio::get() {
         let event = AudioEventRts::new("GUICommunicatorIncoming".to_string());
@@ -743,21 +760,19 @@ pub fn wol_buddy_overlay_input(
     data1: WindowMsgData,
     data2: WindowMsgData,
 ) -> WindowMsgHandled {
-    if msg == WindowMessage::Char {
-        if data1 == KEY_ESC && (data2 & KEY_STATE_UP) != 0 {
-            let state_slot = wol_buddy_state();
-    let state = state_slot.borrow_mut();
-            if let Some(button_hide) = state.button_hide.as_ref() {
-                let _ = button_hide.borrow_mut().send_system_message(
-                    WindowMessage::GadgetSelected,
-                    state.button_hide_id as WindowMsgData,
-                    state.button_hide_id as WindowMsgData,
-                );
-            }
-            return WindowMsgHandled::Handled;
-        }
+    if msg != WindowMessage::Char || data1 != KEY_ESC {
+        return WindowMsgHandled::Ignored;
     }
-    WindowMsgHandled::Ignored
+    // C++ WOLBuddyOverlay.cpp:796-811 — KEY_ESC synthesizes Hide GBM_SELECTED.
+    if (data2 & KEY_STATE_UP) != 0 {
+        let (parent, hide_id) = {
+            let slot = wol_buddy_state();
+            let state = slot.borrow();
+            (state.parent.clone(), state.button_hide_id)
+        };
+        crate::gui::callbacks::online_callback_support::dispatch_esc_gadget_selected(parent, hide_id);
+    }
+    WindowMsgHandled::Handled
 }
 
 fn refresh_ignore_list() {
@@ -772,17 +787,19 @@ fn refresh_ignore_list() {
     };
 
     listbox.clear();
-    let Some(info) = get_gamespy_info().and_then(|info| info.lock().ok()) else {
+    let Some((saved_ignore, ignore_list)) =
+        crate::gui::callbacks::online_callback_support::with_gamespy_info(|info| {
+            (info.return_saved_ignore_list(), info.return_ignore_list())
+        })
+    else {
         return;
     };
 
-    let saved_ignore = info.return_saved_ignore_list();
     for (profile_id, name) in saved_ignore {
         let index = listbox.add_item_with_color(name.as_str(), packed_ui_color(make_color(255, 100, 100, 255)));
         let _ = listbox.set_item_data(index, Some(ListBoxItemData::Integer(profile_id)));
     }
 
-    let ignore_list = info.return_ignore_list();
     for name in ignore_list {
         let index = listbox.add_item_with_color(&name, packed_ui_color(make_color(255, 100, 100, 255)));
         let _ = listbox.set_item_data(index, Some(ListBoxItemData::Integer(0)));
@@ -816,10 +833,10 @@ fn close_right_click_menu(window: &GameWindow) {
     if let Some(layout) = layout {
         with_window_manager(|manager| manager.destroy_layout(&layout));
     }
-    if let Ok(mut state) = wol_buddy_state().borrow_mut() {
-        state.rc_menu = None;
-        state.rc_layout = None;
-    }
+    let slot = wol_buddy_state();
+    let mut state = slot.borrow_mut();
+    state.rc_menu = None;
+    state.rc_layout = None;
 }
 
 fn request_buddy_add(profile_id: GPProfile, nick: &AsciiString) {
@@ -883,7 +900,7 @@ pub fn wol_buddy_overlay_system(
     }
 
     match msg {
-        WindowMessage::Create | WindowMessage::Destroy => WindowMsgHandled::Handled,
+        WindowMessage::Create | WindowMessage::Destroy => return WindowMsgHandled::Handled,
         WindowMessage::InputFocus => return write_input_focus_response(data1, data2, true),
         WindowMessage::GadgetRightClick => {
             let (listbox_ignore_id, listbox_ignore) = {
@@ -921,7 +938,7 @@ pub fn wol_buddy_overlay_system(
                 .unwrap_or(0);
 
             let nick = listbox_item_text(&listbox_window.borrow(), index)
-                .map(AsciiString::from)
+                .map(|s| AsciiString::from(s.as_str()))
                 .unwrap_or_default();
 
             let mut is_buddy = false;
@@ -952,7 +969,8 @@ pub fn wol_buddy_overlay_system(
                 with_window_manager(|manager| manager.create_layout_with_windows(layout_name).ok());
             if let Some((layout, _)) = layout {
                 layout.borrow().run_init(None);
-                if let Some(rc_menu) = layout.borrow().get_first_window() {
+                let rc_menu = layout.borrow().get_first_window();
+                if let Some(rc_menu) = rc_menu {
                     rc_menu.borrow_mut().hide(false);
                     rc_menu.borrow_mut().bring_to_front();
                     let (win_w, win_h) = rc_menu.borrow().get_size();
@@ -987,6 +1005,7 @@ pub fn wol_buddy_overlay_system(
                     state.rc_layout = Some(layout);
                 }
             }
+            return WindowMsgHandled::Handled;
         }
         WindowMessage::GadgetSelected => {
             let (button_hide_id, radio_buddies_id, radio_ignore_id, parent_buddies, parent_ignore) = {
@@ -1019,12 +1038,11 @@ pub fn wol_buddy_overlay_system(
                 }
                 refresh_ignore_list();
             }
+            return WindowMsgHandled::Handled;
         }
-        WindowMessage::GadgetEditDone => {}
+        WindowMessage::GadgetEditDone => return WindowMsgHandled::Handled,
         _ => return WindowMsgHandled::Ignored,
     }
-
-    WindowMsgHandled::Handled
 }
 
 pub fn popup_buddy_notification_system(
@@ -1077,7 +1095,7 @@ pub fn wol_buddy_overlay_rc_menu_system(
             close_right_click_menu(window);
             return WindowMsgHandled::Handled;
         }
-        WindowMessage::Create => WindowMsgHandled::Handled,
+        WindowMessage::Create => return WindowMsgHandled::Handled,
         WindowMessage::GadgetSelected => {
             let control_id = data1 as i32;
             let rc_data = window.get_user_data::<GameSpyRcMenuData>().cloned();
@@ -1206,18 +1224,10 @@ pub fn wol_buddy_overlay_rc_menu_system(
             }
 
             close_right_click_menu(window);
-            // TODO: C++ explicitly deletes rcData and nulls window user data after use
-            // Rust clones the data instead, keeping it alive until window destruction
             return WindowMsgHandled::Handled;
-            let state_slot = wol_buddy_state();
-    let mut state = state_slot.borrow_mut();
-            state.rc_menu = None;
-            state.rc_layout = None;
         }
         _ => return WindowMsgHandled::Ignored,
     }
-
-    WindowMsgHandled::Handled
 }
 
 fn buddy_control_system(
@@ -1245,12 +1255,24 @@ fn buddy_control_system(
         )
     };
 
-    let mut info = get_gamespy_info().and_then(|info| info.lock().ok());
-    let Some(info) = info.as_mut() else {
+    let Some((local_profile_id, local_name, buddy_names)) =
+        crate::gui::callbacks::online_callback_support::with_gamespy_info(|info| {
+            let names = info
+                .get_buddy_map()
+                .iter()
+                .map(|(id, buddy)| (*id, buddy.name.clone()))
+                .collect::<std::collections::HashMap<_, _>>();
+            (
+                info.get_local_profile_id(),
+                info.get_local_base_name().clone(),
+                names,
+            )
+        })
+    else {
         return WindowMsgHandled::Ignored;
     };
 
-    if info.get_local_profile_id() == 0 || !is_init {
+    if local_profile_id == 0 || !is_init {
         return WindowMsgHandled::Ignored;
     }
 
@@ -1300,7 +1322,7 @@ fn buddy_control_system(
                 .unwrap_or(RcItemType::NonBuddy);
 
             let nick = listbox_item_text(&listbox_window.borrow(), index)
-                .map(AsciiString::from)
+                .map(|s| AsciiString::from(s.as_str()))
                 .unwrap_or_default();
 
             if let Some(widget) = listbox_window.borrow_mut().list_box_mut() {
@@ -1316,7 +1338,8 @@ fn buddy_control_system(
                 with_window_manager(|manager| manager.create_layout_with_windows(layout_name).ok());
             if let Some((layout, _)) = layout {
                 layout.borrow().run_init(None);
-                if let Some(rc_menu) = layout.borrow().get_first_window() {
+                let rc_menu = layout.borrow().get_first_window();
+                if let Some(rc_menu) = rc_menu {
                     rc_menu.borrow_mut().hide(false);
                     rc_menu.borrow_mut().bring_to_front();
                     let (win_w, win_h) = rc_menu.borrow().get_size();
@@ -1357,7 +1380,8 @@ fn buddy_control_system(
                 return WindowMsgHandled::Handled;
             };
             let selected =
-                listbox_selected_profile(listbox_window).map(|(idx, profile, _)| (idx, profile));
+                listbox_selected_profile(&listbox_window.borrow())
+                    .map(|(idx, profile, _)| (idx, profile));
             if selected.is_none() {
                 if let Some(listbox_window) = listbox_chat.as_ref() {
                     if let Some(listbox) = listbox_window.borrow_mut().list_box_mut() {
@@ -1371,10 +1395,9 @@ fn buddy_control_system(
             }
 
             let (selected_index, selected_profile) = selected.unwrap();
-            let recipient_nick = info
-                .get_buddy_map()
+            let recipient_nick = buddy_names
                 .get(&selected_profile)
-                .map(|b| b.name.clone())
+                .cloned()
                 .unwrap_or_default();
 
             let in_progress =
@@ -1446,22 +1469,40 @@ fn buddy_control_system(
                 }
             }
 
-            let local_profile = info.get_local_profile_id();
-            let local_name = info.get_local_base_name();
             let buddy_msg = BuddyMessage::new(
-                local_profile,
+                local_profile_id,
                 local_name.clone(),
                 selected_profile,
                 recipient_nick,
                 text,
             );
-            info.push_buddy_message(buddy_msg.clone());
-            drop(info);
-            insert_chat_with_local(buddy_msg, local_profile, local_name);
+            let _ = crate::gui::callbacks::online_callback_support::with_gamespy_info_mut(|info| {
+                info.push_buddy_message(buddy_msg.clone());
+            });
+            insert_chat_with_local(buddy_msg, local_profile_id, local_name);
 
             let _ = selected_index;
             WindowMsgHandled::Handled
         }
         _ => WindowMsgHandled::Ignored,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ascii_string_from_owned_listbox_text_uses_as_str() {
+        let text = String::from("NickName");
+        let nick = AsciiString::from(text.as_str());
+        assert_eq!(nick.as_str(), "NickName");
+    }
+
+    #[test]
+    fn rc_item_type_discriminants_are_stable() {
+        assert_eq!(RcItemType::Buddy as i32, 0);
+        assert_eq!(RcItemType::Request as i32, 1);
+        assert_eq!(RcItemType::NonBuddy as i32, 2);
     }
 }

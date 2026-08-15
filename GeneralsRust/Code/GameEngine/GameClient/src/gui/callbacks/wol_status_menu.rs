@@ -87,7 +87,8 @@ pub fn wol_status_menu_input(
     // C++ WOLStatusMenu.cpp:112-113 sends GBM_SELECTED then returns HANDLED.
     // Drop the RefCell borrow before dispatch (C++ file-statics are re-entrant).
     let (parent, button_id) = {
-        let state = wol_status_state().borrow();
+        let slot = wol_status_state();
+        let state = slot.borrow();
         (state.parent.clone(), state.button_disconnect_id)
     };
     dispatch_esc_gadget_selected(parent, button_id);

@@ -61,6 +61,32 @@ pub fn lookup_window_image(name: &str) -> Option<WindowImage> {
     })
 }
 
+/// C++ `TheMappedImageCollection->findImageByName` size, or 10x10 when missing.
+pub fn mapped_image_size(name: &str) -> (u32, u32) {
+    lookup_window_image(name)
+        .map(|img| (img.width.max(1) as u32, img.height.max(1) as u32))
+        .unwrap_or((10, 10))
+}
+
+/// Combo item `data` is `Option<usize>`; C++ stores signed gadget user-data.
+pub fn combo_item_data_eq(item_data: Option<usize>, value: i32) -> bool {
+    item_data == Some(value as usize)
+}
+
+/// `TheChallengeGenerals` is a `Mutex`; C++ is a raw pointer.
+pub fn challenge_general_starts_enabled(template_name: &str) -> bool {
+    let Some(generals) = crate::gui::challenge_generals::get_challenge_generals() else {
+        return true;
+    };
+    let Ok(guard) = generals.lock() else {
+        return true;
+    };
+    guard
+        .general_by_template_name(template_name)
+        .map(|persona| persona.is_starting_enabled())
+        .unwrap_or(true)
+}
+
 pub fn with_gamespy_info_mut<R>(f: impl FnOnce(&mut GameSpyInfo) -> R) -> Option<R> {
     let slot = get_gamespy_info()?;
     let Ok(mut guard) = slot.lock() else {
@@ -136,5 +162,23 @@ mod tests {
     #[test]
     fn dispatch_esc_gadget_selected_is_silent_when_parent_missing() {
         dispatch_esc_gadget_selected(None, 1);
+    }
+
+    #[test]
+    fn combo_item_data_eq_casts_signed_gadget_data_to_usize() {
+        assert!(combo_item_data_eq(Some((-1i32) as usize), -1));
+        assert!(combo_item_data_eq(Some(3), 3));
+        assert!(!combo_item_data_eq(Some(3), 4));
+        assert!(!combo_item_data_eq(None, 0));
+    }
+
+    #[test]
+    fn mapped_image_size_falls_back_to_ten_when_collection_empty() {
+        assert_eq!(mapped_image_size("Password"), (10, 10));
+    }
+
+    #[test]
+    fn challenge_general_starts_enabled_is_true_when_persona_missing() {
+        assert!(challenge_general_starts_enabled("NoSuchTemplate"));
     }
 }
