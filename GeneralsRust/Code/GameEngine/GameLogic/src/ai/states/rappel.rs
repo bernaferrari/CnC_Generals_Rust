@@ -1,25 +1,25 @@
 #![allow(deprecated, unused_imports, dead_code)]
 
-use super::*;
-use super::helpers::*;
-use super::follow_path_core::*;
-use super::types::*;
-use super::state_machine::*;
-use super::idle::*;
-use super::r#move::*;
-use super::follow_path::*;
-use super::wait_busy::*;
-use super::wander_panic::*;
-use super::face::*;
-use super::hack::*;
-use super::waypoint::*;
 use super::attack::*;
 use super::attack_machine::*;
-use super::guard::*;
-use super::hunt::*;
+use super::dead::*;
 use super::dock::*;
 use super::enter::*;
-use super::dead::*;
+use super::face::*;
+use super::follow_path::*;
+use super::follow_path_core::*;
+use super::guard::*;
+use super::hack::*;
+use super::helpers::*;
+use super::hunt::*;
+use super::idle::*;
+use super::r#move::*;
+use super::state_machine::*;
+use super::types::*;
+use super::wait_busy::*;
+use super::wander_panic::*;
+use super::waypoint::*;
+use super::*;
 
 use crate::action_manager::{CanEnterType, TheActionManager};
 use crate::ai::dock::AIDockMachine;
@@ -71,7 +71,6 @@ use crate::common::INVALID_ID;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock, Weak};
 
-
 /// Rappel into state (simplified; triggers AI command).
 #[derive(Debug)]
 pub struct AIRappelIntoState {
@@ -80,7 +79,6 @@ pub struct AIRappelIntoState {
     pub(crate) dest_z: Real,
     pub(crate) target_is_bldg: Bool,
 }
-
 
 impl AIRappelIntoState {
     pub fn new(machine: &StateMachine) -> Self {
@@ -93,7 +91,6 @@ impl AIRappelIntoState {
         }
     }
 }
-
 
 impl StateImplementation for AIRappelIntoState {
     fn on_enter(&mut self) -> StateReturnType {
@@ -112,7 +109,6 @@ impl StateImplementation for AIRappelIntoState {
         Snapshotable::xfer(self, xfer)
     }
 }
-
 
 impl ClassicState for AIRappelIntoState {
     fn base_state(&self) -> &State {
@@ -244,14 +240,12 @@ impl ClassicState for AIRappelIntoState {
     }
 }
 
-
 /// Combat drop state (simplified; triggers AI command).
 #[derive(Debug)]
 pub struct AICombatDropState {
     pub(crate) base: State,
     pub(crate) issued_command: bool,
 }
-
 
 impl AICombatDropState {
     pub fn new(machine: &StateMachine) -> Self {
@@ -261,7 +255,6 @@ impl AICombatDropState {
         }
     }
 }
-
 
 impl StateImplementation for AICombatDropState {
     fn on_enter(&mut self) -> StateReturnType {
@@ -280,7 +273,6 @@ impl StateImplementation for AICombatDropState {
         Snapshotable::xfer(self, xfer)
     }
 }
-
 
 impl ClassicState for AICombatDropState {
     fn base_state(&self) -> &State {
@@ -351,7 +343,6 @@ impl ClassicState for AICombatDropState {
     }
 }
 
-
 impl Snapshotable for AIRappelIntoState {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
         let mut version: game_engine::common::system::xfer::XferVersion = 1;
@@ -386,7 +377,6 @@ impl Snapshotable for AIRappelIntoState {
         Ok(())
     }
 }
-
 
 impl Snapshotable for AICombatDropState {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {

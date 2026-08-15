@@ -8,7 +8,6 @@ use super::object_impl_imports::*;
 use super::*;
 
 impl Object {
-
     /// AI helper: idle if AI present.
     pub fn ai_idle(&mut self) {
         if let Some(ai) = &self.ai {
@@ -1022,7 +1021,7 @@ impl Object {
         }
     }
 
-    pub(in super) fn update_drawable_team_visuals(&self) {
+    pub(super) fn update_drawable_team_visuals(&self) {
         let Some(drawable) = &self.drawable else {
             return;
         };

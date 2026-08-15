@@ -1,25 +1,25 @@
 #![allow(deprecated, unused_imports, dead_code)]
 
-use super::*;
-use super::helpers::*;
-use super::follow_path_core::*;
-use super::types::*;
-use super::state_machine::*;
-use super::idle::*;
-use super::r#move::*;
-use super::follow_path::*;
-use super::wander_panic::*;
-use super::face::*;
-use super::hack::*;
-use super::rappel::*;
-use super::waypoint::*;
 use super::attack::*;
 use super::attack_machine::*;
-use super::guard::*;
-use super::hunt::*;
+use super::dead::*;
 use super::dock::*;
 use super::enter::*;
-use super::dead::*;
+use super::face::*;
+use super::follow_path::*;
+use super::follow_path_core::*;
+use super::guard::*;
+use super::hack::*;
+use super::helpers::*;
+use super::hunt::*;
+use super::idle::*;
+use super::r#move::*;
+use super::rappel::*;
+use super::state_machine::*;
+use super::types::*;
+use super::wander_panic::*;
+use super::waypoint::*;
+use super::*;
 
 use crate::action_manager::{CanEnterType, TheActionManager};
 use crate::ai::dock::AIDockMachine;
@@ -71,13 +71,11 @@ use crate::common::INVALID_ID;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock, Weak};
 
-
 /// Wait state - does nothing until interrupted.
 #[derive(Debug)]
 pub struct AIWaitState {
     pub(crate) base: State,
 }
-
 
 impl AIWaitState {
     pub fn new(machine: &StateMachine) -> Self {
@@ -86,7 +84,6 @@ impl AIWaitState {
         }
     }
 }
-
 
 impl StateImplementation for AIWaitState {
     fn on_enter(&mut self) -> StateReturnType {
@@ -99,7 +96,6 @@ impl StateImplementation for AIWaitState {
 
     fn on_exit(&mut self, _status: StateExitType) {}
 }
-
 
 impl ClassicState for AIWaitState {
     fn base_state(&self) -> &State {
@@ -123,13 +119,11 @@ impl ClassicState for AIWaitState {
     }
 }
 
-
 /// Busy state - remain busy until AI reports idle.
 #[derive(Debug)]
 pub struct AIBusyState {
     pub(crate) base: State,
 }
-
 
 impl AIBusyState {
     pub fn new(machine: &StateMachine) -> Self {
@@ -138,7 +132,6 @@ impl AIBusyState {
         }
     }
 }
-
 
 impl StateImplementation for AIBusyState {
     fn on_enter(&mut self) -> StateReturnType {
@@ -157,7 +150,6 @@ impl StateImplementation for AIBusyState {
         true
     }
 }
-
 
 impl ClassicState for AIBusyState {
     fn base_state(&self) -> &State {

@@ -1,7 +1,6 @@
 use super::*;
 
 impl PathfindingSystem {
-
     pub(crate) fn set_goal_cells(
         &self,
         unit_id: ObjectID,
@@ -1115,5 +1114,4 @@ impl PathfindingSystem {
         self.open_list_count = open.max(0);
         self.closed_list_count = closed.max(0);
     }
-
 }

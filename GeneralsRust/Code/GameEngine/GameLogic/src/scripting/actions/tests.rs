@@ -2,7 +2,6 @@
 //!
 //! Split from `scripting/actions.rs` for module-size parity.
 
-use super::*;
 use super::building::*;
 use super::camera_ui::*;
 use super::leftover::*;
@@ -15,12 +14,13 @@ use super::science_special::*;
 use super::team_command::*;
 use super::unit_actions::*;
 use super::weather_radar::*;
+use super::*;
 use crate::ai::{AiCommandParams, AiCommandType, GuardMode};
+use crate::common::PlayerIndex;
 use crate::common::{AsciiString, CommandSourceType, Coord3D, LocomotorSetType, Relationship};
 use crate::helpers::TheGameLogic;
 use crate::object::special_power_template::find_or_create_special_power_template;
 use crate::object_manager::{get_object_manager, ObjectCreationFlags};
-use crate::common::PlayerIndex;
 use crate::player::player_list;
 use crate::scripting::engine::{get_named_object_tracker, get_script_engine};
 use crate::scripting::{ScriptContext, ScriptResult, ScriptValue};
@@ -380,13 +380,9 @@ async fn set_team_alliance_sets_one_way_player_relationship() {
 async fn destroy_building_queues_object_manager_removal() {
     reset_test_object_manager();
 
-    let object = crate::object_manager::GameObjectInstance::new(
-        700,
-        None,
-        None,
-        ObjectCreationFlags::new(),
-    )
-    .expect("test object instance");
+    let object =
+        crate::object_manager::GameObjectInstance::new(700, None, None, ObjectCreationFlags::new())
+            .expect("test object instance");
     {
         let manager = get_object_manager();
         manager
@@ -461,9 +457,7 @@ async fn spawn_reinforcements_creates_grid_formation() {
 #[tokio::test]
 async fn give_special_power_initializes_player_ready_timer() {
     reset_test_players(1);
-    if let Some(mut store) =
-        crate::object::special_power_template::get_special_power_store_mut()
-    {
+    if let Some(mut store) = crate::object::special_power_template::get_special_power_store_mut() {
         store.reset();
     }
 
@@ -1361,4 +1355,3 @@ async fn create_explosion_dispatches_fx_at_position() {
         )]
     );
 }
-

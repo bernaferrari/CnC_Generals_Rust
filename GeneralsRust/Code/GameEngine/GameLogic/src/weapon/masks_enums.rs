@@ -27,7 +27,6 @@ use crate::{GameLogicError, GameLogicResult};
 use game_engine::common::ini::ini_particle_sys::ParticleSystemTemplate;
 use game_engine::common::system::Snapshotable;
 
-
 /// Weapon reload behavior types
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
@@ -438,7 +437,6 @@ impl Coord2D {
     }
 }
 
-
 /// Weapon slot types
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WeaponSlotType {
@@ -582,4 +580,3 @@ pub enum ObjectType {
     Projectile,
     Unknown,
 }
-

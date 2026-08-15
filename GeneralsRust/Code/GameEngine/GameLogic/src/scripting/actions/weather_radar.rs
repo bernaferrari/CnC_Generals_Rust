@@ -10,6 +10,7 @@ use crate::ai::integration::with_ai_integration_mut;
 use crate::ai::{AiCommandInterface, AiCommandParams, AiCommandType, AiGroup, GuardMode, THE_AI};
 use crate::commands::command::CommandType;
 use crate::commands::{get_command_queue_manager, Command, CommandPriority, QueuedCommand};
+use crate::common::PlayerIndex;
 use crate::common::{
     AsciiString, CommandSourceType, Coord3D, LocomotorSetType, Real, Relationship,
     INVALID_OBJECT_ID,
@@ -22,7 +23,6 @@ use crate::object::object_factory::{get_object_factory, GameObjectInstance};
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::special_power_template::find_or_create_special_power_template;
 use crate::object_manager::{get_object_manager, ObjectCreationFlags};
-use crate::common::PlayerIndex;
 use crate::player::{player_list, PlayerType};
 use crate::scripting::core::{LOCAL_PLAYER, TEAM_THE_PLAYER, THE_PLAYER, THIS_PLAYER, THIS_TEAM};
 use crate::scripting::engine::{get_named_object_tracker, get_script_engine};
@@ -37,7 +37,6 @@ use game_engine::common::system::radar::{get_radar_system, RadarEventType};
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
-
 
 /// Reveal map area action
 pub(super) struct RevealMapAreaAction;
@@ -93,7 +92,6 @@ impl ScriptAction for RevealMapAreaAction {
     }
 }
 
-
 /// Shroud map area action
 pub(super) struct ShroudMapAreaAction;
 
@@ -142,7 +140,6 @@ impl ScriptAction for ShroudMapAreaAction {
     }
 }
 
-
 /// Set weather action
 pub(super) struct SetWeatherAction;
 
@@ -181,7 +178,6 @@ impl ScriptAction for SetWeatherAction {
         vec!["intensity".to_string()]
     }
 }
-
 
 /// Set time of day action
 pub(super) struct SetTimeOfDayAction;
@@ -235,7 +231,6 @@ impl ScriptAction for SetTimeOfDayAction {
         vec!["duration".to_string()]
     }
 }
-
 
 // ============================================================================
 // MAP/CAMERA ACTIONS (8 critical actions)
@@ -318,7 +313,6 @@ impl ScriptAction for MapRevealAreaAction {
     }
 }
 
-
 /// Add fog
 pub(super) struct MapShroudAreaAction;
 
@@ -395,7 +389,6 @@ impl ScriptAction for MapShroudAreaAction {
     }
 }
 
-
 /// Set weather
 pub(super) struct WeatherSetAction;
 
@@ -459,7 +452,6 @@ impl ScriptAction for WeatherSetAction {
     }
 }
 
-
 /// Create a radar event at an explicit world position.
 pub(super) struct RadarCreateEventAction;
 
@@ -504,7 +496,6 @@ impl ScriptAction for RadarCreateEventAction {
         ]
     }
 }
-
 
 /// Create a radar event at a named object's current position.
 pub(super) struct ObjectCreateRadarEventAction;
@@ -556,7 +547,6 @@ impl ScriptAction for ObjectCreateRadarEventAction {
     }
 }
 
-
 /// Create a radar event at a team's estimated position.
 pub(super) struct TeamCreateRadarEventAction;
 
@@ -604,7 +594,6 @@ impl ScriptAction for TeamCreateRadarEventAction {
         vec![]
     }
 }
-
 
 /// Enable radar
 pub(super) struct RadarEnableAction;
@@ -659,7 +648,6 @@ impl ScriptAction for RadarEnableAction {
     }
 }
 
-
 /// Disable radar
 pub(super) struct RadarDisableAction;
 
@@ -713,7 +701,6 @@ impl ScriptAction for RadarDisableAction {
     }
 }
 
-
 /// Force radar on regardless of the player's current radar producers.
 pub(super) struct RadarForceEnableAction;
 
@@ -759,7 +746,6 @@ impl ScriptAction for RadarForceEnableAction {
     }
 }
 
-
 /// Return radar visibility to normal player/radar-producer rules.
 pub(super) struct RadarRevertToNormalAction;
 
@@ -804,7 +790,6 @@ impl ScriptAction for RadarRevertToNormalAction {
         vec![]
     }
 }
-
 
 /// Reveal Area Action - Matches C++ ScriptActionType::MAP_REVEAL_AT_WAYPOINT
 pub(super) struct RevealAreaAction;
@@ -881,7 +866,6 @@ impl ScriptAction for RevealAreaAction {
     }
 }
 
-
 /// Reveal Map Entire Action - Matches C++ ScriptActions::doRevealMapEntire (line 3036)
 pub(super) struct RevealMapEntireAction;
 
@@ -956,7 +940,6 @@ impl ScriptAction for RevealMapEntireAction {
         vec![]
     }
 }
-
 
 /// Shroud Map Entire Action - Matches C++ ScriptActions::doShroudMapEntire (line 3090)
 pub(super) struct ShroudMapEntireAction;

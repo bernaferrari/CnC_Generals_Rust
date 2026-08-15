@@ -329,6 +329,10 @@ impl GameWorldShadow {
             if let Some(eid) = self.world.take_last_spawned_entity() {
                 self.host_to_entity.insert(ev.id.0, eid);
                 self.entity_to_host.insert(eid.get(), ev.id.0);
+                if crate::gameworld_shadow::gameworld_entity_modules_enabled() {
+                    let spec = gamelogic::world::EntityModuleInstallSpec::default();
+                    let _ = self.world.install_entity_modules(eid, &spec);
+                }
                 spawned += 1;
             }
         }
@@ -350,17 +354,7 @@ impl GameWorldShadow {
         let applied = self.apply_pending();
         let removed = self.world.process_destroy_list();
         if removed > 0 {
-            let dead: Vec<u32> = self
-                .entity_to_host
-                .keys()
-                .copied()
-                .filter(|eid| self.world.entity(EntityId::from_raw(*eid)).is_none())
-                .collect();
-            for eid in dead {
-                if let Some(hid) = self.entity_to_host.remove(&eid) {
-                    self.host_to_entity.remove(&hid);
-                }
-            }
+            self.invalidate_dead_entity_maps();
         }
         (queued, applied.max(removed))
     }

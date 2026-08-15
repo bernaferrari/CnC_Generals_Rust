@@ -1,10 +1,10 @@
 //! C++ `Drawable::calcPhysicsXformWheels` (`Drawable.cpp:1895-2186`).
 
+use super::loco_state::PhysicsVisualLocoState;
 use super::rng::ClientVisualRng;
 use super::spring::{finish_accel_totals, ground_pitch_roll};
-use super::loco_state::PhysicsVisualLocoState;
 use super::types::{LocomotorVisualParams, PhysicsVisualBody, CPP_PI};
-use super::wheels_suspension::{apply_grounded_suspension, apply_airborne_rear_extension};
+use super::wheels_suspension::{apply_airborne_rear_extension, apply_grounded_suspension};
 use super::PhysicsVisualXform;
 
 /// Wheels: airborne early-return, bounce, ground spring, suspension, Z divisor.
@@ -26,8 +26,8 @@ pub fn calc_wheels(
         if params.has_suspension {
             apply_airborne_rear_extension(loco, params, body);
         }
-        let pitch_height = body.major_radius
-            * (loco.pitch + loco.acceleration_pitch - ground_pitch).sin();
+        let pitch_height =
+            body.major_radius * (loco.pitch + loco.acceleration_pitch - ground_pitch).sin();
         let roll_height =
             body.minor_radius * (loco.roll + loco.acceleration_roll - ground_roll).sin();
         info.total_z = pitch_height.abs() / 4.0 + roll_height.abs() / 4.0;

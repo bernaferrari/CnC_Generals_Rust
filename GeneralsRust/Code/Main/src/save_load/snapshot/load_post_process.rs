@@ -186,6 +186,13 @@ impl Snapshot for WorldSnapshot {
             self.shroud = ShroudSnapshot::default();
         }
 
+        if self.version >= WORLD_SNAPSHOT_DIRECT_XFER_V9_TAIL_VERSION {
+            xfer.xfer_marker_label("LifecycleTail")?;
+            super::xfer_helpers::xfer_vec_u8(xfer, &mut self.lifecycle_tail)?;
+        } else if xfer.get_mode() == XferMode::Load {
+            self.lifecycle_tail.clear();
+        }
+
         Ok(())
     }
 

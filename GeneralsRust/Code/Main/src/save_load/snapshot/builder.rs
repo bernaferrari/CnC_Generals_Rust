@@ -65,6 +65,9 @@ impl SnapshotBuilder {
             client_drawables: ClientDrawableWorldSnapshot::default(),
             player_template_bindings: self.snapshot_player_template_bindings(game_logic)?,
             shroud: self.snapshot_shroud_state()?,
+            lifecycle_tail: super::lifecycle_tail::encode_lifecycle_tail(
+                &super::lifecycle_tail::capture_lifecycle_tail(game_logic),
+            ),
         };
 
         log::info!(
@@ -155,6 +158,9 @@ impl SnapshotBuilder {
                 .map_err(SaveLoadError::Corrupted)?;
         }
 
+        let tail = super::lifecycle_tail::decode_lifecycle_tail(&snapshot.lifecycle_tail)?;
+        super::lifecycle_tail::apply_lifecycle_tail_to_host(&tail, game_logic)?;
+
         log::info!("World restoration complete");
         Ok(())
     }
@@ -237,7 +243,7 @@ impl SnapshotBuilder {
             // explicit zero-value pad so later slot identity survives load.
             weapons,
             contained_objects: object.occupants.clone(),
-            container_object: None, // Would need to track container
+            container_object: object.contained_by,
             modules: self.snapshot_object_modules(object)?,
             object_type,
             hacker_disable_channel: object.hacker_disable_channel,

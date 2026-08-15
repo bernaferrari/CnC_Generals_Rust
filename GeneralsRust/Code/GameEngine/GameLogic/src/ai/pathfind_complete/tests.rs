@@ -315,14 +315,8 @@ fn adjust_destination_rejects_cliff_like_cpp() {
     let mut dest = cliff;
     // From nearby clear cell; path to cliff dest should not accept cliff cell.
     let from = Coord3D::new(16.0, 16.0, 0.0);
-    let ok = system.adjust_destination_from(
-        Some(&from),
-        SURFACE_GROUND,
-        false,
-        &mut dest,
-        0.0,
-        None,
-    );
+    let ok =
+        system.adjust_destination_from(Some(&from), SURFACE_GROUND, false, &mut dest, 0.0, None);
     // Either fails or snaps off the cliff cell.
     if ok {
         assert_ne!(system.get_cell_type(&dest), Some(PathfindCellType::Cliff));
@@ -404,13 +398,7 @@ fn adjust_to_possible_destination_out_of_bounds_fails() {
     let system = PathfindingSystem::new(8, 8);
     let start = Coord3D::new(10.0, 10.0, 0.0);
     let mut dest = Coord3D::new(50_000.0, 50_000.0, 0.0);
-    assert!(!system.adjust_to_possible_destination(
-        &start,
-        &mut dest,
-        SURFACE_GROUND,
-        false,
-        0.0
-    ));
+    assert!(!system.adjust_to_possible_destination(&start, &mut dest, SURFACE_GROUND, false, 0.0));
 }
 
 #[test]
@@ -496,14 +484,9 @@ fn adjust_target_destination_finds_in_range_cell() {
 fn adjust_target_destination_out_of_bounds_fails() {
     let system = PathfindingSystem::new(8, 8);
     let mut dest = Coord3D::new(50_000.0, 50_000.0, 0.0);
-    assert!(!system.adjust_target_destination(
-        &mut dest,
-        0.0,
-        SURFACE_GROUND,
-        false,
-        None,
-        |_| true
-    ));
+    assert!(
+        !system.adjust_target_destination(&mut dest, 0.0, SURFACE_GROUND, false, None, |_| true)
+    );
 }
 
 #[test]
@@ -825,9 +808,8 @@ fn segment_intersects_no_building_false() {
     let mut i1 = Coord3D::new(0.0, 0.0, 0.0);
     let mut i2 = Coord3D::new(0.0, 0.0, 0.0);
     let mut i3 = Coord3D::new(0.0, 0.0, 0.0);
-    assert!(!system.segment_intersects_tall_building(
-        &from, &mut to, INVALID_ID, &mut i1, &mut i2, &mut i3
-    ));
+    assert!(!system
+        .segment_intersects_tall_building(&from, &mut to, INVALID_ID, &mut i1, &mut i2, &mut i3));
 }
 
 #[test]
@@ -878,8 +860,7 @@ fn build_actual_path_prepends_unit_feet() {
         GridCoord::new(5, 5),
         GridCoord::from_world(&to),
     ];
-    let result =
-        system.build_actual_path(&grid, &from, &to, SURFACE_GROUND, false, false, true);
+    let result = system.build_actual_path(&grid, &from, &to, SURFACE_GROUND, false, false, true);
     assert!(result.success);
     assert!(!result.waypoints.is_empty());
     assert_eq!(result.waypoints.len(), result.can_optimize.len());
@@ -943,9 +924,7 @@ fn update_goal_remove_goal_cpp_surface() {
     let i = prod.find("pub fn update_goal").expect("updateGoal");
     let w = &prod[i..prod.len().min(i + 4500)];
     assert!(
-        w.contains("remove_goal")
-            && w.contains("unit_goal_cells")
-            && w.contains("set_goal_cells"),
+        w.contains("remove_goal") && w.contains("unit_goal_cells") && w.contains("set_goal_cells"),
         "updateGoal must remove prior goal then stamp cells"
     );
     let j = prod
@@ -1335,8 +1314,7 @@ fn zone_block_and_effective_zone_cpp_surface() {
     );
     let w = &prod[i..prod.len().min(i + 2500)];
     assert!(
-        w.contains("SURFACE_AIR")
-            && (w.contains("crusher_zones") || w.contains("self.crusher")),
+        w.contains("SURFACE_AIR") && (w.contains("crusher_zones") || w.contains("self.crusher")),
         "getEffectiveZone must handle air + combiner tables"
     );
 }
@@ -1503,8 +1481,7 @@ fn get_move_away_finds_cell_off_path() {
         Coord3D::new(10.0, 55.0, 0.0),
         Coord3D::new(100.0, 55.0, 0.0),
     ];
-    let pos =
-        system.get_move_away_from_path(&from, &path, None, SURFACE_GROUND, false, 0.0, 0.0);
+    let pos = system.get_move_away_from_path(&from, &path, None, SURFACE_GROUND, false, 0.0, 0.0);
     assert!(pos.is_some(), "should find a cell off the path corridor");
     let p = pos.unwrap();
     // Y should move away from path y=55
@@ -2307,14 +2284,8 @@ fn hierarchical_bridge_jumps_from_live_bridge() {
             .unwrap()
             .get_block_zone(SURFACE_GROUND, false, parent.x, parent.y);
     let mut examined = Vec::new();
-    let jumps = system.hierarchical_bridge_jumps(
-        parent,
-        parent_z,
-        0,
-        SURFACE_GROUND,
-        false,
-        &mut examined,
-    );
+    let jumps =
+        system.hierarchical_bridge_jumps(parent, parent_z, 0, SURFACE_GROUND, false, &mut examined);
     assert!(
         !jumps.is_empty(),
         "live bridge must yield hierarchical far-end jump"
@@ -2349,10 +2320,8 @@ fn build_actual_path_respects_center_flag() {
         GridCoord::new(4, 1),
         GridCoord::new(8, 1),
     ];
-    let centered =
-        system.build_actual_path(&grid, &from, &to, SURFACE_GROUND, false, false, true);
-    let cornered =
-        system.build_actual_path(&grid, &from, &to, SURFACE_GROUND, false, false, false);
+    let centered = system.build_actual_path(&grid, &from, &to, SURFACE_GROUND, false, false, true);
+    let cornered = system.build_actual_path(&grid, &from, &to, SURFACE_GROUND, false, false, false);
     assert!(centered.success && cornered.success);
     // Intermediate waypoint (not from/to) should differ for center vs corner.
     // Find a mid waypoint that is not from/to.
@@ -2386,8 +2355,7 @@ fn check_for_movement_can_crush_cpp_surface() {
         .expect("checkForMovement");
     let w = &prod[i..prod.len().min(i + 12000)];
     assert!(
-        w.contains("can_crush_or_squish")
-            && w.contains("CrushSquishTestType::TestCrushOrSquish"),
+        w.contains("can_crush_or_squish") && w.contains("CrushSquishTestType::TestCrushOrSquish"),
         "checkForMovement must call canCrushOrSquish like C++"
     );
     assert!(!w.contains("Prefer real canCrush"));
@@ -2812,9 +2780,7 @@ fn refresh_logical_extent_from_terrain_cpp_surface() {
         .expect("refreshLogicalExtent");
     let w = &prod[i..prod.len().min(i + 1500)];
     assert!(
-        w.contains("get_extent")
-            && w.contains("PATHFIND_CELL_SIZE_F")
-            && w.contains("hi_x -= 1"),
+        w.contains("get_extent") && w.contains("PATHFIND_CELL_SIZE_F") && w.contains("hi_x -= 1"),
         "refresh_logical_extent must floor terrain extent / cell size and decrement hi"
     );
 }
@@ -3355,14 +3321,9 @@ fn dozer_hack_steps_non_enemy_obstacle_not_enemy() {
         .unwrap()
         .set_override_team_relationship(ENEMY_TEAM, Relationship::Enemies);
 
-    let _dozer = register_test_object(
-        DOZER_ID,
-        &[KindOf::Dozer],
-        Some(dozer_team.clone()),
-    );
+    let _dozer = register_test_object(DOZER_ID, &[KindOf::Dozer], Some(dozer_team.clone()));
     let _ally_obs = register_test_object(ALLY_OBS_ID, &[], None);
-    let _enemy_obs =
-        register_test_object(ENEMY_OBS_ID, &[], Some(enemy_team.clone()));
+    let _enemy_obs = register_test_object(ENEMY_OBS_ID, &[], Some(enemy_team.clone()));
     struct Unreg(ObjectID);
     impl Drop for Unreg {
         fn drop(&mut self) {
@@ -3420,10 +3381,7 @@ fn dozer_hack_steps_non_enemy_obstacle_not_enemy() {
 
     system.path_cache.lock().unwrap().clear();
     let infantry = system.find_path(mk(INVALID_ID));
-    assert!(
-        !infantry.success,
-        "non-dozer cannot step on CELL_OBSTACLE"
-    );
+    assert!(!infantry.success, "non-dozer cannot step on CELL_OBSTACLE");
 
     {
         let mut pf = system.pathfinder.lock().unwrap();

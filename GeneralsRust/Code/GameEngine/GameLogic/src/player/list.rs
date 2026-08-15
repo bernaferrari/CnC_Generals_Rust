@@ -300,4 +300,3 @@ impl PlayerArcExt for Arc<RwLock<Player>> {
         }
     }
 }
-

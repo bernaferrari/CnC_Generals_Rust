@@ -1660,8 +1660,8 @@ ObjectCreationList OCL_AllNuggetHeaders
 End
 "#;
 
-        let count = load_object_creation_lists_from_str(data)
-            .expect("failed to parse mixed OCL headers");
+        let count =
+            load_object_creation_lists_from_str(data).expect("failed to parse mixed OCL headers");
         assert_eq!(count, 1);
 
         let store = get_object_creation_list_store();
@@ -1676,9 +1676,7 @@ End
             .expect("CreateObject nugget");
         assert_eq!(create.names, vec!["AmericaInfantryRanger".to_string()]);
         assert_eq!(create.debris_to_generate, 2);
-        assert!(create
-            .disposition
-            .has(DebrisDisposition::ON_GROUND_ALIGNED));
+        assert!(create.disposition.has(DebrisDisposition::ON_GROUND_ALIGNED));
 
         let fire = ObjectCreationNugget::as_any(ocl.nuggets()[1].as_ref())
             .downcast_ref::<FireWeaponNugget>()

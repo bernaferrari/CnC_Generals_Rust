@@ -2498,17 +2498,7 @@ pub fn shadow_session_after_host_tick(
     if gameworld_deferred_destroy_enabled() {
         let removed = shadow.world_mut().process_destroy_list();
         if removed > 0 {
-            let dead: Vec<u32> = shadow
-                .entity_to_host
-                .keys()
-                .copied()
-                .filter(|eid| shadow.world.entity(EntityId::from_raw(*eid)).is_none())
-                .collect();
-            for eid in dead {
-                if let Some(hid) = shadow.entity_to_host.remove(&eid) {
-                    shadow.host_to_entity.remove(&hid);
-                }
-            }
+            shadow.invalidate_dead_entity_maps();
         }
     }
     let mut probe = shadow.probe(logic);

@@ -292,7 +292,11 @@ impl Weapon {
         Ok(self.apply_post_fire_state(current_frame, &bonus))
     }
 
-    pub(crate) fn apply_post_fire_state(&mut self, current_frame: u32, bonus: &WeaponBonus) -> bool {
+    pub(crate) fn apply_post_fire_state(
+        &mut self,
+        current_frame: u32,
+        bonus: &WeaponBonus,
+    ) -> bool {
         let delay = self.template.get_delay_between_shots(bonus);
         self.when_we_can_fire_again = current_frame + (delay as u32);
         self.last_fire_frame = current_frame;
@@ -1480,5 +1484,4 @@ impl Weapon {
 
         Ok(())
     }
-
 }

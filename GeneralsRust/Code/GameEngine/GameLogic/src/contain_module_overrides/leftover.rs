@@ -1,8 +1,8 @@
 //! Leftover override factories (AI update, upgrade, special power).
 //! Split from `contain_module_overrides.rs`. Factory names stay identical.
 
-use super::*;
 use super::helpers::*;
+use super::*;
 
 pub(super) fn ai_update_interface_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
     let mut data = AIUpdateModuleData::default();
@@ -371,7 +371,9 @@ macro_rules! special_power_factories {
     };
 }
 
-pub(super) fn baikonur_launch_power_module_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+pub(super) fn baikonur_launch_power_module_data_factory(
+    ini: Option<&mut INI>,
+) -> Box<dyn ModuleData> {
     let mut data = BaikonurLaunchPowerModuleData::default();
     if let Some(ini) = ini {
         if let Err(err) = data.parse_from_ini(ini) {

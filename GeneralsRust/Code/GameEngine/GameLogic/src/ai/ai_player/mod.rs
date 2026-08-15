@@ -73,28 +73,28 @@ pub(crate) fn to_ai_difficulty(diff: GameDifficulty) -> AiGameDifficulty {
     }
 }
 
-mod types;
-mod work_order;
-mod team_in_queue;
-mod strategy;
-mod impl_update;
-mod impl_teams;
 mod impl_build;
-mod impl_military;
-mod trait_impl;
-mod impl_runtime;
 mod impl_dozer;
 mod impl_economy;
+mod impl_military;
+mod impl_runtime;
 mod impl_select;
+mod impl_teams;
+mod impl_update;
 mod snapshot;
+mod strategy;
+mod team_in_queue;
+mod trait_impl;
+mod types;
+mod work_order;
 
 #[cfg(test)]
 mod tests;
 
+pub use strategy::*;
+pub use team_in_queue::*;
 pub use types::*;
 pub use work_order::*;
-pub use team_in_queue::*;
-pub use strategy::*;
 
 /// Concatenated live sources for residual `include_str!` scans.
 pub const AI_PLAYER_SRC: &str = concat!(

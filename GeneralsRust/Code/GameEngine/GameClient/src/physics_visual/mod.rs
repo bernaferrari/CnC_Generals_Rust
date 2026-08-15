@@ -21,8 +21,8 @@ pub use apply::{
     apply_physics_visual_xform, post_multiply_physics_visual_xform, PhysicsVisualInput,
 };
 pub use calc::calc_physics_visual_xform;
-pub use rng::{ClientVisualRng, LiveClientRng, ScriptedClientRng};
 pub use loco_state::PhysicsVisualLocoState;
+pub use rng::{ClientVisualRng, LiveClientRng, ScriptedClientRng};
 pub use types::{
     LocomotorVisualParams, OverlapVisualTarget, PhysicsVisualAppearance, PhysicsVisualBody, CPP_PI,
 };

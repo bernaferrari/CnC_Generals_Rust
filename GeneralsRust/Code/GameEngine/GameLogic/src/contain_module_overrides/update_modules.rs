@@ -1,8 +1,8 @@
 //! Update-module data/module factory functions.
 //! Split from `contain_module_overrides.rs`. Factory names stay identical.
 
-use super::*;
 use super::helpers::*;
+use super::*;
 
 active_behavior_factories!(
     animation_steering_update_data_factory,
@@ -110,7 +110,9 @@ pub(super) fn cleanup_hazard_update_module_factory(
     ))
 }
 
-pub(super) fn command_button_hunt_update_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+pub(super) fn command_button_hunt_update_data_factory(
+    ini: Option<&mut INI>,
+) -> Box<dyn ModuleData> {
     let mut data = CommandButtonHuntUpdateModuleData::default();
     if let Some(ini) = ini {
         if let Err(err) = data.parse_from_ini(ini) {
@@ -678,7 +680,9 @@ pub(super) fn stealth_update_module_factory(
     ))
 }
 
-pub(super) fn transition_damage_fx_module_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+pub(super) fn transition_damage_fx_module_data_factory(
+    ini: Option<&mut INI>,
+) -> Box<dyn ModuleData> {
     let mut data = TransitionDamageFXModuleData::default();
     if let Some(ini) = ini {
         if let Err(err) = data.parse_from_ini(ini) {
@@ -838,7 +842,9 @@ pub(super) fn spawn_behavior_module_factory(
     ))
 }
 
-pub(super) fn particle_uplink_cannon_update_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+pub(super) fn particle_uplink_cannon_update_data_factory(
+    ini: Option<&mut INI>,
+) -> Box<dyn ModuleData> {
     let mut data = ParticleUplinkCannonUpdateModuleData::default();
     if let Some(ini) = ini {
         if let Err(err) = data.parse_from_ini(ini) {

@@ -287,7 +287,9 @@ impl BridgeLayer {
     }
 }
 
-pub(crate) fn ignored_obstacle_cells(ignore_obstacle_id: Option<ObjectID>) -> Option<HashSet<GridCoord>> {
+pub(crate) fn ignored_obstacle_cells(
+    ignore_obstacle_id: Option<ObjectID>,
+) -> Option<HashSet<GridCoord>> {
     // Wave 262: empty dual-world → None.
     if dual_world_registry_unavailable() {
         return None;

@@ -1463,7 +1463,10 @@ mod tests {
         assert_eq!(aabbs.len(), 1);
         assert_eq!(aabbs[0].0, "ScoutPad");
         assert_eq!(aabbs[0].1, (5.0, 15.0, 15.0, 25.0));
-        assert_eq!(tracker.get_area_aabb("ScoutPad"), Some((5.0, 15.0, 15.0, 25.0)));
+        assert_eq!(
+            tracker.get_area_aabb("ScoutPad"),
+            Some((5.0, 15.0, 15.0, 25.0))
+        );
     }
 
     #[tokio::test]

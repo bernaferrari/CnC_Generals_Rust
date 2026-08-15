@@ -208,9 +208,7 @@ impl Snapshotable for SwayClientUpdateModule {
 fn current_breeze_info() -> Option<BreezeInfo> {
     let engine = get_script_engine();
     let guard = engine.read().ok()?;
-    guard
-        .as_ref()
-        .map(|engine| engine.get_breeze_info())
+    guard.as_ref().map(|engine| engine.get_breeze_info())
 }
 
 #[cfg(test)]

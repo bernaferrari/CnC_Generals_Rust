@@ -2,9 +2,7 @@
 //!
 //! These focus on lightweight invariants that should remain stable across parity work.
 
-use super::{
-    AIModulePriority, AIModuleState, AIModuleType, AIUpdateModule, AIUpdateModuleTrait,
-};
+use super::{AIModulePriority, AIModuleState, AIModuleType, AIUpdateModule, AIUpdateModuleTrait};
 
 #[test]
 fn tests_comprehensive_smoke() {

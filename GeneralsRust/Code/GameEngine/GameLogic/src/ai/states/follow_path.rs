@@ -1,25 +1,25 @@
 #![allow(deprecated, unused_imports, dead_code)]
 
-use super::*;
-use super::helpers::*;
-use super::follow_path_core::*;
-use super::types::*;
-use super::state_machine::*;
-use super::idle::*;
-use super::r#move::*;
-use super::wait_busy::*;
-use super::wander_panic::*;
-use super::face::*;
-use super::hack::*;
-use super::rappel::*;
-use super::waypoint::*;
 use super::attack::*;
 use super::attack_machine::*;
-use super::guard::*;
-use super::hunt::*;
+use super::dead::*;
 use super::dock::*;
 use super::enter::*;
-use super::dead::*;
+use super::face::*;
+use super::follow_path_core::*;
+use super::guard::*;
+use super::hack::*;
+use super::helpers::*;
+use super::hunt::*;
+use super::idle::*;
+use super::r#move::*;
+use super::rappel::*;
+use super::state_machine::*;
+use super::types::*;
+use super::wait_busy::*;
+use super::wander_panic::*;
+use super::waypoint::*;
+use super::*;
 
 use crate::action_manager::{CanEnterType, TheActionManager};
 use crate::ai::dock::AIDockMachine;
@@ -71,12 +71,10 @@ use crate::common::INVALID_ID;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock, Weak};
 
-
 pub(crate) enum FollowPathStateKindMut<'a> {
     FollowPath(&'a mut AIFollowPathState),
     FollowExitProductionPath(&'a mut AIFollowExitProductionPathState),
 }
-
 
 impl<'a> FollowPathStateKindMut<'a> {
     pub(crate) fn set_path(self, path: Vec<Coord3D>, ignore_object: Option<ObjectID>) {
@@ -100,7 +98,6 @@ impl<'a> FollowPathStateKindMut<'a> {
     }
 }
 
-
 pub(crate) fn state_follow_path_kind(
     state: &mut dyn StateImplementation,
 ) -> Option<FollowPathStateKindMut<'_>> {
@@ -121,7 +118,6 @@ pub(crate) fn state_follow_path_kind(
     None
 }
 
-
 /// Follow path state
 /// Matches C++ AIFollowPathState from AIStates.cpp lines 3229-3389.
 #[derive(Debug)]
@@ -135,7 +131,6 @@ pub struct AIFollowPathState {
     pub(crate) follow_exit_production: bool,
     pub(crate) ignore_object_id: Option<ObjectID>,
 }
-
 
 impl AIFollowPathState {
     pub fn new(machine: &StateMachine, follow_exit_production: bool) -> Self {
@@ -218,7 +213,6 @@ impl AIFollowPathState {
     }
 }
 
-
 impl StateImplementation for AIFollowPathState {
     fn on_enter(&mut self) -> StateReturnType {
         self.classic_on_enter().unwrap_or(StateReturnType::Failure)
@@ -236,7 +230,6 @@ impl StateImplementation for AIFollowPathState {
         Snapshotable::xfer(self, xfer)
     }
 }
-
 
 impl ClassicState for AIFollowPathState {
     fn base_state(&self) -> &State {
@@ -389,13 +382,11 @@ impl ClassicState for AIFollowPathState {
     }
 }
 
-
 /// Follow exit-production path state
 #[derive(Debug)]
 pub struct AIFollowExitProductionPathState {
     pub(crate) base: AIFollowPathState,
 }
-
 
 impl AIFollowExitProductionPathState {
     pub fn new(machine: &StateMachine) -> Self {
@@ -412,7 +403,6 @@ impl AIFollowExitProductionPathState {
         self.base.append_path(pos);
     }
 }
-
 
 impl StateImplementation for AIFollowExitProductionPathState {
     fn on_enter(&mut self) -> StateReturnType {
@@ -431,7 +421,6 @@ impl StateImplementation for AIFollowExitProductionPathState {
         self.base.xfer_snapshot(xfer)
     }
 }
-
 
 impl ClassicState for AIFollowExitProductionPathState {
     fn base_state(&self) -> &State {
@@ -459,7 +448,6 @@ impl ClassicState for AIFollowExitProductionPathState {
     }
 }
 
-
 /// Follow state - move toward and track the goal object.
 /// PARITY_NOTE: C++ does not have a standalone AIFollowState. C++ uses
 /// AIAttackAndFollowObject (attack+follow) or AIFollowPathState (path following).
@@ -479,7 +467,6 @@ pub struct AIFollowState {
     pub(crate) last_target_pos: Coord3D,
 }
 
-
 impl AIFollowState {
     pub fn new(machine: &StateMachine) -> Self {
         Self {
@@ -496,7 +483,6 @@ impl AIFollowState {
     }
 }
 
-
 impl StateImplementation for AIFollowState {
     fn on_enter(&mut self) -> StateReturnType {
         self.classic_on_enter().unwrap_or(StateReturnType::Failure)
@@ -510,7 +496,6 @@ impl StateImplementation for AIFollowState {
         let _ = self.classic_on_exit(_status);
     }
 }
-
 
 impl ClassicState for AIFollowState {
     fn base_state(&self) -> &State {
@@ -620,7 +605,6 @@ impl ClassicState for AIFollowState {
         Ok(())
     }
 }
-
 
 impl Snapshotable for AIFollowPathState {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {

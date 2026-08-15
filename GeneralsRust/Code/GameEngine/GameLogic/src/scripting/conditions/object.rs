@@ -3,8 +3,7 @@
 use super::helpers::{
     compare_f64, compare_i64, dual_world_registry_unavailable, event_type_from_name,
     get_player_arc, get_str_param, get_str_param_optional, lookup_named_object_id,
-    parse_nested_condition, parse_object_status_mask, perform_comparison,
-    with_script_engine_mut,
+    parse_nested_condition, parse_object_status_mask, perform_comparison, with_script_engine_mut,
 };
 use super::{ConditionRegistry, ScriptCondition, ScriptContext, ScriptValue};
 use crate::common::{Coord3D, KindOf, Relationship, LOGICFRAMES_PER_SECOND};
@@ -25,10 +24,8 @@ use game_engine::common::rts::{get_science_store, SCIENCE_INVALID};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
-
 /// Object exists condition
 pub(super) struct ObjectExistsCondition;
-
 
 #[async_trait]
 impl ScriptCondition for ObjectExistsCondition {
@@ -72,10 +69,8 @@ impl ScriptCondition for ObjectExistsCondition {
     }
 }
 
-
 /// Object health condition
 pub(super) struct ObjectHealthCondition;
-
 
 #[async_trait]
 impl ScriptCondition for ObjectHealthCondition {
@@ -145,10 +140,8 @@ impl ScriptCondition for ObjectHealthCondition {
     }
 }
 
-
 /// Object in area condition
 pub(super) struct ObjectInAreaCondition;
-
 
 #[async_trait]
 impl ScriptCondition for ObjectInAreaCondition {
@@ -220,10 +213,8 @@ impl ScriptCondition for ObjectInAreaCondition {
     }
 }
 
-
 /// Object near object condition
 pub(super) struct ObjectNearObjectCondition;
-
 
 #[async_trait]
 impl ScriptCondition for ObjectNearObjectCondition {
@@ -298,10 +289,8 @@ impl ScriptCondition for ObjectNearObjectCondition {
     }
 }
 
-
 /// Object owned by player condition
 pub(super) struct ObjectOwnedByPlayerCondition;
-
 
 #[async_trait]
 impl ScriptCondition for ObjectOwnedByPlayerCondition {
@@ -351,10 +340,8 @@ impl ScriptCondition for ObjectOwnedByPlayerCondition {
     }
 }
 
-
 /// Building Damaged - Structure health below threshold
 pub(super) struct BuildingDamagedCondition;
-
 
 #[async_trait]
 impl ScriptCondition for BuildingDamagedCondition {
@@ -364,7 +351,8 @@ impl ScriptCondition for BuildingDamagedCondition {
         _context: &ScriptContext,
     ) -> GameLogicResult<bool> {
         let object_id = crate::scripting::actions::get_int_param(parameters, "object_id")?;
-        let health_percent = crate::scripting::actions::get_float_param(parameters, "health_percent")?;
+        let health_percent =
+            crate::scripting::actions::get_float_param(parameters, "health_percent")?;
 
         log::debug!(
             "Checking if building {} health is below {}%",
@@ -405,10 +393,8 @@ impl ScriptCondition for BuildingDamagedCondition {
     }
 }
 
-
 /// Unit Near Position - Unit within distance of point
 pub(super) struct UnitNearPositionCondition;
-
 
 #[async_trait]
 impl ScriptCondition for UnitNearPositionCondition {
@@ -471,12 +457,10 @@ impl ScriptCondition for UnitNearPositionCondition {
     }
 }
 
-
 //-------------------------------------------------------------------------------------------------
 // UNIT_HAS_OBJECT_STATUS - evaluateUnitHasObjectStatus
 //-------------------------------------------------------------------------------------------------
 pub(super) struct UnitHasObjectStatusCondition;
-
 
 #[async_trait]
 impl ScriptCondition for UnitHasObjectStatusCondition {
@@ -519,13 +503,11 @@ impl ScriptCondition for UnitHasObjectStatusCondition {
     }
 }
 
-
 //-------------------------------------------------------------------------------------------------
 // UNIT_EMPTIED - evaluateUnitHasEmptied
 // Returns true if transport was emptied between last frame and this frame.
 //-------------------------------------------------------------------------------------------------
 pub(super) struct UnitEmptiedCondition;
-
 
 pub(super) struct TransportStatus {
     obj_id: u32,
@@ -533,10 +515,8 @@ pub(super) struct TransportStatus {
     unit_count: i32,
 }
 
-
 static TRANSPORT_STATUSES: std::sync::Mutex<Vec<TransportStatus>> =
     std::sync::Mutex::new(Vec::new());
-
 
 #[async_trait]
 impl ScriptCondition for UnitEmptiedCondition {
@@ -618,7 +598,6 @@ impl ScriptCondition for UnitEmptiedCondition {
         vec![]
     }
 }
-
 
 //-------------------------------------------------------------------------------------------------
 // UNIT_HEALTH - C++ ScriptConditions::evaluateUnitHealth
@@ -705,7 +684,6 @@ impl ScriptCondition for UnitHealthCondition {
         vec!["unit".to_string(), "percent".to_string()]
     }
 }
-
 
 //-------------------------------------------------------------------------------------------------
 // ENEMY_SIGHTED - C++ ScriptConditions::evaluateEnemySighted

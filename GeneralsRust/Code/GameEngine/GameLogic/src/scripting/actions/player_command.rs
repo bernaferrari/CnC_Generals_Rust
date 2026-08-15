@@ -10,6 +10,7 @@ use crate::ai::integration::with_ai_integration_mut;
 use crate::ai::{AiCommandInterface, AiCommandParams, AiCommandType, AiGroup, GuardMode, THE_AI};
 use crate::commands::command::CommandType;
 use crate::commands::{get_command_queue_manager, Command, CommandPriority, QueuedCommand};
+use crate::common::PlayerIndex;
 use crate::common::{
     AsciiString, CommandSourceType, Coord3D, LocomotorSetType, Real, Relationship,
     INVALID_OBJECT_ID,
@@ -22,7 +23,6 @@ use crate::object::object_factory::{get_object_factory, GameObjectInstance};
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::special_power_template::find_or_create_special_power_template;
 use crate::object_manager::{get_object_manager, ObjectCreationFlags};
-use crate::common::PlayerIndex;
 use crate::player::{player_list, PlayerType};
 use crate::scripting::core::{LOCAL_PLAYER, TEAM_THE_PLAYER, THE_PLAYER, THIS_PLAYER, THIS_TEAM};
 use crate::scripting::engine::{get_named_object_tracker, get_script_engine};
@@ -37,7 +37,6 @@ use game_engine::common::system::radar::{get_radar_system, RadarEventType};
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
-
 
 /// Set player relation action
 pub(super) struct SetPlayerRelationAction;
@@ -83,7 +82,6 @@ impl ScriptAction for SetPlayerRelationAction {
         vec![]
     }
 }
-
 
 /// Defeat player action
 pub(super) struct DefeatPlayerAction;
@@ -133,7 +131,6 @@ impl ScriptAction for DefeatPlayerAction {
         vec![]
     }
 }
-
 
 /// Disable production
 pub(super) struct PlayerDisableFactoriesAction;
@@ -210,7 +207,6 @@ impl ScriptAction for PlayerDisableFactoriesAction {
     }
 }
 
-
 /// Enable production
 pub(super) struct PlayerEnableFactoriesAction;
 
@@ -285,7 +281,6 @@ impl ScriptAction for PlayerEnableFactoriesAction {
     }
 }
 
-
 /// Build defenses
 pub(super) struct PlayerBuildBaseDefenseAction;
 
@@ -349,7 +344,6 @@ impl ScriptAction for PlayerBuildBaseDefenseAction {
     }
 }
 
-
 /// Player AI hunts
 pub(super) struct PlayerHuntAction;
 
@@ -394,7 +388,6 @@ impl ScriptAction for PlayerHuntAction {
         vec![]
     }
 }
-
 
 /// Garrison everything
 pub(super) struct PlayerGarrisonAllBuildingsAction;
@@ -521,7 +514,6 @@ impl ScriptAction for PlayerGarrisonAllBuildingsAction {
     }
 }
 
-
 /// Sell structure
 pub(super) struct PlayerSellBuildingAction;
 
@@ -592,7 +584,6 @@ impl ScriptAction for PlayerSellBuildingAction {
         vec![]
     }
 }
-
 
 /// Evacuate garrison
 pub(super) struct PlayerEvacuateBuildingAction;
@@ -683,7 +674,6 @@ impl ScriptAction for PlayerEvacuateBuildingAction {
     }
 }
 
-
 /// Set player active/inactive
 pub(super) struct PlayerSetActiveAction;
 
@@ -747,7 +737,6 @@ impl ScriptAction for PlayerSetActiveAction {
     }
 }
 
-
 // ============================================================================
 // 20 CORE SCRIPT ACTIONS - Priority 1 Implementation
 // Based on C++ ScriptActions from GENERALSMD_SCRIPTING_SYSTEM_GUIDE.md
@@ -799,7 +788,6 @@ impl ScriptAction for VictoryAction {
     }
 }
 
-
 /// Defeat Action - Matches C++ ScriptActionType::DEFEAT
 pub(super) struct DefeatAction;
 
@@ -845,7 +833,6 @@ impl ScriptAction for DefeatAction {
         vec![]
     }
 }
-
 
 /// Set Team Alliance Action - Matches C++ ScriptActionType::PLAYER_RELATES_PLAYER
 pub(super) struct SetTeamAllianceAction;

@@ -56,7 +56,8 @@ impl ScriptActionDispatcher {
     ) -> Result<ScriptActionResult, ScriptError> {
         let priority_set = self.get_string_param(action, 0)?;
         let priority = self.get_int_param(action, 1)?;
-        let _ = with_script_engine_mut(|engine| engine.set_priority_default(&priority_set, priority));
+        let _ =
+            with_script_engine_mut(|engine| engine.set_priority_default(&priority_set, priority));
         log::debug!(
             "Setting default attack priority '{}' to {}",
             priority_set,

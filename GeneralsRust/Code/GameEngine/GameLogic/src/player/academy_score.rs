@@ -492,4 +492,3 @@ impl ScoreKeeper {
         }
     }
 }
-

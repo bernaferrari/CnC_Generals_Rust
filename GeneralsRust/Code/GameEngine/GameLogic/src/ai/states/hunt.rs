@@ -1,25 +1,25 @@
 #![allow(deprecated, unused_imports, dead_code)]
 
-use super::*;
-use super::helpers::*;
-use super::follow_path_core::*;
-use super::types::*;
-use super::state_machine::*;
-use super::idle::*;
-use super::r#move::*;
-use super::follow_path::*;
-use super::wait_busy::*;
-use super::wander_panic::*;
-use super::face::*;
-use super::hack::*;
-use super::rappel::*;
-use super::waypoint::*;
 use super::attack::*;
 use super::attack_machine::*;
-use super::guard::*;
+use super::dead::*;
 use super::dock::*;
 use super::enter::*;
-use super::dead::*;
+use super::face::*;
+use super::follow_path::*;
+use super::follow_path_core::*;
+use super::guard::*;
+use super::hack::*;
+use super::helpers::*;
+use super::idle::*;
+use super::r#move::*;
+use super::rappel::*;
+use super::state_machine::*;
+use super::types::*;
+use super::wait_busy::*;
+use super::wander_panic::*;
+use super::waypoint::*;
+use super::*;
 
 use crate::action_manager::{CanEnterType, TheActionManager};
 use crate::ai::dock::AIDockMachine;
@@ -71,7 +71,6 @@ use crate::common::INVALID_ID;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock, Weak};
 
-
 /// Hunt state - seek and destroy
 #[derive(Debug)]
 pub struct AIHuntState {
@@ -79,7 +78,6 @@ pub struct AIHuntState {
     pub(crate) hunt_machine: Option<AIAttackThenIdleStateMachine>,
     pub(crate) next_enemy_scan_time: u32,
 }
-
 
 impl AIHuntState {
     pub fn new(machine: &StateMachine) -> Self {
@@ -195,7 +193,6 @@ impl AIHuntState {
     }
 }
 
-
 impl StateImplementation for AIHuntState {
     fn on_enter(&mut self) -> StateReturnType {
         self.classic_on_enter().unwrap_or(StateReturnType::Failure)
@@ -213,7 +210,6 @@ impl StateImplementation for AIHuntState {
         Snapshotable::xfer(self, xfer)
     }
 }
-
 
 impl ClassicState for AIHuntState {
     fn base_state(&self) -> &State {
@@ -353,7 +349,6 @@ impl ClassicState for AIHuntState {
             .unwrap_or(false)
     }
 }
-
 
 impl Snapshotable for AIHuntState {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {

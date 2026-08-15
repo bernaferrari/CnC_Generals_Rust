@@ -3,8 +3,7 @@
 use super::helpers::{
     compare_f64, compare_i64, dual_world_registry_unavailable, event_type_from_name,
     get_player_arc, get_str_param, get_str_param_optional, lookup_named_object_id,
-    parse_nested_condition, parse_object_status_mask, perform_comparison,
-    with_script_engine_mut,
+    parse_nested_condition, parse_object_status_mask, perform_comparison, with_script_engine_mut,
 };
 use super::{ConditionRegistry, ScriptCondition, ScriptContext, ScriptValue};
 use crate::common::{Coord3D, KindOf, Relationship, LOGICFRAMES_PER_SECOND};
@@ -25,10 +24,8 @@ use game_engine::common::rts::{get_science_store, SCIENCE_INVALID};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
-
 /// Game time condition
 pub(super) struct GameTimeCondition;
-
 
 #[async_trait]
 impl ScriptCondition for GameTimeCondition {
@@ -76,10 +73,8 @@ impl ScriptCondition for GameTimeCondition {
     }
 }
 
-
 /// Timer condition
 pub(super) struct TimerCondition;
-
 
 #[async_trait]
 impl ScriptCondition for TimerCondition {
@@ -129,10 +124,8 @@ impl ScriptCondition for TimerCondition {
     }
 }
 
-
 /// Event occurred condition
 pub(super) struct EventOccurredCondition;
-
 
 #[async_trait]
 impl ScriptCondition for EventOccurredCondition {
@@ -175,12 +168,10 @@ impl ScriptCondition for EventOccurredCondition {
     }
 }
 
-
 //-------------------------------------------------------------------------------------------------
 // BRIDGE_REPAIRED - evaluateBridgeRepaired
 //-------------------------------------------------------------------------------------------------
 pub(super) struct BridgeRepairedCondition;
-
 
 #[async_trait]
 impl ScriptCondition for BridgeRepairedCondition {
@@ -214,12 +205,10 @@ impl ScriptCondition for BridgeRepairedCondition {
     }
 }
 
-
 //-------------------------------------------------------------------------------------------------
 // BRIDGE_BROKEN - evaluateBridgeBroken
 //-------------------------------------------------------------------------------------------------
 pub(super) struct BridgeBrokenCondition;
-
 
 #[async_trait]
 impl ScriptCondition for BridgeBrokenCondition {
@@ -253,12 +242,10 @@ impl ScriptCondition for BridgeBrokenCondition {
     }
 }
 
-
 //-------------------------------------------------------------------------------------------------
 // HAS_FINISHED_VIDEO
 //-------------------------------------------------------------------------------------------------
 pub(super) struct VideoCompletedCondition;
-
 
 #[async_trait]
 impl ScriptCondition for VideoCompletedCondition {
@@ -288,12 +275,10 @@ impl ScriptCondition for VideoCompletedCondition {
     }
 }
 
-
 //-------------------------------------------------------------------------------------------------
 // HAS_FINISHED_SPEECH
 //-------------------------------------------------------------------------------------------------
 pub(super) struct SpeechCompletedCondition;
-
 
 #[async_trait]
 impl ScriptCondition for SpeechCompletedCondition {
@@ -323,12 +308,10 @@ impl ScriptCondition for SpeechCompletedCondition {
     }
 }
 
-
 //-------------------------------------------------------------------------------------------------
 // HAS_FINISHED_AUDIO
 //-------------------------------------------------------------------------------------------------
 pub(super) struct AudioCompletedCondition;
-
 
 #[async_trait]
 impl ScriptCondition for AudioCompletedCondition {
@@ -358,12 +341,10 @@ impl ScriptCondition for AudioCompletedCondition {
     }
 }
 
-
 //-------------------------------------------------------------------------------------------------
 // MUSIC_TRACK_HAS_COMPLETED
 //-------------------------------------------------------------------------------------------------
 pub(super) struct MusicTrackCompletedCondition;
-
 
 #[async_trait]
 impl ScriptCondition for MusicTrackCompletedCondition {
@@ -405,12 +386,10 @@ impl ScriptCondition for MusicTrackCompletedCondition {
     }
 }
 
-
 //-------------------------------------------------------------------------------------------------
 // CAMERA_MOVEMENT_FINISHED
 //-------------------------------------------------------------------------------------------------
 pub(super) struct CameraMovementFinishedCondition;
-
 
 #[async_trait]
 impl ScriptCondition for CameraMovementFinishedCondition {
@@ -443,13 +422,11 @@ impl ScriptCondition for CameraMovementFinishedCondition {
     }
 }
 
-
 //-------------------------------------------------------------------------------------------------
 // MISSION_ATTEMPTS - Matches C++ ScriptConditions::evaluateMissionAttempts (line 1208)
 // C++ returns false unconditionally; the player lookup is commented out.
 //-------------------------------------------------------------------------------------------------
 pub(super) struct MissionAttemptsCondition;
-
 
 #[async_trait]
 impl ScriptCondition for MissionAttemptsCondition {
@@ -478,7 +455,6 @@ impl ScriptCondition for MissionAttemptsCondition {
         vec![]
     }
 }
-
 
 //-------------------------------------------------------------------------------------------------
 // TIMER_EXPIRED - C++ ScriptEngine::evaluateTimer

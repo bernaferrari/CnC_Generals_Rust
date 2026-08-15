@@ -1,25 +1,25 @@
 #![allow(deprecated, unused_imports, dead_code)]
 
-use super::*;
-use super::helpers::*;
-use super::follow_path_core::*;
-use super::types::*;
-use super::state_machine::*;
-use super::idle::*;
-use super::r#move::*;
-use super::follow_path::*;
-use super::wait_busy::*;
-use super::face::*;
-use super::hack::*;
-use super::rappel::*;
-use super::waypoint::*;
 use super::attack::*;
 use super::attack_machine::*;
-use super::guard::*;
-use super::hunt::*;
+use super::dead::*;
 use super::dock::*;
 use super::enter::*;
-use super::dead::*;
+use super::face::*;
+use super::follow_path::*;
+use super::follow_path_core::*;
+use super::guard::*;
+use super::hack::*;
+use super::helpers::*;
+use super::hunt::*;
+use super::idle::*;
+use super::r#move::*;
+use super::rappel::*;
+use super::state_machine::*;
+use super::types::*;
+use super::wait_busy::*;
+use super::waypoint::*;
+use super::*;
 
 use crate::action_manager::{CanEnterType, TheActionManager};
 use crate::ai::dock::AIDockMachine;
@@ -71,7 +71,6 @@ use crate::common::INVALID_ID;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock, Weak};
 
-
 /// Wander along a waypoint path.
 #[derive(Debug)]
 pub struct AIWanderState {
@@ -80,7 +79,6 @@ pub struct AIWanderState {
     pub(crate) wait_frames: i32,
     pub(crate) timer: i32,
 }
-
 
 impl AIWanderState {
     pub fn new(machine: &StateMachine) -> Self {
@@ -112,7 +110,6 @@ impl AIWanderState {
     }
 }
 
-
 impl StateImplementation for AIWanderState {
     fn on_enter(&mut self) -> StateReturnType {
         self.classic_on_enter().unwrap_or(StateReturnType::Failure)
@@ -130,7 +127,6 @@ impl StateImplementation for AIWanderState {
         Snapshotable::xfer(self, xfer)
     }
 }
-
 
 impl ClassicState for AIWanderState {
     fn base_state(&self) -> &State {
@@ -253,7 +249,6 @@ impl ClassicState for AIWanderState {
     }
 }
 
-
 /// Panic state - wander while panicking.
 #[derive(Debug)]
 pub struct AIPanicState {
@@ -262,7 +257,6 @@ pub struct AIPanicState {
     pub(crate) wait_frames: i32,
     pub(crate) timer: i32,
 }
-
 
 impl AIPanicState {
     pub fn new(machine: &StateMachine) -> Self {
@@ -294,7 +288,6 @@ impl AIPanicState {
     }
 }
 
-
 impl StateImplementation for AIPanicState {
     fn on_enter(&mut self) -> StateReturnType {
         self.classic_on_enter().unwrap_or(StateReturnType::Failure)
@@ -312,7 +305,6 @@ impl StateImplementation for AIPanicState {
         Snapshotable::xfer(self, xfer)
     }
 }
-
 
 impl ClassicState for AIPanicState {
     fn base_state(&self) -> &State {
@@ -446,7 +438,6 @@ impl ClassicState for AIPanicState {
     }
 }
 
-
 impl Snapshotable for AIWanderState {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
         let mut version: game_engine::common::system::xfer::XferVersion = 1;
@@ -482,7 +473,6 @@ impl Snapshotable for AIWanderState {
         Ok(())
     }
 }
-
 
 impl Snapshotable for AIPanicState {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {

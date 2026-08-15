@@ -1,25 +1,25 @@
 #![allow(deprecated, unused_imports, dead_code)]
 
-use super::*;
-use super::helpers::*;
-use super::follow_path_core::*;
-use super::types::*;
-use super::state_machine::*;
-use super::idle::*;
-use super::follow_path::*;
-use super::wait_busy::*;
-use super::wander_panic::*;
-use super::face::*;
-use super::hack::*;
-use super::rappel::*;
-use super::waypoint::*;
 use super::attack::*;
 use super::attack_machine::*;
-use super::guard::*;
-use super::hunt::*;
+use super::dead::*;
 use super::dock::*;
 use super::enter::*;
-use super::dead::*;
+use super::face::*;
+use super::follow_path::*;
+use super::follow_path_core::*;
+use super::guard::*;
+use super::hack::*;
+use super::helpers::*;
+use super::hunt::*;
+use super::idle::*;
+use super::rappel::*;
+use super::state_machine::*;
+use super::types::*;
+use super::wait_busy::*;
+use super::wander_panic::*;
+use super::waypoint::*;
+use super::*;
 
 use crate::action_manager::{CanEnterType, TheActionManager};
 use crate::ai::dock::AIDockMachine;
@@ -71,7 +71,6 @@ use crate::common::INVALID_ID;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock, Weak};
 
-
 /// Move away from repulsors state
 /// Matches C++ AIMoveAwayFromRepulsorsState from AIStates.cpp lines 2263-2312.
 #[derive(Debug)]
@@ -81,7 +80,6 @@ pub struct AIMoveAwayFromRepulsorsState {
     pub(crate) ok_to_repath_times: i32,
     pub(crate) check_for_path: bool,
 }
-
 
 impl AIMoveAwayFromRepulsorsState {
     pub fn new(machine: &StateMachine) -> Self {
@@ -96,7 +94,6 @@ impl AIMoveAwayFromRepulsorsState {
     }
 }
 
-
 /// Wander around a point
 /// Matches C++ AIWanderInPlaceState from AIStates.cpp lines 4617-4714.
 #[derive(Debug)]
@@ -107,7 +104,6 @@ pub struct AIWanderInPlaceState {
     pub(crate) wait_frames: i32,
     pub(crate) timer: i32,
 }
-
 
 impl AIWanderInPlaceState {
     pub fn new(machine: &StateMachine) -> Self {
@@ -141,7 +137,6 @@ impl AIWanderInPlaceState {
     }
 }
 
-
 impl StateImplementation for AIWanderInPlaceState {
     fn on_enter(&mut self) -> StateReturnType {
         self.classic_on_enter().unwrap_or(StateReturnType::Failure)
@@ -159,7 +154,6 @@ impl StateImplementation for AIWanderInPlaceState {
         Snapshotable::xfer(self, xfer)
     }
 }
-
 
 impl ClassicState for AIWanderInPlaceState {
     fn base_state(&self) -> &State {
@@ -262,14 +256,12 @@ impl ClassicState for AIWanderInPlaceState {
     }
 }
 
-
 /// Move out of the way state
 /// Matches C++ AIMoveOutOfTheWayState from AIStates.cpp lines 2125-2168.
 #[derive(Debug)]
 pub struct AIMoveOutOfTheWayState {
     pub(crate) base: AIMoveToState,
 }
-
 
 impl AIMoveOutOfTheWayState {
     pub fn new(machine: &StateMachine) -> Self {
@@ -278,7 +270,6 @@ impl AIMoveOutOfTheWayState {
         Self { base }
     }
 }
-
 
 impl StateImplementation for AIMoveOutOfTheWayState {
     fn on_enter(&mut self) -> StateReturnType {
@@ -293,7 +284,6 @@ impl StateImplementation for AIMoveOutOfTheWayState {
         let _ = self.classic_on_exit(_status);
     }
 }
-
 
 impl ClassicState for AIMoveOutOfTheWayState {
     fn base_state(&self) -> &State {
@@ -375,7 +365,6 @@ impl ClassicState for AIMoveOutOfTheWayState {
     }
 }
 
-
 /// Move and tighten state
 /// Matches C++ AIMoveAndTightenState from AIStates.cpp lines 2181-2250.
 #[derive(Debug)]
@@ -384,7 +373,6 @@ pub struct AIMoveAndTightenState {
     pub(crate) ok_to_repath_times: i32,
     pub(crate) check_for_path: bool,
 }
-
 
 impl AIMoveAndTightenState {
     pub fn new(machine: &StateMachine) -> Self {
@@ -397,7 +385,6 @@ impl AIMoveAndTightenState {
         }
     }
 }
-
 
 impl StateImplementation for AIMoveAndTightenState {
     fn on_enter(&mut self) -> StateReturnType {
@@ -416,7 +403,6 @@ impl StateImplementation for AIMoveAndTightenState {
         Snapshotable::xfer(self, xfer)
     }
 }
-
 
 impl ClassicState for AIMoveAndTightenState {
     fn base_state(&self) -> &State {
@@ -465,13 +451,11 @@ impl ClassicState for AIMoveAndTightenState {
     }
 }
 
-
 /// Move and delete state - move to a position then destroy self.
 #[derive(Debug)]
 pub struct AIMoveAndDeleteState {
     pub(crate) base: AIMoveToState,
 }
-
 
 impl AIMoveAndDeleteState {
     pub fn new(machine: &StateMachine) -> Self {
@@ -480,7 +464,6 @@ impl AIMoveAndDeleteState {
         Self { base }
     }
 }
-
 
 impl StateImplementation for AIMoveAndDeleteState {
     fn on_enter(&mut self) -> StateReturnType {
@@ -499,7 +482,6 @@ impl StateImplementation for AIMoveAndDeleteState {
         Snapshotable::xfer(self, xfer)
     }
 }
-
 
 impl ClassicState for AIMoveAndDeleteState {
     fn base_state(&self) -> &State {
@@ -545,7 +527,6 @@ impl ClassicState for AIMoveAndDeleteState {
     }
 }
 
-
 impl StateImplementation for AIMoveAwayFromRepulsorsState {
     fn on_enter(&mut self) -> StateReturnType {
         self.classic_on_enter().unwrap_or(StateReturnType::Failure)
@@ -559,7 +540,6 @@ impl StateImplementation for AIMoveAwayFromRepulsorsState {
         let _ = self.classic_on_exit(_status);
     }
 }
-
 
 impl ClassicState for AIMoveAwayFromRepulsorsState {
     fn base_state(&self) -> &State {
@@ -693,7 +673,6 @@ impl ClassicState for AIMoveAwayFromRepulsorsState {
     }
 }
 
-
 /// Move to state - move to a specific position or object
 /// Matches C++ AIMoveToState from AIStates.cpp lines 1992-2115
 #[derive(Debug)]
@@ -725,16 +704,13 @@ pub struct AIMoveToState {
     pub(crate) repath_limit: Option<RepathLimit>,
 }
 
-
 pub(crate) const MIN_REPATH_TIME: u32 = 10;
-
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct RepathLimit {
     pub(crate) remaining: i32,
     pub(crate) blocked_only: bool,
 }
-
 
 impl AIMoveToState {
     /// Create new move to state
@@ -816,7 +792,6 @@ impl AIMoveToState {
     }
 }
 
-
 impl StateImplementation for AIMoveToState {
     fn on_enter(&mut self) -> StateReturnType {
         self.classic_on_enter().unwrap_or(StateReturnType::Failure)
@@ -834,7 +809,6 @@ impl StateImplementation for AIMoveToState {
         Snapshotable::xfer(self, xfer)
     }
 }
-
 
 impl ClassicState for AIMoveToState {
     fn base_state(&self) -> &State {
@@ -1205,14 +1179,12 @@ impl ClassicState for AIMoveToState {
     }
 }
 
-
 /// Move and evacuate state - move to a position then evacuate transport.
 #[derive(Debug)]
 pub struct AIMoveAndEvacuateState {
     pub(crate) base: AIMoveToState,
     pub(crate) origin: Coord3D,
 }
-
 
 impl AIMoveAndEvacuateState {
     pub fn new(machine: &StateMachine, name: &str) -> Self {
@@ -1224,7 +1196,6 @@ impl AIMoveAndEvacuateState {
         }
     }
 }
-
 
 impl StateImplementation for AIMoveAndEvacuateState {
     fn on_enter(&mut self) -> StateReturnType {
@@ -1243,7 +1214,6 @@ impl StateImplementation for AIMoveAndEvacuateState {
         Snapshotable::xfer(self, xfer)
     }
 }
-
 
 impl ClassicState for AIMoveAndEvacuateState {
     fn base_state(&self) -> &State {
@@ -1323,7 +1293,6 @@ impl ClassicState for AIMoveAndEvacuateState {
         true
     }
 }
-
 
 impl Snapshotable for AIMoveToState {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
@@ -1416,7 +1385,6 @@ impl Snapshotable for AIMoveToState {
     }
 }
 
-
 impl Snapshotable for AIWanderInPlaceState {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
         let mut version: game_engine::common::system::xfer::XferVersion = 1;
@@ -1469,7 +1437,6 @@ impl Snapshotable for AIWanderInPlaceState {
     }
 }
 
-
 impl Snapshotable for AIMoveAndTightenState {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
         let mut version: game_engine::common::system::xfer::XferVersion = 1;
@@ -1511,7 +1478,6 @@ impl Snapshotable for AIMoveAndTightenState {
     }
 }
 
-
 impl Snapshotable for AIMoveAndDeleteState {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
         let mut version: game_engine::common::system::xfer::XferVersion = 1;
@@ -1532,7 +1498,6 @@ impl Snapshotable for AIMoveAndDeleteState {
         self.base.load_post_process()
     }
 }
-
 
 impl Snapshotable for AIMoveAndEvacuateState {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {

@@ -10,6 +10,7 @@ use crate::ai::integration::with_ai_integration_mut;
 use crate::ai::{AiCommandInterface, AiCommandParams, AiCommandType, AiGroup, GuardMode, THE_AI};
 use crate::commands::command::CommandType;
 use crate::commands::{get_command_queue_manager, Command, CommandPriority, QueuedCommand};
+use crate::common::PlayerIndex;
 use crate::common::{
     AsciiString, CommandSourceType, Coord3D, LocomotorSetType, Real, Relationship,
     INVALID_OBJECT_ID,
@@ -22,7 +23,6 @@ use crate::object::object_factory::{get_object_factory, GameObjectInstance};
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::special_power_template::find_or_create_special_power_template;
 use crate::object_manager::{get_object_manager, ObjectCreationFlags};
-use crate::common::PlayerIndex;
 use crate::player::{player_list, PlayerType};
 use crate::scripting::core::{LOCAL_PLAYER, TEAM_THE_PLAYER, THE_PLAYER, THIS_PLAYER, THIS_TEAM};
 use crate::scripting::engine::{get_named_object_tracker, get_script_engine};
@@ -37,7 +37,6 @@ use game_engine::common::system::radar::{get_radar_system, RadarEventType};
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
-
 
 /// Play sound action
 pub(super) struct PlaySoundAction;
@@ -83,7 +82,6 @@ impl ScriptAction for PlaySoundAction {
         vec!["volume".to_string()]
     }
 }
-
 
 /// Play music action
 pub(super) struct PlayMusicAction;
@@ -133,7 +131,6 @@ impl ScriptAction for PlayMusicAction {
         vec!["fade_in".to_string()]
     }
 }
-
 
 // ============================================================================
 // AUDIO/VISUAL ACTIONS (7 critical actions)
@@ -193,7 +190,6 @@ impl ScriptAction for SoundPlayAction {
     }
 }
 
-
 /// Play music track
 pub(super) struct MusicPlayAction;
 
@@ -246,7 +242,6 @@ impl ScriptAction for MusicPlayAction {
         vec![]
     }
 }
-
 
 /// Play video
 pub(super) struct MoviePlayAction;
@@ -325,7 +320,6 @@ impl ScriptAction for MoviePlayAction {
     }
 }
 
-
 /// Play speech
 pub(super) struct SpeechPlayAction;
 
@@ -384,7 +378,6 @@ impl ScriptAction for SpeechPlayAction {
         vec!["allow_overlap".to_string()]
     }
 }
-
 
 /// Play Sound At Action - Matches C++ ScriptActions::doPlaySoundEffectAt (line 341)
 pub(super) struct PlaySoundAtAction;
@@ -454,7 +447,6 @@ impl ScriptAction for PlaySoundAtAction {
         vec![]
     }
 }
-
 
 /// Stop Music Action - Stops currently playing music
 pub(super) struct StopMusicAction;

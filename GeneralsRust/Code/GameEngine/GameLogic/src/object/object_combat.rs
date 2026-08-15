@@ -20,7 +20,6 @@ static PARTICLE_MANAGER: once_cell::sync::Lazy<parking_lot::Mutex<Vec<ParticleSp
     once_cell::sync::Lazy::new(|| parking_lot::Mutex::new(Vec::new()));
 
 impl Object {
-
     /// Queue body particle system spawn requests for the runtime particle bridge.
     pub fn spawn_body_particle_systems(
         &mut self,
@@ -666,7 +665,7 @@ impl Object {
         self.weapon_set = weapon_set;
     }
 
-    pub(in super) fn notify_firing_tracker_shot_fired(
+    pub(super) fn notify_firing_tracker_shot_fired(
         &mut self,
         weapon: &crate::weapon::Weapon,
         victim_id: ObjectID,
@@ -695,7 +694,7 @@ impl Object {
         }
     }
 
-    pub(in super) fn has_firing_tracker_module(&self) -> bool {
+    pub(super) fn has_firing_tracker_module(&self) -> bool {
         for entry in &self.update_module_handles {
             let found = entry.with_module(|module| {
                 matches!(
@@ -1603,7 +1602,7 @@ impl Object {
         0
     }
 
-    pub(in super) fn all_weapon_fire_flags(slot: WeaponSlotType) -> ModelConditionFlags {
+    pub(super) fn all_weapon_fire_flags(slot: WeaponSlotType) -> ModelConditionFlags {
         match slot {
             WeaponSlotType::Primary => {
                 ModelConditionFlags::FiringA

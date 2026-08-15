@@ -8,7 +8,6 @@ use super::object_impl_imports::*;
 use super::*;
 
 impl Object {
-
     /// Apply a topple force if this object has a ToppleUpdate module.
     /// Mirrors C++ Object::topple() usage.
     pub fn topple(&mut self, topple_direction: &Coord3D, topple_speed: Real, options: u32) {
@@ -537,7 +536,7 @@ impl Object {
     }
 
     /// Fire an object event to the scripting system
-    pub(in super) fn fire_object_event(&self, event: GameEvent) {
+    pub(super) fn fire_object_event(&self, event: GameEvent) {
         let event_manager = get_event_manager();
         if let Err(e) = futures::executor::block_on(event_manager.fire_event(event)) {
             log::warn!("Failed to fire object event for object {}: {}", self.id, e);

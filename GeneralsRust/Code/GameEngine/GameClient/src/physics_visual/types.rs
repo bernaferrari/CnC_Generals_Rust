@@ -28,7 +28,12 @@ impl PhysicsVisualAppearance {
     pub const fn has_physics_xform(self) -> bool {
         matches!(
             self,
-            Self::WheelsFour | Self::Motorcycle | Self::Treads | Self::Hover | Self::Wings | Self::Thrust
+            Self::WheelsFour
+                | Self::Motorcycle
+                | Self::Treads
+                | Self::Hover
+                | Self::Wings
+                | Self::Thrust
         )
     }
 }

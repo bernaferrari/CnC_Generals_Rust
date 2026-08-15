@@ -45,9 +45,9 @@ use crate::waypoint::{Waypoint, WaypointId};
 use crate::weapon::{
     Weapon, WeaponChoiceCriteria, WeaponLockType, WeaponSlotType, WeaponStatus, NO_MAX_SHOTS_LIMIT,
 };
-use game_engine::common::system::{GeometryType, Snapshotable, Xfer};
 use game_engine::common::system::xfer_load::XferLoad;
 use game_engine::common::system::xfer_save::XferSave;
+use game_engine::common::system::{GeometryType, Snapshotable, Xfer};
 
 use crate::common::INVALID_ID;
 
@@ -103,8 +103,7 @@ fn set_state_returns_base_state_machine_result() {
     let _guard = test_guard();
     let mut expected_machine =
         AIStateMachine::new(Weak::<RwLock<Object>>::new(), "ai-state-expected");
-    let mut actual_machine =
-        AIStateMachine::new(Weak::<RwLock<Object>>::new(), "ai-state-actual");
+    let mut actual_machine = AIStateMachine::new(Weak::<RwLock<Object>>::new(), "ai-state-actual");
 
     let expected = expected_machine
         .base
@@ -201,8 +200,7 @@ fn ai_do_command_polygon_updates_machine_goal_polygon() {
     }
 
     let mut machine = AIStateMachine::new(Weak::<RwLock<Object>>::new(), "ai-polygon");
-    let mut params =
-        AiCommandParams::new(AiCommandType::GuardArea, CommandSourceType::FromScript);
+    let mut params = AiCommandParams::new(AiCommandType::GuardArea, CommandSourceType::FromScript);
     params.polygon = Some(trigger_id);
 
     machine

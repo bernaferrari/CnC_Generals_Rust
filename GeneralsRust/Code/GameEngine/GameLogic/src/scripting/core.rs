@@ -1161,10 +1161,7 @@ mod parameter_type_from_u32_tests {
     #[test]
     fn parameter_type_from_u32_is_exhaustive_and_rejects_oob() {
         assert_eq!(ParameterType::from_u32(0), Some(ParameterType::Int));
-        assert_eq!(
-            ParameterType::from_u32(51),
-            Some(ParameterType::Percent)
-        );
+        assert_eq!(ParameterType::from_u32(51), Some(ParameterType::Percent));
         assert_eq!(ParameterType::from_u32(52), Some(ParameterType::NumItems));
         assert_eq!(ParameterType::from_u32(53), None);
         let impl_src = include_str!("core.rs")

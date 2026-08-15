@@ -1,25 +1,25 @@
 #![allow(deprecated, unused_imports, dead_code)]
 
-use super::*;
-use super::helpers::*;
-use super::follow_path_core::*;
-use super::types::*;
-use super::state_machine::*;
-use super::idle::*;
-use super::r#move::*;
-use super::follow_path::*;
-use super::wait_busy::*;
-use super::wander_panic::*;
-use super::face::*;
-use super::hack::*;
-use super::rappel::*;
-use super::waypoint::*;
 use super::attack_machine::*;
-use super::guard::*;
-use super::hunt::*;
+use super::dead::*;
 use super::dock::*;
 use super::enter::*;
-use super::dead::*;
+use super::face::*;
+use super::follow_path::*;
+use super::follow_path_core::*;
+use super::guard::*;
+use super::hack::*;
+use super::helpers::*;
+use super::hunt::*;
+use super::idle::*;
+use super::r#move::*;
+use super::rappel::*;
+use super::state_machine::*;
+use super::types::*;
+use super::wait_busy::*;
+use super::wander_panic::*;
+use super::waypoint::*;
+use super::*;
 
 use crate::action_manager::{CanEnterType, TheActionManager};
 use crate::ai::dock::AIDockMachine;
@@ -71,7 +71,6 @@ use crate::common::INVALID_ID;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock, Weak};
 
-
 /// Attack move-to state (attack while moving)
 #[derive(Debug)]
 pub struct AIAttackMoveToState {
@@ -81,7 +80,6 @@ pub struct AIAttackMoveToState {
     pub(crate) retry_count: i32,
     pub(crate) command_src: CommandSourceType,
 }
-
 
 impl AIAttackMoveToState {
     pub fn new(machine: &StateMachine) -> Self {
@@ -97,7 +95,6 @@ impl AIAttackMoveToState {
         }
     }
 }
-
 
 impl StateImplementation for AIAttackMoveToState {
     fn on_enter(&mut self) -> StateReturnType {
@@ -116,7 +113,6 @@ impl StateImplementation for AIAttackMoveToState {
         Snapshotable::xfer(self, xfer)
     }
 }
-
 
 impl ClassicState for AIAttackMoveToState {
     fn base_state(&self) -> &State {
@@ -268,11 +264,9 @@ impl ClassicState for AIAttackMoveToState {
     }
 }
 
-
 pub(crate) const ATTACK_RETRY_COUNT: i32 = 3;
 
 pub(crate) const ATTACK_CLOSE_ENOUGH_CELLS: f32 = 4.0;
-
 
 /// Attack follow waypoint path as team
 #[derive(Debug)]
@@ -280,7 +274,6 @@ pub struct AIAttackFollowWaypointPathAsTeamState {
     pub(crate) base: AIFollowWaypointPathAsTeamState,
     pub(crate) attack_follow_machine: Option<AIAttackMoveStateMachine>,
 }
-
 
 impl AIAttackFollowWaypointPathAsTeamState {
     pub fn new(machine: &StateMachine) -> Self {
@@ -293,7 +286,6 @@ impl AIAttackFollowWaypointPathAsTeamState {
         }
     }
 }
-
 
 impl StateImplementation for AIAttackFollowWaypointPathAsTeamState {
     fn on_enter(&mut self) -> StateReturnType {
@@ -312,7 +304,6 @@ impl StateImplementation for AIAttackFollowWaypointPathAsTeamState {
         Snapshotable::xfer(self, xfer)
     }
 }
-
 
 impl ClassicState for AIAttackFollowWaypointPathAsTeamState {
     fn base_state(&self) -> &State {
@@ -419,14 +410,12 @@ impl ClassicState for AIAttackFollowWaypointPathAsTeamState {
     }
 }
 
-
 /// Attack follow waypoint path as individuals
 #[derive(Debug)]
 pub struct AIAttackFollowWaypointPathAsIndividualsState {
     pub(crate) base: AIFollowWaypointPathAsIndividualsState,
     pub(crate) attack_follow_machine: Option<AIAttackMoveStateMachine>,
 }
-
 
 impl AIAttackFollowWaypointPathAsIndividualsState {
     pub fn new(machine: &StateMachine) -> Self {
@@ -439,7 +428,6 @@ impl AIAttackFollowWaypointPathAsIndividualsState {
         }
     }
 }
-
 
 impl StateImplementation for AIAttackFollowWaypointPathAsIndividualsState {
     fn on_enter(&mut self) -> StateReturnType {
@@ -458,7 +446,6 @@ impl StateImplementation for AIAttackFollowWaypointPathAsIndividualsState {
         Snapshotable::xfer(self, xfer)
     }
 }
-
 
 impl ClassicState for AIAttackFollowWaypointPathAsIndividualsState {
     fn base_state(&self) -> &State {
@@ -566,7 +553,6 @@ impl ClassicState for AIAttackFollowWaypointPathAsIndividualsState {
     }
 }
 
-
 /// Attack object state
 #[derive(Debug)]
 pub struct AIAttackObjectState {
@@ -582,7 +568,6 @@ pub struct AIAttackObjectState {
     /// Weapon slot that was locked when entering attack state (C++ m_lockedWeaponOnEnter)
     pub(crate) locked_weapon_on_enter: Option<WeaponSlotType>,
 }
-
 
 impl AIAttackObjectState {
     pub fn new(machine: &StateMachine, force_attack: Bool, follow_target: Bool) -> Self {
@@ -604,7 +589,6 @@ impl AIAttackObjectState {
     }
 }
 
-
 impl StateImplementation for AIAttackObjectState {
     fn on_enter(&mut self) -> StateReturnType {
         self.classic_on_enter().unwrap_or(StateReturnType::Failure)
@@ -622,7 +606,6 @@ impl StateImplementation for AIAttackObjectState {
         Snapshotable::xfer(self, xfer)
     }
 }
-
 
 impl ClassicState for AIAttackObjectState {
     fn base_state(&self) -> &State {
@@ -967,7 +950,6 @@ impl ClassicState for AIAttackObjectState {
     }
 }
 
-
 /// Attack position state
 #[derive(Debug)]
 pub struct AIAttackPositionState {
@@ -978,7 +960,6 @@ pub struct AIAttackPositionState {
     /// Weapon slot that was locked when entering attack state (C++ m_lockedWeaponOnEnter)
     pub(crate) locked_weapon_on_enter: Option<WeaponSlotType>,
 }
-
 
 impl AIAttackPositionState {
     pub fn new(machine: &StateMachine) -> Self {
@@ -995,7 +976,6 @@ impl AIAttackPositionState {
         true
     }
 }
-
 
 impl StateImplementation for AIAttackPositionState {
     fn on_enter(&mut self) -> StateReturnType {
@@ -1014,7 +994,6 @@ impl StateImplementation for AIAttackPositionState {
         Snapshotable::xfer(self, xfer)
     }
 }
-
 
 impl ClassicState for AIAttackPositionState {
     fn base_state(&self) -> &State {
@@ -1255,17 +1234,14 @@ impl ClassicState for AIAttackPositionState {
     }
 }
 
-
 pub(crate) const ENEMY_SCAN_RATE: u32 = LOGICFRAMES_PER_SECOND;
 
 pub(crate) const CRATE_PICKUP_RANGE_SQR: f32 = 100.0;
-
 
 #[derive(Debug)]
 pub struct AIAttackThenIdleStateMachine {
     pub(crate) base: StateMachine,
 }
-
 
 impl AIAttackThenIdleStateMachine {
     pub fn new(owner: Weak<RwLock<Object>>, name: &str) -> Self {
@@ -1325,14 +1301,12 @@ impl AIAttackThenIdleStateMachine {
     }
 }
 
-
 #[derive(Debug)]
 pub struct AIPickUpCrateState {
     pub(crate) base: AIMoveToState,
     pub(crate) delay_counter: i32,
     pub(crate) goal_position: Coord3D,
 }
-
 
 impl AIPickUpCrateState {
     pub fn new(machine: &StateMachine) -> Self {
@@ -1345,7 +1319,6 @@ impl AIPickUpCrateState {
         }
     }
 }
-
 
 impl StateImplementation for AIPickUpCrateState {
     fn on_enter(&mut self) -> StateReturnType {
@@ -1364,7 +1337,6 @@ impl StateImplementation for AIPickUpCrateState {
         Snapshotable::xfer(self, xfer)
     }
 }
-
 
 impl ClassicState for AIPickUpCrateState {
     fn base_state(&self) -> &State {
@@ -1421,13 +1393,11 @@ impl ClassicState for AIPickUpCrateState {
     }
 }
 
-
 #[derive(Debug)]
 pub struct AIAttackSquadState {
     pub(crate) base: State,
     pub(crate) attack_squad_machine: Option<AIAttackThenIdleStateMachine>,
 }
-
 
 impl AIAttackSquadState {
     pub fn new(machine: &StateMachine) -> Self {
@@ -1543,7 +1513,6 @@ impl AIAttackSquadState {
     }
 }
 
-
 impl StateImplementation for AIAttackSquadState {
     fn on_enter(&mut self) -> StateReturnType {
         self.classic_on_enter().unwrap_or(StateReturnType::Failure)
@@ -1561,7 +1530,6 @@ impl StateImplementation for AIAttackSquadState {
         Snapshotable::xfer(self, xfer)
     }
 }
-
 
 impl ClassicState for AIAttackSquadState {
     fn base_state(&self) -> &State {
@@ -1654,14 +1622,12 @@ impl ClassicState for AIAttackSquadState {
     }
 }
 
-
 #[derive(Debug)]
 pub struct AIAttackAreaState {
     pub(crate) base: State,
     pub(crate) attack_machine: Option<AIAttackThenIdleStateMachine>,
     pub(crate) next_enemy_scan_time: u32,
 }
-
 
 impl AIAttackAreaState {
     pub fn new(machine: &StateMachine) -> Self {
@@ -1717,7 +1683,6 @@ impl AIAttackAreaState {
     }
 }
 
-
 impl StateImplementation for AIAttackAreaState {
     fn on_enter(&mut self) -> StateReturnType {
         self.classic_on_enter().unwrap_or(StateReturnType::Failure)
@@ -1735,7 +1700,6 @@ impl StateImplementation for AIAttackAreaState {
         Snapshotable::xfer(self, xfer)
     }
 }
-
 
 impl ClassicState for AIAttackAreaState {
     fn base_state(&self) -> &State {
@@ -1844,7 +1808,6 @@ impl ClassicState for AIAttackAreaState {
     }
 }
 
-
 impl Snapshotable for AIAttackObjectState {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
         let mut version: game_engine::common::system::xfer::XferVersion = 1;
@@ -1913,7 +1876,6 @@ impl Snapshotable for AIAttackObjectState {
     }
 }
 
-
 impl Snapshotable for AIAttackPositionState {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
         let mut version: game_engine::common::system::xfer::XferVersion = 1;
@@ -1970,7 +1932,6 @@ impl Snapshotable for AIAttackPositionState {
         Ok(())
     }
 }
-
 
 impl Snapshotable for AIAttackMoveToState {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
@@ -2043,7 +2004,6 @@ impl Snapshotable for AIAttackMoveToState {
     }
 }
 
-
 impl Snapshotable for AIAttackFollowWaypointPathAsTeamState {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
         let mut version: game_engine::common::system::xfer::XferVersion = 1;
@@ -2100,7 +2060,6 @@ impl Snapshotable for AIAttackFollowWaypointPathAsTeamState {
         Ok(())
     }
 }
-
 
 impl Snapshotable for AIAttackFollowWaypointPathAsIndividualsState {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
@@ -2167,7 +2126,6 @@ impl Snapshotable for AIAttackFollowWaypointPathAsIndividualsState {
     }
 }
 
-
 impl Snapshotable for AIAttackThenIdleStateMachine {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
         let mut version: game_engine::common::system::xfer::XferVersion = 1;
@@ -2198,7 +2156,6 @@ impl Snapshotable for AIAttackThenIdleStateMachine {
         })
     }
 }
-
 
 impl Snapshotable for AIAttackSquadState {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
@@ -2251,7 +2208,6 @@ impl Snapshotable for AIAttackSquadState {
         Ok(())
     }
 }
-
 
 impl Snapshotable for AIAttackAreaState {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
@@ -2311,7 +2267,6 @@ impl Snapshotable for AIAttackAreaState {
         Ok(())
     }
 }
-
 
 impl Snapshotable for AIPickUpCrateState {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {

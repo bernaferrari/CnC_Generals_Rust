@@ -78,7 +78,10 @@ impl Player {
         )
     }
 
-    pub(super) fn can_build_more_of_type(&self, template: &dyn crate::common::ThingTemplate) -> Bool {
+    pub(super) fn can_build_more_of_type(
+        &self,
+        template: &dyn crate::common::ThingTemplate,
+    ) -> Bool {
         // Wave 268: empty dual-world → fail-closed.
         if dual_world_registry_unavailable() {
             return false;

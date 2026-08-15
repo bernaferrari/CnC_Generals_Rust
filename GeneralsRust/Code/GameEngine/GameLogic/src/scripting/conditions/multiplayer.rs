@@ -3,8 +3,7 @@
 use super::helpers::{
     compare_f64, compare_i64, dual_world_registry_unavailable, event_type_from_name,
     get_player_arc, get_str_param, get_str_param_optional, lookup_named_object_id,
-    parse_nested_condition, parse_object_status_mask, perform_comparison,
-    with_script_engine_mut,
+    parse_nested_condition, parse_object_status_mask, perform_comparison, with_script_engine_mut,
 };
 use super::{ConditionRegistry, ScriptCondition, ScriptContext, ScriptValue};
 use crate::common::{Coord3D, KindOf, Relationship, LOGICFRAMES_PER_SECOND};
@@ -25,12 +24,10 @@ use game_engine::common::rts::{get_science_store, SCIENCE_INVALID};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
-
 //-------------------------------------------------------------------------------------------------
 // MULTIPLAYER_ALLIED_VICTORY
 //-------------------------------------------------------------------------------------------------
 pub(super) struct MultiplayerAlliedVictoryCondition;
-
 
 #[async_trait]
 impl ScriptCondition for MultiplayerAlliedVictoryCondition {
@@ -56,12 +53,10 @@ impl ScriptCondition for MultiplayerAlliedVictoryCondition {
     }
 }
 
-
 //-------------------------------------------------------------------------------------------------
 // MULTIPLAYER_ALLIED_DEFEAT
 //-------------------------------------------------------------------------------------------------
 pub(super) struct MultiplayerAlliedDefeatCondition;
-
 
 #[async_trait]
 impl ScriptCondition for MultiplayerAlliedDefeatCondition {
@@ -123,12 +118,10 @@ impl ScriptCondition for MultiplayerAlliedDefeatCondition {
     }
 }
 
-
 //-------------------------------------------------------------------------------------------------
 // MULTIPLAYER_PLAYER_DEFEAT
 //-------------------------------------------------------------------------------------------------
 pub(super) struct MultiplayerPlayerDefeatCondition;
-
 
 #[async_trait]
 impl ScriptCondition for MultiplayerPlayerDefeatCondition {

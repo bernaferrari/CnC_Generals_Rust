@@ -307,10 +307,7 @@ impl AStarPathfinder {
 
     #[inline]
     fn in_bounds(&self, coord: GridCoord) -> bool {
-        coord.x >= 0
-            && coord.x < self.width as i32
-            && coord.y >= 0
-            && coord.y < self.height as i32
+        coord.x >= 0 && coord.x < self.width as i32 && coord.y >= 0 && coord.y < self.height as i32
     }
 
     #[inline]
@@ -1595,7 +1592,9 @@ impl AStarPathfinder {
     ) -> Option<PathfindLayerEnum> {
         // Stored connect_layer only — no getCell fallback (missing elevated → None).
         if Self::is_elevated_layer(on_layer) {
-            return self.layer_cell(coord, on_layer).map(|c| c.get_connect_layer());
+            return self
+                .layer_cell(coord, on_layer)
+                .map(|c| c.get_connect_layer());
         }
         self.get_cell(coord).map(|c| c.get_connect_layer())
     }
@@ -2446,7 +2445,10 @@ mod tests {
             &mut came_from,
             &mut g_scores,
         );
-        assert!(enqueued, "checkChangeLayers must enqueue same-xy connect layer");
+        assert!(
+            enqueued,
+            "checkChangeLayers must enqueue same-xy connect layer"
+        );
         let key = (start, PathfindLayerEnum::Top);
         assert!(open_members.contains(&key));
         assert_eq!(g_scores.get(&key).copied(), Some(40));
@@ -2559,10 +2561,7 @@ mod tests {
             pf2.set_cell_type(c, PathfindCellType::Clear);
             pf2.set_cell_type_on_layer(c, PathfindLayerEnum::Top, PathfindCellType::Impassable);
         }
-        assert_eq!(
-            pf2.get_cell_type(blocked),
-            Some(PathfindCellType::Clear)
-        );
+        assert_eq!(pf2.get_cell_type(blocked), Some(PathfindCellType::Clear));
         assert_eq!(
             pf2.get_cell_type_on_layer(blocked, PathfindLayerEnum::Top),
             Some(PathfindCellType::Impassable)
@@ -2676,10 +2675,9 @@ mod tests {
         for y in 0..3 {
             pf.set_cell_type(GridCoord::new(2, y), PathfindCellType::Impassable);
         }
-        assert!(
-            pf.find_path(start, goal, SURFACE_GROUND, false, 500, false, None)
-                .is_none()
-        );
+        assert!(pf
+            .find_path(start, goal, SURFACE_GROUND, false, 500, false, None)
+            .is_none());
         assert!(
             pf.find_path_on_layer(
                 start,
@@ -2707,8 +2705,8 @@ mod tests {
             pf.get_cell_type_on_layer(c, PathfindLayerEnum::Top),
             Some(PathfindCellType::Clear)
         );
-        assert!(
-            pf.find_path_on_layer(
+        assert!(pf
+            .find_path_on_layer(
                 start,
                 goal,
                 PathfindLayerEnum::Top,
@@ -2718,8 +2716,7 @@ mod tests {
                 false,
                 None,
             )
-            .is_some()
-        );
+            .is_some());
         assert!(pf
             .find_path(start, goal, SURFACE_GROUND, false, 500, false, None)
             .is_none());

@@ -8,13 +8,12 @@ use super::object_impl_imports::*;
 use super::*;
 
 impl Object {
-
     /// Pause or unpause all special power countdowns for this object.
     /// C++ Reference: Object.cpp lines 2389-2399
     ///
     /// When `pausing` is true, increments the pause count for all special powers.
     /// When `pausing` is false, decrements the pause count (unpausing).
-    pub(in super) fn pause_all_special_powers(&self, pausing: bool) {
+    pub(super) fn pause_all_special_powers(&self, pausing: bool) {
         for entry in &self.modules {
             entry.with_module(|module| {
                 if let Some(sp) = Self::get_special_power_from_module(module) {
@@ -33,7 +32,7 @@ impl Object {
     }
 
     /// Helper to extract special power interface from a module
-    pub(in super) fn get_special_power_from_module(
+    pub(super) fn get_special_power_from_module(
         module: &mut dyn Module,
     ) -> Option<&mut dyn SpecialPowerModuleInterface> {
         // Try casting to specific module types that have special power interfaces
@@ -83,7 +82,7 @@ impl Object {
         found
     }
 
-    pub(in super) fn is_valid_command_target(
+    pub(super) fn is_valid_command_target(
         &self,
         target: &Object,
         options: crate::object::update::special_power_update::SpecialPowerCommandOption,
@@ -829,7 +828,7 @@ impl Object {
         None
     }
 
-    pub(in super) fn module_special_power_interface(
+    pub(super) fn module_special_power_interface(
         module: &mut dyn Module,
     ) -> Option<&mut dyn SpecialPowerModuleInterface> {
         crate::object::special_power_interface_cast::module_special_power_interface(module)
@@ -1011,7 +1010,11 @@ impl Object {
     // C++ Reference: Object.cpp doSpecialPower, doSpecialPowerAtObject, doSpecialPowerAtLocation
     // ========================================================================
 
-    pub(in super) fn can_dispatch_special_power(&self, special_power_template_name: &str, forced: bool) -> bool {
+    pub(super) fn can_dispatch_special_power(
+        &self,
+        special_power_template_name: &str,
+        forced: bool,
+    ) -> bool {
         if forced {
             return true;
         }

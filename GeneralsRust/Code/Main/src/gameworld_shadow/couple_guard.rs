@@ -89,6 +89,7 @@ pub const GAMEWORLD_AUTHORITY_ENV_NAMES: &[&str] = &[
     "GENERALS_GAMEWORLD_SPECIAL_POWER_AUTHORITY",
     "GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY",
     "GENERALS_GAMEWORLD_WEAPON_AUTHORITY",
+    "GENERALS_GAMEWORLD_ENTITY_MODULES",
 ];
 
 /// Residual: refresh env caches and latch authority-on count.
@@ -107,6 +108,7 @@ pub fn simulate_gameworld_authority_refresh_env() -> bool {
         gameworld_special_power_authority_enabled(),
         gameworld_production_authority_enabled(),
         gameworld_weapon_authority_enabled(),
+        gameworld_entity_modules_enabled(),
     ];
     let on = flags.iter().filter(|b| **b).count();
     RESIDUAL_GWA_SHADOW_ON.store(flags[0], std::sync::atomic::Ordering::Relaxed);

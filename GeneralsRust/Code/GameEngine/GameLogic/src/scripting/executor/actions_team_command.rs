@@ -753,7 +753,11 @@ impl ScriptActionDispatcher {
         }
     }
 
-    pub(crate) fn issue_group_command_button(&self, group_arc: &Arc<RwLock<AiGroup>>, button_id: u32) {
+    pub(crate) fn issue_group_command_button(
+        &self,
+        group_arc: &Arc<RwLock<AiGroup>>,
+        button_id: u32,
+    ) {
         for member_id in self.group_member_ids(group_arc) {
             let Some(obj_arc) = TheGameLogic::find_object_by_id(member_id) else {
                 continue;

@@ -39,6 +39,31 @@ fn destroy_marks_then_process_removes_in_lockstep() {
 
     assert_eq!(shadow.world_mut().process_destroy_list(), 1);
     assert!(shadow.world().entity(eid).is_none());
+    shadow.invalidate_dead_entity_maps();
+    assert!(shadow.entity_for_host(id).is_none());
+}
+
+#[test]
+fn host_to_entity_invalidates_on_deferred_destroy_events() {
+    let _lock = AuthorityEnvGuard::lock()
+        .set("GENERALS_GAMEWORLD_DEFERRED_DESTROY", "1")
+        .set("GENERALS_GAMEWORLD_SHADOW", "1");
+
+    let mut logic = GameLogic::new();
+    let cfg = golden_skirmish_config("MapInv");
+    apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+    ensure_template(&mut logic, "Victim", 80.0);
+    let id = logic
+        .create_object("Victim", Team::USA, Vec3::new(20.0, 0.0, 20.0))
+        .expect("id");
+
+    let mut shadow = GameWorldShadow::new(64);
+    shadow.sync_from_host(&logic);
+    let eid = shadow.entity_for_host(id).expect("mapped");
+    let events = [crate::game_logic::host_destroy_log::HostDestroyEvent { id }];
+    let _ = shadow.apply_host_destroy_events(&events);
+    assert!(shadow.entity_for_host(id).is_none());
+    assert!(shadow.host_for_entity(eid).is_none());
 }
 
 #[test]

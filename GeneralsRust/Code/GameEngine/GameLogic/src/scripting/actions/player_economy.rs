@@ -10,6 +10,7 @@ use crate::ai::integration::with_ai_integration_mut;
 use crate::ai::{AiCommandInterface, AiCommandParams, AiCommandType, AiGroup, GuardMode, THE_AI};
 use crate::commands::command::CommandType;
 use crate::commands::{get_command_queue_manager, Command, CommandPriority, QueuedCommand};
+use crate::common::PlayerIndex;
 use crate::common::{
     AsciiString, CommandSourceType, Coord3D, LocomotorSetType, Real, Relationship,
     INVALID_OBJECT_ID,
@@ -22,7 +23,6 @@ use crate::object::object_factory::{get_object_factory, GameObjectInstance};
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::special_power_template::find_or_create_special_power_template;
 use crate::object_manager::{get_object_manager, ObjectCreationFlags};
-use crate::common::PlayerIndex;
 use crate::player::{player_list, PlayerType};
 use crate::scripting::core::{LOCAL_PLAYER, TEAM_THE_PLAYER, THE_PLAYER, THIS_PLAYER, THIS_TEAM};
 use crate::scripting::engine::{get_named_object_tracker, get_script_engine};
@@ -37,7 +37,6 @@ use game_engine::common::system::radar::{get_radar_system, RadarEventType};
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
-
 
 /// Set player resource action
 pub(super) struct SetPlayerResourceAction;
@@ -93,7 +92,6 @@ impl ScriptAction for SetPlayerResourceAction {
         vec![]
     }
 }
-
 
 /// Add player resource action
 pub(super) struct AddPlayerResourceAction;
@@ -155,7 +153,6 @@ impl ScriptAction for AddPlayerResourceAction {
     }
 }
 
-
 /// Add player money
 pub(super) struct PlayerAddMoneyAction;
 
@@ -214,7 +211,6 @@ impl ScriptAction for PlayerAddMoneyAction {
         vec![]
     }
 }
-
 
 // ============================================================================
 // HIGH-PRIORITY MISSING ACTIONS - PORTED FROM C++
@@ -283,7 +279,6 @@ impl ScriptAction for GiveMoneyAction {
     }
 }
 
-
 /// Set Money Action - Matches C++ ScriptActions::doSetMoney (line 3980)
 pub(super) struct SetMoneyAction;
 
@@ -340,7 +335,6 @@ impl ScriptAction for SetMoneyAction {
         vec![]
     }
 }
-
 
 /// Set Handicap Action - Sets player difficulty/handicap modifier
 pub(super) struct SetHandicapAction;

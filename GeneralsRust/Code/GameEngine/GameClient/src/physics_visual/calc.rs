@@ -1,11 +1,11 @@
 //! C++ `Drawable::calcPhysicsXform` dispatcher (`Drawable.cpp:1390-1441`).
 
 use super::hover::calc_hover_or_wings;
+use super::loco_state::PhysicsVisualLocoState;
 use super::motorcycle::calc_motorcycle;
 use super::rng::ClientVisualRng;
 use super::thrust::calc_thrust;
 use super::treads::calc_treads;
-use super::loco_state::PhysicsVisualLocoState;
 use super::types::{LocomotorVisualParams, PhysicsVisualAppearance, PhysicsVisualBody};
 use super::wheels::calc_wheels;
 use super::PhysicsVisualXform;

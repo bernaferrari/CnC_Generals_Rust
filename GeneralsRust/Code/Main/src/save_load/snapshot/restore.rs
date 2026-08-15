@@ -419,10 +419,21 @@ impl SnapshotBuilder {
         game_logic: &mut GameLogic,
     ) -> SaveLoadResult<()> {
         if let Some(container_id) = snapshot.container_object {
-            if let Some(container) = game_logic.host_object_mut(container_id) {
-                if !container.occupants.contains(&snapshot.id) {
-                    container.occupants.push(snapshot.id);
+            if game_logic.host_object(container_id).is_some() {
+                if let Some(container) = game_logic.host_object_mut(container_id) {
+                    if !container.occupants.contains(&snapshot.id) {
+                        container.occupants.push(snapshot.id);
+                    }
                 }
+                if let Some(occupant) = game_logic.host_object_mut(snapshot.id) {
+                    occupant.contained_by = Some(container_id);
+                }
+            } else {
+                log::warn!(
+                    "contain fixup orphan container={} occupant={}",
+                    container_id.0,
+                    snapshot.id.0
+                );
             }
         }
 

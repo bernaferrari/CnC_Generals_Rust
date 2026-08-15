@@ -1,25 +1,25 @@
 #![allow(deprecated, unused_imports, dead_code)]
 
-use super::*;
-use super::helpers::*;
-use super::follow_path_core::*;
-use super::types::*;
-use super::state_machine::*;
-use super::idle::*;
-use super::r#move::*;
-use super::follow_path::*;
-use super::wait_busy::*;
-use super::wander_panic::*;
-use super::face::*;
-use super::hack::*;
-use super::rappel::*;
-use super::waypoint::*;
 use super::attack::*;
-use super::guard::*;
-use super::hunt::*;
+use super::dead::*;
 use super::dock::*;
 use super::enter::*;
-use super::dead::*;
+use super::face::*;
+use super::follow_path::*;
+use super::follow_path_core::*;
+use super::guard::*;
+use super::hack::*;
+use super::helpers::*;
+use super::hunt::*;
+use super::idle::*;
+use super::r#move::*;
+use super::rappel::*;
+use super::state_machine::*;
+use super::types::*;
+use super::wait_busy::*;
+use super::wander_panic::*;
+use super::waypoint::*;
+use super::*;
 
 use crate::action_manager::{CanEnterType, TheActionManager};
 use crate::ai::dock::AIDockMachine;
@@ -71,7 +71,6 @@ use crate::common::INVALID_ID;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock, Weak};
 
-
 // ---------------------------------------------------------------------------
 // in_weapon_range_object helper (negation of out_of_weapon_range_object)
 // Used by portable structure chase conditions in the attack state machine.
@@ -85,7 +84,6 @@ pub(crate) fn in_weapon_range_object_state(base: &State) -> Result<bool, String>
     let out_of_range = out_of_weapon_range_object_state(base)?;
     Ok(!out_of_range)
 }
-
 
 /// Typed version of in_weapon_range_object for the pursue state on portable
 /// structures. When a rider (e.g., infantry on a tank) is attacking, it cannot
@@ -102,7 +100,6 @@ pub(crate) fn in_weapon_range_object_chase(
     in_weapon_range_object_state(&state.base.base)
 }
 
-
 // ---------------------------------------------------------------------------
 // Attack state machine for more complex attack behavior
 // ---------------------------------------------------------------------------
@@ -116,13 +113,11 @@ pub enum AttackSubStateId {
     FireWeapon = 3,     // FIRE_WEAPON
 }
 
-
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct AttackContinuationData {
     pub(crate) attack_type: AbleToAttackType,
     pub(crate) force_attacking: Bool,
 }
-
 
 pub(crate) fn out_of_weapon_range_object_state(base: &State) -> Result<bool, String> {
     let owner = base
@@ -143,7 +138,6 @@ pub(crate) fn out_of_weapon_range_object_state(base: &State) -> Result<bool, Str
     Ok(!weapon.is_within_attack_range(owner_guard.get_id(), Some(target_id), None))
 }
 
-
 pub(crate) fn out_of_weapon_range_position_state(base: &State) -> Result<bool, String> {
     let owner = base
         .get_machine_owner()
@@ -159,7 +153,6 @@ pub(crate) fn out_of_weapon_range_position_state(base: &State) -> Result<bool, S
     };
     Ok(!weapon.is_within_attack_range(owner_guard.get_id(), None, Some(&pos)))
 }
-
 
 pub(crate) fn want_to_squish_target_state(base: &State) -> Result<bool, String> {
     // Wave 257: empty dual-world → Ok(false).
@@ -219,7 +212,6 @@ pub(crate) fn want_to_squish_target_state(base: &State) -> Result<bool, String> 
     Ok(true)
 }
 
-
 pub(crate) fn cannot_possibly_attack_object_state(
     base: &State,
     user_data: &StateTransitionUserData,
@@ -269,14 +261,12 @@ pub(crate) fn cannot_possibly_attack_object_state(
     ))
 }
 
-
 pub(crate) fn out_of_weapon_range_object_aim(
     state: &AIAttackAimAtTargetState,
     _user_data: &StateTransitionUserData,
 ) -> Result<bool, String> {
     out_of_weapon_range_object_state(state.base_state())
 }
-
 
 pub(crate) fn out_of_weapon_range_object_fire(
     state: &AIAttackFireWeaponState,
@@ -285,14 +275,12 @@ pub(crate) fn out_of_weapon_range_object_fire(
     out_of_weapon_range_object_state(state.base_state())
 }
 
-
 pub(crate) fn out_of_weapon_range_position_aim(
     state: &AIAttackAimAtTargetState,
     _user_data: &StateTransitionUserData,
 ) -> Result<bool, String> {
     out_of_weapon_range_position_state(state.base_state())
 }
-
 
 pub(crate) fn out_of_weapon_range_position_fire(
     state: &AIAttackFireWeaponState,
@@ -301,14 +289,12 @@ pub(crate) fn out_of_weapon_range_position_fire(
     out_of_weapon_range_position_state(state.base_state())
 }
 
-
 pub(crate) fn want_to_squish_target_aim(
     state: &AIAttackAimAtTargetState,
     _user_data: &StateTransitionUserData,
 ) -> Result<bool, String> {
     want_to_squish_target_state(state.base_state())
 }
-
 
 pub(crate) fn want_to_squish_target_fire(
     state: &AIAttackFireWeaponState,
@@ -317,14 +303,12 @@ pub(crate) fn want_to_squish_target_fire(
     want_to_squish_target_state(state.base_state())
 }
 
-
 pub(crate) fn cannot_possibly_attack_object_aim(
     state: &AIAttackAimAtTargetState,
     user_data: &StateTransitionUserData,
 ) -> Result<bool, String> {
     cannot_possibly_attack_object_state(state.base_state(), user_data)
 }
-
 
 pub(crate) fn cannot_possibly_attack_object_fire(
     state: &AIAttackFireWeaponState,
@@ -333,7 +317,6 @@ pub(crate) fn cannot_possibly_attack_object_fire(
     cannot_possibly_attack_object_state(state.base_state(), user_data)
 }
 
-
 pub struct AttackStateMachine {
     pub(crate) base: StateMachine,
     pub(crate) exit_conditions: Option<Box<dyn AttackExitConditionsInterface>>,
@@ -341,7 +324,6 @@ pub struct AttackStateMachine {
     pub(crate) attacking_object: Bool,
     pub(crate) force_attacking: Bool,
 }
-
 
 impl std::fmt::Debug for AttackStateMachine {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -354,12 +336,10 @@ impl std::fmt::Debug for AttackStateMachine {
     }
 }
 
-
 /// Interface for attack exit conditions
 pub trait AttackExitConditionsInterface: Send + Sync {
     fn should_exit(&self, machine: &StateMachine) -> bool;
 }
-
 
 impl AttackStateMachine {
     pub fn new(
@@ -598,7 +578,6 @@ impl AttackStateMachine {
     }
 }
 
-
 #[derive(Debug)]
 pub struct AIAttackAimAtTargetState {
     pub(crate) base: State,
@@ -607,7 +586,6 @@ pub struct AIAttackAimAtTargetState {
     pub(crate) can_turn_in_place: Bool,
     pub(crate) set_locomotor: Bool,
 }
-
 
 impl AIAttackAimAtTargetState {
     pub fn new(machine: &StateMachine, attacking_object: Bool, force_attacking: Bool) -> Self {
@@ -620,7 +598,6 @@ impl AIAttackAimAtTargetState {
         }
     }
 }
-
 
 impl StateImplementation for AIAttackAimAtTargetState {
     fn on_enter(&mut self) -> StateReturnType {
@@ -639,7 +616,6 @@ impl StateImplementation for AIAttackAimAtTargetState {
         Snapshotable::xfer(self, xfer)
     }
 }
-
 
 impl ClassicState for AIAttackAimAtTargetState {
     fn base_state(&self) -> &State {
@@ -967,13 +943,11 @@ impl ClassicState for AIAttackAimAtTargetState {
     }
 }
 
-
 #[derive(Debug)]
 pub struct AIAttackFireWeaponState {
     pub(crate) base: State,
     pub(crate) attacking_object: Bool,
 }
-
 
 impl AIAttackFireWeaponState {
     pub fn new(machine: &StateMachine, attacking_object: Bool) -> Self {
@@ -983,7 +957,6 @@ impl AIAttackFireWeaponState {
         }
     }
 }
-
 
 impl StateImplementation for AIAttackFireWeaponState {
     fn on_enter(&mut self) -> StateReturnType {
@@ -998,7 +971,6 @@ impl StateImplementation for AIAttackFireWeaponState {
         let _ = self.classic_on_exit(_status);
     }
 }
-
 
 impl ClassicState for AIAttackFireWeaponState {
     fn base_state(&self) -> &State {
@@ -1273,11 +1245,13 @@ impl ClassicState for AIAttackFireWeaponState {
     }
 }
 
-
 pub(crate) const ATTACK_MIN_RECOMPUTE_TIME: u32 = 10;
 
-
-pub(crate) fn attack_view_blocked(source: &Object, victim: Option<&Object>, victim_pos: &Coord3D) -> bool {
+pub(crate) fn attack_view_blocked(
+    source: &Object,
+    victim: Option<&Object>,
+    victim_pos: &Coord3D,
+) -> bool {
     THE_AI
         .read()
         .ok()
@@ -1293,7 +1267,6 @@ pub(crate) fn attack_view_blocked(source: &Object, victim: Option<&Object>, vict
         })
         .unwrap_or(false)
 }
-
 
 pub(crate) fn attack_can_pursue(source: &Object, weapon: &Weapon, victim: &Object) -> bool {
     if victim.get_physics().is_none() {
@@ -1373,7 +1346,6 @@ pub(crate) fn attack_can_pursue(source: &Object, weapon: &Weapon, victim: &Objec
     true
 }
 
-
 #[derive(Debug)]
 pub struct AIAttackPursueTargetState {
     pub(crate) base: AIMoveToState,
@@ -1385,7 +1357,6 @@ pub struct AIAttackPursueTargetState {
     pub(crate) is_initial_approach: Bool,
     pub(crate) force_attacking: Bool,
 }
-
 
 impl AIAttackPursueTargetState {
     pub fn new(
@@ -1616,7 +1587,6 @@ impl AIAttackPursueTargetState {
     }
 }
 
-
 impl StateImplementation for AIAttackPursueTargetState {
     fn on_enter(&mut self) -> StateReturnType {
         self.classic_on_enter().unwrap_or(StateReturnType::Failure)
@@ -1634,7 +1604,6 @@ impl StateImplementation for AIAttackPursueTargetState {
         Snapshotable::xfer(self, xfer)
     }
 }
-
 
 impl ClassicState for AIAttackPursueTargetState {
     fn base_state(&self) -> &State {
@@ -1791,7 +1760,6 @@ impl ClassicState for AIAttackPursueTargetState {
     }
 }
 
-
 #[derive(Debug)]
 pub struct AIAttackApproachTargetState {
     pub(crate) base: AIMoveToState,
@@ -1803,7 +1771,6 @@ pub struct AIAttackApproachTargetState {
     pub(crate) is_initial_approach: Bool,
     pub(crate) force_attacking: Bool,
 }
-
 
 impl AIAttackApproachTargetState {
     pub fn new(
@@ -2070,7 +2037,6 @@ impl AIAttackApproachTargetState {
     }
 }
 
-
 impl StateImplementation for AIAttackApproachTargetState {
     fn on_enter(&mut self) -> StateReturnType {
         self.classic_on_enter().unwrap_or(StateReturnType::Failure)
@@ -2088,7 +2054,6 @@ impl StateImplementation for AIAttackApproachTargetState {
         Snapshotable::xfer(self, xfer)
     }
 }
-
 
 impl ClassicState for AIAttackApproachTargetState {
     fn base_state(&self) -> &State {
@@ -2334,12 +2299,10 @@ impl ClassicState for AIAttackApproachTargetState {
     }
 }
 
-
 #[derive(Debug)]
 pub struct AIAttackMoveStateMachine {
     pub(crate) base: StateMachine,
 }
-
 
 impl AIAttackMoveStateMachine {
     pub fn new(owner: Weak<RwLock<Object>>, name: &str) -> Self {
@@ -2415,7 +2378,6 @@ impl AIAttackMoveStateMachine {
     }
 }
 
-
 impl Snapshotable for AIAttackPursueTargetState {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
         let mut version: game_engine::common::system::xfer::XferVersion = 1;
@@ -2469,7 +2431,6 @@ impl Snapshotable for AIAttackPursueTargetState {
         Snapshotable::load_post_process(&mut self.base)
     }
 }
-
 
 impl Snapshotable for AIAttackApproachTargetState {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
@@ -2525,7 +2486,6 @@ impl Snapshotable for AIAttackApproachTargetState {
     }
 }
 
-
 impl Snapshotable for AIAttackAimAtTargetState {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
         let mut version: game_engine::common::system::xfer::XferVersion = 1;
@@ -2559,7 +2519,6 @@ impl Snapshotable for AIAttackAimAtTargetState {
         Ok(())
     }
 }
-
 
 impl Snapshotable for AIAttackMoveStateMachine {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {

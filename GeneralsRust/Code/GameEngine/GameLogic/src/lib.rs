@@ -173,7 +173,7 @@ pub use team::get_team_factory;
 
 // Re-export singleton stubs from helpers for gameplay systems
 pub use helpers::{
-    attach_particle_system_to_object, TheInGameUI, ThePartitionManager, TheParticleSystemManager,
+    attach_particle_system_to_object, TheInGameUI, TheParticleSystemManager, ThePartitionManager,
     TheRadar,
 };
 

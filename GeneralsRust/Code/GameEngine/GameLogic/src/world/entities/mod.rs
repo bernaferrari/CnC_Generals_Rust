@@ -16,6 +16,22 @@ pub use entity_lifecycle::{
     ENTITY_LIFECYCLE_ENVELOPE_VERSION,
 };
 
+/// One installed module participant (tag + crate handle name).
+/// Lifecycle/serialization only — modules do not tick.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EntityModuleRecord {
+    pub tag: String,
+    pub handle: String,
+}
+
+/// Ordered module-graph scaffolding stored on the Entity.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct EntityInstalledModules {
+    pub records: Vec<EntityModuleRecord>,
+    pub on_created: bool,
+    pub on_delete_order: Vec<String>,
+}
+
 /// Shadow residual of one host BuildingData::production_queue entry.
 #[derive(Debug, Clone, PartialEq)]
 pub struct EntityProductionItem {
@@ -1446,6 +1462,8 @@ pub struct Entity {
     pub envelope_version: u8,
     /// Attached lifecycle envelope. Not interpreted until authority cutover.
     pub lifecycle_envelope: Option<EntityLifecycleEnvelope>,
+    /// Preview module-graph participants. None unless ENTITY_MODULES is on.
+    pub entity_modules: Option<EntityInstalledModules>,
 }
 
 impl Entity {
@@ -1475,10 +1493,17 @@ impl Entity {
 }
 
 /// Store responsible for allocating and tracking entities.
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Clone)]
 pub struct EntityStore {
-    next_id: u32,
-    alive: HashMap<EntityId, Entity>,
+    pub(in crate::world) next_id: u32,
+    pub(in crate::world) alive: HashMap<EntityId, Entity>,
+    pub(in crate::world) generations: HashMap<u32, u32>,
+}
+
+impl Default for EntityStore {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl EntityStore {
@@ -1492,6 +1517,7 @@ impl EntityStore {
         Self {
             next_id: EntityId::FIRST.get(),
             alive: HashMap::new(),
+            generations: HashMap::new(),
         }
     }
 
@@ -1535,7 +1561,19 @@ impl EntityStore {
     ) -> EntityId {
         let id = EntityId(self.next_id);
         self.next_id = self.next_id.wrapping_add(1).max(EntityId::FIRST.get());
+        self.finish_spawn(id, template, owner, transform, health);
+        id
+    }
 
+    pub(in crate::world) fn finish_spawn(
+        &mut self,
+        id: EntityId,
+        template: TemplateRef,
+        owner: Option<PlayerId>,
+        transform: Transform,
+        health: f32,
+    ) {
+        self.allocate_live_generation(id);
         let entity = Entity {
             id,
             template,
@@ -2326,15 +2364,17 @@ impl EntityStore {
             battle_plan_sight_scalar_applied: 1.0,
             envelope_version: ENTITY_LIFECYCLE_ENVELOPE_VERSION,
             lifecycle_envelope: None,
+            entity_modules: None,
         };
 
         self.alive.insert(id, entity);
-        id
     }
 
     /// Remove an entity. Returns the removed entity if it was alive.
     pub fn remove(&mut self, id: EntityId) -> Option<Entity> {
-        self.alive.remove(&id)
+        let removed = self.alive.remove(&id)?;
+        self.bump_generation(id);
+        Some(removed)
     }
 }
 
@@ -2366,12 +2406,7 @@ mod tests {
     #[test]
     fn attach_envelope_copies_deferred_destroy_timing() {
         let mut store = EntityStore::new();
-        let id = store.spawn(
-            TemplateRef::new("Test"),
-            None,
-            Transform::default(),
-            10.0,
-        );
+        let id = store.spawn(TemplateRef::new("Test"), None, Transform::default(), 10.0);
         let entity = store.get_mut(id).expect("spawned");
         assert_eq!(entity.envelope_version, ENTITY_LIFECYCLE_ENVELOPE_VERSION);
         entity.attach_envelope(EntityLifecycleEnvelope {

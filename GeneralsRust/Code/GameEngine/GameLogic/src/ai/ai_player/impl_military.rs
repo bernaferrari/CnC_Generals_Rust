@@ -48,7 +48,10 @@ impl AIPlayer {
     }
 
     /// Execute a strategic decision made by the decision maker
-    pub(super) fn execute_strategic_decision(&mut self, decision: StrategicDecision) -> Result<(), AiError> {
+    pub(super) fn execute_strategic_decision(
+        &mut self,
+        decision: StrategicDecision,
+    ) -> Result<(), AiError> {
         match decision {
             StrategicDecision::BuildUpForces => {
                 // Focus on building military units

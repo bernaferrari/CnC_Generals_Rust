@@ -10,6 +10,7 @@ use crate::ai::integration::with_ai_integration_mut;
 use crate::ai::{AiCommandInterface, AiCommandParams, AiCommandType, AiGroup, GuardMode, THE_AI};
 use crate::commands::command::CommandType;
 use crate::commands::{get_command_queue_manager, Command, CommandPriority, QueuedCommand};
+use crate::common::PlayerIndex;
 use crate::common::{
     AsciiString, CommandSourceType, Coord3D, LocomotorSetType, Real, Relationship,
     INVALID_OBJECT_ID,
@@ -22,7 +23,6 @@ use crate::object::object_factory::{get_object_factory, GameObjectInstance};
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::special_power_template::find_or_create_special_power_template;
 use crate::object_manager::{get_object_manager, ObjectCreationFlags};
-use crate::common::PlayerIndex;
 use crate::player::{player_list, PlayerType};
 use crate::scripting::core::{LOCAL_PLAYER, TEAM_THE_PLAYER, THE_PLAYER, THIS_PLAYER, THIS_TEAM};
 use crate::scripting::engine::{get_named_object_tracker, get_script_engine};
@@ -37,7 +37,6 @@ use game_engine::common::system::radar::{get_radar_system, RadarEventType};
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
-
 
 /// Move camera action
 pub(super) struct MoveCameraAction;
@@ -92,7 +91,6 @@ impl ScriptAction for MoveCameraAction {
     }
 }
 
-
 /// Show text message action
 pub(super) struct ShowTextMessageAction;
 
@@ -137,7 +135,6 @@ impl ScriptAction for ShowTextMessageAction {
         vec!["duration".to_string()]
     }
 }
-
 
 /// Move camera
 pub(super) struct CameraMoveToWaypointAction;
@@ -215,7 +212,6 @@ impl ScriptAction for CameraMoveToWaypointAction {
         vec!["duration".to_string()]
     }
 }
-
 
 /// Camera follows unit
 pub(super) struct CameraTrackNamedAction;
@@ -312,7 +308,6 @@ impl ScriptAction for CameraTrackNamedAction {
     }
 }
 
-
 /// Start letterbox
 pub(super) struct CameraLetterboxBeginAction;
 
@@ -366,7 +361,6 @@ impl ScriptAction for CameraLetterboxBeginAction {
     }
 }
 
-
 /// End letterbox
 pub(super) struct CameraLetterboxEndAction;
 
@@ -415,7 +409,6 @@ impl ScriptAction for CameraLetterboxEndAction {
         vec![]
     }
 }
-
 
 /// Set zoom
 pub(super) struct CameraSetFinalZoomAction;
@@ -470,7 +463,6 @@ impl ScriptAction for CameraSetFinalZoomAction {
     }
 }
 
-
 /// Show text message
 pub(super) struct TextDisplayAction;
 
@@ -523,7 +515,6 @@ impl ScriptAction for TextDisplayAction {
         vec!["duration".to_string()]
     }
 }
-
 
 /// Camera Zoom Action - Matches C++ ScriptActionType::ZOOM_CAMERA
 pub(super) struct CameraZoomAction;
@@ -581,7 +572,6 @@ impl ScriptAction for CameraZoomAction {
         vec!["duration".to_string()]
     }
 }
-
 
 /// Snap Camera Action - Instant camera movement (no animation)
 pub(super) struct SnapCameraAction;
@@ -648,7 +638,6 @@ impl ScriptAction for SnapCameraAction {
     }
 }
 
-
 /// Letter Box Begin Action - Start cinematic letterbox mode
 pub(super) struct LetterBoxBeginAction;
 
@@ -702,7 +691,6 @@ impl ScriptAction for LetterBoxBeginAction {
         vec![]
     }
 }
-
 
 /// Letter Box End Action - End cinematic letterbox mode
 pub(super) struct LetterBoxEndAction;

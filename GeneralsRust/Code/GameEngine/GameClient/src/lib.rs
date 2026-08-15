@@ -157,6 +157,7 @@ extern crate self as game_network;
 pub mod platform;
 
 // Render bridge — connects GameLogic draw modules to WWVegas W3D renderer
+pub mod hlod_live_child_capture;
 pub mod render_bridge;
 
 // Revolutionary W3D Engine

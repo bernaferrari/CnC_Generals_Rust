@@ -15,6 +15,7 @@ static SPECIAL_POWER_AUTH_CACHE: std::sync::atomic::AtomicU8 = std::sync::atomic
 static PRODUCTION_AUTH_CACHE: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
 static DEFERRED_DESTROY_CACHE: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
 static WEAPON_AUTH_CACHE: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+static ENTITY_MODULES_CACHE: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
 
 pub(super) fn reset_authority_env_caches() {
     for c in [
@@ -31,6 +32,7 @@ pub(super) fn reset_authority_env_caches() {
         &PRODUCTION_AUTH_CACHE,
         &DEFERRED_DESTROY_CACHE,
         &WEAPON_AUTH_CACHE,
+        &ENTITY_MODULES_CACHE,
     ] {
         c.store(0, std::sync::atomic::Ordering::Relaxed);
     }
@@ -272,6 +274,23 @@ pub fn gameworld_production_sole_tick_enabled() -> bool {
 /// GameWorld owns per-slot weapon facts; host is last-writer reader.
 pub fn gameworld_weapon_authority_enabled() -> bool {
     env_flag_cached(&WEAPON_AUTH_CACHE, "GENERALS_GAMEWORLD_WEAPON_AUTHORITY", true)
+}
+
+/// Preview: attach crate module-graph participants on GameWorld spawn.
+/// Default OFF. Not simulation authority.
+pub fn gameworld_entity_modules_enabled() -> bool {
+    env_flag_cached(
+        &ENTITY_MODULES_CACHE,
+        "GENERALS_GAMEWORLD_ENTITY_MODULES",
+        false,
+    )
+}
+
+#[inline]
+pub fn gameworld_entity_modules_live() -> bool {
+    gameworld_entity_modules_enabled()
+        && gameworld_shadow_enabled()
+        && shadow_coupled_tick_active()
 }
 
 #[inline]

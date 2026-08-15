@@ -24,18 +24,26 @@ pub(in crate::player) use crate::special_power_module::integration::{FrameCount,
 pub(in crate::player) use crate::special_power_module::types::SpecialPowerID;
 pub(in crate::player) use crate::squad::Squad;
 pub(in crate::player) use crate::supply_system::ResourceGatheringManager;
-pub(in crate::player) use crate::team::{get_team_factory, Team, TeamID, TeamPrototype, TeamRelationMap};
+pub(in crate::player) use crate::team::{
+    get_team_factory, Team, TeamID, TeamPrototype, TeamRelationMap,
+};
 pub(in crate::player) use crate::tunnel_tracker::TunnelTracker;
 pub(in crate::player) use crate::upgrade::{PlayerUpgradeManager, Upgrade, UpgradeTemplate};
 pub(in crate::player) use game_engine::common::global_data;
 pub(in crate::player) use game_engine::common::ini::ensure_player_templates_loaded;
-pub(in crate::player) use game_engine::common::name_key_generator::{NameKeyGenerator, NAMEKEY_INVALID};
-pub(in crate::player) use game_engine::common::rts::player_template::{get_player_template_store, MAX_MP_STARTING_UNITS};
+pub(in crate::player) use game_engine::common::name_key_generator::{
+    NameKeyGenerator, NAMEKEY_INVALID,
+};
+pub(in crate::player) use game_engine::common::rts::player_template::{
+    get_player_template_store, MAX_MP_STARTING_UNITS,
+};
 pub(in crate::player) use game_engine::common::rts::science::get_science_store;
 pub(in crate::player) use game_engine::common::rts::score_keeper::{
     KindOf as ScoreKindOf, KindOfMaskType as ScoreKindOfMaskType,
 };
-pub(in crate::player) use game_engine::common::rts::{Money, ScienceAccess, ScienceType, SCIENCE_INVALID};
+pub(in crate::player) use game_engine::common::rts::{
+    Money, ScienceAccess, ScienceType, SCIENCE_INVALID,
+};
 pub(in crate::player) use game_engine::common::system::snapshot::Snapshotable;
 pub(in crate::player) use game_engine::common::system::xfer::{Xfer, XferMode, XferVersion};
 pub(in crate::player) use lazy_static::lazy_static;
@@ -140,7 +148,6 @@ pub use list::*;
 pub mod manager;
 pub mod science_management;
 pub mod science_ui;
-
 
 // Re-export UI types for convenience (was at the bottom of player.rs).
 pub use science_ui::{

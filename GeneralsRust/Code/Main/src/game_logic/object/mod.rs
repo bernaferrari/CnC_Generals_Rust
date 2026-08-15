@@ -2479,6 +2479,10 @@ mod entity_lifecycle_apply;
 mod entity_lifecycle_envelope;
 mod entity_lifecycle_inventory;
 mod entity_lifecycle_tags;
+    #[cfg(test)]
+    mod entity_lifecycle_audit;
+    #[cfg(test)]
+    mod entity_inventory_audit;
 mod install;
 mod jets;
 mod orders;

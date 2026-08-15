@@ -10,6 +10,7 @@ use crate::ai::integration::with_ai_integration_mut;
 use crate::ai::{AiCommandInterface, AiCommandParams, AiCommandType, AiGroup, GuardMode, THE_AI};
 use crate::commands::command::CommandType;
 use crate::commands::{get_command_queue_manager, Command, CommandPriority, QueuedCommand};
+use crate::common::PlayerIndex;
 use crate::common::{
     AsciiString, CommandSourceType, Coord3D, LocomotorSetType, Real, Relationship,
     INVALID_OBJECT_ID,
@@ -22,7 +23,6 @@ use crate::object::object_factory::{get_object_factory, GameObjectInstance};
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::special_power_template::find_or_create_special_power_template;
 use crate::object_manager::{get_object_manager, ObjectCreationFlags};
-use crate::common::PlayerIndex;
 use crate::player::{player_list, PlayerType};
 use crate::scripting::core::{LOCAL_PLAYER, TEAM_THE_PLAYER, THE_PLAYER, THIS_PLAYER, THIS_TEAM};
 use crate::scripting::engine::{get_named_object_tracker, get_script_engine};
@@ -37,7 +37,6 @@ use game_engine::common::system::radar::{get_radar_system, RadarEventType};
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
-
 
 /// Enable script action
 pub(super) struct EnableScriptAction;
@@ -73,7 +72,6 @@ impl ScriptAction for EnableScriptAction {
     }
 }
 
-
 /// Disable script action
 pub(super) struct DisableScriptAction;
 
@@ -108,7 +106,6 @@ impl ScriptAction for DisableScriptAction {
     }
 }
 
-
 /// Execute script action
 pub(super) struct ExecuteScriptAction;
 
@@ -142,7 +139,6 @@ impl ScriptAction for ExecuteScriptAction {
         vec![]
     }
 }
-
 
 /// Set variable action
 pub(super) struct SetVariableAction;
@@ -182,7 +178,6 @@ impl ScriptAction for SetVariableAction {
     }
 }
 
-
 /// Wait action
 pub(super) struct WaitAction;
 
@@ -218,7 +213,6 @@ impl ScriptAction for WaitAction {
         vec![]
     }
 }
-
 
 /// Start Timer Action - Matches C++ ScriptActionType::SET_MILLISECOND_TIMER
 pub(super) struct StartTimerAction;
@@ -259,7 +253,6 @@ impl ScriptAction for StartTimerAction {
     }
 }
 
-
 /// Stop Timer Action - Matches C++ ScriptActionType::STOP_TIMER
 pub(super) struct StopTimerAction;
 
@@ -295,7 +288,6 @@ impl ScriptAction for StopTimerAction {
         vec![]
     }
 }
-
 
 /// Set Timer Action - Matches C++ ScriptActions::doDisplayCounter (line 4020)
 pub(super) struct SetTimerAction;
@@ -336,7 +328,6 @@ impl ScriptAction for SetTimerAction {
         vec![]
     }
 }
-
 
 /// Countdown Timer Action - Matches C++ ScriptActions::doDisplayCountdownTimer (line 4036)
 pub(super) struct CountdownTimerAction;

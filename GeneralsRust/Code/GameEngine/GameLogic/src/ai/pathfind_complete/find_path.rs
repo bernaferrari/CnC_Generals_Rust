@@ -587,5 +587,4 @@ impl PathfindingSystem {
             PathResult::none()
         }
     }
-
 }

@@ -1,10 +1,12 @@
 //! Production-exit and dock-update module factories.
 //! Split from `contain_module_overrides.rs`. Factory names stay identical.
 
-use super::*;
 use super::helpers::*;
+use super::*;
 
-pub(super) fn default_production_exit_update_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+pub(super) fn default_production_exit_update_data_factory(
+    ini: Option<&mut INI>,
+) -> Box<dyn ModuleData> {
     let mut data = DefaultProductionExitModuleData::default();
     if let Some(ini) = ini {
         if let Err(err) = data.parse_from_ini(ini) {
@@ -35,7 +37,9 @@ pub(super) fn default_production_exit_update_module_factory(
     ))
 }
 
-pub(super) fn queue_production_exit_update_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+pub(super) fn queue_production_exit_update_data_factory(
+    ini: Option<&mut INI>,
+) -> Box<dyn ModuleData> {
     let mut data = QueueProductionExitModuleData::default();
     if let Some(ini) = ini {
         if let Err(err) = data.parse_from_ini(ini) {
@@ -66,7 +70,9 @@ pub(super) fn queue_production_exit_update_module_factory(
     ))
 }
 
-pub(super) fn spawn_point_production_exit_update_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+pub(super) fn spawn_point_production_exit_update_data_factory(
+    ini: Option<&mut INI>,
+) -> Box<dyn ModuleData> {
     let mut data = SpawnPointProductionExitModuleData::default();
     if let Some(ini) = ini {
         if let Err(err) = data.parse_from_ini(ini) {
@@ -97,7 +103,9 @@ pub(super) fn spawn_point_production_exit_update_module_factory(
     ))
 }
 
-pub(super) fn supply_center_production_exit_update_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+pub(super) fn supply_center_production_exit_update_data_factory(
+    ini: Option<&mut INI>,
+) -> Box<dyn ModuleData> {
     let mut data = SupplyCenterProductionExitModuleData::default();
     if let Some(ini) = ini {
         if let Err(err) = data.parse_from_ini(ini) {
@@ -215,7 +223,9 @@ pub(super) fn repair_dock_update_module_factory(
     ))
 }
 
-pub(super) fn railed_transport_dock_update_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+pub(super) fn railed_transport_dock_update_data_factory(
+    ini: Option<&mut INI>,
+) -> Box<dyn ModuleData> {
     let mut data = RailedTransportDockUpdateData::default();
     if let Some(ini) = ini {
         if let Err(err) = data.parse_from_ini(ini) {
@@ -277,7 +287,9 @@ pub(super) fn supply_center_dock_update_module_factory(
     ))
 }
 
-pub(super) fn supply_warehouse_dock_update_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+pub(super) fn supply_warehouse_dock_update_data_factory(
+    ini: Option<&mut INI>,
+) -> Box<dyn ModuleData> {
     let mut data = SupplyWarehouseDockUpdateData::default();
     if let Some(ini) = ini {
         if let Err(err) = data.parse_from_ini(ini) {

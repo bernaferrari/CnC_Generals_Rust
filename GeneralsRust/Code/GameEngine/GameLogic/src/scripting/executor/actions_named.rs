@@ -432,7 +432,10 @@ impl ScriptActionDispatcher {
         Ok(ScriptActionResult::Success)
     }
 
-    pub(crate) fn do_named_flash(&mut self, action: &ScriptAction) -> Result<ScriptActionResult, ScriptError> {
+    pub(crate) fn do_named_flash(
+        &mut self,
+        action: &ScriptAction,
+    ) -> Result<ScriptActionResult, ScriptError> {
         let unit_name = self.get_string_param(action, 0)?;
         let time_in_seconds = self.get_int_param(action, 1)?;
         log::debug!("Flashing unit '{}' for {}s", unit_name, time_in_seconds);

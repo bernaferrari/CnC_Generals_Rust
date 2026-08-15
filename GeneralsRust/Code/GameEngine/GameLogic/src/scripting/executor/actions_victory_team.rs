@@ -171,7 +171,10 @@ impl ScriptActionDispatcher {
 
     /// C++ Reference: ScriptActions::doTeamHunt() lines 1985-1999
     /// Creates AI group from team and issues hunt command
-    pub(crate) fn do_team_hunt(&mut self, action: &ScriptAction) -> Result<ScriptActionResult, ScriptError> {
+    pub(crate) fn do_team_hunt(
+        &mut self,
+        action: &ScriptAction,
+    ) -> Result<ScriptActionResult, ScriptError> {
         let team_name = self.resolve_team_name_token(&self.get_string_param(action, 0)?);
 
         log::info!("Team '{}' hunting", team_name);
@@ -190,7 +193,10 @@ impl ScriptActionDispatcher {
 
     /// C++ Reference: ScriptActions::doTeamGuard() lines 1882-1900
     /// Orders team members to guard at their current positions
-    pub(crate) fn do_team_guard(&mut self, action: &ScriptAction) -> Result<ScriptActionResult, ScriptError> {
+    pub(crate) fn do_team_guard(
+        &mut self,
+        action: &ScriptAction,
+    ) -> Result<ScriptActionResult, ScriptError> {
         let team_name = self.resolve_team_name_token(&self.get_string_param(action, 0)?);
         log::debug!("Team '{}' guarding at current positions", team_name);
 
@@ -230,7 +236,10 @@ impl ScriptActionDispatcher {
     }
 
     /// C++ Reference: ScriptActions::doTeamDelete() line (in header)
-    pub(crate) fn do_team_delete(&mut self, action: &ScriptAction) -> Result<ScriptActionResult, ScriptError> {
+    pub(crate) fn do_team_delete(
+        &mut self,
+        action: &ScriptAction,
+    ) -> Result<ScriptActionResult, ScriptError> {
         let team_name = self.resolve_team_name_token(&self.get_string_param(action, 0)?);
 
         log::info!("Deleting team '{}'", team_name);
@@ -252,7 +261,10 @@ impl ScriptActionDispatcher {
     }
 
     /// C++ Reference: ScriptActions::doTeamKill() line (in header)
-    pub(crate) fn do_team_kill(&mut self, action: &ScriptAction) -> Result<ScriptActionResult, ScriptError> {
+    pub(crate) fn do_team_kill(
+        &mut self,
+        action: &ScriptAction,
+    ) -> Result<ScriptActionResult, ScriptError> {
         let team_name = self.resolve_team_name_token(&self.get_string_param(action, 0)?);
 
         log::info!("Killing team '{}'", team_name);
@@ -529,7 +541,10 @@ impl ScriptActionDispatcher {
     }
 
     /// C++ Reference: ScriptActions::doNamedKill() line (in header)
-    pub(crate) fn do_named_kill(&mut self, action: &ScriptAction) -> Result<ScriptActionResult, ScriptError> {
+    pub(crate) fn do_named_kill(
+        &mut self,
+        action: &ScriptAction,
+    ) -> Result<ScriptActionResult, ScriptError> {
         let unit_name = self.get_string_param(action, 0)?;
 
         log::info!("Killing named unit '{}'", unit_name);
@@ -733,7 +748,10 @@ impl ScriptActionDispatcher {
         Ok(ScriptActionResult::Success)
     }
 
-    pub(crate) fn do_named_hunt(&mut self, action: &ScriptAction) -> Result<ScriptActionResult, ScriptError> {
+    pub(crate) fn do_named_hunt(
+        &mut self,
+        action: &ScriptAction,
+    ) -> Result<ScriptActionResult, ScriptError> {
         let unit_name = self.get_string_param(action, 0)?;
 
         log::info!("Named unit '{}' hunting", unit_name);
@@ -776,7 +794,10 @@ impl ScriptActionDispatcher {
         Ok(ScriptActionResult::Success)
     }
 
-    pub(crate) fn do_named_guard(&mut self, action: &ScriptAction) -> Result<ScriptActionResult, ScriptError> {
+    pub(crate) fn do_named_guard(
+        &mut self,
+        action: &ScriptAction,
+    ) -> Result<ScriptActionResult, ScriptError> {
         let unit_name = self.get_string_param(action, 0)?;
 
         log::info!("Named unit '{}' guarding", unit_name);
@@ -833,7 +854,10 @@ impl ScriptActionDispatcher {
         Ok(ScriptActionResult::Success)
     }
 
-    pub(crate) fn do_named_stop(&mut self, action: &ScriptAction) -> Result<ScriptActionResult, ScriptError> {
+    pub(crate) fn do_named_stop(
+        &mut self,
+        action: &ScriptAction,
+    ) -> Result<ScriptActionResult, ScriptError> {
         let unit_name = self.get_string_param(action, 0)?;
 
         log::info!("Named unit '{}' stopping", unit_name);

@@ -3,8 +3,7 @@
 use super::helpers::{
     compare_f64, compare_i64, dual_world_registry_unavailable, event_type_from_name,
     get_player_arc, get_str_param, get_str_param_optional, lookup_named_object_id,
-    parse_nested_condition, parse_object_status_mask, perform_comparison,
-    with_script_engine_mut,
+    parse_nested_condition, parse_object_status_mask, perform_comparison, with_script_engine_mut,
 };
 use super::{ConditionRegistry, ScriptCondition, ScriptContext, ScriptValue};
 use crate::common::{Coord3D, KindOf, Relationship, LOGICFRAMES_PER_SECOND};
@@ -25,12 +24,10 @@ use game_engine::common::rts::{get_science_store, SCIENCE_INVALID};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
-
 // Logical conditions
 
 /// AND condition
 pub(super) struct AndCondition;
-
 
 #[async_trait]
 impl ScriptCondition for AndCondition {
@@ -79,10 +76,8 @@ impl ScriptCondition for AndCondition {
     }
 }
 
-
 /// OR condition
 pub(super) struct OrCondition;
-
 
 #[async_trait]
 impl ScriptCondition for OrCondition {
@@ -131,10 +126,8 @@ impl ScriptCondition for OrCondition {
     }
 }
 
-
 /// NOT condition
 pub(super) struct NotCondition;
-
 
 #[async_trait]
 impl ScriptCondition for NotCondition {
@@ -178,12 +171,10 @@ impl ScriptCondition for NotCondition {
     }
 }
 
-
 // Variable conditions
 
 /// Variable equals condition
 pub(super) struct VariableEqualsCondition;
-
 
 #[async_trait]
 impl ScriptCondition for VariableEqualsCondition {
@@ -192,7 +183,8 @@ impl ScriptCondition for VariableEqualsCondition {
         parameters: &HashMap<String, ScriptValue>,
         context: &ScriptContext,
     ) -> GameLogicResult<bool> {
-        let variable_name = crate::scripting::actions::get_string_param(parameters, "variable_name")?;
+        let variable_name =
+            crate::scripting::actions::get_string_param(parameters, "variable_name")?;
         let expected_value = parameters.get("value").ok_or_else(|| {
             GameLogicError::Configuration("Required parameter 'value' not found".to_string())
         })?;
@@ -223,10 +215,8 @@ impl ScriptCondition for VariableEqualsCondition {
     }
 }
 
-
 /// Variable greater than condition
 pub(super) struct VariableGreaterThanCondition;
-
 
 #[async_trait]
 impl ScriptCondition for VariableGreaterThanCondition {
@@ -235,7 +225,8 @@ impl ScriptCondition for VariableGreaterThanCondition {
         parameters: &HashMap<String, ScriptValue>,
         context: &ScriptContext,
     ) -> GameLogicResult<bool> {
-        let variable_name = crate::scripting::actions::get_string_param(parameters, "variable_name")?;
+        let variable_name =
+            crate::scripting::actions::get_string_param(parameters, "variable_name")?;
         let threshold = crate::scripting::actions::get_float_param(parameters, "value")?;
 
         if let Some(variable_value) = context.variables.get(&variable_name) {
@@ -269,10 +260,8 @@ impl ScriptCondition for VariableGreaterThanCondition {
     }
 }
 
-
 /// Variable less than condition
 pub(super) struct VariableLessThanCondition;
-
 
 #[async_trait]
 impl ScriptCondition for VariableLessThanCondition {
@@ -281,7 +270,8 @@ impl ScriptCondition for VariableLessThanCondition {
         parameters: &HashMap<String, ScriptValue>,
         context: &ScriptContext,
     ) -> GameLogicResult<bool> {
-        let variable_name = crate::scripting::actions::get_string_param(parameters, "variable_name")?;
+        let variable_name =
+            crate::scripting::actions::get_string_param(parameters, "variable_name")?;
         let threshold = crate::scripting::actions::get_float_param(parameters, "value")?;
 
         if let Some(variable_value) = context.variables.get(&variable_name) {
@@ -315,7 +305,6 @@ impl ScriptCondition for VariableLessThanCondition {
     }
 }
 
-
 // ============================================================================
 // 20 CORE SCRIPT CONDITIONS - Priority 1 Implementation
 // Based on C++ ScriptConditions from GENERALSMD_SCRIPTING_SYSTEM_GUIDE.md
@@ -323,7 +312,6 @@ impl ScriptCondition for VariableLessThanCondition {
 
 /// Counter Comparison Condition - Matches C++ ConditionType::COUNTER
 pub(super) struct CounterComparisonCondition;
-
 
 #[async_trait]
 impl ScriptCondition for CounterComparisonCondition {
@@ -399,10 +387,8 @@ impl ScriptCondition for CounterComparisonCondition {
     }
 }
 
-
 /// Flag Comparison Condition - Matches C++ ConditionType::FLAG
 pub(super) struct FlagComparisonCondition;
-
 
 #[async_trait]
 impl ScriptCondition for FlagComparisonCondition {
@@ -453,7 +439,6 @@ impl ScriptCondition for FlagComparisonCondition {
     }
 }
 
-
 //-------------------------------------------------------------------------------------------------
 // CONDITION_FALSE / CONDITION_TRUE - C++ always returns false/true
 //-------------------------------------------------------------------------------------------------
@@ -481,7 +466,6 @@ impl ScriptCondition for ConditionFalseCondition {
         vec![]
     }
 }
-
 
 pub(super) struct ConditionTrueCondition;
 

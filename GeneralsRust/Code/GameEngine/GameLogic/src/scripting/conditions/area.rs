@@ -3,8 +3,7 @@
 use super::helpers::{
     compare_f64, compare_i64, dual_world_registry_unavailable, event_type_from_name,
     get_player_arc, get_str_param, get_str_param_optional, lookup_named_object_id,
-    parse_nested_condition, parse_object_status_mask, perform_comparison,
-    with_script_engine_mut,
+    parse_nested_condition, parse_object_status_mask, perform_comparison, with_script_engine_mut,
 };
 use super::{ConditionRegistry, ScriptCondition, ScriptContext, ScriptValue};
 use crate::common::{Coord3D, KindOf, Relationship, LOGICFRAMES_PER_SECOND};
@@ -25,10 +24,8 @@ use game_engine::common::rts::{get_science_store, SCIENCE_INVALID};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
-
 /// Area clear condition
 pub(super) struct AreaClearCondition;
-
 
 #[async_trait]
 impl ScriptCondition for AreaClearCondition {
@@ -40,7 +37,8 @@ impl ScriptCondition for AreaClearCondition {
         let x = crate::scripting::actions::get_float_param(parameters, "x")?;
         let y = crate::scripting::actions::get_float_param(parameters, "y")?;
         let radius = crate::scripting::actions::get_float_param(parameters, "radius")?;
-        let exclude_player = crate::scripting::actions::get_int_param_optional(parameters, "exclude_player");
+        let exclude_player =
+            crate::scripting::actions::get_int_param_optional(parameters, "exclude_player");
 
         log::debug!(
             "Checking if area ({}, {}) with radius {} is clear",
@@ -115,10 +113,8 @@ impl ScriptCondition for AreaClearCondition {
     }
 }
 
-
 /// Area controlled by player condition
 pub(super) struct AreaControlledByPlayerCondition;
-
 
 #[async_trait]
 impl ScriptCondition for AreaControlledByPlayerCondition {
@@ -221,10 +217,8 @@ impl ScriptCondition for AreaControlledByPlayerCondition {
     }
 }
 
-
 /// Units in area condition
 pub(super) struct UnitsInAreaCondition;
-
 
 #[async_trait]
 impl ScriptCondition for UnitsInAreaCondition {
@@ -320,10 +314,8 @@ impl ScriptCondition for UnitsInAreaCondition {
     }
 }
 
-
 /// Position In Area Condition - Checks if position/unit is inside area
 pub(super) struct PositionInAreaCondition;
-
 
 #[async_trait]
 impl ScriptCondition for PositionInAreaCondition {
@@ -402,10 +394,8 @@ impl ScriptCondition for PositionInAreaCondition {
     }
 }
 
-
 /// No Enemy Units In Area - Area is clear of enemy forces
 pub(super) struct NoEnemyUnitsInAreaCondition;
-
 
 #[async_trait]
 impl ScriptCondition for NoEnemyUnitsInAreaCondition {
@@ -492,10 +482,8 @@ impl ScriptCondition for NoEnemyUnitsInAreaCondition {
     }
 }
 
-
 /// Any Unit In Area - At least one unit in area
 pub(super) struct AnyUnitInAreaCondition;
-
 
 #[async_trait]
 impl ScriptCondition for AnyUnitInAreaCondition {
@@ -583,12 +571,10 @@ impl ScriptCondition for AnyUnitInAreaCondition {
     }
 }
 
-
 //-------------------------------------------------------------------------------------------------
 // BUILDING_ENTERED_BY_PLAYER - evaluateBuildingEntered
 //-------------------------------------------------------------------------------------------------
 pub(super) struct BuildingEnteredByPlayerCondition;
-
 
 #[async_trait]
 impl ScriptCondition for BuildingEnteredByPlayerCondition {

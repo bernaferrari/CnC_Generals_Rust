@@ -65,7 +65,11 @@ impl PathfindingSystem {
         (opt2, layers2)
     }
 
-    pub(crate) fn world_pos_for_coord(&self, coord: GridCoord, layer: PathfindLayerEnum) -> Coord3D {
+    pub(crate) fn world_pos_for_coord(
+        &self,
+        coord: GridCoord,
+        layer: PathfindLayerEnum,
+    ) -> Coord3D {
         let mut pos = coord.to_world(layer);
         if let Some(terrain) = TheTerrainLogic::get() {
             let common_layer = match layer {
@@ -351,8 +355,13 @@ impl PathfindingSystem {
         ok
     }
 
-    pub(crate) fn for_goal_cells<F>(&self, center_cell: ICoord2D, radius: i32, center_in_cell: bool, mut f: F)
-    where
+    pub(crate) fn for_goal_cells<F>(
+        &self,
+        center_cell: ICoord2D,
+        radius: i32,
+        center_in_cell: bool,
+        mut f: F,
+    ) where
         F: FnMut(GridCoord),
     {
         let mut num_cells_above = radius;

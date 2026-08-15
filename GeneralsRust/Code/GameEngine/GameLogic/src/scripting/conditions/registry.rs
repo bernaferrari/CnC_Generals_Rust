@@ -4,7 +4,6 @@ use super::skirmish_conditions;
 use super::ScriptCondition;
 use std::collections::HashMap;
 
-
 /// Condition registry
 pub struct ConditionRegistry {
     conditions: HashMap<String, Box<dyn ScriptCondition>>,

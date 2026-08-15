@@ -1165,8 +1165,7 @@ mod tests {
 
     #[test]
     fn bake_water_tiles_world_does_not_stretch_one_patch() {
-        let (verts, list) =
-            bake_water_tiles_world(-100.0, -50.0, 100.0, 50.0, 3.0, 0xffff_ffff);
+        let (verts, list) = bake_water_tiles_world(-100.0, -50.0, 100.0, 50.0, 3.0, 0xffff_ffff);
         // 200×100 extent / PATCH_WIDTH(14) → more than one 15×15 sheet.
         assert!(
             verts.len() > PATCH_SIZE * PATCH_SIZE,

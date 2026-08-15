@@ -10,6 +10,7 @@ use crate::ai::integration::with_ai_integration_mut;
 use crate::ai::{AiCommandInterface, AiCommandParams, AiCommandType, AiGroup, GuardMode, THE_AI};
 use crate::commands::command::CommandType;
 use crate::commands::{get_command_queue_manager, Command, CommandPriority, QueuedCommand};
+use crate::common::PlayerIndex;
 use crate::common::{
     AsciiString, CommandSourceType, Coord3D, LocomotorSetType, Real, Relationship,
     INVALID_OBJECT_ID,
@@ -22,7 +23,6 @@ use crate::object::object_factory::{get_object_factory, GameObjectInstance};
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::special_power_template::find_or_create_special_power_template;
 use crate::object_manager::{get_object_manager, ObjectCreationFlags};
-use crate::common::PlayerIndex;
 use crate::player::{player_list, PlayerType};
 use crate::scripting::core::{LOCAL_PLAYER, TEAM_THE_PLAYER, THE_PLAYER, THIS_PLAYER, THIS_TEAM};
 use crate::scripting::engine::{get_named_object_tracker, get_script_engine};
@@ -37,7 +37,6 @@ use game_engine::common::system::radar::{get_radar_system, RadarEventType};
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
-
 
 // ============================================================================
 // TEAM ACTIONS (15 critical actions)
@@ -106,7 +105,6 @@ impl ScriptAction for TeamAttackTeamAction {
         vec![]
     }
 }
-
 
 /// Team follows waypoint path
 pub(super) struct TeamFollowWaypointsAction;
@@ -203,7 +201,6 @@ impl ScriptAction for TeamFollowWaypointsAction {
         vec!["as_team".to_string()]
     }
 }
-
 
 /// Team guards position
 pub(super) struct TeamGuardAction;
@@ -325,7 +322,6 @@ impl ScriptAction for TeamGuardAction {
     }
 }
 
-
 /// Team hunts enemies
 pub(super) struct TeamHuntAction;
 
@@ -384,7 +380,6 @@ impl ScriptAction for TeamHuntAction {
         vec![]
     }
 }
-
 
 /// Team moves to waypoint
 pub(super) struct TeamMoveToWaypointAction;
@@ -465,7 +460,6 @@ impl ScriptAction for TeamMoveToWaypointAction {
         vec![]
     }
 }
-
 
 /// Team enters building
 pub(super) struct TeamGarrisonBuildingAction;
@@ -573,7 +567,6 @@ impl ScriptAction for TeamGarrisonBuildingAction {
     }
 }
 
-
 /// Team exits garrison
 pub(super) struct TeamExitBuildingAction;
 
@@ -659,7 +652,6 @@ impl ScriptAction for TeamExitBuildingAction {
         vec![]
     }
 }
-
 
 /// Team captures structure
 pub(super) struct TeamCaptureBuildingAction;
@@ -770,7 +762,6 @@ impl ScriptAction for TeamCaptureBuildingAction {
     }
 }
 
-
 /// Team repairs target
 pub(super) struct TeamRepairAction;
 
@@ -857,7 +848,6 @@ impl ScriptAction for TeamRepairAction {
     }
 }
 
-
 /// Team wanders area
 pub(super) struct TeamWanderAction;
 
@@ -919,7 +909,6 @@ impl ScriptAction for TeamWanderAction {
         vec![]
     }
 }
-
 
 /// Team stops
 pub(super) struct TeamIdleAction;
@@ -983,7 +972,6 @@ impl ScriptAction for TeamIdleAction {
     }
 }
 
-
 /// Set team state
 pub(super) struct TeamSetStateAction;
 
@@ -1042,7 +1030,6 @@ impl ScriptAction for TeamSetStateAction {
         vec![]
     }
 }
-
 
 /// Delete team
 pub(super) struct TeamDeleteAction;
@@ -1122,7 +1109,6 @@ impl ScriptAction for TeamDeleteAction {
         vec![]
     }
 }
-
 
 /// Team follows another team
 pub(super) struct TeamFollowTeamAction;
@@ -1210,7 +1196,6 @@ impl ScriptAction for TeamFollowTeamAction {
         vec![]
     }
 }
-
 
 /// Team guards tunnel
 pub(super) struct TeamGuardInTunnelAction;
@@ -1377,7 +1362,6 @@ impl ScriptAction for TeamGuardInTunnelAction {
     }
 }
 
-
 /// Team Attack Action - Commands team to attack target
 pub(super) struct TeamAttackAction;
 
@@ -1448,7 +1432,6 @@ impl ScriptAction for TeamAttackAction {
     }
 }
 
-
 /// Team Attack Area Action - Matches C++ ScriptActions::doTeamAttackArea (line 1387)
 pub(super) struct TeamAttackAreaAction;
 
@@ -1515,7 +1498,6 @@ impl ScriptAction for TeamAttackAreaAction {
         vec![]
     }
 }
-
 
 /// Team Guard Area Action - Matches C++ ScriptActions::doTeamGuardArea (line 1946)
 pub(super) struct TeamGuardAreaAction;
@@ -1595,7 +1577,6 @@ impl ScriptAction for TeamGuardAreaAction {
         vec![]
     }
 }
-
 
 /// Team Follow Action - Commands team to follow another team or unit
 pub(super) struct TeamFollowAction;

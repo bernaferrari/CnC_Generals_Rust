@@ -388,19 +388,19 @@ use crate::stealth_update::{
 
 #[macro_use]
 mod helpers;
-mod update_modules;
 mod behavior;
-mod collide_crates;
-mod production;
-mod death;
-mod contain;
 mod body;
+mod collide_crates;
+mod contain;
+mod death;
 mod draw_client;
-mod leftover;
 mod install;
+mod leftover;
+mod production;
+mod update_modules;
 
-pub(crate) use helpers::ActiveBehaviorModule;
 pub use contain::{ContainModuleDataAdapter, ContainModuleDataKind};
+pub(crate) use helpers::ActiveBehaviorModule;
 pub use install::ensure_module_overrides_installed;
 
 /// Concatenated live sources for residual `include_str!` scans.
