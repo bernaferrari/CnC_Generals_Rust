@@ -32,7 +32,8 @@ impl GameClient {
         // C++ lines 612-619: window manager and video player update BEFORE drawables
         self.update_pre_draw_ui()?;
 
-        let mut visual_delta = if self.should_freeze_visual_time() {
+        let freeze_time = self.should_freeze_visual_time();
+        let mut visual_delta = if freeze_time {
             0.0
         } else {
             SECONDS_PER_LOGICFRAME_REAL
@@ -48,6 +49,7 @@ impl GameClient {
         // RenderPipeline 3D present. When OBJECT_REGISTRY is empty, skip dual-world
         // shroud bind and dual Display DRAW present.
         let host_presentation_path = OBJECT_REGISTRY.is_empty();
+        self.update_orphaned_w3d_ghosts_if_unfrozen(freeze_time);
         if host_presentation_path {
             // Shared THE_MOUSE/THE_KEYBOARD may still be polled for shell widgets;
             // Main remains command authority. Prefer local drawable modules only.
@@ -88,12 +90,15 @@ impl GameClient {
             return Ok(());
         }
 
-        self.update_particle_system_local_player()?;
+        self.set_particle_system_local_player()?;
 
         // C++ line 721: terrain visual, C++ line 726: display UPDATE
         self.update_effects(visual_delta)?;
         apply_pending_script_display_state();
         self.update_display_only()?;
+
+        // W3DDisplay.cpp:1730-1835 — freeze/sync/updateViews/particles before DRAW GPU.
+        crate::display::client_draw_schedule::run_dual_world_cpu_phases();
 
         // C++ line 735: TheDisplay->DRAW()
         self.draw_display()?;
@@ -1075,6 +1080,19 @@ impl GameClient {
         Ok(())
     }
 
+    fn update_orphaned_w3d_ghosts_if_unfrozen(&self, freeze_time: bool) {
+        if freeze_time {
+            return;
+        }
+        if let Ok(mut logic) = gamelogic::system::game_logic::get_game_logic().lock() {
+            logic.update_orphaned_w3d_ghosts();
+            return;
+        }
+        if let Ok(mut manager) = gamelogic::object::THE_W3D_GHOST_OBJECT_MANAGER.write() {
+            manager.update_orphaned_objects(&[]);
+        }
+    }
+
     pub fn update_drawables(&mut self, delta_time: f32) -> GameClientResult<()> {
         let frame = self.frame;
         let local_player_index = self.local_player_id;
@@ -1478,15 +1496,26 @@ impl GameClient {
     }
 
     fn update_particle_system_local_player(&self) -> GameClientResult<()> {
+        self.set_particle_system_local_player()?;
+        if let Ok(mut manager_guard) =
+            crate::effects::particle_manager::get_particle_system_manager_mut()
+        {
+            if let Some(manager) = manager_guard.as_mut() {
+                manager.update(self.local_player_id as i32, self.frame);
+            }
+        }
+        crate::effects::update_tracer_fx(self.frame);
+        Ok(())
+    }
+
+    fn set_particle_system_local_player(&self) -> GameClientResult<()> {
         if let Ok(mut manager_guard) =
             crate::effects::particle_manager::get_particle_system_manager_mut()
         {
             if let Some(manager) = manager_guard.as_mut() {
                 manager.set_local_player_index(self.local_player_id);
-                manager.update(self.local_player_id as i32, self.frame);
             }
         }
-        crate::effects::update_tracer_fx(self.frame);
         Ok(())
     }
 

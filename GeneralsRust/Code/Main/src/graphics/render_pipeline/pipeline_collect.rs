@@ -90,6 +90,23 @@ impl RenderPipeline {
         // mesh pass from unit_render_inputs (no live object identity / FOW re-read).
         // Keep frame installed for post-collect execute residual (minimap/shell/heightmap).
         let presentation = self.presentation_frame.clone();
+        let visual_plans: Vec<crate::presentation_frame::FrozenWeaponVisualDispatchPlan> =
+            presentation
+                .as_ref()
+                .map(|frame| {
+                    frame
+                        .events
+                        .iter()
+                        .filter_map(|event| match event {
+                            crate::presentation_frame::PresentationEvent::WeaponDischarged {
+                                visual_plan,
+                                ..
+                            } => visual_plan.clone().filter(|plan| plan.is_valid()),
+                            _ => None,
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
         let presentation_unit_pass = presentation.is_some();
         // Reset live-identity residual each collect; presentation path must stay at 0.
         self.debug_last_live_unit_identity_reads = 0;
@@ -315,6 +332,7 @@ impl RenderPipeline {
                                     &draw_model,
                                     delta_time,
                                     pending_client_drawable_restore,
+                                    &visual_plans,
                                 );
 
                             // C++ `HLodClass::Update_Sub_Object_Transforms`
@@ -1103,8 +1121,11 @@ impl RenderPipeline {
             .snapshots
             .iter()
             .filter(|snapshot| {
-                snapshot.render_object.render_object.class_id
-                    == gamelogic::object::w3d_ghost_object::RenderObjectClass::Mesh
+                matches!(
+                    snapshot.render_object.render_object.class_id,
+                    gamelogic::object::w3d_ghost_object::RenderObjectClass::Mesh
+                        | gamelogic::object::w3d_ghost_object::RenderObjectClass::HLod
+                )
             })
             .map(|snapshot| snapshot.render_object.render_object.name.clone())
             .collect::<Vec<_>>();
@@ -1114,27 +1135,19 @@ impl RenderPipeline {
             if graphics_system.get_model(model_name).is_some() {
                 continue;
             }
-            if !matches!(
-                Self::ensure_render_model_loaded(
-                    graphics_system,
-                    model_name,
-                    model_name,
-                    allow_sync_model_loads,
-                    deferred_model_load_budget,
-                ),
-                RenderModelLoadResult::Ready(_)
-            ) {
-                return;
-            }
+            let _ = Self::ensure_render_model_loaded(
+                graphics_system,
+                model_name,
+                model_name,
+                allow_sync_model_loads,
+                deferred_model_load_budget,
+            );
         }
 
         let Some(scene) = crate::graphics::render_item::materialize_frozen_w3d_ghost_scene(
             &frame,
             |model_name| graphics_system.get_model(model_name).cloned(),
         ) else {
-            // The materializer is all-or-nothing: a stale revision, HLOD/
-            // Other object, duplicate key, malformed state, or missing exact
-            // asset leaves the normal world untouched and emits no ghost.
             return;
         };
 
@@ -1149,6 +1162,10 @@ impl RenderPipeline {
             )
         });
 
+        match game_client::drawable::evaluate_ghost_scene() {
+            game_client::drawable::SceneShroudDecision::RenderGhostWithFogLight => {}
+            _ => return,
+        }
         for materialized in scene.items {
             let state = materialized.state;
             let model = materialized.asset;
@@ -1157,22 +1174,35 @@ impl RenderPipeline {
             let scale = Mat4::from_scale(Vec3::splat(state.object_scale));
             let world_position = state.world_transform.w_axis.truncate();
             for (mesh_index, mesh) in model.meshes.iter().enumerate() {
-                let Some(mesh_local_transform) =
-                    model.mesh_local_transform_for_animation(mesh_index, usize::MAX, 0.0)
-                else {
-                    continue;
+                let mesh_local_transform = if let Some(child) = state
+                    .sub_objects
+                    .iter()
+                    .find(|child| child.name.eq_ignore_ascii_case(&mesh.name))
+                {
+                    if !child.visible {
+                        continue;
+                    }
+                    child.local_transform
+                } else {
+                    let Some(bind) =
+                        model.mesh_local_transform_for_animation(mesh_index, usize::MAX, 0.0)
+                    else {
+                        continue;
+                    };
+                    bind
                 };
                 let mut material = mesh.material.clone();
                 material.diffuse_color *= color_rgb;
                 material.opacity *= color[3];
-                let render_pass = Self::render_pass_for_material(&material);
-                let Some(mut item) =
-                    RenderItem::new_w3d_ghost(state.clone(), mesh_index, &material, render_pass)
-                else {
+                let Some(mut item) = RenderItem::new_w3d_ghost(
+                    state.clone(),
+                    mesh_index,
+                    &material,
+                    RenderPass::Ghost,
+                ) else {
                     continue;
                 };
                 item.set_mesh_local_transform(scale * mesh_local_transform);
-                item.set_fow_visibility(ObjectVisibility::FULLY_VISIBLE);
                 item.distance = world_position.distance(camera_position);
                 self.render_items.push(item);
             }

@@ -646,11 +646,17 @@ impl RenderBridge {
                 source.object_id,
                 model_draw,
             )?;
-            if snapshot.render_object.class_id != RenderObjectClass::Mesh
-                || snapshot.uv_animations_disabled
-                || snapshot.muzzle_fx_hidden
-            {
-                return None;
+            match snapshot.render_object.class_id {
+                RenderObjectClass::Mesh => {
+                    if snapshot.uv_animations_disabled
+                        || snapshot.muzzle_fx_hidden
+                        || !snapshot.render_object.sub_objects.is_empty()
+                    {
+                        return None;
+                    }
+                }
+                RenderObjectClass::HLod => {}
+                RenderObjectClass::Other => return None,
             }
             render_objects.push(snapshot.render_object);
         }
@@ -1506,6 +1512,54 @@ struct WrapRenderObj {
     class_id: Option<ww3d_core::RenderObjClassId>,
 }
 
+fn materialize_hlod_ghost_children(
+    hlod: &ww3d_assets::prototypes::HlodInstance,
+    submission: &DrawSubmission,
+) -> Option<Vec<RenderSubObjectSnapshot>> {
+    let animation_requested = submission.animation_name.is_some() || submission.animation_time != 0.0;
+    if animation_requested && submission.bone_overrides.is_empty() {
+        return None;
+    }
+
+    let lod = hlod.current_lod()?;
+    let extra = hlod
+        .aggregates()
+        .iter()
+        .flat_map(|aggregate| aggregate.models().iter());
+    let mut sub_objects = Vec::new();
+    for model in lod.models().iter().chain(extra) {
+        if model.name.trim().is_empty() {
+            return None;
+        }
+        let object = model.object.as_deref()?;
+        let mut transform = *object.get_transform();
+        if let Some(bone) = submission
+            .bone_overrides
+            .iter()
+            .find(|bone| bone.bone_index == model.bone_index)
+        {
+            if !bone.transform.is_finite() {
+                return None;
+            }
+            transform = bone.transform;
+        } else if animation_requested {
+            return None;
+        }
+        if !transform.is_finite() {
+            return None;
+        }
+        let hidden = submission.sub_object_visibility.iter().any(|visibility| {
+            visibility.hidden && visibility.sub_object_name.eq_ignore_ascii_case(&model.name)
+        });
+        sub_objects.push(RenderSubObjectSnapshot {
+            name: model.name.clone(),
+            visible: !hidden,
+            transform: gamelogic::object::w3d_ghost_object::Matrix3x4::from_logic_matrix(transform),
+        });
+    }
+    Some(sub_objects)
+}
+
 impl WrapRenderObj {
     /// Materialize only the subset of render objects for which the current
     /// W3D bridge has every live field required by `W3DRenderObjectSnapshot`.
@@ -1554,36 +1608,11 @@ impl WrapRenderObj {
                 (RenderObjectClass::Mesh, Vec::new())
             }
             ww3d_core::RenderObjClassId::Hlod => {
-                // The asset instance now retains the exact HTree bind-pose
-                // child transforms.  This branch remains deliberately strict:
-                // animated/bone/UV/visibility controls require the live W3D
-                // HTree and are rejected until that controller state crosses
-                // the frame boundary.
-                if !submission.bone_overrides.is_empty()
-                    || !submission.mesh_uv_overrides.is_empty()
-                    || !submission.sub_object_visibility.is_empty()
-                    || submission.animation_name.is_some()
-                    || submission.animation_mode.is_some()
-                    || submission.animation_time != 0.0
-                {
-                    return None;
-                }
                 let hlod = self
                     .inner
                     .as_any()
                     .downcast_ref::<ww3d_assets::prototypes::HlodInstance>()?;
-                let children = hlod.bind_pose_sub_object_states()?;
-                let sub_objects = children
-                    .into_iter()
-                    .map(|child| RenderSubObjectSnapshot {
-                        name: child.name,
-                        visible: child.visible,
-                        transform:
-                            gamelogic::object::w3d_ghost_object::Matrix3x4::from_logic_matrix(
-                                child.transform,
-                            ),
-                    })
-                    .collect();
+                let sub_objects = materialize_hlod_ghost_children(hlod, submission)?;
                 (RenderObjectClass::HLod, sub_objects)
             }
             _ => return None,
@@ -2380,6 +2409,117 @@ mod tests {
             )
         );
         assert!(snapshot.uv_animations_disabled);
+    }
+
+    #[test]
+    fn exact_hlod_ghost_capture_applies_frozen_frame_visibility_and_bones() {
+        let mut bridge = RenderBridge::new();
+        let mut hierarchy =
+            ww3d_assets::prototypes::HierarchyPrototype::new("GhostAnimHierarchy".to_string());
+        hierarchy.bind_transforms = vec![
+            GameMat4::IDENTITY,
+            GameMat4::from_translation(GameVec3::new(2.0, 0.0, 0.0)),
+        ];
+        hierarchy.inverse_bind_transforms = vec![GameMat4::IDENTITY; 2];
+        bridge
+            .asset_manager_mut()
+            .add_prototype(hierarchy.name.clone(), Box::new(hierarchy));
+        bridge.asset_manager_mut().add_prototype(
+            "GhostHlodBody".to_string(),
+            Box::new(ww3d_assets::prototypes::MeshPrototype::new(
+                "GhostHlodBody".to_string(),
+            )),
+        );
+        bridge.asset_manager_mut().add_prototype(
+            "MUZZLEFX01".to_string(),
+            Box::new(ww3d_assets::prototypes::MeshPrototype::new(
+                "MUZZLEFX01".to_string(),
+            )),
+        );
+        bridge.asset_manager_mut().add_prototype(
+            "GhostAnimHlod".to_string(),
+            Box::new(ww3d_assets::prototypes::HlodPrototype {
+                name: "GhostAnimHlod".to_string(),
+                hierarchy_name: "GhostAnimHierarchy".to_string(),
+                version: 1,
+                lods: vec![ww3d_assets::prototypes::HlodLodEntry {
+                    max_screen_size: 0.0,
+                    models: vec![
+                        ww3d_assets::prototypes::HlodSubObject {
+                            name: "GhostHlodBody".to_string(),
+                            bone_index: 1,
+                        },
+                        ww3d_assets::prototypes::HlodSubObject {
+                            name: "MUZZLEFX01".to_string(),
+                            bone_index: 1,
+                        },
+                    ],
+                }],
+                aggregates: Vec::new(),
+                proxy_entries: Vec::new(),
+            }),
+        );
+
+        let frozen = GameMat4::from_translation(GameVec3::new(4.0, 5.0, 6.0));
+        let mut model_draw = ModelDrawState {
+            source: ModelDrawSourceIdentity {
+                runtime_draw_ordinal: 0,
+                module_name: "W3DModelDraw".to_string(),
+                module_tag: "W3DModelDrawTag".to_string(),
+                module_tag_name_key: 17,
+            },
+            logic_drawable_id: 44,
+            model_name: "GhostAnimHlod".to_string(),
+            world_transform: GameMat4::IDENTITY,
+            render_object_scale: Some(1.25),
+            render_object_color: Some(0x7f10_2030),
+            condition_flags_bits: 0,
+            bone_overrides: vec![gamelogic::helpers::BoneOverrideState {
+                bone_index: 1,
+                transform: frozen,
+            }],
+            animation_name: Some("Idle".to_string()),
+            animation_time: 0.5,
+            animation_mode: 3,
+            mesh_uv_overrides: Vec::new(),
+            sub_object_visibility: vec![gamelogic::helpers::SubObjectVisibilityState {
+                sub_object_name: "GhostHlodBody".to_string(),
+                hidden: false,
+            }],
+            weapon_bone_bindings: ModelDrawWeaponBoneBindings::default(),
+        };
+        let _ = model_draw.animation_mode;
+        let source = W3DGhostSnapshotCaptureSource {
+            object_id: 9004,
+            drawable_id: 44,
+            drawable_effectively_hidden: false,
+            drawable_transform: gamelogic::object::w3d_ghost_object::Matrix3x4::IDENTITY,
+            drawable_scale: [1.0, 1.0, 1.0],
+            model_draws: vec![model_draw],
+            geometry: gamelogic::object::w3d_ghost_object::ParentGeometrySnapshot {
+                geometry_type: 2,
+                is_small: false,
+                major_radius: 4.0,
+                minor_radius: 3.0,
+                position: [1.0, 2.0, 3.0],
+                angle: 0.25,
+            },
+        };
+
+        let capture = bridge
+            .materialize_exact_mesh_w3d_ghost_capture(&source)
+            .expect("HLOD with frozen bone frame should capture");
+        assert_eq!(capture.render_objects[0].class_id, RenderObjectClass::HLod);
+        assert_eq!(capture.render_objects[0].sub_objects.len(), 2);
+        assert_eq!(
+            capture.render_objects[0].sub_objects[0].transform,
+            gamelogic::object::w3d_ghost_object::Matrix3x4::from_logic_matrix(frozen)
+        );
+        assert!(capture.render_objects[0].sub_objects[0].visible);
+        assert!(
+            !capture.render_objects[0].sub_objects[1].visible,
+            "MUZZLEFX substring hide"
+        );
     }
 
     fn exact_mesh_ghost_model_draw(drawable_id: u32) -> ModelDrawState {

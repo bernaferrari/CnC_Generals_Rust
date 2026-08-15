@@ -51,6 +51,7 @@ pub mod types;
 #[path = "unit/mod.rs"]
 pub mod unit;
 pub mod w3d_ghost_object;
+pub mod w3d_ghost_object_xfer;
 pub mod weapon_set;
 pub use crate::common::types::ObjectStatusTypes;
 pub use crate::template::ObjectTemplate;

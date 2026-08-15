@@ -73,6 +73,7 @@ mod shroud;
 mod special_powers;
 mod terrain;
 mod types;
+mod w3d_ghost_save;
 mod xfer_helpers;
 
 #[cfg(test)]
@@ -91,6 +92,11 @@ pub use player::*;
 pub use special_powers::*;
 pub use terrain::*;
 pub use types::*;
+pub use w3d_ghost_save::{
+    capture_w3d_ghost_xfer_bytes, restore_w3d_ghost_manager_from_xfer_bytes,
+    save_lock_live_w3d_ghosts, stash_loaded_w3d_ghost_xfer, take_loaded_w3d_ghost_xfer,
+    CHUNK_GHOST_OBJECT,
+};
 
 /// Concatenated live snapshot sources for residual `include_str` scans.
 pub const SNAPSHOT_SRC: &str = concat!(

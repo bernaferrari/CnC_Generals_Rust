@@ -817,6 +817,32 @@ impl PresentationFrame {
             });
             objects.push(renderable);
         }
+        #[cfg(feature = "game_client")]
+        {
+            let script_frozen = logic.is_script_time_frozen();
+            let camera_frozen = logic.is_script_camera_time_frozen();
+            let frozen = script_frozen || camera_frozen;
+            super::unit_render::host_draw_schedule::begin_presented_frame(
+                super::unit_render::host_draw_schedule::HostPresentVisualInput {
+                    visual_dt_ms: if frozen {
+                        0
+                    } else {
+                        super::unit_render::host_draw_schedule::HOST_VISUAL_FRAME_MS
+                    },
+                    frozen,
+                },
+            );
+            let host_objects = logic.host_objects();
+            for obj in host_objects.values() {
+                super::unit_render::physics_visual_host::freeze_for_object(
+                    obj,
+                    host_objects,
+                    script_frozen,
+                    camera_frozen,
+                    logic,
+                );
+            }
+        }
         // Stable presentation order for determinism (by ObjectId).
         objects.sort_by_key(|o| o.id.0);
         direct_host_drawables.sort_by_key(|drawable| drawable.object.id.0);
@@ -1304,6 +1330,7 @@ impl PresentationFrame {
                 fired_barrel: ev.fired_barrel,
                 sequence: ev.sequence,
                 logic_frame: ev.logic_frame,
+                visual_plan: ev.visual_plan,
             });
         }
         // Wave 532: FireSound loop drain is a sibling of attack_log (not nested).

@@ -17,5 +17,15 @@ mod strategy_center;
 mod streams_and_rpg;
 mod tanks_and_upgrades;
 mod vehicle_shells;
+mod temporary_weapon_fire;
+mod temporary_weapon_force;
+mod temporary_weapon_status;
 mod weapon_barrel_topology;
 mod weapon_discharge;
+pub(crate) mod weapon_visual_capture;
+mod weapon_visual_freeze;
+
+#[cfg(test)]
+mod temporary_weapon_fire_tests;
+#[cfg(test)]
+mod weapon_visual_dispatch_tests;

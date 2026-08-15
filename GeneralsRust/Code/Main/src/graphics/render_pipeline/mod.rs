@@ -227,6 +227,9 @@ pub enum RenderPass {
     ShadowPass,         // Shadow map generation
     ForwardOpaque,      // Opaque geometry forward rendering
     ForwardTransparent, // Transparent geometry forward rendering
+    /// C++ `RTS3DScene::renderOneObject` fogged/ghost branch: always-fogged
+    /// light environment, no projected shroud pass, frustum cull only.
+    Ghost,
     WaterPass,          // Water surface rendering
     UIPass,             // 2D UI overlay rendering
 }
@@ -747,6 +750,8 @@ pub(super) struct ObjectVisualState {
     pub force_bind_pose: bool,
     pub last_seen_weapon_discharge_sequence: u64,
     pub recoil_slots: [Vec<ObjectWeaponRecoilState>; 3],
+    pub loco_acceleration_pitch_rate: f32,
+    pub loco_acceleration_roll_rate: f32,
 }
 
 /// Clear renderer-local state whose keys are meaningful only within one live

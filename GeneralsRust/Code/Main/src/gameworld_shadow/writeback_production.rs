@@ -249,11 +249,10 @@ impl GameWorldShadow {
     }
 
     pub fn writeback_production_door_to_host(&self, logic: &mut GameLogic) -> usize {
-        // `ProductionUpdate::updateDoors` remains the single live owner of
-        // door phases during a coupled game frame.  The shadow receives those
-        // host events for presentation, but must not overwrite a newly-started
-        // or newly-advanced host door after production completion.
-        if shadow_coupled_tick_active() {
+        // Host `updateDoors` is skipped under production sole-tick (Wave 743).
+        // GameWorld then last-writes phase/end/hold. When sole-tick is off,
+        // a coupled host still owns the door and writeback must not stomp it.
+        if shadow_coupled_tick_active() && !gameworld_production_sole_tick_enabled() {
             return 0;
         }
         let mut updated = 0usize;

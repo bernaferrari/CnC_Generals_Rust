@@ -19,6 +19,20 @@ pub struct GameWorldShadowProbe {
     pub economy_match: bool,
     /// Health samples agree for all mapped live objects (within 0.01).
     pub health_match: bool,
+    /// Mapped pose (position + orientation) within epsilon.
+    pub pose_match: bool,
+    /// Mapped attack-target ids agree.
+    pub attack_target_match: bool,
+    /// Mapped move-target positions agree within epsilon.
+    pub move_target_match: bool,
+    /// Primary/secondary/tertiary/mine-clear weapon ammo + clip agree.
+    pub weapon_match: bool,
+    /// contained_by + occupant list agree.
+    pub contain_match: bool,
+    /// Marked-but-not-removed destroy visibility agrees.
+    pub destroy_visibility_match: bool,
+    /// Queue-head construction_frames + door phase agree (warning-only).
+    pub production_match: bool,
     /// Host match-over residual (evaluate_victory_condition).
     pub host_match_over: bool,
     pub victory_label: Option<String>,
@@ -28,7 +42,7 @@ pub struct GameWorldShadowProbe {
 impl GameWorldShadowProbe {
     pub fn format_report(&self) -> String {
         format!(
-            "gameworld_shadow host_f={} shadow_f={} objs={}/{} players={}/{} supplies={}/{} mapped={} match={} econ={} health={} victory_over={} label={:?} {}",
+            "gameworld_shadow host_f={} shadow_f={} objs={}/{} players={}/{} supplies={}/{} mapped={} match={} econ={} health={} pose={} atk={} move={} weap={} contain={} dvis={} prod={} victory_over={} label={:?} {}",
             self.host_frame,
             self.shadow_frame,
             self.host_objects,
@@ -41,6 +55,13 @@ impl GameWorldShadowProbe {
             self.counts_match,
             self.economy_match,
             self.health_match,
+            self.pose_match,
+            self.attack_target_match,
+            self.move_target_match,
+            self.weapon_match,
+            self.contain_match,
+            self.destroy_visibility_match,
+            self.production_match,
             self.host_match_over,
             self.victory_label,
             self.detail

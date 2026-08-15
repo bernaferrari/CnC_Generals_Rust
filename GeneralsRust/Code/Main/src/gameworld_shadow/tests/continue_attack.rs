@@ -376,11 +376,8 @@ fn path_approach_with_state_decision_authority() {
         }),
         "path_approach must log SetAIState; got {events:?} ord={gathering_ord}"
     );
-    assert_ne!(
-        logic.host_objects().get(&oid).unwrap().ai_state,
-        AIState::Gathering,
-        "host ai_state deferred under decision authority"
-    );
+    // assign_unit_path may stamp Moving on the host; decision log carries Gathering
+    // and GameWorld writeback is last-writer (AIUpdate.cpp state is the last write).
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
     assert!(shadow.apply_ai_decisions_as_world_mutations(&events) >= 1);
@@ -715,7 +712,7 @@ fn transfer_attack_decision_authority() {
 fn update_combat_defers_engagement_under_decision_authority() {
     // Source honesty: combat aim/pitch/pre-attack sets host engagement immediately
     // and still logs under AI decision authority for GameWorld last-write.
-    let src = include_str!("../../game_logic/game_logic.rs");
+    let src = GAME_LOGIC_HOST_SRC;
     let i = src.find("fn update_combat").expect("update_combat");
     let w = &src[i..i + 120_000.min(src.len() - i)];
     assert!(
@@ -733,7 +730,7 @@ fn update_combat_defers_engagement_under_decision_authority() {
 #[test]
 fn residual_defense_fire_engagement_decision_authority() {
     // Source honesty: residual auto-fire paths gate host engagement.
-    let src = include_str!("../../game_logic/game_logic.rs");
+    let src = GAME_LOGIC_HOST_SRC;
     for fn_name in [
         "fn try_base_defense_residual_fire",
         "fn try_sentry_drone_residual_fire",
@@ -816,10 +813,15 @@ fn apply_engagement_decision_aware_writeback() {
         }),
         "must log AttackTarget; got {events:?}"
     );
-    assert!(logic.host_objects().get(&uid).unwrap().target.is_none());
+    // C++ AIAttackState sets the goal on the Object same-frame
+    // (AIAttackState.cpp enter/update). Host applies immediately; GW last-writes.
+    assert_eq!(logic.host_objects().get(&uid).unwrap().target, Some(vid));
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
     assert!(shadow.apply_ai_decisions_as_world_mutations(&events) >= 1);
+    if let Some(o) = logic.host_object_mut(uid) {
+        o.target = None;
+    }
     assert!(shadow.writeback_attack_targets_to_host(&mut logic) >= 1);
     let _ = crate::game_logic::host_attack_target_ready_log::drain();
     assert_eq!(logic.host_objects().get(&uid).unwrap().target, Some(vid));
@@ -1335,7 +1337,7 @@ fn projectile_authority_steps_host_when_shadow_disabled() {
     assert!(gameworld_projectile_authority_enabled());
     assert!(!gameworld_projectile_authority_live());
     // Source must contain live gate so host update_projectiles is not skipped.
-    let src = include_str!("../../game_logic/game_logic.rs");
+    let src = GAME_LOGIC_HOST_SRC;
     assert!(
         src.contains("gameworld_projectile_authority_live()"),
         "host combat must gate projectile defer on live shadow"

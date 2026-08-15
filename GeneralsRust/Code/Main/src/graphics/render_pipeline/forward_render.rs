@@ -582,13 +582,19 @@ impl ForwardPass {
             let mut queued_count = 0;
             let mut error_count = 0;
             let mut hidden_count = 0usize;
-            let renderable_passes = [RenderPass::ForwardOpaque, RenderPass::ForwardTransparent];
+            let renderable_passes = [
+                RenderPass::ForwardOpaque,
+                RenderPass::ForwardTransparent,
+                RenderPass::Ghost,
+            ];
 
             for item in render_items {
                 if !renderable_passes.contains(&item.render_pass) {
                     continue;
                 }
-                if item.fow_visibility.visibility_alpha <= 0.01 {
+                let is_ghost =
+                    item.render_pass == RenderPass::Ghost || item.ghost_render_state.is_some();
+                if !is_ghost && item.fow_visibility.visibility_alpha <= 0.01 {
                     hidden_count += 1;
                     continue;
                 }
@@ -935,24 +941,40 @@ impl ForwardPass {
         mesh.model = Some(mesh_model);
         // FOW was captured on the RenderItem during collection. The draw path
         // must carry that snapshot, not consult GameLogic/FOW again.
-        let frozen_fow = frozen_fow_model_fields(item.fow_visibility);
-        mesh.set_frozen_fow_visibility(FrozenFowVisibility::new(
-            frozen_fow.visibility_alpha,
-            frozen_fow.visibility_falloff,
-            frozen_fow.is_explored,
-        ));
-        mesh.set_projected_shroud_eligible(item.pushes_projected_shroud_pass());
-        mesh.set_presentation_opacity(item.presentation_opacity);
-        if item
-            .ghost_render_state
-            .as_ref()
-            .is_some_and(|state| state.lighting_route == GhostLightingRoute::AlwaysFogged)
-        {
+        let is_ghost = item.render_pass == RenderPass::Ghost
+            || item
+                .ghost_render_state
+                .as_ref()
+                .is_some_and(|state| state.lighting_route == GhostLightingRoute::AlwaysFogged);
+        if is_ghost {
             mesh.set_lighting_environment(self.ghost_lighting_environment.clone());
+            mesh.set_projected_shroud_eligible(false);
+        } else {
+            let frozen_fow = frozen_fow_model_fields(item.fow_visibility);
+            mesh.set_frozen_fow_visibility(FrozenFowVisibility::new(
+                frozen_fow.visibility_alpha,
+                frozen_fow.visibility_falloff,
+                frozen_fow.is_explored,
+            ));
+            mesh.set_projected_shroud_eligible(item.pushes_projected_shroud_pass());
+            mesh.alpha_override = item.fow_visibility.visibility_alpha;
+            mesh.is_hidden = item.fow_visibility.visibility_alpha <= 0.01;
         }
-        mesh.alpha_override = item.fow_visibility.visibility_alpha;
-        mesh.is_hidden = item.fow_visibility.visibility_alpha <= 0.01;
-        mesh.set_uv_offset_override(item.uv_offset_override.map(|offset| [offset.x, offset.y]));
+        mesh.set_presentation_opacity(item.presentation_opacity);
+        // C++ `dx8renderer.cpp:1854-1886` Material_Override: HLOD ghosts force
+        // LinearOffset to customUVOffset(0,0) for this draw only. The shared
+        // Arc<W3DModel> mapper config is left untouched for live items.
+        let uv_override = if is_ghost
+            && item
+                .ghost_render_state
+                .as_ref()
+                .is_some_and(|state| state.uv_animations_disabled)
+        {
+            Some([0.0, 0.0])
+        } else {
+            item.uv_offset_override.map(|offset| [offset.x, offset.y])
+        };
+        mesh.set_uv_offset_override(uv_override);
         if std::env::var_os("GENERALS_FORCE_TWO_SIDED").is_some() {
             static LOGGED_FORCE_TWO_SIDED: AtomicBool = AtomicBool::new(false);
             if !LOGGED_FORCE_TWO_SIDED.swap(true, Ordering::Relaxed) {

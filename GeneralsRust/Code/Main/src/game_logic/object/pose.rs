@@ -751,6 +751,9 @@ impl Object {
                 bits |= 1u128 << MC_BIT_BACKCRUSHED;
             }
         }
+        if self.model_condition_bits != bits {
+            self.visual_draw_state_revision = self.visual_draw_state_revision.saturating_add(1).max(1);
+        }
         self.model_condition_bits = bits;
         self.record_host_model_condition();
     }

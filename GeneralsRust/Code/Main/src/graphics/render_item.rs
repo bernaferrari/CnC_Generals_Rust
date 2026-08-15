@@ -120,6 +120,20 @@ pub struct GhostRenderState {
     pub argb_color: u32,
     pub lighting_route: GhostLightingRoute,
     pub suppress_parent: bool,
+    /// Frozen HLOD children after muzzle-hide. Mesh snapshots leave this empty.
+    pub sub_objects: Vec<GhostSubObjectState>,
+    /// C++ `W3DGhostObject.cpp:64-94` `disableUVAnimations`: HLOD ghosts pin
+    /// LinearOffset mappers at `customUVOffset(0,0)`. Must not mutate the
+    /// shared `Arc<W3DModel>` other live items still tick.
+    pub uv_animations_disabled: bool,
+}
+
+/// One frozen HLOD child retained for the dedicated ghost pass.
+#[derive(Debug, Clone, PartialEq)]
+pub struct GhostSubObjectState {
+    pub name: String,
+    pub visible: bool,
+    pub local_transform: Mat4,
 }
 
 impl GhostRenderState {
@@ -147,6 +161,8 @@ impl GhostRenderState {
             argb_color,
             lighting_route: GhostLightingRoute::AlwaysFogged,
             suppress_parent,
+            sub_objects: Vec::new(),
+            uv_animations_disabled: false,
         })
     }
 
@@ -162,22 +178,20 @@ impl GhostRenderState {
         ]
     }
 
-    /// Materialize only the exact Mesh subset already frozen by GameClient.
-    /// HLOD/Other and any dynamic child state are rejected as a whole rather
-    /// than reconstructed from static prototypes.
+    /// Materialize one frozen Mesh or HLOD snapshot. Other classes and
+    /// non-finite child transforms fail closed for that snapshot only.
     #[cfg(feature = "game_client")]
     pub fn from_frozen_snapshot(
         frame: &FrozenGhostSceneFrame,
         snapshot: &FrozenW3DGhostSnapshot,
         parent_suppression: &GhostParentSuppression,
     ) -> Option<Self> {
-        if parent_suppression.scene_revision() != frame.revision
-            || snapshot.render_object.render_object.class_id != RenderObjectClass::Mesh
-            || !snapshot.render_object.render_object.sub_objects.is_empty()
-            || snapshot.render_object.uv_animations_disabled
-            || snapshot.render_object.muzzle_fx_hidden
-        {
+        if parent_suppression.scene_revision() != frame.revision {
             return None;
+        }
+        match snapshot.render_object.render_object.class_id {
+            RenderObjectClass::Mesh | RenderObjectClass::HLod => {}
+            RenderObjectClass::Other => return None,
         }
 
         let world_transform =
@@ -190,7 +204,7 @@ impl GhostRenderState {
             return None;
         }
 
-        Self::new(
+        let mut state = Self::new(
             GhostRenderKey {
                 ghost_id: snapshot.key.ghost_id,
                 player_index: snapshot.key.player_index,
@@ -203,8 +217,42 @@ impl GhostRenderState {
             snapshot.render_object.render_object.scale,
             snapshot.render_object.render_object.color,
             suppress_parent,
-        )
+        )?;
+        let mut sub_objects =
+            Vec::with_capacity(snapshot.render_object.render_object.sub_objects.len());
+        for child in &snapshot.render_object.render_object.sub_objects {
+            let local_transform = ghost_matrix3x4_to_mat4(child.transform)?;
+            if child.name.trim().is_empty() {
+                return None;
+            }
+            sub_objects.push(GhostSubObjectState {
+                name: child.name.clone(),
+                visible: child.visible,
+                local_transform,
+            });
+        }
+        state.sub_objects = sub_objects;
+        // Capture already applied muzzle-hide. Copy the UV freeze so the
+        // ghost pass can pin LinearOffset without touching the shared asset.
+        state.uv_animations_disabled = snapshot.render_object.uv_animations_disabled;
+        Some(state)
     }
+}
+
+/// Effective LinearOffset UV for one draw. Ghosts with
+/// `uv_animations_disabled` stay at the C++ `customUVOffset(0,0)` pin.
+pub fn effective_linear_offset_uv(item: &RenderItem, speed: Vec2, animation_time: f32) -> Vec2 {
+    if item
+        .ghost_render_state
+        .as_ref()
+        .is_some_and(|state| state.uv_animations_disabled)
+    {
+        return item.uv_offset_override.unwrap_or(Vec2::ZERO);
+    }
+    if let Some(offset) = item.uv_offset_override {
+        return offset;
+    }
+    speed * animation_time
 }
 
 /// A ghost item with the exact cached W3D asset retained for the item's full
@@ -217,7 +265,7 @@ pub struct MaterializedW3DGhostRenderItem {
     pub asset: Arc<W3DModel>,
 }
 
-/// All-or-nothing Mesh-only ghost materialization for one frozen scene.
+/// Per-snapshot ghost materialization for one frozen scene.
 #[cfg(feature = "game_client")]
 #[derive(Debug, Clone)]
 pub struct MaterializedW3DGhostScene {
@@ -226,9 +274,8 @@ pub struct MaterializedW3DGhostScene {
     pub items: Vec<MaterializedW3DGhostRenderItem>,
 }
 
-/// Resolve and materialize one immutable GameClient ghost frame without
-/// placeholder assets. Returning `None` rejects the whole revision when any
-/// snapshot is HLOD/Other, stale, malformed, or missing its exact asset.
+/// Materialize each frozen snapshot independently. A missing HLOD/Other fact
+/// or asset defers that snapshot only; Mesh siblings still emit.
 #[cfg(feature = "game_client")]
 pub fn materialize_frozen_w3d_ghost_scene<F>(
     frame: &FrozenGhostSceneFrame,
@@ -249,13 +296,39 @@ where
             scene_revision: frame.revision,
         };
         if !keys.insert(key) {
-            return None;
+            log::warn!(
+                "w3d ghost snapshot deferred: duplicate key ghost={} player={} index={}",
+                key.ghost_id,
+                key.player_index,
+                key.snapshot_index
+            );
+            continue;
         }
 
-        let state = GhostRenderState::from_frozen_snapshot(frame, snapshot, &parent_suppression)?;
-        let asset = resolve_asset(&state.model_name)?;
+        let Some(state) =
+            GhostRenderState::from_frozen_snapshot(frame, snapshot, &parent_suppression)
+        else {
+            log::warn!(
+                "w3d ghost snapshot deferred: fail-closed materialize ghost={} class={:?}",
+                snapshot.key.ghost_id,
+                snapshot.render_object.render_object.class_id
+            );
+            continue;
+        };
+        let Some(asset) = resolve_asset(&state.model_name) else {
+            log::warn!(
+                "w3d ghost snapshot deferred: missing asset '{}'",
+                state.model_name
+            );
+            continue;
+        };
         if !asset.name.eq_ignore_ascii_case(&state.model_name) {
-            return None;
+            log::warn!(
+                "w3d ghost snapshot deferred: asset name mismatch '{}' vs '{}'",
+                asset.name,
+                state.model_name
+            );
+            continue;
         }
         items.push(MaterializedW3DGhostRenderItem { state, asset });
     }
@@ -609,6 +682,11 @@ impl RenderItem {
             render_pass,
         );
         item.owner = RenderItemOwner::W3dGhost(state.key);
+        // C++ `Set_User_Data(&animationDisableOverride)` — per-instance pin,
+        // never a write into the shared W3DModel / MeshModelClass.
+        if state.uv_animations_disabled {
+            item.uv_offset_override = Some(Vec2::ZERO);
+        }
         item.ghost_render_state = Some(state);
         item.debug_name = format!("w3d_ghost_{}_{}", item.object_id.0, item.mesh_key);
         Some(item)
@@ -982,16 +1060,91 @@ mod tests {
         assert!(item.state.suppress_parent);
         assert_eq!(item.state.argb_color, 0x804c6680);
         assert_eq!(item.asset.name, "GhostTank");
+        assert!(!item.state.uv_animations_disabled);
     }
 
     #[cfg(feature = "game_client")]
     #[test]
-    fn frozen_ghost_materializer_rejects_hlod_unsorted_and_missing_assets() {
+    fn ghost_uv_animations_disabled_does_not_advance_shared_model_uv() {
+        let frame = frozen_mesh_ghost_frame(RenderObjectClass::HLod, vec![33]);
+        assert!(frame.snapshots[0].render_object.uv_animations_disabled);
+
+        let model = Arc::new(W3DModel::new("GhostTank".to_string()));
+        let mapper_len_before = model.meshes.first().map(|mesh| mesh.vertex_mappers.len());
+
+        let scene = materialize_frozen_w3d_ghost_scene(&frame, |_| Some(Arc::clone(&model)))
+            .expect("hlod ghost");
+        let state = &scene.items[0].state;
+        assert!(state.uv_animations_disabled);
+        assert!(Arc::ptr_eq(&scene.items[0].asset, &model));
+
+        let ghost =
+            RenderItem::new_w3d_ghost(state.clone(), 0, &W3DMaterial::default(), RenderPass::Ghost)
+                .expect("ghost item");
+        assert_eq!(ghost.uv_offset_override, Some(Vec2::ZERO));
+
+        let live = RenderItem::new(
+            ObjectId(1),
+            "GhostTank".into(),
+            0,
+            Vec3::ZERO,
+            Mat4::IDENTITY,
+            &W3DMaterial::default(),
+            RenderPass::ForwardOpaque,
+        );
+        let speed = Vec2::new(0.5, 0.25);
+        let ghost_t0 = effective_linear_offset_uv(&ghost, speed, 0.0);
+        let ghost_t1 = effective_linear_offset_uv(&ghost, speed, 1.0);
+        let live_t0 = effective_linear_offset_uv(&live, speed, 0.0);
+        let live_t1 = effective_linear_offset_uv(&live, speed, 1.0);
+
+        assert_eq!(ghost_t0, Vec2::ZERO);
+        assert_eq!(ghost_t1, ghost_t0);
+        assert_ne!(live_t0, live_t1);
+        assert_eq!(live_t1, speed * 1.0);
+        assert_eq!(
+            model.meshes.first().map(|mesh| mesh.vertex_mappers.len()),
+            mapper_len_before
+        );
+        assert!(Arc::ptr_eq(&scene.items[0].asset, &model));
+    }
+
+    #[cfg(feature = "game_client")]
+    #[test]
+    fn frozen_ghost_materializer_keeps_mesh_when_hlod_sibling_defers() {
         let hlod = frozen_mesh_ghost_frame(RenderObjectClass::HLod, vec![33]);
-        assert!(materialize_frozen_w3d_ghost_scene(&hlod, |_| {
-            Some(Arc::new(W3DModel::new("GhostTank".to_string())))
+        let scene = materialize_frozen_w3d_ghost_scene(&hlod, |name| {
+            Some(Arc::new(W3DModel::new(name.to_string())))
         })
-        .is_none());
+        .expect("valid HLOD snapshot materializes independently");
+        assert_eq!(scene.items.len(), 1);
+
+        let mut mixed = frozen_mesh_ghost_frame(RenderObjectClass::Mesh, vec![33]);
+        mixed.snapshots.push(FrozenW3DGhostSnapshot {
+            key: W3DGhostSnapshotKey {
+                ghost_id: 12,
+                player_index: 2,
+                snapshot_index: 1,
+            },
+            parent_object_id: Some(33),
+            drawable_info: gamelogic::object::w3d_ghost_object::W3DDrawableInfo::default(),
+            parent_geometry: None,
+            render_object: W3DRenderObjectSnapshot::new(RenderObjectState {
+                name: "MissingHlod".to_string(),
+                scale: 1.0,
+                color: 0xffff_ffff,
+                transform: Matrix3x4::IDENTITY,
+                sub_objects: Vec::new(),
+                class_id: RenderObjectClass::HLod,
+            }),
+        });
+        let mixed_scene = materialize_frozen_w3d_ghost_scene(&mixed, |name| {
+            name.eq_ignore_ascii_case("GhostTank")
+                .then(|| Arc::new(W3DModel::new(name.to_string())))
+        })
+        .expect("Mesh sibling survives a deferred HLOD");
+        assert_eq!(mixed_scene.items.len(), 1);
+        assert_eq!(mixed_scene.items[0].state.model_name, "GhostTank");
 
         let mut unsorted = frozen_mesh_ghost_frame(RenderObjectClass::Mesh, vec![33, 12]);
         unsorted.snapshots[0].parent_object_id = Some(33);
@@ -999,9 +1152,6 @@ mod tests {
             Some(Arc::new(W3DModel::new("GhostTank".to_string())))
         })
         .is_none());
-
-        let missing_parent = frozen_mesh_ghost_frame(RenderObjectClass::Mesh, vec![12]);
-        assert!(materialize_frozen_w3d_ghost_scene(&missing_parent, |_| None).is_none());
     }
 
     #[test]

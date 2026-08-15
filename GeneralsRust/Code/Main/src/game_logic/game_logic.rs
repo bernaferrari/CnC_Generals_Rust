@@ -1379,6 +1379,9 @@ pub struct GameLogic {
     /// serialized: the durable Object marker + counter establish restore
     /// baselines, while pre-save transient cues must not replay after load.
     weapon_discharge_log: crate::game_logic::host_weapon_discharge_log::HostWeaponDischargeLog,
+    /// Runtime-only world identity so recycled ObjectIds cannot inherit a stale plan.
+    visual_world_epoch: u64,
+    next_visual_object_generation: u64,
 
     /// Game mode
     game_mode: GameMode,
@@ -3956,6 +3959,8 @@ impl GameLogic {
             next_weapon_discharge_sequence: 1,
             weapon_discharge_log:
                 crate::game_logic::host_weapon_discharge_log::HostWeaponDischargeLog::default(),
+            visual_world_epoch: 1,
+            next_visual_object_generation: 1,
             game_mode: GameMode::None,
             skirmish_rules: SkirmishRulesState::default(),
             world_width,
@@ -4556,6 +4561,8 @@ impl GameLogic {
         self.frame = 0;
         self.next_weapon_discharge_sequence = 1;
         self.weapon_discharge_log.clear();
+        self.visual_world_epoch = self.visual_world_epoch.wrapping_add(1).max(1);
+        self.next_visual_object_generation = 1;
         self.objects_to_destroy.clear();
         self.accepted_gather_commands.clear();
         self.supply_dropoff_events.clear();
@@ -5059,6 +5066,9 @@ impl GameLogic {
 // Sibling private methods use pub(super) / pub(in super::super).
 #[path = "world_combat/mod.rs"]
 mod world_combat;
+pub(crate) use world_combat::weapon_visual_capture::{
+    source_is_locally_controlled, PendingWeaponVisualDispatchCapture,
+};
 #[path = "world_objects/mod.rs"]
 mod world_objects;
 #[path = "world_save.rs"]

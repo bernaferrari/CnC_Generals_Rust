@@ -109,6 +109,7 @@ impl GameLogic {
         };
 
         self.commit_dirty_host_objects_to_gameworld();
+        self.fire_temporary_weapons_for_pending_deaths();
         self.process_destroy_list();
     }
 

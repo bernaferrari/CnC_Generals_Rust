@@ -1,9 +1,13 @@
 use game_engine::common::game_common::MAX_PLAYER_COUNT;
+use game_engine::common::system::xfer_load::XferLoad;
+use game_engine::common::system::xfer_save::XferSave;
+use game_engine::common::system::Snapshotable;
 use gamelogic::object::w3d_ghost_object::{
     FrozenW3DGhostSceneEvent, GhostSceneEvent, Matrix3x4, ParentGeometrySnapshot,
     RenderObjectClass, RenderObjectState, RenderSubObjectSnapshot, W3DDrawableInfo, W3DGhostObject,
     W3DGhostObjectManager, INVALID_DRAWABLE_ID, INVALID_OBJECT_ID, OBJECTSHROUD_FOGGED,
 };
+use std::io::Cursor;
 
 fn geometry() -> ParentGeometrySnapshot {
     ParentGeometrySnapshot {
@@ -212,4 +216,88 @@ fn drawable_info_round_trips_as_plain_w3d_state() {
     ghost.set_drawable_info(info);
 
     assert_eq!(ghost.drawable_info(), info);
+}
+
+fn xfer_round_trip_manager(source: &W3DGhostObjectManager) -> W3DGhostObjectManager {
+    let mut bytes = Vec::new();
+    {
+        let mut saved = source.clone();
+        let cursor = Cursor::new(&mut bytes);
+        let mut xfer = XferSave::new(cursor, 1);
+        saved.xfer(&mut xfer).expect("save ghost manager");
+    }
+    let mut loaded = W3DGhostObjectManager::new();
+    loaded.set_save_lock_ghost_objects(true);
+    {
+        let mut xfer = XferLoad::new(Cursor::new(bytes), 1);
+        loaded.xfer(&mut xfer).expect("load ghost manager");
+    }
+    loaded
+}
+
+#[test]
+fn w3d_ghost_xfer_round_trips_snapshot_transform_vis_color_and_shroud() {
+    let mut manager = W3DGhostObjectManager::new();
+    manager.add_ghost_object(Some(42), true).unwrap();
+    let mut transform = Matrix3x4::IDENTITY;
+    transform.rows[0][3] = 11.0;
+    transform.rows[1][3] = 22.0;
+    transform.rows[2][3] = 33.0;
+    let mut child_transform = Matrix3x4::IDENTITY;
+    child_transform.rows[0][3] = 4.0;
+    let render = RenderObjectState {
+        name: "FogTank".to_string(),
+        scale: 1.5,
+        color: 0x804c_6680,
+        transform,
+        sub_objects: vec![
+            RenderSubObjectSnapshot {
+                name: "BODY".to_string(),
+                visible: true,
+                transform: child_transform,
+            },
+            RenderSubObjectSnapshot {
+                name: "MUZZLEFX01".to_string(),
+                visible: true,
+                transform: Matrix3x4::IDENTITY,
+            },
+        ],
+        class_id: RenderObjectClass::HLod,
+    };
+    manager.used_mut()[0].set_drawable_info(W3DDrawableInfo {
+        drawable_id: 77,
+        flags: 0x20,
+        shroud_status_object_id: 55,
+    });
+    manager.used_mut()[0].snapshot(0, 0, false, &[render], geometry());
+    manager.used_mut()[0].set_previous_shroudedness(0, OBJECTSHROUD_FOGGED);
+
+    let loaded = xfer_round_trip_manager(&manager);
+    assert_eq!(loaded.local_player_index(), 0);
+    assert_eq!(loaded.used_count(), 1);
+    let ghost = &loaded.used()[0];
+    assert_eq!(ghost.parent_object_id(), Some(42));
+    assert_eq!(ghost.drawable_info().drawable_id, 77);
+    assert_eq!(ghost.drawable_info().flags, 0x20);
+    assert_eq!(ghost.drawable_info().shroud_status_object_id, 55);
+    assert_eq!(ghost.parent_geometry(), Some(geometry()));
+    assert_eq!(ghost.previous_shroudedness(0), Some(OBJECTSHROUD_FOGGED));
+    let snapshot = &ghost.snapshots(0)[0];
+    assert_eq!(snapshot.render_object.name, "FogTank");
+    assert!((snapshot.render_object.scale - 1.5).abs() < f32::EPSILON);
+    assert_eq!(snapshot.render_object.color, 0x804c_6680);
+    assert_eq!(snapshot.render_object.transform.rows[0][3], 11.0);
+    assert_eq!(snapshot.render_object.transform.rows[1][3], 22.0);
+    assert_eq!(snapshot.render_object.transform.rows[2][3], 33.0);
+    assert_eq!(snapshot.render_object.sub_objects[0].name, "BODY");
+    assert!(snapshot.render_object.sub_objects[0].visible);
+    assert_eq!(
+        snapshot.render_object.sub_objects[0].transform.rows[0][3],
+        4.0
+    );
+    assert!(!snapshot.render_object.sub_objects[1].visible);
+    assert!(snapshot.uv_animations_disabled);
+    assert!(ghost
+        .scene_events()
+        .contains(&GhostSceneEvent::RemoveParentObject(42)));
 }

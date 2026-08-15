@@ -40,6 +40,7 @@ use std::error::Error;
 
 // Public modules
 pub mod cinematic_camera;
+pub mod client_draw_schedule;
 pub mod display;
 pub mod image;
 pub mod movie_player;

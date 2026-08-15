@@ -753,16 +753,14 @@ impl GameWorldShadow {
                         e.exit_delay_remaining_frames = bd.exit_delay_remaining_frames;
                         e.exit_burst_remaining = bd.exit_burst_remaining;
                         e.queue_exit_state_initialized = bd.queue_exit_state_initialized;
-                        // Queue progress can be shadow-owned during a coupled
-                        // sole-tick, but C++ ProductionUpdate remains the sole
-                        // owner of the factory-door state.  Do not leave the
-                        // shadow at CLOSED after the host has reached
-                        // WAITING_OPEN: that makes a completed head look
-                        // perpetually blocked and invites repeated speculative
-                        // entity-first spawns.
-                        e.production_door_phase = obj.production_door_phase;
-                        e.production_door_phase_end_frame = obj.production_door_phase_end_frame;
-                        e.production_door_hold_open = obj.production_door_hold_open;
+                        // Sole-tick GameWorld owns door phase after bootstrap.
+                        // Copy host only when the shadow door is still idle so a
+                        // host-started cycle is not lost, then never stomp GW.
+                        if !skip_production || e.production_door_phase == 0 {
+                            e.production_door_phase = obj.production_door_phase;
+                            e.production_door_phase_end_frame = obj.production_door_phase_end_frame;
+                            e.production_door_hold_open = obj.production_door_hold_open;
+                        }
                         e.rally_point = bd.rally_point.map(|p| [p.x, p.y, p.z]);
                         e.garrison_count = bd.garrisoned_units.len().min(u16::MAX as usize) as u16;
                         e.max_garrison = bd.max_garrison.min(u16::MAX as usize) as u16;
@@ -797,6 +795,7 @@ impl GameWorldShadow {
                         e.last_fire_frame = obj.last_fire_frame;
                         e.fire_intent_count = obj.fire_intent_count;
                         e.weapon_ammo = w.ammo.unwrap_or(u32::MAX);
+                        e.weapon_clip_size = w.clip_size;
                         e.weapon_can_target_air = w.can_target_air;
                         e.weapon_can_target_ground = w.can_target_ground;
                         e.weapon_projectile_speed = w.projectile_speed;
@@ -806,6 +805,7 @@ impl GameWorldShadow {
                         e.weapon_min_range = 0.0;
                         e.weapon_reload_time = 0.0;
                         e.weapon_ammo = u32::MAX;
+                        e.weapon_clip_size = 0;
                         e.weapon_can_target_air = false;
                         e.weapon_can_target_ground = true;
                         e.weapon_projectile_speed = 0.0;
@@ -1978,12 +1978,13 @@ impl GameWorldShadow {
                     e.exit_delay_remaining_frames = bd.exit_delay_remaining_frames;
                     e.exit_burst_remaining = bd.exit_burst_remaining;
                     e.queue_exit_state_initialized = bd.queue_exit_state_initialized;
-                    // See the primary host sync above.  The lightweight flag
-                    // refresh also has to mirror host-owned door animation
-                    // state even while GameWorld owns queue progress.
-                    e.production_door_phase = obj.production_door_phase;
-                    e.production_door_phase_end_frame = obj.production_door_phase_end_frame;
-                    e.production_door_hold_open = obj.production_door_hold_open;
+                    let skip_door = crate::gameworld_shadow::gameworld_production_sole_tick_enabled()
+                        && e.production_door_phase != 0;
+                    if !skip_door {
+                        e.production_door_phase = obj.production_door_phase;
+                        e.production_door_phase_end_frame = obj.production_door_phase_end_frame;
+                        e.production_door_hold_open = obj.production_door_hold_open;
+                    }
                     e.rally_point = bd.rally_point.map(|p| [p.x, p.y, p.z]);
                     e.garrison_count = bd.garrisoned_units.len().min(u16::MAX as usize) as u16;
                     e.max_garrison = bd.max_garrison.min(u16::MAX as usize) as u16;
@@ -2009,6 +2010,7 @@ impl GameWorldShadow {
                     e.weapon_min_range = w.min_range;
                     e.weapon_reload_time = w.reload_time;
                     e.weapon_ammo = w.ammo.unwrap_or(u32::MAX);
+                    e.weapon_clip_size = w.clip_size;
                     e.weapon_can_target_air = w.can_target_air;
                     e.weapon_can_target_ground = w.can_target_ground;
                     e.weapon_projectile_speed = w.projectile_speed;
@@ -2018,6 +2020,7 @@ impl GameWorldShadow {
                     e.weapon_min_range = 0.0;
                     e.weapon_reload_time = 0.0;
                     e.weapon_ammo = u32::MAX;
+                    e.weapon_clip_size = 0;
                     e.weapon_can_target_air = false;
                     e.weapon_can_target_ground = true;
                     e.weapon_projectile_speed = 0.0;
@@ -2302,6 +2305,17 @@ impl GameWorldShadow {
                 e.continuous_fire_coast_until_frame = obj.continuous_fire_coast_until_frame;
                 e.battle_plan_sight_scalar_applied = obj.battle_plan_sight_scalar_applied;
             }
+        }
+
+        let mapped: Vec<ObjectId> = self.host_to_entity.keys().copied().map(ObjectId).collect();
+        for oid in mapped {
+            let Some(obj) = logic.host_objects().get(&oid) else {
+                continue;
+            };
+            let Some(&eid) = self.host_to_entity.get(&oid.0) else {
+                continue;
+            };
+            self.sync_weapon_slots_from_host(eid, obj);
         }
 
         // Wave 792: mirror A10 pending missile drops for GW sole-tick.

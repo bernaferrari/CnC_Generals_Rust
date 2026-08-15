@@ -1,4 +1,10 @@
 use super::*;
+use once_cell::sync::Lazy;
+use parking_lot::Mutex;
+use std::collections::HashMap;
+
+static PREV_ACCEL: Lazy<Mutex<HashMap<u32, glam::Vec3>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
 
 impl Object {
     pub fn take_damage(&mut self, damage: f32) -> bool {
@@ -1149,8 +1155,22 @@ impl Object {
         self.record_host_movement();
     }
 
+    /// C++ `PhysicsBehavior::getAcceleration()` = previous-frame accel.
+    #[must_use]
+    pub fn previous_acceleration(&self) -> glam::Vec3 {
+        PREV_ACCEL
+            .lock()
+            .get(&self.id.0)
+            .copied()
+            .unwrap_or(glam::Vec3::ZERO)
+    }
+
     /// Integrate physics_accel into velocity residual (a → v per logic frame).
+    ///
+    /// C++ `getAcceleration()` returns `m_prevAccel` (previous frame). Store
+    /// the current accel before zeroing so the visual calc can read it.
     pub fn integrate_physics_accel(&mut self) {
+        PREV_ACCEL.lock().insert(self.id.0, self.physics_accel);
         if self.physics_accel != glam::Vec3::ZERO {
             self.movement.velocity += self.physics_accel;
             self.physics_accel = glam::Vec3::ZERO;

@@ -33,18 +33,43 @@ impl GameLogic {
         // the existing one-barrel or staged-restore cursor untouched.
         let _ = self.configure_cached_weapon_barrel_topology_for_object(source);
 
+        let pending = self
+            .objects
+            .get_mut(&source)
+            .and_then(|object| object.take_pending_weapon_visual_capture());
+        let locally_controlled = self.objects.get(&source).is_some_and(|object| {
+            source_is_locally_controlled(object.owner_player_id, self.local_player_id())
+        });
+        let source_object_generation = self.stamp_visual_object_generation(source);
+
         // Retain the pre-advance barrel exactly once. If no concrete source
         // Weapon is attached, fail closed rather than inventing PRIMARY/0.
-        let fired_barrel = self
-            .objects
-            .get_mut(&source)?
-            .fired_barrel_for_slot(weapon_slot)?;
+        let fired_barrel = pending
+            .as_ref()
+            .map(|capture| capture.fired_barrel)
+            .or_else(|| {
+                self.objects
+                    .get_mut(&source)?
+                    .fired_barrel_for_slot(weapon_slot)
+            })?;
 
         // Zero is reserved for an unseen Object marker. A malformed restored
         // counter is normalized by the setter below; keep this defensive guard
         // too because this is the only allocator.
         let sequence = self.next_weapon_discharge_sequence.max(1);
         self.next_weapon_discharge_sequence = sequence.saturating_add(1).max(1);
+        let visual_plan = pending.as_ref().and_then(|capture| {
+            self.freeze_pending_weapon_visual_plan(
+                source,
+                capture,
+                sequence,
+                source_object_generation,
+                locally_controlled,
+            )
+        });
+        if let (Some(capture), Some(plan)) = (pending.as_ref(), visual_plan.as_ref()) {
+            self.play_dispatch_fire_fx(source, capture, plan);
+        }
         let marker = WeaponDischargeMarker {
             sequence,
             weapon_slot,
@@ -57,6 +82,7 @@ impl GameLogic {
             fired_barrel,
             sequence,
             logic_frame: self.frame,
+            visual_plan,
         };
         self.objects
             .get_mut(&source)?
@@ -64,10 +90,15 @@ impl GameLogic {
         // C++ passes this precise barrel to Drawable before Weapon advances.
         // Freeze the source event at the same point; the retained cursor moves
         // only after the event/marker identity is fully established.
-        self.weapon_discharge_log.record(event);
-        self.objects
-            .get_mut(&source)?
-            .advance_weapon_barrel_after_shot(weapon_slot);
+        self.weapon_discharge_log.record(event.clone());
+        let skip_object_barrel = pending
+            .as_ref()
+            .is_some_and(|capture| capture.skip_object_barrel_advance);
+        if !skip_object_barrel {
+            self.objects
+                .get_mut(&source)?
+                .advance_weapon_barrel_after_shot(weapon_slot);
+        }
         Some(event)
     }
 
@@ -90,6 +121,46 @@ impl GameLogic {
     /// presentation build. This has `&self` deliberately: taking a snapshot
     /// is a visual boundary, not an authority mutation.
     #[inline]
+    fn play_dispatch_fire_fx(
+        &mut self,
+        source: ObjectId,
+        capture: &super::weapon_visual_capture::PendingWeaponVisualDispatchCapture,
+        plan: &crate::presentation_frame::FrozenWeaponVisualDispatchPlan,
+    ) {
+        use crate::presentation_frame::FrozenWeaponVisualFxRoute;
+        if plan.fx_route != FrozenWeaponVisualFxRoute::BroadcastWithFireFx {
+            return;
+        }
+        if capture.selected_fx_name.is_empty() {
+            return;
+        }
+        if !plan.fire_fx_falls_back_to_drawable_position {
+            return;
+        }
+        let source_pos = Vec3::new(
+            capture.source_pos[0],
+            capture.source_pos[1],
+            capture.source_pos[2],
+        );
+        let target_pos = self.resolved_visual_target_pos(capture);
+        let where_pos = if capture.is_contact_weapon {
+            target_pos
+        } else {
+            source_pos
+        };
+        let _ = self.combat_particles.spawn_weapon_fire_fx_named_ocl(
+            where_pos,
+            Some(target_pos),
+            capture.logic_frame,
+            source,
+            capture.target_id,
+            &capture.selected_fx_name,
+            "",
+            "",
+            "",
+        );
+    }
+
     pub fn take_weapon_discharges_for_presentation(
         &self,
     ) -> Vec<crate::game_logic::host_weapon_discharge_log::HostWeaponDischargeEvent> {
@@ -164,6 +235,7 @@ mod tests {
                     fired_barrel,
                     sequence,
                     logic_frame,
+                    ..
                 } if *event_source == source => {
                     Some((*sequence, *weapon_slot, *fired_barrel, *logic_frame))
                 }

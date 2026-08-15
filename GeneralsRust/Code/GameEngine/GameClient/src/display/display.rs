@@ -694,6 +694,8 @@ impl SubsystemInterface for Display {
 
 impl DisplayInterface for Display {
     fn draw(&self) -> Result<(), Box<dyn std::error::Error>> {
+        crate::display::client_draw_schedule::run_dual_world_cpu_phases();
+
         let (frame, view) = self
             .begin_frame()
             .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;

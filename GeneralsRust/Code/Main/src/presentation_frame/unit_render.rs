@@ -1,5 +1,25 @@
 use super::*;
 
+#[cfg(feature = "game_client")]
+#[path = "physics_visual_host_inputs.rs"]
+pub(crate) mod physics_visual_host_inputs;
+
+#[cfg(feature = "game_client")]
+#[path = "host_draw_schedule.rs"]
+pub(crate) mod host_draw_schedule;
+
+#[cfg(feature = "game_client")]
+#[path = "physics_visual_host.rs"]
+pub(crate) mod physics_visual_host;
+
+#[cfg(all(test, feature = "game_client"))]
+#[path = "physics_visual_host_tests.rs"]
+mod physics_visual_host_tests;
+
+#[cfg(all(test, feature = "game_client"))]
+#[path = "host_draw_schedule_tests.rs"]
+mod host_draw_schedule_tests;
+
 /// Build the dynamic part of one selected Draw module's C++ projectile-bone
 /// visibility vector.  The caller appends it after static state directives so
 /// the existing exact-HLOD resolver preserves C++ last-write behavior.
@@ -426,10 +446,18 @@ impl UnitRenderInput {
         // gameplay residuals into this hull matrix: a missing/unsupported
         // HLOD binding must keep the chassis orientation intact.
         // C++ ToppleUpdate still tilts the whole mesh while falling.
-        glam::Mat4::from_translation(self.position)
+        let base = glam::Mat4::from_translation(self.position)
             * glam::Mat4::from_rotation_y(self.orientation)
             * glam::Mat4::from_rotation_x(lean)
-            * glam::Mat4::from_scale(glam::Vec3::splat(scale))
+            * glam::Mat4::from_scale(glam::Vec3::splat(scale));
+        #[cfg(feature = "game_client")]
+        {
+            physics_visual_host::apply_to_world_matrix(self.id, base)
+        }
+        #[cfg(not(feature = "game_client"))]
+        {
+            base
+        }
     }
 
     /// Wave 495: ensure combat motion flags are present in model-condition bits.

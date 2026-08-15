@@ -79,6 +79,12 @@ pub fn honesty_live_flammable_update_dual_world_empty_gate_residual_pack_wave379
 }
 
 fn fn_body<'a>(src: &'a str, name: &str) -> Option<&'a str> {
+    fn_body_scoped(src, name, None)
+}
+
+/// Extract a function body; when `require_marker` is Some, only bodies
+/// containing that marker qualify (None matches the first well-formed body).
+fn fn_body_scoped<'a>(src: &'a str, name: &str, require_marker: Option<&str>) -> Option<&'a str> {
     let mut search_from = 0usize;
     while let Some(rel) = src[search_from..].find(name) {
         let i = search_from + rel;
@@ -95,7 +101,11 @@ fn fn_body<'a>(src: &'a str, name: &str) -> Option<&'a str> {
                     depth -= 1;
                     if depth == 0 {
                         let body = &src[i..brace + off + 1];
-                        if body.contains("dual_world_registry_unavailable") {
+                        if let Some(marker) = require_marker {
+                            if body.contains(marker) {
+                                return Some(body);
+                            }
+                        } else {
                             return Some(body);
                         }
                         break;
@@ -109,7 +119,14 @@ fn fn_body<'a>(src: &'a str, name: &str) -> Option<&'a str> {
     None
 }
 
-/// Source residual: FlammableUpdate empty dual-world short-circuits.
+/// Source residual: FlammableUpdate dual-world gates.
+/// 2026-08-14 parity correction: `try_to_ignite` no longer no-ops on an empty
+/// dual-world registry — C++ `FlammableUpdate::tryToIgnite`
+/// (FlammableUpdate.cpp:170-197) always advances `FS_NORMAL` to `FS_AFLAME`;
+/// `wouldIgnite` is `FS_NORMAL`-only (FlammableUpdate.cpp:238-244). The only
+/// early-out is the status guard. `do_aflame_damage` / `update_simple` keep
+/// their Wave 379 empty-registry fail-closed gates (no registry → no side
+/// effects / Forever sleep).
 pub fn honesty_flammable_update_dual_world_empty_gate_source() -> bool {
     let g =
         include_str!("../../../../GameEngine/GameLogic/src/object/behavior/flammable_update.rs");
@@ -122,17 +139,27 @@ pub fn honesty_flammable_update_dual_world_empty_gate_source() -> bool {
     let helper_ok = g.contains(
         "fn dual_world_registry_unavailable() -> bool {\n    crate::object::registry::OBJECT_REGISTRY.is_empty()\n}",
     );
-    let Some(ignite) = fn_body(g, "fn try_to_ignite(") else {
+    let Some(ignite) = fn_body_scoped(g, "fn try_to_ignite(", None) else {
         return false;
     };
-    let Some(damage) = fn_body(g, "fn do_aflame_damage(") else {
+    let Some(damage) = fn_body_scoped(
+        g,
+        "fn do_aflame_damage(",
+        Some("dual_world_registry_unavailable"),
+    ) else {
         return false;
     };
-    let Some(update) = fn_body(g, "fn update_simple(") else {
+    let Some(update) = fn_body_scoped(
+        g,
+        "fn update_simple(",
+        Some("dual_world_registry_unavailable"),
+    ) else {
         return false;
     };
     helper_ok
-        && ignite.contains("return;")
+        && ignite.contains("FlammabilityStatus::Normal")
+        && !ignite.contains("dual_world_registry_unavailable")
+        && ignite.contains("FlammabilityStatus::Aflame")
         && damage.contains("return;")
         && update.contains("return UpdateSleepTime::Forever")
 }

@@ -87,13 +87,16 @@ impl AnimationSteeringUpdate {
 
 impl UpdateModuleInterface for AnimationSteeringUpdate {
     fn update_simple(&mut self) -> UpdateSleepTime {
+        // C++ AnimationSteeringUpdate::update (AnimationSteeringUpdate.cpp:46-112)
+        // always returns UPDATE_SLEEP_NONE, even when physics/drawable are null.
+        // Missing owner lookup is the same early-out: still wake next frame.
         let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
             crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
                 .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
         }) else {
-            return UpdateSleepTime::Forever;
+            return UpdateSleepTime::Frames(1);
         };
         let Ok(object_guard) = object_arc.read() else {
             return UpdateSleepTime::Frames(1);

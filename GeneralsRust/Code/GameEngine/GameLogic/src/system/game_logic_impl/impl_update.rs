@@ -1126,13 +1126,7 @@ impl GameLogic {
         let ghost_object_ids = self.partition_manager.ghost_link_object_ids();
         let mut transitions = Vec::with_capacity(ghost_object_ids.len());
         for object_id in ghost_object_ids {
-            let Some(object) = self.objects.get(&object_id) else {
-                continue;
-            };
-            let Ok(object) = object.read() else {
-                continue;
-            };
-            let status = object.get_shrouded_status(local_player as i32);
+            let status = self.ghost_shroud_status_for_link(object_id, local_player);
             let capture = self
                 .partition_manager
                 .object_ghost_needs_capture(object_id, local_player, status)
@@ -1153,6 +1147,66 @@ impl GameLogic {
         }
 
         Ok(())
+    }
+
+    /// C++ `GameClient::update` → `TheGhostObjectManager->updateOrphanedObjects`.
+    /// Re-evaluates parentless ghosts against current cell shroud and drops
+    /// modules that no longer hold any snapshot.
+    pub fn update_orphaned_w3d_ghosts(&mut self) {
+        let local_player = crate::object::THE_W3D_GHOST_OBJECT_MANAGER
+            .read()
+            .ok()
+            .map(|manager| manager.local_player_index())
+            .unwrap_or(0);
+        let Ok(mut manager) = crate::object::THE_W3D_GHOST_OBJECT_MANAGER.write() else {
+            return;
+        };
+        let statuses: Vec<(ObjectID, crate::common::ObjectShroudStatus)> = self
+            .partition_manager
+            .orphan_ghost_object_ids()
+            .into_iter()
+            .map(|object_id| {
+                (
+                    object_id,
+                    self.ghost_shroud_status_for_link(object_id, local_player),
+                )
+            })
+            .collect();
+        self.partition_manager.update_orphaned_ghosts(
+            local_player,
+            |object_id| {
+                statuses
+                    .iter()
+                    .find(|(id, _)| *id == object_id)
+                    .map(|(_, status)| *status)
+                    .unwrap_or(crate::common::ObjectShroudStatus::Fogged)
+            },
+            &mut manager,
+        );
+    }
+
+    fn ghost_shroud_status_for_link(
+        &self,
+        object_id: ObjectID,
+        player_index: usize,
+    ) -> crate::common::ObjectShroudStatus {
+        if let Some(object) = self.objects.get(&object_id) {
+            if let Ok(object) = object.read() {
+                return object.get_shrouded_status(player_index as i32);
+            }
+        }
+        let Some(position) = self.partition_manager.ghost_frozen_position(object_id) else {
+            return crate::common::ObjectShroudStatus::Fogged;
+        };
+        use crate::system::shroud_manager::{get_shroud_manager, ShroudState};
+        let Ok(shroud) = get_shroud_manager().lock() else {
+            return crate::common::ObjectShroudStatus::Fogged;
+        };
+        match shroud.get_shroud_state(player_index as u32, &position) {
+            ShroudState::Visible => crate::common::ObjectShroudStatus::Clear,
+            ShroudState::Explored => crate::common::ObjectShroudStatus::Fogged,
+            ShroudState::Hidden => crate::common::ObjectShroudStatus::Shrouded,
+        }
     }
 
     /// Phase 8: Evaluate mission scripts

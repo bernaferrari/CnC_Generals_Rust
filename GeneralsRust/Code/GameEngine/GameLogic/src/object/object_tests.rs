@@ -6,7 +6,10 @@
 mod tests {
     use super::super::*;
     use super::super::{initial_update_wake_frame, weapon_set_model_condition};
-    use crate::common::RadarPriorityType;
+    use crate::common::{
+        AsciiString, DefaultThingTemplate, KindOf, RadarPriorityType, TemplateModuleInfo,
+        ThingTemplate,
+    };
     use std::sync::{Mutex, OnceLock};
 
     fn test_state_lock() -> std::sync::MutexGuard<'static, ()> {
@@ -14,7 +17,7 @@ mod tests {
         TEST_STATE_LOCK
             .get_or_init(|| Mutex::new(()))
             .lock()
-            .expect("test state lock poisoned")
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
     use crate::object::body::active_body::{ActiveBody, ActiveBodyModuleData};
 
@@ -430,6 +433,317 @@ mod tests {
             modules.contains("ModuleInterfaceType::DESTROY")
                 && modules.contains("ModuleInterfaceType::DAMAGE"),
             "TemplateModuleBehavior must advertise destroy/damage from the module mask"
+        );
+    }
+
+    #[test]
+    fn on_object_created_runs_after_helpers_and_template_modules_exist() {
+        let src = include_str!("object_modules.rs");
+        let install = src
+            .split("fn init_modules_for")
+            .nth(1)
+            .expect("init_modules_for");
+        let create_arm = install
+            .split("Ok(module) =>")
+            .nth(1)
+            .expect("factory Ok arm");
+        let create_until_push = create_arm.split("modules_to_install.push").next().unwrap();
+        assert!(
+            !create_until_push.contains("on_object_created()"),
+            "on_object_created must not run per-module during factory create"
+        );
+        assert!(
+            src.contains("invoke_on_object_created_after_install"),
+            "C++ Object.cpp:458-462 requires a post-install onObjectCreated pass"
+        );
+
+        let mut obj = Object::new_test(0x0C12, 100.0);
+        obj.invoke_on_object_created_after_install();
+        let siblings = Object::last_on_created_sibling_count();
+        assert!(
+            siblings >= 3,
+            "on_object_created must observe ctor helpers already on m_behaviors, got {siblings}"
+        );
+        let names: Vec<String> = obj
+            .get_behavior_modules()
+            .into_iter()
+            .map(|module| {
+                module
+                    .lock()
+                    .map(|g| g.get_module_name().to_string())
+                    .unwrap_or_default()
+            })
+            .collect();
+        assert_eq!(names[0], "ObjectSMCHelper");
+        assert_eq!(names[1], "StatusDamageHelper");
+        assert_eq!(names[2], "SubdualDamageHelper");
+    }
+
+    #[test]
+    fn object_xfer_module_count_includes_ctor_helpers() {
+        use game_engine::system::xfer_load::XferLoad;
+        use game_engine::system::xfer_save::XferSave;
+        use std::io::Cursor;
+
+        let mut saved = Object::new_test(7, 100.0);
+        assert!(saved.behavior_module_xfer_count() >= 3);
+        if let Some(helper) = saved.status_damage_helper() {
+            if let Ok(mut guard) = helper.lock() {
+                guard.set_frame_to_heal_for_test(88);
+            }
+        }
+
+        let mut bytes = Vec::new();
+        {
+            let cursor = Cursor::new(&mut bytes);
+            let mut save = XferSave::new(cursor, 1);
+            saved.xfer(&mut save);
+        }
+
+        let mut loaded = Object::new_test(1, 100.0);
+        {
+            let cursor = Cursor::new(&bytes);
+            let mut load = XferLoad::new(cursor, 1);
+            loaded.xfer(&mut load);
+        }
+        assert_eq!(
+            loaded.behavior_module_xfer_count(),
+            saved.behavior_module_xfer_count()
+        );
+        let heal_frame = loaded
+            .status_damage_helper()
+            .and_then(|h| h.lock().ok().map(|g| g.get_frame_to_heal()))
+            .unwrap_or(0);
+        assert_eq!(heal_frame, 88);
+    }
+
+    #[test]
+    fn object_xfer_skips_unknown_module_tag_block() {
+        use game_engine::system::xfer_load::XferLoad;
+        use game_engine::system::xfer_save::XferSave;
+        use std::io::Cursor;
+
+        let mut bytes = Vec::new();
+        {
+            let cursor = Cursor::new(&mut bytes);
+            let mut save = XferSave::new(cursor, 1);
+            let mut count: u16 = 1;
+            let _ = save.xfer_unsigned_short(&mut count);
+            let mut tag = String::from("ModuleTag_DoesNotExist");
+            let _ = save.xfer_ascii_string(&mut tag);
+            assert!(save.begin_block().is_ok());
+            let mut payload: u32 = 0xA1B2_C3D4;
+            let _ = save.xfer_unsigned_int(&mut payload);
+            let _ = save.end_block();
+        }
+
+        let mut obj = Object::new_test(3, 100.0);
+        let before = obj.behavior_module_xfer_count();
+        {
+            let cursor = Cursor::new(&bytes);
+            let mut load = XferLoad::new(cursor, 1);
+            obj.xfer_behavior_module_list(&mut load, false);
+        }
+        assert_eq!(obj.behavior_module_xfer_count(), before);
+        assert!(obj.has_ctor_helpers());
+    }
+
+    fn behavior_names(obj: &Object) -> Vec<String> {
+        obj.get_behavior_modules()
+            .into_iter()
+            .map(|module| {
+                module
+                    .lock()
+                    .map(|g| g.get_module_name().to_string())
+                    .unwrap_or_default()
+            })
+            .collect()
+    }
+
+    struct CtorSpecTemplate {
+        inner: crate::common::DefaultThingTemplate,
+        kinds: Vec<KindOf>,
+        behaviors: Vec<crate::common::TemplateModuleInfo>,
+        weapons: Vec<game_engine::thing::thing_template::WeaponTemplateSet>,
+    }
+
+    impl std::fmt::Debug for CtorSpecTemplate {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.debug_struct("CtorSpecTemplate")
+                .field("name", &self.inner.get_name())
+                .field("kinds", &self.kinds)
+                .finish()
+        }
+    }
+
+    impl CtorSpecTemplate {
+        fn named(name: &str) -> Self {
+            Self {
+                inner: crate::common::DefaultThingTemplate::new(name.to_string()),
+                kinds: Vec::new(),
+                behaviors: Vec::new(),
+                weapons: Vec::new(),
+            }
+        }
+
+        fn with_kind(mut self, kind: KindOf) -> Self {
+            self.kinds.push(kind);
+            self
+        }
+
+        fn with_inactive_body(mut self) -> Self {
+            self.behaviors.push(crate::common::TemplateModuleInfo {
+                name: crate::common::AsciiString::from("InactiveBody"),
+                module_tag: crate::common::AsciiString::from("ModuleTag_InactiveBody"),
+                data: std::sync::Arc::new(game_engine::common::thing::module::BaseModuleData::new()),
+                interface_mask: game_engine::common::thing::module::ModuleInterfaceType::NONE,
+            });
+            self
+        }
+
+        fn with_primary_weapon(mut self) -> Self {
+            let mut set = game_engine::thing::thing_template::WeaponTemplateSet::new();
+            set.set_weapon_template_name(0, Some("TestCannon".into()));
+            self.weapons.push(set);
+            self
+        }
+    }
+
+    impl ThingTemplate for CtorSpecTemplate {
+        fn get_name(&self) -> &crate::common::AsciiString {
+            self.inner.get_name()
+        }
+        fn get_template_geometry_info(&self) -> crate::common::GeometryInfo {
+            self.inner.get_template_geometry_info()
+        }
+        fn calc_vision_range(&self) -> crate::common::Real {
+            self.inner.calc_vision_range()
+        }
+        fn calc_shroud_clearing_range(&self) -> crate::common::Real {
+            self.inner.calc_shroud_clearing_range()
+        }
+        fn is_kind_of(&self, kind: KindOf) -> bool {
+            self.kinds.contains(&kind) || self.inner.is_kind_of(kind)
+        }
+        fn get_behavior_module_info(&self) -> &[crate::common::TemplateModuleInfo] {
+            &self.behaviors
+        }
+        fn weapon_template_sets(&self) -> &[game_engine::thing::thing_template::WeaponTemplateSet] {
+            &self.weapons
+        }
+    }
+
+    #[test]
+    fn ctor_helpers_default_tank_installs_weapon_helpers_in_cpp_order() {
+        let template = std::sync::Arc::new(
+            CtorSpecTemplate::named("AmericaTankCrusader").with_primary_weapon(),
+        );
+        let obj = Object::new_test_from_template(0x7A11, 100.0, template);
+        let names = behavior_names(&obj);
+        assert_eq!(
+            names,
+            vec![
+                "ObjectSMCHelper",
+                "StatusDamageHelper",
+                "SubdualDamageHelper",
+                "ObjectDefectionHelper",
+                "ObjectWeaponStatusHelper",
+                "FiringTracker",
+                "TempWeaponBonusHelper",
+            ]
+        );
+        assert_eq!(
+            obj.ctor_helper_xfer_tags(),
+            vec![
+                "ModuleTag_SMCHelper",
+                "ModuleTag_StatusDamageHelper",
+                "ModuleTag_SubdualDamageHelper",
+                "ModuleTag_DefectionHelper",
+                "ModuleTag_WeaponStatusHelper",
+                "ModuleTag_FiringTrackerHelper",
+                "ModuleTag_TempWeaponBonusHelper",
+            ]
+        );
+    }
+
+    #[test]
+    fn ctor_helpers_shrubbery_omits_defection() {
+        let template =
+            std::sync::Arc::new(CtorSpecTemplate::named("Tree").with_kind(KindOf::Shrubbery));
+        let obj = Object::new_test_from_template(0x5B18, 10.0, template);
+        let names = behavior_names(&obj);
+        assert_eq!(
+            names,
+            vec![
+                "ObjectSMCHelper",
+                "StatusDamageHelper",
+                "SubdualDamageHelper",
+            ]
+        );
+        assert!(!names.iter().any(|n| n == "ObjectDefectionHelper"));
+    }
+
+    #[test]
+    fn ctor_helpers_inactive_body_omits_status_and_subdual() {
+        let spec = CtorSpecTemplate::named("Prop").with_inactive_body();
+        let info_names: Vec<String> = spec
+            .get_behavior_module_info()
+            .iter()
+            .map(|entry| entry.name.as_str().to_string())
+            .collect();
+        assert_eq!(info_names, vec!["InactiveBody".to_string()]);
+        let template: std::sync::Arc<dyn ThingTemplate> = std::sync::Arc::new(spec);
+        let obj = Object::new_test_from_template(0x1B0D, 1.0, template);
+        let names = behavior_names(&obj);
+        assert_eq!(names, vec!["ObjectSMCHelper", "ObjectDefectionHelper"]);
+        assert!(!names.iter().any(|n| n == "StatusDamageHelper"));
+        assert!(!names.iter().any(|n| n == "SubdualDamageHelper"));
+    }
+
+    #[test]
+    fn ctor_helpers_non_repulsable_omits_repulsor() {
+        let obj = Object::new_test(0x4E50, 100.0);
+        let names = behavior_names(&obj);
+        assert!(!names.iter().any(|n| n == "ObjectRepulsorHelper"));
+        assert_eq!(names[0], "ObjectSMCHelper");
+        assert_eq!(names[1], "StatusDamageHelper");
+        assert_eq!(names[2], "SubdualDamageHelper");
+        assert_eq!(names[3], "ObjectDefectionHelper");
+    }
+
+    #[test]
+    fn ctor_helpers_xfer_tag_sequence_round_trips() {
+        use game_engine::system::xfer_load::XferLoad;
+        use game_engine::system::xfer_save::XferSave;
+        use std::io::Cursor;
+
+        let template = std::sync::Arc::new(
+            CtorSpecTemplate::named("AmericaTankCrusader").with_primary_weapon(),
+        );
+        let mut saved = Object::new_test_from_template(0x0FE4, 100.0, template);
+        let expected = saved.ctor_helper_xfer_tags();
+        assert_eq!(saved.behavior_module_xfer_count() as usize, expected.len());
+
+        let mut bytes = Vec::new();
+        {
+            let cursor = Cursor::new(&mut bytes);
+            let mut save = XferSave::new(cursor, 1);
+            saved.xfer(&mut save);
+        }
+
+        let loaded_template = std::sync::Arc::new(
+            CtorSpecTemplate::named("AmericaTankCrusader").with_primary_weapon(),
+        );
+        let mut loaded = Object::new_test_from_template(1, 100.0, loaded_template);
+        {
+            let cursor = Cursor::new(&bytes);
+            let mut load = XferLoad::new(cursor, 1);
+            loaded.xfer(&mut load);
+        }
+        assert_eq!(loaded.ctor_helper_xfer_tags(), expected);
+        assert_eq!(
+            loaded.behavior_module_xfer_count(),
+            saved.behavior_module_xfer_count()
         );
     }
 
@@ -946,6 +1260,14 @@ mod tests {
     fn object_power_helpers_use_controlling_player_energy() {
         let _guard = test_state_lock();
         player_list().write().unwrap().clear();
+        OBJECT_REGISTRY.clear();
+
+        // Team::set_controlling_player_id no-ops when OBJECT_REGISTRY.is_empty()
+        // (team_identity.rs Wave 256). C++ Team::setControllingPlayer always
+        // stores the player (Team.cpp). Register a live handle so the setter
+        // runs and Object::has_sufficient_power can resolve the controller.
+        let registry_anchor = Arc::new(RwLock::new(Object::new_test(70_700, 100.0)));
+        OBJECT_REGISTRY.register_object(70_700, &registry_anchor);
 
         let player = Arc::new(RwLock::new(Player::new(0)));
         {
@@ -969,6 +1291,7 @@ mod tests {
         assert!(!object.drain_power(4));
 
         player_list().write().unwrap().clear();
+        OBJECT_REGISTRY.clear();
 
         let mut unowned = Object::new_test(708, 100.0);
         assert!(!unowned.has_sufficient_power(0.0));
@@ -2004,7 +2327,8 @@ mod visibility_tests {
         info.control = AC_LOOP;
         info.loop_count = 0;
         {
-            let manager = get_global_audio_manager().unwrap_or_else(initialize_global_audio_manager);
+            let manager =
+                get_global_audio_manager().unwrap_or_else(initialize_global_audio_manager);
             let mut guard = manager.lock().expect("audio manager");
             guard.register_audio_event_info(info);
         }

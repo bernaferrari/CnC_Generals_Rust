@@ -1,6 +1,13 @@
 //! Lightweight world representation used by the modern game-logic core.
 
+pub mod contain_roster;
 pub mod entities;
+pub mod weapon_slots;
+pub use contain_roster::GameWorldContainRoster;
+pub use weapon_slots::{
+    GameWorldWeaponSlots, WeaponSlotFacts, WEAPON_SLOT_COUNT, WEAPON_SLOT_MINE_CLEAR,
+    WEAPON_SLOT_PRIMARY, WEAPON_SLOT_SECONDARY, WEAPON_SLOT_TERTIARY,
+};
 
 use self::entities::{EntityId, EntityProductionItem, EntityStore, TemplateRef, Transform};
 use std::collections::VecDeque;
@@ -241,7 +248,7 @@ impl World {
             let Some(e) = self.entities.get_mut(id) else {
                 continue;
             };
-            if e.destroyed || e.health <= 0.0 || e.under_construction {
+            if !e.is_eligible_for_targeting() || e.under_construction {
                 continue;
             }
 
@@ -527,6 +534,13 @@ impl World {
         self.entities.iter()
     }
 
+    /// Targeting/AI query set: living, not marked destroyed. Find-by-id is unrestricted.
+    pub fn targetable_entities(&self) -> impl Iterator<Item = &entities::Entity> {
+        self.entities
+            .iter()
+            .filter(|e| e.is_eligible_for_targeting())
+    }
+
     /// Snapshot information for a specific entity.
     pub fn entity_summary_by_id(&self, id: EntityId) -> Option<EntitySummary> {
         self.entities.get(id).map(World::entity_summary)
@@ -554,7 +568,7 @@ impl World {
 pub enum WorldMutation {
     /// Apply damage to an entity by id.
     Damage { target: EntityId, amount: f32 },
-    /// Remove an entity (destroy).
+    /// Mark an entity destroyed (same-frame visible). `process_destroy_list` removes it.
     Destroy(EntityId),
     /// Set absolute health.
     SetHealth { target: EntityId, health: f32 },
@@ -948,6 +962,12 @@ pub enum WorldMutation {
         camo_friendly_opacity: f32,
         camo_stealth_look: u8,
     },
+    /// Per-slot weapon facts (primary/secondary/tertiary/mine-clear).
+    SetWeaponSlot {
+        target: EntityId,
+        slot: u8,
+        facts: WeaponSlotFacts,
+    },
     /// Host Object primary/secondary weapon stats residual.
     SetWeaponStats {
         target: EntityId,
@@ -1162,6 +1182,16 @@ pub enum WorldMutation {
         garrison_count: Option<u16>,
         garrisoned_host_ids: Option<Vec<u32>>,
     },
+    /// Enter a container (EntityId roster authority).
+    ContainEnter {
+        container: EntityId,
+        occupant: EntityId,
+    },
+    /// Exit a container (EntityId roster authority).
+    ContainExit {
+        container: EntityId,
+        occupant: EntityId,
+    },
     /// Set player radar provider count / disabled residual.
     SetPlayerRadar {
         player: PlayerId,
@@ -1253,6 +1283,12 @@ pub struct GameWorld {
     projectiles: std::collections::HashMap<u32, ProjectileFlightResidual>,
     /// Ordered host AICommand residual buffer (capped).
     ai_decisions: Vec<AiDecisionResidual>,
+    /// C++ m_objectsToDestroy — marked this frame, removed in process_destroy_list.
+    pending_destroy: Vec<EntityId>,
+    /// Per-slot weapon facts (Entity keeps primary residual only).
+    weapon_slots: GameWorldWeaponSlots,
+    /// Occupant roster (Entity keeps host-id residual only).
+    contain_roster: GameWorldContainRoster,
 }
 
 impl GameWorld {
@@ -1264,7 +1300,26 @@ impl GameWorld {
             last_spawned_entity: None,
             projectiles: std::collections::HashMap::new(),
             ai_decisions: Vec::new(),
+            pending_destroy: Vec::new(),
+            weapon_slots: GameWorldWeaponSlots::default(),
+            contain_roster: GameWorldContainRoster::default(),
         }
+    }
+
+    pub fn weapon_slots(&self) -> &GameWorldWeaponSlots {
+        &self.weapon_slots
+    }
+
+    pub fn weapon_slots_mut(&mut self) -> &mut GameWorldWeaponSlots {
+        &mut self.weapon_slots
+    }
+
+    pub fn contain_roster(&self) -> &GameWorldContainRoster {
+        &self.contain_roster
+    }
+
+    pub fn contain_roster_mut(&mut self) -> &mut GameWorldContainRoster {
+        &mut self.contain_roster
     }
 
     /// Take the entity id from the last applied Spawn mutation, if any.
@@ -1433,11 +1488,11 @@ impl GameWorld {
                         false
                     };
                     if kill {
-                        let _ = self.inner.remove_entity(target);
+                        let _ = self.mark_entity_destroyed(target);
                     }
                 }
                 WorldMutation::Destroy(id) => {
-                    if self.inner.remove_entity(id) {
+                    if self.mark_entity_destroyed(id) {
                         applied += 1;
                     }
                 }
@@ -2318,6 +2373,29 @@ impl GameWorld {
                         applied += 1;
                     }
                 }
+                WorldMutation::SetWeaponSlot {
+                    target,
+                    slot,
+                    facts,
+                } => {
+                    if self.weapon_slots.apply_slot(target, slot, facts) {
+                        if slot == WEAPON_SLOT_PRIMARY {
+                            if let Some(e) = self.inner.entity_mut(target) {
+                                e.has_weapon = facts.present;
+                                e.weapon_clip_size = facts.clip_size;
+                                e.weapon_ammo = facts.ammo;
+                                e.weapon_reload_time = facts.reload_time;
+                                e.weapon_last_fire_time = facts.last_fire_time;
+                            }
+                        }
+                        if slot == WEAPON_SLOT_SECONDARY {
+                            if let Some(e) = self.inner.entity_mut(target) {
+                                e.has_secondary_weapon = facts.present;
+                            }
+                        }
+                        applied += 1;
+                    }
+                }
                 WorldMutation::SetWeaponStats {
                     target,
                     has_weapon,
@@ -2717,6 +2795,26 @@ impl GameWorld {
                         applied += 1;
                     }
                 }
+                WorldMutation::ContainEnter {
+                    container,
+                    occupant,
+                } => {
+                    if self.inner.entity(container).is_none()
+                        || self.inner.entity(occupant).is_none()
+                    {
+                        // Fail-closed: missing host/entity fact.
+                    } else if self.contain_roster.enter(container, occupant) {
+                        applied += 1;
+                    }
+                }
+                WorldMutation::ContainExit {
+                    container,
+                    occupant,
+                } => {
+                    if self.contain_roster.exit(container, occupant) {
+                        applied += 1;
+                    }
+                }
                 WorldMutation::SetPlayerRadar {
                     player,
                     radar_count,
@@ -2823,6 +2921,63 @@ impl GameWorld {
     /// Clear all entities (incremental shadow rebuild helper).
     pub fn clear_entities(&mut self) {
         self.inner.clear_entities();
+        self.pending_destroy.clear();
+        self.contain_roster.clear();
+        self.weapon_slots.clear();
+    }
+
+    /// C++ GameLogic::destroyObject mark: status bit + queue, still findable by id.
+    pub fn mark_entity_destroyed(&mut self, id: EntityId) -> bool {
+        let frame = self.frame().min(u32::MAX as u64) as u32;
+        let Some(e) = self.inner.entity_mut(id) else {
+            return false;
+        };
+        if e.destroyed {
+            if !self.pending_destroy.contains(&id) {
+                self.pending_destroy.push(id);
+            }
+            return true;
+        }
+        e.destroyed = true;
+        e.destroyed_at_frame = frame;
+        if !self.pending_destroy.contains(&id) {
+            self.pending_destroy.push(id);
+        }
+        true
+    }
+
+    pub fn pending_destroy_ids(&self) -> &[EntityId] {
+        &self.pending_destroy
+    }
+
+    /// C++ GameLogic::processDestroyList — eject occupants, then remove.
+    pub fn process_destroy_list(&mut self) -> usize {
+        let mut removed = 0usize;
+        let mut i = 0usize;
+        while i < self.pending_destroy.len() {
+            let id = self.pending_destroy[i];
+            i += 1;
+            let ejected = self.contain_roster.eject_all(id);
+            for occ in ejected {
+                if let Some(e) = self.inner.entity_mut(occ) {
+                    e.contained_by_host = 0;
+                }
+            }
+            if let Some(container) = self.contain_roster.contained_by(id) {
+                let _ = self.contain_roster.exit(container, id);
+            }
+            if self.inner.remove_entity(id) {
+                self.weapon_slots.remove(id);
+                self.contain_roster.remove(id);
+                removed += 1;
+            }
+        }
+        self.pending_destroy.clear();
+        removed
+    }
+
+    pub fn targetable_entities(&self) -> impl Iterator<Item = &entities::Entity> {
+        self.inner.targetable_entities()
     }
 }
 
@@ -2921,9 +3076,40 @@ mod tests {
         assert!((gw.entity(id).unwrap().health - 60.0).abs() < f32::EPSILON);
         gw.queue_mutation(WorldMutation::Destroy(id));
         assert_eq!(gw.apply_pending_mutations(), 1);
+        let marked = gw.entity(id).expect("same-frame visible");
+        assert!(marked.destroyed);
+        assert!(!marked.is_eligible_for_targeting());
+        assert_eq!(gw.targetable_entities().count(), 0);
+        assert_eq!(gw.snapshot().entities.len(), 1);
+        assert_eq!(gw.process_destroy_list(), 1);
         assert!(gw.entity(id).is_none());
         let snap = gw.snapshot();
         assert_eq!(snap.entities.len(), 0);
+    }
+
+    #[test]
+    fn process_destroy_list_appends_nested_marks_at_tail() {
+        let mut gw = GameWorld::new(2);
+        let a = gw.spawn_entity(
+            TemplateRef::new("A"),
+            None,
+            Transform::new([0.0, 0.0, 0.0], 0.0),
+            10.0,
+        );
+        let b = gw.spawn_entity(
+            TemplateRef::new("B"),
+            None,
+            Transform::new([1.0, 0.0, 0.0], 0.0),
+            10.0,
+        );
+        gw.queue_mutation(WorldMutation::Destroy(a));
+        assert_eq!(gw.apply_pending_mutations(), 1);
+        assert!(gw.entity(a).is_some());
+        assert!(gw.mark_entity_destroyed(b));
+        assert_eq!(gw.pending_destroy_ids().len(), 2);
+        assert_eq!(gw.process_destroy_list(), 2);
+        assert!(gw.entity(a).is_none());
+        assert!(gw.entity(b).is_none());
     }
 
     #[test]

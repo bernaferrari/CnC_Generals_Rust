@@ -441,10 +441,7 @@ fn host_upgrade_complete_applies_to_shadow_player() {
     );
     // Source honesty: session must drain upgrade snapshot.
     let src = GAMEWORLD_SHADOW_SRC;
-    let idx = src
-        .find("fn shadow_session_after_host_tick")
-        .expect("session");
-    let window = &src[idx..idx + 6000];
+    let window = rust_fn_body(src, "shadow_session_after_host_tick").expect("session");
     assert!(
         window.contains("completed_this_frame_snapshot")
             && window.contains("apply_host_upgrade_events"),

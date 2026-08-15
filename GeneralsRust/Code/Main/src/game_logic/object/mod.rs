@@ -1066,6 +1066,12 @@ pub struct Object {
     pub last_weapon_discharge_barrel: u8,
     #[serde(default)]
     pub last_weapon_discharge_frame: u32,
+    #[serde(skip)]
+    pub visual_object_generation: u64,
+    #[serde(skip)]
+    pub visual_draw_state_revision: u64,
+    #[serde(skip)]
+    pub pending_weapon_visual_capture: Option<crate::game_logic::PendingWeaponVisualDispatchCapture>,
 
     /// Stored guard radius for pathing/AI persistence
     pub guard_radius: f32,
@@ -1143,9 +1149,8 @@ pub struct Object {
     pub fire_weapon_when_damaged:
         Option<crate::game_logic::host_fire_weapon_when_damaged::HostFireWeaponWhenDamagedData>,
     /// Object-owned source-keyed C++ temporary Weapon allocations for the
-    /// parsed FireWeaponWhenDamaged/Dead behavior modules.  This bundle is
-    /// state ownership only; live damage/death execution remains explicitly
-    /// gated until its behavior callbacks and visual source are complete.
+    /// parsed FireWeaponWhenDamaged/Dead behavior modules. Live damage/death
+    /// execution is in `world_combat/temporary_weapon_fire.rs`.
     #[serde(default)]
     pub temporary_weapon_runtime:
         crate::game_logic::host_temporary_weapon_behavior::TemporaryWeaponRuntimeBundle,
@@ -2470,6 +2475,10 @@ mod bonuses;
 mod construct;
 mod damage;
 mod death;
+mod entity_lifecycle_apply;
+mod entity_lifecycle_envelope;
+mod entity_lifecycle_inventory;
+mod entity_lifecycle_tags;
 mod install;
 mod jets;
 mod orders;
@@ -2483,6 +2492,11 @@ mod stealth;
 mod update;
 pub mod visual;
 mod weapons;
+
+pub use entity_lifecycle_envelope::{
+    decode_lifecycle_snapshot_block, encode_lifecycle_snapshot_block,
+};
+pub use entity_lifecycle_tags::INVENTORY_TAGS;
 
 pub use barrels::WeaponBarrelState;
 pub use visual::ObjectVisualInfo;

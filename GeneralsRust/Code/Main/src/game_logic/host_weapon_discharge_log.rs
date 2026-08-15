@@ -11,13 +11,14 @@ use std::sync::Mutex;
 
 /// A successful live weapon discharge, normalized after the concrete weapon
 /// has consumed ammo and before its barrel cursor advances.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct HostWeaponDischargeEvent {
     pub source: ObjectId,
     pub weapon_slot: u8,
     pub fired_barrel: u8,
     pub sequence: u64,
     pub logic_frame: u32,
+    pub visual_plan: Option<crate::presentation_frame::FrozenWeaponVisualDispatchPlan>,
 }
 
 /// Renderer-facing event queue owned by a single host `GameLogic` instance.

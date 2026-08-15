@@ -489,6 +489,10 @@ pub fn shadow_session_after_host_tick(
     // Sole progress tick under PRODUCTION_AUTHORITY (host skips advance; Wave 477 no progress stomp).
     let _prod_tick = shadow
         .tick_production_queues(game_engine::common::game_common::SECONDS_PER_LOGICFRAME_REAL);
+    let host_frame = logic.get_frame();
+    shadow.world_mut().set_frame(host_frame as u64);
+    let _door_tick = shadow.tick_production_doors(host_frame);
+    let _cmd_view = shadow.ingest_command_queue_view(logic);
     // Wave 708: prefer post-logic production-door batch.
     let (production_door_events, early_production_door_applied) =
         match take_early_production_door_batch() {
@@ -2490,6 +2494,22 @@ pub fn shadow_session_after_host_tick(
     } else {
         // Avoid unbounded growth when economy authority off.
         let _ = crate::game_logic::host_economy_log::drain();
+    }
+    if gameworld_deferred_destroy_enabled() {
+        let removed = shadow.world_mut().process_destroy_list();
+        if removed > 0 {
+            let dead: Vec<u32> = shadow
+                .entity_to_host
+                .keys()
+                .copied()
+                .filter(|eid| shadow.world.entity(EntityId::from_raw(*eid)).is_none())
+                .collect();
+            for eid in dead {
+                if let Some(hid) = shadow.entity_to_host.remove(&eid) {
+                    shadow.host_to_entity.remove(&hid);
+                }
+            }
+        }
     }
     let mut probe = shadow.probe(logic);
     if !events.is_empty() || econ_wb > 0 || !production_events.is_empty() {

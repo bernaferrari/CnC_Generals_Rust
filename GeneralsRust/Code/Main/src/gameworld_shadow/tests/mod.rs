@@ -11,6 +11,11 @@ pub(super) use super::GAMEWORLD_SHADOW_SRC;
 /// Live concatenated object sources.
 pub(super) use crate::game_logic::object::OBJECT_SRC as GAME_LOGIC_OBJECT_SRC;
 
+mod harness;
+pub(super) use harness::{
+    last_rust_fn_body, rust_fn_body, AuthorityEnvGuard, GAME_LOGIC_HOST_SRC,
+};
+
 pub(super) fn authority_env_lock() -> std::sync::MutexGuard<'static, ()> {
     super::authority_env_lock()
 }
@@ -28,12 +33,16 @@ pub(super) fn ensure_template(logic: &mut GameLogic, name: &str, hp: f32) {
 
 mod authority_writeback;
 mod combat_status;
+mod command_authority;
+mod deferred_destroy;
 mod continue_attack;
 mod economy_construction;
 mod entity_channels;
+mod factory_contain_commands;
 mod fire_damage;
 mod host_log_combat;
 mod presentation;
 mod sciences_upgrades;
 mod sell_heal;
 mod sync_ids;
+mod weapon_movement_authority;

@@ -411,8 +411,9 @@ impl Object {
             && self.subdual_damage_helper.is_some()
     }
 
-    /// C++ Object ctor: helpers first on `m_behaviors`, then template modules.
+    /// C++ Object.cpp:299-384 — helpers first on `m_behaviors`, then template modules.
     pub(in super) fn install_ctor_helpers(&mut self) {
+        // Object.cpp:301-305 — always ObjectSMCHelper / ModuleTag_SMCHelper.
         if self.smc_helper.is_none() {
             self.smc_helper = Some(Arc::new(Mutex::new(
                 crate::object::helper::ObjectSMCHelper::new(
@@ -421,8 +422,10 @@ impl Object {
             )));
         }
 
+        // Object.cpp:307-335 — InactiveBody cannot take special damage.
         let inactive_body = self
             .thing_template
+            .as_ref()
             .get_behavior_module_info()
             .iter()
             .any(|entry| entry.name.as_str().eq_ignore_ascii_case("InactiveBody"));
@@ -445,10 +448,70 @@ impl Object {
             }
         }
 
+        // Object.cpp:337-347 — TheAI && enableRepulsors && KINDOF_CAN_BE_REPULSED.
+        if self.repulsor_helper.is_none()
+            && template_wants_repulsor_helper(self.thing_template.as_ref())
+        {
+            self.repulsor_helper = Some(Arc::new(Mutex::new(
+                crate::object::helper::ObjectRepulsorHelper::new(
+                    crate::object::helper::ObjectRepulsorHelperModuleData::new(),
+                ),
+            )));
+        }
+
+        // Object.cpp:354-362 — shrubbery cannot defect.
+        if self.defection_helper.is_none()
+            && !self.thing_template.is_kind_of(KindOf::Shrubbery)
+        {
+            self.defection_helper = Some(Arc::new(Mutex::new(
+                crate::object::helper::ObjectDefectionHelper::new(
+                    crate::object::helper::ObjectDefectionHelperModuleData::new(),
+                ),
+            )));
+        }
+
+        // Object.cpp:364-384 — weapon helpers only if the template can have a weapon.
+        if template_can_possibly_have_any_weapon(self.thing_template.as_ref()) {
+            if self.ws_helper.is_none() {
+                self.ws_helper = Some(Arc::new(Mutex::new(
+                    crate::object::helper::ObjectWeaponStatusHelper::new(
+                        crate::object::helper::ObjectWeaponStatusHelperModuleData::new(),
+                        true,
+                    ),
+                )));
+            }
+            if self.firing_tracker.is_none() {
+                self.firing_tracker = Some(Arc::new(Mutex::new(FiringTracker::new(self.id))));
+            }
+            if self.temp_weapon_bonus_helper.is_none() {
+                self.temp_weapon_bonus_helper = Some(Arc::new(Mutex::new(
+                    crate::object::helper::TempWeaponBonusHelper::new(
+                        self.id,
+                        crate::object::helper::TempWeaponBonusHelperModuleData::new(),
+                    ),
+                )));
+            }
+        }
+
         self.rebuild_behavior_list();
     }
 
-    /// `get_behavior_modules()` == helpers (SMC, StatusDamage, Subdual) then template modules.
+    /// C++ Object.cpp:458-462 — call onObjectCreated in m_behaviors list order
+    /// after helpers + template modules are all installed.
+    pub(in super) fn invoke_on_object_created_after_install(&mut self) {
+        #[cfg(test)]
+        {
+            LAST_ON_CREATED_SIBLING_COUNT.store(
+                self.behaviors.len(),
+                std::sync::atomic::Ordering::Relaxed,
+            );
+        }
+        for entry in &self.modules {
+            entry.with_module(|module| module.on_object_created());
+        }
+    }
+
+    /// `get_behavior_modules()` == C++ Object.cpp:299-384 helper order, then template modules.
     pub(in super) fn rebuild_behavior_list(&mut self) {
         let mut behaviors: Vec<Arc<Mutex<dyn BehaviorModuleInterface>>> = Vec::new();
         if self.smc_helper.is_some() {
@@ -466,6 +529,31 @@ impl Object {
                 name: "SubdualDamageHelper",
             })));
         }
+        if self.repulsor_helper.is_some() {
+            behaviors.push(Arc::new(Mutex::new(CtorHelperBehavior {
+                name: "ObjectRepulsorHelper",
+            })));
+        }
+        if self.defection_helper.is_some() {
+            behaviors.push(Arc::new(Mutex::new(CtorHelperBehavior {
+                name: "ObjectDefectionHelper",
+            })));
+        }
+        if self.ws_helper.is_some() {
+            behaviors.push(Arc::new(Mutex::new(CtorHelperBehavior {
+                name: "ObjectWeaponStatusHelper",
+            })));
+        }
+        if self.firing_tracker.is_some() {
+            behaviors.push(Arc::new(Mutex::new(CtorHelperBehavior {
+                name: "FiringTracker",
+            })));
+        }
+        if self.temp_weapon_bonus_helper.is_some() {
+            behaviors.push(Arc::new(Mutex::new(CtorHelperBehavior {
+                name: "TempWeaponBonusHelper",
+            })));
+        }
         for entry in &self.modules {
             behaviors.push(Arc::new(Mutex::new(TemplateModuleBehavior {
                 name: entry.name().to_string(),
@@ -473,6 +561,36 @@ impl Object {
             })));
         }
         self.behaviors = behaviors;
+    }
+
+    /// Tags written for ctor helpers in C++ Object::xfer v9 module-list order.
+    pub(crate) fn ctor_helper_xfer_tags(&self) -> Vec<&'static str> {
+        let mut tags = Vec::new();
+        if self.smc_helper.is_some() {
+            tags.push(super::object_xfer::HELPER_TAG_SMC);
+        }
+        if self.status_damage_helper.is_some() {
+            tags.push(super::object_xfer::HELPER_TAG_STATUS);
+        }
+        if self.subdual_damage_helper.is_some() {
+            tags.push(super::object_xfer::HELPER_TAG_SUBDUAL);
+        }
+        if self.repulsor_helper.is_some() {
+            tags.push(super::object_xfer::HELPER_TAG_REPULSOR);
+        }
+        if self.defection_helper.is_some() {
+            tags.push(super::object_xfer::HELPER_TAG_DEFECTION);
+        }
+        if self.ws_helper.is_some() {
+            tags.push(super::object_xfer::HELPER_TAG_WEAPON_STATUS);
+        }
+        if self.firing_tracker.is_some() {
+            tags.push(super::object_xfer::HELPER_TAG_FIRING_TRACKER);
+        }
+        if self.temp_weapon_bonus_helper.is_some() {
+            tags.push(super::object_xfer::HELPER_TAG_TEMP_WEAPON_BONUS);
+        }
+        tags
     }
 
     /// Borrow-first flammable module lookup (no outer Object Arc required).
@@ -687,8 +805,9 @@ impl Object {
                     module_data,
                     ModuleType::Behavior,
                 ) {
-                    Ok(mut module) => {
-                        module.on_object_created();
+                    Ok(module) => {
+                        // C++ Object.cpp:458-462 — onObjectCreated runs only after
+                        // every helper + template module is installed.
                         modules_to_install.push(Arc::new(ModuleEntry::new(
                             module_name,
                             entry.module_tag.clone(),
@@ -803,7 +922,6 @@ impl Object {
             }
 
             guard.experience_tracker = Some(Arc::new(Mutex::new(ExperienceTracker::new(guard.id))));
-            guard.modules_ready = true;
 
             let object_id = guard.id;
             guard.update_module_registrations.clear();
@@ -830,7 +948,11 @@ impl Object {
                 guard.update_module_registrations.push(proxy);
             }
 
+            // Helpers first on m_behaviors, then template modules (Object.cpp:299-437).
             guard.install_ctor_helpers();
+            // C++ Object.cpp:458-471 — inter-module resolution after the full list exists.
+            guard.invoke_on_object_created_after_install();
+            guard.modules_ready = true;
         }
 
         // C++ parity: after AI module construction, seed attitude from team prototype.
@@ -998,6 +1120,35 @@ impl Object {
             handle.force_refresh();
         }
     }
+}
+
+#[cfg(test)]
+static LAST_ON_CREATED_SIBLING_COUNT: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+
+impl Object {
+    #[cfg(test)]
+    pub(crate) fn last_on_created_sibling_count() -> usize {
+        LAST_ON_CREATED_SIBLING_COUNT.load(std::sync::atomic::Ordering::Relaxed)
+    }
+}
+
+fn template_wants_repulsor_helper(template: &dyn ThingTemplate) -> bool {
+    if !template.is_kind_of(KindOf::CanBeRepulsed) {
+        return false;
+    }
+    crate::ai::THE_AI
+        .read()
+        .ok()
+        .and_then(|ai| ai.get_ai_data().read().ok().map(|data| data.enable_repulsors))
+        .unwrap_or(false)
+}
+
+fn template_can_possibly_have_any_weapon(template: &dyn ThingTemplate) -> bool {
+    template
+        .weapon_template_sets()
+        .iter()
+        .any(|set| set.has_any_weapons())
 }
 
 /// C++ helper modules live on `m_behaviors` so destroy/damage/xfer walk them.

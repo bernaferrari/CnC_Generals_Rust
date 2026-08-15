@@ -1171,6 +1171,7 @@ impl GameLogic {
     /// Push HP/pose/target from the host ID-map view into GameWorld (coupled only).
     fn push_coupled_host_object_mutations(&self, id: ObjectId) {
         use crate::gameworld_shadow::{push_coupled_world_mutation, with_active_shadow};
+        use gamelogic::world::entities::EntityProductionItem;
         use gamelogic::world::WorldMutation;
         let Some(obj) = self.host_objects().get(&id) else {
             return;
@@ -1258,6 +1259,51 @@ impl GameLogic {
                     leech_range_active_secondary: obj.leech_range_active_secondary,
                 });
             }
+            use gamelogic::world::{
+                WeaponSlotFacts, WEAPON_SLOT_MINE_CLEAR, WEAPON_SLOT_PRIMARY,
+                WEAPON_SLOT_SECONDARY, WEAPON_SLOT_TERTIARY,
+            };
+            let slot_facts = |slot: u8, w: Option<&crate::game_logic::Weapon>| {
+                w.map(|w| WeaponSlotFacts {
+                    present: true,
+                    clip_size: w.clip_size,
+                    ammo: w.ammo.unwrap_or(u32::MAX),
+                    reload_time: w.reload_time,
+                    last_fire_time: w.last_fire_time,
+                    barrel_cursor: obj
+                        .weapon_barrel_states
+                        .get(slot as usize)
+                        .map(|b| b.current_barrel)
+                        .unwrap_or(0),
+                    barrel_count: obj
+                        .weapon_barrel_states
+                        .get(slot as usize)
+                        .map(|b| b.barrel_count)
+                        .unwrap_or(0),
+                    lock_type: if obj.weapon_lock_slot == slot {
+                        obj.weapon_lock_type as u8
+                    } else {
+                        0
+                    },
+                })
+            };
+            for (slot, w) in [
+                (WEAPON_SLOT_PRIMARY, obj.weapon.as_ref()),
+                (WEAPON_SLOT_SECONDARY, obj.secondary_weapon.as_ref()),
+                (WEAPON_SLOT_TERTIARY, obj.tertiary_weapon.as_ref()),
+                (
+                    WEAPON_SLOT_MINE_CLEAR,
+                    obj.mine_clearing_primary_weapon.as_ref(),
+                ),
+            ] {
+                if let Some(facts) = slot_facts(slot, w) {
+                    let _ = push_coupled_world_mutation(WorldMutation::SetWeaponSlot {
+                        target: eid,
+                        slot,
+                        facts,
+                    });
+                }
+            }
         }
         if !crate::game_logic::host_combat_attack_log::has_pending(id)
             && !crate::game_logic::host_ai_state_log::has_pending(id)
@@ -1289,6 +1335,56 @@ impl GameLogic {
                 contained_by_host: obj.contained_by.map(|c| c.0).unwrap_or(0),
                 garrison_count: Some(obj.occupants.len().min(u16::MAX as usize) as u16),
                 garrisoned_host_ids: Some(obj.occupants.iter().map(|o| o.0).collect()),
+            });
+        }
+        if crate::gameworld_shadow::gameworld_production_authority_enabled()
+            && !crate::gameworld_shadow::gameworld_production_sole_tick_enabled()
+            && !crate::game_logic::host_production_log::has_pending(id)
+        {
+            if let Some(bd) = obj.building_data.as_ref() {
+                let items: Vec<EntityProductionItem> = bd
+                    .production_queue
+                    .iter()
+                    .take(16)
+                    .map(|it| EntityProductionItem {
+                        template_name: it.template_name.clone(),
+                        progress: it.progress,
+                        total_time: it.total_time,
+                        construction_frames: it.construction_frames,
+                        cost_supplies: it.cost.supplies,
+                        is_upgrade: it.is_upgrade(),
+                        quantity_total: it.quantity_total.max(1),
+                        quantity_produced: it.quantity_produced,
+                    })
+                    .collect();
+                let _ = push_coupled_world_mutation(WorldMutation::SetProductionQueue {
+                    target: eid,
+                    items,
+                });
+                if bd.queue_exit_state_initialized {
+                    let _ = push_coupled_world_mutation(WorldMutation::SetProductionExitRuntime {
+                        target: eid,
+                        exit_delay_remaining_frames: bd.exit_delay_remaining_frames,
+                        exit_burst_remaining: bd.exit_burst_remaining,
+                        queue_exit_state_initialized: true,
+                    });
+                }
+            }
+            let _ = push_coupled_world_mutation(WorldMutation::SetProductionDoor {
+                target: eid,
+                production_door_phase: obj.production_door_phase,
+                production_door_phase_end_frame: obj.production_door_phase_end_frame,
+                production_door_hold_open: obj.production_door_hold_open,
+            });
+        }
+        if crate::gameworld_shadow::gameworld_construction_authority_enabled()
+            && !crate::gameworld_shadow::gameworld_construction_sole_tick_enabled()
+            && !crate::game_logic::host_construction_log::has_pending(id)
+        {
+            let _ = push_coupled_world_mutation(WorldMutation::SetConstruction {
+                target: eid,
+                percent: obj.construction_percent.clamp(-1.0, 1.0),
+                under_construction: obj.status.under_construction,
             });
         }
     }

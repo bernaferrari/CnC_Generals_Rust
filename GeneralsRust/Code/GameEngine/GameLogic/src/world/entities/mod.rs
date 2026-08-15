@@ -9,6 +9,13 @@ use crate::world::PlayerId;
 use nalgebra::Point3;
 use std::collections::HashMap;
 
+#[path = "../entity_lifecycle.rs"]
+pub mod entity_lifecycle;
+pub use entity_lifecycle::{
+    EntityLifecycleCodecError, EntityLifecycleEnvelope, EntityModuleState,
+    ENTITY_LIFECYCLE_ENVELOPE_VERSION,
+};
+
 /// Shadow residual of one host BuildingData::production_queue entry.
 #[derive(Debug, Clone, PartialEq)]
 pub struct EntityProductionItem {
@@ -221,6 +228,8 @@ pub struct Entity {
     pub selected: bool,
     /// Host Object::status.destroyed residual.
     pub destroyed: bool,
+    /// Logic frame when destroyed was set. Entity stays resolvable until process_destroy_list.
+    pub destroyed_at_frame: u32,
     /// C++ DeathType residual ordinal (HostDeathType).
     pub death_type: u8,
     /// Host Object::construction_percent residual (0..1).
@@ -1433,12 +1442,35 @@ pub struct Entity {
     pub group_speed_factor: f32,
     /// Host battle_plan_sight_scalar_applied residual (1.0 = none).
     pub battle_plan_sight_scalar_applied: f32,
+    /// Envelope schema version (default 1). Entity stores payloads verbatim.
+    pub envelope_version: u8,
+    /// Attached lifecycle envelope. Not interpreted until authority cutover.
+    pub lifecycle_envelope: Option<EntityLifecycleEnvelope>,
 }
 
 impl Entity {
     /// Convenience accessor for the template name.
     pub fn template_name(&self) -> &str {
         &self.template.name
+    }
+
+    /// Targeting/AI queries skip marked-destroyed entities; find-by-id still works.
+    pub fn is_eligible_for_targeting(&self) -> bool {
+        !self.destroyed && self.health > 0.0
+    }
+
+    /// Store the envelope verbatim. Header destroyed timing stays aligned with
+    /// the deferred-destroy mark frame (`GameLogic.cpp:3932-3967`).
+    pub fn attach_envelope(&mut self, envelope: EntityLifecycleEnvelope) {
+        self.envelope_version = envelope.version;
+        self.destroyed = envelope.destroyed;
+        self.destroyed_at_frame = envelope.destroyed_at_frame;
+        self.lifecycle_envelope = Some(envelope);
+    }
+
+    /// Detach the stored envelope for save/load.
+    pub fn take_envelope(&mut self) -> Option<EntityLifecycleEnvelope> {
+        self.lifecycle_envelope.take()
     }
 }
 
@@ -1517,6 +1549,7 @@ impl EntityStore {
             body_damage_state: 0,
             selected: false,
             destroyed: false,
+            destroyed_at_frame: 0,
             death_type: 0,
             construction_percent: 1.0,
             team_ordinal: 255,
@@ -2291,6 +2324,8 @@ impl EntityStore {
             temporary_move_frames: 0,
             group_speed_factor: 1.0,
             battle_plan_sight_scalar_applied: 1.0,
+            envelope_version: ENTITY_LIFECYCLE_ENVELOPE_VERSION,
+            lifecycle_envelope: None,
         };
 
         self.alive.insert(id, entity);
@@ -2326,5 +2361,34 @@ mod tests {
         let removed = store.remove(id).expect("removed entity");
         assert_eq!(removed.id, id);
         assert!(store.is_empty());
+    }
+
+    #[test]
+    fn attach_envelope_copies_deferred_destroy_timing() {
+        let mut store = EntityStore::new();
+        let id = store.spawn(
+            TemplateRef::new("Test"),
+            None,
+            Transform::default(),
+            10.0,
+        );
+        let entity = store.get_mut(id).expect("spawned");
+        assert_eq!(entity.envelope_version, ENTITY_LIFECYCLE_ENVELOPE_VERSION);
+        entity.attach_envelope(EntityLifecycleEnvelope {
+            version: ENTITY_LIFECYCLE_ENVELOPE_VERSION,
+            entity_id: id.get(),
+            destroyed: true,
+            destroyed_at_frame: 33,
+            module_states: vec![EntityModuleState {
+                tag: "UnknownFuture".to_string(),
+                payload: vec![1],
+            }],
+        });
+        assert!(entity.destroyed);
+        assert_eq!(entity.destroyed_at_frame, 33);
+        let taken = entity.take_envelope().expect("attached");
+        assert_eq!(taken.destroyed_at_frame, 33);
+        assert_eq!(taken.module_states[0].tag, "UnknownFuture");
+        assert!(entity.take_envelope().is_none());
     }
 }

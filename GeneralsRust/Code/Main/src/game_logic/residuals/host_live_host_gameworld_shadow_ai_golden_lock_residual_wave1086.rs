@@ -108,7 +108,11 @@ pub fn honesty_host_gameworld_shadow_ai_golden_lock_residual_pack_wave1086() -> 
         && ai.contains("Wave 616: residual-locked at 60s")
         && golden.contains("no take_damage fallback")
         && golden.contains("no take_damage / re-team cheat")
-        && es.contains("result.playable_claim = false")
+        // 2026-08-14: executable_smoke refactored to the five-flag
+        // `retail_windowed_playable_claim` formula; the headless gate keeps the
+        // claim false via that constructor instead of a literal assignment.
+        && es.contains("self.playable_claim = Self::retail_windowed_playable_claim(")
+        && es.contains("Headless smoke must keep `playable_claim == false`")
         && !cnc.contains("playable_claim = true")
         && ui.contains(
             "Wave 1085: slaver/tip residual fail-closed on unusable/FOW/stealth non-local",

@@ -115,6 +115,7 @@ impl RenderPipeline {
                 RenderPass::ShadowPass => shadow += 1,
                 RenderPass::ForwardOpaque => forward_opaque += 1,
                 RenderPass::ForwardTransparent => forward_transparent += 1,
+                RenderPass::Ghost => {}
                 RenderPass::WaterPass => water += 1,
                 RenderPass::UIPass => ui += 1,
             }

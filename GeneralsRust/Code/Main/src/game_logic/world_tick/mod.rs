@@ -7,6 +7,7 @@ mod ai;
 mod airfield;
 mod attack;
 mod combat;
+mod combat_fire_fx;
 mod crates;
 mod mood;
 mod movement;

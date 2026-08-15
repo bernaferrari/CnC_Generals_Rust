@@ -3,6 +3,9 @@
 //! Drawables are the client-side visual representation of game objects.
 //! They handle rendering, animation, effects, and visual state management.
 
+#[path = "drawable_physics_visual.rs"]
+mod drawable_physics_visual;
+
 use crate::common::audio::AudioEventRts;
 use crate::common::audio::TimeOfDay;
 use crate::common::ObjectID;
@@ -3939,6 +3942,9 @@ impl crate::drawable::Drawable for Drawable {
     /// Draw the drawable at a specific position
     /// Reference: C++ Drawable.cpp - rendering is delegated to draw modules
     fn draw(&mut self, transform: Option<&Matrix3D>) {
+        #[cfg(test)]
+        let _draw_depth = draw_call_log::enter(self.drawable_id);
+
         // This happens before the hidden early-out.  The bridge represents the
         // current C++ Drawable::draw() result, not the last visible frame.
         if let Some(client) = TheGameClient::get() {
@@ -3978,6 +3984,11 @@ impl crate::drawable::Drawable for Drawable {
         if let Some(instance_mtx) = self.instance_matrix {
             transform_mtx = transform_mtx * instance_mtx;
         }
+        // C++ Drawable.cpp:2649 — applyPhysicsXform after instance, before modules.
+        // Calc lives in GameClient (crate cycle). Nested Overlord rider draws
+        // re-enter this function with the parent-corrected matrix when the
+        // caller supplies one; host present path applies the exact calc.
+        transform_mtx = drawable_physics_visual::apply_if_gated(transform_mtx);
         let logic_drawable_id = self.drawable_id;
         for (runtime_draw_ordinal, module_handle) in self
             .get_draw_modules_with_interface(ModuleInterfaceType::DRAW)
@@ -4807,5 +4818,84 @@ mod debris_draw_tests {
                 assert_eq!(draw.anim_final().as_str(), "AnimLand");
             })
             .expect("downcast W3DDebrisDraw");
+    }
+}
+
+#[cfg(test)]
+mod draw_call_log {
+    use crate::common::DrawableID;
+    use std::cell::RefCell;
+
+    thread_local! {
+        static LOG: RefCell<Vec<(DrawableID, u32)>> = RefCell::new(Vec::new());
+        static DEPTH: RefCell<u32> = RefCell::new(0);
+    }
+
+    pub struct DrawDepthGuard;
+
+    impl Drop for DrawDepthGuard {
+        fn drop(&mut self) {
+            DEPTH.with(|d| {
+                let mut depth = d.borrow_mut();
+                *depth = depth.saturating_sub(1);
+            });
+        }
+    }
+
+    pub fn enter(id: DrawableID) -> DrawDepthGuard {
+        let depth = DEPTH.with(|d| {
+            let mut depth = d.borrow_mut();
+            *depth += 1;
+            *depth
+        });
+        LOG.with(|log| log.borrow_mut().push((id, depth)));
+        DrawDepthGuard
+    }
+
+    pub fn take() -> Vec<(DrawableID, u32)> {
+        LOG.with(|log| std::mem::take(&mut *log.borrow_mut()))
+    }
+}
+
+#[cfg(test)]
+mod draw_schedule_tests {
+    use super::*;
+    use crate::common::INVALID_ID;
+    use crate::drawable::Drawable as DrawableTrait;
+
+    #[test]
+    fn rider_nested_draw_reenters_drawable_draw() {
+        let tank = include_str!("draw/w3d_overlord_tank_draw.rs");
+        let truck = include_str!("draw/w3d_overlord_truck_draw.rs");
+        let air = include_str!("draw/w3d_overlord_aircraft_draw.rs");
+        assert!(tank.contains(".draw(None)"));
+        assert!(truck.contains(".draw(None)"));
+        assert!(air.contains(".draw(None)"));
+
+        let mut parent = Drawable::new(10, INVALID_ID, "Overlord".into(), DrawableType::Static);
+        let mut rider = Drawable::new(11, INVALID_ID, "Helix".into(), DrawableType::Static);
+        let _ = draw_call_log::take();
+        parent.draw(None);
+        rider.draw(None);
+        let log = draw_call_log::take();
+        assert_eq!(log, vec![(10, 1), (11, 1)]);
+
+        let _ = draw_call_log::take();
+        {
+            let _outer = draw_call_log::enter(10);
+            rider.draw(None);
+        }
+        let nested = draw_call_log::take();
+        assert_eq!(nested, vec![(10, 1), (11, 2)]);
+    }
+
+    #[test]
+    fn physics_seam_runs_once_per_drawable_draw() {
+        let mut drawable = Drawable::new(21, INVALID_ID, "Tank".into(), DrawableType::Static);
+        let _ = draw_call_log::take();
+        drawable.draw(None);
+        drawable.draw(None);
+        let log = draw_call_log::take();
+        assert_eq!(log, vec![(21, 1), (21, 1)]);
     }
 }

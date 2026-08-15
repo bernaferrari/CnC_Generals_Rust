@@ -202,12 +202,12 @@ impl FlammableUpdate {
     }
 
     /// Try to ignite the object - matches C++ tryToIgnite()
+    ///
+    /// C++ `FlammableUpdate::tryToIgnite` (FlammableUpdate.cpp:170-197) always
+    /// advances `m_status` to `FS_AFLAME` when currently `FS_NORMAL`. Object
+    /// status / model-condition side effects are best-effort when the owner is
+    /// not in a live registry (unit tests, host-only path).
     pub fn try_to_ignite(&mut self) {
-        // Wave 379: empty dual-world → no-op.
-        if dual_world_registry_unavailable() {
-            return;
-        }
-
         if self.status != FlammabilityStatus::Normal {
             return;
         }

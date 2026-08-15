@@ -3,6 +3,42 @@
 use super::super::*;
 use super::helpers::*;
 
+fn attach_command_special_power(
+    tpl: &mut ThingTemplate,
+    power: crate::command_system::SpecialPowerType,
+    template_name: &str,
+    kind: SpecialPowerModuleKind,
+) {
+    tpl.special_power_modules.push(SpecialPowerModuleMetadata {
+        source_index: 0,
+        module_tag: Some("ModuleTag_SpecialPower".into()),
+        module_kind: kind,
+        special_power_template: template_name.into(),
+        special_power_template_id: 1,
+        command_power: Some(power),
+        reload_time_frames: 0,
+        required_science: None,
+        public_timer: true,
+        shared_n_sync: false,
+        shortcut_power: false,
+        update_module_starts_attack: false,
+        starts_paused: false,
+        scripted_special_power_only: false,
+    });
+}
+
+fn arm_attacker_then_attack(attacker: &mut Object, target_id: ObjectId, damage: f32) {
+    attacker.weapon = Some(Weapon {
+        damage,
+        range: 200.0,
+        reload_time: 0.0,
+        last_fire_time: 0.0,
+        projectile_speed: 0.0,
+        ..Weapon::default()
+    });
+    attacker.attack_target(target_id);
+}
+
 #[test]
 fn attack_ground_advances_reload_without_victim() {
     let mut game_logic = GameLogic::new();
@@ -178,8 +214,9 @@ fn camera_mod_freeze_time_marks_simulation_as_frozen() {
 
 #[test]
 fn post_ai_commands_flushed_inside_game_logic() {
-    // Structural: AI-phase command flush lives in update_simulation after update_ai.
-    let src = include_str!("../game_logic.rs");
+    // Structural: AI-phase command flush lives in world_tick/step.rs after update_ai.
+    // C++ GameLogic::update drains TheCommandList after TheAI->UPDATE (GameLogic.cpp).
+    let src = include_str!("../world_tick/step.rs");
     let ai = src
         .find("self.update_ai(&object_ids, dt);")
         .expect("update_ai call");
@@ -1136,14 +1173,7 @@ fn combat_kill_spawns_particle_system_registry_entries() {
         let attacker = game_logic
             .host_object_mut(attacker_id)
             .expect("attacker exists");
-        attacker.attack_target(target_id);
-        attacker.weapon = Some(Weapon {
-            damage: 9999.0,
-            range: 200.0,
-            reload_time: 0.0,
-            last_fire_time: 0.0,
-            ..Weapon::default()
-        });
+        arm_attacker_then_attack(attacker, target_id, 9999.0);
     }
     {
         let target = game_logic
@@ -1151,6 +1181,7 @@ fn combat_kill_spawns_particle_system_registry_entries() {
             .expect("target exists");
         target.health.current = 10.0;
         target.health.maximum = 10.0;
+        target.thing.template.armor = 0.0;
     }
 
     game_logic.frame = 60;
@@ -1272,14 +1303,7 @@ fn cash_bounty_increases_cash_on_enemy_kill() {
         let attacker = game_logic
             .host_object_mut(attacker_id)
             .expect("attacker exists");
-        attacker.attack_target(target_id);
-        attacker.weapon = Some(Weapon {
-            damage: 9999.0,
-            range: 200.0,
-            reload_time: 0.0,
-            last_fire_time: 0.0,
-            ..Weapon::default()
-        });
+        arm_attacker_then_attack(attacker, target_id, 9999.0);
     }
     {
         let target = game_logic
@@ -1287,6 +1311,7 @@ fn cash_bounty_increases_cash_on_enemy_kill() {
             .expect("target exists");
         target.health.current = 10.0;
         target.health.maximum = 10.0;
+        target.thing.template.armor = 0.0;
     }
 
     game_logic.frame = 60;
@@ -1379,6 +1404,7 @@ fn cash_bounty_zero_percent_does_not_award() {
             .expect("target exists");
         target.health.current = 10.0;
         target.health.maximum = 10.0;
+        target.thing.template.armor = 0.0;
     }
 
     game_logic.frame = 60;
@@ -1434,14 +1460,7 @@ fn combat_fire_without_kill_still_spawns_muzzle_particle() {
         let attacker = game_logic
             .host_object_mut(attacker_id)
             .expect("attacker exists");
-        attacker.attack_target(target_id);
-        attacker.weapon = Some(Weapon {
-            damage: 1.0,
-            range: 200.0,
-            reload_time: 0.0,
-            last_fire_time: 0.0,
-            ..Weapon::default()
-        });
+        arm_attacker_then_attack(attacker, target_id, 1.0);
     }
 
     game_logic.frame = 30;
@@ -1587,6 +1606,7 @@ fn weapon_discharge_world_tick_combat_preserves_preadvance_barrel_and_freezes_on
             fired_barrel: 2,
             sequence: 1,
             logic_frame: 30,
+            ..
         } if *source == attacker_id
     )));
     assert!(
@@ -1617,14 +1637,7 @@ fn combat_kill_queues_unit_die_audio_event() {
         let attacker = game_logic
             .host_object_mut(attacker_id)
             .expect("attacker exists");
-        attacker.attack_target(target_id);
-        attacker.weapon = Some(Weapon {
-            damage: 9999.0,
-            range: 200.0,
-            reload_time: 0.0,
-            last_fire_time: 0.0,
-            ..Weapon::default()
-        });
+        arm_attacker_then_attack(attacker, target_id, 9999.0);
     }
     {
         let target = game_logic
@@ -1632,6 +1645,7 @@ fn combat_kill_queues_unit_die_audio_event() {
             .expect("target exists");
         target.health.current = 10.0;
         target.health.maximum = 10.0;
+        target.thing.template.armor = 0.0;
     }
 
     game_logic.frame = 60;
@@ -1929,6 +1943,7 @@ fn carpet_bomb_host_path_queues_and_applies_delayed_line_damage() {
 
     let mut game_logic = GameLogic::new();
     ensure_test_tank_template(&mut game_logic);
+    ensure_test_player_for_team(&mut game_logic, Team::USA);
 
     let target = Vec3::new(100.0, 0.0, 0.0);
     // Place enemies on DropVariance-adjusted residual epicenters.
@@ -2433,6 +2448,7 @@ fn cruise_missile_host_path_queues_and_applies_delayed_area_damage() {
 
     let mut game_logic = GameLogic::new();
     ensure_test_tank_template(&mut game_logic);
+    ensure_test_player_for_team(&mut game_logic, Team::USA);
 
     let target = Vec3::new(100.0, 0.0, 0.0);
 
@@ -2925,6 +2941,15 @@ fn scud_storm_host_path_queues_and_completes() {
 
     let mut game_logic = GameLogic::new();
     ensure_test_tank_template(&mut game_logic);
+    ensure_test_player_for_team(&mut game_logic, Team::GLA);
+    if let Some(tpl) = game_logic.templates.get_mut("TestTank") {
+        attach_command_special_power(
+            tpl,
+            crate::command_system::SpecialPowerType::ScudStorm,
+            "SuperweaponScudStorm",
+            SpecialPowerModuleKind::OclSpecialPower,
+        );
+    }
 
     let caster_id = game_logic
         .create_object("TestTank", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
@@ -3044,6 +3069,15 @@ fn particle_cannon_host_path_queues_and_completes() {
 
     let mut game_logic = GameLogic::new();
     ensure_test_tank_template(&mut game_logic);
+    ensure_test_player_for_team(&mut game_logic, Team::China);
+    if let Some(tpl) = game_logic.templates.get_mut("TestTank") {
+        attach_command_special_power(
+            tpl,
+            crate::command_system::SpecialPowerType::ParticleCannon,
+            "SuperweaponParticleUplinkCannon",
+            SpecialPowerModuleKind::OclSpecialPower,
+        );
+    }
 
     let caster_id = game_logic
         .create_object("TestTank", Team::China, Vec3::new(0.0, 0.0, 0.0))
@@ -3252,6 +3286,7 @@ fn cleanup_area_residual_clears_hazards_and_mines() {
 
     let mut game_logic = GameLogic::new();
     ensure_test_tank_template(&mut game_logic);
+    ensure_test_player_for_team(&mut game_logic, Team::USA);
 
     // Residual ambulance caster template.
     let mut amb_tpl = ThingTemplate::new("USA_Ambulance");
@@ -3388,6 +3423,7 @@ fn cleanup_area_does_not_queue_superweapon_strike() {
 
     let mut game_logic = GameLogic::new();
     ensure_test_tank_template(&mut game_logic);
+    ensure_test_player_for_team(&mut game_logic, Team::USA);
     let mut amb_tpl = ThingTemplate::new("USA_Ambulance");
     amb_tpl
         .add_kind_of(KindOf::Vehicle)
@@ -3436,6 +3472,15 @@ fn nuclear_missile_host_path_queues_damage_after_delay_and_radiation() {
 
     let mut game_logic = GameLogic::new();
     ensure_test_tank_template(&mut game_logic);
+    ensure_test_player_for_team(&mut game_logic, Team::China);
+    if let Some(tpl) = game_logic.templates.get_mut("TestTank") {
+        attach_command_special_power(
+            tpl,
+            crate::command_system::SpecialPowerType::NuclearMissile,
+            "SuperweaponNeutronMissile",
+            SpecialPowerModuleKind::OclSpecialPower,
+        );
+    }
 
     let caster_id = game_logic
         .create_object("TestTank", Team::China, Vec3::new(0.0, 0.0, 0.0))

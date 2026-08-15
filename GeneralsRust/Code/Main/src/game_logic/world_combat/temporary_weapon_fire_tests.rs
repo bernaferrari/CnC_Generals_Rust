@@ -1,0 +1,242 @@
+#![cfg(test)]
+
+use super::super::*;
+use super::temporary_weapon_status::{
+    apply_private_fire_mutation, load_ammo_now, promote_temporary_weapon_status,
+    store_fields_for_weapon_name,
+};
+use super::weapon_visual_capture::select_weapon_template_fx;
+use super::weapon_visual_freeze::{classify_draw_module_declaration, DrawModuleFireFxClass};
+use crate::game_logic::host_temporary_weapon_behavior::{
+    FireWeaponDamageTypeMask, FireWeaponUpgradeMuxMetadata, FireWeaponWhenDamagedMetadata,
+    FireWeaponWhenDamagedRuntimeState, FireWeaponWhenDamagedWeaponRole, FireWeaponWhenDeadMetadata,
+    FireWeaponWhenDeadRuntimeState, TemporaryWeaponConstructionDefaults, TemporaryWeaponRuntimeKey,
+    TemporaryWeaponRuntimeSpec, TemporaryWeaponRuntimeState, TemporaryWeaponSlot,
+    TemporaryWeaponStatus,
+};
+
+fn ready_weapon(
+    template: &str,
+    role: FireWeaponWhenDamagedWeaponRole,
+) -> TemporaryWeaponRuntimeState {
+    let spec = TemporaryWeaponRuntimeSpec {
+        key: TemporaryWeaponRuntimeKey {
+            module_source_index: 0,
+            role,
+        },
+        weapon_template_name: template.to_string(),
+        weapon_slot: TemporaryWeaponSlot::Primary,
+    };
+    let mut state = TemporaryWeaponRuntimeState::from_cxx_constructor(
+        &spec,
+        TemporaryWeaponConstructionDefaults {
+            clip_size: 2,
+            clip_reload_frames: 0,
+            shots_per_barrel: 1,
+            ..TemporaryWeaponConstructionDefaults::default()
+        },
+        0,
+    );
+    load_ammo_now(
+        &mut state,
+        TemporaryWeaponConstructionDefaults {
+            clip_size: 2,
+            clip_reload_frames: 0,
+            shots_per_barrel: 1,
+            ..TemporaryWeaponConstructionDefaults::default()
+        },
+        0,
+    );
+    state
+}
+
+fn damaged_object(id: u32, weapon: TemporaryWeaponRuntimeState) -> Object {
+    let mut template = ThingTemplate::new("TempWeaponHost");
+    template.fire_weapon_when_damaged_behaviors = vec![FireWeaponWhenDamagedMetadata {
+        module_source_index: 0,
+        module_tag: None,
+        starts_active: true,
+        damage_types: FireWeaponDamageTypeMask::ALL,
+        damage_amount: 5.0,
+        upgrade_mux: FireWeaponUpgradeMuxMetadata::default(),
+        weapon_template_names: std::array::from_fn(|index| {
+            (index == weapon.key.role.index()).then(|| weapon.weapon_template_name.clone())
+        }),
+    }];
+    let mut object = Object::new(template, ObjectId(id), Team::USA);
+    object.health.current = 80.0;
+    object.health.maximum = 100.0;
+    object.max_health = 100.0;
+    let mut runtime = FireWeaponWhenDamagedRuntimeState {
+        module_source_index: 0,
+        upgrade_executed: true,
+        ..FireWeaponWhenDamagedRuntimeState::default()
+    };
+    assert!(runtime.replace_weapon_state(weapon));
+    object.temporary_weapon_runtime.damaged = vec![runtime];
+    object
+}
+
+#[test]
+fn damaged_reaction_fires_when_ready_and_threshold_met() {
+    let mut logic = GameLogic::new();
+    logic.frame = 10;
+    let weapon = ready_weapon(
+        "CrusaderTankGun",
+        FireWeaponWhenDamagedWeaponRole::ReactionPristine,
+    );
+    let source = ObjectId(11);
+    logic.objects.insert(source, damaged_object(11, weapon));
+    let hits = logic.execute_temporary_weapon_on_damage(source, 10.0, 0);
+    let _ = hits;
+    let object = logic.host_object(source).expect("source");
+    let state = object.temporary_weapon_runtime.damaged[0]
+        .weapon(TemporaryWeaponRuntimeKey {
+            module_source_index: 0,
+            role: FireWeaponWhenDamagedWeaponRole::ReactionPristine,
+        })
+        .expect("role");
+    if store_fields_for_weapon_name("CrusaderTankGun").is_some() {
+        assert_eq!(state.ammo_in_clip, 1);
+        assert_eq!(state.last_fire_frame, 10);
+        assert!(logic.weapon_discharge_next_sequence_for_snapshot() > 1);
+    } else {
+        assert_eq!(state.ammo_in_clip, 2);
+    }
+}
+
+#[test]
+fn damaged_reaction_does_not_fire_below_damage_amount() {
+    let mut logic = GameLogic::new();
+    logic.frame = 10;
+    let weapon = ready_weapon(
+        "CrusaderTankGun",
+        FireWeaponWhenDamagedWeaponRole::ReactionPristine,
+    );
+    let source = ObjectId(12);
+    logic.objects.insert(source, damaged_object(12, weapon));
+    assert_eq!(logic.execute_temporary_weapon_on_damage(source, 1.0, 0), 0);
+    let object = logic.host_object(source).expect("source");
+    let state = object.temporary_weapon_runtime.damaged[0]
+        .weapon(TemporaryWeaponRuntimeKey {
+            module_source_index: 0,
+            role: FireWeaponWhenDamagedWeaponRole::ReactionPristine,
+        })
+        .expect("role");
+    assert_eq!(state.ammo_in_clip, 2);
+    assert_eq!(state.last_fire_frame, 0);
+}
+
+#[test]
+fn damaged_reaction_respects_between_shots_cooldown() {
+    let mut logic = GameLogic::new();
+    logic.frame = 4;
+    let mut weapon = ready_weapon(
+        "CrusaderTankGun",
+        FireWeaponWhenDamagedWeaponRole::ReactionPristine,
+    );
+    weapon.status = TemporaryWeaponStatus::BetweenFiringShots;
+    weapon.when_we_can_fire_again = 20;
+    let source = ObjectId(13);
+    logic.objects.insert(source, damaged_object(13, weapon));
+    assert_eq!(logic.execute_temporary_weapon_on_damage(source, 10.0, 0), 0);
+}
+
+#[test]
+fn dead_behavior_fires_once_and_skips_under_construction() {
+    let mut logic = GameLogic::new();
+    logic.frame = 8;
+    let mut template = ThingTemplate::new("TempDeadHost");
+    template.fire_weapon_when_dead_behaviors = vec![FireWeaponWhenDeadMetadata {
+        module_source_index: 0,
+        module_tag: None,
+        starts_active: true,
+        death_weapon: Some("CrusaderTankGun".into()),
+        upgrade_mux: FireWeaponUpgradeMuxMetadata::default(),
+        death_types: Default::default(),
+        veterancy_levels: Default::default(),
+        exempt_status: Default::default(),
+        required_status: Default::default(),
+    }];
+    let mut object = Object::new(template, ObjectId(14), Team::USA);
+    object.temporary_weapon_runtime.dead = vec![FireWeaponWhenDeadRuntimeState {
+        module_source_index: 0,
+        upgrade_executed: true,
+    }];
+    object.status.destroyed = true;
+    let source = ObjectId(14);
+    logic.objects.insert(source, object);
+    let _ = logic.execute_temporary_weapon_on_die(source);
+    assert!(
+        logic
+            .host_object(source)
+            .expect("source")
+            .fire_weapon_when_dead_fired
+    );
+    let second = logic.execute_temporary_weapon_on_die(source);
+    assert_eq!(second, 0);
+
+    if let Some(object) = logic.objects.get_mut(&source) {
+        object.fire_weapon_when_dead_fired = false;
+        object.status.under_construction = true;
+    }
+    assert_eq!(logic.execute_temporary_weapon_on_die(source), 0);
+}
+
+#[test]
+fn fx_selection_uses_detonate_only_when_projectile_detonation() {
+    assert_eq!(
+        select_weapon_template_fx(false, "FireFX", "DetonateFX"),
+        "FireFX"
+    );
+    assert_eq!(
+        select_weapon_template_fx(true, "FireFX", "DetonateFX"),
+        "DetonateFX"
+    );
+}
+
+#[test]
+fn non_w3d_object_draw_interface_is_opaque_not_known_no() {
+    assert_eq!(
+        classify_draw_module_declaration("W3DModelDraw ModuleTag_01"),
+        DrawModuleFireFxClass::W3dModelDraw
+    );
+    assert_eq!(
+        classify_draw_module_declaration("W3DLaserDraw"),
+        DrawModuleFireFxClass::KnownNoWeaponFireFx
+    );
+    assert_eq!(
+        classify_draw_module_declaration("CustomObjectDraw"),
+        DrawModuleFireFxClass::OpaqueObjectDrawInterface
+    );
+}
+
+#[test]
+fn private_fire_mutation_enters_between_shots() {
+    let mut state = ready_weapon("Local", FireWeaponWhenDamagedWeaponRole::ReactionDamaged);
+    let fields = super::temporary_weapon_status::TemporaryWeaponStoreFields {
+        defaults: TemporaryWeaponConstructionDefaults {
+            clip_size: 2,
+            shots_per_barrel: 1,
+            ..TemporaryWeaponConstructionDefaults::default()
+        },
+        delay_between_shots: 6,
+        auto_reloads_clip: true,
+        primary_damage: 10.0,
+        primary_radius: 5.0,
+        secondary_damage: 0.0,
+        secondary_radius: 0.0,
+    };
+    apply_private_fire_mutation(&mut state, fields, 3);
+    assert_eq!(state.ammo_in_clip, 1);
+    assert_eq!(state.status, TemporaryWeaponStatus::BetweenFiringShots);
+    assert_eq!(state.when_we_can_fire_again, 9);
+    assert_eq!(
+        promote_temporary_weapon_status(&mut state, 8),
+        TemporaryWeaponStatus::BetweenFiringShots
+    );
+    assert_eq!(
+        promote_temporary_weapon_status(&mut state, 9),
+        TemporaryWeaponStatus::ReadyToFire
+    );
+}
