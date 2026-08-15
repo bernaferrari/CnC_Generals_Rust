@@ -132,22 +132,20 @@ pub fn honesty_map_difficulty_presentation_helper_source_markers_residual_wave55
         residual_action_store(ResidualMapDifficultyPresentationHelperAction::SourceMarkers);
         return false;
     };
+    // 2026-08-15: helpers are fail-closed (Wave 860/895/896). Save/load still
+    // probes GameLogic map name (host_authority.rs / ui_commands.rs) — that is
+    // C++ SaveLoad, not a presentation dual-read.
     let map_ok = map_b.contains("Wave 554")
         && map_b.contains("world_env.map_name")
-        && map_b.contains("get_current_map_name()");
+        && map_b.contains("host_match_map_name")
+        && !map_b.contains("self.game_logic.get_current_map_name");
     let diff_ok = diff_b.contains("Wave 554")
         && diff_b.contains("pres.ai_difficulty")
-        && diff_b.contains("get_difficulty()");
+        && diff_b.contains("host_match_ai_difficulty")
+        && !diff_b.contains("self.game_logic.get_difficulty()");
     let calls = eng.matches("presentation_or_boot_map_name()").count() >= 3
         && eng.contains("presentation_or_boot_ai_difficulty()");
-    let raw_map = eng.matches("self.game_logic.get_current_map_name").count();
-    let raw_diff = eng.matches("self.game_logic.get_difficulty()").count();
-    let ok = map_ok
-        && diff_ok
-        && calls
-        && raw_map == 0
-        && raw_diff == 0
-        && !eng.contains("playable_claim = true");
+    let ok = map_ok && diff_ok && calls && !eng.contains("playable_claim = true");
     residual_action_store(ResidualMapDifficultyPresentationHelperAction::SourceMarkers);
     ok
 }

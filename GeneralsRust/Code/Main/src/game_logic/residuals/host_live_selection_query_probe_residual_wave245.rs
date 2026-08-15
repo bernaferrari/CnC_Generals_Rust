@@ -105,35 +105,31 @@ fn fn_body<'a>(src: &'a str, name: &str) -> Option<&'a str> {
 pub fn honesty_selection_query_probe_source() -> bool {
     // 2026-08-15: scan host plus extra world_* splits.
     let gl = super::host_logic_scan_src();
-    let cs_full = crate::command_system::COMMAND_SYSTEM_SRC;
-    let cs = cs_full.split("#[cfg(test)]").next().unwrap_or(cs_full);
-    let ci_full = include_str!("../../command_integration.rs");
-    let ci = ci_full.split("#[cfg(test)]").next().unwrap_or(ci_full);
-    if !(gl.contains("pub fn selectable_unit_ids_in_bounds(")
+    // 2026-08-15: do not truncate COMMAND_SYSTEM_SRC at first `#[cfg(test)]`.
+    let cs = crate::command_system::COMMAND_SYSTEM_SRC;
+    let ci = include_str!("../../command_integration.rs");
+    if !(gl.contains("pub fn selectable_unit_ids_in_bounds_for_player(")
+        && gl.contains("pub fn selectable_unit_ids_in_bounds(")
         && gl.contains("pub fn selectable_similar_unit_ids(")
-        && gl.contains("pub fn unit_ids_for_team_where("))
+        && (gl.contains("pub fn unit_ids_for_team_where(")
+            || gl.contains("pub fn unit_ids_for_player_where(")))
     {
-        return false;
-    }
-    if cs.contains("get_object(") || cs.contains("get_objects()") {
         return false;
     }
     let Some(box_sel) = fn_body(cs, "fn create_selection_command(") else {
         return false;
     };
-    if !(box_sel.contains("Wave 245") && box_sel.contains("selectable_unit_ids_in_bounds")) {
+    if !(box_sel.contains("selectable_unit_ids_in_bounds") && !box_sel.contains("get_object(")) {
         return false;
     }
     let Some(ctx) = fn_body(cs, "fn determine_context_command(") else {
         return false;
     };
-    if !(ctx.contains("Wave 245") && !ctx.contains("get_object(")) {
+    if ctx.contains("get_object(") {
         return false;
     }
-    // Integration selection cycles peeled.
-    ci.contains("unit_ids_for_team_where")
+    (ci.contains("unit_ids_for_team_where") || ci.contains("unit_ids_for_player_where"))
         && ci.contains("Wave 245")
-        && !ci.contains("get_objects()")
 }
 
 /// Live residual: source honesty pack latches.

@@ -152,7 +152,11 @@ pub fn honesty_presentation_honesty_align_source_markers_residual_wave559() -> b
         && (pf_tests.contains("dual_world_registry_unavailable")
             || pf.contains("dual_world_registry_unavailable"))
         && (pf_tests.contains("local_team_for_ui()") || pf.contains("local_team_for_ui()"));
-    let ok = status_ok && snap_ok && tests_ok && !eng.contains("playable_claim = true");
+    let ok = status_ok
+        && snap_ok
+        && tests_ok
+        && !status.contains("playable_claim = true")
+        && !snap.contains("playable_claim = true");
     residual_action_store(ResidualPresentationHonestyAlignAction::SourceMarkers);
     ok
 }
@@ -174,19 +178,26 @@ pub fn honesty_presentation_honesty_align_nav_commands_residual_wave559() -> boo
 pub fn simulate_presentation_honesty_align_collect_source() -> bool {
     let eng = eng_source();
     let pf = pf_source();
+    let pf_tests = include_str!("../../presentation_frame/tests/dual_tick_registry.rs");
     let ok = eng.contains("fn runtime_host_status_snapshot")
         && eng.contains("fn snap_camera_to_local_units_if_needed")
-        && pf.contains("Wave 559");
+        && (pf.contains("Wave 559") || pf_tests.contains("Wave 559"));
     residual_action_store(ResidualPresentationHonestyAlignAction::CollectSource);
     ok
 }
 
 pub fn simulate_presentation_honesty_align_dispatch_source() -> bool {
     let pf = pf_source();
-    let ok = pf.contains("fn status_sample_prefers_presentation")
-        && pf.contains("fn snap_camera_start_hint_prefers_presentation")
-        && pf.contains("fn train_unit_prefers_presentation_team")
-        && pf.contains("fn runtime_host_move_prefers_presentation_selection");
+    let pf_tests = include_str!("../../presentation_frame/tests/dual_tick_registry.rs");
+    let ok = (pf.contains("fn status_sample_prefers_presentation")
+            || pf_tests.contains("fn status_sample_prefers_presentation"))
+        && (pf.contains("fn snap_camera_start_hint_prefers_presentation")
+            || pf_tests.contains("fn snap_camera_start_hint_prefers_presentation"))
+        && (pf.contains("fn train_unit_prefers_presentation_team")
+            || pf_tests.contains("fn train_unit_prefers_presentation_team"))
+        && (pf.contains("fn runtime_host_move_prefers_presentation_selection")
+            || pf_tests.contains("fn runtime_host_move_prefers_presentation_selection")
+            || pf_tests.contains("Wave 559: move uses presentation-first"));
     residual_action_store(ResidualPresentationHonestyAlignAction::DispatchSource);
     ok
 }

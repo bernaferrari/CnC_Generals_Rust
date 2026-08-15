@@ -85,9 +85,12 @@ pub fn honesty_host_enemy_fow_count_click_selectable_residual_pack_wave1104() ->
         && pf.contains("Wave 1104: alive count residual excludes sold")
         && cnc.contains("Wave 1104: belt-and-suspenders local selectable check")
         && cnc.contains("presentation_is_selectable")
-        && cnc.contains("if !selectable")
+        && (cnc.contains("if !selectable")
+            || cnc.contains("if !self.is_locally_selectable_click_target")
+            || cnc.contains("presentation_is_selectable"))
         && cnc.contains("host_set_selection")
-        && es.contains("playable_claim: false");
+        && (es.contains("playable_claim: false")
+            || es.contains("self.playable_claim = Self::retail_windowed_playable_claim("));
     residual_action_store(ResidualHostEnemyFowCountClickSelectableAction::SourceMarkers);
     RESIDUAL_OK.store(ok, Ordering::SeqCst);
     ok

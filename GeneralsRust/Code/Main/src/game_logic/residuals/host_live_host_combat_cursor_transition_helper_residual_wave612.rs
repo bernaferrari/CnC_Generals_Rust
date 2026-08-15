@@ -162,7 +162,10 @@ pub fn honesty_host_combat_cursor_transition_helper_source_markers_residual_wave
         residual_action_store(ResidualHostCombatCursorTransitionHelperAction::SourceMarkers);
         return false;
     };
-    let Some(trans_wrap) = fn_body(eng, "fn transition_to_state(") else {
+    // 2026-08-15: first `fn transition_to_state` is the types.rs trait stub.
+    let Some(trans_wrap) = fn_body(eng, "pub(super) fn transition_to_state(")
+        .or_else(|| fn_body(eng, "fn transition_to_state("))
+    else {
         residual_action_store(ResidualHostCombatCursorTransitionHelperAction::SourceMarkers);
         return false;
     };

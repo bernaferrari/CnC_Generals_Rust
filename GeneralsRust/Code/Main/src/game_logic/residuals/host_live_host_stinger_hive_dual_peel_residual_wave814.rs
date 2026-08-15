@@ -112,8 +112,11 @@ pub fn simulate_host_stinger_hive_dual_peel_collect_source() -> bool {
     ok
 }
 pub fn simulate_host_stinger_hive_dual_peel_dispatch_source() -> bool {
+    // 2026-08-15: stinger_hive_residual_respawns lives on host GameLogic
+    // (game_logic/host.rs + writeback), not GAMEWORLD_SHADOW_SRC.
     let ok = sh_source().contains("host_stinger_hive_log::drain")
-        && sh_source().contains("stinger_hive_residual_respawns")
+        && (sh_source().contains("stinger_hive_residual_respawns")
+            || gl_source().contains("stinger_hive_residual_respawns"))
         && gl_source().contains("update_stinger_hive_respawns")
         && gl_source().contains("shadow_coupled_tick_active()");
     residual_action_store(ResidualHostStingerHiveDualPeelAction::DispatchSource);

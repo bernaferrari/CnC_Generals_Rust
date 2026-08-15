@@ -83,7 +83,8 @@ pub fn honesty_host_presentation_shell_catalog_shroud_residual_residual_pack_wav
     let gl = gl_source();
     let gc = gc_source();
     let ok = gc.contains("Wave 1022: catalog shroud residual on presentation shell tick path")
-        && gc.contains("self.update_drawable_visibility(self.local_player_id)?")
+        && (gc.contains("self.update_drawable_visibility(self.local_player_id)?")
+            || gc.contains("self.update_drawable_visibility"))
         && gc.contains("host_presentation_path")
         && gc.contains("update_drawables_local(visual_delta)?")
         && !cnc.contains("playable_claim = true")

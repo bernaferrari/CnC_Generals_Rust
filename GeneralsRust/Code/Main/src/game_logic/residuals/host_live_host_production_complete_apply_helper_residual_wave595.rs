@@ -171,17 +171,25 @@ pub fn honesty_host_production_complete_apply_helper_source_markers_residual_wav
     let unit_inline_residual = unit.contains("notify_unit_production_complete")
         && unit.contains("arm_exit_delay")
         && unit.contains("path_approach_with_state");
+    // 2026-08-15: spawn/ready apply go through ProductionAuthorityOp
+    // (world_tick/production.rs:970 / :1025).
     let unit_ready_residual = unit.contains("host_production_spawn_ready_log::record")
-        && unit.contains("host_apply_production_spawn_ready_completions")
+        && (unit.contains("host_apply_production_spawn_ready_completions")
+            || unit.contains("ApplySpawnReadyCompletions"))
         && ready_apply
             .map(|b| {
+                // 2026-08-15: C++ QueueProductionExitUpdate delay is
+                // record_successful_production_exit (not arm_exit_delay).
                 b.contains("notify_unit_production_complete")
-                    && b.contains("arm_exit_delay")
+                    && (b.contains("arm_exit_delay")
+                        || b.contains("record_successful_production_exit"))
                     && b.contains("path_approach_with_state")
             })
             .unwrap_or(false);
     let unit_ok = unit.contains("Wave 595")
-        && (unit.contains("self.create_object(") || unit.contains("host_spawn_production_unit"))
+        && (unit.contains("self.create_object(")
+            || unit.contains("host_spawn_production_unit")
+            || unit.contains("ProductionAuthorityOp::SpawnUnit"))
         && unit.contains("host_production_log::record_complete")
         && (unit_inline_residual || unit_ready_residual);
     let ok = update_ok && upgrade_ok && unit_ok && !gl.contains("playable_claim = true");

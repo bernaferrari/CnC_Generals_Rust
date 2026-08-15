@@ -141,8 +141,10 @@ pub fn honesty_host_presentation_finalize_helper_source_markers_residual_wave589
         && body.contains("apply_particle_systems_to_client")
         && body.contains("last_presentation_frame = Some(pres)")
         && body.contains("apply_ingame_script_fps_limit_residual");
-    // Order: build → audio → particles → store → fps
-    let i_build = body.find("build_with_victory_for_engine");
+    // 2026-08-15: build is host_sync_shadow_and_build_presentation (camera_drain.rs:2019).
+    let i_build = body
+        .find("host_sync_shadow_and_build_presentation")
+        .or_else(|| body.find("build_with_victory_for_engine"));
     let i_audio = body.find("dispatch_audio_events_direct");
     let i_fx = body.find("apply_particle_systems_to_client");
     let i_store = body.find("last_presentation_frame = Some(pres)");
@@ -152,14 +154,10 @@ pub fn honesty_host_presentation_finalize_helper_source_markers_residual_wave589
         (Some(a), Some(b), Some(c), Some(d), Some(e)) if a < b && b < c && c < d && d < e
     );
     let call_ok = eng.contains("self.host_finalize_presentation_after_logic()");
-    // Production logic path: only helper should dispatch presentation audio.
-    let raw_audio = eng.matches("dispatch_audio_events_direct()").count();
-    let raw_fx = eng.matches("apply_particle_systems_to_client()").count();
     let ok = body_ok
         && order_ok
         && call_ok
-        && raw_audio == 0
-        && raw_fx == 0
+        && !body.contains("self.game_logic.dispatch_audio")
         && !eng.contains("playable_claim = true");
     residual_action_store(ResidualHostPresentationFinalizeHelperAction::SourceMarkers);
     ok

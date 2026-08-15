@@ -85,6 +85,7 @@ pub fn honesty_host_train_try_names_golden_opt_in_source_markers_residual_wave72
         && (eng.contains("GoldenRanger enqueue fallback is opt-in only")
             || eng.contains("alias + GoldenRanger enqueue fallbacks are opt-in only"))
         && (eng.contains("try_names.push(\"GoldenRanger\")")
+            || eng.contains("try_names.push(\"GoldenRanger\".into())")
             || eng.contains("unit_candidates.push(\"GoldenRanger\")"))
         && eng.contains("if allow_golden_template");
     // Unconditional try_names array with GoldenRanger must be gone.
@@ -111,7 +112,9 @@ pub fn honesty_host_train_try_names_golden_opt_in_nav_commands_residual_wave724(
     ok
 }
 pub fn simulate_host_train_try_names_golden_opt_in_collect_source() -> bool {
-    let ok = eng_source().contains("try_names.push(\"GoldenRanger\")")
+    let ok = (eng_source().contains("try_names.push(\"GoldenRanger\")")
+        || eng_source().contains("try_names.push(\"GoldenRanger\".into())")
+        || eng_source().contains("unit_candidates.push(\"GoldenRanger\")"))
         && eng_source().contains("allow_golden_template");
     residual_action_store(ResidualHostTrainTryNamesGoldenOptInAction::CollectSource);
     ok

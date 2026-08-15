@@ -102,7 +102,8 @@ pub fn honesty_host_process_sfx_world_template_peels_residual_pack_wave915() -> 
     let helper = non_comment_code(helper_raw);
     let ok = sound_raw.contains("915")
         && !sound.contains("has_pending_commands")
-        && sound.contains("process_commands_if_needed")
+        && (sound.contains("process_commands_if_needed")
+            || sound.contains("CommandPipelineOp::ProcessIfNeeded"))
         && over_raw.contains("915")
         && over.contains("host_match_world_bounds")
         && gold_raw.contains("915")

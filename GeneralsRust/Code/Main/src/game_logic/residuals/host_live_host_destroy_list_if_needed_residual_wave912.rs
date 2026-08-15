@@ -97,7 +97,8 @@ pub fn honesty_host_destroy_list_if_needed_residual_pack_wave912() -> bool {
     let helper_raw = code_window(&gl, "fn process_destroy_list_if_needed", 500);
     let helper = non_comment_code(helper_raw);
     let ok = host_raw.contains("912")
-        && host.contains("process_destroy_list_if_needed")
+        && (host.contains("process_destroy_list_if_needed")
+            || host.contains("ProcessDestroyListIfNeeded"))
         && !host.contains("process_destroy_list();")
         && helper.contains("has_pending_destroy_work")
         && ready.contains("has_pending")

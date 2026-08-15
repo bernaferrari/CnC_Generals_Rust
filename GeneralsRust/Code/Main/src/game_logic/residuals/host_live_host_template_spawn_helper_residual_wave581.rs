@@ -137,15 +137,24 @@ pub fn honesty_host_template_spawn_helper_source_markers_residual_wave581() -> b
         residual_action_store(ResidualHostTemplateSpawnHelperAction::SourceMarkers);
         return false;
     };
+    // 2026-08-15: Wave 898 fail-closed — freeze miss uses host_match_known_template_names
+    // (camera_drain.rs:1216-1224), not templates.contains_key.
     let live_ok = live.contains("Wave 581")
         && live.contains("has_template_name(name)")
-        && live.contains("templates.contains_key(name)");
+        && (live.contains("templates.contains_key(name)")
+            || live.contains("host_match_known_template_names"));
+    // 2026-08-15: Create is a struct variant (host_authority.rs:800-804).
     let create_ok = create.contains("Wave 581")
-        && create.contains("ObjectLifecycleOp::Create(name, team, spawn_at)")
+        && (create.contains("ObjectLifecycleOp::Create {")
+            || create.contains("ObjectLifecycleOp::Create(name, team, spawn_at)"))
+        && create.contains("name:")
+        && create.contains("spawn_at")
         && !create.contains("self.host_create_object(name");
+    // 2026-08-15: insert is HostSupportOp::InsertThingTemplate (camera_drain.rs:1177).
     let golden_ok = golden.contains("Wave 581")
         && golden.contains("GoldenRanger")
-        && golden.contains("templates.insert");
+        && (golden.contains("templates.insert")
+            || golden.contains("HostSupportOp::InsertThingTemplate"));
     let call_ok = eng.contains("self.presentation_or_live_has_template(")
         && eng.contains("self.host_create_object(")
         && eng.contains("self.host_ensure_golden_ranger_template()");

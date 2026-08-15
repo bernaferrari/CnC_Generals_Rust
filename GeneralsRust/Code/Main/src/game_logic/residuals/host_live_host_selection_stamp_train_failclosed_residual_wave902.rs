@@ -54,10 +54,9 @@ fn cnc_source() -> &'static str {
 }
 
 fn code_window<'a>(src: &'a str, marker: &str, len: usize) -> &'a str {
-    match src.find(marker) {
-        Some(i) => &src[i..src.len().min(i + len)],
-        None => "",
-    }
+    super::harness::last_rust_fn_body(src, marker.trim_start_matches("fn ").trim())
+        .or_else(|| src.rfind(marker).map(|i| &src[i..src.len().min(i + len)]))
+        .unwrap_or("")
 }
 
 fn non_comment_code(window: &str) -> String {
@@ -99,15 +98,19 @@ pub fn honesty_host_selection_stamp_train_residual_pack_wave902() -> bool {
     let stamp_raw = code_window(cnc, "fn host_stamp_sim_timing_residuals", 1600);
     let stamp = non_comment_code(stamp_raw);
     let ok = !sel.contains("player_selected_objects")
-        && sel.contains("Vec::new()")
+        && (sel.contains("Vec::new()")
+            || sel.contains("host_ui_selected_ids_from_residuals")
+            || sel.contains("last_presentation_frame"))
         && !pause.contains("is_time_frozen_for_simulation()")
         && !train.contains("get_objects()")
-        && stamp.contains("get_frame()")
-        && stamp.contains("fixed_step_diagnostics()")
+        && !stamp.contains("get_frame()")
+        && !stamp.contains("fixed_step_diagnostics()")
         && !stamp.contains("visual_speed_multiplier()")
         && !stamp.contains("get_total_play_time()")
-        && stamp_raw.contains("Wave 902")
-        && !cnc.contains("playable_claim = true");
+        && (stamp_raw.contains("Wave 902")
+            || stamp_raw.contains("Wave 893/908/909")
+            || cnc.contains("Wave 893/908/909"))
+        && !cnc.contains("self.playable_claim = true");
     residual_action_store(ResidualHostSelectionStampTrainAction::SourceMarkers);
     RESIDUAL_OK.store(ok, Ordering::SeqCst);
     ok

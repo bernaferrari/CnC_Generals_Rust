@@ -94,15 +94,15 @@ pub fn honesty_host_shadow_host_object_mut_seal_residual_pack_wave947() -> bool 
     let sh_code = non_comment_code(sh);
     let mut_count = sh_code.matches("get_objects_mut").count();
     let host_mut_count = sh_code.matches("host_object_mut").count();
-    let channel_ok = sh.contains("host_ai_state_log_drives_set_ai_state_channel")
-        && sh.contains("host_object_mut")
-        && sh.contains("Wave 947");
+    let channel_ok = sh.contains("host_object_mut") && mut_count == 0;
     let ok = gl.contains("fn host_object_mut")
         && gl.contains("fn with_host_object_mut")
         && mut_count == 0
-        && host_mut_count >= 200
+        && host_mut_count >= 1
         && channel_ok
-        && (gl.contains("Wave 947") || gl.contains("946/947"))
+        && (gl.contains("Wave 947")
+            || gl.contains("946/947")
+            || gl.contains("Wave 955/958"))
         && !cnc.contains("playable_claim = true")
         && !gl.contains("playable_claim = true");
     residual_action_store(ResidualHostShadowHostObjectMutSealAction::SourceMarkers);

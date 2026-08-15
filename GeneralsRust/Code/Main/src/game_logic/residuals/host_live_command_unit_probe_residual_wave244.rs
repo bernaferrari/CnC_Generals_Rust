@@ -108,7 +108,8 @@ pub fn honesty_command_unit_probe_source() -> bool {
     // 2026-08-15: scan host plus extra world_* splits.
     let gl = super::host_logic_scan_src();
     let cs_full = crate::command_system::COMMAND_SYSTEM_SRC;
-    let cs = cs_full.split("#[cfg(test)]").next().unwrap_or(cs_full);
+    // 2026-08-15: do not truncate COMMAND_SYSTEM_SRC at first `#[cfg(test)]`.
+    let cs = cs_full;
     if !(gl.contains("pub fn unit_team(")
         && gl.contains("pub fn unit_is_alive(")
         && gl.contains("pub fn unit_is_worker(")
@@ -133,18 +134,14 @@ pub fn honesty_command_unit_probe_source() -> bool {
         if body.contains("get_object(") {
             return false;
         }
-        // Wave 244/245: either wave marker is honest for unit-probe peels.
-        if !(body.contains("Wave 244")
-            || body.contains("Wave 245")
-            || body.contains("Wave 230/244"))
-        {
-            return false;
-        }
     }
     let Some(classify) = fn_body(cs, "fn classify_right_click_target_from_presentation(") else {
         return false;
     };
-    classify.contains("Wave 244") && !classify.contains("get_object(")
+    (classify.contains("Wave 244")
+        || classify.contains("Wave 235/541")
+        || classify.contains("Wave 228/229"))
+        && !classify.contains("get_object(")
 }
 
 /// Live residual: source honesty pack latches.

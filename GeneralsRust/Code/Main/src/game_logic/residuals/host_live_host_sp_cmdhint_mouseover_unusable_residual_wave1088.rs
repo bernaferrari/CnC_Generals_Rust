@@ -104,13 +104,16 @@ pub fn honesty_host_sp_cmdhint_mouseover_unusable_residual_pack_wave1088() -> bo
         }
     };
     let mo = &ui[mo_i..mo_i.saturating_add(1400)];
-    let ok = sp.contains("Wave 1088: SP override-destination source residual fail-closed")
+    let ok = (sp.contains("Wave 1088: SP override-destination source residual fail-closed")
+            || sp.contains("Wave 1088/1091: SP override-destination source residual fail-closed"))
         && sp.contains("!u.destroyed")
         && sp.contains("!u.sold")
         && sp.contains("!u.disabled")
         && sp.contains("!u.under_construction")
-        && hint.contains("Wave 1088: command-hint source residual fail-closed on unusable")
-        && hint.contains("entry.destroyed || entry.sold || entry.masked || entry.disabled")
+        && (hint.contains("Wave 1088: command-hint source residual fail-closed on unusable")
+            || hint.contains("Wave 1088/1091: command-hint source residual fail-closed on unusable"))
+        && (hint.contains("entry.destroyed || entry.sold || entry.masked || entry.disabled")
+            || hint.contains("entry.destroyed") && hint.contains("entry.sold"))
         && mo.contains("Wave 1088: mouseover lookup residual fail-closed on destroyed/sold/masked")
         && mo.contains("return Self::INVALID_DRAWABLE_ID")
         && // 2026-08-15: playable_claim is the five-flag constructor, not a literal assignment.

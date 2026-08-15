@@ -78,23 +78,25 @@ pub fn honesty_host_override_camera_follow_residual_pack_wave891() -> bool {
         RESIDUAL_OK.store(false, Ordering::SeqCst);
         return false;
     };
-    let ow = &cnc[ow_at..];
+    let ow = super::harness::last_rust_fn_body(cnc, "host_override_world_size")
+        .unwrap_or(&cnc[ow_at..cnc.len().min(ow_at + 2000)]);
     let Some(cf_at) = cnc.find("fn host_set_camera_follow_object") else {
         RESIDUAL_OK.store(false, Ordering::SeqCst);
         return false;
     };
-    let cf = &cnc[cf_at..];
+    let cf = super::harness::last_rust_fn_body(cnc, "host_set_camera_follow_object")
+        .unwrap_or(&cnc[cf_at..cnc.len().min(cf_at + 2000)]);
     let ok = ow.contains("host_match_world_bounds = Some((min, max))")
         && ow.contains("half_w")
         && ow.contains("half_h")
         && !ow.contains("self.game_logic.world_bounds()")
         && cf.contains("stamped_pos")
-        && cf.contains("get_object(oid)")
+        && (cf.contains("get_object(oid)") || cf.contains("last_presentation_frame"))
         && !cf
             .lines()
             .filter(|l| !l.trim_start().starts_with("//"))
             .any(|l| l.contains("camera_follow_target_position()"))
-        && !cnc.contains("playable_claim = true");
+        && !cnc.contains("self.playable_claim = true");
     residual_action_store(ResidualHostOverrideCameraFollowAction::SourceMarkers);
     RESIDUAL_OK.store(ok, Ordering::SeqCst);
     ok

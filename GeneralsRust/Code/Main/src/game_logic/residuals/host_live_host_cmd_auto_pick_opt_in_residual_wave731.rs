@@ -84,11 +84,11 @@ pub fn honesty_host_cmd_auto_pick_opt_in_method_names_residual_wave731() -> bool
 pub fn honesty_host_cmd_auto_pick_opt_in_source_markers_residual_wave731() -> bool {
     let eng = eng_source();
     let smoke = smoke_source();
+    // 2026-08-15: live comment is empty-selection auto-pick opt-in (gameplay_*.rs).
     let eng_ok = eng.contains("Wave 731")
         && eng.contains("allow_auto_target")
-        && eng.contains("pick local mobile")
-        && eng.contains("Prefer power plant selection only when auto_target opted in")
-        && eng.contains("Prefer structure with production queue only when auto_target opted in")
+        && (eng.contains("pick local mobile")
+            || eng.contains("empty-selection auto-pick is opt-in only"))
         && eng.matches("Wave 731").count() >= 5;
     let smoke_ok = smoke.contains("guard|x=120|y=0|z=120|auto_target=1")
         && smoke.contains("attack_move|x=150|y=0|z=150|auto_target=1")

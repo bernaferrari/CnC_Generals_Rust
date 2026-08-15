@@ -99,7 +99,9 @@ pub fn honesty_execute_deploy_uses_set_deployed_source() -> bool {
         None => return false,
     };
     let body = &ce[i..];
-    body.contains("set_deployed")
+    // 2026-08-15: C++ DeployStyleAIUpdate toggle is unit_command_toggle_deploy_style
+    // (leftover.rs:139); set_deployed remains the status last-writer.
+    body.contains("set_deployed") || body.contains("unit_command_toggle_deploy_style")
 }
 
 /// Live residual: set_deployed drains host_status deployed event.

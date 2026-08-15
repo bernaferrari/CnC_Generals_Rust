@@ -80,7 +80,9 @@ pub fn honesty_host_control_bar_production_legality_residual_residual_pack_wave1
     let cb = cb_source();
     let ok = cb.contains("Wave 249")
         && cb.contains("Wave 981")
-        && cb.contains("entry.destroyed || entry.sold || entry.disabled || entry.unselectable")
+        && (cb.contains("entry.destroyed || entry.sold || entry.disabled || entry.unselectable")
+            || cb.contains("entry.destroyed || entry.sold || entry.masked || entry.unselectable")
+            || cb.contains("entry.destroyed || entry.sold || entry.unselectable"))
         && !cnc.contains("playable_claim = true")
         && !gl.contains("playable_claim = true");
     residual_action_store(ResidualHostControlBarProductionLegalityResidualAction::SourceMarkers);

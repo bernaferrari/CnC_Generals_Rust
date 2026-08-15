@@ -79,9 +79,10 @@ fn window_ok(src: &str) -> bool {
     };
     let w = &src[i..i.saturating_add(1400)];
     w.contains("Wave 1096: sold/masked + non-local FOW Clear-only")
-        && w.contains("o.destroyed || o.sold || o.masked")
+        && (w.contains("o.destroyed || o.sold || o.masked")
+            || (w.contains("o.destroyed") && w.contains("o.sold") && w.contains("o.masked")))
         && w.contains("visibility_alpha < 0.95")
-        && w.contains("local_team")
+        && (w.contains("local_team") || w.contains("is_owned_by_local") || w.contains("is_local"))
 }
 
 pub fn honesty_host_input_find_object_fow_status_residual_pack_wave1096() -> bool {

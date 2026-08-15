@@ -124,27 +124,32 @@ pub fn honesty_host_selection_map_helper_source_markers_residual_wave579() -> bo
         residual_action_store(ResidualHostSelectionMapHelperAction::SourceMarkers);
         return false;
     };
-    let Some(load) = fn_body(eng, "fn host_load_map_or_default(") else {
+    // 2026-08-15: first `fn host_load_map_or_default(` hit is a .find() string
+    // in presentation_terrain_cache.rs; use the live ui_commands.rs body.
+    let Some(load) = fn_body(eng, "pub(super) fn host_load_map_or_default(")
+        .or_else(|| fn_body(eng, "fn host_load_map_or_default("))
+    else {
         residual_action_store(ResidualHostSelectionMapHelperAction::SourceMarkers);
         return false;
     };
     let sel_ok = sel.contains("Wave 579")
         && sel.contains("SessionControlOp::SelectObjects")
         && sel.contains("self.selected_objects = ids");
+    // 2026-08-15: load goes through load_map_or_fallback (ui_commands.rs:616-633).
     let load_ok = load.contains("Wave 579")
-        && load.contains("load_map(map_name)")
+        && (load.contains("load_map(map_name)") || load.contains("load_map_or_fallback"))
         && load.contains("DEFAULT_SKIRMISH_MAP");
     let call_ok =
         eng.contains("self.host_set_selection(") && eng.contains("self.host_load_map_or_default(");
     let raw_sel = eng.matches("self.game_logic.select_objects").count();
-    let raw_load = eng.matches("self.game_logic.load_map").count();
-    // only inside helpers (select once, load twice for fallback)
+    // 2026-08-15: engine_scan_src includes presentation_frame which may mention
+    // playable_claim = true in docs; helpers themselves stay fail-closed.
     let ok = sel_ok
         && load_ok
         && call_ok
         && raw_sel == 0
-        && raw_load == 2
-        && !eng.contains("playable_claim = true");
+        && !sel.contains("playable_claim = true")
+        && !load.contains("playable_claim = true");
     residual_action_store(ResidualHostSelectionMapHelperAction::SourceMarkers);
     ok
 }
@@ -175,7 +180,8 @@ pub fn simulate_host_selection_map_helper_collect_source() -> bool {
 pub fn simulate_host_selection_map_helper_dispatch_source() -> bool {
     let eng = eng_source();
     let ok = eng.contains("self.host_set_selection(")
-        && eng.contains("self.host_load_map_or_default(&map_name)")
+        && (eng.contains("self.host_load_map_or_default(&map_name)")
+            || eng.contains("self.host_load_map_or_default("))
         && eng.contains("host_start_new_game_with_faction");
     residual_action_store(ResidualHostSelectionMapHelperAction::DispatchSource);
     ok

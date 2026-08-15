@@ -89,10 +89,11 @@ pub fn honesty_selection_uses_object_select_source() -> bool {
         None => return false,
     };
     let body = &ce[i..];
-    // Wave 232: additive select may go through unit_select_if_team (Object::select inside).
+    // 2026-08-15: additive select is unit_select_if_player (player slot, not faction).
     body.contains("select_objects")
-        && (body.contains(".select()") || body.contains("unit_select_if_team"))
-        && (body.contains("Wave 206") || body.contains("Wave 232"))
+        && (body.contains(".select()")
+            || body.contains("unit_select_if_team")
+            || body.contains("unit_select_if_player"))
 }
 
 /// Source residual: command_system selection uses select_objects.
@@ -103,10 +104,11 @@ pub fn honesty_command_system_selection_uses_object_select_source() -> bool {
         None => return false,
     };
     let body = &cs[i..];
-    // Wave 231: additive select may go through GameLogic::unit_select_if_team
-    // (which calls Object::select); create_new still uses select_objects.
+    // 2026-08-15: command_system may route through unit_select_if_player.
     body.contains("select_objects")
-        && (body.contains(".select()") || body.contains("unit_select_if_team"))
+        && (body.contains(".select()")
+            || body.contains("unit_select_if_team")
+            || body.contains("unit_select_if_player"))
 }
 
 /// Source residual: production has no formation_id = 0 field write.
@@ -114,10 +116,8 @@ pub fn honesty_formation_dissolve_uses_set_formation_source() -> bool {
     let ce = crate::command_executor::COMMAND_EXECUTOR_SRC;
     // 2026-08-15: scan host plus extra world_* splits.
     let gl = super::host_logic_scan_src();
-    let prod = match ce.find("#[cfg(test)]") {
-        Some(i) => &ce[..i],
-        None => ce,
-    };
+    // 2026-08-15: do not truncate COMMAND_EXECUTOR_SRC at first `#[cfg(test)]`.
+    let prod = ce;
     let no_raw_field = !prod.lines().any(|l| {
         let t = l.trim_start();
         !t.starts_with("//") && t.contains("formation_id = 0")

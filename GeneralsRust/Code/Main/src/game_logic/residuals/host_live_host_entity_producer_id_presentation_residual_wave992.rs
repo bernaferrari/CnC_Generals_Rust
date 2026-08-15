@@ -89,7 +89,8 @@ pub fn honesty_host_entity_producer_id_presentation_residual_residual_pack_wave9
     let ent = entity_source();
     let sh = shadow_source();
     let ok = ent.contains("pub producer_id: Option<u32>")
-        && sh.contains("e.producer_id = obj.producer_id")
+        && (sh.contains("e.producer_id = obj.producer_id")
+            || sh.contains("e.producer_id = obj.producer_id.map(|id| id.0)"))
         && pf.contains("ent.producer_id.map(ObjectId)")
         && pf.contains("Wave 992")
         && !pf.contains("GW entity producer residual not yet mirrored")

@@ -136,23 +136,22 @@ pub fn honesty_play_time_local_player_presentation_helper_source_markers_residua
         residual_action_store(ResidualPlayTimeLocalPlayerPresentationHelperAction::SourceMarkers);
         return false;
     };
+    // 2026-08-15: Wave 895 fail-closed — helpers use host_match_* / 0.0, no
+    // get_total_play_time dual-read in the presentation path (camera_drain.rs).
     let pt_ok = pt.contains("Wave 553")
         && pt.contains("total_play_time_seconds")
-        && pt.contains("get_total_play_time()")
+        && pt.contains("host_match_total_play_time")
         && pt.contains("presentation_frame()");
     let lp_ok = lp.contains("Wave 553")
         && lp.contains("pres.local_player_id")
         && lp.contains("host_match_local_player_id");
     let calls = eng.contains("presentation_or_boot_total_play_time()")
         && eng.contains("presentation_or_boot_local_player_id()");
-    // raw dual-reads: helper boot + save boot residual
-    let raw_pt = eng.matches("self.game_logic.get_total_play_time()").count();
-    let raw_lp = eng.matches("self.game_logic.local_player_id()").count();
     let ok = pt_ok
         && lp_ok
         && calls
-        && raw_pt >= 1
-        && raw_lp == 0
+        && !pt.contains("self.game_logic.get_total_play_time()")
+        && !lp.contains("self.game_logic.local_player_id()")
         && !eng.contains("playable_claim = true");
     residual_action_store(ResidualPlayTimeLocalPlayerPresentationHelperAction::SourceMarkers);
     ok

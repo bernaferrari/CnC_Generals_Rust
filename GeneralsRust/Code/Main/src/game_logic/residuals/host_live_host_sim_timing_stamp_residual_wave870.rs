@@ -74,7 +74,9 @@ pub fn honesty_host_sim_timing_stamp_residual_pack_wave870() -> bool {
         && cnc.contains("Wave 584")
         && cnc.contains("Wave 576")
         && cnc.contains("self.host_stamp_sim_timing_residuals()")
-        && cnc.contains("self.host_match_logic_frame = Some(host_match_logic_frame)");
+        && (cnc.contains("self.host_match_logic_frame = Some(host_match_logic_frame)")
+            || cnc.contains("self.host_match_logic_frame = Some(snap.frame)")
+            || cnc.contains("self.host_match_logic_frame = Some(pres.frame.0)"));
     residual_action_store(ResidualHostSimTimingStampAction::SourceMarkers);
     RESIDUAL_OK.store(ok, Ordering::SeqCst);
     ok

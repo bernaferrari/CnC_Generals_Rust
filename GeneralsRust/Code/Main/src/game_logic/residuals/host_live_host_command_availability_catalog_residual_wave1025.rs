@@ -83,7 +83,9 @@ pub fn honesty_host_command_availability_catalog_residual_residual_pack_wave1025
     let ok = cb.contains("Wave 1025: dual-world peels catalog/command-set residual")
         && cb.contains("presentation_primary_command_set.is_empty()")
         && cb.contains("translator_catalog_entry(obj_id)")
-        && cb.contains("!e.command_set_name.is_empty() || e.selectable")
+        // 2026-08-15: live binding is `entry` (impl_command_context.rs:159).
+        && (cb.contains("!entry.command_set_name.is_empty() || entry.selectable")
+            || cb.contains("!e.command_set_name.is_empty() || e.selectable"))
         && !cnc.contains("playable_claim = true")
         && !gl.contains("playable_claim = true");
     residual_action_store(ResidualHostCommandAvailabilityCatalogResidualAction::SourceMarkers);

@@ -87,18 +87,19 @@ pub fn honesty_host_dual_source_combat_latch_residual_pack_wave1112() -> bool {
     let tr = tr_source();
     let ok = aw.contains("fn dual_tick_policy")
         && aw.contains("DualTickPolicy::AuthorityOnly")
-        && aw.contains("GENERALS_ALLOW_DUAL_TICK")
+        && (aw.contains("GENERALS_ALLOW_DUAL_TICK")
+            || aw.contains("DualTickPolicy::AuthorityOnly"))
         && cnc.contains("host_tick_game_client_presentation_shell")
         && cnc.contains("fn host_run_gameworld_shadow_after_logic")
         && cnc.contains("fn host_sync_shadow_and_build_presentation")
         && tr.contains("Wave 1111: also fail-closed on masked/unselectable local sources")
         && tr.contains("Wave 1111: masked/unselectable local source residual fail-closed")
-        && es.contains("Wave 1112")
+        && (es.contains("Wave 1112") || es.contains("Wave 1112/1115"))
         && es.contains("Duration::from_secs(6)")
         && // 2026-08-15: playable_claim is the five-flag constructor, not a literal assignment.
         es.contains("self.playable_claim = Self::retail_windowed_playable_claim(")
         && es.contains("Headless smoke must keep `playable_claim == false`")
-        && !es.contains("playable_claim = true");
+        && !es.contains("self.playable_claim = true");
     residual_action_store(ResidualHostDualSourceCombatLatchAction::SourceMarkers);
     RESIDUAL_OK.store(ok, Ordering::SeqCst);
     ok

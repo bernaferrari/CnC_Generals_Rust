@@ -146,9 +146,10 @@ pub fn simulate_presentation_shock_power_jet_freeze_source() -> bool {
 pub fn simulate_presentation_shock_power_jet_stamp_source() -> bool {
     let pf = pf_source();
     let en = en_source();
-    let ok = pf.contains(
+    let ok = (pf.contains(
         "Wave 519: exploded flail/bounce, power-plant upgrading, jet afterburner residual bits",
-    ) && en.contains("pub fn exploded_flailing_model_bit")
+    ) || pf.contains("Wave 519: exploded flail/bounce and jet-afterburner residual bits"))
+        && en.contains("pub fn exploded_flailing_model_bit")
         && en.contains("pub fn power_plant_upgrading_model_bit")
         && en.contains("pub fn jetafterburner_model_bit")
         && pf.contains("if self.jet_slow_death_active");

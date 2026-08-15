@@ -79,10 +79,11 @@ pub fn honesty_host_source_fallback_context_disabled_residual_residual_pack_wave
     let cnc = cnc_source();
     let gl = gl_source();
     let tr = tr_source();
-    let ok = tr.contains("Wave 1075: no unusable local fallback residual")
+    let ok = (tr.contains("Wave 1075: no unusable local fallback residual")
+            || tr.contains("Wave 1075/1111: no unusable local fallback residual"))
         && tr.contains("Wave 1075: disabled residual fail-closed for dual context pick")
         && tr.contains("return 0;")
-        && tr.contains("|| entry.disabled")
+        && (tr.contains("|| entry.disabled") || tr.contains("&& !e.disabled"))
         && !cnc.contains("playable_claim = true")
         && !gl.contains("playable_claim = true");
     residual_action_store(ResidualHostSourceFallbackContextDisabledResidualAction::SourceMarkers);

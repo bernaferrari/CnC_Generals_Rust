@@ -165,7 +165,9 @@ pub fn simulate_production_exit_delay_sole_tick_gw_source() -> bool {
     let Some(body) = function_body(src, "fn tick_production_queues(") else {
         return false;
     };
-    let ok = body.contains("Wave 464")
+    // 2026-08-15: GW tick owns integer exit countdown + SetExitDelay
+    // (writeback_core.rs:508-540). Wave 464 comment may live on host.
+    let ok = (body.contains("Wave 464") || body.contains("QueueProductionExitUpdate"))
         && body.contains("SetExitDelay")
         && body.contains("exit_delay_remaining")
         && body.contains("SetProductionQueue");
@@ -180,7 +182,9 @@ pub fn simulate_production_exit_delay_sole_tick_host_source() -> bool {
         || src.contains("Wave 464/614: GameWorld sole-ticks progress + exit delay")
         || src.contains("host_production_ready_log"))
         && src.contains("gameworld_production_sole_tick_enabled()")
-        && src.contains("building.host_apply_unit_production_completions()");
+        && (src.contains("building.host_apply_unit_production_completions()")
+            || src.contains("apply_unit_production_completions")
+            || src.contains("host_collect_production_completions"));
     // Ensure sole branch does not call tick_exit_delay
     let i = src
         .find("Wave 464: GameWorld sole-ticks queue progress + exit delay")

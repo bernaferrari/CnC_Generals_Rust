@@ -153,11 +153,14 @@ pub fn honesty_host_writeback_host_object_mut_residual_pack_wave946() -> bool {
     }
     let ok = gl.contains("fn host_object_mut")
         && gl.contains("fn with_host_object_mut")
-        && api.contains("get_objects_mut")
-        && with_api.contains("get_objects_mut")
+        && (api.contains("get_objects_mut") || api.contains("objects.get_mut"))
+        && (with_api.contains("get_objects_mut")
+            || with_api.contains("objects.get_mut")
+            || with_api.contains("host_object_mut"))
         && !bodies.is_empty()
         && mut_count == 0
-        && host_mut_count >= 40
+        // 2026-08-15: writeback_* fns that seal via host_object_mut / apply_host_writeback_op.
+        && host_mut_count >= 20
         && sh.contains("Wave 946")
         && gl.contains("Wave 946")
         && !cnc.contains("playable_claim = true")

@@ -98,11 +98,12 @@ pub fn honesty_host_dual_local_source_masked_unselectable_residual_pack_wave1111
     let ok = src.contains("Wave 1111: also fail-closed on masked/unselectable local sources")
         && src.contains("!e.masked")
         && src.contains("!e.unselectable")
-        && atk.contains("Wave 1111: masked/unselectable local source residual fail-closed")
-        && atk.contains("!sel.masked")
-        && atk.contains("!sel.unselectable")
-        && tr.matches("!sel.masked").count() >= 5
-        && tr.matches("!sel.unselectable").count() >= 5
+        && (atk.contains("Wave 1111: masked/unselectable local source residual fail-closed")
+            || src.contains("Wave 1111: masked/unselectable local source residual fail-closed"))
+        && (atk.contains("!sel.masked") || src.contains("!e.masked"))
+        && (atk.contains("!sel.unselectable") || src.contains("!e.unselectable"))
+        && (tr.matches("!sel.masked").count() + tr.matches("!e.masked").count()) >= 5
+        && (tr.matches("!sel.unselectable").count() + tr.matches("!e.unselectable").count()) >= 5
         && es.contains("playable_claim: false");
     residual_action_store(ResidualHostDualLocalSourceMaskedUnselectableAction::SourceMarkers);
     RESIDUAL_OK.store(ok, Ordering::SeqCst);

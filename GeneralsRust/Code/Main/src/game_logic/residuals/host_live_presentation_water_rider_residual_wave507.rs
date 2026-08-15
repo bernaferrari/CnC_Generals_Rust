@@ -140,10 +140,13 @@ pub fn honesty_presentation_water_rider_nav_commands_residual_wave507() -> bool 
 
 pub fn simulate_presentation_water_rider_freeze_source() -> bool {
     let pf = pf_source();
-    let ok = pf.contains("Wave 507: C++ OVER_WATER model condition residual (hover craft / water)")
+    // 2026-08-15: default `over_water: false` lives only in tests; live freeze
+    // stamps obj/ro/ent (build.rs / unit_render.rs / overlay.rs).
+    let ok = (pf.contains("Wave 507: C++ OVER_WATER model condition residual (hover craft / water)")
+        || pf.contains("Wave 507: over-water residual for mesh model-condition"))
         && pf.contains("over_water: obj.over_water")
         && pf.contains("over_water: ro.over_water")
-        && pf.contains("over_water: false");
+        && pf.contains("over_water: ent.cell_is_underwater");
     residual_action_store(ResidualPresentationWaterRiderAction::FreezeSource);
     ok
 }

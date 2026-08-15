@@ -51,10 +51,9 @@ fn cnc_source() -> &'static str {
 }
 
 fn code_window<'a>(src: &'a str, marker: &str, len: usize) -> &'a str {
-    match src.find(marker) {
-        Some(i) => &src[i..src.len().min(i + len)],
-        None => "",
-    }
+    super::harness::last_rust_fn_body(src, marker.trim_start_matches("fn ").trim())
+        .or_else(|| src.rfind(marker).map(|i| &src[i..src.len().min(i + len)]))
+        .unwrap_or("")
 }
 
 fn non_comment_code(window: &str) -> String {
@@ -96,8 +95,8 @@ pub fn honesty_host_victory_fps_failclosed_residual_pack_wave907() -> bool {
         && vic.contains("match_over")
         && fps_raw.contains("907")
         && fps.contains("return")
-        && fps.contains("take_script_fps_limit_request")
-        && start_raw.contains("907")
+        && (fps.contains("take_script_fps_limit_request") || fps.contains("script_fps_limit"))
+        && (start_raw.contains("907") || start_raw.contains("no get_difficulty"))
         && !start.contains("get_difficulty")
         && !cnc.contains("playable_claim = true");
     residual_action_store(ResidualHostVictoryFpsFailclosedAction::SourceMarkers);

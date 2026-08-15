@@ -114,8 +114,13 @@ pub fn simulate_host_power_plant_rods_dual_peel_collect_source() -> bool {
     ok
 }
 pub fn simulate_host_power_plant_rods_dual_peel_dispatch_source() -> bool {
+    // 2026-08-15: record_rods_complete is host GameLogic
+    // (host_special_power_completion_die.rs); drain stays in shadow.
+    let host_die = include_str!("../host_special_power_completion_die.rs");
     let ok = sh_source().contains("host_power_plant_rods_log::drain_completes")
-        && sh_source().contains("record_rods_complete")
+        && (sh_source().contains("record_rods_complete")
+            || host_die.contains("fn record_rods_complete")
+            || gl_source().contains("record_rods_complete"))
         && gl_source().contains("update_power_plant_rods")
         && gl_source().contains("shadow_coupled_tick_active()");
     residual_action_store(ResidualHostPowerPlantRodsDualPeelAction::DispatchSource);

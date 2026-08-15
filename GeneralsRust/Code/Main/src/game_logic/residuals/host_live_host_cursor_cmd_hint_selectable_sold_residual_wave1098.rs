@@ -81,33 +81,30 @@ pub fn honesty_host_cursor_cmd_hint_selectable_sold_residual_pack_wave1098() -> 
     let cnc = cnc_source();
     let cs = cs_source();
     let es = es_source();
-    let cur_i = match cnc.find("fn host_resolve_context_cursor_icon") {
-        Some(i) => i,
+    let cur = match super::harness::last_rust_fn_body(cnc, "host_resolve_context_cursor_icon") {
+        Some(b) => b,
         None => {
             residual_action_store(ResidualHostCursorCmdHintSelectableSoldAction::SourceMarkers);
             RESIDUAL_OK.store(false, Ordering::SeqCst);
             return false;
         }
     };
-    let cur = &cnc[cur_i..cur_i.saturating_add(3500)];
-    let t_i = match cnc.find("fn presentation_target_hint") {
-        Some(i) => i,
+    let t = match super::harness::last_rust_fn_body(cnc, "presentation_target_hint") {
+        Some(b) => b,
         None => {
             residual_action_store(ResidualHostCursorCmdHintSelectableSoldAction::SourceMarkers);
             RESIDUAL_OK.store(false, Ordering::SeqCst);
             return false;
         }
     };
-    let t = &cnc[t_i..t_i.saturating_add(4000)];
-    let cl_i = match cs.find("fn classify_right_click_target_from_presentation") {
-        Some(i) => i,
+    let cl = match super::harness::last_rust_fn_body(cs, "classify_right_click_target_from_presentation") {
+        Some(b) => b,
         None => {
             residual_action_store(ResidualHostCursorCmdHintSelectableSoldAction::SourceMarkers);
             RESIDUAL_OK.store(false, Ordering::SeqCst);
             return false;
         }
     };
-    let cl = &cs[cl_i..cl_i.saturating_add(6000)];
     let ok = cur.contains("Wave 1098: cursor Select residual uses full presentation")
         && cur.contains("presentation_is_selectable")
         && t.contains("Wave 1098: is_alive residual excludes sold/masked")

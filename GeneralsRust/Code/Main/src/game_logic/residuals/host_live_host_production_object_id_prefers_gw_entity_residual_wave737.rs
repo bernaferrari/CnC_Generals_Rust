@@ -87,8 +87,12 @@ pub fn honesty_host_production_object_id_prefers_gw_entity_method_names_residual
 pub fn honesty_host_production_object_id_prefers_gw_entity_source_markers_residual_wave737() -> bool
 {
     let gl = gl_source();
-    let j = gl.find("fn host_spawn_production_unit").unwrap_or(0);
-    let body = &gl[j..j + 2200.min(gl.len().saturating_sub(j))];
+    // 2026-08-15: Wave 737 body is host_spawn_production_unit_with_owner.
+    let j = gl
+        .find("fn host_spawn_production_unit_with_owner")
+        .or_else(|| gl.find("fn host_spawn_production_unit"))
+        .unwrap_or(0);
+    let body = &gl[j..j + 2800.min(gl.len().saturating_sub(j))];
     let ok = body.contains("Wave 737")
         && body.contains("let preferred = ObjectId(raw)")
         && body.contains("saved_next")

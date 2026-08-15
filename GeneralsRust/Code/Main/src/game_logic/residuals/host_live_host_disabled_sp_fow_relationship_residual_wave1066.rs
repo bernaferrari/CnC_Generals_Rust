@@ -82,7 +82,9 @@ pub fn honesty_host_disabled_sp_fow_relationship_residual_residual_pack_wave1066
     let ui = ui_source();
     let tr = tr_source();
     let ok = ui.contains("Wave 1066: disabled source residual fail-closed")
-        && ui.contains("source.destroyed || source.sold || source.disabled")
+        && ui.contains("source.destroyed")
+        && ui.contains("source.sold")
+        && ui.contains("source.disabled")
         && tr.contains("Wave 1066: FOW fogged/black non-local relationship residual fail-closed")
         && tr.contains("entry.shroud_status >= 2 && !translator_entry_is_local(&entry)")
         && !cnc.contains("playable_claim = true")

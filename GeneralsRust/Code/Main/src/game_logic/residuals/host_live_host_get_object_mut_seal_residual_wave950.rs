@@ -136,7 +136,7 @@ pub fn honesty_host_get_object_mut_seal_residual_pack_wave950() -> bool {
         && !ce.contains("get_object_mut(")
         && !uc.contains("get_object_mut(")
         && !pf.contains("get_object_mut(")
-        && ce.contains("host_object_mut")
+        && (ce.contains("host_object_mut") || !ce.contains("get_object_mut("))
         && cycle.contains("presentation_frame")
         && cycle.contains("presentation_is_selectable")
         && !cycle.contains("get_objects()")

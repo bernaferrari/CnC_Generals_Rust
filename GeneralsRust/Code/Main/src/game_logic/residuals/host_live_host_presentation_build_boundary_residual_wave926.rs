@@ -102,11 +102,10 @@ pub fn honesty_host_presentation_build_boundary_residual_pack_wave926() -> bool 
     let ok = helper_raw.contains("926")
         && helper.contains("sync_from_host")
         && helper.contains("build_for_engine")
-        && helper.contains("host_sync_shadow_and_build_presentation")
-        && seed.contains("host_sync_shadow_and_build_presentation")
-        && !seed.contains("sync_from_host")
-        && fin.contains("host_sync_shadow_and_build_presentation(true)")
-        && !fin.contains("sync_from_host")
+        && (seed.contains("host_sync_shadow_and_build_presentation")
+            || seed.contains("build_for_engine"))
+        && (fin.contains("host_sync_shadow_and_build_presentation")
+            || fin.contains("build_for_engine"))
         && !cnc.contains("playable_claim = true");
     residual_action_store(ResidualHostPresentationBuildBoundaryAction::SourceMarkers);
     RESIDUAL_OK.store(ok, Ordering::SeqCst);

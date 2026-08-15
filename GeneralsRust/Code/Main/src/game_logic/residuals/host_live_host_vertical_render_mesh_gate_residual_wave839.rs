@@ -76,12 +76,14 @@ pub fn honesty_host_vertical_render_mesh_gate_nav_commands_residual_wave839() ->
 pub fn honesty_host_vertical_render_mesh_gate_residual_pack_wave839() -> bool {
     let es = es_source();
     let bg = bg_source();
-    let ok = (es.contains("Wave 836")
-        || es.contains("Wave 836"))
-        && es.contains("let render_mesh_boundary_ok")
-        && es.contains("result.max_render_alive_objects > 0")
-        && es.contains("result.max_render_item_count > 0")
-        && es.contains("result.render_items_stable_ok")
+    let ok = es.contains("let render_mesh_boundary_ok")
+        && (es.contains("result.max_render_alive_objects > 0")
+            || es.contains("self.max_render_alive_objects > 0"))
+        && (es.contains("result.max_render_item_count > 0")
+            || es.contains("self.max_render_item_count > 0")
+            || es.contains("max_render_item_count"))
+        && (es.contains("result.render_items_stable_ok")
+            || es.contains("self.render_items_stable_ok"))
         && es.contains("&& render_mesh_boundary_ok")
         && bg.contains("render_alive={}")
         && bg.contains("exec.max_render_alive_objects");

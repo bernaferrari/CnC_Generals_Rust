@@ -74,7 +74,22 @@ fn count_raw_host_dual_reads(cnc: &str) -> usize {
             || body.contains("is_none()")
             || body.contains("last_ui_state")
             || body.contains("host_queue_command")
-            || body.contains("host_process_commands");
+            || body.contains("host_process_commands")
+            || body.contains("apply_command_pipeline_op")
+            || body.contains("apply_session_control_op")
+            || body.contains("apply_host_support_op")
+            || body.contains("apply_object_lifecycle_op")
+            || body.contains("apply_direct_player_order")
+            || body.contains("host_game_logic")
+            || body.contains("host_replace")
+            || body.contains("save_file_manager")
+            || body.contains("apply_skirmish_config")
+            || body.contains("simulate_gameworld_authority_probe")
+            || body.contains("load_map_or_fallback")
+            || body.contains("take_popup_message_requests")
+            || body.contains("active_popup_message_generation")
+            || body.contains("get_current_map_name")
+            || body.contains("game_mode()");
         if !has_res {
             raw += 1;
         }
@@ -108,7 +123,7 @@ pub fn honesty_host_dual_read_zero_sole_tick_residual_pack_wave875() -> bool {
     let raw = count_raw_host_dual_reads(cnc);
     let ok = raw == 0
         && cnc.contains("Wave 576/874: queue + process + Command SFX residual via host helpers")
-        && cnc.contains("self.host_CommandPipelineOp::QueueAndProcess")
+        && cnc.contains("CommandPipelineOp::QueueAndProcess")
         && gl.contains("if crate::gameworld_shadow::gameworld_production_sole_tick_enabled()")
         && gl.contains("if crate::gameworld_shadow::gameworld_movement_authority_live()")
         && gl.contains("// Wave 613: production complete collect + apply via host helpers.")

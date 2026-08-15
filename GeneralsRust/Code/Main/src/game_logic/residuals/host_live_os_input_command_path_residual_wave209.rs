@@ -86,10 +86,14 @@ pub fn honesty_live_os_input_command_path_residual_pack_wave209() -> bool {
 /// Source residual: WindowEvent mouse pressed routes to handle_*_click.
 pub fn honesty_window_event_mouse_to_handle_click_source() -> bool {
     let eng = crate::cnc_game_engine::ENGINE_SRC;
-    eng.contains("MouseButton::Left, ElementState::Pressed")
-        && eng.contains("self.handle_left_click()")
-        && eng.contains("MouseButton::Right, ElementState::Pressed")
-        && eng.contains("self.handle_right_click(origin, physical_rmb_gesture)")
+    // 2026-08-15: LMB press → handle_left_click; RMB command is on release.
+    eng.contains("self.handle_left_click()")
+        && (eng.contains("self.handle_right_click(origin, physical_rmb_gesture)")
+            || eng.contains(".handle_right_click(origin, physical_rmb_gesture)"))
+        && (eng.contains("(MouseButton::Left, true)")
+            || eng.contains("MouseButton::Left, ElementState::Pressed"))
+        && (eng.contains("(MouseButton::Right, false)")
+            || eng.contains("MouseButton::Right, ElementState::Pressed"))
 }
 
 /// Source residual: right-click builds context commands via CommandSystem.

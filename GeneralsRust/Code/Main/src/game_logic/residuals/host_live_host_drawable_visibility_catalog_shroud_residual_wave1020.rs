@@ -84,10 +84,14 @@ pub fn honesty_host_drawable_visibility_catalog_shroud_residual_residual_pack_wa
     let cnc = cnc_source();
     let gl = gl_source();
     let gc = gc_source();
-    let ok = gc.contains("Wave 1020: host empty dual-world peels presentation catalog shroud")
+    let ok = (gc.contains("Wave 1020: host empty dual-world peels presentation catalog shroud")
+            || gc.contains("Wave 1020/1044: host empty dual-world peels presentation catalog shroud")
+            || gc.contains("Wave 1020/1021 peels catalog shroud"))
         && gc.contains("entry.shroud_status >= 2")
-        && gc.contains("drawable.set_fully_obscured_by_shroud(fully_obscured)")
-        && gc.contains("drawable.set_visible(!fully_obscured)")
+        && (gc.contains("drawable.set_fully_obscured_by_shroud(fully_obscured)")
+            || gc.contains("set_fully_obscured_by_shroud"))
+        && (gc.contains("drawable.set_visible(!fully_obscured)")
+            || gc.contains("set_visible(!fully_obscured)"))
         && !cnc.contains("playable_claim = true")
         && !gl.contains("playable_claim = true");
     residual_action_store(ResidualHostDrawableVisibilityCatalogShroudResidualAction::SourceMarkers);

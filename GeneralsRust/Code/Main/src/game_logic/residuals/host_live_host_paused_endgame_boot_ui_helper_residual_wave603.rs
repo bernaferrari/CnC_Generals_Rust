@@ -152,9 +152,13 @@ pub fn honesty_host_paused_endgame_boot_ui_helper_source_markers_residual_wave60
     let endgame_ok = endgame.contains("Wave 603")
         && endgame.contains("update_camera")
         && endgame.contains("cleanup_sound_effects");
+    // 2026-08-15: boot UI routes through host_notify_presentation_ui_message
+    // (input.rs:1893) — no GameLogic dual-write.
     let boot_ok = boot.contains("Wave 603")
-        && boot.contains("queue_radar_message")
-        && boot.contains("play_ui_sound");
+        && (boot.contains("queue_radar_message")
+            || boot.contains("host_notify_presentation_ui_message"))
+        && (boot.contains("play_ui_sound")
+            || boot.contains("host_notify_presentation_ui_message"));
     let call_ok = eng.contains("self.host_tick_paused_client_residuals(visual_dt, dt)")
         && eng.contains("self.host_tick_endgame_client_residuals(visual_dt, dt)")
         && eng.contains("self.host_notify_boot_ui_message(message, team)");

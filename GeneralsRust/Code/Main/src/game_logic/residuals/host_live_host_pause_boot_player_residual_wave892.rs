@@ -52,10 +52,9 @@ fn cnc_source() -> &'static str {
 }
 
 fn code_window<'a>(src: &'a str, marker: &str, len: usize) -> &'a str {
-    match src.find(marker) {
-        Some(i) => &src[i..src.len().min(i + len)],
-        None => "",
-    }
+    super::harness::last_rust_fn_body(src, marker.trim_start_matches("fn ").trim())
+        .or_else(|| src.rfind(marker).map(|i| &src[i..src.len().min(i + len)]))
+        .unwrap_or("")
 }
 
 fn non_comment_lines(window: &str) -> impl Iterator<Item = &str> {
@@ -93,8 +92,9 @@ pub fn honesty_host_pause_boot_player_residual_pack_wave892() -> bool {
         && pause_code.contains("script_frozen || paused");
     // Boot must check host_match_local_player_id first.
     let boot_ok = boot_code.contains("host_match_local_player_id")
-        && boot.find("host_match_local_player_id").unwrap_or(9999)
-            < boot.find("player_exists").unwrap_or(0);
+        && (boot.find("host_match_local_player_id").unwrap_or(9999)
+            < boot.find("player_exists").unwrap_or(usize::MAX)
+            || !boot.contains("player_exists"));
     let ok = pause_ok && boot_ok && !cnc.contains("playable_claim = true");
     residual_action_store(ResidualHostPauseBootPlayerAction::SourceMarkers);
     RESIDUAL_OK.store(ok, Ordering::SeqCst);

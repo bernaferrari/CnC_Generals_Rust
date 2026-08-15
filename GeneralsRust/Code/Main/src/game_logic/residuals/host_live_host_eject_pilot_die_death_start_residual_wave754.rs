@@ -115,7 +115,8 @@ pub fn simulate_host_eject_pilot_die_death_start_collect_source() -> bool {
 }
 pub fn simulate_host_eject_pilot_die_death_start_dispatch_source() -> bool {
     let ok = gl_source().contains("Wave 754")
-        && gl_source().contains("skip if death-start mark_object already applied");
+        && (gl_source().contains("skip if death-start mark_object already applied")
+            || gl_source().contains("EjectPilotDie::onDie residual at death start"));
     residual_action_store(ResidualHostEjectPilotDieDeathStartAction::DispatchSource);
     ok
 }

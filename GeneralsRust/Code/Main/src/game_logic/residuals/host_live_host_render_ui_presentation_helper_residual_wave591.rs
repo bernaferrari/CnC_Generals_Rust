@@ -134,10 +134,8 @@ pub fn honesty_host_render_ui_presentation_helper_method_names_residual_wave591(
 
 pub fn honesty_host_render_ui_presentation_helper_source_markers_residual_wave591() -> bool {
     let eng = eng_source();
-    let Some(body) = fn_body(
-        eng,
-        "fn host_build_render_ui_state_from_presentation(&mut self) -> crate::ui::GameUIState",
-    ) else {
+    // 2026-08-15: rustfmt split the signature across lines (camera_drain.rs).
+    let Some(body) = fn_body(eng, "fn host_build_render_ui_state_from_presentation(") else {
         residual_action_store(ResidualHostRenderUiPresentationHelperAction::SourceMarkers);
         return false;
     };
@@ -151,8 +149,10 @@ pub fn honesty_host_render_ui_presentation_helper_source_markers_residual_wave59
         && body.contains("sync_eva_messages_from_presentation")
         && body.contains("Boot/loading residual only")
         && body.contains("host_update_ui_state(self.current_player_id)");
+    // 2026-08-15: live comment is "consumer residual" (camera_drain.rs:1434).
     let call_ok = eng.contains("self.host_build_render_ui_state_from_presentation()")
-        && eng.contains("Wave 591: render UI presentation consumer via host helper");
+        && (eng.contains("Wave 591: render UI presentation consumer residual")
+            || eng.contains("Wave 591: render UI presentation consumer via host helper"));
     let ok = body_ok && call_ok && !eng.contains("playable_claim = true");
     residual_action_store(ResidualHostRenderUiPresentationHelperAction::SourceMarkers);
     ok
@@ -186,8 +186,10 @@ pub fn simulate_host_render_ui_presentation_helper_collect_source() -> bool {
 
 pub fn simulate_host_render_ui_presentation_helper_dispatch_source() -> bool {
     let eng = eng_source();
+    // 2026-08-15: live comment is "consumer residual" (camera_drain.rs:1434).
     let ok = eng.contains("self.host_build_render_ui_state_from_presentation()")
-        && eng.contains("Wave 591: render UI presentation consumer via host helper");
+        && (eng.contains("Wave 591: render UI presentation consumer residual")
+            || eng.contains("Wave 591: render UI presentation consumer via host helper"));
     residual_action_store(ResidualHostRenderUiPresentationHelperAction::DispatchSource);
     ok
 }

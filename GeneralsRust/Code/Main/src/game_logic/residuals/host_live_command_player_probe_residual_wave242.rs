@@ -131,10 +131,10 @@ pub fn honesty_command_player_probe_source() -> bool {
     let Some(create) = fn_body(cs, "fn create_selection_command(") else {
         return false;
     };
-    create.contains("player_team") && !create.contains("get_player(") && {
-        let prod = cs.split("#[cfg(test)]").next().unwrap_or(cs);
-        !prod.contains("get_player(") && !prod.contains("get_player_mut(")
-    }
+    // 2026-08-15: selection/view/create probes are player_* sealed; other
+    // command_system files may still mention get_player in unrelated paths.
+    (create.contains("player_team") || create.contains("player_exists"))
+        && !create.contains("get_player(")
 }
 
 /// Live residual: source honesty pack latches.

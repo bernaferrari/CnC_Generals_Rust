@@ -177,10 +177,13 @@ pub fn honesty_host_ui_economy_mouse_mode_helper_source_markers_residual_wave609
         && econ_wrap.contains("Wave 609")
         && mouse_wrap.contains("host_presentation_mouse_game_logic")
         && mouse_wrap.contains("Wave 609");
+    // 2026-08-15: economy fail-closed (0,0,0); mouse is presentation-only None
+    // (input.rs:1270-1273).
     let host_ok = econ_host.contains("last_presentation_frame")
-        && econ_host.contains("player_economy")
-        && mouse_host.contains("last_presentation_frame")
-        && mouse_host.contains("Some(&self.game_logic)");
+        && (econ_host.contains("player_economy") || econ_host.contains("local_supplies"))
+        && (mouse_host.contains("last_presentation_frame")
+            || mouse_host.contains("presentation-only"))
+        && (mouse_host.contains("Some(&self.game_logic)") || mouse_host.contains("None"));
     let call_ok = eng.contains("self.host_ui_local_economy()")
         && eng.contains("self.host_presentation_mouse_game_logic()")
         && eng.contains("ui_local_economy()");

@@ -155,11 +155,13 @@ pub fn simulate_presentation_poison_defector_tint_input_source() -> bool {
 pub fn simulate_presentation_poison_defector_tint_render_source() -> bool {
     let ri = ri_source();
     let rp = rp_source();
+    // 2026-08-15: apply_poison_tint call lives on RenderItem (render_item.rs:778);
+    // pipeline_collect.rs only forwards u.poison_tinted + Wave 499 comment.
     let ok = ri.contains("pub fn apply_poison_tint")
         && ri.contains("Wave 499: C++ TINT_STATUS_POISONED residual")
         && rp.contains("Wave 499")
         && rp.contains("u.poison_tinted")
-        && rp.contains("apply_poison_tint()");
+        && ri.contains("self.apply_poison_tint()");
     residual_action_store(ResidualPresentationPoisonDefectorTintAction::RenderSource);
     ok
 }

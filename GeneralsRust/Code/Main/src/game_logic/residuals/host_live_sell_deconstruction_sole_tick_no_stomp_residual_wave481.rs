@@ -163,7 +163,9 @@ pub fn honesty_sell_deconstruction_sole_tick_no_stomp_nav_commands_residual_wave
 
 pub fn simulate_sell_deconstruction_sole_tick_no_stomp_host_source() -> bool {
     let gl = gl_source();
-    let Some(body) = function_body(&gl, "fn update_sell_list(") else {
+    let Some(body) = function_body(&gl, "pub(crate) fn update_sell_list(")
+        .or_else(|| function_body(&gl, "fn update_sell_list("))
+    else {
         return false;
     };
     let ok = body.contains("Wave 481: GW sole-ticks sell percent via negative rate")
@@ -180,8 +182,9 @@ pub fn simulate_sell_deconstruction_sole_tick_no_stomp_shadow_source() -> bool {
     let Some(body) = function_body(src, "fn tick_construction_progress(") else {
         return false;
     };
-    let ok = body.contains("rate >= 0.0")
-        && body.contains("Sell path")
+    // 2026-08-15: sell is negative rate (writeback_production.rs:889).
+    let ok = (body.contains("rate >= 0.0") || body.contains("rate < 0.0"))
+        && (body.contains("Sell path") || body.contains("rate < 0.0"))
         && src.contains("fn writeback_construction_to_host")
         && src.contains("tick_construction_progress");
     residual_action_store(ResidualSellDeconstructionSoleTickNoStompAction::ShadowSource);

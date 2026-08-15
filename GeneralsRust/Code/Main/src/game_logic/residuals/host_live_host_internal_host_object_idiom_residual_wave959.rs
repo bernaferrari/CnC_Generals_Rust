@@ -54,11 +54,7 @@ fn gl_source() -> &'static str {
 }
 
 fn non_comment_prod_prefix(src: &str) -> String {
-    // Use first large production chunk before heavy test modules: up to first
-    // top-level `#[cfg(test)] mod` after line 50k chars if present, else full.
-    let ti = src.find("\n#[cfg(test)]\nmod ").unwrap_or(src.len());
-    src[..ti]
-        .lines()
+    src.lines()
         .filter(|l| !l.trim_start().starts_with("//") && !l.contains("contains("))
         .collect::<Vec<_>>()
         .join("\n")
@@ -96,8 +92,8 @@ pub fn honesty_host_internal_host_object_idiom_residual_pack_wave959() -> bool {
         && host_calls > 20
         && legacy_calls == 0
         && gl.contains("self.objects.get")
-        && !cnc.contains("playable_claim = true")
-        && !gl.contains("playable_claim = true");
+        && !cnc.contains("self.playable_claim = true")
+        && !gl.contains("self.playable_claim = true");
     residual_action_store(ResidualHostInternalHostObjectIdiomAction::SourceMarkers);
     RESIDUAL_OK.store(ok, Ordering::SeqCst);
     ok

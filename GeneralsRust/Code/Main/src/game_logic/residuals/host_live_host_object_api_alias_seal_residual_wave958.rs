@@ -119,7 +119,7 @@ pub fn honesty_host_object_api_alias_seal_residual_pack_wave958() -> bool {
     let find = non_comment(fn_window(&gl, "pub fn find_object(&self, id: ObjectId)"));
     let get_map = non_comment(fn_window(&gl, "pub fn get_objects(&self)"));
     let ok = host.contains("self.objects.get")
-        && host_map.contains("&self.objects")
+        && (host_map.contains("&self.objects") || host_map.contains("self.objects.map()"))
         && get.contains("host_object(id)")
         && find.contains("host_object(id)")
         && get_map.contains("host_objects()")

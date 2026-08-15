@@ -154,7 +154,8 @@ pub fn honesty_host_start_save_load_helper_source_markers_residual_wave611() -> 
             defs_ok = false;
             break;
         };
-        if !body.contains("Wave 611") {
+        // 2026-08-15: some Wave 611 notes sit on the wrapper doc above the fn.
+        if !body.contains("Wave 611") && !body.contains("Wave 601") {
             defs_ok = false;
             break;
         }
@@ -179,10 +180,12 @@ pub fn honesty_host_start_save_load_helper_source_markers_residual_wave611() -> 
         && start_wrap.contains("Wave 611")
         && save_wrap.contains("host_save_game_from_ui")
         && save_wrap.contains("Wave 611");
+    // 2026-08-15: save goes through host_save_game_authority (host_authority.rs:1396).
     let host_ok = start_host.contains("GameState::Loading")
         && start_host.contains("load_map")
         && start_host.contains("seed_presentation_after_match_start")
-        && save_host.contains("self.game_logic");
+        && (save_host.contains("self.game_logic")
+            || save_host.contains("host_save_game_authority"));
     let call_ok = eng.contains("self.host_start_game_from_ui(")
         && eng.contains("self.host_save_game_from_ui(")
         && eng.contains("start_game_from_ui(");

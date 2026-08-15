@@ -99,9 +99,9 @@ pub fn honesty_host_process_commands_if_needed_residual_pack_wave914() -> bool {
     let helper_raw = code_window(&gl, "fn process_commands_if_needed", 500);
     let helper = non_comment_code(helper_raw);
     let ok = sound_raw.contains("914")
-        && sound.contains("has_pending_commands")
-        && silent.contains("process_commands_if_needed")
-        && shell.contains("process_commands_if_needed")
+        && sound.contains("CommandPipelineOp::ProcessIfNeeded")
+        && silent.contains("CommandPipelineOp::QueueAndProcess")
+        && shell.contains("CommandPipelineOp::ProcessIfNeeded")
         && helper.contains("command_queue.is_empty")
         && !cnc.contains("playable_claim = true");
     residual_action_store(ResidualHostProcessCommandsIfNeededAction::SourceMarkers);

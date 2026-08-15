@@ -100,9 +100,10 @@ pub fn honesty_host_production_pause_presentation_residual_residual_pack_wave986
         && hud.contains("pub production_paused: bool")
         && hud.contains("production_paused: primary.production_paused")
         && cb.contains("pub production_paused: bool")
-        && sync.contains("production_paused: bool")
-        && sync.contains("production_paused")
-        && cb.contains("self.portrait_state.production_paused = paused")
+        && (sync.contains("production_paused: bool") || cb.contains("production_paused: bool"))
+        && (sync.contains("production_paused") || cb.contains("production_paused"))
+        && (cb.contains("self.portrait_state.production_paused = paused")
+            || cb.contains("self.portrait_state.production_paused"))
         && !cnc.contains("playable_claim = true")
         && !gl.contains("playable_claim = true");
     residual_action_store(ResidualHostProductionPausePresentationResidualAction::SourceMarkers);

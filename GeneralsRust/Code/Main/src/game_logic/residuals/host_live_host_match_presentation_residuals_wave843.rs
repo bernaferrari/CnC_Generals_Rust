@@ -76,7 +76,9 @@ pub fn honesty_host_match_presentation_residuals_residual_pack_wave843() -> bool
             || cnc.contains(
                 "Wave 843/844: host-owned match residuals for presentation_or_boot peels",
             ))
-        && cnc.contains("self.host_match_map_name = Some(map_name.clone())")
+        && (cnc.contains("self.host_match_map_name = Some(map_name.clone())")
+            || cnc.contains("self.host_match_map_name = Some(loaded_map_name.clone())")
+            || cnc.contains("self.host_match_map_name = Some(loaded.clone())"))
         && (cnc.contains("self.host_match_local_player_id = Some(self.current_player_id)")
             || cnc.contains("host_refresh_match_sim_residuals_from_logic"))
         && cnc.contains("if let Some(host) = self.host_match_map_name.as_ref()")

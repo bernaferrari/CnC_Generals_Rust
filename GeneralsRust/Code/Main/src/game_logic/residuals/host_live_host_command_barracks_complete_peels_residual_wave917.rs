@@ -89,14 +89,14 @@ pub fn honesty_host_command_barracks_complete_peels_nav_commands_residual_wave91
 
 pub fn honesty_host_command_barracks_complete_peels_residual_pack_wave917() -> bool {
     let cnc = cnc_source();
-    let atk_raw = code_window(cnc, "fn host_command_attack", 500);
-    let atk = non_comment_code(atk_raw);
+    let stamp_raw = code_window(cnc, "fn host_stamp_after_authority_command", 400);
+    let stamp = non_comment_code(stamp_raw);
     let bar_raw = code_window(cnc, "fn host_ensure_barracks_building_data", 900);
     let bar = non_comment_code(bar_raw);
     let fc_raw = code_window(cnc, "fn host_force_complete_construction", 900);
     let fc = non_comment_code(fc_raw);
-    let ok = atk_raw.contains("917")
-        && atk.contains("last_presentation_frame.is_none()")
+    let ok = stamp_raw.contains("917")
+        && stamp.contains("last_presentation_frame.is_none()")
         && bar_raw.contains("917")
         && bar.contains("host_match_local_barracks_ids")
         && fc_raw.contains("917")
