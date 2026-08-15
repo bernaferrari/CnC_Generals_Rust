@@ -95,7 +95,8 @@ pub fn wol_custom_score_screen_input(
 
     // C++ WOLCustomScoreScreen.cpp:117 — winSendSystemMsg GBM_SELECTED.
     let (parent, button_id) = {
-        let state = wol_custom_score_state().borrow();
+        let slot = wol_custom_score_state();
+        let state = slot.borrow();
         (state.parent.clone(), state.button_disconnect_id)
     };
     dispatch_esc_gadget_selected(parent, button_id);

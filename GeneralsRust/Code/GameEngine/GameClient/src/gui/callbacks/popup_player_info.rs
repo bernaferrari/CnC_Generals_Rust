@@ -189,7 +189,8 @@ pub fn popup_player_info_input(
         return WindowMsgHandled::Handled;
     }
     let (parent, button_id) = {
-        let state = popup_state().borrow();
+        let slot = popup_state();
+        let state = slot.borrow();
         (state.parent.clone(), state.button_close_id)
     };
     dispatch_esc_gadget_selected(parent, button_id);

@@ -8,7 +8,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::display::image::get_mapped_image_collection;
 use crate::game_text::GameText;
-use crate::gui::callbacks::online_callback_support::packed_ui_color;
+use crate::gui::callbacks::online_callback_support::{
+    challenge_general_starts_enabled, dispatch_esc_gadget_selected, mapped_image_size,
+    packed_ui_color,
+};
 use crate::gamespy_game::{with_gamespy_game_info, with_gamespy_game_info_mut};
 use crate::gamespy_overlay::{
     close_all_overlays, close_overlay, gs_message_box_ok, open_overlay, raise_gs_message_box,
@@ -16,7 +19,7 @@ use crate::gamespy_overlay::{
 };
 use crate::gui::callbacks::wol_buddy_overlay::handle_buddy_responses;
 use crate::gui::callbacks::wol_welcome_menu::populate_player_info_windows;
-use crate::gui::challenge_generals::get_challenge_generals;
+
 use crate::gui::gadgets::{ComboBox, ComboBoxItem, ListBox, ListBoxItemData};
 use crate::gui::{
     get_shell, with_window_manager, write_input_focus_response, GameWindow, WindowLayout,
@@ -83,6 +86,7 @@ struct WolQuickMatchState {
     static_text_num_players: Option<Rc<RefCell<GameWindow>>>,
     combo_box_side: Option<Rc<RefCell<GameWindow>>>,
     combo_box_color: Option<Rc<RefCell<GameWindow>>>,
+    button_buddies: Option<Rc<RefCell<GameWindow>>>,
     is_shutting_down: bool,
     button_pushed: bool,
     raise_message_boxes: bool,
@@ -111,7 +115,12 @@ fn name_to_id(name: &str) -> i32 {
 fn listbox_mut(window: &Option<Rc<RefCell<GameWindow>>>) -> Option<std::cell::RefMut<'_, ListBox>> {
     let window = window.as_ref()?;
     let mut guard = window.borrow_mut();
-    guard.list_box_mut()
+    if guard.list_box_mut().is_none() {
+        return None;
+    }
+    Some(std::cell::RefMut::map(guard, |w| {
+        w.list_box_mut().expect("list box present")
+    }))
 }
 
 fn combo_box_mut(
@@ -119,7 +128,12 @@ fn combo_box_mut(
 ) -> Option<std::cell::RefMut<'_, ComboBox>> {
     let window = window.as_ref()?;
     let mut guard = window.borrow_mut();
-    guard.combo_box_mut()
+    if guard.combo_box_mut().is_none() {
+        return None;
+    }
+    Some(std::cell::RefMut::map(guard, |w| {
+        w.combo_box_mut().expect("combo box present")
+    }))
 }
 
 fn combo_box_selected_data(window: &Option<Rc<RefCell<GameWindow>>>) -> Option<i32> {
@@ -222,8 +236,8 @@ fn get_selected_ladder_info(state: &WolQuickMatchState) -> Option<LadderInfo> {
         return None;
     }
     let list = get_ladder_list()?;
-    let list = list.read().ok()?;
-    list.find_ladder_by_index(ladder_id).cloned()
+    let guard = list.read().ok()?;
+    guard.find_ladder_by_index(ladder_id).cloned()
 }
 
 fn update_start_button(state: &WolQuickMatchState) {
@@ -297,7 +311,7 @@ fn populate_qm_side_combo_box(
     let store = get_player_template_store();
     let count = store.get_player_template_count();
     for idx in 0..count {
-        let Some(template) = store.get_nth_player_template(idx) else {
+        let Some(template) = store.get_nth_player_template_signed(idx) else {
             continue;
         };
         if template.starting_building.is_empty() {
@@ -318,12 +332,8 @@ fn populate_qm_side_combo_box(
             }
         }
 
-        if let Some(generals) = get_challenge_generals() {
-            if let Some(general) = generals.general_by_template_name(&template.name) {
-                if !general.is_starting_enabled() {
-                    continue;
-                }
-            }
+        if !challenge_general_starts_enabled(&template.name) {
+            continue;
         }
 
         seen.insert(side_key.clone());
@@ -460,44 +470,34 @@ fn add_map_row(
     selected_image: &str,
     unselected_image: &str,
 ) {
-    let row = listbox.add_item(display_name);
+    let row = listbox.items().len();
+    listbox.add_item(display_name);
     let color = default_gamespy_colors()[if selected {
         GameSpyColor::MapSelected
     } else {
         GameSpyColor::MapUnselected
     } as usize];
-    let _ = listbox.set_item_color(row, color);
+    let _ = listbox.set_item_color(row, packed_ui_color(color));
     let _ = listbox.set_item_data(
         row,
         Some(ListBoxItemData::Integer(if selected { 1 } else { 0 })),
     );
     let _ = listbox.set_item_column_data(row, 1, ListBoxItemData::Text(map_name.to_string()));
 
-    let mut width = 10i32;
-    let mut height = 10i32;
-    if let Some(collection) = get_mapped_image_collection().try_read() {
-        let image_name = if selected {
-            selected_image
-        } else {
-            unselected_image
-        };
-        if let Some(image) = collection.find_image_by_name(image_name) {
-            width = image.get_image_width();
-            height = image.get_image_height();
-        }
-    }
+    let image_name = if selected {
+        selected_image
+    } else {
+        unselected_image
+    };
+    let (width, height) = mapped_image_size(image_name);
 
     let _ = listbox.set_item_column_data(
         row,
         0,
         ListBoxItemData::Image {
-            name: if selected {
-                selected_image.to_string()
-            } else {
-                unselected_image.to_string()
-            },
-            width: width.max(1) as u32,
-            height: height.max(1) as u32,
+            name: image_name.to_string(),
+            width,
+            height,
             text: None,
         },
     );
@@ -514,9 +514,10 @@ fn populate_quickmatch_map_select_listbox(
 
     let ladder_id = combo_box_selected_data(&state.combo_box_ladder).unwrap_or(0);
     let ladder = if ladder_id > 0 {
-        get_ladder_list()
-            .and_then(|list| list.read().ok())
-            .and_then(|list| list.find_ladder_by_index(ladder_id).cloned())
+        get_ladder_list().and_then(|list| {
+            let guard = list.read().ok()?;
+            guard.find_ladder_by_index(ladder_id).cloned()
+        })
     } else {
         None
     };
@@ -569,9 +570,10 @@ fn save_quickmatch_options(state: &WolQuickMatchState) {
     let mut pref = QuickmatchPreferences::new();
     let ladder_id = combo_box_selected_data(&state.combo_box_ladder).unwrap_or(0);
     let ladder = if ladder_id > 0 {
-        get_ladder_list()
-            .and_then(|list| list.read().ok())
-            .and_then(|list| list.find_ladder_by_index(ladder_id).cloned())
+        get_ladder_list().and_then(|list| {
+            let guard = list.read().ok()?;
+            guard.find_ladder_by_index(ladder_id).cloned()
+        })
     } else {
         None
     };
@@ -629,7 +631,9 @@ fn handle_persistent_storage_responses() {
         return;
     };
     let resp = {
-        let mut queue = queue.lock().ok()?;
+        let Ok(mut queue) = queue.lock() else {
+            return;
+        };
         queue.get_response()
     };
     let Some(resp) = resp else {
@@ -649,7 +653,8 @@ fn handle_persistent_storage_responses() {
             if resp.preorder {
                 if let Some(info) = get_gamespy_info() {
                     if let Ok(mut info) = info.lock() {
-                        info.mark_player_as_preorder(info.get_local_profile_id());
+                        let profile_id = info.get_local_profile_id();
+                        info.mark_player_as_preorder(profile_id);
                     }
                 }
                 if let Some(queue) = get_ps_message_queue() {
@@ -731,7 +736,10 @@ fn ladder_choice_selected(state: &mut WolQuickMatchState, selected: i32) {
         set_window_enabled(&state.combo_box_num_players, true);
         populate_qm_side_combo_box(state, pref.get_side(), None);
     } else if selected > 0 {
-        if let Some(list) = get_ladder_list().and_then(|list| list.read().ok()) {
+        if let Some(list) = get_ladder_list() {
+            let Ok(list) = list.read() else {
+                return;
+            };
             if let Some(info) = list.find_ladder_by_index(selected) {
                 let index = (info.players_per_team - 1).max(0) as usize;
                 set_combo_box_selected(&state.combo_box_num_players, index);
@@ -764,7 +772,7 @@ fn set_listbox_selection(
     } else {
         GameSpyColor::MapUnselected
     } as usize];
-    let _ = listbox.set_item_color(row, color);
+    let _ = listbox.set_item_color(row, packed_ui_color(color));
     let mut width = 10i32;
     let mut height = 10i32;
     if let Some(collection) = get_mapped_image_collection().try_read() {
@@ -852,10 +860,10 @@ pub fn wol_quick_match_menu_init(
         state.parent = manager.get_window_by_id(state.parent_id);
     });
 
-    if let Some(parent) = state.parent.as_ref() {
+    if let Some(parent) = state.parent.clone() {
         state.button_back = parent
             .borrow()
-            .find_child_by_id(state.button_back_id as WindowMsgData);
+            .find_child_by_id(state.button_back_id);
         state.button_start = parent
             .borrow()
             .find_child_by_id(state.button_start_id);
@@ -895,11 +903,14 @@ pub fn wol_quick_match_menu_init(
         state.combo_box_color = parent
             .borrow()
             .find_child_by_id(state.combo_box_color_id);
+        state.button_buddies = parent
+            .borrow()
+            .find_child_by_id(state.button_buddies_id);
     }
 
     if let Some(info) = get_gamespy_info() {
         if let Ok(mut info) = info.lock() {
-            info.register_text_window(state.listbox_quick_match_id);
+            info.register_text_window(state.listbox_quick_match_id as u32);
         }
     }
 
@@ -943,7 +954,7 @@ pub fn wol_quick_match_menu_init(
     layout.hide(false);
     if let Some(parent) = state.parent.as_ref() {
         with_window_manager(|manager| {
-            let _ = manager.set_focus(Some(parent.clone()));
+            let _ = manager.set_focus(Some(parent));
         });
     }
 
@@ -1056,7 +1067,7 @@ pub fn wol_quick_match_menu_shutdown(
     let mut state = state_slot.borrow_mut();
 
     let quitting = get_game_engine()
-        .and_then(|engine| engine.lock().ok().map(|guard| guard.get_quitting()))
+        .map(|engine| engine.lock().get_quitting())
         .unwrap_or(false);
     if !quitting {
         save_quickmatch_options(&state);
@@ -1189,7 +1200,7 @@ pub fn wol_quick_match_menu_update(
                                 let kv = parts.next().unwrap_or("");
                                 if let Some(queue) = get_ps_message_queue() {
                                     if let Ok(mut queue) = queue.lock() {
-                                        let mut stats = queue.parse_player_kv_pairs(kv);
+                                        let mut stats = game_network::gamespy::persistent_storage_thread::GameSpyPSMessageQueue::parse_player_kv_pairs(kv);
                                         let old = queue.find_player_stats_by_id(id);
                                         stats.id = id;
                                         if stats.id != 0 && old.id == 0 {
@@ -1297,7 +1308,7 @@ pub fn wol_quick_match_menu_update(
                                             info.set_map(map_name);
                                             let cache = get_map_cache_manager();
                                             let cache_guard =
-                                                cache.borrow_mut();
+                                                cache.lock().unwrap_or_else(|e| e.into_inner());
                                             if let Some(md) = cache_guard.find_map(info.get_map()) {
                                                 info.set_map_crc(md.crc);
                                                 info.set_map_size(md.filesize);
@@ -1390,19 +1401,28 @@ pub fn wol_quick_match_menu_input(
         return WindowMsgHandled::Handled;
     }
 
-    let state_slot = quickmatch_state();
-    let state = state_slot.borrow_mut();
-    if state.button_pushed {
+    let (button_pushed, parent, back_id, back_hidden) = {
+        let slot = quickmatch_state();
+        let state = slot.borrow();
+        let hidden = state
+            .button_back
+            .as_ref()
+            .map(|button| button.borrow().is_hidden())
+            .unwrap_or(true);
+        (
+            state.button_pushed,
+            state.parent.clone(),
+            state.button_back_id,
+            hidden,
+        )
+    };
+    if button_pushed {
         return WindowMsgHandled::Handled;
     }
-    if let Some(button) = state.button_back.as_ref() {
-        let _ = button.borrow_mut().send_system_message(
-            WindowMessage::GadgetSelected,
-            state.button_back_id as WindowMsgData,
-            state.button_back_id as WindowMsgData,
-        );
+    // C++ WOLQuickMatchMenu.cpp:1466-1482 — GBM_SELECTED only if ButtonBack is visible.
+    if !back_hidden {
+        dispatch_esc_gadget_selected(parent, back_id);
     }
-
     let _ = window;
     WindowMsgHandled::Handled
 }
@@ -1452,7 +1472,7 @@ pub fn wol_quick_match_menu_system(
                         info.add_text(
                             GameText::fetch("GUI:QMAborted"),
                             default_gamespy_colors()[GameSpyColor::Default as usize],
-                            Some(state.listbox_quick_match_id),
+                            Some(state.listbox_quick_match_id as u32),
                         );
                     }
                 }
@@ -1641,10 +1661,10 @@ fn start_quickmatch(state: &mut WolQuickMatchState) {
     req.qm_ladder_pass_crc = 0;
 
     let ladder_info = if ladder_id > 0 {
-        get_ladder_list()
-            .and_then(|list| list.read().ok())
-            .and_then(|list| list.find_ladder_by_index(ladder_id))
-            .cloned()
+        get_ladder_list().and_then(|list| {
+            let guard = list.read().ok()?;
+            guard.find_ladder_by_index(ladder_id).cloned()
+        })
     } else {
         None
     };
@@ -1657,7 +1677,7 @@ fn start_quickmatch(state: &mut WolQuickMatchState) {
             if let Some(side_name) = ladder.valid_factions.get(rand_index) {
                 let store = get_player_template_store();
                 for idx in 0..store.get_player_template_count() {
-                    if let Some(template) = store.get_nth_player_template(idx) {
+                    if let Some(template) = store.get_nth_player_template_signed(idx) {
                         if template.side == side_name.as_str() {
                             side = idx as i32;
                             break;
@@ -1674,7 +1694,7 @@ fn start_quickmatch(state: &mut WolQuickMatchState) {
                 let rand_index = get_game_client_random_value(0, count as i32 - 1) as usize;
                 if let Some(item) = combo.items().get(rand_index) {
                     if let Some(data) = item.data {
-                        side = data;
+                        side = data as i32;
                     }
                 }
             }
@@ -1708,7 +1728,7 @@ fn start_quickmatch(state: &mut WolQuickMatchState) {
 
     if let Some(slot) = get_gamespy_info() {
             if let Ok(info) = slot.lock() {
-        let ping = info.get_ping_string().as_str();
+        let ping = info.get_ping_string().as_str().to_string();
         for (dst, src) in req.qm_pings.iter_mut().zip(ping.as_bytes().iter()) {
             *dst = *src;
         }
@@ -1719,7 +1739,8 @@ fn start_quickmatch(state: &mut WolQuickMatchState) {
     req.qm_bot_id = bot_id;
     req.qm_room_id = room_id;
 
-    if let Some(global) = get_global_data().and_then(|data| data.read().ok()) {
+    if let Some(global) = get_global_data() {
+        let global = global.read();
         req.exe_crc = global.exe_crc;
         req.ini_crc = global.ini_crc;
     }
@@ -1795,5 +1816,22 @@ impl OptionPreferences {
             .and_then(|value| value.parse::<i32>().ok())
             .map(|value| value.max(0))
             .unwrap_or(0)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn max_disconnects_table_matches_cpp_wol_quick_match() {
+        assert_eq!(MAX_DISCONNECTS, [0, 5, 10, 25, 50]);
+    }
+
+    #[test]
+    fn combo_item_data_round_trips_signed_template_ids() {
+        let item = ComboBoxItem::new(1, "Random").with_data(PLAYERTEMPLATE_RANDOM);
+        assert_eq!(item.data, Some(PLAYERTEMPLATE_RANDOM as usize));
+        assert_eq!(item.data.unwrap() as i32, PLAYERTEMPLATE_RANDOM);
     }
 }

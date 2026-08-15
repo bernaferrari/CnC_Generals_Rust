@@ -6,9 +6,11 @@ use std::rc::Rc;
 use std::sync::{Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::display::image::{get_mapped_image_collection, Image};
 use crate::game_text::GameText;
-use crate::gui::callbacks::online_callback_support::packed_ui_color;
+use crate::gui::callbacks::online_callback_support::{
+    challenge_general_starts_enabled, combo_item_data_eq, lookup_window_image, packed_ui_color,
+};
+use crate::gui::game_window::Image;
 use crate::gamespy_game::{
     push_gamespy_game_options, with_gamespy_game_info, with_gamespy_game_info_mut,
 };
@@ -16,7 +18,7 @@ use crate::gamespy_overlay::{
     close_all_overlays, close_overlay, gs_message_box_ok, raise_gs_message_box, toggle_overlay,
     GameSpyOverlayType,
 };
-use crate::gui::challenge_generals::get_challenge_generals;
+
 use crate::gui::gadgets::ComboBoxItem;
 use crate::gui::game_window::WindowInstanceData;
 use crate::gui::{
@@ -148,13 +150,9 @@ fn set_window_image(win: &Option<Rc<RefCell<GameWindow>>>, image_name: &str) {
         return;
     }
 
-    let mut image = Image::with_name(image_name);
-    if let Some(collection) = get_mapped_image_collection().try_read() {
-        if let Some(found) = collection.find_image_by_name(image_name) {
-            image.set_filename(found.get_filename());
-        }
-    }
-
+    let Some(image) = lookup_window_image(image_name) else {
+        return;
+    };
     let mut guard = win.borrow_mut();
     if guard.set_enabled_image(0, image).is_ok() {
         guard.set_status(WindowStatus::IMAGE);
@@ -175,7 +173,10 @@ fn combo_box_selected_index(window: &Option<Rc<RefCell<GameWindow>>>) -> Option<
         return None;
     };
     let guard = window.borrow();
-    guard.combo_box_mut().and_then(|combo| combo.selected_index())
+    match guard.widget() {
+        Some(crate::gui::WindowWidget::ComboBox(combo)) => combo.selected_index(),
+        _ => None,
+    }
 }
 
 fn set_combo_box_selected_by_data(window: &Option<Rc<RefCell<GameWindow>>>, data: i32) {
@@ -187,7 +188,7 @@ fn set_combo_box_selected_by_data(window: &Option<Rc<RefCell<GameWindow>>>, data
         if let Some(index) = combo
             .items()
             .iter()
-            .position(|item| item.data == Some(data))
+            .position(|item| combo_item_data_eq(item.data, data))
         {
             guard.set_combo_box_selected(index, false);
         }
@@ -314,20 +315,18 @@ fn update_map_preview(state: &mut WolGameSetupState) {
 }
 
 fn get_additional_disconnects_from_user_file(profile_id: i32) -> i32 {
-    let Some(info) = get_gamespy_info().and_then(|info| info.lock().ok()) else {
-        return 0;
-    };
-    if info.get_local_profile_id() != profile_id {
-        return 0;
-    }
-    let additional = info.get_additional_disconnects();
-    if additional > 0 {
-        drop(info);
-        if let Some(slot) = get_gamespy_info() {
-            if let Ok(mut info) = slot.lock() {
-            info.clear_additional_disconnects();
+    let additional = crate::gui::callbacks::online_callback_support::with_gamespy_info(|info| {
+        if info.get_local_profile_id() != profile_id {
+            0
+        } else {
+            info.get_additional_disconnects()
         }
-}
+    })
+    .unwrap_or(0);
+    if additional > 0 {
+        let _ = crate::gui::callbacks::online_callback_support::with_gamespy_info_mut(|info| {
+            info.clear_additional_disconnects();
+        });
     }
     additional
 }
@@ -349,10 +348,6 @@ fn player_tooltip(window: &GameWindow, _inst: &WindowInstanceData, _mouse: u32) 
         return;
     };
 
-    let info = get_gamespy_info().and_then(|info| info.lock().ok());
-    let Some(info) = info else {
-        return;
-    };
     let game = with_gamespy_game_info(|game| game.clone());
     let Some(slot) = game.get_slot(slot_idx) else {
         return;
@@ -363,10 +358,15 @@ fn player_tooltip(window: &GameWindow, _inst: &WindowInstanceData, _mouse: u32) 
 
     let name = slot.get_name().to_string();
     let lower = name.to_lowercase();
-    let Some(player_info) = info.get_player_info_map().get(&lower) else {
+    let Some((profile_id, is_buddy)) =
+        crate::gui::callbacks::online_callback_support::with_gamespy_info(|info| {
+            let player = info.get_player_info_map().get(&lower)?;
+            Some((player.profile_id, info.get_buddy_map().contains_key(&player.profile_id)))
+        })
+        .flatten()
+    else {
         return;
     };
-    let profile_id = player_info.profile_id;
 
     let stats = get_ps_message_queue()
         .and_then(|queue| {
@@ -407,7 +407,7 @@ fn player_tooltip(window: &GameWindow, _inst: &WindowInstanceData, _mouse: u32) 
         favorite_side = GameText::fetch("GUI:Random");
     } else {
         let store = get_player_template_store();
-        if let Some(template) = store.get_nth_player_template(favorite) {
+        if let Some(template) = store.get_nth_player_template_signed(favorite) {
             let side_key = format!("SIDE:{}", template.side.as_str());
             favorite_side = GameText::fetch(&side_key);
         }
@@ -424,7 +424,7 @@ fn player_tooltip(window: &GameWindow, _inst: &WindowInstanceData, _mouse: u32) 
 
     let mut tooltip = if is_local {
         GameText::fetch("TOOLTIP:LocalPlayer").replace("%s", &name)
-    } else if info.get_buddy_map().contains_key(&profile_id) {
+    } else if is_buddy {
         GameText::fetch("TOOLTIP:BuddyPlayer").replace("%s", &name)
     } else if profile_id != 0 {
         GameText::fetch("TOOLTIP:ProfiledPlayer").replace("%s", &name)
@@ -462,7 +462,7 @@ fn map_selector_tooltip(window: &GameWindow, _inst: &WindowInstanceData, mouse: 
     let (pixel_x, pixel_y) = window.get_screen_position();
 
     let supply_and_tech = get_supply_and_tech_image_locations();
-    let guard = supply_and_tech.borrow_mut();
+    let guard = supply_and_tech.lock().unwrap_or_else(|e| e.into_inner());
     let tech_positions = &guard.tech_positions;
     let supply_positions = &guard.supply_positions;
 
@@ -574,7 +574,7 @@ fn populate_template_combo(index: usize, state: &mut WolGameSetupState, allow_ob
     let old_factions_only = with_gamespy_game_info(|game| game.old_factions_only());
 
     for idx in 0..store.get_player_template_count() {
-        let Some(template) = store.get_nth_player_template(idx) else {
+        let Some(template) = store.get_nth_player_template_signed(idx) else {
             continue;
         };
         if template.starting_building.is_empty() {
@@ -583,12 +583,8 @@ fn populate_template_combo(index: usize, state: &mut WolGameSetupState, allow_ob
         if old_factions_only && !template.old_faction {
             continue;
         }
-        if let Some(generals) = get_challenge_generals() {
-            if let Some(persona) = generals.general_by_template_name(template.name.as_str()) {
-                if !persona.is_starting_enabled() {
-                    continue;
-                }
-            }
+        if !challenge_general_starts_enabled(template.name.as_str()) {
+            continue;
         }
         let side_key = format!("SIDE:{}", template.side.as_str());
         if seen_sides.contains(&side_key) {
@@ -863,6 +859,7 @@ fn display_game_options(state: &mut WolGameSetupState) {
             .unwrap_or(false);
         if was_checked != old_factions_only {
             let _ = guard.gadget_check_box_set_checked(old_factions_only);
+            drop(guard);
             for i in 0..MAX_SLOTS {
                 populate_template_combo(i, state, true);
                 handle_template_selection(state, i);
@@ -892,7 +889,7 @@ fn display_game_options(state: &mut WolGameSetupState) {
             if let Some(index) = combo
                 .items()
                 .iter()
-                .position(|item| item.data == Some(current))
+                .position(|item| combo_item_data_eq(item.data, current))
             {
                 if combo.selected_index() != Some(index) {
                     let _ = combo.select_index(index);
@@ -903,7 +900,7 @@ fn display_game_options(state: &mut WolGameSetupState) {
 }
 
 pub(crate) fn refresh_map_selection_ui() {
-    let state_slot = wol_game_setup_state();
+    let state_slot = game_setup_state();
     let mut state = state_slot.borrow_mut();
     update_slot_list(&mut state);
 }
@@ -914,21 +911,24 @@ fn handle_color_selection(state: &mut WolGameSetupState, index: usize) {
     let Some(combo) = combo else {
         return;
     };
-    let guard = combo.borrow();
-    let Some(combo) = guard.combo_box_mut() else {
-        return;
+    let color = {
+        let mut guard = combo.borrow_mut();
+        let Some(combo) = guard.combo_box_mut() else {
+            return;
+        };
+        combo.selected_item_data().unwrap_or(-1)
     };
-    let color = combo.selected_item_data().unwrap_or(-1);
 
     with_gamespy_game_info_mut(|game| {
-        if let Some(slot) = game.get_slot_mut(index) {
-            if color == slot.get_color() {
+        let current = game.get_slot(index).map(|slot| slot.get_color());
+        if current == Some(color) {
+            return;
+        }
+        if color >= -1 {
+            if color != -1 && game.is_color_taken(color, index as i32) {
                 return;
             }
-            if color >= -1 {
-                if color != -1 && game.is_color_taken(color, index as i32) {
-                    return;
-                }
+            if let Some(slot) = game.get_slot_mut(index) {
                 slot.set_color(color);
             }
         }
@@ -976,11 +976,13 @@ fn handle_template_selection(state: &mut WolGameSetupState, index: usize) {
     let Some(combo) = combo else {
         return;
     };
-    let guard = combo.borrow();
-    let Some(combo) = guard.combo_box_mut() else {
-        return;
+    let template = {
+        let mut guard = combo.borrow_mut();
+        let Some(combo) = guard.combo_box_mut() else {
+            return;
+        };
+        combo.selected_item_data().unwrap_or(PLAYERTEMPLATE_RANDOM)
     };
-    let template = combo.selected_item_data().unwrap_or(PLAYERTEMPLATE_RANDOM);
 
     let old_template = with_gamespy_game_info(|game| {
         game.get_slot(index)
@@ -1030,11 +1032,13 @@ fn handle_team_selection(state: &mut WolGameSetupState, index: usize) {
     let Some(combo) = combo else {
         return;
     };
-    let guard = combo.borrow();
-    let Some(combo) = guard.combo_box_mut() else {
-        return;
+    let team = {
+        let mut guard = combo.borrow_mut();
+        let Some(combo) = guard.combo_box_mut() else {
+            return;
+        };
+        combo.selected_item_data().unwrap_or(-1)
     };
-    let team = combo.selected_item_data().unwrap_or(-1);
 
     with_gamespy_game_info_mut(|game| {
         if let Some(slot) = game.get_slot_mut(index) {
@@ -1069,13 +1073,14 @@ fn handle_team_selection(state: &mut WolGameSetupState, index: usize) {
 
 fn handle_start_position_selection(state: &mut WolGameSetupState, player: usize, start_pos: i32) {
     with_gamespy_game_info_mut(|game| {
+        let current = game.get_slot(player).map(|slot| slot.get_start_pos());
+        if current == Some(start_pos) {
+            return;
+        }
+        if start_pos >= 0 && game.is_start_position_taken(start_pos, player as i32) {
+            return;
+        }
         if let Some(slot) = game.get_slot_mut(player) {
-            if start_pos == slot.get_start_pos() {
-                return;
-            }
-            if start_pos >= 0 && game.is_start_position_taken(start_pos, player as i32) {
-                return;
-            }
             slot.set_start_pos(start_pos);
         }
         game.reset_accepted();
@@ -1109,11 +1114,13 @@ fn handle_starting_cash_selection(state: &mut WolGameSetupState) {
     let Some(combo) = state.combo_box_starting_cash.as_ref() else {
         return;
     };
-    let guard = combo.borrow();
-    let Some(combo) = guard.combo_box_mut() else {
-        return;
+    let selected = {
+        let mut guard = combo.borrow_mut();
+        let Some(combo) = guard.combo_box_mut() else {
+            return;
+        };
+        combo.selected_item_data().unwrap_or(0).max(0) as u32
     };
-    let selected = combo.selected_item_data().unwrap_or(0).max(0) as u32;
 
     with_gamespy_game_info_mut(|game| {
         game.set_starting_cash(Money::new(selected));
@@ -1132,8 +1139,11 @@ fn handle_limit_superweapons_click(state: &mut WolGameSetupState) {
     };
     let is_checked = window
         .borrow()
-        .check_box()
-        .map(|check| check.is_checked())
+        .widget()
+        .and_then(|widget| match widget {
+            crate::gui::WindowWidget::CheckBox(check) => Some(check.is_checked()),
+            _ => None,
+        })
         .unwrap_or(false);
 
     with_gamespy_game_info_mut(|game| {
@@ -1229,7 +1239,7 @@ fn start_pressed(state: &mut WolGameSetupState) {
                         .replace("%s", slot.get_name())
                         .replace("%2", &map_display_name);
                     if let Some(slot) = get_gamespy_info() {
-            if let Ok(info) = slot.lock() {
+            if let Ok(mut info) = slot.lock() {
                         info.add_text(
                             msg,
                             default_gamespy_colors()[GameSpyColor::Default as usize],
@@ -1255,7 +1265,7 @@ fn start_pressed(state: &mut WolGameSetupState) {
                 let msg = GameText::fetch("LAN:TooManyPlayers")
                     .replace("%d", &meta.num_players.to_string());
                 if let Some(slot) = get_gamespy_info() {
-            if let Ok(info) = slot.lock() {
+            if let Ok(mut info) = slot.lock() {
                     info.add_text(
                         msg,
                         default_gamespy_colors()[GameSpyColor::Default as usize],
@@ -1269,13 +1279,13 @@ fn start_pressed(state: &mut WolGameSetupState) {
     }
 
     let min_players = game_engine::common::ini::get_global_data()
-        .and_then(|data| data.read().ok().map(|data| data.net_min_players))
+        .map(|data| data.read().net_min_players)
         .unwrap_or(2);
     if min_players > 0 && human_count == 0 {
         if is_host() {
             let msg = GameText::fetch("GUI:NeedHumanPlayers");
             if let Some(slot) = get_gamespy_info() {
-            if let Ok(info) = slot.lock() {
+            if let Ok(mut info) = slot.lock() {
                 info.add_text(
                     msg,
                     default_gamespy_colors()[GameSpyColor::Default as usize],
@@ -1292,7 +1302,7 @@ fn start_pressed(state: &mut WolGameSetupState) {
             let msg =
                 GameText::fetch("LAN:NeedMorePlayers").replace("%d", &player_count.to_string());
             if let Some(slot) = get_gamespy_info() {
-            if let Ok(info) = slot.lock() {
+            if let Ok(mut info) = slot.lock() {
                 info.add_text(
                     msg,
                     default_gamespy_colors()[GameSpyColor::Default as usize],
@@ -1323,7 +1333,7 @@ fn start_pressed(state: &mut WolGameSetupState) {
         if is_host() {
             let msg = GameText::fetch("LAN:NeedMoreTeams");
             if let Some(slot) = get_gamespy_info() {
-            if let Ok(info) = slot.lock() {
+            if let Ok(mut info) = slot.lock() {
                 info.add_text(
                     msg,
                     default_gamespy_colors()[GameSpyColor::Default as usize],
@@ -1338,7 +1348,7 @@ fn start_pressed(state: &mut WolGameSetupState) {
     if num_random + teams.len() < 2 {
         let msg = GameText::fetch("GUI:SandboxMode");
         if let Some(slot) = get_gamespy_info() {
-            if let Ok(info) = slot.lock() {
+            if let Ok(mut info) = slot.lock() {
             info.add_text(
                 msg,
                 default_gamespy_colors()[GameSpyColor::Default as usize],
@@ -1366,7 +1376,7 @@ fn start_pressed(state: &mut WolGameSetupState) {
         with_gamespy_game_info_mut(|info| info.start_game(0));
     } else if all_have_map {
         if let Some(slot) = get_gamespy_info() {
-            if let Ok(info) = slot.lock() {
+            if let Ok(mut info) = slot.lock() {
             info.add_text(
                 GameText::fetch("GUI:NotifiedStartIntent"),
                 default_gamespy_colors()[GameSpyColor::Default as usize],
@@ -1391,7 +1401,9 @@ fn handle_buddy_responses() {
         return;
     };
     let resp = {
-        let mut queue = queue.lock().ok()?;
+        let Ok(mut queue) = queue.lock() else {
+            return;
+        };
         queue.get_response()
     };
     let Some(resp) = resp else {
@@ -1446,7 +1458,9 @@ fn handle_persistent_storage_responses() {
         return;
     };
     let resp = {
-        let mut queue = queue.lock().ok()?;
+        let Ok(mut queue) = queue.lock() else {
+            return;
+        };
         queue.get_response()
     };
     let Some(resp) = resp else {
@@ -1466,7 +1480,8 @@ fn handle_persistent_storage_responses() {
             if resp.preorder {
                 if let Some(info) = get_gamespy_info() {
                     if let Ok(mut info) = info.lock() {
-                        info.mark_player_as_preorder(info.get_local_profile_id());
+                        let profile_id = info.get_local_profile_id();
+                        info.mark_player_as_preorder(profile_id);
                     }
                 }
                 if let Some(queue) = get_ps_message_queue() {
@@ -1524,7 +1539,7 @@ fn handle_slash_command(text: &str) -> bool {
     if cmd == "host" {
         let msg = format!("Hosting qr2:{} thread:{}", 0, 0);
         if let Some(slot) = get_gamespy_info() {
-            if let Ok(info) = slot.lock() {
+            if let Ok(mut info) = slot.lock() {
             info.add_text(
                 msg,
                 default_gamespy_colors()[GameSpyColor::Default as usize],
@@ -1538,7 +1553,7 @@ fn handle_slash_command(text: &str) -> bool {
         let action = text.strip_prefix("/me ").unwrap_or("");
         if !action.is_empty() {
             if let Some(slot) = get_gamespy_info() {
-            if let Ok(info) = slot.lock() {
+            if let Ok(mut info) = slot.lock() {
                 info.send_chat(action.to_string(), true, None);
             }
 }
@@ -1677,9 +1692,9 @@ pub fn wol_game_setup_menu_init(layout: &WindowLayout, _user_data: Option<&dyn s
     }
 
     state.ping_images = [
-        Some(Image::with_name("Ping03")),
-        Some(Image::with_name("Ping02")),
-        Some(Image::with_name("Ping01")),
+        lookup_window_image("Ping03"),
+        lookup_window_image("Ping02"),
+        lookup_window_image("Ping01"),
     ];
 
     for i in 0..MAX_SLOTS {
@@ -1807,7 +1822,7 @@ pub fn wol_game_setup_menu_init(layout: &WindowLayout, _user_data: Option<&dyn s
                 slot.set_player_template(pref.get_preferred_faction());
             }
             game.set_map(pref.get_preferred_map());
-            game.set_starting_cash(pref.get_starting_cash());
+            game.set_starting_cash(Money::new(pref.get_starting_cash().count_money()));
             game.set_superweapon_restriction(if pref.get_superweapon_restricted() {
                 1
             } else {
@@ -1979,7 +1994,7 @@ pub fn wol_game_setup_menu_update(
             match resp.response_type {
                 PeerResponseType::FailedToHost => {
                     if let Some(slot) = get_gamespy_info() {
-            if let Ok(info) = slot.lock() {
+            if let Ok(mut info) = slot.lock() {
                         info.add_text(
                             GameText::fetch("GUI:GSFailedToHost"),
                             default_gamespy_colors()[GameSpyColor::Default as usize],
@@ -2010,7 +2025,7 @@ pub fn wol_game_setup_menu_update(
                     p.side = resp.player_side;
                     p.preorder = resp.player_preorder;
                     if let Some(slot) = get_gamespy_info() {
-            if let Ok(info) = slot.lock() {
+            if let Ok(mut info) = slot.lock() {
                         info.update_player_info(p, None);
                     }
 }
@@ -2032,7 +2047,7 @@ pub fn wol_game_setup_menu_update(
                     p.preorder = resp.player_preorder;
 
                     if let Some(slot) = get_gamespy_info() {
-            if let Ok(info) = slot.lock() {
+            if let Ok(mut info) = slot.lock() {
                         info.update_player_info(p.clone(), None);
                     }
 }
@@ -2082,7 +2097,7 @@ pub fn wol_game_setup_menu_update(
                 }
                 PeerResponseType::PlayerLeft => {
                     if let Some(slot) = get_gamespy_info() {
-            if let Ok(info) = slot.lock() {
+            if let Ok(mut info) = slot.lock() {
                         info.player_left_group_room(resp.nick.clone().into());
                     }
 }
@@ -2104,7 +2119,7 @@ pub fn wol_game_setup_menu_update(
                 }
                 PeerResponseType::Message => {
                     if let Some(slot) = get_gamespy_info() {
-            if let Ok(info) = slot.lock() {
+            if let Ok(mut info) = slot.lock() {
                         info.add_chat(
                             resp.nick.clone().into(),
                             resp.message_profile_id,
@@ -2199,7 +2214,7 @@ pub fn wol_game_setup_menu_update(
                             if let Some(slot) = game.get_slot(slot_num as usize) {
                                 if !slot.is_accepted() {
                                     if let Some(slot) = get_gamespy_info() {
-            if let Ok(info) = slot.lock() {
+            if let Ok(mut info) = slot.lock() {
                                         info.add_text(
                                             GameText::fetch("GUI:HostWantsToStart"),
                                             default_gamespy_colors()
@@ -2275,77 +2290,90 @@ pub fn wol_game_setup_menu_update(
                             let mut should_unaccept = false;
 
                             with_gamespy_game_info_mut(|game| {
-                                if let Some(slot) = game.get_slot_mut(slot_num as usize) {
-                                    match key {
-                                        "Color" => {
-                                            if val >= -1
-                                                && !game.is_color_taken(val, slot_num)
-                                                && slot.get_player_template()
-                                                    != PLAYERTEMPLATE_OBSERVER
+                                let current_template = game
+                                    .get_slot(slot_num as usize)
+                                    .map(|slot| slot.get_player_template());
+                                match key {
+                                    "Color" => {
+                                        if val >= -1
+                                            && !game.is_color_taken(val, slot_num)
+                                            && current_template != Some(PLAYERTEMPLATE_OBSERVER)
+                                        {
+                                            if let Some(slot) = game.get_slot_mut(slot_num as usize)
                                             {
                                                 slot.set_color(val);
                                             }
                                         }
-                                        "PlayerTemplate" => {
-                                            if val >= PLAYERTEMPLATE_MIN
-                                                && val
-                                                    < get_player_template_store()
-                                                        .get_player_template_count()
-                                            {
-                                                let mut template = val;
-                                                if game.old_factions_only() {
-                                                    if let Some(template_info) =
-                                                        get_player_template_store()
-                                                            .get_nth_player_template(val)
-                                                    {
-                                                        if !template_info.old_faction {
-                                                            template = PLAYERTEMPLATE_RANDOM;
-                                                        }
+                                    }
+                                    "PlayerTemplate" => {
+                                        if val >= PLAYERTEMPLATE_MIN
+                                            && val
+                                                < get_player_template_store()
+                                                    .get_player_template_count()
+                                        {
+                                            let mut template = val;
+                                            if game.old_factions_only() {
+                                                if let Some(template_info) =
+                                                    get_player_template_store()
+                                                        .get_nth_player_template_signed(val)
+                                                {
+                                                    if !template_info.old_faction {
+                                                        template = PLAYERTEMPLATE_RANDOM;
                                                     }
                                                 }
+                                            }
+                                            if let Some(slot) = game.get_slot_mut(slot_num as usize)
+                                            {
                                                 slot.set_player_template(template);
                                                 if template == PLAYERTEMPLATE_OBSERVER {
                                                     slot.set_color(-1);
                                                     slot.set_start_pos(-1);
                                                     slot.set_team_number(-1);
                                                 }
-                                                should_unaccept = true;
                                             }
+                                            should_unaccept = true;
                                         }
-                                        "StartPos" => {
-                                            if val >= -1
-                                                && !game.is_start_position_taken(val, slot_num)
-                                                && slot.get_player_template()
-                                                    != PLAYERTEMPLATE_OBSERVER
+                                    }
+                                    "StartPos" => {
+                                        if val >= -1
+                                            && !game.is_start_position_taken(val, slot_num)
+                                            && current_template != Some(PLAYERTEMPLATE_OBSERVER)
+                                        {
+                                            if let Some(slot) = game.get_slot_mut(slot_num as usize)
                                             {
                                                 slot.set_start_pos(val);
-                                                should_unaccept = true;
                                             }
+                                            should_unaccept = true;
                                         }
-                                        "Team" => {
-                                            if val >= -1
-                                                && val < (MAX_SLOTS / 2) as i32
-                                                && slot.get_player_template()
-                                                    != PLAYERTEMPLATE_OBSERVER
+                                    }
+                                    "Team" => {
+                                        if val >= -1
+                                            && val < (MAX_SLOTS / 2) as i32
+                                            && current_template != Some(PLAYERTEMPLATE_OBSERVER)
+                                        {
+                                            if let Some(slot) = game.get_slot_mut(slot_num as usize)
                                             {
                                                 slot.set_team_number(val);
-                                                should_unaccept = true;
                                             }
+                                            should_unaccept = true;
                                         }
-                                        "IP" => {
-                                            if let Ok(ip) = val_str.parse::<u32>() {
+                                    }
+                                    "IP" => {
+                                        if let Ok(ip) = val_str.parse::<u32>() {
+                                            if let Some(slot) = game.get_slot_mut(slot_num as usize)
+                                            {
                                                 slot.set_ip(ip);
-                                                should_unaccept = true;
                                             }
+                                            should_unaccept = true;
                                         }
-                                        "NAT" => {
+                                    }
+                                    "NAT" => {
+                                        if let Some(slot) = game.get_slot_mut(slot_num as usize) {
                                             slot.set_nat_behavior(firewall_behavior_from_int(val));
                                         }
-                                        "Ping" => {
-                                            // Ping strings are not yet stored per-slot in Rust.
-                                        }
-                                        _ => {}
                                     }
+                                    "Ping" => {}
+                                    _ => {}
                                 }
                                 if should_unaccept {
                                     game.reset_accepted();
@@ -2514,7 +2542,7 @@ pub fn wol_game_setup_menu_system(
                         widget.set_text("");
                         if !text.is_empty() {
                             if let Some(slot) = get_gamespy_info() {
-            if let Ok(info) = slot.lock() {
+            if let Ok(mut info) = slot.lock() {
                                 info.send_chat(text, false, None);
                             }
 }
@@ -2637,7 +2665,7 @@ pub fn wol_game_setup_menu_system(
                         if !text.is_empty() {
                             if !handle_slash_command(&text) {
                                 if let Some(slot) = get_gamespy_info() {
-            if let Ok(info) = slot.lock() {
+            if let Ok(mut info) = slot.lock() {
                                     info.send_chat(text, false, None);
                                 }
 }
@@ -2659,12 +2687,8 @@ pub fn wol_game_setup_menu_input(
     data1: WindowMsgData,
     data2: WindowMsgData,
 ) -> WindowMsgHandled {
-    if msg == WindowMessage::Char {
-        if data1 == KEY_ESC && (data2 & KEY_STATE_UP) != 0 {
-            let _ = get_shell().pop();
-            return WindowMsgHandled::Handled;
-        }
-    }
+    // C++ WOLGameSetupMenu.cpp:2419-2464 — KEY_ESC block is commented out; live path is MSG_IGNORED.
+    let _ = (msg, data1, data2);
     WindowMsgHandled::Ignored
 }
 
@@ -2678,5 +2702,48 @@ fn firewall_behavior_from_int(value: i32) -> FirewallBehaviorType {
         32 => FirewallBehaviorType::RelativePortAllocation,
         64 => FirewallBehaviorType::DestinationPortDelta,
         _ => FirewallBehaviorType::Unknown,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn slash_command_ignores_non_slash_text() {
+        assert!(!handle_slash_command("hello"));
+        assert!(!handle_slash_command(""));
+    }
+
+    #[test]
+    fn firewall_behavior_from_int_matches_cpp_bit_values() {
+        assert_eq!(
+            firewall_behavior_from_int(1),
+            FirewallBehaviorType::Simple
+        );
+        assert_eq!(
+            firewall_behavior_from_int(2),
+            FirewallBehaviorType::DumbMangling
+        );
+        assert_eq!(
+            firewall_behavior_from_int(0),
+            FirewallBehaviorType::Unknown
+        );
+    }
+
+    #[test]
+    fn game_setup_esc_is_ignored_because_cpp_esc_block_is_dead() {
+        let dummy = GameWindow::new();
+        assert_eq!(
+            wol_game_setup_menu_input(&dummy, WindowMessage::Char, KEY_ESC, KEY_STATE_UP),
+            WindowMsgHandled::Ignored
+        );
+    }
+
+    #[test]
+    fn starting_cash_converts_engine_money_count_to_network_money() {
+        let engine = game_engine::common::rts::money::Money::new_with_amount(7500);
+        let network = Money::new(engine.count_money());
+        assert_eq!(network.count_money(), 7500);
     }
 }

@@ -357,7 +357,8 @@ pub fn wol_map_select_menu_input(
     }
 
     let (parent, button_id) = {
-        let state = map_select_state().borrow();
+        let slot = map_select_state();
+        let state = slot.borrow();
         (state.parent.clone(), state.button_back_id)
     };
     dispatch_esc_gadget_selected(parent, button_id);

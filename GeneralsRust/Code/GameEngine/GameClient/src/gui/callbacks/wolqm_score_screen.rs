@@ -92,7 +92,8 @@ pub fn wol_qm_score_screen_input(
 
     // C++ WOLQMScoreScreen.cpp:122 — winSendSystemMsg GBM_SELECTED.
     let (parent, button_id) = {
-        let state = wol_qm_score_state().borrow();
+        let slot = wol_qm_score_state();
+        let state = slot.borrow();
         (state.parent.clone(), state.button_disconnect_id)
     };
     dispatch_esc_gadget_selected(parent, button_id);

@@ -879,7 +879,8 @@ pub fn wol_login_menu_input(
     }
     // C++ WOLLoginMenu.cpp:876-878 — buttonPushed breaks out of GWM_CHAR → MSG_IGNORED.
     let (button_pushed, parent, back_id) = {
-        let state = wol_login_state().borrow();
+        let slot = wol_login_state();
+        let state = slot.borrow();
         (state.button_pushed, state.parent.clone(), state.button_back_id)
     };
     if button_pushed {

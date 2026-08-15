@@ -147,7 +147,8 @@ pub fn wol_ladder_screen_input(
     }
 
     let (parent, button_id) = {
-        let state = wol_ladder_state().borrow();
+        let slot = wol_ladder_state();
+        let state = slot.borrow();
         (state.parent.clone(), state.button_back_id)
     };
     dispatch_esc_gadget_selected(parent, button_id);

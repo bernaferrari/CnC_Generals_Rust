@@ -113,7 +113,7 @@ fn text_entry_text(window: &Option<Rc<RefCell<GameWindow>>>) -> String {
 
 fn listbox_mut(window: &Option<Rc<RefCell<GameWindow>>>) -> Option<std::cell::RefMut<'_, ListBox>> {
     let window = window.as_ref()?;
-    let guard = window.borrow_mut();
+    let mut guard = window.borrow_mut();
     if guard.list_box_mut().is_some() {
         Some(std::cell::RefMut::map(guard, |w| w.list_box_mut().unwrap()))
     } else {
@@ -937,8 +937,9 @@ pub fn popup_ladder_select_system(
                     state.ladder_index = ladder_id;
                     let ladder_list = get_ladder_list();
                     let has_password = ladder_list
+                        .as_ref()
                         .and_then(|list| list.read().ok())
-                        .and_then(|list| list.find_ladder_by_index(ladder_id))
+                        .and_then(|list| list.find_ladder_by_index(ladder_id).cloned())
                         .map(|info| !info.crypted_password.is_empty())
                         .unwrap_or(false);
                     if has_password {
@@ -952,9 +953,10 @@ pub fn popup_ladder_select_system(
                 close_overlay(GameSpyOverlayType::LadderSelect);
             } else if control_id == state.button_password_ok_id {
                 let ladder_list = get_ladder_list();
-                let info = ladder_list
-                    .and_then(|list| list.read().ok())
-                    .and_then(|list| list.find_ladder_by_index(state.ladder_index));
+                let info = ladder_list.as_ref().and_then(|list| {
+                    let guard = list.read().ok()?;
+                    guard.find_ladder_by_index(state.ladder_index).cloned()
+                });
                 let Some(info) = info else {
                     set_password_mode(&mut state, PasswordMode::Error);
                     return WindowMsgHandled::Handled;
@@ -997,8 +999,8 @@ pub fn popup_ladder_select_system(
                 if let Some(parent) = state.parent.as_ref() {
                     let _ = parent.borrow_mut().send_system_message(
                         WindowMessage::GadgetSelected,
-                        state.button_ok_id,
-                        state.button_ok_id,
+                        state.button_ok_id as usize,
+                        state.button_ok_id as usize,
                     );
                 }
             }
@@ -1009,8 +1011,8 @@ pub fn popup_ladder_select_system(
                 if let Some(parent) = state.parent.as_ref() {
                     let _ = parent.borrow_mut().send_system_message(
                         WindowMessage::GadgetSelected,
-                        state.button_password_ok_id,
-                        state.button_password_ok_id,
+                        state.button_password_ok_id as usize,
+                        state.button_password_ok_id as usize,
                     );
                 }
             }
@@ -1057,10 +1059,10 @@ pub fn rc_game_details_menu_system(
                 with_window_manager(|manager| manager.destroy_layout(&layout));
             }
 
-            let Some(info) = get_gamespy_info().and_then(|info| info.lock().ok()) else {
-                return WindowMsgHandled::Handled;
-            };
-            let Some(room) = info.find_staging_room_by_id(selected_id) else {
+            let Some(room) = crate::gui::callbacks::online_callback_support::with_gamespy_info(|info| {
+                info.find_staging_room_by_id(selected_id).cloned()
+            })
+            .flatten() else {
                 return WindowMsgHandled::Handled;
             };
 
@@ -1105,5 +1107,22 @@ pub fn rc_game_details_menu_system(
             WindowMsgHandled::Handled
         }
         _ => WindowMsgHandled::Ignored,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn password_mode_defaults_to_none() {
+        assert_eq!(PasswordMode::default(), PasswordMode::None);
+    }
+
+    #[test]
+    fn gadget_selected_payload_is_usize_from_i32_id() {
+        let button_ok_id: i32 = 7;
+        let data: usize = button_ok_id as usize;
+        assert_eq!(data, 7);
     }
 }

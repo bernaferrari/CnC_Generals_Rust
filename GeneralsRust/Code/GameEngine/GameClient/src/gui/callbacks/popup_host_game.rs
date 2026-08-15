@@ -256,7 +256,8 @@ pub fn popup_host_game_input(
     }
 
     let (parent, button_id) = {
-        let state = popup_host_state().borrow();
+        let slot = popup_host_state();
+        let state = slot.borrow();
         (state.parent.clone(), state.button_cancel_id)
     };
     dispatch_esc_gadget_selected(parent, button_id);

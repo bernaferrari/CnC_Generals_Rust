@@ -85,7 +85,8 @@ pub fn wol_message_window_input(
 
     // C++ WOLMessageWindow.cpp:106 — winSendSystemMsg GBM_SELECTED.
     let (parent, button_id) = {
-        let state = wol_message_window_state().borrow();
+        let slot = wol_message_window_state();
+        let state = slot.borrow();
         (state.parent.clone(), state.button_cancel_id)
     };
     dispatch_esc_gadget_selected(parent, button_id);

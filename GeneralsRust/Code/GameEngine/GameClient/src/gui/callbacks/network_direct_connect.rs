@@ -478,7 +478,8 @@ pub fn network_direct_connect_input(
     if msg == WindowMessage::Char {
         if data1 == KEY_ESC && (data2 & KEY_STATE_UP) != 0 {
             let (button_pushed, parent, back_id) = {
-                let state = network_direct_connect_state().borrow();
+                let slot = network_direct_connect_state();
+                let state = slot.borrow();
                 (state.button_pushed, state.parent.clone(), state.button_back_id)
             };
             if button_pushed {
