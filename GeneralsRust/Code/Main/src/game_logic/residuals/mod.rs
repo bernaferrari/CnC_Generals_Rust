@@ -5,7 +5,10 @@
 //! `crate::game_logic::<name>` so public paths stay stable.
 
 pub mod harness;
-pub use harness::GAME_LOGIC_HOST_SRC;
+pub use harness::{
+    GAME_LOGIC_HOST_SRC, GAME_LOGIC_OBJECT_CONSTRUCT_SRC, GAME_LOGIC_OBJECT_ORDERS_SRC,
+    GAME_LOGIC_UNIT_COMMANDS_SRC, OBJECT_SPLIT_SRC, WEAPON_SRC,
+};
 
 pub mod host_ai_ability_upgrade_residual;
 pub mod host_beacon_residual_wave142;

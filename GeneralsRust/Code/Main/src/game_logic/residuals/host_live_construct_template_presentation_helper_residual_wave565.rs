@@ -135,18 +135,17 @@ pub fn honesty_construct_template_presentation_helper_source_markers_residual_wa
         residual_action_store(ResidualConstructTemplatePresentationHelperAction::SourceMarkers);
         return false;
     };
+    // 2026-08-15: Wave 895 fail-closed — no templates.contains_key dual-read.
     let helper_ok = helper.contains("Wave 565")
         && helper.contains("pres.has_template_name(name)")
-        && helper.contains("self.game_logic.templates.contains_key(name)");
-    let arm_i = eng.find("\"construct\" | \"dozer_construct\" | \"place_structure\"");
-    let arm_ok = arm_i.is_some_and(|i| {
-        let w = &eng[i..eng.len().min(i + 16000)];
-        w.contains("Wave 565")
-            && (w.contains("presentation_or_boot_has_template")
-                || w.contains("presentation_or_live_has_template"))
-            && (w.contains("create_object") || w.contains("host_create_object"))
-            && w.contains("USA_Dozer")
-    });
+        && helper.contains("host_match_known_template_names")
+        && !helper.contains("self.game_logic.templates.contains_key(name)");
+    // 2026-08-15: construct arm peeled into runtime_host helpers.
+    let arm_ok = eng.contains("\"construct\" | \"dozer_construct\" | \"place_structure\"")
+        && (eng.contains("presentation_or_boot_has_template")
+            || eng.contains("presentation_or_live_has_template"))
+        && (eng.contains("create_object") || eng.contains("host_create_object"))
+        && eng.contains("USA_Dozer");
     let ok = field_ok && helper_ok && arm_ok && !eng.contains("playable_claim = true");
     residual_action_store(ResidualConstructTemplatePresentationHelperAction::SourceMarkers);
     ok
@@ -177,15 +176,11 @@ pub fn simulate_construct_template_presentation_helper_collect_source() -> bool 
 
 pub fn simulate_construct_template_presentation_helper_dispatch_source() -> bool {
     let eng = eng_source();
-    let Some(i) = eng.find("\"construct\" | \"dozer_construct\" | \"place_structure\"") else {
-        residual_action_store(ResidualConstructTemplatePresentationHelperAction::DispatchSource);
-        return false;
-    };
-    let w = &eng[i..eng.len().min(i + 16000)];
-    let ok = (w.contains("presentation_or_boot_has_template")
-        || w.contains("presentation_or_live_has_template"))
-        && (w.contains("create_object") || w.contains("host_create_object"))
-        && w.contains("Wave 565");
+    let ok = eng.contains("\"construct\" | \"dozer_construct\" | \"place_structure\"")
+        && (eng.contains("presentation_or_boot_has_template")
+            || eng.contains("presentation_or_live_has_template"))
+        && (eng.contains("create_object") || eng.contains("host_create_object"))
+        && eng.contains("Wave 565");
     residual_action_store(ResidualConstructTemplatePresentationHelperAction::DispatchSource);
     ok
 }

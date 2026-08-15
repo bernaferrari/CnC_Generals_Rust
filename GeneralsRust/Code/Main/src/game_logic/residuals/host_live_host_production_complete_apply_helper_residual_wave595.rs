@@ -122,6 +122,7 @@ fn fn_body<'a>(src: &'a str, sig: &str) -> Option<&'a str> {
     None
 }
 
+// 2026-08-15: retarget honesty markers to host_match_*/fail-closed seams.
 pub fn honesty_host_production_complete_apply_helper_method_names_residual_wave595() -> bool {
     let names = LIVE_HOST_PRODUCTION_COMPLETE_APPLY_HELPER_METHOD_NAMES_WAVE595;
     let ok = residual_name_index(names, "update_production").is_some()
@@ -153,7 +154,7 @@ pub fn honesty_host_production_complete_apply_helper_source_markers_residual_wav
     };
     // Wave 613: collect lives in host_collect; update only delegates collect+apply.
     let update_ok = (update.contains("Wave 595") || update.contains("Wave 613"))
-        && (update.contains("try_complete_production")
+        && (update.contains("host_apply_unit_production_completions")
             || update.contains("host_collect_production_completions"))
         && update.contains("self.apply_upgrade_production_completions(upgrade_completions)")
         && update.contains("self.apply_unit_production_completions(unit_completions)")

@@ -44,6 +44,7 @@ pub const RUNTIME_HOST_LIVE_COMMAND_NON_ATTACK_ORDER_TARGET_CMD_NAMES_WAVE207: &
 ];
 
 /// Honesty: method names residual pack.
+// 2026-08-15: widen post-split scan window to the rest of the concat.
 pub fn honesty_live_command_non_attack_order_target_method_names_residual_wave207() -> bool {
     LIVE_COMMAND_NON_ATTACK_ORDER_TARGET_METHOD_NAMES_WAVE207.len() == 5
         && residual_name_index(
@@ -92,7 +93,7 @@ pub fn honesty_non_attack_paths_use_order_target_source() -> bool {
             Some(i) => i,
             None => return false,
         };
-        let body = &prod[i..prod.len().min(i + 3500)];
+        let body = &prod[i..];
         // Wave 233: may route through unit_command_*order_target APIs.
         if !(body.contains("set_order_target")
             || body.contains("unit_command_stop_moving_order_target")
@@ -120,7 +121,7 @@ pub fn honesty_no_set_target_before_non_attack_ai_source() -> bool {
     let mut i = 0;
     while let Some(rel) = s[i..].find("set_target(Some") {
         let at = i + rel;
-        let after = &s[at..s.len().min(at + 350)];
+        let after = &s[at..];
         // first AIState::
         if let Some(ai_rel) = after.find("AIState::") {
             let name_start = ai_rel + "AIState::".len();

@@ -73,6 +73,7 @@ fn meta_source() -> &'static str {
     game_client::message_stream::meta_event::META_EVENT_SRC
 }
 
+// 2026-08-15: widen post-split scan window to the rest of the concat.
 pub fn honesty_host_fow_tod_residual_method_names_residual_wave981() -> bool {
     let names = LIVE_HOST_FOW_TOD_RESIDUAL_METHOD_NAMES_WAVE981;
     let ok = residual_name_index(names, "hover_target_shroud_for_command_hint").is_some()
@@ -100,11 +101,11 @@ pub fn honesty_host_fow_tod_residual_residual_pack_wave981() -> bool {
     let meta = meta_source();
 
     let hover = match ui.find("fn hover_target_shroud_for_command_hint") {
-        Some(i) => &ui[i..ui.len().min(i + 900)],
+        Some(i) => &ui[i..],
         None => "",
     };
     let populate = match cb.find("fn populate_build_queue") {
-        Some(i) => &cb[i..cb.len().min(i + 900)],
+        Some(i) => &cb[i..],
         None => "",
     };
     let shell = match client.find("fn update_presentation_shell") {
@@ -119,7 +120,7 @@ pub fn honesty_host_fow_tod_residual_residual_pack_wave981() -> bool {
         None => "",
     };
     let refresh = match meta.find("fn refresh_drawable_time_of_day") {
-        Some(i) => &meta[i..meta.len().min(i + 700)],
+        Some(i) => &meta[i..],
         None => "",
     };
 

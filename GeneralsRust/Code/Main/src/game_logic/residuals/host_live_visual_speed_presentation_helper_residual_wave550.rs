@@ -108,6 +108,7 @@ fn fn_body<'a>(src: &'a str, sig: &str) -> Option<&'a str> {
     None
 }
 
+// 2026-08-15: retarget honesty markers to host_match_*/fail-closed seams.
 pub fn honesty_visual_speed_presentation_helper_method_names_residual_wave550() -> bool {
     let names = LIVE_VISUAL_SPEED_PRESENTATION_HELPER_METHOD_NAMES_WAVE550;
     let ok = residual_name_index(names, "presentation_or_boot_visual_speed").is_some()
@@ -128,14 +129,14 @@ pub fn honesty_visual_speed_presentation_helper_source_markers_residual_wave550(
     };
     let helper_ok = body.contains("Wave 550")
         && body.contains("pres.visual_speed_multiplier")
-        && body.contains("self.game_logic.visual_speed_multiplier()");
+        && body.contains("host_match_visual_speed");
     // Call sites must use helper (at least 3).
     let calls = eng.matches("presentation_or_boot_visual_speed()").count();
     // Only one raw dual-read remains — inside the helper.
     let raw = eng
         .matches("self.game_logic.visual_speed_multiplier()")
         .count();
-    let ok = helper_ok && calls >= 3 && raw == 1 && !eng.contains("playable_claim = true");
+    let ok = helper_ok && calls >= 3 && raw == 0 && !eng.contains("playable_claim = true");
     residual_action_store(ResidualVisualSpeedPresentationHelperAction::SourceMarkers);
     ok
 }
@@ -171,7 +172,7 @@ pub fn simulate_visual_speed_presentation_helper_dispatch_source() -> bool {
     };
     let ok = body.contains("Wave 550")
         && body.contains("pres.visual_speed_multiplier")
-        && body.contains("self.game_logic.visual_speed_multiplier()")
+        && body.contains("host_match_visual_speed")
         && eng.matches("presentation_or_boot_visual_speed()").count() >= 3;
     residual_action_store(ResidualVisualSpeedPresentationHelperAction::DispatchSource);
     ok

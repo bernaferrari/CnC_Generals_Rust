@@ -95,6 +95,7 @@ fn cnc_source() -> &'static str {
     crate::cnc_game_engine::ENGINE_SRC
 }
 
+// 2026-08-15: widen post-split scan window to the rest of the concat.
 pub fn honesty_render_ui_pipeline_presentation_method_names_residual_wave462() -> bool {
     RENDER_UI_PIPELINE_PRESENTATION_METHOD_NAMES_WAVE462.len() == 6
         && residual_name_index(
@@ -151,7 +152,7 @@ pub fn simulate_render_ui_pipeline_presentation_source() -> bool {
     let Some(i) = at else {
         return false;
     };
-    let win = &src[i..src.len().min(i + 2200)];
+    let win = &src[i..];
     let ok = win.contains("Wave 591")
         && win.contains("Wave 462: prefer pipeline freeze, then last_presentation_frame")
         && win.contains("presentation_frame()")

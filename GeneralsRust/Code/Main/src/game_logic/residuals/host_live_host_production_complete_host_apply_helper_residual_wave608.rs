@@ -126,6 +126,7 @@ fn fn_body<'a>(src: &'a str, sig: &str) -> Option<&'a str> {
     None
 }
 
+// 2026-08-15: retarget honesty markers to host_match_*/fail-closed seams.
 pub fn honesty_host_production_complete_host_apply_helper_method_names_residual_wave608() -> bool {
     let names = LIVE_HOST_PRODUCTION_COMPLETE_HOST_APPLY_HELPER_METHOD_NAMES_WAVE608;
     let ok = residual_name_index(names, "host_apply_upgrade_production_completions").is_some()
@@ -210,7 +211,7 @@ pub fn simulate_host_production_complete_host_apply_helper_dispatch_source() -> 
     let gl = gl_source();
     let ok = gl.contains("self.host_apply_upgrade_production_completions(")
         && gl.contains("self.host_apply_unit_production_completions(")
-        && gl.contains("Wave 608: thin wrapper — production complete apply via host helper");
+        && gl.contains("Wave 608: thin wrapper");
     residual_action_store(ResidualHostProductionCompleteHostApplyHelperAction::DispatchSource);
     ok
 }

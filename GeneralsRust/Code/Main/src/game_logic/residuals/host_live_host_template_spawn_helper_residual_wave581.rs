@@ -107,6 +107,7 @@ fn fn_body<'a>(src: &'a str, sig: &str) -> Option<&'a str> {
     None
 }
 
+// 2026-08-15: retarget honesty markers to host_match_*/fail-closed seams.
 pub fn honesty_host_template_spawn_helper_method_names_residual_wave581() -> bool {
     let names = LIVE_HOST_TEMPLATE_SPAWN_HELPER_METHOD_NAMES_WAVE581;
     let ok = residual_name_index(names, "presentation_or_live_has_template").is_some()
@@ -139,7 +140,7 @@ pub fn honesty_host_template_spawn_helper_source_markers_residual_wave581() -> b
         && live.contains("has_template_name(name)")
         && live.contains("templates.contains_key(name)");
     let create_ok = create.contains("Wave 581")
-        && create.contains("self.game_logic.create_object(name, team, spawn_at)")
+        && create.contains("ObjectLifecycleOp::Create(name, team, spawn_at)")
         && !create.contains("self.host_create_object(name");
     let golden_ok = golden.contains("Wave 581")
         && golden.contains("GoldenRanger")
@@ -149,12 +150,12 @@ pub fn honesty_host_template_spawn_helper_source_markers_residual_wave581() -> b
         && eng.contains("self.host_ensure_golden_ranger_template()");
     let raw_create = eng.matches("self.game_logic.create_object").count();
     // no leftover double-check pattern
-    let double = eng.contains("presentation_or_boot_has_template(name)\n                                && !self.game_logic.templates.contains_key(name)");
+    let double = eng.contains("presentation_or_boot_has_template(name)\n                                && !host_match_known_template_names");
     let ok = live_ok
         && create_ok
         && golden_ok
         && call_ok
-        && raw_create == 1
+        && raw_create == 0
         && !double
         && !eng.contains("playable_claim = true");
     residual_action_store(ResidualHostTemplateSpawnHelperAction::SourceMarkers);

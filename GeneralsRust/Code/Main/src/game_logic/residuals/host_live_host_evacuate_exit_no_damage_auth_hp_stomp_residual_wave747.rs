@@ -67,7 +67,8 @@ pub fn residual_host_evacuate_exit_no_damage_auth_hp_stomp_last_action(
     )
 }
 fn gl_source() -> &'static str {
-    super::GAME_LOGIC_HOST_SRC
+    // 2026-08-15: evacuate lives in world_combat/registries.rs (not HOST concat).
+    include_str!("../world_combat/registries.rs")
 }
 pub fn honesty_host_evacuate_exit_no_damage_auth_hp_stomp_method_names_residual_wave747() -> bool {
     let names = LIVE_HOST_EVACUATE_EXIT_NO_DAMAGE_AUTH_HP_STOMP_METHOD_NAMES_WAVE747;

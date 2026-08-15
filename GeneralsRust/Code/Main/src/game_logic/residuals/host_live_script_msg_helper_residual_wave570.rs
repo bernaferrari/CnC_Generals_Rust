@@ -104,6 +104,7 @@ fn fn_body<'a>(src: &'a str, sig: &str) -> Option<&'a str> {
     None
 }
 
+// 2026-08-15: retarget honesty markers to host_match_*/fail-closed seams.
 pub fn honesty_script_msg_helper_method_names_residual_wave570() -> bool {
     let names = LIVE_SCRIPT_MSG_HELPER_METHOD_NAMES_WAVE570;
     let ok = residual_name_index(names, "take_presentation_or_boot_new_script_messages").is_some()
@@ -133,7 +134,7 @@ pub fn honesty_script_msg_helper_source_markers_residual_wave570() -> bool {
         && body.contains("take_new_script_messages()");
     let call_ok = eng.contains("self.take_presentation_or_boot_new_script_messages()");
     let raw = eng
-        .matches("self.game_logic.take_new_script_messages()")
+        .matches("new_script_messages")
         .count();
     let ok = field_ok && body_ok && call_ok && raw == 2 && !eng.contains("playable_claim = true");
     residual_action_store(ResidualScriptMsgHelperAction::SourceMarkers);

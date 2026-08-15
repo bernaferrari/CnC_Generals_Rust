@@ -106,6 +106,7 @@ fn fn_body<'a>(src: &'a str, sig: &str) -> Option<&'a str> {
     None
 }
 
+// 2026-08-15: retarget honesty markers to host_match_*/fail-closed seams.
 pub fn honesty_host_silent_command_peel_method_names_residual_wave578() -> bool {
     let names = LIVE_HOST_SILENT_COMMAND_PEEL_METHOD_NAMES_WAVE578;
     let ok = residual_name_index(names, "host_queue_and_process_command_silent").is_some()
@@ -125,15 +126,15 @@ pub fn honesty_host_silent_command_peel_source_markers_residual_wave578() -> boo
         return false;
     };
     let silent_ok = silent.contains("Wave 576")
-        && silent.contains("queue_command(command)")
-        && silent.contains("process_commands()")
+        && silent.contains("CommandPipelineOp::QueueAndProcess")
+        && silent.contains("CommandPipelineOp::ProcessIfNeeded")
         && !silent.contains("play_sound_effect");
     let call_ok = eng.contains("self.host_queue_and_process_command_silent(");
     let silent_calls = eng
         .matches("self.host_queue_and_process_command_silent(")
         .count();
     // Outside helpers: shell menu process + helper internals (process sound + silent).
-    let raw_process = eng.matches("self.game_logic.process_commands()").count();
+    let raw_process = eng.matches("self.game_logic.self.game_logic.process_commands()").count();
     let raw_queue = eng.matches("self.game_logic.queue_command").count();
     // raw_process: host_process + silent + shell menu = 3
     // raw_queue: queue-with-sound helper + silent helper + host_queue_command (Wave 584) = 3

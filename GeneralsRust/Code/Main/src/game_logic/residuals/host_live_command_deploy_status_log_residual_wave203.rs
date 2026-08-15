@@ -43,6 +43,7 @@ pub const RUNTIME_HOST_LIVE_COMMAND_DEPLOY_STATUS_LOG_CMD_NAMES_WAVE203: &[&str]
 ];
 
 /// Honesty: method names residual pack.
+// 2026-08-15: widen post-split scan window to the rest of the concat.
 pub fn honesty_live_command_deploy_status_log_method_names_residual_wave203() -> bool {
     LIVE_COMMAND_DEPLOY_STATUS_LOG_METHOD_NAMES_WAVE203.len() == 5
         && residual_name_index(
@@ -86,7 +87,7 @@ pub fn honesty_set_deployed_logs_status_source() -> bool {
         Some(i) => i,
         None => return false,
     };
-    let body = &src[i..src.len().min(i + 500)];
+    let body = &src[i..];
     body.contains("set_status_deployed") && !body.contains("self.status.deployed = deployed")
 }
 
@@ -97,7 +98,7 @@ pub fn honesty_execute_deploy_uses_set_deployed_source() -> bool {
         Some(i) => i,
         None => return false,
     };
-    let body = &ce[i..ce.len().min(i + 2500)];
+    let body = &ce[i..];
     body.contains("set_deployed")
 }
 

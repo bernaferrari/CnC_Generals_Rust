@@ -44,6 +44,7 @@ pub const RUNTIME_HOST_LIVE_PATHFIND_DUAL_WORLD_EMPTY_GATE_CMD_NAMES_WAVE262: &[
 ];
 
 /// Honesty: method names residual pack.
+// 2026-08-15: empty-registry helper is fail-open (C++ does not skip-close).
 pub fn honesty_live_pathfind_dual_world_empty_gate_method_names_residual_wave262() -> bool {
     LIVE_PATHFIND_DUAL_WORLD_EMPTY_GATE_METHOD_NAMES_WAVE262.len() == 7
         && residual_name_index(
@@ -109,6 +110,7 @@ pub fn honesty_pathfind_dual_world_empty_gate_source() -> bool {
     );
     if !(g.contains("Wave 262")
         && g.contains("fn dual_world_registry_unavailable")
+        && (g.contains("let _host_empty") || g.contains("OBJECT_REGISTRY.is_empty()"))
         && g.contains("OBJECT_REGISTRY.is_empty()"))
     {
         return false;

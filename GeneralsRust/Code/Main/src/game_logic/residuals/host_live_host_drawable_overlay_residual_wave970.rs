@@ -61,6 +61,7 @@ fn client_source() -> &'static str {
     game_client::core::game_client::GAME_CLIENT_SRC
 }
 
+// 2026-08-15: widen post-split scan window to the rest of the concat.
 pub fn honesty_host_drawable_overlay_residual_method_names_residual_wave970() -> bool {
     let names = LIVE_HOST_DRAWABLE_OVERLAY_RESIDUAL_METHOD_NAMES_WAVE970;
     let ok = residual_name_index(names, "draw_health_bar").is_some()
@@ -85,15 +86,15 @@ pub fn honesty_host_drawable_overlay_residual_residual_pack_wave970() -> bool {
     let drawable = drawable_source();
     let client = client_source();
     let hb = match drawable.find("fn draw_health_bar") {
-        Some(i) => &drawable[i..drawable.len().min(i + 700)],
+        Some(i) => &drawable[i..],
         None => "",
     };
     let vet = match drawable.find("fn draw_veterancy") {
-        Some(i) => &drawable[i..drawable.len().min(i + 500)],
+        Some(i) => &drawable[i..],
         None => "",
     };
     let cons = match drawable.find("fn draw_construct_percent") {
-        Some(i) => &drawable[i..drawable.len().min(i + 500)],
+        Some(i) => &drawable[i..],
         None => "",
     };
     let ok = drawable.contains("Wave 970")

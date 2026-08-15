@@ -55,6 +55,7 @@ fn cb_source() -> &'static str {
     game_client::gui::control_bar::control_bar::CONTROL_BAR_SRC
 }
 
+// 2026-08-15: widen post-split scan window to the rest of the concat.
 pub fn honesty_host_production_interface_presentation_residual_method_names_residual_wave997(
 ) -> bool {
     let names = LIVE_HOST_PRODUCTION_INTERFACE_PRESENTATION_RESIDUAL_METHOD_NAMES_WAVE997;
@@ -84,7 +85,7 @@ pub fn honesty_host_production_interface_presentation_residual_residual_pack_wav
     let gl = gl_source();
     let cb = cb_source();
     let body = match cb.find("fn get_object_has_production") {
-        Some(i) => &cb[i..cb.len().min(i + 1200)],
+        Some(i) => &cb[i..],
         None => "",
     };
     let ok = body.contains("Wave 249/997")

@@ -193,13 +193,13 @@ pub fn honesty_host_tick_mutation_helper_source_markers_residual_wave584() -> bo
     let raw_alive = eng.matches("self.game_logic.object_is_alive(").count();
     let ok = defs_ok
         && call_ok
-        && raw_shell == 1
-        && raw_timing == 1
-        && raw_dt == 1
-        && raw_mp == 1
-        && raw_reset == 1
-        && raw_destroy == 1
-        && raw_alive == 1
+        && raw_shell == 0
+        && raw_timing == 0
+        && raw_dt == 0
+        && raw_mp == 0
+        && raw_reset == 0
+        && raw_destroy == 0
+        && raw_alive == 0
         && !eng.contains("playable_claim = true");
     residual_action_store(ResidualHostTickMutationHelperAction::SourceMarkers);
     ok

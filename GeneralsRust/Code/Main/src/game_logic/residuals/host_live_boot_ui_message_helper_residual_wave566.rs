@@ -133,27 +133,29 @@ pub fn honesty_boot_ui_message_helper_source_markers_residual_wave566() -> bool 
         residual_action_store(ResidualBootUiMessageHelperAction::SourceMarkers);
         return false;
     };
+    // 2026-08-15: Wave 900 peeled GameLogic radar/sound dual-writes.
+    // Boot routes through host_notify_presentation_ui_message (HUD + audio).
     let boot_ok = (boot.contains("Wave 566") || boot.contains("Wave 603"))
         && eng.contains("self.host_notify_boot_ui_message(message, team)")
-        && boot.contains("queue_radar_message_for_team")
-        && boot.contains("queue_radar_message")
-        && boot.contains("play_ui_sound(\"GUIMessageReceived\")");
+        && boot.contains("host_notify_presentation_ui_message(message)")
+        && !boot.contains("queue_radar_message_for_team")
+        && !boot.contains("play_ui_sound(\"GUIMessageReceived\")");
     let pres_ok = pres.contains("add_radar_message")
         && pres.contains("GUIMessageReceived")
         && !pres.contains("self.game_logic.play_ui_sound")
         && !pres.contains("self.game_logic.queue_radar");
     let call_ok = eng.contains("notify_boot_ui_message(&message")
-        && eng.contains("notify_presentation_ui_message(&message)");
+        && (eng.contains("notify_presentation_ui_message(&message)")
+            || eng.contains("host_notify_presentation_ui_message(message)"));
     let raw_sound = eng.matches("self.game_logic.play_ui_sound").count();
     let raw_radar = eng.matches("self.game_logic.queue_radar_message(").count();
     let raw_team = eng.matches("queue_radar_message_for_team").count();
-    // only inside boot helper
     let ok = boot_ok
         && pres_ok
         && call_ok
-        && raw_sound == 1
-        && raw_radar == 1
-        && raw_team == 1
+        && raw_sound == 0
+        && raw_radar == 0
+        && raw_team == 0
         && !eng.contains("playable_claim = true");
     residual_action_store(ResidualBootUiMessageHelperAction::SourceMarkers);
     ok

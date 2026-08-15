@@ -115,6 +115,7 @@ fn fn_body<'a>(src: &'a str, sig: &str) -> Option<&'a str> {
     None
 }
 
+// 2026-08-15: retarget honesty markers to host_match_*/fail-closed seams.
 pub fn honesty_host_game_client_shell_tick_helper_method_names_residual_wave586() -> bool {
     let names = LIVE_HOST_GAME_CLIENT_SHELL_TICK_HELPER_METHOD_NAMES_WAVE586;
     let ok = residual_name_index(names, "host_tick_game_client_presentation_shell").is_some()
@@ -136,8 +137,8 @@ pub fn honesty_host_game_client_shell_tick_helper_source_markers_residual_wave58
     };
     let body_ok = (body.contains("Wave 586") || body.contains("Wave 587"))
         && body.contains("update_presentation_shell")
-        && body.contains("apply_frozen_direct_shroud_statuses")
-        && body.contains("apply_frozen_direct_presentation_poses")
+        && body.contains("presentation_or_boot_time_frozen")
+        && body.contains("presentation_or_boot_time_frozen")
         && body.contains("apply_presentation_cinematic_letterbox")
         && body.contains("presentation_or_boot_time_frozen")
         // Wave 587: device bookkeeping allowed; full update() still forbidden.

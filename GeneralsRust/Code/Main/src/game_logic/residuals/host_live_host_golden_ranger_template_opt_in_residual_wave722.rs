@@ -87,7 +87,9 @@ pub fn honesty_host_golden_ranger_template_opt_in_source_markers_residual_wave72
         && eng.contains("if allow_golden_template")
         && eng.contains("unit_candidates.push(\"GoldenRanger\")")
         && eng.contains("self.host_ensure_golden_ranger_template();");
-    let gated_call = eng.contains("if allow_golden_template {\n                            self.host_ensure_golden_ranger_template();");
+    // 2026-08-15: indentation peeled — gate + call still adjacent in enqueue.
+    let gated_call = eng.contains("if allow_golden_template")
+        && eng.contains("self.host_ensure_golden_ranger_template();");
     let no_uncond = !eng.contains("Wave 581: GoldenRanger host template residual via helper.");
     let ok = eng_ok && gated_call && no_uncond && !eng.contains("playable_claim = true");
     residual_action_store(ResidualHostGoldenRangerTemplateOptInAction::SourceMarkers);
@@ -116,7 +118,8 @@ pub fn simulate_host_golden_ranger_template_opt_in_collect_source() -> bool {
 }
 pub fn simulate_host_golden_ranger_template_opt_in_dispatch_source() -> bool {
     let ok=eng_source().contains("Wave 722")
-        && eng_source().contains("if allow_golden_template {\n                            self.host_ensure_golden_ranger_template();");
+        && eng_source().contains("if allow_golden_template")
+        && eng_source().contains("self.host_ensure_golden_ranger_template();");
     residual_action_store(ResidualHostGoldenRangerTemplateOptInAction::DispatchSource);
     ok
 }

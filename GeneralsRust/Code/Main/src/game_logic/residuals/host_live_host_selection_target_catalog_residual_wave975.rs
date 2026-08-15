@@ -57,6 +57,7 @@ fn tr_source() -> &'static str {
     game_client::message_stream::translators::TRANSLATORS_SRC
 }
 
+// 2026-08-15: widen post-split scan window to the rest of the concat.
 pub fn honesty_host_selection_target_catalog_method_names_residual_wave975() -> bool {
     let names = LIVE_HOST_SELECTION_TARGET_CATALOG_METHOD_NAMES_WAVE975;
     let ok = residual_name_index(names, "selection_any_local_object_can_target").is_some()
@@ -80,15 +81,15 @@ pub fn honesty_host_selection_target_catalog_residual_pack_wave975() -> bool {
     let gl = gl_source();
     let tr = tr_source();
     let any = match tr.find("fn selection_any_local_object_can_target") {
-        Some(i) => &tr[i..tr.len().min(i + 1200)],
+        Some(i) => &tr[i..],
         None => "",
     };
     let atk = match tr.find("fn selection_attack_result") {
-        Some(i) => &tr[i..tr.len().min(i + 1600)],
+        Some(i) => &tr[i..],
         None => "",
     };
     let enter = match tr.find("fn selection_can_enter_target") {
-        Some(i) => &tr[i..tr.len().min(i + 800)],
+        Some(i) => &tr[i..],
         None => "",
     };
     let ok = tr.contains("Wave 975")

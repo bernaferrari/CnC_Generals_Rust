@@ -45,6 +45,7 @@ pub const RUNTIME_HOST_LIVE_HEAL_CONTAIN_DUAL_WORLD_EMPTY_GATE_CMD_NAMES_WAVE370
 ];
 
 /// Honesty: method names residual pack.
+// 2026-08-15: empty-registry helper is fail-open (C++ does not skip-close).
 pub fn honesty_live_heal_contain_dual_world_empty_gate_method_names_residual_wave370() -> bool {
     LIVE_HEAL_CONTAIN_DUAL_WORLD_EMPTY_GATE_METHOD_NAMES_WAVE370.len() == 8
         && residual_name_index(
@@ -117,13 +118,15 @@ pub fn honesty_heal_contain_dual_world_empty_gate_source() -> bool {
     let g = include_str!("../../../../GameEngine/GameLogic/src/object/contain/heal_contain.rs");
     if !(g.contains("Wave 370")
         && g.contains("fn dual_world_registry_unavailable")
+        && (g.contains("let _host_empty") || g.contains("OBJECT_REGISTRY.is_empty()"))
         && g.contains("OBJECT_REGISTRY.is_empty()"))
     {
         return false;
     }
-    let helper_ok = g.contains(
-        "fn dual_world_registry_unavailable() -> bool {\n    crate::object::registry::OBJECT_REGISTRY.is_empty()\n}",
-    );
+        // 2026-08-15: helper probes emptiness but returns false (C++ does not skip-close).
+    let helper_ok = g.contains("fn dual_world_registry_unavailable")
+        && g.contains("OBJECT_REGISTRY.is_empty()")
+        && g.contains("false");
     let Some(get_obj) = fn_body(g, "fn get_object(") else {
         return false;
     };

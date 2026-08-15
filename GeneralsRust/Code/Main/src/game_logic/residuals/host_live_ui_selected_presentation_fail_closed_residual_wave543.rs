@@ -127,26 +127,13 @@ pub fn honesty_ui_selected_presentation_fail_closed_source_markers_residual_wave
         residual_action_store(ResidualUiSelectedPresentationFailClosedAction::SourceMarkers);
         return false;
     };
-    // Presentation branch must return from_objs (possibly empty) without falling through.
-    let pres_return = body.contains("Wave 543")
-        && body.contains("presentation freeze owns selection residual")
-        && body.contains("return from_objs;");
-    // Boot residual still has player_selected_objects after the presentation branch.
-    let boot = body.contains("player_selected_objects(player_id)");
-    // Must not call player_selected_objects inside the presentation `if let Some(frame)` arm.
-    let pres_arm_ok = match body.find("if let Some(frame) = self.last_presentation_frame.as_ref()")
-    {
-        Some(i) => {
-            let arm = &body[i..];
-            // until return from_objs or next top-level after arm — simple: arm before boot call
-            let ret = arm.find("return from_objs;");
-            let boot_i = arm.find("player_selected_objects");
-            matches!((ret, boot_i), (Some(r), Some(b)) if r < b)
-                || (ret.is_some() && boot_i.is_none())
-        }
-        None => false,
-    };
-    let ok = pres_return && boot && pres_arm_ok && !eng.contains("playable_claim = true");
+    // 2026-08-15: selection residual is host_ui_selected_ids_from_residuals
+    // (freeze + selected_objects + host_match_selected_ids). No player_selected_objects.
+    let pres_return = body.contains("host_ui_selected_ids_from_residuals")
+        && body.contains("last_presentation_frame")
+        && body.contains("host_match_selected_ids");
+    let boot = !body.contains("player_selected_objects(player_id)");
+    let ok = pres_return && boot && !eng.contains("playable_claim = true");
     residual_action_store(ResidualUiSelectedPresentationFailClosedAction::SourceMarkers);
     ok
 }

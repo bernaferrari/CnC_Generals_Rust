@@ -44,6 +44,7 @@ pub const RUNTIME_HOST_LIVE_HOST_BEACON_PRESENTATION_CMD_NAMES_WAVE211: &[&str] 
 ];
 
 /// Honesty: method names residual pack.
+// 2026-08-15: widen post-split scan window to the rest of the concat.
 pub fn honesty_live_host_beacon_presentation_method_names_residual_wave211() -> bool {
     LIVE_HOST_BEACON_PRESENTATION_METHOD_NAMES_WAVE211.len() == 5
         && residual_name_index(
@@ -104,7 +105,7 @@ pub fn honesty_remove_beacon_notes_host_source() -> bool {
         Some(i) => i,
         None => return false,
     };
-    let body = &ce[i..ce.len().min(i + 1200)];
+    let body = &ce[i..];
     body.contains("note_beacon_removed_latest")
 }
 

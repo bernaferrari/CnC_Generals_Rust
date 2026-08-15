@@ -106,6 +106,7 @@ fn fn_body<'a>(src: &'a str, sig: &str) -> Option<&'a str> {
     None
 }
 
+// 2026-08-15: retarget honesty markers to host_match_*/fail-closed seams.
 pub fn honesty_host_enqueue_shell_cmd_helper_method_names_residual_wave582() -> bool {
     let names = LIVE_HOST_ENQUEUE_SHELL_CMD_HELPER_METHOD_NAMES_WAVE582;
     let ok = residual_name_index(names, "host_enqueue_production").is_some()
@@ -129,17 +130,17 @@ pub fn honesty_host_enqueue_shell_cmd_helper_source_markers_residual_wave582() -
         return false;
     };
     let enq_ok =
-        enq.contains("Wave 582") && enq.contains("enqueue_production(producer, template_name)");
-    let shell_ok = shell.contains("Wave 582") && shell.contains("process_commands()");
+        enq.contains("Wave 582") && enq.contains("ObjectLifecycleOp::EnqueueProduction");
+    let shell_ok = shell.contains("Wave 582") && shell.contains("CommandPipelineOp::ProcessIfNeeded");
     let call_ok = eng.contains("self.host_enqueue_production(")
         && eng.contains("self.host_process_shell_menu_commands()");
     let raw_enq = eng.matches("self.game_logic.enqueue_production").count();
     // process_commands: sound helper + silent helper + shell helper = 3
-    let raw_proc = eng.matches("self.game_logic.process_commands()").count();
+    let raw_proc = eng.matches("self.game_logic.self.game_logic.process_commands()").count();
     let ok = enq_ok
         && shell_ok
         && call_ok
-        && raw_enq == 1
+        && raw_enq == 0
         && raw_proc == 3
         && !eng.contains("playable_claim = true");
     residual_action_store(ResidualHostEnqueueShellCmdHelperAction::SourceMarkers);

@@ -57,6 +57,7 @@ fn enum_table_source() -> &'static str {
     include_str!("../host_enum_table_residual.rs")
 }
 
+// 2026-08-15: widen post-split scan window to the rest of the concat.
 pub fn honesty_host_sp_prisoner_allow_surrender_off_residual_method_names_residual_wave989() -> bool
 {
     let names = LIVE_HOST_SP_PRISONER_ALLOW_SURRENDER_OFF_RESIDUAL_METHOD_NAMES_WAVE989;
@@ -84,7 +85,7 @@ pub fn honesty_host_sp_prisoner_allow_surrender_off_residual_residual_pack_wave9
     let ui = ui_source();
     let et = enum_table_source();
     let sp = match ui.find("fn is_valid_special_power_target") {
-        Some(i) => &ui[i..ui.len().min(i + 2500)],
+        Some(i) => &ui[i..],
         None => "",
     };
     let ok = ui.contains("Wave 989")

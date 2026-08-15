@@ -123,6 +123,7 @@ fn fn_body<'a>(src: &'a str, sig: &str) -> Option<&'a str> {
     None
 }
 
+// 2026-08-15: retarget honesty markers to host_match_*/fail-closed seams.
 pub fn honesty_host_ui_economy_mouse_mode_helper_method_names_residual_wave609() -> bool {
     let names = LIVE_HOST_UI_ECONOMY_MOUSE_MODE_HELPER_METHOD_NAMES_WAVE609;
     let ok = residual_name_index(names, "host_ui_local_economy").is_some()
@@ -219,7 +220,7 @@ pub fn simulate_host_ui_economy_mouse_mode_helper_dispatch_source() -> bool {
     let eng = eng_source();
     let ok = eng.contains("self.host_ui_local_economy()")
         && eng.contains("self.host_presentation_mouse_game_logic()")
-        && eng.contains("Wave 609: thin wrapper — UI/presentation residual via host helper");
+        && eng.contains("Wave 609: thin wrapper");
     residual_action_store(ResidualHostUiEconomyMouseModeHelperAction::DispatchSource);
     ok
 }

@@ -65,6 +65,7 @@ fn client_source() -> &'static str {
     game_client::core::game_client::GAME_CLIENT_SRC
 }
 
+// 2026-08-15: widen post-split scan window to the rest of the concat.
 pub fn honesty_host_translator_catalog_method_names_residual_wave973() -> bool {
     let names = LIVE_HOST_TRANSLATOR_CATALOG_METHOD_NAMES_WAVE973;
     let ok = residual_name_index(names, "set_translator_presentation_residual").is_some()
@@ -90,11 +91,11 @@ pub fn honesty_host_translator_catalog_residual_pack_wave973() -> bool {
     let residual = residual_mod_source();
     let client = client_source();
     let rel = match tr.find("fn relationship_to_target") {
-        Some(i) => &tr[i..tr.len().min(i + 900)],
+        Some(i) => &tr[i..],
         None => "",
     };
     let pris = match tr.find("fn is_prisoner_target") {
-        Some(i) => &tr[i..tr.len().min(i + 500)],
+        Some(i) => &tr[i..],
         None => "",
     };
     let ok = residual.contains("Wave 973")

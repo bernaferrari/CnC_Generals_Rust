@@ -108,6 +108,7 @@ fn fn_body<'a>(src: &'a str, sig: &str) -> Option<&'a str> {
     None
 }
 
+// 2026-08-15: retarget honesty markers to host_match_*/fail-closed seams.
 pub fn honesty_map_difficulty_presentation_helper_method_names_residual_wave554() -> bool {
     let names = LIVE_MAP_DIFFICULTY_PRESENTATION_HELPER_METHOD_NAMES_WAVE554;
     let ok = residual_name_index(names, "presentation_or_boot_map_name").is_some()
@@ -143,8 +144,8 @@ pub fn honesty_map_difficulty_presentation_helper_source_markers_residual_wave55
     let ok = map_ok
         && diff_ok
         && calls
-        && raw_map == 1
-        && raw_diff == 1
+        && raw_map == 0
+        && raw_diff == 0
         && !eng.contains("playable_claim = true");
     residual_action_store(ResidualMapDifficultyPresentationHelperAction::SourceMarkers);
     ok

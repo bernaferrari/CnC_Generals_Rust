@@ -135,23 +135,25 @@ pub fn honesty_boot_player_info_helper_source_markers_residual_wave573() -> bool
         residual_action_store(ResidualBootPlayerInfoHelperAction::SourceMarkers);
         return false;
     };
+    // 2026-08-15: Wave 897 peeled player_* dual-reads. Boot prefers
+    // host_match_diplomacy_players / presentation freeze, else None.
     let boot_ok = boot.contains("Wave 573")
-        && boot.contains("player_exists(player_id)")
-        && boot.contains("player_name(player_id)")
-        && boot.contains("player_is_alive(player_id)")
-        && boot.contains("ai_manager_contains_player(player_id)");
+        && boot.contains("host_match_diplomacy_players")
+        && boot.contains("last_presentation_frame")
+        && !boot.contains("player_exists(player_id)")
+        && !boot.contains("player_name(player_id)");
     let ui_ok = ui.contains("Wave 549")
         && ui.contains("frame.player_info(player_id)")
         && ui.contains("boot_player_info_from_host(player_id)")
         && !ui.contains("player_exists(player_id)");
-    let dip_ok = dip.contains("Wave 573")
-        && dip.contains("player_ids()")
-        && dip.contains("boot_player_info_from_host(id)")
+    let dip_ok = dip.contains("Wave 558")
+        && dip.contains("host_match_diplomacy_players")
+        && dip.contains("last_presentation_frame")
+        && !dip.contains("player_ids()")
         && !dip.contains("player_name(id)");
     let raw_exists = eng.matches("self.game_logic.player_exists").count();
-    // boot helper + local_player_id_for_ui residual
     let ok =
-        boot_ok && ui_ok && dip_ok && raw_exists == 2 && !eng.contains("playable_claim = true");
+        boot_ok && ui_ok && dip_ok && raw_exists == 0 && !eng.contains("playable_claim = true");
     residual_action_store(ResidualBootPlayerInfoHelperAction::SourceMarkers);
     ok
 }
@@ -182,9 +184,11 @@ pub fn simulate_boot_player_info_helper_collect_source() -> bool {
 
 pub fn simulate_boot_player_info_helper_dispatch_source() -> bool {
     let eng = eng_source();
+    // 2026-08-15: diplomacy roster no longer walks boot_player_info_from_host(id);
+    // freeze / host_match_diplomacy_players own the residual.
     let ok = eng.contains("self.boot_player_info_from_host(player_id)")
-        && eng.contains("self.boot_player_info_from_host(id)")
-        && eng.contains("presentation_or_boot_diplomacy_players");
+        && eng.contains("presentation_or_boot_diplomacy_players")
+        && eng.contains("host_match_diplomacy_players");
     residual_action_store(ResidualBootPlayerInfoHelperAction::DispatchSource);
     ok
 }

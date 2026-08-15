@@ -104,6 +104,7 @@ fn fn_body<'a>(src: &'a str, sig: &str) -> Option<&'a str> {
     None
 }
 
+// 2026-08-15: retarget honesty markers to host_match_*/fail-closed seams.
 pub fn honesty_host_pause_team_helper_method_names_residual_wave575() -> bool {
     let names = LIVE_HOST_PAUSE_TEAM_HELPER_METHOD_NAMES_WAVE575;
     let ok = residual_name_index(names, "host_set_paused").is_some()
@@ -130,7 +131,7 @@ pub fn honesty_host_pause_team_helper_source_markers_residual_wave575() -> bool 
     };
     let pause_ok = pause.contains("Wave 575")
         && pause.contains("self.game_paused = paused")
-        && pause.contains("self.game_logic.set_paused(paused)");
+        && pause.contains("SessionControlOp::SetPaused");
     let name_ok = name.contains("Wave 575")
         && name.contains("presentation_or_boot_local_team()")
         && !name.contains("player_team(");
@@ -140,7 +141,7 @@ pub fn honesty_host_pause_team_helper_source_markers_residual_wave575() -> bool 
         && eng.contains("self.host_set_paused(!self.game_paused)");
     // only inside host_set_paused
     let ok =
-        pause_ok && name_ok && call_ok && raw_set == 1 && !eng.contains("playable_claim = true");
+        pause_ok && name_ok && call_ok && raw_set == 0 && !eng.contains("playable_claim = true");
     residual_action_store(ResidualHostPauseTeamHelperAction::SourceMarkers);
     ok
 }

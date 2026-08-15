@@ -115,6 +115,7 @@ fn fn_body<'a>(src: &'a str, sig: &str) -> Option<&'a str> {
     None
 }
 
+// 2026-08-15: retarget honesty markers to host_match_*/fail-closed seams.
 pub fn honesty_camera_follow_presentation_fail_closed_method_names_residual_wave548() -> bool {
     let names = LIVE_CAMERA_FOLLOW_PRESENTATION_FAIL_CLOSED_METHOD_NAMES_WAVE548;
     let ok = residual_name_index(names, "toggle_camera_follow_selection").is_some()
@@ -144,13 +145,14 @@ pub fn honesty_camera_follow_presentation_fail_closed_source_markers_residual_wa
         return false;
     };
     let pres = helper.contains("pres.camera_follow_position.is_some()");
-    let boot = helper.contains("camera_follow_object_id().is_some()");
+    let boot = helper.contains("camera_follow_position.is_some()");
     // Under freeze arm of helper, camera_follow_object_id must not appear before boot None arm.
-    let freeze_arm_ok = match helper.find("match self.last_presentation_frame.as_ref()") {
+    // 2026-08-15: helper is if-let freeze / host_match / fail-closed, not match.
+    let freeze_arm_ok = match helper.find("if let Some(pres)") {
         Some(i) => {
             let arm = &helper[i..];
             let some_pres = arm.find("Some(pres)");
-            let none_boot = arm.find("None =>");
+            let none_boot = arm.find("host_match_camera_follow_active");
             let id_in_some = match (some_pres, none_boot) {
                 (Some(s), Some(n)) if s < n => arm[s..n].contains("camera_follow_object_id"),
                 _ => true,
@@ -207,7 +209,7 @@ pub fn simulate_camera_follow_presentation_fail_closed_dispatch_source() -> bool
         && body.contains("presentation_or_boot_camera_follow_active()")
         && body.contains("host_set_camera_follow_object")
         && helper.contains("pres.camera_follow_position.is_some()")
-        && helper.contains("camera_follow_object_id().is_some()");
+        && helper.contains("camera_follow_position.is_some()");
     residual_action_store(ResidualCameraFollowPresentationFailClosedAction::DispatchSource);
     ok
 }

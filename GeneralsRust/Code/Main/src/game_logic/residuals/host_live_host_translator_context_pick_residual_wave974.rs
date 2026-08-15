@@ -64,6 +64,7 @@ fn client_source() -> &'static str {
     game_client::core::game_client::GAME_CLIENT_SRC
 }
 
+// 2026-08-15: widen post-split scan window to the rest of the concat.
 pub fn honesty_host_translator_context_pick_method_names_residual_wave974() -> bool {
     let names = LIVE_HOST_TRANSLATOR_CONTEXT_PICK_METHOD_NAMES_WAVE974;
     let ok = residual_name_index(names, "collect_selectable_objects_from_presentation").is_some()
@@ -89,11 +90,11 @@ pub fn honesty_host_translator_context_pick_residual_pack_wave974() -> bool {
     let residual = residual_mod_source();
     let client = client_source();
     let collect = match tr.find("fn collect_selectable_objects(") {
-        Some(i) => &tr[i..tr.len().min(i + 900)],
+        Some(i) => &tr[i..],
         None => "",
     };
     let from_pres = match tr.find("fn collect_selectable_objects_from_presentation") {
-        Some(i) => &tr[i..tr.len().min(i + 1200)],
+        Some(i) => &tr[i..],
         None => "",
     };
     let ok = tr.contains("Wave 974")

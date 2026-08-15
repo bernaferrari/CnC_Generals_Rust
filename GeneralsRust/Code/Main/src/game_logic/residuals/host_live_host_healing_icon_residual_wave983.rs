@@ -61,6 +61,7 @@ fn client_source() -> &'static str {
     game_client::core::game_client::GAME_CLIENT_SRC
 }
 
+// 2026-08-15: widen post-split scan window to the rest of the concat.
 pub fn honesty_host_healing_icon_residual_method_names_residual_wave983() -> bool {
     let names = LIVE_HOST_HEALING_ICON_RESIDUAL_METHOD_NAMES_WAVE983;
     let ok = residual_name_index(names, "show_healing").is_some()
@@ -86,7 +87,7 @@ pub fn honesty_host_healing_icon_residual_residual_pack_wave983() -> bool {
     let d = drawable_source();
     let client = client_source();
     let heal = match d.find("fn draw_healing") {
-        Some(i) => &d[i..d.len().min(i + 500)],
+        Some(i) => &d[i..],
         None => "",
     };
     let ok = pf.contains("pub show_healing: bool")

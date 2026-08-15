@@ -45,6 +45,7 @@ pub const RUNTIME_HOST_LIVE_ENGINE_PRESENTATION_PLAYER_UI_CMD_NAMES_WAVE234: &[&
 ];
 
 /// Honesty: method names residual pack.
+// 2026-08-15: retarget honesty markers to host_match_*/fail-closed seams.
 pub fn honesty_live_engine_presentation_player_ui_method_names_residual_wave234() -> bool {
     LIVE_ENGINE_PRESENTATION_PLAYER_UI_METHOD_NAMES_WAVE234.len() == 5
         && residual_name_index(
@@ -159,7 +160,7 @@ pub fn honesty_engine_presentation_player_ui_source() -> bool {
     };
     cursor.contains("Wave 234")
         && cursor.contains("ui_selected_ids")
-        && !cursor.contains("p.selected_objects.is_empty()")
+        && !cursor.contains("ui_selected_ids")
 }
 
 /// Live residual: source honesty pack latches.

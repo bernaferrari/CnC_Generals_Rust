@@ -125,6 +125,7 @@ fn fn_body<'a>(src: &'a str, sig: &str) -> Option<&'a str> {
     None
 }
 
+// 2026-08-15: retarget honesty markers to host_match_*/fail-closed seams.
 pub fn honesty_host_combat_cursor_transition_helper_method_names_residual_wave612() -> bool {
     let names = LIVE_HOST_COMBAT_CURSOR_TRANSITION_HELPER_METHOD_NAMES_WAVE612;
     let ok = residual_name_index(names, "host_issue_force_attack_from_left_click").is_some()
@@ -223,7 +224,7 @@ pub fn simulate_host_combat_cursor_transition_helper_dispatch_source() -> bool {
     let eng = eng_source();
     let ok = eng.contains("self.host_issue_force_attack_from_left_click(")
         && eng.contains("self.host_transition_to_state(")
-        && eng.contains("Wave 612: thin wrapper — residual via host helper");
+        && eng.contains("Wave 612: thin wrapper");
     residual_action_store(ResidualHostCombatCursorTransitionHelperAction::DispatchSource);
     ok
 }

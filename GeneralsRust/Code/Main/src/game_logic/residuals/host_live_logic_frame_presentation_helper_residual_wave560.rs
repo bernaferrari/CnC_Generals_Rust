@@ -109,6 +109,7 @@ fn fn_body<'a>(src: &'a str, sig: &str) -> Option<&'a str> {
     None
 }
 
+// 2026-08-15: retarget honesty markers to host_match_*/fail-closed seams.
 pub fn honesty_logic_frame_presentation_helper_method_names_residual_wave560() -> bool {
     let names = LIVE_LOGIC_FRAME_PRESENTATION_HELPER_METHOD_NAMES_WAVE560;
     let ok = residual_name_index(names, "presentation_or_boot_logic_frame").is_some()
@@ -139,7 +140,7 @@ pub fn honesty_logic_frame_presentation_helper_source_markers_residual_wave560()
     };
     let helper_ok = helper.contains("Wave 560")
         && helper.contains("pres.frame.0")
-        && helper.contains("self.game_logic.get_frame()");
+        && helper.contains("host_match_logic_frame");
     let status_ok = status.contains("presentation_or_boot_logic_frame()")
         && !status.contains("self.game_logic.get_frame()");
     let env_ok = env.contains("Wave 560")
@@ -147,7 +148,7 @@ pub fn honesty_logic_frame_presentation_helper_source_markers_residual_wave560()
         && env.contains("build_for_engine")
         && !env.contains("get_frame() as u32");
     let raw = eng.matches("self.game_logic.get_frame()").count();
-    let ok = helper_ok && status_ok && env_ok && raw == 1 && !eng.contains("playable_claim = true");
+    let ok = helper_ok && status_ok && env_ok && raw == 0 && !eng.contains("playable_claim = true");
     residual_action_store(ResidualLogicFramePresentationHelperAction::SourceMarkers);
     ok
 }

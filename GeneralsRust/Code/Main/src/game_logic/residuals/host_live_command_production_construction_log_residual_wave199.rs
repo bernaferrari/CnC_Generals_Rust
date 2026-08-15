@@ -45,6 +45,7 @@ pub const RUNTIME_HOST_LIVE_COMMAND_PRODUCTION_CONSTRUCTION_LOG_CMD_NAMES_WAVE19
 ];
 
 /// Honesty: method names residual pack.
+// 2026-08-15: widen post-split scan window to the rest of the concat.
 pub fn honesty_live_command_production_construction_log_method_names_residual_wave199() -> bool {
     LIVE_COMMAND_PRODUCTION_CONSTRUCTION_LOG_METHOD_NAMES_WAVE199.len() == 5
         && residual_name_index(
@@ -88,7 +89,7 @@ pub fn honesty_construction_start_progress_log_source() -> bool {
         Some(i) => i,
         None => return false,
     };
-    let body = &src[i..src.len().min(i + 4500)];
+    let body = &src[i..];
     body.contains("host_construction_progress_log::record")
         && body.contains("0.0, true, 0.0")
         && body.contains("host_spawn_log::record")
@@ -103,7 +104,7 @@ pub fn honesty_production_cancel_log_source() -> bool {
         Some(i) => i,
         None => return false,
     };
-    let body = &gl[i..gl.len().min(i + 2000)];
+    let body = &gl[i..];
     body.contains("host_production_log::record_cancel")
         && hp.contains("HostProductionEvent::Cancel")
         && hp.contains("pub fn record_cancel")

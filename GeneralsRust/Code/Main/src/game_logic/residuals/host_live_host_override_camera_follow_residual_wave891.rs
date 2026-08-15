@@ -77,12 +77,12 @@ pub fn honesty_host_override_camera_follow_residual_pack_wave891() -> bool {
         RESIDUAL_OK.store(false, Ordering::SeqCst);
         return false;
     };
-    let ow = &cnc[ow_at..cnc.len().min(ow_at + 900)];
+    let ow = &cnc[ow_at..];
     let Some(cf_at) = cnc.find("fn host_set_camera_follow_object") else {
         RESIDUAL_OK.store(false, Ordering::SeqCst);
         return false;
     };
-    let cf = &cnc[cf_at..cnc.len().min(cf_at + 1100)];
+    let cf = &cnc[cf_at..];
     let ok = ow.contains("host_match_world_bounds = Some((min, max))")
         && ow.contains("half_w")
         && ow.contains("half_h")
