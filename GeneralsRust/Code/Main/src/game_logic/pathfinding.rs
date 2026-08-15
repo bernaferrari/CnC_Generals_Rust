@@ -387,14 +387,16 @@ impl PathfindingGrid {
             return None;
         }
 
-        let start = self.clamp_pos(start);
+        let start = self
+            .nearest_static_open(self.clamp_pos(start), 16)
+            .unwrap_or_else(|| self.clamp_pos(start));
         // Prefer static-open goal; dynamic occupancy near goal is soft-costed below.
         let goal = self
-            .nearest_static_open(self.clamp_pos(goal), 8)
+            .nearest_static_open(self.clamp_pos(goal), 16)
             .unwrap_or_else(|| self.clamp_pos(goal));
 
-        // Goal still static-blocked and no open neighbor — cannot plan.
-        if self.is_static_blocked(goal) {
+        // Either endpoint still static-blocked and no open neighbor — cannot plan.
+        if self.is_static_blocked(start) || self.is_static_blocked(goal) {
             return None;
         }
 
@@ -1346,6 +1348,21 @@ mod tests {
                 assert!(!g.is_static_blocked(ortho_a) && !g.is_static_blocked(ortho_b));
             }
         }
+    }
+
+    #[test]
+    fn host_astar_snaps_blocked_start_to_nearest_open() {
+        let mut g = open_grid(12, 12);
+        g.set_blocked(GridPos::new(2, 2), true);
+        g.set_blocked(GridPos::new(1, 2), true);
+        g.set_blocked(GridPos::new(2, 1), true);
+        let path = g.find_path(GridPos::new(2, 2), GridPos::new(10, 10));
+        assert!(
+            path.is_some(),
+            "blocked start must snap to a walkable cell like a blocked goal"
+        );
+        let first = g.world_to_grid(path.unwrap()[0]);
+        assert!(!g.is_static_blocked(first));
     }
 
     #[test]

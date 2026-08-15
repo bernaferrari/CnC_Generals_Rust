@@ -1066,7 +1066,7 @@ fn fight_enemies_with_rangers(
     // Matches boost_ranger_march_speed / SLICE_MARCH_SPEED.
     const MARCH_SPEED: f32 = SLICE_MARCH_SPEED;
     // Hard wall: large maps + multi-focus mini-marches hung the gate.
-    const MAX_FIGHT_SIM_FRAMES: usize = 1_500;
+    const MAX_FIGHT_SIM_FRAMES: usize = 3_000;
     let mut fight_sim_frames: usize = 0;
 
     // --- Initial pure march toward primary / first enemy ---
@@ -1115,8 +1115,10 @@ fn fight_enemies_with_rangers(
                 let dist = horiz_distance(centroid, ep);
                 // frames ≈ dist/speed * 30 + buffer; retail 20 u/s needs ~5250 for 3.5k maps.
                 let march_frames = ((dist / MARCH_SPEED.max(1.0)) * 30.0) as usize + 300;
-                // Cap: 9k-frame marches hang Lone Eagle pure-path probes.
-                let march_frames = march_frames.clamp(30, 600);
+                // 2400 frames at 20 u/s ≈ 1600 world units. 600 was shorter than
+                // typical skirmish spawn-to-CC distance, so the harness blamed
+                // pathfinding and teleported.
+                let march_frames = march_frames.clamp(30, 2400);
                 // March until in range or budget exhausted.
                 let used = run_until_budget(logic, march_frames, |g| {
                     any_ranger_in_weapon_range(g, &live, ep)
