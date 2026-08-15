@@ -104,6 +104,7 @@ fn fn_body<'a>(src: &'a str, sig: &str) -> Option<&'a str> {
     None
 }
 
+// 2026-08-15: retarget honesty markers to host_match_*/fail-closed seams.
 pub fn honesty_host_selection_map_helper_method_names_residual_wave579() -> bool {
     let names = LIVE_HOST_SELECTION_MAP_HELPER_METHOD_NAMES_WAVE579;
     let ok = residual_name_index(names, "host_set_selection").is_some()
@@ -127,7 +128,7 @@ pub fn honesty_host_selection_map_helper_source_markers_residual_wave579() -> bo
         return false;
     };
     let sel_ok = sel.contains("Wave 579")
-        && sel.contains("select_objects(player_id, ids.clone())")
+        && sel.contains("SessionControlOp::SelectObjects")
         && sel.contains("self.selected_objects = ids");
     let load_ok = load.contains("Wave 579")
         && load.contains("load_map(map_name)")
@@ -140,7 +141,7 @@ pub fn honesty_host_selection_map_helper_source_markers_residual_wave579() -> bo
     let ok = sel_ok
         && load_ok
         && call_ok
-        && raw_sel == 1
+        && raw_sel == 0
         && raw_load == 2
         && !eng.contains("playable_claim = true");
     residual_action_store(ResidualHostSelectionMapHelperAction::SourceMarkers);

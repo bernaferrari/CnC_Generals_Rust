@@ -135,20 +135,16 @@ pub fn honesty_template_name_presentation_helper_source_markers_residual_wave563
         residual_action_store(ResidualTemplateNamePresentationHelperAction::SourceMarkers);
         return false;
     };
+    // 2026-08-15: Wave 895 fail-closed — no templates.contains_key dual-read.
     let helper_ok = helper.contains("Wave 563")
         && helper.contains("pres.has_template_name(name)")
-        && helper.contains("self.game_logic.templates.contains_key(name)");
-    let train_i = eng.find("\"enqueue_production\" | \"train_unit\"");
-    let train_ok = train_i.is_some_and(|i| {
-        let w = &eng[i..eng.len().min(i + 24000)];
-        // Wave 581/722: mid-command path may use presentation_or_live_has_template +
-        // host_ensure_golden_ranger_template (insert lives in helper; gated opt-in).
-        // Window widened (Wave 723) as train honesty opt-in gates grew the arm.
-        (w.contains("presentation_or_boot_has_template")
-            || w.contains("presentation_or_live_has_template"))
-            && (w.contains("Wave 563") || w.contains("Wave 581"))
-            && (w.contains("templates.insert") || w.contains("host_ensure_golden_ranger_template"))
-    });
+        && helper.contains("host_match_known_template_names")
+        && !helper.contains("self.game_logic.templates.contains_key(name)");
+    // 2026-08-15: train arm peeled into runtime_host_cmd_enqueue_production.
+    let train_ok = eng.contains("\"enqueue_production\" | \"train_unit\"")
+        && (eng.contains("presentation_or_boot_has_template")
+            || eng.contains("presentation_or_live_has_template"))
+        && eng.contains("host_ensure_golden_ranger_template");
     let ok = field_ok && helper_ok && train_ok && !eng.contains("playable_claim = true");
     residual_action_store(ResidualTemplateNamePresentationHelperAction::SourceMarkers);
     ok
@@ -180,15 +176,11 @@ pub fn simulate_template_name_presentation_helper_collect_source() -> bool {
 
 pub fn simulate_template_name_presentation_helper_dispatch_source() -> bool {
     let eng = eng_source();
-    let Some(i) = eng.find("\"enqueue_production\" | \"train_unit\"") else {
-        residual_action_store(ResidualTemplateNamePresentationHelperAction::DispatchSource);
-        return false;
-    };
-    let w = &eng[i..eng.len().min(i + 24000)];
-    let ok = (w.contains("presentation_or_boot_has_template")
-        || w.contains("presentation_or_live_has_template"))
-        && w.contains("enqueue_production")
-        && (w.contains("templates.insert") || w.contains("host_ensure_golden_ranger_template"));
+    let ok = eng.contains("\"enqueue_production\" | \"train_unit\"")
+        && (eng.contains("presentation_or_boot_has_template")
+            || eng.contains("presentation_or_live_has_template"))
+        && eng.contains("enqueue_production")
+        && eng.contains("host_ensure_golden_ranger_template");
     residual_action_store(ResidualTemplateNamePresentationHelperAction::DispatchSource);
     ok
 }

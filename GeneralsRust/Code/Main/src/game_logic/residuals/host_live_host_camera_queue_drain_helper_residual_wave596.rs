@@ -157,7 +157,10 @@ pub fn honesty_host_camera_queue_drain_helper_source_markers_residual_wave596() 
         "take_camera_bw_mode_request",
         "take_camera_motion_blur_requests",
     ];
-    let host_ok = host.contains("Wave 596") && takes.iter().all(|t| host.contains(t));
+    // 2026-08-15: Wave 899 peeled take_* dual-reads — host drain is fail-closed.
+    let host_ok = host.contains("Wave 596")
+        && host.contains("last_presentation_frame")
+        && takes.iter().all(|t| !host.contains(t));
     let call_ok = eng.contains("self.drain_live_camera_request_queues()")
         || eng.contains("self.host_drain_live_camera_request_queues()");
     let ok = wrapper_ok && host_ok && call_ok && !eng.contains("playable_claim = true");

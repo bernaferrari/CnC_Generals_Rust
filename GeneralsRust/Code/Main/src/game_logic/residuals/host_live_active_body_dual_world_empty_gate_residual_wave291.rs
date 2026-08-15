@@ -80,37 +80,15 @@ pub fn honesty_live_active_body_dual_world_empty_gate_residual_pack_wave291() ->
 }
 
 fn fn_body<'a>(src: &'a str, name: &str) -> Option<&'a str> {
-    let mut search_from = 0usize;
-    while let Some(rel) = src[search_from..].find(name) {
-        let i = search_from + rel;
-        let Some(b) = src[i..].find('{') else {
-            search_from = i + name.len();
-            continue;
-        };
-        let brace = i + b;
-        let mut depth = 0usize;
-        for (off, ch) in src[brace..].char_indices() {
-            match ch {
-                '{' => depth += 1,
-                '}' => {
-                    depth -= 1;
-                    if depth == 0 {
-                        let body = &src[i..brace + off + 1];
-                        if body.contains("dual_world_registry_unavailable") {
-                            return Some(body);
-                        }
-                        break;
-                    }
-                }
-                _ => {}
-            }
-        }
-        search_from = i + name.len();
-    }
-    None
+    crate::game_logic::residuals::harness::last_rust_fn_body(src, name.trim_start_matches("fn ").trim_end_matches('('))
+        .or_else(|| crate::game_logic::residuals::harness::rust_fn_body(src, name.trim_start_matches("fn ").trim_end_matches('(')))
 }
 
-/// Source residual: active body empty dual-world short-circuits.
+/// Source residual: ActiveBody empty-registry helper plus C++ hull path.
+/// 2026-08-15: `attempt_damage` no longer no-ops on an empty dual-world
+/// registry — C++ `ActiveBody::attemptDamage` (ActiveBody.cpp:321-339)
+/// always validates armor, bails only on null/indestructible/already-dead,
+/// then applies local HP. Owner lookup may still fail-closed.
 pub fn honesty_active_body_dual_world_empty_gate_source() -> bool {
     let g = include_str!("../../../../GameEngine/GameLogic/src/object/body/active_body.rs");
     if !(g.contains("Wave 291")
@@ -128,7 +106,11 @@ pub fn honesty_active_body_dual_world_empty_gate_source() -> bool {
     let Some(owner) = fn_body(g, "fn get_owner(") else {
         return false;
     };
-    helper_ok && damage.contains("Ok(())") && owner.contains("return None")
+    helper_ok
+        && !damage.contains("dual_world_registry_unavailable")
+        && damage.contains("validate_armor_and_damage_fx")
+        && damage.contains("sync_from_input")
+        && owner.contains("return None")
 }
 
 /// Live residual: source honesty pack latches.

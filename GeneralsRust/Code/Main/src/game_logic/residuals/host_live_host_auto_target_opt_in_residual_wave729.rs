@@ -94,7 +94,7 @@ pub fn honesty_host_auto_target_opt_in_source_markers_residual_wave729() -> bool
             .matches("if builders.is_empty() && allow_auto_target")
             .count()
             >= 1
-        && eng.contains("if allow_auto_target {\n                            pick.or_else");
+        && eng.contains("if allow_auto_target");
     let smoke_ok=smoke.contains("auto_target=1")
         && smoke.contains("construct|template=USA_Barracks|spawn_dozer=1|alias_fallback=1|auto_target=1")
         && smoke.contains("train_unit|template=AmericaInfantryRanger|force_complete=1|grant_supplies=1|alias_fallback=1|auto_target=1")

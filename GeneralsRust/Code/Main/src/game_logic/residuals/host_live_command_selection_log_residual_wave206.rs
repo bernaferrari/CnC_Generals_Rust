@@ -44,6 +44,7 @@ pub const RUNTIME_HOST_LIVE_COMMAND_SELECTION_LOG_CMD_NAMES_WAVE206: &[&str] = &
 ];
 
 /// Honesty: method names residual pack.
+// 2026-08-15: widen post-split scan window to the rest of the concat.
 pub fn honesty_live_command_selection_log_method_names_residual_wave206() -> bool {
     LIVE_COMMAND_SELECTION_LOG_METHOD_NAMES_WAVE206.len() == 5
         && residual_name_index(
@@ -87,7 +88,7 @@ pub fn honesty_selection_uses_object_select_source() -> bool {
         Some(i) => i,
         None => return false,
     };
-    let body = &ce[i..ce.len().min(i + 2000)];
+    let body = &ce[i..];
     // Wave 232: additive select may go through unit_select_if_team (Object::select inside).
     body.contains("select_objects")
         && (body.contains(".select()") || body.contains("unit_select_if_team"))
@@ -101,7 +102,7 @@ pub fn honesty_command_system_selection_uses_object_select_source() -> bool {
         Some(i) => i,
         None => return false,
     };
-    let body = &cs[i..cs.len().min(i + 2000)];
+    let body = &cs[i..];
     // Wave 231: additive select may go through GameLogic::unit_select_if_team
     // (which calls Object::select); create_new still uses select_objects.
     body.contains("select_objects")

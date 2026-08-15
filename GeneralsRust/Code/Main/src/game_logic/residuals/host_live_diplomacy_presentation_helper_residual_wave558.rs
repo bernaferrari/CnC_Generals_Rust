@@ -128,21 +128,18 @@ pub fn honesty_diplomacy_presentation_helper_source_markers_residual_wave558() -
         residual_action_store(ResidualDiplomacyPresentationHelperAction::SourceMarkers);
         return false;
     };
-    // Wave 573: boot roster may build via boot_player_info_from_host.
+    // 2026-08-15: Wave 895 fail-closed — host_match_diplomacy_players, no player_* dual-read.
     let helper_ok = helper.contains("Wave 558")
         && helper.contains("frame.players.clone()")
-        && helper.contains("self.game_logic.player_ids()")
-        && (helper.contains("player_name(id)")
-            || helper.contains("boot_player_info_from_host(id)"))
-        && (helper.contains("player_team(id)")
-            || helper.contains("boot_player_info_from_host(id)"));
+        && helper.contains("host_match_diplomacy_players")
+        && !helper.contains("self.game_logic.player_ids()");
     let sync_ok = sync.contains("Wave 558")
         && sync.contains("presentation_or_boot_diplomacy_players()")
         && !sync.contains("self.game_logic.player_ids()")
         && !sync.contains("self.game_logic.player_name")
         && !sync.contains("self.game_logic.player_team");
     let raw_ids = eng.matches("self.game_logic.player_ids()").count();
-    let ok = helper_ok && sync_ok && raw_ids == 1 && !eng.contains("playable_claim = true");
+    let ok = helper_ok && sync_ok && raw_ids == 0 && !eng.contains("playable_claim = true");
     residual_action_store(ResidualDiplomacyPresentationHelperAction::SourceMarkers);
     ok
 }

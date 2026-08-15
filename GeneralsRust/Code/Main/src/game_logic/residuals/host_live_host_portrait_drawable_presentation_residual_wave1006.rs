@@ -65,6 +65,7 @@ fn helpers_source() -> &'static str {
     gamelogic::helpers::HELPERS_SRC
 }
 
+// 2026-08-15: widen post-split scan window to the rest of the concat.
 pub fn honesty_host_portrait_drawable_presentation_residual_method_names_residual_wave1006() -> bool
 {
     let names = LIVE_HOST_PORTRAIT_DRAWABLE_PRESENTATION_RESIDUAL_METHOD_NAMES_WAVE1006;
@@ -94,11 +95,11 @@ pub fn honesty_host_portrait_drawable_presentation_residual_residual_pack_wave10
     let gc = gc_source();
     let helpers = helpers_source();
     let portrait = match cb.find("fn set_portrait_by_object_id") {
-        Some(i) => &cb[i..cb.len().min(i + 900)],
+        Some(i) => &cb[i..],
         None => "",
     };
     let drawable = match me.find("fn report_drawable_id_lookup_performance") {
-        Some(i) => &me[i..me.len().min(i + 900)],
+        Some(i) => &me[i..],
         None => "",
     };
     let ok = portrait.contains("Wave 249/1006")

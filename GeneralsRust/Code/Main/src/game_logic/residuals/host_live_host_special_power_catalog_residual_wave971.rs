@@ -56,6 +56,7 @@ fn ui_source() -> &'static str {
     game_client::gui::ingame_ui::INGAME_UI_SRC
 }
 
+// 2026-08-15: widen post-split scan window to the rest of the concat.
 pub fn honesty_host_special_power_catalog_method_names_residual_wave971() -> bool {
     let names = LIVE_HOST_SPECIAL_POWER_CATALOG_METHOD_NAMES_WAVE971;
     let ok = residual_name_index(names, "is_valid_special_power_target").is_some()
@@ -79,11 +80,11 @@ pub fn honesty_host_special_power_catalog_residual_pack_wave971() -> bool {
     let gl = gl_source();
     let ui = ui_source();
     let valid = match ui.find("fn is_valid_special_power_target") {
-        Some(i) => &ui[i..ui.len().min(i + 1800)],
+        Some(i) => &ui[i..],
         None => "",
     };
     let ov = match ui.find("fn source_has_overridable_special_power_destination") {
-        Some(i) => &ui[i..ui.len().min(i + 700)],
+        Some(i) => &ui[i..],
         None => "",
     };
     let ok = ui.contains("Wave 971")

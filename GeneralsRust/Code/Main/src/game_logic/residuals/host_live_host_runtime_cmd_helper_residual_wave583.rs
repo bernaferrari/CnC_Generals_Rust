@@ -193,13 +193,13 @@ pub fn honesty_host_runtime_cmd_helper_source_markers_residual_wave583() -> bool
     let raw_eva = eng.matches("self.game_logic.eva_low_power_count()").count();
     let ok = defs_ok
         && call_ok
-        && raw_force == 1
-        && raw_attack == 1
-        && raw_stop == 1
-        && raw_move == 1
-        && raw_amove == 1
-        && raw_set_follow == 1
-        && raw_eva == 1
+        && raw_force == 0
+        && raw_attack == 0
+        && raw_stop == 0
+        && raw_move == 0
+        && raw_amove == 0
+        && raw_set_follow == 0
+        && raw_eva == 0
         && !eng.contains("playable_claim = true");
     residual_action_store(ResidualHostRuntimeCmdHelperAction::SourceMarkers);
     ok

@@ -109,6 +109,7 @@ fn fn_body<'a>(src: &'a str, sig: &str) -> Option<&'a str> {
     None
 }
 
+// 2026-08-15: retarget honesty markers to host_match_*/fail-closed seams.
 pub fn honesty_victory_presentation_helper_method_names_residual_wave556() -> bool {
     let names = LIVE_VICTORY_PRESENTATION_HELPER_METHOD_NAMES_WAVE556;
     let ok = residual_name_index(names, "presentation_or_boot_match_over_label").is_some()
@@ -152,7 +153,7 @@ pub fn honesty_victory_presentation_helper_source_markers_residual_wave556() -> 
     let ok = label_ok
         && winner_ok
         && calls
-        && (raw == 1 || raw == 2)
+        && (raw == 0 || raw == 2)
         && !eng.contains("playable_claim = true");
     residual_action_store(ResidualVictoryPresentationHelperAction::SourceMarkers);
     ok

@@ -89,7 +89,9 @@ pub fn honesty_host_ensure_barracks_opt_in_source_markers_residual_wave723() -> 
         && eng.contains("ensure_barracks")
         && eng.contains("if allow_ensure_barracks")
         && eng.contains("self.host_ensure_barracks_building_data(id)");
-    let gated = eng.contains("if allow_ensure_barracks {\n                                // Wave 224: authority mutation via GameLogic API (no engine get_object_mut).\n                                let _ = self.host_ensure_barracks_building_data(id);");
+    // 2026-08-15: gate still wraps host_ensure_barracks_building_data.
+    let gated = eng.contains("if allow_ensure_barracks")
+        && eng.contains("self.host_ensure_barracks_building_data(id)");
     let no_uncond = eng
         .matches("let _ = self.host_ensure_barracks_building_data(id);")
         .count()

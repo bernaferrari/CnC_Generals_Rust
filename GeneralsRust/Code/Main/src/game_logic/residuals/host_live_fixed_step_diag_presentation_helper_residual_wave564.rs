@@ -135,18 +135,18 @@ pub fn honesty_fixed_step_diag_presentation_helper_source_markers_residual_wave5
         residual_action_store(ResidualFixedStepDiagPresentationHelperAction::SourceMarkers);
         return false;
     };
+    // 2026-08-15: Wave 895 fail-closed — host_match_logic_steps, no dual-read.
     let helper_ok = helper.contains("Wave 564")
         && helper.contains("pres.logic_steps_run")
         && helper.contains("pres.logic_steps_budget_hit")
         && helper.contains("pres.logic_steps_accumulated_seconds")
-        && helper.contains("self.game_logic.fixed_step_diagnostics()");
-    let slow_ok = eng.contains("presentation_or_boot_fixed_step_diagnostics()")
-        && eng.contains("Slow menu tick");
+        && helper.contains("host_match_logic_steps")
+        && !helper.contains("self.game_logic.fixed_step_diagnostics()");
+    let slow_ok = eng.contains("presentation_or_boot_fixed_step_diagnostics()");
     let raw = eng
         .matches("self.game_logic.fixed_step_diagnostics()")
         .count();
-    // only boot residual inside helper
-    let ok = field_ok && helper_ok && slow_ok && raw == 1 && !eng.contains("playable_claim = true");
+    let ok = field_ok && helper_ok && slow_ok && raw == 0 && !eng.contains("playable_claim = true");
     residual_action_store(ResidualFixedStepDiagPresentationHelperAction::SourceMarkers);
     ok
 }
@@ -177,8 +177,8 @@ pub fn simulate_fixed_step_diag_presentation_helper_collect_source() -> bool {
 
 pub fn simulate_fixed_step_diag_presentation_helper_dispatch_source() -> bool {
     let eng = eng_source();
+    // 2026-08-15: Slow-menu log peel — dispatcher still calls the helper.
     let ok = eng.contains("presentation_or_boot_fixed_step_diagnostics()")
-        && eng.contains("Slow menu tick")
         && eng.contains("presentation_or_boot_logic_steps()");
     residual_action_store(ResidualFixedStepDiagPresentationHelperAction::DispatchSource);
     ok

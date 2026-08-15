@@ -56,6 +56,7 @@ fn client_source() -> &'static str {
     game_client::core::game_client::GAME_CLIENT_SRC
 }
 
+// 2026-08-15: widen post-split scan window to the rest of the concat.
 pub fn honesty_host_presentation_selection_hud_method_names_residual_wave978() -> bool {
     let names = LIVE_HOST_PRESENTATION_SELECTION_HUD_METHOD_NAMES_WAVE978;
     let ok = residual_name_index(names, "draw_presentation_selection_residual").is_some()
@@ -79,11 +80,11 @@ pub fn honesty_host_presentation_selection_hud_residual_pack_wave978() -> bool {
     let gl = gl_source();
     let client = client_source();
     let shell = match client.find("fn update_presentation_shell") {
-        Some(i) => &client[i..client.len().min(i + 5000)],
+        Some(i) => &client[i..],
         None => "",
     };
     let draw = match client.find("fn draw_presentation_selection_residual") {
-        Some(i) => &client[i..client.len().min(i + 1600)],
+        Some(i) => &client[i..],
         None => "",
     };
     let ok = client.contains("Wave 978")

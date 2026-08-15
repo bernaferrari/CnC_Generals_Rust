@@ -91,8 +91,9 @@ pub fn honesty_host_eager_spawn_map_helper_source_markers_residual_wave680() -> 
         && sh.contains("pub fn install_active_shadow_for_coupled_tick")
         && sh.contains("pub fn clear_active_shadow_for_coupled_tick")
         && sh.contains("Wave 680");
-    let eng_ok = eng.contains("install_active_shadow_for_coupled_tick")
-        && eng.contains("clear_active_shadow_for_coupled_tick")
+    // 2026-08-15: engine uses CoupledTickGuard::enter + eager_apply_all dispatcher.
+    let eng_ok = eng.contains("CoupledTickGuard::enter")
+        && eng.contains("eager_apply_all_host_residuals_after_logic")
         && eng.contains("Wave 682/925");
     let create_ok = gl.contains("eager_map_host_spawn_if_coupled")
         && gl.contains("Wave 680: mid-frame GameWorld map")
@@ -121,7 +122,7 @@ pub fn honesty_host_eager_spawn_map_helper_nav_commands_residual_wave680() -> bo
 pub fn simulate_host_eager_spawn_map_helper_collect_source() -> bool {
     let ok = shadow_source().contains("eager_map_host_spawn_if_coupled")
         && gl_source().contains("eager_map_host_spawn_if_coupled")
-        && eng_source().contains("install_active_shadow_for_coupled_tick");
+        && eng_source().contains("CoupledTickGuard::enter");
     residual_action_store(ResidualHostEagerSpawnMapHelperAction::CollectSource);
     ok
 }

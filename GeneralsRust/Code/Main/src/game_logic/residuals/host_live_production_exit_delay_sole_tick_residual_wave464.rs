@@ -97,6 +97,7 @@ fn game_logic_source() -> &'static str {
     super::GAME_LOGIC_HOST_SRC
 }
 
+// 2026-08-15: retarget honesty markers to host_match_*/fail-closed seams.
 pub fn honesty_production_exit_delay_sole_tick_method_names_residual_wave464() -> bool {
     PRODUCTION_EXIT_DELAY_SOLE_TICK_METHOD_NAMES_WAVE464.len() == 6
         && residual_name_index(
@@ -179,7 +180,7 @@ pub fn simulate_production_exit_delay_sole_tick_host_source() -> bool {
         || src.contains("Wave 464/614: GameWorld sole-ticks progress + exit delay")
         || src.contains("host_production_ready_log"))
         && src.contains("gameworld_production_sole_tick_enabled()")
-        && src.contains("building.try_complete_production()");
+        && src.contains("building.host_apply_unit_production_completions()");
     // Ensure sole branch does not call tick_exit_delay
     let i = src
         .find("Wave 464: GameWorld sole-ticks queue progress + exit delay")
@@ -189,8 +190,8 @@ pub fn simulate_production_exit_delay_sole_tick_host_source() -> bool {
         residual_action_store(ResidualProductionExitDelaySoleTickAction::HostSoleSource);
         return false;
     };
-    let win = &src[i..src.len().min(i + 800)];
-    let ok = ok && !win.contains("tick_exit_delay") && win.contains("try_complete_production");
+    let win = &src[i..];
+    let ok = ok && !win.contains("tick_exit_delay") && win.contains("host_apply_unit_production_completions");
     residual_action_store(ResidualProductionExitDelaySoleTickAction::HostSoleSource);
     ok
 }

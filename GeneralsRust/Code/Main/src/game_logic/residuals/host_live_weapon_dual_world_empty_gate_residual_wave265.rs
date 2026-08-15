@@ -81,29 +81,17 @@ pub fn honesty_live_weapon_dual_world_empty_gate_residual_pack_wave265() -> bool
 }
 
 fn fn_body<'a>(src: &'a str, name: &str) -> Option<&'a str> {
-    let i = src.find(name)?;
-    let brace = src[i..].find('{')? + i;
-    let mut depth = 0usize;
-    for (off, ch) in src[brace..].char_indices() {
-        match ch {
-            '{' => depth += 1,
-            '}' => {
-                depth -= 1;
-                if depth == 0 {
-                    return Some(&src[i..brace + off + 1]);
-                }
-            }
-            _ => {}
-        }
-    }
-    None
+    let short = name.trim_start_matches("fn ").trim_end_matches('(');
+    crate::game_logic::residuals::harness::last_rust_fn_body(src, short)
 }
 
 /// Source residual: Weapon module empty dual-world short-circuits.
 pub fn honesty_weapon_dual_world_empty_gate_source() -> bool {
-    let g = include_str!("../../../../GameEngine/GameLogic/src/weapon/mod.rs");
+    // 2026-08-15: weapon god-file split — scan WEAPON_SRC, not the facade.
+    let g = crate::game_logic::residuals::WEAPON_SRC;
     if !(g.contains("Wave 265")
         && g.contains("fn dual_world_registry_unavailable")
+        && (g.contains("let _host_empty") || g.contains("OBJECT_REGISTRY.is_empty()"))
         && g.contains("OBJECT_REGISTRY.is_empty()"))
     {
         return false;

@@ -44,6 +44,7 @@ pub const RUNTIME_HOST_LIVE_PLAYER_DUAL_WORLD_EMPTY_GATE_CMD_NAMES_WAVE268: &[&s
 ];
 
 /// Honesty: method names residual pack.
+// 2026-08-15: empty-registry helper is fail-open (C++ does not skip-close).
 pub fn honesty_live_player_dual_world_empty_gate_method_names_residual_wave268() -> bool {
     LIVE_PLAYER_DUAL_WORLD_EMPTY_GATE_METHOD_NAMES_WAVE268.len() == 7
         && residual_name_index(
@@ -81,30 +82,19 @@ pub fn honesty_live_player_dual_world_empty_gate_residual_pack_wave268() -> bool
 }
 
 fn fn_body<'a>(src: &'a str, name: &str) -> Option<&'a str> {
-    let i = src.find(name)?;
-    let brace = src[i..].find('{')? + i;
-    let mut depth = 0usize;
-    for (off, ch) in src[brace..].char_indices() {
-        match ch {
-            '{' => depth += 1,
-            '}' => {
-                depth -= 1;
-                if depth == 0 {
-                    return Some(&src[i..brace + off + 1]);
-                }
-            }
-            _ => {}
-        }
-    }
-    None
+    let short = name.trim_start_matches("fn ").trim_end_matches('(');
+    crate::game_logic::residuals::harness::last_rust_fn_body(src, short)
 }
 
 /// Source residual: Player empty dual-world short-circuits.
+/// 2026-08-15: helper skips only when BOTH OBJECT_REGISTRY and GameLogic
+/// object counts are empty (C++ TheGameLogic still owns live objects).
 pub fn honesty_player_dual_world_empty_gate_source() -> bool {
     let g = gamelogic::player::PLAYER_SRC;
     if !(g.contains("Wave 268")
         && g.contains("fn dual_world_registry_unavailable")
-        && g.contains("OBJECT_REGISTRY.is_empty()"))
+        && g.contains("OBJECT_REGISTRY.is_empty()")
+        && g.contains("get_object_count()"))
     {
         return false;
     }

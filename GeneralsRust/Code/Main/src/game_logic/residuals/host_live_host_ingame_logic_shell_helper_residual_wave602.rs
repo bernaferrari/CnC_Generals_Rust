@@ -124,6 +124,7 @@ fn fn_body<'a>(src: &'a str, sig: &str) -> Option<&'a str> {
     None
 }
 
+// 2026-08-15: retarget honesty markers to host_match_*/fail-closed seams.
 pub fn honesty_host_ingame_logic_shell_helper_method_names_residual_wave602() -> bool {
     let names = LIVE_HOST_INGAME_LOGIC_SHELL_HELPER_METHOD_NAMES_WAVE602;
     let ok = residual_name_index(names, "host_run_ingame_logic_presentation_frame").is_some()
@@ -150,7 +151,7 @@ pub fn honesty_host_ingame_logic_shell_helper_source_markers_residual_wave602() 
         return false;
     };
     let logic_ok = logic.contains("Wave 602")
-        && logic.contains("begin_shadow_coupled_tick")
+        && logic.contains("CoupledTickGuard")
         && logic.contains("host_update_logic_frame")
         && logic.contains("dual_tick_policy")
         && logic.contains("apply_post_authority_crate_tick")
@@ -193,7 +194,7 @@ pub fn simulate_host_ingame_logic_shell_helper_collect_source() -> bool {
     let ok = eng.contains("Wave 602")
         && eng.contains("fn host_run_ingame_logic_presentation_frame")
         && eng.contains("fn host_route_shell_owned_screen_change")
-        && eng.contains("begin_shadow_coupled_tick");
+        && eng.contains("CoupledTickGuard");
     residual_action_store(ResidualHostIngameLogicShellHelperAction::CollectSource);
     ok
 }

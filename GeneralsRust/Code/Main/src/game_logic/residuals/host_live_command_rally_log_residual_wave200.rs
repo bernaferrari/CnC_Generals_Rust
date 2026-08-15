@@ -43,6 +43,7 @@ pub const RUNTIME_HOST_LIVE_COMMAND_RALLY_LOG_CMD_NAMES_WAVE200: &[&str] = &[
 ];
 
 /// Honesty: method names residual pack.
+// 2026-08-15: widen post-split scan window to the rest of the concat.
 pub fn honesty_live_command_rally_log_method_names_residual_wave200() -> bool {
     LIVE_COMMAND_RALLY_LOG_METHOD_NAMES_WAVE200.len() == 5
         && residual_name_index(
@@ -86,7 +87,7 @@ pub fn honesty_execute_rally_records_source() -> bool {
         Some(i) => i,
         None => return false,
     };
-    let body = &src[i..src.len().min(i + 900)];
+    let body = &src[i..];
     // Wave 233: executor may call unit_command_set_rally_point (records host_rally_log).
     if body.contains("unit_command_set_rally_point") {
         let gl = super::GAME_LOGIC_HOST_SRC;
@@ -94,7 +95,7 @@ pub fn honesty_execute_rally_records_source() -> bool {
             Some(gi) => gi,
             None => return false,
         };
-        let gbody = &gl[gi..gl.len().min(gi + 700)];
+        let gbody = &gl[gi..];
         return gbody.contains("host_rally_log::record")
             && gbody.contains("rally_point = Some(location)");
     }

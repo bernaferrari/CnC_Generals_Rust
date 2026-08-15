@@ -46,6 +46,7 @@ pub const RUNTIME_HOST_LIVE_OS_INPUT_COMMAND_PATH_CMD_NAMES_WAVE209: &[&str] = &
 ];
 
 /// Honesty: method names residual pack.
+// 2026-08-15: widen post-split scan window to the rest of the concat.
 pub fn honesty_live_os_input_command_path_method_names_residual_wave209() -> bool {
     LIVE_OS_INPUT_COMMAND_PATH_METHOD_NAMES_WAVE209.len() == 5
         && residual_name_index(
@@ -98,7 +99,7 @@ pub fn honesty_right_click_context_commands_source() -> bool {
         Some(i) => i,
         None => return false,
     };
-    let body = &eng[i..eng.len().min(i + 3500)];
+    let body = &eng[i..];
     body.contains("MouseCommandContext")
         && (body.contains("queue_command")
             || body.contains("issue_")
@@ -113,7 +114,7 @@ pub fn honesty_left_click_selection_source() -> bool {
         Some(i) => i,
         None => return false,
     };
-    let body = &eng[i..eng.len().min(i + 3500)];
+    let body = &eng[i..];
     body.contains("find_object_at_position")
         && (body.contains("select")
             || body.contains("toggle_select")

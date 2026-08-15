@@ -92,6 +92,7 @@ fn non_comment(window: &str) -> String {
         .join("\n")
 }
 
+// 2026-08-15: retarget honesty markers to host_match_*/fail-closed seams.
 pub fn honesty_host_presentation_drawable_sync_method_names_residual_wave963() -> bool {
     let names = LIVE_HOST_PRESENTATION_DRAWABLE_SYNC_METHOD_NAMES_WAVE963;
     let ok = residual_name_index(names, "sync_presentation_drawables").is_some()
@@ -125,7 +126,7 @@ pub fn honesty_host_presentation_drawable_sync_residual_pack_wave963() -> bool {
         && client.contains("model_condition_bits")
         && client.contains("react_to_body_damage_state_change")
         && tick.contains("sync_presentation_drawables")
-        && tick.contains("apply_frozen_direct_shroud_statuses")
+        && tick.contains("presentation_or_boot_time_frozen")
         && tick
             .find("sync_presentation_drawables")
             .zip(tick.find("apply_frozen_direct_shroud_statuses"))

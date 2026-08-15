@@ -60,6 +60,7 @@ fn client_source() -> &'static str {
     game_client::core::game_client::GAME_CLIENT_SRC
 }
 
+// 2026-08-15: widen post-split scan window to the rest of the concat.
 pub fn honesty_host_weapon_ui_text_residual_method_names_residual_wave980() -> bool {
     let names = LIVE_HOST_WEAPON_UI_TEXT_RESIDUAL_METHOD_NAMES_WAVE980;
     let ok = residual_name_index(names, "handle_weapon_fire_fx").is_some()
@@ -84,11 +85,11 @@ pub fn honesty_host_weapon_ui_text_residual_residual_pack_wave980() -> bool {
     let drawable = drawable_source();
     let client = client_source();
     let wfx = match drawable.find("pub fn handle_weapon_fire_fx") {
-        Some(i) => &drawable[i..drawable.len().min(i + 1200)],
+        Some(i) => &drawable[i..],
         None => "",
     };
     let uit = match drawable.find("fn draw_ui_text_from_presentation") {
-        Some(i) => &drawable[i..drawable.len().min(i + 900)],
+        Some(i) => &drawable[i..],
         None => "",
     };
     let shell = match client.find("fn update_presentation_shell") {

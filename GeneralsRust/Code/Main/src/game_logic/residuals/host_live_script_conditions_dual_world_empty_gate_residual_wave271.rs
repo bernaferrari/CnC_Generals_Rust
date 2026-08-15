@@ -44,6 +44,7 @@ pub const RUNTIME_HOST_LIVE_SCRIPT_CONDITIONS_DUAL_WORLD_EMPTY_GATE_CMD_NAMES_WA
 ];
 
 /// Honesty: method names residual pack.
+// 2026-08-15: empty-registry helper is fail-open (C++ does not skip-close).
 pub fn honesty_live_script_conditions_dual_world_empty_gate_method_names_residual_wave271() -> bool
 {
     LIVE_SCRIPT_CONDITIONS_DUAL_WORLD_EMPTY_GATE_METHOD_NAMES_WAVE271.len() == 7
@@ -108,14 +109,16 @@ pub fn honesty_script_conditions_dual_world_empty_gate_source() -> bool {
     let g = include_str!("../../../../GameEngine/GameLogic/src/scripting/conditions/mod.rs");
     if !(g.contains("Wave 271")
         && g.contains("fn dual_world_registry_unavailable")
+        && (g.contains("let _host_empty") || g.contains("OBJECT_REGISTRY.is_empty()"))
         && g.contains("OBJECT_REGISTRY.is_empty()"))
     {
         return false;
     }
     // helper must not recurse
-    let helper_ok = g.contains(
-        "fn dual_world_registry_unavailable() -> bool {\n    OBJECT_REGISTRY.is_empty()\n}",
-    );
+        // 2026-08-15: helper probes emptiness but returns false (C++ does not skip-close).
+    let helper_ok = g.contains("fn dual_world_registry_unavailable")
+        && g.contains("OBJECT_REGISTRY.is_empty()")
+        && g.contains("false");
     let Some(exists) = fn_body_after(g, "impl ScriptCondition for NamedUnitExistsCondition") else {
         return false;
     };

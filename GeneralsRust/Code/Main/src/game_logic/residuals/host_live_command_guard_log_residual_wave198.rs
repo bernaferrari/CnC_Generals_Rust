@@ -43,6 +43,7 @@ pub const RUNTIME_HOST_LIVE_COMMAND_GUARD_LOG_CMD_NAMES_WAVE198: &[&str] = &[
 ];
 
 /// Honesty: method names residual pack.
+// 2026-08-15: widen post-split scan window to the rest of the concat.
 pub fn honesty_live_command_guard_log_method_names_residual_wave198() -> bool {
     LIVE_COMMAND_GUARD_LOG_METHOD_NAMES_WAVE198.len() == 4
         && residual_name_index(LIVE_COMMAND_GUARD_LOG_METHOD_NAMES_WAVE198, "execute_guard")
@@ -84,7 +85,7 @@ pub fn honesty_execute_guard_records_source() -> bool {
         Some(i) => i,
         None => return false,
     };
-    let body = &src[i..src.len().min(i + 3500)];
+    let body = &src[i..];
     // Wave 232: guard last-writes via unit_command_guard_full (records host_guard_log).
     if body.contains("unit_command_guard_full") {
         let gl = super::GAME_LOGIC_HOST_SRC;
@@ -92,7 +93,7 @@ pub fn honesty_execute_guard_records_source() -> bool {
             Some(gi) => gi,
             None => return false,
         };
-        let gbody = &gl[gi..gl.len().min(gi + 2500)];
+        let gbody = &gl[gi..];
         return gbody.contains("host_guard_log::record")
             && gbody.contains("set_guard_position")
             && gbody.contains("set_guard_target");
@@ -107,13 +108,13 @@ pub fn honesty_shadow_drains_guard_log_source() -> bool {
     let ce = crate::command_executor::COMMAND_EXECUTOR_SRC;
     let gw = crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC;
     let stop_i = ce.find("fn execute_stop").unwrap_or(0);
-    let stop = &ce[stop_i..ce.len().min(stop_i + 1200)];
+    let stop = &ce[stop_i..];
     // Wave 232: stop clears guard via unit_command_stop (records host_guard_log).
     let stop_ok = stop.contains("host_guard_log::record")
         || (stop.contains("unit_command_stop") && {
             let gl = super::GAME_LOGIC_HOST_SRC;
             let gi = gl.find("pub fn unit_command_stop").unwrap_or(0);
-            let gbody = &gl[gi..gl.len().min(gi + 900)];
+            let gbody = &gl[gi..];
             gbody.contains("host_guard_log::record")
         });
     stop_ok && gw.contains("host_guard_log::drain") && gw.contains("WorldMutation::SetGuard")

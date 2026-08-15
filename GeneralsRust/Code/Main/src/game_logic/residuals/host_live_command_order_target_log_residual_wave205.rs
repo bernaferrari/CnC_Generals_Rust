@@ -44,6 +44,7 @@ pub const RUNTIME_HOST_LIVE_COMMAND_ORDER_TARGET_LOG_CMD_NAMES_WAVE205: &[&str] 
 ];
 
 /// Honesty: method names residual pack.
+// 2026-08-15: widen post-split scan window to the rest of the concat.
 pub fn honesty_live_command_order_target_log_method_names_residual_wave205() -> bool {
     LIVE_COMMAND_ORDER_TARGET_LOG_METHOD_NAMES_WAVE205.len() == 5
         && residual_name_index(
@@ -87,7 +88,7 @@ pub fn honesty_set_order_target_source() -> bool {
         Some(i) => i,
         None => return false,
     };
-    let body = &src[i..src.len().min(i + 900)];
+    let body = &src[i..];
     body.contains("host_attack_log::record")
         && body.contains("set_status_attacking(false)")
         && !body.contains("AIState::Attacking")

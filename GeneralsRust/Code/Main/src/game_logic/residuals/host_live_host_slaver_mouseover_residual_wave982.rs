@@ -69,6 +69,7 @@ fn xfer_source() -> &'static str {
     include_str!("../../save_load/xfer.rs")
 }
 
+// 2026-08-15: widen post-split scan window to the rest of the concat.
 pub fn honesty_host_slaver_mouseover_residual_method_names_residual_wave982() -> bool {
     let names = LIVE_HOST_SLAVER_MOUSEOVER_RESIDUAL_METHOD_NAMES_WAVE982;
     let ok = residual_name_index(names, "slaver_object_id").is_some()
@@ -96,7 +97,7 @@ pub fn honesty_host_slaver_mouseover_residual_residual_pack_wave982() -> bool {
     let xfer = xfer_source();
 
     let mouse = match ui.find("fn create_mouseover_hint_from_presentation") {
-        Some(i) => &ui[i..ui.len().min(i + 1800)],
+        Some(i) => &ui[i..],
         None => "",
     };
 

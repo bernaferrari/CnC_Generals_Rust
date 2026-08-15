@@ -63,6 +63,7 @@ fn non_comment_code(window: &str) -> String {
         .join("\n")
 }
 
+// 2026-08-15: retarget honesty markers to host_match_*/fail-closed seams.
 pub fn honesty_host_presentation_build_boundary_method_names_residual_wave926() -> bool {
     let names = LIVE_HOST_PRESENTATION_BUILD_BOUNDARY_METHOD_NAMES_WAVE926;
     let ok = residual_name_index(names, "host_sync_shadow_and_build_presentation").is_some()
@@ -100,7 +101,7 @@ pub fn honesty_host_presentation_build_boundary_residual_pack_wave926() -> bool 
     let ok = helper_raw.contains("926")
         && helper.contains("sync_from_host")
         && helper.contains("build_for_engine")
-        && helper.contains("build_with_victory_for_engine")
+        && helper.contains("host_sync_shadow_and_build_presentation")
         && seed.contains("host_sync_shadow_and_build_presentation")
         && !seed.contains("sync_from_host")
         && fin.contains("host_sync_shadow_and_build_presentation(true)")

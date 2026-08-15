@@ -109,6 +109,7 @@ fn fn_body<'a>(src: &'a str, sig: &str) -> Option<&'a str> {
     None
 }
 
+// 2026-08-15: retarget honesty markers to host_match_*/fail-closed seams.
 pub fn honesty_shell_bypass_presentation_helper_method_names_residual_wave552() -> bool {
     let names = LIVE_SHELL_BYPASS_PRESENTATION_HELPER_METHOD_NAMES_WAVE552;
     let ok = residual_name_index(names, "presentation_or_boot_shell_bypass").is_some()
@@ -130,16 +131,16 @@ pub fn honesty_shell_bypass_presentation_helper_source_markers_residual_wave552(
     };
     let helper_ok = body.contains("Wave 552")
         && body.contains("pres.fow_shell_bypass")
-        && (body.contains("self.game_logic.isInShellGame()")
+        && (body.contains("host_match_in_shell")
             || body.contains("self.host_is_in_shell_game()"));
     let affirms = eng.contains("fn presentation_affirms_shell_or_boot")
         && eng.contains("presentation_affirms_shell_or_boot()");
     let from_pres = eng.contains("fn shell_bypass_from_presentation")
         && eng.contains("shell_bypass_from_presentation(startup_camera_presentation)");
     // Wave 585: raw isInShellGame lives only in host_is_in_shell_game; callers use helper.
-    let boot_only = eng.matches("self.game_logic.isInShellGame()").count() == 1
-        && eng.contains("fn host_is_in_shell_game")
-        && eng.contains("self.host_is_in_shell_game()");
+    // 2026-08-15: Wave 895 fail-closed — no isInShellGame dual-read.
+    let boot_only = eng.matches("self.game_logic.isInShellGame()").count() == 0
+        && (eng.contains("fn host_is_in_shell_game") || eng.contains("host_match_in_shell"));
     let ok = helper_ok
         && affirms
         && from_pres

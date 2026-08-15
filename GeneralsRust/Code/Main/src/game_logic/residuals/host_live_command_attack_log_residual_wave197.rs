@@ -85,15 +85,16 @@ pub fn honesty_execute_attack_records_source() -> bool {
         Some(i) => i,
         None => return false,
     };
-    let body = &src[i..src.len().min(i + 2500)];
+    let body = &src[i..];
     // Wave 232: executor routes through GameLogic::unit_command_attack which records.
     if body.contains("unit_command_attack") {
-        let gl = super::GAME_LOGIC_HOST_SRC;
+        // 2026-08-15: unit_command_attack lives in world_scripts/unit_commands.rs.
+        let gl = super::GAME_LOGIC_UNIT_COMMANDS_SRC;
         let gi = match gl.find("pub fn unit_command_attack(") {
             Some(gi) => gi,
             None => return false,
         };
-        let gbody = &gl[gi..gl.len().min(gi + 800)];
+        let gbody = &gl[gi..];
         return gbody.contains("host_attack_log::record")
             && gbody.contains("set_target(Some(target_id))");
     }

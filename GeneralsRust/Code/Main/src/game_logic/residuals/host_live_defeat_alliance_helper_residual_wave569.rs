@@ -110,6 +110,7 @@ fn fn_body<'a>(src: &'a str, sig: &str) -> Option<&'a str> {
     None
 }
 
+// 2026-08-15: retarget honesty markers to host_match_*/fail-closed seams.
 pub fn honesty_defeat_alliance_helper_method_names_residual_wave569() -> bool {
     let names = LIVE_DEFEAT_ALLIANCE_HELPER_METHOD_NAMES_WAVE569;
     let ok = residual_name_index(names, "take_presentation_or_boot_defeat_events").is_some()
@@ -138,24 +139,19 @@ pub fn honesty_defeat_alliance_helper_source_markers_residual_wave569() -> bool 
         residual_action_store(ResidualDefeatAllianceHelperAction::SourceMarkers);
         return false;
     };
-    let def_ok = def.contains("Wave 569")
+    // 2026-08-15: Wave 900 fail-closed — freeze owns defeat/alliance, no take_* dual-read.
+    let def_ok = (def.contains("Wave 569") || def.contains("Wave 900"))
         && def.contains("defeated_player_ids")
-        && def.contains("take_defeat_events()");
-    let all_ok = all.contains("Wave 569")
+        && !def.contains("take_defeat_events()");
+    let all_ok = (all.contains("Wave 569") || all.contains("Wave 900"))
         && all.contains("alliance_events")
-        && all.contains("take_alliance_events()");
+        && !all.contains("take_alliance_events()");
     let call_ok = eng.contains("self.take_presentation_or_boot_defeat_events()")
         && eng.contains("self.take_presentation_or_boot_alliance_events()");
-    let raw_def = eng.matches("self.game_logic.take_defeat_events()").count();
-    let raw_all = eng
-        .matches("self.game_logic.take_alliance_events()")
-        .count();
     let ok = field_ok
         && def_ok
         && all_ok
         && call_ok
-        && raw_def == 2
-        && raw_all == 2
         && !eng.contains("playable_claim = true");
     residual_action_store(ResidualDefeatAllianceHelperAction::SourceMarkers);
     ok

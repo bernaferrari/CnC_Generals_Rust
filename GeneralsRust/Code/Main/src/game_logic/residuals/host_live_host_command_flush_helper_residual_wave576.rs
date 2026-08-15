@@ -106,6 +106,7 @@ fn fn_body<'a>(src: &'a str, sig: &str) -> Option<&'a str> {
     None
 }
 
+// 2026-08-15: retarget honesty markers to host_match_*/fail-closed seams.
 pub fn honesty_host_command_flush_helper_method_names_residual_wave576() -> bool {
     let names = LIVE_HOST_COMMAND_FLUSH_HELPER_METHOD_NAMES_WAVE576;
     let ok = residual_name_index(names, "host_process_commands_with_command_sound").is_some()
@@ -133,23 +134,23 @@ pub fn honesty_host_command_flush_helper_source_markers_residual_wave576() -> bo
         return false;
     };
     let proc_ok = proc.contains("Wave 576")
-        && proc.contains("process_commands()")
+        && proc.contains("CommandPipelineOp::ProcessIfNeeded")
         && proc.contains("SoundType::Command");
+    // 2026-08-15: audible path is queue+process helpers; silent is QueueAndProcess.
     let queue_ok = queue.contains("Wave 576")
-        && queue.contains("queue_command(command)")
+        && queue.contains("host_queue_command")
         && queue.contains("host_process_commands_with_command_sound()");
     let silent_ok = silent.contains("Wave 576")
-        && silent.contains("queue_command(command)")
-        && silent.contains("process_commands()")
+        && silent.contains("CommandPipelineOp::QueueAndProcess")
         && !silent.contains("play_sound_effect");
     let call_ok = eng.contains("self.host_process_commands_with_command_sound()")
         && eng.contains("self.host_queue_and_process_command(")
         && eng.contains("self.host_queue_and_process_command_silent(");
     // process+Command SFX may appear only inside host_process helper (count==1).
-    let paired = eng.matches("process_commands();\n        self.play_sound_effect(SoundType::Command)")
+    let paired = eng.matches("self.game_logic.process_commands();\n        self.play_sound_effect(SoundType::Command)")
         .count()
         + eng
-            .matches("process_commands();\n            self.play_sound_effect(SoundType::Command)")
+            .matches("self.game_logic.process_commands();\n            self.play_sound_effect(SoundType::Command)")
             .count()
         + eng
             .matches(
@@ -160,7 +161,7 @@ pub fn honesty_host_command_flush_helper_source_markers_residual_wave576() -> bo
         && queue_ok
         && silent_ok
         && call_ok
-        && paired == 1
+        && paired == 0
         && !eng.contains("playable_claim = true");
     residual_action_store(ResidualHostCommandFlushHelperAction::SourceMarkers);
     ok

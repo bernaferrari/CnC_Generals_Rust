@@ -110,6 +110,7 @@ fn fn_body<'a>(src: &'a str, sig: &str) -> Option<&'a str> {
     None
 }
 
+// 2026-08-15: retarget honesty markers to host_match_*/fail-closed seams.
 pub fn honesty_replay_presentation_helper_method_names_residual_wave557() -> bool {
     let names = LIVE_REPLAY_PRESENTATION_HELPER_METHOD_NAMES_WAVE557;
     let ok = residual_name_index(names, "presentation_or_boot_in_replay_game").is_some()
@@ -134,10 +135,10 @@ pub fn honesty_replay_presentation_helper_source_markers_residual_wave557() -> b
     };
     let helper_ok = body.contains("Wave 557")
         && body.contains("pres.in_replay_game")
-        && body.contains("self.game_logic.isInReplayGame()");
+        && body.contains("host_match_in_replay");
     let call = eng.contains("presentation_or_boot_in_replay_game()");
     let raw = eng.matches("self.game_logic.isInReplayGame()").count();
-    let ok = field_ok && helper_ok && call && raw == 1 && !eng.contains("playable_claim = true");
+    let ok = field_ok && helper_ok && call && raw == 0 && !eng.contains("playable_claim = true");
     residual_action_store(ResidualReplayPresentationHelperAction::SourceMarkers);
     ok
 }

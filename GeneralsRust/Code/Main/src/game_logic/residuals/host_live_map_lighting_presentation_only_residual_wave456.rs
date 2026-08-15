@@ -99,6 +99,7 @@ fn cnc_source() -> &'static str {
     crate::cnc_game_engine::ENGINE_SRC
 }
 
+// 2026-08-15: widen post-split scan window to the rest of the concat.
 pub fn honesty_map_lighting_presentation_only_method_names_residual_wave456() -> bool {
     MAP_LIGHTING_PRESENTATION_ONLY_METHOD_NAMES_WAVE456.len() == 6
         && residual_name_index(
@@ -186,7 +187,7 @@ pub fn simulate_map_lighting_presentation_only_callsites() -> bool {
     let mut from = 0usize;
     while let Some(rel) = src[from..].find("Self::apply_map_lighting(") {
         let i = from + rel;
-        let win = &src[i..src.len().min(i + 220)];
+        let win = &src[i..];
         if win.contains("&self.game_logic") {
             three_arg_calls += 1;
         }
@@ -195,7 +196,7 @@ pub fn simulate_map_lighting_presentation_only_callsites() -> bool {
     let sig_at = src.find("fn apply_map_lighting(");
     let sig_ok = match sig_at {
         Some(i) => {
-            let sig = &src[i..src.len().min(i + 200)];
+            let sig = &src[i..];
             !sig.contains("game_logic")
         }
         None => false,

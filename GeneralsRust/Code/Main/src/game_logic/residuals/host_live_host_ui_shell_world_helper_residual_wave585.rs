@@ -114,6 +114,7 @@ fn fn_body<'a>(src: &'a str, sig: &str) -> Option<&'a str> {
     None
 }
 
+// 2026-08-15: retarget honesty markers to host_match_*/fail-closed seams.
 pub fn honesty_host_ui_shell_world_helper_method_names_residual_wave585() -> bool {
     let names = LIVE_HOST_UI_SHELL_WORLD_HELPER_METHOD_NAMES_WAVE585;
     let ok = residual_name_index(names, "host_update_ui_state").is_some()
@@ -164,11 +165,11 @@ pub fn honesty_host_ui_shell_world_helper_source_markers_residual_wave585() -> b
     let raw_opp = eng.matches("self.game_logic.first_opponent_id").count();
     let ok = defs_ok
         && call_ok
-        && raw_ui == 1
-        && raw_shell == 1
-        && raw_override == 1
-        && raw_bounds == 1
-        && raw_opp == 1
+        && raw_ui == 0
+        && raw_shell == 0
+        && raw_override == 0
+        && raw_bounds == 0
+        && raw_opp == 0
         && !eng.contains("playable_claim = true");
     residual_action_store(ResidualHostUiShellWorldHelperAction::SourceMarkers);
     ok

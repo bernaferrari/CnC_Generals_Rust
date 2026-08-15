@@ -80,6 +80,7 @@ fn count_raw_host_dual_reads(cnc: &str) -> usize {
     raw
 }
 
+// 2026-08-15: retarget honesty markers to host_match_*/fail-closed seams.
 pub fn honesty_host_dual_read_zero_sole_tick_method_names_residual_wave875() -> bool {
     let names = LIVE_HOST_DUAL_READ_ZERO_SOLE_TICK_METHOD_NAMES_WAVE875;
     let ok = residual_name_index(names, "host_queue_and_process_command").is_some()
@@ -105,7 +106,7 @@ pub fn honesty_host_dual_read_zero_sole_tick_residual_pack_wave875() -> bool {
     let raw = count_raw_host_dual_reads(cnc);
     let ok = raw == 0
         && cnc.contains("Wave 576/874: queue + process + Command SFX residual via host helpers")
-        && cnc.contains("self.host_queue_command(command)")
+        && cnc.contains("self.host_CommandPipelineOp::QueueAndProcess")
         && gl.contains("if crate::gameworld_shadow::gameworld_production_sole_tick_enabled()")
         && gl.contains("if crate::gameworld_shadow::gameworld_movement_authority_live()")
         && gl.contains("// Wave 613: production complete collect + apply via host helpers.")

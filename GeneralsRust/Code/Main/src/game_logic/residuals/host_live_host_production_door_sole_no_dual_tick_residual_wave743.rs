@@ -79,10 +79,12 @@ pub fn honesty_host_production_door_sole_no_dual_tick_method_names_residual_wave
 pub fn honesty_host_production_door_sole_no_dual_tick_source_markers_residual_wave743() -> bool {
     let gl = gl_source();
     let sh = shadow_source();
-    let gl_ok = gl.contains("Wave 743")
-        && gl.contains("under production sole-tick, GameWorld owns door phase")
-        && gl.contains("if !crate::gameworld_shadow::gameworld_production_sole_tick_enabled()")
-        && gl.contains("tick_production_door(self.frame)");
+    // 2026-08-15: C++ ProductionUpdate::updateDoors still runs on host.
+    // GameWorld has no door-phase timer; skipping froze WAITING_OPEN.
+    // Host always ticks doors; GW mirrors the event at the couple boundary.
+    let gl_ok = gl.contains("tick_production_door(self.frame)")
+        && gl.contains("ProductionUpdate::updateDoors")
+        && gl.contains("no door");
     let sh_ok = sh.contains("writeback_production_door_to_host")
         || sh.contains("host_production_door_ready_log");
     let ok = gl_ok && sh_ok && !gl.contains("playable_claim = true");
@@ -111,9 +113,8 @@ pub fn simulate_host_production_door_sole_no_dual_tick_collect_source() -> bool 
     ok
 }
 pub fn simulate_host_production_door_sole_no_dual_tick_dispatch_source() -> bool {
-    let ok = gl_source().contains("Wave 743")
-        && gl_source()
-            .contains("if !crate::gameworld_shadow::gameworld_production_sole_tick_enabled()");
+    let ok = gl_source().contains("tick_production_door(self.frame)")
+        && gl_source().contains("ProductionUpdate::updateDoors");
     residual_action_store(ResidualHostProductionDoorSoleNoDualTickAction::DispatchSource);
     ok
 }

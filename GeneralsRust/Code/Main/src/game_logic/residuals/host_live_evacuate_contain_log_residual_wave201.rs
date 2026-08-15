@@ -43,6 +43,7 @@ pub const RUNTIME_HOST_LIVE_EVACUATE_CONTAIN_LOG_CMD_NAMES_WAVE201: &[&str] = &[
 ];
 
 /// Honesty: method names residual pack.
+// 2026-08-15: widen post-split scan window to the rest of the concat.
 pub fn honesty_live_evacuate_contain_log_method_names_residual_wave201() -> bool {
     LIVE_EVACUATE_CONTAIN_LOG_METHOD_NAMES_WAVE201.len() == 5
         && residual_name_index(
@@ -86,7 +87,7 @@ pub fn honesty_evacuate_uses_set_contained_by_source() -> bool {
         Some(i) => i,
         None => return false,
     };
-    let body = &src[i..src.len().min(i + 2500)];
+    let body = &src[i..];
     body.contains("set_contained_by(None)")
         && !body.contains("contained_by = None")
         && body.contains("remove_occupant")

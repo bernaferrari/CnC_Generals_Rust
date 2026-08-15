@@ -49,6 +49,7 @@ fn memory_source() -> &'static str {
     include_str!("../../../../Libraries/Source/WWVegas/WWLib/memory_system/src/lib.rs")
 }
 
+// 2026-08-15: retarget honesty markers to host_match_*/fail-closed seams.
 pub fn honesty_host_queue_stamp_method_names_residual_wave874() -> bool {
     let names = LIVE_HOST_QUEUE_STAMP_METHOD_NAMES_WAVE874;
     let ok = residual_name_index(names, "host_queue_command").is_some()
@@ -74,7 +75,7 @@ pub fn honesty_host_queue_stamp_residual_pack_wave874() -> bool {
     let ok = cnc.contains("Wave 584/872/874: host queue residual")
         && cnc.contains("self.host_stamp_sim_timing_residuals()")
         && cnc.contains("Wave 576/874: queue + process + Command SFX residual via host helpers")
-        && cnc.contains("self.host_queue_command(command)")
+        && cnc.contains("self.host_CommandPipelineOp::QueueAndProcess")
         && mem.contains("#[allow(clippy::new_without_default)]")
         && mem.contains("#[allow(clippy::vec_box)]")
         && mem.contains("#[allow(dead_code)]");

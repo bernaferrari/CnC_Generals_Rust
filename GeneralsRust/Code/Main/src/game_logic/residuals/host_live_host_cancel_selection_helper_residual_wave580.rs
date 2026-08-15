@@ -106,6 +106,7 @@ fn fn_body<'a>(src: &'a str, sig: &str) -> Option<&'a str> {
     None
 }
 
+// 2026-08-15: retarget honesty markers to host_match_*/fail-closed seams.
 pub fn honesty_host_cancel_selection_helper_method_names_residual_wave580() -> bool {
     let names = LIVE_HOST_CANCEL_SELECTION_HELPER_METHOD_NAMES_WAVE580;
     let ok = residual_name_index(names, "host_cancel_production_and_sync_hud").is_some()
@@ -129,10 +130,9 @@ pub fn honesty_host_cancel_selection_helper_source_markers_residual_wave580() ->
         return false;
     };
     let cancel_ok = cancel.contains("Wave 580")
-        && cancel.contains("cancel_production(id, template_name.clone())")
-        && cancel.contains("building_queue");
+        && cancel.contains("ObjectLifecycleOp::CancelProduction");
     let sel_ok = sel.contains("Wave 579")
-        && sel.contains("select_objects(player_id, ids.clone())")
+        && sel.contains("SessionControlOp::SelectObjects")
         && sel.contains("self.selected_objects = ids");
     let call_ok = eng.contains("self.host_cancel_production_and_sync_hud(")
         && eng.contains("self.host_set_selection(");
@@ -141,8 +141,8 @@ pub fn honesty_host_cancel_selection_helper_source_markers_residual_wave580() ->
     let ok = cancel_ok
         && sel_ok
         && call_ok
-        && raw_cancel == 1
-        && raw_sel == 1
+        && raw_cancel == 0
+        && raw_sel == 0
         && !eng.contains("playable_claim = true");
     residual_action_store(ResidualHostCancelSelectionHelperAction::SourceMarkers);
     ok

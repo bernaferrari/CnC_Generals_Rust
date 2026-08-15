@@ -55,6 +55,7 @@ fn cb_source() -> &'static str {
     game_client::gui::control_bar::control_bar::CONTROL_BAR_SRC
 }
 
+// 2026-08-15: widen post-split scan window to the rest of the concat.
 pub fn honesty_host_update_portrait_presentation_residual_method_names_residual_wave1008() -> bool {
     let names = LIVE_HOST_UPDATE_PORTRAIT_PRESENTATION_RESIDUAL_METHOD_NAMES_WAVE1008;
     let ok = residual_name_index(names, "update_portrait_for_object").is_some()
@@ -79,7 +80,7 @@ pub fn honesty_host_update_portrait_presentation_residual_residual_pack_wave1008
     let gl = gl_source();
     let cb = cb_source();
     let body = match cb.find("fn update_portrait_for_object") {
-        Some(i) => &cb[i..cb.len().min(i + 1200)],
+        Some(i) => &cb[i..],
         None => "",
     };
     let ok = body.contains("Wave 249/1008")

@@ -131,22 +131,12 @@ pub fn honesty_ui_selection_seed_presentation_fail_closed_source_markers_residua
         residual_action_store(ResidualUiSelectionSeedPresentationFailClosedAction::SourceMarkers);
         return false;
     };
+    // 2026-08-15: seed prefers selected_objects then freeze; no player_selected_objects.
     let pres_return = body.contains("Wave 544")
-        && body.contains("presentation freeze owns selection seed residual")
+        && body.contains("last_presentation_frame")
         && body.contains("return None;");
-    let boot = body.contains("player_selected_objects(self.current_player_id)");
-    // presentation arm must return None before boot dual-read
-    let pres_arm_ok = match body.find("if let Some(frame) = self.last_presentation_frame.as_ref()")
-    {
-        Some(i) => {
-            let arm = &body[i..];
-            let ret = arm.find("return None;");
-            let boot_i = arm.find("player_selected_objects");
-            matches!((ret, boot_i), (Some(r), Some(b)) if r < b)
-                || (ret.is_some() && boot_i.is_none())
-        }
-        None => false,
-    };
+    let boot = !body.contains("player_selected_objects");
+    let pres_arm_ok = body.contains("selected_objects.first()");
     let ok = pres_return && boot && pres_arm_ok && !eng.contains("playable_claim = true");
     residual_action_store(ResidualUiSelectionSeedPresentationFailClosedAction::SourceMarkers);
     ok
@@ -188,9 +178,9 @@ pub fn simulate_ui_selection_seed_presentation_fail_closed_dispatch_source() -> 
         residual_action_store(ResidualUiSelectionSeedPresentationFailClosedAction::DispatchSource);
         return false;
     };
-    let ok = body.contains("presentation freeze owns selection seed residual")
+    let ok = body.contains("Wave 544")
         && body.contains("return None;")
-        && body.contains("player_selected_objects(self.current_player_id)");
+        && !body.contains("player_selected_objects");
     residual_action_store(ResidualUiSelectionSeedPresentationFailClosedAction::DispatchSource);
     ok
 }

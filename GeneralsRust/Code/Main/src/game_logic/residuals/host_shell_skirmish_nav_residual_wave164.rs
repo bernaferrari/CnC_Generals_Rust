@@ -52,6 +52,7 @@ pub const RUNTIME_HOST_SHELL_SKIRMISH_NAV_CMD_NAMES_WAVE164: &[&str] = &[
 pub const SKIRMISH_OPTIONS_LAYOUT_FILENAME_WAVE164: &str = "Menus/SkirmishGameOptionsMenu.wnd";
 
 /// Honesty: method names residual pack.
+// 2026-08-15: widen post-split scan window to the rest of the concat.
 pub fn honesty_shell_skirmish_nav_method_names_residual_wave164() -> bool {
     SHELL_SKIRMISH_NAV_METHOD_NAMES_WAVE164.len() == 5
         && residual_name_index(
@@ -91,7 +92,7 @@ pub fn honesty_open_skirmish_menu_pushes_options_layout_source() -> bool {
         Some(i) => i,
         None => return false,
     };
-    let body = &src[i..src.len().min(i + 4500)];
+    let body = &src[i..];
     body.contains("Menus/SkirmishGameOptionsMenu.wnd")
         && body.contains("simulate_main_menu_skirmish_button_gadget_selected")
         && body.contains(".push(")

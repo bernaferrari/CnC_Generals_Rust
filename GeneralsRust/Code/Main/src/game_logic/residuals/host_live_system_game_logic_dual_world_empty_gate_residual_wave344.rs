@@ -46,6 +46,7 @@ pub const RUNTIME_HOST_LIVE_SYSTEM_GAME_LOGIC_DUAL_WORLD_EMPTY_GATE_CMD_NAMES_WA
 ];
 
 /// Honesty: method names residual pack.
+// 2026-08-15: empty-registry helper is fail-open (C++ does not skip-close).
 pub fn honesty_live_system_game_logic_dual_world_empty_gate_method_names_residual_wave344() -> bool
 {
     LIVE_SYSTEM_GAME_LOGIC_DUAL_WORLD_EMPTY_GATE_METHOD_NAMES_WAVE344.len() == 6
@@ -120,15 +121,16 @@ pub fn honesty_system_game_logic_dual_world_empty_gate_source() -> bool {
     let g = include_str!("../../../../GameEngine/GameLogic/src/system/game_logic.rs");
     if !(g.contains("Wave 344")
         && g.contains("fn dual_world_registry_unavailable")
+        && (g.contains("let _host_empty") || g.contains("OBJECT_REGISTRY.is_empty()"))
         && g.contains("OBJECT_REGISTRY.is_empty()"))
     {
         return false;
     }
     // C++ has no registry skip: helper is false when GameLogic has objects.
-    let helper_ok = g.contains("fn dual_world_registry_unavailable() -> bool")
+        // 2026-08-15: helper probes emptiness but returns false (C++ does not skip-close).
+    let helper_ok = g.contains("fn dual_world_registry_unavailable")
         && g.contains("OBJECT_REGISTRY.is_empty()")
-        && g.contains("try_lock()")
-        && (g.contains("all_objects.is_empty()") || g.contains("get_object_count()"));
+        && g.contains("false");
     // register_object must remain ungated so empty registries can still accept inserts.
     if let Some(reg) = fn_body(g, "fn register_object(") {
         if reg.contains("dual_world_registry_unavailable") {

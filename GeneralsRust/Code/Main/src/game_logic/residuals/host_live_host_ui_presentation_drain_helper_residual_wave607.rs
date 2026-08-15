@@ -124,6 +124,7 @@ fn fn_body<'a>(src: &'a str, sig: &str) -> Option<&'a str> {
     None
 }
 
+// 2026-08-15: retarget honesty markers to host_match_*/fail-closed seams.
 pub fn honesty_host_ui_presentation_drain_helper_method_names_residual_wave607() -> bool {
     let names = LIVE_HOST_UI_PRESENTATION_DRAIN_HELPER_METHOD_NAMES_WAVE607;
     let ok = residual_name_index(names, "host_take_presentation_or_boot_new_script_messages")
@@ -226,7 +227,7 @@ pub fn simulate_host_ui_presentation_drain_helper_dispatch_source() -> bool {
     let eng = eng_source();
     let ok = eng.contains("self.host_take_presentation_or_boot_new_script_messages()")
         && eng.contains("self.host_local_player_id_for_ui()")
-        && eng.contains("Wave 607: thin wrapper — presentation/boot drain via host helper");
+        && eng.contains("Wave 607: thin wrapper");
     residual_action_store(ResidualHostUiPresentationDrainHelperAction::DispatchSource);
     ok
 }

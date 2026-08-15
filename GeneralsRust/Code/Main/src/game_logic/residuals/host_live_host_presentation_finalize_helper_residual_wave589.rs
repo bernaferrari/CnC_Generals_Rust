@@ -114,6 +114,7 @@ fn fn_body<'a>(src: &'a str, sig: &str) -> Option<&'a str> {
     None
 }
 
+// 2026-08-15: retarget honesty markers to host_match_*/fail-closed seams.
 pub fn honesty_host_presentation_finalize_helper_method_names_residual_wave589() -> bool {
     let names = LIVE_HOST_PRESENTATION_FINALIZE_HELPER_METHOD_NAMES_WAVE589;
     let ok = residual_name_index(names, "host_finalize_presentation_after_logic").is_some()
@@ -134,7 +135,7 @@ pub fn honesty_host_presentation_finalize_helper_source_markers_residual_wave589
         return false;
     };
     let body_ok = body.contains("Wave 589")
-        && body.contains("build_with_victory_for_engine")
+        && body.contains("host_sync_shadow_and_build_presentation")
         && body.contains("dispatch_audio_events_direct")
         && body.contains("apply_particle_systems_to_client")
         && body.contains("last_presentation_frame = Some(pres)")
@@ -156,8 +157,8 @@ pub fn honesty_host_presentation_finalize_helper_source_markers_residual_wave589
     let ok = body_ok
         && order_ok
         && call_ok
-        && raw_audio == 1
-        && raw_fx == 1
+        && raw_audio == 0
+        && raw_fx == 0
         && !eng.contains("playable_claim = true");
     residual_action_store(ResidualHostPresentationFinalizeHelperAction::SourceMarkers);
     ok
@@ -186,7 +187,7 @@ pub fn simulate_host_presentation_finalize_helper_collect_source() -> bool {
     let eng = eng_source();
     let ok = eng.contains("Wave 589")
         && eng.contains("fn host_finalize_presentation_after_logic")
-        && eng.contains("build_with_victory_for_engine")
+        && eng.contains("host_sync_shadow_and_build_presentation")
         && eng.contains("dispatch_audio_events_direct");
     residual_action_store(ResidualHostPresentationFinalizeHelperAction::CollectSource);
     ok

@@ -105,6 +105,7 @@ fn fn_body<'a>(src: &'a str, sig: &str) -> Option<&'a str> {
     None
 }
 
+// 2026-08-15: retarget honesty markers to host_match_*/fail-closed seams.
 pub fn honesty_host_camera_start_helper_method_names_residual_wave577() -> bool {
     let names = LIVE_HOST_CAMERA_START_HELPER_METHOD_NAMES_WAVE577;
     let ok = residual_name_index(names, "host_center_camera_and_request_focus").is_some()
@@ -130,12 +131,12 @@ pub fn honesty_host_camera_start_helper_source_markers_residual_wave577() -> boo
     let cam_ok = cam.contains("Wave 577")
         && cam.contains("clamp_to_world_bounds")
         && cam.contains("camera_target.x")
-        && cam.contains("request_camera_focus(clamped)");
+        && cam.contains("self.camera_target");
+    // 2026-08-15: start goes through SessionControlOp (no set_player_team dual-write).
     let start_ok = start.contains("Wave 577")
-        && start.contains("start_new_game(mode)")
-        && start.contains("set_player_team")
+        && start.contains("SessionControlOp::StartNewGameWithFaction")
         && start.contains("setup_skirmish_ai");
-    let call_ok = eng.contains("self.host_center_camera_and_request_focus(")
+    let call_ok = eng.contains("host_center_camera_and_request_focus")
         && eng.contains("self.host_start_new_game_with_faction(");
     let raw_focus = eng.matches("self.game_logic.request_camera_focus").count();
     let raw_start = eng.matches("self.game_logic.start_new_game").count();
@@ -143,8 +144,8 @@ pub fn honesty_host_camera_start_helper_source_markers_residual_wave577() -> boo
     let ok = cam_ok
         && start_ok
         && call_ok
-        && raw_focus == 1
-        && raw_start == 1
+        && raw_focus == 0
+        && raw_start == 0
         && !eng.contains("playable_claim = true");
     residual_action_store(ResidualHostCameraStartHelperAction::SourceMarkers);
     ok
@@ -175,7 +176,7 @@ pub fn simulate_host_camera_start_helper_collect_source() -> bool {
 
 pub fn simulate_host_camera_start_helper_dispatch_source() -> bool {
     let eng = eng_source();
-    let ok = eng.contains("self.host_center_camera_and_request_focus(")
+    let ok = eng.contains("host_center_camera_and_request_focus")
         && eng.contains("self.host_start_new_game_with_faction(mode, faction_team, true)")
         && eng.contains("self.host_start_new_game_with_faction(mode, faction_team, false)");
     residual_action_store(ResidualHostCameraStartHelperAction::DispatchSource);

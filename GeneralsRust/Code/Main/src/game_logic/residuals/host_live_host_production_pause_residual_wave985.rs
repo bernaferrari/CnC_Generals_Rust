@@ -59,6 +59,7 @@ fn control_bar_source() -> &'static str {
     game_client::gui::control_bar::control_bar::CONTROL_BAR_SRC
 }
 
+// 2026-08-15: widen post-split scan window to the rest of the concat.
 pub fn honesty_host_production_pause_residual_method_names_residual_wave985() -> bool {
     let names = LIVE_HOST_PRODUCTION_PAUSE_RESIDUAL_METHOD_NAMES_WAVE985;
     let ok = residual_name_index(names, "queue_host_production_pause").is_some()
@@ -83,15 +84,15 @@ pub fn honesty_host_production_pause_residual_residual_pack_wave985() -> bool {
     let b = buildings_source();
     let cb = control_bar_source();
     let advance = match b.find("pub fn advance_production_progress") {
-        Some(i) => &b[i..b.len().min(i + 500)],
+        Some(i) => &b[i..],
         None => "",
     };
     let pause_fn = match cb.find("fn set_build_queue_paused") {
-        Some(i) => &cb[i..cb.len().min(i + 700)],
+        Some(i) => &cb[i..],
         None => "",
     };
     let finalize = match cnc.find("fn host_finalize_presentation_after_logic") {
-        Some(i) => &cnc[i..cnc.len().min(i + 900)],
+        Some(i) => &cnc[i..],
         None => "",
     };
     let ok = b.contains("pub production_paused: bool")

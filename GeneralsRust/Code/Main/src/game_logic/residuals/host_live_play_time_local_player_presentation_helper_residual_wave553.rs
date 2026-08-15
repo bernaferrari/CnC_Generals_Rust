@@ -111,6 +111,7 @@ fn fn_body<'a>(src: &'a str, sig: &str) -> Option<&'a str> {
     None
 }
 
+// 2026-08-15: retarget honesty markers to host_match_*/fail-closed seams.
 pub fn honesty_play_time_local_player_presentation_helper_method_names_residual_wave553() -> bool {
     let names = LIVE_PLAY_TIME_LOCAL_PLAYER_PRESENTATION_HELPER_METHOD_NAMES_WAVE553;
     let ok = residual_name_index(names, "presentation_or_boot_total_play_time").is_some()
@@ -140,7 +141,7 @@ pub fn honesty_play_time_local_player_presentation_helper_source_markers_residua
         && pt.contains("presentation_frame()");
     let lp_ok = lp.contains("Wave 553")
         && lp.contains("pres.local_player_id")
-        && lp.contains("self.game_logic.local_player_id()");
+        && lp.contains("host_match_local_player_id");
     let calls = eng.contains("presentation_or_boot_total_play_time()")
         && eng.contains("presentation_or_boot_local_player_id()");
     // raw dual-reads: helper boot + save boot residual
@@ -150,7 +151,7 @@ pub fn honesty_play_time_local_player_presentation_helper_source_markers_residua
         && lp_ok
         && calls
         && raw_pt >= 1
-        && raw_lp == 1
+        && raw_lp == 0
         && !eng.contains("playable_claim = true");
     residual_action_store(ResidualPlayTimeLocalPlayerPresentationHelperAction::SourceMarkers);
     ok

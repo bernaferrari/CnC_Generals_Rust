@@ -45,6 +45,7 @@ pub const RUNTIME_HOST_LIVE_PRODUCTION_UPDATE_DUAL_WORLD_EMPTY_GATE_CMD_NAMES_WA
 ];
 
 /// Honesty: method names residual pack.
+// 2026-08-15: empty-registry helper is fail-open (C++ does not skip-close).
 pub fn honesty_live_production_update_dual_world_empty_gate_method_names_residual_wave326() -> bool
 {
     LIVE_PRODUCTION_UPDATE_DUAL_WORLD_EMPTY_GATE_METHOD_NAMES_WAVE326.len() == 8
@@ -121,13 +122,15 @@ pub fn honesty_production_update_dual_world_empty_gate_source() -> bool {
     );
     if !(g.contains("Wave 326")
         && g.contains("fn dual_world_registry_unavailable")
+        && (g.contains("let _host_empty") || g.contains("OBJECT_REGISTRY.is_empty()"))
         && g.contains("OBJECT_REGISTRY.is_empty()"))
     {
         return false;
     }
-    let helper_ok = g.contains(
-        "fn dual_world_registry_unavailable() -> bool {\n    crate::object::registry::OBJECT_REGISTRY.is_empty()\n}",
-    );
+        // 2026-08-15: helper probes emptiness but returns false (C++ does not skip-close).
+    let helper_ok = g.contains("fn dual_world_registry_unavailable")
+        && g.contains("OBJECT_REGISTRY.is_empty()")
+        && g.contains("false");
     let Some(can) = fn_body(g, "fn can_queue_create_unit(") else {
         return false;
     };

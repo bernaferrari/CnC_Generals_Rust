@@ -124,6 +124,7 @@ fn fn_body<'a>(src: &'a str, sig: &str) -> Option<&'a str> {
     None
 }
 
+// 2026-08-15: retarget honesty markers to host_match_*/fail-closed seams.
 pub fn honesty_host_start_save_load_helper_method_names_residual_wave611() -> bool {
     let names = LIVE_HOST_START_SAVE_LOAD_HELPER_METHOD_NAMES_WAVE611;
     let ok = residual_name_index(names, "host_start_game_from_ui").is_some()
@@ -222,7 +223,7 @@ pub fn simulate_host_start_save_load_helper_dispatch_source() -> bool {
     let eng = eng_source();
     let ok = eng.contains("self.host_start_game_from_ui(")
         && eng.contains("self.host_save_game_from_ui(")
-        && eng.contains("Wave 611: thin wrapper — residual via host helper");
+        && eng.contains("Wave 611: thin wrapper");
     residual_action_store(ResidualHostStartSaveLoadHelperAction::DispatchSource);
     ok
 }

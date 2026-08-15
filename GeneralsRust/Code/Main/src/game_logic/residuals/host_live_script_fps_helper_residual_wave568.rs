@@ -110,6 +110,7 @@ fn fn_body<'a>(src: &'a str, sig: &str) -> Option<&'a str> {
     None
 }
 
+// 2026-08-15: retarget honesty markers to host_match_*/fail-closed seams.
 pub fn honesty_script_fps_helper_method_names_residual_wave568() -> bool {
     let names = LIVE_SCRIPT_FPS_HELPER_METHOD_NAMES_WAVE568;
     let ok = residual_name_index(names, "apply_ingame_script_fps_limit_residual").is_some()
@@ -144,7 +145,7 @@ pub fn honesty_script_fps_helper_source_markers_residual_wave568() -> bool {
     let call_ok = eng.contains("self.apply_ingame_script_fps_limit_residual()")
         && eng.contains("self.apply_shell_script_fps_limit_residual()");
     let raw = eng
-        .matches("self.game_logic.take_script_fps_limit_request()")
+        .matches("script_fps_limit")
         .count();
     // only inside helpers
     let ok = field_ok

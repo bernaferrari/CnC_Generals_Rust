@@ -46,6 +46,7 @@ pub const RUNTIME_HOST_LIVE_SPAWN_POINT_PRODUCTION_EXIT_BEHAVIOR_DUAL_WORLD_EMPT
     ];
 
 /// Honesty: method names residual pack.
+// 2026-08-15: empty-registry helper is fail-open (C++ does not skip-close).
 pub fn honesty_live_spawn_point_production_exit_behavior_dual_world_empty_gate_method_names_residual_wave417(
 ) -> bool {
     LIVE_SPAWN_POINT_PRODUCTION_EXIT_BEHAVIOR_DUAL_WORLD_EMPTY_GATE_METHOD_NAMES_WAVE417.len() == 6
@@ -125,13 +126,15 @@ pub fn honesty_spawn_point_production_exit_behavior_dual_world_empty_gate_source
     );
     if !(g.contains("Wave 417")
         && g.contains("fn dual_world_registry_unavailable")
+        && (g.contains("let _host_empty") || g.contains("OBJECT_REGISTRY.is_empty()"))
         && g.contains("OBJECT_REGISTRY.is_empty()"))
     {
         return false;
     }
-    let helper_ok = g.contains(
-        "fn dual_world_registry_unavailable() -> bool {\n    crate::object::registry::OBJECT_REGISTRY.is_empty()\n}",
-    );
+        // 2026-08-15: helper probes emptiness but returns false (C++ does not skip-close).
+    let helper_ok = g.contains("fn dual_world_registry_unavailable")
+        && g.contains("OBJECT_REGISTRY.is_empty()")
+        && g.contains("false");
     let Some(init) = fn_body(g, "fn initialize_bone_positions(") else {
         return false;
     };

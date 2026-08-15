@@ -128,16 +128,19 @@ pub fn honesty_boot_local_player_helper_source_markers_residual_wave574() -> boo
         residual_action_store(ResidualBootLocalPlayerHelperAction::SourceMarkers);
         return false;
     };
+    // 2026-08-15: Wave 897 peeled player_exists/min_player dual-reads.
+    // Boot now prefers host_match_local_player_id, else current_player_id.
     let boot_ok = boot.contains("Wave 574")
-        && boot.contains("player_exists(self.current_player_id)")
-        && boot.contains("min_player_id()");
+        && boot.contains("host_match_local_player_id")
+        && boot.contains("self.current_player_id")
+        && !boot.contains("player_exists(self.current_player_id)")
+        && !boot.contains("min_player_id()");
     let ui_ok = ui.contains("Wave 574")
         && ui.contains("presentation_or_boot_local_player_id()")
         && ui.contains("boot_local_player_id_from_host()")
         && !ui.contains("player_exists(self.current_player_id)");
     let raw_exists = eng.matches("self.game_logic.player_exists").count();
-    // boot_player_info_from_host + boot_local_player_id_from_host
-    let ok = boot_ok && ui_ok && raw_exists == 2 && !eng.contains("playable_claim = true");
+    let ok = boot_ok && ui_ok && raw_exists == 0 && !eng.contains("playable_claim = true");
     residual_action_store(ResidualBootLocalPlayerHelperAction::SourceMarkers);
     ok
 }

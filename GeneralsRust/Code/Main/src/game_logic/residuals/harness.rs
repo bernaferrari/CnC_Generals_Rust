@@ -67,6 +67,35 @@ pub const GAME_LOGIC_HOST_SRC: &str = concat!(
     include_str!("../object/attack.rs"),
 );
 
+/// Live unit-command split (2026-08-15). Kept out of `GAME_LOGIC_HOST_SRC`
+/// so exact `.matches().count()` honesty packs do not shift.
+pub const GAME_LOGIC_UNIT_COMMANDS_SRC: &str =
+    include_str!("../world_scripts/unit_commands.rs");
+
+/// Object order / construct splits scanned by command-authority residuals.
+pub const GAME_LOGIC_OBJECT_ORDERS_SRC: &str = include_str!("../object/orders.rs");
+pub const GAME_LOGIC_OBJECT_CONSTRUCT_SRC: &str = include_str!("../object/construct.rs");
+
+/// Weapon crate after the god-file split (2026-08-15). Dual-world residuals
+/// must scan these seams, not the leftover `weapon/mod.rs` facade.
+pub const WEAPON_SRC: &str = concat!(
+    include_str!("../../../../GameEngine/GameLogic/src/weapon/mod.rs"),
+    include_str!("../../../../GameEngine/GameLogic/src/weapon/helpers.rs"),
+    include_str!("../../../../GameEngine/GameLogic/src/weapon/weapon.rs"),
+    include_str!("../../../../GameEngine/GameLogic/src/weapon/weapon_instance.rs"),
+    include_str!("../../../../GameEngine/GameLogic/src/weapon/weapon_instance_combat.rs"),
+    include_str!("../../../../GameEngine/GameLogic/src/weapon/damage_application.rs"),
+    include_str!("../../../../GameEngine/GameLogic/src/weapon/template.rs"),
+);
+
+/// Object crate split scanned by Wave 264 dual-world residuals (2026-08-15).
+pub const OBJECT_SPLIT_SRC: &str = concat!(
+    include_str!("../../../../GameEngine/GameLogic/src/object/mod.rs"),
+    include_str!("../../../../GameEngine/GameLogic/src/object/object_combat.rs"),
+    include_str!("../../../../GameEngine/GameLogic/src/object/object_queries.rs"),
+    include_str!("../../../../GameEngine/GameLogic/src/object/object_vision.rs"),
+);
+
 /// Brace-matched Rust function body for the last `fn name` in `src`.
 pub fn last_rust_fn_body<'a>(src: &'a str, name: &str) -> Option<&'a str> {
     let mut last = None;
