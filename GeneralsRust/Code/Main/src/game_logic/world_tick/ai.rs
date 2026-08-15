@@ -111,10 +111,11 @@ impl GameLogic {
                 if !(crate::gameworld_shadow::gameworld_shadow_enabled()
                     && crate::gameworld_shadow::shadow_coupled_tick_active())
                 {
-                    if let Some(w) = obj.tick_fire_weapon_when_damaged_continuous(self.frame) {
-                        // Prefer pending reaction (from onDamage) over continuous same frame.
-                        if obj.pending_fire_when_damaged_weapon.is_none() {
-                            obj.pending_fire_when_damaged_weapon = Some(w);
+                    if obj.temporary_weapon_runtime.damaged.is_empty() {
+                        if let Some(w) = obj.tick_fire_weapon_when_damaged_continuous(self.frame) {
+                            if obj.pending_fire_when_damaged_weapon.is_none() {
+                                obj.pending_fire_when_damaged_weapon = Some(w);
+                            }
                         }
                     }
                 }
@@ -266,8 +267,25 @@ impl GameLogic {
                     }
                 }
             }
-            // C++ FireWeaponWhenDamagedBehavior forceFire residual (reaction + continuous).
-            if let Some(wname) = self
+            // C++ FireWeaponWhenDamagedBehavior forceFire (reaction + continuous).
+            let has_live_damaged = self
+                .objects
+                .get(&object_id)
+                .is_some_and(|o| !o.temporary_weapon_runtime.damaged.is_empty());
+            if has_live_damaged {
+                let _ = self
+                    .objects
+                    .get_mut(&object_id)
+                    .and_then(|o| o.take_pending_fire_when_damaged_weapon());
+                let damage_events: Vec<_> = crate::game_logic::host_damage_log::snapshot()
+                    .into_iter()
+                    .filter(|event| event.target == object_id)
+                    .collect();
+                for event in damage_events {
+                    let _ = self.execute_temporary_weapon_on_damage(object_id, event.amount, 0);
+                }
+                let _ = self.execute_temporary_weapon_continuous(object_id);
+            } else if let Some(wname) = self
                 .objects
                 .get_mut(&object_id)
                 .and_then(|o| o.take_pending_fire_when_damaged_weapon())

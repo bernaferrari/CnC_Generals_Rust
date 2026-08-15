@@ -268,6 +268,12 @@ impl GameLogic {
         }
 
         if let Some(attacker) = self.objects.get_mut(&center_id) {
+            let _ = attacker.capture_pending_weapon_visual_dispatch(
+                0,
+                self.frame,
+                Some(target_id),
+                None,
+            );
             if let Some(w) = attacker.weapon.as_mut() {
                 // Clip/ammo residual parity with fire_at path (not last_fire-only stamp).
                 crate::game_logic::Object::consume_ammo_on_fire(w, current_time);
@@ -628,6 +634,12 @@ impl GameLogic {
         }
 
         if let Some(attacker) = self.objects.get_mut(&defense_id) {
+            let _ = attacker.capture_pending_weapon_visual_dispatch(
+                slot,
+                self.frame,
+                Some(target_id),
+                None,
+            );
             if slot == 1 {
                 if let Some(w) = attacker.secondary_weapon.as_mut() {
                     crate::game_logic::Object::consume_ammo_on_fire(w, current_time);
@@ -1077,6 +1089,12 @@ impl GameLogic {
                 self.mark_object_for_destruction(clip.victim_id, Some(assistant_team));
             }
             if let Some(asst) = self.objects.get_mut(&clip.assistant_id) {
+                let _ = asst.capture_pending_weapon_visual_dispatch(
+                    0,
+                    frame,
+                    Some(clip.victim_id),
+                    Some(victim_pos),
+                );
                 // Assist residual marks engagement; keeps primary on clip-reload honesty.
                 if let Some(w) = asst.weapon.as_mut() {
                     let t = frame as f32 * LOGIC_FRAME_TIMESTEP;

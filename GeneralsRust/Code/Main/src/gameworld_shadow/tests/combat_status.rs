@@ -994,23 +994,35 @@ fn host_owner_log_drives_transfer_owner_channel() {
     let id = logic
         .create_object("OwnU", Team::USA, glam::Vec3::new(1.0, 0.0, 1.0))
         .expect("id");
+    // C++ Object::setTeam / setControllingPlayer binds a live Player
+    // (Object.cpp setTeam + setControllingPlayer). Team-only set_team clears
+    // owner_player_id; capture uses set_team_and_owner with the China player.
+    let capture_team = Team::China;
+    let capture_pid = logic
+        .get_players()
+        .values()
+        .find(|p| p.team == capture_team || p.team != Team::USA)
+        .map(|p| p.id)
+        .expect("capture player");
     host_owner_log::clear();
     {
         let o = logic.host_object_mut(id).expect("o");
-        o.set_team(Team::GLA);
+        o.set_team_and_owner(capture_team, Some(capture_pid));
     }
     let events = host_owner_log::drain();
     assert!(
-        events.iter().any(|e| e.object == id && e.team == Team::GLA),
+        events
+            .iter()
+            .any(|e| e.object == id && e.team == capture_team),
         "expected owner log {:?}",
         events
     );
     // Re-set for mutation path after drain.
     {
         let o = logic.host_object_mut(id).expect("o");
-        o.set_team(Team::USA);
+        o.set_team_and_owner(Team::USA, None);
         host_owner_log::clear();
-        o.set_team(Team::GLA);
+        o.set_team_and_owner(capture_team, Some(capture_pid));
     }
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
@@ -1018,7 +1030,7 @@ fn host_owner_log_drives_transfer_owner_channel() {
     let gla_owner = shadow.world().entity(eid).expect("e").owner;
     assert!(
         gla_owner.is_some(),
-        "GLA object should map to Some owner after sync; players={:?}",
+        "captured object should map to Some owner after sync; players={:?}",
         logic.get_players().keys().collect::<Vec<_>>()
     );
     // Poison to None (neutral) then apply TransferOwner from events.
@@ -1030,7 +1042,10 @@ fn host_owner_log_drives_transfer_owner_channel() {
     let n = shadow.apply_host_owner_events(&logic, &events);
     assert!(n >= 1, "owner events {n} events={events:?}");
     let e = shadow.world().entity(eid).expect("e");
-    assert_eq!(e.owner, gla_owner, "shadow owner should match GLA mapping");
+    assert_eq!(
+        e.owner, gla_owner,
+        "shadow owner should match capture mapping"
+    );
     // Poison host team back to USA then writeback.
     {
         let o = logic.host_object_mut(id).expect("o");

@@ -627,6 +627,9 @@ impl GameWorldShadow {
                 obj.leech_range_active_secondary = ent.leech_range_active_secondary;
                 changed = true;
             }
+            if self.writeback_extra_weapon_slots(eid, obj) {
+                changed = true;
+            }
             if changed {
                 // Wave 635: GameWorld weapon-stats last-write residual —
                 // host applies presentation bookkeeping from ready log.
@@ -638,6 +641,64 @@ impl GameWorldShadow {
             crate::game_logic::host_weapon_stats_ready_log::record(oid);
         }
         updated
+    }
+
+    fn writeback_extra_weapon_slots(
+        &self,
+        eid: EntityId,
+        obj: &mut crate::game_logic::Object,
+    ) -> bool {
+        use gamelogic::world::{WEAPON_SLOT_MINE_CLEAR, WEAPON_SLOT_SECONDARY, WEAPON_SLOT_TERTIARY};
+        let mut changed = false;
+        let apply = |host: &mut Option<crate::game_logic::Weapon>,
+                     facts: Option<gamelogic::world::WeaponSlotFacts>| {
+            let Some(f) = facts else {
+                return false;
+            };
+            if !f.present {
+                return false;
+            }
+            let Some(w) = host.as_mut() else {
+                return false;
+            };
+            let mut slot_changed = false;
+            if w.clip_size != f.clip_size {
+                w.clip_size = f.clip_size;
+                slot_changed = true;
+            }
+            let ammo = if f.ammo == u32::MAX { None } else { Some(f.ammo) };
+            if w.ammo != ammo {
+                w.ammo = ammo;
+                slot_changed = true;
+            }
+            if (w.reload_time - f.reload_time).abs() > f32::EPSILON {
+                w.reload_time = f.reload_time;
+                slot_changed = true;
+            }
+            if (w.last_fire_time - f.last_fire_time).abs() > f32::EPSILON {
+                w.last_fire_time = f.last_fire_time;
+                slot_changed = true;
+            }
+            slot_changed
+        };
+        changed |= apply(
+            &mut obj.secondary_weapon,
+            self.world.weapon_slots().slot(eid, WEAPON_SLOT_SECONDARY),
+        );
+        changed |= apply(
+            &mut obj.tertiary_weapon,
+            self.world.weapon_slots().slot(eid, WEAPON_SLOT_TERTIARY),
+        );
+        changed |= apply(
+            &mut obj.mine_clearing_primary_weapon,
+            self.world.weapon_slots().slot(eid, WEAPON_SLOT_MINE_CLEAR),
+        );
+        if let Some(f) = self.world.weapon_slots().slot(eid, WEAPON_SLOT_TERTIARY) {
+            if f.present && f.lock_type != 0 {
+                obj.weapon_lock_slot = WEAPON_SLOT_TERTIARY;
+            }
+        }
+        changed
     }
 
     pub fn writeback_vision_camo_to_host(&self, logic: &mut GameLogic) -> usize {

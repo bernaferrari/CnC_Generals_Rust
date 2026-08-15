@@ -127,6 +127,14 @@ impl SnapshotBuilder {
         // transient presentation events so a load cannot replay pre-save FX.
         game_logic.restore_weapon_discharge_next_sequence(snapshot.next_weapon_discharge_sequence);
 
+        // C++ `GameState.cpp:661,683` saveLock around load. Manager xfer
+        // unlocks internally to recreate saved modules.
+        save_lock_live_w3d_ghosts(true)?;
+        if let Some(ghost_bytes) = take_loaded_w3d_ghost_xfer() {
+            restore_w3d_ghost_manager_from_xfer_bytes(&ghost_bytes)?;
+        }
+        save_lock_live_w3d_ghosts(false)?;
+
         // Map loading initializes a fresh shroud grid and may reveal
         // staging-map objects. Replace that singleton only when this save
         // actually carries the v6 shroud tail, after all object/team restore

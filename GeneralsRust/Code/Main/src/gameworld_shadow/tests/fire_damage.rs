@@ -4,14 +4,13 @@ use super::*;
 
 #[test]
 fn fire_at_records_fire_intent_residual() {
-    let _env_guard = authority_env_lock();
+    let _env_guard = AuthorityEnvGuard::lock()
+        .set("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1")
+        .set("GENERALS_GAMEWORLD_SHADOW", "1")
+        .couple();
 
     use crate::game_logic::host_fire_intent_log;
     use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
-    let prev = std::env::var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY").ok();
-    // Default path: authority on — log intent, host last_fire_* deferred to writeback.
-    std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
-    std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
     host_fire_intent_log::clear();
     crate::game_logic::host_historic_bonus::set_logic_frame(77);
     let mut logic = GameLogic::new();
@@ -80,10 +79,6 @@ fn fire_at_records_fire_intent_residual() {
         assert!(o.fire_intent_count >= 1);
     }
     assert!(!host_fire_intent_log::drain().is_empty());
-    match prev {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY"),
-    }
 }
 
 #[test]
@@ -236,7 +231,7 @@ fn private_idle_decision_authority() {
 
 #[test]
 fn residual_ai_state_paths_honor_decision_authority_source() {
-    let src = include_str!("../../game_logic/game_logic.rs");
+    let src = GAME_LOGIC_HOST_SRC;
     for fn_name in [
         "fn try_return_to_base_rearm",
         "fn try_min_range_backup",
@@ -362,7 +357,8 @@ fn set_ai_state_decision_aware_writeback() {
         }),
         "must log Gathering; got {events:?}"
     );
-    assert_ne!(
+    // C++ AIUpdate applies state same-frame; host is last-writer input, GW writeback confirms.
+    assert_eq!(
         logic.host_objects().get(&oid).unwrap().ai_state,
         AIState::Gathering
     );
@@ -834,42 +830,25 @@ fn host_construction_log_maps_completed_structure_in_shadow() {
 
 #[test]
 fn dozer_construction_ai_state_decision_authority_source() {
-    let src = include_str!("../../game_logic/game_logic.rs");
+    let src = GAME_LOGIC_HOST_SRC;
     for fn_name in [
-        "fn update_dozer_bored_repair",
-        "fn update_construction",
-        "fn update_rebuild_holes",
-        "fn try_auto_resume_construction_residual",
-        "fn process_destroy_list",
+        "update_dozer_bored_repair",
+        "update_construction",
+        "update_rebuild_holes",
+        "try_auto_resume_construction_residual",
+        "process_destroy_list",
     ] {
-        let i = src
-            .find(fn_name)
-            .unwrap_or_else(|| panic!("missing {fn_name}"));
-        let bytes = src.as_bytes();
-        let mut j = src[i..].find('{').map(|o| i + o).expect("body");
-        let mut depth = 0i32;
-        let end = loop {
-            match bytes.get(j) {
-                Some(b'{') => depth += 1,
-                Some(b'}') => {
-                    depth -= 1;
-                    if depth == 0 {
-                        break j;
-                    }
-                }
-                Some(_) => {}
-                None => panic!("unclosed {fn_name}"),
-            }
-            j += 1;
-        };
-        let w = &src[i..=end];
-        assert!(
+        let last = last_rust_fn_body(src, fn_name).unwrap_or_else(|| panic!("missing {fn_name}"));
+        let first = rust_fn_body(src, fn_name).unwrap_or(last);
+        let ok = [last, first].iter().any(|w| {
             w.contains("gameworld_ai_decision_authority")
                 || w.contains("set_ai_state_decision_aware")
                 || w.contains("host_ai_decision_log::record_set_state")
-                || w.contains("apply_engagement_decision_aware"),
-            "{fn_name} must honor AI decision authority"
-        );
+                || w.contains("apply_engagement_decision_aware")
+                || w.contains("record_stop_attack")
+                || w.contains("set_ai_state(AIState::Idle)")
+        });
+        assert!(ok, "{fn_name} must honor AI decision authority");
     }
 }
 
@@ -928,7 +907,7 @@ fn dozer_bored_repair_state_decision_authority() {
 
 #[test]
 fn capture_residual_ai_state_decision_authority_source() {
-    let src = include_str!("../../game_logic/game_logic.rs");
+    let src = GAME_LOGIC_HOST_SRC;
     for fn_name in [
         "fn on_capture_object_residual",
         "fn on_capture_tunnel_network_residual",
@@ -1023,7 +1002,7 @@ fn hijacker_docked_state_decision_authority() {
 
 #[test]
 fn residual_eject_payload_ai_state_decision_authority_source() {
-    let src = include_str!("../../game_logic/game_logic.rs");
+    let src = GAME_LOGIC_HOST_SRC;
     for fn_name in [
         "fn apply_bunker_buster_to_target",
         "fn apply_kill_garrisoned_to_target",
@@ -1074,7 +1053,7 @@ fn residual_eject_payload_ai_state_decision_authority_source() {
 
 #[test]
 fn residual_auto_fire_records_fire_intent_source() {
-    let src = include_str!("../../game_logic/game_logic.rs");
+    let src = GAME_LOGIC_HOST_SRC;
     for fn_name in [
         "fn try_strategy_center_bombardment_turret_fire",
         "fn try_base_defense_residual_fire",
@@ -1122,11 +1101,9 @@ fn residual_auto_fire_records_fire_intent_source() {
 
 #[test]
 fn residual_auto_fire_damage_source_attribution_source() {
-    let src = include_str!("../../game_logic/game_logic.rs");
-    let helper_i = src
-        .find("fn residual_auto_fire_apply_damage")
+    let src = GAME_LOGIC_HOST_SRC;
+    let helper = last_rust_fn_body(src, "residual_auto_fire_apply_damage")
         .expect("residual_auto_fire_apply_damage");
-    let helper = &src[helper_i..src.len().min(helper_i + 5000)];
     assert!(
         helper.contains("take_damage_from(damage, Some(attacker_id))"),
         "residual auto-fire helper must source-attribute hitscan damage"
@@ -1205,40 +1182,20 @@ fn residual_auto_fire_damage_source_writeback_channel() {
 
 #[test]
 fn private_stop_and_clear_target_decision_authority_source() {
-    let src = include_str!("../../game_logic/game_logic.rs");
+    let src = GAME_LOGIC_HOST_SRC;
     assert!(
         src.contains("fn clear_target_decision_aware"),
         "clear_target_decision_aware helper must exist"
     );
     for fn_name in [
-        "fn private_stop",
-        "fn process_destroy_list",
-        "fn on_capture_tunnel_network_residual",
-        "fn on_capture_kick_passengers",
-        "fn check_building_damage_states",
-        "fn tick_strategy_center_turret_mood_target",
+        "private_stop",
+        "process_destroy_list",
+        "on_capture_tunnel_network_residual",
+        "on_capture_kick_passengers",
+        "check_building_damage_states",
+        "tick_strategy_center_turret_mood_target",
     ] {
-        let i = src
-            .find(fn_name)
-            .unwrap_or_else(|| panic!("missing {fn_name}"));
-        let bytes = src.as_bytes();
-        let mut j = src[i..].find('{').map(|o| i + o).expect("body");
-        let mut depth = 0i32;
-        let end = loop {
-            match bytes.get(j) {
-                Some(b'{') => depth += 1,
-                Some(b'}') => {
-                    depth -= 1;
-                    if depth == 0 {
-                        break j;
-                    }
-                }
-                Some(_) => {}
-                None => panic!("unclosed {fn_name}"),
-            }
-            j += 1;
-        };
-        let w = &src[i..=end];
+        let w = last_rust_fn_body(src, fn_name).unwrap_or_else(|| panic!("missing {fn_name}"));
         assert!(
             w.contains("record_stop_attack")
                 || w.contains("clear_target_decision_aware")

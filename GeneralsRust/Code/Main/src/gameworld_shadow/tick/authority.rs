@@ -13,6 +13,8 @@ static FIRE_SPAWN_AUTH_CACHE: std::sync::atomic::AtomicU8 = std::sync::atomic::A
 static CONSTRUCTION_AUTH_CACHE: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
 static SPECIAL_POWER_AUTH_CACHE: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
 static PRODUCTION_AUTH_CACHE: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+static DEFERRED_DESTROY_CACHE: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+static WEAPON_AUTH_CACHE: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
 
 pub(super) fn reset_authority_env_caches() {
     for c in [
@@ -27,6 +29,8 @@ pub(super) fn reset_authority_env_caches() {
         &CONSTRUCTION_AUTH_CACHE,
         &SPECIAL_POWER_AUTH_CACHE,
         &PRODUCTION_AUTH_CACHE,
+        &DEFERRED_DESTROY_CACHE,
+        &WEAPON_AUTH_CACHE,
     ] {
         c.store(0, std::sync::atomic::Ordering::Relaxed);
     }
@@ -260,6 +264,36 @@ pub fn gameworld_production_authority_live() -> bool {
 /// Host skips progress advance only when production authority AND shadow session run.
 pub fn gameworld_production_sole_tick_enabled() -> bool {
     gameworld_production_authority_enabled()
+        && gameworld_shadow_enabled()
+        && shadow_coupled_tick_active()
+}
+
+/// Env: `GENERALS_GAMEWORLD_WEAPON_AUTHORITY=0|false` off; unset/`1` = **on**.
+/// GameWorld owns per-slot weapon facts; host is last-writer reader.
+pub fn gameworld_weapon_authority_enabled() -> bool {
+    env_flag_cached(&WEAPON_AUTH_CACHE, "GENERALS_GAMEWORLD_WEAPON_AUTHORITY", true)
+}
+
+#[inline]
+pub fn gameworld_weapon_authority_live() -> bool {
+    gameworld_weapon_authority_enabled()
+        && gameworld_shadow_enabled()
+        && shadow_coupled_tick_active()
+}
+
+/// Env: `GENERALS_GAMEWORLD_DEFERRED_DESTROY=0|false` off; unset/`1` = **on**.
+/// Mark-on-host-mark / remove-on-host-process lockstep with GameWorld.
+pub fn gameworld_deferred_destroy_enabled() -> bool {
+    env_flag_cached(
+        &DEFERRED_DESTROY_CACHE,
+        "GENERALS_GAMEWORLD_DEFERRED_DESTROY",
+        true,
+    )
+}
+
+#[inline]
+pub fn gameworld_deferred_destroy_live() -> bool {
+    gameworld_deferred_destroy_enabled()
         && gameworld_shadow_enabled()
         && shadow_coupled_tick_active()
 }

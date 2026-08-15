@@ -513,6 +513,36 @@ impl W3DGhostObject {
             .get(player_index)
             .is_some_and(|snapshots| !snapshots.is_empty())
     }
+
+    pub fn set_parent_geometry(&mut self, geometry: ParentGeometrySnapshot) {
+        self.parent_geometry = Some(geometry);
+    }
+
+    pub fn replace_player_snapshots(
+        &mut self,
+        player_index: usize,
+        snapshots: Vec<W3DRenderObjectSnapshot>,
+    ) {
+        if let Some(slot) = self.parent_snapshots.get_mut(player_index) {
+            *slot = snapshots;
+        }
+    }
+
+    pub fn clear_player_snapshots(&mut self, player_index: usize) {
+        if let Some(slot) = self.parent_snapshots.get_mut(player_index) {
+            slot.clear();
+        }
+    }
+
+    /// C++ `W3DGhostObject.cpp:740-743` + `addToScene` after load.
+    pub fn emit_xfer_load_scene_events(&mut self, local_player: usize) {
+        if self.parent_object_id.is_some() && self.has_snapshot(local_player) {
+            self.remove_parent_object();
+        }
+        if self.has_snapshot(local_player) {
+            self.add_to_scene(local_player);
+        }
+    }
 }
 
 #[derive(Debug, Default, Clone, PartialEq)]
@@ -743,6 +773,16 @@ impl W3DGhostObjectManager {
                     ghost.set_previous_shroudedness(player, OBJECTSHROUD_FOGGED);
                 }
             }
+        }
+    }
+
+    pub fn is_save_locked(&self) -> bool {
+        self.save_lock_ghost_objects
+    }
+
+    pub fn prepare_empty_used_list_for_xfer_load(&mut self) {
+        while !self.used_modules.is_empty() {
+            self.remove_ghost_object(0);
         }
     }
 }

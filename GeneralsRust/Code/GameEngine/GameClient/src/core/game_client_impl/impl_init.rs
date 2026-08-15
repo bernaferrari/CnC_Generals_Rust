@@ -3,10 +3,9 @@
 // so this stays one logical `game_client` module (public API identical).
 
 impl GameClient {
-    /// Publish the logic-owned W3D ghost source and the strict Mesh-only final
+    /// Publish the logic-owned W3D ghost source and the Mesh/HLOD final
     /// capture bridge at the same lifecycle boundary as the live client.
-    /// HLOD/Other classes and dynamic Mesh state remain fail-closed until the
-    /// renderer owns their live child/animation/material state.
+    /// Other classes and incomplete HLOD animation facts remain fail-closed.
     fn register_w3d_ghost_snapshot_bridges() {
         let _ =
             gamelogic::object::w3d_ghost_object::register_w3d_ghost_snapshot_capture_source_hook(

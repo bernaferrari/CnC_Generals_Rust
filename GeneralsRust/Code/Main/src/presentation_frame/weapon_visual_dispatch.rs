@@ -232,13 +232,63 @@ pub struct FrozenWeaponVisualDispatchTarget {
     pub stops_after_fire_fx: bool,
 }
 
+/// Body-recoil impulse and FX placement facts sampled at fire time.
+///
+/// C++ `Drawable::handleWeaponFireFX` converts the absolute recoil direction
+/// to object-relative (`recoil_dir - orientation + PI`) and adds
+/// `recoil_amount * cos/sin` to loco acceleration pitch/roll rates.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct FrozenWeaponVisualImpulse {
+    pub recoil_amount: f32,
+    pub recoil_dir: f32,
+    pub source_orientation: f32,
+    pub target_pos: [f32; 3],
+    /// C++ `isContactWeapon()`: contact weapons fall back at `targetPos`.
+    pub is_contact_weapon: bool,
+}
+
+impl Default for FrozenWeaponVisualImpulse {
+    fn default() -> Self {
+        Self {
+            recoil_amount: 0.0,
+            recoil_dir: 0.0,
+            source_orientation: 0.0,
+            target_pos: [0.0; 3],
+            is_contact_weapon: false,
+        }
+    }
+}
+
+impl FrozenWeaponVisualImpulse {
+    /// Object-relative recoil angle after C++'s 180-degree flip.
+    pub fn object_relative_recoil_angle(self) -> f32 {
+        self.recoil_dir - self.source_orientation + std::f32::consts::PI
+    }
+
+    pub fn loco_pitch_delta(self) -> f32 {
+        if self.recoil_amount == 0.0 {
+            0.0
+        } else {
+            self.recoil_amount * self.object_relative_recoil_angle().cos()
+        }
+    }
+
+    pub fn loco_roll_delta(self) -> f32 {
+        if self.recoil_amount == 0.0 {
+            0.0
+        } else {
+            self.recoil_amount * self.object_relative_recoil_angle().sin()
+        }
+    }
+}
+
 /// Fully frozen source route for one accepted weapon discharge.
 ///
 /// A plan may be serialized with a presentation/event payload, but it is not
 /// save-game state by itself.  Pending visual delivery must still be retained
 /// across ordinary frustum/FOW culling and discarded only when the world,
 /// object generation, or exact source Draw state differs.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FrozenWeaponVisualDispatchPlan {
     pub discharge: FrozenWeaponVisualDischarge,
     pub fx_route: FrozenWeaponVisualFxRoute,
@@ -248,6 +298,9 @@ pub struct FrozenWeaponVisualDispatchPlan {
     /// non-null FireFX reached the end of traversal unhandled.  The external
     /// FX playback is separate from W3D recoil but needs this frozen outcome.
     pub fire_fx_falls_back_to_drawable_position: bool,
+    /// Pre-mutation loco / placement facts.  Absent impulse is zeros.
+    #[serde(default)]
+    pub impulse: FrozenWeaponVisualImpulse,
 }
 
 impl FrozenWeaponVisualDispatchPlan {
@@ -423,6 +476,7 @@ pub fn build_frozen_weapon_visual_dispatch_plan(
             fx_route,
             targets: Vec::new(),
             fire_fx_falls_back_to_drawable_position: false,
+            impulse: FrozenWeaponVisualImpulse::default(),
         });
     }
 
@@ -476,6 +530,7 @@ pub fn build_frozen_weapon_visual_dispatch_plan(
                         fx_route,
                         targets,
                         fire_fx_falls_back_to_drawable_position: false,
+                        impulse: FrozenWeaponVisualImpulse::default(),
                     });
                 }
             }
@@ -490,6 +545,7 @@ pub fn build_frozen_weapon_visual_dispatch_plan(
         targets,
         fire_fx_falls_back_to_drawable_position: fx_route
             == FrozenWeaponVisualFxRoute::BroadcastWithFireFx,
+        impulse: FrozenWeaponVisualImpulse::default(),
     })
 }
 
@@ -547,6 +603,25 @@ mod tests {
             logic_frame: 123,
             suspend_fx_frame: 0,
         }
+    }
+
+    #[test]
+    fn loco_impulse_uses_object_relative_angle_and_pi_flip() {
+        let impulse = FrozenWeaponVisualImpulse {
+            recoil_amount: 2.0,
+            recoil_dir: 0.0,
+            source_orientation: 0.0,
+            target_pos: [1.0, 0.0, 0.0],
+            is_contact_weapon: false,
+        };
+        let angle = impulse.object_relative_recoil_angle();
+        assert!((angle - std::f32::consts::PI).abs() < 1e-5);
+        assert!((impulse.loco_pitch_delta() - 2.0 * angle.cos()).abs() < 1e-5);
+        assert!((impulse.loco_roll_delta() - 2.0 * angle.sin()).abs() < 1e-5);
+        assert_eq!(
+            FrozenWeaponVisualImpulse::default().loco_pitch_delta(),
+            0.0
+        );
     }
 
     #[test]

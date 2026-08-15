@@ -258,6 +258,15 @@ impl Object {
             .map(crate::game_logic::weapon_bootstrap::host_historic_bonus_for_weapon_name)
             .unwrap_or_default();
 
+        {
+            let logic_frame = crate::game_logic::host_historic_bonus::logic_frame();
+            let _ = self.capture_pending_weapon_visual_dispatch(
+                slot,
+                logic_frame,
+                Some(target_id),
+                None,
+            );
+        }
         let (weapon_speed, weapon_splash, weapon_homing, auto_reloaded_clip) =
             match self.weapon_slot_mut(slot) {
                 Some(weapon) => {

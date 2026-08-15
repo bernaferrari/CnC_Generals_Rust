@@ -8,7 +8,7 @@ use super::object_impl_imports::*;
 use super::*;
 
 impl Object {
-    pub(in super) fn disabled_tint_exceptions() -> DisabledMaskType {
+    pub(super) fn disabled_tint_exceptions() -> DisabledMaskType {
         let mut exceptions = DisabledMaskType::none();
         exceptions.set_disabled(DisabledType::Held);
         exceptions.set_disabled(DisabledType::DisabledScriptDisabled);
@@ -16,7 +16,7 @@ impl Object {
         exceptions
     }
 
-    pub(in super) fn flags_requiring_disabled_tint(flags: DisabledMaskType) -> DisabledMaskType {
+    pub(super) fn flags_requiring_disabled_tint(flags: DisabledMaskType) -> DisabledMaskType {
         flags.difference(Self::disabled_tint_exceptions())
     }
 
@@ -402,21 +402,14 @@ impl Object {
     }
 
     pub fn get_next_object(&self) -> Option<Arc<RwLock<Object>>> {
-        // Wave 264: empty dual-world → None.
-        if dual_world_registry_unavailable() {
-            return None;
-        }
-
+        // C++ Object::getNextObject (Object.h:155) returns m_next with no
+        // dual-world gate. Registry lookup already falls back to GameLogic.
         self.next_object_id
             .and_then(|object_id| OBJECT_REGISTRY.get_object(object_id))
     }
 
     pub fn get_prev_object(&self) -> Option<Arc<RwLock<Object>>> {
-        // Wave 264: empty dual-world → None.
-        if dual_world_registry_unavailable() {
-            return None;
-        }
-
+        // C++ Object::getNextObject sibling: m_prev, no empty-world skip.
         self.prev_object_id
             .and_then(|object_id| OBJECT_REGISTRY.get_object(object_id))
     }
@@ -591,7 +584,7 @@ impl Object {
         self.get_id()
     }
 
-    pub(in super) fn set_or_restore_team(
+    pub(super) fn set_or_restore_team(
         &mut self,
         team: Option<Arc<RwLock<Team>>>,
         restoring: bool,
@@ -706,7 +699,7 @@ impl Object {
         Ok(())
     }
 
-    pub(in super) fn apply_team_ai_profile(&self) {
+    pub(super) fn apply_team_ai_profile(&self) {
         let team_name = {
             let team = self.get_team();
             team.and_then(|team_ref| team_ref.read().ok().map(|g| g.get_name().to_string()))
@@ -741,7 +734,7 @@ impl Object {
         }
     }
 
-    pub(in super) fn set_id(&mut self, id: ObjectID) {
+    pub(super) fn set_id(&mut self, id: ObjectID) {
         self.id = id;
     }
 
@@ -813,7 +806,7 @@ impl Object {
     }
 
     /// Call OnDie hooks on all modules that support the die interface
-    pub(in super) fn call_on_die_hooks(&mut self, damage_info: Option<&DamageInfo>) {
+    pub(super) fn call_on_die_hooks(&mut self, damage_info: Option<&DamageInfo>) {
         // Collect die module handles
         let die_modules: Vec<Arc<ModuleEntry>> = self.die_module_handles.clone();
 
@@ -1058,6 +1051,15 @@ impl Object {
     #[cfg(any(test, feature = "internal"))]
     pub fn new_test(id: ObjectID, max_health: f32) -> Self {
         let template = Arc::new(DefaultThingTemplate::new("TestObject".to_string()));
+        Self::new_test_from_template(id, max_health, template)
+    }
+
+    #[cfg(any(test, feature = "internal"))]
+    pub fn new_test_from_template(
+        id: ObjectID,
+        max_health: f32,
+        template: Arc<dyn ThingTemplate>,
+    ) -> Self {
         let mut obj = Self::new_raw(template, id, ObjectStatusMaskType::none(), None);
         let mut module_data = crate::object::body::active_body::ActiveBodyModuleData::default();
         module_data.max_health = max_health;

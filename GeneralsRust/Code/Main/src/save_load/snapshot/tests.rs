@@ -2700,3 +2700,188 @@ fn direct_xfer_accepts_known_outer_versions() {
         assert_eq!(restored.version, version);
     }
 }
+
+#[test]
+fn companion_save_round_trips_mid_recoil_animation_and_discharge_sequence() {
+    use crate::save_load::{GameDifficulty, SaveFileManager, SaveFileType, SaveGameInfo};
+    use std::time::{Duration, SystemTime};
+
+    let save_dir = tempfile::TempDir::new().expect("temp save dir");
+    let mut manager = SaveFileManager::with_save_directory(save_dir.path());
+    manager.init().expect("init");
+    let client_drawables = ClientDrawableWorldSnapshot {
+        drawables: vec![ClientDrawableStateSnapshot {
+            object_id: 9,
+            draw_module_index: 0,
+            source_template_name: "RecoilTank".to_string(),
+            model_key: "RecoilTank".to_string(),
+            selected_condition_state_index: 1,
+            animation: Some(ClientDrawableAnimationSnapshot {
+                hierarchy_animation: "RecoilTank.Fire".to_string(),
+                frame: 3.5,
+                mode: ClientDrawableAnimationMode::Once,
+            }),
+            last_seen_weapon_discharge_sequence: 17,
+            recoil_slots: [
+                vec![
+                    ClientDrawableRecoilSnapshot {
+                        phase: ClientDrawableRecoilPhase::RecoilStart,
+                        shift: 0.05,
+                        recoil_rate: 2.0,
+                    },
+                    ClientDrawableRecoilSnapshot {
+                        phase: ClientDrawableRecoilPhase::Recoil,
+                        shift: 0.40,
+                        recoil_rate: 1.25,
+                    },
+                ],
+                vec![ClientDrawableRecoilSnapshot {
+                    phase: ClientDrawableRecoilPhase::Settle,
+                    shift: 0.10,
+                    recoil_rate: 0.50,
+                }],
+                Vec::new(),
+            ],
+        }],
+    };
+    let save_info = SaveGameInfo {
+        filename: "mid_recoil".to_string(),
+        display_name: "Mid Recoil".to_string(),
+        description: "recoil phases".to_string(),
+        map_name: "RecoilMap".to_string(),
+        campaign_side: None,
+        mission_number: None,
+        save_date: SystemTime::now(),
+        game_version: env!("CARGO_PKG_VERSION").to_string(),
+        play_time: Duration::ZERO,
+        difficulty: GameDifficulty::Medium,
+        save_type: SaveFileType::Normal,
+    };
+    manager
+        .save_game_with_client_drawable_snapshot(
+            "mid_recoil",
+            &GameLogic::new(),
+            client_drawables.clone(),
+            &save_info,
+        )
+        .expect("save mid-recoil");
+    let (snapshot, _) = manager
+        .load_game_snapshot("mid_recoil")
+        .expect("load mid-recoil");
+    assert_eq!(snapshot.client_drawables, client_drawables);
+    assert_eq!(
+        snapshot.client_drawables.drawables[0].last_seen_weapon_discharge_sequence,
+        17
+    );
+}
+
+#[test]
+fn load_resets_model_state_before_recoil_restore() {
+    let source = include_str!("../../graphics/render_pipeline/pipeline_drawable_state.rs");
+    let reset = source
+        .find("*state = ObjectVisualState {")
+        .expect("identity reset");
+    let restore = source
+        .find("if let Some(saved) = pending_restore")
+        .expect("pending recoil restore");
+    assert!(
+        reset < restore,
+        "C++ Drawable.cpp:4928 replaceModelConditionFlags must run before module recoil xfer"
+    );
+}
+
+#[test]
+fn companion_save_round_trips_w3d_ghost_snapshots() {
+    use crate::save_load::{GameDifficulty, SaveFileManager, SaveFileType, SaveGameInfo};
+    use gamelogic::object::w3d_ghost_object::{
+        Matrix3x4, ParentGeometrySnapshot, RenderObjectClass, RenderObjectState,
+        RenderSubObjectSnapshot, W3DDrawableInfo, OBJECTSHROUD_FOGGED,
+        THE_W3D_GHOST_OBJECT_MANAGER,
+    };
+    use std::time::{Duration, SystemTime};
+
+    {
+        let mut live = THE_W3D_GHOST_OBJECT_MANAGER.write().expect("ghost lock");
+        *live = gamelogic::object::w3d_ghost_object::W3DGhostObjectManager::new();
+        live.add_ghost_object(Some(42), true).unwrap();
+        live.used_mut()[0].set_drawable_info(W3DDrawableInfo {
+            drawable_id: 8,
+            flags: 1,
+            shroud_status_object_id: 42,
+        });
+        live.used_mut()[0].snapshot(
+            0,
+            0,
+            false,
+            &[RenderObjectState {
+                name: "SavedGhost".to_string(),
+                scale: 2.0,
+                color: 0x1122_3344,
+                transform: Matrix3x4::IDENTITY,
+                sub_objects: vec![RenderSubObjectSnapshot {
+                    name: "TURRET".to_string(),
+                    visible: true,
+                    transform: Matrix3x4::IDENTITY,
+                }],
+                class_id: RenderObjectClass::HLod,
+            }],
+            ParentGeometrySnapshot {
+                geometry_type: 2,
+                is_small: false,
+                major_radius: 9.0,
+                minor_radius: 3.0,
+                position: [1.0, 2.0, 3.0],
+                angle: 0.25,
+            },
+        );
+        live.used_mut()[0].set_previous_shroudedness(0, OBJECTSHROUD_FOGGED);
+    }
+
+    let save_dir = tempfile::TempDir::new().expect("temp save dir");
+    let mut manager = SaveFileManager::with_save_directory(save_dir.path());
+    manager.init().expect("init");
+    let save_info = SaveGameInfo {
+        filename: "ghosts".to_string(),
+        display_name: "Ghosts".to_string(),
+        description: "ghost xfer".to_string(),
+        map_name: "GhostMap".to_string(),
+        campaign_side: None,
+        mission_number: None,
+        save_date: SystemTime::now(),
+        game_version: env!("CARGO_PKG_VERSION").to_string(),
+        play_time: Duration::ZERO,
+        difficulty: GameDifficulty::Medium,
+        save_type: SaveFileType::Normal,
+    };
+    manager
+        .save_game_with_client_drawable_snapshot(
+            "ghosts",
+            &GameLogic::new(),
+            ClientDrawableWorldSnapshot::default(),
+            &save_info,
+        )
+        .expect("save ghosts");
+
+    {
+        let mut live = THE_W3D_GHOST_OBJECT_MANAGER.write().expect("ghost lock");
+        *live = gamelogic::object::w3d_ghost_object::W3DGhostObjectManager::new();
+    }
+
+    let (snapshot, _) = manager.load_game_snapshot("ghosts").expect("decode ghosts");
+    SnapshotBuilder::new()
+        .restore_from_snapshot(&snapshot, &mut GameLogic::new())
+        .expect("restore ghosts");
+    let live = THE_W3D_GHOST_OBJECT_MANAGER.read().expect("ghost lock");
+    assert_eq!(live.used_count(), 1);
+    let ghost = &live.used()[0];
+    assert_eq!(ghost.parent_object_id(), Some(42));
+    assert_eq!(ghost.snapshots(0)[0].render_object.name, "SavedGhost");
+    assert!((ghost.snapshots(0)[0].render_object.scale - 2.0).abs() < f32::EPSILON);
+    assert_eq!(ghost.snapshots(0)[0].render_object.color, 0x1122_3344);
+    assert_eq!(
+        ghost.snapshots(0)[0].render_object.sub_objects[0].name,
+        "TURRET"
+    );
+    assert!(ghost.snapshots(0)[0].render_object.sub_objects[0].visible);
+    assert_eq!(ghost.previous_shroudedness(0), Some(OBJECTSHROUD_FOGGED));
+}

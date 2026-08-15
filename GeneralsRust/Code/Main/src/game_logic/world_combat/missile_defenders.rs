@@ -1314,6 +1314,12 @@ impl GameLogic {
         );
 
         if let Some(attacker) = self.objects.get_mut(&sentry_id) {
+            let _ = attacker.capture_pending_weapon_visual_dispatch(
+                0,
+                self.frame,
+                Some(target_id),
+                None,
+            );
             if let Some(w) = attacker.weapon.as_mut() {
                 // Clip/ammo residual parity with fire_at path (not last_fire-only stamp).
                 crate::game_logic::Object::consume_ammo_on_fire(w, current_time);
@@ -1507,6 +1513,12 @@ impl GameLogic {
         }
 
         if let Some(attacker) = self.objects.get_mut(&hellfire_id) {
+            let _ = attacker.capture_pending_weapon_visual_dispatch(
+                0,
+                self.frame,
+                Some(target_id),
+                None,
+            );
             if let Some(w) = attacker.weapon.as_mut() {
                 // Clip/ammo residual parity with fire_at path (not last_fire-only stamp).
                 crate::game_logic::Object::consume_ammo_on_fire(w, current_time);

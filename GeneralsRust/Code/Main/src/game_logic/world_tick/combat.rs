@@ -3050,10 +3050,10 @@ impl GameLogic {
                 let suppress_fire_fx = {
                     let a = self.objects.get(&attacker_id);
                     a.map(|o| {
-                        let locally_controlled = self
-                            .players
-                            .values()
-                            .any(|player| player.is_local && player.team == o.team);
+                        let locally_controlled = source_is_locally_controlled(
+                            o.owner_player_id,
+                            self.local_player_id(),
+                        );
                         let is_mine = o.is_kind_of(KindOf::Mine);
                         let hidden = !locally_controlled
                             && o.status.stealthed
@@ -3073,21 +3073,22 @@ impl GameLogic {
                     })
                     .unwrap_or(false)
                 };
-                if !suppress_fire_fx {
-                    let _ = self.combat_particles.spawn_weapon_fire_fx_named_ocl(
-                        muzzle_pos,
-                        impact_pos,
-                        fire_frame,
-                        attacker_id,
-                        fire_target,
-                        &fire_fx,
-                        &det_fx,
-                        &fire_ocl,
-                        // Ballistic detonation OCL is applied at real impact via projectiles.
-                        // Instant combat residual still stamps det_ocl at fire-time impact.
-                        &det_ocl,
-                    );
-                }
+                // C++ Weapon.cpp:904-939: doFXPos only when FireFX is non-null.
+                // Dispatch play_dispatch_fire_fx fail-closes on empty FireFX
+                // (TestTank has no Weapon.ini name). Residual muzzle/impact
+                // still registers so fire is observable; named FireFX stays
+                // on the dispatch path. See combat_fire_fx.rs.
+                self.spawn_residual_muzzle_when_dispatch_has_no_fire_fx(
+                    suppress_fire_fx,
+                    &fire_fx,
+                    &det_fx,
+                    muzzle_pos,
+                    impact_pos,
+                    fire_frame,
+                    attacker_id,
+                    fire_target,
+                );
+                let _ = det_ocl;
                 // C++ performs FireFX before FireOCL (`Weapon.cpp:889-949`).
                 // FireOCL is intentionally outside the visual stealth gate:
                 // hiding a muzzle effect does not suppress the authored game
@@ -3171,6 +3172,12 @@ impl GameLogic {
                     .get(&attacker_id)
                     .and_then(|attacker| attacker.weapon_name_for_slot(slot).map(str::to_owned));
                 if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+                    let _ = attacker.capture_pending_weapon_visual_dispatch(
+                        slot,
+                        self.frame,
+                        fire_target,
+                        impact_pos,
+                    );
                     let auto_reloaded_clip = if let Some(weapon) = attacker.weapon_slot_mut(slot) {
                         Object::consume_ammo_on_fire_named(
                             weapon,

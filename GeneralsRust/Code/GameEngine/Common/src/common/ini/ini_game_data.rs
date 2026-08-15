@@ -853,7 +853,7 @@ impl GlobalData {
             disable_camera_movement: false,
 
             use_fx: true,
-            show_client_physics: false,
+            show_client_physics: true,
             show_terrain_normals: false,
             no_draw: 0,
             debug_ai: AIDebugOptions::new(),

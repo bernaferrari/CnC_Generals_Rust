@@ -532,6 +532,21 @@ impl SaveFileManager {
             xfer.end_block()
                 .map_err(|e| SaveLoadError::Serialization(format!("{e:?}")))?;
 
+            // C++ `GameState.cpp:305` CHUNK_GhostObject. Optional on load so
+            // historical `.sav` files without the chunk stay valid.
+            let mut ghost = CommonGameState::new(SAVE_FILE_VERSION);
+            ghost.data = capture_w3d_ghost_xfer_bytes()?;
+            let mut name = CHUNK_GHOST_OBJECT.to_string();
+            xfer.xfer_ascii_string(&mut name)
+                .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
+            xfer.begin_block()
+                .map_err(|e| SaveLoadError::Serialization(format!("{e:?}")))?;
+            ghost
+                .xfer(&mut xfer)
+                .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
+            xfer.end_block()
+                .map_err(|e| SaveLoadError::Serialization(format!("{e:?}")))?;
+
             let mut eof = SAVE_FILE_EOF.to_string();
             xfer.xfer_ascii_string(&mut eof)
                 .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
@@ -563,6 +578,8 @@ impl SaveFileManager {
                 header_state = block;
             } else if token.eq_ignore_ascii_case(CHUNK_GAME_LOGIC) {
                 logic_data = Some(block.data);
+            } else if token.eq_ignore_ascii_case(CHUNK_GHOST_OBJECT) {
+                stash_loaded_w3d_ghost_xfer(block.data);
             }
         }
         let payload = logic_data.ok_or_else(|| {

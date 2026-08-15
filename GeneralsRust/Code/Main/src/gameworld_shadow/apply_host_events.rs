@@ -348,7 +348,21 @@ impl GameWorldShadow {
             }
         }
         let applied = self.apply_pending();
-        (queued, applied)
+        let removed = self.world.process_destroy_list();
+        if removed > 0 {
+            let dead: Vec<u32> = self
+                .entity_to_host
+                .keys()
+                .copied()
+                .filter(|eid| self.world.entity(EntityId::from_raw(*eid)).is_none())
+                .collect();
+            for eid in dead {
+                if let Some(hid) = self.entity_to_host.remove(&eid) {
+                    self.host_to_entity.remove(&hid);
+                }
+            }
+        }
+        (queued, applied.max(removed))
     }
 
     /// Queue SetAttackTarget for a mapped host attacker.
@@ -687,9 +701,51 @@ impl GameWorldShadow {
             ) {
                 n += 1;
             }
+            n = n.saturating_add(self.queue_contain_roster_mutations(ev));
         }
         if n > 0 {
             let _ = self.apply_pending();
+        }
+        n
+    }
+
+    fn queue_contain_roster_mutations(
+        &mut self,
+        ev: &crate::game_logic::host_contain_log::HostContainEvent,
+    ) -> usize {
+        let Some(target) = self.entity_for_host(ev.object) else {
+            return 0;
+        };
+        let mut n = 0usize;
+        if ev.contained_by_host == 0 {
+            if let Some(container) = self.world.contain_roster().contained_by(target) {
+                self.world
+                    .queue_mutation(gamelogic::world::WorldMutation::ContainExit {
+                        container,
+                        occupant: target,
+                    });
+                n += 1;
+            }
+        } else if let Some(container) = self.entity_for_host(ObjectId(ev.contained_by_host)) {
+            self.world
+                .queue_mutation(gamelogic::world::WorldMutation::ContainEnter {
+                    container,
+                    occupant: target,
+                });
+            n += 1;
+        }
+        if let Some(ids) = ev.garrisoned_host_ids.as_ref() {
+            for hid in ids {
+                let Some(occupant) = self.entity_for_host(ObjectId(*hid)) else {
+                    continue;
+                };
+                self.world
+                    .queue_mutation(gamelogic::world::WorldMutation::ContainEnter {
+                        container: target,
+                        occupant,
+                    });
+                n += 1;
+            }
         }
         n
     }
@@ -799,12 +855,10 @@ impl GameWorldShadow {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
             };
-            // Wave 757: under coupled tick, host log pending = mid-frame authority.
-            if shadow_coupled_tick_active()
-                && crate::game_logic::host_ai_state_log::has_pending(ObjectId(hid))
-            {
-                continue;
-            }
+            // Host AI-state log is an *input* to GameWorld (applied earlier in
+            // the session). Pending leftovers must not block last-write —
+            // C++ Object AI state is whatever the last update wrote
+            // (AIUpdate.cpp state machine; no dual-world veto).
             let Some(obj) = logic.host_objects().get(&ObjectId(hid)) else {
                 continue;
             };

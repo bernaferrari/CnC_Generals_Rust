@@ -302,12 +302,7 @@ impl GameWorldShadow {
                 continue;
             };
             let host_target = ent.attack_target.and_then(|te| self.host_for_entity(te));
-            // Wave 758: under coupled tick, host log pending = mid-frame authority.
-            if shadow_coupled_tick_active()
-                && crate::game_logic::host_attack_log::has_pending(ObjectId(hid))
-            {
-                continue;
-            }
+            // host_attack_log is a session input, not a writeback veto.
             let Some(obj) = logic.host_objects().get(&ObjectId(hid)) else {
                 continue;
             };

@@ -27,6 +27,8 @@ pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> {
 // ---------------------------------------------------------------------------
 
 /// Retail GENERALS_GAMEWORLD_* env names residual.
+/// 2026-08-14: GENERALS_GAMEWORLD_WEAPON_AUTHORITY appended by the Phase 2
+/// per-slot weapon authority channel (mirrors couple_guard.rs live table).
 pub const GAMEWORLD_AUTHORITY_ENV_NAMES_WAVE153: &[&str] = &[
     "GENERALS_GAMEWORLD_SHADOW",
     "GENERALS_GAMEWORLD_DAMAGE_AUTHORITY",
@@ -39,10 +41,11 @@ pub const GAMEWORLD_AUTHORITY_ENV_NAMES_WAVE153: &[&str] = &[
     "GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY",
     "GENERALS_GAMEWORLD_SPECIAL_POWER_AUTHORITY",
     "GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY",
+    "GENERALS_GAMEWORLD_WEAPON_AUTHORITY",
 ];
 
-/// Expected default-on authority flag count residual (all 11 env names).
-pub const GAMEWORLD_AUTHORITY_DEFAULT_ON_COUNT_WAVE153: usize = 11;
+/// Expected default-on authority flag count residual (all 12 env names).
+pub const GAMEWORLD_AUTHORITY_DEFAULT_ON_COUNT_WAVE153: usize = 12;
 
 /// GameWorld authority method residual names.
 pub const GAMEWORLD_AUTHORITY_METHOD_NAMES_WAVE153: &[&str] = &[

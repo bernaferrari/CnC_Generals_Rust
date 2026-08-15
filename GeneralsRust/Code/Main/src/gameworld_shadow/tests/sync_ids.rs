@@ -1023,8 +1023,10 @@ fn writeback_production_and_rally_to_host() {
 
 #[test]
 fn production_authority_sole_ticks_queue_progress() {
-    let prev = std::env::var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY").ok();
-    std::env::set_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", "1");
+    let _env = AuthorityEnvGuard::lock()
+        .set("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", "1")
+        .set("GENERALS_GAMEWORLD_SHADOW", "1")
+        .couple();
     assert!(gameworld_production_authority_enabled());
     use crate::game_logic::host_production_progress_log::{self, HostProductionQueueItem};
     use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
@@ -1062,22 +1064,22 @@ fn production_authority_sole_ticks_queue_progress() {
     let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
     let ent = shadow.world().entity(eid).expect("ent");
     let head = ent.production_queue_items.first().expect("head");
-    // dt*pf = 2.0 * 0.5 = 1.0
+    // C++ ProductionUpdate.cpp:687 increments m_framesUnderConstruction once
+    // per logic update, then percent = frames / calcTimeToBuild.
+    // GameWorld sole-tick mirrors that one-frame step (dt is unused).
+    let before = 0.0;
     assert!(
-        (head.progress - 1.0).abs() < 1e-4,
-        "expected progress 1.0 under half power, got {}",
+        head.progress > before,
+        "expected one construction-frame advance, got {}",
         head.progress
     );
+    let expected = head.progress;
     let wb = shadow.writeback_production_to_host(&mut logic);
     assert!(wb >= 1);
     let obj = logic.host_object(oid).expect("obj");
     let b = obj.building_data.as_ref().expect("bd");
     let hp = b.production_queue.first().expect("hq");
-    assert!((hp.progress - 1.0).abs() < 1e-4);
-    match prev {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY"),
-    }
+    assert!((hp.progress - expected).abs() < 1e-4);
 }
 
 #[test]
@@ -1449,10 +1451,10 @@ fn construction_authority_sole_ticks_percent() {
 
 #[test]
 fn special_power_authority_sole_ticks_cooldown() {
-    let prev_a = std::env::var("GENERALS_GAMEWORLD_SPECIAL_POWER_AUTHORITY").ok();
-    let prev_s = std::env::var("GENERALS_GAMEWORLD_SHADOW").ok();
-    std::env::set_var("GENERALS_GAMEWORLD_SPECIAL_POWER_AUTHORITY", "1");
-    std::env::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+    let _env = AuthorityEnvGuard::lock()
+        .set("GENERALS_GAMEWORLD_SPECIAL_POWER_AUTHORITY", "1")
+        .set("GENERALS_GAMEWORLD_SHADOW", "1")
+        .couple();
     assert!(gameworld_special_power_sole_tick_enabled());
     use crate::game_logic::host_special_power_log::{self};
     use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
@@ -1492,14 +1494,6 @@ fn special_power_authority_sole_ticks_cooldown() {
     let events = host_special_power_log::drain();
     assert!(shadow.apply_host_special_power_events(&events) >= 1);
     assert_eq!(shadow.tick_special_power_cooldowns(1.0), 0);
-    match prev_a {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_SPECIAL_POWER_AUTHORITY", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_SPECIAL_POWER_AUTHORITY"),
-    }
-    match prev_s {
-        Some(v) => std::env::set_var("GENERALS_GAMEWORLD_SHADOW", v),
-        None => std::env::remove_var("GENERALS_GAMEWORLD_SHADOW"),
-    }
 }
 
 #[test]

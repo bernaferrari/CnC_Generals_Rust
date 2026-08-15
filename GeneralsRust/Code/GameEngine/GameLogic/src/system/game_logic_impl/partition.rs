@@ -5,6 +5,9 @@ struct PartitionGhostLink {
     parent_alive: bool,
     shroudedness_previous:
         [crate::common::ObjectShroudStatus; game_engine::common::game_common::MAX_PLAYER_COUNT],
+    /// Frozen parent pose used after `unRegisterObject` orphans the ghost.
+    /// C++ keeps partition cells filled from this geometry (W3DGhostObject.cpp:363-368).
+    frozen_position: Option<Coord3D>,
 }
 
 #[derive(Debug, Default)]
@@ -163,6 +166,7 @@ impl PartitionManager {
                 parent_alive: true,
                 shroudedness_previous: [crate::common::ObjectShroudStatus::Invalid;
                     game_engine::common::game_common::MAX_PLAYER_COUNT],
+                frozen_position: self.object_positions.get(&object_id).copied(),
             },
         );
         Some(scene_id)
@@ -192,9 +196,18 @@ impl PartitionManager {
                 if link.parent_alive
                     && (previous as u8) < (crate::common::ObjectShroudStatus::Fogged as u8) =>
             {
-                if let Some(capture) = capture {
-                    manager.snapshot_linked_ghost(link.scene_id, player_index, capture);
-                }
+                // Fail-closed: a missing capture must not advance previous status.
+                // C++ snapShot is the only transition that freezes fog memory;
+                // retry next frame until the renderer-owned hook succeeds.
+                let Some(capture) = capture else {
+                    return true;
+                };
+                link.frozen_position = Some(Coord3D::new(
+                    capture.geometry.position[0],
+                    capture.geometry.position[1],
+                    capture.geometry.position[2],
+                ));
+                manager.snapshot_linked_ghost(link.scene_id, player_index, capture);
             }
             crate::common::ObjectShroudStatus::Clear
             | crate::common::ObjectShroudStatus::PartialClear
@@ -269,6 +282,55 @@ impl PartitionManager {
         self.ghost_links.keys().copied().collect()
     }
 
+    pub fn orphan_ghost_object_ids(&self) -> Vec<ObjectID> {
+        self.ghost_links
+            .iter()
+            .filter(|(_, link)| !link.parent_alive)
+            .map(|(&id, _)| id)
+            .collect()
+    }
+
+    pub fn ghost_shroudedness_previous(
+        &self,
+        object_id: ObjectID,
+        player_index: usize,
+    ) -> Option<crate::common::ObjectShroudStatus> {
+        self.ghost_links.get(&object_id).and_then(|link| {
+            link.shroudedness_previous
+                .get(player_index)
+                .copied()
+        })
+    }
+
+    pub fn ghost_frozen_position(&self, object_id: ObjectID) -> Option<Coord3D> {
+        self.ghost_links
+            .get(&object_id)
+            .and_then(|link| link.frozen_position)
+            .or_else(|| self.object_positions.get(&object_id).copied())
+    }
+
+    /// C++ `W3DGhostObject::getShroudStatus` for parentless modules, then
+    /// `W3DGhostObjectManager::updateOrphanedObjects`.
+    pub fn update_orphaned_ghosts(
+        &mut self,
+        player_index: usize,
+        current_status: impl Fn(ObjectID) -> crate::common::ObjectShroudStatus,
+        manager: &mut crate::object::W3DGhostObjectManager,
+    ) {
+        let orphans = self.orphan_ghost_object_ids();
+        for object_id in orphans {
+            let status = current_status(object_id);
+            self.apply_object_ghost_shroud_status(
+                object_id,
+                player_index,
+                status,
+                None,
+                manager,
+            );
+        }
+        manager.update_orphaned_objects(&[]);
+    }
+
     pub fn clear_ghost_objects(&mut self, manager: &mut crate::object::W3DGhostObjectManager) {
         for link in self.ghost_links.values() {
             manager.remove_linked_ghost(link.scene_id);
@@ -320,5 +382,101 @@ impl PartitionManager {
         let x = (position.x / self.cell_size).floor() as i32;
         let y = (position.y / self.cell_size).floor() as i32;
         (x, y)
+    }
+}
+
+#[cfg(test)]
+mod ghost_transition_tests {
+    use super::PartitionManager;
+    use crate::common::ObjectShroudStatus;
+    use crate::object::w3d_ghost_object::{
+        Matrix3x4, ParentGeometrySnapshot, RenderObjectClass, RenderObjectState,
+        W3DGhostObjectManager, W3DGhostSnapshotCapture,
+    };
+
+    fn capture(name: &str) -> W3DGhostSnapshotCapture {
+        W3DGhostSnapshotCapture {
+            capture_window_generation: None,
+            drawable_effectively_hidden: false,
+            render_objects: vec![RenderObjectState {
+                name: name.to_string(),
+                scale: 1.0,
+                color: 0xffff_ffff,
+                transform: Matrix3x4::IDENTITY,
+                sub_objects: Vec::new(),
+                class_id: RenderObjectClass::Mesh,
+            }],
+            geometry: ParentGeometrySnapshot {
+                geometry_type: 2,
+                is_small: false,
+                major_radius: 10.0,
+                minor_radius: 5.0,
+                position: [40.0, 50.0, 0.0],
+                angle: 0.0,
+            },
+        }
+    }
+
+    #[test]
+    fn capture_failure_does_not_advance_previous_status() {
+        let mut partition = PartitionManager::new();
+        let mut manager = W3DGhostObjectManager::new();
+        partition.add_object(7, (40.0, 50.0, 0.0));
+        let scene_id = partition
+            .attach_object_ghost(7, true, &mut manager)
+            .expect("ghost link");
+
+        partition.apply_object_ghost_shroud_status(
+            7,
+            0,
+            ObjectShroudStatus::Fogged,
+            None,
+            &mut manager,
+        );
+
+        assert_eq!(
+            partition.ghost_shroudedness_previous(7, 0),
+            Some(ObjectShroudStatus::Invalid)
+        );
+        assert!(!manager.linked_ghost_has_any_snapshot(scene_id));
+        assert!(partition.object_ghost_needs_capture(7, 0, ObjectShroudStatus::Fogged));
+
+        partition.apply_object_ghost_shroud_status(
+            7,
+            0,
+            ObjectShroudStatus::Fogged,
+            Some(&capture("Tower")),
+            &mut manager,
+        );
+        assert_eq!(
+            partition.ghost_shroudedness_previous(7, 0),
+            Some(ObjectShroudStatus::Fogged)
+        );
+        assert!(manager.linked_ghost_has_any_snapshot(scene_id));
+    }
+
+    #[test]
+    fn orphan_is_removed_when_shroud_clears() {
+        let mut partition = PartitionManager::new();
+        let mut manager = W3DGhostObjectManager::new();
+        partition.add_object(8, (40.0, 50.0, 0.0));
+        let scene_id = partition
+            .attach_object_ghost(8, true, &mut manager)
+            .expect("ghost link");
+        partition.apply_object_ghost_shroud_status(
+            8,
+            0,
+            ObjectShroudStatus::Fogged,
+            Some(&capture("Ruins")),
+            &mut manager,
+        );
+        assert!(partition.detach_object_ghost(8, &mut manager));
+        assert_eq!(partition.ghost_link_scene_id(8), Some(scene_id));
+        assert_eq!(manager.used_count(), 1);
+
+        partition.update_orphaned_ghosts(0, |_| ObjectShroudStatus::Clear, &mut manager);
+
+        assert_eq!(partition.ghost_link_scene_id(8), None);
+        assert_eq!(manager.used_count(), 0);
     }
 }

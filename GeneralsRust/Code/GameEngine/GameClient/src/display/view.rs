@@ -978,6 +978,10 @@ impl View {
         ])
     }
 
+    pub fn guard_band_bias(&self) -> Vector2 {
+        self.guard_band_bias
+    }
+
     /// Save current view location
     pub fn get_location(&self) -> ViewLocation {
         let mut location = ViewLocation::new();

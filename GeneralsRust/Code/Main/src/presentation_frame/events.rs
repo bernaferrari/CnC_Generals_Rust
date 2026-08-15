@@ -98,5 +98,6 @@ pub enum PresentationEvent {
         fired_barrel: u8,
         sequence: u64,
         logic_frame: u32,
+        visual_plan: Option<super::FrozenWeaponVisualDispatchPlan>,
     },
 }

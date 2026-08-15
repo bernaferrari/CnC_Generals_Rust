@@ -126,9 +126,8 @@ pub struct ObjectSnapshot {
     /// This tail is deliberately separate from ordinary WeaponSet slots:
     /// every damaged role owns an independent PRIMARY Weapon allocation.
     #[serde(default)]
-    pub temporary_weapon_runtime: Option<
-        crate::game_logic::host_temporary_weapon_behavior::TemporaryWeaponRuntimeBundle,
-    >,
+    pub temporary_weapon_runtime:
+        Option<crate::game_logic::host_temporary_weapon_behavior::TemporaryWeaponRuntimeBundle>,
 }
 
 /// Object status snapshot

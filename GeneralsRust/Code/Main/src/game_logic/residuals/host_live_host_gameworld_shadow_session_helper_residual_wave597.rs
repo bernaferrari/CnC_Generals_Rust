@@ -136,16 +136,23 @@ pub fn honesty_host_gameworld_shadow_session_helper_source_markers_residual_wave
         residual_action_store(ResidualHostGameworldShadowSessionHelperAction::SourceMarkers);
         return false;
     };
+    // 2026-08-14 (Wave 927 seam): the direct shadow_session_after_host_tick /
+    // maybe_shadow_after_host_tick / end_shadow_coupled_tick calls moved into
+    // gameworld_shadow::run_post_logic_shadow_boundary; the engine helper now
+    // delegates through it. The session markers are asserted in the shadow
+    // source view instead of the engine body.
+    let sh = crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC;
+    let boundary_ok = sh.contains("run_post_logic_shadow_boundary")
+        && sh.contains("shadow_session_after_host_tick")
+        && sh.contains("maybe_shadow_after_host_tick");
     let body_ok = body.contains("Wave 597")
-        && body.contains("shadow_session_after_host_tick")
+        && body.contains("run_post_logic_shadow_boundary")
         && body.contains("presentation_view_from_shadow")
-        && body.contains("maybe_shadow_after_host_tick")
         && body.contains("last_gameworld_presentation_entity_count")
-        && body.contains("end_shadow_coupled_tick")
         && body.contains("&mut self.game_logic");
     let call_ok = eng.contains("self.host_run_gameworld_shadow_after_logic(couple_shadow)")
-        && eng.contains("Wave 597: GameWorld shadow session residual via host helper");
-    let ok = body_ok && call_ok && !eng.contains("playable_claim = true");
+        && eng.contains("Wave 597: GameWorld shadow session after host logic residual");
+    let ok = body_ok && boundary_ok && call_ok && !eng.contains("playable_claim = true");
     residual_action_store(ResidualHostGameworldShadowSessionHelperAction::SourceMarkers);
     ok
 }
@@ -167,10 +174,13 @@ pub fn honesty_host_gameworld_shadow_session_helper_nav_commands_residual_wave59
 }
 
 pub fn simulate_host_gameworld_shadow_session_helper_collect_source() -> bool {
+    // 2026-08-14 (Wave 927 seam): shadow_session_after_host_tick moved into
+    // gameworld_shadow::run_post_logic_shadow_boundary; assert it there.
     let eng = eng_source();
     let ok = eng.contains("Wave 597")
         && eng.contains("fn host_run_gameworld_shadow_after_logic")
-        && eng.contains("shadow_session_after_host_tick");
+        && eng.contains("run_post_logic_shadow_boundary")
+        && crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC.contains("shadow_session_after_host_tick");
     residual_action_store(ResidualHostGameworldShadowSessionHelperAction::CollectSource);
     ok
 }
@@ -178,7 +188,7 @@ pub fn simulate_host_gameworld_shadow_session_helper_collect_source() -> bool {
 pub fn simulate_host_gameworld_shadow_session_helper_dispatch_source() -> bool {
     let eng = eng_source();
     let ok = eng.contains("self.host_run_gameworld_shadow_after_logic(couple_shadow)")
-        && eng.contains("Wave 597: GameWorld shadow session residual via host helper")
+        && eng.contains("Wave 597: GameWorld shadow session after host logic residual")
         && eng.contains("self.host_finalize_presentation_after_logic()");
     residual_action_store(ResidualHostGameworldShadowSessionHelperAction::DispatchSource);
     ok

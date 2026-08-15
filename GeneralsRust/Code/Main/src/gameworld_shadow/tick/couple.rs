@@ -523,6 +523,20 @@ pub fn coupled_entity_move_dest(host: ObjectId) -> Option<[f32; 3]> {
     coupled_entity_fat_view(host).and_then(|v| v.move_target)
 }
 
+pub fn eager_mark_host_destroy_if_coupled(host: ObjectId) -> bool {
+    if !gameworld_deferred_destroy_live() {
+        return false;
+    }
+    with_coupled_shadow_slot(|shadow| {
+        if !shadow.queue_destroy_for_host(host) {
+            return false;
+        }
+        let _ = shadow.world_mut().apply_pending_mutations();
+        true
+    })
+    .unwrap_or(false)
+}
+
 pub fn eager_unmap_host_destroy_if_coupled(host: ObjectId) -> bool {
     if !shadow_coupled_tick_active() || !gameworld_shadow_enabled() {
         return false;

@@ -224,6 +224,105 @@ fn restored_recoil_slots_for_topology(
 /// Draw state.  C++ does not replay a prior drawable broadcast merely because
 /// an asset/topology becomes available later; Main must similarly advance the
 /// per-module observation watermark while deliberately retaining bind/idle.
+fn retain_fire_starts_from_plans(
+    drawable_visual_states: &mut HashMap<(u32, u32), ObjectVisualState>,
+    plans: &[crate::presentation_frame::FrozenWeaponVisualDispatchPlan],
+) {
+    for plan in plans {
+        if !plan.is_valid() {
+            continue;
+        }
+        for target in &plan.targets {
+            if !target.starts_recoil_or_muzzle {
+                continue;
+            }
+            let key = (plan.discharge.source.0, target.state.draw_module_index);
+            let state = drawable_visual_states.entry(key).or_default();
+            if plan.discharge.sequence == 0
+                || plan.discharge.sequence <= state.last_seen_weapon_discharge_sequence
+            {
+                continue;
+            }
+            let slot = usize::from(plan.discharge.weapon_slot);
+            let barrel = usize::from(plan.discharge.fired_barrel);
+            if slot >= state.recoil_slots.len() {
+                continue;
+            }
+            if state.recoil_slots[slot].len() <= barrel {
+                state.recoil_slots[slot].resize(barrel + 1, ObjectWeaponRecoilState::default());
+            }
+            if let Some(recoil) = state.recoil_slots[slot].get_mut(barrel) {
+                recoil.phase = crate::save_load::snapshot::ClientDrawableRecoilPhase::RecoilStart;
+                recoil.recoil_rate = crate::assets::AuthoredDrawRecoilKinematics::default()
+                    .initial_recoil_per_logic_frame();
+            }
+            state.last_seen_weapon_discharge_sequence = plan.discharge.sequence;
+        }
+    }
+}
+
+fn discharges_from_valid_plans(
+    plans: &[crate::presentation_frame::FrozenWeaponVisualDispatchPlan],
+    object_id: crate::game_logic::ObjectId,
+    draw_module_index: u32,
+    source_template_name: &str,
+    draw_model: &crate::assets::AuthoredDrawModel,
+) -> (
+    Vec<(u8, u8, u64)>,
+    Option<crate::presentation_frame::FrozenWeaponVisualImpulse>,
+) {
+    let mut discharges = Vec::new();
+    let mut impulse = None;
+    for plan in plans {
+        if !plan.is_valid() || plan.discharge.source != object_id {
+            continue;
+        }
+        let Some(target_index) = plan
+            .targets
+            .iter()
+            .position(|target| target.state.draw_module_index == draw_module_index)
+        else {
+            continue;
+        };
+        let target = &plan.targets[target_index];
+        let current = crate::presentation_frame::FrozenWeaponVisualDrawState {
+            draw_module_index,
+            source_template_name: source_template_name.to_string(),
+            model_key: draw_model.model_key.clone(),
+            selected_condition_state_index: draw_model.selected_condition_state_index,
+            draw_state_revision: target.state.draw_state_revision,
+        };
+        let delivery = plan.delivery_for_target(
+            target_index,
+            &crate::presentation_frame::FrozenWeaponVisualDeliveryContext {
+                world_epoch: plan.discharge.world_epoch,
+                source: object_id,
+                source_object_generation: plan.discharge.source_object_generation,
+                current_draw_state: &current,
+                will_draw_this_frame: true,
+            },
+        );
+        match delivery {
+            crate::presentation_frame::FrozenWeaponVisualDelivery::Deliver => {
+                if target.starts_recoil_or_muzzle {
+                    discharges.push((
+                        plan.discharge.weapon_slot,
+                        plan.discharge.fired_barrel,
+                        plan.discharge.sequence,
+                    ));
+                }
+                if impulse.is_none() && plan.impulse.recoil_amount != 0.0 {
+                    impulse = Some(plan.impulse);
+                }
+            }
+            crate::presentation_frame::FrozenWeaponVisualDelivery::DiscardStateMismatch => {}
+            crate::presentation_frame::FrozenWeaponVisualDelivery::RetainUntilVisible
+            | crate::presentation_frame::FrozenWeaponVisualDelivery::NotTargeted => {}
+        }
+    }
+    (discharges, impulse)
+}
+
 fn discard_unvisualizable_discharges(
     visual_state: &mut ObjectVisualState,
     discharges: &[(u8, u8, u64)],
@@ -452,6 +551,7 @@ impl RenderPipeline {
         draw_model: &crate::assets::AuthoredDrawModel,
         delta_time: f32,
         pending_restore: Option<ClientDrawableStateSnapshot>,
+        visual_plans: &[crate::presentation_frame::FrozenWeaponVisualDispatchPlan],
     ) -> (
         Option<crate::assets::W3dAnimationBinding>,
         f32,
@@ -462,21 +562,36 @@ impl RenderPipeline {
         else {
             return (None, 0.0, Vec::new());
         };
+        retain_fire_starts_from_plans(&mut self.drawable_visual_states, visual_plans);
         let key = (object_id.0, draw_module_index);
         let state = self.drawable_visual_states.entry(key).or_default();
         if state.identity.as_ref() != Some(&identity) {
+            let first_bind = state.identity.is_none();
+            let retained_recoil = first_bind.then(|| state.recoil_slots.clone());
+            let retained_sequence = first_bind.then_some(state.last_seen_weapon_discharge_sequence);
             *state = ObjectVisualState {
                 identity: Some(identity.clone()),
                 ..Default::default()
             };
+            if let Some(recoil_slots) = retained_recoil {
+                state.recoil_slots = recoil_slots;
+            }
+            if let Some(sequence) = retained_sequence {
+                state.last_seen_weapon_discharge_sequence = sequence;
+            }
         }
-        // `hq-x4h` owns the exact frozen Drawable route: C++ evaluates
-        // stealth/suspend-FX gates and then may stop at an earlier Draw module
-        // with a FireFX pivot. A bare `(object, slot, barrel, sequence)` must
-        // not be broadcast here. Saved in-flight state is still validated and
-        // advanced below; live discharge injection remains deliberately inert
-        // until that route/revision contract exists.
-        let discharges: &[(u8, u8, u64)] = &[];
+        let (discharges, loco_impulse) = discharges_from_valid_plans(
+            visual_plans,
+            object_id,
+            draw_module_index,
+            source_template_name,
+            draw_model,
+        );
+        if let Some(impulse) = loco_impulse {
+            state.loco_acceleration_pitch_rate += impulse.loco_pitch_delta();
+            state.loco_acceleration_roll_rate += impulse.loco_roll_delta();
+        }
+        let discharges = discharges.as_slice();
 
         if let Some(saved) = pending_restore {
             // Pre-frame validation proved the source fields, but only this
@@ -771,5 +886,45 @@ mod tests {
             ..Default::default()
         };
         assert!(snapshot_from_visual_state(1, 0, &unresolved).is_none());
+    }
+
+    #[test]
+    fn culled_module_retains_recoil_start_without_a_queue() {
+        let plan = crate::presentation_frame::FrozenWeaponVisualDispatchPlan {
+            discharge: crate::presentation_frame::FrozenWeaponVisualDischarge {
+                world_epoch: 1,
+                source: crate::game_logic::ObjectId(41),
+                source_object_generation: 1,
+                weapon_slot: 0,
+                fired_barrel: 0,
+                sequence: 4,
+                logic_frame: 10,
+            },
+            fx_route: crate::presentation_frame::FrozenWeaponVisualFxRoute::BroadcastWithoutFireFx,
+            targets: vec![
+                crate::presentation_frame::FrozenWeaponVisualDispatchTarget {
+                    state: crate::presentation_frame::FrozenWeaponVisualDrawState {
+                        draw_module_index: 2,
+                        source_template_name: "CullHost".into(),
+                        model_key: "CullMesh".into(),
+                        selected_condition_state_index: 0,
+                        draw_state_revision: 1,
+                    },
+                    starts_recoil_or_muzzle: true,
+                    stops_after_fire_fx: false,
+                },
+            ],
+            fire_fx_falls_back_to_drawable_position: false,
+            impulse: crate::presentation_frame::FrozenWeaponVisualImpulse::default(),
+        };
+        assert!(plan.is_valid());
+        let mut states = HashMap::new();
+        retain_fire_starts_from_plans(&mut states, &[plan]);
+        let state = states.get(&(41, 2)).expect("retained visual state");
+        assert_eq!(state.last_seen_weapon_discharge_sequence, 4);
+        assert_eq!(
+            state.recoil_slots[0][0].phase,
+            crate::save_load::snapshot::ClientDrawableRecoilPhase::RecoilStart
+        );
     }
 }
