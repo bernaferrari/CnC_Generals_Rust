@@ -205,8 +205,13 @@ impl WeaponTemplate {
             damage_status_type: ObjectStatusTypes::None,
             death_type: DeathType::Normal,
             anti_mask: WeaponAntiMask::new(WeaponAntiMask::GROUND), // C++ line 284: WEAPON_ANTI_GROUND
-            affects_mask: WeaponAffectsMask::new(0),
-            collide_mask: WeaponCollideMask::new(0),
+            // C++ Weapon.cpp:271-273
+            affects_mask: WeaponAffectsMask::new(
+                WeaponAffectsMask::ALLIES
+                    | WeaponAffectsMask::ENEMIES
+                    | WeaponAffectsMask::NEUTRALS,
+            ),
+            collide_mask: WeaponCollideMask::new(WeaponCollideMask::STRUCTURES),
             damage_dealt_at_self_position: false,
             reload_type: WeaponReloadType::AutoReload,
             prefire_type: WeaponPrefireType::PrefirePerShot,
@@ -2980,6 +2985,21 @@ mod tests {
                 crate::common::INVALID_ID,
             ));
         });
+    }
+
+    #[test]
+    fn omitted_ini_weapon_defaults_match_cpp_weapon_cpp_271_273() {
+        let template = WeaponTemplate::new("OmittedIniKeys".to_string());
+        assert_eq!(
+            template.affects_mask.bits(),
+            WeaponAffectsMask::ALLIES | WeaponAffectsMask::ENEMIES | WeaponAffectsMask::NEUTRALS,
+            "omitted RadiusDamageAffects must splash allies|enemies|neutrals"
+        );
+        assert_eq!(
+            template.collide_mask.bits(),
+            WeaponCollideMask::STRUCTURES,
+            "omitted Collide must hit structures"
+        );
     }
 
     #[test]

@@ -107,7 +107,9 @@ pub fn honesty_start_game_from_ui_loading_source() -> bool {
         Some(i) => i,
         None => return false,
     };
-    let body = &src[i..src.len().min(i + 7000)];
+    // hq-nnuu 2026-08-15: host_start_game_from_ui grew past a 7k window after
+    // the cnc_game_engine split; scan the live helper body (ENGINE_SRC concat).
+    let body = &src[i..src.len().min(i + 24_000)];
     body.contains("prepare_cpp_load_screen_for_mode")
         && body.contains("GameState::Loading")
         && body.contains("load_map")

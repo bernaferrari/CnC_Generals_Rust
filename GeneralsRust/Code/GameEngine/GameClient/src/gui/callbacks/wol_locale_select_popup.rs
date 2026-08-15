@@ -2,7 +2,6 @@
 
 use std::cell::RefCell;
 use std::rc::Rc;
-use std::sync::{Mutex, OnceLock};
 
 use crate::game_text::GameText;
 use crate::gui::callbacks::online_callback_support::packed_ui_color;

@@ -11,7 +11,6 @@ use crate::gui::{
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use std::cell::RefCell;
 use std::rc::Rc;
-use std::sync::{Mutex, OnceLock};
 
 const KEY_ESC: usize = 0x1B;
 const KEY_STATE_UP: usize = 0x0001;
@@ -106,6 +105,7 @@ pub fn popup_join_game_input(
         return WindowMsgHandled::Handled;
     }
 
+    // C++ PopupJoinGame.cpp:116-118 — close overlay on ESC up; no GBM_SELECTED.
     close_overlay(GameSpyOverlayType::GamePassword);
     set_lobby_attempt_host_join(false);
     let state_slot = popup_join_state();

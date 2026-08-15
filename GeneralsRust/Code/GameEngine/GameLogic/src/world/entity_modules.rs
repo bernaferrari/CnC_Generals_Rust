@@ -6,7 +6,11 @@
 //! Flattened Entity fields stay the write surface.
 
 use super::entities::{EntityId, EntityInstalledModules, EntityModuleRecord, EntityModuleState};
+use super::entity_module_instances::{
+    live_modules_from_spec, live_modules_from_tags, EntityLiveModule,
+};
 use super::GameWorld;
+use crate::object::Object;
 use std::collections::HashMap;
 
 pub const HELPER_TAG_SMC: &str = "ModuleTag_SMCHelper";
@@ -38,12 +42,14 @@ pub struct EntityModuleGraph {
 pub struct GameWorldEntityModules {
     graphs: HashMap<u32, EntityModuleGraph>,
     last_delete: HashMap<u32, Vec<String>>,
+    live: HashMap<u32, Vec<EntityLiveModule>>,
 }
 
 impl GameWorldEntityModules {
     pub fn clear(&mut self) {
         self.graphs.clear();
         self.last_delete.clear();
+        self.live.clear();
     }
 
     pub fn get(&self, id: EntityId) -> Option<&EntityModuleGraph> {
@@ -58,8 +64,18 @@ impl GameWorldEntityModules {
     }
 
     pub fn install(&mut self, id: EntityId, spec: &EntityModuleInstallSpec) -> Vec<String> {
-        let mut tags = ctor_helper_tags(spec);
-        tags.extend(spec.template_module_tags.iter().cloned());
+        let live = live_modules_from_spec(spec);
+        self.install_live(id, live)
+    }
+
+    pub fn install_from_crate_object(&mut self, id: EntityId, object: &Object) -> Vec<String> {
+        let tags = object.installed_module_tags();
+        let live = live_modules_from_tags(&tags);
+        self.install_live(id, live)
+    }
+
+    fn install_live(&mut self, id: EntityId, live: Vec<EntityLiveModule>) -> Vec<String> {
+        let tags: Vec<String> = live.iter().map(|m| m.tag().to_string()).collect();
         self.graphs.insert(
             id.get(),
             EntityModuleGraph {
@@ -68,17 +84,30 @@ impl GameWorldEntityModules {
                 on_delete_order: Vec::new(),
             },
         );
+        self.live.insert(id.get(), live);
         tags
     }
 
+    pub fn live_count(&self, id: EntityId) -> usize {
+        self.live.get(&id.get()).map(Vec::len).unwrap_or(0)
+    }
+
     pub fn on_delete(&mut self, id: EntityId) -> Vec<String> {
-        let Some(mut graph) = self.graphs.remove(&id.get()) else {
-            return self.last_delete.get(&id.get()).cloned().unwrap_or_default();
+        let live = self.live.remove(&id.get()).unwrap_or_default();
+        let order: Vec<String> = if live.is_empty() {
+            self.graphs
+                .get(&id.get())
+                .map(|g| g.tags.clone())
+                .unwrap_or_default()
+        } else {
+            live.iter().map(|m| m.tag().to_string()).collect()
         };
-        graph.on_delete_order = graph.tags.clone();
-        self.last_delete
-            .insert(id.get(), graph.on_delete_order.clone());
-        graph.on_delete_order
+        drop(live);
+        if let Some(mut graph) = self.graphs.remove(&id.get()) {
+            graph.on_delete_order = order.clone();
+        }
+        self.last_delete.insert(id.get(), order.clone());
+        order
     }
 }
 
@@ -126,15 +155,30 @@ fn records_from_tags(tags: &[String]) -> Vec<EntityModuleRecord> {
 }
 
 impl GameWorld {
+    pub fn install_entity_modules_from_crate(
+        &mut self,
+        id: EntityId,
+        object: &Object,
+    ) -> Vec<String> {
+        let tags = self.entity_modules.install_from_crate_object(id, object);
+        self.bind_entity_module_records(id, &tags);
+        tags
+    }
+
     pub fn install_entity_modules(
         &mut self,
         id: EntityId,
         spec: &EntityModuleInstallSpec,
     ) -> Vec<String> {
         let tags = self.entity_modules.install(id, spec);
+        self.bind_entity_module_records(id, &tags);
+        tags
+    }
+
+    fn bind_entity_module_records(&mut self, id: EntityId, tags: &[String]) {
         if let Some(entity) = self.world_mut().entity_mut(id) {
             let mut envelope = entity.take_envelope().unwrap_or_default();
-            for tag in &tags {
+            for tag in tags {
                 if !envelope.module_states.iter().any(|m| m.tag == *tag) {
                     envelope.module_states.push(EntityModuleState {
                         tag: tag.clone(),
@@ -144,12 +188,16 @@ impl GameWorld {
             }
             entity.attach_envelope(envelope);
             entity.entity_modules = Some(EntityInstalledModules {
-                records: records_from_tags(&tags),
+                records: records_from_tags(tags),
                 on_created: true,
                 on_delete_order: Vec::new(),
+                live_instances: tags.len(),
             });
         }
-        tags
+    }
+
+    pub fn entity_live_module_count(&self, id: EntityId) -> usize {
+        self.entity_modules.live_count(id)
     }
 
     pub fn entity_module_tags(&self, id: EntityId) -> &[String] {
@@ -175,93 +223,5 @@ impl GameWorld {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::world::entities::{TemplateRef, Transform};
-
-    #[test]
-    fn default_helpers_then_template_and_on_delete_preserves_order() {
-        let mut world = GameWorld::new(1);
-        let id = world.spawn_entity(
-            TemplateRef::new("TestObject"),
-            None,
-            Transform::default(),
-            10.0,
-        );
-        let spec = EntityModuleInstallSpec {
-            template_module_tags: vec!["BodyModule".to_string(), "AIUpdate".to_string()],
-            ..EntityModuleInstallSpec::default()
-        };
-        let tags = world.install_entity_modules(id, &spec);
-        assert_eq!(
-            tags,
-            vec![
-                HELPER_TAG_SMC,
-                HELPER_TAG_STATUS,
-                HELPER_TAG_SUBDUAL,
-                HELPER_TAG_DEFECTION,
-                "BodyModule",
-                "AIUpdate",
-            ]
-        );
-        assert_eq!(world.entity_module_tags(id), tags.as_slice());
-        let installed = world
-            .entity(id)
-            .and_then(|e| e.entity_modules.clone())
-            .expect("entity modules");
-        assert!(installed.on_created);
-        assert_eq!(installed.records.len(), tags.len());
-        assert_eq!(installed.records[0].handle, "ObjectSMCHelper");
-        let deleted = world.walk_entity_modules_on_delete(id);
-        assert_eq!(deleted, tags);
-        assert_eq!(world.last_entity_on_delete_order(id), tags.as_slice());
-        assert!(world.entity_module_tags(id).is_empty());
-    }
-
-    #[test]
-    fn tank_fixture_installs_helpers_then_template_in_cpp_order() {
-        let spec = EntityModuleInstallSpec {
-            template_module_tags: vec!["ActiveBody".to_string(), "AIUpdate".to_string()],
-            has_weapons: true,
-            ..EntityModuleInstallSpec::default()
-        };
-        let mut expected = ctor_helper_tags(&spec);
-        expected.extend(spec.template_module_tags.iter().cloned());
-        assert_eq!(
-            expected,
-            vec![
-                HELPER_TAG_SMC,
-                HELPER_TAG_STATUS,
-                HELPER_TAG_SUBDUAL,
-                HELPER_TAG_DEFECTION,
-                HELPER_TAG_WEAPON_STATUS,
-                HELPER_TAG_FIRING_TRACKER,
-                HELPER_TAG_TEMP_WEAPON_BONUS,
-                "ActiveBody",
-                "AIUpdate",
-            ]
-        );
-        let mut world = GameWorld::new(1);
-        let id = world.spawn_entity(
-            TemplateRef::new("AmericaTankCrusader"),
-            None,
-            Transform::default(),
-            100.0,
-        );
-        let installed = world.install_entity_modules(id, &spec);
-        assert_eq!(installed, expected);
-        world.mark_entity_destroyed(id);
-        assert_eq!(world.process_destroy_list(), 1);
-        assert_eq!(world.last_entity_on_delete_order(id), expected.as_slice());
-    }
-
-    #[test]
-    fn shrubbery_omits_defection_inactive_body_omits_status() {
-        let spec = EntityModuleInstallSpec {
-            inactive_body: true,
-            shrubbery: true,
-            ..EntityModuleInstallSpec::default()
-        };
-        assert_eq!(ctor_helper_tags(&spec), vec![HELPER_TAG_SMC.to_string()]);
-    }
-}
+#[path = "entity_modules_tests.rs"]
+mod tests;

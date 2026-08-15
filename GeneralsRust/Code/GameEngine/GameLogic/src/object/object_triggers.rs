@@ -310,14 +310,16 @@ impl Object {
             self.update_trigger_area_flags();
         }
 
-        // C++ lines 2574-2590: Check for exited trigger areas
+        // C++ lines 2574-2590: Check for exited trigger areas.
+        // C++ Object.cpp:2599 uses the *old* m_iPos, not the new cell.
+        let old_i_pos = self.i_pos;
         for i in 0..(self.num_trigger_areas_active as usize) {
             if self.num_trigger_areas_active as usize >= MAX_TRIGGER_AREA_INFOS {
                 break;
             }
             let trigger = &self.trigger_info[i].trigger;
             if let Some(trigger_arc) = trigger {
-                let inside = trigger_arc.point_in_trigger_int(&new_i_pos);
+                let inside = trigger_arc.point_in_trigger_int(&old_i_pos);
                 if !inside {
                     self.trigger_info[i].is_inside = false;
                     self.trigger_info[i].exited = true;
@@ -335,9 +337,55 @@ impl Object {
         // C++ line 2593: Update integer position
         self.i_pos = new_i_pos;
 
-        // C++ lines 2595-2651: Check for newly entered trigger areas
-        // This would iterate over all PolygonTrigger instances
-        // For now, we check only the already tracked triggers
+        // C++ lines 2595-2651: Check for newly entered trigger areas.
+        // Iterate every PolygonTrigger, not only already-tracked ones.
+        self.enter_untracked_polygon_triggers(now);
+    }
+
+    /// C++ Object.cpp:2615-2657 — walk `PolygonTrigger::getFirstPolygonTrigger()`.
+    fn enter_untracked_polygon_triggers(&mut self, now: UnsignedInt) {
+        let Ok(terrain) = crate::terrain::get_terrain_logic().read() else {
+            return;
+        };
+        let triggers: Vec<Arc<PolygonTrigger>> = terrain
+            .get_trigger_areas()
+            .get_triggers()
+            .iter()
+            .cloned()
+            .map(Arc::new)
+            .collect();
+        drop(terrain);
+
+        for trigger_arc in triggers {
+            let already_tracked = (0..(self.num_trigger_areas_active as usize)).any(|i| {
+                self.trigger_info[i]
+                    .trigger
+                    .as_ref()
+                    .is_some_and(|tracked| tracked.get_id() == trigger_arc.get_id())
+            });
+            if already_tracked {
+                continue;
+            }
+            if !trigger_arc.point_in_trigger_int(&self.i_pos) {
+                continue;
+            }
+            let slot = self.num_trigger_areas_active as usize;
+            if slot >= MAX_TRIGGER_AREA_INFOS {
+                break;
+            }
+            self.trigger_info[slot].is_inside = true;
+            self.trigger_info[slot].entered = true;
+            self.trigger_info[slot].exited = false;
+            self.trigger_info[slot].trigger = Some(trigger_arc);
+            self.entered_or_exited_frame = now;
+            if let Some(team) = self.get_team() {
+                if let Ok(mut team_guard) = team.write() {
+                    team_guard.set_entered_exited();
+                }
+            }
+            crate::helpers::TheGameLogic::queue_objects_changed_trigger_areas(self.id);
+            self.num_trigger_areas_active += 1;
+        }
     }
 
     /// Update trigger area flags, clearing entered/exited markers.

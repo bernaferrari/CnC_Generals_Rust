@@ -1,5 +1,8 @@
 //! Action registry for built-in script actions.
 //!
+//! C++ cousin: ScriptActions.cpp `executeAction` switch L6382 (name HashMap
+//! here; the faithful match is `scripting/executor/dispatch.rs`).
+//!
 //! Split from `scripting/actions.rs` for module-size parity.
 //! Observable script behavior is unchanged.
 

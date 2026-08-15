@@ -2237,12 +2237,21 @@ fn demo_and_burton_charge_special_power_enum_residuals() {
             None,
         )
         .is_some());
+    // C++ UniqueSpecialObjectTargets (SpecialAbilityUpdate.cpp:146-147):
+    // one C4 special object per target. Remote charge needs a second attach.
+    let tgt2 = logic
+        .create_object(
+            "GLATunnelNetwork",
+            Team::GLA,
+            glam::Vec3::new(15.0, 0.0, 0.0),
+        )
+        .expect("struct2");
     assert!(logic
         .place_remote_demo_charge(
             Team::USA,
-            glam::Vec3::new(5.0, 0.0, 0.0),
+            glam::Vec3::new(15.0, 0.0, 0.0),
             Some(src),
-            Some(tgt),
+            Some(tgt2),
         )
         .is_some());
 }

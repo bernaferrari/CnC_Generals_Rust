@@ -3,6 +3,10 @@
 //! This module provides all the action types that scripts can execute,
 //! including unit creation, resource manipulation, UI updates, and game state changes.
 //!
+//! C++: `GeneralsMD/Code/GameEngine/Source/GameLogic/ScriptEngine/ScriptActions.cpp`
+//! (`do*` implementations). The C++-faithful `executeAction` switch lives in
+//! `scripting/executor/dispatch.rs`. This directory is the Rhai/name registry.
+//!
 //! Split from `scripting/actions.rs` for module-size parity.
 //! Observable script behavior is unchanged.
 
@@ -59,3 +63,22 @@ pub trait ScriptAction: Send + Sync {
     /// Get optional parameters
     fn optional_parameters(&self) -> Vec<String>;
 }
+
+/// Concatenated live sources for residual `include_str!` scans.
+pub const ACTIONS_SRC: &str = concat!(
+    include_str!("mod.rs"),
+    include_str!("helpers.rs"),
+    include_str!("registry.rs"),
+    include_str!("unit_actions.rs"),
+    include_str!("object_actions.rs"),
+    include_str!("team_command.rs"),
+    include_str!("named_unit.rs"),
+    include_str!("player_command.rs"),
+    include_str!("player_economy.rs"),
+    include_str!("camera_ui.rs"),
+    include_str!("music_audio.rs"),
+    include_str!("weather_radar.rs"),
+    include_str!("science_special.rs"),
+    include_str!("building.rs"),
+    include_str!("leftover.rs"),
+);

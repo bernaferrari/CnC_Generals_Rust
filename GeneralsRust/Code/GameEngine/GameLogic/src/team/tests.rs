@@ -461,6 +461,48 @@ mod tests {
     }
 
     #[test]
+    fn update_state_queues_on_create_when_dual_world_registry_is_empty() {
+        let _ = drain_pending_team_script_events();
+        assert!(
+            crate::object::registry::OBJECT_REGISTRY.is_empty(),
+            "this test names the empty-registry production path"
+        );
+
+        let mut factory = TeamFactory::new();
+        let mut dict = Dict::new();
+        dict.set_ascii_string(key_team_name(), "EmptyRegistryTeam");
+        dict.set_ascii_string(key_team_owner(), "PlyrCivilian");
+        dict.set_ascii_string(key_team_on_create_script(), "OnCreateEmptyRegistry");
+        dict.set_ascii_string(key_team_on_idle_script(), "OnIdleEmptyRegistry");
+
+        let _ = factory
+            .init_team(
+                AsciiString::from("EmptyRegistryTeam"),
+                AsciiString::from("PlyrCivilian"),
+                false,
+                Some(&dict),
+            )
+            .expect("prototype should be created");
+
+        let team = factory
+            .create_team("EmptyRegistryTeam")
+            .expect("team should be created");
+
+        {
+            let mut guard = team.write().expect("team write lock");
+            guard.update_state();
+        }
+
+        let queued = drain_pending_team_script_events();
+        assert!(
+            queued
+                .iter()
+                .any(|event| event.script_name == "OnCreateEmptyRegistry"),
+            "empty dual-world registry must not skip Team::updateState onCreate"
+        );
+    }
+
+    #[test]
     fn update_removes_empty_active_non_singleton_teams() {
         let mut factory = TeamFactory::new();
         let mut dict = Dict::new();

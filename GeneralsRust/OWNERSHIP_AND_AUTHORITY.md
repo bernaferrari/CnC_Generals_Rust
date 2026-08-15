@@ -1769,3 +1769,19 @@ More empty-registry peels: crate AI supply/hole, async AI snapshot, stealth dete
 Under GENERALS_GAMEWORLD_SPECIAL_POWER_AUTHORITY+shadow (default on), GameWorld sole-ticks object SP cooldown remaining (respecting host disabled freeze); host skips advance and writeback last-writes ready/remaining.
 
 Superweapon/strike residual uses `take_damage_from_immediate` so host HP mutates even under DAMAGE_AUTHORITY (combat fire still defers HP to GameWorld writeback).
+
+## Authority-switch runbook (hq-48k / hq-a8z) — defaults stay OFF
+
+Do **not** flip production defaults until every step's probe is green. Rollback is `GENERALS_GAMEWORLD_<NAME>=0` (or unset for default-on channels). Main-store retirement is last and ordered **objects → players → commands**.
+
+| Step | Flag | Probe criteria | Rollback |
+|------|------|----------------|----------|
+| 0 | `GENERALS_GAMEWORLD_SHADOW=1` (already default on) | `counts_match` + mapped host ObjectId set equals live host count | `=0` |
+| 1 | `GENERALS_GAMEWORLD_ENTITY_MODULES=1` | flag-ON spawn tags == crate `Object::installed_module_tags`; `on_delete` order matches; no OBJECT_REGISTRY insert | `=0` |
+| 2 | Keep damage/economy/movement/weapon/production/construction/SP/AI/fire-spawn at current defaults | `health_match`, `economy_match`, `pose_match`, `weapon_match`, `production_match`, `contain_match`, `destroy_visibility_match` stay true on a multi-frame golden tick | per-flag `=0` |
+| 3 | Dry-run: flip **all** `GAMEWORLD_AUTHORITY_ENV_NAMES` to `1` inside `AuthorityEnvGuard` only | every probe bit in `GameWorldShadowProbe` true after ≥3 logic frames | guard drop restores env |
+| 4 | Retire Main object HashMap | read-inventory: envelope-only=0, persistent KNOWN_GAPS=0, no `host_object_mut` dirty path | revert store; do not ship |
+| 5 | Retire Main player store | player supplies/power/sciences match GameWorld `PlayerData` | revert store |
+| 6 | Retire Main command queue as authority | Phase 6 ingest is sole writer; host `process_commands` becomes side-effect adapter only | revert queue |
+
+Fail-closed: any dry-run probe false is a flip blocker (record on hq-48k / hq-a8z). Dual-tick and `GENERALS_BRIDGE_ENGINE_OBJECTS` stay opt-in.

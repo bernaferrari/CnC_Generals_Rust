@@ -1,5 +1,8 @@
 //! Science, upgrade, and special-power script actions
 //!
+//! C++: ScriptActions.cpp special-power display/fire L3905–4215,
+//! `doUnitReceiveUpgrade` L5313, science L5905.
+//!
 //! Split from `scripting/actions.rs` for module-size parity.
 //! Observable script behavior is unchanged.
 

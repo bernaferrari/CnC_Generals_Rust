@@ -1114,7 +1114,7 @@ fn on_screen_select_and_camera_follow_residual() {
             && src.contains("eq_ignore_ascii_case(\"f\")"),
         "Alt+F must toggle camera follow residual"
     );
-    let gl = include_str!("../game_logic/game_logic.rs");
+    let gl = crate::game_logic::game_logic::GAME_LOGIC_FACADE_SRC;
     assert!(
         gl.contains("fn set_camera_follow_object") && gl.contains("fn camera_follow_object_id"),
         "GameLogic camera follow API residual"

@@ -2,13 +2,13 @@
 
 use std::cell::RefCell;
 use std::rc::Rc;
-use std::sync::{Mutex, OnceLock};
 
 use crate::game_text::GameText;
 use crate::gamespy_overlay::{
     close_overlay, gs_message_box_yes_no, is_overlay_open, open_overlay, raise_gs_message_box,
     reopen_player_info, GameSpyOverlayType,
 };
+use crate::gui::callbacks::online_callback_support::dispatch_esc_gadget_selected;
 use crate::gui::callbacks::wol_lobby_menu::refresh_game_list_boxes;
 use crate::gui::callbacks::wol_welcome_menu::{get_look_at_player, populate_player_info_windows};
 use crate::gui::CustomMatchPreferencesStore;
@@ -188,15 +188,11 @@ pub fn popup_player_info_input(
     if (data2 & KEY_STATE_UP) == 0 {
         return WindowMsgHandled::Handled;
     }
-    let state_slot = popup_state();
-    let state = state_slot.borrow_mut();
-    if let Some(parent) = state.parent.as_ref() {
-        let _ = parent.borrow_mut().send_system_message(
-            WindowMessage::GadgetSelected,
-            state.button_close_id as WindowMsgData,
-            state.button_close_id as WindowMsgData,
-        );
-    }
+    let (parent, button_id) = {
+        let state = popup_state().borrow();
+        (state.parent.clone(), state.button_close_id)
+    };
+    dispatch_esc_gadget_selected(parent, button_id);
     WindowMsgHandled::Handled
 }
 

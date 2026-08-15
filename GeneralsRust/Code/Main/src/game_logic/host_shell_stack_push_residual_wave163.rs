@@ -111,7 +111,9 @@ pub fn honesty_shell_snapshot_no_invented_stack_source() -> bool {
     if sc_body.contains("if n == 0 && self.shell_menu_active") {
         return false;
     }
-    top_body.contains("get_filename()")
+    // hq-nnuu 2026-08-15: Shell snapshot uses `top_filename()` after the
+    // engine split (dispatch.rs); C++ Shell::getTop() filename residual.
+    (top_body.contains("top_filename()") || top_body.contains("get_filename()"))
         && sc_body.contains("get_screen_count()")
         && honesty_show_shell_menu_init_before_push_source()
 }

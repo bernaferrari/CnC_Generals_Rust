@@ -1,7 +1,15 @@
 //! Headless host-path claim helpers. `playable_claim` stays false.
 
 /// Never claim full retail playability from headless smoke (no W3D/window/GPU).
-/// Existing expression: `false`.
+///
+/// Honesty contract — keep `false` until ALL of:
+/// - trigger ENTER iterates every `PolygonTrigger` (C++ Object.cpp:2615)
+/// - weapon defaults match C++ Weapon.cpp:271-273
+/// - dual-world gate does not skip production team events
+/// - pathfinding can finish golden skirmish without `set_position` residual
+/// - `create_render_obj` returns a real object for a stock unit
+/// - map.ini is parsed
+/// - `selectObject` selects
 #[allow(dead_code)]
 pub(super) const fn playable_claim() -> bool {
     false

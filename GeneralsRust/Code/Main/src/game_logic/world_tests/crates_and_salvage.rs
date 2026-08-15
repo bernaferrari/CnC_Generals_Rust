@@ -3354,7 +3354,7 @@ fn ground_force_fire_applies_base_scatter_radius_peel() {
     use crate::game_logic::weapon_bootstrap::host_effective_scatter_radius;
     // Neutron / artillery-style weapons often have base ScatterRadius > 0.
     // Ground force-fire must not hardcode scatter_radius = 0.
-    let src = include_str!("../game_logic.rs");
+    let src = crate::game_logic::game_logic::GAME_LOGIC_FACADE_SRC;
     assert!(
         src.contains("host_effective_scatter_radius") && src.contains("AttackingGround"),
         "AttackingGround path must peel ScatterRadius"

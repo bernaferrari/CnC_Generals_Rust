@@ -148,10 +148,13 @@ pub fn honesty_cmd_filters_presentation_only_source() -> bool {
             return false;
         }
     }
-    let Some(sell_i) = eng.find("\"sell\" | \"sell_selected\"") else {
+    // hq-nnuu 2026-08-15: sell match arm in runtime_host/mod.rs only
+    // dispatches to runtime_host_cmd_sell (gameplay.rs). Scan the helper,
+    // not the 2k window after the match arm.
+    let Some(sell_fn) = eng.find("fn runtime_host_cmd_sell") else {
         return false;
     };
-    let sell_win = &eng[sell_i..sell_i + 2000.min(eng.len() - sell_i)];
+    let sell_win = &eng[sell_fn..eng.len().min(sell_fn + 2500)];
     !sell_win.contains("get_object(*id)")
         && sell_win.contains("presentation_selected_sellable_structure_ids")
         && eng.contains("sell_fail_no_structure")

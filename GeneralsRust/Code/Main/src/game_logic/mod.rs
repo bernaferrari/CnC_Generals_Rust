@@ -17,6 +17,7 @@ pub mod audio_dispatch_impl;
 pub mod buildings;
 pub mod combat;
 pub mod combat_particles;
+#[path = "game_logic/mod.rs"]
 pub mod game_logic;
 
 mod host_types;

@@ -2477,7 +2477,10 @@ mod damage;
 mod death;
 mod entity_lifecycle_apply;
 mod entity_lifecycle_envelope;
+mod entity_lifecycle_flight;
 mod entity_lifecycle_inventory;
+mod entity_lifecycle_projectiles;
+mod entity_lifecycle_residuals;
 mod entity_lifecycle_tags;
     #[cfg(test)]
     mod entity_lifecycle_audit;

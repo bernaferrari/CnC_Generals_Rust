@@ -261,3 +261,12 @@ strip = false
 [profile.bench]
 inherits = "release"
 debug = 1
+
+# Warn-only foundation. Do not set forbid(unsafe_code) or clippy -D here.
+# Inherit with `[lints] workspace = true` in crates this plan touches.
+[workspace.lints.rust]
+unsafe_code = "warn"
+
+[workspace.lints.clippy]
+unwrap_used = "warn"
+expect_used = "warn"

@@ -30,6 +30,7 @@ pub struct EntityInstalledModules {
     pub records: Vec<EntityModuleRecord>,
     pub on_created: bool,
     pub on_delete_order: Vec<String>,
+    pub live_instances: usize,
 }
 
 /// Shadow residual of one host BuildingData::production_queue entry.

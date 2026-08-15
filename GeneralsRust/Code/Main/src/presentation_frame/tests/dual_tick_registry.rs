@@ -1303,7 +1303,7 @@ fn runtime_host_move_prefers_presentation_selection() {
 
 #[test]
 fn production_authority_host_skips_progress_advance() {
-    let gl = include_str!("../../game_logic/game_logic.rs");
+    let gl = crate::game_logic::game_logic::GAME_LOGIC_FACADE_SRC;
     assert!(
         gl.contains("gameworld_production_sole_tick_enabled()")
             && gl.contains("try_complete_production()")
@@ -1328,7 +1328,7 @@ fn production_authority_host_skips_progress_advance() {
 
 #[test]
 fn construction_sole_tick_host_skips_advance() {
-    let gl = include_str!("../../game_logic/game_logic.rs");
+    let gl = crate::game_logic::game_logic::GAME_LOGIC_FACADE_SRC;
     assert!(
         gl.contains("gameworld_construction_sole_tick_enabled()")
             && gl.contains("record_rate_only")
@@ -1370,7 +1370,7 @@ fn special_power_sole_tick_host_skips_advance() {
             && sw.contains("writeback_special_power_to_host(logic)"),
         "shadow session must sole-tick object+player SP and writeback under authority"
     );
-    let gl = include_str!("../../game_logic/game_logic.rs");
+    let gl = crate::game_logic::game_logic::GAME_LOGIC_FACADE_SRC;
     assert!(
         gl.contains("gameworld_special_power_sole_tick_enabled()")
             && gl.contains("Wave 479: do not republish full cooldown snapshots each frame")
@@ -1386,7 +1386,7 @@ fn superweapon_damage_applies_host_hp() {
         obj.contains("fn take_damage_from_immediate") && obj.contains("force_host_hp"),
         "object must support immediate host HP damage for superweapons"
     );
-    let gl = include_str!("../../game_logic/game_logic.rs");
+    let gl = crate::game_logic::game_logic::GAME_LOGIC_FACADE_SRC;
     assert!(
         gl.contains("take_damage_from_immediate(hit.damage"),
         "update_special_power_strikes must apply host HP immediately"
@@ -1666,7 +1666,7 @@ fn production_tick_builds_presentation_after_side_systems() {
     // Projectile drain/step and path follow live inside GameLogic::update_simulation
     // (not engine mid-frame dual systems).
     let eng = crate::cnc_game_engine::ENGINE_SRC;
-    let gl = include_str!("../../game_logic/game_logic.rs");
+    let gl = crate::game_logic::game_logic::GAME_LOGIC_FACADE_SRC;
     let proj = gl
         .find("drain_pending_projectiles")
         .expect("projectile drain in GameLogic");

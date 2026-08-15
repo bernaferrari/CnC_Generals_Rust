@@ -8,9 +8,16 @@ use crate::gameworld_shadow::{
     refresh_gameworld_authority_env_caches, CoupledTickGuard, GAMEWORLD_AUTHORITY_ENV_NAMES,
 };
 
-/// Concatenated host GameLogic sources after the world_* split.
+/// Concatenated host GameLogic sources after the world_* split and the
+/// game_logic/ directory split (2026-08-15).
 pub const GAME_LOGIC_HOST_SRC: &str = concat!(
-    include_str!("../../game_logic/game_logic.rs"),
+    include_str!("../../game_logic/game_logic/crate_tick.rs"),
+    include_str!("../../game_logic/game_logic/player.rs"),
+    include_str!("../../game_logic/game_logic/host.rs"),
+    include_str!("../../game_logic/game_logic/script_camera.rs"),
+    include_str!("../../game_logic/game_logic/authority.rs"),
+    include_str!("../../game_logic/game_logic/construct.rs"),
+    include_str!("../../game_logic/game_logic/mod.rs"),
     include_str!("../../game_logic/buildings.rs"),
     include_str!("../../game_logic/world_save.rs"),
     include_str!("../../game_logic/host_usa_pilot.rs"),

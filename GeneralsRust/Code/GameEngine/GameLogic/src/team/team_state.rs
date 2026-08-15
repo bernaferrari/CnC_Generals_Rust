@@ -6,10 +6,6 @@
 impl Team {
 
     fn compute_enemy_sighted_state(&self) -> (Bool, Bool) {
-        // Wave 256: empty dual-world → no sighted state.
-        if dual_world_registry_unavailable() {
-            return (false, false);
-        }
         let Some(partition) = ThePartitionManager::get() else {
             return (false, false);
         };
@@ -40,14 +36,8 @@ impl Team {
                                     return false;
                                 }
 
-                                let status = candidate.get_status_bits();
-                                if status.contains(ObjectStatusMaskType::STEALTHED)
-                                    && !status.contains(ObjectStatusMaskType::DETECTED)
-                                    && !status.contains(ObjectStatusMaskType::DISGUISED)
-                                {
-                                    return false;
-                                }
-
+                                // C++ Team.cpp:1823-1833: ALLOW_ENEMIES + Alive + SameMapStatus only.
+                                // PartitionFilterStealthedAndUndetected exists in C++ and is unused here.
                                 source.relationship_to(candidate) == Relationship::Enemies
                             })
                             .unwrap_or(false);
@@ -86,11 +76,7 @@ impl Team {
 
     /// Update team state (called each frame)
     pub fn update_state(&mut self) {
-        // Wave 256: empty dual-world → no factory member walks.
-        if dual_world_registry_unavailable() {
-            return;
-        }
-
+        // C++ Team.cpp:1785 — no dual-world registry skip.
         self.entered_or_exited = false;
         if !self.active {
             return;

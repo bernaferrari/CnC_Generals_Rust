@@ -4,11 +4,12 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fs;
 use std::rc::Rc;
-use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use crate::game_text::GameText;
-use crate::gui::callbacks::online_callback_support::packed_ui_color;
+use crate::gui::callbacks::online_callback_support::{
+    dispatch_esc_gadget_selected, packed_ui_color,
+};
 use crate::gamespy_overlay::{gs_message_box_ok, raise_gs_message_box};
 use crate::gui::gadgets::ComboBoxItem;
 use crate::gui::{
@@ -873,18 +874,22 @@ pub fn wol_login_menu_input(
     }
     let key = data1 as i32;
     let state_up = data2 & 0x0001;
-    if key == 0x1B && state_up != 0 {
-        let state_slot = wol_login_state();
-    let mut state = state_slot.borrow_mut();
-        if state.button_pushed {
-            return WindowMsgHandled::Handled;
-        }
-        state.button_pushed = true;
-        reset_gamespy();
-        let _ = get_shell().pop();
-        return WindowMsgHandled::Handled;
+    if key != 0x1B {
+        return WindowMsgHandled::Ignored;
     }
-    WindowMsgHandled::Ignored
+    // C++ WOLLoginMenu.cpp:876-878 — buttonPushed breaks out of GWM_CHAR → MSG_IGNORED.
+    let (button_pushed, parent, back_id) = {
+        let state = wol_login_state().borrow();
+        (state.button_pushed, state.parent.clone(), state.button_back_id)
+    };
+    if button_pushed {
+        return WindowMsgHandled::Ignored;
+    }
+    // C++ WOLLoginMenu.cpp:890-898 — KEY_ESC always MSG_HANDLED; GBM_SELECTED only on key up.
+    if state_up != 0 {
+        dispatch_esc_gadget_selected(parent, back_id);
+    }
+    WindowMsgHandled::Handled
 }
 
 fn sanitize_combo_text(text: &str) -> Option<String> {
@@ -1126,6 +1131,42 @@ pub fn wol_login_menu_system(
             }
             WindowMsgHandled::Handled
         }
+        // C++ WOLLoginMenu.cpp:1479-1482 — empty GEM_EDIT_DONE still returns MSG_HANDLED.
+        WindowMessage::GadgetEditDone => WindowMsgHandled::Handled,
         _ => WindowMsgHandled::Ignored,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn login_system_handles_edit_done_like_cpp_gem_edit_done() {
+        let window = GameWindow::new();
+        assert_eq!(
+            wol_login_menu_system(&window, WindowMessage::GadgetEditDone, 0, 0),
+            WindowMsgHandled::Handled
+        );
+        assert_eq!(
+            wol_login_menu_system(&window, WindowMessage::User(1), 0, 0),
+            WindowMsgHandled::Ignored
+        );
+    }
+
+    #[test]
+    fn login_input_esc_key_down_is_handled_when_not_pushed() {
+        let window = GameWindow::new();
+        wol_login_state().borrow_mut().button_pushed = false;
+        assert_eq!(
+            wol_login_menu_input(&window, WindowMessage::Char, 0x1B, 0),
+            WindowMsgHandled::Handled
+        );
+        wol_login_state().borrow_mut().button_pushed = true;
+        assert_eq!(
+            wol_login_menu_input(&window, WindowMessage::Char, 0x1B, 0x0001),
+            WindowMsgHandled::Ignored
+        );
+        wol_login_state().borrow_mut().button_pushed = false;
     }
 }

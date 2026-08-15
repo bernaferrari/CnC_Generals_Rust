@@ -1,5 +1,8 @@
 //! Camera and UI/text script actions
 //!
+//! C++: ScriptActions.cpp camera suite L442–948, `doLetterBoxMode` L3747,
+//! `doZoomCamera` L791, `doDisplayText` L2521.
+//!
 //! Split from `scripting/actions.rs` for module-size parity.
 //! Observable script behavior is unchanged.
 

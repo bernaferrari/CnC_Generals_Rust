@@ -2,8 +2,8 @@
 
 use std::cell::RefCell;
 use std::rc::Rc;
-use std::sync::{Mutex, OnceLock};
 
+use crate::gui::callbacks::online_callback_support::dispatch_esc_gadget_selected;
 use crate::gui::{
     get_shell, with_window_manager, write_input_focus_response, GameWindow, WindowLayout,
     WindowMessage, WindowMsgData, WindowMsgHandled,
@@ -93,15 +93,12 @@ pub fn wol_custom_score_screen_input(
         return WindowMsgHandled::Handled;
     }
 
-    let state_slot = wol_custom_score_state();
-    let state = state_slot.borrow_mut();
-    if let Some(parent) = state.parent.as_ref() {
-        let _ = parent.borrow_mut().send_system_message(
-            WindowMessage::GadgetSelected,
-            state.button_disconnect_id as WindowMsgData,
-            state.button_disconnect_id as WindowMsgData,
-        );
-    }
+    // C++ WOLCustomScoreScreen.cpp:117 — winSendSystemMsg GBM_SELECTED.
+    let (parent, button_id) = {
+        let state = wol_custom_score_state().borrow();
+        (state.parent.clone(), state.button_disconnect_id)
+    };
+    dispatch_esc_gadget_selected(parent, button_id);
 
     WindowMsgHandled::Handled
 }

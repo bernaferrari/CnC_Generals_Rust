@@ -1,5 +1,8 @@
 //! Object health/damage/kill/explosion script actions
 //!
+//! C++: ScriptActions.cpp `doNamedDamage` L2310, `doNamedKill` L2481,
+//! `doNamedDelete` L2328.
+//!
 //! Split from `scripting/actions.rs` for module-size parity.
 //! Observable script behavior is unchanged.
 

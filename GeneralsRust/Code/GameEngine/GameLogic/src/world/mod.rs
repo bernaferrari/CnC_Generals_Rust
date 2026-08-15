@@ -5,6 +5,7 @@ pub mod entities;
 pub mod entity_fixup;
 pub mod entity_generation;
 pub mod entity_inventory_audit;
+pub mod entity_module_instances;
 pub mod entity_modules;
 pub mod weapon_slots;
 pub use contain_roster::GameWorldContainRoster;

@@ -1,0 +1,1029 @@
+//! Mechanical split from `game_logic/game_logic.rs`. No behavior change.
+#![allow(non_snake_case, unused_imports, dead_code)]
+use super::prelude::*;
+use super::*;
+use super::authority::*;
+use super::construct::*;
+use super::crate_tick::*;
+use super::host::*;
+use super::script_camera::*;
+
+/// Player structure
+#[derive(Debug, Clone)]
+pub struct Player {
+    pub id: u32,
+    pub team: Team,
+    pub name: String,
+    pub resources: Resources,
+    /// In-flight supply delta under GameWorld economy authority (cleared on writeback).
+    pub pending_supply_delta: i64,
+    pub power_available: i32,
+    /// Total power produced by this player's power plants (for energy ratio).
+    pub power_produced: i32,
+    /// Total power consumed by this player's buildings (for energy ratio).
+    pub power_consumed: i32,
+    /// C++ `OverchargeBehavior::onCapture` is a fire-and-forget mutation of
+    /// `Energy`, not an ownership-derived object field.  When an active
+    /// Overcharge plant is captured while disabled, its module deliberately
+    /// does not move the template `EnergyBonus` to the new controller.  The
+    /// host normally recomputes power from current object ownership, so this
+    /// signed correction preserves that one historical bonus location.
+    ///
+    /// This is intentionally not part of `PlayerSnapshot`: C++ `Energy::xfer`
+    /// reconstructs production on load and `OverchargeBehavior::loadPostProcess`
+    /// re-adds an active bonus for the object's current controller.
+    pub captured_overcharge_power_delta: i32,
+    pub income_accumulator: f32,
+    pub selected_objects: Vec<ObjectId>,
+    pub unlocked_sciences: HashSet<String>,
+    pub queued_upgrades: HashSet<String>,
+    pub is_local: bool,
+    pub is_alive: bool,
+    /// C++ Player::didPlayerPreorder residual (shell/skirmish preorder bonus).
+    pub did_preorder: bool,
+    pub statistics: PlayerStatistics,
+    /// Frame at which power sabotage expires (0 = not sabotaged).
+    /// Matches C++ Player::m_powerSabotagedUntilFrame.
+    pub power_sabotaged_till_frame: u32,
+    /// Skirmish UI color (RGB) applied from match config.
+    pub color_rgb: (u8, u8, u8),
+    /// Skirmish start position index from match config.
+    pub start_position: i32,
+    /// Skirmish alliance team index from match config (not faction Team).
+    pub alliance_team: i32,
+    /// Cash bounty percent residual (GLA SCIENCE_CashBounty).
+    /// C++ Player::m_cashBountyPercent — fraction of victim build cost awarded on kill.
+    /// 0.0 = disabled; retail tiers 0.05 / 0.10 / 0.20.
+    pub cash_bounty_percent: f32,
+    /// C++ Player::m_kindOfPercentProductionChangeList residual (CostModifierUpgrade).
+    pub kind_of_production_cost_changes:
+        Vec<crate::game_logic::host_upgrade_module_residuals::KindOfProductionCostChange>,
+    /// Radar residual count (C++ Player::m_radarCount).
+    /// Providers: CommandCenter / RadarVan residual ownership path.
+    pub radar_count: i32,
+    /// True when radar is disabled by script/power residual (C++ m_radarDisabled).
+    pub radar_disabled: bool,
+    /// C++ Player::m_logicalRetaliationModeEnabled residual (options Auto-Retaliate).
+    pub logical_retaliation_mode_enabled: bool,
+    /// C++ Player::m_rankLevel residual (1-based retail ranks).
+    pub rank_level: u32,
+    /// C++ Player::m_skillPoints residual.
+    pub skill_points: i32,
+    /// C++ Player::m_sciencePurchasePoints residual.
+    pub science_purchase_points: i32,
+    /// C++ Player::m_specialPowerReadyTimerList residual (seconds remaining).
+    /// SharedSyncedTimer superweapons sync across a player's command centers.
+    pub shared_special_power_cooldowns: HashMap<crate::command_system::SpecialPowerType, f32>,
+}
+
+/// Main-owned identity of the C++ `PlayerTemplate` that constructed a host
+/// player.  A base [`Team`] remains a compatibility/faction-routing value; it
+/// is not sufficient to represent a Zero Hour General.
+///
+/// Challenge selection is position-sensitive in C++ (`GameSlot` stores the
+/// selected PlayerTemplate index), so an indexed identity validates both the
+/// retained index and canonical template name on every resolution.  Ordinary
+/// campaign entries carry the exact name only.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlayerTemplateIdentity {
+    pub template_name: String,
+    pub template_index: Option<i32>,
+}
+
+impl PlayerTemplateIdentity {
+    /// Resolve an ordinary Campaign `PlayerFaction` only when it names an
+    /// exact PlayerTemplate.  A bare base-side label that is not a template is
+    /// deliberately not guessed into a selected General.
+    pub fn from_exact_name(template_name: &str) -> Option<Self> {
+        let template_name = template_name.trim();
+        if template_name.is_empty() {
+            return None;
+        }
+
+        game_engine::common::ini::ensure_player_templates_loaded();
+        let store = game_engine::common::rts::player_template::get_player_template_store();
+        let template = store.find_template(template_name)?;
+        Some(Self {
+            template_name: template.get_name().to_string(),
+            template_index: None,
+        })
+    }
+
+    /// Resolve a Challenge selection only when its retained slot still names
+    /// the exact template selected by the shell.  Name-only lookup would let a
+    /// reordered PlayerTemplate store launch a plausible but wrong General.
+    pub fn from_exact_indexed_name(template_name: &str, template_index: i32) -> Option<Self> {
+        let template_name = template_name.trim();
+        if template_name.is_empty() {
+            return None;
+        }
+
+        game_engine::common::ini::ensure_player_templates_loaded();
+        let store = game_engine::common::rts::player_template::get_player_template_store();
+        let template = store.get_nth_player_template_signed(template_index)?;
+        (template.get_name() == template_name).then(|| Self {
+            template_name: template.get_name().to_string(),
+            template_index: Some(template_index),
+        })
+    }
+
+    /// Re-resolve the immutable Common store record at the GameLogic authority
+    /// boundary.  Returning a clone keeps the store lock short and gives the
+    /// host only source-authored PlayerTemplate fields.
+    pub fn resolve(&self) -> Option<game_engine::common::rts::player_template::PlayerTemplate> {
+        game_engine::common::ini::ensure_player_templates_loaded();
+        let store = game_engine::common::rts::player_template::get_player_template_store();
+        match self.template_index {
+            Some(index) => store
+                .get_nth_player_template_signed(index)
+                .filter(|template| template.get_name() == self.template_name)
+                .cloned(),
+            None => store.find_template(&self.template_name).cloned(),
+        }
+    }
+
+    /// Main's current Team enum represents only the three C++ base sides.
+    /// Keep that conversion exact and reject observer/civilian/Boss identities
+    /// rather than silently choosing a different General.
+    pub fn base_team(&self) -> Option<Team> {
+        let template = self.resolve()?;
+        Self::team_for_template(&template)
+    }
+
+    pub(crate) fn team_for_template(
+        template: &game_engine::common::rts::player_template::PlayerTemplate,
+    ) -> Option<Team> {
+        Self::team_from_side(template.get_base_side())
+            .or_else(|| Self::team_from_side(template.get_side()))
+    }
+
+    /// C++ `Player::getProductionCostChangePercent`: a PlayerTemplate
+    /// modifier is keyed by the *exact* ThingTemplate name, not by its base
+    /// faction or KindOf.  Keep this computation beside the identity so every
+    /// Main consumer uses the same NameKey lookup as `Player.cpp`.
+    pub(crate) fn production_cost_factor_for_template(
+        template: &game_engine::common::rts::player_template::PlayerTemplate,
+        build_template_name: &str,
+    ) -> f32 {
+        let key = game_engine::common::name_key_generator::NameKeyGenerator::name_to_key(
+            build_template_name,
+        );
+        1.0 + template
+            .get_production_cost_changes()
+            .get(&key)
+            .copied()
+            .unwrap_or(0.0)
+    }
+
+    /// C++ `Player::getProductionTimeChangePercent`.  This deliberately does
+    /// not fold in low-power timing: `ThingTemplate::calcTimeToBuild` applies
+    /// the authored General factor first and the energy penalty afterwards.
+    pub(crate) fn production_time_factor_for_template(
+        template: &game_engine::common::rts::player_template::PlayerTemplate,
+        build_template_name: &str,
+    ) -> f32 {
+        let key = game_engine::common::name_key_generator::NameKeyGenerator::name_to_key(
+            build_template_name,
+        );
+        1.0 + template
+            .get_production_time_changes()
+            .get(&key)
+            .copied()
+            .unwrap_or(0.0)
+    }
+
+    /// C++ `Player::getProductionVeterancyLevel`, translated from Common's
+    /// `Regular` spelling to Main's long-lived `Rookie` spelling.  The C++
+    /// default is LEVEL_FIRST/Regular, so callers never invent a veterancy
+    /// level when an exact template has no entry for this object.
+    pub(crate) fn production_veterancy_for_template(
+        template: &game_engine::common::rts::player_template::PlayerTemplate,
+        build_template_name: &str,
+    ) -> VeterancyLevel {
+        use game_engine::common::game_common::VeterancyLevel as CommonVeterancyLevel;
+
+        let key = game_engine::common::name_key_generator::NameKeyGenerator::name_to_key(
+            build_template_name,
+        );
+        match template
+            .get_production_veterancy_levels()
+            .get(&key)
+            .copied()
+            .unwrap_or(CommonVeterancyLevel::Regular)
+        {
+            CommonVeterancyLevel::Regular => VeterancyLevel::Rookie,
+            CommonVeterancyLevel::Veteran => VeterancyLevel::Veteran,
+            CommonVeterancyLevel::Elite => VeterancyLevel::Elite,
+            CommonVeterancyLevel::Heroic => VeterancyLevel::Heroic,
+        }
+    }
+
+    pub(super) fn team_from_side(value: &str) -> Option<Team> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "usa" | "us" | "america" | "factionamerica" => Some(Team::USA),
+            "china" | "factionchina" => Some(Team::China),
+            "gla" | "factiongla" => Some(Team::GLA),
+            _ => None,
+        }
+    }
+}
+
+impl Player {
+    /// C&C Generals default starting money is $10,000 (Normal difficulty).
+    /// Matches the `StartingMoney::Normal` variant from the LAN API game-info crate.
+    pub const DEFAULT_STARTING_MONEY: u32 = 10_000;
+
+    pub fn new(id: u32, team: Team, name: &str, is_local: bool) -> Self {
+        Self {
+            id,
+            team,
+            name: name.to_string(),
+            resources: Resources {
+                supplies: Self::DEFAULT_STARTING_MONEY,
+                power: 0,
+            },
+            pending_supply_delta: 0,
+            power_available: 0,
+            power_produced: 0,
+            power_consumed: 0,
+            captured_overcharge_power_delta: 0,
+            income_accumulator: 0.0,
+            selected_objects: Vec::new(),
+            unlocked_sciences: HashSet::new(),
+            queued_upgrades: HashSet::new(),
+            is_local,
+            did_preorder: false,
+            is_alive: true,
+            statistics: PlayerStatistics::default(),
+            power_sabotaged_till_frame: 0,
+            color_rgb: (200, 200, 200),
+            start_position: -1,
+            alliance_team: -1,
+            cash_bounty_percent: 0.0,
+            kind_of_production_cost_changes: Vec::new(),
+            radar_count: 0,
+            radar_disabled: false,
+            logical_retaliation_mode_enabled: false,
+            rank_level: 1,
+            skill_points: 0,
+            science_purchase_points: 0,
+            shared_special_power_cooldowns: HashMap::new(),
+        }
+    }
+
+    /// C++ Player::getOrStartSpecialPowerReadyFrame residual (seconds remaining).
+    /// Missing entry means ready (C++ starts timer at "now" on first query).
+    pub fn shared_special_power_remaining(
+        &self,
+        power: &crate::command_system::SpecialPowerType,
+    ) -> f32 {
+        self.shared_special_power_cooldowns
+            .get(power)
+            .copied()
+            .unwrap_or(0.0)
+            .max(0.0)
+    }
+
+    pub fn is_shared_special_power_ready(
+        &self,
+        power: &crate::command_system::SpecialPowerType,
+    ) -> bool {
+        self.shared_special_power_remaining(power) <= 0.0
+    }
+
+    /// C++ Player::resetOrStartSpecialPowerReadyFrame residual.
+    pub fn reset_shared_special_power_timer(
+        &mut self,
+        power: &crate::command_system::SpecialPowerType,
+        reload_seconds: f32,
+    ) {
+        let cd = reload_seconds.max(0.0);
+        if cd <= 0.0 {
+            self.shared_special_power_cooldowns.remove(power);
+        } else {
+            self.shared_special_power_cooldowns
+                .insert(power.clone(), cd);
+        }
+        self.record_host_cooldowns();
+    }
+
+    /// C++ Player::expressSpecialPowerReadyFrame(now) residual — ready immediately.
+    pub fn express_shared_special_power_ready_now(
+        &mut self,
+        power: &crate::command_system::SpecialPowerType,
+    ) {
+        self.shared_special_power_cooldowns.remove(power);
+    }
+
+    /// Tick SharedSyncedTimer residual cooldowns.
+    ///
+    /// Returns powers that just became ready this tick (C++ PublicTimer ready edge).
+    pub fn tick_shared_special_power_timers(
+        &mut self,
+        dt: f32,
+    ) -> Vec<crate::command_system::SpecialPowerType> {
+        let mut became_ready = Vec::new();
+        if dt <= 0.0 || self.shared_special_power_cooldowns.is_empty() {
+            return became_ready;
+        }
+        let keys: Vec<_> = self
+            .shared_special_power_cooldowns
+            .keys()
+            .cloned()
+            .collect();
+        for power in keys {
+            let Some(rem) = self.shared_special_power_cooldowns.get_mut(&power) else {
+                continue;
+            };
+            let was = *rem;
+            *rem = (*rem - dt).max(0.0);
+            if was > 0.0 && *rem <= 0.0 {
+                became_ready.push(power.clone());
+            }
+        }
+        self.shared_special_power_cooldowns
+            .retain(|_, rem| *rem > 0.0);
+        self.record_host_cooldowns();
+        became_ready
+    }
+
+    /// C++ Player::hasRadar residual: radar_count > 0 && !radar_disabled.
+    pub fn has_radar(&self) -> bool {
+        self.radar_count > 0 && !self.radar_disabled
+    }
+
+    /// C++ Player::addRadar residual (disable_proof ignored fail-closed).
+    pub fn add_radar(&mut self, _disable_proof: bool) {
+        self.radar_count = self.radar_count.saturating_add(1);
+        crate::game_logic::host_radar_log::record(self.id, self.radar_count, self.radar_disabled);
+    }
+
+    /// C++ Player::removeRadar residual.
+    pub fn remove_radar(&mut self, _disable_proof: bool) {
+        self.radar_count = (self.radar_count - 1).max(0);
+        crate::game_logic::host_radar_log::record(self.id, self.radar_count, self.radar_disabled);
+    }
+
+    pub fn set_radar_state(&mut self, radar_count: i32, radar_disabled: bool) {
+        self.radar_count = radar_count;
+        self.radar_disabled = radar_disabled;
+        crate::game_logic::host_radar_log::record(self.id, self.radar_count, self.radar_disabled);
+    }
+
+    /// C++ Player::getCashBounty().
+    pub fn get_cash_bounty(&self) -> f32 {
+        self.cash_bounty_percent
+    }
+
+    /// C++ Player::setCashBounty — only raises if new percent is higher (CashBountyPower).
+    pub fn set_cash_bounty(&mut self, percentage: f32) {
+        if percentage > self.cash_bounty_percent {
+            self.cash_bounty_percent = percentage;
+            self.record_host_progress();
+        }
+    }
+
+    /// Force-set cash bounty percent (tests / load restore).
+    pub fn force_set_cash_bounty(&mut self, percentage: f32) {
+        self.cash_bounty_percent = percentage.max(0.0);
+        self.record_host_progress();
+    }
+
+    /// C++ Player::getProductionCostChangeBasedOnKindOf residual.
+    pub fn production_cost_factor(&self, kind_tokens: &[&str]) -> f32 {
+        crate::game_logic::host_upgrade_module_residuals::production_cost_factor_for_kindof(
+            &self.kind_of_production_cost_changes,
+            kind_tokens,
+        )
+    }
+
+    /// C++ Player::addKindOfProductionCostChange residual.
+    pub fn add_kind_of_production_cost_change(&mut self, kind_of: &str, percent: f32) {
+        crate::game_logic::host_upgrade_module_residuals::add_kind_of_production_cost_change(
+            &mut self.kind_of_production_cost_changes,
+            kind_of,
+            percent,
+        );
+    }
+
+    pub fn record_host_progress(&self) {
+        crate::game_logic::host_player_progress_log::record(
+            self.id,
+            self.rank_level,
+            self.skill_points,
+            self.science_purchase_points,
+            self.cash_bounty_percent,
+        );
+    }
+
+    pub fn record_host_sciences(&self) {
+        crate::game_logic::host_player_meta_log::record_sciences(
+            self.id,
+            self.unlocked_sciences.iter().cloned(),
+        );
+    }
+
+    pub fn record_host_alive(&self) {
+        crate::game_logic::host_player_meta_log::record_alive(self.id, self.is_alive);
+    }
+
+    pub fn record_host_cooldowns(&self) {
+        let mut cds: Vec<(String, f32)> = self
+            .shared_special_power_cooldowns
+            .iter()
+            .map(|(k, v)| (format!("{k:?}"), *v))
+            .collect();
+        cds.sort_by(|a, b| a.0.cmp(&b.0));
+        crate::game_logic::host_player_cooldown_log::record(self.id, cds);
+    }
+
+    /// Award cash for a kill: `ceil(victim_build_cost * cash_bounty_percent)`.
+    /// C++ Player::doBountyForKill residual (no floating text).
+    /// Returns cash awarded (0 when disabled or zero cost).
+    pub fn do_bounty_for_kill(&mut self, victim_build_cost: u32) -> u32 {
+        let bounty = crate::game_logic::host_cash_bounty::compute_bounty_award(
+            victim_build_cost,
+            self.cash_bounty_percent,
+        );
+        if bounty > 0 {
+            self.statistics.resources_collected =
+                self.statistics.resources_collected.saturating_add(bounty);
+            if crate::gameworld_shadow::gameworld_economy_authority_live() {
+                self.pending_supply_delta += bounty as i64;
+                crate::game_logic::host_economy_log::record(
+                    self.id,
+                    self.effective_supplies(),
+                    self.power_available,
+                );
+            } else {
+                self.resources.supplies = self.resources.supplies.saturating_add(bounty);
+                crate::game_logic::host_economy_log::record(
+                    self.id,
+                    self.resources.supplies,
+                    self.power_available,
+                );
+            }
+        }
+        bounty
+    }
+
+    /// C++ Player::addSkillPoints residual — returns true if rank increased.
+    pub fn add_skill_points(&mut self, points: i32) -> bool {
+        use crate::game_logic::host_science_rank::{
+            retail_cumulative_science_points_through, retail_rank_for_level,
+            retail_rank_level_for_skill_points,
+        };
+        if points <= 0 {
+            return false;
+        }
+        self.skill_points = self.skill_points.saturating_add(points);
+        let new_level = retail_rank_level_for_skill_points(self.skill_points).max(1);
+        if new_level <= self.rank_level {
+            return false;
+        }
+        let old = self.rank_level;
+        self.rank_level = new_level;
+        // Grant cumulative science points delta residual.
+        let old_spp = retail_cumulative_science_points_through(old);
+        let new_spp = retail_cumulative_science_points_through(new_level);
+        let delta = (new_spp - old_spp).max(0);
+        self.science_purchase_points = self.science_purchase_points.saturating_add(delta);
+        // Unlock rank sciences residual.
+        for lvl in (old + 1)..=new_level {
+            if let Some(row) = retail_rank_for_level(lvl) {
+                self.unlocked_sciences
+                    .insert(row.science_granted.to_string());
+            }
+        }
+        self.record_host_progress();
+        self.record_host_sciences();
+        true
+    }
+
+    /// Supplies visible to purchase gates (includes in-flight economy-authority delta).
+    pub fn effective_supplies(&self) -> u32 {
+        let v = self.resources.supplies as i64 + self.pending_supply_delta;
+        if v <= 0 {
+            0
+        } else if v >= u32::MAX as i64 {
+            u32::MAX
+        } else {
+            v as u32
+        }
+    }
+
+    /// Clear in-flight economy delta after GameWorld writeback.
+    pub fn clear_pending_supply_delta(&mut self) {
+        self.pending_supply_delta = 0;
+    }
+
+    pub fn can_afford(&self, cost: &Resources) -> bool {
+        // Money is the hard construction / purchase gate. Power is separate (slows
+        // production / disables powered buildings). Do not block structure starts when
+        // the grid is already negative — GLA has no power plants, and USA/China must
+        // still place a PowerPlant after the first Command Center finishes.
+        //
+        // Template `build_cost.power` is the post-build power draw residual (often
+        // negative). It is applied in spend_resources, not as an affordability gate.
+        self.effective_supplies() >= cost.supplies
+    }
+
+    pub fn spend_resources(&mut self, cost: &Resources) -> bool {
+        if !self.can_afford(cost) {
+            return false;
+        }
+        let power_after = self.power_available + cost.power; // Negative for consumption
+        if crate::gameworld_shadow::gameworld_economy_authority_live() {
+            self.pending_supply_delta -= cost.supplies as i64;
+            self.power_available = power_after;
+            if cost.supplies > 0 {
+                self.record_resources_spent(cost.supplies);
+            }
+            crate::game_logic::host_economy_log::record(
+                self.id,
+                self.effective_supplies(),
+                self.power_available,
+            );
+        } else {
+            self.resources.supplies -= cost.supplies;
+            self.power_available = power_after;
+            if cost.supplies > 0 {
+                self.record_resources_spent(cost.supplies);
+            }
+            crate::game_logic::host_economy_log::record(
+                self.id,
+                self.resources.supplies,
+                self.power_available,
+            );
+        }
+        true
+    }
+
+    pub fn add_resources(&mut self, amount: &Resources) {
+        if amount.supplies == 0 {
+            return;
+        }
+        if amount.supplies > 0 {
+            self.statistics.resources_collected = self
+                .statistics
+                .resources_collected
+                .saturating_add(amount.supplies);
+        }
+        if crate::gameworld_shadow::gameworld_economy_authority_live() {
+            self.pending_supply_delta += amount.supplies as i64;
+            crate::game_logic::host_economy_log::record(
+                self.id,
+                self.effective_supplies(),
+                self.power_available,
+            );
+        } else {
+            self.resources.supplies = self.resources.supplies.saturating_add(amount.supplies);
+            crate::game_logic::host_economy_log::record(
+                self.id,
+                self.resources.supplies,
+                self.power_available,
+            );
+        }
+    }
+
+    /// Queue an upgrade for this player when not already queued/completed and affordable.
+    /// Credit absolute supplies (income residual) and log economy channel.
+
+    /// C++ ScoreKeeper::addMoneyEarned residual.
+
+    /// C++ AcademyStats::recordBuildingCapture residual.
+    pub fn record_building_capture(&mut self) {
+        self.statistics.structures_captured = self.statistics.structures_captured.saturating_add(1);
+        self.statistics.academy_building_captures =
+            self.statistics.academy_building_captures.saturating_add(1);
+    }
+    /// C++ ScoreKeeper::addObjectCaptured residual.
+    pub fn record_object_captured(&mut self) {
+        self.statistics.objects_captured = self.statistics.objects_captured.saturating_add(1);
+    }
+
+    pub fn add_money_earned(&mut self, amount: u32) {
+        if amount == 0 {
+            return;
+        }
+        self.statistics.money_earned = self.statistics.money_earned.saturating_add(amount);
+    }
+
+    /// Gain supplies under economy authority (pending delta) or direct mutate.
+    pub fn apply_supply_gain(&mut self, amount: u32) {
+        if amount == 0 {
+            return;
+        }
+        if crate::gameworld_shadow::gameworld_economy_authority_live() {
+            self.pending_supply_delta += amount as i64;
+            crate::game_logic::host_economy_log::record(
+                self.id,
+                self.effective_supplies(),
+                self.power_available,
+            );
+        } else {
+            self.resources.supplies = self.resources.supplies.saturating_add(amount);
+            crate::game_logic::host_economy_log::record(
+                self.id,
+                self.resources.supplies,
+                self.power_available,
+            );
+        }
+    }
+
+    /// Spend supplies already validated via can_afford / effective_supplies.
+    pub fn apply_supply_spend_unchecked(&mut self, amount: u32) {
+        if amount == 0 {
+            return;
+        }
+        if crate::gameworld_shadow::gameworld_economy_authority_live() {
+            self.pending_supply_delta -= amount as i64;
+            crate::game_logic::host_economy_log::record(
+                self.id,
+                self.effective_supplies(),
+                self.power_available,
+            );
+        } else {
+            self.resources.supplies = self.resources.supplies.saturating_sub(amount);
+            crate::game_logic::host_economy_log::record(
+                self.id,
+                self.resources.supplies,
+                self.power_available,
+            );
+        }
+    }
+
+    pub fn credit_supplies(&mut self, amount: u32) {
+        if amount == 0 {
+            return;
+        }
+        self.statistics.resources_collected =
+            self.statistics.resources_collected.saturating_add(amount);
+        self.apply_supply_gain(amount);
+    }
+
+    pub fn queue_upgrade(&mut self, upgrade_name: &str, cost: &Resources) -> bool {
+        if self.has_unlocked_upgrade(upgrade_name) || self.has_queued_upgrade(upgrade_name) {
+            return false;
+        }
+        if !self.spend_resources(cost) {
+            return false;
+        }
+        self.queued_upgrades.insert(upgrade_name.to_string());
+        true
+    }
+
+    /// Cancel a queued upgrade and refund the requested resources.
+    pub fn cancel_queued_upgrade(&mut self, upgrade_name: &str, refund: &Resources) -> bool {
+        let Some(queued_name) = self.find_queued_upgrade_name(upgrade_name) else {
+            return false;
+        };
+        self.queued_upgrades.remove(&queued_name);
+        self.apply_supply_gain(refund.supplies);
+        self.power_available -= refund.power;
+        crate::game_logic::host_economy_log::record(
+            self.id,
+            self.effective_supplies(),
+            self.power_available,
+        );
+        true
+    }
+
+    /// Complete all queued player upgrades into the unlocked upgrade/science set.
+    pub fn complete_queued_upgrades(&mut self) -> Vec<String> {
+        let mut completed: Vec<String> = self.queued_upgrades.drain().collect();
+        completed.sort();
+        for upgrade in &completed {
+            self.unlocked_sciences.insert(upgrade.clone());
+        }
+        completed
+    }
+
+    pub fn has_unlocked_upgrade(&self, upgrade_name: &str) -> bool {
+        let expected = normalize_upgrade_name(upgrade_name);
+        self.unlocked_sciences
+            .iter()
+            .any(|unlocked| normalize_upgrade_name(unlocked) == expected)
+    }
+
+    pub fn has_unlocked_science(&self, science_name: &str) -> bool {
+        self.has_unlocked_upgrade(science_name)
+    }
+
+    pub fn unlock_science(&mut self, science_name: &str) -> bool {
+        if self.has_unlocked_science(science_name) {
+            return false;
+        }
+        let inserted = self.unlocked_sciences.insert(science_name.to_string());
+        // Cash bounty residual: SCIENCE_CashBounty1/2/3 raise player bounty percent.
+        if let Some(pct) =
+            crate::game_logic::host_cash_bounty::cash_bounty_percent_for_science(science_name)
+        {
+            self.set_cash_bounty(pct);
+        }
+        if inserted {
+            self.record_host_sciences();
+        }
+        inserted
+    }
+
+    /// C++ Player::resetSciences / IntrinsicSciences + Rank1 residual at match start.
+    ///
+    /// Grants faction SCIENCE_AMERICA/CHINA/GLA, SCIENCE_Rank1, and Rank1
+    /// SciencePurchasePointsGranted (**1**). Fail-closed: not full PlayerTemplate
+    /// multi-science vector / multiplayer override matrix.
+    pub fn apply_faction_intrinsic_sciences(&mut self) {
+        use crate::game_logic::host_faction_skirmish_residual::intrinsic_science_for_team;
+        use crate::game_logic::host_science_rank::{
+            retail_rank_for_level, RANK_SCIENCE_POINTS_DEFAULT, SCIENCE_RANK1,
+        };
+        if let Some(sci) = intrinsic_science_for_team(self.team) {
+            self.unlocked_sciences.insert(sci.to_string());
+        }
+        self.unlocked_sciences.insert(SCIENCE_RANK1.to_string());
+        // Rank level starts at 1 residual.
+        if self.rank_level < 1 {
+            self.rank_level = 1;
+        }
+        // Ensure at least Rank1 science purchase points residual if still zero.
+        if self.science_purchase_points <= 0 {
+            let grant = retail_rank_for_level(1)
+                .map(|r| r.science_purchase_points_granted)
+                .unwrap_or(RANK_SCIENCE_POINTS_DEFAULT);
+            self.science_purchase_points = grant;
+        }
+    }
+
+    /// C++ `Player::init(PlayerTemplate)` followed by `resetRank` /
+    /// `resetSciences` for a concrete Campaign or Challenge General.
+    ///
+    /// The caller has already resolved the exact template identity.  Unlike
+    /// the base-team fallback above, this preserves every authored intrinsic
+    /// science and its template purchase-point grant before adding the Rank1
+    /// grant.  Template money of zero retains Main's current GameInfo/default
+    /// starting cash, matching the C++ fallback.
+    pub(crate) fn apply_player_template_start_state(
+        &mut self,
+        template: &game_engine::common::rts::player_template::PlayerTemplate,
+    ) {
+        use crate::game_logic::host_science_rank::{
+            retail_rank_for_level, RANK_SCIENCE_POINTS_DEFAULT, SCIENCE_RANK1,
+        };
+
+        let starting_money = template.get_money().count_money();
+        if starting_money != 0 {
+            self.resources.supplies = starting_money;
+        }
+
+        let color = template.get_preferred_color();
+        self.color_rgb = (
+            ((color >> 16) & 0xff) as u8,
+            ((color >> 8) & 0xff) as u8,
+            (color & 0xff) as u8,
+        );
+        self.is_alive = !template.is_observer();
+
+        self.rank_level = 1;
+        self.skill_points = 0;
+        self.unlocked_sciences.clear();
+        self.unlocked_sciences
+            .extend(template.get_intrinsic_sciences().iter().cloned());
+        self.unlocked_sciences.insert(SCIENCE_RANK1.to_string());
+
+        let rank1_grant = retail_rank_for_level(1)
+            .map(|rank| rank.science_purchase_points_granted)
+            .unwrap_or(RANK_SCIENCE_POINTS_DEFAULT);
+        self.science_purchase_points = template
+            .get_intrinsic_science_purchase_points()
+            .saturating_add(rank1_grant);
+        self.record_host_sciences();
+        self.record_host_progress();
+    }
+
+    /// C++ Player::isCapableOfPurchasingScience residual.
+    pub fn is_capable_of_purchasing_science(&self, science_name: &str) -> bool {
+        crate::game_logic::host_sp_science_upgrade_player_team_residual_wave109::is_capable_of_purchasing_science_residual(
+            &self.unlocked_sciences,
+            self.science_purchase_points,
+            science_name,
+        )
+    }
+
+    /// C++ Player::attemptToPurchaseScience residual.
+    ///
+    /// Spends **science purchase points** (not supplies). Cost 0 = not purchasable.
+    pub fn attempt_to_purchase_science(&mut self, science_name: &str) -> bool {
+        use crate::game_logic::host_sp_science_upgrade_player_team_residual_wave109::{
+            normalize_science_name_residual, science_purchase_point_cost_residual,
+        };
+        let canonical = normalize_science_name_residual(science_name);
+        if !self.is_capable_of_purchasing_science(&canonical) {
+            return false;
+        }
+        let cost = science_purchase_point_cost_residual(&canonical).unwrap_or(1);
+        if cost > self.science_purchase_points {
+            return false;
+        }
+        self.science_purchase_points -= cost;
+        // Wave 202: SPP spend must last-write SetPlayerProgress (sciences meta already
+        // records via unlock_science → record_host_sciences).
+        let unlocked = self.unlock_science(&canonical);
+        if unlocked {
+            self.record_host_progress();
+        }
+        unlocked
+    }
+
+    pub fn has_queued_upgrade(&self, upgrade_name: &str) -> bool {
+        self.find_queued_upgrade_name(upgrade_name).is_some()
+    }
+
+    pub fn find_queued_upgrade_name(&self, upgrade_name: &str) -> Option<String> {
+        let expected = normalize_upgrade_name(upgrade_name);
+        self.queued_upgrades
+            .iter()
+            .find(|queued| normalize_upgrade_name(queued) == expected)
+            .cloned()
+    }
+
+    pub fn record_unit_destroyed(&mut self) {
+        self.statistics.units_destroyed = self.statistics.units_destroyed.saturating_add(1);
+    }
+
+    pub fn record_unit_lost(&mut self) {
+        self.statistics.units_lost = self.statistics.units_lost.saturating_add(1);
+    }
+
+    pub fn record_unit_produced(&mut self) {
+        self.statistics.units_built = self.statistics.units_built.saturating_add(1);
+    }
+
+    pub fn record_structure_built(&mut self) {
+        self.statistics.structures_built = self.statistics.structures_built.saturating_add(1);
+    }
+
+    pub fn record_structure_destroyed(&mut self) {
+        self.statistics.structures_destroyed =
+            self.statistics.structures_destroyed.saturating_add(1);
+    }
+
+    pub fn record_structure_lost(&mut self) {
+        self.statistics.structures_lost = self.statistics.structures_lost.saturating_add(1);
+    }
+
+    pub fn record_resources_spent(&mut self, amount: u32) {
+        self.statistics.resources_spent = self.statistics.resources_spent.saturating_add(amount);
+    }
+}
+
+pub(super) fn normalize_upgrade_name(name: &str) -> String {
+    name.chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .flat_map(|c| c.to_lowercase())
+        .collect()
+}
+
+pub(super) fn capture_upgrade_names_for_team(team: Team) -> &'static [&'static str] {
+    match team {
+        Team::USA => &[
+            "Upgrade_AmericaRangerCaptureBuilding",
+            "Upgrade_InfantryCaptureBuilding",
+        ],
+        Team::China => &[
+            "Upgrade_ChinaRedguardCaptureBuilding",
+            "Upgrade_InfantryCaptureBuilding",
+        ],
+        Team::GLA => &[
+            "Upgrade_GLARebelCaptureBuilding",
+            "Upgrade_InfantryCaptureBuilding",
+        ],
+        Team::Neutral => &[],
+    }
+}
+
+/// Skirmish/match rules applied from UI configuration (FOW, crates, etc.).
+#[derive(Debug, Clone, PartialEq)]
+pub struct SkirmishRulesState {
+    pub fog_of_war: bool,
+    pub crates_enabled: bool,
+    pub limit_superweapons: bool,
+    pub allow_tech_buildings: bool,
+    pub game_speed: f32,
+}
+
+impl Default for SkirmishRulesState {
+    fn default() -> Self {
+        Self {
+            fog_of_war: true,
+            crates_enabled: true,
+            limit_superweapons: false,
+            allow_tech_buildings: true,
+            game_speed: 1.0,
+        }
+    }
+}
+
+/// Main GameLogic system
+
+/// C++ BuildAssistant FRAMES_TO_ALLOW_SCAFFOLD residual (LOGICFRAMES_PER_SECOND * 1.5 = 45).
+
+/// C++ RebuildHoleBehavior WorkerRespawnDelay residual sample (fail-closed 10s → 300f).
+pub(super) const REBUILD_HOLE_WORKER_RESPAWN_FRAMES: u32 = 300;
+/// C++ HoleMaxHealth residual default for GLA holes.
+pub(super) const REBUILD_HOLE_MAX_HEALTH_RESIDUAL: f32 = 500.0;
+/// C++ HoleHealthRegen%PerSecond residual default (0.1 = 10%/sec).
+pub(super) const REBUILD_HOLE_HEALTH_REGEN_PERCENT_PER_SEC: f32 = 0.10;
+/// C++ WorkerObjectName residual sample for GLA holes.
+pub(super) const REBUILD_HOLE_WORKER_TEMPLATE: &str = "GLAWorker";
+pub(super) const FRAMES_TO_ALLOW_SCAFFOLD_RESIDUAL: u32 = 45;
+/// C++ TOTAL_FRAMES_TO_SELL_OBJECT residual (LOGICFRAMES_PER_SECOND * 3.0 = 90).
+pub(super) const TOTAL_FRAMES_TO_SELL_OBJECT_RESIDUAL: u32 = 90;
+/// C++ construction percent is 0..100; host uses 0..1. Decrement per frame after scaffold.
+pub(super) const SELL_CONSTRUCTION_DECREMENT_RESIDUAL: f32 =
+    1.0 / (TOTAL_FRAMES_TO_SELL_OBJECT_RESIDUAL as f32);
+/// C++ finish threshold constructionPercent <= -50.0 (host -0.5).
+pub(super) const SELL_FINISH_CONSTRUCTION_PERCENT_RESIDUAL: f32 = -0.5;
+
+/// C++ ObjectSellInfo residual.
+#[derive(Debug, Clone)]
+pub(super) struct ObjectSellInfo {
+    pub(in super) id: ObjectId,
+    pub(in super) sell_frame: u32,
+}
+
+/// One live C++ `ParkingPlaceBehavior::ParkingPlaceInfo` slot.
+///
+/// This is deliberately not a generic building `garrisoned_units` entry:
+/// ParkingPlace tracks a per-space reservation while an aircraft is returning
+/// as well as while it is physically parked.  `reserved_for_exit` is retained
+/// so a later authored production-exit bridge cannot treat an exit door as a
+/// free landing slot.
+#[derive(Debug, Clone, Copy, Default)]
+pub(super) struct AirfieldParkingSpace {
+    pub(super) object_id: Option<ObjectId>,
+    pub(super) reserved_for_exit: bool,
+}
+
+/// Fat-object ID store as its **own field** so a tick can mut-borrow objects
+/// without `&mut self` on the whole [`GameLogic`] (`self.objects.get_mut` +
+/// `self.frame` split-borrow).
+///
+/// Deref to the inner `HashMap` so existing `self.objects.get_mut` call sites
+/// keep compiling. When a GameWorld session is coupled the map is a roster /
+/// write-through view — `host_authoritative_*` is truth.
+#[derive(Debug, Default)]
+pub struct HostObjectStore {
+    pub(in super) map: HashMap<ObjectId, Object>,
+}
+
+impl HostObjectStore {
+    #[inline]
+    pub fn new() -> Self {
+        Self {
+            map: HashMap::new(),
+        }
+    }
+
+    #[inline]
+    pub fn map(&self) -> &HashMap<ObjectId, Object> {
+        &self.map
+    }
+
+    #[inline]
+    pub fn map_mut(&mut self) -> &mut HashMap<ObjectId, Object> {
+        &mut self.map
+    }
+}
+
+impl std::ops::Deref for HostObjectStore {
+    type Target = HashMap<ObjectId, Object>;
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        &self.map
+    }
+}
+
+impl std::ops::DerefMut for HostObjectStore {
+    #[inline]
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.map
+    }
+}
+
+impl<'a> IntoIterator for &'a HostObjectStore {
+    type Item = (&'a ObjectId, &'a Object);
+    type IntoIter = std::collections::hash_map::Iter<'a, ObjectId, Object>;
+    #[inline]
+    fn into_iter(self) -> Self::IntoIter {
+        self.map.iter()
+    }
+}
+
+impl<'a> IntoIterator for &'a mut HostObjectStore {
+    type Item = (&'a ObjectId, &'a mut Object);
+    type IntoIter = std::collections::hash_map::IterMut<'a, ObjectId, Object>;
+    #[inline]
+    fn into_iter(self) -> Self::IntoIter {
+        self.map.iter_mut()
+    }
+}

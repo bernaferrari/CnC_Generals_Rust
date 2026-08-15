@@ -1,5 +1,8 @@
 //! Named-unit script actions
 //!
+//! C++: ScriptActions.cpp named-unit cluster L414 / L1040 / L1334–1627 / L1859
+//! (`doNamedMoveToWaypoint`, `doNamedAttack`, `doNamedGuard`, `doNamedHunt`).
+//!
 //! Split from `scripting/actions.rs` for module-size parity.
 //! Observable script behavior is unchanged.
 

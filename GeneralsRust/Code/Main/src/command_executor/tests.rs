@@ -2415,7 +2415,7 @@ fn deploy_command_uses_authored_metadata_and_pack_unpack_timing() {
 fn execute_stop_clears_guard_residual() {
     // Wave 955: Stop delegates guard clear to GameLogic::unit_command_stop.
     let src = crate::command_executor::COMMAND_EXECUTOR_SRC;
-    let gl = include_str!("../game_logic/game_logic.rs");
+    let gl = crate::game_logic::game_logic::GAME_LOGIC_FACADE_SRC;
     let start = src.find("fn execute_stop").expect("execute_stop");
     let body = &src[start..start + 800];
     assert!(

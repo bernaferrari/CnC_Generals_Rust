@@ -1,5 +1,7 @@
 //! Building create/destroy script actions
 //!
+//! C++: ScriptActions.cpp `doCreateObject` L952, `doBuildBuilding` L1070.
+//!
 //! Split from `scripting/actions.rs` for module-size parity.
 //! Observable script behavior is unchanged.
 
