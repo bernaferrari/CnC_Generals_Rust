@@ -617,24 +617,85 @@ impl CnCGameEngine {
         }
     }
 
+    /// C++ GameEngine.cpp:633-642 disables ShellMapOn only when MapCache lacks
+    /// `m_shellMapName`. An empty boot cache must not hide a disk-resident
+    /// ShellMapMD extract (hq-4yc1).
+    pub(super) fn resolve_windowed_shell_map_asset(name: &str) -> Option<String> {
+        let name = name.trim();
+        if name.is_empty() {
+            return None;
+        }
+        if game_client::map_util::is_map_cached_without_refresh(name)
+            || crate::game_logic::find_map_file(name).is_some()
+        {
+            return Some(name.to_string());
+        }
+        // GameData.ini uses Maps\ShellMapMD\ShellMapMD.map; the extract lives
+        // under MapsZH/Maps/ShellMapMD/ShellMapMD.map. Try the leaf so a
+        // disk-resident map is not treated as missing (hq-4yc1).
+        let normalized = name.replace('\\', "/");
+        let leaf = std::path::Path::new(&normalized)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("")
+            .trim();
+        if !leaf.is_empty()
+            && (game_client::map_util::is_map_cached_without_refresh(leaf)
+                || crate::game_logic::find_map_file(leaf).is_some())
+        {
+            return Some(leaf.to_string());
+        }
+        None
+    }
+
+    pub(super) fn startup_shell_map_asset_available(name: &str) -> bool {
+        Self::resolve_windowed_shell_map_asset(name).is_some()
+    }
+
+    /// ZH MD GameData.ini `ShellMapName` used when GlobalData still has the
+    /// empty Common default at windowed boot.
+    pub(super) const DEFAULT_WINDOWED_SHELL_MAP: &'static str =
+        r"Maps\ShellMapMD\ShellMapMD.map";
+
+    /// C++ Shell::showShellMap(TRUE) starts GAME_SHELL with pending_file =
+    /// ShellMapName. Windowed boot must attempt that map when the asset exists
+    /// and fail-soft when it does not (hq-4yc1).
+    pub(super) fn windowed_shell_map_load_decision(
+        start_in_menu: bool,
+        map_to_load: Option<&str>,
+    ) -> bool {
+        let _ = start_in_menu;
+        map_to_load
+            .map(|name| !name.trim().is_empty())
+            .unwrap_or(false)
+    }
+
     pub(super) fn configured_startup_shell_map() -> Option<String> {
         let global = game_engine::common::global_data::read();
         if !global.writable.shell_map_on {
             return None;
         }
-        let shell_map_name = global.writable.shell_map_name.clone();
+        let mut shell_map_name = global.writable.shell_map_name.clone();
         drop(global);
 
-        if game_client::map_util::is_map_cached_without_refresh(&shell_map_name) {
-            return Some(shell_map_name);
+        if shell_map_name.trim().is_empty() {
+            shell_map_name = Self::DEFAULT_WINDOWED_SHELL_MAP.to_string();
+        }
+
+        if let Some(resolved) = Self::resolve_windowed_shell_map_asset(&shell_map_name) {
+            let mut global = game_engine::common::global_data::write();
+            if global.writable.shell_map_name.trim().is_empty() {
+                global.writable.shell_map_name = shell_map_name;
+            }
+            return Some(resolved);
         }
 
         warn!(
-            "Configured shell map '{}' was not found in map cache; starting without a shell background map",
+            "Configured shell map '{}' was not found in map cache or on disk; starting without a shell background map",
             shell_map_name
         );
-        // C++ parity (GameEngine.cpp): disable shell-map mode globally when the configured
-        // shell map is missing from cache so subsequent startup/UI flow sees it as unavailable.
+        // C++ parity (GameEngine.cpp:633-642): disable shell-map mode globally
+        // when the configured shell map is missing so later UI flow sees it off.
         let mut global = game_engine::common::global_data::write();
         global.writable.shell_map_on = false;
         None
@@ -1644,16 +1705,20 @@ impl CnCGameEngine {
                     game_logic.start_new_game(startup_mode);
 
                     let mut loaded_map_name = None;
-                    if start_in_menu {
-                        // ShellMapMD decode is optional background. Waiting on it
-                        // pinned the windowed host in Loading (Menu never appeared,
-                        // so NewGame / start_game_from_ui never ran).
-                        Self::emit_startup_load_progress(&sender, 0.24, "Skipping shell map load");
-                        info!(
-                            "start_in_menu: skipping blocking shell-map load so Menu can appear"
-                        );
-                        let _ = map_to_load;
-                    } else if let Some(map_to_load) = map_to_load {
+                    // C++ Shell::showShellMap(TRUE) (Shell.cpp:448-466) starts
+                    // GAME_SHELL with m_shellMapName even on the main menu.
+                    // Windowed boot used to skip ShellMapMD so Menu could paint;
+                    // load fail-soft instead (hq-4yc1). Missing assets still skip.
+                    if let Some(map_to_load) = map_to_load
+                        .as_ref()
+                        .filter(|_| {
+                            Self::windowed_shell_map_load_decision(
+                                start_in_menu,
+                                map_to_load.as_deref(),
+                            )
+                        })
+                        .cloned()
+                    {
                         Self::emit_startup_load_progress(&sender, 0.24, "Loading map data");
                         let map_loaded =
                             game_logic.load_map_with_progress(&map_to_load, |progress, phase| {
@@ -1682,7 +1747,7 @@ impl CnCGameEngine {
                                 start_in_menu = true;
                             }
                         } else {
-                            loaded_map_name = Some(map_to_load.clone());
+                            loaded_map_name = Some(map_to_load);
                         }
                     } else {
                         Self::emit_startup_load_progress(&sender, 0.24, "Skipping shell map load");
@@ -1771,35 +1836,6 @@ impl CnCGameEngine {
         self.render_pipeline.set_presentation_frame(None);
         self.last_presentation_frame = None;
 
-        let fallback_to_menu = result.start_in_menu
-            || (result.map_requested_from_cli && result.loaded_map_name.is_none());
-        if fallback_to_menu {
-            // Menu must not wait on shell-map heightmap / minimap GPU. That work
-            // pinned the windowed host in Loading after the worker completed.
-            if result.map_requested_from_cli && result.loaded_map_name.is_none() {
-                warn!("QuickStart map load failed; falling back to menu startup");
-            }
-            self.pending_shell_model_prewarm.clear();
-            self.last_shell_prewarm_log = None;
-            self.shell_prewarm_completion_logged = true;
-            self.ui_manager.suspend_for_shell_overlay();
-            self.set_runtime_ui_state_projection(UISystemState::MainMenu);
-            let _ = self.startup_target_state.take();
-            self.transition_to_state(GameState::Menu);
-            self.startup_load_state = StartupLoadState::Complete;
-            self.last_loading_title_update = None;
-            self.update_shell_loading_progress(1.0, Some("Startup complete"));
-            self.startup_last_reported_progress = 1.0;
-            self.startup_last_progress_change_at = Instant::now();
-            self.startup_last_stall_warning_at = None;
-            self.hide_shell_loading_overlay();
-            self.log_startup_health_summary();
-            self.window
-                .set_title("Command & Conquer Generals Zero Hour");
-            self.window.request_redraw();
-            return Ok(());
-        }
-
         if let Some(active_map_name) = result.loaded_map_name.as_ref() {
             if result.replay_requested {
                 info!("Loaded startup replay map: {}", active_map_name);
@@ -1812,7 +1848,8 @@ impl CnCGameEngine {
             }
 
             // Wave 455: seed presentation env then apply presentation-only heightmap/skybox hints.
-            // Wave 455: seed presentation env then apply presentation-only hints.
+            // Windowed menu (hq-4yc1) must still install the C++ ShellMapMD backdrop
+            // before GameState::Menu; fail-soft if later GPU setup warns.
             self.ensure_presentation_env_seeded();
             Self::apply_heightmap_hint(&mut self.render_pipeline);
             Self::apply_skybox_hint(&mut self.render_pipeline);
@@ -1847,6 +1884,33 @@ impl CnCGameEngine {
             self.sync_orbit_from_camera_transform();
         }
 
+        let fallback_to_menu = result.start_in_menu
+            || (result.map_requested_from_cli && result.loaded_map_name.is_none());
+        if fallback_to_menu {
+            // Menu must not stay in Loading after the worker completed.
+            if result.map_requested_from_cli && result.loaded_map_name.is_none() {
+                warn!("QuickStart map load failed; falling back to menu startup");
+            }
+            self.pending_shell_model_prewarm.clear();
+            self.last_shell_prewarm_log = None;
+            self.shell_prewarm_completion_logged = true;
+            self.ui_manager.suspend_for_shell_overlay();
+            self.set_runtime_ui_state_projection(UISystemState::MainMenu);
+            let _ = self.startup_target_state.take();
+            self.transition_to_state(GameState::Menu);
+            self.startup_load_state = StartupLoadState::Complete;
+            self.last_loading_title_update = None;
+            self.update_shell_loading_progress(1.0, Some("Startup complete"));
+            self.startup_last_reported_progress = 1.0;
+            self.startup_last_progress_change_at = Instant::now();
+            self.startup_last_stall_warning_at = None;
+            self.hide_shell_loading_overlay();
+            self.log_startup_health_summary();
+            self.window
+                .set_title("Command & Conquer Generals Zero Hour");
+            self.window.request_redraw();
+            return Ok(());
+        }
         let target_state = self.startup_target_state.take();
 
         if let Some(target_state) = target_state {

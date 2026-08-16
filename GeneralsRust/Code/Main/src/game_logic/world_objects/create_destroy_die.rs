@@ -723,8 +723,18 @@ impl GameLogic {
                     object.record_host_detector();
                 }
                 // Innate stealth residual (StealthUpdate InnateStealth = Yes).
+                // C++ AmericaVehicleSentryDrone: FIRING_PRIMARY + MOVING uncloak,
+                // StealthDelay 2000ms (60f) before re-cloak.
                 object.set_status_stealthed(true);
+                object.innate_stealth = true;
                 object.stealth_breaks_on_attack = true;
+                object.stealth_breaks_on_move = true;
+                object.stealth_delay_frames =
+                    crate::game_logic::host_sentry_drone::SENTRY_STEALTH_DELAY_FRAMES;
+                object.stealth_allowed_frame = 0;
+                object.stealth_delay_pending = false;
+                object.record_host_stealth_flags();
+                object.record_host_stealth_delay();
                 object.record_host_stealth_flags();
                 // Retail WeaponSet Conditions=None has PRIMARY None until PLAYER_UPGRADE.
                 // Strip kind-based Weapon::default fallback from resolve_primary_weapon.

@@ -927,14 +927,15 @@ impl Default for SkirmishRulesState {
 
 /// C++ BuildAssistant FRAMES_TO_ALLOW_SCAFFOLD residual (LOGICFRAMES_PER_SECOND * 1.5 = 45).
 
-/// C++ RebuildHoleBehavior WorkerRespawnDelay residual sample (fail-closed 10s → 300f).
-pub(super) const REBUILD_HOLE_WORKER_RESPAWN_FRAMES: u32 = 300;
-/// C++ HoleMaxHealth residual default for GLA holes.
+/// C++ FactionBuilding.ini RebuildHoleBehavior WorkerRespawnDelay = 20000ms → 600f.
+pub(super) const REBUILD_HOLE_WORKER_RESPAWN_FRAMES: u32 = 600;
+/// C++ RebuildHoleExposeDie HoleMaxHealth residual default for GLA holes.
+/// Used only when the hole ThingTemplate is missing; never overwrite INI HP.
 pub(super) const REBUILD_HOLE_MAX_HEALTH_RESIDUAL: f32 = 500.0;
-/// C++ HoleHealthRegen%PerSecond residual default (0.1 = 10%/sec).
-pub(super) const REBUILD_HOLE_HEALTH_REGEN_PERCENT_PER_SEC: f32 = 0.10;
-/// C++ WorkerObjectName residual sample for GLA holes.
-pub(super) const REBUILD_HOLE_WORKER_TEMPLATE: &str = "GLAWorker";
+/// C++ FactionBuilding.ini HoleHealthRegen%PerSecond = 0.5% → 0.005 / sec.
+pub(super) const REBUILD_HOLE_HEALTH_REGEN_PERCENT_PER_SEC: f32 = 0.005;
+/// C++ FactionBuilding.ini WorkerObjectName = GLAInfantryWorker.
+pub(super) const REBUILD_HOLE_WORKER_TEMPLATE: &str = "GLAInfantryWorker";
 pub(super) const FRAMES_TO_ALLOW_SCAFFOLD_RESIDUAL: u32 = 45;
 /// C++ TOTAL_FRAMES_TO_SELL_OBJECT residual (LOGICFRAMES_PER_SECOND * 3.0 = 90).
 pub(super) const TOTAL_FRAMES_TO_SELL_OBJECT_RESIDUAL: u32 = 90;

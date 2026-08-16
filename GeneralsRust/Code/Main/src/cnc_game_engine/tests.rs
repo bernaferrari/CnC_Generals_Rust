@@ -639,6 +639,98 @@ fn configured_startup_shell_map_disables_missing_shell_map() {
 }
 
 #[test]
+fn windowed_menu_attempts_shellmapmd_when_named() {
+    // C++ Shell::showShellMap(TRUE) (Shell.cpp:448-466) starts GAME_SHELL
+    // with m_shellMapName on the main menu. Pre-fix windowed boot skipped
+    // that decode whenever start_in_menu was true (hq-4yc1).
+    assert!(
+        CnCGameEngine::windowed_shell_map_load_decision(
+            true,
+            Some(CnCGameEngine::DEFAULT_WINDOWED_SHELL_MAP),
+        ),
+        "windowed main menu must attempt ShellMapMD when a name is configured"
+    );
+    assert!(
+        !CnCGameEngine::windowed_shell_map_load_decision(true, None),
+        "missing shell-map name must fail-soft so Menu can still open"
+    );
+    assert!(
+        !CnCGameEngine::windowed_shell_map_load_decision(true, Some("   ")),
+        "blank shell-map name must fail-soft"
+    );
+}
+
+#[test]
+fn configured_startup_shell_map_uses_disk_shellmapmd_when_cache_empty() {
+    // C++ GameEngine.cpp:633-642 only disables ShellMapOn when MapCache
+    // lacks m_shellMapName. An empty boot cache must still accept a
+    // disk-resident ShellMapMD extract (hq-4yc1).
+    with_global_data_snapshot_restored(|| {
+        {
+            let mut global = game_engine::common::global_data::write();
+            global.writable.shell_map_on = true;
+            global.writable.shell_map_name.clear();
+        }
+
+        let resolved_asset = CnCGameEngine::resolve_windowed_shell_map_asset(
+            CnCGameEngine::DEFAULT_WINDOWED_SHELL_MAP,
+        );
+        let shell_map = CnCGameEngine::configured_startup_shell_map();
+        if let Some(resolved) = resolved_asset {
+            let selected = shell_map.expect("disk-resident ShellMapMD must be selected");
+            assert!(
+                selected.eq_ignore_ascii_case(&resolved)
+                    || selected.to_ascii_lowercase().contains("shellmapmd"),
+                "windowed boot must select ShellMapMD (got {selected})"
+            );
+            assert!(game_engine::common::global_data::read().writable.shell_map_on);
+        } else {
+            assert!(
+                shell_map.is_none(),
+                "missing ShellMapMD asset must fail-soft (documented asset gate)"
+            );
+            assert!(!game_engine::common::global_data::read().writable.shell_map_on);
+        }
+    });
+}
+
+#[test]
+fn windowed_boot_source_loads_shell_map_instead_of_skipping() {
+    let src = include_str!("shell.rs");
+    let worker = src
+        .split("pub(super) fn spawn_startup_map_load(")
+        .nth(1)
+        .and_then(|s| s.split("pub(super) fn finalize_startup_map_load(").next())
+        .expect("startup worker bounded");
+    assert!(
+        worker.contains("windowed_shell_map_load_decision")
+            && worker.contains("load_map_with_progress")
+            && worker.contains("Shell.cpp:448-466"),
+        "windowed boot worker must fail-soft load ShellMapMD like C++ showShellMap"
+    );
+    assert!(
+        !worker.contains("start_in_menu: skipping blocking shell-map load"),
+        "windowed Menu must not skip a named ShellMapMD decode"
+    );
+
+    let finalize = src
+        .split("pub(super) fn host_finalize_startup_map_load(")
+        .nth(1)
+        .and_then(|s| s.split("pub(super) fn abandon_startup_load_worker(").next())
+        .expect("finalize bounded");
+    let apply = finalize
+        .find("if let Some(active_map_name) = result.loaded_map_name.as_ref()")
+        .expect("shell map presentation apply");
+    let menu = finalize
+        .find("let fallback_to_menu = result.start_in_menu")
+        .expect("menu fallback");
+    assert!(
+        apply < menu,
+        "C++ shell map backdrop must be installed before Menu state"
+    );
+}
+
+#[test]
 fn effective_fps_limit_prefers_script_override() {
     let limit = CnCGameEngine::effective_fps_limit_for_frame(Some(45), false, 30, 2.0, true, true);
     assert_eq!(limit, Some(45));

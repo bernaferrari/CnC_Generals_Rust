@@ -1540,15 +1540,15 @@ impl GameLogic {
     /// C++ StealthUpgrade TriggeredBy = Upgrade_GLACamouflage enables
     /// StealthUpdate (InnateStealth was No until upgrade). Host residual sets
     /// STEALTHED + innate_stealth; breaks on attack (StealthForbiddenConditions
-    /// = ATTACKING USING_ABILITY). Fail-closed: not full 2500ms StealthDelay
-    /// re-cloak timer matrix / FriendlyOpacity pulse / workers (no StealthUpgrade).
+    /// = ATTACKING USING_ABILITY). StealthDelay 2500ms (75f) gates re-cloak.
+    /// Workers skip (no StealthUpgrade).
     pub(in super::super) fn apply_camouflage_unlock_to_team(
         &mut self,
         team: Team,
         upgrade_name: &str,
     ) -> u32 {
         use crate::game_logic::host_upgrades::{
-            is_camouflage_unit_template, UPGRADE_GLA_CAMOUFLAGE,
+            is_camouflage_unit_template, CAMOUFLAGE_STEALTH_DELAY_FRAMES, UPGRADE_GLA_CAMOUFLAGE,
         };
 
         let mut affected = 0u32;
@@ -1574,6 +1574,10 @@ impl GameLogic {
             obj.record_host_stealth_flags();
             obj.stealth_breaks_on_move = false;
             obj.record_host_stealth_flags();
+            obj.stealth_delay_frames = CAMOUFLAGE_STEALTH_DELAY_FRAMES;
+            obj.stealth_allowed_frame = 0;
+            obj.stealth_delay_pending = false;
+            obj.record_host_stealth_delay();
             affected = affected.saturating_add(1);
         }
         affected

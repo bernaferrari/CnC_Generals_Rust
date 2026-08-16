@@ -563,12 +563,12 @@ impl GameWorldShadow {
         for (hid, ready_frame, template, spawn_pos, orientation, owner, health) in
             sole_ready_intents
         {
-            // Worker entity.
+            // Worker entity. C++ FactionBuilding.ini WorkerObjectName = GLAInfantryWorker.
             self.world.queue_mutation(WorldMutation::Spawn {
-                template: "GLAWorker".to_string(),
+                template: "GLAInfantryWorker".to_string(),
                 owner,
                 position: spawn_pos,
-                health: 200.0_f32.max(1.0),
+                health: 100.0_f32.max(1.0),
             });
             let _ = self.world.apply_pending_mutations();
             let worker_raw = self.world.take_last_spawned_entity().map(|eid| eid.get());

@@ -1917,6 +1917,78 @@ fn host_attack_los_allows_fire_in_open() {
 }
 
 #[test]
+fn generic_object_fire_uses_weapon_ini_damage_type() {
+    // C++ Weapon.cpp:1378-1380 dealDamage copies WeaponTemplate::m_damageType
+    // onto DamageInfo; Armor.cpp:43-50 ArmorTemplate::adjustDamage then
+    // bypasses only DAMAGE_UNRESISTABLE. Pre-fix live update_combat fallback
+    // called take_damage_from → Unresistable and ignored Weapon.ini.
+    use crate::game_logic::weapon_bootstrap::{
+        ensure_host_weapon_store, PATHFINDER_SNIPER_WEAPON,
+    };
+    use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
+    ensure_host_weapon_store();
+    assert_eq!(
+        crate::game_logic::host_armor_residual::host_damage_type_for_weapon_name(
+            PATHFINDER_SNIPER_WEAPON
+        ),
+        crate::game_logic::combat::DamageType::Sniper
+    );
+
+    let mut logic = GameLogic::new();
+    let mut atk_tpl = ThingTemplate::new("HqSzqaRifleman");
+    atk_tpl
+        .add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(100.0)
+        .set_primary_weapon_name(PATHFINDER_SNIPER_WEAPON);
+    logic.templates.insert("HqSzqaRifleman".into(), atk_tpl);
+
+    let mut tank_tpl = ThingTemplate::new("HqSzqaTank");
+    tank_tpl
+        .add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(400.0);
+    logic.templates.insert("HqSzqaTank".into(), tank_tpl);
+
+    let atk = logic
+        .create_object("HqSzqaRifleman", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+        .expect("atk");
+    let tgt = logic
+        .create_object("HqSzqaTank", Team::GLA, glam::Vec3::new(30.0, 0.0, 0.0))
+        .expect("tgt");
+    if let Some(o) = logic.objects.get_mut(&atk) {
+        o.weapon = Some(Weapon {
+            damage: 100.0,
+            range: 300.0,
+            reload_time: 0.0,
+            last_fire_time: -100.0,
+            projectile_speed: 999_999.0,
+            ..Weapon::default()
+        });
+        o.target = Some(tgt);
+        o.set_ai_state(AIState::Attacking);
+        o.set_status_attacking(true);
+    }
+    let hp_before = logic
+        .objects
+        .get(&tgt)
+        .map(|o| o.health.current)
+        .unwrap_or(0.0);
+    logic.update_combat(&[atk, tgt], 1.0 / 30.0);
+    let hp_after = logic
+        .objects
+        .get(&tgt)
+        .map(|o| o.health.current)
+        .unwrap_or(0.0);
+    // TankArmor SNIPER residual is 0% (Armor.ini). Unresistable would deal 100.
+    assert!(
+        (hp_after - hp_before).abs() < 0.01,
+        "generic object-vs-object fire must use Weapon.ini SNIPER so TankArmor absorbs it (hp {hp_before} -> {hp_after})"
+    );
+}
+
+
+#[test]
 fn find_attack_path_picks_los_cell_not_target_footprint() {
     use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
     let mut logic = GameLogic::new();
@@ -3457,6 +3529,14 @@ fn gla_structure_death_spawns_rebuild_hole_and_reconstructs() {
     let mut st = ThingTemplate::new("GLATunnelNetwork");
     st.add_kind_of(KindOf::Structure).set_health(1000.0);
     logic.templates.insert("GLATunnelNetwork".into(), st);
+    // Authored hole INI HP must not be overwritten by constructor 500.
+    let mut hole_tpl = ThingTemplate::new("GLAHoleTunnelNetwork");
+    hole_tpl
+        .add_kind_of(KindOf::Structure)
+        .set_health(200.0);
+    logic
+        .templates
+        .insert("GLAHoleTunnelNetwork".into(), hole_tpl);
     let sid = logic
         .create_object(
             "GLATunnelNetwork",
@@ -3477,6 +3557,15 @@ fn gla_structure_death_spawns_rebuild_hole_and_reconstructs() {
             .rebuild_template_name
             .as_deref(),
         Some("GLATunnelNetwork")
+    );
+    assert!(
+        (logic.host_object(hole).unwrap().health.maximum - 200.0).abs() < 0.01,
+        "must keep authored hole-template HP, not force 500"
+    );
+    assert_eq!(
+        logic.host_object(hole).unwrap().rebuild_ready_frame,
+        logic.frame.max(1).saturating_add(600),
+        "WorkerRespawnDelay 20000ms → 600 frames"
     );
     assert!(logic.rebuild_hole_spawns > 0);
     // Heal residual while waiting.
@@ -3501,6 +3590,10 @@ fn gla_structure_death_spawns_rebuild_hole_and_reconstructs() {
     let rid = h.rebuild_reconstructing_id.expect("recon id");
     let wid = h.rebuild_worker_id.expect("worker id");
     assert!(logic.host_object(wid).unwrap().status.unselectable);
+    assert_eq!(
+        logic.host_object(wid).unwrap().template_name,
+        "GLAInfantryWorker"
+    );
     assert!(logic.host_object(rid).unwrap().status.under_construction);
     assert!(logic.host_object(rid).unwrap().status.reconstructing);
     // Complete construction → hole removed.

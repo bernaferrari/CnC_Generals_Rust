@@ -2211,13 +2211,13 @@ pub struct Object {
     pub camo_net_sub_object_observer_visible: bool,
 
     /// C++ StealthUpdate StealthDelay residual: earliest frame allowed to re-cloak.
-    /// 0 = no delay gate (instant re-cloak residual, e.g. Rebel Camouflage).
+    /// 0 = no delay gate (instant re-cloak residual, e.g. Pathfinder StealthDelay 0).
     #[serde(default)]
     pub stealth_allowed_frame: u32,
     /// Pending StealthDelay scheduling after a reveal (resolved in stealth update).
     #[serde(default)]
     pub stealth_delay_pending: bool,
-    /// Frames of StealthDelay after reveal (CamoNetting structures = 75).
+    /// Frames of StealthDelay after reveal (Camo Rebel / CamoNetting = 75, Sentry = 60).
     /// 0 = instant re-cloak residual.
     #[serde(default)]
     pub stealth_delay_frames: u32,

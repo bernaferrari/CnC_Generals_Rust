@@ -638,9 +638,8 @@ fn helix_napalm_bomb_requires_upgrade_on_production_helix() {
     assert_eq!(game_logic.helix_napalm().active_count(), 0);
 }
 
-// -----------------------------------------------------------------------
 // GLA Camouflage residual (Upgrade_GLACamouflage / StealthUpgrade on Rebel)
-// Fail-closed: not full 2500ms StealthDelay / FriendlyOpacity; workers skip.
+// C++ GLAInfantryRebel StealthDelay 2500ms; workers skip.
 // -----------------------------------------------------------------------
 
 /// Residual: QueueUpgrade Camouflage → complete → Rebel stealthed.
@@ -752,17 +751,18 @@ fn camouflage_upgrade_queue_complete_stealths_rebel() {
     );
 }
 
-/// Residual: camouflaged rebel attack breaks stealth; idle re-cloaks.
+/// Residual: camouflaged rebel attack breaks stealth; idle waits 2500ms StealthDelay.
+/// C++ GLAInfantryRebel StealthUpdate StealthDelay=2500 / Forbidden=ATTACKING USING_ABILITY.
 #[test]
 fn camouflage_residual_attack_breaks_and_idle_recloaks() {
-    use crate::command_system::{CommandType, GameCommand};
-    use crate::game_logic::host_upgrades::UPGRADE_GLA_CAMOUFLAGE;
+    use crate::game_logic::host_upgrades::{
+        CAMOUFLAGE_STEALTH_DELAY_FRAMES, UPGRADE_GLA_CAMOUFLAGE,
+    };
 
     let mut game_logic = GameLogic::new();
     let mut player = Player::new(0, Team::GLA, "GLA", true);
     player.resources.supplies = 5000;
     game_logic.add_player(player);
-    ensure_test_barracks_template(&mut game_logic);
     ensure_test_tank_template(&mut game_logic);
 
     let mut rebel = ThingTemplate::new("GLAInfantryRebel");
@@ -775,33 +775,34 @@ fn camouflage_residual_attack_breaks_and_idle_recloaks() {
         .templates
         .insert("GLAInfantryRebel".to_string(), rebel);
 
-    let barracks_id = game_logic
-        .create_object("TestBarracks", Team::GLA, Vec3::new(-40.0, 0.0, 0.0))
-        .expect("barracks");
     let rebel_id = game_logic
         .create_object("GLAInfantryRebel", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
         .expect("rebel");
     let enemy_id = game_logic
-        .create_object("TestTank", Team::USA, Vec3::new(20.0, 0.0, 0.0))
+        .create_object("TestTank", Team::USA, Vec3::new(400.0, 0.0, 400.0))
         .expect("enemy");
 
-    game_logic.queue_command(GameCommand {
-        command_type: CommandType::QueueUpgrade {
-            upgrade_name: UPGRADE_GLA_CAMOUFLAGE.to_string(),
-        },
-        player_id: 0,
-        command_id: 1,
-        timestamp: std::time::SystemTime::now(),
-        selected_units: vec![barracks_id],
-        modifier_keys: crate::command_system::ModifierKeys::default(),
-    });
-    game_logic.process_commands();
-    game_logic.update();
-
+    // Live unlock path (StealthUpgrade TriggeredBy = Upgrade_GLACamouflage).
+    let affected = game_logic.apply_camouflage_unlock_to_team(Team::GLA, UPGRADE_GLA_CAMOUFLAGE);
+    assert!(affected > 0, "camouflage unlock must affect rebel");
+    {
+        let rebel = game_logic.host_object_mut(rebel_id).expect("rebel");
+        rebel.set_ai_state(AIState::Idle);
+        rebel.set_status_attacking(false);
+        rebel.target = None;
+    }
     assert!(game_logic
         .host_object(rebel_id)
         .map(|r| r.status.stealthed)
         .unwrap_or(false));
+    assert_eq!(
+        game_logic
+            .host_object(rebel_id)
+            .map(|r| r.stealth_delay_frames)
+            .unwrap_or(0),
+        CAMOUFLAGE_STEALTH_DELAY_FRAMES,
+        "Camouflage residual must stamp 2500ms StealthDelay"
+    );
 
     // Fire residual breaks stealth.
     {
@@ -822,20 +823,40 @@ fn camouflage_residual_attack_breaks_and_idle_recloaks() {
         "attack residual must break camouflage stealth"
     );
 
-    // Idle re-cloak residual.
+    // Idle before StealthDelay: must stay visible.
     {
         let rebel = game_logic.host_object_mut(rebel_id).expect("rebel");
         rebel.set_ai_state(AIState::Idle);
         rebel.set_status_attacking(false);
         rebel.target = None;
     }
+    game_logic.frame = 1;
+    game_logic.update_stealth_and_detection();
+    assert!(
+        !game_logic
+            .host_object(rebel_id)
+            .map(|r| r.status.stealthed)
+            .unwrap_or(true),
+        "camo rebel must not re-cloak instantly"
+    );
+    let allowed = game_logic
+        .host_object(rebel_id)
+        .map(|r| r.stealth_allowed_frame)
+        .unwrap_or(0);
+    assert!(
+        allowed > game_logic.frame,
+        "StealthDelay must schedule re-cloak after 2500ms"
+    );
+
+    // After delay: idle re-cloak residual.
+    game_logic.frame = allowed;
     game_logic.update_stealth_and_detection();
     assert!(
         game_logic
             .host_object(rebel_id)
             .map(|r| r.status.stealthed)
             .unwrap_or(false),
-        "idle camouflage residual must re-cloak rebel"
+        "idle camouflage residual must re-cloak rebel after StealthDelay"
     );
 }
 

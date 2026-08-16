@@ -1252,6 +1252,14 @@ impl GameLogic {
                 .set_health(REBUILD_HOLE_MAX_HEALTH_RESIDUAL);
             self.templates.insert(hole_name.to_string(), ht);
         }
+        // Prefer authored hole-template HP (INI HoleMaxHealth / ActiveBody).
+        // Force 500 only when the template is a synthetic fallback.
+        let hole_max_health = self
+            .templates
+            .get(hole_name)
+            .map(|t| t.max_health)
+            .filter(|&h| h > 0.0)
+            .unwrap_or(REBUILD_HOLE_MAX_HEALTH_RESIDUAL);
         // Wave 742: under construction sole-tick, pre-spawn hole entity on coupled
         // shadow and bind host ObjectId (entity-first). Non-sole / no-shadow falls
         // back to host create_object. Missing bind under sole is fail-closed via
@@ -1261,7 +1269,7 @@ impl GameLogic {
                 hole_name,
                 [pos.x, pos.y, pos.z],
                 orient,
-                REBUILD_HOLE_MAX_HEALTH_RESIDUAL,
+                hole_max_health,
             )
         } else {
             None
@@ -1282,8 +1290,8 @@ impl GameLogic {
                 h.construction_percent = 1.0;
                 crate::game_logic::host_construction_progress_log::record(hole_id, 1.0, false, 0.0);
             }
-            Self::write_object_health_authority_aware(h, REBUILD_HOLE_MAX_HEALTH_RESIDUAL);
-            h.health.maximum = REBUILD_HOLE_MAX_HEALTH_RESIDUAL;
+            Self::write_object_health_authority_aware(h, hole_max_health);
+            h.health.maximum = hole_max_health;
             h.is_rebuild_hole = true;
             h.rebuild_template_name = Some(template_name);
             h.rebuild_spawner_id = Some(destroyed_id);
@@ -1468,12 +1476,12 @@ impl GameLogic {
                 None => continue,
             };
 
-            // Ensure worker template residual.
+            // Ensure worker template residual. Prefer existing INI GLAInfantryWorker.
             if !self.templates.contains_key(REBUILD_HOLE_WORKER_TEMPLATE) {
                 let mut wt = ThingTemplate::new(REBUILD_HOLE_WORKER_TEMPLATE);
-                wt.add_kind_of(KindOf::Vehicle)
+                wt.add_kind_of(KindOf::Infantry)
                     .add_kind_of(KindOf::Worker)
-                    .set_health(200.0);
+                    .set_health(100.0);
                 self.templates
                     .insert(REBUILD_HOLE_WORKER_TEMPLATE.to_string(), wt);
             }

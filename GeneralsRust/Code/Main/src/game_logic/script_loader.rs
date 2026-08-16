@@ -29,6 +29,8 @@ use gamelogic::scripting::core::{
 };
 use gamelogic::scripting::{parse_player_scripts_list_chunk, ScriptListReadInfo};
 use gamelogic::system::map_loader::BridgeData;
+use gamelogic::common::{AsciiString, ICoord3D};
+use gamelogic::polygon_trigger::PolygonTrigger;
 use gamelogic::system::Coord3D as SystemCoord3D;
 use gamelogic::GameLogicError;
 use log::{debug, info, trace, warn};
@@ -1269,6 +1271,142 @@ pub fn parse_runtime_bridges_from_chunky(chunky: &ChunkyMap) -> LoaderResult<Vec
     }
 
     Ok(bridges)
+}
+
+/// Parse `WorldInfo` water-table height when the map dict carries one.
+///
+/// C++ `WorldHeightMap::ParseWorldDictDataChunk` (WorldHeightMap.cpp:739) stores
+/// the world dict; crate `MapLoader::extract_water_height` reads `waterHeight`.
+/// Missing or unreadable WorldInfo is fail-soft (`None`).
+pub fn parse_runtime_water_height_from_chunky(chunky: &ChunkyMap) -> LoaderResult<Option<f32>> {
+    let body = &chunky.bytes[chunky.body_offset..];
+    let Some((_version, payload)) = find_chunk_by_label(body, &chunky.toc, "WorldInfo")? else {
+        return Ok(None);
+    };
+    let mut reader = BinaryReader::new(payload);
+    if reader.remaining() == 0 {
+        return Ok(None);
+    }
+    let dict = match parse_chunk_dict(&mut reader, &chunky.toc) {
+        Ok(dict) => dict,
+        Err(err) => {
+            warn!("WorldInfo dict parse failed; water height unavailable: {err}");
+            return Ok(None);
+        }
+    };
+    Ok(dict_lookup_ci(&dict, &["waterHeight", "WaterHeight"]).and_then(|value| value.parse().ok()))
+}
+
+/// Parse `PolygonTriggers`, including water-area flags and point Z heights.
+///
+/// C++ `PolygonTrigger::ParsePolygonTriggersDataChunk` (PolygonTrigger.cpp).
+/// Missing or truncated chunks fail-soft to an empty list.
+pub fn parse_runtime_polygon_triggers_from_chunky(
+    chunky: &ChunkyMap,
+) -> LoaderResult<Vec<PolygonTrigger>> {
+    let body = &chunky.bytes[chunky.body_offset..];
+    let Some((version, payload)) = find_chunk_by_label(body, &chunky.toc, "PolygonTriggers")? else {
+        return Ok(Vec::new());
+    };
+
+    let mut reader = BinaryReader::new(payload);
+    if reader.remaining() < 4 {
+        return Ok(Vec::new());
+    }
+    let count = reader.read_i32()?.max(0);
+    let mut triggers = Vec::new();
+    let mut max_trigger_id = 0i32;
+    for _ in 0..count {
+        if reader.remaining() < 2 {
+            break;
+        }
+        let trigger_name = match reader.read_ascii_string() {
+            Ok(name) => name,
+            Err(_) => break,
+        };
+        let layer_name = if version >= 4 {
+            match reader.read_ascii_string() {
+                Ok(name) => name,
+                Err(_) => break,
+            }
+        } else {
+            String::new()
+        };
+        let Ok(trigger_id) = reader.read_i32() else {
+            break;
+        };
+        let is_water = if version >= 2 {
+            match reader.read_u8() {
+                Ok(byte) => byte != 0,
+                Err(_) => break,
+            }
+        } else {
+            false
+        };
+        let (is_river, river_start) = if version >= 3 {
+            let river = match reader.read_u8() {
+                Ok(byte) => byte != 0,
+                Err(_) => break,
+            };
+            let start = match reader.read_i32() {
+                Ok(value) => value,
+                Err(_) => break,
+            };
+            (river, start)
+        } else {
+            (false, 0)
+        };
+        let Ok(num_points) = reader.read_i32() else {
+            break;
+        };
+        let mut points = Vec::new();
+        let mut points_ok = true;
+        for _ in 0..num_points.max(0) {
+            let (Ok(x), Ok(y), Ok(z)) = (reader.read_i32(), reader.read_i32(), reader.read_i32())
+            else {
+                points_ok = false;
+                break;
+            };
+            points.push(ICoord3D::new(x, y, z));
+        }
+        if !points_ok {
+            break;
+        }
+        if points.len() < 2 {
+            continue;
+        }
+        if trigger_id > max_trigger_id {
+            max_trigger_id = trigger_id;
+        }
+        let mut trigger = PolygonTrigger::new(
+            trigger_id,
+            AsciiString::from(trigger_name.as_str()),
+            points,
+        );
+        trigger.set_layer_name(AsciiString::from(layer_name.as_str()));
+        trigger.set_water_area(is_water);
+        trigger.set_river(is_river);
+        trigger.set_river_start(river_start);
+        triggers.push(trigger);
+    }
+
+    // C++ PolygonTrigger.cpp version-1 maps auto-add a full-extent water table.
+    if version == 1 {
+        let mut trigger = PolygonTrigger::new(
+            max_trigger_id + 1,
+            AsciiString::from("AutoAddedWaterAreaTrigger"),
+            Vec::new(),
+        );
+        trigger.set_water_area(true);
+        let border = (30.0 * MAP_XY_FACTOR) as i32;
+        trigger.add_point(ICoord3D::new(-border, -border, 7));
+        trigger.add_point(ICoord3D::new(border, -border, 7));
+        trigger.add_point(ICoord3D::new(border, border, 7));
+        trigger.add_point(ICoord3D::new(-border, border, 7));
+        triggers.push(trigger);
+    }
+
+    Ok(triggers)
 }
 
 /// Parse runtime terrain-road segments from map objects.
@@ -3144,6 +3282,159 @@ mod tests {
             assert_eq!(hm.get_extra_blend_tile_index(0, 0), 5);
             assert_eq!(hm.get_extra_blend_tile_index(1, 1), 8);
         }
+    }
+
+    fn dict_real(toc_id: u32, value: f32) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&1u16.to_le_bytes());
+        let key_and_type = (toc_id << 8) | 2;
+        bytes.extend_from_slice(&(key_and_type as i32).to_le_bytes());
+        bytes.extend_from_slice(&value.to_le_bytes());
+        bytes
+    }
+
+    fn icoord(x: i32, y: i32, z: i32, out: &mut Vec<u8>) {
+        out.extend_from_slice(&x.to_le_bytes());
+        out.extend_from_slice(&y.to_le_bytes());
+        out.extend_from_slice(&z.to_le_bytes());
+    }
+
+    fn object_endpoint(x: f32, y: f32, z: f32, flags: i32, name: &str) -> Vec<u8> {
+        let mut payload = Vec::new();
+        payload.extend_from_slice(&x.to_le_bytes());
+        payload.extend_from_slice(&y.to_le_bytes());
+        payload.extend_from_slice(&z.to_le_bytes());
+        payload.extend_from_slice(&0f32.to_le_bytes());
+        payload.extend_from_slice(&flags.to_le_bytes());
+        ascii(name, &mut payload);
+        payload
+    }
+
+    #[test]
+    fn live_fast_path_parses_water_polygons_and_bridge_endpoints() {
+        // C++ PolygonTrigger::ParsePolygonTriggersDataChunk + WorldInfo waterHeight
+        // + W3DBridgeBuffer::addBridge → TerrainLogic::addBridgeToLogic.
+        // Pre-fix live MapData hard-coded water_height: None / polygon_triggers: Vec::new()
+        // and never called add_bridge_to_logic.
+        let mut toc = HashMap::new();
+        toc.insert(1, "WorldInfo".to_string());
+        toc.insert(2, "PolygonTriggers".to_string());
+        toc.insert(3, "ObjectsList".to_string());
+        toc.insert(4, "Object".to_string());
+        toc.insert(5, "waterHeight".to_string());
+
+        let mut polygon_payload = Vec::new();
+        polygon_payload.extend_from_slice(&1i32.to_le_bytes());
+        ascii("Lake", &mut polygon_payload);
+        ascii("water", &mut polygon_payload);
+        polygon_payload.extend_from_slice(&3i32.to_le_bytes());
+        polygon_payload.push(1);
+        polygon_payload.push(0);
+        polygon_payload.extend_from_slice(&0i32.to_le_bytes());
+        polygon_payload.extend_from_slice(&4i32.to_le_bytes());
+        icoord(0, 0, 12, &mut polygon_payload);
+        icoord(40, 0, 12, &mut polygon_payload);
+        icoord(40, 40, 12, &mut polygon_payload);
+        icoord(0, 40, 12, &mut polygon_payload);
+
+        let mut objects_payload = Vec::new();
+        objects_payload.extend_from_slice(&chunk(
+            4,
+            3,
+            &object_endpoint(0.0, 0.0, 20.0, FLAG_BRIDGE_POINT1, "TestBridge"),
+        ));
+        objects_payload.extend_from_slice(&chunk(
+            4,
+            3,
+            &object_endpoint(40.0, 0.0, 20.0, FLAG_BRIDGE_POINT2, "TestBridge"),
+        ));
+
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&chunk(1, 1, &dict_real(5, 7.5)));
+        bytes.extend_from_slice(&chunk(2, 4, &polygon_payload));
+        bytes.extend_from_slice(&chunk(3, 3, &objects_payload));
+
+        let chunky = ChunkyMap {
+            source: PathBuf::from("SyntheticWaterBridge.map"),
+            toc,
+            body_offset: 0,
+            bytes,
+        };
+
+        let water_height = parse_runtime_water_height_from_chunky(&chunky)
+            .expect("WorldInfo parse should fail-soft, not error")
+            .expect("waterHeight must be recovered from WorldInfo");
+        assert_eq!(water_height, 7.5);
+
+        let triggers = parse_runtime_polygon_triggers_from_chunky(&chunky)
+            .expect("PolygonTriggers parse should fail-soft, not error");
+        assert_eq!(triggers.len(), 1);
+        assert!(triggers[0].is_water_area());
+        assert_eq!(triggers[0].get_trigger_name().as_str(), "Lake");
+        assert_eq!(triggers[0].get_point(0).map(|p| p.z), Some(12));
+
+        let bridges = parse_runtime_bridges_from_chunky(&chunky)
+            .expect("bridge endpoints should pair");
+        assert_eq!(bridges.len(), 1);
+        assert_eq!(bridges[0].template_name, "TestBridge");
+        assert_eq!(bridges[0].from.z, 20.0);
+        assert_eq!(bridges[0].to.z, 20.0);
+
+        let missing = ChunkyMap {
+            source: PathBuf::from("Empty.map"),
+            toc: HashMap::new(),
+            body_offset: 0,
+            bytes: Vec::new(),
+        };
+        assert_eq!(
+            parse_runtime_water_height_from_chunky(&missing).unwrap(),
+            None
+        );
+        assert!(parse_runtime_polygon_triggers_from_chunky(&missing)
+            .unwrap()
+            .is_empty());
+
+        let mut map_data = gamelogic::system::map_loader::MapData::new();
+        map_data.water_height = Some(water_height);
+        map_data.polygon_triggers = triggers;
+        map_data.bridges = bridges;
+        let mut terrain = gamelogic::terrain::TerrainLogic::new();
+        terrain.load_map_data(map_data);
+        assert_eq!(
+            terrain
+                .get_water_handle(10.0, 10.0)
+                .map(|handle| handle.get_current_height()),
+            Some(12.0)
+        );
+        assert_eq!(
+            terrain
+                .get_first_bridge()
+                .map(|bridge| bridge.get_bridge_template_name().as_str().to_string())
+                .as_deref(),
+            Some("TestBridge")
+        );
+    }
+
+    #[test]
+    fn live_fast_path_source_wires_water_and_add_bridge() {
+        let src = include_str!("world_save.rs");
+        assert!(
+            src.contains("parse_runtime_water_height_from_chunky")
+                && src.contains("parse_runtime_polygon_triggers_from_chunky")
+                && src.contains("map_data.water_height = water_height")
+                && src.contains("map_data.polygon_triggers = polygon_triggers")
+                && src.contains("map_data.bridges = bridges"),
+            "live fast-path MapData must keep water polygons/height and parsed bridges"
+        );
+        let terrain_src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../GameEngine/GameLogic/src/terrain.rs"
+        ));
+        let prod = terrain_src.split("#[cfg(test)]").next().expect("production");
+        assert!(
+            prod.contains("add_bridge_to_logic") && prod.contains("bridge_info_from_map_data"),
+            "TerrainLogic::load_map_data must call add_bridge_to_logic for map bridges"
+        );
     }
 }
 
