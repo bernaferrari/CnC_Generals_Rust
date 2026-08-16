@@ -19,6 +19,19 @@ impl Wake for NoopWake {
     fn wake(self: Arc<Self>) {}
 }
 
+/// C++ `GameEngine.h:13` `DEFAULT_MAX_FPS` — execute present cap, not logic Hz.
+pub(super) const DEFAULT_MAX_FPS: u32 = 45;
+/// Windowed GPU present interval: 1/45 s (~22_222 µs).
+/// C++ `GameEngine::execute` (`GameEngine.cpp:856-857`) uses
+/// `DWORD limit = (1000.0f/m_maxFPS)-1` after `m_maxFPS = DEFAULT_MAX_FPS`
+/// (`GameEngine.cpp:271`). This is the windowed present/execute cap only;
+/// logic stays 30 Hz (`HEADLESS_LOGIC_INTERVAL` / `LOGICFRAMES_PER_SECOND`).
+pub(super) const FRAME_INTERVAL: Duration =
+    Duration::from_micros(1_000_000 / DEFAULT_MAX_FPS as u64);
+/// Headless logic residual: ~30 Hz fixed step without waiting on GPU present.
+pub(super) const HEADLESS_LOGIC_INTERVAL: Duration = Duration::from_nanos(33_333_333);
+
+
 /// Run the actual C&C game
 pub async fn run_cnc_game(
     event_loop: EventLoop<()>,
@@ -45,9 +58,6 @@ pub async fn run_cnc_game(
     let mut slow_update_peak = Duration::ZERO;
     let mut slow_render_peak = Duration::ZERO;
     let mut last_render_health_log = Instant::now();
-    const FRAME_INTERVAL: Duration = Duration::from_micros(16_667);
-    /// Headless logic residual: ~30 Hz fixed step without waiting on GPU present.
-    const HEADLESS_LOGIC_INTERVAL: Duration = Duration::from_nanos(33_333_333);
     /// Headless present residual: keep live_frame/screenshot alive, but far below logic rate.
     const HEADLESS_PRESENT_INTERVAL: Duration = Duration::from_millis(250);
     const STARTUP_POLL_INTERVAL: Duration = Duration::from_millis(5);
@@ -678,3 +688,31 @@ pub(super) fn resolve_ui_structure_template_name(name: &str) -> String {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{DEFAULT_MAX_FPS, FRAME_INTERVAL, HEADLESS_LOGIC_INTERVAL};
+    use std::time::Duration;
+
+    #[test]
+    fn windowed_present_cap_is_cpp_default_max_fps_45() {
+        // C++ GameEngine.h:13 `#define DEFAULT_MAX_FPS 45`
+        // C++ GameEngine.cpp:271 `m_maxFPS = DEFAULT_MAX_FPS`
+        // C++ GameEngine.cpp:856-857 execute present cap:
+        //   `DWORD limit = (1000.0f/m_maxFPS)-1`
+        // Windowed WaitUntil present interval is 1/45 s; logic stays 30 Hz.
+        assert_eq!(DEFAULT_MAX_FPS, 45);
+        assert_eq!(FRAME_INTERVAL, Duration::from_micros(1_000_000 / 45));
+        assert_ne!(
+            FRAME_INTERVAL,
+            Duration::from_micros(1_000_000 / 60),
+            "pre-fix 60 Hz windowed present cap must not remain"
+        );
+        assert_eq!(
+            HEADLESS_LOGIC_INTERVAL,
+            Duration::from_nanos(33_333_333),
+            "headless 30 Hz logic interval must stay 30 logic frames/sec"
+        );
+    }
+}
+

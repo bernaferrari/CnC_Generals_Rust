@@ -149,26 +149,15 @@ impl HostDeathType {
     pub fn from_host_damage_type(dt: crate::game_logic::combat::DamageType) -> Self {
         use crate::game_logic::combat::DamageType as H;
         match dt {
-            H::Flame | H::Fire => Self::Burned,
-            H::Laser => Self::Lasered,
+            H::Flame | H::Fire | H::MolotovCocktail => Self::Burned,
+            H::Laser | H::ParticleBeam => Self::Lasered,
             H::Toxin | H::Anthrax => Self::Poisoned,
-            H::Explosive => Self::Exploded,
+            H::Explosive | H::AuroraBomb | H::LandMine => Self::Exploded,
             H::Radiation => Self::Detonated,
-            H::EMP => Self::Normal,
             H::Falling => Self::Splatted,
             H::Crush => Self::Crushed,
-            H::Bullet
-            | H::Unresistable
-            | H::Status
-            | H::KillPilot
-            | H::Disarm
-            | H::Deploy
-            | H::Hack
-            | H::Surrender
-            | H::Penalty
-            | H::KillGarrisoned
-            | H::Healing
-            | H::Water => Self::Normal,
+            H::Toppling => Self::Toppled,
+            _ => Self::Normal,
         }
     }
 

@@ -93,6 +93,29 @@ impl BinkHeader {
     }
 }
 
+/// RAD Bink audio bitstream (DCT/RDFT) is not implemented.
+///
+/// C++ `BinkVideoPlayer::initializeBinkWithMiles` (BinkVideoPlayer.cpp:196-212)
+/// and `MilesAudioManager::getHandleForBink` (MilesAudioManager.cpp:2954-2972)
+/// decode per-track audio and mix through Miles. This decoder only stores
+/// `audio_track_count` and video frame slices — completeness, hq-ghcr.17.
+pub fn has_bink_audio_bitstream_parser() -> bool {
+    false
+}
+
+/// C++ `BinkVideoPlayer::createStream` (BinkVideoPlayer.cpp:88-96):
+/// `mod = (speechVolume * 0.8 * 100) + 1`; `volume = 32768 * mod / 100`.
+///
+/// Returns the mapped 0..1 gain. Playback remains silent until an audio
+/// bitstream parser exists.
+pub fn bink_volume_from_speech_slider(speech_volume: f32) -> f32 {
+    let speech = speech_volume.clamp(0.0, 1.0);
+    let modifier = (speech * 0.8 * 100.0) + 1.0;
+    let bink_units = 32768.0 * modifier / 100.0;
+    (bink_units / 32768.0).clamp(0.0, 1.0)
+}
+
+
 #[derive(Debug, Clone)]
 pub struct BinkFramePacket {
     pub index: u32,
@@ -368,8 +391,12 @@ impl VideoStreamInterface for BinkVideoStream {
     }
 
     fn set_volume(&mut self, volume: f32) {
-        self.volume = volume.clamp(0.0, 1.0);
+        // Speech-slider mapping (BinkVideoPlayer.cpp:88-96) is stored only.
+        // No audio bitstream parser exists (hq-ghcr.17 / hq-jwyl), so Miles
+        // coupling / BinkSetVolume playback cannot run.
+        self.volume = bink_volume_from_speech_slider(volume);
     }
+
 
     fn playback_state(&self) -> PlaybackState {
         self.state
@@ -702,4 +729,31 @@ mod tests {
 
         fs::remove_file(path).ok();
     }
+
+    #[test]
+    fn bink_has_no_audio_bitstream_parser_hq_jwyl() {
+        // C++ BinkVideoPlayer::initializeBinkWithMiles (BinkVideoPlayer.cpp:196-212)
+        // needs decoded audio tracks. Rust parses audio_track_count only.
+        let bytes = make_bink_blob(*b"BIKi");
+        let header = BinkHeader::parse(&bytes).expect("header");
+        assert_eq!(header.audio_track_count, 1);
+        assert!(
+            !has_bink_audio_bitstream_parser(),
+            "do not claim Bink audio playback without a bitstream parser"
+        );
+    }
+
+    #[test]
+    fn bink_speech_slider_matches_create_stream_formula() {
+        // C++ BinkVideoPlayer::createStream (BinkVideoPlayer.cpp:88-96)
+        // mod = (speechVolume*0.8*100)+1; volume = 32768*mod/100.
+        let expected = |speech: f32| {
+            let modifier = (speech.clamp(0.0, 1.0) * 0.8 * 100.0) + 1.0;
+            32768.0 * modifier / 100.0 / 32768.0
+        };
+        assert!((bink_volume_from_speech_slider(1.0) - expected(1.0)).abs() < 1e-6);
+        assert!((bink_volume_from_speech_slider(0.0) - expected(0.0)).abs() < 1e-6);
+        assert!((bink_volume_from_speech_slider(0.5) - expected(0.5)).abs() < 1e-6);
+    }
+
 }

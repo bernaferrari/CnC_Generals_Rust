@@ -767,6 +767,23 @@ impl WeaponSetDefinition {
             && conditions.next().is_none()
     }
 
+    /// C++ `AutoChooseSources = PRIMARY NONE` on this WeaponSet row.
+    ///
+    /// Object construction must not invent a kind-based primary after a
+    /// WeaponStore miss when the authored set disables autonomous PRIMARY.
+    pub fn auto_choose_primary_none(&self) -> bool {
+        self.attributes.iter().any(|(key, value)| {
+            if !key.eq_ignore_ascii_case("AutoChooseSources") {
+                return false;
+            }
+            let mut tokens = value.split_whitespace();
+            tokens
+                .next()
+                .is_some_and(|slot| slot.eq_ignore_ascii_case("PRIMARY"))
+                && tokens.any(|source| source.eq_ignore_ascii_case("NONE"))
+        })
+    }
+
     pub fn weapon_name(&self, slot: u8) -> Option<&str> {
         match slot {
             0 => self.primary_weapon.as_deref(),

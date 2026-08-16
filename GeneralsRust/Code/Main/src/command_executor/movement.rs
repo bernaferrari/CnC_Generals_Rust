@@ -48,13 +48,19 @@ impl<'a> CommandExecutor<'a> {
             }
         }
         let goals = self.group_move_destinations(units, destination);
+        if units.len() > 1 && self.compute_ground_path_should_group(units, destination) {
+            if self.game_logic.assign_shared_group_paths(&goals, destination) {
+                let moved: Vec<ObjectId> = goals.iter().map(|(id, _)| *id).collect();
+                self.apply_player_stealth_mood_delay(&moved);
+                return CommandResult::Success;
+            }
+        }
         let mut moved: Vec<ObjectId> = Vec::new();
         for (unit_id, goal) in goals {
             if !self
                 .game_logic
                 .unit_command_move_free(unit_id, goal, destination)
             {
-                // Distinguish missing unit vs path failure like prior residual.
                 if self.game_logic.host_object(unit_id).is_none() {
                     return CommandResult::InvalidTarget;
                 }

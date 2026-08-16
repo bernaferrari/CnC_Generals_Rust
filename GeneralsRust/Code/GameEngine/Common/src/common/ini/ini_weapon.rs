@@ -289,25 +289,26 @@ pub struct WeaponTemplate {
 
 impl WeaponTemplate {
     pub fn new(name: AsciiString) -> Self {
+        // C++ WeaponTemplate::WeaponTemplate (Weapon.cpp:231-303)
         Self {
             name,
             display_name: AsciiString::from(""),
-            damage_type: DamageType::Physical,
+            damage_type: DamageType::Explosive,
             attack_type: AttackType::Direct,
-            primary_damage: 10.0,
+            primary_damage: 0.0,
             secondary_damage: 0.0,
             damage_radius: 0.0,
-            range: 100.0,
+            range: 0.0,
             min_range: 0.0,
-            rate_of_fire: 1.0,
-            reload_time: 1.0,
+            rate_of_fire: 0.0,
+            reload_time: 0.0,
             accuracy: 1.0,
-            projectile_speed: 500.0,
+            projectile_speed: 999999.0,
             projectile_count: 1,
-            ammo_capacity: 0, // 0 = unlimited
+            ammo_capacity: 0,
             penetration: 0.0,
             armor_piercing: 1.0,
-            can_target_air: true,
+            can_target_air: false,
             can_target_ground: true,
             can_target_water: false,
             can_target_stealth: false,
@@ -855,13 +856,16 @@ mod tests {
 
     #[test]
     fn test_weapon_template_creation() {
+        // C++ WeaponTemplate::WeaponTemplate (Weapon.cpp:231-303)
         let name = AsciiString::from("TestWeapon");
         let template = WeaponTemplate::new(name.clone());
 
         assert_eq!(template.name, name);
-        assert_eq!(template.primary_damage, 10.0);
-        assert_eq!(template.range, 100.0);
-        assert!(template.can_target_air);
+        assert_eq!(template.primary_damage, 0.0);
+        assert_eq!(template.range, 0.0);
+        assert_eq!(template.projectile_speed, 999999.0);
+        assert!(matches!(template.damage_type, DamageType::Explosive));
+        assert!(!template.can_target_air);
         assert!(template.can_target_ground);
         assert!(template.is_valid());
     }

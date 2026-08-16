@@ -380,6 +380,12 @@ impl GameLogic {
             // Sentry residual: detect explicit template primary before move.
             let sentry_had_explicit_primary =
                 template.primary_weapon.is_some() || template.primary_weapon_name.is_some();
+            // C++ Object.cpp:160-497 / onObjectCreated: create policy comes
+            // from ThingTemplate INI (AutoChooseSources, FireOCLAfterWeaponCooldown).
+            // Name residuals below are missing-INI fallbacks only.
+            let primary_auto_choose_none = template.primary_auto_choose_none;
+            let has_fire_ocl_after_weapon_cooldown =
+                template.has_fire_ocl_after_weapon_cooldown;
             let mut object = Object::new_with_logic_frame(template, id, team, self.frame);
             object.owner_player_id = owner_player_id;
             object.set_position(position);
@@ -410,15 +416,16 @@ impl GameLogic {
                 object.tertiary_weapon = Some(tertiary);
             }
 
-            // Strategy Center residual: PRIMARY StrategyCenterGun exists in retail but
-            // AutoChooseSources=PRIMARY NONE and turret starts disabled until Bombardment
-            // (C++ enableTurret). Strip kind-based Weapon::default fallback; Bombardment
-            // residual re-equips StrategyCenterGun. Explicit template primary still keeps.
-            if crate::game_logic::host_strategy_center::is_strategy_center_template(template_name)
-                || object.is_kind_of(KindOf::FSStrategyCenter)
+            // Strategy Center: AutoChooseSources=PRIMARY NONE is on the
+            // template when Object INI loaded (C++ FactionBuilding.ini:6970).
+            // resolve_primary_weapon already refuses kind-based Weapon::default.
+            // Missing-INI fallback: hand-built FS_STRATEGY_CENTER fixtures
+            // still strip the kind-default so Bombardment can re-equip.
+            if !primary_auto_choose_none
+                && (crate::game_logic::host_strategy_center::is_strategy_center_template(
+                    template_name,
+                ) || object.is_kind_of(KindOf::FSStrategyCenter))
             {
-                // Fail-closed: strip kind-based Weapon::default unless already
-                // StrategyCenterGun residual (Bombardment mid-game recreate).
                 use crate::game_logic::host_strategy_center::STRATEGY_CENTER_GUN_DAMAGE;
                 let is_gun = object.weapon.as_ref().is_some_and(|w| {
                     (w.damage - STRATEGY_CENTER_GUN_DAMAGE).abs() < 0.001
@@ -430,28 +437,46 @@ impl GameLogic {
                 }
             }
 
-            // GLA Quad Cannon residual: force air/ground anti masks on dual weapons.
-            // Fail-closed vs full Weapon.ini AntiGround/AntiAirborne parse when store
-            // templates leave default GROUND mask on AA secondary.
+            // Quad Cannon: Weapon.ini AntiGround/AntiAirborne already flow
+            // through weapon_from_store. Force masks only when the store
+            // left C++ defaults (missing-INI / unparsed anti-mask).
             if crate::game_logic::host_quad_cannon::is_quad_cannon_template(template_name) {
-                if let Some(w) = object.weapon.as_mut() {
-                    w.can_target_ground = true;
-                    w.can_target_air = false;
-                }
-                if let Some(w) = object.secondary_weapon.as_mut() {
-                    w.can_target_air = true;
-                    w.can_target_ground = false;
+                let store_missed_masks = object
+                    .weapon
+                    .as_ref()
+                    .is_some_and(|w| w.can_target_air)
+                    || object
+                        .secondary_weapon
+                        .as_ref()
+                        .is_some_and(|w| w.can_target_ground);
+                if store_missed_masks {
+                    if let Some(w) = object.weapon.as_mut() {
+                        w.can_target_ground = true;
+                        w.can_target_air = false;
+                    }
+                    if let Some(w) = object.secondary_weapon.as_mut() {
+                        w.can_target_air = true;
+                        w.can_target_ground = false;
+                    }
                 }
             }
 
-            // GLA Toxin Tractor residual: ensure contaminate spray secondary binds.
-            // Retail PrimaryDamage=0 fails weapon_from_store gate; host residual installs
-            // a ready secondary for AutoChooseSources=NONE special-attack residual.
-            if crate::game_logic::host_toxin_tractor::is_toxin_tractor_template(template_name) {
+            // FireOCLAfterWeaponCooldownUpdate: crate module init from the
+            // authored Behavior. Name residual is missing-INI fallback for
+            // hand-built GLAVehicleToxinTruck fixtures (C++ GLAVehicle.ini:3697).
+            if has_fire_ocl_after_weapon_cooldown
+                || crate::game_logic::host_toxin_tractor::is_toxin_tractor_template(template_name)
+            {
                 object.fire_ocl_after_cooldown = Some(
                     crate::game_logic::host_toxin_tractor::HostFireOclAfterCooldownData::new(),
                 );
-                if object.secondary_weapon.is_none() {
+                // Retail ToxinTruckSprayer PrimaryDamage=0 fails
+                // weapon_from_store; host seed uses 0.001. Missing-INI only.
+                if object.secondary_weapon.is_none()
+                    && crate::game_logic::host_toxin_tractor::is_toxin_tractor_template(
+                        template_name,
+                    )
+                {
                     use crate::game_logic::host_toxin_tractor::{
                         delay_frames_to_reload_secs, TOXIN_SPRAY_DELAY_FRAMES, TOXIN_SPRAY_RANGE,
                     };

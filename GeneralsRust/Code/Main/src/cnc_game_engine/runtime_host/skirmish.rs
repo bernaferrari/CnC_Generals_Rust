@@ -275,6 +275,7 @@ impl CnCGameEngine {
                         };
                         request.map = map;
                         self.start_game_from_ui(request);
+                        let _ = Self::take_new_game_dispatch_from_common_stream();
                         self.runtime_host_last_gameplay_cmd = start_cmd.into();
                     } else if gamelogic::helpers::TheGameLogic::is_start_new_game_requested() {
                         gamelogic::helpers::TheGameLogic::clear_start_new_game_request();
@@ -603,8 +604,8 @@ impl CnCGameEngine {
         } else {
             warn!("Runtime host failed to lock message stream for NewGame");
         }
-        // Drain immediately (same helpers Menu update uses). Relying only on
-        // the next Menu frame races pump_message_stream / state transitions.
+        // Peek + host start. With game_client, pump so crate GameLogic sees
+        // MSG_NEW_GAME (C++ logicMessageDispatcher). Then drop leftovers.
         if let Some(request) = self.take_pending_new_game_start_request() {
             info!(
                 "Runtime host NewGame drain: mode={:?} faction={} map={}",
@@ -612,6 +613,11 @@ impl CnCGameEngine {
             );
             self.set_runtime_host_ui_screen_override(None);
             self.start_game_from_ui(request);
+            #[cfg(feature = "game_client")]
+            {
+                let _ = self.game_client.pump_message_stream();
+            }
+            let _ = Self::take_new_game_dispatch_from_common_stream();
         } else {
             warn!("Runtime host queued NewGame but drain produced no start request");
             if self.current_state != GameState::Menu {

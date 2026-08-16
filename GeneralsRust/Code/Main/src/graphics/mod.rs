@@ -30,6 +30,8 @@ pub use projected_shroud_upload::{
 };
 pub use projectile_segment_upload::ProjectileSegmentUpload;
 pub mod minimap_renderer;
+pub mod occlusion_bridge;
+
 pub mod render_item;
 pub mod render_pipeline;
 pub use render_pipeline::{

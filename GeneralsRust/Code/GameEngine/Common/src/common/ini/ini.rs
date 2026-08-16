@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::fmt;
 use std::fs::{self, File};
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::{OnceLock, RwLock};
@@ -258,7 +258,7 @@ fn consume_block_with_nesting(ini: &mut INI) -> INIResult<Vec<String>> {
             return Err(INIError::MissingEndToken);
         }
 
-        if ini.buffer.is_empty() {
+        if ini.buffer.trim().is_empty() {
             continue;
         }
 
@@ -305,7 +305,7 @@ fn parse_armor_block(ini: &mut INI) -> INIResult<()> {
             return Err(INIError::MissingEndToken);
         }
 
-        if ini.buffer.is_empty() {
+        if ini.buffer.trim().is_empty() {
             continue;
         }
 
@@ -421,11 +421,11 @@ fn parse_named_property_block(ini: &mut INI) -> INIResult<(String, HashMap<Strin
             return Err(INIError::MissingEndToken);
         }
 
-        if ini.buffer.is_empty() {
+        if ini.buffer.trim().is_empty() {
             continue;
         }
 
-        if ini.buffer.eq_ignore_ascii_case("End") {
+        if ini.buffer.trim().eq_ignore_ascii_case("End") {
             break;
         }
 
@@ -445,11 +445,11 @@ fn parse_unnamed_property_block(ini: &mut INI) -> INIResult<HashMap<String, Stri
             return Err(INIError::MissingEndToken);
         }
 
-        if ini.buffer.is_empty() {
+        if ini.buffer.trim().is_empty() {
             continue;
         }
 
-        if ini.buffer.eq_ignore_ascii_case("End") {
+        if ini.buffer.trim().eq_ignore_ascii_case("End") {
             break;
         }
 
@@ -486,10 +486,10 @@ fn parse_fx_list_block(ini: &mut INI) -> INIResult<()> {
             if ini.end_of_file {
                 return Err(INIError::MissingEndToken);
             }
-            if ini.buffer.is_empty() {
+            if ini.buffer.trim().is_empty() {
                 continue;
             }
-            if ini.buffer.eq_ignore_ascii_case("End") {
+            if ini.buffer.trim().eq_ignore_ascii_case("End") {
                 break;
             }
             let (key, value) = parse_key_value_line(&ini.buffer).ok_or(INIError::InvalidData)?;
@@ -960,6 +960,55 @@ const BLOCK_PARSE_TABLE: &[BlockParse] = &[
     },
 ];
 
+async fn collect_ini_files_current_then_nested(
+    dir_path: &Path,
+    subdirs: bool,
+) -> INIResult<(Vec<PathBuf>, Vec<PathBuf>)> {
+    let mut current_dir_files = Vec::new();
+    let mut nested_files = Vec::new();
+    let mut pending = vec![dir_path.to_path_buf()];
+    let mut first = true;
+
+    while let Some(current) = pending.pop() {
+        let mut child_dirs = Vec::new();
+        if let Ok(mut entries) = tokio::fs::read_dir(&current).await {
+            while let Some(entry) = entries.next_entry().await.transpose() {
+                let Ok(entry) = entry else {
+                    continue;
+                };
+                let path = entry.path();
+                if path.is_file() {
+                    if path
+                        .extension()
+                        .is_some_and(|ext| ext.eq_ignore_ascii_case("ini"))
+                    {
+                        if first {
+                            current_dir_files.push(path);
+                        } else {
+                            nested_files.push(path);
+                        }
+                    }
+                } else if subdirs && path.is_dir() {
+                    child_dirs.push(path);
+                }
+            }
+        }
+        if subdirs {
+            child_dirs.sort();
+            // DFS after sort so nested directories stay machine-consistent.
+            for child in child_dirs.into_iter().rev() {
+                pending.push(child);
+            }
+        }
+        first = false;
+    }
+
+    current_dir_files.sort();
+    nested_files.sort();
+    Ok((current_dir_files, nested_files))
+}
+
+
 impl INI {
     /// Create a new INI reader
     pub fn new() -> Self {
@@ -1015,7 +1064,11 @@ impl INI {
             && (len == 3 || chars[len - 4] == '.')
     }
 
-    /// Load all INI files in the specified directory
+    /// Load all INI files in the specified directory.
+    ///
+    /// C++ `INI::loadDirectory` (INI.cpp:188-237) loads every current-directory
+    /// file first, then subdirectory files, so nested override precedence matches
+    /// retail and stays machine-consistent for network play.
     pub async fn load_directory<P: AsRef<Path>>(
         &mut self,
         dir_name: P,
@@ -1027,32 +1080,13 @@ impl INI {
             return Err(INIError::InvalidDirectory);
         }
 
-        let mut files_to_load = Vec::new();
+        let (current_dir_files, nested_files) =
+            collect_ini_files_current_then_nested(dir_path, subdirs).await?;
 
-        // Collect all .ini files
-        if let Ok(mut entries) = tokio::fs::read_dir(dir_path).await {
-            while let Some(entry) = entries.next_entry().await.transpose() {
-                if let Ok(entry) = entry {
-                    let path = entry.path();
-                    if path.is_file() {
-                        if let Some(extension) = path.extension() {
-                            if extension.to_ascii_lowercase() == "ini" {
-                                files_to_load.push(path);
-                            }
-                        }
-                    } else if subdirs && path.is_dir() {
-                        // Recursively load subdirectories
-                        self.load_directory(&path, true, load_type).await?;
-                    }
-                }
-            }
+        for file_path in current_dir_files {
+            self.load(&file_path, load_type)?;
         }
-
-        // Sort files for consistent loading order
-        files_to_load.sort();
-
-        // Load each file
-        for file_path in files_to_load {
+        for file_path in nested_files {
             self.load(&file_path, load_type)?;
         }
 
@@ -1227,7 +1261,11 @@ impl INI {
         Ok(())
     }
 
-    /// Read a line from the file
+    /// Read a line from the file.
+    ///
+    /// C++ `INI::readLine` (INI.cpp:397-464): strip `;` comments, map control
+    /// chars (`>0 && <32`) to spaces, keep trailing whitespace, hard-cap at
+    /// `INI_MAX_CHARS_PER_LINE` (1028), then CRC the raw buffer via `xferUser`.
     pub fn read_line(&mut self) -> INIResult<()> {
         if self.end_of_file {
             self.buffer.clear();
@@ -1238,32 +1276,51 @@ impl INI {
         self.buffer_token_offset = 0;
         self.line_num += 1;
 
-        if let Some(ref mut reader) = self.file {
-            match reader.read_line(&mut self.buffer) {
-                Ok(0) => {
-                    self.end_of_file = true;
-                }
-                Ok(_) => {
-                    // Remove comments (everything after ';')
-                    if let Some(comment_pos) = self.buffer.find(';') {
-                        self.buffer.truncate(comment_pos);
-                    }
-
-                    // Trim whitespace
-                    self.buffer = self.buffer.trim().to_string();
-
-                    // C++ accepts tab characters as whitespace delimiters
-                    self.buffer = self.buffer.replace('\t', " ");
-                }
-                Err(_) => return Err(INIError::UnknownError),
-            }
-        } else {
+        let Some(reader) = &mut self.file else {
             return Err(INIError::FileNotOpen);
+        };
+
+        let mut processed = 0usize;
+        let mut in_comment = false;
+        loop {
+            if processed >= INI_MAX_CHARS_PER_LINE {
+                break;
+            }
+            if self.read_buffer_next == self.read_buffer_used {
+                match reader.read(&mut self.read_buffer) {
+                    Ok(0) => {
+                        self.end_of_file = true;
+                        break;
+                    }
+                    Ok(n) => {
+                        self.read_buffer_next = 0;
+                        self.read_buffer_used = n;
+                    }
+                    Err(_) => return Err(INIError::UnknownError),
+                }
+            }
+            let ch = self.read_buffer[self.read_buffer_next];
+            self.read_buffer_next += 1;
+            if ch == b'\n' {
+                break;
+            }
+            processed += 1;
+            if in_comment {
+                continue;
+            }
+            if ch == b';' {
+                in_comment = true;
+                continue;
+            }
+            if ch > 0 && ch < 32 {
+                self.buffer.push(' ');
+            } else {
+                self.buffer.push(ch as char);
+            }
         }
 
         // C++ parity: INI.cpp lines 458-463
         // if (s_xfer) { s_xfer->xferUser(m_buffer, sizeof(char) * strlen(m_buffer)); }
-        // Raw buffer bytes, no length prefix (C++ xferUser, not a length-prefixed string).
         if let Some(ref xfer_mutex) = self.xfer {
             if let Ok(mut xfer) = xfer_mutex.lock() {
                 let mut bytes = self.buffer.as_bytes().to_vec();
@@ -2187,5 +2244,92 @@ End
             crc_block.contains("xfer_user_bytes"),
             "INI deep CRC must hash raw line bytes like C++ xferUser"
         );
+    }
+
+    #[tokio::test]
+    async fn load_directory_loads_current_dir_before_subdirs() {
+        // C++ INI::loadDirectory (INI.cpp:188-237): current-dir files first,
+        // then subdirectory files. Last write wins for the same Weapon name.
+        use crate::common::ini::ini_weapon::{get_weapon_store, reset_weapon_store};
+
+        let root = std::env::temp_dir().join(format!(
+            "ini_load_dir_{}_{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        let sub = root.join("nested");
+        fs::create_dir_all(&sub).expect("temp ini tree");
+        fs::write(
+            root.join("base.ini"),
+            "Weapon CurrentDirProbe\n  PrimaryDamage = 1\nEnd\n",
+        )
+        .unwrap();
+        fs::write(
+            sub.join("override.ini"),
+            "Weapon SubDirProbe\n  PrimaryDamage = 99\nEnd\n",
+        )
+        .unwrap();
+
+        reset_weapon_store();
+        let mut ini = INI::new();
+        ini.load_directory(&root, true, INILoadType::Overwrite)
+            .await
+            .expect("load_directory");
+
+        let store = get_weapon_store().expect("weapon store");
+        let names: Vec<&str> = store
+            .get_template_names()
+            .into_iter()
+            .map(String::as_str)
+            .collect();
+        assert_eq!(
+            names,
+            vec!["CurrentDirProbe", "SubDirProbe"],
+            "current-dir files must register before subdirectory files"
+        );
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn read_line_keeps_trailing_whitespace_and_caps_at_1028() {
+        // C++ INI::readLine (INI.cpp:397-464)
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let path = std::env::temp_dir().join(format!(
+            "ini_readline_{}_{}.ini",
+            std::process::id(),
+            nanos
+        ));
+        let mut long = "A".repeat(INI_MAX_CHARS_PER_LINE + 40);
+        long.push('\n');
+        let contents = format!("Key = Value  \n{long}Tail\n");
+        fs::write(&path, contents).unwrap();
+
+        let mut ini = INI::new();
+        ini.with_file_source(&path, INILoadType::Overwrite, |ini| {
+            ini.read_line()?;
+            assert_eq!(ini.get_buffer(), "Key = Value  ");
+            assert_eq!(ini.get_first_token().as_deref(), Some("Key"));
+
+            ini.read_line()?;
+            assert_eq!(ini.get_buffer().len(), INI_MAX_CHARS_PER_LINE);
+            assert!(ini.get_buffer().chars().all(|c| c == 'A'));
+
+            ini.read_line()?;
+            assert_eq!(ini.get_buffer(), "A".repeat(40));
+
+            ini.read_line()?;
+            assert_eq!(ini.get_buffer(), "Tail");
+            Ok(())
+        })
+        .expect("read_line");
+
+        let _ = fs::remove_file(&path);
     }
 }

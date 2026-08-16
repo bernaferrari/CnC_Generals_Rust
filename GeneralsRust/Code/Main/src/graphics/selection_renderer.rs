@@ -1183,4 +1183,22 @@ mod selection_shader_residual_tests {
         )
         .is_none());
     }
+
+    /// hq-6gq7: world-space unit circles are the allowed wgpu representation
+    /// change. C++ `W3DInGameUI::drawSelectionRegion` color `0x9933FF33` and
+    /// 2px width stay on the 2D drag marquee; do not rewrite the overlay.
+    #[test]
+    fn selection_overlay_preserves_cpp_drag_color_and_documents_wgpu_circles() {
+        let src = include_str!("selection_renderer.rs");
+        assert!(
+            src.contains("0x9933FF33"),
+            "drag marquee must keep C++ W3DInGameUI::drawSelectionRegion color"
+        );
+        assert!(
+            src.contains("world-space overlays"),
+            "unit circles must stay documented as the allowed wgpu representation"
+        );
+        assert_eq!(super::DRAG_RECT_COLOR, [0.2, 1.0, 0.2, 0.6]);
+        assert_eq!(super::DRAG_RECT_LINE_WIDTH_PX, 2.0);
+    }
 }

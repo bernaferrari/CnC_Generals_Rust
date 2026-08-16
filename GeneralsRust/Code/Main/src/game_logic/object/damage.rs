@@ -110,7 +110,10 @@ impl Object {
             return false;
         }
         // DAMAGE_WATER: normal HP damage path (type distinguishes FX in C++).
-        // C++ DAMAGE_KILL_PILOT residual: unmanned vehicle, no HP damage.
+        // C++ ActiveBody.cpp:365-418 DAMAGE_KILLPILOT: no hull HP.
+        // RiderChangeContain (combat bike): moving bike is scored+killed;
+        // stationary bike evacuates then the rider is killed so the bike
+        // scuttles. Ordinary vehicles become unmanned + Neutral.
         if matches!(
             damage_type,
             crate::game_logic::combat::DamageType::KillPilot
@@ -118,7 +121,39 @@ impl Object {
             if self.is_kind_of(crate::game_logic::KindOf::Vehicle)
                 || self.is_kind_of(crate::game_logic::KindOf::Aircraft)
             {
-                // C++ car-bomb dead-man residual when sniped.
+                let rider_change = self.is_combat_cycle_transport
+                    || self.thing.template.contain_module.kind
+                        == crate::game_logic::ContainModuleKind::RiderChange;
+                if rider_change {
+                    if self.status.moving {
+                        // C++: damager->scoreTheKill(obj); obj->kill();
+                        self.health.current = 0.0;
+                        self.status.destroyed = true;
+                        self.status.death_type = death_type;
+                        crate::game_logic::host_death_type_log::record(
+                            self.id,
+                            self.status.death_type.ordinal(),
+                        );
+                        self.set_ai_state(AIState::Idle);
+                        self.target = None;
+                        crate::game_logic::host_damage_log::record(
+                            self.id,
+                            self.health.maximum.max(self.max_health).max(1.0),
+                            source,
+                            true,
+                        );
+                        let _ = damage;
+                        return true;
+                    }
+                    // Stationary: evacuate the rider so the bike scuttles.
+                    // Occupant kill is the GameLogic contain list (C++ rider->kill).
+                    self.occupants.clear();
+                    self.rider_change_scuttled_on_frame = self
+                        .rider_change_scuttled_on_frame
+                        .max(1);
+                    let _ = (source, death_type, damage);
+                    return false;
+                }
                 if self.is_car_bomb() {
                     // Detonation handled by combat caller; mark unmanned edge.
                 }
@@ -128,9 +163,22 @@ impl Object {
             let _ = (source, death_type, damage);
             return false;
         }
-        // C++ IsSubdualDamage residual (Microwave/EMP maps to host EMP class).
+
+        // C++ IsSubdualDamage residual (Damage.h:95-107). Microwave/EMP stays the
+        // existing host EMP peel (before armor — TankArmor MICROWAVE is 0%).
         if matches!(damage_type, crate::game_logic::combat::DamageType::EMP) {
             self.apply_subdual_damage(damage.max(0.0));
+            let _ = (source, death_type);
+            return false;
+        }
+        // C++ SUBDUAL_* is not HP and is not DAMAGE_UNRESISTABLE.
+        if damage_type.is_subdual() {
+            let typed = crate::game_logic::host_armor_residual::apply_residual_armor(
+                self,
+                damage_type,
+                damage,
+            );
+            self.apply_subdual_damage(typed);
             let _ = (source, death_type);
             return false;
         }
@@ -193,23 +241,19 @@ impl Object {
             self.last_damage_source = Some(src);
         }
 
-        // Armor.ini residual coefficient (by object kind + damage type), then
-        // legacy scalar armor + HoldTheLine plan residual.
-        // C++ DAMAGE_UNRESISTABLE bypasses ArmorTemplate + scalar armor residual.
+        // C++ ActiveBody::attemptDamage: ArmorTemplate::adjustDamage, then
+        // m_damageScalar only for non-UNRESISTABLE (ActiveBody.cpp:351, 490-497).
+        // No invented armor/(armor+100) extra mitigation.
         let typed =
             crate::game_logic::host_armor_residual::apply_residual_armor(self, damage_type, damage);
-        // C++ DAMAGE_UNRESISTABLE bypasses ArmorTemplate/scalar armor, but Strategy Center
-        // HoldTheLinePlanArmorDamageScalar still multiplies body damage (LESS is better).
         let battle_plan_armor = self.battle_plan_armor_damage_scalar();
         let mut actual_damage = if matches!(
             damage_type,
             crate::game_logic::combat::DamageType::Unresistable
         ) {
-            typed * battle_plan_armor
+            typed
         } else {
-            let armor_factor =
-                1.0 - (self.thing.template.armor / (self.thing.template.armor + 100.0));
-            typed * armor_factor * battle_plan_armor
+            typed * battle_plan_armor
         };
 
         // C++ ActiveBody: damaged CAN_BE_REPULSED civilians scare others when EnableRepulsors.
@@ -256,21 +300,13 @@ impl Object {
             }
         }
 
-        // GameWorld damage authority: host logs intent only; HP/destroyed last-write
-        // via shadow session mutations + writeback_health_to_host (no mid-frame host HP mutate).
-        // Defer only when a live shadow session can consume the log. Otherwise host-only
-        // combat would record damage and never apply HP (authority without writeback).
-        // force_host_hp: superweapon/residual paths always mutate host immediately.
-        let damage_auth =
-            crate::gameworld_shadow::gameworld_damage_authority_live() && !force_host_hp;
-        let destroyed = if damage_auth {
-            let projected = (self.health.current - actual_damage).max(0.0);
-            let will_die = projected <= 0.0 || actual_damage >= self.health.current;
-            crate::game_logic::host_damage_log::record(self.id, actual_damage, source, will_die);
-            // Projected lethal: mark destroyed so is_alive() fails mid-frame without
-            // mutating HP (shadow remains last-writer for the numeric health value).
-            // Prevents multi-attacker overkill / retarget of a corpse before writeback.
-            if will_die && !self.status.destroyed {
+        // C++ ActiveBody::internalChangeHealth is a single write
+        // (ActiveBody.cpp:1188+). Always mutate host health.current this
+        // frame so mid-frame death / HP visibility matches C++, and still
+        // log for the GameWorld shadow channel.
+        self.health.damage(actual_damage);
+        let destroyed = if !self.health.is_alive() {
+            if !self.status.destroyed {
                 self.status.destroyed = true;
                 self.status.death_type = death_type;
                 crate::game_logic::host_death_type_log::record(
@@ -280,25 +316,13 @@ impl Object {
                 self.set_ai_state(AIState::Idle);
                 self.target = None;
             }
-            will_die
+            true
         } else {
-            self.health.damage(actual_damage);
-            let destroyed = if !self.health.is_alive() {
-                self.status.destroyed = true;
-                self.status.death_type = death_type;
-                crate::game_logic::host_death_type_log::record(
-                    self.id,
-                    self.status.death_type.ordinal(),
-                );
-                self.set_ai_state(AIState::Idle);
-                self.target = None;
-                true
-            } else {
-                false
-            };
-            crate::game_logic::host_damage_log::record(self.id, actual_damage, source, destroyed);
-            destroyed
+            false
         };
+        crate::game_logic::host_damage_log::record(self.id, actual_damage, source, destroyed);
+
+
 
         // C++ UndeadBody::startSecondLife after ActiveBody::attemptDamage residual.
         if battle_bus_start_second {
@@ -362,4 +386,134 @@ impl Object {
         self.ai_attitude = attitude.as_i8();
         crate::game_logic::host_ai_attitude_log::record(self.id, self.ai_attitude);
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::game_logic::combat::DamageType;
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+
+    fn vehicle(name: &str, id: u32, hp: f32) -> Object {
+        let mut tmpl = ThingTemplate::new(name);
+        tmpl.set_health(hp);
+        tmpl.add_kind_of(KindOf::Vehicle);
+        tmpl.add_kind_of(KindOf::Attackable);
+        let mut o = Object::new(tmpl, ObjectId(id), Team::USA);
+        o.health.current = hp;
+        o.health.maximum = hp;
+        o
+    }
+
+    #[test]
+    fn subdual_missile_is_not_hp_unresistable() {
+        // C++ IsSubdualDamage (Damage.h:95-107) + ActiveBody.cpp:471-488.
+        // Pre-fix: map_store collapsed SUBDUAL_MISSILE → Unresistable HP.
+        let mut tank = vehicle("SubdualTank", 11, 200.0);
+        assert!(!tank.take_damage_from_typed(80.0, None, DamageType::SubdualMissile));
+        assert!(
+            (tank.health.current - 200.0).abs() < 1e-3,
+            "SUBDUAL_MISSILE must not deal HP, got {}",
+            tank.health.current
+        );
+        // TankArmor SUBDUAL_MISSILE residual is 0% — still not Unresistable HP.
+        assert!((tank.subdual_damage).abs() < 1e-3);
+
+        let mut bare = Object::new(ThingTemplate::new("Bare"), ObjectId(12), Team::USA);
+        bare.health.current = 100.0;
+        bare.health.maximum = 100.0;
+        assert!(!bare.take_damage_from_typed(40.0, None, DamageType::SubdualMissile));
+        assert!((bare.health.current - 100.0).abs() < 1e-3);
+        assert!(
+            (bare.subdual_damage - 40.0).abs() < 1e-3,
+            "default armor SUBDUAL_MISSILE should add subdual, got {}",
+            bare.subdual_damage
+        );
+    }
+
+    #[test]
+    fn gattling_uses_tank_armor_ten_percent() {
+        // C++ Armor.ini TankArmor GATTLING 10% via ArmorTemplate::adjustDamage.
+        // Pre-fix: Gattling collapsed to Bullet (25%) then armor/(armor+100).
+        let mut tank = vehicle("GattlingTank", 13, 1000.0);
+        tank.thing.template.armor = 100.0;
+        let hp0 = tank.health.current;
+        tank.take_damage_from_typed(100.0, None, DamageType::Gattling);
+        let dealt = hp0 - tank.health.current;
+        assert!(
+            (dealt - 10.0).abs() < 0.05,
+            "expected TankArmor GATTLING 10 (no armor/(armor+100)), got {dealt}"
+        );
+    }
+
+    #[test]
+    fn take_damage_has_no_invented_scalar_armor_formula() {
+        // C++ ActiveBody.cpp:351, 490-497: adjustDamage then m_damageScalar only.
+        // A leftover scalar formula would halve this Explosion hit when armor=100.
+        let mut tank = vehicle("ScalarArmorTank", 14, 1000.0);
+        tank.thing.template.armor = 100.0;
+        let hp0 = tank.health.current;
+        tank.take_damage_from_typed(100.0, None, DamageType::Explosive);
+        let dealt = hp0 - tank.health.current;
+        assert!(
+            (dealt - 100.0).abs() < 0.05,
+            "TankArmor default Explosion is 100%; leftover scalar formula would deal 50, got {dealt}"
+        );
+    }
+
+    #[test]
+    fn kill_pilot_splits_rider_change_bike() {
+        // C++ ActiveBody.cpp:365-418 DAMAGE_KILLPILOT RiderChangeContain split.
+        let mut moving = vehicle("CombatBike", 21, 150.0);
+        moving.is_combat_cycle_transport = true;
+        moving.thing.template.contain_module.kind =
+            crate::game_logic::ContainModuleKind::RiderChange;
+        moving.set_status_moving(true);
+        moving.occupants.push(ObjectId(99));
+        assert!(moving.take_damage_from_typed(1.0, None, DamageType::KillPilot));
+        assert!(moving.status.destroyed);
+        assert!(moving.health.current <= 0.0);
+        assert!(!moving.is_unmanned());
+
+        let mut parked = vehicle("CombatBike", 22, 150.0);
+        parked.is_combat_cycle_transport = true;
+        parked.thing.template.contain_module.kind =
+            crate::game_logic::ContainModuleKind::RiderChange;
+        parked.set_status_moving(false);
+        parked.occupants.push(ObjectId(98));
+        assert!(!parked.take_damage_from_typed(1.0, None, DamageType::KillPilot));
+        assert!((parked.health.current - 150.0).abs() < 1e-3);
+        assert!(!parked.is_unmanned());
+        assert!(parked.occupants.is_empty());
+        assert!(parked.rider_change_scuttled_on_frame > 0);
+
+        let mut tank = vehicle("Tank", 23, 200.0);
+        assert!(!tank.take_damage_from_typed(1.0, None, DamageType::KillPilot));
+        assert!((tank.health.current - 200.0).abs() < 1e-3);
+        assert!(tank.is_unmanned());
+        assert_eq!(tank.team, Team::Neutral);
+    }
+
+    #[test]
+    fn take_damage_applies_host_hp_same_frame() {
+        // C++ ActiveBody::internalChangeHealth (ActiveBody.cpp:1188+).
+        // Pre-fix: gameworld_damage_authority_live left health.current stale.
+        crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+        crate::env_compat::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", "1");
+        crate::gameworld_shadow::refresh_gameworld_authority_env_caches();
+        crate::gameworld_shadow::begin_shadow_coupled_tick();
+        let mut tank = vehicle("SameFrameHp", 24, 100.0);
+        assert!(!tank.take_damage_from_typed(25.0, None, DamageType::Unresistable));
+        assert!(
+            (tank.health.current - 75.0).abs() < 1e-3,
+            "host HP must update this frame under damage authority, got {}",
+            tank.health.current
+        );
+        assert!(tank.take_damage_from_typed(80.0, None, DamageType::Unresistable));
+        assert!(tank.health.current <= 0.0);
+        assert!(tank.status.destroyed);
+        crate::gameworld_shadow::end_shadow_coupled_tick();
+    }
+
+
 }

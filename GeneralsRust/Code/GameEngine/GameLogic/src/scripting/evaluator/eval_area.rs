@@ -189,6 +189,9 @@ impl ScriptEvaluator {
         &self,
         condition: &Condition,
     ) -> GameLogicResult<bool> {
+        if dual_world_registry_unavailable() {
+            return Ok(false);
+        }
         let unit_param = condition.get_parameter(0).ok_or_else(|| {
             GameLogicError::Configuration(
                 "NamedEnteredArea condition missing unit parameter".to_string(),
@@ -202,24 +205,27 @@ impl ScriptEvaluator {
 
         let unit_name = unit_param.get_string();
         let area_name = area_param.get_string();
+        let Some(trigger) = self.get_trigger_area(area_name) else {
+            return Ok(false);
+        };
         let tracker = get_named_object_tracker();
         let Some(object_id) = tracker.get_object_id(unit_name).ok().flatten() else {
             return Ok(false);
         };
-
-        let current_frame = TheGameLogic::get_frame() as u32;
-        let area_tracker = get_area_tracker();
-        if !area_tracker.has_area(area_name).unwrap_or(false) {
-            return Ok(false);
-        }
-
-        Ok(area_tracker
-            .get_last_enter_frame(area_name, object_id)
-            .map(|frame| frame == current_frame)
+        Ok(crate::object::registry::OBJECT_REGISTRY
+            .with_object(object_id, |obj| {
+                if obj.is_kind_of(KindOf::Inert) {
+                    return false;
+                }
+                obj.did_enter(&trigger)
+            })
             .unwrap_or(false))
     }
 
     fn evaluate_named_exited_area_condition(&self, condition: &Condition) -> GameLogicResult<bool> {
+        if dual_world_registry_unavailable() {
+            return Ok(false);
+        }
         let unit_param = condition.get_parameter(0).ok_or_else(|| {
             GameLogicError::Configuration(
                 "NamedExitedArea condition missing unit parameter".to_string(),
@@ -233,20 +239,15 @@ impl ScriptEvaluator {
 
         let unit_name = unit_param.get_string();
         let area_name = area_param.get_string();
+        let Some(trigger) = self.get_trigger_area(area_name) else {
+            return Ok(false);
+        };
         let tracker = get_named_object_tracker();
         let Some(object_id) = tracker.get_object_id(unit_name).ok().flatten() else {
             return Ok(false);
         };
-
-        let current_frame = TheGameLogic::get_frame() as u32;
-        let area_tracker = get_area_tracker();
-        if !area_tracker.has_area(area_name).unwrap_or(false) {
-            return Ok(false);
-        }
-
-        Ok(area_tracker
-            .get_last_exit_frame(area_name, object_id)
-            .map(|frame| frame == current_frame)
+        Ok(crate::object::registry::OBJECT_REGISTRY
+            .with_object(object_id, |obj| obj.did_exit(&trigger))
             .unwrap_or(false))
     }
 

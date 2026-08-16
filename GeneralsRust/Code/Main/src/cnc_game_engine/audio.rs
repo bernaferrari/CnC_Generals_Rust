@@ -87,21 +87,28 @@ impl CnCGameEngine {
 
     pub(super) fn host_play_sound_effect(&mut self, sound_type: SoundType) {
         // Wave 604: host UI SFX residual.
+        // C++ `TheAudio->addAudioEvent` (`AudioManager::addAudioEvent`, GameAudio.cpp).
+        // One play API: Common TheAudio / AudioManager when a live handle exists.
+        let kind = match sound_type {
+            SoundType::Select => "UnitSelect",
+            SoundType::Command => "UnitCommand",
+            SoundType::ConstructionComplete => "ConstructionComplete",
+            SoundType::UnitReady => "UnitReady",
+            SoundType::UpgradeComplete => "UpgradeComplete",
+            SoundType::Hit => "WeaponHit",
+            SoundType::Explosion => "Explosion",
+            SoundType::Build => "BuildingComplete",
+        };
+        if crate::assets::audio::play_sound_through_the_audio(kind).is_some() {
+            log::trace!("🔊 UI SFX via TheAudio: {kind}");
+            return;
+        }
+
         // Prefer presentation/host audio event residual when a frame is installed
         // (InGame path). Avoid dual synthetic rodio tones competing with event queue.
         if self.last_presentation_frame.is_some() {
-            let kind = match sound_type {
-                SoundType::Select => "UnitSelect",
-                SoundType::Command => "UnitCommand",
-                SoundType::ConstructionComplete => "ConstructionComplete",
-                SoundType::UnitReady => "UnitReady",
-                SoundType::UpgradeComplete => "UpgradeComplete",
-                SoundType::Hit => "WeaponHit",
-                SoundType::Explosion => "Explosion",
-                SoundType::Build => "BuildingComplete",
-            };
-            // Presentation path: dispatch UI SFX direct to AudioManager (no GameLogic
-            // dual-write / process_audio_events drain). Same-frame Select/Command.
+            // Presentation path: leftover AudioManagerSubsystem queue only if
+            // TheAudio produced no live handle. No GameLogic dual-write.
             let event = crate::game_logic::AudioEventRequest::new(kind);
             log::trace!("🔊 UI presentation audio: {}", event.event_type);
             let _ = crate::subsystem_manager::with_subsystem_mut::<
@@ -111,7 +118,7 @@ impl CnCGameEngine {
             return;
         }
 
-        // Boot residual only — synthetic tones when no presentation frame.
+        // Boot residual only — synthetic tones when no TheAudio handle.
         let handle = match &self.audio_handle {
             Some(handle) => handle,
             None => {

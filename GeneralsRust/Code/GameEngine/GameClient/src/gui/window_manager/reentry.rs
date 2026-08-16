@@ -260,11 +260,18 @@ fn window_manager_reentry_fallback<R: ReentryFallback>() -> R {
 ///
 /// C++ `WindowXlat` turns `RAW_MOUSE_*` into `winSendInputMsg`. Shell active
 /// consumes the click (LookAt/world command must not also fire).
+///
+/// Mouse-lock + scrolling LMB pass-through is the unused WindowXlat helper
+/// (`WindowXlat.cpp:147-167` / `os_mouse_blocked_by_mouse_lock`): locked
+/// view skips WM except LMB down/up while `TheInGameUI` is scrolling.
 pub fn dispatch_os_mouse_to_window_manager(
     msg: WindowMessage,
     x: i32,
     y: i32,
 ) -> WindowInputReturnCode {
+    if crate::message_stream::window_xlat::os_mouse_blocked_by_mouse_lock(msg) {
+        return WindowInputReturnCode::NotUsed;
+    }
     let data = (((y as u32) << 16) | ((x as u32) & 0xFFFF)) as WindowMsgData;
     let rc = with_window_manager(|manager| manager.process_mouse_event(msg, x, y, data));
     if crate::gui::shell::get_shell().is_shell_active() {

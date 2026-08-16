@@ -70,8 +70,18 @@ impl ScriptConditionEvaluator {
         &self,
         area_name: &str,
     ) -> Result<crate::polygon_trigger::PolygonTrigger, ScriptError> {
+        if let Some(trigger) = with_script_engine_ref(|engine| {
+            engine.get_qualified_trigger_area_by_name(area_name)
+        })
+        .flatten()
+        {
+            return Ok(trigger);
+        }
+
+        let resolved = crate::scripting::engine::qualify_trigger_area_name(area_name, None)
+            .unwrap_or_else(|| area_name.to_string());
         if let Ok(terrain) = get_terrain_logic().read() {
-            if let Some(trigger) = terrain.get_trigger_area_by_name(area_name) {
+            if let Some(trigger) = terrain.get_trigger_area_by_name(&resolved) {
                 Ok(trigger.clone())
             } else {
                 Err(ScriptError::ObjectNotFound(format!(
@@ -1696,36 +1706,18 @@ impl ScriptConditionEvaluator {
     ) -> Result<ScriptConditionResult, ScriptError> {
         let team_name = self.get_condition_string_param(condition, 0)?;
         let area_name = self.get_condition_string_param(condition, 1)?;
-        log::debug!(
-            "Evaluating if team '{}' entered area '{}' entirely",
-            team_name,
-            area_name
-        );
-
-        // Check if team had enter/exit event and is now entirely inside
+        let which_to_consider = self.get_condition_int_param(condition, 2).unwrap_or(0) as u32;
+        let Ok(trigger) = self.get_trigger_area(&area_name) else {
+            return Ok(ScriptConditionResult::False);
+        };
         if let Ok(mut factory) = get_team_factory().lock() {
             if let Some(team_arc) = factory.find_team(&team_name) {
                 if let Ok(team) = team_arc.read() {
-                    // Only check if there was an enter/exit event this frame
-                    if !team.did_enter_or_exit() {
-                        return Ok(ScriptConditionResult::False);
-                    }
-
-                    let members = team.get_members();
-                    if members.is_empty() {
-                        return Ok(ScriptConditionResult::False);
-                    }
-
-                    let area_tracker = get_area_tracker();
-                    if let Ok(objects_in_area) = area_tracker.get_objects_in_area(&area_name) {
-                        // Check if ALL team members are now in the area
-                        for &member_id in members {
-                            if !objects_in_area.contains(&member_id) {
-                                return Ok(ScriptConditionResult::False);
-                            }
-                        }
-                        return Ok(ScriptConditionResult::True);
-                    }
+                    return Ok(if team.did_all_enter(&trigger, which_to_consider) {
+                        ScriptConditionResult::True
+                    } else {
+                        ScriptConditionResult::False
+                    });
                 }
             }
         }
@@ -1738,35 +1730,18 @@ impl ScriptConditionEvaluator {
     ) -> Result<ScriptConditionResult, ScriptError> {
         let team_name = self.get_condition_string_param(condition, 0)?;
         let area_name = self.get_condition_string_param(condition, 1)?;
-        log::debug!(
-            "Evaluating if team '{}' entered area '{}' partially",
-            team_name,
-            area_name
-        );
-
-        // Check if team had enter/exit event and at least one member is now inside
+        let which_to_consider = self.get_condition_int_param(condition, 2).unwrap_or(0) as u32;
+        let Ok(trigger) = self.get_trigger_area(&area_name) else {
+            return Ok(ScriptConditionResult::False);
+        };
         if let Ok(mut factory) = get_team_factory().lock() {
             if let Some(team_arc) = factory.find_team(&team_name) {
                 if let Ok(team) = team_arc.read() {
-                    // Only check if there was an enter/exit event this frame
-                    if !team.did_enter_or_exit() {
-                        return Ok(ScriptConditionResult::False);
-                    }
-
-                    let members = team.get_members();
-                    if members.is_empty() {
-                        return Ok(ScriptConditionResult::False);
-                    }
-
-                    let area_tracker = get_area_tracker();
-                    if let Ok(objects_in_area) = area_tracker.get_objects_in_area(&area_name) {
-                        // Check if ANY team member is now in the area
-                        for &member_id in members {
-                            if objects_in_area.contains(&member_id) {
-                                return Ok(ScriptConditionResult::True);
-                            }
-                        }
-                    }
+                    return Ok(if team.did_partial_enter(&trigger, which_to_consider) {
+                        ScriptConditionResult::True
+                    } else {
+                        ScriptConditionResult::False
+                    });
                 }
             }
         }
@@ -1779,37 +1754,18 @@ impl ScriptConditionEvaluator {
     ) -> Result<ScriptConditionResult, ScriptError> {
         let team_name = self.get_condition_string_param(condition, 0)?;
         let area_name = self.get_condition_string_param(condition, 1)?;
-        log::debug!(
-            "Evaluating if team '{}' exited area '{}' entirely",
-            team_name,
-            area_name
-        );
-
-        // Check if team had enter/exit event and is now entirely outside
+        let which_to_consider = self.get_condition_int_param(condition, 2).unwrap_or(0) as u32;
+        let Ok(trigger) = self.get_trigger_area(&area_name) else {
+            return Ok(ScriptConditionResult::False);
+        };
         if let Ok(mut factory) = get_team_factory().lock() {
             if let Some(team_arc) = factory.find_team(&team_name) {
                 if let Ok(team) = team_arc.read() {
-                    // Only check if there was an enter/exit event this frame
-                    if !team.did_enter_or_exit() {
-                        return Ok(ScriptConditionResult::False);
-                    }
-
-                    let members = team.get_members();
-                    if members.is_empty() {
-                        // Empty team considered to have exited
-                        return Ok(ScriptConditionResult::True);
-                    }
-
-                    let area_tracker = get_area_tracker();
-                    if let Ok(objects_in_area) = area_tracker.get_objects_in_area(&area_name) {
-                        // Check if NO team members are in the area
-                        for &member_id in members {
-                            if objects_in_area.contains(&member_id) {
-                                return Ok(ScriptConditionResult::False);
-                            }
-                        }
-                        return Ok(ScriptConditionResult::True);
-                    }
+                    return Ok(if team.did_all_exit(&trigger, which_to_consider) {
+                        ScriptConditionResult::True
+                    } else {
+                        ScriptConditionResult::False
+                    });
                 }
             }
         }
@@ -1822,40 +1778,24 @@ impl ScriptConditionEvaluator {
     ) -> Result<ScriptConditionResult, ScriptError> {
         let team_name = self.get_condition_string_param(condition, 0)?;
         let area_name = self.get_condition_string_param(condition, 1)?;
-        log::debug!(
-            "Evaluating if team '{}' exited area '{}' partially",
-            team_name,
-            area_name
-        );
-
-        // Check if team had enter/exit event and at least one member is now outside
+        let which_to_consider = self.get_condition_int_param(condition, 2).unwrap_or(0) as u32;
+        let Ok(trigger) = self.get_trigger_area(&area_name) else {
+            return Ok(ScriptConditionResult::False);
+        };
         if let Ok(mut factory) = get_team_factory().lock() {
             if let Some(team_arc) = factory.find_team(&team_name) {
                 if let Ok(team) = team_arc.read() {
-                    // Only check if there was an enter/exit event this frame
-                    if !team.did_enter_or_exit() {
-                        return Ok(ScriptConditionResult::False);
-                    }
-
-                    let members = team.get_members();
-                    if members.is_empty() {
-                        return Ok(ScriptConditionResult::False);
-                    }
-
-                    let area_tracker = get_area_tracker();
-                    if let Ok(objects_in_area) = area_tracker.get_objects_in_area(&area_name) {
-                        // Check if ANY team member is now outside the area
-                        for &member_id in members {
-                            if !objects_in_area.contains(&member_id) {
-                                return Ok(ScriptConditionResult::True);
-                            }
-                        }
-                    }
+                    return Ok(if team.did_partial_exit(&trigger, which_to_consider) {
+                        ScriptConditionResult::True
+                    } else {
+                        ScriptConditionResult::False
+                    });
                 }
             }
         }
         Ok(ScriptConditionResult::False)
     }
+
 
     pub(crate) fn eval_team_completed_sequential_execution(
         &self,

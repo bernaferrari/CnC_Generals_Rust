@@ -1607,3 +1607,176 @@ fn test_vision_range_getter_safe_type_conversion() {
 
     assert!(true, "Vision range type conversion is safe");
 }
+
+#[test]
+fn cpp_parity_continuous_beam_inflicts_damage_when_requested() {
+    // C++ WeaponTemplate::fireWeaponTemplate laser branch (Weapon.cpp:1028-1031):
+    // createLaser(...) then `if (inflictDamage) dealDamageInternal(...)`.
+    let mut template = WeaponTemplate::new("ParityLaser".to_string());
+    template.laser_name = "RedLaser".to_string();
+    template.primary_damage = 25.0;
+    template.attack_range = 150.0;
+    // Non-empty projectile_name makes deal_damage_internal return a distinct
+    // error so the test can observe that the inflict path actually ran.
+    template.projectile_name = "UnusedByLaserMode".to_string();
+    let weapon = Weapon::new(Arc::new(template), WeaponSlotType::Primary);
+    assert!(matches!(
+        weapon.determine_fire_mode(),
+        FireMode::ContinuousBeam { .. }
+    ));
+
+    let bonus = WeaponBonus::new();
+    let pos = Coord3D::new(10.0, 0.0, 0.0);
+
+    let withheld = weapon.inflict_damage_if_requested(1, Some(2), &pos, &bonus, false, false);
+    assert!(
+        withheld.is_ok(),
+        "inflictDamage=false must skip dealDamageInternal: {withheld:?}"
+    );
+
+    let inflicted = weapon.inflict_damage_if_requested(1, Some(2), &pos, &bonus, false, true);
+    match inflicted {
+        Err(WeaponError::SystemError(msg)) => {
+            assert!(
+                msg.contains("Projectile weapons should not call deal_damage_internal"),
+                "inflictDamage=true must reach dealDamageInternal, got {msg}"
+            );
+        }
+        other => panic!("expected deal_damage_internal error, got {other:?}"),
+    }
+}
+
+#[test]
+fn cpp_parity_apply_post_fire_state_cycles_barrels_and_max_shot_count() {
+    // C++ Weapon::privateFireWeapon (Weapon.cpp:2617-2625).
+    let mut template = WeaponTemplate::new("ParityBarrel".to_string());
+    template.clip_size = 10;
+    template.shots_per_barrel = 2;
+    template.min_delay_between_shots = 5;
+    template.max_delay_between_shots = 5;
+    template.reload_type = WeaponReloadType::AutoReload;
+    let mut weapon = Weapon::new(Arc::new(template), WeaponSlotType::Primary);
+    weapon.ammo_in_clip = 10;
+    weapon.max_shot_count = 3;
+    weapon.current_barrel = 0;
+    weapon.num_shots_for_current_barrel = 2;
+    let bonus = WeaponBonus::new();
+
+    let emptied = weapon.apply_post_fire_state(1, 0, &bonus);
+    assert!(!emptied);
+    assert_eq!(weapon.ammo_in_clip, 9);
+    assert_eq!(weapon.max_shot_count, 2);
+    assert_eq!(weapon.current_barrel, 0);
+    assert_eq!(weapon.num_shots_for_current_barrel, 1);
+    assert_eq!(weapon.status, WeaponStatus::BetweenFiringShots);
+
+    let emptied = weapon.apply_post_fire_state(1, 0, &bonus);
+    assert!(!emptied);
+    assert_eq!(weapon.ammo_in_clip, 8);
+    assert_eq!(weapon.max_shot_count, 1);
+    assert_eq!(weapon.current_barrel, 1);
+    assert_eq!(weapon.num_shots_for_current_barrel, 2);
+}
+
+#[test]
+fn cpp_parity_reload_with_bonus_full_clip_guard_and_refill() {
+    // C++ Weapon::reloadWithBonus (Weapon.cpp:1877-1886).
+    let mut template = WeaponTemplate::new("ParityReloadGuard".to_string());
+    template.clip_size = 6;
+    template.clip_reload_time = 30;
+    let mut weapon = Weapon::new(Arc::new(template), WeaponSlotType::Primary);
+    weapon.ammo_in_clip = 6;
+    weapon.status = WeaponStatus::ReadyToFire;
+    weapon.when_we_can_fire_again = 123;
+    weapon.when_last_reload_started = 7;
+
+    weapon
+        .reload_with_bonus(0, &WeaponBonus::new(), false)
+        .unwrap();
+    assert_eq!(weapon.ammo_in_clip, 6);
+    assert_eq!(weapon.status, WeaponStatus::ReadyToFire);
+    assert_eq!(weapon.when_we_can_fire_again, 123);
+    assert_eq!(weapon.when_last_reload_started, 7);
+
+    weapon.ammo_in_clip = 2;
+    weapon
+        .reload_with_bonus(0, &WeaponBonus::new(), false)
+        .unwrap();
+    assert_eq!(weapon.ammo_in_clip, 6);
+    assert_eq!(weapon.status, WeaponStatus::ReloadingClip);
+    assert_eq!(weapon.get_remaining_ammo(), 0);
+}
+
+#[test]
+fn cpp_parity_reload_with_bonus_propagates_shared_reload() {
+    // C++ Weapon::reloadWithBonus (Weapon.cpp:1884-1912): refill immediately,
+    // rebuildScatterTargets, and (when shared) sync sibling slots.
+    // Object-backed sibling sync is covered by the try_write loop in
+    // reload_with_bonus; this test asserts the refill + scatter rebuild that
+    // always runs on a successful reload (Weapon.cpp:1912).
+    let mut template = WeaponTemplate::new("SharedFiring".to_string());
+    template.clip_size = 4;
+    template.clip_reload_time = 20;
+    template.scatter_targets = vec![
+        Coord2D { x: 1.0, y: 0.0 },
+        Coord2D { x: 0.0, y: 1.0 },
+    ];
+    let mut firing = Weapon::new(Arc::new(template), WeaponSlotType::Primary);
+    firing.ammo_in_clip = 1;
+    firing.scatter_targets_unused.clear();
+    firing
+        .reload_with_bonus(0, &WeaponBonus::new(), false)
+        .unwrap();
+    assert_eq!(firing.ammo_in_clip, 4);
+    assert_eq!(firing.status, WeaponStatus::ReloadingClip);
+    assert_eq!(firing.scatter_targets_unused, vec![0, 1]);
+}
+#[test]
+fn cpp_parity_is_damage_weapon_matches_cpp_special_cases() {
+    // C++ Weapon::isDamageWeapon (Weapon.cpp:2789-2816).
+    let mut deploy = WeaponTemplate::new("Deploy".to_string());
+    deploy.damage_type = DamageType::Deploy;
+    deploy.primary_damage = 0.0;
+    deploy.secondary_damage = 0.0;
+    assert!(Weapon::new(Arc::new(deploy), WeaponSlotType::Primary).is_damage_weapon());
+
+    let mut disarm = WeaponTemplate::new("Disarm".to_string());
+    disarm.damage_type = DamageType::Disarm;
+    disarm.primary_damage = 0.0;
+    assert!(Weapon::new(Arc::new(disarm), WeaponSlotType::Primary).is_damage_weapon());
+
+    let mut hack = WeaponTemplate::new("Hack".to_string());
+    hack.damage_type = DamageType::Hack;
+    hack.primary_damage = 50.0;
+    assert!(!Weapon::new(Arc::new(hack), WeaponSlotType::Primary).is_damage_weapon());
+
+    let mut none = WeaponTemplate::new("None".to_string());
+    none.damage_type = DamageType::Explosion;
+    none.primary_damage = 0.0;
+    none.secondary_damage = 0.0;
+    assert!(!Weapon::new(Arc::new(none), WeaponSlotType::Primary).is_damage_weapon());
+
+    let mut splash = WeaponTemplate::new("Splash".to_string());
+    splash.damage_type = DamageType::Explosion;
+    splash.primary_damage = 0.0;
+    splash.secondary_damage = 8.0;
+    assert!(Weapon::new(Arc::new(splash), WeaponSlotType::Primary).is_damage_weapon());
+}
+
+#[test]
+fn cpp_parity_get_status_pre_attack_is_pure_frame_test() {
+    // C++ Weapon::getStatus (Weapon.cpp:2736-2742): now < m_whenPreAttackFinished
+    // returns PRE_ATTACK even when stored status is not PreAttack
+    // (transferNextShotStatsFrom copies the frame, not the stored flag).
+    let template = Arc::new(WeaponTemplate::new("ParityPreAttack".to_string()));
+    let mut weapon = Weapon::new(template, WeaponSlotType::Primary);
+    weapon.status = WeaponStatus::ReadyToFire;
+    weapon.ammo_in_clip = 4;
+    weapon.when_we_can_fire_again = 0;
+    weapon.when_pre_attack_finished = 10;
+
+    assert_eq!(weapon.get_status(), WeaponStatus::PreAttack);
+
+    weapon.when_pre_attack_finished = 0;
+    assert_eq!(weapon.get_status(), WeaponStatus::ReadyToFire);
+}

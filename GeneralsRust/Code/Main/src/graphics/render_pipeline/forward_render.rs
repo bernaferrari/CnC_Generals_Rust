@@ -20,6 +20,10 @@ use game_client::effects::weather_complete::get_weather_system;
 use game_client::effects::{get_particle_system_manager, ParticleRenderer};
 #[cfg(feature = "game_client")]
 use game_client::fx_list::get_decal_manager;
+#[cfg(feature = "game_client")]
+use game_client::radius_decal::get_projected_shadow_manager;
+#[cfg(feature = "game_client")]
+use game_client::system::smudge::get_smudge_manager;
 
 impl ForwardPass {
     /// Produce the GPU palette from the exact binding frozen on the render
@@ -363,20 +367,45 @@ impl ForwardPass {
                 }
             }
 
-            if let Some(manager) = get_decal_manager() {
-                if let Ok(guard) = manager.lock() {
-                    let decals = guard.collect_render_items();
-                    if !decals.is_empty() {
-                        let mut decal_uniforms = uniforms;
-                        decal_uniforms.particle_count = decals.len().min(u32::MAX as usize) as u32;
-                        renderer_guard.render_decals(
-                            encoder,
-                            color_view.as_ref(),
-                            depth_view.as_ref(),
-                            &decals,
-                            &decal_uniforms,
-                        );
-                    }
+            let mut decals = if let Some(manager) = get_decal_manager() {
+                manager
+                    .lock()
+                    .map(|guard| guard.collect_render_items())
+                    .unwrap_or_default()
+            } else {
+                Vec::new()
+            };
+            // C++ W3DProjectedShadowManager::flushDecals — radius delivery rings.
+            decals.extend(
+                get_projected_shadow_manager()
+                    .read()
+                    .collect_render_items(),
+            );
+            if !decals.is_empty() {
+                let mut decal_uniforms = uniforms;
+                decal_uniforms.particle_count = decals.len().min(u32::MAX as usize) as u32;
+                renderer_guard.render_decals(
+                    encoder,
+                    color_view.as_ref(),
+                    depth_view.as_ref(),
+                    &decals,
+                    &decal_uniforms,
+                );
+            }
+
+            if let Ok(manager) = get_smudge_manager().lock() {
+                let smudges = manager.collect_decal_render_items();
+                if !smudges.is_empty() {
+                    let mut smudge_uniforms = uniforms;
+                    smudge_uniforms.particle_count =
+                        smudges.len().min(u32::MAX as usize) as u32;
+                    renderer_guard.render_decals(
+                        encoder,
+                        color_view.as_ref(),
+                        depth_view.as_ref(),
+                        &smudges,
+                        &smudge_uniforms,
+                    );
                 }
             }
 

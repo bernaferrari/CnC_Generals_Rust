@@ -54,36 +54,14 @@ impl GameLogic {
     /// - `frame`: The current frame number
     ///
     /// ## Returns
-    /// - `Ok(())` if update succeeded **or** if this was an empty-world no-op
+    /// - `Ok(())` if update succeeded
     /// - `Err(GameLogicError)` if a critical error occurred
     ///
-    /// Empty dual-world registry + empty `objects` returns `Ok(())` so the host
-    /// frame loop continues, but that is **not** a C++ `GameLogic.cpp` tick.
-    /// Inspect [`last_update_was_empty_noop`] / [`empty_world_tick_count`].
-    ///
-    /// This empty-noop is **only** for the full `update()` tick. It does **not**
-    /// run C++ `GameLogic.cpp` phase order (scripts, terrain, modules, AI,
-    /// partition, destroy list, `m_frame++`, etc.). Callers that ignore the
-    /// accessors will mistake `Ok(())` for a successful crate simulation step.
+    /// C++ `GameLogic::update()` always runs ScriptEngine / TerrainLogic /
+    /// processDestroyList / `m_frame++` even with zero objects (shell maps).
+    /// Empty dual-world registry + empty `objects` is therefore a full tick,
+    /// not an early `Ok(())`.
     pub fn update(&mut self, frame: u32) -> Result<(), GameLogicError> {
-        // Empty factory-registry store + empty `objects`: skip work but do not
-        // pretend a full C++ tick ran. Host still receives Ok(()) so the frame
-        // loop continues.
-        //
-        // Do **not** call `dual_world_registry_unavailable()` / `OBJECT_REGISTRY.is_empty()`
-        // here: those try_lock GameLogic and fail-open when this mutex is already
-        // held (`update_game_logic` / dual-tick), which hid empty-noop from the
-        // host. Terrain/pathfind APIs keep that helper (fail-open under lock).
-        if crate::object::registry::OBJECT_REGISTRY.store_is_empty() && self.objects.is_empty() {
-            self.last_update_was_empty_noop = true;
-            self.empty_world_tick = self.empty_world_tick.saturating_add(1);
-            trace!(
-                "GameLogic::update(frame={}) - empty_world_tick noop (not a C++ tick) count={}",
-                frame,
-                self.empty_world_tick
-            );
-            return Ok(());
-        }
         self.last_update_was_empty_noop = false;
 
         // Prevent re-entrant calls (C++ line 3552: LatchRestore<Bool> inUpdateLatch)
@@ -98,6 +76,18 @@ impl GameLogic {
         set_fp_mode();
 
         self.is_in_update = true;
+
+        // C++ GameLogic.cpp:3560-3576 — startNewGame at the top of update,
+        // before setFrame / ScriptEngine. MSG_NEW_GAME only arms the request;
+        // the expensive start runs here once the intro movie gate is clear.
+        if crate::helpers::TheGameLogic::is_start_new_game_requested()
+            && !crate::helpers::TheGameLogic::is_intro_movie_playing()
+        {
+            if let Err(e) = self.start_new_game_now(false) {
+                warn!("Deferred new-game start failed: {}", e);
+            }
+        }
+
         self.frame = frame;
         self.game_time = frame as f32 * FIXED_DELTA_TIME;
 
@@ -186,15 +176,6 @@ impl GameLogic {
         if let Err(e) = self.process_command_queue() {
             warn!("Command processing phase failed: {}", e);
         }
-        // C++ parity: MSG_NEW_GAME only arms the request in the command phase.
-        // The expensive start is completed here once movies stop playing.
-        if crate::helpers::TheGameLogic::is_start_new_game_requested()
-            && !crate::helpers::TheGameLogic::is_intro_movie_playing()
-        {
-            if let Err(e) = self.start_new_game_now(false) {
-                warn!("Deferred new-game start failed: {}", e);
-            }
-        }
         self.process_beacon_updates();
         self.process_radar_updates();
 
@@ -238,11 +219,8 @@ impl GameLogic {
         // Keep special power timers/cooldowns in sync with the simulation frame.
         crate::special_power_module::update();
 
-        // Client-update modules (drawable-side updates like LaserUpdate)
-        self.process_client_updates();
-        if let Some(client) = TheGameClient::get() {
-            client.update_drawables(frame);
-        }
+        // C++ GameLogic::update does not run ClientUpdateModule / drawable
+        // updates. Those belong on GameClient::update (hq-um5t).
 
         // -----------------------------------------------------------------------
         // Phase 7: AI Update (C++ line 3743)
@@ -702,33 +680,6 @@ impl GameLogic {
         Ok(())
     }
 
-    /// Run client-update modules attached to drawables (e.g. LaserUpdate).
-    ///
-    /// Mirrors the client-side drawable update phase where ClientUpdateModule
-    /// instances run once per frame.
-    fn process_client_updates(&mut self) {
-        let object_ids = self.all_objects.clone();
-        for obj_id in object_ids {
-            let Some(obj_ref) = self.objects.get(&obj_id) else {
-                continue;
-            };
-            let modules = match obj_ref.read() {
-                Ok(obj_guard) => obj_guard.client_update_modules(),
-                Err(_) => {
-                    warn!("Object lock poisoned during client update");
-                    continue;
-                }
-            };
-
-            for module in modules {
-                module.with_module(|module| {
-                    if let Some(client_update) = module.get_client_update_interface() {
-                        let _ = client_update.client_update();
-                    }
-                });
-            }
-        }
-    }
 
     /// Process sleepy (delayed) update modules
     ///
@@ -1520,5 +1471,34 @@ impl GameLogic {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod empty_world_tick_tests {
+    use super::*;
+    use crate::object::registry::OBJECT_REGISTRY;
+
+    #[test]
+    fn empty_world_update_runs_scripts_terrain_destroy_and_frame_increment() {
+        // C++ GameLogic.cpp:3600 / 3622 / 3762 / 3799 — empty m_objList is still
+        // a full update: ScriptEngine, TerrainLogic, processDestroyList, m_frame++.
+        OBJECT_REGISTRY.clear();
+        let mut logic = GameLogic::new();
+        assert!(logic.objects.is_empty());
+        assert!(OBJECT_REGISTRY.store_is_empty());
+        logic
+            .update(0)
+            .expect("empty world still returns Ok so the host frame loop continues");
+        assert!(
+            !logic.last_update_was_empty_noop(),
+            "must not return Ok before C++ phases"
+        );
+        assert_eq!(logic.empty_world_tick_count(), 0);
+        assert_eq!(
+            logic.get_frame(),
+            1,
+            "empty-world GameLogic::update must still do m_frame++"
+        );
     }
 }

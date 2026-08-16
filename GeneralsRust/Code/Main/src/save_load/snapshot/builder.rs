@@ -724,6 +724,15 @@ impl SnapshotBuilder {
         let height_map = _game_logic
             .snapshot_terrain_heights_for_path_grid()
             .unwrap_or_default();
+        let (logic_width, logic_height, logic_heights) =
+            gamelogic::terrain::get_terrain_logic()
+                .read()
+                .ok()
+                .map(|terrain| {
+                    let (w, h) = terrain.logic_height_map_extents();
+                    (w.max(0) as u32, h.max(0) as u32, terrain.logic_height_map_bytes().to_vec())
+                })
+                .unwrap_or((0, 0, Vec::new()));
         Ok(TerrainSnapshot {
             width,
             height,
@@ -731,8 +740,12 @@ impl SnapshotBuilder {
             texture_map: Vec::new(),
             passability_map,
             modifications: Vec::new(),
+            logic_width,
+            logic_height,
+            logic_heights,
         })
     }
+
 
     #[allow(dead_code)] // Save system: will be wired to full save/load integration
     fn snapshot_weather(&self, _game_logic: &GameLogic) -> SaveLoadResult<WeatherSnapshot> {

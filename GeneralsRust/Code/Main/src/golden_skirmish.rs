@@ -927,6 +927,28 @@ fn approach_point(enemy_pos: Vec3, index: usize) -> Vec3 {
     enemy_pos + Vec3::new(25.0 + index as f32 * 2.0, 0.0, index as f32 * 1.5)
 }
 
+/// Pure path march — no set_position. Used instead of setup/dozer warps.
+fn march_unit_near(logic: &mut GameLogic, id: ObjectId, dest: Vec3, budget: usize) -> bool {
+    let _ = logic.assign_unit_path(id, dest, &[]);
+    run_until(logic, budget, |g| {
+        g.host_object(id)
+            .map(|o| {
+                let p = o.get_position();
+                let dx = p.x - dest.x;
+                let dz = p.z - dest.z;
+                (dx * dx + dz * dz).sqrt() < 16.0
+            })
+            .unwrap_or(false)
+    })
+}
+
+fn golden_allow_teleport_pull() -> bool {
+    std::env::var_os("GOLDEN_ALLOW_TELEPORT_PULL").is_some_and(|v| {
+        let s = v.to_string_lossy();
+        !(s.is_empty() || s == "0" || s.eq_ignore_ascii_case("false"))
+    })
+}
+
 /// Fight all non-USA/non-Neutral enemies with production rangers via AttackObject.
 ///
 /// Prefer pure Move / AttackMove / AttackObject march into weapon range.
@@ -1252,10 +1274,7 @@ fn fight_enemies_with_rangers(
             // Narrow residual fallback: opt-in only (GOLDEN_ALLOW_TELEPORT_PULL=1).
             // Default fail-closed: pure march/path + AttackObject must earn kills.
             let mut pulled_this_round = false;
-            let allow_teleport = std::env::var_os("GOLDEN_ALLOW_TELEPORT_PULL").is_some_and(|v| {
-                let s = v.to_string_lossy();
-                !(s.is_empty() || s == "0" || s.eq_ignore_ascii_case("false"))
-            });
+            let allow_teleport = golden_allow_teleport_pull();
             if allow_teleport && !progress_on_focus && stalled_oor_rounds >= STALL_BEFORE_TELEPORT {
                 used_teleport_pull = true;
                 pulled_this_round = true;
@@ -1497,11 +1516,8 @@ fn run_synthetic_host_skirmish(
         })
         .unwrap_or(false);
 
-    // Construct barracks via DozerConstruct.
-    // Place dozer at pad so pathfinding cannot stall Constructing (map path residual).
-    if let Some(d) = logic.host_object_mut(dozer) {
-        d.set_position(Vec3::new(75.0, 0.0, 0.0));
-    }
+    // Construct barracks via DozerConstruct after a pure path march (no set_position).
+    let _ = march_unit_near(logic, dozer, Vec3::new(75.0, 0.0, 0.0), 180);
     for _ in 0..3 {
         logic.update();
     }
@@ -1776,10 +1792,8 @@ fn run_map_world_skirmish(
         .unwrap_or(false);
 
     let barracks_pos = clamp_build_site(logic, base + Vec3::new(40.0, 0.0, 0.0));
-    // Place dozer at build site so pathfinding on large maps does not stall Constructing.
-    if let Some(d) = logic.host_object_mut(dozer) {
-        d.set_position(barracks_pos + Vec3::new(-5.0, 0.0, 0.0));
-    }
+    // Path the dozer to the pad — no set_position warp (hq-8u1u).
+    let _ = march_unit_near(logic, dozer, barracks_pos + Vec3::new(-5.0, 0.0, 0.0), 400);
     // Host FOW residual: push main-crate vision so build pads near the start
     // are CELLSHROUD_CLEAR (LBC_SHROUD otherwise blocks DozerConstruct).
     for _ in 0..3 {
@@ -1821,10 +1835,7 @@ fn run_map_world_skirmish(
             logic.update();
         }
         let barracks_pos = find_legal_build_site_near(logic, base, bname, Some(dozer));
-        if let Some(d) = logic.host_object_mut(dozer) {
-            d.set_position(barracks_pos + Vec3::new(-5.0, 0.0, 0.0));
-        }
-        // Refresh FOW around the dozer after teleport residual.
+        let _ = march_unit_near(logic, dozer, barracks_pos + Vec3::new(-5.0, 0.0, 0.0), 240);
         logic.update();
         logic.queue_command(command(
             2 + attempt as u32,
@@ -2067,24 +2078,23 @@ fn run_map_world_skirmish(
     // Also cancels enemy production and halts AI workers (see GameLogic).
     logic.pause_skirmish_ai_and_clear_combat(1);
 
-    // Setup residual (not mid-fight teleport): place the produced squad near the
-    // primary map enemy so the gate exercises AttackObject/update_combat instead
-    // of a multi-minute pure-path march across Lone Eagle. combat_no_teleport_ok
-    // still fails if fight_enemies_with_rangers uses set_position mid-combat.
-    if let Some(tid) = primary_enemy {
-        if let Some(ep) = logic.host_object(tid).map(|o| o.get_position()) {
-            for (i, rid) in production_rangers.iter().enumerate() {
-                if let Some(r) = logic.host_object_mut(*rid) {
-                    if r.is_alive() {
-                        let mut p = ep + Vec3::new(22.0 + i as f32 * 2.0, 0.0, 4.0);
-                        p.y = ep.y;
-                        r.set_position(p);
+    // Combat starts from spawn via assign_unit_path / fight_enemies march.
+    // Setup warp is opt-in only (GOLDEN_ALLOW_TELEPORT_PULL=1).
+    if golden_allow_teleport_pull() {
+        if let Some(tid) = primary_enemy {
+            if let Some(ep) = logic.host_object(tid).map(|o| o.get_position()) {
+                for (i, rid) in production_rangers.iter().enumerate() {
+                    if let Some(r) = logic.host_object_mut(*rid) {
+                        if r.is_alive() {
+                            let mut p = ep + Vec3::new(22.0 + i as f32 * 2.0, 0.0, 4.0);
+                            p.y = ep.y;
+                            r.set_position(p);
+                        }
                     }
                 }
-            }
-            // Settle vision/path caches after the setup warp.
-            for _ in 0..2 {
-                logic.update();
+                for _ in 0..2 {
+                    logic.update();
+                }
             }
         }
     }
@@ -2175,10 +2185,7 @@ fn run_map_world_skirmish(
         logic.pause_skirmish_ai_and_clear_combat(1);
     }
 
-    // Cleanup residual (AI paused, primary combat already proven when fought):
-    // 1) Hop onto any remaining enemy *structures* and finish via AttackObject.
-    // 2) Mop up leftover mobiles with destroy — Winner(0) requires NO_UNITS, and
-    //    chasing map stragglers is not the honesty probe (map_combat_ok is).
+    // Cleanup: continue AttackObject without set_position hops unless opt-in.
     if fought && !all_cleared {
         for _cleanup in 0..3 {
             let Some(focus) = find_map_enemy_structure(logic) else {
@@ -2188,18 +2195,20 @@ fn run_map_world_skirmish(
             if live.is_empty() {
                 break;
             }
-            if let Some(ep) = logic.host_object(focus).map(|o| o.get_position()) {
-                for (i, rid) in live.iter().enumerate() {
-                    if let Some(r) = logic.host_object_mut(*rid) {
-                        if r.is_alive() {
-                            let mut pos = ep + Vec3::new(20.0 + i as f32 * 2.0, 0.0, 3.0);
-                            pos.y = ep.y;
-                            r.set_position(pos);
+            if golden_allow_teleport_pull() {
+                if let Some(ep) = logic.host_object(focus).map(|o| o.get_position()) {
+                    for (i, rid) in live.iter().enumerate() {
+                        if let Some(r) = logic.host_object_mut(*rid) {
+                            if r.is_alive() {
+                                let mut pos = ep + Vec3::new(20.0 + i as f32 * 2.0, 0.0, 3.0);
+                                pos.y = ep.y;
+                                r.set_position(pos);
+                            }
                         }
                     }
-                }
-                for _ in 0..2 {
-                    logic.update();
+                    for _ in 0..2 {
+                        logic.update();
+                    }
                 }
             }
             let (f, c, nt, rs, sd) =
@@ -2570,9 +2579,7 @@ mod tests {
             logic.update();
         }
         let site = find_legal_build_site_near(&logic, base, &bname, Some(dozer));
-        if let Some(d) = logic.host_object_mut(dozer) {
-            d.set_position(site + Vec3::new(-5.0, 0.0, 0.0));
-        }
+        let _ = march_unit_near(&mut logic, dozer, site + Vec3::new(-5.0, 0.0, 0.0), 240);
         logic.update();
         // Simulate host construct: create under construction via legal path.
         let id = logic.create_object_under_construction(&bname, Team::USA, site);
@@ -2619,9 +2626,7 @@ mod tests {
             logic.update();
         }
         let site = find_legal_build_site_near(&logic, base, &bname, Some(dozer));
-        if let Some(d) = logic.host_object_mut(dozer) {
-            d.set_position(site + Vec3::new(-5.0, 0.0, 0.0));
-        }
+        let _ = march_unit_near(&mut logic, dozer, site + Vec3::new(-5.0, 0.0, 0.0), 240);
         logic.update();
         let legal =
             logic.is_location_legal_to_build_for_builder(Team::USA, site, &bname, Some(dozer));
@@ -2673,6 +2678,36 @@ mod tests {
             build.contains("Coord3D::new(position.x, position.z, position.y)"),
             "build shroud check must sample world XZ residual"
         );
+    }
+
+    /// hq-8u1u: default setup/cleanup warps stay behind GOLDEN_ALLOW_TELEPORT_PULL.
+    #[test]
+    fn setup_and_cleanup_warps_are_opt_in_only() {
+        let src = include_str!("golden_skirmish.rs");
+        assert!(src.contains("fn golden_allow_teleport_pull"));
+        assert!(src.contains("fn march_unit_near"));
+        // Setup warp body is inside the opt-in gate, not a default hop.
+        let setup = src
+            .split("Setup warp is opt-in only")
+            .nth(1)
+            .and_then(|s| s.split("Multi-wave clear").next())
+            .unwrap_or("");
+        assert!(
+            setup.contains("golden_allow_teleport_pull()"),
+            "setup set_position must be opt-in"
+        );
+        let cleanup = src
+            .split("Cleanup: continue AttackObject without set_position")
+            .nth(1)
+            .and_then(|s| s.split("Residual mop-up").next())
+            .unwrap_or("");
+        assert!(
+            cleanup.contains("golden_allow_teleport_pull()"),
+            "cleanup set_position must be opt-in"
+        );
+        // Default construct path uses march, not set_position.
+        assert!(src.contains("no set_position warp (hq-8u1u)"));
+        assert!(src.contains("after a pure path march (no set_position)"));
     }
 
     #[test]

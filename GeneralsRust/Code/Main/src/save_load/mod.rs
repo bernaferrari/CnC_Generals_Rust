@@ -199,7 +199,12 @@ impl SaveLoadManager {
         Ok(())
     }
 
-    /// Get save file information from file
+    /// Get save file information from file.
+    ///
+    /// C++ `GameState::getSaveGameInfoFromFile` (GameState.cpp:948-1048) walks
+    /// named chunks (`xferAsciiString` token + `beginBlock` i32 size) and
+    /// xfers only `CHUNK_GameState`. Do not bincode the first 1024 bytes —
+    /// host/Popup `.sav` tokens are not a `SaveGameInfo` record.
     pub fn get_save_info_from_file(&self, path: &PathBuf) -> SaveLoadResult<SaveGameInfo> {
         use std::fs::File;
         use std::io::Read;
@@ -208,19 +213,13 @@ impl SaveLoadManager {
         let mut buffer = Vec::new();
         file.read_to_end(&mut buffer)?;
 
-        // Try to decompress if needed
         let data = if compression::is_compressed(&buffer)? {
             compression::decompress(&buffer)?
         } else {
             buffer
         };
 
-        // Parse save header
-        let save_info =
-            bincode::deserialize::<SaveGameInfo>(&data[..std::cmp::min(1024, data.len())])
-                .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
-
-        Ok(save_info)
+        parse_save_info_from_named_chunks(&data)
     }
 
     /// Check if save file exists
@@ -277,4 +276,207 @@ pub fn init_save_load_system() -> SaveLoadResult<()> {
 /// Get the global save/load manager
 pub fn get_save_load_manager() -> Option<Arc<Mutex<SaveLoadManager>>> {
     SAVE_LOAD_MANAGER.get().cloned()
+}
+
+const CHUNK_GAME_STATE_TOKEN: &str = "CHUNK_GameState";
+
+/// Walk C++ TheGameState named chunks: `u8` length + token + `i32` size.
+fn parse_save_info_from_named_chunks(data: &[u8]) -> SaveLoadResult<SaveGameInfo> {
+    use game_engine::common::system::save_game::GameState as CommonGameState;
+    use game_engine::common::system::xfer::Xfer as CommonXfer;
+    use game_engine::common::system::xfer_load::XferLoad as CommonXferLoad;
+    use std::io::Cursor;
+    use std::time::{Duration, UNIX_EPOCH};
+
+    let mut pos = 0usize;
+    while pos < data.len() {
+        let token_len = data[pos] as usize;
+        pos += 1;
+        if pos + token_len > data.len() {
+            return Err(SaveLoadError::Corrupted(
+                "truncated named-chunk token".to_string(),
+            ));
+        }
+        let token = std::str::from_utf8(&data[pos..pos + token_len])
+            .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
+        pos += token_len;
+        if token.eq_ignore_ascii_case("SG_EOF") {
+            break;
+        }
+        if pos + 4 > data.len() {
+            return Err(SaveLoadError::Corrupted(
+                "truncated named-chunk size".to_string(),
+            ));
+        }
+        let block_size = i32::from_le_bytes([data[pos], data[pos + 1], data[pos + 2], data[pos + 3]]);
+        pos += 4;
+        if block_size < 0 {
+            return Err(SaveLoadError::Corrupted(
+                "negative named-chunk size".to_string(),
+            ));
+        }
+        let end = pos
+            .checked_add(block_size as usize)
+            .ok_or_else(|| SaveLoadError::Corrupted("named-chunk size overflow".to_string()))?;
+        if end > data.len() {
+            return Err(SaveLoadError::Corrupted(
+                "named-chunk payload overruns file".to_string(),
+            ));
+        }
+        if token.eq_ignore_ascii_case(CHUNK_GAME_STATE_TOKEN) {
+            let mut header = CommonGameState::default();
+            let mut xfer = CommonXferLoad::new(Cursor::new(&data[pos..end]), SAVE_FILE_VERSION);
+            header
+                .xfer(&mut xfer)
+                .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
+            let difficulty = match header
+                .get_metadata("difficulty")
+                .map(|s| s.as_str())
+                .unwrap_or("Medium")
+            {
+                "Easy" => GameDifficulty::Easy,
+                "Hard" => GameDifficulty::Hard,
+                _ => GameDifficulty::Medium,
+            };
+            let save_type = match header.game_mode.as_str() {
+                "Mission" => SaveFileType::Mission,
+                "QuickSave" => SaveFileType::QuickSave,
+                "AutoSave" => SaveFileType::AutoSave,
+                _ => SaveFileType::Normal,
+            };
+            return Ok(SaveGameInfo {
+                filename: String::new(),
+                display_name: header
+                    .get_metadata("display_name")
+                    .cloned()
+                    .unwrap_or_default(),
+                description: header
+                    .get_metadata("description")
+                    .cloned()
+                    .unwrap_or_default(),
+                map_name: header.map_name.clone(),
+                campaign_side: header.get_metadata("campaign_side").cloned(),
+                mission_number: header
+                    .get_metadata("mission_number")
+                    .and_then(|s| s.parse().ok()),
+                save_date: UNIX_EPOCH + Duration::from_secs(header.timestamp),
+                game_version: header
+                    .get_metadata("game_version")
+                    .cloned()
+                    .unwrap_or_default(),
+                play_time: Duration::from_secs_f32(header.elapsed_time.max(0.0)),
+                difficulty,
+                save_type,
+            });
+        }
+        pos = end;
+    }
+
+    Err(SaveLoadError::Corrupted(
+        "CHUNK_GameState not found in named-chunk save".to_string(),
+    ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use game_engine::common::system::save_game::GameState as CommonGameState;
+    use game_engine::common::system::xfer::Xfer as CommonXfer;
+    use game_engine::common::system::xfer_save::XferSave as CommonXferSave;
+    use game_engine::{Snapshot, Xfer, XferSave, XferStatus};
+    use std::io::Cursor;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn write_ascii_token(out: &mut Vec<u8>, token: &str) {
+        out.push(token.len() as u8);
+        out.extend_from_slice(token.as_bytes());
+    }
+
+    #[test]
+    fn get_save_info_from_file_walks_synthetic_named_chunks() {
+        // C++ GameState::getSaveGameInfoFromFile (GameState.cpp:975-1038) walks
+        // u8-len tokens + i32 block sizes. Pre-fix Rust bincode'd the first 1024
+        // bytes and dropped every CHUNK_*.sav from the save list.
+        let mut header = CommonGameState::new(SAVE_FILE_VERSION);
+        header.map_name = "SyntheticMap".to_string();
+        header.game_mode = "Normal".to_string();
+        header.timestamp = 1_700_000_000;
+        header.set_metadata("display_name".to_string(), "Chunk Walk".to_string());
+
+        let mut payload = Vec::new();
+        {
+            let mut xfer = CommonXferSave::new(Cursor::new(&mut payload), SAVE_FILE_VERSION);
+            header.xfer(&mut xfer).expect("encode CHUNK_GameState");
+        }
+
+        let mut bytes = Vec::new();
+        write_ascii_token(&mut bytes, "CHUNK_Campaign");
+        bytes.extend_from_slice(&4i32.to_le_bytes());
+        bytes.extend_from_slice(&[0, 0, 0, 0]);
+        write_ascii_token(&mut bytes, CHUNK_GAME_STATE_TOKEN);
+        bytes.extend_from_slice(&(payload.len() as i32).to_le_bytes());
+        bytes.extend_from_slice(&payload);
+        write_ascii_token(&mut bytes, "SG_EOF");
+
+        let dir = std::env::temp_dir().join(format!(
+            "save_info_chunks_{}_{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("time")
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let path = dir.join("00000001.sav");
+        std::fs::write(&path, &bytes).expect("write synthetic sav");
+
+        let manager = SaveLoadManager::new();
+        let info = manager
+            .get_save_info_from_file(&path)
+            .expect("parse named chunks");
+        assert_eq!(info.map_name, "SyntheticMap");
+        assert_eq!(info.display_name, "Chunk Walk");
+        assert_eq!(info.save_type, SaveFileType::Normal);
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn snapshot_version_starts_at_one_like_cpp_placeholder() {
+        // C++ empty Snapshot::xfer (StateMachine.h:388) starts `XferVersion v = cv`
+        // with cv=1 so save writes 1. Live NullSnapshot now does the same.
+        struct VersionSnapshot;
+        impl Snapshot for VersionSnapshot {
+            fn crc(&mut self, _xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
+                Ok(())
+            }
+            fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
+                let mut version: u8 = 1;
+                xfer.xfer_version(&mut version, 1)
+            }
+            fn load_post_process(&mut self) -> Result<(), XferStatus> {
+                Ok(())
+            }
+        }
+
+        let dir = std::env::temp_dir().join(format!(
+            "null_snapshot_ver_{}_{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("time")
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let path = dir.join("version.bin");
+        let mut snapshot = VersionSnapshot;
+        let mut xfer = XferSave::new();
+        xfer.open(path.to_string_lossy().into_owned())
+            .expect("open");
+        snapshot.xfer(&mut xfer).expect("xfer version");
+        xfer.close().expect("close");
+        let bytes = std::fs::read(&path).expect("read");
+        assert_eq!(bytes, vec![1u8], "placeholder snapshot must write version 1");
+        let _ = std::fs::remove_dir_all(dir);
+    }
 }

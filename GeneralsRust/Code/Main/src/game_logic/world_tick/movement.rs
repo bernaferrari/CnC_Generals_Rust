@@ -3,8 +3,12 @@
 use super::super::*;
 impl GameLogic {
     /// Move an object to a target position using pathfinding.
-    /// Falls back to direct movement if no path is found.
-    /// If `ai_state_override` is provided, sets that AI state after moving.
+    ///
+    /// C++ `AIInternalMoveToState::computePath` never installs a straight-line
+    /// fallback through blocked cells (AIStates.cpp:1577-1585). A null path
+    /// leaves the unit halted (`update` returns `STATE_FAILURE` at
+    /// AIStates.cpp:1771-1778).
+    /// If `ai_state_override` is provided, sets that AI state after a real path.
     pub(in super::super) fn move_object_with_pathfinding(
         &mut self,
         object_id: ObjectId,
@@ -29,16 +33,6 @@ impl GameLogic {
             }
         };
 
-        // Short distance — skip pathfinding overhead and go direct.
-        if start_pos.distance(target_position) < 20.0 {
-            if let Some(obj) = self.objects.get_mut(&object_id) {
-                obj.move_to(target_position);
-            }
-            if let Some(state) = ai_state_override {
-                apply_state(self, state);
-            }
-            return;
-        }
 
         // Attempt A* pathfinding.
         let path = self
@@ -62,13 +56,28 @@ impl GameLogic {
                     );
                     state_to_apply = Some(ai_state_override.unwrap_or(AIState::Moving));
                 } else {
-                    obj.move_to(target_position);
-                    state_to_apply = ai_state_override;
+                    // A* found the goal cell (often start==goal after snap).
+                    // Walk the remaining intra-cell offset; this is not a
+                    // through-obstacle fallback (AIStates.cpp:1577-1585).
+                    obj.movement.path = vec![start_pos, target_position];
+                    obj.record_host_movement();
+                    obj.movement.current_path_index = 1;
+                    obj.movement.target_position = Some(target_position);
+                    obj.set_status_moving(true);
+                    crate::game_logic::host_move_log::record(
+                        object_id,
+                        Some([target_position.x, target_position.y, target_position.z]),
+                    );
+                    state_to_apply = Some(ai_state_override.unwrap_or(AIState::Moving));
                 }
             } else {
-                // No path found — fall back to direct movement.
-                obj.move_to(target_position);
-                state_to_apply = ai_state_override;
+                // C++ null path → STATE_FAILURE (AIStates.cpp:1771-1778).
+                // Leave the unit without a through-obstacle march.
+                log::debug!(
+                    "No path found for {:?} to {:?}; refuse fail-open march",
+                    object_id,
+                    target_position
+                );
             }
         }
         if let Some(state) = state_to_apply {
@@ -204,6 +213,16 @@ impl GameLogic {
         self.update_movement(object_ids, dt);
     }
 
+    #[cfg(test)]
+    pub fn move_object_with_pathfinding_for_test(
+        &mut self,
+        object_id: ObjectId,
+        target_position: Vec3,
+        ai_state_override: Option<AIState>,
+    ) {
+        self.move_object_with_pathfinding(object_id, target_position, ai_state_override);
+    }
+
     /// Update AI behavior for all objects
     /// Enhanced with AI decision system for intelligent behavior
 
@@ -227,5 +246,137 @@ impl GameLogic {
         );
         self.flush_projectile_impact_fx();
         hits
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::game_logic::{
+        GameLogic, GridPos, KindOf, Object, ObjectId, PathfindingGrid, Team, ThingTemplate,
+    };
+    use glam::Vec3;
+
+    fn ranger_at(id: u32, pos: Vec3) -> Object {
+        let mut tmpl = ThingTemplate::new("Ranger");
+        tmpl.add_kind_of(KindOf::Infantry);
+        let mut unit = Object::new(tmpl, ObjectId(id), Team::USA);
+        unit.set_position(pos);
+        unit
+    }
+
+    fn seal_column(logic: &mut GameLogic, cell_x: i32) {
+        // Cover the whole host grid (GameLogic world is 512/10 cells).
+        for y in -8..80 {
+            logic
+                .pathfinding_system
+                .grid
+                .set_blocked(GridPos::new(cell_x, y), true);
+        }
+    }
+
+    /// C++ `AIInternalMoveToState::update`: `thePath==NULL` → `STATE_FAILURE`
+    /// (AIStates.cpp:1771-1778). Host must not `move_to` through a sealed wall,
+    /// including the former `distance < 20` skip (hq-3plv).
+    #[test]
+    fn blocked_astar_does_not_install_direct_through_obstacle_move() {
+        let mut logic = GameLogic::new();
+        // distance 15 < 20: pre-fix skipped A* and marched through the wall.
+        let start = Vec3::new(0.0, 0.0, 0.0);
+        let goal = Vec3::new(15.0, 0.0, 0.0);
+        let start_cell = logic.pathfinding_system.grid.world_to_grid(start);
+        let goal_cell = logic.pathfinding_system.grid.world_to_grid(goal);
+        assert_ne!(start_cell, goal_cell, "short move must span two cells");
+        let wall_x = if start_cell.x < goal_cell.x {
+            start_cell.x + 1
+        } else {
+            start_cell.x - 1
+        };
+        seal_column(&mut logic, wall_x);
+        assert!(
+            logic
+                .pathfinding_system
+                .find_path(start, goal, &logic.objects)
+                .is_none(),
+            "sealed wall must make A* fail"
+        );
+
+        let id = ObjectId(9002);
+        logic.objects.insert(id, ranger_at(9002, start));
+        logic.move_object_with_pathfinding_for_test(id, goal, None);
+
+        let obj = logic.objects.get(&id).expect("unit");
+        assert!(
+            obj.movement.path.is_empty(),
+            "null A* must not install a through-obstacle path"
+        );
+        assert!(
+            obj.movement.target_position.is_none(),
+            "null A* must not fail-open to direct move_to"
+        );
+        assert!(!obj.status.moving);
+        assert_ne!(obj.ai_state, AIState::Moving);
+        assert_eq!(obj.get_position(), start);
+    }
+
+    /// Same contract beyond the old 20-unit skip (AIStates.cpp:1577-1585).
+    #[test]
+    fn blocked_astar_long_range_does_not_fail_open() {
+        let mut logic = GameLogic::new();
+        let start = Vec3::new(0.0, 0.0, 0.0);
+        let goal = Vec3::new(100.0, 0.0, 0.0);
+        let start_cell = logic.pathfinding_system.grid.world_to_grid(start);
+        let goal_cell = logic.pathfinding_system.grid.world_to_grid(goal);
+        let wall_x = (start_cell.x + goal_cell.x) / 2;
+        seal_column(&mut logic, wall_x);
+        assert!(
+            logic
+                .pathfinding_system
+                .find_path(start, goal, &logic.objects)
+                .is_none()
+        );
+
+        let id = ObjectId(9003);
+        logic.objects.insert(id, ranger_at(9003, start));
+        logic.move_object_with_pathfinding_for_test(id, goal, None);
+
+        let obj = logic.objects.get(&id).expect("unit");
+        assert!(obj.movement.path.is_empty());
+        assert!(obj.movement.target_position.is_none());
+        assert!(!obj.status.moving);
+    }
+
+    #[test]
+    fn open_field_path_still_installs_waypoints() {
+        let mut logic = GameLogic::new();
+        let start = Vec3::new(0.0, 0.0, 0.0);
+        let goal = Vec3::new(80.0, 0.0, 0.0);
+        let id = ObjectId(9004);
+        logic.objects.insert(id, ranger_at(9004, start));
+        logic.move_object_with_pathfinding_for_test(id, goal, None);
+        let obj = logic.objects.get(&id).expect("unit");
+        assert!(
+            obj.movement.path.len() >= 2,
+            "open field must still get an A* path"
+        );
+        assert!(obj.movement.target_position.is_some());
+        assert!(obj.status.moving);
+    }
+
+    /// C++ `Pathfinder::worldToGrid` uses `REAL_TO_INT` truncate-toward-zero
+    /// (AIPathfind.h:856-858, BaseType.h:213). Host must not round (hq-i1ut).
+    #[test]
+    fn host_world_to_grid_truncates_like_cpp_real_to_int() {
+        let g = PathfindingGrid::new(200.0, 200.0, 10.0);
+        assert_eq!(
+            g.world_to_grid(Vec3::new(19.9, 0.0, 5.0)),
+            GridPos::new(1, 0),
+            "19.9/10=1.99 and 5/10=0.5 must truncate, not round"
+        );
+        assert_eq!(g.world_to_grid(Vec3::new(20.0, 0.0, 0.0)), GridPos::new(2, 0));
+        assert_eq!(
+            g.world_to_grid(Vec3::new(-19.9, 0.0, -5.1)),
+            GridPos::new(-1, 0)
+        );
     }
 }

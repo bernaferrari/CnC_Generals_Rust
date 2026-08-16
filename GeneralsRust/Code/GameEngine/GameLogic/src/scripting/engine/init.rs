@@ -119,6 +119,11 @@ impl ScriptEngine {
                 objects_should_receive_difficulty_bonus: true,
                 choose_victim_always_uses_normal: false,
                 shown_mp_local_defeat_window: false,
+                suppress_new_windows: false,
+                win_lose_window_layout: None,
+
+                campaign_victorious: false,
+
 
                 sequential_scripts: Vec::new(),
                 next_sequential_runtime_token: 1,
@@ -1444,6 +1449,11 @@ impl ScriptEngine {
             inner.objects_should_receive_difficulty_bonus = true;
             inner.choose_victim_always_uses_normal = false;
             inner.shown_mp_local_defeat_window = false;
+            inner.suppress_new_windows = false;
+            inner.win_lose_window_layout = None;
+
+            inner.campaign_victorious = false;
+
 
             inner.sequential_scripts.clear();
             inner.next_sequential_runtime_token = 1;

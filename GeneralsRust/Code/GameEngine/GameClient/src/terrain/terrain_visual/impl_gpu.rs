@@ -631,8 +631,7 @@ impl TerrainVisualImpl {
     }
 
     pub fn record_water_draws<'pass>(&'pass self, pass: &mut RenderPass<'pass>) {
-        let (Some(water_plane), Some(water_pipeline), Some(camera_bg)) = (
-            self.water_plane.as_ref(),
+        let (Some(water_pipeline), Some(camera_bg)) = (
             self.water_pipeline.as_ref(),
             self.terrain_camera_bind_group.as_ref(),
         ) else {
@@ -641,13 +640,24 @@ impl TerrainVisualImpl {
 
         pass.set_pipeline(water_pipeline);
         pass.set_bind_group(0, camera_bg, &[]);
-        pass.set_vertex_buffer(0, water_plane.vertex_buffer.slice(..));
-        pass.set_index_buffer(
-            water_plane.index_buffer.slice(..),
-            wgpu::IndexFormat::Uint32,
-        );
-        pass.draw_indexed(0..water_plane.index_count, 0, 0..1);
+
+        if let Some(water_plane) = self.water_plane.as_ref() {
+            pass.set_vertex_buffer(0, water_plane.vertex_buffer.slice(..));
+            pass.set_index_buffer(
+                water_plane.index_buffer.slice(..),
+                wgpu::IndexFormat::Uint32,
+            );
+            pass.draw_indexed(0..water_plane.index_count, 0, 0..1);
+        }
+
+        // C++ WaterTracksRenderSystem::flush / render after the water plane.
+        for mesh in &self.water_track_meshes {
+            pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+            pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+            pass.draw_indexed(0..mesh.index_count, 0, 0..1);
+        }
     }
+
 
     fn record_road_draws<'pass>(&'pass self, pass: &mut RenderPass<'pass>) {
         let (Some(road_pipeline), Some(camera_bg)) = (

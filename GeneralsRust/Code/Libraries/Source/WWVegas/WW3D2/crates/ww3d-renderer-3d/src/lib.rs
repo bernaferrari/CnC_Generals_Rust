@@ -572,6 +572,9 @@ impl Renderer {
             current
         };
         let mesh_manager = &mut self.mesh_render_manager;
+        // C++ W3DDisplay.cpp:1840 TheW3DProjectedShadowManager->updateRenderTargetTextures()
+        mesh_manager.update_and_fill_live_cascade(targets.encoder, info);
+
 
         let load_op = clear_color
             .map(wgpu::LoadOp::Clear)

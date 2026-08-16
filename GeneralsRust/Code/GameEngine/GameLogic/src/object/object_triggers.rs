@@ -252,17 +252,19 @@ impl Object {
             }
             Ok::<(), crate::object::collide::CollisionError>(())
         });
-        let area_tracker = crate::scripting::engine::get_area_tracker();
-        let event_manager = crate::scripting::engine::get_event_manager();
-        if let Err(err) = area_tracker.update_object_position_sync(
-            self.id,
-            [position.x, position.y, position.z],
-            &event_manager,
-        ) {
-            warn!(
-                "Failed to update area tracker for object {}: {}",
-                self.id, err
-            );
+        if !self.is_kind_of(KindOf::Projectile) && !self.is_kind_of(KindOf::Inert) {
+            let area_tracker = crate::scripting::engine::get_area_tracker();
+            let event_manager = crate::scripting::engine::get_event_manager();
+            if let Err(err) = area_tracker.update_object_position_sync(
+                self.id,
+                [position.x, position.y, position.z],
+                &event_manager,
+            ) {
+                warn!(
+                    "Failed to update area tracker for object {}: {}",
+                    self.id, err
+                );
+            }
         }
 
         // C++ Object.cpp lines 2542-2651: Update trigger area flags when position changes
@@ -430,8 +432,8 @@ impl Object {
 
         for i in 0..(self.num_trigger_areas_active as usize) {
             if self.trigger_info[i].entered {
-                if let Some(ref t) = self.trigger_info[i].trigger {
-                    if Arc::ptr_eq(t, &trigger.clone().into()) {
+                if let Some(t) = &self.trigger_info[i].trigger {
+                    if t.same_list_node(trigger) {
                         return true;
                     }
                 }
@@ -449,8 +451,8 @@ impl Object {
 
         for i in 0..(self.num_trigger_areas_active as usize) {
             if self.trigger_info[i].exited {
-                if let Some(ref t) = self.trigger_info[i].trigger {
-                    if Arc::ptr_eq(t, &trigger.clone().into()) {
+                if let Some(t) = &self.trigger_info[i].trigger {
+                    if t.same_list_node(trigger) {
                         return true;
                     }
                 }
@@ -464,8 +466,8 @@ impl Object {
     pub fn is_inside_trigger(&self, trigger: &PolygonTrigger) -> bool {
         for i in 0..(self.num_trigger_areas_active as usize) {
             if self.trigger_info[i].is_inside {
-                if let Some(ref t) = self.trigger_info[i].trigger {
-                    if Arc::ptr_eq(t, &trigger.clone().into()) {
+                if let Some(t) = &self.trigger_info[i].trigger {
+                    if t.same_list_node(trigger) {
                         return true;
                     }
                 }
@@ -624,5 +626,96 @@ impl Object {
 
     pub fn set_destination_layer(&mut self, layer: PathfindLayerEnum) {
         self.destination_layer = layer;
+    }
+}
+
+#[cfg(test)]
+mod trigger_identity_tests {
+    use super::*;
+    use crate::common::{AsciiString, Coord3D, DefaultThingTemplate, ICoord3D, KindOf};
+    use crate::polygon_trigger::PolygonTrigger;
+    use crate::scripting::engine::{get_area_tracker, get_event_manager};
+    use crate::scripting::events::TriggerArea;
+    use crate::system::game_logic::get_game_logic;
+    use crate::terrain::get_terrain_logic;
+    use std::sync::Arc;
+
+    fn square(id: i32, name: &str) -> PolygonTrigger {
+        PolygonTrigger::new(
+            id,
+            AsciiString::from(name),
+            vec![
+                ICoord3D::new(0, 0, 0),
+                ICoord3D::new(10, 0, 0),
+                ICoord3D::new(10, 10, 0),
+                ICoord3D::new(0, 10, 0),
+            ],
+        )
+    }
+
+    #[test]
+    fn is_inside_trigger_true_when_unit_inside_named_area() {
+        // C++ Object::isInside (Object.cpp:2519-2529) compares the stored
+        // PolygonTrigger* to the same list node. Rust stores cloned Arcs, so
+        // identity is the trigger id (list-node handle), not Arc::ptr_eq.
+        let _lock = crate::test_sync::lock();
+        let area_name = "IdentityInsideArea";
+        let trigger = square(4242, area_name);
+        get_terrain_logic()
+            .write()
+            .expect("terrain")
+            .add_trigger_area(trigger.clone());
+
+        get_game_logic()
+            .lock()
+            .expect("logic")
+            .set_current_frame(10);
+
+        let mut obj = Object::new_test(0x00B0_1B00, 100.0);
+        obj.set_position(&Coord3D::new(5.0, 5.0, 0.0))
+            .expect("move inside");
+
+        let query = square(4242, area_name);
+        assert!(
+            obj.is_inside_trigger(&query),
+            "fresh PolygonTrigger with the same id must match the stored handle"
+        );
+        assert!(obj.did_enter(&query));
+    }
+
+    #[test]
+    fn projectile_set_position_does_not_record_area_enter() {
+        // C++ Object::setTriggerAreaFlagsForChangeInPosition (Object.cpp:2565-2568)
+        // early-returns for KINDOF_PROJECTILE / KINDOF_INERT.
+        let _lock = crate::test_sync::lock();
+        let area_name = "ProjectileIgnoreArea";
+        let object_id = 0x0090_6C01;
+        let tracker = get_area_tracker();
+        let _ = tracker.unregister_area(area_name);
+        tracker
+            .register_area(TriggerArea::new_rectangular(
+                area_name.to_string(),
+                [0.0, 0.0, 0.0],
+                0.0,
+                0.0,
+                20.0,
+                20.0,
+            ))
+            .expect("register");
+
+        let mut template = DefaultThingTemplate::new("TestProjectile".to_string());
+        template.add_kind_of(KindOf::Projectile);
+        let mut obj = Object::new_test_from_template(object_id, 10.0, Arc::new(template));
+        obj.set_position(&Coord3D::new(5.0, 5.0, 0.0))
+            .expect("move projectile");
+
+        assert!(
+            !tracker
+                .is_object_in_area(object_id, area_name)
+                .unwrap_or(true),
+            "projectiles must not fire AreaTracker enter events"
+        );
+        let _ = tracker.unregister_area(area_name);
+        let _ = get_event_manager();
     }
 }

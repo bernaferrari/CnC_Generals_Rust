@@ -2,7 +2,7 @@
 // Loading-specific data transfer functionality with CRC verification
 ///////////////////////////////////////////////////////////////////////////////
 
-use super::snapshot::Snapshot;
+use super::snapshot::Snapshotable;
 use super::xfer::{Xfer, XferBlockSize, XferMode, XferStatus};
 use super::xfer_crc::{CorruptionEntry, XferDeepCRC};
 use std::collections::HashMap;
@@ -15,6 +15,7 @@ pub struct XferLoad<R: Read> {
     bytes_read: u64,
     identifier: String,
     options: u32,
+    post_process_snapshot_callback: Option<Box<dyn FnMut()>>,
 }
 
 impl<R: Read> XferLoad<R> {
@@ -25,7 +26,14 @@ impl<R: Read> XferLoad<R> {
             bytes_read: 0,
             identifier: String::new(),
             options: 0,
+            post_process_snapshot_callback: None,
         }
+    }
+
+    /// C++ `XferLoad::xferSnapshot` registers via `TheGameState->addPostProcessSnapshot`
+    /// (`XferLoad.cpp:164-166`) unless `XO_NO_POST_PROCESSING`.
+    pub fn set_post_process_snapshot_callback(&mut self, callback: Option<Box<dyn FnMut()>>) {
+        self.post_process_snapshot_callback = callback;
     }
 
     pub fn version(&self) -> u32 {
@@ -205,17 +213,18 @@ impl<R: Read> Xfer for XferLoad<R> {
         Ok(())
     }
 
-    fn xfer_snapshot(&mut self, _snapshot: &mut Snapshot) -> Result<(), XferStatus> {
-        match Snapshot::load_from_reader(&mut self.reader) {
-            Ok(loaded) => {
-                *_snapshot = loaded;
-                Ok(())
-            }
-            Err(err) => {
-                log::error!("Failed to load snapshot: {}", err);
-                Err(XferStatus::ReadError)
+    fn xfer_snapshot(&mut self, snapshot: &mut dyn Snapshotable) -> Result<(), XferStatus> {
+        // C++ XferLoad.cpp:161-166 — run snapshot->xfer(this), then register
+        // post-process. Do not replace `*snapshot` from a self-describing blob.
+        snapshot
+            .xfer(self)
+            .map_err(|_| XferStatus::ReadError)?;
+        if (self.options & super::xfer::XferOptions::NO_POST_PROCESSING) == 0 {
+            if let Some(callback) = self.post_process_snapshot_callback.as_mut() {
+                callback();
             }
         }
+        Ok(())
     }
 
     fn xfer_ascii_string(&mut self, ascii_string_data: &mut String) -> io::Result<()> {
@@ -260,6 +269,7 @@ impl<R: Read> Xfer for XferLoad<R> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use super::super::snapshot::Snapshot;
     use std::io::Cursor;
 
     #[test]
@@ -271,5 +281,55 @@ mod tests {
         xfer.xfer_unicode_string(&mut value).unwrap();
 
         assert_eq!(value, "A\u{00df}\u{6f22}");
+    }
+
+    #[test]
+    fn xfer_snapshot_visits_existing_object_instead_of_replacing() {
+        // C++ XferLoad::xferSnapshot (XferLoad.cpp:150-167) calls
+        // snapshot->xfer(this) then TheGameState->addPostProcessSnapshot
+        // unless XO_NO_POST_PROCESSING. Pre-fix Rust replaced *snapshot via
+        // Snapshot::load_from_reader (a different blob layout).
+        use super::super::xfer::XferOptions;
+        use super::super::xfer_save::XferSave;
+
+        let mut saved = Snapshot::new(42, 3.5);
+        saved.add_data(b"visit-me");
+        saved.set_metadata("k".to_string(), "v".to_string());
+        let mut encoded = Vec::new();
+        {
+            let mut save = XferSave::new(Cursor::new(&mut encoded), 1);
+            saved.xfer(&mut save).expect("visitor save");
+        }
+
+        let mut loaded = Snapshot::new(0, 0.0);
+        loaded.add_data(b"stale");
+        let post_process_calls = std::sync::Arc::new(std::sync::Mutex::new(0u32));
+        {
+            let mut load = XferLoad::new(Cursor::new(&encoded), 1);
+            let calls = std::sync::Arc::clone(&post_process_calls);
+            load.set_post_process_snapshot_callback(Some(Box::new(move || {
+                *calls.lock().expect("post-process lock") += 1;
+            })));
+            load.xfer_snapshot(&mut loaded).expect("visitor load");
+        }
+        assert_eq!(loaded.frame_number(), 42);
+        assert_eq!(loaded.timestamp(), 3.5);
+        assert_eq!(loaded.data(), b"visit-me");
+        assert_eq!(loaded.get_metadata("k"), Some(&"v".to_string()));
+        assert_eq!(*post_process_calls.lock().expect("post-process lock"), 1);
+
+        let mut skipped = Snapshot::new(0, 0.0);
+        let skipped_calls = std::sync::Arc::new(std::sync::Mutex::new(0u32));
+        {
+            let mut load = XferLoad::new(Cursor::new(&encoded), 1);
+            load.set_options(XferOptions::NO_POST_PROCESSING);
+            let calls = std::sync::Arc::clone(&skipped_calls);
+            load.set_post_process_snapshot_callback(Some(Box::new(move || {
+                *calls.lock().expect("skip lock") += 1;
+            })));
+            load.xfer_snapshot(&mut skipped).expect("no post-process");
+        }
+        assert_eq!(skipped.frame_number(), 42);
+        assert_eq!(*skipped_calls.lock().expect("skip lock"), 0);
     }
 }

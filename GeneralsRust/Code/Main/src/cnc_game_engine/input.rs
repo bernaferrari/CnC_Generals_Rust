@@ -1511,6 +1511,14 @@ impl CnCGameEngine {
                 self.show_move_lines,
                 self.show_attack_lines,
             );
+            crate::graphics::occlusion_bridge::enqueue_occluded_player_color_pass(
+                &mut self.render_pipeline,
+                &self.view_matrix,
+                &self.projection_matrix,
+                self.camera_position,
+                self.last_presentation_frame.as_ref(),
+            );
+
         }
         // C++ only refreshes Drawable::m_shroudClearFrame after the current
         // W3D view accepted a direct RenderObj and it produced real source

@@ -1297,6 +1297,80 @@ mod tests {
         assert!(!unowned.has_sufficient_power(0.0));
         assert!(!unowned.drain_power(1));
     }
+
+    #[test]
+    fn attempt_damage_radar_under_attack_requires_cpp_guards() {
+        // C++ Object.cpp:1847-1854: event only when actualDamageDealt>0,
+        // type not PENALTY/HEALING, controllingPlayer present,
+        // !BitTest(sourcePlayerMask, controllingPlayerMask), m_radarData,
+        // and controllingPlayer == ThePlayerList->getLocalPlayer().
+        let _guard = test_state_lock();
+        player_list().write().unwrap().clear();
+        OBJECT_REGISTRY.clear();
+        let _ = crate::system::radar_notifier::drain();
+
+        let registry_anchor = Arc::new(RwLock::new(Object::new_test(80_800, 100.0)));
+        OBJECT_REGISTRY.register_object(80_800, &registry_anchor);
+
+        let player = Arc::new(RwLock::new(Player::new(0)));
+        {
+            let mut list = player_list().write().unwrap();
+            list.add_player(Arc::clone(&player));
+            list.set_local_player_index(0);
+        }
+        let team = Arc::new(RwLock::new(crate::team::Team::new("RadarTeam".into(), 1)));
+        team.write().unwrap().set_controlling_player_id(Some(0));
+
+        let mut victim = Object::new_test(808, 100.0);
+        victim.set_team(Some(team)).unwrap();
+        victim.set_radar_data_for_test(Some(Arc::new(Mutex::new(RadarObject::new(808)))));
+
+        let mut friendly = DamageInfo::with_simple(
+            10.0,
+            INVALID_ID,
+            DamageType::Explosion,
+            DeathType::Normal,
+        );
+        friendly.input.source_player_mask = PlayerMaskType::PLAYER_1;
+        let _ = victim.attempt_damage_with_return(&mut friendly);
+        assert!(
+            crate::system::radar_notifier::drain().is_empty(),
+            "same-player sourcePlayerMask must not fire tryUnderAttackEvent"
+        );
+
+        let mut enemy = DamageInfo::with_simple(
+            10.0,
+            INVALID_ID,
+            DamageType::Explosion,
+            DeathType::Normal,
+        );
+        enemy.input.source_player_mask = PlayerMaskType::PLAYER_2;
+        let _ = victim.attempt_damage_with_return(&mut enemy);
+        let events = crate::system::radar_notifier::drain();
+        assert_eq!(events.len(), 1);
+        assert!(matches!(
+            events[0].event_type,
+            crate::system::game_logic::RadarEventType::BaseAttacked
+        ));
+
+        victim.set_radar_data_for_test(None);
+        let mut no_radar = DamageInfo::with_simple(
+            10.0,
+            INVALID_ID,
+            DamageType::Explosion,
+            DeathType::Normal,
+        );
+        no_radar.input.source_player_mask = PlayerMaskType::PLAYER_2;
+        let _ = victim.attempt_damage_with_return(&mut no_radar);
+        assert!(
+            crate::system::radar_notifier::drain().is_empty(),
+            "m_radarData == NULL must skip tryUnderAttackEvent"
+        );
+
+        player_list().write().unwrap().clear();
+        OBJECT_REGISTRY.clear();
+    }
+
 }
 
 //=============================================================================

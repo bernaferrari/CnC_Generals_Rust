@@ -52,8 +52,15 @@ impl ScriptAction for EnableScriptAction {
         _context: &ScriptContext,
     ) -> GameLogicResult<ScriptResult> {
         let script_name = get_string_param(parameters, "script_name")?;
-
         log::info!("Enabling script '{}'", script_name);
+        // C++ ScriptEngine::enableScript ScriptEngine.cpp:6797-6823.
+        let found = crate::scripting::engine::with_script_engine_mut(|engine| {
+            engine.set_script_active_by_name(&script_name, true)
+        })
+        .unwrap_or(false);
+        if !found {
+            log::warn!("ENABLE_SCRIPT: script '{}' not found", script_name);
+        }
 
         Ok(ScriptResult::Success(None))
     }
@@ -86,8 +93,15 @@ impl ScriptAction for DisableScriptAction {
         _context: &ScriptContext,
     ) -> GameLogicResult<ScriptResult> {
         let script_name = get_string_param(parameters, "script_name")?;
-
         log::info!("Disabling script '{}'", script_name);
+        // C++ ScriptEngine::disableScript ScriptEngine.cpp:6797-6823.
+        let found = crate::scripting::engine::with_script_engine_mut(|engine| {
+            engine.set_script_active_by_name(&script_name, false)
+        })
+        .unwrap_or(false);
+        if !found {
+            log::warn!("DISABLE_SCRIPT: script '{}' not found", script_name);
+        }
 
         Ok(ScriptResult::Success(None))
     }
@@ -120,8 +134,16 @@ impl ScriptAction for ExecuteScriptAction {
         _context: &ScriptContext,
     ) -> GameLogicResult<ScriptResult> {
         let script_name = get_string_param(parameters, "script_name")?;
-
         log::info!("Executing script '{}'", script_name);
+        // C++ CALL_SUBROUTINE / executeScript via ScriptEngine::execute_subroutine_by_name.
+        let found = crate::scripting::engine::with_script_engine_mut(|engine| {
+            engine.execute_subroutine_by_name(&script_name)
+        })
+        .transpose()?
+        .unwrap_or(false);
+        if !found {
+            log::warn!("EXECUTE_SCRIPT: script '{}' not found", script_name);
+        }
 
         Ok(ScriptResult::Success(None))
     }
@@ -160,6 +182,26 @@ impl ScriptAction for SetVariableAction {
             .unwrap_or(ScriptValue::Null);
 
         log::info!("Setting variable '{}' to '{}'", variable_name, value);
+        // C++ SET_FLAG / SET_COUNTER live on ScriptEngine, not a no-op log.
+        let _ = crate::scripting::engine::with_script_engine_mut(|engine| match &value {
+            ScriptValue::Bool(flag) => engine.set_flag(&variable_name, *flag),
+            ScriptValue::Int(int) => engine.set_counter(&variable_name, clamp_script_money(*int)),
+            ScriptValue::Float(real) => {
+                engine.set_counter(&variable_name, clamp_script_money(*real as i64))
+            }
+            ScriptValue::String(text) => {
+                if let Ok(int) = text.parse::<i64>() {
+                    engine.set_counter(&variable_name, clamp_script_money(int))
+                } else if text.eq_ignore_ascii_case("true") {
+                    engine.set_flag(&variable_name, true)
+                } else if text.eq_ignore_ascii_case("false") {
+                    engine.set_flag(&variable_name, false)
+                } else {
+                    Ok(())
+                }
+            }
+            _ => Ok(()),
+        });
 
         Ok(ScriptResult::Success(None))
     }

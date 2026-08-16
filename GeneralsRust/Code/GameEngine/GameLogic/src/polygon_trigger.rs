@@ -82,6 +82,16 @@ impl PolygonTrigger {
         &self.trigger_name
     }
 
+    /// C++ compares `PolygonTrigger*` to the same list node.
+    /// Rust stores value clones, so the stable handle is the list id.
+    pub fn same_list_node(&self, other: &PolygonTrigger) -> bool {
+        if self.id != 0 && other.id != 0 {
+            self.id == other.id
+        } else {
+            self.trigger_name == other.trigger_name
+        }
+    }
+
     pub fn set_trigger_name(&mut self, name: AsciiString) {
         self.trigger_name = name;
     }
@@ -647,5 +657,14 @@ mod trigger_enter_exit_tests {
             trigger.point_in_trigger_int(&new_i_pos),
             "C++ Object.cpp:2615 walks every PolygonTrigger, including never-tracked ones"
         );
+    }
+
+    #[test]
+    fn same_list_node_matches_cloned_trigger_not_pointer() {
+        // C++ Object.cpp:2526 `m_triggerInfo[i].pTrigger == pTrigger`
+        let a = square(7, "Zone");
+        let b = square(7, "Zone");
+        assert!(a.same_list_node(&b));
+        assert!(!a.same_list_node(&square(8, "Zone")));
     }
 }

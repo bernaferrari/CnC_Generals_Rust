@@ -259,6 +259,65 @@ fn occluded_player_stencil_mask_uses_cpp_color_index_layout() {
 }
 
 #[test]
+fn flag_occluded_objects_marks_units_hidden_by_buildings() {
+    // C++ RTS3DScene::flagOccludedObjects (W3DScene.cpp:226-286):
+    // camera→occludee ray vs occluder sphere, then ERF_IS_OCCLUDED.
+    let mut scene = W3DScene::default();
+    let mut camera = CameraInfo::default();
+    camera.position = Vec3::new(0.0, 0.0, 100.0);
+
+    scene.add_render_object(
+        object(
+            "building",
+            RenderObjectClass::Model,
+            Vec3::new(0.0, 0.0, 50.0),
+            10.0,
+        )
+        .with_drawable(drawable(1, KINDOF_STRUCTURE)),
+    );
+    let hidden_id = scene.add_render_object(
+        object(
+            "hidden",
+            RenderObjectClass::Model,
+            Vec3::ZERO,
+            2.0,
+        )
+        .with_drawable(drawable(2, KINDOF_SCORE)),
+    );
+    let clear_id = scene.add_render_object(
+        object(
+            "clear",
+            RenderObjectClass::Model,
+            Vec3::new(80.0, 0.0, 0.0),
+            2.0,
+        )
+        .with_drawable(drawable(3, KINDOF_SCORE)),
+    );
+
+    scene.visibility_check(&camera);
+    scene.flag_occluded_objects(&camera);
+
+    assert_eq!(scene.occluded_objects_count(), 1);
+    assert!(scene
+        .get_render_object(hidden_id)
+        .unwrap()
+        .drawable_info
+        .as_ref()
+        .unwrap()
+        .flags
+        .contains(1 << 1));
+    assert!(!scene
+        .get_render_object(clear_id)
+        .unwrap()
+        .drawable_info
+        .as_ref()
+        .unwrap()
+        .flags
+        .contains(1 << 1));
+}
+
+
+#[test]
 fn reflection_visibility_uses_draws_in_mirror_and_skips_frame_update() {
     let mut scene = W3DScene::default();
     let mut mirror_hidden = drawable(1, 0);

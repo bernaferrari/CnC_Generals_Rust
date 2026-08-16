@@ -645,4 +645,30 @@ mod tests {
             "primary must not be consumed by an explicit tertiary fire"
         );
     }
+
+    #[test]
+    fn fire_at_keeps_gattling_store_type() {
+        // C++ Weapon.ini DamageType GATTLING through fire_at → PendingProjectile.
+        // Pre-fix: map_store_damage_type collapsed Gattling to Bullet.
+        crate::game_logic::combat::clear_pending_projectile_queue_for_test();
+        let _ = crate::game_logic::weapon_bootstrap::ensure_host_weapon_store();
+        let mut tmpl = ThingTemplate::new("ChinaTankGattling");
+        tmpl.set_primary_weapon_name("GattlingTankGun");
+        tmpl.set_health(100.0);
+        tmpl.add_kind_of(KindOf::Vehicle);
+        tmpl.add_kind_of(KindOf::Attackable);
+        let mut atk = Object::new(tmpl, ObjectId(1), Team::USA);
+        atk.weapon = Some(Weapon {
+            damage: 15.0,
+            range: 150.0,
+            last_fire_time: -10.0,
+            ..Weapon::default()
+        });
+        assert!(atk.fire_at(ObjectId(2), 1.0));
+        assert_eq!(
+            crate::game_logic::combat::last_pending_projectile_damage_type_for_test(),
+            Some(crate::game_logic::combat::DamageType::Gattling)
+        );
+        crate::game_logic::combat::clear_pending_projectile_queue_for_test();
+    }
 }

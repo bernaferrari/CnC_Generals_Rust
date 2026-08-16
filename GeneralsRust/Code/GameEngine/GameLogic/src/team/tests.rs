@@ -666,35 +666,46 @@ mod tests {
 
     #[test]
     fn team_area_events_remain_visible_on_next_script_frame() {
+        // C++ Object::didEnterOrExit (Object.cpp:2467-2479) is true on now and now-1.
+        use crate::common::ICoord3D;
+        use crate::object::Object;
         use crate::polygon_trigger::PolygonTrigger;
-        use crate::scripting::engine::{get_area_tracker, get_event_manager};
-        use crate::scripting::events::TriggerArea;
         use crate::system::game_logic::get_game_logic;
+        use crate::terrain::get_terrain_logic;
 
+        let _lock = crate::test_sync::lock();
         let area_name = "TeamAreaPreviousFrameParity";
         let object_id = 0x00FE_DCBA;
-        let tracker = get_area_tracker();
-        let _ = tracker.unregister_area(area_name);
-        tracker
-            .register_area(TriggerArea::new_rectangular(
-                area_name.to_string(),
-                [0.0, 0.0, 0.0],
-                0.0,
-                0.0,
-                10.0,
-                10.0,
-            ))
-            .expect("register test area");
+        let trigger = PolygonTrigger::new(
+            91,
+            AsciiString::from(area_name),
+            vec![
+                ICoord3D::new(0, 0, 0),
+                ICoord3D::new(10, 0, 0),
+                ICoord3D::new(10, 10, 0),
+                ICoord3D::new(0, 10, 0),
+            ],
+        );
+        get_terrain_logic()
+            .write()
+            .expect("terrain")
+            .add_trigger_area(trigger.clone());
 
         get_game_logic()
             .lock()
             .expect("game logic lock")
             .set_current_frame(41);
-        tracker
-            .update_object_position_sync(object_id, [5.0, 5.0, 0.0], &get_event_manager())
-            .expect("record enter");
 
-        let trigger = PolygonTrigger::new(1, AsciiString::from(area_name), Vec::new());
+        let obj = Object::new_test(object_id, 100.0);
+        let object_arc = Arc::new(RwLock::new(obj));
+        OBJECT_REGISTRY.register_object(object_id, &object_arc);
+        {
+            let mut guard = object_arc.write().expect("object write");
+            guard
+                .set_position(&Coord3D::new(5.0, 5.0, 0.0))
+                .expect("enter area");
+        }
+
         assert!(Team::object_did_enter(object_id, &trigger));
 
         get_game_logic()
@@ -703,17 +714,31 @@ mod tests {
             .set_current_frame(42);
         assert!(Team::object_did_enter(object_id, &trigger));
 
-        tracker
-            .update_object_position_sync(object_id, [20.0, 20.0, 0.0], &get_event_manager())
-            .expect("record exit");
-        assert!(Team::object_did_exit(object_id, &trigger));
+        {
+            let mut guard = object_arc.write().expect("object write");
+            guard
+                .set_position(&Coord3D::new(20.0, 20.0, 0.0))
+                .expect("leave area");
+        }
 
         get_game_logic()
             .lock()
             .expect("game logic lock")
             .set_current_frame(43);
+        {
+            let mut guard = object_arc.write().expect("object write");
+            guard
+                .set_position(&Coord3D::new(21.0, 21.0, 0.0))
+                .expect("confirm exit");
+        }
         assert!(Team::object_did_exit(object_id, &trigger));
 
-        let _ = tracker.unregister_area(area_name);
+        get_game_logic()
+            .lock()
+            .expect("game logic lock")
+            .set_current_frame(44);
+        assert!(Team::object_did_exit(object_id, &trigger));
+
+        OBJECT_REGISTRY.unregister_object(object_id);
     }
 }

@@ -675,7 +675,6 @@ impl ScriptCondition for NamedEnteredAreaCondition {
         parameters: &HashMap<String, ScriptValue>,
         _context: &ScriptContext,
     ) -> GameLogicResult<bool> {
-        // Wave 271: empty dual-world → fail-closed condition.
         if dual_world_registry_unavailable() {
             return Ok(false);
         }
@@ -685,21 +684,25 @@ impl ScriptCondition for NamedEnteredAreaCondition {
 
         let object_id = match lookup_named_object_id(&unit_name)? {
             Some(id) => id,
-            None => return Ok(false),
+            None => {
+                return Ok(false);
+            }
         };
-        let Some(is_dead) = OBJECT_REGISTRY.with_object(object_id, |obj| obj.is_effectively_dead())
-        else {
+        let Some(trigger) = get_script_engine().read().ok().and_then(|guard| {
+            guard
+                .as_ref()
+                .and_then(|engine| engine.get_qualified_trigger_area_by_name(&area_name))
+        }) else {
             return Ok(false);
         };
-        if is_dead {
-            return Ok(false);
-        }
-
-        let area_tracker = get_area_tracker();
-        let objects_in_area = area_tracker
-            .get_objects_in_area(&area_name)
-            .unwrap_or_default();
-        Ok(objects_in_area.contains(&object_id))
+        Ok(OBJECT_REGISTRY
+            .with_object(object_id, |obj| {
+                if obj.is_effectively_dead() || obj.is_kind_of(KindOf::Inert) {
+                    return false;
+                }
+                obj.did_enter(&trigger)
+            })
+            .unwrap_or(false))
     }
 
     fn name(&self) -> &str {
@@ -729,7 +732,6 @@ impl ScriptCondition for NamedExitedAreaCondition {
         parameters: &HashMap<String, ScriptValue>,
         _context: &ScriptContext,
     ) -> GameLogicResult<bool> {
-        // Wave 271: empty dual-world → fail-closed condition.
         if dual_world_registry_unavailable() {
             return Ok(false);
         }
@@ -739,22 +741,25 @@ impl ScriptCondition for NamedExitedAreaCondition {
 
         let object_id = match lookup_named_object_id(&unit_name)? {
             Some(id) => id,
-            None => return Ok(false),
+            None => {
+                return Ok(false);
+            }
         };
-        let Some(is_dead) = OBJECT_REGISTRY.with_object(object_id, |obj| obj.is_effectively_dead())
-        else {
+        let Some(trigger) = get_script_engine().read().ok().and_then(|guard| {
+            guard
+                .as_ref()
+                .and_then(|engine| engine.get_qualified_trigger_area_by_name(&area_name))
+        }) else {
             return Ok(false);
         };
-        if is_dead {
-            return Ok(false);
-        }
-
-        let area_tracker = get_area_tracker();
-        let objects_in_area = area_tracker
-            .get_objects_in_area(&area_name)
-            .unwrap_or_default();
-        // "Exited" means not currently in the area
-        Ok(!objects_in_area.contains(&object_id))
+        Ok(OBJECT_REGISTRY
+            .with_object(object_id, |obj| {
+                if obj.is_effectively_dead() {
+                    return false;
+                }
+                obj.did_exit(&trigger)
+            })
+            .unwrap_or(false))
     }
 
     fn name(&self) -> &str {

@@ -52,6 +52,20 @@ impl ScriptEngine {
             log::info!("ScriptEngine first update: named cache populated");
         }
 
+        let close_expired = {
+            let mut inner = self.lock_inner_mut();
+            if inner.close_window_timer > 0 {
+                inner.close_window_timer -= 1;
+                inner.close_window_timer < 1
+            } else {
+                false
+            }
+        };
+        if close_expired {
+            // C++ ScriptEngine.cpp:5508-5512 TheScriptActions->closeWindows(FALSE).
+            self.close_windows(false);
+        }
+
         let end_expired = {
             let mut inner = self.lock_inner_mut();
             if inner.end_game_timer > 0 {
@@ -62,17 +76,14 @@ impl ScriptEngine {
             }
         };
         if end_expired {
-            log::info!("End game timer expired, clearing game data");
-            let _ = TheGameLogic::clear_game_data();
-        }
-
-        {
-            let mut inner = self.lock_inner_mut();
-            if inner.close_window_timer >= 0 {
-                inner.close_window_timer -= 1;
-                if inner.close_window_timer <= 0 {
-                    log::info!("Close window timer expired");
-                }
+            // C++ ScriptEngine.cpp:5514-5518 appends MSG_CLEAR_GAME_DATA.
+            // It does not call TheGameLogic::clearGameData() directly.
+            log::info!("End game timer expired, appending MSG_CLEAR_GAME_DATA");
+            if let Ok(mut stream) = game_engine::common::message_stream::get_message_stream().write()
+            {
+                stream.append_message(
+                    game_engine::common::message_stream::GameMessageType::ClearGameData,
+                );
             }
         }
 
@@ -86,7 +97,9 @@ impl ScriptEngine {
             // Update counters that are countdown timers
             for counter in &mut inner.counters {
                 if let Some(counter) = counter {
-                    if counter.is_countdown_timer && counter.value > 0 {
+                    // C++ ScriptEngine.cpp:5547-5550: decrement while value >= 0;
+                    // "Counters go to -1 and stop."
+                    if counter.is_countdown_timer && counter.value >= 0 {
                         counter.value -= 1;
                     }
                 }

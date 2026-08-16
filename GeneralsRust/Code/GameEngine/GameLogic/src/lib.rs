@@ -27,11 +27,14 @@
 //! converted from the original C++ implementation to idiomatic Rust.
 //!
 //! The main systems include:
-//! - AI system with pathfinding and group management
+//! - AI system with pathfinding and group management (`ai/`; C++ `AI.cpp`)
 //! - Damage and weapon systems
 //! - Behavior and update systems
 //! - Scripting engine integration
 //! - Object management and lifecycle
+//!
+//! `runtime/ai.rs` (`AiRuntime`) is **telemetry-only** — it emits
+//! `SimulationEvent::AiDiagnostics` and is not a C++ AI behavior port.
 
 // Public modules
 pub mod action_manager;
@@ -100,7 +103,9 @@ pub mod transport;
 pub mod common;
 pub mod logic;
 pub mod prelude;
+/// High-level orchestration. `runtime::ai` is diagnostics, not C++ `AI`.
 pub mod runtime;
+
 pub mod runtime_world_transaction;
 
 // Integration tests (disabled - needs API updates)
@@ -351,4 +356,59 @@ mod tests {
         let ai = &*THE_AI;
         assert!(ai.read().is_ok());
     }
+
+    /// C++ `W3DModuleFactory.cpp:39-48` registers `W3DModelDraw` /
+    /// `W3DProjectileStreamDraw`. There is no `W3DProjectileDraw` in GeneralsMD.
+    #[test]
+    fn live_and_archival_factories_omit_invented_w3d_projectile_draw() {
+        const LIVE: &str = crate::contain_module_overrides::CONTAIN_OVERRIDES_SRC;
+        const ARCHIVAL: &str = include_str!("module_overrides/install.rs");
+        assert!(
+            !LIVE.contains("W3DProjectileDraw"),
+            "live contain_module_overrides must not register invented W3DProjectileDraw"
+        );
+        assert!(
+            LIVE.contains("W3DProjectileStreamDraw"),
+            "live factory must keep C++ W3DProjectileStreamDraw"
+        );
+        assert!(
+            !ARCHIVAL.contains("register_module_override(\n        \"W3DProjectileDraw\""),
+            "archival install.rs must not register W3DProjectileDraw"
+        );
+    }
+
+    /// C++ `W3DModuleFactory.cpp:56` `addModule(W3DPropDraw)`.
+    /// Live `contain_module_overrides::install` must register the implemented
+    /// `W3DPropDraw` factory, not leave props as an unregistered 19th module.
+    #[test]
+    fn live_factory_registers_w3d_prop_draw() {
+        const LIVE: &str = crate::contain_module_overrides::CONTAIN_OVERRIDES_SRC;
+        assert!(
+            LIVE.contains("register_module_override(\n        \"W3DPropDraw\""),
+            "live factory must register C++ W3DPropDraw"
+        );
+        assert!(
+            LIVE.contains("w3d_prop_draw_module_factory"),
+            "live factory must wire w3d_prop_draw_module_factory"
+        );
+
+        crate::contain_module_overrides::ensure_module_overrides_installed()
+            .expect("install live contain overrides");
+        let _ = game_engine::common::thing::module_factory::init_module_factory();
+        let _ = game_engine::common::thing::module_factory::apply_module_overrides_to_existing_templates();
+
+        let mut factory = game_engine::common::thing::module_factory::ModuleFactory::new();
+        factory.add_module_internal(
+            None,
+            None,
+            crate::common::ModuleType::Draw,
+            "W3DPropDraw",
+            game_engine::common::thing::module::ModuleInterfaceType::DRAW,
+        );
+        assert!(
+            factory.has_module_data_proc("W3DPropDraw", crate::common::ModuleType::Draw),
+            "registered W3DPropDraw override must supply create_data_proc"
+        );
+    }
 }
+

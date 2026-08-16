@@ -47,7 +47,7 @@ impl Xfer for DummyXfer {
 
     fn xfer_snapshot(
         &mut self,
-        _snapshot: &mut game_engine::system::Snapshot,
+        _snapshot: &mut dyn game_engine::system::Snapshotable,
     ) -> Result<(), XferStatus> {
         Ok(())
     }

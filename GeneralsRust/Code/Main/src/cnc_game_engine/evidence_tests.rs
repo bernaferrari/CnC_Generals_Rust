@@ -398,6 +398,51 @@ fn handle_mouse_button_input_must_not_forge_wnd_used_or_skip_right_click() {
 }
 
 #[test]
+fn physical_winit_mouse_input_drives_retail_menus_with_provenance_gates() {
+    // C++ Win32 mouse → WindowXlat → TheWindowManager.
+    // Rust: WindowEvent::MouseInput → MouseInputOrigin::Physical →
+    // handle_mouse_button_input → dispatch_os_mouse_to_window_manager.
+    // Injected re-entry shares WM dispatch but cannot latch playable_claim.
+    let input = include_str!("input.rs");
+    let route = input
+        .find("WindowEvent::MouseInput {")
+        .expect("winit MouseInput match arm");
+    let route_body = &input[route..route + 500];
+    assert!(
+        route_body.contains("MouseInputOrigin::Physical"),
+        "OS WindowEvent::MouseInput must be Physical origin"
+    );
+    assert!(
+        route_body.contains("handle_mouse_button_input"),
+        "Physical OS mouse must share handle_mouse_button_input"
+    );
+
+    let start = input
+        .find("fn handle_mouse_button_input")
+        .expect("handle_mouse_button_input");
+    let end = input[start..]
+        .find("fn inject_winit_equivalent_cursor_at")
+        .map(|i| start + i)
+        .unwrap_or(start + 5000);
+    let body = &input[start..end];
+    assert!(
+        body.contains("dispatch_os_mouse_to_window_manager"),
+        "Physical mouse must hit live WindowManager, not a forged Used"
+    );
+    assert!(
+        body.contains("matches!(origin, MouseInputOrigin::Physical)")
+            && body.contains("note_menu_wnd_click")
+            && body.contains("note_skirmish_path_gadget"),
+        "menu-nav evidence latches only for Physical origin"
+    );
+    assert!(
+        body.contains("MouseInputOrigin::Injected")
+            || input.contains("MouseInputOrigin::Injected"),
+        "injected control-file clicks must remain a distinct origin"
+    );
+}
+
+#[test]
 fn physical_gather_dropoff_latch_rejects_unvalidated_input() {
     let mut evidence = InteractivePlayabilityEvidence::default();
 

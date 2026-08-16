@@ -2,7 +2,7 @@
 // CRC-enabled data transfer with deep verification support
 ///////////////////////////////////////////////////////////////////////////////
 
-use super::snapshot::Snapshot;
+use super::snapshot::Snapshotable;
 use super::xfer::{Xfer, XferBlockSize, XferMode, XferStatus};
 use std::collections::BTreeMap;
 use std::io;
@@ -243,7 +243,7 @@ impl<X: Xfer> Xfer for XferCRC<X> {
         self.inner.skip(data_size)
     }
 
-    fn xfer_snapshot(&mut self, snapshot: &mut Snapshot) -> Result<(), XferStatus> {
+    fn xfer_snapshot(&mut self, snapshot: &mut dyn Snapshotable) -> Result<(), XferStatus> {
         snapshot.crc(self).map_err(|_| XferStatus::InvalidData)
     }
 
@@ -307,7 +307,7 @@ impl<X: Xfer> Xfer for XferDeepCRC<X> {
         self.inner.skip(data_size)
     }
 
-    fn xfer_snapshot(&mut self, snapshot: &mut Snapshot) -> Result<(), XferStatus> {
+    fn xfer_snapshot(&mut self, snapshot: &mut dyn Snapshotable) -> Result<(), XferStatus> {
         self.inner.xfer_snapshot(snapshot)
     }
 

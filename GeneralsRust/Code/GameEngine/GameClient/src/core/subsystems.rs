@@ -271,16 +271,143 @@ fn xfer_vec3_value(xfer: &mut dyn Xfer, value: &mut Vec3) -> Result<(), XferStat
     Ok(())
 }
 
-fn xfer_mat4_value(xfer: &mut dyn Xfer, value: &mut Mat4) -> Result<(), XferStatus> {
-    let mut raw = value.to_cols_array();
-    for component in &mut raw {
-        xfer.xfer_real(component)?;
+fn xfer_matrix3d_cpp(xfer: &mut dyn Xfer, value: &mut Mat4) -> Result<(), XferStatus> {
+    // C++ Xfer::xferMatrix3D (Xfer.cpp:818-843): version byte + 3x4 rows.
+    let mut version: XferVersion = 1;
+    xfer.xfer_version(&mut version, 1)?;
+    let mut cols = value.to_cols_array();
+    for row in 0..3 {
+        for col in 0..4 {
+            xfer.xfer_real(&mut cols[col * 4 + row])?;
+        }
     }
     if xfer.get_xfer_mode() == XferMode::Load {
-        *value = Mat4::from_cols_array(&raw);
+        cols[3] = 0.0;
+        cols[7] = 0.0;
+        cols[11] = 0.0;
+        cols[15] = 1.0;
+        *value = Mat4::from_cols_array(&cols);
     }
     Ok(())
 }
+
+fn xfer_tree_save_record_cpp(
+    xfer: &mut dyn Xfer,
+    record: &mut TreeSaveRecord,
+) -> Result<(), XferStatus> {
+    // C++ W3DTreeBuffer::xfer per-tree record (W3DTreeBuffer.cpp:1953-1984).
+    xfer.xfer_ascii_string(&mut record.model_name)?;
+    xfer.xfer_ascii_string(&mut record.model_texture)?;
+    xfer_vec3_value(xfer, &mut record.location)?;
+    xfer.xfer_real(&mut record.scale)?;
+    xfer.xfer_real(&mut record.sin)?;
+    xfer.xfer_real(&mut record.cos)?;
+    xfer.xfer_unsigned_int(&mut record.drawable_id)?;
+    xfer.xfer_real(&mut record.angular_velocity)?;
+    xfer.xfer_real(&mut record.angular_acceleration)?;
+    xfer_vec3_value(xfer, &mut record.topple_direction)?;
+    let mut topple_state = record.topple_state as i32;
+    unsafe {
+        xfer.xfer_user(
+            (&mut topple_state as *mut i32).cast::<u8>(),
+            std::mem::size_of::<i32>(),
+        )?;
+    }
+    if xfer.get_xfer_mode() == XferMode::Load {
+        record.topple_state = match topple_state {
+            0 => W3DToppleState::Upright,
+            1 => W3DToppleState::Falling,
+            2 => W3DToppleState::Fogged,
+            3 => W3DToppleState::Shrouded,
+            4 => W3DToppleState::Down,
+            _ => return Err(XferStatus::InvalidData),
+        };
+    }
+    xfer.xfer_real(&mut record.angular_accumulation)?;
+    xfer.xfer_unsigned_int(&mut record.options)?;
+    xfer_matrix3d_cpp(xfer, &mut record.matrix)?;
+    xfer.xfer_unsigned_int(&mut record.sink_frames_left)?;
+    Ok(())
+}
+
+fn apply_loaded_tree_records(terrain: &mut TerrainVisualStub, records: Vec<TreeSaveRecord>) {
+    terrain.clear_tree_state();
+    for record in &records {
+        if record.model_name.is_empty() {
+            continue;
+        }
+        if !terrain.tree_buffer.tree_types().iter().any(|tree_type| {
+            tree_type
+                .data
+                .model_name
+                .eq_ignore_ascii_case(&record.model_name)
+                && tree_type
+                    .data
+                    .texture_name
+                    .eq_ignore_ascii_case(&record.model_texture)
+        }) {
+            let mut data = TreeModuleData::default();
+            data.model_name = record.model_name.clone();
+            data.texture_name = record.model_texture.clone();
+            terrain
+                .tree_buffer
+                .add_tree_type(data, default_tree_bounds());
+        }
+    }
+    terrain.tree_buffer.load_records(&records);
+    terrain.registered_trees.clear();
+    for record in records {
+        if !record.model_name.is_empty() {
+            let registration = registration_from_tree_save_record(&record);
+            terrain
+                .registered_trees
+                .insert(registration.drawable_id, registration);
+        }
+    }
+}
+
+fn xfer_terrain_tree_buffer_v3(
+    terrain: &mut TerrainVisualStub,
+    xfer: &mut dyn Xfer,
+) -> Result<(), XferStatus> {
+    // C++ W3DTreeBuffer::xfer (W3DTreeBuffer.cpp:1920-2004).
+    let mut tree_version: XferVersion = 1;
+    xfer.xfer_version(&mut tree_version, 1)?;
+
+    let mut records = if matches!(xfer.get_xfer_mode(), XferMode::Save | XferMode::Crc) {
+        terrain.tree_save_records()
+    } else {
+        Vec::new()
+    };
+    let mut num_trees = records.len() as i32;
+    xfer.xfer_int(&mut num_trees)?;
+    if num_trees < 0 {
+        return Err(XferStatus::InvalidData);
+    }
+
+    if xfer.get_xfer_mode() == XferMode::Load {
+        records = Vec::with_capacity(num_trees as usize);
+        for _ in 0..num_trees {
+            let mut record = registration_to_tree_save_record(&TerrainTreeRegistration {
+                drawable_id: 0,
+                location: Vec3::ZERO,
+                scale: 1.0,
+                angle: 0.0,
+                random_scale_amount: 0.0,
+                module_data: W3DTreeDrawModuleData::new(),
+            });
+            xfer_tree_save_record_cpp(xfer, &mut record)?;
+            records.push(record);
+        }
+        apply_loaded_tree_records(terrain, records);
+    } else {
+        for record in &mut records {
+            xfer_tree_save_record_cpp(xfer, record)?;
+        }
+    }
+    Ok(())
+}
+
 
 fn xfer_tree_save_record(
     xfer: &mut dyn Xfer,
@@ -310,7 +437,7 @@ fn xfer_tree_save_record(
     }
     xfer.xfer_real(&mut record.angular_accumulation)?;
     xfer.xfer_unsigned_int(&mut record.options)?;
-    xfer_mat4_value(xfer, &mut record.matrix)?;
+    xfer_matrix3d_cpp(xfer, &mut record.matrix)?;
     xfer.xfer_unsigned_int(&mut record.sink_frames_left)?;
     Ok(())
 }
@@ -457,52 +584,123 @@ fn xfer_terrain_tree_buffer_v4(
     Ok(())
 }
 
+fn xfer_water_grid_snapshot(xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
+    // C++ WaterRenderObjClass::xfer (W3DWater.cpp:3432-3480):
+    // u8 v1, i32 cellsX, i32 cellsY, then meshDataSize * (f32 height, f32
+    // velocity, u8 status, u8 preferredHeight). When the live water-grid
+    // snapshot is unknown/unallocated, skip the payload instead of rejecting
+    // the save (hq-l01n).
+    let current_version: XferVersion = 1;
+    let mut version = current_version;
+    xfer.xfer_version(&mut version, current_version)?;
+    let mut cells_x = 0i32;
+    let mut cells_y = 0i32;
+    xfer.xfer_int(&mut cells_x)?;
+    xfer.xfer_int(&mut cells_y)?;
+    if cells_x < 0 || cells_y < 0 {
+        return Err(XferStatus::InvalidData);
+    }
+    let mesh_size = (cells_x as i64 + 1 + 2)
+        .saturating_mul(cells_y as i64 + 1 + 2)
+        .max(0) as usize;
+    for _ in 0..mesh_size {
+        let mut height = 0.0f32;
+        let mut velocity = 0.0f32;
+        let mut status = 0u8;
+        let mut preferred = 0u8;
+        xfer.xfer_real(&mut height)?;
+        xfer.xfer_real(&mut velocity)?;
+        xfer.xfer_unsigned_byte(&mut status)?;
+        xfer.xfer_unsigned_byte(&mut preferred)?;
+    }
+    Ok(())
+}
+
+fn apply_logic_height_map_bytes(data: &[u8]) {
+    if let Ok(mut terrain) = gamelogic::terrain::get_terrain_logic().write() {
+        terrain.apply_logic_height_map_bytes(data);
+    }
+    if let Ok(mut visual) = crate::terrain::terrain_visual::get_terrain_visual() {
+        if let Some(visual) = visual.as_mut() {
+            visual.apply_logic_height_map_bytes(data);
+        }
+    }
+}
+
+fn logic_height_map_bytes_for_save() -> Vec<u8> {
+    gamelogic::terrain::get_terrain_logic()
+        .read()
+        .ok()
+        .map(|terrain| terrain.logic_height_map_bytes().to_vec())
+        .unwrap_or_default()
+}
+
 fn xfer_terrain_visual_state(
     terrain: &mut TerrainVisualStub,
     xfer: &mut dyn Xfer,
 ) -> Result<(), XferStatus> {
-    let current_version: XferVersion = 4;
+    // C++ W3DTerrainVisual::xfer (W3DTerrainVisual.cpp:1174-1274) currentVersion = 3.
+    let current_version: XferVersion = 3;
     let mut version = current_version;
     xfer.xfer_version(&mut version, current_version)?;
 
+    // C++ TerrainVisual::xfer (TerrainVisual.cpp:95-103) currentVersion = 1.
     let mut base_version: XferVersion = 1;
     xfer.xfer_version(&mut base_version, 1)?;
 
     let mut water_grid_enabled = false;
+    if matches!(xfer.get_xfer_mode(), XferMode::Save | XferMode::Crc) {
+        if let Ok(visual) = crate::terrain::terrain_visual::get_terrain_visual() {
+            if let Some(visual) = visual.as_ref() {
+                water_grid_enabled = visual.water_grid_enabled();
+            }
+        }
+    }
     xfer.xfer_bool(&mut water_grid_enabled)?;
     if water_grid_enabled {
-        return Err(XferStatus::InvalidData);
+        // Do not reject water-grid saves. Skip the unknown WaterRenderObjClass
+        // snapshot so C++-shaped streams stay aligned.
+        xfer_water_grid_snapshot(xfer)?;
     }
 
     if version >= 2 {
-        let mut height_map_len = 0i32;
+        let mut height_data = if matches!(xfer.get_xfer_mode(), XferMode::Save | XferMode::Crc) {
+            logic_height_map_bytes_for_save()
+        } else {
+            Vec::new()
+        };
+        let mut height_map_len = height_data.len() as i32;
         xfer.xfer_int(&mut height_map_len)?;
         if height_map_len < 0 {
             return Err(XferStatus::InvalidData);
         }
+        if xfer.get_xfer_mode() == XferMode::Load {
+            height_data = vec![0u8; height_map_len as usize];
+        } else if height_data.len() != height_map_len as usize {
+            height_data.resize(height_map_len.max(0) as usize, 0);
+        }
         if height_map_len > 0 {
-            let mut height_data = if xfer.get_xfer_mode() == XferMode::Save {
-                Vec::new()
-            } else {
-                vec![0u8; height_map_len as usize]
-            };
-            // C++ writes raw WorldHeightMap bytes here. Rust terrain visuals do not
-            // yet expose the logic-height-map byte backing store, but loading must
-            // still consume the field to keep the stream aligned.
             unsafe {
                 xfer.xfer_user(height_data.as_mut_ptr(), height_map_len as usize)?;
             }
         }
+        if xfer.get_xfer_mode() == XferMode::Load {
+            apply_logic_height_map_bytes(&height_data);
+        }
     }
 
-    match version {
-        0..=2 => {}
-        3 => xfer_terrain_tree_registrations_v3(terrain, xfer)?,
-        _ => xfer_terrain_tree_buffer_v4(terrain, xfer)?,
+    if version >= 3 {
+        // C++ BaseHeightMapRenderObjClass::xfer = u8 v1 + tree + prop snapshots.
+        let mut base_height_version: XferVersion = 1;
+        xfer.xfer_version(&mut base_height_version, 1)?;
+        xfer_terrain_tree_buffer_v3(terrain, xfer)?;
+        let mut prop_version: XferVersion = 1;
+        xfer.xfer_version(&mut prop_version, 1)?;
     }
 
     Ok(())
 }
+
 
 fn xfer_pending_special_power(
     xfer: &mut dyn Xfer,
@@ -2372,6 +2570,7 @@ impl SubsystemInterface for TerrainVisualStub {
                 terrain.init()?;
             }
         }
+        crate::terrain::terrain_visual::init_terrain_visual_hooks();
         Ok(())
     }
 
@@ -2527,6 +2726,9 @@ mod tests {
 
     #[test]
     fn terrain_visual_xfer_empty_state_starts_with_cpp_w3d_layout() {
+        if let Ok(mut terrain) = gamelogic::terrain::get_terrain_logic().write() {
+            terrain.reset();
+        }
         let mut terrain = TerrainVisualStub::default();
         let path = std::env::temp_dir().join(format!(
             "terrain_visual_xfer_empty_{}_{}.bin",
@@ -2547,14 +2749,91 @@ mod tests {
         assert_eq!(
             bytes,
             vec![
-                4, // W3DTerrainVisual xfer version
-                1, // base TerrainVisual xfer version
+                3, // C++ W3DTerrainVisual xfer version (W3DTerrainVisual.cpp:1178)
+                1, // base TerrainVisual xfer version (TerrainVisual.cpp:99)
                 0, // water grid disabled
                 0, 0, 0, 0, // height-map byte count
-                0, 0, 0, 0, // W3DTreeBuffer tree record count
-                0, 0, 0, 0, // tree registration/type catalog count
+                1, // BaseHeightMapRenderObjClass xfer version
+                1, // W3DTreeBuffer xfer version
+                0, 0, 0, 0, // numTrees
+                1, // W3DPropBuffer xfer version (empty)
             ]
         );
+    }
+
+    #[test]
+    fn terrain_visual_xfer_applies_height_map_bytes_on_load() {
+        // C++ W3DTerrainVisual::xfer v>=2 (W3DTerrainVisual.cpp:1231-1247)
+        // writes i32 len + raw logic height bytes and applies them on load.
+        if let Ok(mut terrain) = gamelogic::terrain::get_terrain_logic().write() {
+            terrain.reset();
+        }
+        let path = std::env::temp_dir().join(format!(
+            "terrain_visual_xfer_heights_{}_{}.bin",
+            std::process::id(),
+            TheGameLogic::get_frame()
+        ));
+        let mut payload = vec![
+            2u8, // W3DTerrainVisual v2
+            1,   // base TerrainVisual v1
+            0,   // water grid disabled
+            4, 0, 0, 0, // height-map byte count
+        ];
+        payload.extend_from_slice(&[10u8, 20, 30, 40]);
+        std::fs::write(&path, payload).unwrap();
+
+        {
+            let mut terrain = TerrainVisualStub::default();
+            let mut load = game_engine::System::XferLoad::new();
+            load.open(path.to_string_lossy().into_owned()).unwrap();
+            xfer_terrain_visual_state(&mut terrain, &mut load).unwrap();
+            load.close().unwrap();
+        }
+        let _ = std::fs::remove_file(&path);
+
+        let logic = gamelogic::terrain::get_terrain_logic()
+            .read()
+            .expect("terrain logic");
+        assert_eq!(&logic.logic_height_map_bytes()[..4], &[10, 20, 30, 40]);
+    }
+
+    #[test]
+    fn terrain_visual_xfer_skips_unknown_water_grid_snapshot() {
+        // C++ W3DTerrainVisual::xfer (W3DTerrainVisual.cpp:1196-1198) xfers
+        // WaterRenderObjClass when the grid is enabled. Rust must not reject
+        // the save (hq-l01n); skip the unknown snapshot instead.
+        let path = std::env::temp_dir().join(format!(
+            "terrain_visual_xfer_water_{}_{}.bin",
+            std::process::id(),
+            TheGameLogic::get_frame()
+        ));
+        let mut payload = vec![
+            2u8, // W3DTerrainVisual v2
+            1,   // base
+            1,   // water grid enabled
+            1,   // WaterRenderObjClass version
+            0, 0, 0, 0, // cellsX
+            0, 0, 0, 0, // cellsY
+            // meshDataSize = (0+1+2)*(0+1+2) = 9 points
+        ];
+        for _ in 0..9 {
+            payload.extend_from_slice(&0f32.to_le_bytes());
+            payload.extend_from_slice(&0f32.to_le_bytes());
+            payload.push(0); // status
+            payload.push(0); // preferredHeight
+        }
+        payload.extend_from_slice(&[0, 0, 0, 0]); // height-map len
+        std::fs::write(&path, payload).unwrap();
+
+        {
+            let mut terrain = TerrainVisualStub::default();
+            let mut load = game_engine::System::XferLoad::new();
+            load.open(path.to_string_lossy().into_owned()).unwrap();
+            xfer_terrain_visual_state(&mut terrain, &mut load)
+                .expect("enabled water-grid must not reject the stream");
+            load.close().unwrap();
+        }
+        let _ = std::fs::remove_file(&path);
     }
 
     #[test]

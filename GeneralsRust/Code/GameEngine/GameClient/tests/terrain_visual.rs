@@ -441,6 +441,32 @@ fn water_grid_starts_disabled_after_init() {
 }
 
 #[test]
+fn water_tracks_flush_is_called_from_live_water_record() {
+    // C++ WaterTracksRenderSystem::flush is invoked from WaterRenderObjClass
+    // (W3DWater.cpp / W3DWaterTracks.cpp). Live TerrainVisual must call it.
+    use game_client_rust::terrain::WaterTrackType;
+    let mut visual = TerrainVisualImpl::new();
+    let handle = visual
+        .water_tracks_mut()
+        .bind_track(WaterTrackType::Pond)
+        .expect("bind pond wake");
+    visual.water_tracks_mut().track_mut(handle).unwrap().init(
+        18.0,
+        28.0,
+        glam::Vec2::new(10.0, 20.0),
+        glam::Vec2::new(10.0, 21.0),
+        "wave256.tga",
+        0,
+    );
+    visual.flush_water_tracks();
+    let flush = visual.last_water_tracks_flush();
+    assert!(!flush.vertices.is_empty(), "live water record must flush wakes");
+    assert!(!flush.indices.is_empty());
+    assert_eq!(flush.ranges[0].texture_name, "wave256.tga");
+}
+
+
+#[test]
 fn water_grid_height_returns_none_when_disabled() {
     let mut visual = TerrainVisualImpl::new();
     visual.set_water_grid_resolution(4.0, 4.0, 10.0);

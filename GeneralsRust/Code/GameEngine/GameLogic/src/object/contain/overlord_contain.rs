@@ -1183,7 +1183,7 @@ mod tests {
 
         fn xfer_snapshot(
             &mut self,
-            _snapshot: &mut game_engine::system::Snapshot,
+            _snapshot: &mut dyn Snapshotable,
         ) -> Result<(), XferStatus> {
             Ok(())
         }

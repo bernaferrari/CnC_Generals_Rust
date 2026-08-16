@@ -2,7 +2,39 @@ use super::*;
 use glam::Vec3;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
-use std::collections::{BinaryHeap, HashMap};
+use std::collections::{BinaryHeap, HashMap, VecDeque};
+
+use gamelogic::ai::pathfind_astar::{
+    AStarPathfinder, GridCoord, PathfindCellType, COST_DIAGONAL,
+};
+use gamelogic::ai::pathfind_complete::{
+    MAX_PATH_ITERATIONS, PATHFIND_QUEUE_LEN, SURFACE_AIR, SURFACE_GROUND,
+};
+
+/// Host wrapper so `PathfindingSystem` can stay `Debug` while holding crate A*.
+struct HostCrateAStar {
+    finder: AStarPathfinder,
+    stamp: u64,
+}
+
+impl std::fmt::Debug for HostCrateAStar {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("HostCrateAStar")
+            .field("stamp", &self.stamp)
+            .finish_non_exhaustive()
+    }
+}
+
+/// Queued live path request — C++ `Pathfinder::queueForPath` residual.
+#[derive(Debug, Clone)]
+pub struct PendingHostPath {
+    pub unit_id: ObjectId,
+    pub start: Vec3,
+    pub destination: Vec3,
+    pub waypoints: Vec<Vec3>,
+    pub aircraft: bool,
+    pub surfaces: u32,
+}
 
 /// Grid-based pathfinding node
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
@@ -21,9 +53,12 @@ impl GridPos {
     }
 
     pub fn from_world_pos(world_pos: Vec3, grid_size: f32) -> Self {
+        // C++ Pathfinder::worldToGrid: REAL_TO_INT(pos/PATHFIND_CELL_SIZE)
+        // (AIPathfind.h:856-858). REAL_TO_INT truncates toward zero
+        // (BaseType.h:213), not round and not floor-toward--inf.
         Self {
-            x: (world_pos.x / grid_size).round() as i32,
-            y: (world_pos.z / grid_size).round() as i32,
+            x: (world_pos.x / grid_size) as i32,
+            y: (world_pos.z / grid_size) as i32,
         }
     }
 
@@ -111,6 +146,11 @@ pub struct PathfindingGrid {
     blocked_bits: Vec<u64>,
     /// Dynamic vehicle/structure occupancy bits (cleared each rebuild).
     dynamic_bits: Vec<u64>,
+    /// C++ PathfindCell::CellType residual (AIPathfind.h:233-242).
+    /// Parallel to blocked_bits so water/cliff stay distinct from IMPASSABLE.
+    cell_types: Vec<u8>,
+    /// Bump when static cells change so crate A* can resync.
+    terrain_gen: u64,
 }
 
 impl PathfindingGrid {
@@ -135,6 +175,8 @@ impl PathfindingGrid {
             origin,
             blocked_bits: vec![0u64; words],
             dynamic_bits: vec![0u64; words],
+            cell_types: vec![PathfindCellType::Clear as u8; cells],
+            terrain_gen: 1,
         }
     }
 
@@ -177,9 +219,11 @@ impl PathfindingGrid {
     }
 
     pub fn world_to_grid(&self, world_pos: Vec3) -> GridPos {
+        // C++ Pathfinder::worldToGrid REAL_TO_INT truncate-toward-zero
+        // (AIPathfind.h:856-858, BaseType.h:213). Host ground plane is XZ.
         GridPos {
-            x: ((world_pos.x - self.origin.x) / self.grid_size).round() as i32,
-            y: ((world_pos.z - self.origin.z) / self.grid_size).round() as i32,
+            x: ((world_pos.x - self.origin.x) / self.grid_size) as i32,
+            y: ((world_pos.z - self.origin.z) / self.grid_size) as i32,
         }
     }
 
@@ -192,17 +236,65 @@ impl PathfindingGrid {
     }
 
     pub fn is_blocked(&self, pos: GridPos) -> bool {
-        let Some(idx) = self.bit_index(pos) else {
-            return true;
-        };
-        Self::bit_test(&self.blocked_bits, idx) || Self::bit_test(&self.dynamic_bits, idx)
+        self.is_static_blocked(pos)
+            || self
+                .bit_index(pos)
+                .is_some_and(|idx| Self::bit_test(&self.dynamic_bits, idx))
     }
 
     pub fn is_static_blocked(&self, pos: GridPos) -> bool {
         let Some(idx) = self.bit_index(pos) else {
             return true;
         };
-        Self::bit_test(&self.blocked_bits, idx)
+        if Self::bit_test(&self.blocked_bits, idx) {
+            return true;
+        }
+        matches!(
+            self.cell_type_at_index(idx),
+            PathfindCellType::Impassable
+                | PathfindCellType::Obstacle
+                | PathfindCellType::BridgeImpassable
+        )
+    }
+
+    #[inline]
+    fn cell_type_at_index(&self, idx: usize) -> PathfindCellType {
+        match self.cell_types.get(idx).copied().unwrap_or(0) {
+            0x01 => PathfindCellType::Water,
+            0x02 => PathfindCellType::Cliff,
+            0x03 => PathfindCellType::Rubble,
+            0x04 => PathfindCellType::Obstacle,
+            0x05 => PathfindCellType::BridgeImpassable,
+            0x06 => PathfindCellType::Impassable,
+            _ => PathfindCellType::Clear,
+        }
+    }
+
+    /// C++ PathfindCell::getType residual (AIPathfind.h:233-242).
+    pub fn cell_type(&self, pos: GridPos) -> PathfindCellType {
+        match self.bit_index(pos) {
+            Some(idx) => self.cell_type_at_index(idx),
+            None => PathfindCellType::Impassable,
+        }
+    }
+
+    /// Classify a cell without claiming full locomotor surfaces.
+    /// Water/Cliff stay walk-costed (not hard-blocked); Impassable/Obstacle set bits.
+    pub fn set_cell_type(&mut self, pos: GridPos, ty: PathfindCellType) {
+        let Some(idx) = self.bit_index(pos) else {
+            return;
+        };
+        if let Some(slot) = self.cell_types.get_mut(idx) {
+            *slot = ty as u8;
+        }
+        let hard = matches!(
+            ty,
+            PathfindCellType::Impassable
+                | PathfindCellType::Obstacle
+                | PathfindCellType::BridgeImpassable
+        );
+        Self::bit_set(&mut self.blocked_bits, idx, hard);
+        self.terrain_gen = self.terrain_gen.wrapping_add(1);
     }
 
     /// C++ Pathfinder::isAttackViewBlockedByObstacle residual (static obstacles only).
@@ -266,8 +358,10 @@ impl PathfindingGrid {
     }
 
     pub fn set_blocked(&mut self, pos: GridPos, blocked: bool) {
-        if let Some(idx) = self.bit_index(pos) {
-            Self::bit_set(&mut self.blocked_bits, idx, blocked);
+        if blocked {
+            self.set_cell_type(pos, PathfindCellType::Obstacle);
+        } else {
+            self.set_cell_type(pos, PathfindCellType::Clear);
         }
     }
 
@@ -279,7 +373,7 @@ impl PathfindingGrid {
             for dx in -r..=r {
                 let p = GridPos::new(center.x + dx, center.y + dy);
                 if self.is_valid_pos(p) {
-                    self.set_blocked(p, true);
+                    self.set_cell_type(p, PathfindCellType::Obstacle);
                 }
             }
         }
@@ -287,6 +381,8 @@ impl PathfindingGrid {
 
     pub fn clear_static_blocks(&mut self) {
         self.blocked_bits.fill(0);
+        self.cell_types.fill(PathfindCellType::Clear as u8);
+        self.terrain_gen = self.terrain_gen.wrapping_add(1);
     }
 
     pub fn export_static_block_mask(&self) -> Vec<bool> {
@@ -688,6 +784,10 @@ pub struct PathfindingSystem {
     logic_frame: u64,
     /// Frame stamp of last dynamic obstacle rebuild.
     dynamic_obstacle_frame: u64,
+    /// Live crate A* (AIPathfind.cpp internalFindPath).
+    crate_astar: Option<HostCrateAStar>,
+    /// C++ Pathfinder::queueForPath residual (AIPathfind.h:418).
+    pending_paths: VecDeque<PendingHostPath>,
 }
 
 impl PathfindingSystem {
@@ -703,11 +803,14 @@ impl PathfindingSystem {
             flow_fields: HashMap::new(),
             logic_frame: 0,
             dynamic_obstacle_frame: u64::MAX,
+            crate_astar: None,
+            pending_paths: VecDeque::new(),
         }
     }
 
     pub fn clear_static_blocks(&mut self) {
         self.grid.clear_static_blocks();
+        self.crate_astar = None;
     }
 
     /// Mark the active host logic frame so dynamic obstacle rebuilds run once
@@ -724,6 +827,116 @@ impl PathfindingSystem {
             self.grid.update_dynamic_obstacles(objects);
             self.dynamic_obstacle_frame = self.logic_frame;
         }
+    }
+
+    fn sync_crate_astar(&mut self) {
+        let w = self.grid.width.max(0) as usize;
+        let h = self.grid.height.max(0) as usize;
+        if w == 0 || h == 0 {
+            self.crate_astar = None;
+            return;
+        }
+        let stamp = self.grid.terrain_gen;
+        let needs_rebuild = match &self.crate_astar {
+            Some(c) => c.stamp != stamp || c.finder.width() != w || c.finder.height() != h,
+            None => true,
+        };
+        if !needs_rebuild {
+            return;
+        }
+        let mut finder = AStarPathfinder::new(w, h);
+        for y in 0..self.grid.height {
+            for x in 0..self.grid.width {
+                let pos = GridPos::new(x, y);
+                finder.set_cell_type(GridCoord::new(x, y), self.grid.cell_type(pos));
+            }
+        }
+        self.crate_astar = Some(HostCrateAStar { finder, stamp });
+    }
+
+    fn host_to_crate_coord(&self, pos: GridPos) -> GridCoord {
+        GridCoord::new(pos.x, pos.y)
+    }
+
+    fn crate_path_to_world(&self, cells: &[GridCoord]) -> Vec<Vec3> {
+        cells
+            .iter()
+            .map(|c| self.grid.grid_to_world(GridPos::new(c.x, c.y)))
+            .collect()
+    }
+
+    /// C++ `Pathfinder::internalFindPath` via crate `AStarPathfinder`.
+    /// Falls back to the host grid A* if crate types cannot run (empty grid).
+    fn find_path_via_crate(
+        &mut self,
+        start: GridPos,
+        goal: GridPos,
+        surfaces: u32,
+        is_crusher: bool,
+    ) -> Option<Vec<Vec3>> {
+        self.sync_crate_astar();
+        let start = self
+            .grid
+            .nearest_static_open(self.grid.clamp_pos(start), 16)
+            .unwrap_or_else(|| self.grid.clamp_pos(start));
+        let goal = self
+            .grid
+            .nearest_static_open(self.grid.clamp_pos(goal), 16)
+            .unwrap_or_else(|| self.grid.clamp_pos(goal));
+        if self.grid.is_static_blocked(start) || self.grid.is_static_blocked(goal) {
+            return None;
+        }
+        if start == goal {
+            return Some(vec![self.grid.grid_to_world(start)]);
+        }
+        let start_c = self.host_to_crate_coord(start);
+        let goal_c = self.host_to_crate_coord(goal);
+        let dyn_bits = self.grid.dynamic_bits.clone();
+        let width = self.grid.width;
+        let extra = move |c: GridCoord| {
+            if c.x < 0 || c.y < 0 || c.x >= width {
+                return 0;
+            }
+            let idx = c.y as usize * width as usize + c.x as usize;
+            if PathfindingGrid::bit_test(&dyn_bits, idx) {
+                3 * COST_DIAGONAL
+            } else {
+                0
+            }
+        };
+        let Some(crate_pf) = self.crate_astar.as_ref() else {
+            return self.grid.find_path(start, goal);
+        };
+        let cells = crate_pf
+            .finder
+            .find_path_ex(
+                start_c,
+                goal_c,
+                surfaces,
+                is_crusher,
+                MAX_PATH_ITERATIONS,
+                false,
+                None,
+                Some(&extra),
+            )
+            .map(|(path, _)| path)?;
+        Some(self.crate_path_to_world(&cells))
+    }
+
+    /// Queue a path request for next-frame resolve (C++ queueForPath).
+    pub fn queue_path(&mut self, req: PendingHostPath) {
+        if self.pending_paths.len() >= PATHFIND_QUEUE_LEN {
+            self.pending_paths.pop_front();
+        }
+        self.pending_paths.push_back(req);
+    }
+
+    pub fn take_pending_paths(&mut self) -> Vec<PendingHostPath> {
+        self.pending_paths.drain(..).collect()
+    }
+
+    pub fn pending_path_count(&self) -> usize {
+        self.pending_paths.len()
     }
 
     /// Find path between two world positions.
@@ -1126,6 +1339,30 @@ impl PathfindingSystem {
         objects: &HashMap<ObjectId, Object>,
         aircraft: bool,
     ) -> Option<Vec<Vec3>> {
+        self.find_path_ex_surfaces(
+            start,
+            goal,
+            objects,
+            aircraft,
+            if aircraft {
+                SURFACE_AIR
+            } else {
+                SURFACE_GROUND
+            },
+            false,
+        )
+    }
+
+    /// Live path: crate `AStarPathfinder::find_path_ex` (AIPathfind.cpp:6438).
+    pub fn find_path_ex_surfaces(
+        &mut self,
+        start: Vec3,
+        goal: Vec3,
+        objects: &HashMap<ObjectId, Object>,
+        aircraft: bool,
+        surfaces: u32,
+        is_crusher: bool,
+    ) -> Option<Vec<Vec3>> {
         self.ensure_dynamic_obstacles(objects);
 
         let start_grid = self.grid.world_to_grid(start);
@@ -1149,7 +1386,7 @@ impl PathfindingSystem {
             }
             detoured
         } else {
-            self.grid.find_path(start_grid, goal_grid)?
+            self.find_path_via_crate(start_grid, goal_grid, surfaces, is_crusher)?
         };
         if !aircraft {
             let n = path.len().max(1) as f32;
@@ -1422,6 +1659,22 @@ mod tests {
         assert!(path.is_none());
     }
 
+    /// C++ `Pathfinder::worldToGrid` / `REAL_TO_INT` (AIPathfind.h:856-858).
+    #[test]
+    fn world_to_grid_truncates_toward_zero_like_real_to_int() {
+        let g = open_grid(20, 20);
+        assert_eq!(
+            g.world_to_grid(Vec3::new(19.9, 0.0, 5.0)),
+            GridPos::new(1, 0),
+            "19.9/10=1.99 → 1, 5/10=0.5 → 0 (round would be 2,1)"
+        );
+        assert_eq!(g.world_to_grid(Vec3::new(20.0, 0.0, 0.0)), GridPos::new(2, 0));
+        assert_eq!(
+            g.world_to_grid(Vec3::new(-19.9, 0.0, -5.1)),
+            GridPos::new(-1, 0)
+        );
+    }
+
     #[test]
     fn compute_normal_radial_offset_xz_perpendicular() {
         let from = Vec3::new(0.0, 0.0, 0.0);
@@ -1500,5 +1753,141 @@ mod tests {
         let src = include_str!("pathfinding.rs");
         assert!(src.contains("circleClipsTallBuilding"));
         assert!(src.contains("circle_clips_tall_building"));
+    }
+
+    /// C++ PathfindCell::CellType (AIPathfind.h:233-242) on the live host grid.
+    #[test]
+    fn host_grid_classifies_water_cliff_impassable() {
+        let mut g = open_grid(8, 8);
+        g.set_cell_type(GridPos::new(2, 2), PathfindCellType::Water);
+        g.set_cell_type(GridPos::new(3, 3), PathfindCellType::Cliff);
+        g.set_cell_type(GridPos::new(4, 4), PathfindCellType::Impassable);
+        assert_eq!(g.cell_type(GridPos::new(2, 2)), PathfindCellType::Water);
+        assert_eq!(g.cell_type(GridPos::new(3, 3)), PathfindCellType::Cliff);
+        assert_eq!(g.cell_type(GridPos::new(4, 4)), PathfindCellType::Impassable);
+        assert!(!g.is_static_blocked(GridPos::new(2, 2)), "water is not hard-blocked");
+        assert!(!g.is_static_blocked(GridPos::new(3, 3)), "cliff is not hard-blocked");
+        assert!(g.is_static_blocked(GridPos::new(4, 4)));
+        let path = g.find_path(GridPos::new(0, 0), GridPos::new(7, 7));
+        assert!(path.is_some(), "water/cliff must stay walkable for ground A*");
+    }
+
+    /// Live find_path_ex must call crate AStarPathfinder (AIPathfind.cpp:6438).
+    #[test]
+    fn live_find_path_ex_uses_crate_astar() {
+        let mut sys = PathfindingSystem::new(200.0, 200.0);
+        let objects = HashMap::new();
+        let path = sys
+            .find_path_ex(
+                Vec3::new(10.0, 0.0, 10.0),
+                Vec3::new(80.0, 0.0, 10.0),
+                &objects,
+                false,
+            )
+            .expect("crate A* open-field path");
+        assert!(path.len() >= 2);
+        assert!(sys.crate_astar.is_some(), "crate A* must be wired after first search");
+        sys.grid
+            .set_cell_type(GridPos::new(5, 1), PathfindCellType::Water);
+        let wet = sys
+            .find_path_ex(
+                Vec3::new(10.0, 0.0, 10.0),
+                Vec3::new(80.0, 0.0, 10.0),
+                &objects,
+                false,
+            )
+            .expect("water-costed crate path");
+        assert!(wet.len() >= 2);
+        assert_eq!(
+            sys.grid.cell_type(GridPos::new(5, 1)),
+            PathfindCellType::Water
+        );
+    }
+
+    /// C++ Pathfinder::queueForPath / processPathfindQueue (AI.cpp:332-339).
+    #[test]
+    fn host_path_queue_defers_until_taken() {
+        let mut sys = PathfindingSystem::new(100.0, 100.0);
+        sys.queue_path(PendingHostPath {
+            unit_id: ObjectId(1),
+            start: Vec3::ZERO,
+            destination: Vec3::new(50.0, 0.0, 0.0),
+            waypoints: Vec::new(),
+            aircraft: false,
+            surfaces: SURFACE_GROUND,
+        });
+        assert_eq!(sys.pending_path_count(), 1);
+        let drained = sys.take_pending_paths();
+        assert_eq!(drained.len(), 1);
+        assert_eq!(sys.pending_path_count(), 0);
+    }
+
+    /// Live assign_unit_path queues when map_loaded (AI.cpp:332-339).
+    #[test]
+    fn assign_unit_path_queues_until_next_update() {
+        use crate::game_logic::{GameLogic, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let mut tmpl = ThingTemplate::new("Ranger");
+        tmpl.add_kind_of(KindOf::Infantry);
+        tmpl.add_kind_of(KindOf::Attackable);
+        logic.templates.insert("Ranger".into(), tmpl);
+        let id = logic
+            .create_object("Ranger", Team::USA, Vec3::new(10.0, 0.0, 10.0))
+            .expect("ranger");
+        if let Some(u) = logic.host_object_mut(id) {
+            u.movement.max_speed = 20.0;
+        }
+        logic.force_map_loaded_for_path_test(true);
+        assert!(logic.assign_unit_path(id, Vec3::new(80.0, 0.0, 10.0), &[]));
+        let unit = logic.host_object(id).expect("unit");
+        assert!(unit.waiting_for_path, "C++ m_waitingForPath until next frame");
+        assert!(
+            unit.movement.path.is_empty(),
+            "waypoints must not land same frame"
+        );
+        logic.update();
+        let unit = logic.host_object(id).expect("unit after queue");
+        assert!(!unit.waiting_for_path);
+        assert!(
+            !unit.movement.path.is_empty(),
+            "processPathfindQueue must install crate A* path"
+        );
+    }
+
+    #[test]
+    fn assign_shared_group_paths_uses_one_spine() {
+        use crate::game_logic::{GameLogic, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        logic.force_map_loaded_for_path_test(false);
+        let mut tmpl = ThingTemplate::new("Ranger");
+        tmpl.add_kind_of(KindOf::Infantry);
+        logic.templates.insert("Ranger".into(), tmpl);
+        let a = logic
+            .create_object("Ranger", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("a");
+        let b = logic
+            .create_object("Ranger", Team::USA, Vec3::new(10.0, 0.0, 0.0))
+            .expect("b");
+        for id in [a, b] {
+            if let Some(u) = logic.host_object_mut(id) {
+                u.movement.max_speed = 20.0;
+            }
+        }
+        let dest = Vec3::new(80.0, 0.0, 0.0);
+        let goals = vec![(a, dest), (b, dest + Vec3::new(0.0, 0.0, 10.0))];
+        assert!(logic.assign_shared_group_paths(&goals, dest));
+        let pa = logic.host_object(a).unwrap().movement.path.clone();
+        let pb = logic.host_object(b).unwrap().movement.path.clone();
+        assert!(!pa.is_empty() && !pb.is_empty());
+        assert_eq!(
+            pa.last().copied().unwrap(),
+            dest,
+            "leader last waypoint is destination"
+        );
+        assert_eq!(
+            pb.last().copied().unwrap().z,
+            10.0,
+            "follower last waypoint is slot"
+        );
     }
 }

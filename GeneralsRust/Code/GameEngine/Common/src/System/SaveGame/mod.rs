@@ -11,8 +11,9 @@ pub mod game_state;
 pub mod game_state_map;
 
 pub use game_state::{
-    AvailableGameInfo, GameState, SaveCode, SaveDate, SaveFileType, SaveGameInfo,
-    SaveLoadLayoutType, SnapshotType,
+    register_partition_manager_update, register_world_dict_map_name, AvailableGameInfo, GameState,
+    SaveCode, SaveDate, SaveFileType, SaveGameInfo, SaveLoadLayoutType, SnapshotType,
+    SAVELOAD_BLOCK_NAMES,
 };
 
 pub use game_state_map::{GameStateMap, PORTABLE_MAPS, PORTABLE_SAVE, PORTABLE_USER_MAPS};

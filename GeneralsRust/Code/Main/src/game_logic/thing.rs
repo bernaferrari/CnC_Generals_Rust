@@ -1183,6 +1183,17 @@ pub struct ThingTemplate {
     /// Weapon.ini / Object INI tertiary weapon template name (resolved via WeaponStore).
     #[serde(default)]
     pub tertiary_weapon_name: Option<String>,
+    /// C++ `WeaponSet` `AutoChooseSources = PRIMARY NONE`.
+    ///
+    /// The authored PRIMARY still resolves from Weapon.ini when present, but
+    /// Object construction must not invent a kind-based `Weapon::default`
+    /// after a store miss (Strategy Center artillery starts turret-disabled).
+    #[serde(default)]
+    pub primary_auto_choose_none: bool,
+    /// C++ `FireOCLAfterWeaponCooldownUpdate` is present on the Object INI.
+    /// Create installs the residual module from this flag, not a unit name.
+    #[serde(default)]
+    pub has_fire_ocl_after_weapon_cooldown: bool,
     /// Source-ordered `FireWeaponWhenDamagedBehavior` module data.  This is
     /// retained separately from ordinary WeaponSet slots because C++ creates
     /// up to eight independent PRIMARY `Weapon` instances per module.  Main
@@ -1266,6 +1277,8 @@ impl ThingTemplate {
             secondary_weapon_name: None,
             tertiary_weapon: None,
             tertiary_weapon_name: None,
+            primary_auto_choose_none: false,
+            has_fire_ocl_after_weapon_cooldown: false,
             fire_weapon_when_damaged_behaviors: Vec::new(),
             fire_weapon_when_dead_behaviors: Vec::new(),
             locomotor_name: None,
@@ -1444,7 +1457,10 @@ impl ThingTemplate {
                 return Some(w);
             }
         }
-        if self.primary_weapon_explicitly_none {
+        if self.primary_weapon_explicitly_none || self.primary_auto_choose_none {
+            // C++ Object.cpp:160-497 arms only ThingTemplate WeaponSet data.
+            // AutoChooseSources=PRIMARY NONE must not fall through to a
+            // kind-based Weapon::default after a store miss.
             return None;
         }
         // Host residual map: templates often omit primary_weapon_name (units.rs /

@@ -18,6 +18,8 @@ use generals_compression::compression_manager::{
     CompressionManager as LegacyCompressionManager, CompressionType as LegacyCompressionType,
 };
 
+const REFPACK_MOCK_MAGIC: &[u8; 8] = b"RefPack\0";
+
 /// Compression types supported by the engine
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum CompressionType {
@@ -238,31 +240,31 @@ impl CompressionEngine {
         Ok(result)
     }
 
-    /// RefPack decompression (mock implementation)
-    fn decompress_refpack(&self, compressed_data: &[u8]) -> Result<Vec<u8>, io::Error> {
-        if compressed_data.len() < 12 {
-            return Err(io::Error::new(
+    /// RefPack decompression via `eac_compression::refpack` (C++ `REF_decode`).
+    fn decompress_refpack(
+        &self,
+        compressed_data: &[u8],
+        expected_size: Option<usize>,
+    ) -> Result<Vec<u8>, io::Error> {
+        let (payload, size) =
+            if compressed_data.len() >= 12 && compressed_data.starts_with(REFPACK_MOCK_MAGIC) {
+                let size = u32::from_le_bytes([
+                    compressed_data[8],
+                    compressed_data[9],
+                    compressed_data[10],
+                    compressed_data[11],
+                ]) as usize;
+                (&compressed_data[12..], Some(size))
+            } else {
+                (compressed_data, expected_size)
+            };
+        let size = size.unwrap_or(payload.len());
+        eac_compression::refpack::decode(payload, size).map_err(|err| {
+            io::Error::new(
                 io::ErrorKind::InvalidData,
-                "Invalid RefPack data",
-            ));
-        }
-
-        if &compressed_data[0..8] != b"RefPack\0" {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "Invalid RefPack magic",
-            ));
-        }
-
-        let _original_size = u32::from_le_bytes([
-            compressed_data[8],
-            compressed_data[9],
-            compressed_data[10],
-            compressed_data[11],
-        ]) as usize;
-
-        // Mock: just return the data after header
-        Ok(compressed_data[12..].to_vec())
+                format!("RefPack decode failed: {err}"),
+            )
+        })
     }
 }
 
@@ -306,7 +308,7 @@ impl CompressionInterface for CompressionEngine {
         &self,
         compressed_data: &[u8],
         compression_type: CompressionType,
-        _expected_size: Option<usize>,
+        expected_size: Option<usize>,
     ) -> Result<Vec<u8>, io::Error> {
         match compression_type {
             CompressionType::None => Ok(compressed_data.to_vec()),
@@ -321,7 +323,7 @@ impl CompressionInterface for CompressionEngine {
                 io::ErrorKind::InvalidInput,
                 "LZ4 is not a Generals C++ compression type",
             )),
-            CompressionType::RefPack => self.decompress_refpack(compressed_data),
+            CompressionType::RefPack => self.decompress_refpack(compressed_data, expected_size),
         }
     }
 
@@ -421,7 +423,9 @@ mod tests {
     }
 
     #[test]
-    fn test_refpack_mock_compression() {
+    fn test_refpack_engine_uses_eac_compression() {
+        // C++ REF_decode (refdecode.cpp) via eac_compression::refpack — not the
+        // old "RefPack\\0" + raw-payload mock.
         let engine = CompressionEngine::new();
         let data = b"Hello, World!";
 
@@ -433,6 +437,12 @@ mod tests {
             .unwrap();
         assert_eq!(decompressed, data);
         assert_eq!(&result.compressed_data[0..4], b"EAR\0");
+
+        let encoded = eac_compression::refpack::encode(data).expect("eac refpack encode");
+        let via_mock = engine
+            .decompress_refpack(&encoded, Some(data.len()))
+            .expect("engine mock must call eac_compression::refpack::decode");
+        assert_eq!(via_mock, data);
     }
 
     #[test]

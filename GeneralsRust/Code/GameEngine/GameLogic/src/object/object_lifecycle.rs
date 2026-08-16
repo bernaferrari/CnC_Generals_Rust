@@ -1090,6 +1090,14 @@ impl Object {
     ) {
         self.behaviors.push(behavior);
     }
+
+    /// Attach radar-object data so Object::attemptDamage can fire
+    /// TheRadar->tryUnderAttackEvent (C++ Object.cpp:1852 m_radarData != NULL).
+    #[cfg(any(test, feature = "internal"))]
+    pub fn set_radar_data_for_test(&mut self, data: Option<Arc<Mutex<RadarObject>>>) {
+        self.radar_data = data;
+    }
+
 }
 
 impl Drop for Object {

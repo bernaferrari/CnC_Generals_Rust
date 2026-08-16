@@ -497,7 +497,80 @@ pub trait ScriptActionHandler: Send + Sync {
     ) -> GameLogicResult<()> {
         Ok(())
     }
+
+    /// C++ ScriptActions.cpp:174/208/232/250 TheCampaignManager->SetVictorious.
+    fn set_campaign_victorious(&self, _victorious: bool) -> GameLogicResult<()> {
+        Ok(())
+    }
+
+    /// C++ ScriptActions.cpp:193-247 TheWindowManager->winCreateFromScript.
+    fn create_win_lose_window(&self, _layout_filename: &str) -> GameLogicResult<()> {
+        Ok(())
+    }
+
+    /// C++ ScriptActions.cpp:156-163 TheWindowManager->winDestroy(m_messageWindow).
+    fn destroy_win_lose_window(&self) -> GameLogicResult<()> {
+        Ok(())
+    }
+
+    /// C++ GameLogic::closeWindows GameLogicDispatch.cpp:202-219.
+    fn close_game_windows(&self) -> GameLogicResult<()> {
+        Ok(())
+    }
 }
+
+/// C++ Scripts.h skirmish trigger names.
+pub(crate) const MY_INNER_PERIMETER: &str = "[Skirmish]MyInnerPerimeter";
+pub(crate) const MY_OUTER_PERIMETER: &str = "[Skirmish]MyOuterPerimeter";
+pub(crate) const ENEMY_INNER_PERIMETER: &str = "[Skirmish]EnemyInnerPerimeter";
+pub(crate) const ENEMY_OUTER_PERIMETER: &str = "[Skirmish]EnemyOuterPerimeter";
+pub(crate) const INNER_PERIMETER: &str = "InnerPerimeter";
+pub(crate) const OUTER_PERIMETER: &str = "OuterPerimeter";
+
+/// C++ ScriptEngine::getQualifiedTriggerAreaByName rewrite (ScriptEngine.cpp:5888-5916).
+pub(crate) fn qualify_trigger_area_name(
+    area_name: &str,
+    current_player_name: Option<&str>,
+) -> Option<String> {
+    if area_name == MY_INNER_PERIMETER || area_name == MY_OUTER_PERIMETER {
+        let player_name = current_player_name?;
+        let ndx = crate::player::player_list()
+            .read()
+            .ok()
+            .and_then(|list| list.find_player_by_name(player_name))
+            .and_then(|player| player.read().ok().map(|guard| guard.get_mp_start_index() + 1))?;
+        if area_name == MY_INNER_PERIMETER {
+            return Some(format!("{INNER_PERIMETER}{ndx}"));
+        }
+        return Some(format!("{OUTER_PERIMETER}{ndx}"));
+    }
+
+    if area_name == ENEMY_INNER_PERIMETER || area_name == ENEMY_OUTER_PERIMETER {
+        let mut mp_ndx = -1;
+        if let Some(player_name) = current_player_name {
+            if let Ok(list) = crate::player::player_list().read() {
+                if let Some(player) = list.find_player_by_name(player_name) {
+                    if let Ok(guard) = player.read() {
+                        if let Some(enemy_index) = guard.get_current_enemy_player_index() {
+                            if let Some(enemy) = list.get_player(enemy_index) {
+                                if let Ok(enemy_guard) = enemy.read() {
+                                    mp_ndx = enemy_guard.get_mp_start_index() + 1;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if area_name == ENEMY_INNER_PERIMETER {
+            return Some(format!("{INNER_PERIMETER}{mp_ndx}"));
+        }
+        return Some(format!("{OUTER_PERIMETER}{mp_ndx}"));
+    }
+
+    Some(area_name.to_string())
+}
+
 
 /// Fade types matching C++ TFade enum
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -874,11 +947,16 @@ pub struct ScriptEngineInner {
     game_difficulty: crate::player::GameDifficulty,
 
     // System state
+    campaign_victorious: bool,
+
     freeze_by_script: bool,
     freeze_by_debug: bool,
     objects_should_receive_difficulty_bonus: bool,
     choose_victim_always_uses_normal: bool,
     shown_mp_local_defeat_window: bool,
+    /// C++ ScriptActions.cpp m_suppressNewWindows / m_messageWindow.
+    suppress_new_windows: bool,
+    win_lose_window_layout: Option<String>,
 
     // Sequential scripts
     sequential_scripts: Vec<SequentialScript>,

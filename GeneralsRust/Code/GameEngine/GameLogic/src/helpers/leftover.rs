@@ -346,10 +346,47 @@ impl TheRadar {
 /// Terrain visual effects bridge (matching C++ TheTerrainVisual).
 pub struct TheTerrainVisual;
 
+static TERRAIN_VISUAL_RAW_HEIGHT: std::sync::LazyLock<Mutex<Option<fn(i32, i32, i32)>>> =
+    std::sync::LazyLock::new(|| Mutex::new(None));
+static TERRAIN_VISUAL_LIGHTING_CHANGED: std::sync::LazyLock<Mutex<Option<fn()>>> =
+    std::sync::LazyLock::new(|| Mutex::new(None));
+
+/// Register the live GameClient `W3DTerrainVisual::setRawMapHeight` hook.
+pub fn register_terrain_visual_raw_height_hook(hook: Option<fn(i32, i32, i32)>) {
+    if let Ok(mut slot) = TERRAIN_VISUAL_RAW_HEIGHT.lock() {
+        *slot = hook;
+    }
+}
+
+/// Register the live GameClient `staticLightingChanged` hook.
+pub fn register_terrain_visual_lighting_changed_hook(hook: Option<fn()>) {
+    if let Ok(mut slot) = TERRAIN_VISUAL_LIGHTING_CHANGED.lock() {
+        *slot = hook;
+    }
+}
+
 impl TheTerrainVisual {
     pub fn get() -> Option<&'static Self> {
         static VISUAL: OnceLock<TheTerrainVisual> = OnceLock::new();
         Some(VISUAL.get_or_init(|| TheTerrainVisual))
+    }
+
+    /// C++ `W3DTerrainVisual::setRawMapHeight` — playable-grid coords.
+    pub fn set_raw_map_height(&self, x: i32, y: i32, height: i32) {
+        if let Ok(slot) = TERRAIN_VISUAL_RAW_HEIGHT.lock() {
+            if let Some(hook) = *slot {
+                hook(x, y, height);
+            }
+        }
+    }
+
+    /// C++ `HeightMapRenderObjClass::staticLightingChanged`.
+    pub fn static_lighting_changed(&self) {
+        if let Ok(slot) = TERRAIN_VISUAL_LIGHTING_CHANGED.lock() {
+            if let Some(hook) = *slot {
+                hook();
+            }
+        }
     }
 
     pub fn add_water_velocity(&self, _x: Real, _y: Real, _velocity: Real, _preferred_height: Real) {

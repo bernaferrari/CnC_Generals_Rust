@@ -44,7 +44,12 @@ impl SubsystemInterface for TerrainVisualImpl {
         self.terrain_sampler = None;
         self.terrain_sampler_mode = None;
         self.water_plane = None;
-        self.terrain_bibs.clear();
+        self.water_track_meshes.clear();
+        self.last_water_tracks_flush = crate::terrain::WaterTracksFlush::default();
+        self.water_tracks = crate::terrain::WaterTracksRenderSystem::new(
+            crate::terrain::DEFAULT_WATER_TRACK_MODULES,
+        );
+
         self.terrain_props.clear();
         self.construction_removals.clear();
         self.road_meshes.clear();
@@ -82,7 +87,9 @@ impl SubsystemInterface for TerrainVisualImpl {
 
         let water_started = std::time::Instant::now();
         self.water_system.update()?;
+        self.flush_water_tracks();
         let water_elapsed = water_started.elapsed();
+
 
         let road_started = std::time::Instant::now();
         self.road_system.update()?;

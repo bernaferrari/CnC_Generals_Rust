@@ -124,6 +124,27 @@ mod tests {
         assert!(!enabled, "default leftover crate is wgpu shim only");
     }
 
+    #[test]
+    fn leftover_device_archive_is_dead_by_default_matching_ghcr16() {
+        // C++ GameEngineDevice/Source/W3DDevice is the live W3DDisplay path.
+        // Rust leftover archive (this crate) is dead-by-default: `legacy-full` off.
+        // Live draws are GameClient wgpu re-exports (hq-ghcr.16 / hq-rdde).
+        assert!(
+            !super::leftover_legacy_full_enabled(),
+            "default leftover crate must keep legacy-full off"
+        );
+        let cargo = include_str!("../Cargo.toml");
+        assert!(
+            cargo.contains("default = []") && cargo.contains("legacy-full = []"),
+            "leftover archive must not enable legacy-full by default"
+        );
+        let stub = include_str!("W3DDevice/GameClient/wthree_d_water.rs");
+        assert!(
+            stub.contains("pub const DEFAULT_VALUE: u32 = 0"),
+            "archive DEFAULT_VALUE stubs stay on disk and are not the live path"
+        );
+    }
+
     #[cfg(feature = "legacy-full")]
     #[test]
     fn leftover_legacy_full_routes_fx_and_tree_to_gameclient_wgpu() {

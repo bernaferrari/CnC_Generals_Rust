@@ -109,8 +109,8 @@ impl GameLogic {
         };
 
         self.commit_dirty_host_objects_to_gameworld();
-        self.fire_temporary_weapons_for_pending_deaths();
-        self.process_destroy_list();
+        // C++ processDestroyList runs inside every GameLogic::update
+        // (GameLogic.cpp:3762), not once after the fixed-step catch-up batch.
     }
 
     /// Execute one simulation step.
@@ -191,32 +191,43 @@ impl GameLogic {
         self.process_commands();
 
         // -----------------------------------------------------------------------
-        // Phase 6: Object Updates -- Normal + Sleepy Modules (C++ lines 3672-3738)
+        // Phase 6: Object Updates -- Sleepy heap (C++ GameLogic.cpp:3699-3740)
         // -----------------------------------------------------------------------
-        // C++: ALLOW_NONSLEEPY_UPDATES loop, then sleepy updates loop.
-        // These include construction, movement, and the simplified per-object AI
-        // decision logic. Stealth modules also live in the sleepy update queue.
-        self.update_construction(&object_ids, dt);
-        // C++ BuildAssistant::update sell list residual (multi-frame sell).
-        // Wave 827: under coupled shadow, host system residuals sole-tick after GW writeback.
-        if !(crate::gameworld_shadow::gameworld_shadow_enabled()
-            && crate::gameworld_shadow::shadow_coupled_tick_active())
-        {
-            self.update_sell_list();
+        // C++ ticks UpdateModules via m_sleepyUpdates (wake_frame, phase).
+        // Host residuals are scheduled the same way: drain due modules, then
+        // run the matching system tick. UPDATE_SLEEP_NONE → next frame.
+        let now = self.frame.max(1);
+        let due = self.host_sleepy.drain_due(now);
+        for kind in due {
+            match kind {
+                super::HostSleepyKind::Construction => {
+                    self.update_construction(&object_ids, dt);
+                }
+                super::HostSleepyKind::SellList => {
+                    if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+                        && crate::gameworld_shadow::shadow_coupled_tick_active())
+                    {
+                        self.update_sell_list();
+                    }
+                }
+                super::HostSleepyKind::DozerBoredRepair => {
+                    if !(crate::gameworld_shadow::gameworld_shadow_enabled()
+                        && crate::gameworld_shadow::shadow_coupled_tick_active())
+                    {
+                        self.update_dozer_bored_repair();
+                    }
+                }
+                super::HostSleepyKind::RebuildHoles => {
+                    self.update_rebuild_holes();
+                }
+                super::HostSleepyKind::Movement => {
+                    self.update_movement(&object_ids, dt);
+                }
+                super::HostSleepyKind::SpecialPowers => {
+                    update_special_powers();
+                }
+            }
         }
-        // C++ DozerPrimaryIdleState bored auto-repair residual.
-        // Wave 819: under coupled shadow, idle timer owned by GW; host applies acquire via logs.
-        if !(crate::gameworld_shadow::gameworld_shadow_enabled()
-            && crate::gameworld_shadow::shadow_coupled_tick_active())
-        {
-            self.update_dozer_bored_repair();
-        }
-        // C++ RebuildHoleBehavior update residual.
-        self.update_rebuild_holes();
-        self.update_movement(&object_ids, dt);
-
-        // Special power cooldown/timer updates
-        update_special_powers();
 
         // Host superweapon residual: complete queued DaisyCutter / A10 / Scud /
         // ParticleCannon / NuclearMissile / AnthraxBomb / SpectreGunship /
@@ -1017,10 +1028,10 @@ impl GameLogic {
         // Phase 13: Death/Cleanup (C++ line 3762)
         // -----------------------------------------------------------------------
         // C++: processDestroyList();
-        // Destroyed objects removed from world. Note: the actual destroy list
-        // processing happens in step_simulation_with_budget() after this method
-        // returns, so objects marked for destruction this frame are cleaned up
-        // after the frame is complete.
+        // Same-frame cascades: iterator re-evaluates end() so objects queued
+        // during deletion are processed this logic frame (GameLogic.cpp:2449-2510).
+        self.fire_temporary_weapons_for_pending_deaths();
+        self.process_destroy_list();
 
         // -----------------------------------------------------------------------
         // Phase 14: Weapon Store Update (C++ line 3767)
@@ -1047,7 +1058,8 @@ impl GameLogic {
         // Phase 15: Victory Conditions (C++ line 3769)
         // -----------------------------------------------------------------------
         // C++: TheVictoryConditions->UPDATE();
-        // Handled by the gamelogic crate's update_pipeline (tick_gamelogic_crate).
+        // Evaluate inside every logic frame, not only PresentationFrame::build.
+        let _ = self.evaluate_victory_condition();
 
         // -----------------------------------------------------------------------
         // Phase 16: Disabled Status Check (C++ lines 3783-3792)

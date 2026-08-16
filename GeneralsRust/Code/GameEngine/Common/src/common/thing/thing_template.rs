@@ -615,14 +615,9 @@ impl<'a> ModuleInfoEntry<'a> {
     }
 }
 
-/// Build a KindOf u64 mask from an array of discriminant positions.
-/// Each position `p` sets bit `1u64 << p`.
-fn kindof_mask(positions: &[u32]) -> u64 {
-    let mut mask = 0u64;
-    for &p in positions {
-        mask |= 1u64 << p;
-    }
-    mask
+/// Full-width KindOf mask from named flags (bits >= 64 stay set).
+fn kindof_mask_from(flags: crate::common::system::kind_of::KindOfMask) -> u128 {
+    flags.bits()
 }
 
 impl ModuleInfo {
@@ -718,38 +713,39 @@ impl ModuleInfo {
     ) -> bool {
         // C++ Reference: ThingTemplate.cpp line 382-455 clearCopiedFromDefaultEntries
         //
-        // Build KindOf masks using discriminant positions from the KindOf enum.
-        // The mask is 1u64 << discriminant.
+        // Build KindOf masks from the retail KindOf.h bit positions
+        // (ALLOW_SURRENDER off). C++ ThingTemplate.cpp:384-409.
+        use crate::common::system::kind_of::KindOfMask;
 
         // ImmuneToGPSScramblerMask: types that should NOT receive GPS scrambler modules
-        let immune_mask: u64 = kindof_mask(&[
-            5,   // Aircraft
-            41,  // Shrubbery
-            133, // OptimizedTree
-            9,   // Structure
-            88,  // DrawableOnly
-            79,  // MobNexus
-            78,  // IgnoredInGui
-            136, // ClearedByBuild
-            108, // DefensiveWall
-            114, // BallisticMissile
-            7,   // SupplySource
-            87,  // Boat
-            66,  // Inert (alias for Immobile)
-            12,  // Bridge
-            134, // LandmarkBridge
-            65,  // BridgeTower
-        ]);
-        let disallowed = full_template.is_any_kind_of(&immune_mask);
+        let immune_mask = kindof_mask_from(
+            KindOfMask::AIRCRAFT
+                | KindOfMask::SHRUBBERY
+                | KindOfMask::OPTIMIZED_TREE
+                | KindOfMask::STRUCTURE
+                | KindOfMask::DRAWABLE_ONLY
+                | KindOfMask::MOB_NEXUS
+                | KindOfMask::IGNORED_IN_GUI
+                | KindOfMask::CLEARED_BY_BUILD
+                | KindOfMask::DEFENSIVE_WALL
+                | KindOfMask::BALLISTIC_MISSILE
+                | KindOfMask::SUPPLY_SOURCE
+                | KindOfMask::BOAT
+                | KindOfMask::INERT
+                | KindOfMask::BRIDGE
+                | KindOfMask::LANDMARK_BRIDGE
+                | KindOfMask::BRIDGE_TOWER,
+        );
+        let disallowed = full_template.is_any_kind_of_bits(immune_mask);
 
         // CandidateForGPSScramblerMask: types that CAN receive GPS scrambler modules
-        let candidate_mask: u64 = kindof_mask(&[
-            89, // Score
-            3,  // Vehicle
-            4,  // Infantry
-            69, // PortableStructure
-        ]);
-        let candidate = full_template.is_any_kind_of(&candidate_mask);
+        let candidate_mask = kindof_mask_from(
+            KindOfMask::SCORE
+                | KindOfMask::VEHICLE
+                | KindOfMask::INFANTRY
+                | KindOfMask::PORTABLE_STRUCTURE,
+        );
+        let candidate = full_template.is_any_kind_of_bits(candidate_mask);
 
         let mut removed_any = false;
         let mut i = 0;
@@ -1249,17 +1245,10 @@ fn parse_command_source_mask(value: &str) -> Result<u32, String> {
 }
 
 fn parse_kindof_mask(value: &str) -> Result<crate::common::system::kind_of::KindOfMask, String> {
-    let mut mask = crate::common::system::kind_of::KindOfMask::empty();
-    for token in split_weapon_condition_tokens(value) {
-        if token == "NONE" {
-            continue;
-        }
-        let Some(flag) = crate::common::system::kind_of::KindOfMask::from_string(&token) else {
-            return Err(format!("Unknown KindOf token '{}'", token));
-        };
-        mask |= flag;
-    }
-    Ok(mask)
+    crate::common::system::kind_of::KindOfMask::parse_ini(
+        crate::common::system::kind_of::KindOfMask::empty(),
+        value,
+    )
 }
 
 fn apply_flag_tokens(flags: &mut BitFlags, value: &str, field_name: &str) -> Result<(), String> {
@@ -1404,7 +1393,7 @@ pub struct ThingTemplate {
     is_forbidden: bool,
 
     // Gameplay properties
-    kindof: u64, // stores KindOfMask.bits() as u64
+    kindof: u128, // KindOfMask.bits() full width so bits >= 64 survive
     default_owning_side: AsciiString,
     command_set_string: AsciiString,
     skill_point_values: [i32; LEVEL_COUNT],
@@ -1810,19 +1799,30 @@ impl ThingTemplate {
         self.energy_bonus
     }
 
-    pub fn is_kind_of(&self, kind: u64) -> bool {
-        (self.kindof & kind) != 0
+    pub fn is_kind_of(&self, kind: impl Into<u128>) -> bool {
+        (self.kindof & kind.into()) != 0
     }
 
     pub fn is_kind_of_multi(&self, must_be_set: &u64, must_be_clear: &u64) -> bool {
-        (self.kindof & must_be_set) == *must_be_set && (self.kindof & must_be_clear) == 0
+        let must_be_set = *must_be_set as u128;
+        let must_be_clear = *must_be_clear as u128;
+        (self.kindof & must_be_set) == must_be_set && (self.kindof & must_be_clear) == 0
     }
 
     pub fn is_any_kind_of(&self, any_kind_of: &u64) -> bool {
+        self.is_any_kind_of_bits(*any_kind_of as u128)
+    }
+
+    pub fn is_any_kind_of_bits(&self, any_kind_of: u128) -> bool {
         (self.kindof & any_kind_of) != 0
     }
 
     pub fn get_kindof_mask(&self) -> u64 {
+        self.kindof as u64
+    }
+
+    /// Full-width KindOf bits (`KindOfMask::bits()`), including positions >= 64.
+    pub fn get_kindof_bits(&self) -> u128 {
         self.kindof
     }
 
@@ -2443,7 +2443,7 @@ impl ThingTemplate {
 
         // Mark build facilities
         // This would iterate through prerequisites and mark templates as build facilities
-        if self.is_kind_of(crate::common::system::kind_of::KindOfMask::COMMANDCENTER.bits() as u64)
+        if self.is_kind_of(crate::common::system::kind_of::KindOfMask::COMMANDCENTER.bits())
         {
             self.is_build_facility = true;
         }
@@ -2546,7 +2546,7 @@ impl ThingTemplate {
         let base_cost = self.get_build_cost() as f32;
         let mut faction_modifier =
             1.0 + player.get_production_cost_change_percent(self.get_name().as_str());
-        faction_modifier *= player.get_production_cost_change_based_on_kind_of(self.kindof);
+        faction_modifier *= player.get_production_cost_change_based_on_kind_of(self.kindof as u64);
         let result = base_cost * faction_modifier * player.get_build_cost_handicap(self);
         result as i32
     }
@@ -2833,13 +2833,9 @@ impl ThingTemplate {
                 // --- KindOf ---
                 "KindOf" => {
                     use crate::common::system::kind_of::KindOfMask;
-                    let mut mask = KindOfMask::empty();
-                    for token in trimmed.split_whitespace() {
-                        if let Some(flag) = KindOfMask::from_string(token) {
-                            mask |= flag;
-                        }
-                    }
-                    self.kindof = mask.bits() as u64;
+                    // C++ BitFlagsIO.h:38-107 — NONE, +NAME, -NAME, unknown errors.
+                    let existing = KindOfMask::from_bits_retain(self.kindof);
+                    self.kindof = KindOfMask::parse_ini(existing, trimmed)?.bits();
                 }
 
                 // --- UI ---
@@ -2989,11 +2985,11 @@ impl ThingTemplate {
         Ok(())
     }
 
-    /// Set the KindOf mask from a resolved bitmask.
+    /// Set the KindOf mask from a resolved bitmask (`u64` or full `u128`).
     ///
     /// Called by the GameLogic layer after resolving KindOf flag names to bits.
-    pub fn set_kindof_mask(&mut self, mask: u64) {
-        self.kindof = mask;
+    pub fn set_kindof_mask(&mut self, mask: impl Into<u128>) {
+        self.kindof = mask.into();
     }
 }
 
@@ -3825,10 +3821,112 @@ mod tests {
     fn is_kind_of_handles_high_bit_masks_without_panicking() {
         use crate::common::system::kind_of::KindOfMask;
         let mut template = ThingTemplate::new();
-        template.kindof = KindOfMask::DOZER.bits() as u64;
+        template.kindof = KindOfMask::DOZER.bits();
 
-        assert!(template.is_kind_of(KindOfMask::DOZER.bits() as u64));
-        assert!(!template.is_kind_of(KindOfMask::COMMANDCENTER.bits() as u64));
+        assert!(template.is_kind_of(KindOfMask::DOZER.bits()));
+        assert!(!template.is_kind_of(KindOfMask::COMMANDCENTER.bits()));
+    }
+
+    // C++ KindOf.h:96 / ThingTemplate.h m_kindof BitFlags<KINDOF_COUNT>.
+    #[test]
+    fn forceattackable_survives_template_store() {
+        use crate::common::system::kind_of::KindOfMask;
+        let mut template = ThingTemplate::new();
+        template.set_kindof_mask(KindOfMask::FORCEATTACKABLE.bits());
+        assert!(template.is_kind_of(KindOfMask::FORCEATTACKABLE.bits()));
+        assert_eq!(
+            template.get_kindof_bits() & KindOfMask::FORCEATTACKABLE.bits(),
+            KindOfMask::FORCEATTACKABLE.bits()
+        );
+
+        // Bits >= 64 used to vanish when kindof was stored as u64.
+        template.set_kindof_mask(KindOfMask::HERO.bits() | KindOfMask::FORCEATTACKABLE.bits());
+        assert!(template.is_kind_of(KindOfMask::HERO.bits()));
+        assert!(template.is_kind_of(KindOfMask::FORCEATTACKABLE.bits()));
+    }
+
+    // C++ BitFlagsIO.h:38-107 via ThingTemplate KindOf INI field.
+    #[test]
+    fn kindof_ini_plus_hero_is_incremental() {
+        use crate::common::system::kind_of::KindOfMask;
+        let mut template = ThingTemplate::new();
+        template
+            .parse_object_fields_from_ini(&HashMap::from([(
+                "KindOf".to_string(),
+                "INFANTRY SELECTABLE".to_string(),
+            )]))
+            .expect("base KindOf should parse");
+        template
+            .parse_object_fields_from_ini(&HashMap::from([(
+                "KindOf".to_string(),
+                "+HERO".to_string(),
+            )]))
+            .expect("+HERO should parse incrementally");
+        assert!(template.is_kind_of(KindOfMask::INFANTRY.bits()));
+        assert!(template.is_kind_of(KindOfMask::SELECTABLE.bits()));
+        assert!(template.is_kind_of(KindOfMask::HERO.bits()));
+    }
+
+    #[test]
+    fn kindof_ini_unknown_name_errors() {
+        let mut template = ThingTemplate::new();
+        let err = template
+            .parse_object_fields_from_ini(&HashMap::from([(
+                "KindOf".to_string(),
+                "NOT_A_REAL_KIND".to_string(),
+            )]))
+            .expect_err("unknown KindOf token must error");
+        assert!(err.contains("NOT_A_REAL_KIND"), "{err}");
+    }
+
+    // C++ ThingTemplate.cpp:384-409 — real KindOf bits, not fabricated u64 wraps.
+    #[test]
+    fn gps_scrambler_masks_use_retail_kindof_bits() {
+        use crate::common::system::kind_of::KindOfMask;
+
+        let data: Arc<dyn ModuleData> = Arc::new(CapturedModuleData::new(
+            "ModuleTag_Gps",
+            String::new(),
+            HashMap::new(),
+        ));
+
+        let mut immune_template = ThingTemplate::new();
+        immune_template.set_kindof_mask(KindOfMask::OPTIMIZED_TREE.bits());
+        let mut immune_info = ModuleInfo::new();
+        immune_info.add_module_info(
+            AsciiString::from("StealthUpdate"),
+            AsciiString::from("ModuleTag_Gps"),
+            Arc::clone(&data),
+            1,
+            false,
+            true,
+        );
+        immune_info.set_copied_from_default(true);
+        assert!(immune_info.clear_copied_from_default_entries(
+            1,
+            &AsciiString::from("OtherModule"),
+            &immune_template,
+        ));
+        assert_eq!(immune_info.get_count(), 0);
+
+        let mut candidate_template = ThingTemplate::new();
+        candidate_template.set_kindof_mask(KindOfMask::VEHICLE.bits() | KindOfMask::SCORE.bits());
+        let mut candidate_info = ModuleInfo::new();
+        candidate_info.add_module_info(
+            AsciiString::from("StealthUpdate"),
+            AsciiString::from("ModuleTag_Gps"),
+            data,
+            1,
+            false,
+            true,
+        );
+        candidate_info.set_copied_from_default(true);
+        assert!(!candidate_info.clear_copied_from_default_entries(
+            1,
+            &AsciiString::from("OtherModule"),
+            &candidate_template,
+        ));
+        assert_eq!(candidate_info.get_count(), 1);
     }
 
     #[test]
@@ -3990,9 +4088,9 @@ impl Snapshotable for ThingTemplate {
             .map_err(xfer_err)?;
         xfer.xfer_bool(&mut self.is_forbidden).map_err(xfer_err)?;
 
-        // KindOf mask as u64
+        // KindOf mask as u128 (retail KINDOF_COUNT = 116)
         let mut kindof = self.kindof;
-        xfer.xfer_u64(&mut kindof).map_err(xfer_err)?;
+        xfer.xfer_u128(&mut kindof).map_err(xfer_err)?;
         self.kindof = kindof;
 
         xfer.xfer_ascii_string(&mut self.default_owning_side)

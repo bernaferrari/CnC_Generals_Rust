@@ -28,7 +28,8 @@ use crate::team::get_team_factory;
 use crate::terrain::get_terrain_logic;
 use crate::waypoint::WaypointId;
 use serde::{Deserialize, Serialize};
-use std::sync::{Arc, RwLock};
+use std::collections::HashMap;
+use std::sync::{Arc, LazyLock, Mutex, RwLock};
 use std::time::Duration;
 
 fn is_cliff_at(pos: &Coord3D) -> bool {
@@ -2554,6 +2555,78 @@ impl AiStateMachine {
     }
 }
 
+/// Thin live-host adapter: dispatch only C++ `AIInternalMoveToState` /
+/// `AIAttackState` enter (`set_state`) for MoveTo / AttackObject / AttackMoveTo.
+/// Does not run the 48-state `update()` graph (those fail-closed without
+/// `OBJECT_REGISTRY`). C++: `AIStateMachine.h:36-101`, `AIStates.cpp`
+/// `AIInternalMoveToState::onEnter` / `AIAttackState::onEnter`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HostMoveAttackKind {
+    /// C++ `AI_MOVE_TO` / `AIInternalMoveToState`.
+    MoveTo,
+    /// C++ `AI_ATTACK_OBJECT` / `AIAttackState`.
+    AttackObject,
+    /// C++ `AI_ATTACK_MOVE_TO` / `AIAttackMoveState`.
+    AttackMoveTo,
+}
+
+impl HostMoveAttackKind {
+    fn to_crate_state(self) -> AiStateType {
+        match self {
+            HostMoveAttackKind::MoveTo => AiStateType::MoveTo,
+            HostMoveAttackKind::AttackObject => AiStateType::AttackObject,
+            HostMoveAttackKind::AttackMoveTo => AiStateType::AttackMoveTo,
+        }
+    }
+}
+
+static HOST_MOVE_ATTACK_MACHINES: LazyLock<Mutex<HashMap<ObjectID, AiStateMachine>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+fn host_move_attack_machines() -> &'static Mutex<HashMap<ObjectID, AiStateMachine>> {
+    &HOST_MOVE_ATTACK_MACHINES
+}
+
+/// Record a live-host move/attack transition on the crate `AiStateMachine`.
+///
+/// Only `set_state` + goal fields are applied. `AiStateMachine::update` is not
+/// called: without `OBJECT_REGISTRY` it returns `StateFailed` (Wave 267).
+pub fn dispatch_host_move_attack(
+    owner_id: ObjectID,
+    kind: HostMoveAttackKind,
+    goal_position: Option<Coord3D>,
+    goal_object: Option<ObjectID>,
+) -> Result<AiStateType, AiError> {
+    let mut machines = host_move_attack_machines()
+        .lock()
+        .map_err(|_| AiError::LockFailed)?;
+    let machine = machines.entry(owner_id).or_insert_with(|| {
+        AiStateMachine::new(owner_id, format!("host-move-attack-{owner_id}"))
+    });
+    machine.set_state(kind.to_crate_state())?;
+    if let Some(pos) = goal_position {
+        machine.set_goal_position(pos);
+    }
+    if let Some(obj) = goal_object {
+        machine.set_goal_object(obj);
+    }
+    Ok(machine.get_current_state())
+}
+
+/// Inspect the last crate state recorded by [`dispatch_host_move_attack`].
+pub fn host_move_attack_state(owner_id: ObjectID) -> Option<AiStateType> {
+    let machines = host_move_attack_machines().lock().ok()?;
+    machines.get(&owner_id).map(|machine| machine.get_current_state())
+}
+
+#[cfg(test)]
+fn reset_host_move_attack_machines_for_test() {
+    if let Ok(mut machines) = host_move_attack_machines().lock() {
+        machines.clear();
+    }
+}
+
+
 impl AiCommandInterface for AiStateMachine {
     fn ai_do_command(&mut self, params: &AiCommandParams) -> Result<(), AiError> {
         let state = match params.cmd {
@@ -2973,4 +3046,54 @@ mod tests {
         assert!(relative_angle_2d(&owner, 0.0, &near_target).abs() < 0.035);
         assert!(relative_angle_2d(&owner, 0.0, &far_target).abs() > 0.035);
     }
+
+    #[test]
+    fn host_move_attack_adapter_dispatches_only_move_and_attack() {
+        // C++ AIStateMachine.h:36-101 / AIStates.cpp AIInternalMoveToState::onEnter
+        // and AIAttackState::onEnter. Live host is a flat enum; this adapter
+        // records only MoveTo / AttackObject / AttackMoveTo via set_state.
+        reset_host_move_attack_machines_for_test();
+        let owner = 9_001;
+        let dest = Coord3D::new(12.0, 0.0, 34.0);
+        let state = dispatch_host_move_attack(
+            owner,
+            HostMoveAttackKind::MoveTo,
+            Some(dest),
+            None,
+        )
+        .expect("move");
+        assert_eq!(state, AiStateType::MoveTo);
+        assert_eq!(host_move_attack_state(owner), Some(AiStateType::MoveTo));
+
+        let state = dispatch_host_move_attack(
+            owner,
+            HostMoveAttackKind::AttackObject,
+            None,
+            Some(77),
+        )
+        .expect("attack");
+        assert_eq!(state, AiStateType::AttackObject);
+
+        let state = dispatch_host_move_attack(
+            owner,
+            HostMoveAttackKind::AttackMoveTo,
+            Some(dest),
+            Some(77),
+        )
+        .expect("attack-move");
+        assert_eq!(state, AiStateType::AttackMoveTo);
+        assert_eq!(host_move_attack_state(owner), Some(AiStateType::AttackMoveTo));
+
+        // Guard / Hunt / the remaining 45 states are intentionally not dispatched.
+        let src = include_str!("state_machine.rs");
+        let start = src
+            .find("fn dispatch_host_move_attack(")
+            .expect("adapter");
+        let window = &src[start..start + 700.min(src.len() - start)];
+        assert!(window.contains("kind.to_crate_state()"));
+        assert!(!window.contains("AiStateType::Guard"));
+        assert!(!window.contains("AiStateType::Hunt"));
+        reset_host_move_attack_machines_for_test();
+    }
+
 }

@@ -1222,6 +1222,8 @@ pub struct GameLogic {
     pub(super) runtime_terrain_texture_classes: Vec<super::script_loader::BlendTileTextureClass>,
     pub(super) pathfinding_height_samples: Option<PathfindingHeightSamples>,
     pub(super) weather_state: RuntimeWeatherState,
+    /// C++ `m_sleepyUpdates` host residual (`GameLogic.cpp:3699-3740`).
+    pub(super) host_sleepy: super::world_tick::HostSleepyHeap,
 }
 
 #[derive(Debug, Clone)]

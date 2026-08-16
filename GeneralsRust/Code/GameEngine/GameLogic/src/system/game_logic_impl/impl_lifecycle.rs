@@ -1,3 +1,11 @@
+#[cfg(test)]
+thread_local! {
+    /// Test-only: queue this id from inside processDestroyList, matching C++
+    /// "the new object was added to the end of this list" (GameLogic.cpp:2509).
+    static CLEANUP_CASCADE_CHILD: std::cell::Cell<Option<ObjectID>> =
+        const { std::cell::Cell::new(None) };
+}
+
 impl GameLogic {
     pub fn cleanup_dead_objects(&mut self) -> Result<(), GameLogicError> {
         // Wave 344: empty dual-world → Ok(()). Still clean live dead-list.
@@ -13,11 +21,17 @@ impl GameLogic {
         // Track if we processed any objects for FOW updates
         let had_dead_objects = !self.dead_objects.is_empty();
 
-        // Finish the drain up-front to avoid holding a borrow across the inner work.
-        let drained: Vec<_> = self.dead_objects.drain(..).collect();
-
-        // Process all dead objects
-        for obj_id in drained {
+        // C++ GameLogic::processDestroyList (GameLogic.cpp:2449-2510) walks
+        // `iterator != end()` so objects queued during deletion (sub-objects)
+        // are processed the same frame. Do not drain the list up-front.
+        let mut i = 0;
+        while i < self.dead_objects.len() {
+            let obj_id = self.dead_objects[i];
+            i += 1;
+            #[cfg(test)]
+            if let Some(child) = CLEANUP_CASCADE_CHILD.with(|c| c.take()) {
+                self.destroy_object(child);
+            }
             let mut object_position = None;
             let object_index = self.all_objects.iter().position(|&id| id == obj_id);
             let previous_object_id = object_index
@@ -47,10 +61,12 @@ impl GameLogic {
                 }
 
                 if let Ok(mut obj_write) = obj_ref.write() {
-                    // If the object was not already fully cleaned up through a prior path,
-                    // run the internal destroy routine that removes contained object links and
-                    // invokes module onDelete hooks.
-                    obj_write.on_destroy_internal();
+                    // C++ Object::onDestroy already ran in destroyObject.
+                    // If this id was queued without destroyObject, finish
+                    // contain-eject / module onDelete / partition here.
+                    if !obj_write.is_destroyed() {
+                        obj_write.on_destroy();
+                    }
                     obj_write.set_next_object_id(None);
                     obj_write.set_prev_object_id(None);
                 }
@@ -101,6 +117,7 @@ impl GameLogic {
 
             trace!("Destroyed object {}", obj_id);
         }
+        self.dead_objects.clear();
 
         // Trigger FOW update if any objects were destroyed
         if had_dead_objects {
@@ -129,26 +146,9 @@ impl GameLogic {
             ));
         }
 
-        let previous_object_id = self.all_objects.last().copied();
-
-        // Add to object collections
+        // C++ GameLogic::registerObject prepends (GameLogic.cpp:3866).
         self.objects.insert(object_id, Arc::clone(&object));
-        self.all_objects.push(object_id);
-
-        if let Some(previous_id) = previous_object_id {
-            if let Some(previous_object) = self.objects.get(&previous_id) {
-                if let Ok(mut previous_guard) = previous_object.write() {
-                    previous_guard.set_next_object_id(Some(object_id));
-                }
-            }
-            if let Ok(mut object_guard) = object.write() {
-                object_guard.set_prev_object_id(Some(previous_id));
-                object_guard.set_next_object_id(None);
-            }
-        } else if let Ok(mut object_guard) = object.write() {
-            object_guard.set_prev_object_id(None);
-            object_guard.set_next_object_id(None);
-        }
+        self.prepend_to_object_list(&object, object_id);
 
         // Register in global registry
         OBJECT_REGISTRY.register_object(object_id, &object);
@@ -260,25 +260,9 @@ impl GameLogic {
             return Ok(object_id);
         }
 
-        let previous_object_id = self.all_objects.last().copied();
-
+        // C++ registerObject prepends (GameLogic.cpp:3866).
         self.objects.insert(object_id, Arc::clone(&object));
-        self.all_objects.push(object_id);
-
-        if let Some(previous_id) = previous_object_id {
-            if let Some(previous_object) = self.objects.get(&previous_id) {
-                if let Ok(mut previous_guard) = previous_object.write() {
-                    previous_guard.set_next_object_id(Some(object_id));
-                }
-            }
-            if let Ok(mut object_guard) = object.write() {
-                object_guard.set_prev_object_id(Some(previous_id));
-                object_guard.set_next_object_id(None);
-            }
-        } else if let Ok(mut object_guard) = object.write() {
-            object_guard.set_prev_object_id(None);
-            object_guard.set_next_object_id(None);
-        }
+        self.prepend_to_object_list(&object, object_id);
 
         Ok(object_id)
     }
@@ -323,13 +307,59 @@ impl GameLogic {
             debug!("Queued object {} for destruction", object_id);
         }
 
-        // C++ GameLogic::destroyObject calls obj->onDestroy() same frame
-        // (contain eject / module onDelete) before processDestroyList.
-        if let Some(obj_arc) = self.objects.get(&object_id).cloned() {
-            if let Ok(mut obj) = obj_arc.write() {
-                obj.on_destroy();
+        // C++ GameLogic::destroyObject (GameLogic.cpp:3966-3980):
+        // obj->onDestroy() then remove WALK_ON_TOP_OF_WALL from the pathfinder
+        // and mark the control bar dirty for local special-power objects.
+        // Do not split onDestroy across destroyObject / processDestroyList.
+        let (is_wall, has_special_power, is_local) =
+            if let Some(obj_arc) = self.objects.get(&object_id).cloned() {
+                if let Ok(mut obj) = obj_arc.write() {
+                    let is_wall = obj.is_kind_of(KindOf::WalkOnTopOfWall);
+                    let has_special_power = obj.has_any_special_power();
+                    let is_local = obj.is_locally_controlled();
+                    obj.on_destroy();
+                    (is_wall, has_special_power, is_local)
+                } else {
+                    (false, false, false)
+                }
+            } else {
+                (false, false, false)
+            };
+
+        if is_wall {
+            if let Ok(ai) = THE_AI.read() {
+                if let Some(pf) = ai.pathfinder() {
+                    if let Ok(mut pf) = pf.write() {
+                        pf.remove_wall_piece(object_id);
+                    }
+                }
             }
         }
+        if has_special_power && is_local {
+            crate::control_bar::mark_ui_dirty();
+        }
+    }
+
+    /// C++ `Object::prependToList(&m_objList)` — newest object is list head.
+    fn prepend_to_object_list(&mut self, object: &Arc<RwLock<Object>>, object_id: ObjectID) {
+        let old_head = self.all_objects.first().copied();
+        self.all_objects.insert(0, object_id);
+        if let Ok(mut object_guard) = object.write() {
+            object_guard.set_prev_object_id(None);
+            object_guard.set_next_object_id(old_head);
+        }
+        if let Some(old_id) = old_head {
+            if let Some(old_object) = self.objects.get(&old_id) {
+                if let Ok(mut old_guard) = old_object.write() {
+                    old_guard.set_prev_object_id(Some(object_id));
+                }
+            }
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_queue_cleanup_cascade(child: ObjectID) {
+        CLEANUP_CASCADE_CHILD.with(|c| c.set(Some(child)));
     }
 
     /// Find an object by its ID
@@ -731,27 +761,10 @@ impl GameLogic {
             return;
         };
 
-        // Add to object collections
+        // C++ restore lands on m_objList (prepend) and is findable.
         self.objects.insert(object_id, Arc::clone(&object_arc));
-        self.all_objects.push(object_id);
-        // C++ restore lands on m_objList and is findable; keep OBJECT_REGISTRY in lockstep.
+        self.prepend_to_object_list(&object_arc, object_id);
         OBJECT_REGISTRY.register_object(object_id, &object_arc);
-
-        if self.all_objects.len() > 1 {
-            let previous_id = self.all_objects[self.all_objects.len() - 2];
-            if let Some(previous_object) = self.objects.get(&previous_id) {
-                if let Ok(mut previous_guard) = previous_object.write() {
-                    previous_guard.set_next_object_id(Some(object_id));
-                }
-            }
-            if let Ok(mut object_guard) = object_arc.write() {
-                object_guard.set_prev_object_id(Some(previous_id));
-                object_guard.set_next_object_id(None);
-            }
-        } else if let Ok(mut object_guard) = object_arc.write() {
-            object_guard.set_prev_object_id(None);
-            object_guard.set_next_object_id(None);
-        }
 
         // Register with partition manager
         if let Ok(obj) = object_arc.read() {

@@ -186,7 +186,13 @@ impl SelectableDrawable {
     }
 }
 
-// KINDOF flags from C++ ThingTemplate.h
+// UI-local KindOf cache for `can_select` / catalog packing — NOT live KindOfMask bits.
+//
+// C++ `CanSelectDrawable` (SelectionXlat.cpp:104) reads `obj->isKindOf(KINDOF_*)`
+// against KindOf.h enumerators (KINDOF_OBSTACLE=0, KINDOF_SELECTABLE=1, …).
+// These `0x1 << n` constants are a private UI packing shared only by
+// `catalog_kind_of_flags` (writer) and `has_kindof` / `can_select` (reader).
+// Do not mix them with `gamelogic::KindOf` / live KindOfMask.
 pub const KINDOF_SELECTABLE: u32 = 0x00000001;
 pub const KINDOF_FORCEATTACKABLE: u32 = 0x00000002;
 pub const KINDOF_ALWAYS_SELECTABLE: u32 = 0x00000004;
@@ -195,8 +201,10 @@ pub const KINDOF_INFANTRY: u32 = 0x00000010;
 pub const KINDOF_VEHICLE: u32 = 0x00000020;
 pub const KINDOF_AIRCRAFT: u32 = 0x00000040;
 
-/// Wave 1037: pack selection KindOf residual bits from catalog kind_names.
+/// Pack UI-local KindOf residual bits from catalog kind *names*.
+/// Writer for [`SelectableDrawable::kind_of_flags`]; uses the constants above.
 fn catalog_kind_of_flags(kind_names: &[String]) -> u32 {
+
     let mut flags = 0u32;
     for k in kind_names {
         if k.eq_ignore_ascii_case("Selectable") {
@@ -1975,4 +1983,72 @@ mod tests {
         assert!(!translator.drag_selecting);
         assert!(!TheInGameUI::is_selecting());
     }
+
+    /// Writer (`catalog_kind_of_flags`) and reader (`has_kindof` / `can_select`)
+    /// share UI-local constants — not C++ KindOf.h enumerator values
+    /// (`KINDOF_SELECTABLE` is 1, not `1 << 1`).
+    /// C++: `CanSelectDrawable` in SelectionXlat.cpp:104.
+    #[test]
+    fn catalog_kind_of_flags_uses_ui_local_constants() {
+        let _guard = test_state_lock();
+        // Live KindOf.h: KINDOF_OBSTACLE=0, KINDOF_SELECTABLE=1, …
+        // A live-mask mixup would pack Selectable as bit 1 (0x2), not 0x1.
+        assert_eq!(KINDOF_SELECTABLE, 0x1);
+        assert_ne!(KINDOF_SELECTABLE, 1 << 1);
+
+        let names = [
+            "Selectable".to_string(),
+            "ForceAttackable".to_string(),
+            "AlwaysSelectable".to_string(),
+            "Structure".to_string(),
+            "Infantry".to_string(),
+            "Vehicle".to_string(),
+            "Aircraft".to_string(),
+        ];
+        let packed = catalog_kind_of_flags(&names);
+        assert_eq!(
+            packed,
+            KINDOF_SELECTABLE
+                | KINDOF_FORCEATTACKABLE
+                | KINDOF_ALWAYS_SELECTABLE
+                | KINDOF_STRUCTURE
+                | KINDOF_INFANTRY
+                | KINDOF_VEHICLE
+                | KINDOF_AIRCRAFT
+        );
+
+        let drawable = SelectableDrawable {
+            id: 1,
+            object_id: 100,
+            position: Coord3D::default(),
+            is_structure: false,
+            is_garrisonable_building: false,
+            is_crate: false,
+            is_selectable: true,
+            is_dead: true,
+            is_hidden: false,
+            is_local_controlled: true,
+            kind_of_flags: catalog_kind_of_flags(&["AlwaysSelectable".into()]),
+            status_bits: 0,
+        };
+        assert!(
+            drawable.has_kindof(KINDOF_ALWAYS_SELECTABLE),
+            "catalog writer and has_kindof reader must share KINDOF_ALWAYS_SELECTABLE"
+        );
+        assert!(
+            drawable.can_select(false),
+            "dead + AlwaysSelectable must pass can_select (SelectionXlat.cpp:113-117)"
+        );
+
+        let force_only = SelectableDrawable {
+            kind_of_flags: catalog_kind_of_flags(&["ForceAttackable".into()]),
+            is_dead: false,
+            ..drawable
+        };
+        assert!(
+            !force_only.can_select(false),
+            "ForceAttackable without Selectable is not selectable (SelectionXlat.cpp:119-127)"
+        );
+    }
+
 }

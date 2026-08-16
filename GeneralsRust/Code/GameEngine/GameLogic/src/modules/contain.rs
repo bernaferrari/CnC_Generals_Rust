@@ -147,6 +147,12 @@ pub trait ContainModuleInterface: Send + Sync + std::fmt::Debug {
         false
     }
 
+    /// C++ ContainModuleInterface::isRiderChangeContain (combat-bike / rider swap).
+    fn is_rider_change_contain(&self) -> bool {
+        false
+    }
+
+
     /// Whether clear-building attacks should spare passengers.
     ///
     /// C++ parity: OpenContain defaults this to true; GarrisonContain overrides from INI.

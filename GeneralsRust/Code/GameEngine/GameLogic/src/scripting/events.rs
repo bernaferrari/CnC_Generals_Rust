@@ -1114,6 +1114,15 @@ impl AreaTracker {
         object_id: u32,
         position: [f32; 3],
     ) -> GameLogicResult<Vec<GameEvent>> {
+        if let Some(obj_arc) = crate::helpers::TheGameLogic::find_object_by_id(object_id) {
+            if let Ok(obj_guard) = obj_arc.try_read() {
+                if obj_guard.is_kind_of(crate::common::KindOf::Projectile)
+                    || obj_guard.is_kind_of(crate::common::KindOf::Inert)
+                {
+                    return Ok(Vec::new());
+                }
+            }
+        }
         let frame = crate::helpers::TheGameLogic::get_frame() as u32;
         let areas = self.areas.read().map_err(|e| {
             GameLogicError::Threading(format!("Failed to acquire areas lock: {}", e))

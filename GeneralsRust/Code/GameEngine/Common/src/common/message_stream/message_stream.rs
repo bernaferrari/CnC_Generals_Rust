@@ -8,7 +8,7 @@
 use super::game_message::*;
 use log::{debug, error, info, warn};
 use std::cell::RefCell;
-use std::collections::{LinkedList, VecDeque};
+use std::collections::LinkedList;
 use std::sync::{Arc, RwLock};
 
 /// What to do with a GameMessage after a translator has handled it
@@ -22,6 +22,31 @@ pub enum GameMessageDisposition {
 
 thread_local! {
     static EMITTED_MESSAGES: RefCell<Vec<GameMessage>> = RefCell::new(Vec::new());
+}
+
+type CommandListAppendFn = dyn Fn(Vec<GameMessage>) + Send + Sync + 'static;
+
+static COMMAND_LIST_APPEND_FN: std::sync::Mutex<Option<Box<CommandListAppendFn>>> =
+    std::sync::Mutex::new(None);
+
+/// Register the live `TheCommandList::appendMessageList` sink.
+/// C++ `MessageStream::propagateMessages` (MessageStream.cpp:1086) transfers
+/// survivors to `TheCommandList` after every translator pass.
+pub fn register_command_list_append(append_fn: impl Fn(Vec<GameMessage>) + Send + Sync + 'static) {
+    if let Ok(mut slot) = COMMAND_LIST_APPEND_FN.lock() {
+        *slot = Some(Box::new(append_fn));
+    }
+}
+
+fn deliver_surviving_messages_to_command_list(messages: &[GameMessage]) {
+    if messages.is_empty() {
+        return;
+    }
+    if let Ok(slot) = COMMAND_LIST_APPEND_FN.lock() {
+        if let Some(append_fn) = slot.as_ref() {
+            append_fn(messages.to_vec());
+        }
+    }
 }
 
 /// Emit a new message from inside a translator.
@@ -142,6 +167,21 @@ impl GameMessageList {
         removed
     }
 
+    /// Remove the message at `index` (0-based). Returns true if a message was removed.
+    pub fn remove_message_at(&mut self, index: usize) -> bool {
+        if index >= self.messages.len() {
+            return false;
+        }
+        let mut new_list = LinkedList::new();
+        for (i, msg) in self.messages.split_off(0).into_iter().enumerate() {
+            if i != index {
+                new_list.push_back(msg);
+            }
+        }
+        self.messages = new_list;
+        true
+    }
+
     /// Check if the list contains a message of the specified type
     pub fn contains_message_of_type(&self, message_type: &GameMessageType) -> bool {
         self.messages.iter().any(|msg| {
@@ -237,69 +277,73 @@ impl MessageStream {
         Ok(self.base.messages.back_mut().unwrap())
     }
 
-    /// Propagate messages through all attached translators
+    /// Propagate messages through all attached translators.
+    ///
+    /// C++ `MessageStream::propagateMessages` (MessageStream.cpp:1054-1092):
+    /// outer loop over translators, inner loop over the live message list.
+    /// A message appended during a translator's pass is seen by later iterations
+    /// of that same pass. Survivors transfer to TheCommandList and the stream
+    /// is then cleared.
     pub fn propagate_messages(&mut self) -> Result<Vec<GameMessage>, Box<dyn std::error::Error>> {
-        let mut messages_to_process: VecDeque<GameMessage> =
-            self.base.take_all_messages().into_iter().collect();
-        let mut completed_messages = Vec::new();
+        let _ = take_emitted_messages();
 
         debug!(
             "Propagating {} messages through {} translators",
-            messages_to_process.len(),
+            self.base.message_count(),
             self.translators.len()
         );
 
         // Sort translators by priority (lower priority = higher precedence)
         self.translators.sort_by_key(|t| t.priority);
 
-        while let Some(message) = messages_to_process.pop_front() {
-            let mut keep_message = true;
-
-            // Process message through each translator in priority order
-            for translator_data in &self.translators {
-                if !keep_message {
+        for translator_idx in 0..self.translators.len() {
+            let translator = self.translators[translator_idx].translator.clone();
+            let translator_id = self.translators[translator_idx].id;
+            let mut idx = 0usize;
+            while idx < self.base.message_count() {
+                let Some(message) = self.base.messages.iter().nth(idx).cloned() else {
                     break;
-                }
-
-                match translator_data.translator.write() {
-                    Ok(mut translator) => {
-                        let disposition = translator.translate_game_message(&message);
-                        match disposition {
-                            GameMessageDisposition::KeepMessage => {
-                                debug!(
-                                    "Translator {} kept message: {}",
-                                    translator_data.id,
-                                    message.get_command_as_string()
-                                );
-                            }
-                            GameMessageDisposition::DestroyMessage => {
-                                debug!(
-                                    "Translator {} destroyed message: {}",
-                                    translator_data.id,
-                                    message.get_command_as_string()
-                                );
-                                keep_message = false;
-                            }
-                        }
-                    }
+                };
+                let disposition = match translator.write() {
+                    Ok(mut translator) => translator.translate_game_message(&message),
                     Err(e) => {
                         error!("Failed to acquire translator lock: {}", e);
-                        // Continue with other translators
+                        GameMessageDisposition::KeepMessage
+                    }
+                };
+
+                let emitted = take_emitted_messages();
+                if !emitted.is_empty() {
+                    // C++ appends to the list tail; later iterations of this
+                    // translator's pass see the newly appended messages.
+                    for new_message in emitted {
+                        self.base.append_message(new_message);
                     }
                 }
-            }
 
-            if keep_message {
-                completed_messages.push(message);
-            }
-
-            let emitted = take_emitted_messages();
-            if !emitted.is_empty() {
-                for new_message in emitted.into_iter().rev() {
-                    messages_to_process.push_front(new_message);
+                match disposition {
+                    GameMessageDisposition::KeepMessage => {
+                        debug!(
+                            "Translator {} kept message: {}",
+                            translator_id,
+                            message.get_command_as_string()
+                        );
+                        idx += 1;
+                    }
+                    GameMessageDisposition::DestroyMessage => {
+                        debug!(
+                            "Translator {} destroyed message: {}",
+                            translator_id,
+                            message.get_command_as_string()
+                        );
+                        let _ = self.base.remove_message_at(idx);
+                    }
                 }
             }
         }
+
+        let completed_messages: Vec<GameMessage> = self.base.take_all_messages().into_iter().collect();
+        deliver_surviving_messages_to_command_list(&completed_messages);
 
         debug!(
             "Propagation complete. {} messages remaining",
@@ -401,12 +445,7 @@ impl SubsystemInterface for MessageStream {
     }
 
     fn update(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        // Process messages through translators each frame
-        let _completed_messages = self.propagate_messages()?;
-
-        // In a real implementation, completed messages would be sent to TheCommandList
-        // For now, we'll just discard them after processing
-
+        // C++ MessageStream::update is empty; propagate is owned by GameEngine::update.
         Ok(())
     }
 }
@@ -647,5 +686,82 @@ mod tests {
         assert_eq!(high_priority.read().unwrap().get_call_count(), 1);
         assert_eq!(medium_priority.read().unwrap().get_call_count(), 1);
         assert_eq!(low_priority.read().unwrap().get_call_count(), 1);
+    }
+
+    struct EmittingTranslator {
+        emit_on: GameMessageType,
+        emitted: GameMessageType,
+        seen: std::sync::Mutex<Vec<GameMessageType>>,
+    }
+
+    impl GameMessageTranslator for EmittingTranslator {
+        fn translate_game_message(&mut self, msg: &GameMessage) -> GameMessageDisposition {
+            self.seen.lock().unwrap().push(msg.get_type().clone());
+            if std::mem::discriminant(msg.get_type()) == std::mem::discriminant(&self.emit_on) {
+                emit_message(GameMessage::new(self.emitted.clone()));
+            }
+            GameMessageDisposition::KeepMessage
+        }
+    }
+
+    /// C++ MessageStream.cpp:1059-1081 — translator-outer, message-inner.
+    /// A message appended during translator A's pass is seen by later iterations
+    /// of that same pass, then by translator B.
+    #[test]
+    fn propagate_is_translator_major_and_same_pass_sees_appended() {
+        let mut stream = MessageStream::new();
+        let first = Arc::new(RwLock::new(EmittingTranslator {
+            emit_on: GameMessageType::Invalid,
+            emitted: GameMessageType::NewGame,
+            seen: std::sync::Mutex::new(Vec::new()),
+        }));
+        let second = Arc::new(RwLock::new(EmittingTranslator {
+            emit_on: GameMessageType::ClearGameData,
+            emitted: GameMessageType::ClearGameData,
+            seen: std::sync::Mutex::new(Vec::new()),
+        }));
+        stream.attach_translator(first.clone(), 10);
+        stream.attach_translator(second.clone(), 20);
+        stream.append_message(GameMessageType::Invalid);
+
+        let survivors = stream.propagate_messages().unwrap();
+        assert_eq!(survivors.len(), 2);
+
+        let first_seen = first.read().unwrap().seen.lock().unwrap().clone();
+        let second_seen = second.read().unwrap().seen.lock().unwrap().clone();
+        assert_eq!(
+            first_seen,
+            vec![GameMessageType::Invalid, GameMessageType::NewGame],
+            "same translator pass must see messages it appended (MessageStream.cpp:1062-1081)"
+        );
+        assert_eq!(
+            second_seen,
+            vec![GameMessageType::Invalid, GameMessageType::NewGame],
+            "later translators must see survivors including same-pass appends"
+        );
+    }
+
+    #[test]
+    fn propagate_delivers_survivors_to_registered_command_list() {
+        use std::sync::Mutex;
+        static DELIVERED: Mutex<Vec<GameMessageType>> = Mutex::new(Vec::new());
+        {
+            let mut delivered = DELIVERED.lock().unwrap();
+            delivered.clear();
+        }
+        register_command_list_append(|messages| {
+            DELIVERED
+                .lock()
+                .unwrap()
+                .extend(messages.into_iter().map(|m| m.get_type().clone()));
+        });
+
+        let mut stream = MessageStream::new();
+        stream.append_message(GameMessageType::Invalid);
+        let _ = stream.propagate_messages().unwrap();
+
+        let delivered = DELIVERED.lock().unwrap().clone();
+        assert_eq!(delivered, vec![GameMessageType::Invalid]);
+        register_command_list_append(|_| {});
     }
 }

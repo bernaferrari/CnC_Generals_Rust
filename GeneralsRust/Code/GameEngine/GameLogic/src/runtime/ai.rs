@@ -1,3 +1,14 @@
+//! Telemetry-only AI façade — **not** a port of C++ `AI.cpp` / `AIUpdate`.
+//!
+//! `AiRuntime::sense` / `decide` / `execute` only aggregate entity counts,
+//! average health, guard metrics, and a synthetic aggression float, then emit
+//! [`SimulationEvent::AiDiagnostics`]. Nothing here issues orders, pathfinds,
+//! or runs a behavior state machine.
+//!
+//! Real AI ports live in `crate::ai` (C++ `GameLogic/AI`) and `Main/src/ai.rs`.
+//! This file stays because [`crate::runtime::GameLogic`] calls it each tick
+//! for diagnostics; do not delete it, and do not score it as an AI port.
+
 use super::SimulationEvent;
 use crate::logic::guard_registry::GuardMetrics;
 use crate::world::{PlayerId, World};
@@ -186,3 +197,37 @@ impl AiRuntime {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::world::World;
+
+    /// `AiRuntime` is diagnostics, not C++ `AI::update` / `AIUpdateInterface`.
+    #[test]
+    fn sense_decide_execute_only_emits_ai_diagnostics() {
+        let world = World::new(2);
+        let mut runtime = AiRuntime::new();
+        runtime.begin_frame(7, Duration::ZERO);
+
+        runtime.record_command_batch(0, 0);
+        runtime.sense(&world, GuardMetrics::default());
+        runtime.decide();
+        let mut events = Vec::new();
+        runtime.execute(&mut events);
+
+        match events.as_slice() {
+            [SimulationEvent::AiDiagnostics { telemetry }] => {
+                assert_eq!(telemetry.frame, 7);
+                assert_eq!(telemetry.world_entities, 0);
+                assert_eq!(telemetry.neutral_entities, 0);
+                assert_eq!(telemetry.commands_processed, 0);
+                assert_eq!(telemetry.command_backlog, 0);
+                assert!(telemetry.players.is_empty());
+                assert_eq!(telemetry.aggression, 0.0);
+            }
+            other => panic!("expected only AiDiagnostics, got {other:?}"),
+        }
+    }
+}
+

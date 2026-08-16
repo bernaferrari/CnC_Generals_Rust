@@ -43,31 +43,21 @@ pub trait FXList: Send + Sync {
     fn do_fx_obj(&self, victim: Option<&dyn Object>, source: Option<&dyn Object>);
 }
 
-pub type ConstFxListPtr = Option<Box<dyn FXList>>;
+pub type ConstFxListPtr = Option<std::sync::Arc<dyn FXList>>;
 
 /// Damage FX structure for a specific damage type and veterancy level
+#[derive(Clone)]
 struct DamageFXData {
     /// If damage done is >= this, use major fx
     amount_for_major_fx: f32,
     /// Major damage FX list
     major_damage_fx_list: ConstFxListPtr,
-    /// Minor damage FX list  
+    /// Minor damage FX list
     minor_damage_fx_list: ConstFxListPtr,
     /// Throttle time for damage FX
     damage_fx_throttle_time: u32,
 }
 
-impl Clone for DamageFXData {
-    fn clone(&self) -> Self {
-        Self {
-            amount_for_major_fx: self.amount_for_major_fx,
-            // Note: FXList objects cannot be cloned, so we set to None
-            major_damage_fx_list: None,
-            minor_damage_fx_list: None,
-            damage_fx_throttle_time: self.damage_fx_throttle_time,
-        }
-    }
-}
 
 impl Default for DamageFXData {
     fn default() -> Self {
@@ -392,4 +382,39 @@ mod tests {
         store.reset();
         assert!(store.find_damage_fx("TankExplosion").is_none());
     }
+
+    struct NamedFx(&'static str);
+    impl FXList for NamedFx {
+        fn do_fx_obj(&self, _victim: Option<&dyn Object>, _source: Option<&dyn Object>) {}
+    }
+
+    #[test]
+    fn damage_fx_clone_keeps_fx_lists() {
+        // C++ DamageFX copies ConstFXListPtr (DamageFX.cpp table clone).
+        // Pre-fix: DamageFXData::clone dropped major/minor lists to None.
+        let mut fx = DamageFX::new();
+        fx.set_amount_for_major_fx(0, VeterancyLevel::Regular, 10.0);
+        fx.set_major_damage_fx_list(
+            0,
+            VeterancyLevel::Regular,
+            Some(std::sync::Arc::new(NamedFx("major"))),
+        );
+        fx.set_minor_damage_fx_list(
+            0,
+            VeterancyLevel::Regular,
+            Some(std::sync::Arc::new(NamedFx("minor"))),
+        );
+
+        let cloned = fx.clone();
+        assert!(
+            cloned.get_damage_fx_list(0, 20.0, None).is_some(),
+            "clone must keep major FX list (C++ ConstFXListPtr copy)"
+        );
+        assert!(
+            cloned.get_damage_fx_list(0, 1.0, None).is_some(),
+            "clone must keep minor FX list (C++ ConstFXListPtr copy)"
+        );
+        assert!(cloned.get_damage_fx_list(0, 0.0, None).is_none());
+    }
+
 }

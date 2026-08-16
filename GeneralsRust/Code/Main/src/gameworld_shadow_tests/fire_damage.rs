@@ -599,10 +599,10 @@ fn damage_authority_writeback_is_last_writer() {
     clear_active_shadow_for_coupled_tick();
     drop(_couple);
     let host_mid = logic.host_objects().get(&id).unwrap().health.current;
-    // Under DAMAGE_AUTHORITY, host HP defers until writeback.
+    // C++ ActiveBody::internalChangeHealth writes HP the same frame.
     assert!(
-        (host_mid - pre).abs() < 0.01,
-        "host HP must not mid-frame mutate under damage authority (mid={host_mid} pre={pre})"
+        (host_mid - (pre - 25.0)).abs() < 0.01,
+        "host HP must apply same frame (C++ internalChangeHealth); mid={host_mid} pre={pre}"
     );
 
     let events = crate::game_logic::host_damage_log::drain();
@@ -615,9 +615,8 @@ fn damage_authority_writeback_is_last_writer() {
         "expected pre-tick shadow hp {pre} got {shadow_pre_mut}"
     );
     let _ = shadow.apply_host_damage_events(&events);
-    // Deliberately desync host so writeback must run.
     if let Some(obj) = logic.host_object_mut(id) {
-        obj.health.current = pre; // restore pre-damage on host
+        obj.health.current = pre;
         obj.status.destroyed = false;
     }
     let wb = shadow.writeback_health_to_host(&mut logic);
@@ -628,17 +627,13 @@ fn damage_authority_writeback_is_last_writer() {
         (host_final - shadow_final).abs() < 0.05,
         "writeback mismatch host={host_final} shadow={shadow_final}"
     );
-    // Writeback last-writes shadow HP (pre-25) onto host after mid-frame defer.
     assert!(
         (host_final - (pre - 25.0)).abs() < 0.05,
         "authority final {host_final} expected ~{}",
         pre - 25.0
     );
     assert!(host_final < pre);
-    assert!(
-        (host_mid - pre).abs() < 0.01,
-        "mid-frame host must stay deferred at pre"
-    );
+
 }
 
 #[test]
@@ -691,8 +686,7 @@ fn damage_authority_lethal_marks_destroyed_without_host_hp() {
     crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
     crate::env_compat::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", "1");
 
-    // Deferred lethal must flip status.destroyed so mid-frame is_alive is false
-    // while HP stays full until shadow writeback (last-writer for numeric health).
+    // C++ ActiveBody::internalChangeHealth writes HP the same frame.
     crate::game_logic::host_damage_log::clear();
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("DmgAuthLethalFlag");
@@ -703,17 +697,15 @@ fn damage_authority_lethal_marks_destroyed_without_host_hp() {
         .expect("unit");
     assert!(gameworld_damage_authority_enabled());
     assert!(gameworld_shadow_enabled());
-    let pre = logic.host_objects().get(&id).unwrap().health.current;
-    // Wave 758: damage_authority_live needs coupled tick depth.
     let _couple = ShadowCoupleGuard::enter();
     if let Some(obj) = logic.host_object_mut(id) {
         let dead = obj.take_damage(999.0);
         assert!(dead, "projected lethal");
         assert!(obj.status.destroyed, "destroyed flag must flip mid-frame");
-        assert!(!obj.is_alive(), "is_alive must fail after deferred lethal");
+        assert!(!obj.is_alive(), "is_alive must fail after lethal");
         assert!(
-            (obj.health.current - pre).abs() < 0.01,
-            "HP must stay full until writeback; pre={pre} now={}",
+            obj.health.current <= 0.0,
+            "same-frame death HP must match C++ internalChangeHealth; now={}",
             obj.health.current
         );
     } else {

@@ -28,7 +28,8 @@ use game_engine::common::ini::ini_particle_sys::ParticleSystemTemplate;
 use game_engine::common::system::Snapshotable;
 
 use super::helpers::{
-    dual_world_registry_unavailable, map_weapon_slot_to_common, ObjectId, INVALID_OBJECT_ID,
+    ammo_count_for_clip_size, dual_world_registry_unavailable, map_weapon_slot_to_common, ObjectId,
+    INVALID_OBJECT_ID,
 };
 use super::masks_enums::*;
 use super::store::with_weapon_store_mut;
@@ -577,8 +578,13 @@ impl Weapon {
                     self.status = WeaponStatus::ReadyToFire;
                 }
                 WeaponStatus::ReloadingClip => {
-                    // Reload complete - refill clip
-                    self.ammo_in_clip = self.template.clip_size as u32;
+                    // C++ refills in reloadWithBonus (Weapon.cpp:1884-1886).
+                    // Keep a late refill only when ammo is still empty so
+                    // start-of-reload unlimited clips (0x7fffffff) are not
+                    // overwritten with clip_size as u32 (0).
+                    if self.ammo_in_clip == 0 {
+                        self.ammo_in_clip = ammo_count_for_clip_size(self.template.clip_size);
+                    }
                     self.status = WeaponStatus::ReadyToFire;
                 }
                 _ => {}

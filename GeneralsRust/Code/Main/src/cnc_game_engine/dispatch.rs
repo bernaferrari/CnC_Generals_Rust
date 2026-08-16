@@ -206,11 +206,30 @@ impl CnCGameEngine {
         GameMode::Shell
     }
 
-    /// Pull MSG_NEW_GAME out of the common message stream without discarding
-    /// unrelated messages. Returns a fully resolved Main-owned start request.
+    /// Decode MSG_NEW_GAME from the common stream without discarding it.
+    /// Host start still consumes the payload; `propagate_messages` can deliver
+    /// the same message to crate GameLogic (C++ `logicMessageDispatcher`).
     pub(super) fn take_pending_new_game_start_request(&self) -> Option<HostStartRequest> {
-        let dispatch = Self::take_new_game_dispatch_from_common_stream()?;
+        let dispatch = Self::peek_new_game_dispatch_from_common_stream()?;
         self.build_start_request_from_pending_globals(Some(dispatch))
+    }
+
+    /// Inspect every `NewGame` on the common stream without removing it.
+    /// Returns the last NewGame dispatch (C++ prefers the latest enqueue).
+    pub(super) fn peek_new_game_dispatch_from_common_stream() -> Option<StartupNewGameDispatch> {
+        let stream = game_engine::common::message_stream::get_message_stream();
+        let stream_guard = match stream.read() {
+            Ok(g) => g,
+            Err(e) => e.into_inner(),
+        };
+
+        let mut dispatch = None;
+        for message in stream_guard.get_messages().iter() {
+            if let Some(d) = Self::startup_new_game_dispatch_from_message(message) {
+                dispatch = Some(d);
+            }
+        }
+        dispatch
     }
 
     /// Remove every `NewGame` message from the common stream, keeping others.
@@ -242,7 +261,7 @@ impl CnCGameEngine {
             return None;
         };
 
-        // Rebuild stream without NewGame messages so pump doesn't double-handle.
+        // Drop leftover NewGame after host start if pump did not consume it.
         stream_guard.clear_messages();
         for message in &kept {
             Self::append_common_message_to_stream(&mut stream_guard, message);

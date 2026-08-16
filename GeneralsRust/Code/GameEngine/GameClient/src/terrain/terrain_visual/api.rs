@@ -12,8 +12,35 @@ lazy_static::lazy_static! {
 pub fn init_terrain_visual() -> TerrainResult<()> {
     let mut global_instance = THE_TERRAIN_VISUAL.lock().unwrap_or_else(|e| e.into_inner());
     *global_instance = Some(TerrainVisualImpl::new());
+    register_logic_height_hooks();
     Ok(())
 }
+
+/// Bind C++ `TheTerrainVisual::setRawMapHeight` / `staticLightingChanged` to
+/// the live GameClient visual. Safe to call more than once.
+pub fn init_terrain_visual_hooks() {
+    register_logic_height_hooks();
+}
+
+fn register_logic_height_hooks() {
+    gamelogic::helpers::register_terrain_visual_raw_height_hook(Some(
+        |x, y, height| {
+            if let Ok(mut visual) = get_terrain_visual() {
+                if let Some(visual) = visual.as_mut() {
+                    visual.set_raw_map_height(x, y, height);
+                }
+            }
+        },
+    ));
+    gamelogic::helpers::register_terrain_visual_lighting_changed_hook(Some(|| {
+        if let Ok(mut visual) = get_terrain_visual() {
+            if let Some(visual) = visual.as_mut() {
+                visual.static_lighting_changed();
+            }
+        }
+    }));
+}
+
 
 /// Get reference to global terrain visual instance
 pub fn get_terrain_visual(

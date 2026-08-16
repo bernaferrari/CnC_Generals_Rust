@@ -229,7 +229,7 @@ impl CollideModuleFactory {
 mod tests {
     use super::*;
     use game_engine::common::system::{
-        Snapshot, Snapshotable, XferBlockSize, XferMode, XferStatus,
+        Snapshotable, XferBlockSize, XferMode, XferStatus,
     };
 
     #[derive(Default)]
@@ -275,7 +275,7 @@ mod tests {
             Ok(())
         }
 
-        fn xfer_snapshot(&mut self, _snapshot: &mut Snapshot) -> Result<(), XferStatus> {
+        fn xfer_snapshot(&mut self, _snapshot: &mut dyn Snapshotable) -> Result<(), XferStatus> {
             Ok(())
         }
 

@@ -11,7 +11,8 @@ use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::time::{SystemTime, UNIX_EPOCH, Instant};
 
-use crate::common::audio::{AudioEventInfo, AudioEventRts, Real, Bool, UnsignedInt, AsciiString};
+use crate::common::audio::audio_event_rts::{AudioEventInfo, AudioEventRts};
+use crate::common::audio::{AsciiString, Bool, Real, UnsignedInt};
 
 /// Compressed audio file information (mimics C++ AILSOUNDINFO)
 #[derive(Debug, Clone)]
@@ -234,6 +235,59 @@ impl AudioFileCache {
         // Cache miss - load the file
         self.load_and_cache_file(file_path)
     }
+
+    /// C++ `AudioFileCache::openFile` hit path: refcount an already-loaded buffer
+    /// keyed by filename. Used by the live `RodioPlaybackHook` so VFS/fs reads
+    /// are not repeated per play.
+    pub fn get_or_insert_named(
+        &self,
+        key: &str,
+        loader: impl FnOnce() -> Option<Vec<u8>>,
+    ) -> Option<Arc<Vec<u8>>> {
+        let path = PathBuf::from(key);
+        let _lock = self.operation_lock.lock().unwrap();
+
+        {
+            let mut stats = self.stats.write().unwrap();
+            stats.total_requests += 1;
+        }
+
+        if let Some(data) = self.get_cached_file(&path) {
+            let mut stats = self.stats.write().unwrap();
+            stats.hit_count += 1;
+            return Some(data);
+        }
+
+        let data = loader()?;
+        let file_size = data.len();
+        if !self.ensure_space_available(file_size) {
+            let mut stats = self.stats.write().unwrap();
+            stats.miss_count += 1;
+            return None;
+        }
+
+        let sound_info = self.analyze_audio_file(&data);
+        let open_file = OpenAudioFile::new(path.clone(), data, sound_info);
+        let result_data = open_file.file_data.clone();
+
+        let mut cache = self.cache.write().unwrap();
+        let mut current_size = self.current_size.write().unwrap();
+        cache.insert(path.clone(), open_file);
+        *current_size += file_size;
+        self.update_access_order(&path);
+
+        let mut stats = self.stats.write().unwrap();
+        stats.miss_count += 1;
+        stats.entry_count = cache.len();
+        stats.current_size = *current_size;
+        Some(result_data)
+    }
+
+    /// C++ `AudioFileCache::closeFile` by filename key.
+    pub fn close_named(&self, key: &str) {
+        self.close_file(Path::new(key));
+    }
+
 
     /// Close/release a file (decrement reference count)
     pub fn close_file(&self, file_path: &Path) {
@@ -834,4 +888,26 @@ mod tests {
         assert!(!open_file.release_ref()); // No more references
         assert_eq!(open_file.open_count, 0);
     }
+
+    #[test]
+    fn get_or_insert_named_refcounts_and_reuses_buffer() {
+        // C++ AudioFileCache::openFile (MilesAudioManager.cpp:3123-3128):
+        // a second open of the same name increments m_openCount and returns
+        // the same buffer pointer.
+        let cache = AudioFileCache::new(1024);
+        let first = cache
+            .get_or_insert_named("boom.wav", || Some(vec![1, 2, 3, 4]))
+            .expect("first insert");
+        let second = cache
+            .get_or_insert_named("boom.wav", || panic!("loader must not run on cache hit"))
+            .expect("cache hit");
+        assert!(Arc::ptr_eq(&first, &second));
+        let cached = cache.get_cached_files();
+        assert_eq!(cached.len(), 1);
+        assert_eq!(cached[0].2, 2);
+        cache.close_named("boom.wav");
+        let cached = cache.get_cached_files();
+        assert_eq!(cached[0].2, 1);
+    }
+
 }

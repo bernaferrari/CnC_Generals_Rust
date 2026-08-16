@@ -82,12 +82,13 @@ fn damage_authority_defers_host_hp_until_writeback() {
     }
     clear_active_shadow_for_coupled_tick();
     drop(_couple);
-    // Host HP must not mid-frame mutate under damage authority.
+    // C++ ActiveBody::internalChangeHealth writes HP the same frame.
     let mid = logic.host_objects().get(&oid).expect("o").health.current;
     assert!(
-        (mid - before).abs() < 1e-5,
-        "host HP deferred before={before} mid={mid}"
+        (mid - (before - 25.0)).abs() < 1e-5,
+        "host HP same-frame before={before} mid={mid}"
     );
+
     let events = host_damage_log::drain();
     assert!(
         events

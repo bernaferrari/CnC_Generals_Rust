@@ -227,6 +227,21 @@ impl SnowManager {
         self.is_visible = true;
     }
 
+    /// C++ `W3DSnowManager::update` residual: advance `m_time` by frame dt
+    /// and wrap on `m_fullTimePeriod`. Base `SnowManager::update` is empty.
+    pub fn update(&mut self, delta_seconds: f32) {
+        if self.full_time_period <= f32::EPSILON {
+            self.time += delta_seconds.max(0.0);
+            return;
+        }
+        self.time += delta_seconds.max(0.0);
+        self.time %= self.full_time_period;
+    }
+
+    pub fn time(&self) -> f32 {
+        self.time
+    }
+
     pub fn is_visible(&self) -> bool {
         self.is_visible
     }
@@ -276,5 +291,15 @@ mod tests {
         assert!((setting.snow_amplitude - 7.5).abs() < f32::EPSILON);
         assert!(!setting.use_point_sprites);
         assert!(setting.snow_enabled);
+    }
+
+    #[test]
+    fn snow_update_advances_and_wraps_time() {
+        let mut snow = SnowManager::new();
+        snow.full_time_period = 2.0;
+        snow.update(0.75);
+        assert!((snow.time() - 0.75).abs() < 1e-6);
+        snow.update(1.5);
+        assert!((snow.time() - 0.25).abs() < 1e-6);
     }
 }

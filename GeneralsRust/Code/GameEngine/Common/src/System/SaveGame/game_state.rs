@@ -30,7 +30,8 @@ const CAMPAIGN_BLOCK_STRING: &str = "CHUNK_Campaign";
 const GAME_SINGLE_PLAYER: i32 = 0;
 const DIFFICULTY_NORMAL: i32 = 1;
 
-const SAVELOAD_BLOCK_NAMES: &[&str] = &[
+/// C++ `GameState::init` snapshot table (`GameState.cpp:289-305`).
+pub const SAVELOAD_BLOCK_NAMES: &[&str] = &[
     GAME_STATE_BLOCK_STRING,
     CAMPAIGN_BLOCK_STRING,
     "CHUNK_GameStateMap",
@@ -58,6 +59,50 @@ const DEEP_CRC_LOGIC_ONLY_BLOCK_NAMES: &[&str] = &[
     "CHUNK_SidesList",
     "CHUNK_Partition",
 ];
+
+type PartitionUpdateFn = dyn Fn() + Send + Sync + 'static;
+type WorldDictMapNameFn = dyn Fn() -> Option<String> + Send + Sync + 'static;
+
+struct PostLoadHooks {
+    partition_update: Option<Box<PartitionUpdateFn>>,
+    world_dict_map_name: Option<Box<WorldDictMapNameFn>>,
+}
+
+static POST_LOAD_HOOKS: std::sync::Mutex<PostLoadHooks> = std::sync::Mutex::new(PostLoadHooks {
+    partition_update: None,
+    world_dict_map_name: None,
+});
+
+/// Register `ThePartitionManager->update()` (GameState.cpp:1529).
+/// Must run after snapshot post-process and before the script engine's first run.
+pub fn register_partition_manager_update(update_fn: impl Fn() + Send + Sync + 'static) {
+    if let Ok(mut hooks) = POST_LOAD_HOOKS.lock() {
+        hooks.partition_update = Some(Box::new(update_fn));
+    }
+}
+
+/// Register `MapObject::getWorldDict()->getAsciiString(TheKey_mapName)` (GameState.cpp:1588-1590).
+pub fn register_world_dict_map_name(lookup_fn: impl Fn() -> Option<String> + Send + Sync + 'static) {
+    if let Ok(mut hooks) = POST_LOAD_HOOKS.lock() {
+        hooks.world_dict_map_name = Some(Box::new(lookup_fn));
+    }
+}
+
+fn world_dict_map_label() -> Option<String> {
+    POST_LOAD_HOOKS
+        .lock()
+        .ok()
+        .and_then(|hooks| hooks.world_dict_map_name.as_ref().and_then(|lookup| lookup()))
+        .filter(|label| !label.is_empty())
+}
+
+fn notify_partition_manager_update() {
+    if let Ok(hooks) = POST_LOAD_HOOKS.lock() {
+        if let Some(update_fn) = hooks.partition_update.as_ref() {
+            update_fn();
+        }
+    }
+}
 
 // ------------------------------------------------------------------------------------------------
 // Save/Load Layout Type
@@ -227,7 +272,9 @@ impl Snapshot for NullSnapshot {
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
-        let mut version: u8 = 0;
+        // C++ Snapshot placeholders (SuccessState etc.) start version at currentVersion=1
+        // so XferSave writes 1. Starting at 0 made unregistered blocks write [0x00].
+        let mut version: u8 = 1;
         xfer.xfer_version(&mut version, 1)?;
         Ok(())
     }
@@ -465,6 +512,12 @@ impl GameState {
         }
     }
 
+    fn starts_with_no_case(haystack: &str, prefix: &str) -> bool {
+        // C++ AsciiString::startsWithNoCase (GameState.cpp:851, 881).
+        haystack.len() >= prefix.len()
+            && haystack.as_bytes()[..prefix.len()].eq_ignore_ascii_case(prefix.as_bytes())
+    }
+
     /// Convert real map path to portable map path
     pub fn real_map_path_to_portable_map_path(&self, path: &str) -> String {
         let path_lower = path.to_lowercase();
@@ -493,26 +546,27 @@ impl GameState {
 
     /// Convert portable map path to real map path
     pub fn portable_map_path_to_real_map_path(&self, path: &str) -> String {
-        let lower = path.to_lowercase();
-        if lower.starts_with(super::game_state_map::PORTABLE_SAVE) {
+        // C++ GameState.cpp:881-900 uses startsWithNoCase on the portable prefix
+        // after realMapPathToPortableMapPath lowercased the stored string.
+        if Self::starts_with_no_case(path, super::game_state_map::PORTABLE_SAVE) {
             let leaf = self.get_map_leaf_name(path);
             return self
                 .get_file_path_in_save_directory(&leaf)
                 .to_string_lossy()
                 .to_string();
         }
-        if lower.starts_with(super::game_state_map::PORTABLE_MAPS) {
+        if Self::starts_with_no_case(path, super::game_state_map::PORTABLE_MAPS) {
             let mut out = String::from("Maps\\");
             out.push_str(&path[super::game_state_map::PORTABLE_MAPS.len()..]);
             return out.to_lowercase();
         }
-        if lower.starts_with(super::game_state_map::PORTABLE_USER_MAPS) {
+        if Self::starts_with_no_case(path, super::game_state_map::PORTABLE_USER_MAPS) {
             let mut out = String::from("UserData\\Maps\\");
             out.push_str(&path[super::game_state_map::PORTABLE_USER_MAPS.len()..]);
             return out.to_lowercase();
         }
 
-        lower
+        path.to_lowercase()
     }
 
     /// Save the game
@@ -825,7 +879,9 @@ impl GameState {
         Ok(())
     }
 
-    /// Post process after loading
+    /// Post process after loading.
+    /// C++ `GameState::gameStatePostProcessLoad` (GameState.cpp:1505-1531):
+    /// drain registered snapshots, then `ThePartitionManager->update()`.
     fn game_state_post_process_load(&mut self) -> Result<(), XferStatus> {
         // Drain the list first so we do not leave stale pointers behind if a fixup fails.
         let snapshots = std::mem::take(&mut self.snapshot_post_process_list);
@@ -835,6 +891,9 @@ impl GameState {
                 block.snapshot.load_post_process()?;
             }
         }
+
+        // C++ GameState.cpp:1528-1529 — partition must refresh before scripts run.
+        notify_partition_manager_update();
 
         Ok(())
     }
@@ -1014,16 +1073,19 @@ impl Snapshot for GameState {
         xfer.xfer_unicode_string(&mut self.game_info.description)?;
 
         if xfer.get_xfer_mode() == XferMode::Save {
-            self.game_info.map_label = crate::common::ini::ini_game_data::get_global_data()
-                .map(|global| {
-                    let global = global.read();
-                    if global.map_name.is_empty() {
-                        String::new()
-                    } else {
-                        self.get_map_leaf_name(&global.map_name)
-                    }
-                })
-                .unwrap_or_default();
+            // C++ GameState.cpp:1587-1609 — prefer world-dict mapName, else map filename leaf.
+            self.game_info.map_label = world_dict_map_label().unwrap_or_else(|| {
+                crate::common::ini::ini_game_data::get_global_data()
+                    .map(|global| {
+                        let global = global.read();
+                        if global.map_name.is_empty() {
+                            String::new()
+                        } else {
+                            self.get_map_leaf_name(&global.map_name)
+                        }
+                    })
+                    .unwrap_or_default()
+            });
         }
         xfer.xfer_ascii_string(&mut self.game_info.map_label)?;
 
@@ -1062,6 +1124,8 @@ mod tests {
     use std::path::Path;
     use std::sync::{Arc, Mutex};
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    static HOOK_TEST_LOCK: Mutex<()> = Mutex::new(());
 
     struct CountingSnapshot {
         payload: Arc<Mutex<u32>>,
@@ -1233,6 +1297,9 @@ mod tests {
 
     #[test]
     fn save_game_refreshes_map_label_from_runtime_map_name() {
+        let _guard = HOOK_TEST_LOCK.lock().expect("hook test lock");
+        register_world_dict_map_name(|| None);
+
         let save_dir = unique_temp_save_dir("map_label_refresh");
         let path = save_dir.join("00000001.sav");
 
@@ -1344,4 +1411,104 @@ mod tests {
 
         let _ = fs::remove_dir_all(save_dir);
     }
+
+    #[test]
+    fn null_snapshot_xfer_save_writes_version_1() {
+        // C++ StateMachine.h:388 — empty Snapshot::xfer starts `XferVersion v = cv`
+        // with cv=1, so save writes 1. Pre-fix Rust started at 0 and wrote 0.
+        let save_dir = unique_temp_save_dir("null_snapshot_version");
+        let path = save_dir.join("null_snapshot.bin");
+
+        let mut snapshot = NullSnapshot;
+        let mut xfer_save = XferSave::new();
+        xfer_save
+            .open(path.to_string_lossy().into_owned())
+            .expect("open null snapshot save");
+        snapshot.xfer(&mut xfer_save).expect("xfer NullSnapshot");
+        xfer_save.close().expect("close null snapshot save");
+
+        let bytes = fs::read(&path).expect("read null snapshot bytes");
+        assert_eq!(
+            bytes,
+            vec![1u8],
+            "NullSnapshot save payload must be version byte 1, got {bytes:?}"
+        );
+
+        let _ = fs::remove_dir_all(save_dir);
+    }
+
+    #[test]
+    fn save_game_registers_seventeen_named_chunks_like_cpp() {
+        // C++ GameState::init (GameState.cpp:289-305) registers 17 CHUNK_*
+        // names. Writing them requires live map/subsystem snapshots; the
+        // table itself is the host/Popup contract.
+        let save_dir = unique_temp_save_dir("seventeen_blocks");
+        let mut writer_state = GameState::new(save_dir.clone());
+        writer_state.init();
+        let names: Vec<String> = writer_state.snapshot_block_lists
+            [SnapshotType::SaveLoad as usize]
+            .iter()
+            .map(|block| block.block_name.clone())
+            .collect();
+        let expected: Vec<String> = SAVELOAD_BLOCK_NAMES
+            .iter()
+            .map(|name| (*name).to_string())
+            .collect();
+        assert_eq!(names, expected);
+        let _ = fs::remove_dir_all(save_dir);
+    }
+
+    /// C++ GameState.cpp:1528-1529 — PartitionManager->update after snapshot post-process.
+    #[test]
+    fn post_process_load_invokes_partition_manager_update() {
+        let _guard = HOOK_TEST_LOCK.lock().expect("hook test lock");
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let calls = Arc::new(AtomicUsize::new(0));
+        let observed = Arc::clone(&calls);
+        register_partition_manager_update(move || {
+            observed.fetch_add(1, Ordering::SeqCst);
+        });
+
+        let save_dir = unique_temp_save_dir("partition_update");
+        let mut state = GameState::new(save_dir.clone());
+        state
+            .game_state_post_process_load()
+            .expect("post process");
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+
+        register_partition_manager_update(|| {});
+        let _ = fs::remove_dir_all(save_dir);
+    }
+
+    /// C++ GameState.cpp:1587-1609 — world-dict mapName wins over the map filename leaf.
+    #[test]
+    fn map_label_prefers_world_dict_map_name() {
+        let _guard = HOOK_TEST_LOCK.lock().expect("hook test lock");
+        crate::common::ini::ini_game_data::init_global_data();
+        if let Some(global) = crate::common::ini::ini_game_data::get_global_data() {
+            global.write().map_name = "Maps\\Skirmish\\FrozenValley.map".to_string();
+        }
+        register_world_dict_map_name(|| Some("Pretty World Name".to_string()));
+
+        let save_dir = unique_temp_save_dir("world_dict_label");
+        let path = save_dir.join("00000001.sav");
+        let mut state = GameState::new(save_dir.clone());
+        {
+            let info = state.get_save_game_info_mut();
+            info.map_label = "Stale Label".to_string();
+        }
+
+        let mut xfer_save = XferSave::new();
+        xfer_save
+            .open(path.to_string_lossy().into_owned())
+            .expect("open save file");
+        state.xfer(&mut xfer_save).expect("save game header");
+        xfer_save.close().expect("close save file");
+
+        assert_eq!(state.get_save_game_info().map_label, "Pretty World Name");
+
+        register_world_dict_map_name(|| None);
+        let _ = fs::remove_dir_all(save_dir);
+    }
+
 }

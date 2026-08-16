@@ -1363,12 +1363,14 @@ impl Object {
         // Get actual damage dealt for return value
         let actual_damage = damage_info.output.actual_damage_dealt;
 
-        // Fire radar event if we took damage (C++ lines 1871-1878)
+        // C++ Object.cpp:1847-1854 Object::attemptDamage radar event:
+        // actualDamageDealt>0 && type not PENALTY/HEALING && controllingPlayer
+        // && !BitTest(sourcePlayerMask, controllingPlayerMask) && m_radarData
+        // && controllingPlayer == ThePlayerList->getLocalPlayer().
         if actual_damage > 0.0
             && damage_info.input.damage_type != DamageType::Penalty
             && damage_info.input.damage_type != DamageType::Healing
         {
-            // Fire damage event
             let attacker_id = if damage_info.input.source_id != INVALID_ID {
                 Some(damage_info.input.source_id)
             } else {
@@ -1376,15 +1378,28 @@ impl Object {
             };
             self.fire_damaged_event(actual_damage, attacker_id);
 
-            if let Some(player_id) = self.get_controlling_player_id() {
-                let pos = self.get_position();
-                crate::system::radar_notifier::push(&crate::system::game_logic::RadarUpdate {
-                    player_id: player_id as Int,
-                    position: (pos.x, pos.y),
-                    event_type: crate::system::game_logic::RadarEventType::BaseAttacked,
-                });
+            if self.radar_data.is_some() {
+                if let Some(player) = self.get_controlling_player() {
+                    if let Ok(player_guard) = player.read() {
+                        let same_player = damage_info
+                            .input
+                            .source_player_mask
+                            .intersects(player_guard.get_player_mask());
+                        if !same_player && player_guard.is_local_player() {
+                            let pos = self.get_position();
+                            crate::system::radar_notifier::push(
+                                &crate::system::game_logic::RadarUpdate {
+                                    player_id: player_guard.get_player_index() as Int,
+                                    position: (pos.x, pos.y),
+                                    event_type: crate::system::game_logic::RadarEventType::BaseAttacked,
+                                },
+                            );
+                        }
+                    }
+                }
             }
         }
+
 
         // Check if object died from damage
         let died = self.check_health_and_die(Some(damage_info));

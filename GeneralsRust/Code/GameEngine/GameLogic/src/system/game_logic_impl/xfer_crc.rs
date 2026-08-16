@@ -159,7 +159,7 @@ impl game_engine::common::system::xfer::Xfer for LogicXferCrc {
 
     fn xfer_snapshot(
         &mut self,
-        snapshot: &mut game_engine::common::system::snapshot::Snapshot,
+        snapshot: &mut dyn game_engine::common::system::snapshot::Snapshotable,
     ) -> Result<(), game_engine::common::system::xfer::XferStatus> {
         snapshot
             .crc(self)
