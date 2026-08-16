@@ -5,11 +5,6 @@
 
 impl ScriptEvaluator {
     fn evaluate_named_inside_area_condition(&self, condition: &Condition) -> GameLogicResult<bool> {
-        // Wave 343: empty dual-world → Ok(false).
-        if dual_world_registry_unavailable() {
-            return Ok(false);
-        }
-
         let unit_param = condition.get_parameter(0).ok_or_else(|| {
             GameLogicError::Configuration(
                 "NamedInsideArea condition missing unit parameter".to_string(),
@@ -23,6 +18,13 @@ impl ScriptEvaluator {
 
         let unit_name = unit_param.get_string();
         let area_name = area_param.get_string();
+
+        if dual_world_registry_unavailable() {
+            return Ok(
+                crate::scripting::host_script_named_unit_in_named_area(unit_name, area_name)
+                    .unwrap_or(false),
+            );
+        }
 
         let trigger = match self.get_trigger_area(area_name) {
             Some(trigger) => trigger,

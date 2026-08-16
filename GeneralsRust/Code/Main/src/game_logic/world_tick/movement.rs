@@ -150,28 +150,58 @@ impl GameLogic {
                     let direction = (flat_target - current_pos).normalize_or_zero();
 
                     if direction.length() > 0.0 {
-                        // Calculate new position and orientation
-                        let target_velocity = direction * obj.movement.max_speed;
+                        let desired_angle = (-direction.z).atan2(direction.x);
+                        let current_angle = obj.get_orientation();
+                        let mut delta = desired_angle - current_angle;
+                        while delta > std::f32::consts::PI {
+                            delta -= std::f32::consts::TAU;
+                        }
+                        while delta < -std::f32::consts::PI {
+                            delta += std::f32::consts::TAU;
+                        }
+                        let max_turn = obj.effective_turn_rate() * dt;
+                        let applied = delta.clamp(-max_turn, max_turn);
+                        let new_angle = current_angle + applied;
+                        obj.set_orientation(new_angle);
+
+                        let dist = horiz(current_pos, flat_target);
+                        let mut speed = obj.movement.max_speed;
+                        if !obj.no_slow_down_as_approaching_dest {
+                            let slow = crate::game_logic::calc_slow_down_dist(
+                                obj.movement.velocity.length(),
+                                0.0,
+                                obj.braking.max(1.0e-3),
+                            );
+                            if dist < slow {
+                                obj.is_braking = true;
+                                speed = speed.min(dist / dt.max(1.0e-3));
+                            } else {
+                                obj.is_braking = false;
+                            }
+                        }
+                        let heading = glam::Vec3::new(new_angle.cos(), 0.0, -new_angle.sin());
+                        let target_velocity = heading * speed;
                         let velocity_diff = target_velocity - obj.movement.velocity;
-                        let max_accel = obj.movement.acceleration * dt;
+                        let max_accel = if obj.is_braking {
+                            obj.braking.max(obj.movement.acceleration) * dt
+                        } else {
+                            obj.movement.acceleration * dt
+                        };
 
                         let new_velocity = if velocity_diff.length() <= max_accel {
                             target_velocity
                         } else {
-                            obj.movement.velocity + velocity_diff.normalize() * max_accel
+                            obj.movement.velocity
+                                + velocity_diff.normalize_or_zero() * max_accel
                         };
 
-                        // Persist velocity — without this, every frame restarts from 0 and
-                        // units crawl at ~accel*dt per frame (pure-march combat stalls OOR).
                         obj.movement.velocity = new_velocity;
                         obj.record_host_movement();
 
                         let new_position = current_pos + new_velocity * dt;
-                        let desired_angle = (-new_velocity.z).atan2(new_velocity.x);
-                        let reached_target = horiz(current_pos, flat_target) < 2.0;
+                        let reached_target = dist < 2.0;
 
                         obj.set_position(new_position);
-                        obj.set_orientation(desired_angle);
                         if reached_target {
                             // Only stop when there is no further path waypoint.
                             // Mid-path "reached" is handled by index advance above.
@@ -370,6 +400,26 @@ mod tests {
         );
         assert!(obj.movement.target_position.is_some());
         assert!(obj.status.moving);
+    }
+
+    #[test]
+    fn live_march_turns_at_turn_rate_not_snap() {
+        let mut logic = GameLogic::new();
+        let id = ObjectId(9010);
+        let mut unit = ranger_at(9010, Vec3::ZERO);
+        unit.set_orientation(0.0);
+        unit.movement.turn_rate = 1.0; // rad/sec
+        unit.movement.max_speed = 10.0;
+        unit.movement.acceleration = 100.0;
+        unit.movement.target_position = Some(Vec3::new(0.0, 0.0, 20.0));
+        logic.objects.insert(id, unit);
+        logic.update_movement_for_test(&[id], 1.0 / 30.0);
+        let obj = logic.objects.get(&id).expect("unit");
+        let yaw = obj.get_orientation();
+        assert!(
+            yaw.abs() > 1e-3 && yaw.abs() < 0.2,
+            "must rotate a fraction of a right-angle per frame, yaw={yaw}"
+        );
     }
 
     /// C++ `Pathfinder::worldToGrid` uses `REAL_TO_INT` truncate-toward-zero
