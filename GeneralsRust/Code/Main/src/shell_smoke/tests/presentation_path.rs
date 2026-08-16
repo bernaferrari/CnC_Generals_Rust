@@ -84,13 +84,14 @@ fn play_sound_effect_prefers_presentation_audio_queue() {
     let i = eng.find("fn play_sound_effect").expect("play_sound_effect");
     let body = &eng[i..eng.len().min(i + 2200)];
     assert!(
-        body.contains("last_presentation_frame.is_some()")
+        body.contains("play_sound_through_the_audio")
+            && body.contains("last_presentation_frame.is_some()")
             && body.contains("AudioManagerSubsystem")
             && body.contains("UnitSelect")
             && body.contains("UnitCommand")
             && !body.contains("self.game_logic.queue_audio_event")
             && !body.contains("self.game_logic.process_audio_events()"),
-        "InGame SFX must dispatch direct to AudioManager when presentation frame installed"
+        "InGame SFX must dispatch through TheAudio when a live handle exists"
     );
     let pf = crate::presentation_frame::PRESENTATION_FRAME_SRC;
     assert!(
@@ -105,7 +106,7 @@ fn presentation_shell_input_audio_without_draw_dual_own() {
     let start = gc
         .find("pub fn update_presentation_shell")
         .expect("presentation shell");
-    let window = &gc[start..start + 2500.min(gc.len() - start)];
+    let window = &gc[start..start + 12_000.min(gc.len() - start)];
     assert!(
             gc.contains("update_presentation_shell")
                 && window.contains("without Main-owned input/audio or Display DRAW dual-ownership")

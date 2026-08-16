@@ -1190,6 +1190,13 @@ pub(super) fn install_contain_overrides() -> Result<(), String> {
         w3d_tree_draw_module_factory,
         w3d_tree_draw_module_data_factory,
     )?;
+    // C++ W3DModuleFactory.cpp:56 addModule(W3DPropDraw)
+    register_module_override(
+        "W3DPropDraw",
+        ModuleType::Draw,
+        w3d_prop_draw_module_factory,
+        w3d_prop_draw_module_data_factory,
+    )?;
     register_module_override(
         "W3DTruckDraw",
         ModuleType::Draw,

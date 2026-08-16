@@ -415,7 +415,7 @@ mod tests {
 
         fn xfer_snapshot(
             &mut self,
-            _snapshot: &mut game_engine::system::Snapshot,
+            _snapshot: &mut dyn Snapshotable,
         ) -> Result<(), XferStatus> {
             Ok(())
         }
@@ -1768,6 +1768,11 @@ impl ContainModuleInterface for RiderChangeContain {
     fn friend_get_rider(&self) -> Option<ObjectID> {
         RiderChangeContain::friend_get_rider(self)
     }
+
+    fn is_rider_change_contain(&self) -> bool {
+        true
+    }
+
 }
 
 impl ContainerInterface for RiderChangeContain {

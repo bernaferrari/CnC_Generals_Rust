@@ -40,6 +40,11 @@ pub struct TerrainVisualImpl {
 
     /// Terrain track rendering system.
     terrain_tracks: TerrainTracksRenderObjClassSystem,
+    /// C++ `WaterTracksRenderSystem` ship-wake / shore-wave tracks.
+    water_tracks: crate::terrain::WaterTracksRenderSystem,
+    /// Last CPU flush from `WaterTracksRenderSystem::flush` (live water record).
+    last_water_tracks_flush: crate::terrain::WaterTracksFlush,
+
 
     /// Sun direction for lighting
     sun_direction: Vec3,
@@ -112,6 +117,9 @@ pub struct TerrainVisualImpl {
 
     /// Global C++-style water plane rendered for the active map.
     water_plane: Option<GpuWaterPlane>,
+    /// Uploaded C++ `WaterTracksRenderSystem::flush` geometry.
+    water_track_meshes: Vec<GpuWaterPlane>,
+
 
     /// Cached GPU meshes for visible road surfaces.
     road_meshes: Vec<GpuRoadMesh>,

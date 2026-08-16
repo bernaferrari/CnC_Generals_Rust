@@ -111,9 +111,10 @@ fn play_sound_effect_direct_audio_source() {
     let i = eng.find("fn play_sound_effect").expect("play_sound_effect");
     let body = &eng[i..eng.len().min(i + 2200)];
     assert!(
-        body.contains("AudioManagerSubsystem")
+        body.contains("play_sound_through_the_audio")
+            && body.contains("AudioManagerSubsystem")
             && body.contains("last_presentation_frame.is_some()"),
-        "play_sound_effect must dispatch UI SFX via AudioManager when frame installed"
+        "play_sound_effect must dispatch UI SFX via TheAudio when a handle exists"
     );
     assert!(
         !body.contains(

@@ -968,6 +968,70 @@ fn take_new_game_dispatch_drains_stream_and_keeps_other_messages() {
 }
 
 #[test]
+fn peek_new_game_leaves_message_for_propagate_messages() {
+    // C++ GameLogic::logicMessageDispatcher MSG_NEW_GAME
+    // (GameLogicDispatch.cpp:396-423) consumes the streamed message after
+    // MessageStream::propagateMessages. Host start peeks so pump can still
+    // deliver NewGame to crate GameLogic.
+    use game_engine::common::message_stream::{get_message_stream, GameMessageType};
+
+    let stream = get_message_stream();
+    {
+        let mut g = stream.write().unwrap_or_else(|e| e.into_inner());
+        g.clear_messages();
+        g.append_message(GameMessageType::ClearGameData);
+        let ng = g.append_message(GameMessageType::NewGame);
+        ng.append_integer_argument(2); // GAME_SKIRMISH
+        ng.append_integer_argument(1);
+        ng.append_integer_argument(0);
+        ng.append_integer_argument(30);
+    }
+
+    let peeked = CnCGameEngine::peek_new_game_dispatch_from_common_stream()
+        .expect("NewGame must be visible without removing it");
+    assert_eq!(peeked.game_mode, GameMode::Skirmish);
+    assert_eq!(peeked.max_fps, Some(30));
+
+    {
+        let g = stream.read().unwrap_or_else(|e| e.into_inner());
+        assert!(
+            g.get_messages()
+                .iter()
+                .any(|m| matches!(m.get_type(), GameMessageType::NewGame)),
+            "peek must leave MSG_NEW_GAME on the stream for pump_message_stream"
+        );
+    }
+
+    let _ = CnCGameEngine::take_new_game_dispatch_from_common_stream();
+}
+
+#[test]
+fn menu_shell_pumps_new_game_after_host_start() {
+    // C++ GameLogicDispatch.cpp:396 MSG_NEW_GAME is delivered via the
+    // command list, not stripped before MessageStream::propagateMessages.
+    let src = include_str!("camera_drain.rs");
+    let start = src
+        .find("fn host_tick_game_client_menu_shell(")
+        .expect("menu shell helper");
+    let body = &src[start..];
+    let peek = body
+        .find("take_pending_new_game_start_request")
+        .expect("host peek");
+    let start_ui = body
+        .find("start_game_from_ui(request)")
+        .expect("host start");
+    let pump = body[start_ui..]
+        .find("pump_message_stream")
+        .map(|offset| start_ui + offset)
+        .expect("pump after host start");
+    assert!(
+        peek < start_ui && start_ui < pump,
+        "host start must peek NewGame, then pump so crate GameLogic sees MSG_NEW_GAME"
+    );
+}
+
+
+#[test]
 fn menu_does_not_skip_world_scene_after_warmup() {
     // Loading is the only state that may omit the 3D pass.
     let src = include_str!("shell.rs");

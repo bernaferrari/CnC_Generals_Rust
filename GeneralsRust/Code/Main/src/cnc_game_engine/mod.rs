@@ -170,6 +170,8 @@ fn startup_worker_owns(generation: u64) -> bool {
 mod source_scan_tests;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod architecture_honesty_tests;
 
 /// Concatenated engine source for residual `include_str!` scans.
 pub const ENGINE_SRC: &str = concat!(

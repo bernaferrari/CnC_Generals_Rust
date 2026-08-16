@@ -282,18 +282,29 @@ impl AIPlayer {
         self.setup_base_layout();
     }
 
-    /// Main AI update method - called every frame
+    /// Main AI update — C++ `AIPlayer::update` (`AIPlayer.cpp:2987-3002`):
+    /// doBaseBuilding → checkReadyTeams → checkQueuedTeams → doTeamBuilding
+    /// → doUpgradesAndSkills → updateBridgeRepair.
+    /// `AISkirmishPlayer::update` just calls this (`AISkirmishPlayer.cpp:932-935`).
     pub fn update(&mut self, game_logic: &mut GameLogic, current_time: f32) {
         if !self.is_active {
             return;
         }
 
         self.last_update_time = current_time;
-
-        // Update AI systems in order
         self.update_enemy_assessment(game_logic, current_time);
+
+        // doBaseBuilding
         self.update_economic_management(game_logic, current_time);
+        // checkReadyTeams — force-start teams waiting ≥ 60s (AIPlayer.cpp:1658-1663)
+        self.check_ready_teams(game_logic, current_time);
+        // checkQueuedTeams + doTeamBuilding
         self.update_military_management(game_logic, current_time);
+        // doUpgradesAndSkills
+        self.do_upgrades_and_skills(game_logic);
+        // updateBridgeRepair — resume interrupted construction (dozer reattach)
+        self.resume_interrupted_construction(game_logic);
+
         self.update_strategic_decisions(game_logic, current_time);
     }
 
@@ -1333,6 +1344,45 @@ impl AIPlayer {
             && self.team_factories_ready(game_logic, team_name)
     }
 
+    /// C++ `AIPlayer::checkReadyTeams` — force-complete a team waiting ≥ 60s.
+    fn check_ready_teams(&mut self, _game_logic: &mut GameLogic, current_time: f32) {
+        const READY_TEAM_FORCE_SECONDS: f32 = 60.0;
+        for team in &mut self.team_queue {
+            if team.completed {
+                continue;
+            }
+            let started = team.frame_started as f32 / LOGIC_FRAMES_PER_SECOND;
+            if current_time - started >= READY_TEAM_FORCE_SECONDS {
+                team.completed = true;
+            }
+        }
+    }
+
+    /// C++ `AIPlayer::doUpgradesAndSkills` residual — spend science points.
+    fn do_upgrades_and_skills(&mut self, game_logic: &mut GameLogic) {
+        let Some(player) = game_logic.get_player_mut(self.player_id) else {
+            return;
+        };
+        if player.science_purchase_points <= 0 {
+            return;
+        }
+        const CANDIDATES: &[&str] = &[
+            "SCIENCE_Rank1",
+            "SCIENCE_Rank2",
+            "SCIENCE_Rank3",
+            "SCIENCE_PaladinTank",
+            "SCIENCE_StealthFighter",
+            "SCIENCE_Pathfinder",
+            "SCIENCE_RedGuardTraining",
+            "SCIENCE_CashBounty1",
+        ];
+        for name in CANDIDATES {
+            if player.attempt_to_purchase_science(name) {
+                break;
+            }
+        }
+    }
+
     /// Pick candidate team name for the current strategy (same as select_team_to_build).
     fn candidate_team_name(&self) -> Option<String> {
         match self.current_strategy {
@@ -1789,6 +1839,19 @@ impl AIPlayer {
         strength
     }
 
+    /// Record C++ `AIAttackMoveState` / `AIInternalMoveToState::onEnter` on the
+    /// crate `AiStateMachine` (move/attack only; does not run the 48-state graph).
+    fn dispatch_crate_attack_move(unit_id: ObjectId, dest: Vec3, focus: Option<ObjectId>) {
+        let dest = gamelogic::common::types::Coord3D::new(dest.x, dest.y, dest.z);
+        let _ = gamelogic::ai::state_machine::dispatch_host_move_attack(
+            unit_id.0,
+            gamelogic::ai::state_machine::HostMoveAttackKind::AttackMoveTo,
+            Some(dest),
+            focus.map(|id| id.0),
+        );
+    }
+
+
     /// Launch coordinated attack
     pub(crate) fn launch_attack(&mut self, game_logic: &mut GameLogic, current_time: f32) {
         log::debug!(
@@ -1859,12 +1922,16 @@ impl AIPlayer {
                 }
                 if game_logic.assign_unit_path(unit_id, enemy_base, &[]) {
                     game_logic.set_ai_state_decision_aware_for_ai(unit_id, AIState::AttackMoving);
+                    // C++ AIAttackMoveState / AIInternalMoveToState::onEnter via
+                    // crate AiStateMachine::set_state (move/attack only).
+                    Self::dispatch_crate_attack_move(unit_id, enemy_base, focus_enemy);
                 } else {
                     // Fallback residual when A* fails (blocked goal).
                     if let Some(unit) = game_logic.host_object_mut(unit_id) {
                         unit.move_to(enemy_base);
                     }
                     game_logic.set_ai_state_decision_aware_for_ai(unit_id, AIState::AttackMoving);
+                    Self::dispatch_crate_attack_move(unit_id, enemy_base, focus_enemy);
                     if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                         crate::game_logic::host_ai_decision_log::record_move_to(
                             unit_id, enemy_base,
@@ -1962,7 +2029,7 @@ impl AIManager {
     pub fn new() -> Self {
         Self {
             ai_players: HashMap::new(),
-            update_interval: 1.0 / 10.0, // Update AI at 10 FPS
+            update_interval: 1.0 / 30.0, // C++ AI::update every logic frame (30 Hz)
             // Negative so the first host update at sim_time=0 is not skipped.
             last_update_time: -1.0,
         }
@@ -2477,6 +2544,28 @@ mod cpp_parity_tests {
             );
         }
         let _ = mgr;
+    }
+
+    #[test]
+    fn ai_player_update_order_matches_cpp_aiplayer_update() {
+        // C++ AIPlayer.cpp:2987-3002
+        let src = include_str!("ai.rs");
+        let start = src
+            .find("/// Main AI update — C++ `AIPlayer::update`")
+            .expect("AIPlayer::update docs");
+        let body = &src[start..src.len().min(start + 1800)];
+        let econ = body.find("update_economic_management").expect("doBaseBuilding");
+        let ready = body.find("check_ready_teams").expect("checkReadyTeams");
+        let mil = body.find("update_military_management").expect("doTeamBuilding");
+        let upg = body.find("do_upgrades_and_skills").expect("doUpgradesAndSkills");
+        let br = body
+            .find("resume_interrupted_construction")
+            .expect("updateBridgeRepair");
+        assert!(econ < ready && ready < mil && mil < upg && upg < br);
+        assert!(
+            AIManager::new().update_interval > 0.0
+                && (AIManager::new().update_interval - 1.0 / 30.0).abs() < 1e-6
+        );
     }
 
     #[test]
@@ -3594,4 +3683,79 @@ mod cpp_parity_tests {
             "move_to fallback must come after assign_unit_path"
         );
     }
+
+    #[test]
+    fn launch_attack_dispatches_crate_attack_move_state() {
+        // C++ AIAttackMoveState / AIInternalMoveToState::onEnter (AIStates.cpp).
+        // Live host AIState is a flat enum; launch_attack must also record
+        // crate AiStateType::AttackMoveTo via dispatch_host_move_attack.
+        use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate, Weapon};
+        use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
+        use gamelogic::ai::state_machine::{host_move_attack_state, AiStateType};
+
+        let prev = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
+        crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
+        crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+        crate::gameworld_shadow::refresh_gameworld_authority_env_caches();
+        crate::gameworld_shadow::begin_shadow_coupled_tick();
+
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("AiSm");
+        apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+        for (name, team, x) in [("AiSmU", Team::USA, 0.0f32), ("AiSmE", Team::GLA, 80.0)] {
+            if !logic.templates.contains_key(name) {
+                let mut tmpl = ThingTemplate::new(name);
+                tmpl.set_health(100.0);
+                tmpl.add_kind_of(KindOf::Infantry);
+                tmpl.add_kind_of(KindOf::Attackable);
+                logic.templates.insert(name.into(), tmpl);
+            }
+            let _ = logic.create_object(name, team, glam::Vec3::new(x, 0.0, 0.0));
+        }
+        let usa_id = logic
+            .get_players()
+            .iter()
+            .find(|(_, p)| p.team == Team::USA)
+            .map(|(id, _)| *id)
+            .unwrap_or(0);
+        let gla_id = logic
+            .get_players()
+            .iter()
+            .find(|(_, p)| p.team == Team::GLA)
+            .map(|(id, _)| *id);
+        let mut ai = AIPlayer::new(usa_id, Team::USA, AIDifficulty::Medium);
+        ai.enemy_player_id = gla_id;
+        ai.is_active = true;
+        let usa_unit = logic
+            .host_objects()
+            .iter()
+            .find(|(_, o)| o.team == Team::USA && o.is_alive())
+            .map(|(id, _)| *id)
+            .expect("usa unit");
+        if let Some(o) = logic.host_object_mut(usa_unit) {
+            o.weapon = Some(Weapon {
+                damage: 10.0,
+                ..Weapon::default()
+            });
+        }
+
+        ai.launch_attack(&mut logic, 1000.0);
+
+        assert_eq!(
+            host_move_attack_state(usa_unit.0),
+            Some(AiStateType::AttackMoveTo),
+            "launch_attack must record crate AttackMoveTo for the live unit"
+        );
+        assert_eq!(
+            logic.host_object(usa_unit).map(|o| o.ai_state.clone()),
+            Some(AIState::AttackMoving)
+        );
+
+        crate::gameworld_shadow::end_shadow_coupled_tick();
+        match prev {
+            Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
+            None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
+        }
+    }
+
 }

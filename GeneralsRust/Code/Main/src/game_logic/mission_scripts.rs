@@ -2414,6 +2414,11 @@ impl ScriptActionHandler for MissionScriptActionHandler {
         });
         Ok(())
     }
+
+    fn set_campaign_victorious(&self, victorious: bool) -> GameLogicResult<()> {
+        game_client::gui::campaign_manager::get_campaign_manager().set_victorious(victorious);
+        Ok(())
+    }
 }
 
 fn delay_frames(seconds: i32) -> u64 {

@@ -274,6 +274,19 @@ pub(super) fn w3d_tree_draw_module_factory(
 }
 
 draw_data_factory!(
+    w3d_prop_draw_module_data_factory,
+    W3DPropDrawModuleData,
+    "W3DPropDraw",
+    parse
+);
+owner_bound_draw_factory!(
+    w3d_prop_draw_module_factory,
+    W3DPropDrawModuleData,
+    W3DPropDraw,
+    "W3DPropDraw"
+);
+
+draw_data_factory!(
     w3d_truck_draw_module_data_factory,
     W3DTruckDrawModuleData,
     "W3DTruckDraw",

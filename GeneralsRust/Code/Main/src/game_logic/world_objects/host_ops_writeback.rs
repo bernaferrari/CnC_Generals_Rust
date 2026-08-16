@@ -4,53 +4,116 @@
 use super::super::*;
 
 impl GameLogic {
-    /// Select objects for a player
+    /// Select objects for a player (full replace).
+    ///
+    /// C++ `GameLogic::selectObject` (`GameLogic.cpp:2595-2641`) has no owner
+    /// filter — `playerMask` is the only player predicate. Host `player_id`
+    /// maps to that mask bit (`1 << player_id`).
     pub fn select_objects(&mut self, player_id: u32, object_ids: Vec<ObjectId>) {
         if self.players.get(&player_id).is_none() {
             return;
         }
-        let is_local = self
-            .players
-            .get(&player_id)
-            .map(|p| p.is_local)
-            .unwrap_or(false);
+        self.select_object_list(1u32 << player_id.min(31), object_ids, true);
+    }
 
-        // Snapshot previous selection for deselect residual.
-        let previous: Vec<ObjectId> = self
+    /// C++ `GameLogic::selectObject` over a host id list.
+    ///
+    /// `create_new_selection` is C++ `createNewSelection`: false rejects
+    /// `!isMassSelectable()` (`Object.cpp:3024`) and appends; true replaces
+    /// each player in `player_mask`. No owner-player filter.
+    pub fn select_object_list(
+        &mut self,
+        player_mask: u32,
+        object_ids: Vec<ObjectId>,
+        create_new_selection: bool,
+    ) {
+        if player_mask == 0 {
+            return;
+        }
+        let mut player_ids: Vec<u32> = self
             .players
-            .get(&player_id)
-            .map(|p| p.selected_objects.clone())
-            .unwrap_or_default();
-        for &old_id in &previous {
-            if let Some(obj) = self.objects.get_mut(&old_id) {
-                obj.deselect();
+            .keys()
+            .copied()
+            .filter(|&id| (player_mask & (1u32 << id.min(31))) != 0)
+            .collect();
+        if player_ids.is_empty() {
+            return;
+        }
+        player_ids.sort_unstable();
+
+        let mut accepted: Vec<ObjectId> = Vec::new();
+        for &object_id in &object_ids {
+            if accepted.contains(&object_id) {
+                continue;
+            }
+            let Some(obj) = self.objects.get(&object_id) else {
+                continue;
+            };
+            if !obj.is_selectable() {
+                continue;
+            }
+            // C++ GameLogic.cpp:2602-2606 — mass-selectable gate only on add.
+            if !create_new_selection && !host_object_is_mass_selectable(obj) {
+                continue;
+            }
+            accepted.push(object_id);
+        }
+
+        if create_new_selection {
+            let mut previous: Vec<ObjectId> = Vec::new();
+            for &pid in &player_ids {
+                if let Some(player) = self.players.get(&pid) {
+                    for &old_id in &player.selected_objects {
+                        if !previous.contains(&old_id) {
+                            previous.push(old_id);
+                        }
+                    }
+                }
+            }
+            for &old_id in &previous {
+                if accepted.contains(&old_id) {
+                    continue;
+                }
+                if let Some(obj) = self.objects.get_mut(&old_id) {
+                    obj.deselect();
+                }
             }
         }
 
-        let mut selected = Vec::new();
         let mut voice_pos = None;
         let mut voice_template = None;
-        for &object_id in &object_ids {
+        for &object_id in &accepted {
             if let Some(obj) = self.objects.get_mut(&object_id) {
-                if obj.owner_player_id == Some(player_id) && obj.is_selectable() {
-                    obj.select();
-                    // C++ Drawable::flashAsSelected residual on select / create-team.
-                    obj.flash_as_selected();
-                    selected.push(object_id);
-                    if voice_pos.is_none() {
-                        voice_pos = Some(obj.get_position());
-                        voice_template = Some(obj.template_name.clone());
+                obj.select();
+                // C++ Drawable::flashAsSelected residual on select / create-team.
+                obj.flash_as_selected();
+                if voice_pos.is_none() {
+                    voice_pos = Some(obj.get_position());
+                    voice_template = Some(obj.template_name.clone());
+                }
+            }
+        }
+
+        let any_local = player_ids.iter().any(|&id| {
+            self.players.get(&id).map(|p| p.is_local).unwrap_or(false)
+        });
+
+        for &pid in &player_ids {
+            if let Some(player) = self.players.get_mut(&pid) {
+                if create_new_selection {
+                    player.selected_objects = accepted.clone();
+                } else {
+                    for &id in &accepted {
+                        if !player.selected_objects.contains(&id) {
+                            player.selected_objects.push(id);
+                        }
                     }
                 }
             }
         }
 
-        if let Some(player) = self.players.get_mut(&player_id) {
-            player.selected_objects = selected.clone();
-        }
-
         // C++ VoiceSelect residual (primary selection unit).
-        if is_local {
+        if any_local {
             if let (Some(pos), Some(template)) = (voice_pos, voice_template) {
                 let event = format!("{template}VoiceSelect");
                 self.queue_audio_event(
@@ -66,8 +129,14 @@ impl GameLogic {
             }
         }
 
-        log::debug!("{} selected {} objects", player_id, selected.len());
+        log::debug!(
+            "mask {:#x} selected {} objects (create_new={})",
+            player_mask,
+            accepted.len(),
+            create_new_selection
+        );
     }
+
 
     /// Issue move command to selected objects (with pathfinding)
     pub fn command_move(&mut self, player_id: u32, target_position: Vec3) {
@@ -1739,3 +1808,141 @@ impl GameLogic {
         }
     }
 }
+
+/// C++ `Object::isMassSelectable` (`Object.cpp:3024-3026`):
+/// `isSelectable() && !isKindOf(KINDOF_STRUCTURE)`.
+fn host_object_is_mass_selectable(obj: &Object) -> bool {
+    obj.is_selectable() && !obj.is_kind_of(KindOf::Structure)
+}
+
+#[cfg(test)]
+mod select_object_cpp_parity_tests {
+    use super::*;
+    use crate::game_logic::{KindOf, ObjectId, Player, Team, ThingTemplate};
+    use glam::Vec3;
+
+    fn ensure_tpl(logic: &mut GameLogic, name: &str, kinds: &[KindOf]) {
+        if logic.templates.contains_key(name) {
+            return;
+        }
+        let mut t = ThingTemplate::new(name);
+        t.set_health(100.0);
+        for kind in kinds {
+            t.add_kind_of(*kind);
+        }
+        logic.templates.insert(name.to_string(), t);
+    }
+
+    fn two_player_logic() -> GameLogic {
+        let mut logic = GameLogic::new();
+        logic.clear_all_players();
+        logic.add_player(Player::new(0, Team::USA, "local", true));
+        logic.add_player(Player::new(1, Team::China, "other", false));
+        ensure_tpl(
+            &mut logic,
+            "SelectParityUnit",
+            &[KindOf::Infantry, KindOf::Selectable],
+        );
+        ensure_tpl(
+            &mut logic,
+            "SelectParityBuilding",
+            &[KindOf::Structure, KindOf::Selectable],
+        );
+        logic
+    }
+
+    fn spawn(logic: &mut GameLogic, name: &str, owner: u32, x: f32) -> ObjectId {
+        logic
+            .create_object_for_player(name, owner, Vec3::new(x, 0.0, 0.0))
+            .expect("spawn")
+    }
+
+    #[test]
+    fn select_objects_allows_non_owner_on_create_new() {
+        // C++ GameLogic::selectObject (GameLogic.cpp:2595-2641) has no owner
+        // test — playerMask is the only player predicate.
+        let mut logic = two_player_logic();
+        let mine = spawn(&mut logic, "SelectParityUnit", 0, 0.0);
+        let theirs = spawn(&mut logic, "SelectParityUnit", 1, 20.0);
+
+        logic.select_objects(0, vec![mine, theirs]);
+        assert_eq!(
+            logic.get_player(0).expect("p0").selected_objects,
+            vec![mine, theirs],
+            "createNewSelection must keep enemy/neutral objects in the mask player's list"
+        );
+        assert!(logic.host_object(theirs).expect("theirs").selected);
+    }
+
+    #[test]
+    fn select_object_list_loops_every_player_in_mask() {
+        // C++ GameLogic.cpp:2608-2629 — getEachPlayerFromMask then
+        // setCurrentlySelectedAIGroup / addAIGroupToCurrentSelection.
+        let mut logic = two_player_logic();
+        let unit = spawn(&mut logic, "SelectParityUnit", 0, 0.0);
+
+        logic.select_object_list(0b11, vec![unit], true);
+        assert_eq!(
+            logic.get_player(0).expect("p0").selected_objects,
+            vec![unit]
+        );
+        assert_eq!(
+            logic.get_player(1).expect("p1").selected_objects,
+            vec![unit]
+        );
+    }
+
+    #[test]
+    fn add_to_selection_rejects_non_mass_selectable_structure() {
+        // C++ GameLogic.cpp:2602-2606 — !isMassSelectable && !createNewSelection
+        // returns without adding. Object.cpp:3024: structures are not mass-selectable.
+        let mut logic = two_player_logic();
+        let unit = spawn(&mut logic, "SelectParityUnit", 0, 0.0);
+        let building = spawn(&mut logic, "SelectParityBuilding", 0, 30.0);
+
+        logic.select_objects(0, vec![unit]);
+        logic.select_object_list(1, vec![building], false);
+        assert_eq!(
+            logic.get_player(0).expect("p0").selected_objects,
+            vec![unit],
+            "structure must not join an existing selection"
+        );
+        assert!(
+            !logic.host_object(building).expect("building").selected,
+            "rejected add must not mark the structure selected"
+        );
+    }
+
+    #[test]
+    fn create_new_selection_allows_non_mass_selectable_structure() {
+        // C++ GameLogic.cpp:2602 — the mass-selectable gate is skipped when
+        // createNewSelection is true (clicking a building replaces selection).
+        let mut logic = two_player_logic();
+        let unit = spawn(&mut logic, "SelectParityUnit", 0, 0.0);
+        let building = spawn(&mut logic, "SelectParityBuilding", 0, 30.0);
+
+        logic.select_objects(0, vec![unit]);
+        logic.select_object_list(1, vec![building], true);
+        assert_eq!(
+            logic.get_player(0).expect("p0").selected_objects,
+            vec![building]
+        );
+        assert!(logic.host_object(building).expect("building").selected);
+        assert!(!logic.host_object(unit).expect("unit").selected);
+    }
+
+    #[test]
+    fn add_to_selection_appends_mass_selectable_unit() {
+        let mut logic = two_player_logic();
+        let a = spawn(&mut logic, "SelectParityUnit", 0, 0.0);
+        let b = spawn(&mut logic, "SelectParityUnit", 0, 10.0);
+
+        logic.select_objects(0, vec![a]);
+        logic.select_object_list(1, vec![b], false);
+        assert_eq!(
+            logic.get_player(0).expect("p0").selected_objects,
+            vec![a, b]
+        );
+    }
+}
+

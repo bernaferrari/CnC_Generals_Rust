@@ -651,6 +651,118 @@ pub enum UpgradeStatus {
     Pending,
 }
 
+
+/// C++ `KindOfPercentProductionChange` entry (Player.h).
+/// Xfer format: `m_kindOf.xfer()` (BitFlags name list) + percent + ref (Player.cpp:4346-4352).
+#[derive(Debug, Clone, PartialEq)]
+struct KindOfPercentProductionChange {
+    kind_of: KindOfMask,
+    percent: f32,
+    refs: u32,
+}
+
+/// C++ `BattlePlanBonuses` (BattlePlanUpdate.h:85-96).
+/// Player::xfer writes armor, sight, bombardment, holdTheLine, searchAndDestroy, valid/invalid KindOf
+/// (Player.cpp:4497-4503) — not the struct declaration order.
+#[derive(Debug, Clone, PartialEq)]
+struct BattlePlanBonuses {
+    armor_scalar: f32,
+    sight_range_scalar: f32,
+    bombardment: i32,
+    hold_the_line: i32,
+    search_and_destroy: i32,
+    valid_kind_of: KindOfMask,
+    invalid_kind_of: KindOfMask,
+}
+
+impl Default for BattlePlanBonuses {
+    fn default() -> Self {
+        Self {
+            armor_scalar: 1.0,
+            sight_range_scalar: 1.0,
+            bombardment: 0,
+            hold_the_line: 0,
+            search_and_destroy: 0,
+            valid_kind_of: KindOfMask::empty(),
+            invalid_kind_of: KindOfMask::empty(),
+        }
+    }
+}
+
+/// C++ `BitFlags<NUMBITS>::xfer` (BitFlagsIO.h:134-207): version + name list (save/load)
+/// or raw user bytes (CRC). Used by KindOf production entries and BattlePlanBonuses KindOf.
+fn xfer_kind_of_mask(xfer: &mut dyn Xfer, mask: &mut KindOfMask) -> Result<(), String> {
+    const CURRENT_VERSION: XferVersion = 1;
+    let mut version = CURRENT_VERSION;
+    xfer.xfer_version(&mut version, CURRENT_VERSION)
+        .map_err(|e| format!("KindOfMask version xfer failed: {}", e))?;
+
+    match xfer.get_xfer_mode() {
+        XferMode::Save => {
+            let names = mask.to_string_list();
+            let mut count = names.len() as i32;
+            xfer.xfer_int(&mut count)
+                .map_err(|e| format!("KindOfMask count xfer failed: {}", e))?;
+            for mut name in names {
+                xfer.xfer_ascii_string(&mut name)
+                    .map_err(|e| format!("KindOfMask name xfer failed: {}", e))?;
+            }
+            Ok(())
+        }
+        XferMode::Load => {
+            *mask = KindOfMask::empty();
+            let mut count = 0i32;
+            xfer.xfer_int(&mut count)
+                .map_err(|e| format!("KindOfMask count load failed: {}", e))?;
+            for _ in 0..count {
+                let mut name = String::new();
+                xfer.xfer_ascii_string(&mut name)
+                    .map_err(|e| format!("KindOfMask name load failed: {}", e))?;
+                let bit = KindOfMask::from_string(&name).ok_or_else(|| {
+                    format!("KindOfMask invalid bit name '{}'", name)
+                })?;
+                *mask |= bit;
+            }
+            Ok(())
+        }
+        XferMode::Crc => {
+            // C++ uses xferUser(this, sizeof(this)); we CRC the live 128-bit mask.
+            let mut bits = mask.bits();
+            xfer.xfer_u128(&mut bits)
+                .map_err(|e| format!("KindOfMask crc failed: {}", e))?;
+            Ok(())
+        }
+        _ => Err(format!(
+            "KindOfMask xfer - unknown mode {:?}",
+            xfer.get_xfer_mode()
+        )),
+    }
+}
+
+/// C++ `Upgrade::xfer` (Upgrade.cpp:63-74): version byte + status enum ONLY.
+fn xfer_upgrade_instance(
+    xfer: &mut dyn Xfer,
+    status: &mut UpgradeStatus,
+) -> Result<(), String> {
+    const CURRENT_VERSION: XferVersion = 1;
+    let mut version = CURRENT_VERSION;
+    xfer.xfer_version(&mut version, CURRENT_VERSION)
+        .map_err(|e| format!("Upgrade::xfer version failed: {}", e))?;
+
+    let mut status_byte = match *status {
+        UpgradeStatus::Pending => 0u8, // UPGRADE_STATUS_INVALID
+        UpgradeStatus::InProduction => 1u8,
+        UpgradeStatus::Complete => 2u8,
+    };
+    xfer.xfer_unsigned_byte(&mut status_byte)
+        .map_err(|e| format!("Upgrade::xfer status failed: {}", e))?;
+    *status = match status_byte {
+        1 => UpgradeStatus::InProduction,
+        2 => UpgradeStatus::Complete,
+        _ => UpgradeStatus::Pending,
+    };
+    Ok(())
+}
 /// Information about an upgrade the player has
 #[derive(Debug, Clone)]
 pub struct UpgradeInfo {
@@ -1015,6 +1127,9 @@ pub struct Player {
     /// Player relationships with other players (keyed by player index)
     /// C++: m_playerRelations (Player.h line 338)
     player_relations: PlayerRelationMap,
+    /// Team relationship overrides (TeamID → Relationship)
+    /// C++: m_teamRelations (Player.h line 337)
+    team_relations: super::team::TeamRelationMap,
     /// Default team for this player
     /// C++: m_defaultTeam (Player.h line 321)
     default_team: Option<TeamID>,
@@ -1047,6 +1162,9 @@ pub struct Player {
     /// Number of search-and-destroy battle plans active
     /// C++: m_searchAndDestroyBattlePlans (Player.h line 304)
     search_and_destroy_battle_plans: i32,
+    /// Active battle-plan bonus payload (NULL in C++ when no strategy center plan)
+    /// C++: m_battlePlanBonuses (Player.h line 723)
+    battle_plan_bonuses: Option<BattlePlanBonuses>,
 
     // =========================================================
     // Build and Production System (C++ Player.h lines 311-316)
@@ -1172,7 +1290,7 @@ pub struct Player {
     production_time_changes: HashMap<String, f32>,
     /// KindOf-based production cost change percentages
     /// C++: m_kindOfPercentProductionChangeList (Player.h line 353)
-    kind_of_production_cost_changes: Vec<(u64, f32)>,
+    kind_of_production_cost_changes: Vec<KindOfPercentProductionChange>,
 
     // =========================================================
     // Special Power Ready Timers (C++ Player.h lines 392-393)
@@ -1265,6 +1383,7 @@ impl Player {
             skill_points_modifier: 1.0,
             general_name: String::new(),
             player_relations,
+            team_relations: super::team::TeamRelationMap::new(),
             default_team: None,
             mp_start_index: 0,
             radar_count: 0,
@@ -1273,6 +1392,7 @@ impl Player {
             bombard_battle_plans: 0,
             hold_the_line_battle_plans: 0,
             search_and_destroy_battle_plans: 0,
+            battle_plan_bonuses: None,
             can_build_units: true,
             can_build_base: true,
             is_player_dead,
@@ -1467,6 +1587,8 @@ impl Player {
         self.bombard_battle_plans = 0;
         self.hold_the_line_battle_plans = 0;
         self.search_and_destroy_battle_plans = 0;
+        self.battle_plan_bonuses = None;
+        self.team_relations.clear();
 
         // C++ lines 285: Initialize energy
         let handle = PlayerHandle::new(self.index.max(0) as u32);
@@ -3179,9 +3301,9 @@ impl Player {
     /// multiplicatively: `result *= (1 + percent)`.
     pub fn get_production_cost_change_based_on_kind_of(&self, kindof: u64) -> f32 {
         let mut result = 1.0f32;
-        for (mask, percent) in &self.kind_of_production_cost_changes {
-            if (kindof & mask) != 0 {
-                result *= 1.0 + percent;
+        for entry in &self.kind_of_production_cost_changes {
+            if (kindof as u128 & entry.kind_of.bits()) != 0 {
+                result *= 1.0 + entry.percent;
             }
         }
         result
@@ -3189,7 +3311,27 @@ impl Player {
 
     /// Add a KindOf-based production cost change entry.
     pub fn add_kind_of_production_cost_change(&mut self, kindof: u64, percent: f32) {
-        self.kind_of_production_cost_changes.push((kindof, percent));
+        self.kind_of_production_cost_changes
+            .push(KindOfPercentProductionChange {
+                kind_of: KindOfMask::from_bits_truncate(kindof as u128),
+                percent,
+                refs: 1,
+            });
+    }
+
+    /// Override a team relationship (C++ Player::setTeamRelationship).
+    pub fn set_team_relationship(&mut self, team_id: TeamID, relationship: Relationship) {
+        self.team_relations.set_relationship(team_id, relationship);
+    }
+
+    /// Get an override team relationship if one exists.
+    pub fn get_team_relationship(&self, team_id: TeamID) -> Option<Relationship> {
+        self.team_relations.get_relationship(team_id)
+    }
+
+    #[cfg(test)]
+    fn set_battle_plan_bonuses_for_test(&mut self, bonuses: BattlePlanBonuses) {
+        self.battle_plan_bonuses = Some(bonuses);
     }
 
     // =========================================================
@@ -3388,13 +3530,31 @@ impl Snapshotable for Player {
     ///   3. xferInt(skillPoints)
     ///   4. xferInt(sciencePurchasePoints)
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        // Battle plan bonuses - always false since we don't have a BattlePlanBonuses struct
-        let mut battle_plan_bonus = false;
+        // C++ Player::crc (Player.cpp:3941-3955): present flag, then bonus fields if non-NULL.
+        let mut battle_plan_bonus = self.battle_plan_bonuses.is_some();
         xfer.xfer_bool(&mut battle_plan_bonus)
             .map_err(|e| format!("CRC battle_plan_bonus failed: {}", e))?;
-        // Note: When BattlePlanBonuses is added as a Player field, this should
-        // conditionally xfer the struct fields (armorScalar, sightRangeScalar,
-        // bombardment, holdTheLine, searchAndDestroy, validKindOf, invalidKindOf).
+        if let Some(bonuses) = &self.battle_plan_bonuses {
+            let mut armor_scalar = bonuses.armor_scalar;
+            let mut sight_range_scalar = bonuses.sight_range_scalar;
+            let mut bombardment = bonuses.bombardment;
+            let mut hold_the_line = bonuses.hold_the_line;
+            let mut search_and_destroy = bonuses.search_and_destroy;
+            let mut valid_kind = bonuses.valid_kind_of;
+            let mut invalid_kind = bonuses.invalid_kind_of;
+            xfer.xfer_real(&mut armor_scalar)
+                .map_err(|e| format!("CRC armor_scalar failed: {}", e))?;
+            xfer.xfer_real(&mut sight_range_scalar)
+                .map_err(|e| format!("CRC sight_range_scalar failed: {}", e))?;
+            xfer.xfer_int(&mut bombardment)
+                .map_err(|e| format!("CRC bombardment failed: {}", e))?;
+            xfer.xfer_int(&mut hold_the_line)
+                .map_err(|e| format!("CRC hold_the_line failed: {}", e))?;
+            xfer.xfer_int(&mut search_and_destroy)
+                .map_err(|e| format!("CRC search_and_destroy failed: {}", e))?;
+            xfer_kind_of_mask(xfer, &mut valid_kind)?;
+            xfer_kind_of_mask(xfer, &mut invalid_kind)?;
+        }
 
         // Skill points
         let mut skill_points = self.skill_points;
@@ -3497,54 +3657,26 @@ impl Snapshotable for Player {
         // --- 6. Upgrade instances: name + xferSnapshot ---
         // C++ lines 4005-4053
         match xfer.get_xfer_mode() {
-            XferMode::Save => {
+            XferMode::Save | XferMode::Crc => {
                 for upgrade in &self.upgrade_list {
-                    // Write upgrade name via xferAsciiString
+                    // C++ Player.cpp:4014-4018 — name + Upgrade::xfer (version + status only).
                     let mut name = upgrade.get_name().to_string();
                     xfer.xfer_ascii_string(&mut name)
                         .map_err(|e| format!("upgrade name xfer failed: {}", e))?;
-
-                    // xferSnapshot of upgrade data (status, start_frame, complete_frame)
-                    let mut status = upgrade.get_status() as i32;
-                    let mut start_frame = upgrade.start_frame;
-                    let mut complete_frame = upgrade.complete_frame;
-                    xfer.xfer_int(&mut status)
-                        .map_err(|e| format!("upgrade status xfer failed: {}", e))?;
-                    xfer.xfer_unsigned_int(&mut start_frame)
-                        .map_err(|e| format!("upgrade start_frame xfer failed: {}", e))?;
-                    xfer.xfer_unsigned_int(&mut complete_frame)
-                        .map_err(|e| format!("upgrade complete_frame xfer failed: {}", e))?;
+                    let mut status = upgrade.get_status();
+                    xfer_upgrade_instance(xfer, &mut status)?;
                 }
             }
             XferMode::Load => {
                 self.upgrade_list.clear();
                 for _ in 0..upgrade_count {
-                    // Read upgrade name via xferAsciiString
                     let mut name = String::new();
                     xfer.xfer_ascii_string(&mut name)
                         .map_err(|e| format!("load upgrade name failed: {}", e))?;
-
-                    // Read upgrade snapshot data
-                    let mut status = 0i32;
-                    let mut start_frame = 0u32;
-                    let mut complete_frame = 0u32;
-                    xfer.xfer_int(&mut status)
-                        .map_err(|e| format!("load upgrade status failed: {}", e))?;
-                    xfer.xfer_unsigned_int(&mut start_frame)
-                        .map_err(|e| format!("load upgrade start_frame failed: {}", e))?;
-                    xfer.xfer_unsigned_int(&mut complete_frame)
-                        .map_err(|e| format!("load upgrade complete_frame failed: {}", e))?;
-
-                    let status_enum = match status {
-                        0 => UpgradeStatus::Pending,
-                        1 => UpgradeStatus::InProduction,
-                        2 => UpgradeStatus::Complete,
-                        _ => UpgradeStatus::Pending,
-                    };
+                    let mut status = UpgradeStatus::Pending;
+                    xfer_upgrade_instance(xfer, &mut status)?;
                     let mut upgrade = UpgradeInfo::new(name);
-                    upgrade.set_status(status_enum);
-                    upgrade.set_start_frame(start_frame);
-                    upgrade.set_complete_frame(complete_frame);
+                    upgrade.set_status(status);
                     self.upgrade_list.push(upgrade);
                 }
             }
@@ -3996,14 +4128,9 @@ impl Snapshotable for Player {
 
         // --- 28. Team relations ---
         // C++ line 4290: xfer->xferSnapshot(m_teamRelations)
-        // Note: TeamRelationMap Snapshotable impl exists in team.rs.
-        // We don't have a team_relations field on Player, so write an empty map.
-        {
-            let mut empty_team_relations = super::team::TeamRelationMap::new();
-            empty_team_relations
-                .xfer(xfer)
-                .map_err(|e| format!("team_relations xfer failed: {}", e))?;
-        }
+        self.team_relations
+            .xfer(xfer)
+            .map_err(|e| format!("team_relations xfer failed: {}", e))?;
 
         // --- 29. Can build units ---
         // C++ line 4293
@@ -4099,39 +4226,33 @@ impl Snapshotable for Player {
             .map_err(|e| format!("percent_production_change_count xfer failed: {}", e))?;
 
         match xfer.get_xfer_mode() {
-            XferMode::Save => {
-                for &(mask, percent) in &self.kind_of_production_cost_changes {
-                    // C++ writes: kindOf.xfer (which uses xferKindOf for each bit),
-                    // then xferReal(percent), then xferUnsignedInt(ref).
-                    // For parity, we write the mask as raw bytes since xferKindOf
-                    // serializes individual bit names.
-                    // Write as a single KindOf mask value
-                    let mut kind_of_mask = mask as u32;
-                    xfer.xfer_unsigned_int(&mut kind_of_mask)
-                        .map_err(|e| format!("kindof mask xfer failed: {}", e))?;
-                    let mut pct = percent;
-                    xfer.xfer_real(&mut pct)
+            XferMode::Save | XferMode::Crc => {
+                for entry in &mut self.kind_of_production_cost_changes {
+                    // C++ Player.cpp:4346-4352 — BitFlags name list + percent + ref.
+                    xfer_kind_of_mask(xfer, &mut entry.kind_of)?;
+                    xfer.xfer_real(&mut entry.percent)
                         .map_err(|e| format!("kindof percent xfer failed: {}", e))?;
-                    // ref count is always 1 for our simplified representation
-                    let mut ref_count = 1u32;
-                    xfer.xfer_unsigned_int(&mut ref_count)
+                    xfer.xfer_unsigned_int(&mut entry.refs)
                         .map_err(|e| format!("kindof ref xfer failed: {}", e))?;
                 }
             }
             XferMode::Load => {
                 self.kind_of_production_cost_changes.clear();
                 for _ in 0..percent_production_change_count {
-                    let mut kind_of_mask = 0u32;
-                    xfer.xfer_unsigned_int(&mut kind_of_mask)
-                        .map_err(|e| format!("load kindof mask failed: {}", e))?;
+                    let mut kind_of = KindOfMask::empty();
+                    xfer_kind_of_mask(xfer, &mut kind_of)?;
                     let mut percent = 0.0f32;
                     xfer.xfer_real(&mut percent)
                         .map_err(|e| format!("load kindof percent failed: {}", e))?;
-                    let mut _ref_count = 0u32;
-                    xfer.xfer_unsigned_int(&mut _ref_count)
+                    let mut refs = 0u32;
+                    xfer.xfer_unsigned_int(&mut refs)
                         .map_err(|e| format!("load kindof ref failed: {}", e))?;
                     self.kind_of_production_cost_changes
-                        .push((kind_of_mask as u64, percent));
+                        .push(KindOfPercentProductionChange {
+                            kind_of,
+                            percent,
+                            refs,
+                        });
                 }
             }
             _ => {}
@@ -4253,40 +4374,30 @@ impl Snapshotable for Player {
         }
 
         // --- 41. Battle plan bonuses ---
-        // C++ lines 4480-4504: xferBool(battlePlanBonus), if present xfer struct fields
-        let mut battle_plan_bonus = false; // No BattlePlanBonuses struct on Player
+        // C++ Player.cpp:4480-4504 — present flag; on load replace pointer; then fields if non-NULL.
+        let mut battle_plan_bonus = self.battle_plan_bonuses.is_some();
         xfer.xfer_bool(&mut battle_plan_bonus)
             .map_err(|e| format!("battle_plan_bonus xfer failed: {}", e))?;
-        if battle_plan_bonus {
-            // Read/write the struct data (armorScalar, sightRangeScalar,
-            // bombardment, holdTheLine, searchAndDestroy, validKindOf, invalidKindOf)
-            let mut armor_scalar = 0.0f32;
-            let mut sight_range_scalar = 0.0f32;
-            let mut bombardment = 0i32;
-            let mut hold_the_line = 0i32;
-            let mut search_and_destroy = 0i32;
-            xfer.xfer_real(&mut armor_scalar)
+        if matches!(xfer.get_xfer_mode(), XferMode::Load) {
+            self.battle_plan_bonuses = if battle_plan_bonus {
+                Some(BattlePlanBonuses::default())
+            } else {
+                None
+            };
+        }
+        if let Some(bonuses) = &mut self.battle_plan_bonuses {
+            xfer.xfer_real(&mut bonuses.armor_scalar)
                 .map_err(|e| format!("armor_scalar xfer failed: {}", e))?;
-            xfer.xfer_real(&mut sight_range_scalar)
+            xfer.xfer_real(&mut bonuses.sight_range_scalar)
                 .map_err(|e| format!("sight_range_scalar xfer failed: {}", e))?;
-            xfer.xfer_int(&mut bombardment)
+            xfer.xfer_int(&mut bonuses.bombardment)
                 .map_err(|e| format!("bombardment xfer failed: {}", e))?;
-            xfer.xfer_int(&mut hold_the_line)
+            xfer.xfer_int(&mut bonuses.hold_the_line)
                 .map_err(|e| format!("hold_the_line xfer failed: {}", e))?;
-            xfer.xfer_int(&mut search_and_destroy)
+            xfer.xfer_int(&mut bonuses.search_and_destroy)
                 .map_err(|e| format!("search_and_destroy xfer failed: {}", e))?;
-            // validKindOf and invalidKindOf - use xferKindOf for each
-            // C++ writes entry->m_validKindOf.xfer(xfer) and m_invalidKindOf.xfer(xfer)
-            // Each KindOf mask is serialized as a set of individual KindOf bit names
-            // For now, write/read as raw u32 since we don't have the full KindOf list
-            let mut valid_kind = 0u32;
-            let mut invalid_kind = 0u32;
-            // Note: C++ uses kindOf.xfer() which writes count + names. We approximate with u32.
-            // When BattlePlanBonuses struct is added, use proper xfer_kind_of.
-            xfer.xfer_unsigned_int(&mut valid_kind)
-                .map_err(|e| format!("valid_kind xfer failed: {}", e))?;
-            xfer.xfer_unsigned_int(&mut invalid_kind)
-                .map_err(|e| format!("invalid_kind xfer failed: {}", e))?;
+            xfer_kind_of_mask(xfer, &mut bonuses.valid_kind_of)?;
+            xfer_kind_of_mask(xfer, &mut bonuses.invalid_kind_of)?;
         }
 
         // --- 42-44. Battle plan counts ---
@@ -4957,5 +5068,107 @@ mod tests {
         // No AI by default
         assert!(!player.has_ai());
         assert!(!player.is_skirmish_ai_player());
+    }
+
+    /// C++ Player.cpp:4014-4018 + Upgrade.cpp:63-74 — upgrade payload is name + version + status only.
+    #[test]
+    fn player_xfer_upgrade_payload_is_name_plus_upgrade_xfer() {
+        use crate::common::system::xfer_load::XferLoad;
+        use crate::common::system::xfer_save::XferSave;
+        use std::io::Cursor;
+
+        let mut saved = Player::new(0);
+        saved.add_upgrade("AmericaAdvancedTraining".to_string(), UpgradeStatus::Complete);
+        if let Some(upgrade) = saved.find_upgrade_mut("AmericaAdvancedTraining") {
+            upgrade.set_start_frame(42);
+            upgrade.set_complete_frame(99);
+        }
+
+        let mut encoded = Vec::new();
+        {
+            let mut xfer = XferSave::new(Cursor::new(&mut encoded), 1);
+            saved.xfer(&mut xfer).expect("save player");
+        }
+
+        let mut loaded = Player::new(0);
+        {
+            let mut xfer = XferLoad::new(Cursor::new(&encoded), 1);
+            loaded.xfer(&mut xfer).expect("load player");
+        }
+
+        let upgrade = loaded
+            .find_upgrade("AmericaAdvancedTraining")
+            .expect("upgrade restored");
+        assert_eq!(upgrade.get_status(), UpgradeStatus::Complete);
+        // Runtime-only frames are not in Upgrade::xfer — must not come back from the stream.
+        assert_eq!(upgrade.start_frame, 0);
+        assert_eq!(upgrade.complete_frame, 0);
+    }
+
+    /// C++ Player.cpp:4340-4360 / BitFlagsIO.h:134-163 — KindOf list is version + name list, not a u32 mask.
+    #[test]
+    fn player_xfer_kindof_production_uses_bitflags_name_list() {
+        use crate::common::system::xfer_save::XferSave;
+        use std::io::Cursor;
+
+        let mut player = Player::new(0);
+        player.add_kind_of_production_cost_change(KindOfMask::VEHICLE.bits() as u64, -0.10);
+
+        let mut encoded = Vec::new();
+        {
+            let mut xfer = XferSave::new(Cursor::new(&mut encoded), 1);
+            player.xfer(&mut xfer).expect("save player");
+        }
+
+        let as_text = String::from_utf8_lossy(&encoded);
+        assert!(
+            as_text.contains("VEHICLE"),
+            "KindOf production xfer must persist bit names (BitFlagsIO.h:158), got {:?}",
+            encoded
+        );
+    }
+
+    /// C++ Player.cpp:4290 — team relations are a live TeamID→Relationship map, not an empty stub.
+    #[test]
+    fn player_xfer_round_trips_team_relations_and_battle_plan_bonuses() {
+        use crate::common::system::xfer_load::XferLoad;
+        use crate::common::system::xfer_save::XferSave;
+        use std::io::Cursor;
+
+        let mut saved = Player::new(0);
+        saved.set_team_relationship(7, Relationship::Allies);
+        saved.set_battle_plan_bonuses_for_test(BattlePlanBonuses {
+            armor_scalar: 1.25,
+            sight_range_scalar: 1.5,
+            bombardment: 1,
+            hold_the_line: 0,
+            search_and_destroy: 2,
+            valid_kind_of: KindOfMask::VEHICLE,
+            invalid_kind_of: KindOfMask::AIRCRAFT,
+        });
+
+        let mut encoded = Vec::new();
+        {
+            let mut xfer = XferSave::new(Cursor::new(&mut encoded), 1);
+            saved.xfer(&mut xfer).expect("save player");
+        }
+
+        let mut loaded = Player::new(0);
+        {
+            let mut xfer = XferLoad::new(Cursor::new(&encoded), 1);
+            loaded.xfer(&mut xfer).expect("load player");
+        }
+
+        assert_eq!(loaded.get_team_relationship(7), Some(Relationship::Allies));
+        let bonuses = loaded
+            .battle_plan_bonuses
+            .as_ref()
+            .expect("battle plan bonuses restored");
+        assert!((bonuses.armor_scalar - 1.25).abs() < f32::EPSILON);
+        assert!((bonuses.sight_range_scalar - 1.5).abs() < f32::EPSILON);
+        assert_eq!(bonuses.bombardment, 1);
+        assert_eq!(bonuses.search_and_destroy, 2);
+        assert_eq!(bonuses.valid_kind_of, KindOfMask::VEHICLE);
+        assert_eq!(bonuses.invalid_kind_of, KindOfMask::AIRCRAFT);
     }
 }

@@ -172,7 +172,8 @@ pub const AC_LOOP: u32 = 0x00000001;
 const AC_RANDOM: u32 = 0x00000002;
 /// C++ `AudioControl::AC_ALL`.
 pub const AC_ALL: u32 = 0x00000004;
-const AC_INTERRUPT: u32 = 0x00000010;
+/// C++ `AudioControl::AC_INTERRUPT` (`AudioEventInfo.h`).
+pub const AC_INTERRUPT: u32 = 0x00000010;
 /// C++ `ST_WORLD` — positional/world audio bit.
 pub const ST_WORLD: u32 = 0x00000002;
 /// C++ `ST_GLOBAL` — uses audio-settings global min/max ranges.

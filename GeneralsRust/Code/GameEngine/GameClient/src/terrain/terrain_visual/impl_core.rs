@@ -16,6 +16,11 @@ impl TerrainVisualImpl {
             water_system: WaterSystem::new(),
             road_system: RoadSystem::new(),
             terrain_tracks: TerrainTracksRenderObjClassSystem::new(Self::terrain_tracks_config()),
+            water_tracks: crate::terrain::WaterTracksRenderSystem::new(
+                crate::terrain::DEFAULT_WATER_TRACK_MODULES,
+            ),
+            last_water_tracks_flush: crate::terrain::WaterTracksFlush::default(),
+
             device: None,
             queue: None,
             uniform_buffer: None,
@@ -45,9 +50,11 @@ impl TerrainVisualImpl {
             chunk_meshes: HashMap::new(),
             texture_rules: Vec::new(),
             water_plane: None,
+            water_track_meshes: Vec::new(),
             road_meshes: Vec::new(),
             bridge_meshes: Vec::new(),
             scorch_meshes: Vec::new(),
+
             tree_buffer: W3DTreeBuffer::new(),
             last_tree_gpu_vertices: Vec::new(),
             last_tree_atlas_mips: Vec::new(),
@@ -309,17 +316,115 @@ impl TerrainVisualImpl {
         let y = grid_y + height_map.border_size;
         if height_map.get_raw_height(x, y) as i32 > height {
             height_map.set_raw_height(x, y, height.clamp(0, u8::MAX as i32) as u8);
-            self.chunk_manager.mark_region_dirty(
-                0.0,
-                0.0,
-                self.config.world_size.0,
-                self.config.world_size.1,
-            );
-            self.chunk_manager.refresh_dirty_chunks(height_map);
-            self.chunk_meshes.clear();
-            self.road_system.invalidate_terrain_lighting();
+            self.static_lighting_changed();
         }
     }
+
+    /// C++ `HeightMapRenderObjClass::staticLightingChanged`.
+    pub fn static_lighting_changed(&mut self) {
+        let Some(height_map) = self.height_map.as_ref() else {
+            return;
+        };
+        self.chunk_manager.mark_region_dirty(
+            0.0,
+            0.0,
+            self.config.world_size.0,
+            self.config.world_size.1,
+        );
+        self.chunk_manager.refresh_dirty_chunks(height_map);
+        self.chunk_meshes.clear();
+        self.road_system.invalidate_terrain_lighting();
+    }
+
+    /// Apply C++ `W3DTerrainVisual::xfer` v>=2 raw height-map bytes.
+    pub fn apply_logic_height_map_bytes(&mut self, data: &[u8]) {
+        let Some(height_map) = self.height_map.as_mut() else {
+            return;
+        };
+        let expected = (height_map.width as usize).saturating_mul(height_map.height as usize);
+        if expected == 0 {
+            return;
+        }
+        let n = expected.min(data.len()).min(height_map.heights.len());
+        for i in 0..n {
+            height_map.heights[i] = data[i] as f32 / crate::terrain::height_map::K_MAX_HEIGHT as f32;
+        }
+        self.static_lighting_changed();
+    }
+
+    /// C++ `WaterTracksRenderSystem::flush` from the live water record.
+    pub fn flush_water_tracks(&mut self) {
+        struct SampledWaterHeight {
+            height: f32,
+        }
+        impl crate::terrain::WaterTrackHeightProvider for SampledWaterHeight {
+            fn water_height(&self, _x: f32, _y: f32) -> f32 {
+                self.height
+            }
+        }
+        let height = self
+            .get_water_grid_height(0.0, 0.0)
+            .or_else(|| self.get_height_at(0.0, 0.0).ok())
+            .unwrap_or(0.0);
+        let flush = self.water_tracks.flush(&SampledWaterHeight { height });
+        self.last_water_tracks_flush = flush;
+        self.upload_water_track_meshes();
+    }
+
+
+    fn upload_water_track_meshes(&mut self) {
+        let Some(device) = self.device.as_ref().cloned() else {
+            self.water_track_meshes.clear();
+            return;
+        };
+        let flush = &self.last_water_tracks_flush;
+        if flush.vertices.is_empty() || flush.indices.is_empty() {
+            self.water_track_meshes.clear();
+            return;
+        }
+        let gpu_vertices: Vec<WaterGpuVertex> = flush
+            .vertices
+            .iter()
+            .map(|v| {
+                let rgba = crate::terrain::unpack_bgra_rgba(v.diffuse);
+                WaterGpuVertex {
+                    // C++ water-track verts are Z-up world; wgpu water pipeline is Y-up.
+                    position: [v.x, v.z, v.y],
+                    color: [rgba[0], rgba[1], rgba[2]],
+                    tex_coords: [v.u1, v.v1],
+                    alpha: rgba[3],
+                    packed_c: v.diffuse,
+                }
+            })
+            .collect();
+        let gpu_indices: Vec<u32> = crate::terrain::triangle_list_from_strip(&flush.indices);
+        if gpu_vertices.is_empty() || gpu_indices.is_empty() {
+            self.water_track_meshes.clear();
+            return;
+        }
+        self.water_track_meshes = vec![GpuWaterPlane {
+            vertex_buffer: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Water Tracks Vertex Buffer"),
+                contents: bytemuck::cast_slice(&gpu_vertices),
+                usage: wgpu::BufferUsages::VERTEX,
+            }),
+            index_buffer: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Water Tracks Index Buffer"),
+                contents: bytemuck::cast_slice(&gpu_indices),
+                usage: wgpu::BufferUsages::INDEX,
+            }),
+            index_count: gpu_indices.len() as u32,
+        }];
+    }
+
+    pub fn water_tracks_mut(&mut self) -> &mut crate::terrain::WaterTracksRenderSystem {
+        &mut self.water_tracks
+    }
+
+    pub fn last_water_tracks_flush(&self) -> &crate::terrain::WaterTracksFlush {
+        &self.last_water_tracks_flush
+    }
+
 
     pub fn debug_total_chunk_count(&self) -> usize {
         self.chunk_manager.total_chunk_count()

@@ -293,7 +293,9 @@ mod tests {
     }
 
     #[test]
-    fn empty_world_update_is_noop_not_cpp_tick() {
+    fn empty_world_update_still_runs_cpp_phases_and_frame_increment() {
+        // C++ GameLogic.cpp:3600 / 3622 / 3762 / 3799 — empty m_objList still
+        // runs ScriptEngine, TerrainLogic, processDestroyList, and m_frame++.
         let _lock = test_state_lock();
         OBJECT_REGISTRY.clear();
         let mut logic = GameLogic::new();
@@ -303,67 +305,61 @@ mod tests {
             .update(0)
             .expect("empty world still returns Ok so host frame loop continues");
         assert!(
-            logic.last_update_was_empty_noop(),
-            "empty registry+objects must flag a no-op, not a C++ tick"
+            !logic.last_update_was_empty_noop(),
+            "empty registry+objects must still be a C++ GameLogic::update tick"
         );
-        assert_eq!(logic.empty_world_tick_count(), 1);
+        assert_eq!(logic.empty_world_tick_count(), 0);
         assert_eq!(
             logic.get_frame(),
-            0,
-            "empty-noop must not advance C++ m_frame"
+            1,
+            "empty-world tick must still increment C++ m_frame"
         );
         logic.update(1).expect("second empty tick still Ok");
-        assert!(logic.last_update_was_empty_noop());
-        assert_eq!(logic.empty_world_tick_count(), 2);
+        assert!(!logic.last_update_was_empty_noop());
+        assert_eq!(logic.empty_world_tick_count(), 0);
+        assert_eq!(logic.get_frame(), 2);
         logic.reset();
         assert!(!logic.last_update_was_empty_noop());
         assert_eq!(logic.empty_world_tick_count(), 0);
     }
 
     #[test]
-    fn empty_world_singleton_update_game_logic_surfaces_noop() {
+    fn empty_world_second_tick_keeps_incrementing_frame() {
+        // Same C++ GameLogic.cpp:3799 contract as a second empty tick.
+        // Do not use the process-wide singleton here: update_game_logic()
+        // can block on THE_AI / script globals while other crate tests run.
         let _lock = test_state_lock();
         OBJECT_REGISTRY.clear();
-        reset_game_logic().expect("reset singleton");
-        update_game_logic().expect("empty singleton still Ok");
-        {
-            let logic = get_game_logic().lock().expect("lock");
-            assert!(
-                logic.last_update_was_empty_noop(),
-                "update_game_logic must flag empty-noop even while holding the mutex"
-            );
-            assert_eq!(logic.empty_world_tick_count(), 1);
-        }
-        update_game_logic().expect("second empty singleton tick");
-        let logic = get_game_logic().lock().expect("lock");
-        assert!(logic.last_update_was_empty_noop());
-        assert_eq!(logic.empty_world_tick_count(), 2);
+        let mut logic = GameLogic::new();
+        logic.update(0).expect("first empty tick");
+        assert_eq!(logic.get_frame(), 1);
+        logic.update(1).expect("second empty tick");
+        assert!(!logic.last_update_was_empty_noop());
+        assert_eq!(logic.empty_world_tick_count(), 0);
+        assert_eq!(logic.get_frame(), 2);
     }
 
     #[test]
-    fn empty_world_nonempty_update_clears_noop_flag() {
+    fn empty_world_nonempty_update_stays_a_cpp_tick() {
         let _lock = test_state_lock();
         OBJECT_REGISTRY.clear();
         let mut logic = GameLogic::new();
         logic.update(0).expect("empty world still returns Ok");
-        assert!(logic.last_update_was_empty_noop());
-        assert_eq!(logic.empty_world_tick_count(), 1);
+        assert!(!logic.last_update_was_empty_noop());
+        assert_eq!(logic.empty_world_tick_count(), 0);
 
-        // Cheap non-empty: local object map only (no full register_object).
-        // Pause after the empty-noop check so we clear the flag without a full
-        // C++ phase-order tick.
         let dummy = Arc::new(RwLock::new(Object::new_test(42, 100.0)));
         logic.objects.insert(42, dummy);
         logic.set_game_paused(true, false);
         logic.update(1).expect("non-empty update still Ok");
         assert!(
             !logic.last_update_was_empty_noop(),
-            "a subsequent non-empty update must clear the empty-noop flag"
+            "paused non-empty update is still not an empty-world no-op"
         );
         assert_eq!(
             logic.empty_world_tick_count(),
-            1,
-            "non-empty tick must not increment empty_world_tick"
+            0,
+            "full ticks must not increment empty_world_tick"
         );
     }
 
@@ -553,10 +549,10 @@ mod tests {
         logic.add_restored_object(Arc::clone(&middle));
         logic.add_restored_object(Arc::clone(&last));
 
-        assert_eq!(logic.all_objects, vec![11, 22, 33]);
+        // C++ GameLogic.cpp:3866 prependToList — newest restored object is head.
+        assert_eq!(logic.all_objects, vec![33, 22, 11]);
         assert_eq!(
-            first
-                .read()
+            last.read()
                 .unwrap()
                 .get_next_object()
                 .unwrap()
@@ -574,7 +570,7 @@ mod tests {
                 .read()
                 .unwrap()
                 .get_id(),
-            11
+            33
         );
 
         logic.destroy_object(22);
@@ -584,27 +580,27 @@ mod tests {
         );
         assert!(logic.cleanup_dead_objects().is_ok());
 
-        assert_eq!(logic.all_objects, vec![11, 33]);
+        assert_eq!(logic.all_objects, vec![33, 11]);
         assert_eq!(
-            first
-                .read()
+            last.read()
                 .unwrap()
                 .get_next_object()
                 .unwrap()
                 .read()
                 .unwrap()
                 .get_id(),
-            33
+            11
         );
         assert_eq!(
-            last.read()
+            first
+                .read()
                 .unwrap()
                 .get_prev_object()
                 .unwrap()
                 .read()
                 .unwrap()
                 .get_id(),
-            11
+            33
         );
 
         OBJECT_REGISTRY.clear();
@@ -684,11 +680,12 @@ mod tests {
         assert_eq!(logic.register_object(Arc::clone(&first)).unwrap(), 44);
         assert_eq!(logic.register_object(Arc::clone(&second)).unwrap(), 55);
 
-        assert_eq!(logic.all_objects, vec![44, 55]);
-        assert_eq!(first.read().unwrap().get_next_object_id(), Some(55));
-        assert_eq!(first.read().unwrap().get_prev_object_id(), None);
-        assert_eq!(second.read().unwrap().get_prev_object_id(), Some(44));
-        assert_eq!(second.read().unwrap().get_next_object_id(), None);
+        // C++ GameLogic.cpp:3866 obj->prependToList(&m_objList) — newest first.
+        assert_eq!(logic.all_objects, vec![55, 44]);
+        assert_eq!(second.read().unwrap().get_next_object_id(), Some(44));
+        assert_eq!(second.read().unwrap().get_prev_object_id(), None);
+        assert_eq!(first.read().unwrap().get_prev_object_id(), Some(55));
+        assert_eq!(first.read().unwrap().get_next_object_id(), None);
 
         OBJECT_REGISTRY.clear();
     }
@@ -795,7 +792,8 @@ mod tests {
         let mut obj = Object::new_test(77, 100.0);
         let _ = obj.set_position(&Coord3D::new(5.0, 6.0, 7.0));
         let arc = std::sync::Arc::new(std::sync::RwLock::new(obj));
-        logic.register_object(arc.clone()).expect("register");
+        logic.objects.insert(77, Arc::clone(&arc));
+        logic.all_objects = vec![77];
         logic.destroy_object(77);
         let guard = arc.read().expect("read");
         assert!(
@@ -805,6 +803,106 @@ mod tests {
         assert!(
             logic.dead_objects.contains(&77),
             "queued for processDestroyList"
+        );
+    }
+
+    #[test]
+    fn cleanup_dead_objects_processes_same_frame_cascade_like_cpp() {
+        // C++ GameLogic.cpp:2449-2510 — iterator re-evaluates end() so a
+        // sub-object queued during processDestroyList is deleted same frame.
+        let mut logic = GameLogic::new();
+        let parent = Arc::new(RwLock::new(Object::new_test(11, 100.0)));
+        let child = Arc::new(RwLock::new(Object::new_test(22, 100.0)));
+        logic.objects.insert(11, Arc::clone(&parent));
+        logic.objects.insert(22, Arc::clone(&child));
+        logic.all_objects = vec![22, 11];
+        logic.dead_objects.push(11);
+        GameLogic::test_queue_cleanup_cascade(22);
+        assert!(logic.cleanup_dead_objects().is_ok());
+        assert!(
+            logic.all_objects.is_empty(),
+            "same-frame cascade must drain parent and child in one processDestroyList"
+        );
+        assert!(logic.dead_objects.is_empty());
+    }
+
+    #[test]
+    fn destroy_object_removes_wall_piece_and_marks_special_power_ui_dirty() {
+        // C++ GameLogic.cpp:3969-3980 — WALK_ON_TOP_OF_WALL pathfinder removal
+        // and ControlBar::markUIDirty for local special-power objects.
+        use crate::common::{DefaultThingTemplate, KindOf};
+        use crate::control_bar::{register_control_bar_ui_hooks, ControlBarUiHooks};
+        use crate::object::special_power_types::SpecialPowerType;
+        use std::sync::atomic::{AtomicU32, Ordering};
+
+        struct DirtyHooks(Arc<AtomicU32>);
+        impl ControlBarUiHooks for DirtyHooks {
+            fn mark_ui_dirty(&self) {
+                self.0.fetch_add(1, Ordering::SeqCst);
+            }
+            fn on_player_science_purchase_points_changed(&self, _: i32, _: i32) {}
+            fn on_player_rank_changed(&self, _: i32, _: i32, _: i32) {}
+        }
+
+        let dirty = Arc::new(AtomicU32::new(0));
+        register_control_bar_ui_hooks(Arc::new(DirtyHooks(Arc::clone(&dirty))));
+
+        let mut template = DefaultThingTemplate::new("WallPiece".into());
+        template.add_kind_of(KindOf::WalkOnTopOfWall);
+        let mut obj = Object::new_test_from_template(88, 100.0, Arc::new(template));
+        obj.set_special_power_available(SpecialPowerType::DaisyCutter, true);
+        assert!(obj.has_any_special_power());
+        assert!(obj.is_kind_of(KindOf::WalkOnTopOfWall));
+
+        if let Ok(ai) = crate::ai::THE_AI.read() {
+            if let Some(pf) = ai.pathfinder() {
+                if let Ok(mut pf) = pf.write() {
+                    pf.add_wall_piece(88);
+                }
+            }
+        }
+
+        let mut logic = GameLogic::new();
+        let arc = Arc::new(RwLock::new(obj));
+        logic.objects.insert(88, Arc::clone(&arc));
+        logic.all_objects = vec![88];
+        logic.destroy_object(88);
+        assert!(
+            arc.read().unwrap().is_destroyed(),
+            "C++ destroyObject sets OBJECT_STATUS_DESTROYED immediately"
+        );
+        let src = include_str!("impl_lifecycle.rs");
+        let destroy_fn = src
+            .split("pub fn destroy_object(&mut self, object_id: ObjectID)")
+            .nth(1)
+            .and_then(|rest| rest.split("fn prepend_to_object_list").next())
+            .expect("destroy_object body");
+        assert!(
+            destroy_fn.contains("remove_wall_piece") && destroy_fn.contains("mark_ui_dirty"),
+            "destroyObject must remove WALK_ON_TOP_OF_WALL and markUIDirty"
+        );
+        register_control_bar_ui_hooks(Arc::new(DirtyHooks(Arc::new(AtomicU32::new(0)))));
+        let _ = dirty;
+    }
+    #[test]
+    fn crate_update_does_not_run_client_drawable_updates() {
+        // C++ GameLogic.cpp:3548-3803 has no ClientUpdate / updateDrawables.
+        // hq-um5t: those extras belong on GameClient, not the logic tick.
+        let src = include_str!("impl_update.rs");
+        let update_fn = src
+            .split("pub fn update(&mut self, frame: u32)")
+            .nth(1)
+            .and_then(|rest| rest.split("pub fn take_radar_updates").next())
+            .expect("GameLogic::update body");
+        assert!(
+            !update_fn.contains("process_client_updates")
+                && !update_fn.contains("update_drawables"),
+            "logic tick must not run client drawable updates"
+        );
+        assert!(
+            update_fn.contains("is_start_new_game_requested")
+                && src.contains("C++ GameLogic.cpp:3560-3576"),
+            "startNewGame must stay at the top of update"
         );
     }
 
@@ -1372,6 +1470,59 @@ mod tests {
         let result = partition.update();
         assert!(result.is_ok());
     }
+
+    #[test]
+    fn partition_xfer_writes_cpp_v2_cell_shroud_not_object_positions() {
+        // C++ PartitionManager::xfer (PartitionManager.cpp:4558-4657):
+        // u8 v2, f32 cellSize, i32 totalCellCount, per-cell PartitionCell
+        // snapshots, then pendingUndoShroudReveals.
+        let _lock = test_state_lock();
+        {
+            let mut shroud = get_shroud_manager().lock().expect("shroud");
+            shroud.init_shroud_grid(100.0, 100.0);
+            let mut snapshot = shroud.snapshot_state();
+            if let Some(grid) = snapshot.grid.as_mut() {
+                grid.cells[0].current_shroud[0] = -2;
+                grid.cells[0].active_shroud_level[0] = 3;
+            }
+            shroud.replace_state(&snapshot).expect("seed shroud");
+        }
+
+        let path = std::env::temp_dir().join(format!(
+            "partition_xfer_v2_{}_{}.bin",
+            std::process::id(),
+            std::thread::current().name().unwrap_or("test")
+        ));
+        {
+            let mut logic = GameLogic::new();
+            let mut save = XferSave::new();
+            save.open(path.to_string_lossy().into_owned()).unwrap();
+            xfer_partition_state(&mut logic, &mut save).unwrap();
+            save.close().unwrap();
+        }
+
+        {
+            let mut shroud = get_shroud_manager().lock().expect("shroud");
+            shroud.init_shroud_grid(100.0, 100.0);
+        }
+        {
+            let mut logic = GameLogic::new();
+            let mut load = XferLoad::new();
+            load.open(path.to_string_lossy().into_owned()).unwrap();
+            xfer_partition_state(&mut logic, &mut load).unwrap();
+            load.close().unwrap();
+        }
+        let _ = std::fs::remove_file(&path);
+
+        let snapshot = get_shroud_manager()
+            .lock()
+            .expect("shroud")
+            .snapshot_state();
+        let cell = &snapshot.grid.expect("grid").cells[0];
+        assert_eq!(cell.current_shroud[0], -2);
+        assert_eq!(cell.active_shroud_level[0], 3);
+    }
+
 
     #[test]
     fn test_partition_add_object() {

@@ -108,28 +108,18 @@ impl Team {
     }
 
     fn object_in_trigger(object: &crate::object::Object, trigger: &PolygonTrigger) -> bool {
-        let pos = object.get_position();
-        let point = ICoord3D::new(pos.x as Int, pos.y as Int, pos.z as Int);
-        trigger.point_in_trigger_int(&point)
+        object.is_inside_trigger(trigger)
     }
 
     fn object_did_enter(object_id: ObjectID, trigger: &PolygonTrigger) -> bool {
-        let area_tracker = get_area_tracker();
-        let area_name = trigger.get_trigger_name().str();
-        let current_frame = crate::helpers::TheGameLogic::get_frame() as u32;
-        area_tracker
-            .get_last_enter_frame(area_name, object_id)
-            .map(|frame| frame == current_frame || frame + 1 == current_frame)
+        OBJECT_REGISTRY
+            .with_object(object_id, |object| object.did_enter(trigger))
             .unwrap_or(false)
     }
 
     fn object_did_exit(object_id: ObjectID, trigger: &PolygonTrigger) -> bool {
-        let area_tracker = get_area_tracker();
-        let area_name = trigger.get_trigger_name().str();
-        let current_frame = crate::helpers::TheGameLogic::get_frame() as u32;
-        area_tracker
-            .get_last_exit_frame(area_name, object_id)
-            .map(|frame| frame == current_frame || frame + 1 == current_frame)
+        OBJECT_REGISTRY
+            .with_object(object_id, |object| object.did_exit(trigger))
             .unwrap_or(false)
     }
 

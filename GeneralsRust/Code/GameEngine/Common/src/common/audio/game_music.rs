@@ -335,7 +335,11 @@ impl super::game_audio::MusicManager for MusicManagerImpl {
     }
 
     fn remove_audio_event(&mut self, handle: AudioHandle) {
-        if handle == AHSV_STOP_THE_MUSIC || handle == AHSV_STOP_THE_MUSIC_FADE {
+        if handle == AHSV_STOP_THE_MUSIC_FADE {
+            // Fade is owned by AudioManager::processFadingList; keep the sink alive.
+            return;
+        }
+        if handle == AHSV_STOP_THE_MUSIC {
             self.stop_all();
             return;
         }

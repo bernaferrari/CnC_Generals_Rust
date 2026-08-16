@@ -11,7 +11,7 @@
 
 use super::geometry::{Coord3D, Matrix3D, Point2D};
 use super::kind_of::KIND_OF_BIT_NAMES;
-use super::snapshot::Snapshot;
+use super::snapshot::Snapshotable;
 use crate::common::ascii_string::AsciiString;
 use crate::common::ini::ini_upgrade::get_upgrade_center;
 use crate::common::rts::science::{get_science_store, ScienceType, SCIENCE_INVALID};
@@ -254,8 +254,9 @@ pub trait Xfer {
     /// Skip data - matches C++ line 106
     fn skip(&mut self, data_size: i32) -> Result<(), XferStatus>;
 
-    /// Entry point for xfering a snapshot - matches C++ line 108
-    fn xfer_snapshot(&mut self, snapshot: &mut Snapshot) -> Result<(), XferStatus>;
+    /// Entry point for xfering a snapshot — C++ `Xfer::xferSnapshot(Snapshot*)`
+    /// (`Xfer.h:108`). Live payload is `Snapshotable`, not the invented struct.
+    fn xfer_snapshot(&mut self, snapshot: &mut dyn Snapshotable) -> Result<(), XferStatus>;
 
     // ============================================================================
     // Default transfer methods - these call the implementation method with the data

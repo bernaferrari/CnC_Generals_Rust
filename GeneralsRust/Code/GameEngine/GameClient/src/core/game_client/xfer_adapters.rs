@@ -138,7 +138,7 @@ impl Xfer for RuntimeCommonXferAdapter<'_> {
 
     fn xfer_snapshot(
         &mut self,
-        _snapshot: &mut CommonSnapshotData,
+        _snapshot: &mut dyn Snapshotable,
     ) -> Result<(), CommonXferStatus> {
         Err(CommonXferStatus::ModeUnknown)
     }

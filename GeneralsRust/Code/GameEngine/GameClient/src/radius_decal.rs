@@ -12,9 +12,20 @@ use gamelogic::player::{Player, ThePlayerList};
 use once_cell::sync::OnceCell;
 use parking_lot::{Mutex, RwLock};
 use std::sync::Arc;
+use crate::effects::decals::DecalRenderItem;
+use nalgebra::Point3;
 
 fn real_to_int(value: Real) -> i32 {
     value.trunc() as i32
+}
+
+fn argb_u32_to_rgba(color: u32, opacity: Real) -> [f32; 4] {
+    [
+        ((color >> 16) & 0xFF) as f32 / 255.0,
+        ((color >> 8) & 0xFF) as f32 / 255.0,
+        (color & 0xFF) as f32 / 255.0,
+        opacity,
+    ]
 }
 
 #[derive(Debug, Clone)]
@@ -118,6 +129,36 @@ impl ProjectedShadowManager {
 
     pub fn cleanup(&mut self) {
         self.decals.retain(|handle| handle.0.lock().active);
+    }
+
+    /// Convert stored projected decals into the live GPU decal items.
+    ///
+    /// C++ `W3DProjectedShadowManager::queueDecal` / `flushDecals` issues these
+    /// as textured projected decals. The live wgpu path reuses
+    /// `ParticleRenderer::render_decals`.
+    pub fn collect_render_items(&self) -> Vec<DecalRenderItem> {
+        let mut items = Vec::new();
+        for handle in &self.decals {
+            let decal = handle.0.lock();
+            if !decal.active {
+                continue;
+            }
+            let opacity = decal.opacity.clamp(0, 255) as f32 / 255.0;
+            if opacity <= 0.0 {
+                continue;
+            }
+            let size = decal.info.size_x.max(decal.info.size_y);
+            if size <= 0.0 {
+                continue;
+            }
+            items.push(DecalRenderItem {
+                position: Point3::new(decal.position.x, decal.position.y, decal.position.z),
+                size,
+                rotation: decal.angle,
+                color: argb_u32_to_rgba(decal.color, opacity),
+            });
+        }
+        items
     }
 }
 
@@ -508,5 +549,38 @@ mod tests {
         assert!(radius_decal.template.is_none());
         assert!(radius_decal.decal.is_none());
         assert!(!handle.0.lock().active);
+    }
+
+    /// C++ `W3DProjectedShadowManager::queueDecal`/`flushDecals` emits the
+    /// stored ShadowHandle as a projected decal. Live path must produce a
+    /// `DecalRenderItem` so `ParticleRenderer::render_decals` can draw it.
+    #[test]
+    fn projected_shadow_manager_collects_active_radius_decals() {
+        let mut manager = ProjectedShadowManager::new();
+        let info = ShadowTypeInfo {
+            allow_updates: false,
+            allow_world_align: true,
+            shadow_type: SHADOW_ALPHA_DECAL,
+            shadow_name: AsciiString::from("EXScudStorm"),
+            size_x: 80.0,
+            size_y: 80.0,
+        };
+        let handle = manager.add_decal(&info).expect("valid decal");
+        handle.set_position(10.0, 20.0, 3.0);
+        handle.set_color(0x00FF_3300);
+        handle.set_opacity(128);
+        handle.set_angle(0.5);
+
+        let items = manager.collect_render_items();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].position, Point3::new(10.0, 20.0, 3.0));
+        assert_eq!(items[0].size, 80.0);
+        assert!((items[0].rotation - 0.5).abs() < f32::EPSILON);
+        assert!((items[0].color[0] - 1.0).abs() < 0.01);
+        assert!((items[0].color[1] - 0.2).abs() < 0.01);
+        assert!((items[0].color[3] - 128.0 / 255.0).abs() < 0.01);
+
+        handle.release();
+        assert!(manager.collect_render_items().is_empty());
     }
 }

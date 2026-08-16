@@ -2235,6 +2235,54 @@ mod runtime_host_windowed_bridge_tests {
             "headless present interval must remain a separate path"
         );
     }
+
+    #[test]
+    fn windowed_present_cap_matches_cpp_default_max_fps_45() {
+        // C++ GameEngine.h:13 `#define DEFAULT_MAX_FPS 45`
+        // C++ GameEngine.cpp:271 `m_maxFPS = DEFAULT_MAX_FPS`
+        // C++ GameEngine.cpp:856-857 execute cap:
+        //   `DWORD limit = (1000.0f/m_maxFPS)-1`
+        // Windowed WaitUntil present interval is 1/45 s; logic stays 30 Hz.
+        use super::super::run_loop::{DEFAULT_MAX_FPS, FRAME_INTERVAL, HEADLESS_LOGIC_INTERVAL};
+        use std::time::Duration;
+
+        assert_eq!(DEFAULT_MAX_FPS, 45);
+        assert_eq!(
+            FRAME_INTERVAL,
+            Duration::from_micros(1_000_000 / 45),
+            "windowed FRAME_INTERVAL must be 1/45 s (~22_222 µs), not 60 Hz 16_667 µs"
+        );
+        assert_ne!(
+            FRAME_INTERVAL,
+            Duration::from_micros(1_000_000 / 60),
+            "pre-fix 60 Hz windowed present cap must not remain"
+        );
+        assert_eq!(
+            HEADLESS_LOGIC_INTERVAL,
+            Duration::from_nanos(33_333_333),
+            "headless 30 Hz logic interval must stay 30 logic frames/sec"
+        );
+
+        let src = include_str!("run_loop.rs");
+        let live = src
+            .split("#[cfg(test)]")
+            .next()
+            .expect("run_loop live path before tests");
+        assert!(
+            live.contains("pub(super) const DEFAULT_MAX_FPS: u32 = 45"),
+            "live run_loop must name C++ DEFAULT_MAX_FPS = 45"
+        );
+        assert!(
+            !live.contains("from_micros(16_667)"),
+            "live run_loop must not hardcode 60 Hz 16_667 µs"
+        );
+        assert!(
+            src.contains("HEADLESS_LOGIC_INTERVAL")
+                && src.contains("from_nanos(33_333_333)"),
+            "headless logic must remain a separate 30 Hz path"
+        );
+    }
+
 }
 
 #[cfg(test)]

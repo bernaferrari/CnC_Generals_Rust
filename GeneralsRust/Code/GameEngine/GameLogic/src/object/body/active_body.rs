@@ -1312,36 +1312,100 @@ impl BodyModuleInterface for ActiveBody {
                 return Ok(());
             }
             DamageType::KillPilot => {
-                // Parity: if vehicle, kill or eject one contained occupant; ignore hull damage.
+                // C++ ActiveBody.cpp:365-418 DAMAGE_KILLPILOT.
+                // Vehicles only. RiderChangeContain (combat bike) splits on
+                // AI::isMoving: a moving bike is scored+killed outright; a
+                // stationary bike evacuates then kills the rider so the bike
+                // scuttles. Ordinary vehicles become DISABLED_UNMANNED and
+                // transfer to the neutral team. Hull HP is never applied.
                 if let Some(owner) = self.get_owner() {
+                    let owner_id = owner
+                        .read()
+                        .ok()
+                        .map(|obj| obj.get_id())
+                        .unwrap_or(INVALID_ID);
+                    let source_id = damage_info.input.source_id;
+                    let mut kill_vehicle = false;
+                    let mut kill_rider: Option<ObjectId> = None;
+                    let mut evacuate = false;
                     if let Ok(mut obj) = owner.write() {
                         if obj.is_kind_of(crate::common::KindOf::Vehicle) {
-                            if let Some(contain) = obj.get_contain() {
-                                if let Ok(mut cont) = contain.lock() {
-                                    if let Some(&victim_id) = cont.get_contained_objects().first() {
-                                        let source_id = damage_info.input.source_id;
-                                        let _ = OBJECT_REGISTRY.with_object_mut(victim_id, |v| {
-                                            let _ =
-                                                OBJECT_REGISTRY.with_object_mut(source_id, |dam| {
-                                                    dam.score_the_kill(v);
-                                                });
-                                            v.kill(None, None);
-                                        });
-                                        let _ = cont.release_object(victim_id);
+                            let rider_change = obj
+                                .get_contain()
+                                .and_then(|contain| {
+                                    contain.lock().ok().map(|g| g.is_rider_change_contain())
+                                })
+                                .unwrap_or(false);
+                            if rider_change {
+                                if obj.is_moving() {
+                                    kill_vehicle = true;
+                                } else {
+                                    kill_rider = obj.get_contain().and_then(|contain| {
+                                        contain.lock().ok().and_then(|g| {
+                                            g.get_contained_objects().first().copied()
+                                        })
+                                    });
+                                    evacuate = true;
+                                }
+                            } else {
+                                obj.set_disabled_unmanned();
+                                obj.deselect_all();
+                                obj.ai_idle();
+                                obj.set_team_to_neutral();
+                            }
+                        }
+                    }
+                    if kill_vehicle {
+                        if source_id != INVALID_ID {
+                            let _ = OBJECT_REGISTRY.with_object_mut(source_id, |damager| {
+                                let _ = OBJECT_REGISTRY.with_object(owner_id, |victim| {
+                                    damager.score_the_kill(victim);
+                                });
+                            });
+                        }
+                        let _ = OBJECT_REGISTRY.with_object_mut(owner_id, |vehicle| {
+                            vehicle.kill(None, None);
+                        });
+                    } else {
+                        if evacuate {
+                            if let Ok(obj) = owner.read() {
+                                if let Some(ai) = obj.get_ai() {
+                                    if let Ok(mut ai_guard) = ai.lock() {
+                                        let params = crate::ai::AiCommandParams::new(
+                                            crate::ai::AiCommandType::EvacuateInstantly,
+                                            CommandSourceType::FromAi,
+                                        );
+                                        let _ = ai_guard.execute_command(&params);
+                                    }
+                                }
+                                if let Some(contain) = obj.get_contain() {
+                                    if let Ok(mut cont) = contain.lock() {
+                                        let _ = cont.order_all_passengers_to_exit(
+                                            CommandSourceType::FromAi,
+                                            true,
+                                        );
                                     }
                                 }
                             }
-                            // Mark unmanned and neutralize like C++ path.
-                            obj.set_disabled_unmanned();
-                            obj.deselect_all();
-                            obj.ai_idle();
-                            obj.set_team_to_neutral();
+                        }
+                        if let Some(rider_id) = kill_rider {
+                            if source_id != INVALID_ID {
+                                let _ = OBJECT_REGISTRY.with_object_mut(source_id, |damager| {
+                                    let _ = OBJECT_REGISTRY.with_object(rider_id, |rider| {
+                                        damager.score_the_kill(rider);
+                                    });
+                                });
+                            }
+                            let _ = OBJECT_REGISTRY.with_object_mut(rider_id, |rider| {
+                                rider.kill(None, None);
+                            });
                         }
                     }
                 }
                 already_handled = true;
                 allow_modifier = false;
             }
+
             DamageType::KillGarrisoned => {
                 // C++ parity: only garrisonable, non-immune containers are affected.
                 if let Some(owner) = self.get_owner() {
@@ -2607,4 +2671,155 @@ mod death_flooded_tests {
         assert_eq!(last.damage_type, DamageType::Water);
         assert_eq!(last.death_type, DeathType::Flooded);
     }
+
+    #[derive(Debug)]
+    struct TestContain {
+        ids: Vec<ObjectId>,
+        rider_change: bool,
+    }
+
+    impl crate::modules::ContainModuleInterface for TestContain {
+        fn can_contain(&self, _object_id: ObjectId) -> bool {
+            true
+        }
+        fn contain_object(&mut self, object_id: ObjectId) -> Result<(), String> {
+            self.ids.push(object_id);
+            Ok(())
+        }
+        fn release_object(&mut self, object_id: ObjectId) -> Result<(), String> {
+            self.ids.retain(|id| *id != object_id);
+            Ok(())
+        }
+        fn get_contained_objects(&self) -> &[ObjectId] {
+            &self.ids
+        }
+        fn get_contained_count(&self) -> usize {
+            self.ids.len()
+        }
+        fn get_max_capacity(&self) -> usize {
+            8
+        }
+        fn is_rider_change_contain(&self) -> bool {
+            self.rider_change
+        }
+    }
+
+    #[derive(Debug)]
+    struct TestAi {
+        moving: bool,
+    }
+
+    impl crate::modules::AIUpdateInterface for TestAi {
+        fn update(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+            Ok(())
+        }
+        fn is_moving(&self) -> bool {
+            self.moving
+        }
+        fn is_idle(&self) -> bool {
+            !self.moving
+        }
+        fn set_movement_target(&mut self, _target: &crate::common::Coord3D) -> Result<(), String> {
+            Ok(())
+        }
+    }
+
+    fn vehicle_with_contain(
+        id: ObjectId,
+        rider_change: bool,
+        moving: bool,
+        occupants: Vec<ObjectId>,
+    ) -> std::sync::Arc<std::sync::RwLock<Object>> {
+        let mut template = crate::common::DefaultThingTemplate::new(format!("Veh{id}"));
+        template.add_kind_of(crate::common::KindOf::Vehicle);
+        let mut obj = Object::new_test_from_template(id, 100.0, std::sync::Arc::new(template));
+        obj.set_contain(Some(std::sync::Arc::new(std::sync::Mutex::new(TestContain {
+            ids: occupants,
+            rider_change,
+        }))));
+        obj.set_ai_update_interface(Some(std::sync::Arc::new(std::sync::Mutex::new(TestAi {
+            moving,
+        }))));
+        let arc = std::sync::Arc::new(std::sync::RwLock::new(obj));
+        OBJECT_REGISTRY.register_object(id, &arc);
+        arc
+    }
+
+    #[test]
+    fn kill_pilot_unmans_ordinary_vehicle_without_hull_damage() {
+        // C++ ActiveBody.cpp:399-410 ordinary vehicle DAMAGE_KILLPILOT path.
+        OBJECT_REGISTRY.clear();
+        let tank = vehicle_with_contain(501, false, false, vec![502]);
+        let rider = std::sync::Arc::new(std::sync::RwLock::new(Object::new_test(502, 50.0)));
+        OBJECT_REGISTRY.register_object(502, &rider);
+
+        let mut body = ActiveBody::new_with_owner(ActiveBodyModuleData::default(), 501);
+        let mut info = DamageInfo::with_simple(1.0, INVALID_ID, DamageType::KillPilot, DeathType::Normal);
+        body.attempt_damage(&mut info).expect("killpilot");
+
+        let tank_g = tank.read().unwrap();
+        assert!(
+            (tank_g.get_health() - 100.0).abs() < 1e-3,
+            "KillPilot must not apply hull HP, got {}",
+            tank_g.get_health()
+        );
+        assert!(tank_g.is_disabled_by_type(crate::common::DisabledType::DisabledUnmanned));
+        assert!(!tank_g.is_effectively_dead());
+        drop(tank_g);
+        OBJECT_REGISTRY.clear();
+    }
+
+    #[test]
+    fn kill_pilot_destroys_moving_rider_change_bike() {
+        // C++ ActiveBody.cpp:380-385: moving RiderChangeContain bike is killed.
+        OBJECT_REGISTRY.clear();
+        let bike = vehicle_with_contain(601, true, true, vec![602]);
+        let rider = std::sync::Arc::new(std::sync::RwLock::new(Object::new_test(602, 50.0)));
+        OBJECT_REGISTRY.register_object(602, &rider);
+
+        let mut body = ActiveBody::new_with_owner(ActiveBodyModuleData::default(), 601);
+        let mut info = DamageInfo::with_simple(1.0, INVALID_ID, DamageType::KillPilot, DeathType::Normal);
+        body.attempt_damage(&mut info).expect("killpilot");
+
+        let bike_g = bike.read().unwrap();
+        assert!(
+            bike_g.is_effectively_dead() || bike_g.get_health() <= 0.0,
+            "moving combat bike must be destroyed (C++ obj->kill)"
+        );
+        assert!(!bike_g.is_disabled_by_type(crate::common::DisabledType::DisabledUnmanned));
+        drop(bike_g);
+        OBJECT_REGISTRY.clear();
+    }
+
+    #[test]
+    fn kill_pilot_kills_rider_on_stationary_bike() {
+        // C++ ActiveBody.cpp:387-396: stationary bike evacuates + kills rider.
+        OBJECT_REGISTRY.clear();
+        let bike = vehicle_with_contain(701, true, false, vec![702]);
+        let rider = std::sync::Arc::new(std::sync::RwLock::new(Object::new_test(702, 50.0)));
+        OBJECT_REGISTRY.register_object(702, &rider);
+
+        let mut body = ActiveBody::new_with_owner(ActiveBodyModuleData::default(), 701);
+        let mut info = DamageInfo::with_simple(1.0, INVALID_ID, DamageType::KillPilot, DeathType::Normal);
+        body.attempt_damage(&mut info).expect("killpilot");
+
+        let bike_g = bike.read().unwrap();
+        assert!(
+            (bike_g.get_health() - 100.0).abs() < 1e-3,
+            "stationary bike hull must survive KillPilot"
+        );
+        assert!(
+            !bike_g.is_disabled_by_type(crate::common::DisabledType::DisabledUnmanned),
+            "stationary bike is scuttled via rider evacuate, not UNMANNED"
+        );
+        drop(bike_g);
+        let rider_g = rider.read().unwrap();
+        assert!(
+            rider_g.is_effectively_dead() || rider_g.get_health() <= 0.0,
+            "stationary bike rider must be killed (C++ rider->kill)"
+        );
+        drop(rider_g);
+        OBJECT_REGISTRY.clear();
+    }
+
 }

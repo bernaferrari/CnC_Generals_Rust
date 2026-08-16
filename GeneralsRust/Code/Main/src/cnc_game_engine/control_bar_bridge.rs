@@ -92,6 +92,40 @@ fn host_control_bar_request_allowed_in_state(
             ))
 }
 
+/// Network/replay modes stay on the crate GameMessage route.
+///
+/// AGENTS.md defers GameNetwork until non-network parity is done; the live
+/// product match is offline Skirmish (or SinglePlayer campaign). C++
+/// `ControlBar::processCommand` (ControlBarCommandProcessing.cpp) appends
+/// the same `MSG_*` for every mode — Rust only hosts the offline world.
+#[inline]
+fn host_control_bar_bridge_is_network_or_replay(
+    mode: Option<crate::game_logic::GameMode>,
+) -> bool {
+    matches!(
+        mode,
+        Some(
+            crate::game_logic::GameMode::Multiplayer
+                | crate::game_logic::GameMode::Internet
+                | crate::game_logic::GameMode::Lan
+                | crate::game_logic::GameMode::Replay
+        )
+    )
+}
+
+#[inline]
+fn host_control_bar_bridge_is_offline_product_mode(
+    mode: Option<crate::game_logic::GameMode>,
+) -> bool {
+    matches!(
+        mode,
+        Some(
+            crate::game_logic::GameMode::SinglePlayer
+                | crate::game_logic::GameMode::Skirmish
+        )
+    )
+}
+
 /// A host popup acknowledgement is meaningful only for the one live retained
 /// popup.  Zero and missing identities fail closed; in particular, a queued
 /// ButtonOk/Esc for old popup A must never consume replacement popup B.
@@ -126,18 +160,10 @@ impl CnCGameEngine {
             return;
         }
 
-        // Multiplayer/replay ownership remains deferred.  Switch the client
-        // back to its own legacy route rather than silently applying commands
-        // to an offline-only host world.
-        if matches!(
-            self.host_match_game_mode,
-            Some(
-                crate::game_logic::GameMode::Multiplayer
-                    | crate::game_logic::GameMode::Internet
-                    | crate::game_logic::GameMode::Lan
-                    | crate::game_logic::GameMode::Replay
-            )
-        ) {
+        // Multiplayer/replay ownership remains deferred (AGENTS.md). Switch
+        // the client back to its own legacy route rather than silently
+        // applying commands to an offline-only host world.
+        if host_control_bar_bridge_is_network_or_replay(self.host_match_game_mode) {
             warn!(
                 "Control Bar host bridge is offline-only; restoring the legacy route for this session"
             );
@@ -898,13 +924,7 @@ impl CnCGameEngine {
             && !self.runtime_host_headless
             && self.runtime_host_window_visible()
             && matches!(self.current_state, GameState::InGame)
-            && matches!(
-                self.host_match_game_mode,
-                Some(
-                    crate::game_logic::GameMode::SinglePlayer
-                        | crate::game_logic::GameMode::Skirmish
-                )
-            )
+            && host_control_bar_bridge_is_offline_product_mode(self.host_match_game_mode)
     }
 
     fn host_control_bar_production_quantity(&self) -> u32 {
@@ -1319,6 +1339,67 @@ mod tests {
             false,
             &HostControlBarRequest::CancelStructurePlacement,
         ));
+    }
+
+    #[test]
+    fn host_bridge_is_offline_skirmish_product_scope_not_network() {
+        // AGENTS.md: GameNetwork deferred. Live match is Skirmish/SinglePlayer.
+        // C++ ControlBarCommandProcessing.cpp appends MSG_* in every mode;
+        // Rust host_tick_control_bar_bridge only mutates the offline world.
+        use crate::game_logic::GameMode;
+        assert!(host_control_bar_bridge_is_offline_product_mode(Some(
+            GameMode::Skirmish
+        )));
+        assert!(host_control_bar_bridge_is_offline_product_mode(Some(
+            GameMode::SinglePlayer
+        )));
+        assert!(!host_control_bar_bridge_is_offline_product_mode(Some(
+            GameMode::Multiplayer
+        )));
+        assert!(!host_control_bar_bridge_is_offline_product_mode(Some(
+            GameMode::Lan
+        )));
+        assert!(!host_control_bar_bridge_is_offline_product_mode(Some(
+            GameMode::Internet
+        )));
+        assert!(!host_control_bar_bridge_is_offline_product_mode(Some(
+            GameMode::Replay
+        )));
+        assert!(!host_control_bar_bridge_is_offline_product_mode(Some(
+            GameMode::Shell
+        )));
+        assert!(!host_control_bar_bridge_is_offline_product_mode(None));
+
+        assert!(host_control_bar_bridge_is_network_or_replay(Some(
+            GameMode::Multiplayer
+        )));
+        assert!(host_control_bar_bridge_is_network_or_replay(Some(
+            GameMode::Replay
+        )));
+        assert!(!host_control_bar_bridge_is_network_or_replay(Some(
+            GameMode::Skirmish
+        )));
+        assert!(!host_control_bar_bridge_is_network_or_replay(Some(
+            GameMode::SinglePlayer
+        )));
+
+        let tick = include_str!("control_bar_bridge.rs");
+        let start = tick
+            .find("pub(crate) fn host_tick_control_bar_bridge")
+            .expect("host_tick_control_bar_bridge");
+        let body = &tick[start..];
+        let end = body
+            .find("\n    fn ")
+            .unwrap_or(body.len().min(2500));
+        let body = &body[..end];
+        assert!(
+            body.contains("host_control_bar_bridge_is_network_or_replay"),
+            "live drain must refuse network/replay rather than mutate the offline host world"
+        );
+        assert!(
+            body.contains("set_host_control_bar_bridge_enabled(false)"),
+            "network/replay must restore the crate GameMessage fallback"
+        );
     }
 
     #[test]

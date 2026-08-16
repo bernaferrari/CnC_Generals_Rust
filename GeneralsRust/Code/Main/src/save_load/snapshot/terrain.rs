@@ -18,7 +18,16 @@ pub struct TerrainSnapshot {
     pub texture_map: Vec<u8>,
     pub passability_map: Vec<bool>,
     pub modifications: Vec<TerrainModification>,
+    /// C++ `WorldHeightMap` sample extents (`getXExtent`/`getYExtent`).
+    #[serde(default)]
+    pub logic_width: u32,
+    #[serde(default)]
+    pub logic_height: u32,
+    /// Raw u8 logic heights applied by `W3DTerrainVisual::xfer` v>=2.
+    #[serde(default)]
+    pub logic_heights: Vec<u8>,
 }
+
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TerrainModification {
@@ -82,9 +91,16 @@ impl XferData for TerrainSnapshot {
                 modification_type: String::new(),
             },
         )?;
+        xfer.xfer_marker_label("LogicWidth")?;
+        xfer.xfer_u32(&mut self.logic_width)?;
+        xfer.xfer_marker_label("LogicHeight")?;
+        xfer.xfer_u32(&mut self.logic_height)?;
+        xfer.xfer_marker_label("LogicHeights")?;
+        xfer_vec_u8(xfer, &mut self.logic_heights)?;
         Ok(())
     }
 }
+
 
 impl XferData for WeatherSnapshot {
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {

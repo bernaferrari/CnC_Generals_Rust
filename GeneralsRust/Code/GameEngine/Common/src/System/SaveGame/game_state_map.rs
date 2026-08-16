@@ -11,12 +11,203 @@ use super::{
     notify_set_skirmish_payload, notify_start_new_game_from_save, set_runtime_drawable_id_counter,
     set_runtime_object_id_counter,
 };
+use super::super::xfer_load::XferLoad;
+use super::super::xfer_save::XferSave;
 use crate::common::ini::ini_game_data::get_global_data;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
 const GAME_SKIRMISH_MODE: i32 = 2;
+
+/// C++ `GameInfo.h` / `NetworkDefs.h`: `MAX_SLOTS = MAX_PLAYER+1 = 8`.
+const SKIRMISH_MAX_SLOTS: i32 = 8;
+const SKIRMISH_GAME_INFO_VERSION: XferVersion = 4;
+
+/// C++ `SkirmishGameInfo::xfer` (GameInfo.cpp:1488-1588) field layout.
+/// Host/UI hooks still exchange the same snapshot bytes; we no longer wrap
+/// them in a Rust-only `u32` length prefix.
+#[derive(Clone)]
+struct SkirmishGameInfoSnapshot {
+    preorder_mask: i32,
+    crc_interval: i32,
+    in_game: bool,
+    in_progress: bool,
+    surrendered: bool,
+    game_id: i32,
+    slots: [SkirmishSlotSnapshot; SKIRMISH_MAX_SLOTS as usize],
+    local_ip: u32,
+    map_name: String,
+    map_crc: u32,
+    map_size: u32,
+    map_mask: i32,
+    seed: i32,
+    superweapon_restriction: u16,
+    starting_cash: u32,
+}
+
+#[derive(Clone, Default)]
+struct SkirmishSlotSnapshot {
+    state: i32,
+    name: String,
+    is_accepted: bool,
+    is_muted: bool,
+    color: i32,
+    start_pos: i32,
+    player_template: i32,
+    team_number: i32,
+    orig_color: i32,
+    orig_start_pos: i32,
+    orig_player_template: i32,
+}
+
+impl Default for SkirmishGameInfoSnapshot {
+    fn default() -> Self {
+        Self {
+            preorder_mask: 0,
+            crc_interval: 0,
+            in_game: false,
+            in_progress: false,
+            surrendered: false,
+            game_id: 0,
+            slots: Default::default(),
+            local_ip: 0,
+            map_name: String::new(),
+            map_crc: 0,
+            map_size: 0,
+            map_mask: 0,
+            seed: 0,
+            superweapon_restriction: 0,
+            starting_cash: 0,
+        }
+    }
+}
+
+impl Snapshot for SkirmishGameInfoSnapshot {
+    fn crc(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
+        self.xfer(xfer)
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
+        // GameInfo.cpp:1490-1492
+        let mut version = SKIRMISH_GAME_INFO_VERSION;
+        xfer.xfer_version(&mut version, SKIRMISH_GAME_INFO_VERSION)?;
+
+        xfer.xfer_int(&mut self.preorder_mask)?;
+        xfer.xfer_int(&mut self.crc_interval)?;
+        xfer.xfer_bool(&mut self.in_game)?;
+        xfer.xfer_bool(&mut self.in_progress)?;
+        xfer.xfer_bool(&mut self.surrendered)?;
+        xfer.xfer_int(&mut self.game_id)?;
+
+        let mut slot_count = SKIRMISH_MAX_SLOTS;
+        xfer.xfer_int(&mut slot_count)?;
+        let slots_to_xfer = slot_count.clamp(0, SKIRMISH_MAX_SLOTS) as usize;
+        for slot in self.slots.iter_mut().take(slots_to_xfer) {
+            xfer.xfer_int(&mut slot.state)?;
+            if version >= 2 {
+                xfer.xfer_unicode_string(&mut slot.name)?;
+            }
+            xfer.xfer_bool(&mut slot.is_accepted)?;
+            xfer.xfer_bool(&mut slot.is_muted)?;
+            xfer.xfer_int(&mut slot.color)?;
+            xfer.xfer_int(&mut slot.start_pos)?;
+            xfer.xfer_int(&mut slot.player_template)?;
+            xfer.xfer_int(&mut slot.team_number)?;
+            xfer.xfer_int(&mut slot.orig_color)?;
+            xfer.xfer_int(&mut slot.orig_start_pos)?;
+            xfer.xfer_int(&mut slot.orig_player_template)?;
+        }
+
+        xfer.xfer_unsigned_int(&mut self.local_ip)?;
+        // System Xfer has no xfer_map_name; C++ xferMapName is ascii + portable
+        // conversion, which GameState already applied to hook payloads.
+        xfer.xfer_ascii_string(&mut self.map_name)?;
+        xfer.xfer_unsigned_int(&mut self.map_crc)?;
+        xfer.xfer_unsigned_int(&mut self.map_size)?;
+        xfer.xfer_int(&mut self.map_mask)?;
+        xfer.xfer_int(&mut self.seed)?;
+
+        if version >= 3 {
+            xfer.xfer_unsigned_short(&mut self.superweapon_restriction)?;
+            if version == 3 {
+                let mut obsolete = false;
+                xfer.xfer_bool(&mut obsolete)?;
+            }
+            // C++ `xfer->xferSnapshot(&m_startingCash)` → Money.cpp v1 + u32.
+            let mut money_version: XferVersion = 1;
+            xfer.xfer_version(&mut money_version, 1)?;
+            xfer.xfer_unsigned_int(&mut self.starting_cash)?;
+        } else if xfer.get_xfer_mode() == XferMode::Load {
+            self.superweapon_restriction = 0;
+            self.starting_cash = 0;
+        }
+        Ok(())
+    }
+
+    fn load_post_process(&mut self) -> Result<(), XferStatus> {
+        Ok(())
+    }
+}
+
+fn unique_skirmish_scratch_path(label: &str) -> PathBuf {
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    std::env::temp_dir().join(format!(
+        "skirmish_xfer_{}_{}_{}.bin",
+        label,
+        std::process::id(),
+        stamp
+    ))
+}
+
+fn encode_skirmish_snapshot(info: &SkirmishGameInfoSnapshot) -> Vec<u8> {
+    let path = unique_skirmish_scratch_path("enc");
+    let mut copy = info.clone();
+    {
+        let mut xfer = XferSave::new();
+        if xfer
+            .open(path.to_string_lossy().into_owned())
+            .is_err()
+        {
+            return Vec::new();
+        }
+        if copy.xfer(&mut xfer).is_err() {
+            let _ = xfer.close();
+            let _ = std::fs::remove_file(&path);
+            return Vec::new();
+        }
+        let _ = xfer.close();
+    }
+    let bytes = std::fs::read(&path).unwrap_or_default();
+    let _ = std::fs::remove_file(&path);
+    bytes
+}
+
+fn try_decode_skirmish_snapshot(bytes: &[u8]) -> Option<SkirmishGameInfoSnapshot> {
+    // Only accept a C++ SkirmishGameInfo stream (GameInfo.cpp:1490, version 4).
+    // Legacy hook blobs that started with a u32 length must not be parsed as v1.
+    if bytes.first().copied() != Some(SKIRMISH_GAME_INFO_VERSION) || bytes.len() < 16 {
+        return None;
+    }
+    let path = unique_skirmish_scratch_path("dec");
+    std::fs::write(&path, bytes).ok()?;
+    let mut info = SkirmishGameInfoSnapshot::default();
+    let decoded = {
+        let mut xfer = XferLoad::new();
+        if xfer.open(path.to_string_lossy().into_owned()).is_err() {
+            None
+        } else {
+            let ok = info.xfer(&mut xfer).is_ok();
+            let _ = xfer.close();
+            ok.then_some(info)
+        }
+    };
+    let _ = std::fs::remove_file(&path);
+    decoded
+}
 
 // ------------------------------------------------------------------------------------------------
 // GameStateMap - Manages map embedding in save files
@@ -336,22 +527,18 @@ impl Snapshot for GameStateMap {
             }
 
             if effective_game_mode == GAME_SKIRMISH_MODE {
-                let mut payload = if xfer.get_xfer_mode() == XferMode::Save {
-                    notify_get_skirmish_payload().unwrap_or_default()
-                } else {
-                    Vec::new()
-                };
-                let mut payload_len = payload.len() as u32;
-                xfer.xfer_unsigned_int(&mut payload_len)?;
-                if xfer.get_xfer_mode() == XferMode::Load {
-                    payload.resize(payload_len as usize, 0);
+                // C++ GameStateMap.cpp:396-406 — `xfer->xferSnapshot(TheSkirmishGameInfo)`.
+                let mut info = SkirmishGameInfoSnapshot::default();
+                if xfer.get_xfer_mode() == XferMode::Save {
+                    if let Some(payload) = notify_get_skirmish_payload() {
+                        if let Some(decoded) = try_decode_skirmish_snapshot(&payload) {
+                            info = decoded;
+                        }
+                    }
                 }
-                if payload_len > 0 {
-                    // SAFETY: payload buffer is allocated with at least `payload_len` bytes.
-                    unsafe { xfer.xfer_user(payload.as_mut_ptr(), payload_len as usize)? };
-                }
+                xfer.xfer_snapshot(&mut info)?;
                 if xfer.get_xfer_mode() == XferMode::Load {
-                    notify_set_skirmish_payload(Some(payload));
+                    notify_set_skirmish_payload(Some(encode_skirmish_snapshot(&info)));
                 }
             } else if xfer.get_xfer_mode() == XferMode::Load {
                 notify_set_skirmish_payload(None);
@@ -545,7 +732,33 @@ mod tests {
 
         let _ = fs::remove_dir_all(save_dir);
     }
+
+    #[test]
+    fn skirmish_branch_writes_versioned_snapshot_not_u32_len_prefix() {
+        // C++ GameStateMap.cpp:396-406 xfers TheSkirmishGameInfo as a Snapshot
+        // (GameInfo.cpp:1488 starts with XferVersion=4). Pre-fix Rust wrote
+        // u32 payload_len + raw bytes, which C++ cannot parse.
+        let mut info = SkirmishGameInfoSnapshot::default();
+        info.seed = 0x11;
+        info.map_name = "AlpineAssault.map".to_string();
+        let encoded = encode_skirmish_snapshot(&info);
+        assert_eq!(
+            encoded.first().copied(),
+            Some(SKIRMISH_GAME_INFO_VERSION),
+            "C++ SkirmishGameInfo::xfer starts with version byte 4"
+        );
+        assert!(
+            encoded.len() > 4,
+            "snapshot must be the versioned field stream, not u32-len + 0 bytes"
+        );
+        let decoded = try_decode_skirmish_snapshot(&encoded)
+            .expect("C++ snapshot bytes must round-trip");
+        assert_eq!(decoded.seed, 0x11);
+        assert_eq!(decoded.map_name, "AlpineAssault.map");
+        assert!(try_decode_skirmish_snapshot(&[1, 2, 3, 4]).is_none());
+    }
 }
+
 
 // ------------------------------------------------------------------------------------------------
 // Helper functions for map path manipulation

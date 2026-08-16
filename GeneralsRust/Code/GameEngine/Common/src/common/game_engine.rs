@@ -66,6 +66,10 @@ pub trait GameLogicInterface: Send + Sync {
     fn is_script_time_fast(&self) -> bool {
         false
     }
+    /// C++ `TheGameLogic->isGamePaused()` (GameEngine.cpp:749).
+    fn is_game_paused(&self) -> bool {
+        false
+    }
 }
 
 pub trait GameClientInterface: Send + Sync {
@@ -459,6 +463,15 @@ impl GameEngine {
                 )));
             }
 
+            // C++ renders outside GameEngine::update (GameEngine.cpp:722-755 vs execute loop).
+            if let Some(game_client) = &mut self.game_client {
+                if game_client.is_active() {
+                    if let Err(err) = game_client.render() {
+                        warn!("GameClient render failed: {}", err);
+                    }
+                }
+            }
+
             // Update game state logic
             self.update_game_state();
 
@@ -595,8 +608,13 @@ impl GameEngine {
 
     /// Update a single frame (matching C++ per-frame update)
     async fn update_frame(&mut self, delta_time: Duration) -> SubsystemResult<()> {
-        // Update any registered subsystems first (science store, etc.)
-        self.subsystem_manager.update_all_async().await?;
+        // C++ GameEngine::update (GameEngine.cpp:722-755):
+        // VERIFY_CRC → Radar → Audio → GameClient → propagateMessages →
+        // Network(if present) → CDManager → logic gated on
+        // (no-network && !TheGameLogic->isGamePaused()) || (network && isFrameDataReady()).
+        // Render lives in GameEngine::execute / client present, not inside update.
+        // VERIFY_CRC is a debug-CRC compile-time no-op unless DEBUG_CRC is on.
+        crate::verify_crc!();
 
         if let Ok(mut radar) = get_radar_system().write() {
             let frame = self.performance_metrics.frame_count.saturating_add(1) as u32;
@@ -609,13 +627,8 @@ impl GameEngine {
 
         if let Some(game_client) = &mut self.game_client {
             game_client.update(delta_time)?;
-            if game_client.is_active() {
-                game_client.render()?;
-            }
         }
 
-        // C++ parity: TheMessageStream->propagateMessages() executes between client update
-        // and network/CD/game-logic progression.
         let stream_arc = get_message_stream();
         if let Ok(mut stream) = stream_arc.write() {
             if let Err(err) = stream.propagate_messages() {
@@ -623,20 +636,26 @@ impl GameEngine {
             }
         }
 
-        let should_update_game_logic = if let Some(network) = &mut self.network_interface {
+        if let Some(network) = &mut self.network_interface {
             network.update(delta_time)?;
-            if network.is_multiplayer_session() {
-                network.is_frame_data_ready()
-            } else {
-                self.current_state != GameState::Paused
-            }
-        } else {
-            self.current_state != GameState::Paused
-        };
+        }
 
         if let Some(mut cd_manager) = get_cd_manager() {
             cd_manager.update();
         }
+
+        // C++ GameEngine.cpp:749 — network-present gates on isFrameDataReady only;
+        // offline gates on TheGameLogic->isGamePaused() (not engine GameState::Paused).
+        let logic_paused = self
+            .game_logic
+            .as_ref()
+            .map(|logic| logic.is_game_paused())
+            .unwrap_or(self.current_state == GameState::Paused);
+        let should_update_game_logic = if let Some(network) = self.network_interface.as_ref() {
+            network.is_frame_data_ready()
+        } else {
+            !logic_paused
+        };
 
         if should_update_game_logic {
             if let Some(game_logic) = &mut self.game_logic {
@@ -1499,11 +1518,22 @@ mod tests {
 
     struct CountingGameLogic {
         updates: Arc<AtomicUsize>,
+        paused: bool,
     }
 
     impl CountingGameLogic {
         fn new(updates: Arc<AtomicUsize>) -> Self {
-            Self { updates }
+            Self {
+                updates,
+                paused: false,
+            }
+        }
+
+        fn paused(updates: Arc<AtomicUsize>) -> Self {
+            Self {
+                updates,
+                paused: true,
+            }
         }
     }
 
@@ -1527,6 +1557,10 @@ mod tests {
 
         fn get_state(&self) -> SubsystemState {
             SubsystemState::Running
+        }
+
+        fn is_game_paused(&self) -> bool {
+            self.paused
         }
     }
 
@@ -1820,13 +1854,48 @@ mod tests {
         assert!(stream.contains_message_of_type(&GameMessageType::NewGame));
     }
 
+    /// C++ GameEngine.cpp:749 — offline logic is gated on TheGameLogic->isGamePaused().
     #[tokio::test]
     async fn test_update_frame_skips_game_logic_when_paused_and_offline() {
+        let updates = Arc::new(AtomicUsize::new(0));
+        let mut engine = GameEngine::new();
+        engine.current_state = GameState::InGame;
+        engine.game_logic = Some(Box::new(CountingGameLogic::paused(updates.clone())));
+        engine.network_interface = None;
+
+        engine
+            .update_frame(Duration::from_millis(16))
+            .await
+            .expect("update frame should succeed");
+
+        assert_eq!(updates.load(Ordering::Relaxed), 0);
+    }
+
+    /// Engine GameState::Paused is not the C++ gate; logic still ticks unless logic is paused.
+    #[tokio::test]
+    async fn test_update_frame_runs_logic_when_engine_paused_but_logic_not() {
         let updates = Arc::new(AtomicUsize::new(0));
         let mut engine = GameEngine::new();
         engine.current_state = GameState::Paused;
         engine.game_logic = Some(Box::new(CountingGameLogic::new(updates.clone())));
         engine.network_interface = None;
+
+        engine
+            .update_frame(Duration::from_millis(16))
+            .await
+            .expect("update frame should succeed");
+
+        assert_eq!(updates.load(Ordering::Relaxed), 1);
+    }
+
+    /// C++ GameEngine.cpp:749 — network-present gates only on isFrameDataReady().
+    #[tokio::test]
+    async fn test_update_frame_skips_logic_when_network_frame_not_ready() {
+        let updates = Arc::new(AtomicUsize::new(0));
+        let mut engine = GameEngine::new();
+        engine.current_state = GameState::InGame;
+        engine.game_logic = Some(Box::new(CountingGameLogic::new(updates.clone())));
+        engine.network_interface = Some(Box::new(StubNetwork::new(false)));
 
         engine
             .update_frame(Duration::from_millis(16))

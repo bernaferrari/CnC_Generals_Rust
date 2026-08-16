@@ -20,10 +20,15 @@ use game_engine::common::thing::module::{
 use log::warn;
 use std::sync::{Arc, RwLock, Weak};
 
-/// Wave 372: host-only path has no dual-world factory objects.
+/// Whether the leftover stream object itself is missing.
+///
+/// C++ `ProjectileStreamUpdate::update` (ProjectileStreamUpdate.cpp:49-58)
+/// always runs `cullFrontOfList` / `considerDying` on the stream object. An
+/// empty leftover OBJECT_REGISTRY must not skip that when this module already
+/// exists (the stream object is the owner of this update).
 #[inline]
-fn dual_world_registry_unavailable() -> bool {
-    crate::object::registry::OBJECT_REGISTRY.is_empty()
+fn stream_object_missing(object_id: crate::common::ObjectID) -> bool {
+    object_id == crate::common::INVALID_ID
 }
 
 #[derive(Clone, Debug)]
@@ -133,10 +138,9 @@ impl ProjectileStreamUpdate {
     }
 
     pub fn get_all_points(&self) -> Vec<crate::common::Coord3D> {
-        // Wave 372: empty dual-world → empty.
-        if dual_world_registry_unavailable() {
-            return Vec::new();
-        }
+        // C++ ProjectileStreamUpdate::getAllPoints (ProjectileStreamUpdate.cpp:131-183)
+        // walks TheGameLogic->findObjectByID; missing projectiles become (0,0,0).
+        // Do not require a leftover global registry — the stream object exists.
 
         let mut points = Vec::with_capacity(MAX_PROJECTILE_STREAM);
         let mut point_index = self.first_valid_index;
@@ -183,8 +187,9 @@ impl ProjectileStreamUpdate {
     }
 
     pub fn set_position(&mut self, new_position: &crate::common::Coord3D) {
-        // Wave 372: empty dual-world → no-op.
-        if dual_world_registry_unavailable() {
+        // C++ ProjectileStreamUpdate::setPosition (ProjectileStreamUpdate.cpp:185-188)
+        // calls getObject()->setPosition. Skip only if this stream has no id.
+        if stream_object_missing(self.object_id) {
             return;
         }
 
@@ -203,10 +208,10 @@ impl ProjectileStreamUpdate {
     }
 
     fn cull_front_of_list(&mut self) {
-        // Wave 372: empty dual-world → no-op.
-        if dual_world_registry_unavailable() {
-            return;
-        }
+        // C++ ProjectileStreamUpdate::cullFrontOfList (ProjectileStreamUpdate.cpp:110-116).
+        // Chew off front IDs whose leftover objects are gone. Missing leftover
+        // registry lookups return None, so those IDs are culled — matching C++
+        // findObjectByID == NULL.
 
         while self.first_valid_index != self.next_free_index {
             let id = self.projectile_ids[self.first_valid_index as usize];
@@ -218,10 +223,9 @@ impl ProjectileStreamUpdate {
     }
 
     fn consider_dying(&self) -> bool {
-        // Wave 372: empty dual-world → false.
-        if dual_world_registry_unavailable() {
-            return false;
-        }
+        // C++ ProjectileStreamUpdate::considerDying (ProjectileStreamUpdate.cpp:119-128):
+        // die when the leftover projectile list is empty AND the leftover owner
+        // object is gone. Do not require leftover OBJECT_REGISTRY occupancy.
 
         if self.first_valid_index == self.next_free_index && self.owning_object != OBJECT_INVALID_ID
         {
@@ -233,10 +237,9 @@ impl ProjectileStreamUpdate {
 
 impl UpdateModuleInterface for ProjectileStreamUpdate {
     fn update_simple(&mut self) -> UpdateSleepTime {
-        // Wave 372: empty dual-world → Forever.
-        if dual_world_registry_unavailable() {
-            return UpdateSleepTime::Forever;
-        }
+        // C++ ProjectileStreamUpdate::update (ProjectileStreamUpdate.cpp:49-58)
+        // always culls, then destroys the leftover stream object if considerDying.
+        // The leftover stream object itself exists (this module is attached to it).
 
         self.cull_front_of_list();
 

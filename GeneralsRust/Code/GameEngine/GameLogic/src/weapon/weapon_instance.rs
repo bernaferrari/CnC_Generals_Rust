@@ -84,6 +84,10 @@ pub struct Weapon {
 
     /// Whether leech range is currently active
     pub(crate) leech_weapon_range_active: bool,
+
+    /// Drawable barrel count (C++ sourceObj->getDrawable()->getBarrelCount(m_wslot)).
+    /// Default 1 until the drawable reports a multi-barrel count.
+    pub(crate) barrel_count: i32,
 }
 
 impl Weapon {
@@ -112,6 +116,7 @@ impl Weapon {
             scatter_targets_unused: Vec::new(),
             pitch_limited,
             leech_weapon_range_active: false,
+            barrel_count: 1,
         }
     }
 
@@ -212,7 +217,7 @@ impl Weapon {
         }
         let bonus = self.compute_bonus(source, map_common_bonus_flags(combined_flags));
         self.private_fire_weapon(source, None, Some(position), &bonus, false, false, true)?;
-        Ok(self.apply_post_fire_state(current_frame, &bonus))
+        Ok(self.apply_post_fire_state(source, current_frame, &bonus))
     }
 
     /// Fire projectile detonation weapon
@@ -289,34 +294,50 @@ impl Weapon {
 
         let bonus = self.compute_bonus(source_id, internal_flags);
         self.private_fire_weapon(source_id, Some(target_id), None, &bonus, false, false, true)?;
-        Ok(self.apply_post_fire_state(current_frame, &bonus))
+        Ok(self.apply_post_fire_state(source_id, current_frame, &bonus))
     }
 
     pub(crate) fn apply_post_fire_state(
         &mut self,
+        source: ObjectId,
         current_frame: u32,
         bonus: &WeaponBonus,
     ) -> bool {
-        let delay = self.template.get_delay_between_shots(bonus);
-        self.when_we_can_fire_again = current_frame + (delay as u32);
+        // C++ Weapon::privateFireWeapon (Weapon.cpp:2577-2625): wrap m_curBarrel
+        // against drawable barrelCount before the shot, then last-fire frame,
+        // --m_ammoInClip, --m_maxShotCount, --m_numShotsForCurBarrel, then
+        // advance m_curBarrel when the shots-per-barrel counter wraps.
+        if self.current_barrel >= self.barrel_count {
+            self.current_barrel = 0;
+            self.num_shots_for_current_barrel = self.template.shots_per_barrel;
+        }
         self.last_fire_frame = current_frame;
-        self.status = WeaponStatus::BetweenFiringShots;
-
         if self.ammo_in_clip > 0 {
             self.ammo_in_clip -= 1;
+        }
+        self.max_shot_count -= 1;
+        self.num_shots_for_current_barrel -= 1;
+        if self.num_shots_for_current_barrel <= 0 {
+            self.current_barrel += 1;
+            self.num_shots_for_current_barrel = self.template.shots_per_barrel;
         }
 
         if self.ammo_in_clip == 0 {
             if self.template.get_auto_reloads_clip() {
-                let reload_time = self.template.get_clip_reload_time(bonus);
-                self.when_we_can_fire_again = current_frame + (reload_time as u32);
-                self.status = WeaponStatus::ReloadingClip;
+                // C++ Weapon.cpp:2629-2632 — empty clip + auto-reload starts
+                // reloadWithBonus immediately (ammo refill + RELOADING_CLIP).
+                let _ = self.reload_with_bonus(source, bonus, false);
             } else {
                 self.status = WeaponStatus::OutOfAmmo;
+                self.when_we_can_fire_again = 0x7fffffff;
             }
             return true;
         }
 
+        let delay = self.template.get_delay_between_shots(bonus);
+        self.when_last_reload_started = current_frame;
+        self.when_we_can_fire_again = current_frame + (delay as u32);
+        self.status = WeaponStatus::BetweenFiringShots;
         false
     }
 
@@ -344,25 +365,7 @@ impl Weapon {
         let bonus = self.compute_bonus(source, WeaponBonusConditionFlags::new());
 
         self.private_fire_weapon(source, None, Some(position), &bonus, false, true, true)?;
-
-        let delay = self.template.get_delay_between_shots(&bonus);
-        self.when_we_can_fire_again = current_frame + (delay as u32);
-        self.last_fire_frame = current_frame;
-        self.status = WeaponStatus::BetweenFiringShots;
-
-        if self.ammo_in_clip > 0 {
-            self.ammo_in_clip -= 1;
-        }
-
-        if self.ammo_in_clip == 0 {
-            if self.template.get_auto_reloads_clip() {
-                let reload_time = self.template.get_clip_reload_time(&bonus);
-                self.when_we_can_fire_again = current_frame + (reload_time as u32);
-                self.status = WeaponStatus::ReloadingClip;
-            } else {
-                self.status = WeaponStatus::OutOfAmmo;
-            }
-        }
+        let _ = self.apply_post_fire_state(source, current_frame, &bonus);
 
         Ok(None)
     }
@@ -581,26 +584,68 @@ impl Weapon {
         bonus: &WeaponBonus,
         load_instantly: bool,
     ) -> GameLogicResult<()> {
-        self.ammo_in_clip = ammo_count_for_clip_size(self.template.clip_size);
-        if load_instantly {
-            self.status = WeaponStatus::ReadyToFire;
-        } else {
-            self.status = WeaponStatus::ReloadingClip;
-            self.when_last_reload_started = TheGameLogic::get_frame();
-            let reload_time = self.template.get_clip_reload_time(bonus);
-            self.when_we_can_fire_again = self.when_last_reload_started + (reload_time as u32);
+        // C++ Weapon::reloadWithBonus (Weapon.cpp:1877-1912).
+        let clip_size = self.template.clip_size;
+        let shared_reload = TheGameLogic::find_object_by_id(source)
+            .and_then(|arc| {
+                arc.try_read()
+                    .ok()
+                    .map(|obj| obj.is_reload_time_shared())
+            })
+            .unwrap_or(false);
+        if clip_size > 0 && self.ammo_in_clip == clip_size as u32 && !shared_reload {
+            return Ok(());
         }
+
+        // Refill immediately. ClipSize 0 is C++ 0x7fffffff (unlimited).
+        self.ammo_in_clip = ammo_count_for_clip_size(clip_size);
+        self.status = WeaponStatus::ReloadingClip;
+        let reload_time = if load_instantly {
+            0
+        } else {
+            self.template.get_clip_reload_time(bonus)
+        };
+        self.when_last_reload_started = TheGameLogic::get_frame();
+        self.when_we_can_fire_again = self.when_last_reload_started + (reload_time as u32);
+
+        if shared_reload {
+            if let Some(source_arc) = TheGameLogic::find_object_by_id(source) {
+                if let Ok(mut source_obj) = source_arc.try_write() {
+                    let when = self.when_we_can_fire_again;
+                    for slot in [
+                        WeaponSlotType::Primary,
+                        WeaponSlotType::Secondary,
+                        WeaponSlotType::Tertiary,
+                    ] {
+                        if let Some(weapon) = source_obj.get_weapon_in_slot_mut(slot) {
+                            weapon.set_possible_next_shot_frame(when);
+                            weapon.set_status(WeaponStatus::ReloadingClip);
+                        }
+                    }
+                }
+            }
+        }
+
+        self.rebuild_scatter_targets();
         Ok(())
+    }
+
+    /// C++ Weapon::rebuildScatterTargets (Weapon.cpp:1864).
+    fn rebuild_scatter_targets(&mut self) {
+        self.scatter_targets_unused.clear();
+        for i in 0..self.template.get_scatter_targets_count() {
+            self.scatter_targets_unused.push(i as i32);
+        }
     }
 
     /// Get weapon status
     pub fn get_status(&self) -> WeaponStatus {
         let current_frame = TheGameLogic::get_frame();
 
-        if self.status == WeaponStatus::PreAttack {
-            if current_frame < self.when_pre_attack_finished {
-                return WeaponStatus::PreAttack;
-            }
+        // C++ Weapon::getStatus (Weapon.cpp:2736-2742): PRE_ATTACK is a pure
+        // frame test — stored status is not consulted.
+        if current_frame < self.when_pre_attack_finished {
+            return WeaponStatus::PreAttack;
         }
 
         if current_frame >= self.when_we_can_fire_again {
@@ -679,9 +724,16 @@ impl Weapon {
         self.template.get_pre_attack_delay(&bonus)
     }
 
-    /// Check if this is a damage weapon
+    /// Check if this is a damage weapon.
+    ///
+    /// C++ Weapon::isDamageWeapon (Weapon.cpp:2789-2816): DEPLOY/DISARM are
+    /// always damage weapons, HACK never is, else primary/secondary > 0.
     pub fn is_damage_weapon(&self) -> bool {
-        self.template.primary_damage > 0.0 || self.template.secondary_damage > 0.0
+        match self.template.get_damage_type() {
+            DamageType::Deploy | DamageType::Disarm => true,
+            DamageType::Hack => false,
+            _ => self.template.primary_damage > 0.0 || self.template.secondary_damage > 0.0,
+        }
     }
 
     /// Check if this is a contact weapon (requires collision with target)
@@ -727,6 +779,21 @@ impl Weapon {
     /// Get maximum shot count
     pub fn get_max_shot_count(&self) -> i32 {
         self.max_shot_count
+    }
+
+    /// C++ Weapon.cpp:2577 drawable barrel count used to wrap m_curBarrel.
+    pub fn get_barrel_count(&self) -> i32 {
+        self.barrel_count
+    }
+
+    /// Set leftover barrel count from leftover drawable (at least 1).
+    pub fn set_barrel_count(&mut self, count: i32) {
+        self.barrel_count = count.max(1);
+    }
+
+    /// C++ Weapon::getCurBarrel residual.
+    pub fn get_cur_barrel(&self) -> i32 {
+        self.current_barrel
     }
 
     /// Set clip percent full
@@ -1199,27 +1266,7 @@ impl Weapon {
             true,  // inflict damage
         )?;
 
-        // Update weapon state after firing
-        let delay = self.template.get_delay_between_shots(&bonus);
-        self.when_we_can_fire_again = current_frame + (delay as u32);
-        self.last_fire_frame = current_frame;
-        self.status = WeaponStatus::BetweenFiringShots;
-
-        // Decrement ammunition
-        if self.ammo_in_clip > 0 {
-            self.ammo_in_clip -= 1;
-        }
-
-        // Check if we need to reload
-        if self.ammo_in_clip == 0 {
-            if self.template.get_auto_reloads_clip() {
-                let reload_time = self.template.get_clip_reload_time(&bonus);
-                self.when_we_can_fire_again = current_frame + (reload_time as u32);
-                self.status = WeaponStatus::ReloadingClip;
-            } else {
-                self.status = WeaponStatus::OutOfAmmo;
-            }
-        }
+        let _ = self.apply_post_fire_state(source_obj_id, current_frame, &bonus);
 
         Ok(())
     }
@@ -1248,25 +1295,7 @@ impl Weapon {
             true,
         )?;
 
-        // Update weapon state
-        let delay = self.template.get_delay_between_shots(&bonus);
-        self.when_we_can_fire_again = current_frame + (delay as u32);
-        self.last_fire_frame = current_frame;
-        self.status = WeaponStatus::BetweenFiringShots;
-
-        if self.ammo_in_clip > 0 {
-            self.ammo_in_clip -= 1;
-        }
-
-        if self.ammo_in_clip == 0 {
-            if self.template.get_auto_reloads_clip() {
-                let reload_time = self.template.get_clip_reload_time(&bonus);
-                self.when_we_can_fire_again = current_frame + (reload_time as u32);
-                self.status = WeaponStatus::ReloadingClip;
-            } else {
-                self.status = WeaponStatus::OutOfAmmo;
-            }
-        }
+        let _ = self.apply_post_fire_state(source_obj_id, current_frame, &bonus);
 
         Ok(())
     }
@@ -1470,7 +1499,17 @@ impl Weapon {
                     duration,
                 );
 
-                let _ = inflict_damage;
+                // C++ WeaponTemplate::fireWeaponTemplate laser branch
+                // (Weapon.cpp:1028-1031): createLaser then inflictDamage
+                // gates dealDamageInternal.
+                self.inflict_damage_if_requested(
+                    source_obj_id,
+                    target_obj_id,
+                    &target_position,
+                    bonus,
+                    is_projectile_detonation,
+                    inflict_damage,
+                )?;
             }
         }
 
@@ -1482,6 +1521,28 @@ impl Weapon {
             self.fire_scatter_targets(source_obj_id, &target_position, bonus, inflict_damage)?;
         }
 
+        Ok(())
+    }
+
+    /// C++ Weapon.cpp:1028-1031 `if (inflictDamage) dealDamageInternal(...)`.
+    pub(crate) fn inflict_damage_if_requested(
+        &self,
+        source_obj_id: ObjectId,
+        target_obj_id: Option<ObjectId>,
+        target_position: &Coord3D,
+        bonus: &WeaponBonus,
+        is_projectile_detonation: bool,
+        inflict_damage: bool,
+    ) -> Result<(), WeaponError> {
+        if inflict_damage {
+            self.deal_damage_internal(
+                source_obj_id,
+                target_obj_id,
+                target_position,
+                bonus,
+                is_projectile_detonation,
+            )?;
+        }
         Ok(())
     }
 }

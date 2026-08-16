@@ -126,6 +126,51 @@ fn test_end_game_timer() {
 }
 
 #[test]
+fn end_game_timer_expiry_appends_clear_game_data_message() {
+    // C++ ScriptEngine.cpp:5514-5518 TheMessageStream->appendMessage(MSG_CLEAR_GAME_DATA)
+    use game_engine::common::message_stream::{get_message_stream, GameMessageType};
+
+    let _lock = crate::test_sync::lock();
+    let mut engine = ScriptEngine::new().unwrap();
+    {
+        let stream = get_message_stream();
+        let mut stream = stream.write().expect("message stream");
+        stream.clear_messages();
+    }
+    engine.start_quick_end_game_timer();
+    engine.update().expect("update should expire the 1-frame timer");
+    let stream = get_message_stream();
+    let stream = stream.read().expect("message stream");
+    assert!(
+        stream.contains_message_of_type(&GameMessageType::ClearGameData),
+        "end-game timer expiry must append MSG_CLEAR_GAME_DATA, not clearGameData() directly"
+    );
+}
+
+#[test]
+fn close_window_timer_expiry_destroys_message_window() {
+    // C++ ScriptEngine.cpp:5508-5512 TheScriptActions->closeWindows(FALSE)
+    let _lock = crate::test_sync::lock();
+    let mut engine = ScriptEngine::new().unwrap();
+    engine.create_win_lose_window("Menus/LocalDefeat.wnd");
+    assert_eq!(
+        engine.current_win_lose_window().as_deref(),
+        Some("Menus/LocalDefeat.wnd")
+    );
+    engine.start_close_window_timer();
+    // C++ decrements while >0 and closes when the remaining count drops below 1.
+    for _ in 0..120 {
+        engine.update().expect("close-window countdown");
+    }
+    assert_eq!(
+        engine.current_win_lose_window(),
+        None,
+        "close-window timer expiry must destroy the win/lose message window"
+    );
+}
+
+
+#[test]
 fn test_time_freeze() {
     let mut engine = ScriptEngine::new().unwrap();
     assert!(!engine.is_time_frozen_script());
@@ -162,6 +207,59 @@ fn test_debug_freeze_stops_update_progression() {
         "timer should resume once debug freeze is cleared"
     );
 }
+
+#[test]
+fn countdown_timer_rests_at_minus_one_after_expire() {
+    // C++ ScriptEngine.cpp:5547-5550: decrement while value >= 0, rest at -1.
+    let mut engine = ScriptEngine::new().unwrap();
+    engine.set_timer("expire_to_minus_one", 0).unwrap();
+    engine.update().expect("update from 0");
+    assert_eq!(
+        engine.get_counter("expire_to_minus_one").unwrap().value,
+        -1,
+        "expired countdown must rest at -1, not 0"
+    );
+    engine.update().expect("update while already -1");
+    assert_eq!(
+        engine.get_counter("expire_to_minus_one").unwrap().value,
+        -1,
+        "countdown must stop at -1"
+    );
+}
+
+#[test]
+fn qualify_my_inner_perimeter_rewrites_to_player_start_index() {
+    // C++ ScriptEngine.cpp:5890-5897 MyInnerPerimeter -> InnerPerimeter{mpStart+1}
+    use crate::player::{player_list, Player};
+    use std::sync::{Arc, RwLock};
+
+    let _lock = crate::test_sync::lock();
+    let mut player = Player::new(0);
+    player.set_display_name("QualifyPerimeterPlayer");
+    player.set_mp_start_index(2);
+    {
+        let mut list = player_list().write().expect("player list");
+        list.clear();
+        list.add_player(Arc::new(RwLock::new(player)));
+    }
+
+    assert_eq!(
+        qualify_trigger_area_name(MY_INNER_PERIMETER, Some("QualifyPerimeterPlayer")).as_deref(),
+        Some("InnerPerimeter3")
+    );
+    assert_eq!(
+        qualify_trigger_area_name(MY_OUTER_PERIMETER, Some("QualifyPerimeterPlayer")).as_deref(),
+        Some("OuterPerimeter3")
+    );
+    assert_eq!(
+        qualify_trigger_area_name(MY_INNER_PERIMETER, None),
+        None,
+        "C++ returns NULL when m_currentPlayer is missing"
+    );
+
+    player_list().write().expect("player list").clear();
+}
+
 
 #[test]
 fn pending_resume_frame_is_next_frame_for_single_frame_wait() {

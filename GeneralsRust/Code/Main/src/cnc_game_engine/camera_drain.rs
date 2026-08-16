@@ -365,6 +365,7 @@ impl CnCGameEngine {
         #[cfg(not(feature = "game_client"))]
         if let Some(request) = self.take_pending_new_game_start_request() {
             self.start_game_from_ui(request);
+            let _ = Self::take_new_game_dispatch_from_common_stream();
             return true;
         }
         false
@@ -391,6 +392,8 @@ impl CnCGameEngine {
                 request.mode, request.faction, request.map
             );
             self.start_game_from_ui(request);
+            let _ = Self::take_new_game_dispatch_from_common_stream();
+            gamelogic::helpers::TheGameLogic::clear_start_new_game_request();
             return Ok(());
         }
         if gamelogic::helpers::TheGameLogic::is_start_new_game_requested() {
@@ -1276,8 +1279,9 @@ impl CnCGameEngine {
             let _ = (t1, t2, t3);
         }
 
-        // Intercept MSG_NEW_GAME *before* pump moves it into the crate command list.
-        // WND Skirmish/Campaign Start only appends NewGame to the common message stream.
+        // Peek MSG_NEW_GAME before pump so WND Start reaches InGame, then let
+        // `pump_message_stream` deliver the same message to crate GameLogic
+        // (`GameLogic::logicMessageDispatcher` / MSG_NEW_GAME).
         let t4 = std::time::Instant::now();
         if let Some(request) = self.take_pending_new_game_start_request() {
             info!(
@@ -1288,6 +1292,16 @@ impl CnCGameEngine {
                 request.skirmish.is_some()
             );
             self.start_game_from_ui(request);
+            {
+                let gc = &mut self.game_client;
+                if early_menu_frame {
+                    debug!("Menu update_internal: calling gc.pump_message_stream");
+                }
+                let _ = gc.pump_message_stream();
+            }
+            // Pump consumes the stream; leftover NewGame must not re-start next tick.
+            let _ = Self::take_new_game_dispatch_from_common_stream();
+            gamelogic::helpers::TheGameLogic::clear_start_new_game_request();
             return true;
         }
 

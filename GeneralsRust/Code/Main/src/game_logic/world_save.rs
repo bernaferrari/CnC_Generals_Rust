@@ -264,11 +264,11 @@ impl GameLogic {
             // Reset static blocks to the terrain-derived mask each map load.
             self.pathfinding_system.clear_static_blocks();
 
-            // Coarse impassability heuristic until real SAGE passability layers land:
-            // - Keep units inside map bounds
-            // - Only block *extreme* slopes (near-vertical). Mild hills must stay walkable
-            //   so pure-march combat can cross maps without set_position pulls. Incomplete
-            //   heightmap decode previously over-blocked and fragmented the grid.
+            // C++ Pathfinder::classifyMap residual (AIPathfind.h:233-242):
+            // stamp CELL_WATER / CELL_CLIFF / CELL_IMPASSABLE. Water and cliff
+            // stay walk-costed; only extreme slope / OOB is IMPASSABLE.
+            // Incomplete heightmaps that over-classify cliffs still fail-open
+            // the IMPASSABLE mask (hq-hneu: do not reopen that fail-open).
             const MAX_SLOPE: f32 = 4.0; // only block cliffs-ish grades
             let grid_size = self.pathfinding_system.grid.grid_size();
             let grid_origin = self.pathfinding_system.grid.origin();
@@ -291,21 +291,33 @@ impl GameLogic {
                         0.0,
                         grid_origin.z + (y as f32 + 0.5) * grid_size,
                     );
+                    let pos = super::pathfinding::GridPos::new(x, y);
 
                     if center.x < min_x || center.x > max_x || center.z < min_z || center.z > max_z
                     {
                         self.pathfinding_system
                             .grid
-                            .set_blocked(super::pathfinding::GridPos::new(x, y), true);
+                            .set_cell_type(pos, gamelogic::ai::pathfind_astar::PathfindCellType::Impassable);
                         continue;
                     }
 
+                    if terrain.is_underwater_at_world(center) {
+                        self.pathfinding_system
+                            .grid
+                            .set_cell_type(pos, gamelogic::ai::pathfind_astar::PathfindCellType::Water);
+                    }
+
                     let slope = terrain.slope_at_world(center);
+                    let cliff = terrain.is_cliff_at_world(center);
                     if slope > MAX_SLOPE {
                         blocked_slopes += 1;
                         self.pathfinding_system
                             .grid
-                            .set_blocked(super::pathfinding::GridPos::new(x, y), true);
+                            .set_cell_type(pos, gamelogic::ai::pathfind_astar::PathfindCellType::Impassable);
+                    } else if cliff {
+                        self.pathfinding_system
+                            .grid
+                            .set_cell_type(pos, gamelogic::ai::pathfind_astar::PathfindCellType::Cliff);
                     }
                 }
             }
@@ -330,9 +342,10 @@ impl GameLogic {
                             || center.z < min_z
                             || center.z > max_z
                         {
-                            self.pathfinding_system
-                                .grid
-                                .set_blocked(super::pathfinding::GridPos::new(x, y), true);
+                            self.pathfinding_system.grid.set_cell_type(
+                                super::pathfinding::GridPos::new(x, y),
+                                gamelogic::ai::pathfind_astar::PathfindCellType::Impassable,
+                            );
                         }
                     }
                 }
@@ -404,6 +417,21 @@ impl GameLogic {
         destination: Vec3,
         waypoints: &[Vec3],
     ) -> bool {
+        self.assign_unit_path_inner(unit_id, destination, waypoints, false)
+    }
+
+    #[cfg(test)]
+    pub fn force_map_loaded_for_path_test(&mut self, loaded: bool) {
+        self.map_loaded = loaded;
+    }
+
+    fn assign_unit_path_inner(
+        &mut self,
+        unit_id: ObjectId,
+        destination: Vec3,
+        waypoints: &[Vec3],
+        compute_now: bool,
+    ) -> bool {
         // C++ DeployStyle: move order packs unit before pathing residual.
         let mut started_undeploy = false;
         let mut block_path = false;
@@ -429,12 +457,13 @@ impl GameLogic {
             // Path blocked until pack completes; re-issue move after ReadyToMove.
             return false;
         }
-        let (start, can_move, is_aircraft) = match self.objects.get(&unit_id) {
+        let (start, can_move, is_aircraft, surfaces) = match self.objects.get(&unit_id) {
             Some(unit) => (
                 unit.get_position(),
                 unit.can_move(),
                 unit.is_kind_of(crate::game_logic::KindOf::Aircraft)
                     || unit.object_type == crate::game_logic::ObjectType::Aircraft,
+                unit.locomotor_surfaces,
             ),
             None => return false,
         };
@@ -442,6 +471,57 @@ impl GameLogic {
             return false;
         }
 
+        // C++ Pathfinder::queueForPath: loaded maps wait one frame
+        // (AI.cpp:332-339, AIPathfind.h:418). Mapless / test compute now.
+        let defer = self.map_loaded && !compute_now;
+        if defer {
+            if let Some(unit) = self.objects.get_mut(&unit_id) {
+                unit.waiting_for_path = true;
+                unit.movement.target_position = Some(destination);
+                unit.set_ai_state(AIState::Moving);
+                unit.set_status_moving(true);
+                let mut dir = destination - start;
+                dir.y = 0.0;
+                let dir = dir.normalize_or_zero();
+                unit.movement.velocity = dir * unit.movement.max_speed;
+                unit.record_host_movement();
+            }
+            self.pathfinding_system
+                .queue_path(super::pathfinding::PendingHostPath {
+                    unit_id,
+                    start,
+                    destination,
+                    waypoints: waypoints.to_vec(),
+                    aircraft: is_aircraft,
+                    surfaces,
+                });
+            crate::game_logic::host_move_log::record(
+                unit_id,
+                Some([destination.x, destination.y, destination.z]),
+            );
+            if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
+                crate::game_logic::host_ai_decision_log::record_set_state(unit_id, 1);
+            }
+            return true;
+        }
+
+        let Some(full_path) =
+            self.compute_assigned_unit_path(unit_id, start, destination, waypoints, is_aircraft, surfaces)
+        else {
+            return false;
+        };
+        self.apply_computed_unit_path(unit_id, start, destination, full_path)
+    }
+
+    fn compute_assigned_unit_path(
+        &mut self,
+        unit_id: ObjectId,
+        start: Vec3,
+        destination: Vec3,
+        waypoints: &[Vec3],
+        is_aircraft: bool,
+        surfaces: u32,
+    ) -> Option<Vec<Vec3>> {
         let horiz = |a: Vec3, b: Vec3| {
             let dx = a.x - b.x;
             let dz = a.z - b.z;
@@ -453,6 +533,13 @@ impl GameLogic {
 
         let mut full_path: Vec<Vec3> = Vec::new();
         let mut segment_start = start;
+        let loco = if is_aircraft {
+            gamelogic::ai::pathfind_complete::SURFACE_AIR
+        } else if surfaces != 0 {
+            surfaces
+        } else {
+            gamelogic::ai::pathfind_complete::SURFACE_GROUND
+        };
         for goal in goals {
             if horiz(segment_start, goal) < 0.1 {
                 segment_start = goal;
@@ -461,11 +548,13 @@ impl GameLogic {
 
             // Never fail-open through blocked cells: always ask the pathfinder.
             let straight = horiz(segment_start, goal);
-            let segment = self.pathfinding_system.find_path_ex(
+            let segment = self.pathfinding_system.find_path_ex_surfaces(
                 segment_start,
                 goal,
                 &self.objects,
                 is_aircraft,
+                loco,
+                false,
             );
 
             match segment {
@@ -516,7 +605,7 @@ impl GameLogic {
                         }
                         full_path.push(goal);
                     } else {
-                        return false;
+                        return None;
                     }
                 }
             }
@@ -526,13 +615,22 @@ impl GameLogic {
 
         if full_path.is_empty() {
             // Already at goal (all segments < 0.1) is not a fail-open march.
-            // Any real hop that missed A* already returned false above.
-            return false;
+            return None;
         }
+        Some(full_path)
+    }
 
+    fn apply_computed_unit_path(
+        &mut self,
+        unit_id: ObjectId,
+        start: Vec3,
+        destination: Vec3,
+        full_path: Vec<Vec3>,
+    ) -> bool {
         let Some(unit) = self.objects.get_mut(&unit_id) else {
             return false;
         };
+        unit.waiting_for_path = false;
         unit.is_exact_path = false;
         unit.movement.path = full_path;
         unit.record_host_movement();
@@ -561,6 +659,104 @@ impl GameLogic {
         true
     }
 
+    /// C++ `AIGroup::friend_computeGroundPath` + per-member slot:
+    /// one A* from the nearest member to `destination`, then each unit
+    /// follows that spine with last waypoint = its formation/column goal.
+    pub fn assign_shared_group_paths(
+        &mut self,
+        goals: &[(ObjectId, Vec3)],
+        destination: Vec3,
+    ) -> bool {
+        if goals.is_empty() {
+            return false;
+        }
+        let leader = goals
+            .iter()
+            .filter_map(|(id, _)| {
+                self.objects.get(id).map(|o| {
+                    let p = o.get_position();
+                    let d = (p.x - destination.x).hypot(p.z - destination.z);
+                    (*id, p, d, o.locomotor_surfaces, o.is_kind_of(crate::game_logic::KindOf::Aircraft)
+                        || o.object_type == crate::game_logic::ObjectType::Aircraft)
+                })
+            })
+            .min_by(|a, b| a.2.total_cmp(&b.2));
+        let Some((leader_id, start, _, surfaces, aircraft)) = leader else {
+            return false;
+        };
+        let Some(spine) =
+            self.compute_assigned_unit_path(leader_id, start, destination, &[], aircraft, surfaces)
+        else {
+            return false;
+        };
+        let mut any = false;
+        for &(unit_id, goal) in goals {
+            let Some(unit_start) = self.objects.get(&unit_id).map(|o| o.get_position()) else {
+                continue;
+            };
+            let mut path = spine.clone();
+            if let Some(last) = path.last_mut() {
+                *last = goal;
+            } else {
+                path.push(goal);
+            }
+            if self.apply_computed_unit_path(unit_id, unit_start, goal, path) {
+                any = true;
+            }
+        }
+        any
+    }
+
+    /// C++ Pathfinder::processPathfindQueue residual (AI.cpp:332-339).
+    pub(crate) fn process_pathfind_queue(&mut self) {
+        let pending = self.pathfinding_system.take_pending_paths();
+        for req in pending {
+            let (start, can_move, is_aircraft, surfaces) = match self.objects.get(&req.unit_id) {
+                Some(unit) if unit.is_alive() => (
+                    unit.get_position(),
+                    unit.can_move(),
+                    req.aircraft
+                        || unit.is_kind_of(crate::game_logic::KindOf::Aircraft)
+                        || unit.object_type == crate::game_logic::ObjectType::Aircraft,
+                    if req.surfaces != 0 {
+                        req.surfaces
+                    } else {
+                        unit.locomotor_surfaces
+                    },
+                ),
+                _ => continue,
+            };
+            if !can_move {
+                if let Some(unit) = self.objects.get_mut(&req.unit_id) {
+                    unit.waiting_for_path = false;
+                }
+                continue;
+            }
+            match self.compute_assigned_unit_path(
+                req.unit_id,
+                start,
+                req.destination,
+                &req.waypoints,
+                is_aircraft,
+                surfaces,
+            ) {
+                Some(path) => {
+                    let _ = self.apply_computed_unit_path(
+                        req.unit_id,
+                        start,
+                        req.destination,
+                        path,
+                    );
+                }
+                None => {
+                    if let Some(unit) = self.objects.get_mut(&req.unit_id) {
+                        unit.waiting_for_path = false;
+                    }
+                }
+            }
+        }
+    }
+
     #[cfg(test)]
     pub fn assign_unit_path_for_test(
         &mut self,
@@ -568,7 +764,7 @@ impl GameLogic {
         destination: Vec3,
         waypoints: &[Vec3],
     ) -> bool {
-        self.assign_unit_path(unit_id, destination, waypoints)
+        self.assign_unit_path_inner(unit_id, destination, waypoints, true)
     }
 
     /// Pathfind to goal then set AI state. Falls back to set_destination if A* fails.
@@ -911,6 +1107,9 @@ impl GameLogic {
 
     /// Update method - matching C++ GameLogic interface
     pub fn update(&mut self) {
+        // C++ AI::update → Pathfinder::processPathfindQueue (AI.cpp:332-339)
+        // runs before movement so a unit waits at least one frame (m_waitingForPath).
+        self.process_pathfind_queue();
         self.step_simulation(LOGIC_FRAME_TIMESTEP, None);
     }
 

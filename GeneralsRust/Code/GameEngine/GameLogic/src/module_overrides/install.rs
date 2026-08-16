@@ -384,16 +384,9 @@ pub fn install_module_overrides() -> Result<(), String> {
         ),
     )?;
 
-    register_module_override(
-        "W3DProjectileDraw",
-        ModuleType::Draw,
-        w3d_projectile_draw_module_factory,
-        module_data_proc_or(
-            "W3DProjectileDraw",
-            ModuleType::Draw,
-            w3d_projectile_draw_module_data_factory,
-        ),
-    )?;
+    // C++ W3DModuleFactory.cpp:39-48 registers W3DModelDraw / W3DProjectileStreamDraw
+    // (and siblings). There is no W3DProjectileDraw module in GeneralsMD.
+    // Do not re-register this invented name if this archival dump is rewired.
 
     register_module_override(
         "W3DLaserDraw",

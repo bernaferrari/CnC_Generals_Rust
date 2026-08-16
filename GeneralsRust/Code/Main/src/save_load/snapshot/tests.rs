@@ -291,6 +291,45 @@ fn snapshot_restore_rebuilds_terrain_height_samples() {
 }
 
 #[test]
+fn snapshot_restore_rebuilds_logic_u8_heights_like_cpp_visual_xfer() {
+    // C++ W3DTerrainVisual::xfer v>=2 (W3DTerrainVisual.cpp:1231-1247)
+    // persists raw u8 logic heights, not only path-grid f32 samples.
+    {
+        let mut terrain = gamelogic::terrain::get_terrain_logic()
+            .write()
+            .expect("terrain logic");
+        terrain.restore_logic_height_map(2, 2, &[10, 20, 30, 40]);
+    }
+
+    let source = GameLogic::new();
+    let builder = SnapshotBuilder::new();
+    let snapshot = builder
+        .create_world_snapshot(&source)
+        .expect("snapshot creation failed");
+    assert_eq!(snapshot.terrain.logic_width, 2);
+    assert_eq!(snapshot.terrain.logic_height, 2);
+    assert_eq!(snapshot.terrain.logic_heights, vec![10, 20, 30, 40]);
+
+    {
+        let mut terrain = gamelogic::terrain::get_terrain_logic()
+            .write()
+            .expect("terrain logic");
+        terrain.restore_logic_height_map(2, 2, &[0, 0, 0, 0]);
+    }
+    let mut restored = GameLogic::new();
+    builder
+        .restore_from_snapshot(&snapshot, &mut restored)
+        .expect("snapshot restore failed");
+    let bytes = gamelogic::terrain::get_terrain_logic()
+        .read()
+        .expect("terrain logic")
+        .logic_height_map_bytes()
+        .to_vec();
+    assert_eq!(bytes, vec![10, 20, 30, 40]);
+}
+
+
+#[test]
 fn snapshot_restore_rebuilds_resource_depots_and_harvesters() {
     let mut source = GameLogic::new();
 

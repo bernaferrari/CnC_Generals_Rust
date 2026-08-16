@@ -111,10 +111,17 @@ impl ScriptEvaluator {
     }
 
     fn get_trigger_area(&self, area_name: &str) -> Option<PolygonTrigger> {
+        if let Some(trigger) = self
+            .with_evaluation_engine_ref(|engine| engine.get_qualified_trigger_area_by_name(area_name))
+            .flatten()
+        {
+            return Some(trigger);
+        }
+        let resolved = crate::scripting::engine::qualify_trigger_area_name(area_name, None)?;
         let Ok(terrain) = get_terrain_logic().read() else {
             return None;
         };
-        terrain.get_trigger_area_by_name(area_name).cloned()
+        terrain.get_trigger_area_by_name(&resolved).cloned()
     }
 
     fn is_object_considerable(obj: &crate::object::Object) -> bool {

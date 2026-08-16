@@ -524,12 +524,10 @@ impl ThingFactory {
 
         let variations = template.get_build_variations();
         let final_template = if !variations.is_empty() {
+            // C++ ThingFactory::newObject (ThingFactory.cpp:289-292) always
+            // draws GameLogicRandomValue(0, size-1), including size == 1.
             let max = variations.len().saturating_sub(1) as i32;
-            let index = if max == 0 {
-                0
-            } else {
-                get_game_logic_random_value(0, max) as usize
-            };
+            let index = get_game_logic_random_value(0, max) as usize;
             if let Some(variation_name) = variations.get(index) {
                 if let Some(variation) = self.find_template(variation_name.as_str(), false) {
                     variation_holder = Some(variation);
@@ -604,14 +602,25 @@ impl ThingFactory {
         // Find existing template or create new one
         let mut thing_template = if let Some(existing) = self.find_template(name, false) {
             if ini.get_load_type() != IniLoadType::CreateOverrides {
-                return Err(format!("Duplicate thing template {} found!", name));
+                // C++ ThingFactory::parseObjectDefinition (ThingFactory.cpp:367-375):
+                // DEBUG_CRASH in debug, then continue re-parsing into the existing template.
+                eprintln!(
+                    "[LINE: {} in '{}'] Duplicate factionunit {} found!",
+                    ini.get_line_num(),
+                    ini.get_filename(),
+                    name
+                );
+                existing
+            } else {
+                self.new_override(existing)?
             }
-            self.new_override(existing)?
         } else {
-            let template = self.new_template(name);
+            let mut template = self.new_template(name);
             if ini.get_load_type() == IniLoadType::CreateOverrides {
-                // Mark as override for proper cleanup
-                // template.mark_as_override();
+                // C++ ThingFactory.cpp:360-365 — mark so reset() deletes map-only templates.
+                Arc::make_mut(&mut template).mark_as_override();
+                self.template_hash_map
+                    .insert(AsciiString::from(name), template.clone());
             }
             template
         };
@@ -657,7 +666,10 @@ impl ThingFactory {
         thing_template.validate();
 
         if ini.get_load_type() == IniLoadType::CreateOverrides {
-            // thing_template.resolve_names();
+            // C++ ThingFactory.cpp:404-407
+            Arc::make_mut(&mut thing_template).resolve_names();
+            self.template_hash_map
+                .insert(AsciiString::from(name), thing_template.clone());
         }
 
         #[cfg(any(debug_assertions, feature = "internal"))]
@@ -1955,5 +1967,140 @@ mod tests {
                 .as_deref(),
             Some("ParentTank")
         );
+    }
+
+    #[test]
+    fn new_object_draws_logic_rng_for_single_variation() {
+        // C++ ThingFactory::newObject (ThingFactory.cpp:289) always draws
+        // GameLogicRandomValue(0, size-1), even when size == 1.
+        use crate::common::ini::{INIError, INI};
+        use crate::common::random_value::{
+            get_game_logic_random_seed_state, get_game_logic_random_value, init_random_with_seed,
+        };
+        use crate::common::thing::module::Object;
+        use crate::common::thing::thing_factory::{
+            set_object_creator, ObjectCreator, ThingCreationError,
+        };
+        use std::sync::Arc;
+
+        struct DummyObject;
+        impl Object for DummyObject {}
+
+        struct DummyCreator;
+        impl ObjectCreator for DummyCreator {
+            fn create_object(
+                &self,
+                _template: &crate::common::thing::thing_template::ThingTemplate,
+                _status_bits: super::ObjectStatusMaskType,
+                _team: Option<Arc<dyn super::Team>>,
+            ) -> Result<Box<dyn Object>, ThingCreationError> {
+                Ok(Box::new(DummyObject))
+            }
+        }
+
+        set_object_creator(Some(Arc::new(DummyCreator)));
+
+        let mut factory = ThingFactory::new();
+        let mut variation_ini = INI::new();
+        variation_ini
+            .with_inline_source("BuildCost = 1\nEnd\n", |ini| {
+                factory
+                    .parse_object_definition(ini, "OnlyVar", "")
+                    .map_err(|_| INIError::InvalidData)
+            })
+            .expect("variation template");
+
+        let mut parent_ini = INI::new();
+        parent_ini
+            .with_inline_source("BuildVariations = OnlyVar\nEnd\n", |ini| {
+                factory
+                    .parse_object_definition(ini, "ParentWithOneVar", "")
+                    .map_err(|_| INIError::InvalidData)
+            })
+            .expect("parent template");
+
+        let parent = factory
+            .find_template("ParentWithOneVar", false)
+            .expect("parent");
+        assert_eq!(parent.get_build_variations().len(), 1);
+
+        init_random_with_seed(12345);
+        let _ = get_game_logic_random_value(0, 0);
+        let expected_state = get_game_logic_random_seed_state();
+
+        init_random_with_seed(12345);
+        factory
+            .new_object(parent.as_ref(), None, 0)
+            .expect("new_object");
+        assert_eq!(
+            get_game_logic_random_seed_state(),
+            expected_state,
+            "single-variation newObject must consume one GameLogicRandomValue draw"
+        );
+
+        set_object_creator(None);
+    }
+
+    #[test]
+    fn duplicate_object_name_continues_into_existing_template() {
+        // C++ ThingFactory::parseObjectDefinition (ThingFactory.cpp:367-375):
+        // DEBUG_CRASH then keep parsing into the existing template.
+        use crate::common::ini::{INIError, INI};
+
+        let mut factory = ThingFactory::new();
+        let mut first = INI::new();
+        first
+            .with_inline_source("BuildCost = 10\nEnd\n", |ini| {
+                factory
+                    .parse_object_definition(ini, "DupUnit", "")
+                    .map_err(|_| INIError::InvalidData)
+            })
+            .expect("first definition");
+
+        let mut second = INI::new();
+        second
+            .with_inline_source("BuildCost = 20\nEnd\n", |ini| {
+                factory
+                    .parse_object_definition(ini, "DupUnit", "")
+                    .map_err(|_| INIError::InvalidData)
+            })
+            .expect("duplicate must not abort the file");
+
+        let template = factory.find_template("DupUnit", false).expect("DupUnit");
+        assert_eq!(template.get_build_cost(), 20);
+    }
+
+    #[test]
+    fn create_overrides_new_template_is_marked_override() {
+        // C++ ThingFactory.cpp:360-365 markAsOverride for new CREATE_OVERRIDES templates
+        use crate::common::ini::{INIError, INILoadType, INI};
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let path = std::env::temp_dir().join(format!(
+            "thing_override_{}_{}.ini",
+            std::process::id(),
+            nanos
+        ));
+        std::fs::write(&path, "BuildCost = 5\nEnd\n").unwrap();
+
+        let mut factory = ThingFactory::new();
+        let mut ini = INI::new();
+        ini.with_file_source(&path, INILoadType::CreateOverrides, |ini| {
+            factory
+                .parse_object_definition(ini, "MapOnlyUnit", "")
+                .map_err(|_| INIError::InvalidData)
+        })
+        .expect("override template");
+
+        let template = factory
+            .find_template("MapOnlyUnit", false)
+            .expect("MapOnlyUnit");
+        assert!(template.is_override());
+
+        let _ = std::fs::remove_file(&path);
     }
 }

@@ -96,6 +96,34 @@ fn should_keep_message_while_mouse_locked(msg_type: &GameMessageType, scrolling:
     }
 }
 
+fn is_legacy_left_window_message(msg: WindowMessage) -> bool {
+    matches!(msg, WindowMessage::LeftDown | WindowMessage::LeftUp)
+}
+
+/// C++ `WindowTranslator::translateGameMessage` (WindowXlat.cpp:147-167):
+/// while `TheTacticalView->isMouseLocked()`, keep the stream message (skip
+/// `winProcessMouseEvent`) unless `TheInGameUI->isScrolling()` and the event
+/// is LMB down/up so ControlBar clicks still land during keyboard/RMB scroll.
+pub fn should_skip_os_window_manager_while_mouse_locked(
+    msg: WindowMessage,
+    scrolling: bool,
+) -> bool {
+    if scrolling {
+        !is_legacy_left_window_message(msg)
+    } else {
+        true
+    }
+}
+
+/// Live OS-dispatch gate for the unused WindowXlat mouse-lock pass-through.
+///
+/// Returns `true` when `dispatch_os_mouse_to_window_manager` must not call
+/// `process_mouse_event` (C++ KEEP_MESSAGE).
+pub fn os_mouse_blocked_by_mouse_lock(msg: WindowMessage) -> bool {
+    is_mouse_locked()
+        && should_skip_os_window_manager_while_mouse_locked(msg, TheInGameUI::is_scrolling())
+}
+
 #[derive(Default)]
 pub struct WindowTranslator {
     last_mouse_pos: ICoord2D,
@@ -278,5 +306,58 @@ mod tests {
         assert!(!should_keep_message_while_mouse_locked(&left_up, true));
         assert!(should_keep_message_while_mouse_locked(&right_down, true));
         assert!(should_keep_message_while_mouse_locked(&drag, true));
+    }
+
+    #[test]
+    fn locked_os_dispatch_while_scrolling_only_passes_left_clicks_like_cpp() {
+        // C++ WindowXlat.cpp:147-167 — mouse-locked + isScrolling lets LMB
+        // reach winProcessMouseEvent so ControlBar clicks are not issued
+        // through the HUD.
+        assert!(!should_skip_os_window_manager_while_mouse_locked(
+            WindowMessage::LeftDown,
+            true
+        ));
+        assert!(!should_skip_os_window_manager_while_mouse_locked(
+            WindowMessage::LeftUp,
+            true
+        ));
+        assert!(should_skip_os_window_manager_while_mouse_locked(
+            WindowMessage::RightDown,
+            true
+        ));
+        assert!(should_skip_os_window_manager_while_mouse_locked(
+            WindowMessage::LeftDrag,
+            true
+        ));
+        assert!(should_skip_os_window_manager_while_mouse_locked(
+            WindowMessage::MousePos,
+            true
+        ));
+        assert!(should_skip_os_window_manager_while_mouse_locked(
+            WindowMessage::LeftDown,
+            false
+        ));
+    }
+
+    #[test]
+    fn live_os_dispatch_uses_window_xlat_mouse_lock_pass_through() {
+        let dispatch = include_str!("../gui/window_manager/reentry.rs");
+        let start = dispatch
+            .find("pub fn dispatch_os_mouse_to_window_manager")
+            .expect("live OS mouse dispatch");
+        let body = &dispatch[start..];
+        let end = body
+            .find("pub fn dispatch_os_key_to_window_manager")
+            .unwrap_or(body.len());
+        let body = &body[..end];
+        assert!(
+            body.contains("os_mouse_blocked_by_mouse_lock"),
+            "live OS path must consume WindowXlat mouse-lock pass-through rather than leave it unused"
+        );
+        assert!(
+            body.find("os_mouse_blocked_by_mouse_lock")
+                < body.find("process_mouse_event"),
+            "lock gate must run before winProcessMouseEvent"
+        );
     }
 }

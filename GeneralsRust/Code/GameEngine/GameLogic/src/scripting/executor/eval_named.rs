@@ -568,20 +568,23 @@ impl ScriptConditionEvaluator {
             area_name
         );
 
+        // C++ ScriptConditions.cpp:1614-1631 evaluateNamedEnteredArea:
+        // getUnitNamed, skip KINDOF_INERT, getQualifiedTriggerAreaByName, Object::didEnter.
+        let Ok(trigger) = self.get_trigger_area(&area_name) else {
+            return Ok(ScriptConditionResult::False);
+        };
         let tracker = get_named_object_tracker();
         let Ok(Some(object_id)) = tracker.get_object_id(&object_name) else {
             return Ok(ScriptConditionResult::False);
         };
-
-        let area_tracker = crate::scripting::engine::get_area_tracker();
-        let last_enter = area_tracker.get_last_enter_frame(&area_name, object_id);
-        let last_seen = condition.custom_frame;
-
-        let entered = last_enter.is_some_and(|frame| frame > last_seen);
-        if entered {
-            condition.custom_frame = last_enter.unwrap_or(last_seen);
-        }
-
+        let entered = crate::object::registry::OBJECT_REGISTRY
+            .with_object(object_id, |obj| {
+                if obj.is_kind_of(crate::common::KindOf::Inert) {
+                    return false;
+                }
+                obj.did_enter(&trigger)
+            })
+            .unwrap_or(false);
         Ok(if entered {
             ScriptConditionResult::True
         } else {
@@ -601,20 +604,18 @@ impl ScriptConditionEvaluator {
             area_name
         );
 
+        // C++ ScriptConditions.cpp:1637-1651 evaluateNamedExitedArea:
+        // getUnitNamed, getQualifiedTriggerAreaByName, Object::didExit.
+        let Ok(trigger) = self.get_trigger_area(&area_name) else {
+            return Ok(ScriptConditionResult::False);
+        };
         let tracker = get_named_object_tracker();
         let Ok(Some(object_id)) = tracker.get_object_id(&object_name) else {
             return Ok(ScriptConditionResult::False);
         };
-
-        let area_tracker = crate::scripting::engine::get_area_tracker();
-        let last_exit = area_tracker.get_last_exit_frame(&area_name, object_id);
-        let last_seen = condition.custom_frame;
-
-        let exited = last_exit.is_some_and(|frame| frame > last_seen);
-        if exited {
-            condition.custom_frame = last_exit.unwrap_or(last_seen);
-        }
-
+        let exited = crate::object::registry::OBJECT_REGISTRY
+            .with_object(object_id, |obj| obj.did_exit(&trigger))
+            .unwrap_or(false);
         Ok(if exited {
             ScriptConditionResult::True
         } else {

@@ -254,13 +254,12 @@ impl SoundManagerImpl {
                 return false;
             }
         }
-
-        // Match C++ SoundManager::canPlayNow: enforce per-event playback limits.
-        if self.violates_limit(event) {
-            return false;
+        // Limit is enforced by AudioManager::does_violate_limit
+        // (MilesAudioManager.cpp:1802-1882 / GameSounds.cpp:231-241).
+        if self.is_interrupting(event) {
+            return true;
         }
 
-        // Check if we have available channels
         if event.is_positional_audio() {
             if (self.num_playing_3d_samples as Int) < (self.num_3d_samples as Int) {
                 return true;
@@ -301,22 +300,43 @@ impl SoundManagerImpl {
         false
     }
 
-    fn violates_limit(&self, event: &AudioEventRts) -> Bool {
+    #[allow(dead_code)]
+    fn violates_limit(&self, event: &mut AudioEventRts) -> Bool {
         let Some(event_info) = event.get_audio_event_info() else {
             return false;
         };
 
-        // Negative or zero means "no limit" in C++ data.
         if event_info.limit <= 0 {
             return false;
         }
+        let limit = event_info.limit;
+        let interrupting = (event_info.control & AC_INTERRUPT) != 0;
+        let event_name = event.get_event_name().to_string();
 
-        let active = self
-            .playing_sounds
-            .iter()
-            .filter(|sound| sound.event_name == event.get_event_name())
-            .count() as Int;
-        active >= event_info.limit
+        let mut total_playing_count = 0;
+        for sound in &self.playing_sounds {
+            if sound.event_name == event_name {
+                if total_playing_count == 0 {
+                    event.set_handle_to_kill(sound.handle);
+                }
+                total_playing_count += 1;
+            }
+        }
+
+        if interrupting {
+            if total_playing_count < limit {
+                event.set_handle_to_kill(0);
+                return false;
+            }
+            return false;
+        }
+
+        if total_playing_count < limit {
+            event.set_handle_to_kill(0);
+            return false;
+        }
+
+        true
     }
 
     /// Check if this is an interrupting sound

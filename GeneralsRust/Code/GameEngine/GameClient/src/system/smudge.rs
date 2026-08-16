@@ -1,6 +1,8 @@
 //! Smudge system (terrain decals), matching System/Smudge.cpp.
 
 use glam::{Vec2, Vec3};
+use crate::effects::decals::DecalRenderItem;
+use nalgebra::Point3;
 use std::sync::{Arc, Mutex, OnceLock};
 
 #[derive(Debug, Clone, Copy)]
@@ -153,6 +155,32 @@ impl SmudgeManager {
 
     pub fn get_hardware_support(&self) -> bool {
         self.hardware_support != HardwareSmudgeSupport::No
+    }
+
+    /// Cheap terrain-decal representation of residual smudges.
+    /// C++ `W3DSmudgeManager` draws heat-distortion textures; until that
+    /// post-process exists, used smudges are issued as `DecalRenderItem`s.
+    pub fn collect_used_smudges(&self) -> Vec<Smudge> {
+        let mut items = Vec::new();
+        for set in &self.used_sets {
+            if let Ok(guard) = set.lock() {
+                items.extend(guard.used_smudges().iter().cloned());
+            }
+        }
+        items
+    }
+
+    pub fn collect_decal_render_items(&self) -> Vec<DecalRenderItem> {
+        self.collect_used_smudges()
+            .into_iter()
+            .filter(|smudge| smudge.size > 0.0 && smudge.opacity > 0.0)
+            .map(|smudge| DecalRenderItem {
+                position: Point3::new(smudge.pos.x, smudge.pos.y, smudge.pos.z),
+                size: smudge.size,
+                rotation: 0.0,
+                color: [1.0, 1.0, 1.0, smudge.opacity],
+            })
+            .collect()
     }
 }
 
@@ -361,6 +389,29 @@ mod tests {
         let guard = reused.lock().unwrap();
         assert_eq!(guard.used_smudge_count(), 1);
         assert_eq!(guard.used_smudges()[0].size, 42.0);
+    }
+
+    /// Residual smudges must become GPU decal items so the live frame can
+    /// draw them via `ParticleRenderer::render_decals` (C++ W3DSmudgeManager).
+    #[test]
+    fn collect_decal_render_items_skips_empty_and_keeps_used() {
+        let mut manager = SmudgeManager::new();
+        let set = manager.add_smudge_set();
+        {
+            let mut guard = set.lock().unwrap();
+            let drawn = guard.add_smudge_to_set();
+            drawn.pos = Vec3::new(4.0, 5.0, 6.0);
+            drawn.size = 8.0;
+            drawn.opacity = 0.5;
+            let skipped = guard.add_smudge_to_set();
+            skipped.size = 0.0;
+            skipped.opacity = 1.0;
+        }
+        let items = manager.collect_decal_render_items();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].position, Point3::new(4.0, 5.0, 6.0));
+        assert_eq!(items[0].size, 8.0);
+        assert!((items[0].color[3] - 0.5).abs() < f32::EPSILON);
     }
 
     #[test]

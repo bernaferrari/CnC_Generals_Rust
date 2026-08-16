@@ -6,7 +6,7 @@ use game_engine::common::system::xfer_load::XferLoad as CommonXferLoad;
 use game_engine::common::system::xfer_save::XferSave as CommonXferSave;
 use serde::{Deserialize, Serialize};
 use std::fs::{File, OpenOptions};
-use std::io::{BufReader, BufWriter, Cursor, Read, Write};
+use std::io::{BufReader, BufWriter, Cursor, Read, Seek, Write};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -26,15 +26,387 @@ pub struct SaveFileHeader {
 
 const SAVE_MAGIC: [u8; 4] = *b"GZHS";
 const SAVE_HEADER_SIZE: usize = std::mem::size_of::<SaveFileHeader>();
-/// Same tokens Popup / Common TheGameState write (`SG_EOF`, CHUNK_*).
+/// Same tokens as C++ `GameState::xferSaveData` (`GameState.cpp:1313-1458`)
+/// and System `TheGameState` (`SAVELOAD_BLOCK_NAMES`).
 ///
-/// Honest host path (Phase N5): this is **not** the C++ 17-block TheGameState
-/// snapshot table and **not** crate `GameLogic::xfer`. Host pause-save writes
-/// `CHUNK_GameState` (header metadata) + `CHUNK_GameLogic` + `SG_EOF`.
-/// `CHUNK_GameLogic` payload bytes are `bincode::serialize(WorldSnapshot)`.
+/// Host pause-save writes the 17 named chunks then `SG_EOF`. `CHUNK_GameState`
+/// is the C++ v2 header (`GameState.cpp:1539-1642`). `CHUNK_GameLogic` still
+/// carries a host `bincode` `WorldSnapshot` (not crate/`C++` `GameLogic::xfer`).
+/// Other registered blocks are NullSnapshot version-1 placeholders so Popup
+/// and host share one container. `CHUNK_GameStateMap` embeds the `.map` when
+/// the file is on disk (`GameStateMap.cpp:55-156`).
 const CHUNK_GAME_STATE: &str = "CHUNK_GameState";
 const CHUNK_GAME_LOGIC: &str = "CHUNK_GameLogic";
+const CHUNK_GAME_STATE_MAP: &str = "CHUNK_GameStateMap";
 const SAVE_FILE_EOF: &str = "SG_EOF";
+const CPP_GAME_STATE_XFER_VERSION: u8 = 2;
+const CPP_SAVE_FILE_TYPE_NORMAL: i32 = 0;
+const CPP_SAVE_FILE_TYPE_MISSION: i32 = 1;
+const CPP_INVALID_MISSION_NUMBER: i32 = -1;
+
+const SAVELOAD_BLOCK_NAMES: &[&str] = game_engine::System::SaveGame::SAVELOAD_BLOCK_NAMES;
+
+fn utc_date_fields(time: SystemTime) -> [u16; 8] {
+    let dur = time.duration_since(UNIX_EPOCH).unwrap_or_default();
+    let secs = dur.as_secs();
+    let milliseconds = dur.subsec_millis() as u16;
+    let days = secs / 86_400;
+    let tod = secs % 86_400;
+    let hour = (tod / 3_600) as u16;
+    let minute = ((tod % 3_600) / 60) as u16;
+    let second = (tod % 60) as u16;
+    // Howard Hinnant civil-from-days (UTC). C++ uses local SYSTEMTIME;
+    // listing only needs a stable round-trip.
+    let z = days as i64 + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = (z - era * 146_097) as u64;
+    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
+    let year = yoe as i64 + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = (doy - (153 * mp + 2) / 5 + 1) as u16;
+    let month = (if mp < 10 { mp + 3 } else { mp - 9 }) as u16;
+    let year = (if month <= 2 { year + 1 } else { year }) as u16;
+    let day_of_week = ((days + 4) % 7) as u16;
+    [year, month, day, day_of_week, hour, minute, second, milliseconds]
+}
+
+fn map_leaf_name(path: &str) -> String {
+    path.replace('/', "\\")
+        .rsplit(['\\', '/'])
+        .next()
+        .unwrap_or(path)
+        .to_string()
+}
+
+fn cpp_save_file_type(save_type: SaveFileType) -> i32 {
+    match save_type {
+        SaveFileType::Mission => CPP_SAVE_FILE_TYPE_MISSION,
+        _ => CPP_SAVE_FILE_TYPE_NORMAL,
+    }
+}
+
+fn write_ascii<W: Write + Seek>(
+    xfer: &mut CommonXferSave<W>,
+    value: &str,
+) -> SaveLoadResult<()> {
+    let mut owned = value.to_string();
+    xfer.xfer_ascii_string(&mut owned)
+        .map_err(|e| SaveLoadError::Serialization(e.to_string()))
+}
+
+fn write_unicode<W: Write + Seek>(
+    xfer: &mut CommonXferSave<W>,
+    value: &str,
+) -> SaveLoadResult<()> {
+    let mut owned = value.to_string();
+    xfer.xfer_unicode_string(&mut owned)
+        .map_err(|e| SaveLoadError::Serialization(e.to_string()))
+}
+
+/// C++ `GameState::xfer` v2 (`GameState.cpp:1539-1642`).
+fn write_cpp_game_state_header<W: Write + Seek>(
+    xfer: &mut CommonXferSave<W>,
+    save_info: &SaveGameInfo,
+) -> SaveLoadResult<()> {
+    let mut version = CPP_GAME_STATE_XFER_VERSION;
+    xfer.xfer_version(&mut version, CPP_GAME_STATE_XFER_VERSION)
+        .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
+    let mut file_type = cpp_save_file_type(save_info.save_type);
+    xfer.xfer_int(&mut file_type)
+        .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
+    let mission_map = if save_info.save_type == SaveFileType::Mission {
+        save_info.map_name.as_str()
+    } else {
+        ""
+    };
+    write_ascii(xfer, mission_map)?;
+    let mut date = utc_date_fields(save_info.save_date);
+    for field in &mut date {
+        xfer.xfer_unsigned_short(field)
+            .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
+    }
+    write_unicode(xfer, &save_info.description)?;
+    write_ascii(xfer, &map_leaf_name(&save_info.map_name))?;
+    write_ascii(xfer, save_info.campaign_side.as_deref().unwrap_or(""))?;
+    let mut mission_number = save_info
+        .mission_number
+        .map(|n| n as i32)
+        .unwrap_or(CPP_INVALID_MISSION_NUMBER);
+    xfer.xfer_int(&mut mission_number)
+        .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
+    Ok(())
+}
+
+fn read_ascii(xfer: &mut CommonXferLoad<Cursor<&[u8]>>) -> SaveLoadResult<String> {
+    let mut value = String::new();
+    xfer.xfer_ascii_string(&mut value)
+        .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
+    Ok(value)
+}
+
+fn read_unicode(xfer: &mut CommonXferLoad<Cursor<&[u8]>>) -> SaveLoadResult<String> {
+    let mut value = String::new();
+    xfer.xfer_unicode_string(&mut value)
+        .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
+    Ok(value)
+}
+
+/// Parse C++ `GameState::xfer` enough to list a save. Version 2 is accepted.
+fn parse_cpp_game_state_header(payload: &[u8]) -> SaveLoadResult<SaveGameInfo> {
+    let mut xfer = CommonXferLoad::new(Cursor::new(payload), SAVE_FILE_VERSION);
+    let mut version = 0u8;
+    // Accept C++ currentVersion=2; do not treat it as > host SAVE_FILE_VERSION.
+    xfer.xfer_version(&mut version, CPP_GAME_STATE_XFER_VERSION)
+        .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
+    let mut file_type = CPP_SAVE_FILE_TYPE_NORMAL;
+    let mut mission_map_name = String::new();
+    if version >= 2 {
+        xfer.xfer_int(&mut file_type)
+            .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
+        mission_map_name = read_ascii(&mut xfer)?;
+    }
+    let mut date = [0u16; 8];
+    for field in &mut date {
+        xfer.xfer_unsigned_short(field)
+            .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
+    }
+    let description = read_unicode(&mut xfer)?;
+    let map_label = read_ascii(&mut xfer)?;
+    let campaign_side = read_ascii(&mut xfer)?;
+    let mut mission_number = CPP_INVALID_MISSION_NUMBER;
+    xfer.xfer_int(&mut mission_number)
+        .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
+
+    let save_type = if file_type == CPP_SAVE_FILE_TYPE_MISSION {
+        SaveFileType::Mission
+    } else {
+        SaveFileType::Normal
+    };
+    let map_name = if save_type == SaveFileType::Mission && !mission_map_name.is_empty() {
+        mission_map_name
+    } else {
+        map_label
+    };
+    let (year, month, day, hour, minute, second, milliseconds) = (
+        date[0] as i32,
+        date[1].clamp(1, 12) as u32,
+        date[2].clamp(1, 31) as u32,
+        date[4].min(23) as u32,
+        date[5].min(59) as u32,
+        date[6].min(59) as u32,
+        date[7] as u32,
+    );
+    let save_date = civil_utc_to_system_time(year, month, day, hour, minute, second, milliseconds);
+    Ok(SaveGameInfo {
+        filename: String::new(),
+        display_name: description.clone(),
+        description,
+        map_name,
+        campaign_side: if campaign_side.is_empty() {
+            None
+        } else {
+            Some(campaign_side)
+        },
+        mission_number: if mission_number >= 0 {
+            Some(mission_number as u32)
+        } else {
+            None
+        },
+        save_date,
+        game_version: String::new(),
+        play_time: std::time::Duration::from_secs(0),
+        difficulty: GameDifficulty::Medium,
+        save_type,
+    })
+}
+
+fn civil_utc_to_system_time(
+    year: i32,
+    month: u32,
+    day: u32,
+    hour: u32,
+    minute: u32,
+    second: u32,
+    milliseconds: u32,
+) -> SystemTime {
+    // Inverse of utc_date_fields (days_from_civil).
+    let year = if month <= 2 { year - 1 } else { year };
+    let era = if year >= 0 { year } else { year - 399 } / 400;
+    let yoe = (year - era * 400) as u32;
+    let mp = if month > 2 { month - 3 } else { month + 9 };
+    let doy = (153 * mp + 2) / 5 + day - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    let days = (era as i64) * 146_097 + doe as i64 - 719_468;
+    let secs = days
+        .saturating_mul(86_400)
+        .saturating_add((hour * 3600 + minute * 60 + second) as i64);
+    if secs >= 0 {
+        UNIX_EPOCH + std::time::Duration::new(secs as u64, milliseconds.saturating_mul(1_000_000))
+    } else {
+        UNIX_EPOCH
+    }
+}
+
+fn write_named_block<W: Write + Seek>(
+    xfer: &mut CommonXferSave<W>,
+    name: &str,
+    payload: impl FnOnce(&mut CommonXferSave<W>) -> SaveLoadResult<()>,
+) -> SaveLoadResult<()> {
+    write_ascii(xfer, name)?;
+    xfer.begin_block()
+        .map_err(|e| SaveLoadError::Serialization(format!("{e:?}")))?;
+    payload(xfer)?;
+    xfer.end_block()
+        .map_err(|e| SaveLoadError::Serialization(format!("{e:?}")))?;
+    Ok(())
+}
+
+fn write_null_snapshot_version<W: Write + Seek>(
+    xfer: &mut CommonXferSave<W>,
+) -> SaveLoadResult<()> {
+    let mut version = 1u8;
+    xfer.xfer_version(&mut version, 1)
+        .map_err(|e| SaveLoadError::Serialization(e.to_string()))
+}
+
+/// C++ `GameStateMap::xfer` v2 map embed (`GameStateMap.cpp:224-394`).
+fn write_game_state_map_block<W: Write + Seek>(
+    xfer: &mut CommonXferSave<W>,
+    save_info: &SaveGameInfo,
+) -> SaveLoadResult<()> {
+    let mut version = 2u8;
+    xfer.xfer_version(&mut version, 2)
+        .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
+    let leaf = map_leaf_name(&save_info.map_name);
+    write_ascii(xfer, &format!("Save\\{leaf}"))?;
+    let pristine = if save_info.map_name.is_empty() {
+        String::new()
+    } else {
+        format!("Maps\\{}", leaf)
+    };
+    write_ascii(xfer, &pristine)?;
+    let mut game_mode = 0i32;
+    xfer.xfer_int(&mut game_mode)
+        .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
+
+    let mut map_bytes = Vec::new();
+    if !save_info.map_name.is_empty() {
+        if let Some(path) = crate::game_logic::script_loader::find_map_file(&save_info.map_name) {
+            map_bytes = std::fs::read(path).unwrap_or_default();
+        } else if Path::new(&save_info.map_name).is_file() {
+            map_bytes = std::fs::read(&save_info.map_name).unwrap_or_default();
+        }
+    }
+    xfer.begin_block()
+        .map_err(|e| SaveLoadError::Serialization(format!("{e:?}")))?;
+    if !map_bytes.is_empty() {
+        // SAFETY: buffer lives for the xfer_user call.
+        unsafe {
+            xfer.xfer_user(map_bytes.as_mut_ptr(), map_bytes.len())
+                .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
+        }
+    }
+    xfer.end_block()
+        .map_err(|e| SaveLoadError::Serialization(format!("{e:?}")))?;
+
+    let mut object_id = 1u32;
+    let mut drawable_id = 1u32;
+    xfer.xfer_unsigned_int(&mut object_id)
+        .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
+    xfer.xfer_unsigned_int(&mut drawable_id)
+        .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
+    Ok(())
+}
+
+fn extract_embedded_map(payload: &[u8], save_dir: &Path) -> Option<PathBuf> {
+    let mut xfer = CommonXferLoad::new(Cursor::new(payload), SAVE_FILE_VERSION);
+    let mut version = 0u8;
+    xfer.xfer_version(&mut version, 2).ok()?;
+    let save_game_map = read_ascii(&mut xfer).ok()?;
+    let _pristine = read_ascii(&mut xfer).ok()?;
+    if version >= 2 {
+        let mut game_mode = 0i32;
+        xfer.xfer_int(&mut game_mode).ok()?;
+    }
+    let data_size = xfer.begin_block().ok()?;
+    if data_size <= 0 {
+        return None;
+    }
+    let mut buffer = vec![0u8; data_size as usize];
+    unsafe {
+        xfer.xfer_user(buffer.as_mut_ptr(), buffer.len()).ok()?;
+    }
+    let _ = xfer.end_block();
+    let leaf = map_leaf_name(&save_game_map);
+    if leaf.is_empty() {
+        return None;
+    }
+    let _ = std::fs::create_dir_all(save_dir);
+    let dest = save_dir.join(leaf);
+    std::fs::write(&dest, buffer).ok()?;
+    Some(dest)
+}
+
+fn walk_named_chunks(data: &[u8]) -> SaveLoadResult<Vec<(String, Vec<u8>)>> {
+    let mut pos = 0usize;
+    let mut blocks = Vec::new();
+    while pos < data.len() {
+        let token_len = data[pos] as usize;
+        pos += 1;
+        if pos + token_len > data.len() {
+            return Err(SaveLoadError::Corrupted(
+                "truncated named-chunk token".to_string(),
+            ));
+        }
+        let token = std::str::from_utf8(&data[pos..pos + token_len])
+            .map_err(|e| SaveLoadError::Serialization(e.to_string()))?
+            .to_string();
+        pos += token_len;
+        if token.eq_ignore_ascii_case(SAVE_FILE_EOF) {
+            break;
+        }
+        if pos + 4 > data.len() {
+            return Err(SaveLoadError::Corrupted(
+                "truncated named-chunk size".to_string(),
+            ));
+        }
+        let block_size =
+            i32::from_le_bytes([data[pos], data[pos + 1], data[pos + 2], data[pos + 3]]);
+        pos += 4;
+        if block_size < 0 {
+            return Err(SaveLoadError::Corrupted(
+                "negative named-chunk size".to_string(),
+            ));
+        }
+        let end = pos
+            .checked_add(block_size as usize)
+            .ok_or_else(|| SaveLoadError::Corrupted("named-chunk size overflow".to_string()))?;
+        if end > data.len() {
+            return Err(SaveLoadError::Corrupted(
+                "named-chunk payload overruns file".to_string(),
+            ));
+        }
+        blocks.push((token, data[pos..end].to_vec()));
+        pos = end;
+    }
+    Ok(blocks)
+}
+
+fn parse_chunk_game_state(payload: &[u8]) -> SaveLoadResult<SaveGameInfo> {
+    if payload.first().copied().unwrap_or(0) >= 2 {
+        return parse_cpp_game_state_header(payload);
+    }
+    let mut header = CommonGameState::default();
+    let mut xfer = CommonXferLoad::new(Cursor::new(payload), SAVE_FILE_VERSION);
+    match header.xfer(&mut xfer) {
+        Ok(()) => Ok(SaveFileManager::save_info_from_common_state(
+            &header,
+            &WorldSnapshot::default(),
+        )),
+        Err(err) => Err(SaveLoadError::Serialization(err.to_string())),
+    }
+}
 
 impl SaveFileHeader {
     pub fn new() -> Self {
@@ -335,7 +707,7 @@ impl SaveFileManager {
         let mut all = Vec::new();
         file.read_to_end(&mut all)?;
         if Self::looks_like_common_sav_chunks(&all) {
-            return Self::read_common_sav_chunks(&all).map(|(_, info)| info);
+            return Self::read_named_chunk_save_info(&all);
         }
         let mut reader = Cursor::new(all);
         let header = self.read_header(&mut reader)?;
@@ -480,11 +852,10 @@ impl SaveFileManager {
                 .any(|w| w == SAVE_FILE_EOF.as_bytes())
     }
 
-    /// Popup + host container: CHUNK_GameState / CHUNK_GameLogic / SG_EOF.
+    /// C++ `GameState::xferSaveData` 17 named chunks + `SG_EOF` (`GameState.cpp:1313-1458`).
     ///
-    /// `CHUNK_GameLogic` is a Common `GameState` block whose `data` field is a
-    /// **bincode `WorldSnapshot`**, not crate `GameLogic::xfer` and not the
-    /// full C++ 17 named-chunk TheGameState table.
+    /// `CHUNK_GameState` is the C++ v2 header. `CHUNK_GameLogic` payload is still
+    /// host `bincode` `WorldSnapshot` (not crate/`C++` `GameLogic::xfer`).
     fn write_common_sav_chunks(
         world_snapshot: &WorldSnapshot,
         save_info: &SaveGameInfo,
@@ -494,99 +865,136 @@ impl SaveFileManager {
         Self::write_common_sav_chunks_with_payload(world_snapshot, save_info, logic_payload)
     }
 
-    /// Shared Common container writer.  Keeping the logic payload separate
-    /// makes the outer format independent of the positional WorldSnapshot
-    /// schema and lets the regression fixture exercise a historical payload.
+    /// Shared 17-block container writer. Logic payload is kept separate so
+    /// the outer C++ chunk table is independent of the positional
+    /// WorldSnapshot schema and historical fixtures still migrate.
     fn write_common_sav_chunks_with_payload(
-        world_snapshot: &WorldSnapshot,
+        _world_snapshot: &WorldSnapshot,
         save_info: &SaveGameInfo,
         logic_payload: Vec<u8>,
     ) -> SaveLoadResult<Vec<u8>> {
-        let mut header = Self::common_state_from_save_info(save_info, world_snapshot);
-        header.data.clear();
-        let mut logic = CommonGameState::new(SAVE_FILE_VERSION);
-        logic.data = logic_payload;
-
+        let ghost_bytes = capture_w3d_ghost_xfer_bytes().unwrap_or_default();
         let mut cursor = Cursor::new(Vec::<u8>::new());
         {
             let mut xfer = CommonXferSave::new(&mut cursor, SAVE_FILE_VERSION);
-            let mut name = CHUNK_GAME_STATE.to_string();
-            xfer.xfer_ascii_string(&mut name)
-                .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
-            xfer.begin_block()
-                .map_err(|e| SaveLoadError::Serialization(format!("{e:?}")))?;
-            header
-                .xfer(&mut xfer)
-                .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
-            xfer.end_block()
-                .map_err(|e| SaveLoadError::Serialization(format!("{e:?}")))?;
-
-            let mut name = CHUNK_GAME_LOGIC.to_string();
-            xfer.xfer_ascii_string(&mut name)
-                .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
-            xfer.begin_block()
-                .map_err(|e| SaveLoadError::Serialization(format!("{e:?}")))?;
-            logic
-                .xfer(&mut xfer)
-                .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
-            xfer.end_block()
-                .map_err(|e| SaveLoadError::Serialization(format!("{e:?}")))?;
-
-            // C++ `GameState.cpp:305` CHUNK_GhostObject. Optional on load so
-            // historical `.sav` files without the chunk stay valid.
-            let mut ghost = CommonGameState::new(SAVE_FILE_VERSION);
-            ghost.data = capture_w3d_ghost_xfer_bytes()?;
-            let mut name = CHUNK_GHOST_OBJECT.to_string();
-            xfer.xfer_ascii_string(&mut name)
-                .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
-            xfer.begin_block()
-                .map_err(|e| SaveLoadError::Serialization(format!("{e:?}")))?;
-            ghost
-                .xfer(&mut xfer)
-                .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
-            xfer.end_block()
-                .map_err(|e| SaveLoadError::Serialization(format!("{e:?}")))?;
-
-            let mut eof = SAVE_FILE_EOF.to_string();
-            xfer.xfer_ascii_string(&mut eof)
-                .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
+            for &name in SAVELOAD_BLOCK_NAMES {
+                write_named_block(&mut xfer, name, |xfer| match name {
+                    CHUNK_GAME_STATE => write_cpp_game_state_header(xfer, save_info),
+                    CHUNK_GAME_LOGIC => {
+                        if !logic_payload.is_empty() {
+                            let mut bytes = logic_payload.clone();
+                            // SAFETY: buffer lives for this block write.
+                            unsafe {
+                                xfer.xfer_user(bytes.as_mut_ptr(), bytes.len())
+                                    .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
+                            }
+                        }
+                        Ok(())
+                    }
+                    CHUNK_GAME_STATE_MAP => write_game_state_map_block(xfer, save_info),
+                    CHUNK_GHOST_OBJECT => {
+                        write_null_snapshot_version(xfer)?;
+                        if !ghost_bytes.is_empty() {
+                            let mut bytes = ghost_bytes.clone();
+                            unsafe {
+                                xfer.xfer_user(bytes.as_mut_ptr(), bytes.len())
+                                    .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
+                            }
+                        }
+                        Ok(())
+                    }
+                    _ => write_null_snapshot_version(xfer),
+                })?;
+            }
+            write_ascii(&mut xfer, SAVE_FILE_EOF)?;
         }
         Ok(cursor.into_inner())
     }
 
-    fn read_common_sav_chunks(data: &[u8]) -> SaveLoadResult<(WorldSnapshot, SaveGameInfo)> {
-        let mut cursor = Cursor::new(data);
-        let mut xfer = CommonXferLoad::new(&mut cursor, SAVE_FILE_VERSION);
-        let mut header_state = CommonGameState::default();
-        let mut logic_data: Option<Vec<u8>> = None;
-        loop {
-            let mut token = String::new();
-            xfer.xfer_ascii_string(&mut token)
-                .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
-            if token.eq_ignore_ascii_case(SAVE_FILE_EOF) {
-                break;
-            }
-            let _ = xfer
-                .begin_block()
-                .map_err(|e| SaveLoadError::Serialization(format!("{e:?}")))?;
-            let mut block = CommonGameState::default();
-            block
-                .xfer(&mut xfer)
-                .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
-            let _ = xfer.end_block();
+    fn read_named_chunk_save_info(data: &[u8]) -> SaveLoadResult<SaveGameInfo> {
+        let blocks = walk_named_chunks(data)?;
+        for (token, payload) in &blocks {
             if token.eq_ignore_ascii_case(CHUNK_GAME_STATE) {
-                header_state = block;
-            } else if token.eq_ignore_ascii_case(CHUNK_GAME_LOGIC) {
-                logic_data = Some(block.data);
-            } else if token.eq_ignore_ascii_case(CHUNK_GHOST_OBJECT) {
-                stash_loaded_w3d_ghost_xfer(block.data);
+                return parse_chunk_game_state(payload);
             }
         }
-        let payload = logic_data.ok_or_else(|| {
-            SaveLoadError::Corrupted("CHUNK_GameLogic missing from Common .sav".to_string())
-        })?;
-        let world_snapshot = Self::decode_world_snapshot_payload(&payload)?;
-        let save_info = Self::save_info_from_common_state(&header_state, &world_snapshot);
+        Err(SaveLoadError::Corrupted(
+            "CHUNK_GameState not found in named-chunk save".to_string(),
+        ))
+    }
+
+    fn read_common_sav_chunks(data: &[u8]) -> SaveLoadResult<(WorldSnapshot, SaveGameInfo)> {
+        let blocks = walk_named_chunks(data)?;
+        let mut save_info = SaveGameInfo {
+            filename: String::new(),
+            display_name: String::new(),
+            description: String::new(),
+            map_name: String::new(),
+            campaign_side: None,
+            mission_number: None,
+            save_date: UNIX_EPOCH,
+            game_version: String::new(),
+            play_time: std::time::Duration::from_secs(0),
+            difficulty: GameDifficulty::Medium,
+            save_type: SaveFileType::Normal,
+        };
+        let mut logic_data: Option<Vec<u8>> = None;
+        let mut saw_game_state = false;
+        for (token, payload) in blocks {
+            if token.eq_ignore_ascii_case(CHUNK_GAME_STATE) {
+                save_info = parse_chunk_game_state(&payload)?;
+                saw_game_state = true;
+            } else if token.eq_ignore_ascii_case(CHUNK_GAME_LOGIC) {
+                logic_data = Some(payload);
+            } else if token.eq_ignore_ascii_case(CHUNK_GHOST_OBJECT) {
+                if payload.first().copied() == Some(1) && payload.len() > 1 {
+                    stash_loaded_w3d_ghost_xfer(payload[1..].to_vec());
+                } else {
+                    let mut block = CommonGameState::default();
+                    let mut xfer = CommonXferLoad::new(Cursor::new(&payload), SAVE_FILE_VERSION);
+                    if block.xfer(&mut xfer).is_ok() {
+                        stash_loaded_w3d_ghost_xfer(block.data);
+                    }
+                }
+            } else if token.eq_ignore_ascii_case(CHUNK_GAME_STATE_MAP) {
+                let scratch = std::env::temp_dir().join("generals_scratch_maps");
+                if let Some(extracted) = extract_embedded_map(&payload, &scratch) {
+                    // C++ extractAndSaveMap (GameStateMap.cpp:166-212) parks the
+                    // embedded .map so custom maps travel with the save. Keep
+                    // the listed map label when the retail file is already on disk.
+                    if crate::game_logic::script_loader::find_map_file(&save_info.map_name)
+                        .is_none()
+                    {
+                        save_info.map_name = extracted.to_string_lossy().into_owned();
+                    }
+                }
+            }
+        }
+        if !saw_game_state {
+            return Err(SaveLoadError::Corrupted(
+                "CHUNK_GameState missing from named-chunk save".to_string(),
+            ));
+        }
+        let world_snapshot = match logic_data {
+            Some(payload) => match Self::decode_world_snapshot_payload(&payload) {
+                Ok(snapshot) => snapshot,
+                Err(_) => {
+                    // C++ `GameLogic::xfer` or CommonGameState wrapper. Try the
+                    // wrapper's `.data` field, otherwise leave objects unrestored.
+                    let mut wrapped = CommonGameState::default();
+                    let mut xfer = CommonXferLoad::new(Cursor::new(&payload), SAVE_FILE_VERSION);
+                    if wrapped.xfer(&mut xfer).is_ok() {
+                        Self::decode_world_snapshot_payload(&wrapped.data).unwrap_or_default()
+                    } else {
+                        log::warn!(
+                            "CHUNK_GameLogic is not a host WorldSnapshot; listing C++ header only"
+                        );
+                        WorldSnapshot::default()
+                    }
+                }
+            },
+            None => WorldSnapshot::default(),
+        };
         Ok((world_snapshot, save_info))
     }
 
@@ -1434,5 +1842,94 @@ mod tests {
         let _ = std::fs::remove_file(v3_wrapped_path);
         let _ = std::fs::remove_file(v3_raw_path);
         let _ = std::fs::remove_dir(fixture_directory);
+    }
+
+    #[test]
+    fn host_pause_save_writes_cpp_17_named_chunks_and_v2_header() {
+        // C++ GameState::init (GameState.cpp:289-305) + xferSaveData
+        // (GameState.cpp:1313-1381) writes 17 CHUNK_* tokens then SG_EOF.
+        // Pre-fix host wrote only GameState/GameLogic/GhostObject with a
+        // Rust-invented CommonGameState schema (version 1).
+        let snapshot = WorldSnapshot::default();
+        let save_info = fixture_save_info();
+        let bytes = SaveFileManager::write_common_sav_chunks(&snapshot, &save_info)
+            .expect("write 17-block sav");
+        let text = String::from_utf8_lossy(&bytes);
+        for name in SAVELOAD_BLOCK_NAMES {
+            assert!(
+                text.contains(name),
+                "host writer must emit C++ block token {name}"
+            );
+        }
+        assert!(text.contains(SAVE_FILE_EOF));
+
+        let blocks = walk_named_chunks(&bytes).expect("walk host chunks");
+        assert_eq!(blocks.len(), SAVELOAD_BLOCK_NAMES.len());
+        assert_eq!(
+            blocks
+                .iter()
+                .map(|(name, _)| name.as_str())
+                .collect::<Vec<_>>(),
+            SAVELOAD_BLOCK_NAMES.to_vec()
+        );
+
+        let header = parse_cpp_game_state_header(&blocks[0].1).expect("C++ v2 header");
+        assert_eq!(header.description, save_info.description);
+        assert_eq!(header.map_name, "LegacyMap");
+        assert_eq!(header.save_type, SaveFileType::Normal);
+
+        let listed = SaveFileManager::read_named_chunk_save_info(&bytes).expect("list");
+        assert_eq!(listed.description, save_info.description);
+        assert_eq!(listed.map_name, "LegacyMap");
+    }
+
+    #[test]
+    fn host_lists_cpp_game_state_version_2_without_rejecting() {
+        // C++ GameState::xfer (GameState.cpp:1543-1559) writes version=2.
+        // Pre-fix CommonGameState::xfer currentVersion=1 rejected it.
+        let mut payload = Vec::new();
+        {
+            let mut cursor = Cursor::new(&mut payload);
+            let mut xfer = CommonXferSave::new(&mut cursor, SAVE_FILE_VERSION);
+            let info = SaveGameInfo {
+                filename: "retail".into(),
+                display_name: "Retail Save".into(),
+                description: "C++ listed".into(),
+                map_name: "Maps\\Alpine Assault.map".into(),
+                campaign_side: Some("America".into()),
+                mission_number: Some(3),
+                save_date: UNIX_EPOCH + std::time::Duration::from_secs(1_700_000_000),
+                game_version: "1.04".into(),
+                play_time: std::time::Duration::from_secs(0),
+                difficulty: GameDifficulty::Medium,
+                save_type: SaveFileType::Mission,
+            };
+            write_cpp_game_state_header(&mut xfer, &info).expect("encode v2");
+        }
+        assert_eq!(payload.first().copied(), Some(2), "C++ currentVersion is 2");
+
+        let mut bytes = Vec::new();
+        bytes.push(CHUNK_GAME_STATE.len() as u8);
+        bytes.extend_from_slice(CHUNK_GAME_STATE.as_bytes());
+        bytes.extend_from_slice(&(payload.len() as i32).to_le_bytes());
+        bytes.extend_from_slice(&payload);
+        bytes.push(SAVE_FILE_EOF.len() as u8);
+        bytes.extend_from_slice(SAVE_FILE_EOF.as_bytes());
+
+        let info = SaveFileManager::read_named_chunk_save_info(&bytes)
+            .expect("version 2 header must list");
+        assert_eq!(info.description, "C++ listed");
+        assert_eq!(info.save_type, SaveFileType::Mission);
+        assert_eq!(info.campaign_side.as_deref(), Some("America"));
+        assert_eq!(info.mission_number, Some(3));
+        assert_eq!(info.map_name, "Maps\\Alpine Assault.map");
+
+        let (snapshot, listed) =
+            SaveFileManager::read_common_sav_chunks(&bytes).expect("load lists without objects");
+        assert!(
+            snapshot.objects.is_empty(),
+            "retail C++ GameLogic is not restored as host WorldSnapshot"
+        );
+        assert_eq!(listed.description, "C++ listed");
     }
 }

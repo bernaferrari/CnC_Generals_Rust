@@ -1,6 +1,5 @@
 //! Weapon System
 //!
-#![allow(ambiguous_glob_reexports)]
 #![allow(unused_variables, unused_mut)]
 //! This module provides the core weapon system functionality for Command & Conquer Generals Zero Hour,
 //! converted from the original C++ implementation to idiomatic Rust.
@@ -16,9 +15,9 @@
 pub mod bezier; // Bezier curve system for projectile flight paths
 pub mod damage_system;
 mod projectile_launch_cast;
-pub mod weapon;
+mod weapon;
 pub mod weapon_set;
-pub mod weapon_store;
+mod weapon_store;
 mod weapon_template;
 
 // Leftover god-file split (canonical types live here, re-exported below).
@@ -31,23 +30,24 @@ mod template;
 mod weapon_instance;
 mod weapon_instance_combat;
 
-// Phase 12 consolidation: leftover WeaponTemplate and Weapon in this directory
-// are the canonical definitions used throughout gamelogic.
-// weapon.rs and weapon_template.rs contain supplementary logic that extends
-// these types.
+// Phase 12 consolidation: leftover `template` / `weapon_instance` / `store`
+// are the single public Weapon / WeaponTemplate / WeaponStore stack.
+// Leftover `weapon.rs`, `weapon_template.rs`, and `weapon_store.rs` stay as
+// private modules so their working tests keep compiling; they are not a
+// second public type stack (C++ Weapon.cpp has one definition of each).
 
 // Export damage constants from the canonical damage module
 pub use crate::damage::HUGE_DAMAGE_AMOUNT;
 pub use damage_system::*;
 pub use weapon_set::*;
-pub use weapon_store::*;
 
 pub use audio_event::*;
 pub use helpers::{ObjectId, INVALID_OBJECT_ID, NO_MAX_SHOTS_LIMIT};
 pub use masks_enums::*;
 pub use store::{
-    initialize_weapon_store, with_weapon_store, with_weapon_store_mut, WeaponDelayedDamageInfo,
-    WeaponStore,
+    honesty_weapon_store_delayed_damage_residual_ok, initialize_weapon_store, shutdown_weapon_store,
+    with_weapon_store, with_weapon_store_mut, WeaponDelayedDamageInfo,
+    WeaponDelayedDamageSnapshotResidual, WeaponStore,
 };
 pub use template::WeaponTemplate;
 pub use weapon_instance::Weapon;

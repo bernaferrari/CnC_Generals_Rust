@@ -217,7 +217,10 @@ impl ScriptEvaluator {
     fn execute_victory_action(&self, _action: &ScriptAction) -> GameLogicResult<()> {
         log::info!("Victory action executed");
 
-        let _ = self.with_evaluation_engine_mut(|engine| engine.start_end_game_timer());
+        let _ = self.with_evaluation_engine_mut(|engine| {
+            engine.set_campaign_victorious(true);
+            engine.start_end_game_timer();
+        });
         Ok(())
     }
 
@@ -225,7 +228,10 @@ impl ScriptEvaluator {
     fn execute_defeat_action(&self, _action: &ScriptAction) -> GameLogicResult<()> {
         log::info!("Defeat action executed");
 
-        let _ = self.with_evaluation_engine_mut(|engine| engine.start_end_game_timer());
+        let _ = self.with_evaluation_engine_mut(|engine| {
+            engine.set_campaign_victorious(false);
+            engine.start_end_game_timer();
+        });
         Ok(())
     }
 
@@ -233,7 +239,10 @@ impl ScriptEvaluator {
     fn execute_quick_victory_action(&self, _action: &ScriptAction) -> GameLogicResult<()> {
         log::info!("Quick victory action executed");
 
-        let _ = self.with_evaluation_engine_mut(|engine| engine.start_quick_end_game_timer());
+        let _ = self.with_evaluation_engine_mut(|engine| {
+            engine.set_campaign_victorious(true);
+            engine.start_quick_end_game_timer();
+        });
         Ok(())
     }
 

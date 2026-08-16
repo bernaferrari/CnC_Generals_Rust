@@ -80,11 +80,12 @@ impl W3DParticleSystemBridge {
         // Collect all active particle systems for rendering
         let systems: Vec<_> = particle_manager.all_particle_systems().collect();
 
-        let smudges = if runtime_global_data::read().use_heat_effects {
+        let mut smudges = if runtime_global_data::read().use_heat_effects {
             collect_smudge_render_items(&systems)
         } else {
             Vec::new()
         };
+        smudges.extend(collect_manager_smudge_render_items());
         if let Ok(mut smudge_manager) = get_smudge_manager().lock() {
             smudge_manager
                 .set_smudge_count_last_frame(i32::try_from(smudges.len()).unwrap_or(i32::MAX));
@@ -143,6 +144,13 @@ fn collect_smudge_render_items(
     }
 
     items
+}
+
+fn collect_manager_smudge_render_items() -> Vec<DecalRenderItem> {
+    let Ok(manager) = get_smudge_manager().lock() else {
+        return Vec::new();
+    };
+    manager.collect_decal_render_items()
 }
 
 impl Default for W3DParticleSystemBridge {

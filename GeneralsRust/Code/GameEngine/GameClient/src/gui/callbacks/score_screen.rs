@@ -653,6 +653,9 @@ fn finish_single_player_init(state: &mut ScoreScreenState) {
             if let Some(button_continue) = state.button_continue.as_ref() {
                 set_text(button_continue, &GameText::fetch("GUI:SaveAndContinue"));
             }
+            // C++ ScoreScreen next-mission path: TheGameState->saveGame
+            // (GameState.cpp:518) — the 17-block named-chunk writer, not the
+            // host 3-chunk bincode container.
             let mut game_state = game_engine::get_game_state();
             let _ = game_state.save_game(
                 String::new(),

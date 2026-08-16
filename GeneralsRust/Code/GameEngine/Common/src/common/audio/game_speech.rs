@@ -4,9 +4,13 @@
 //                                                                            //
 ////////////////////////////////////////////////////////////////////////////////
 
-//! GameSpeech - Speech and dialog management system
-//! Westwood Studios Pacific
-//! Converted to Rust
+//! GameSpeech — legacy wpaudio `SpeechManager` / `Speaker` (`GameSpeech.cpp`).
+//!
+//! Live mission / EVA / script speech is **not** played through this module.
+//! Both C++ and the Rust live path play speech as `AT_Streaming` via
+//! `AudioManager::add_audio_event` (C++ `MilesAudioManager::playAudioEvent`;
+//! Rust `script_action_handler::speech_play` → `TheAudio`). This registry/queue
+//! port is dormant. Do not rewrite it for live-path parity.
 
 use crate::common::audio::audio_event_rts::{AudioEventRts, TimeOfDay};
 use crate::common::random_value::get_game_client_random_value;

@@ -3,140 +3,144 @@
 //! This module provides a bit flag system for classifying game objects by their
 //! characteristics and capabilities. Objects can have multiple KindOf flags set
 //! to indicate what they are and what they can do.
+//!
+//! Retail ZH does not define `ALLOW_SURRENDER`, so the live bit numbers match
+//! `KindOf.h` / `KindOf.cpp` with PRISON, COLLECTS_PRISON_BOUNTY, POW_TRUCK,
+//! and CAN_SURRENDER omitted. That yields `KINDOF_COUNT = 116`,
+//! `ALWAYS_SELECTABLE = 53`, and `FORCEATTACKABLE = 63`.
 
 use bitflags::bitflags;
 use std::fmt;
 
+/// Retail `KINDOF_COUNT` (`KindOf.h` last enumerator) with `ALLOW_SURRENDER` off.
+pub const KINDOF_COUNT: usize = 116;
+
 bitflags! {
-    // KindOf flags for object classification
-    // These flags determine groups of things that belong together and define
-    // object capabilities and behaviors.
+    // KindOf flags for object classification.
+    // Bit positions match C++ KindOfType when ALLOW_SURRENDER is undefined.
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
     pub struct KindOfMask: u128 {
-        const OBSTACLE = 1 << 0;                    // An obstacle to land-based pathfinders
-        const SELECTABLE = 1 << 1;                  // Actually means MOUSE-INTERACTABLE
-        const IMMOBILE = 1 << 2;                    // Fixed in location
-        const CAN_ATTACK = 1 << 3;                  // Can attack
-        const STICK_TO_TERRAIN_SLOPE = 1 << 4;      // Should be stuck at ground level, aligned to terrain slope
-        const CAN_CAST_REFLECTIONS = 1 << 5;        // Can cast reflections in water
-        const SHRUBBERY = 1 << 6;                   // Tree, bush, etc.
-        const STRUCTURE = 1 << 7;                   // Structure of some sort (buildable or not)
-        const INFANTRY = 1 << 8;                    // Unit like soldier etc
-        const VEHICLE = 1 << 9;                     // Unit like tank, jeep, plane, helicopter, etc.
-        const AIRCRAFT = 1 << 10;                   // Unit like plane, helicopter, etc., that is predominantly a flyer
-        const HUGE_VEHICLE = 1 << 11;               // Unit that is technically a vehicle, but WAY larger than normal
-        const DOZER = 1 << 12;                      // A dozer
-        const HARVESTER = 1 << 13;                  // A harvester
-        const COMMANDCENTER = 1 << 14;              // A command center
-        const PRISON = 1 << 15;                     // A prison detention center kind of thing
-        const COLLECTS_PRISON_BOUNTY = 1 << 16;     // When prisoners are delivered to these, the player gets money
-        const POW_TRUCK = 1 << 17;                  // A POW truck can pick up and return prisoners
-        const LINEBUILD = 1 << 18;                  // Wall-type thing that is built in a line
-        const SALVAGER = 1 << 19;                   // Something that can create and use Salvage Crates
-        const WEAPON_SALVAGER = 1 << 20;            // Subset of salvager that can get weapon upgrades from salvage
-        const TRANSPORT = 1 << 21;                  // A true transport (has TransportContain)
-        const BRIDGE = 1 << 22;                     // A Bridge (special structure)
-        const LANDMARK_BRIDGE = 1 << 23;            // A landmark bridge (special bridge that isn't resizable)
-        const BRIDGE_TOWER = 1 << 24;               // A bridge tower that we can target for bridge destruction
-        const PROJECTILE = 1 << 25;                 // Instead of being a ground or air unit, this object is special
-        const PRELOAD = 1 << 26;                    // All model data will be preloaded even if not on map
-        const NO_GARRISON = 1 << 27;                // Unit may not garrison bldgs, even if infantry bit is set
-        const WAVEGUIDE = 1 << 28;                  // Water wave object
-        const WAVE_EFFECT = 1 << 29;                // Wave effect point
-        const NO_COLLIDE = 1 << 30;                 // Never collide with or be collided with
-        const REPAIR_PAD = 1 << 31;                 // Is a repair pad object that can repair other machines
-        const HEAL_PAD = 1 << 32;                   // Is a heal pad object that can heal flesh and bone units
-        const STEALTH_GARRISON = 1 << 33;           // Enemy teams can't tell that unit is in building
-        const CASH_GENERATOR = 1 << 34;             // Used to check if the unit generates cash
-        const DRAWABLE_ONLY = 1 << 35;              // Template is used only to create drawables (not Objects)
-        const MP_COUNT_FOR_VICTORY = 1 << 36;       // If a player loses all his buildings that have this kindof in a multiplayer game, he loses
-        const REBUILD_HOLE = 1 << 37;               // A GLA rebuild hole
-        const SCORE = 1 << 38;                      // Object counts for Multiplayer scores, and short-game calculations
-        const SCORE_CREATE = 1 << 39;               // Object only counts for multiplayer score for creation
-        const SCORE_DESTROY = 1 << 40;              // Object only counts for multiplayer score for destruction
-        const NO_HEAL_ICON = 1 << 41;               // Do not ever display healing icons on these objects
-        const CAN_RAPPEL = 1 << 42;                 // Can rappel
-        const PARACHUTABLE = 1 << 43;               // Parachutable object
-        const CAN_SURRENDER = 1 << 44;              // Object that can surrender
-        const CAN_BE_REPULSED = 1 << 45;            // Object that runs away from a repulsor object
-        const MOB_NEXUS = 1 << 46;                  // Object that coordinates the members of a mob
-        const IGNORED_IN_GUI = 1 << 47;             // Object that is the members of a mob
-        const CRATE = 1 << 48;                      // A bonus crate
-        const CAPTURABLE = 1 << 49;                 // Is "capturable" even if not an enemy
-        const CLEARED_BY_BUILD = 1 << 50;           // Is auto-cleared from the map when built over via construction
-        const SMALL_MISSILE = 1 << 51;              // Missile object: ONLY USED FOR ANTI-MISSILE TARGETTING PURPOSES!
-        const ALWAYS_VISIBLE = 1 << 52;             // Is never obscured by fog of war or shroud
-        const UNATTACKABLE = 1 << 53;               // You cannot target this thing, it probably doesn't really exist
-        const MINE = 1 << 54;                       // A landmine
-        const CLEANUP_HAZARD = 1 << 55;             // Radiation and bio-poison are samples of area conditions that can be cleaned up
-        const PORTABLE_STRUCTURE = 1 << 56;         // Flag to identify building like subobjects an Overlord is allowed to Contain
-        const ALWAYS_SELECTABLE = 1 << 57;          // Is never unselectable (even if effectively dead)
-        const ATTACK_NEEDS_LINE_OF_SIGHT = 1 << 58; // Unit has to have clear line of sight (los) to attack
-        const WALK_ON_TOP_OF_WALL = 1 << 59;        // Units can walk on top of a wall made of these kind of objects
-        const DEFENSIVE_WALL = 1 << 60;             // Wall can't be driven through, even if crusher, so pathfinder must path around it
-        const FS_POWER = 1 << 61;                   // Faction structure power building
-        const FS_FACTORY = 1 << 62;                 // Faction structure factory building
-        const FS_BASE_DEFENSE = 1 << 63;            // Faction structure base defense
-        const FS_TECHNOLOGY = 1 << 64;              // Faction structure technology building
-        const AIRCRAFT_PATH_AROUND = 1 << 65;       // Tall enough that aircraft need to path around this
-        const LOW_OVERLAPPABLE = 1 << 66;           // When overlapped, things always overlap at a 'low' height
-        const FORCEATTACKABLE = 1 << 67;            // Unit is always attackable via force-attack, even if not selectable
-        const AUTO_RALLYPOINT = 1 << 68;            // When immobile-structure-object is selected, left clicking on ground will set new rally point
-        const TECH_BUILDING = 1 << 69;              // Neutral tech building - Oil derrick, Hospital, Radio Station, Refinery
-        const POWERED = 1 << 70;                    // This object gets the Underpowered disabled condition when its owning player has power consumption exceed supply
-        const PRODUCED_AT_HELIPAD = 1 << 71;        // Hacky fix for comanche
-        const DRONE = 1 << 72;                      // Object drone type -- used for filtering them out of battle plan bonuses
-        const CAN_SEE_THROUGH_STRUCTURE = 1 << 73;  // Structure does not block line of sight
-        const BALLISTIC_MISSILE = 1 << 74;          // Large ballistic missiles that are specifically large enough to be targeted by base defenses
-        const CLICK_THROUGH = 1 << 75;              // Objects with this will never be picked by mouse interactions
-        const SUPPLY_SOURCE_ON_PREVIEW = 1 << 76;   // Any thing that we can get "supplies" from that we want to show up on the map preview
-        const PARACHUTE = 1 << 77;                  // It's a parachute
-        const GARRISONABLE_UNTIL_DESTROYED = 1 << 78; // Object is capable of garrisoning troops until completely destroyed
-        const BOAT = 1 << 79;                       // It's a boat!
-        const IMMUNE_TO_CAPTURE = 1 << 80;          // Under no circumstances can this building ever be captured
-        const HULK = 1 << 81;                       // Hulk types so we can do special things to them via scripts
-        const SHOW_PORTRAIT_WHEN_CONTROLLED = 1 << 82; // Only shows portraits when controlled
-        const SPAWNS_ARE_THE_WEAPONS = 1 << 83;     // Evaluate the spawn slaves as this object's weapons
-        const CANNOT_BUILD_NEAR_SUPPLIES = 1 << 84; // You can't be built "too close" to anything that provides supplies
-        const SUPPLY_SOURCE = 1 << 85;              // This object provides supplies
-        const REVEAL_TO_ALL = 1 << 86;              // This object reveals shroud for all players
-        const DISGUISER = 1 << 87;                  // This object has the ability to disguise
-        const INERT = 1 << 88;                      // This object shouldn't be considered for any sort of interaction with any player
-        const HERO = 1 << 89;                       // Any of the single-instance infantry, JarmenKell, BlackLotus, ColonelBurton
-        const IGNORES_SELECT_ALL = 1 << 90;         // Too late to figure out intelligently if something should respond to a Select All command
-        const DONT_AUTO_CRUSH_INFANTRY = 1 << 91;   // These units don't try to crush the infantry if ai
-        const CLIFF_JUMPER = 1 << 92;               // Can't climb cliffs, but can jump off of them
-        const FS_SUPPLY_DROPZONE = 1 << 93;         // A supply dropzone
-        const FS_SUPERWEAPON = 1 << 94;             // A superweapon structure like a nuke silo, particle uplink cannon, scudstorm
-        const FS_BLACK_MARKET = 1 << 95;            // Is this object a black market?
-        const FS_SUPPLY_CENTER = 1 << 96;           // Is this object a supply center?
-        const FS_STRATEGY_CENTER = 1 << 97;         // Is this object a strategy center?
-        const MONEY_HACKER = 1 << 98;               // Money hacker
-        const ARMOR_SALVAGER = 1 << 99;             // Armor salvager
-        const REVEALS_ENEMY_PATHS = 1 << 100;       // Reveals enemy paths
-        const BOOBY_TRAP = 1 << 101;                // Booby trap
-        const FS_FAKE = 1 << 102;                   // Fake structure
-        const FS_INTERNET_CENTER = 1 << 103;        // Internet center
-        const BLAST_CRATER = 1 << 104;              // Blast crater
-        const PROP = 1 << 105;                      // Prop
-        const OPTIMIZED_TREE = 1 << 106;            // Optimized tree
-        const FS_ADVANCED_TECH = 1 << 107;          // Advanced technology building
-        const FS_BARRACKS = 1 << 108;               // Barracks
-        const FS_WARFACTORY = 1 << 109;             // War factory
-        const FS_AIRFIELD = 1 << 110;               // Airfield
-        const AIRCRAFT_CARRIER = 1 << 111;          // Aircraft carrier
-        const NO_SELECT = 1 << 112;                 // Cannot be selected
-        const REJECT_UNMANNED = 1 << 113;           // Reject unmanned
-        const CANNOT_RETALIATE = 1 << 114;          // Cannot retaliate
-        const TECH_BASE_DEFENSE = 1 << 115;         // Tech base defense
-        const EMP_HARDENED = 1 << 116;              // EMP hardened
-        const DEMOTRAP = 1 << 117;                  // Demo trap
-        const CONSERVATIVE_BUILDING = 1 << 118;     // Conservative building
-        const IGNORE_DOCKING_BONES = 1 << 119;      // Ignore docking bones
+        const OBSTACLE = 1 << 0;
+        const SELECTABLE = 1 << 1;
+        const IMMOBILE = 1 << 2;
+        const CAN_ATTACK = 1 << 3;
+        const STICK_TO_TERRAIN_SLOPE = 1 << 4;
+        const CAN_CAST_REFLECTIONS = 1 << 5;
+        const SHRUBBERY = 1 << 6;
+        const STRUCTURE = 1 << 7;
+        const INFANTRY = 1 << 8;
+        const VEHICLE = 1 << 9;
+        const AIRCRAFT = 1 << 10;
+        const HUGE_VEHICLE = 1 << 11;
+        const DOZER = 1 << 12;
+        const HARVESTER = 1 << 13;
+        const COMMANDCENTER = 1 << 14;
+        const LINEBUILD = 1 << 15;
+        const SALVAGER = 1 << 16;
+        const WEAPON_SALVAGER = 1 << 17;
+        const TRANSPORT = 1 << 18;
+        const BRIDGE = 1 << 19;
+        const LANDMARK_BRIDGE = 1 << 20;
+        const BRIDGE_TOWER = 1 << 21;
+        const PROJECTILE = 1 << 22;
+        const PRELOAD = 1 << 23;
+        const NO_GARRISON = 1 << 24;
+        const WAVEGUIDE = 1 << 25;
+        const WAVE_EFFECT = 1 << 26;
+        const NO_COLLIDE = 1 << 27;
+        const REPAIR_PAD = 1 << 28;
+        const HEAL_PAD = 1 << 29;
+        const STEALTH_GARRISON = 1 << 30;
+        const CASH_GENERATOR = 1 << 31;
+        const DRAWABLE_ONLY = 1 << 32;
+        const MP_COUNT_FOR_VICTORY = 1 << 33;
+        const REBUILD_HOLE = 1 << 34;
+        const SCORE = 1 << 35;
+        const SCORE_CREATE = 1 << 36;
+        const SCORE_DESTROY = 1 << 37;
+        const NO_HEAL_ICON = 1 << 38;
+        const CAN_RAPPEL = 1 << 39;
+        const PARACHUTABLE = 1 << 40;
+        const CAN_BE_REPULSED = 1 << 41;
+        const MOB_NEXUS = 1 << 42;
+        const IGNORED_IN_GUI = 1 << 43;
+        const CRATE = 1 << 44;
+        const CAPTURABLE = 1 << 45;
+        const CLEARED_BY_BUILD = 1 << 46;
+        const SMALL_MISSILE = 1 << 47;
+        const ALWAYS_VISIBLE = 1 << 48;
+        const UNATTACKABLE = 1 << 49;
+        const MINE = 1 << 50;
+        const CLEANUP_HAZARD = 1 << 51;
+        const PORTABLE_STRUCTURE = 1 << 52;
+        const ALWAYS_SELECTABLE = 1 << 53;
+        const ATTACK_NEEDS_LINE_OF_SIGHT = 1 << 54;
+        const WALK_ON_TOP_OF_WALL = 1 << 55;
+        const DEFENSIVE_WALL = 1 << 56;
+        const FS_POWER = 1 << 57;
+        const FS_FACTORY = 1 << 58;
+        const FS_BASE_DEFENSE = 1 << 59;
+        const FS_TECHNOLOGY = 1 << 60;
+        const AIRCRAFT_PATH_AROUND = 1 << 61;
+        const LOW_OVERLAPPABLE = 1 << 62;
+        const FORCEATTACKABLE = 1 << 63;
+        const AUTO_RALLYPOINT = 1 << 64;
+        const TECH_BUILDING = 1 << 65;
+        const POWERED = 1 << 66;
+        const PRODUCED_AT_HELIPAD = 1 << 67;
+        const DRONE = 1 << 68;
+        const CAN_SEE_THROUGH_STRUCTURE = 1 << 69;
+        const BALLISTIC_MISSILE = 1 << 70;
+        const CLICK_THROUGH = 1 << 71;
+        const SUPPLY_SOURCE_ON_PREVIEW = 1 << 72;
+        const PARACHUTE = 1 << 73;
+        const GARRISONABLE_UNTIL_DESTROYED = 1 << 74;
+        const BOAT = 1 << 75;
+        const IMMUNE_TO_CAPTURE = 1 << 76;
+        const HULK = 1 << 77;
+        const SHOW_PORTRAIT_WHEN_CONTROLLED = 1 << 78;
+        const SPAWNS_ARE_THE_WEAPONS = 1 << 79;
+        const CANNOT_BUILD_NEAR_SUPPLIES = 1 << 80;
+        const SUPPLY_SOURCE = 1 << 81;
+        const REVEAL_TO_ALL = 1 << 82;
+        const DISGUISER = 1 << 83;
+        const INERT = 1 << 84;
+        const HERO = 1 << 85;
+        const IGNORES_SELECT_ALL = 1 << 86;
+        const DONT_AUTO_CRUSH_INFANTRY = 1 << 87;
+        const CLIFF_JUMPER = 1 << 88;
+        const FS_SUPPLY_DROPZONE = 1 << 89;
+        const FS_SUPERWEAPON = 1 << 90;
+        const FS_BLACK_MARKET = 1 << 91;
+        const FS_SUPPLY_CENTER = 1 << 92;
+        const FS_STRATEGY_CENTER = 1 << 93;
+        const MONEY_HACKER = 1 << 94;
+        const ARMOR_SALVAGER = 1 << 95;
+        const REVEALS_ENEMY_PATHS = 1 << 96;
+        const BOOBY_TRAP = 1 << 97;
+        const FS_FAKE = 1 << 98;
+        const FS_INTERNET_CENTER = 1 << 99;
+        const BLAST_CRATER = 1 << 100;
+        const PROP = 1 << 101;
+        const OPTIMIZED_TREE = 1 << 102;
+        const FS_ADVANCED_TECH = 1 << 103;
+        const FS_BARRACKS = 1 << 104;
+        const FS_WARFACTORY = 1 << 105;
+        const FS_AIRFIELD = 1 << 106;
+        const AIRCRAFT_CARRIER = 1 << 107;
+        const NO_SELECT = 1 << 108;
+        const REJECT_UNMANNED = 1 << 109;
+        const CANNOT_RETALIATE = 1 << 110;
+        const TECH_BASE_DEFENSE = 1 << 111;
+        const EMP_HARDENED = 1 << 112;
+        const DEMOTRAP = 1 << 113;
+        const CONSERVATIVE_BUILDING = 1 << 114;
+        const IGNORE_DOCKING_BONES = 1 << 115;
     }
 }
 
-/// KindOf bit names matching the C++ s_bitNameList
+/// KindOf bit names matching C++ `KindOfMaskType::s_bitNameList` (`KindOf.cpp`)
+/// with `ALLOW_SURRENDER` undefined. Index == bit position.
 pub const KIND_OF_BIT_NAMES: &[&str] = &[
     "OBSTACLE",
     "SELECTABLE",
@@ -153,9 +157,6 @@ pub const KIND_OF_BIT_NAMES: &[&str] = &[
     "DOZER",
     "HARVESTER",
     "COMMANDCENTER",
-    "PRISON",
-    "COLLECTS_PRISON_BOUNTY",
-    "POW_TRUCK",
     "LINEBUILD",
     "SALVAGER",
     "WEAPON_SALVAGER",
@@ -182,7 +183,6 @@ pub const KIND_OF_BIT_NAMES: &[&str] = &[
     "NO_HEAL_ICON",
     "CAN_RAPPEL",
     "PARACHUTABLE",
-    "CAN_SURRENDER",
     "CAN_BE_REPULSED",
     "MOB_NEXUS",
     "IGNORED_IN_GUI",
@@ -310,6 +310,73 @@ impl KindOfMask {
         flags
     }
 
+    /// Parse a KindOf token list the way C++ `BitFlags<NUMBITS>::parse` does.
+    ///
+    /// C++: `BitFlagsIO.h` lines 38-107. `NONE` clears and stops. `+NAME` / `-NAME`
+    /// set or clear relative to `existing` (inherited / reskin-copied mask). A
+    /// normal name list replaces `existing`. Mixing normal tokens with `+/-`
+    /// or unknown names is an error (`INI_INVALID_NAME_LIST`).
+    pub fn parse_ini(existing: KindOfMask, value: &str) -> Result<KindOfMask, String> {
+        let mut mask = existing;
+        let mut found_normal = false;
+        let mut found_add_or_sub = false;
+
+        for token in split_kindof_tokens(value) {
+            if token == "NONE" {
+                if found_normal || found_add_or_sub {
+                    return Err(
+                        "INI_INVALID_NAME_LIST: you may not mix normal and +- ops in bitstring lists"
+                            .to_string(),
+                    );
+                }
+                return Ok(KindOfMask::empty());
+            }
+
+            if let Some(name) = token.strip_prefix('+') {
+                if found_normal {
+                    return Err(
+                        "INI_INVALID_NAME_LIST: you may not mix normal and +- ops in bitstring lists"
+                            .to_string(),
+                    );
+                }
+                let flag = KindOfMask::from_string(name).ok_or_else(|| {
+                    format!("INI_INVALID_NAME_LIST: unknown KindOf token '{}'", name)
+                })?;
+                mask |= flag;
+                found_add_or_sub = true;
+            } else if let Some(name) = token.strip_prefix('-') {
+                if found_normal {
+                    return Err(
+                        "INI_INVALID_NAME_LIST: you may not mix normal and +- ops in bitstring lists"
+                            .to_string(),
+                    );
+                }
+                let flag = KindOfMask::from_string(name).ok_or_else(|| {
+                    format!("INI_INVALID_NAME_LIST: unknown KindOf token '{}'", name)
+                })?;
+                mask &= !flag;
+                found_add_or_sub = true;
+            } else {
+                if found_add_or_sub {
+                    return Err(
+                        "INI_INVALID_NAME_LIST: you may not mix normal and +- ops in bitstring lists"
+                            .to_string(),
+                    );
+                }
+                if !found_normal {
+                    mask = KindOfMask::empty();
+                }
+                let flag = KindOfMask::from_string(&token).ok_or_else(|| {
+                    format!("INI_INVALID_NAME_LIST: unknown KindOf token '{}'", token)
+                })?;
+                mask |= flag;
+                found_normal = true;
+            }
+        }
+
+        Ok(mask)
+    }
+
     /// Check if this mask represents any kind of structure
     pub fn is_structure(&self) -> bool {
         self.contains(KindOfMask::STRUCTURE)
@@ -355,6 +422,19 @@ impl KindOfMask {
     }
 }
 
+fn split_kindof_tokens(value: &str) -> impl Iterator<Item = String> + '_ {
+    value
+        .split(|c: char| c == '|' || c == ',' || c.is_whitespace())
+        .filter_map(|token| {
+            let trimmed = token.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.to_ascii_uppercase())
+            }
+        })
+}
+
 impl fmt::Display for KindOfMask {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let flags = self.to_string_list();
@@ -373,10 +453,9 @@ impl fmt::Display for KindOfMask {
 /// The Rust `KindOfMask` bitflags use the same bit positions as the C++ enum values,
 /// so this is a direct `1 << kind_type` conversion.
 ///
-/// **Note on `ALLOW_SURRENDER`:** The C++ header conditionally includes PRISON (15),
-/// COLLECTS_PRISON_BOUNTY (16), POW_TRUCK (17), and CAN_SURRENDER (44) when
-/// `ALLOW_SURRENDER` is defined. The Rust port always includes these flags, matching
-/// a build with `ALLOW_SURRENDER` enabled.
+/// Retail ZH leaves `ALLOW_SURRENDER` undefined, so PRISON / COLLECTS_PRISON_BOUNTY /
+/// POW_TRUCK / CAN_SURRENDER are omitted and later bits sit at the C++ header values
+/// (`ALWAYS_SELECTABLE = 53`, `FORCEATTACKABLE = 63`, `KINDOF_COUNT = 116`).
 ///
 /// Returns `None` for `KINDOF_INVALID` (-1), `KINDOF_COUNT`, or any out-of-range value.
 pub fn kind_of_type_to_mask(kind_type: i32) -> Option<KindOfMask> {
@@ -443,6 +522,8 @@ mod tests {
             Some(KindOfMask::STRUCTURE)
         ); // Case insensitive
         assert_eq!(KindOfMask::from_string("INVALID_FLAG"), None);
+        assert_eq!(KindOfMask::from_string("PRISON"), None);
+        assert_eq!(KindOfMask::from_string("CAN_SURRENDER"), None);
     }
 
     #[test]
@@ -511,6 +592,7 @@ mod tests {
         assert_eq!(KIND_OF_BIT_NAMES[1], "SELECTABLE");
         assert_eq!(KIND_OF_BIT_NAMES[7], "STRUCTURE");
         assert_eq!(KIND_OF_BIT_NAMES[8], "INFANTRY");
+        assert_eq!(KIND_OF_BIT_NAMES[15], "LINEBUILD");
 
         // Test that we can parse all our bit names
         for &name in KIND_OF_BIT_NAMES {
@@ -522,5 +604,55 @@ mod tests {
                 );
             }
         }
+    }
+
+    // C++ KindOf.h:38-73 / KindOf.h:150 — retail ALLOW_SURRENDER is off.
+    #[test]
+    fn retail_kindof_bit_numbers_match_kind_of_h() {
+        assert_eq!(KIND_OF_BIT_NAMES.len(), KINDOF_COUNT);
+        assert_eq!(KINDOF_COUNT, 116);
+        assert_eq!(KindOfMask::ALWAYS_SELECTABLE.bits().trailing_zeros(), 53);
+        assert_eq!(KindOfMask::FORCEATTACKABLE.bits().trailing_zeros(), 63);
+        assert_eq!(KindOfMask::LINEBUILD.bits().trailing_zeros(), 15);
+        assert_eq!(KIND_OF_BIT_NAMES[53], "ALWAYS_SELECTABLE");
+        assert_eq!(KIND_OF_BIT_NAMES[63], "FORCEATTACKABLE");
+        assert_eq!(
+            kind_of_type_to_mask(53),
+            Some(KindOfMask::ALWAYS_SELECTABLE)
+        );
+        assert_eq!(
+            kind_of_type_to_mask(63),
+            Some(KindOfMask::FORCEATTACKABLE)
+        );
+        assert_eq!(kind_of_type_to_mask(KINDOF_COUNT as i32), None);
+    }
+
+    // C++ BitFlagsIO.h:38-107 — +NAME is incremental; unknown names throw.
+    #[test]
+    fn parse_ini_plus_hero_is_incremental() {
+        let inherited = KindOfMask::INFANTRY | KindOfMask::SELECTABLE;
+        let parsed = KindOfMask::parse_ini(inherited, "+HERO").expect("+HERO should parse");
+        assert!(parsed.contains(KindOfMask::INFANTRY));
+        assert!(parsed.contains(KindOfMask::SELECTABLE));
+        assert!(parsed.contains(KindOfMask::HERO));
+    }
+
+    #[test]
+    fn parse_ini_unknown_name_errors() {
+        let err = KindOfMask::parse_ini(KindOfMask::empty(), "NOT_A_REAL_KIND")
+            .expect_err("unknown token must error");
+        assert!(err.contains("NOT_A_REAL_KIND"), "{err}");
+        assert!(err.contains("INI_INVALID_NAME_LIST"), "{err}");
+    }
+
+    #[test]
+    fn parse_ini_minus_and_none() {
+        let inherited = KindOfMask::INFANTRY | KindOfMask::HERO;
+        let cleared = KindOfMask::parse_ini(inherited, "-HERO").expect("-HERO should parse");
+        assert!(cleared.contains(KindOfMask::INFANTRY));
+        assert!(!cleared.contains(KindOfMask::HERO));
+
+        let none = KindOfMask::parse_ini(inherited, "NONE").expect("NONE should parse");
+        assert!(none.is_empty());
     }
 }

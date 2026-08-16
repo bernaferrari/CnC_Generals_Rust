@@ -265,6 +265,10 @@ impl XferSnapshotTrait for TerrainLogicSnapshotBridge {
     }
 
     fn load_post_process(&mut self) -> Result<(), XferStatus> {
+        // C++ TerrainLogic::loadPostProcess (TerrainLogic.cpp:2994-3009)
+        let terrain = get_terrain_logic();
+        let mut terrain_guard = terrain.write().map_err(|_| XferStatus::InvalidData)?;
+        terrain_guard.load_post_process();
         Ok(())
     }
 }

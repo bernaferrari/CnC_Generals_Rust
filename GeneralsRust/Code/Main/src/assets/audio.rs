@@ -142,6 +142,25 @@ fn spawn_output_stream_owner() -> Result<(OutputStreamKeepalive, OutputStreamHan
     ))
 }
 
+/// C++ `TheAudio->addAudioEvent` (`AudioManager::addAudioEvent`, GameAudio.cpp).
+///
+/// Live UI/SFX play API. Routes only when Common `AudioManager` already has a
+/// live handle (`get_global_audio_manager`). Special values
+/// (`AHSV_NO_SOUND`/`AHSV_ERROR`/…) are treated as “no handle”.
+pub fn play_sound_through_the_audio(event_name: &str) -> Option<u32> {
+    game_engine::common::audio::game_audio::get_global_audio_manager()?;
+    let audio = gamelogic::helpers::TheAudio::get()?;
+    let event = gamelogic::common::audio::AudioEventRts::new(event_name);
+    let handle = audio.add_audio_event(&event);
+    // C++ `AHSV_FIRST_HANDLE` is 1000; sentinels occupy the 0xFFFF_FFF0 band.
+    if (1000..0xFFFF_FFF0).contains(&handle) {
+        Some(handle)
+    } else {
+        None
+    }
+}
+
+
 /// AudioManager - Main audio management class (mirrors C++ AudioManager)
 /// Handles all audio operations including music, sound effects, and voice
 pub struct AudioManager {
@@ -349,12 +368,19 @@ impl AudioManager {
         Ok(())
     }
 
-    /// Play sound effect (matches C++ playSoundEffect)
+    /// Play sound effect (matches C++ `TheAudio->addAudioEvent`).
+    ///
+    /// Local archive/rodio decode is leftover and used only when Common
+    /// TheAudio / AudioManager produced no live handle.
     pub async fn play_sound_effect(
         &mut self,
         archive_system: &mut ArchiveFileSystem,
         sound_name: &str,
     ) -> Result<()> {
+        if play_sound_through_the_audio(sound_name).is_some() {
+            return Ok(());
+        }
+
         self.ensure_output_device()?;
 
         debug!("Playing sound effect: {}", sound_name);
@@ -1088,4 +1114,37 @@ mod tests {
         assert!(!manager.is_music_playing());
         assert_eq!(manager.get_master_volume(), 1.0);
     }
+
+    #[test]
+    fn play_sound_through_the_audio_requires_live_common_handle() {
+        // C++ AudioManager::addAudioEvent (GameAudio.cpp) via TheAudio.
+        // Pre-fix Main assets::audio opened its own rodio sink and never
+        // consulted Common THE_AUDIO. A missing handle must not initialize
+        // Miles/rodio from the UI play wrapper.
+        if game_engine::common::audio::game_audio::get_global_audio_manager().is_none() {
+            assert!(
+                play_sound_through_the_audio("UnitSelect").is_none(),
+                "UI SFX must not invent a TheAudio handle"
+            );
+        }
+
+        // Same addAudioEvent contract the live wrapper uses once a handle exists.
+        // Local manager: no global init, no OutputStream::try_default hang.
+        let mut audio = game_engine::common::audio::AudioManager::new();
+        let before = audio.pending_play_request_count();
+        let _ = audio.new_audio_event_info("UnitSelect".to_string());
+        let event = game_engine::common::audio::AudioEventRts::with_event_name("UnitSelect");
+        let handle = audio.add_audio_event(&event);
+        assert!(
+            handle >= 1000,
+            "C++ AHSV_FIRST_HANDLE is 1000; got {handle}"
+        );
+        let after = audio.pending_play_request_count();
+        assert!(
+            after > before,
+            "Common AudioManager must queue AR_Play (before={before}, after={after})"
+        );
+    }
+
+
 }

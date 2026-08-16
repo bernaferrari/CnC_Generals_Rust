@@ -1461,7 +1461,8 @@ fn active_script_counter_and_victory_reenter_without_relocking_the_global_engine
 
     let prior_input = TheGameLogic::is_input_enabled();
     let prior_victory = TheVictoryConditions::is_local_allied_victory();
-    TheGameLogic::set_input_enabled(true);
+    TheVictoryConditions::set_local_allied_victory(false);
+
 
     let completed = with_script_engine_mut(|engine| {
         // `with_script_engine_mut` holds the global engine lock and
@@ -1504,6 +1505,10 @@ fn active_script_counter_and_victory_reenter_without_relocking_the_global_engine
             ScriptActionResult::Success
         );
         assert!(engine.is_game_ending());
+        assert!(
+            engine.is_campaign_victorious(),
+            "C++ ScriptActions.cpp:208 TheCampaignManager->SetVictorious(TRUE)"
+        );
     });
 
     assert_eq!(completed, Some(()));
@@ -1511,10 +1516,122 @@ fn active_script_counter_and_victory_reenter_without_relocking_the_global_engine
         !TheGameLogic::is_input_enabled(),
         "C++ Victory disables local input before starting the end-game timer"
     );
+    assert!(
+        !TheVictoryConditions::is_local_allied_victory(),
+        "C++ doVictory does not touch TheVictoryConditions"
+    );
 
     TheGameLogic::set_input_enabled(prior_input);
     TheVictoryConditions::set_local_allied_victory(prior_victory);
+
+    with_script_engine_mut(|engine| engine.set_campaign_victorious(false));
 }
+
+#[test]
+fn do_defeat_clears_campaign_victorious_flag() {
+    // C++ ScriptActions.cpp:231-232 TheCampaignManager->SetVictorious(FALSE)
+    let _test_lock = crate::test_sync::lock();
+    initialize_script_engine().expect("script engine should initialize");
+    let prior_input = TheGameLogic::is_input_enabled();
+    TheGameLogic::set_input_enabled(true);
+
+    let completed = with_script_engine_mut(|engine| {
+        engine.set_campaign_victorious(true);
+        let defeat = ScriptAction::new(ScriptActionType::Defeat);
+        let mut dispatcher =
+            ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+        assert_eq!(
+            dispatcher.execute_action(&defeat).unwrap(),
+            ScriptActionResult::Success
+        );
+        assert!(!engine.is_campaign_victorious());
+        assert!(engine.is_game_ending());
+    });
+    assert_eq!(completed, Some(()));
+    TheGameLogic::set_input_enabled(prior_input);
+}
+
+#[test]
+fn do_victory_creates_victorious_window_layout() {
+    // C++ ScriptActions.cpp:196-209 winCreateFromScript("Menus/Victorious.wnd")
+    let _test_lock = crate::test_sync::lock();
+    initialize_script_engine().expect("script engine should initialize");
+    let prior_input = TheGameLogic::is_input_enabled();
+    TheGameLogic::set_input_enabled(true);
+
+    let completed = with_script_engine_mut(|engine| {
+        engine.set_shown_mp_local_defeat_window(false);
+        engine.close_windows(false);
+        let victory = ScriptAction::new(ScriptActionType::Victory);
+        let mut dispatcher =
+            ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+        assert_eq!(
+            dispatcher.execute_action(&victory).unwrap(),
+            ScriptActionResult::Success
+        );
+        assert_eq!(
+            engine.current_win_lose_window().as_deref(),
+            Some("Menus/Victorious.wnd")
+        );
+        assert!(engine.is_game_ending());
+    });
+    assert_eq!(completed, Some(()));
+    TheGameLogic::set_input_enabled(prior_input);
+}
+
+#[test]
+fn do_defeat_creates_defeat_window_layout() {
+    // C++ ScriptActions.cpp:220-229 winCreateFromScript("Menus/Defeat.wnd")
+    let _test_lock = crate::test_sync::lock();
+    initialize_script_engine().expect("script engine should initialize");
+    let prior_input = TheGameLogic::is_input_enabled();
+    TheGameLogic::set_input_enabled(true);
+
+    let completed = with_script_engine_mut(|engine| {
+        engine.set_shown_mp_local_defeat_window(false);
+        engine.close_windows(false);
+        let defeat = ScriptAction::new(ScriptActionType::Defeat);
+        let mut dispatcher =
+            ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+        assert_eq!(
+            dispatcher.execute_action(&defeat).unwrap(),
+            ScriptActionResult::Success
+        );
+        assert_eq!(
+            engine.current_win_lose_window().as_deref(),
+            Some("Menus/Defeat.wnd")
+        );
+    });
+    assert_eq!(completed, Some(()));
+    TheGameLogic::set_input_enabled(prior_input);
+}
+
+#[test]
+fn do_local_defeat_creates_local_defeat_window_layout() {
+    // C++ ScriptActions.cpp:244-247 winCreateFromScript("Menus/LocalDefeat.wnd")
+    let _test_lock = crate::test_sync::lock();
+    initialize_script_engine().expect("script engine should initialize");
+
+    let completed = with_script_engine_mut(|engine| {
+        engine.set_shown_mp_local_defeat_window(false);
+        engine.close_windows(false);
+        let local_defeat = ScriptAction::new(ScriptActionType::Localdefeat);
+        let mut dispatcher =
+            ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+        assert_eq!(
+            dispatcher.execute_action(&local_defeat).unwrap(),
+            ScriptActionResult::Success
+        );
+        assert_eq!(
+            engine.current_win_lose_window().as_deref(),
+            Some("Menus/LocalDefeat.wnd")
+        );
+        assert!(engine.has_shown_mp_local_defeat_window());
+    });
+    assert_eq!(completed, Some(()));
+}
+
+
 
 #[test]
 fn active_world_actions_clone_the_handler_before_host_callback_reentry() {

@@ -694,6 +694,71 @@ impl W3DScene {
         self.stencil_shadow_mask
     }
 
+    pub fn occluded_objects_count(&self) -> usize {
+        self.occluded_objects_count
+    }
+
+    /// C++ `RTS3DScene::flagOccludedObjects` (`W3DScene.cpp:226-286`).
+    ///
+    /// Cast a camera-to-occludee ray against each potential occluder sphere
+    /// (Graphics Gems I p388, then a segment hit in lieu of `Cast_Ray` mesh
+    /// geometry). Hits set `ERF_IS_OCCLUDED` and bump `m_occludedObjectsCount`.
+    /// The potential-occludee queue is left intact so the stencil flush can
+    /// still bucket every candidate the way C++ `flushOccludedObjectsIntoStencil`
+    /// does.
+    pub fn flag_occluded_objects(&mut self, camera: &CameraInfo) {
+        self.occluded_objects_count = 0;
+        let cam = camera.position;
+        let occludees = self.potential_occludees.clone();
+        let occluders: Vec<(RenderObjectId, BoundingSphere)> = self
+            .potential_occluders
+            .iter()
+            .filter_map(|id| {
+                self.get_render_object(*id)
+                    .map(|object| (*id, object.bounding_sphere))
+            })
+            .collect();
+
+        for id in occludees {
+            let Some(occludee) = self.get_render_object(id) else {
+                continue;
+            };
+            let target = occludee.bounding_sphere.center;
+            let to_target = target - cam;
+            let max_distance = to_target.length();
+            if max_distance <= f32::EPSILON {
+                continue;
+            }
+            let direction = to_target / max_distance;
+            let mut hit = false;
+            for (occluder_id, sphere) in &occluders {
+                if *occluder_id == id {
+                    continue;
+                }
+                let sphere_vector = sphere.center - cam;
+                let alpha = sphere_vector.dot(direction);
+                let beta = sphere.radius * sphere.radius
+                    - (sphere_vector.dot(sphere_vector) - alpha * alpha);
+                if beta < 0.0 {
+                    continue;
+                }
+                let distance = alpha - beta.sqrt();
+                if distance >= 0.0 && distance < max_distance {
+                    hit = true;
+                    break;
+                }
+            }
+            if hit {
+                if let Some(object) = self.get_render_object_mut(id) {
+                    if let Some(info) = &mut object.drawable_info {
+                        info.flags.insert(DrawableRenderFlags::IS_OCCLUDED);
+                    }
+                }
+                self.occluded_objects_count += 1;
+            }
+        }
+    }
+
     pub fn render_events(&self) -> &[RenderEvent] {
         &self.render_events
     }
@@ -852,6 +917,8 @@ impl W3DScene {
             self.visibility_check(&rinfo.camera);
         }
         self.visibility_checked = false;
+        self.flag_occluded_objects(&rinfo.camera);
+
 
         let object_ids: Vec<_> = self.render_objects.iter().map(|obj| obj.id).collect();
         let mut terrain_id = None;
@@ -1232,11 +1299,6 @@ impl W3DScene {
             });
 
             for id in ids {
-                if let Some(object) = self.get_render_object_mut(id) {
-                    if let Some(info) = &mut object.drawable_info {
-                        info.flags.insert(DrawableRenderFlags::IS_OCCLUDED);
-                    }
-                }
                 self.render_one_object_by_id(rinfo, id);
             }
         }

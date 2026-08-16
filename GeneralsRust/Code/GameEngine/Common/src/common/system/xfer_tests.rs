@@ -77,7 +77,7 @@ mod tests {
 
         fn xfer_snapshot(
             &mut self,
-            _snapshot: &mut super::super::snapshot::Snapshot,
+            _snapshot: &mut dyn super::super::snapshot::Snapshotable,
         ) -> Result<(), XferStatus> {
             Ok(())
         }
@@ -174,7 +174,7 @@ mod tests {
 
         fn xfer_snapshot(
             &mut self,
-            _snapshot: &mut super::super::snapshot::Snapshot,
+            _snapshot: &mut dyn super::super::snapshot::Snapshotable,
         ) -> Result<(), XferStatus> {
             Ok(())
         }

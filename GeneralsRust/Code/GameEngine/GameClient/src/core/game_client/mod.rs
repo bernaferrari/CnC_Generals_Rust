@@ -108,8 +108,8 @@ use game_engine::common::ini::{get_global_data, get_global_language_read, INILoa
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::recorder::{init_recorder, with_recorder_mut};
 use game_engine::common::system::{
-    geometry::Matrix3D, Snapshot as CommonSnapshotData, Snapshotable, Xfer,
-    XferMode as CommonXferMode, XferStatus as CommonXferStatus, XferVersion,
+    geometry::Matrix3D, Snapshotable, Xfer, XferMode as CommonXferMode,
+    XferStatus as CommonXferStatus, XferVersion,
 };
 use game_engine::common::thing::{get_thing_factory, ThingTemplate};
 use game_engine::common::user_preferences::UserPreferences;

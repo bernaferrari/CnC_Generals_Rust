@@ -161,4 +161,32 @@ mod tests {
         assert!(!empty_visual.extra_blend_draw());
         assert_eq!(empty_visual.extra_blend_draw_count(), 0);
     }
+
+    #[test]
+    fn water_tracks_flush_is_called_from_live_water_record() {
+        // C++ WaterTracksRenderSystem::flush (W3DWaterTracks.cpp) is invoked
+        // from the live water record (W3DWater.cpp / TerrainVisual update).
+        let mut visual = TerrainVisualImpl::new();
+        let handle = visual
+            .water_tracks_mut()
+            .bind_track(crate::terrain::WaterTrackType::Pond)
+            .expect("bind pond wake");
+        visual.water_tracks_mut().track_mut(handle).unwrap().init(
+            18.0,
+            28.0,
+            Vec2::new(10.0, 20.0),
+            Vec2::new(10.0, 21.0),
+            "wave256.tga",
+            0,
+        );
+        visual.flush_water_tracks();
+        let flush = visual.last_water_tracks_flush();
+        assert!(
+            !flush.vertices.is_empty(),
+            "live water record must flush wakes"
+        );
+        assert!(!flush.indices.is_empty());
+        assert_eq!(flush.ranges[0].texture_name, "wave256.tga");
+    }
+
 }

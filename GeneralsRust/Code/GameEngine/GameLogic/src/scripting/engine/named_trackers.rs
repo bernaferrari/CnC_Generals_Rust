@@ -238,6 +238,71 @@ impl ScriptEngine {
         log::info!("Close window timer started");
     }
 
+    /// C++ ScriptActions::closeWindows ScriptActions.cpp:156-163.
+    pub fn close_windows(&self, suppress_new_windows: bool) {
+        let handler = {
+            let mut inner = self.lock_inner_mut();
+            inner.suppress_new_windows = suppress_new_windows;
+            inner.win_lose_window_layout.take();
+            inner.action_handler.clone()
+        };
+        if let Some(handler) = handler {
+            let _ = handler.destroy_win_lose_window();
+        }
+    }
+
+    /// C++ GameLogic::closeWindows GameLogicDispatch.cpp:202-219.
+    pub fn close_game_windows(&self) {
+        let handler = self.with_inner(|inner| inner.action_handler.clone());
+        if let Some(handler) = handler {
+            let _ = handler.close_game_windows();
+        }
+    }
+
+    /// C++ ScriptActions.cpp:196-205 / 220-229 / 244-247 winCreateFromScript.
+    pub fn create_win_lose_window(&self, layout_filename: &str) {
+        let handler = {
+            let mut inner = self.lock_inner_mut();
+            if inner.suppress_new_windows {
+                return;
+            }
+            inner.win_lose_window_layout = Some(layout_filename.to_string());
+            inner.action_handler.clone()
+        };
+        if let Some(handler) = handler {
+            let _ = handler.create_win_lose_window(layout_filename);
+        }
+    }
+
+    pub fn current_win_lose_window(&self) -> Option<String> {
+        self.with_inner(|inner| inner.win_lose_window_layout.clone())
+    }
+
+    pub fn is_suppress_new_windows(&self) -> bool {
+        self.with_inner(|inner| inner.suppress_new_windows)
+    }
+
+    pub fn should_show_observer_quit_window(&self) -> bool {
+        let local_is_observer = crate::player::player_list()
+            .read()
+            .ok()
+            .and_then(|list| list.get_local_player().cloned())
+            .and_then(|player| player.read().ok().map(|guard| guard.is_player_observer()))
+            .unwrap_or(false);
+        local_is_observer || self.has_shown_mp_local_defeat_window()
+    }
+
+    pub fn should_show_local_defeat_window(&self) -> bool {
+        let local_is_observer = crate::player::player_list()
+            .read()
+            .ok()
+            .and_then(|list| list.get_local_player().cloned())
+            .and_then(|player| player.read().ok().map(|guard| guard.is_player_observer()))
+            .unwrap_or(false);
+        !local_is_observer
+    }
+
+
     /// Set whether the multiplayer local defeat window has been shown.
     pub fn set_shown_mp_local_defeat_window(&self, shown: bool) {
         let mut inner = self.lock_inner_mut();
@@ -247,6 +312,37 @@ impl ScriptEngine {
     /// Return whether the multiplayer local defeat window has been shown.
     pub fn has_shown_mp_local_defeat_window(&self) -> bool {
         self.with_inner(|inner| inner.shown_mp_local_defeat_window)
+    }
+
+    /// C++ ScriptActions.cpp:174/208/232/250 TheCampaignManager->SetVictorious.
+    pub fn set_campaign_victorious(&self, victorious: bool) {
+        let handler = {
+            let mut inner = self.lock_inner_mut();
+            inner.campaign_victorious = victorious;
+            inner.action_handler.clone()
+        };
+        if let Some(handler) = handler {
+            let _ = handler.set_campaign_victorious(victorious);
+        }
+    }
+
+    /// Live campaign victory flag last set by doVictory/doDefeat.
+    pub fn is_campaign_victorious(&self) -> bool {
+        self.with_inner(|inner| inner.campaign_victorious)
+    }
+
+    /// C++ ScriptEngine::getQualifiedTriggerAreaByName (ScriptEngine.cpp:5888-5926).
+    pub fn get_qualified_trigger_area_by_name(
+        &self,
+        area_name: &str,
+    ) -> Option<crate::polygon_trigger::PolygonTrigger> {
+        qualify_trigger_area_name(area_name, self.get_current_player_name().as_deref())
+            .and_then(|resolved| {
+                crate::terrain::get_terrain_logic()
+                    .read()
+                    .ok()
+                    .and_then(|terrain| terrain.get_trigger_area_by_name(&resolved).cloned())
+            })
     }
 
     /// Check if game is ending

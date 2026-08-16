@@ -421,6 +421,7 @@ enum DrawModuleKindMut<'a> {
     Projectile(&'a mut crate::object::draw::W3DProjectileDraw),
     ProjectileStream(&'a mut crate::object::draw::W3DProjectileStreamDraw),
     Tree(&'a mut crate::object::draw::W3DTreeDraw),
+    Prop(&'a mut crate::object::draw::W3DPropDraw),
     Debris(&'a mut crate::object::draw::W3DDebrisDraw),
     Supply(&'a mut crate::object::draw::W3DSupplyDraw),
     Default(&'a mut crate::object::draw::W3DDefaultDraw),
@@ -445,6 +446,7 @@ impl<'a> DrawModuleKindMut<'a> {
             Self::Projectile(draw) => draw,
             Self::ProjectileStream(draw) => draw,
             Self::Tree(draw) => draw,
+            Self::Prop(draw) => draw,
             Self::Debris(draw) => draw,
             Self::Supply(draw) => draw,
             Self::Default(draw) => draw,
@@ -476,6 +478,7 @@ impl<'a> DrawModuleKindMut<'a> {
             Self::Projectile(draw) => draw.set_terrain_decal(decal_type),
             Self::ProjectileStream(draw) => draw.set_terrain_decal(decal_type),
             Self::Tree(draw) => draw.set_terrain_decal(decal_type),
+            Self::Prop(draw) => draw.set_terrain_decal(decal_type),
             Self::Debris(draw) => draw.set_terrain_decal(decal_type),
             Self::Supply(draw) => draw.set_terrain_decal(decal_type),
             Self::Default(draw) => draw.set_terrain_decal(decal_type),
@@ -500,6 +503,7 @@ impl<'a> DrawModuleKindMut<'a> {
             Self::Supply(draw) => draw.bind_owner_id(object_id),
             Self::Projectile(draw) => draw.bind_owner_id(object_id),
             Self::Default(draw) => draw.bind_owner_id(object_id),
+            Self::Prop(draw) => draw.bind_owner_id(object_id),
             Self::Tracer(_) | Self::Rope(_) | Self::Tree(_) => {}
         }
     }
@@ -588,6 +592,11 @@ fn with_draw_module_kind(
         (module as &mut dyn Any).downcast_mut::<crate::object::draw::W3DTreeDraw>()
     {
         func(DrawModuleKindMut::Tree(module));
+        true
+    } else if let Some(module) =
+        (module as &mut dyn Any).downcast_mut::<crate::object::draw::W3DPropDraw>()
+    {
+        func(DrawModuleKindMut::Prop(module));
         true
     } else if let Some(module) =
         (module as &mut dyn Any).downcast_mut::<crate::object::draw::W3DDebrisDraw>()

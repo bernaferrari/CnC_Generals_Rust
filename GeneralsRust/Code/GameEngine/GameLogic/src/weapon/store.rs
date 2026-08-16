@@ -28,6 +28,7 @@ use game_engine::common::ini::ini_particle_sys::ParticleSystemTemplate;
 use game_engine::common::system::Snapshotable;
 
 use super::helpers::{ObjectId, INVALID_OBJECT_ID};
+use game_engine::common::name_key_generator::NameKeyGenerator;
 use super::masks_enums::*;
 use super::template::WeaponTemplate;
 use super::weapon_instance::Weapon;
@@ -49,6 +50,59 @@ pub struct WeaponDelayedDamageInfo {
     pub(crate) delay_source_id: ObjectId,
     pub(crate) delay_intended_victim_id: ObjectId,
     pub(crate) bonus: WeaponBonus,
+}
+
+/// Wave 77: save/load residual snapshot of a delayed-damage queue entry.
+///
+/// Mirrors the live `WeaponDelayedDamageInfo` identity fields so mid-flight
+/// projectile delay can be bookkept consistently without Arc template Xfer.
+/// Fail-closed: not full C++ WeaponStore::xfer (templates are not reloaded here).
+#[derive(Debug, Clone, PartialEq)]
+pub struct WeaponDelayedDamageSnapshotResidual {
+    pub weapon_name: String,
+    pub delay_damage_pos: Coord3D,
+    pub delay_damage_frame: u32,
+    pub delay_source_id: ObjectId,
+    pub delay_intended_victim_id: ObjectId,
+}
+
+impl WeaponDelayedDamageSnapshotResidual {
+    pub fn from_info(info: &WeaponDelayedDamageInfo) -> Self {
+        Self {
+            weapon_name: info.delayed_weapon.name.clone(),
+            delay_damage_pos: info.delay_damage_pos,
+            delay_damage_frame: info.delay_damage_frame,
+            delay_source_id: info.delay_source_id,
+            delay_intended_victim_id: info.delay_intended_victim_id,
+        }
+    }
+
+    pub fn honesty_ok(&self) -> bool {
+        !self.weapon_name.is_empty()
+            && self.delay_damage_pos.x.is_finite()
+            && self.delay_damage_pos.y.is_finite()
+            && self.delay_damage_pos.z.is_finite()
+    }
+}
+
+/// Honesty: delayed-damage residual snapshot pack matches live queue (Wave 77).
+pub fn honesty_weapon_store_delayed_damage_residual_ok(store: &WeaponStore) -> bool {
+    let snaps = store.delayed_damage_snapshot_residual();
+    if snaps.len() != store.get_delayed_damage_count() {
+        return false;
+    }
+    snaps.iter().all(|s| s.honesty_ok())
+        && store
+            .delayed_damage_info
+            .iter()
+            .zip(snaps.iter())
+            .all(|(info, snap)| {
+                snap.weapon_name == info.delayed_weapon.name
+                    && snap.delay_damage_frame == info.delay_damage_frame
+                    && snap.delay_source_id == info.delay_source_id
+                    && snap.delay_intended_victim_id == info.delay_intended_victim_id
+                    && snap.delay_damage_pos == info.delay_damage_pos
+            })
 }
 
 impl WeaponStore {
@@ -93,8 +147,14 @@ impl WeaponStore {
         Ok(())
     }
 
-    /// Find weapon template by name
+    /// Find weapon template by name.
+    ///
+    /// C++ WeaponStore::findWeaponTemplate treats the token `"None"` as missing
+    /// (Weapon.cpp lookup). Case-insensitive so INI `NONE`/`none` match.
     pub fn find_weapon_template(&self, name: &str) -> Option<&Arc<WeaponTemplate>> {
+        if name.eq_ignore_ascii_case("None") {
+            return None;
+        }
         self.weapon_templates.get(name)
     }
 
@@ -167,11 +227,14 @@ impl WeaponStore {
         Ok(())
     }
 
-    /// Add a new weapon template
-    pub fn add_weapon_template(&mut self, template: WeaponTemplate) -> Arc<WeaponTemplate> {
+    /// Add a new weapon template. Assigns a NameKey when the leftover key is 0.
+    pub fn add_weapon_template(&mut self, mut template: WeaponTemplate) -> Arc<WeaponTemplate> {
+        if template.name_key == 0 && !template.name.is_empty() {
+            template.name_key = NameKeyGenerator::name_to_key(&template.name);
+        }
+        let name = template.name.clone();
+        let name_key = template.name_key;
         let arc_template = Arc::new(template);
-        let name = arc_template.name.clone();
-        let name_key = arc_template.name_key;
 
         self.weapon_templates
             .insert(name, Arc::clone(&arc_template));
@@ -181,6 +244,122 @@ impl WeaponStore {
         }
 
         arc_template
+    }
+
+    pub fn create_weapon_template(&mut self, name: String) -> Arc<WeaponTemplate> {
+        let template = WeaponTemplate::new(name);
+        self.add_weapon_template(template)
+    }
+
+    pub fn create_weapon_override(
+        &mut self,
+        base_template: &Arc<WeaponTemplate>,
+        override_name: String,
+    ) -> GameLogicResult<Arc<WeaponTemplate>> {
+        let mut override_template = (**base_template).clone();
+        override_template.name = override_name;
+        override_template.name_key = 0;
+        override_template.set_next_template((**base_template).clone());
+        Ok(self.add_weapon_template(override_template))
+    }
+
+    pub fn create_and_fire_temp_weapon_at_pos(
+        &self,
+        template: &Arc<WeaponTemplate>,
+        source: ObjectId,
+        position: &Coord3D,
+    ) -> GameLogicResult<()> {
+        self.create_and_fire_temp_weapon(template, source, None, Some(position))
+    }
+
+    pub fn create_and_fire_temp_weapon_at_target(
+        &self,
+        template: &Arc<WeaponTemplate>,
+        source: ObjectId,
+        target: ObjectId,
+    ) -> GameLogicResult<()> {
+        self.create_and_fire_temp_weapon(template, source, Some(target), None)
+    }
+
+    pub fn handle_projectile_detonation_at_pos(
+        &self,
+        template: &Arc<WeaponTemplate>,
+        source: ObjectId,
+        position: &Coord3D,
+        extra_bonus_flags: crate::common::types::WeaponBonusConditionFlags,
+        inflict_damage: bool,
+    ) -> GameLogicResult<()> {
+        self.handle_projectile_detonation(
+            template,
+            source,
+            position,
+            extra_bonus_flags,
+            inflict_damage,
+        )
+    }
+
+    pub fn handle_projectile_detonation_at_target(
+        &self,
+        template: &Arc<WeaponTemplate>,
+        source: ObjectId,
+        target: ObjectId,
+        extra_bonus_flags: crate::common::types::WeaponBonusConditionFlags,
+        inflict_damage: bool,
+    ) -> GameLogicResult<()> {
+        let mut temp_weapon = self.allocate_new_weapon(template, WeaponSlotType::Primary);
+        temp_weapon
+            .fire_projectile_detonation_weapon(
+                source,
+                Some(target),
+                None,
+                extra_bonus_flags,
+                inflict_damage,
+            )
+            .map_err(|err| GameLogicError::ModuleError(err.to_string()))?;
+        Ok(())
+    }
+
+    pub fn get_template_count(&self) -> usize {
+        self.weapon_templates.len()
+    }
+
+    pub fn get_delayed_damage_count(&self) -> usize {
+        self.delayed_damage_info.len()
+    }
+
+    pub fn delayed_damage_snapshot_residual(&self) -> Vec<WeaponDelayedDamageSnapshotResidual> {
+        self.delayed_damage_info
+            .iter()
+            .map(WeaponDelayedDamageSnapshotResidual::from_info)
+            .collect()
+    }
+
+    pub fn get_template_names(&self) -> Vec<String> {
+        self.weapon_templates.keys().cloned().collect()
+    }
+
+    pub fn validate_templates(&self) -> GameLogicResult<()> {
+        for (name, template) in &self.weapon_templates {
+            if template.name != *name {
+                return Err(GameLogicError::Configuration(format!(
+                    "Template name mismatch: '{}' vs '{}'",
+                    template.name, name
+                )));
+            }
+            if template.attack_range < template.minimum_attack_range {
+                return Err(GameLogicError::Configuration(format!(
+                    "Template '{}': attack range ({}) < minimum range ({})",
+                    template.name, template.attack_range, template.minimum_attack_range
+                )));
+            }
+            if template.clip_size < 0 {
+                return Err(GameLogicError::Configuration(format!(
+                    "Template '{}': invalid clip size ({})",
+                    template.name, template.clip_size
+                )));
+            }
+        }
+        Ok(())
     }
 
     /// Set delayed damage
@@ -206,8 +385,7 @@ impl WeaponStore {
     }
 
     /// Set delayed damage when only a template reference is available.
-    #[allow(dead_code)]
-    pub(crate) fn set_delayed_damage_from_template(
+    pub fn set_delayed_damage_from_template(
         &mut self,
         weapon: &WeaponTemplate,
         pos: &Coord3D,
@@ -308,4 +486,13 @@ where
             "Weapon store not initialized".to_string(),
         )),
     }
+}
+
+/// Shutdown the leftover global weapon store.
+pub fn shutdown_weapon_store() -> GameLogicResult<()> {
+    let mut store = WEAPON_STORE.write().map_err(|e| {
+        GameLogicError::Threading(format!("Failed to acquire weapon store lock: {}", e))
+    })?;
+    *store = None;
+    Ok(())
 }

@@ -387,6 +387,8 @@ impl GameLogic {
             template.set_mine_clearing_primary_weapon_name(wname);
         }
 
+        Self::apply_authored_weapon_set_create_policy(&mut template, definition);
+
         // SET_NORMAL Locomotor name from Object INI when present; else known host map.
         // A RiderChange container needs the unambiguous source SET_NORMAL
         // primary that was validated with its roster above.  It must never
@@ -2201,6 +2203,27 @@ impl GameLogic {
             .collect();
     }
 
+    /// C++ Object.cpp:160-497 builds weapons and modules from ThingTemplate
+    /// INI data, not from unit-name residuals.  Capture the create-time
+    /// policy bits `create_object_with_owner` used to hardcode.
+    fn apply_authored_weapon_set_create_policy(
+        template: &mut ThingTemplate,
+        definition: &ObjectDefinition,
+    ) {
+        template.primary_auto_choose_none = definition
+            .weapon_sets
+            .iter()
+            .find(|set| set.is_unconditional())
+            .is_some_and(|set| set.auto_choose_primary_none());
+        template.has_fire_ocl_after_weapon_cooldown = definition.behavior_modules.iter().any(
+            |module| {
+                module
+                    .class_name
+                    .eq_ignore_ascii_case("FireOCLAfterWeaponCooldownUpdate")
+            },
+        );
+    }
+
     /// Retain the small exact data slice consumed by C++
     /// `ActionManager::canCaptureBuilding`: source capture SpecialPower,
     /// target CAPTURABLE/IMMUNE_TO_CAPTURE flags, and GarrisonContain state.
@@ -2430,6 +2453,7 @@ impl GameLogic {
                 Self::apply_authored_overcharge_metadata(template, &definition);
                 Self::apply_authored_power_plant_update_metadata(template, &definition);
                 Self::apply_authored_temporary_weapon_behavior_metadata(template, &definition);
+                Self::apply_authored_weapon_set_create_policy(template, &definition);
                 // Existing curated starters keep their broader host combat
                 // bindings, but a mine-clear conditional primary is source
                 // authority only. Clear any stale value when a resolved
@@ -4959,6 +4983,231 @@ End
                 .unwrap_or_else(|| panic!("missing curated aircraft {template_name}"));
             assert!(template.is_kind_of(KindOf::Vehicle));
             assert!(template.is_kind_of(KindOf::Aircraft));
+        }
+    }
+
+    #[test]
+    fn create_object_uses_ini_create_policy_not_unit_name_hardcodes() {
+        // C++ Object.cpp:160-497 / GameLogic::friend_createObject: Object ctor
+        // builds from ThingTemplate INI and each module's onObjectCreated.
+        // Strategy Center AutoChooseSources=PRIMARY NONE is FactionBuilding.ini:6970;
+        // Quad Cannon AntiGround/AntiAirborne is Weapon.ini:2637-2660;
+        // Toxin Tractor FireOCLAfterWeaponCooldownUpdate is GLAVehicle.ini:3697.
+        // create_object must honor those template/module bits. Name residuals
+        // remain only when Object INI was never loaded (unit tests).
+        use glam::Vec3;
+
+        let mut parser = crate::assets::IniParser::new();
+        parser
+            .parse_ini_content(
+                r#"
+Object AmericaStrategyCenter
+  Type = Building
+  KindOf = PRELOAD STRUCTURE SELECTABLE IMMOBILE FS_STRATEGY_CENTER
+  WeaponSet
+    Conditions = None
+    Weapon = PRIMARY StrategyCenterGun
+    AutoChooseSources = PRIMARY NONE
+  End
+End
+Object GLAVehicleQuadCannon
+  Type = Vehicle
+  KindOf = SELECTABLE CAN_ATTACK VEHICLE
+  WeaponSet
+    Conditions = None
+    Weapon = PRIMARY QuadCannonGun
+    Weapon = SECONDARY QuadCannonGunAir
+  End
+End
+Object GLAVehicleToxinTruck
+  Type = Vehicle
+  KindOf = SELECTABLE CAN_ATTACK VEHICLE
+  WeaponSet
+    Conditions = None
+    Weapon = PRIMARY ToxinTruckGun
+    Weapon = SECONDARY ToxinTruckSprayer
+    AutoChooseSources = SECONDARY NONE
+  End
+  Behavior = FireOCLAfterWeaponCooldownUpdate ModuleTag_13
+    WeaponSlot = SECONDARY
+    OCL = OCL_PoisonFieldMedium
+    MinShotsToCreateOCL = 4
+  End
+End
+Object ChemSpillSprayer
+  Type = Vehicle
+  KindOf = SELECTABLE CAN_ATTACK VEHICLE
+  Behavior = FireOCLAfterWeaponCooldownUpdate ModuleTag_01
+    WeaponSlot = SECONDARY
+    OCL = OCL_PoisonFieldMedium
+  End
+End
+Object OrdinaryAttackableBunker
+  Type = Building
+  KindOf = STRUCTURE SELECTABLE CAN_ATTACK
+End
+"#,
+                "create_policy_probe.ini",
+            )
+            .expect("parse create-policy probes");
+
+        let parsed = |name: &str| {
+            GameLogic::build_template_from_object_definition(
+                name,
+                parser
+                    .get_definition(name)
+                    .unwrap_or_else(|| panic!("missing probe Object {name}")),
+                None,
+            )
+        };
+
+        let strategy = parsed("AmericaStrategyCenter");
+        assert!(
+            strategy.primary_auto_choose_none,
+            "authored AutoChooseSources=PRIMARY NONE must land on the template"
+        );
+        assert!(!strategy.has_fire_ocl_after_weapon_cooldown);
+        assert_eq!(
+            strategy.primary_weapon_name.as_deref(),
+            Some("StrategyCenterGun")
+        );
+
+        let toxin = parsed("GLAVehicleToxinTruck");
+        assert!(
+            toxin.has_fire_ocl_after_weapon_cooldown,
+            "FireOCLAfterWeaponCooldownUpdate must install from the Behavior, not the unit name"
+        );
+        assert!(!toxin.primary_auto_choose_none);
+
+        let spill = parsed("ChemSpillSprayer");
+        assert!(
+            spill.has_fire_ocl_after_weapon_cooldown,
+            "a non-toxin-tractor name with the module must still carry FireOCL create policy"
+        );
+
+        let bunker = parsed("OrdinaryAttackableBunker");
+        assert!(
+            !bunker.primary_auto_choose_none,
+            "CAN_ATTACK alone must not invent AutoChooseSources=PRIMARY NONE"
+        );
+
+        crate::game_logic::weapon_bootstrap::ensure_host_weapon_store();
+
+        let mut logic = GameLogic::new();
+        for name in [
+            "AmericaStrategyCenter",
+            "GLAVehicleQuadCannon",
+            "GLAVehicleToxinTruck",
+            "ChemSpillSprayer",
+            "OrdinaryAttackableBunker",
+        ] {
+            logic.templates.insert(name.to_string(), parsed(name));
+        }
+
+        let center_id = logic
+            .create_object(
+                "AmericaStrategyCenter",
+                Team::USA,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("strategy center");
+        {
+            let center = logic.host_object(center_id).expect("center");
+            if let Some(weapon) = center.weapon.as_ref() {
+                assert!(
+                    (weapon.damage - 25.0).abs() > 0.01 || (weapon.range - 100.0).abs() > 0.01,
+                    "AutoChooseSources=PRIMARY NONE must not invent Weapon::default"
+                );
+            }
+        }
+
+        let bunker_id = logic
+            .create_object(
+                "OrdinaryAttackableBunker",
+                Team::USA,
+                Vec3::new(10.0, 0.0, 0.0),
+            )
+            .expect("bunker");
+        {
+            let bunker = logic.host_object(bunker_id).expect("bunker");
+            let weapon = bunker
+                .weapon
+                .as_ref()
+                .expect("kind-based default remains when Object INI has no AutoChoose NONE");
+            assert!((weapon.damage - 25.0).abs() < 0.01);
+        }
+
+        let spill_id = logic
+            .create_object("ChemSpillSprayer", Team::GLA, Vec3::new(20.0, 0.0, 0.0))
+            .expect("spill sprayer");
+        {
+            let spill = logic.host_object(spill_id).expect("spill");
+            assert!(
+                spill.fire_ocl_after_cooldown.is_some(),
+                "FireOCL module data must install without a toxin-tractor template name"
+            );
+            assert!(
+                spill.secondary_weapon.is_none(),
+                "non-toxin FireOCL must not invent ToxinTruckSprayer"
+            );
+        }
+
+        let toxin_id = logic
+            .create_object(
+                "GLAVehicleToxinTruck",
+                Team::GLA,
+                Vec3::new(30.0, 0.0, 0.0),
+            )
+            .expect("toxin");
+        assert!(logic
+            .host_object(toxin_id)
+            .expect("toxin")
+            .fire_ocl_after_cooldown
+            .is_some());
+
+        let quad_id = logic
+            .create_object(
+                "GLAVehicleQuadCannon",
+                Team::GLA,
+                Vec3::new(40.0, 0.0, 0.0),
+            )
+            .expect("quad");
+        {
+            let quad = logic.host_object(quad_id).expect("quad");
+            if let Some(primary) = quad.weapon.as_ref() {
+                assert!(primary.can_target_ground);
+                assert!(!primary.can_target_air);
+            }
+            if let Some(secondary) = quad.secondary_weapon.as_ref() {
+                assert!(secondary.can_target_air);
+                assert!(!secondary.can_target_ground);
+            }
+        }
+
+        // Missing-INI fallback: name residual still binds when Object INI
+        // never set has_fire_ocl_after_weapon_cooldown.
+        let mut fallback = ThingTemplate::new("TestToxinTruck");
+        fallback
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(240.0);
+        assert!(!fallback.has_fire_ocl_after_weapon_cooldown);
+        logic
+            .templates
+            .insert("TestToxinTruck".to_string(), fallback);
+        let fallback_id = logic
+            .create_object("TestToxinTruck", Team::GLA, Vec3::new(50.0, 0.0, 0.0))
+            .expect("missing-INI toxin");
+        {
+            let fallback = logic.host_object(fallback_id).expect("fallback toxin");
+            assert!(
+                fallback.fire_ocl_after_cooldown.is_some(),
+                "missing-INI toxin name still installs FireOCL residual"
+            );
+            assert!(
+                fallback.secondary_weapon.is_some(),
+                "missing-INI toxin name still binds spray residual"
+            );
         }
     }
 }

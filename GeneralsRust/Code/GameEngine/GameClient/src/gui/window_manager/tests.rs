@@ -1943,6 +1943,44 @@ fn os_mouse_dispatch_consumed_when_shell_active() {
 }
 
 #[test]
+fn os_mouse_dispatch_skips_wm_when_mouse_locked_unless_scrolling_lmb() {
+    // C++ WindowXlat.cpp:147-167 — locked view KEEP_MESSAGE except LMB
+    // while TheInGameUI::isScrolling so ControlBar clicks still land.
+    let _lock = lock_test_mouse();
+    crate::gui::shell::get_shell().set_shell_active(false);
+    crate::display::view::with_tactical_view(|view| view.set_mouse_lock(true));
+    crate::helpers::TheInGameUI::set_scrolling(false);
+    assert_eq!(
+        dispatch_os_mouse_to_window_manager(WindowMessage::LeftDown, 20, 20),
+        WindowInputReturnCode::NotUsed,
+        "locked, not scrolling: skip WM (C++ KEEP_MESSAGE)"
+    );
+
+    crate::helpers::TheInGameUI::set_scrolling(true);
+    with_window_manager(|manager| {
+        manager.reset();
+        let window = manager.create_window(None, 10, 10, 80, 30).unwrap();
+        window
+            .borrow_mut()
+            .set_widget(WindowWidget::PushButton(PushButton::new(1, 0, 0, 80, 30)));
+    });
+    assert_eq!(
+        dispatch_os_mouse_to_window_manager(WindowMessage::LeftDown, 20, 20),
+        WindowInputReturnCode::Used,
+        "locked + scrolling: LMB must still hit ControlBar"
+    );
+    assert_eq!(
+        dispatch_os_mouse_to_window_manager(WindowMessage::RightDown, 20, 20),
+        WindowInputReturnCode::NotUsed,
+        "locked + scrolling: non-LMB still KEEP_MESSAGE"
+    );
+
+    crate::helpers::TheInGameUI::set_scrolling(false);
+    crate::display::view::with_tactical_view(|view| view.set_mouse_lock(false));
+    crate::gui::shell::get_shell().set_shell_active(true);
+}
+
+#[test]
 fn os_key_dispatch_enter_reaches_focused_window_when_shell_inactive() {
     let _lock = lock_test_mouse();
     crate::gui::shell::get_shell().set_shell_active(false);

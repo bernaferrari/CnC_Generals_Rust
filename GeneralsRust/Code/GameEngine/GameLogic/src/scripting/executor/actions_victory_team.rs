@@ -11,7 +11,7 @@ impl ScriptActionDispatcher {
     // C++ Reference: ScriptActions.cpp lines 215-276
     // ============================================================================
 
-    /// C++ Reference: ScriptActions::doVictory() line 215
+    /// C++ Reference: ScriptActions::doVictory() ScriptActions.cpp:191-210
     pub(crate) fn do_victory(&mut self) -> Result<ScriptActionResult, ScriptError> {
         log::info!("VICTORY!");
 
@@ -20,25 +20,29 @@ impl ScriptActionDispatcher {
             ctx.suppress_new_windows = false;
         }
 
-        TheVictoryConditions::set_local_allied_victory(true);
-        if let Ok(players) = player_list().read() {
-            if let Some(local_player) = players.get_local_player() {
-                if let Ok(mut guard) = local_player.write() {
-                    guard.set_defeated(false);
-                }
-            }
-        }
-        // C++ `ScriptActions::doVictory` disables input before starting the
-        // win/lose timer.  Go through the scoped engine helper: this action
-        // is normally called from `ScriptEngine::update`, which already owns
-        // the global engine lock.
+        // C++ ScriptActions.cpp:193-209: closeWindows, TheGameLogic->closeWindows,
+        // doDisableInput, winCreateFromScript(Victorious/ObserverQuit),
+        // SetVictorious(TRUE), startEndGameTimer.
+        let _ = with_script_engine_mut(|engine| {
+            engine.close_windows(false);
+            engine.close_game_windows();
+        });
         self.do_disable_input()?;
-        let _ = with_script_engine_mut(|engine| engine.start_end_game_timer());
+        let _ = with_script_engine_mut(|engine| {
+            let layout = if engine.should_show_observer_quit_window() {
+                "Menus/ObserverQuit.wnd"
+            } else {
+                "Menus/Victorious.wnd"
+            };
+            engine.create_win_lose_window(layout);
+            engine.set_campaign_victorious(true);
+            engine.start_end_game_timer();
+        });
 
         Ok(ScriptActionResult::Success)
     }
 
-    /// C++ Reference: ScriptActions::doQuickVictory() line 193
+    /// C++ Reference: ScriptActions::doQuickVictory() ScriptActions.cpp:169-177
     pub(crate) fn do_quick_victory(&mut self) -> Result<ScriptActionResult, ScriptError> {
         log::info!("QUICK VICTORY!");
 
@@ -47,23 +51,22 @@ impl ScriptActionDispatcher {
             ctx.suppress_new_windows = false;
         }
 
-        TheVictoryConditions::set_local_allied_victory(true);
-        if let Ok(players) = player_list().read() {
-            if let Some(local_player) = players.get_local_player() {
-                if let Ok(mut guard) = local_player.write() {
-                    guard.set_defeated(false);
-                }
-            }
-        }
-        // C++ `doQuickVictory` also disables input, then sets a one-frame
-        // timer.  This must remain immediate when invoked by a live script.
+        // C++ ScriptActions.cpp:171-176: closeWindows + GameLogic::closeWindows,
+        // doDisableInput, SetVictorious, startQuickEndGameTimer. No new window.
+        let _ = with_script_engine_mut(|engine| {
+            engine.close_windows(false);
+            engine.close_game_windows();
+        });
         self.do_disable_input()?;
-        let _ = with_script_engine_mut(|engine| engine.start_quick_end_game_timer());
+        let _ = with_script_engine_mut(|engine| {
+            engine.set_campaign_victorious(true);
+            engine.start_quick_end_game_timer();
+        });
 
         Ok(ScriptActionResult::Success)
     }
 
-    /// C++ Reference: ScriptActions::doDefeat() line 239
+    /// C++ Reference: ScriptActions::doDefeat() ScriptActions.cpp:215-234
     pub(crate) fn do_defeat(&mut self) -> Result<ScriptActionResult, ScriptError> {
         log::info!("DEFEAT!");
 
@@ -72,34 +75,43 @@ impl ScriptActionDispatcher {
             ctx.suppress_new_windows = false;
         }
 
-        TheVictoryConditions::set_local_allied_victory(false);
-        if let Ok(players) = player_list().read() {
-            if let Some(local_player) = players.get_local_player() {
-                if let Ok(mut guard) = local_player.write() {
-                    guard.set_defeated(true);
-                }
-            }
-        }
+        // C++ ScriptActions.cpp:217-233: closeWindows, GameLogic::closeWindows,
+        // doDisableInput, winCreateFromScript(Defeat/ObserverQuit),
+        // SetVictorious(FALSE), startEndGameTimer.
+        let _ = with_script_engine_mut(|engine| {
+            engine.close_windows(false);
+            engine.close_game_windows();
+        });
         self.do_disable_input()?;
-        let _ = with_script_engine_mut(|engine| engine.start_end_game_timer());
+        let _ = with_script_engine_mut(|engine| {
+            let layout = if engine.should_show_observer_quit_window() {
+                "Menus/ObserverQuit.wnd"
+            } else {
+                "Menus/Defeat.wnd"
+            };
+            engine.create_win_lose_window(layout);
+            engine.set_campaign_victorious(false);
+            engine.start_end_game_timer();
+        });
 
         Ok(ScriptActionResult::Success)
     }
 
-    /// C++ Reference: ScriptActions::doLocalDefeat() line 263
+    /// C++ Reference: ScriptActions::doLocalDefeat() ScriptActions.cpp:239-252
     pub(crate) fn do_local_defeat(&mut self) -> Result<ScriptActionResult, ScriptError> {
         log::info!("LOCAL DEFEAT (multiplayer)");
 
-        TheVictoryConditions::set_local_allied_victory(false);
-        if let Ok(players) = player_list().read() {
-            if let Some(local_player) = players.get_local_player() {
-                if let Ok(mut guard) = local_player.write() {
-                    guard.set_defeated(true);
-                }
-            }
-        }
+        // C++ ScriptActions.cpp:241-251: markMPLocalDefeatWindowShown,
+        // closeWindows, GameLogic::closeWindows, LocalDefeat.wnd when not
+        // observer, SetVictorious(FALSE), startCloseWindowTimer.
         let _ = with_script_engine_mut(|engine| {
             engine.set_shown_mp_local_defeat_window(true);
+            engine.close_windows(false);
+            engine.close_game_windows();
+            if engine.should_show_local_defeat_window() {
+                engine.create_win_lose_window("Menus/LocalDefeat.wnd");
+            }
+            engine.set_campaign_victorious(false);
             engine.start_close_window_timer();
         });
 

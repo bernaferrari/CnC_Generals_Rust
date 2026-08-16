@@ -466,11 +466,9 @@ impl GameClientRandomVariable {
             }
             DistributionType::Uniform => get_game_client_random_value_real(self.low, self.high),
             _ => {
-                // Matches C++ RandomValue.cpp:366-370 - unsupported types crash.
-                panic!(
-                    "unsupported DistributionType {:?} in GameClientRandomVariable::get_value",
-                    self.distribution_type
-                );
+                // C++ GameClientRandomVariable::getValue (RandomValue.cpp:366-369):
+                // DEBUG_CRASH then return 0.0f — release builds just return 0.0.
+                0.0
             }
         }
     }
@@ -524,11 +522,9 @@ impl GameLogicRandomVariable {
             }
             DistributionType::Uniform => get_game_logic_random_value_real(self.low, self.high),
             _ => {
-                // Matches C++ RandomValue.cpp:410-415 - unsupported types crash.
-                panic!(
-                    "unsupported DistributionType {:?} in GameLogicRandomVariable::get_value",
-                    self.distribution_type
-                );
+                // C++ GameLogicRandomVariable::getValue (RandomValue.cpp:410-413):
+                // DEBUG_CRASH then return 0.0f — release builds just return 0.0.
+                0.0
             }
         }
     }
@@ -609,6 +605,36 @@ mod tests {
         init_random_with_seed(54321);
         let expected = get_game_client_random_value_real(5.0, 15.0);
         assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn unsupported_logic_distributions_return_zero_without_panic() {
+        // C++ GameLogicRandomVariable::getValue (RandomValue.cpp:410-413)
+        for dist in [
+            DistributionType::Gaussian,
+            DistributionType::Triangular,
+            DistributionType::LowBias,
+            DistributionType::HighBias,
+        ] {
+            let mut var = GameLogicRandomVariable::new();
+            var.set_range(5.0, 15.0, dist);
+            assert_eq!(var.get_value(), 0.0);
+        }
+    }
+
+    #[test]
+    fn unsupported_client_distributions_return_zero_without_panic() {
+        // C++ GameClientRandomVariable::getValue (RandomValue.cpp:366-369)
+        for dist in [
+            DistributionType::Gaussian,
+            DistributionType::Triangular,
+            DistributionType::LowBias,
+            DistributionType::HighBias,
+        ] {
+            let mut var = GameClientRandomVariable::new();
+            var.set_range(5.0, 15.0, dist);
+            assert_eq!(var.get_value(), 0.0);
+        }
     }
 
     // ============================================================================

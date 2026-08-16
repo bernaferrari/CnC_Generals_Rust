@@ -1301,7 +1301,7 @@ const STEALTH_UPDATE_FIELDS: &[FieldParse<StealthUpdateModuleData>] = &[
 #[cfg(test)]
 mod tests {
     use super::*;
-    use game_engine::common::system::snapshot::Snapshot;
+    use game_engine::common::system::snapshot::Snapshotable;
     use game_engine::common::system::xfer::{XferBlockSize, XferStatus};
     use std::sync::RwLock;
 
@@ -1380,7 +1380,7 @@ mod tests {
             Ok(())
         }
 
-        fn xfer_snapshot(&mut self, _snapshot: &mut Snapshot) -> Result<(), XferStatus> {
+        fn xfer_snapshot(&mut self, _snapshot: &mut dyn Snapshotable) -> Result<(), XferStatus> {
             Ok(())
         }
 

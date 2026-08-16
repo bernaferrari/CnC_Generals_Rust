@@ -1360,6 +1360,11 @@ impl ContainModuleInterface for TransportContain {
         self.is_special_overlord_style_container()
     }
 
+    fn is_rider_change_contain(&self) -> bool {
+        TransportContain::is_rider_change_contain(self)
+    }
+
+
     fn on_containing(
         &mut self,
         obj_id: ObjectID,

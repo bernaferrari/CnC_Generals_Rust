@@ -1030,9 +1030,9 @@ fn save_file_type_for_layout(layout_type: SaveLoadLayoutType) -> SaveFileType {
 
 /// Dispatch a Save through the active host bridge when present.
 ///
-/// `input_provenance` is physical only when the caller is one of the retail
-/// confirmation callbacks below.  The fallback to Common keeps the original
-/// save semantics regardless of the evidence provenance.
+/// Fallback writes C++ `GameState::xferSaveData` 17 named chunks
+/// (`System::SaveGame::GameState::save_game`). Host pause-save now uses the
+/// same container (`SaveFileManager::write_common_sav_chunks`).
 fn dispatch_save_request(
     filename: String,
     description: String,

@@ -2,7 +2,7 @@
 // Saving-specific data transfer functionality
 ///////////////////////////////////////////////////////////////////////////////
 
-use super::snapshot::Snapshot;
+use super::snapshot::Snapshotable;
 use super::xfer::{Xfer, XferBlockSize, XferMode, XferStatus};
 use std::io::{self, Seek, SeekFrom, Write};
 
@@ -106,9 +106,10 @@ impl<W: Write + Seek> Xfer for XferSave<W> {
         Ok(())
     }
 
-    fn xfer_snapshot(&mut self, _snapshot: &mut Snapshot) -> Result<(), XferStatus> {
-        _snapshot
-            .save_to_writer(&mut self.writer)
+    fn xfer_snapshot(&mut self, snapshot: &mut dyn Snapshotable) -> Result<(), XferStatus> {
+        // C++ XferSave::xferSnapshot just runs snapshot->xfer(this).
+        snapshot
+            .xfer(self)
             .map_err(|_| XferStatus::WriteError)
     }
 

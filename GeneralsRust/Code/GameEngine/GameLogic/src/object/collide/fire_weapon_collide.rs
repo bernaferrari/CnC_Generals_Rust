@@ -443,7 +443,7 @@ impl CollideModule for FireWeaponCollide {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use game_engine::common::system::{Snapshot, XferBlockSize, XferMode, XferStatus};
+    use game_engine::common::system::{Snapshotable, XferBlockSize, XferMode, XferStatus};
 
     #[derive(Default)]
     struct CountingCrcXfer {
@@ -488,7 +488,7 @@ mod tests {
             Ok(())
         }
 
-        fn xfer_snapshot(&mut self, _snapshot: &mut Snapshot) -> Result<(), XferStatus> {
+        fn xfer_snapshot(&mut self, _snapshot: &mut dyn Snapshotable) -> Result<(), XferStatus> {
             Ok(())
         }
 

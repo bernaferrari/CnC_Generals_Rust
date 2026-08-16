@@ -385,6 +385,19 @@ impl Default for Anim2DCollection {
     }
 }
 
+static CLIENT_ANIM2D_INSTANCES: std::sync::LazyLock<Mutex<Anim2DCollection>> =
+    std::sync::LazyLock::new(|| Mutex::new(Anim2DCollection::new()));
+
+/// Live client Anim2D instance list (C++ `TheAnim2DCollection`).
+pub fn client_anim2d_instances() -> &'static Mutex<Anim2DCollection> {
+    &CLIENT_ANIM2D_INSTANCES
+}
+
+/// C++ `TheAnim2DCollection->UPDATE()` residual.
+pub fn update_client_anim2d_collection() {
+    client_anim2d_instances().lock().update();
+}
+
 impl Anim2DCollection {
     pub fn new() -> Self {
         Self {

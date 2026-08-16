@@ -28,6 +28,10 @@ impl GameClient {
             return Ok(());
         }
         self.ensure_shell_visible()?;
+        // C++ GameClient.cpp:560-565 — snow + Anim2D before input.
+        self.update_cpp_snow_and_anim2d(SECONDS_PER_LOGICFRAME_REAL);
+        // C++ GameClient.cpp:587-597 — camera follows first selected drawable.
+        self.update_camera_tracking_drawable();
 
         // C++ lines 612-619: window manager and video player update BEFORE drawables
         self.update_pre_draw_ui()?;
@@ -146,6 +150,37 @@ impl GameClient {
         }
 
         Ok(())
+    }
+
+    /// C++ `TheSnowManager->UPDATE()` + `TheAnim2DCollection->UPDATE()`.
+    fn update_cpp_snow_and_anim2d(&self, delta_seconds: f32) {
+        if let Some(snow) = crate::snow::get_snow_manager() {
+            if let Ok(mut guard) = snow.lock() {
+                guard.update(delta_seconds);
+            }
+        }
+        crate::system::update_client_anim2d_collection();
+    }
+
+    /// C++ GameClient.cpp:587-597 — follow first selected drawable or clear flag.
+    fn update_camera_tracking_drawable(&self) {
+        if !crate::helpers::TheInGameUI::is_camera_tracking_drawable() {
+            return;
+        }
+        use crate::drawable::DrawableExt;
+        let tracked = self.drawable_map.values().find_map(|drawable| {
+            drawable
+                .downcast_ref::<crate::drawable::drawable::BasicDrawable>()
+                .filter(|basic| basic.is_selected())
+                .map(|basic| basic.get_position())
+        });
+        if let Some(pos) = tracked {
+            crate::display::view::with_tactical_view(|view| {
+                view.look_at(&crate::display::view::Point3::new(pos.x, pos.y, pos.z));
+            });
+        } else {
+            crate::helpers::TheInGameUI::set_camera_tracking_drawable(false);
+        }
     }
 
     fn update_audio(&mut self) -> GameClientResult<()> {
@@ -1025,6 +1060,9 @@ impl GameClient {
 
         // Startup movies remain Main/runtime-host owned; skip movie branch here.
         self.ensure_shell_visible()?;
+        // C++ GameClient.cpp:560-597 — snow, Anim2D, camera-track (no OS re-poll).
+        self.update_cpp_snow_and_anim2d(delta_time);
+        self.update_camera_tracking_drawable();
         self.update_pre_draw_ui()?;
 
         // C++ visual freeze + script visual-speed residual (same as full update),

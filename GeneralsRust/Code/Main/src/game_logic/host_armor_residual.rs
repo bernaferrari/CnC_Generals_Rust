@@ -938,30 +938,9 @@ fn approx_eq(a: f32, b: f32) -> bool {
 }
 
 /// Map host combat damage class → Armor.ini DamageType residual.
+/// Identity through crate/C++ ordinals (`DamageType::to_store`); no collapse.
 pub fn map_host_damage_type(dt: crate::game_logic::combat::DamageType) -> DamageType {
-    use crate::game_logic::combat::DamageType as H;
-    match dt {
-        H::Bullet => DamageType::SmallArms,
-        H::Explosive => DamageType::Explosion,
-        H::Fire | H::Flame => DamageType::Flame,
-        H::Laser => DamageType::Laser,
-        H::Toxin | H::Anthrax => DamageType::Poison,
-        H::Radiation => DamageType::Radiation,
-        H::EMP => DamageType::Microwave,
-        H::Unresistable => DamageType::Unresistable,
-        H::Falling => DamageType::Falling,
-        H::Status => DamageType::Status,
-        H::KillPilot => DamageType::KillPilot,
-        H::Disarm => DamageType::Disarm,
-        H::Deploy => DamageType::Deploy,
-        H::Hack => DamageType::Hack,
-        H::Surrender => DamageType::Surrender,
-        H::Penalty => DamageType::Penalty,
-        H::KillGarrisoned => DamageType::KillGarrisoned,
-        H::Healing => DamageType::Healing,
-        H::Water => DamageType::Water,
-        H::Crush => DamageType::Crush,
-    }
+    dt.to_store()
 }
 
 /// Pick residual Armor.ini template by host object kind (fail-closed coarse matrix).
@@ -995,6 +974,7 @@ pub fn residual_armor_for_object(obj: &crate::game_logic::Object) -> ArmorTempla
 }
 
 /// Apply residual armor coefficient to raw damage.
+/// C++ `ArmorTemplate::adjustDamage` only (Armor.cpp:43-50).
 pub fn apply_residual_armor(
     obj: &crate::game_logic::Object,
     host_damage_type: crate::game_logic::combat::DamageType,
@@ -1006,48 +986,12 @@ pub fn apply_residual_armor(
 }
 
 /// Map gamelogic / Weapon.ini DamageType → host combat damage class residual.
+/// Keeps all 38 C++ types (Damage.h:26-70); no SUBDUAL_*/Toppling/HazardCleanup
+/// → Unresistable and no Gattling/Sniper/AP/Melee/missile collapse to Bullet.
 pub fn map_store_damage_type(
     dt: gamelogic::damage::DamageType,
 ) -> crate::game_logic::combat::DamageType {
-    use crate::game_logic::combat::DamageType as H;
-    use gamelogic::damage::DamageType as G;
-    match dt {
-        G::Explosion | G::LandMine | G::AuroraBomb | G::MolotovCocktail => H::Explosive,
-        G::Flame => H::Flame,
-        G::Laser | G::ParticleBeam => H::Laser,
-        G::Poison => H::Toxin,
-        G::Radiation => H::Radiation,
-        G::Microwave => H::EMP,
-        G::Falling => H::Falling,
-        G::Status => H::Status,
-        G::KillPilot => H::KillPilot,
-        G::Disarm => H::Disarm,
-        G::Deploy => H::Deploy,
-        G::Hack => H::Hack,
-        G::Surrender => H::Surrender,
-        G::Penalty => H::Penalty,
-        G::KillGarrisoned => H::KillGarrisoned,
-        G::Healing => H::Healing,
-        G::Water => H::Water,
-        G::Crush => H::Crush,
-        G::Unresistable
-        | G::Toppling
-        | G::SubdualMissile
-        | G::SubdualVehicle
-        | G::SubdualBuilding
-        | G::SubdualUnresistable
-        | G::HazardCleanup => H::Unresistable,
-        G::SmallArms
-        | G::ComancheVulcan
-        | G::Melee
-        | G::ArmorPiercing
-        | G::InfantryMissile
-        | G::JetMissiles
-        | G::StealthJetMissiles
-        | G::Gattling
-        | G::Sniper => H::Bullet,
-        _ => H::Bullet,
-    }
+    crate::game_logic::combat::DamageType::from_store(dt)
 }
 
 /// Look up Weapon.ini DamageType residual by weapon template name.
@@ -1193,6 +1137,51 @@ mod tests {
         assert_eq!(
             map_store_damage_type(G::SmallArms),
             crate::game_logic::combat::DamageType::Bullet
+        );
+    }
+
+    #[test]
+    fn store_damage_type_keeps_cpp_38_without_collapse() {
+        // C++ Damage.h:26-70 / ArmorTemplate::adjustDamage — live map_store_damage_type
+        // must not collapse SUBDUAL_* / Toppling / HazardCleanup to Unresistable,
+        // or Gattling / Sniper / AP / Melee / missiles to Bullet.
+        use crate::game_logic::combat::DamageType as H;
+        use gamelogic::damage::DamageType as G;
+        assert_eq!(map_store_damage_type(G::SubdualMissile), H::SubdualMissile);
+        assert_eq!(map_store_damage_type(G::SubdualVehicle), H::SubdualVehicle);
+        assert_eq!(map_store_damage_type(G::SubdualBuilding), H::SubdualBuilding);
+        assert_eq!(
+            map_store_damage_type(G::SubdualUnresistable),
+            H::SubdualUnresistable
+        );
+        assert_eq!(map_store_damage_type(G::Toppling), H::Toppling);
+        assert_eq!(map_store_damage_type(G::HazardCleanup), H::HazardCleanup);
+        assert_eq!(map_store_damage_type(G::Gattling), H::Gattling);
+        assert_eq!(map_store_damage_type(G::Sniper), H::Sniper);
+        assert_eq!(map_store_damage_type(G::ArmorPiercing), H::ArmorPiercing);
+        assert_eq!(map_store_damage_type(G::Melee), H::Melee);
+        assert_eq!(map_store_damage_type(G::InfantryMissile), H::InfantryMissile);
+        assert_eq!(map_store_damage_type(G::JetMissiles), H::JetMissiles);
+        assert_eq!(
+            map_store_damage_type(G::StealthJetMissiles),
+            H::StealthJetMissiles
+        );
+        assert_eq!(map_store_damage_type(G::ComancheVulcan), H::ComancheVulcan);
+        assert_ne!(map_store_damage_type(G::SubdualMissile), H::Unresistable);
+        assert_ne!(map_store_damage_type(G::Gattling), H::Bullet);
+        assert_eq!(
+            map_host_damage_type(H::SubdualMissile),
+            DamageType::SubdualMissile
+        );
+        assert_eq!(map_host_damage_type(H::Gattling), DamageType::Gattling);
+    }
+
+    #[test]
+    fn gattling_weapon_name_stays_gattling() {
+        let _ = crate::game_logic::weapon_bootstrap::ensure_host_weapon_store();
+        assert_eq!(
+            host_damage_type_for_weapon_name("GattlingTankGun"),
+            crate::game_logic::combat::DamageType::Gattling
         );
     }
 

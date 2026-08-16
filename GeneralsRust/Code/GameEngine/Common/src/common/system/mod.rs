@@ -61,7 +61,9 @@ pub use geometry::{
     BoundingBox, Coord3D, GeometryInfo, GeometryType, Matrix3D, Point2D, Point3D, Rectangle,
 };
 pub use scene_submission::{SceneLineDesc, SceneLineId, SceneSubmission};
-pub use snapshot::{Snapshot, SnapshotManager, Snapshotable};
+pub use snapshot::Snapshotable;
+#[cfg(test)]
+pub use snapshot::{Snapshot, SnapshotManager};
 pub use subsystem_interface::{SubsystemInterface, SubsystemResult, SubsystemState};
 pub use xfer::{
     Color, ICoord2D, ICoord3D, IRegion2D, IRegion3D, RGBAColorInt, RGBAColorReal, RGBColor,

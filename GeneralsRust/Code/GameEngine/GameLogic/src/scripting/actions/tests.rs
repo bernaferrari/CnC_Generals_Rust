@@ -1355,3 +1355,111 @@ async fn create_explosion_dispatches_fx_at_position() {
         )]
     );
 }
+
+#[tokio::test]
+async fn enable_disable_execute_script_actions_call_live_script_engine() {
+    // C++ ScriptEngine::enableScript/disableScript/executeScript
+    // ScriptEngine.cpp:6797-6823 / CALL_SUBROUTINE execute path.
+    reset_test_script_engine();
+
+    {
+        let engine = get_script_engine();
+        let mut guard = engine.write().unwrap();
+        let engine = guard.as_mut().unwrap();
+
+        let mut member = crate::scripting::core::Script::new();
+        member.script_name = "Toggle Group Member".to_string();
+        member.is_subroutine = true;
+        member.is_one_shot = false;
+        member.condition = Some({
+            let mut or_condition = crate::scripting::core::OrCondition::new();
+            or_condition.set_first_and_condition(Some(Box::new(
+                crate::scripting::core::Condition::new(
+                    crate::scripting::core::ConditionType::ConditionTrue,
+                ),
+            )));
+            Box::new(or_condition)
+        });
+        member.action = Some({
+            let mut action =
+                crate::scripting::core::ScriptAction::new(crate::scripting::core::ScriptActionType::SetFlag);
+            action
+                .add_parameter(crate::scripting::core::Parameter::with_string(
+                    crate::scripting::core::ParameterType::Flag,
+                    "registry_toggle_fired".to_string(),
+                ))
+                .unwrap();
+            action
+                .add_parameter(crate::scripting::core::Parameter::with_int(
+                    crate::scripting::core::ParameterType::Boolean,
+                    1,
+                ))
+                .unwrap();
+            Box::new(action)
+        });
+
+        let mut list = crate::scripting::core::ScriptList::new();
+        list.append_script(Box::new(member));
+        engine
+            .set_script_list_for_player(0, Some(Box::new(list)))
+            .unwrap();
+        assert!(engine.set_script_active_by_name("Toggle Group Member", false));
+    }
+
+    let mut params = HashMap::new();
+    params.insert(
+        "script_name".to_string(),
+        ScriptValue::String("Toggle Group Member".to_string()),
+    );
+
+    EnableScriptAction
+        .execute(&params, &test_context())
+        .await
+        .unwrap();
+    {
+        let engine = get_script_engine();
+        let guard = engine.read().unwrap();
+        let is_active = guard
+            .as_ref()
+            .unwrap()
+            .find_script_clone_by_name("Toggle Group Member")
+            .map(|script| script.is_active)
+            .expect("script present");
+        assert!(is_active, "enable_script must mutate live ScriptEngine");
+    }
+
+    ExecuteScriptAction
+        .execute(&params, &test_context())
+        .await
+        .unwrap();
+    {
+        let engine = get_script_engine();
+        let guard = engine.read().unwrap();
+        assert!(
+            guard
+                .as_ref()
+                .unwrap()
+                .get_flag("registry_toggle_fired")
+                .unwrap()
+                .value,
+            "execute_script must run the live ScriptEngine subroutine"
+        );
+    }
+
+    DisableScriptAction
+        .execute(&params, &test_context())
+        .await
+        .unwrap();
+    {
+        let engine = get_script_engine();
+        let guard = engine.read().unwrap();
+        let is_active = guard
+            .as_ref()
+            .unwrap()
+            .find_script_clone_by_name("Toggle Group Member")
+            .map(|script| script.is_active)
+            .expect("script present");
+        assert!(!is_active, "disable_script must mutate live ScriptEngine");
+    }
+}
+

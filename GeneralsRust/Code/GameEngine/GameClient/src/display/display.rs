@@ -13,6 +13,7 @@ use crate::effects::particle_renderer::{
 };
 use crate::effects::weather_complete::get_weather_system;
 use crate::fx_list::get_decal_manager;
+use crate::radius_decal::get_projected_shadow_manager;
 use crate::game_text::GameText;
 use crate::gui::display_string::{get_display_string_manager, DisplayStringHandle};
 use crate::gui::font::{get_font_library, FontDesc};
@@ -896,22 +897,31 @@ impl DisplayInterface for Display {
                     }
                 }
             }
-            if let Some(manager) = get_decal_manager() {
-                if let Ok(guard) = manager.lock() {
-                    let decals = guard.collect_render_items();
-                    if !decals.is_empty() {
-                        let mut uniforms = self.build_particle_uniforms();
-                        uniforms.particle_count = decals.len() as u32;
-                        if let Ok(mut renderer_guard) = renderer.lock() {
-                            renderer_guard.render_decals(
-                                &mut encoder,
-                                &view,
-                                &self.depth_view,
-                                &decals,
-                                &uniforms,
-                            );
-                        }
-                    }
+            let mut decals = if let Some(manager) = get_decal_manager() {
+                manager
+                    .lock()
+                    .map(|guard| guard.collect_render_items())
+                    .unwrap_or_default()
+            } else {
+                Vec::new()
+            };
+            // C++ W3DProjectedShadowManager::flushDecals — radius delivery rings.
+            decals.extend(
+                get_projected_shadow_manager()
+                    .read()
+                    .collect_render_items(),
+            );
+            if !decals.is_empty() {
+                let mut uniforms = self.build_particle_uniforms();
+                uniforms.particle_count = decals.len() as u32;
+                if let Ok(mut renderer_guard) = renderer.lock() {
+                    renderer_guard.render_decals(
+                        &mut encoder,
+                        &view,
+                        &self.depth_view,
+                        &decals,
+                        &uniforms,
+                    );
                 }
             }
         }

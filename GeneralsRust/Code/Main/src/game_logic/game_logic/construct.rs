@@ -620,6 +620,7 @@ impl GameLogic {
             runtime_terrain_texture_classes: Vec::new(),
             pathfinding_height_samples: None,
             weather_state: RuntimeWeatherState::default(),
+            host_sleepy: super::world_tick::HostSleepyHeap::new(),
         };
         instance.rebuild_objective_lookup();
         instance

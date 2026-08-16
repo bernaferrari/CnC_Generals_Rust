@@ -111,70 +111,110 @@ impl WWMath {
         (val.to_bits() & 0x8000_0000) == 0
     }
 
-    /// Check if a number is a power of 2
+    /// Check if a number is a power of 2.
+    ///
+    /// C++ `WWMath::Is_Power_Of_2` (`wwmath.h:161-163`) is `!((val)&val-1)`.
+    /// That expression is true for `0` (unsigned wrap of `val-1`).
     pub fn is_power_of_2(val: u32) -> bool {
-        val != 0 && (val & (val - 1)) == 0
+        (val & val.wrapping_sub(1)) == 0
     }
 
-    /// Clamp a float value to a range
+    /// Clamp a float value to a range.
+    ///
+    /// C++ `WWMath::Clamp` (`wwmath.h:171-176`) uses comparison chains, so a
+    /// NaN `val` is returned unchanged instead of being dropped by `f32::min/max`.
     pub fn clamp(val: f32, min: f32, max: f32) -> f32 {
-        val.max(min).min(max)
+        if val < min {
+            return min;
+        }
+        if val > max {
+            return max;
+        }
+        val
     }
 
-    /// Clamp a double value to a range
+    /// Clamp a double value to a range (C++ `WWMath::Clamp`, `wwmath.h:178-183`).
     pub fn clamp_double(val: f64, min: f64, max: f64) -> f64 {
-        val.max(min).min(max)
+        if val < min {
+            return min;
+        }
+        if val > max {
+            return max;
+        }
+        val
     }
 
     /// Clamp an integer value to a range
     pub fn clamp_int(val: i32, min_val: i32, max_val: i32) -> i32 {
-        val.max(min_val).min(max_val)
+        if val < min_val {
+            return min_val;
+        }
+        if val > max_val {
+            return max_val;
+        }
+        val
     }
 
-    /// Wrap a float value to a range (handles periodic values)
+    /// Wrap a float value to a range (handles periodic values).
+    ///
+    /// C++ `WWMath::Wrap` (`wwmath.h:192-204`) does one subtract/add, then clamps.
+    /// `wrap(2.5, 0, 1)` therefore returns `1.0`, not a fully reduced `0.5`.
     pub fn wrap(val: f32, min: f32, max: f32) -> f32 {
         let range = max - min;
-        if range == 0.0 {
-            return min;
-        }
-
         let mut value = val;
-        while value >= max {
+        if value >= max {
             value -= range;
         }
-        while value < min {
+        if value < min {
             value += range;
         }
-
-        value.clamp(min, max)
+        if value < min {
+            value = min;
+        }
+        if value > max {
+            value = max;
+        }
+        value
     }
 
-    /// Wrap a double value to a range (handles periodic values)
+    /// Wrap a double value to a range (C++ `WWMath::Wrap`, `wwmath.h:207-218`).
     pub fn wrap_double(val: f64, min: f64, max: f64) -> f64 {
         let range = max - min;
-        if range == 0.0 {
-            return min;
-        }
-
         let mut value = val;
-        while value >= max {
+        if value >= max {
             value -= range;
         }
-        while value < min {
+        if value < min {
             value += range;
         }
-
-        value.clamp(min, max)
+        if value < min {
+            value = min;
+        }
+        if value > max {
+            value = max;
+        }
+        value
     }
 
-    /// Get the minimum of two floats
+    /// Get the minimum of two floats.
+    ///
+    /// C++ `WWMath::Min` (`wwmath.h:221-225`): `if (a<b) return a; return b;`
+    /// so `min(1.0, NaN)` is NaN and `min(NaN, 1.0)` is `1.0`.
     pub fn min(a: f32, b: f32) -> f32 {
-        a.min(b)
+        if a < b {
+            a
+        } else {
+            b
+        }
     }
 
-    /// Get the maximum of two floats
+    /// Get the maximum of two floats (C++ `WWMath::Max`, `wwmath.h:227-231`).
     pub fn max(a: f32, b: f32) -> f32 {
-        a.max(b)
+        if a > b {
+            a
+        } else {
+            b
+        }
     }
 
     /// Linear interpolation between two floats
@@ -444,9 +484,18 @@ impl WWMath {
         deg * DEG_TO_RAD as f64
     }
 
-    /// Better random number generator matching C++ behavior
+    /// Advance an MSVC-style LCG and return the 12 bits `Random_Float` uses.
+    ///
+    /// C++ `WWMath::Random_Float` (`wwmath.cpp:41-43`) is `(rand() & 0xFFF) / 0xFFF`.
+    /// MSVC `rand()` returns bits 16-30 of the LCG state, not `state & 0xFFF`.
+    pub fn extract_msvc_rand_12bit(state: u32) -> (u32, u32) {
+        let next = state.wrapping_mul(1103515245).wrapping_add(12345);
+        let rand_bits = (next >> 16) & 0x7FFF;
+        (next, rand_bits & 0xFFF)
+    }
+
+    /// Better random number generator matching C++ `WWMath::Random_Float`.
     pub fn random_float_improved() -> f32 {
-        // Use a simple LCG similar to the C++ rand() & 0xFFF approach
         use std::cell::RefCell;
 
         thread_local! {
@@ -455,9 +504,9 @@ impl WWMath {
 
         RNG_STATE.with(|state| {
             let mut s = state.borrow_mut();
-            // Linear congruential generator
-            *s = s.wrapping_mul(1103515245).wrapping_add(12345);
-            ((*s & 0xFFF) as f32) / 0xFFF as f32
+            let (next, bits) = Self::extract_msvc_rand_12bit(*s);
+            *s = next;
+            (bits as f32) / 0xFFF as f32
         })
     }
 
@@ -831,6 +880,8 @@ mod tests {
         assert_eq!(WWMath::clamp(5.0, 0.0, 10.0), 5.0);
         assert_eq!(WWMath::clamp(-5.0, 0.0, 10.0), 0.0);
         assert_eq!(WWMath::clamp(15.0, 0.0, 10.0), 10.0);
+        // C++ WWMath::Clamp (wwmath.h:171-176) comparison chain keeps NaN.
+        assert!(WWMath::clamp(f32::NAN, 0.0, 1.0).is_nan());
     }
 
     #[test]
@@ -855,7 +906,8 @@ mod tests {
         assert!(WWMath::is_power_of_2(8));
         assert!(!WWMath::is_power_of_2(3));
         assert!(!WWMath::is_power_of_2(6));
-        assert!(!WWMath::is_power_of_2(0));
+        // C++ WWMath::Is_Power_Of_2 (wwmath.h:161-163) is true for 0.
+        assert!(WWMath::is_power_of_2(0));
     }
 
     #[test]
@@ -863,12 +915,20 @@ mod tests {
         assert_eq!(WWMath::wrap(5.0, 0.0, 10.0), 5.0);
         assert_eq!(WWMath::wrap(15.0, 0.0, 10.0), 5.0);
         assert_eq!(WWMath::wrap(-5.0, 0.0, 10.0), 5.0);
+        // C++ WWMath::Wrap (wwmath.h:192-204): one subtract then clamp, not a loop.
+        assert_eq!(WWMath::wrap(2.5, 0.0, 1.0), 1.0);
+        assert_eq!(WWMath::wrap_double(2.5, 0.0, 1.0), 1.0);
     }
 
     #[test]
     fn test_min_max() {
         assert_eq!(WWMath::min(5.0, 10.0), 5.0);
         assert_eq!(WWMath::max(5.0, 10.0), 10.0);
+        // C++ WWMath::Min/Max (wwmath.h:221-231) comparison chains.
+        assert!(WWMath::min(1.0, f32::NAN).is_nan());
+        assert_eq!(WWMath::min(f32::NAN, 1.0), 1.0);
+        assert!(WWMath::max(1.0, f32::NAN).is_nan());
+        assert_eq!(WWMath::max(f32::NAN, 1.0), 1.0);
     }
 
     #[test]
@@ -1005,5 +1065,22 @@ mod tests {
                 val
             );
         }
+    }
+
+    #[test]
+    fn test_random_float_uses_msvc_rand_bit_extraction() {
+        // C++ wwmath.cpp:41-43 Random_Float = (rand() & 0xFFF) / (float)0xFFF
+        // MSVC rand() returns (state >> 16) & 0x7FFF, not the low 12 state bits.
+        let seed = 1u32;
+        let state_after = seed.wrapping_mul(1103515245).wrapping_add(12345);
+        let full_state_low12 = state_after & 0xFFF;
+        let msvc_12 = (state_after >> 16) & 0x7FFF & 0xFFF;
+        assert_ne!(
+            full_state_low12, msvc_12,
+            "seed-1 must distinguish full-state & 0xFFF from MSVC bits 16-30"
+        );
+        let (next, bits) = WWMath::extract_msvc_rand_12bit(seed);
+        assert_eq!(next, state_after);
+        assert_eq!(bits, msvc_12);
     }
 }

@@ -1252,16 +1252,52 @@ impl TerrainLogic {
         };
 
         if let Some(n) = normal {
-            let dx = (p1 - p0) / MAP_XY_FACTOR;
-            let dy = (p3 - p0) / MAP_XY_FACTOR;
-            let mut nx = -dx;
-            let mut ny = -dy;
-            let mut nz = 1.0;
+            // C++ BaseHeightMapRenderObjClass::getHeightMapHeight (BaseHeightMap.cpp:914-970)
+            // bilinearly smooths deltaZ_X/deltaZ_Y over 4 samples each (12 neighbors),
+            // then builds l2r/n2f and a normalized cross product.
+            let d0 = p0;
+            let d1 = p1;
+            let d2 = p2;
+            let d3 = p3;
+            let d4 = get_height_sample(ix, iy - 1);
+            let d5 = get_height_sample(ix + 1, iy - 1);
+            let d6 = get_height_sample(ix + 2, iy);
+            let d7 = get_height_sample(ix + 2, iy + 1);
+            let d8 = get_height_sample(ix + 1, iy + 2);
+            let d9 = get_height_sample(ix, iy + 2);
+            let _d10 = get_height_sample(ix - 1, iy + 1);
+            let d11 = get_height_sample(ix - 1, iy);
+
+            let delta_z_x0 = d1 - d11;
+            let delta_z_x1 = d6 - d0;
+            let delta_z_x2 = d7 - d3;
+            let delta_z_x3 = d6 - d0;
+            let delta_z_y0 = d3 - d4;
+            let delta_z_y1 = d2 - d5;
+            let delta_z_y2 = d8 - d1;
+            let delta_z_y3 = d9 - d0;
+
+            let delta_z_x_left = delta_z_x0 * (1.0 - fx) + fx * delta_z_x3;
+            let delta_z_x_right = delta_z_x1 * (1.0 - fx) + fx * delta_z_x2;
+            let delta_z_x = delta_z_x_left * (1.0 - fy) + fy * delta_z_x_right;
+            let delta_z_y_left = delta_z_y0 * (1.0 - fx) + fx * delta_z_y3;
+            let delta_z_y_right = delta_z_y1 * (1.0 - fx) + fx * delta_z_y2;
+            let delta_z_y = delta_z_y_left * (1.0 - fy) + fy * delta_z_y_right;
+
+            let l2r_x = 2.0 * MAP_XY_FACTOR / MAP_HEIGHT_SCALE;
+            let n2f_y = 2.0 * MAP_XY_FACTOR / MAP_HEIGHT_SCALE;
+            let mut nx = 0.0 * delta_z_y - n2f_y * delta_z_x;
+            let mut ny = delta_z_x * 0.0 - l2r_x * delta_z_y;
+            let mut nz = l2r_x * n2f_y - 0.0 * 0.0;
             let len = (nx * nx + ny * ny + nz * nz).sqrt();
             if len > f32::EPSILON {
                 nx /= len;
                 ny /= len;
                 nz /= len;
+            } else {
+                nx = 0.0;
+                ny = 0.0;
+                nz = 1.0;
             }
             *n = Coord3D::new(nx, ny, nz);
         }
@@ -2501,6 +2537,65 @@ impl TerrainLogic {
         self.delete_bridge_at(location)
     }
 
+    /// C++ TerrainLogic::loadPostProcess (TerrainLogic.cpp:2994-3009):
+    /// delete any bridge whose `bridgeObjectID` no longer resolves.
+    pub fn load_post_process(&mut self) {
+        let mut orphan_ids = Vec::new();
+        let mut current = self.bridge_list_head.as_deref();
+        while let Some(bridge) = current {
+            let id = bridge.get_bridge_info().bridge_object_id;
+            if crate::helpers::TheGameLogic::find_object_by_id(id).is_none() {
+                orphan_ids.push(id);
+            }
+            current = bridge.next.as_deref();
+        }
+        for id in orphan_ids {
+            self.delete_bridge_by_object_id(id);
+        }
+    }
+
+    fn delete_bridge_by_object_id(&mut self, bridge_object_id: ObjectID) -> bool {
+        let mut current = self.bridge_list_head.as_deref();
+        let mut found_layer = None;
+        while let Some(bridge) = current {
+            if bridge.get_bridge_info().bridge_object_id == bridge_object_id {
+                found_layer = Some(bridge.get_layer());
+                break;
+            }
+            current = bridge.next.as_deref();
+        }
+        let Some(bridge_layer) = found_layer else {
+            return false;
+        };
+
+        if let Some(ai_guard) = THE_AI.read().ok() {
+            if let Some(pathfinder) = ai_guard.pathfinder() {
+                if let Ok(mut pathfinder_guard) = pathfinder.write() {
+                    pathfinder_guard.change_bridge_state(bridge_layer, false);
+                }
+            }
+        }
+
+        if bridge_object_id != crate::common::INVALID_ID {
+            let _ = crate::helpers::TheGameLogic::destroy_object_by_id(bridge_object_id);
+        }
+
+        let mut link = &mut self.bridge_list_head;
+        loop {
+            let should_remove = match link.as_ref() {
+                Some(bridge) => bridge.get_bridge_info().bridge_object_id == bridge_object_id,
+                None => return false,
+            };
+            if should_remove {
+                let next = link.as_mut().and_then(|bridge| bridge.next.take());
+                *link = next;
+                self.bridge_damage_states_changed = true;
+                return true;
+            }
+            link = &mut link.as_mut().expect("bridge node exists").next;
+        }
+    }
+
     /// Enable/disable water grid
     pub fn enable_water_grid(&mut self, enable: bool) {
         self.water_grid_enabled = enable;
@@ -2551,6 +2646,61 @@ impl TerrainLogic {
     pub fn get_active_boundary(&self) -> i32 {
         self.active_boundary
     }
+
+    /// C++ `WorldHeightMap` extent used by `W3DTerrainVisual::xfer` v>=2.
+    pub fn logic_height_map_extents(&self) -> (i32, i32) {
+        (self.map_dx, self.map_dy)
+    }
+
+    /// Raw logic-height bytes (`m_logicHeightMap->getDataPtr()`).
+    pub fn logic_height_map_bytes(&self) -> &[u8] {
+        &self.map_data
+    }
+
+    /// Apply C++ `W3DTerrainVisual::xfer` v>=2 height-map payload.
+    /// Copies `min(len, xferLen)` into the existing buffer, then notifies the
+    /// visual (`staticLightingChanged`).
+    pub fn apply_logic_height_map_bytes(&mut self, data: &[u8]) {
+        if self.map_data.is_empty() || self.map_dx <= 0 || self.map_dy <= 0 {
+            if data.is_empty() {
+                return;
+            }
+            self.map_data = data.to_vec();
+            return;
+        }
+        let mut len = (self.map_dx as usize).saturating_mul(self.map_dy as usize);
+        len = len.min(self.map_data.len()).min(data.len());
+        self.map_data[..len].copy_from_slice(&data[..len]);
+        if let Some(visual) = crate::helpers::TheTerrainVisual::get() {
+            visual.static_lighting_changed();
+        }
+    }
+
+    /// Restore host `TerrainSnapshot` logic heights after load.
+    pub fn restore_logic_height_map(&mut self, width: i32, height: i32, data: &[u8]) {
+        if width <= 0 || height <= 0 {
+            return;
+        }
+        let expected = (width as usize).saturating_mul(height as usize);
+        if expected == 0 {
+            return;
+        }
+        self.map_dx = width;
+        self.map_dy = height;
+        self.map_data = vec![0u8; expected];
+        let n = expected.min(data.len());
+        self.map_data[..n].copy_from_slice(&data[..n]);
+        if let Some((&min_height, &max_height)) =
+            self.map_data.iter().min().zip(self.map_data.iter().max())
+        {
+            self.map_min_z = min_height as f32 * MAP_HEIGHT_SCALE;
+            self.map_max_z = max_height as f32 * MAP_HEIGHT_SCALE;
+        }
+        if let Some(visual) = crate::helpers::TheTerrainVisual::get() {
+            visual.static_lighting_changed();
+        }
+    }
+
 
     /// Set active boundary
     pub fn set_active_boundary(&mut self, new_active_boundary: i32) {
@@ -2782,11 +2932,15 @@ impl TerrainLogic {
     }
 
     /// Set raw map height at grid position — only lowers, never raises.
-    /// Reference: C++ W3DTerrainVisual::setRawMapHeight() in W3DTerrainVisual.cpp
+    /// Reference: C++ W3DTerrainVisual::setRawMapHeight() in W3DTerrainVisual.cpp:909-937
     ///
-    /// The C++ implementation only writes if the new height is lower than
-    /// the current height, and accounts for border size offset.
+    /// C++ adds getBorderSizeInline() to the incoming playable-grid coords
+    /// before indexing the full (playable + 2*border) height buffer.
     fn set_raw_map_height(&mut self, x: i32, y: i32, height: i32) {
+        let playable_x = x;
+        let playable_y = y;
+        let x = x + self.border_size.max(0);
+        let y = y + self.border_size.max(0);
         if x < 0 || y < 0 || x >= self.map_dx || y >= self.map_dy {
             return;
         }
@@ -2797,12 +2951,19 @@ impl TerrainLogic {
         let height_clamped = height.max(0).min(255) as u8;
         if self.map_data[idx] > height_clamped {
             self.map_data[idx] = height_clamped;
+            // C++ W3DTerrainVisual::setRawMapHeight (W3DTerrainVisual.cpp:923-924)
+            // writes the golden logic map then calls staticLightingChanged().
+            if let Some(visual) = crate::helpers::TheTerrainVisual::get() {
+                visual.set_raw_map_height(playable_x, playable_y, height);
+            }
         }
     }
 
     /// Get raw map height at grid position.
-    /// Reference: C++ W3DTerrainVisual::getRawMapHeight() in W3DTerrainVisual.cpp
+    /// Reference: C++ W3DTerrainVisual::getRawMapHeight() in W3DTerrainVisual.cpp:941-951
     fn get_raw_map_height(&self, x: i32, y: i32) -> i32 {
+        let x = x + self.border_size.max(0);
+        let y = y + self.border_size.max(0);
         if x < 0 || y < 0 || x >= self.map_dx || y >= self.map_dy {
             return 0;
         }
@@ -3828,6 +3989,103 @@ mod tests {
             "Height with border offset: got {}, expected {}",
             h,
             expected
+        );
+    }
+
+    #[test]
+    fn set_raw_map_height_applies_border_offset_like_cpp() {
+        // C++ W3DTerrainVisual::setRawMapHeight (W3DTerrainVisual.cpp:918-923)
+        // adds getBorderSizeInline() before indexing the full height buffer.
+        let mut heightmap = vec![200u8; 6 * 6];
+        let mut map_data = map_data_with_heightmap(4, 4, heightmap);
+        map_data.border_size = 1;
+        let mut terrain = TerrainLogic::new();
+        terrain.load_map_data(map_data);
+
+        terrain.set_raw_map_height(0, 0, 50);
+        assert_eq!(
+            terrain.get_raw_map_height(0, 0),
+            50,
+            "playable (0,0) must read the border-offset cell"
+        );
+        assert_eq!(
+            terrain.map_data[1 + 1 * 6],
+            50,
+            "set_raw_map_height(0,0) must write buffer (border,border)"
+        );
+        assert_eq!(
+            terrain.map_data[0], 200,
+            "border cell (0,0) must stay untouched when writing playable (0,0)"
+        );
+    }
+
+    #[test]
+    fn set_raw_map_height_notifies_visual_static_lighting_like_cpp() {
+        // C++ W3DTerrainVisual::setRawMapHeight (W3DTerrainVisual.cpp:923-924)
+        // writes the golden logic map then calls staticLightingChanged().
+        use std::sync::atomic::{AtomicU32, Ordering};
+        static CALLS: AtomicU32 = AtomicU32::new(0);
+        CALLS.store(0, Ordering::SeqCst);
+        crate::helpers::register_terrain_visual_raw_height_hook(Some(|x, y, height| {
+            CALLS.fetch_add(1, Ordering::SeqCst);
+            assert_eq!((x, y, height), (0, 0, 50));
+        }));
+
+        let heightmap = vec![200u8; 6 * 6];
+        let mut map_data = map_data_with_heightmap(4, 4, heightmap);
+        map_data.border_size = 1;
+        let mut terrain = TerrainLogic::new();
+        terrain.load_map_data(map_data);
+        terrain.set_raw_map_height(0, 0, 50);
+        crate::helpers::register_terrain_visual_raw_height_hook(None);
+        assert_eq!(CALLS.load(Ordering::SeqCst), 1);
+    }
+
+
+    #[test]
+    fn load_post_process_deletes_bridges_whose_object_id_is_gone() {
+        // C++ TerrainLogic::loadPostProcess (TerrainLogic.cpp:2994-3009)
+        let bridge_info = TerrainLogic::bridge_info_from_parts(
+            Coord3D::new(10.0, 20.0, 0.0),
+            0.0,
+            6.0,
+            2.0,
+            42,
+        );
+        let mut terrain = TerrainLogic::new();
+        let mut bridge = Box::new(Bridge::new(bridge_info, AsciiString::from("OrphanBridge")));
+        bridge.set_layer(PathfindLayerEnum::Bridge1);
+        terrain.bridge_list_head = Some(bridge);
+
+        assert!(terrain.get_first_bridge().is_some());
+        terrain.load_post_process();
+        assert!(
+            terrain.get_first_bridge().is_none(),
+            "orphan bridgeObjectID must be pruned after loadPostProcess"
+        );
+    }
+
+    #[test]
+    fn get_ground_height_normal_uses_cpp_12_neighbor_smoothing() {
+        // C++ BaseHeightMap.cpp:914-970. A left-neighbor step changes deltaZ_X
+        // under the 12-point filter; the old 2-sample (p1-p0) path stays flat.
+        let mut heightmap = vec![100u8; 5 * 5];
+        heightmap[0 + 1 * 5] = 50; // d11 at (ix-1, iy) when sampling cell (1,1)
+        let map_data = map_data_with_heightmap(5, 5, heightmap);
+        let mut terrain = TerrainLogic::new();
+        terrain.load_map_data(map_data);
+
+        let mut normal = Coord3D::new(0.0, 0.0, 0.0);
+        let _h = terrain.get_ground_height(MAP_XY_FACTOR, MAP_XY_FACTOR, Some(&mut normal));
+        assert!(
+            normal.x.abs() > 0.05,
+            "12-neighbor deltaZ_X must tilt the normal, got {normal:?}"
+        );
+        assert!(normal.z > 0.0, "smoothed normal should still point up");
+        let len = (normal.x * normal.x + normal.y * normal.y + normal.z * normal.z).sqrt();
+        assert!(
+            (len - 1.0).abs() < 0.01,
+            "normal must be unit length, len={len}"
         );
     }
 

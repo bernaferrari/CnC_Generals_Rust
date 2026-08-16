@@ -575,6 +575,19 @@ impl SnapshotBuilder {
         terrain_snapshot: &TerrainSnapshot,
         game_logic: &mut GameLogic,
     ) -> SaveLoadResult<()> {
+        if terrain_snapshot.logic_width > 0
+            && terrain_snapshot.logic_height > 0
+            && !terrain_snapshot.logic_heights.is_empty()
+        {
+            if let Ok(mut terrain) = gamelogic::terrain::get_terrain_logic().write() {
+                terrain.restore_logic_height_map(
+                    terrain_snapshot.logic_width as i32,
+                    terrain_snapshot.logic_height as i32,
+                    &terrain_snapshot.logic_heights,
+                );
+            }
+        }
+
         if terrain_snapshot.width == 0 || terrain_snapshot.height == 0 {
             return Ok(());
         }
@@ -642,6 +655,7 @@ impl SnapshotBuilder {
 
         Ok(())
     }
+
 
     pub(super) fn restore_weather(
         &self,

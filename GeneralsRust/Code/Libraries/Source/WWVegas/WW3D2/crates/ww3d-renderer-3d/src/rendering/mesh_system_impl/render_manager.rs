@@ -463,6 +463,41 @@ impl MeshRenderManager {
         self.depth_format = depth_format;
     }
 
+    /// C++ `W3DProjectedShadowManager::updateRenderTargetTextures` fills the
+    /// shadow map before the scene. This first-light pass clears each cascade
+    /// layer to 1.0 (empty occluder set) then publishes matrices with
+    /// `enabled = true` so opaque.wgsl PCF-samples a defined map.
+    pub fn update_and_fill_live_cascade(
+        &mut self,
+        encoder: &mut wgpu::CommandEncoder,
+        render_info: &RenderInfoClass,
+    ) {
+        for view in &self.live_csm.layer_views {
+            let _pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("live_csm_first_light_depth"),
+                color_attachments: &[],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(1.0),
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
+                }),
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+        }
+        let light_direction = live_cascade_light_direction(render_info);
+        self.live_csm.update(
+            self.gpu_device.queue(),
+            render_info.camera.get_position(),
+            render_info.camera.get_forward(),
+            light_direction,
+            true,
+        );
+    }
+
     pub fn render_pass(
         &mut self,
         render_pass: &mut wgpu::RenderPass<'_>,
@@ -1319,4 +1354,65 @@ mod per_mesh_lighting_tests {
             "the MeshClass keeps ownership of the exact environment selected for this draw"
         );
     }
+
+    #[test]
+    fn live_cascade_uses_first_enabled_directional_light() {
+        let camera = Arc::new(CameraClass::new());
+        let mut info = RenderInfoClass::new(camera);
+        let mut environment = LightEnvironmentClass::new();
+        environment.add_light(Arc::new(std::sync::Mutex::new(
+            crate::rendering::lighting_system::LightClass::directional(
+                glam::Vec3::new(0.2, -1.0, 0.1),
+                glam::Vec3::ONE,
+                1.0,
+            ),
+        )));
+        info.set_lighting_environment(environment);
+        let dir = live_cascade_light_direction(&info);
+        assert!((dir.y + 1.0 / (0.2f32 * 0.2 + 1.0 + 0.1 * 0.1).sqrt()).abs() < 0.02);
+    }
+
+    #[test]
+    fn live_cascade_falls_back_when_no_directional_light() {
+        let camera = Arc::new(CameraClass::new());
+        let info = RenderInfoClass::new(camera);
+        let dir = live_cascade_light_direction(&info);
+        assert_eq!(dir, glam::Vec3::new(0.35, -0.85, 0.35));
+    }
+
+    #[test]
+    fn render_with_targets_calls_live_cascade_update() {
+        // C++ W3DDisplay.cpp:1840 updateRenderTargetTextures before the scene.
+        let renderer_src = include_str!("../../lib.rs");
+        assert!(
+            renderer_src.contains("update_and_fill_live_cascade"),
+            "Renderer::render_with_targets must fill LiveCascadeShadowMap"
+        );
+        let src = include_str!("render_manager.rs");
+        assert!(
+            src.contains("self.live_csm.update("),
+            "MeshRenderManager must call LiveCascadeShadowMap::update"
+        );
+        assert!(
+            src.contains("live_csm_first_light_depth"),
+            "first-light depth pass must clear cascade layers"
+        );
+    }
+}
+
+pub(crate) fn live_cascade_light_direction(render_info: &RenderInfoClass) -> glam::Vec3 {
+    if let Some(environment) = render_info.lighting.as_ref() {
+        for light in &environment.lights {
+            if let Ok(light) = light.lock() {
+                if light.enabled
+                    && light.light_type
+                        == crate::rendering::lighting_system::LightType::Directional
+                    && light.direction.length_squared() > 1e-6
+                {
+                    return light.direction;
+                }
+            }
+        }
+    }
+    glam::Vec3::new(0.35, -0.85, 0.35)
 }

@@ -39,15 +39,19 @@ impl ArmorTemplate {
     }
 
     /// Set a default coefficient for every damage type.
+    ///
+    /// C++ ArmorTemplate::parseArmorCoefficients (Armor.cpp:66-71) stores the
+    /// parsed percent unclamped. Result clamping happens in adjust_damage.
     pub fn set_default(&mut self, coefficient: Real) {
-        let clamped = coefficient.max(0.0);
-        self.coefficients.fill(clamped);
+        self.coefficients.fill(coefficient);
     }
 
-    /// Set a coefficient for a specific damage type (value is clamped to >= 0).
+    /// Set a coefficient for a specific damage type.
+    ///
+    /// C++ ArmorTemplate::parseArmorCoefficients (Armor.cpp:75-76) stores pct
+    /// unclamped. Only adjustDamage clamps the RESULT at 0 (Armor.cpp:50-53).
     pub fn set_coefficient(&mut self, damage_type: DamageType, coefficient: Real) {
-        let clamped = coefficient.max(0.0);
-        self.coefficients[damage_type as usize] = clamped;
+        self.coefficients[damage_type as usize] = coefficient;
     }
 
     /// Apply the armor adjustment for a given damage payload.
@@ -405,5 +409,30 @@ mod tests {
         assert_eq!(name.as_str(), "Test");
         let damage = template.adjust_damage(DamageType::Flame, 10.0);
         assert!((damage - 5.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn cpp_parity_armor_stores_unclamped_coefficients_clamps_result() {
+        // C++ Armor.cpp:60-81 stores coefficients as parsed; Armor.cpp:42-55
+        // ArmorTemplate::adjustDamage multiplies then clamps the RESULT at 0.
+        let mut template = ArmorTemplate::new();
+        template.set_coefficient(DamageType::Flame, -0.5);
+
+        let healed = template.adjust_damage(DamageType::Flame, -5.0);
+        assert!(
+            (healed - 2.5).abs() < f32::EPSILON,
+            "negative amount * negative coeff must stay positive ({healed})"
+        );
+
+        template.set_coefficient(DamageType::Flame, 0.5);
+        let clamped = template.adjust_damage(DamageType::Flame, -5.0);
+        assert_eq!(clamped, 0.0, "negative result must clamp at 0");
+
+        template.set_default(-0.25);
+        let scaled = template.adjust_damage(DamageType::SmallArms, -8.0);
+        assert!(
+            (scaled - 2.0).abs() < f32::EPSILON,
+            "set_default must also store a negative coefficient ({scaled})"
+        );
     }
 }

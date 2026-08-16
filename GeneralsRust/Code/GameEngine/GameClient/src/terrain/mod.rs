@@ -120,7 +120,8 @@ pub use w3d_overlay_mesh::{
 pub use water::{WaterBody, WaterSettings, WaterSystem};
 pub use water_tracks::{
     WaterTrackHeightProvider, WaterTrackSaveRecord, WaterTrackType, WaterTrackVertex,
-    WaterTracksFlush, WaterTracksObj, WaterTracksRenderSystem, WATER_TRACK_WAVE_INFO,
+    WaterTracksFlush, WaterTracksObj, WaterTracksRenderSystem, DEFAULT_WATER_TRACK_MODULES,
+    WATER_TRACK_WAVE_INFO,
 };
 
 /// Result type for terrain operations
