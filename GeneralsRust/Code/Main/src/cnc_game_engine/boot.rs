@@ -935,9 +935,17 @@ impl CnCGameEngine {
     }
 
     pub(super) fn hide_control_bar(&mut self) {
-        // GameHUD only exposes a visibility toggle; it starts visible at boot.
-        self.game_hud.toggle_visibility();
+        // C++ GameEngine::init / HideControlBar — hide the live WND parent.
+        #[cfg(feature = "game_client")]
+        {
+            let _ = game_client::gui::callbacks::control_bar_callbacks::hide_control_bar(true);
+        }
+        // Soft GameHUD visibility stays paired for construction-ghost residual.
+        if self.game_hud.hud_visible() {
+            self.game_hud.toggle_visibility();
+        }
     }
+
 
     pub(super) fn load_mods_best_effort() {
         game_engine::common::system::archive_file_system::init_archive_file_system();

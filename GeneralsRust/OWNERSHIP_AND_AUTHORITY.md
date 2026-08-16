@@ -1771,19 +1771,19 @@ Under GENERALS_GAMEWORLD_SPECIAL_POWER_AUTHORITY+shadow (default on), GameWorld 
 
 Superweapon/strike residual uses `take_damage_from_immediate` so host HP mutates even under DAMAGE_AUTHORITY (combat fire still defers HP to GameWorld writeback).
 
-## Authority-switch runbook (hq-48k / hq-a8z) — production truth 2026-08-15
+## Authority-switch runbook (hq-48k) — production truth 2026-08-16
 
-Dry-run (all `GENERALS_GAMEWORLD_*=1`, 4 golden frames, every probe bit true) was green. Cutover landed:
+C++ has one `TheGameLogic` store. Production truth is now host `GameLogic` as
+the sole writer. GameWorldShadow is an observe-only mirror (session still
+default-on; last-writer `*_AUTHORITY` flags default **off**).
 
-| Step | Production truth | Rollback |
-|------|------------------|----------|
-| 0 | Shadow default **on** | `GENERALS_GAMEWORLD_SHADOW=0` |
-| 1 | `GENERALS_GAMEWORLD_ENTITY_MODULES` default **on** — live helper instances at spawn; `on_delete` before `process_destroy_list` remove | `=0` |
-| 2 | Damage/economy/movement/weapon/production/construction/SP/AI/fire-spawn stay default-on | per-flag `=0` |
-| 3 | Dry-run guard remains as a regression probe | guard drop restores env |
-| 4 | Main object HashMap is a **read-view** while shadow is coupled (no `host_object_mut` dirty last-write). Main still allocates `ObjectId`. | restore dirty push |
-| 5 | Main player map is a **read-view** for supplies/power/sciences (GW `PlayerData` writeback last-writes) | restore host last-write |
-| 6 | `ingest_command_queue_view` is the GW writer; host `process_commands` is side-effect adapter only | restore queue authority |
-| 7 | Dual crate tick **removed**. `dual_tick_policy()` is always `AuthorityOnly`. | — |
+| Step | Production truth | Opt-in / rollback |
+|------|------------------|-------------------|
+| 0 | Shadow session default **on** (observe mirror) | `GENERALS_GAMEWORLD_SHADOW=0` |
+| 1 | Last-writer `*_AUTHORITY` flags default **off** | `=1` per channel |
+| 2 | Host `update_movement` / production / construction / SP integrate | last-writer `=1` skips host integrate |
+| 3 | Dual crate tick **removed**. `dual_tick_policy()` is always `AuthorityOnly`. | — |
+| 4 | `GENERALS_BRIDGE_ENGINE_OBJECTS` stays opt-in | — |
 
-`GENERALS_BRIDGE_ENGINE_OBJECTS` stays opt-in. Fail-closed: any dry-run probe false is a flip blocker (record on hq-48k / hq-a8z).
+Fail-closed: do not treat GameWorld writeback as live HP/pose/cash unless the
+matching `*_AUTHORITY=1` is set. hq-48k / hq-79qs superseded by this host-as-C++-GameLogic cutover.

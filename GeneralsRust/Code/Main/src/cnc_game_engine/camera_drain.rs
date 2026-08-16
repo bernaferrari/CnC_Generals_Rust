@@ -1260,17 +1260,26 @@ impl CnCGameEngine {
                 );
             }
             let _ = gc.ensure_shell_visible();
+            // C++ GameClient.cpp:493-494 — MSG_FRAME_TICK even on shell.
+            let _ = gc.create_frame_tick_message();
             let t1 = std::time::Instant::now();
             if early_menu_frame {
                 debug!("Menu update_internal: calling gc.update_input");
             }
             // Wave 587/588: device bookkeeping on Main-injected state (not dual OS poll).
             let _ = gc.update_input();
+            // C++ GameClient.cpp:560-565 — snow + Anim2D.
+            gc.update_cpp_snow_and_anim2d(
+                game_engine::common::game_common::SECONDS_PER_LOGICFRAME_REAL,
+            );
             let t2 = std::time::Instant::now();
             if early_menu_frame {
                 debug!("Menu update_internal: calling gc.update_pre_draw_ui");
             }
             let _ = gc.update_pre_draw_ui();
+            // C++ GameClient.cpp:719-741 — TerrainVisual + DisplayStringManager.
+            gc.update_terrain_visual();
+            let _ = gc.update_display_string_manager();
             let t3 = std::time::Instant::now();
             if early_menu_frame {
                 debug!("Menu update_internal: calling gc.update_post_draw_ui");

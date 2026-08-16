@@ -93,7 +93,7 @@ pub fn honesty_economy_movement_channel_api_source() -> bool {
         && mov.contains("pub struct HostMovementEvent")
 }
 
-/// Source residual: economy + movement authorities default on.
+/// Source residual: economy + movement last-writers default off.
 pub fn honesty_economy_movement_authority_default_on_source() -> bool {
     let src = crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC;
     let econ_ok = {
@@ -102,7 +102,7 @@ pub fn honesty_economy_movement_authority_default_on_source() -> bool {
             None => return false,
         };
         let body = &src[i..src.len().min(i + 300)];
-        body.contains("true")
+        body.contains("false")
     };
     let move_ok = {
         let i = match src.find("pub fn gameworld_movement_authority_enabled") {
@@ -110,7 +110,7 @@ pub fn honesty_economy_movement_authority_default_on_source() -> bool {
             None => return false,
         };
         let body = &src[i..src.len().min(i + 300)];
-        body.contains("true")
+        body.contains("false")
     };
     econ_ok && move_ok
 }

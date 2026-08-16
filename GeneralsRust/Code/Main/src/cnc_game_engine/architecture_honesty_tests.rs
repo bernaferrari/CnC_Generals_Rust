@@ -82,3 +82,112 @@ fn live_the_audio_is_common_audio_manager_rodio_not_wwaudio() {
         "live Main host must not depend on leftover WWAudio crate"
     );
 }
+
+#[test]
+fn live_world_clicks_follow_cpp_place_gui_selection_command_precedence() {
+    // C++ GameClient.cpp:273-282 attach order (lower number first):
+    //   WindowTranslator 10, PlaceEventTranslator 30, GUICommandTranslator 40,
+    //   SelectionTranslator 50, LookAtTranslator 60, CommandTranslator 70.
+    // C++ CommandXlat.cpp:3656-3744 / SelectionXlat.cpp:1007-1023:
+    //   Place/GUI keep LMB in both mouse layouts; classic LMB is context and
+    //   RMB is cancel/deselect; alternate LMB is select and RMB is context.
+    // Live host is the sole command authority (no dual-own through
+    // THE_MESSAGE_STREAM). These functions are the live translator equivalent.
+    let input = include_str!("input.rs");
+    let mouse = include_str!("mouse.rs");
+
+    let roles = input
+        .find("fn world_mouse_action(")
+        .expect("world_mouse_action");
+    let roles_body = &input[roles..roles + 800];
+    assert!(
+        roles_body.contains("MouseButton::Left if targeting_active => Some(WorldMouseAction::Targeting)")
+            && roles_body.contains("MouseButton::Left if use_alternate_mouse => Some(WorldMouseAction::Selection)")
+            && roles_body.contains("MouseButton::Left => Some(WorldMouseAction::ContextCommand)")
+            && roles_body.contains("MouseButton::Right if use_alternate_mouse => Some(WorldMouseAction::ContextCommand)")
+            && roles_body.contains("MouseButton::Right => Some(WorldMouseAction::CancelOrDeselect)"),
+        "live world_mouse_action must keep C++ Place/GUI LMB + classic/alternate roles"
+    );
+
+    let left = mouse
+        .find("pub(super) fn handle_left_click(")
+        .expect("handle_left_click");
+    let left_end = mouse[left + 1..]
+        .find("\n    fn ")
+        .map(|i| left + 1 + i)
+        .unwrap_or(left + 2500);
+    let left_body = &mouse[left..left_end];
+    let place = left_body
+        .find("pending_structure_placement")
+        .expect("PlaceEvent analog first");
+    let gui = left_body
+        .find("pending_map_command")
+        .expect("GUICommand analog second");
+    let select = left_body
+        .find("select_left_click_target")
+        .expect("Selection analog after Place/GUI");
+    assert!(
+        place < gui && gui < select,
+        "handle_left_click must be Place then GUI then Selection, not GUI-first"
+    );
+    assert!(
+        left_body.contains("classic_left_context_action_allowed"),
+        "classic LMB must still probe CommandXlat context after Place/GUI"
+    );
+
+    let cancel = mouse
+        .find("pub(super) fn cancel_world_mouse_targeting(")
+        .expect("cancel_world_mouse_targeting");
+    let cancel_end = mouse[cancel + 1..]
+        .find("\n    pub(super) fn ")
+        .map(|i| cancel + 1 + i)
+        .unwrap_or(cancel + 800);
+    let cancel_body = &mouse[cancel..cancel_end];
+    let gui_cancel = cancel_body
+        .find("pending_map_command")
+        .expect("RMB cancels GUI command first");
+    let place_cancel = cancel_body
+        .find("pending_structure_placement")
+        .expect("RMB cancels Place after GUI");
+    assert!(
+        gui_cancel < place_cancel,
+        "SelectionXlat.cpp:1007-1023 cancels GUI without deselect before Place"
+    );
+    assert!(
+        cancel_body.contains("deselect_world_selection_from_right_click"),
+        "pending Place still deselects the builder (place source != 0)"
+    );
+
+    let handler = input
+        .find("fn handle_mouse_button_input")
+        .expect("handle_mouse_button_input");
+    let handler_end = input[handler..]
+        .find("fn inject_winit_equivalent_cursor_at")
+        .map(|i| handler + i)
+        .unwrap_or(handler + 4000);
+    let handler_body = &input[handler..handler_end];
+    let rmb = handler_body
+        .find("(MouseButton::Right, false)")
+        .expect("RMB release arm");
+    let rmb_body = &handler_body[rmb..];
+    let cancel_call = rmb_body
+        .find("cancel_world_mouse_targeting")
+        .expect("RMB must cancel targeting first");
+    let context = rmb_body
+        .find("WorldMouseAction::ContextCommand")
+        .expect("alternate RMB context");
+    let deselect = rmb_body
+        .find("WorldMouseAction::CancelOrDeselect")
+        .expect("classic RMB deselect");
+    assert!(
+        cancel_call < context && context < deselect,
+        "RMB must cancel Place/GUI before Command/Selection roles"
+    );
+
+    assert!(
+        !handler_body.contains("THE_MESSAGE_STREAM")
+            && !handler_body.contains("RawMouseLeftButtonDown")
+            && !handler_body.contains("append_message"),
+        "live OS clicks must not dual-own through crate MessageStream"
+    );
+}

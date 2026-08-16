@@ -103,7 +103,7 @@ pub fn honesty_sole_tick_requires_coupling_source() -> bool {
         && body.contains("shadow_coupled_tick_active")
 }
 
-/// Source residual: movement authority defaults on.
+/// Source residual: movement last-writer defaults off (host integrates pose).
 pub fn honesty_movement_authority_default_on_source() -> bool {
     let src = crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC;
     let i = match src.find("pub fn gameworld_movement_authority_enabled") {
@@ -111,10 +111,10 @@ pub fn honesty_movement_authority_default_on_source() -> bool {
         None => return false,
     };
     let body = &src[i..src.len().min(i + 300)];
-    body.contains("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY") && body.contains("true")
+    body.contains("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY") && body.contains("false")
 }
 
-/// Live residual: couple → sole-tick on; uncouple → sole-tick off (with auth+shadow on).
+/// Live residual: last-writer off; sole-tick stays off even when coupled.
 pub fn simulate_gameworld_sole_tick_coupling_honesty() -> bool {
     use crate::gameworld_shadow::{
         begin_shadow_coupled_tick, end_shadow_coupled_tick, ensure_gate_damage_authority,
@@ -137,17 +137,13 @@ pub fn simulate_gameworld_sole_tick_coupling_honesty() -> bool {
     }
 
     ensure_gate_damage_authority();
-    if !gameworld_production_authority_enabled() {
+    if gameworld_production_authority_enabled() {
         return false;
     }
-    if !gameworld_movement_authority_enabled() {
+    if gameworld_movement_authority_enabled() {
         return false;
     }
 
-    // Shadow may be default-on; sole-tick still requires coupled depth.
-    let shadow_on = gameworld_shadow_enabled();
-
-    // Ensure we start from uncoupled (nested-safe: drain any leaked depth from prior tests).
     for _ in 0..8 {
         if !shadow_coupled_tick_active() {
             break;
@@ -158,7 +154,6 @@ pub fn simulate_gameworld_sole_tick_coupling_honesty() -> bool {
         return false;
     }
     if gameworld_production_sole_tick_enabled() {
-        // Without coupling, sole-tick must be false even if auth+shadow on.
         return false;
     }
 
@@ -170,25 +165,16 @@ pub fn simulate_gameworld_sole_tick_coupling_honesty() -> bool {
     if !coupled_ok {
         return false;
     }
-    // Sole-tick true only when shadow session flag is also on.
-    if shadow_on {
-        if !sole_when_coupled {
-            return false;
-        }
-    } else {
-        // Shadow off: coupling alone must not claim sole-tick.
-        if sole_when_coupled {
-            return false;
-        }
+    // Last-writer off: coupling must not claim sole-tick.
+    if sole_when_coupled {
+        return false;
     }
-
     if shadow_coupled_tick_active() {
         return false;
     }
     if gameworld_production_sole_tick_enabled() {
         return false;
     }
-
     true
 }
 

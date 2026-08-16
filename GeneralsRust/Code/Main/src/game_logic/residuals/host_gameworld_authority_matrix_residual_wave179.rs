@@ -82,17 +82,17 @@ pub fn honesty_gameworld_authority_matrix_residual_pack_wave179() -> bool {
         && honesty_gameworld_authority_matrix_nav_commands_residual_wave179()
 }
 
-fn authority_fn_defaults_on(src: &str, fn_name: &str) -> bool {
+fn authority_fn_defaults_off(src: &str, fn_name: &str) -> bool {
     let i = match src.find(&format!("pub fn {fn_name}")) {
         Some(i) => i,
         None => return false,
     };
     let body = &src[i..src.len().min(i + 400)];
-    // env_flag_cached(..., true)
-    body.contains("true") && body.contains("GENERALS_GAMEWORLD_")
+    // env_flag_cached(..., false) — host sole writer
+    body.contains("false") && body.contains("GENERALS_GAMEWORLD_")
 }
 
-/// Source residual: full authority matrix defaults on.
+/// Source residual: last-writer authority matrix defaults off (C++ single store).
 pub fn honesty_authority_matrix_default_on_source() -> bool {
     let src = crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC;
     let names = [
@@ -107,7 +107,7 @@ pub fn honesty_authority_matrix_default_on_source() -> bool {
         "gameworld_construction_authority_enabled",
         "gameworld_special_power_authority_enabled",
     ];
-    names.iter().all(|n| authority_fn_defaults_on(src, n))
+    names.iter().all(|n| authority_fn_defaults_off(src, n))
 }
 
 /// Source residual: engine couples shadow tick around host logic update.
@@ -124,7 +124,7 @@ pub fn honesty_engine_couple_shadow_tick_source() -> bool {
         && gw.contains("pub fn end_shadow_coupled_tick")
 }
 
-/// Live residual: after gate ensure, all authorities report enabled.
+/// Live residual: after gate ensure, last-writer authorities stay off.
 pub fn simulate_gameworld_authority_matrix_honesty() -> bool {
     use crate::gameworld_shadow::{
         ensure_gate_damage_authority, gameworld_ai_attack_authority_enabled,
@@ -159,7 +159,7 @@ pub fn simulate_gameworld_authority_matrix_honesty() -> bool {
         gameworld_construction_authority_enabled(),
         gameworld_special_power_authority_enabled(),
     ];
-    all.iter().all(|v| *v)
+    all.iter().all(|v| !*v)
 }
 
 #[cfg(test)]

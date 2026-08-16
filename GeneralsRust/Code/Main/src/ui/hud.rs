@@ -1288,7 +1288,11 @@ impl GameHUD {
 
     pub fn push_info_message(&mut self, text: &str) {
         self.add_message(text, MessageType::Info);
+        // C++ InGameUI::message — live WND HUD text store (InGameUI.cpp:1993).
+        #[cfg(feature = "game_client")]
+        game_client::helpers::TheInGameUI::message(text);
     }
+
 
     pub fn push_radar_message(&mut self, text: &str) {
         self.add_radar_message(text, None, RadarPingKind::Generic);

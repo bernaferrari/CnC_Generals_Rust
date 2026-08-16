@@ -21,6 +21,8 @@ use super::{
     MAX_BUILD_QUEUE_BUTTONS,
 };
 use crate::gui::{with_window_manager, GameWindow, WindowManager};
+use crate::game_text::GameText;
+
 use crate::helpers::{
     drain_live_control_bar_events, set_live_control_bar_observer_look_at, TheInGameUI,
 };

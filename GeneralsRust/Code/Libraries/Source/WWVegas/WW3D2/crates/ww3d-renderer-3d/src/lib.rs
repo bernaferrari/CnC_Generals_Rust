@@ -573,7 +573,14 @@ impl Renderer {
         };
         let mesh_manager = &mut self.mesh_render_manager;
         // C++ W3DDisplay.cpp:1840 TheW3DProjectedShadowManager->updateRenderTargetTextures()
-        mesh_manager.update_and_fill_live_cascade(targets.encoder, info);
+        // DoShadows walks scene casters; if the dedicated shadow queue is empty
+        // (live lights default casts_shadows=false), fill from opaque meshes.
+        let cascade_casters = if prepared.shadow_casters.is_empty() {
+            &prepared.opaque
+        } else {
+            &prepared.shadow_casters
+        };
+        mesh_manager.update_and_fill_live_cascade(targets.encoder, info, cascade_casters);
 
 
         let load_op = clear_color
