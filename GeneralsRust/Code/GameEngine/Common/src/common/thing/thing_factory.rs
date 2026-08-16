@@ -548,7 +548,7 @@ impl ThingFactory {
         let _ = &variation_holder; // suppress unused_assignments
 
         // Verify template is not drawable-only
-        if final_template.is_kind_of(KindOfMask::DRAWABLE_ONLY.bits() as u64) {
+        if final_template.is_kind_of_mask(KindOfMask::DRAWABLE_ONLY.bits() as u64) {
             return Err(ThingCreationError::CreationFailed(format!(
                 "Cannot create Objects with template {}, only Drawables",
                 final_template.get_name()

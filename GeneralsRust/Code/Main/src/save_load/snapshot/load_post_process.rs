@@ -193,6 +193,22 @@ impl Snapshot for WorldSnapshot {
             self.lifecycle_tail.clear();
         }
 
+        if self.version >= WORLD_SNAPSHOT_DIRECT_XFER_V10_TAIL_VERSION {
+            xfer.xfer_marker_label("PlayerRanks")?;
+            xfer_vec_default(
+                xfer,
+                &mut self.player_ranks,
+                PlayerRankSnapshot {
+                    player_id: 0,
+                    rank_level: 1,
+                    skill_points: 0,
+                    science_purchase_points: 0,
+                },
+            )?;
+        } else if xfer.get_mode() == XferMode::Load {
+            self.player_ranks.clear();
+        }
+
         Ok(())
     }
 

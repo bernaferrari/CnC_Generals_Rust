@@ -286,6 +286,60 @@ fn mine_residual_ally_does_not_trigger_land_mine() {
     assert!(game_logic.host_object(ally_id).unwrap().is_alive());
 }
 
+/// C++ DemoTrapUpdate.cpp:195 uses `getRelationship != ENEMIES`, not Team
+/// equality. Two USA players who are not allied must still trip the mine (hq-lpxy).
+#[test]
+fn mine_same_faction_enemy_triggers_land_mine() {
+    let mut game_logic = GameLogic::new();
+    ensure_test_infantry_template(&mut game_logic);
+
+    let mut usa_a = Player::new(0, Team::USA, "USA-A", true);
+    usa_a.alliance_team = 1;
+    game_logic.add_player(usa_a);
+    let mut usa_b = Player::new(1, Team::USA, "USA-B", false);
+    usa_b.alliance_team = 2;
+    game_logic.add_player(usa_b);
+
+    let mine_id = game_logic
+        .create_object_for_player("TestLandMine", 0, Vec3::new(0.0, 0.0, 0.0))
+        .or_else(|| {
+            game_logic.ensure_residual_mine_template(
+                "TestLandMine",
+                crate::game_logic::host_mines::HostMineKind::LandMine,
+            );
+            game_logic.create_object_for_player("TestLandMine", 0, Vec3::new(0.0, 0.0, 0.0))
+        })
+        .expect("mine");
+    {
+        let mine = game_logic.host_object_mut(mine_id).expect("mine mut");
+        mine.mine_data = Some(crate::game_logic::host_mines::HostMineData::land_mine());
+    }
+    let enemy_id = game_logic
+        .create_object_for_player("TestInfantry", 1, Vec3::new(1.0, 0.0, 0.0))
+        .expect("same-faction enemy");
+
+    assert_eq!(
+        game_logic.player_relationship(0, 1),
+        gamelogic::common::Relationship::Enemies
+    );
+
+    game_logic.update_mines_and_demo_traps();
+    assert_eq!(
+        game_logic.mine_residual_proximity_detonations(),
+        1,
+        "same-faction ENEMIES must proximity-detonate"
+    );
+    let _ = enemy_id;
+    assert!(
+        game_logic
+            .host_object(mine_id)
+            .is_none_or(|mine| mine.mine_data.as_ref().is_some_and(|d| d.detonated)
+                || mine.status.destroyed),
+        "same-faction ENEMIES must trip the mine"
+    );
+}
+
+
 /// Residual: GLA demo trap proximity detonation damages nearby enemy.
 #[test]
 fn demo_trap_residual_proximity_detonates_on_enemy() {

@@ -97,6 +97,15 @@ impl GameLogic {
         }
         for &id in object_ids {
             if let Some(obj) = self.objects.get_mut(&id) {
+                // C++ GameLogic.cpp:3677-3718: UpdateModules (including AI/locomotor
+                // movement) are skipped while any disabled flag is set and does not
+                // intersect getDisabledTypesToProcess (AIUpdate default is NONE).
+                // EMP / hack / unmanned / paralyzed / subdued / held-as-is_disabled.
+                if obj.is_disabled() {
+                    obj.movement.velocity = Vec3::ZERO;
+                    obj.record_host_movement();
+                    continue;
+                }
                 // Horizontal (XZ) distance — path grid / terrain height use Y separately,
                 // and 3D distance falsely stalls waypoint advance when |ΔY| is large.
                 let horiz = |a: Vec3, b: Vec3| {
@@ -378,5 +387,27 @@ mod tests {
             g.world_to_grid(Vec3::new(-19.9, 0.0, -5.1)),
             GridPos::new(-1, 0)
         );
+    }
+
+    /// C++ GameLogic.cpp:3677-3718 skips UpdateModules while disabled
+    /// (EMP / hack / unmanned / leaflet). Host `update_movement` must halt (hq-psal).
+    #[test]
+    fn disabled_unit_does_not_advance_in_update_movement() {
+        crate::env_compat::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "0");
+        let mut logic = GameLogic::new();
+        let start = Vec3::new(0.0, 0.0, 0.0);
+        let id = ObjectId(9010);
+        let mut unit = ranger_at(9010, start);
+        unit.movement.target_position = Some(Vec3::new(80.0, 0.0, 0.0));
+        unit.movement.max_speed = 30.0;
+        unit.movement.acceleration = 10_000.0;
+        unit.status.disabled_emp = true;
+        logic.objects.insert(id, unit);
+
+        logic.update_movement_for_test(&[id], 1.0 / 30.0);
+
+        let obj = logic.objects.get(&id).expect("unit");
+        assert_eq!(obj.get_position(), start, "EMP unit must not integrate");
+        assert_eq!(obj.movement.velocity, Vec3::ZERO);
     }
 }

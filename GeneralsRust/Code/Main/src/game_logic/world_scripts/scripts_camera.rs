@@ -370,6 +370,16 @@ impl GameLogic {
                 }
             }
         }
+        // C++ ScriptEngine.cpp:5484+ TheScriptEngine->UPDATE() — timers, end-game,
+        // sequential scripts. Host mission_scripts.update is a parallel walker;
+        // crate ScriptEngine owns countdown / close-window / MSG_CLEAR_GAME_DATA.
+        if let Ok(mut guard) = gamelogic::scripting::engine::get_script_engine().write() {
+            if let Some(engine) = guard.as_mut() {
+                if let Err(err) = engine.update() {
+                    log::error!("ScriptEngine::update failed: {err}");
+                }
+            }
+        }
 
         let mission_runtime_started = Instant::now();
         // C++ `ScriptEngine::update` walks every active, difficulty-eligible

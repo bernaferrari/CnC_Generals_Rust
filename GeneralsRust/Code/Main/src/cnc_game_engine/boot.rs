@@ -23,6 +23,8 @@ impl CnCGameEngine {
             let _ = game_client::gui::callbacks::control_bar_callbacks::hide_control_bar(true);
         }
         Self::apply_command_line_overrides(&command_line);
+        // C++ GameEngine::init createAudioManager / TheAudio (GameEngine.cpp:410).
+        let _ = game_engine::common::audio::game_audio::initialize_global_audio_manager();
         Self::apply_startup_audio_channel_flags();
         // C++ parity: initialize startup RNG stream during engine init.
         game_engine::common::random_value::init_random();
@@ -897,6 +899,30 @@ impl CnCGameEngine {
         let speech_on = global.writable.speech_on;
         let sounds_3d_on = global.sounds_3d_on;
         drop(global);
+
+        if let Some(manager) =
+            game_engine::common::audio::game_audio::get_global_audio_manager()
+        {
+            if let Ok(mut audio) = manager.lock() {
+                // C++ GameEngine.cpp:537-540 TheAudio->setOn per affect.
+                audio.set_on(
+                    audio_on && music_on,
+                    game_engine::common::audio::game_audio::AudioAffect::Music,
+                );
+                audio.set_on(
+                    audio_on && sounds_on,
+                    game_engine::common::audio::game_audio::AudioAffect::Sound,
+                );
+                audio.set_on(
+                    audio_on && sounds_3d_on,
+                    game_engine::common::audio::game_audio::AudioAffect::Sound3D,
+                );
+                audio.set_on(
+                    audio_on && speech_on,
+                    game_engine::common::audio::game_audio::AudioAffect::Speech,
+                );
+            }
+        }
 
         with_subsystem_mut::<AudioManagerSubsystem, _>(|audio| {
             audio.apply_startup_channel_flags(

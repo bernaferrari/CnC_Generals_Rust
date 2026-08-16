@@ -2924,3 +2924,160 @@ fn companion_save_round_trips_w3d_ghost_snapshots() {
     assert!(ghost.snapshots(0)[0].render_object.sub_objects[0].visible);
     assert_eq!(ghost.previous_shroudedness(0), Some(OBJECTSHROUD_FOGGED));
 }
+
+/// C++ `Player::xfer` (`Player.cpp:4268-4275`) persists `m_rankLevel`,
+/// `m_skillPoints`, and `m_sciencePurchasePoints`. Host restore previously
+/// hardcoded rank 1 / 0 / 0, wiping mid-game generals progress.
+#[test]
+fn snapshot_round_trips_player_rank_skill_and_science_purchase_points() {
+    let mut source = GameLogic::new();
+    let mut player = Player::new(1, Team::USA, "Ranked", true);
+    player.rank_level = 4;
+    player.skill_points = 1_800;
+    player.science_purchase_points = 7;
+    source.add_player(player);
+
+    let builder = SnapshotBuilder::new();
+    let snapshot = builder
+        .create_world_snapshot(&source)
+        .expect("snapshot creation failed");
+    assert_eq!(
+        snapshot.player_ranks,
+        vec![PlayerRankSnapshot {
+            player_id: 1,
+            rank_level: 4,
+            skill_points: 1_800,
+            science_purchase_points: 7,
+        }]
+    );
+
+    let mut restored = GameLogic::new();
+    builder
+        .restore_from_snapshot(&snapshot, &mut restored)
+        .expect("snapshot restore failed");
+    let loaded = restored.get_player(1).expect("restored ranked player");
+    assert_eq!(loaded.rank_level, 4);
+    assert_eq!(loaded.skill_points, 1_800);
+    assert_eq!(loaded.science_purchase_points, 7);
+}
+
+/// Pre-v10 streams have no rank tail. Restore must keep the fail-closed
+/// rank 1 / 0 / 0 defaults instead of inventing mid-game progress.
+#[test]
+fn snapshot_pre_v10_defaults_rank_skill_and_science_purchase_points() {
+    let mut legacy = WorldSnapshot::default();
+    legacy.version = WORLD_SNAPSHOT_DIRECT_XFER_V9_TAIL_VERSION;
+    legacy.players.push(PlayerSnapshot {
+        id: 3,
+        name: "LegacyRank".to_string(),
+        team: Team::China,
+        is_human: true,
+        is_active: true,
+        resources: Resources::default(),
+        population: PopulationInfo {
+            current: 0,
+            maximum: 0,
+        },
+        tech_tree: TechTreeSnapshot {
+            unlocked_units: Vec::new(),
+            unlocked_buildings: Vec::new(),
+            unlocked_upgrades: Vec::new(),
+            research_progress: Default::default(),
+        },
+        upgrades: Vec::new(),
+        build_queue: Vec::new(),
+        research_queue: Vec::new(),
+        statistics: PlayerStatisticsSnapshot {
+            units_built: 0,
+            units_lost: 0,
+            buildings_built: 0,
+            buildings_lost: 0,
+            damage_dealt: 0.0,
+            damage_received: 0.0,
+            resources_gathered: 0,
+            experience_gained: 0.0,
+        },
+    });
+    legacy.player_ranks.push(PlayerRankSnapshot {
+        player_id: 3,
+        rank_level: 5,
+        skill_points: 9_999,
+        science_purchase_points: 12,
+    });
+
+    let mut restored = GameLogic::new();
+    SnapshotBuilder::new()
+        .restore_from_snapshot(&legacy, &mut restored)
+        .expect("v9 predecessor defaults rank tail");
+    let loaded = restored.get_player(3).expect("legacy player");
+    assert_eq!(loaded.rank_level, 1);
+    assert_eq!(loaded.skill_points, 0);
+    assert_eq!(loaded.science_purchase_points, 0);
+}
+
+/// V10 appends the rank tail after the v9 lifecycle envelope. The sentinel
+/// proves the new world-owned residual cannot steal bytes from a following
+/// direct-Xfer record.
+#[test]
+fn direct_xfer_v10_round_trips_player_rank_tail() {
+    use crate::save_load::{Xfer, XferLoad, XferSave};
+    use std::io::Cursor;
+
+    let mut world = WorldSnapshot::default();
+    world.version = WORLD_SNAPSHOT_DIRECT_XFER_V10_TAIL_VERSION;
+    world.player_ranks.push(PlayerRankSnapshot {
+        player_id: 11,
+        rank_level: 3,
+        skill_points: 420,
+        science_purchase_points: 2,
+    });
+
+    let mut bytes = Cursor::new(Vec::new());
+    {
+        let mut writer = XferSave::new(&mut bytes);
+        world.xfer(&mut writer).expect("write direct v10 world");
+        let mut sentinel = 0xC0DE_F00Du32;
+        writer.xfer_u32(&mut sentinel).expect("write sentinel");
+    }
+
+    let mut restored = WorldSnapshot::default();
+    let mut sentinel = 0u32;
+    {
+        let mut reader = XferLoad::new(Cursor::new(bytes.into_inner()));
+        restored.xfer(&mut reader).expect("read direct v10 world");
+        reader.xfer_u32(&mut sentinel).expect("read sentinel");
+    }
+
+    assert_eq!(
+        restored.player_ranks,
+        vec![PlayerRankSnapshot {
+            player_id: 11,
+            rank_level: 3,
+            skill_points: 420,
+            science_purchase_points: 2,
+        }]
+    );
+    assert_eq!(sentinel, 0xC0DE_F00D);
+}
+
+/// Bincode v9 had the lifecycle tail but no Player rank residual. Decode
+/// an exact predecessor record and verify migration produces the current
+/// schema with a fail-closed empty rank tail.
+#[test]
+fn bincode_v9_migrates_without_player_rank_tail() {
+    let mut source = WorldSnapshot::default();
+    source.version = 9;
+    source.player_ranks.push(PlayerRankSnapshot {
+        player_id: 1,
+        rank_level: 5,
+        skill_points: 2_000,
+        science_purchase_points: 4,
+    });
+
+    let payload = serialize_pre_v10_v9_fixture(source).expect("serialize exact v9 fixture");
+    let (restored, path) = decode_bincode_world_snapshot(&payload).expect("migrate v9 fixture");
+
+    assert_eq!(path, BincodeWorldSnapshotDecodePath::LegacyPreV10V9);
+    assert_eq!(restored.version, WORLD_SNAPSHOT_BINCODE_VERSION);
+    assert!(restored.player_ranks.is_empty());
+}

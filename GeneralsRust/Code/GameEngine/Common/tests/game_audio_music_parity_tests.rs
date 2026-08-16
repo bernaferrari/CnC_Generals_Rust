@@ -418,4 +418,39 @@ fn ui_sfx_add_audio_event_queues_play_like_the_audio() {
     );
 }
 
+#[test]
+fn initialize_global_audio_manager_applies_retail_slider_volumes() {
+    // C++ AudioManager::init (GameAudio.cpp) copies preferred slider volumes.
+    // Pre-fix `new()` left music/sound/speech at 0 so playback was muted.
+    let manager = game_engine::common::audio::game_audio::initialize_global_audio_manager();
+    let guard = manager.lock().expect("THE_AUDIO lock");
+    assert!(
+        guard.get_volume(AudioAffect::Music) > 0.0
+            && guard.get_volume(AudioAffect::Sound) > 0.0
+            && guard.get_volume(AudioAffect::Sound3D) > 0.0
+            && guard.get_volume(AudioAffect::Speech) > 0.0,
+        "live THE_AUDIO must init retail sliders, not stay at 0"
+    );
+}
+
+#[test]
+fn update_drains_queued_play_requests_like_miles_process_request_list() {
+    // C++ MilesAudioManager::update (MilesAudioManager.cpp:460-468)
+    // processRequestList plays queued AR_Play. Live run_loop must call this.
+    let mut audio = AudioManager::new();
+    audio.init();
+    let _ = audio.new_audio_event_info("UnitSelect".to_string());
+    let event = AudioEventRts::with_event_name("UnitSelect");
+    let handle = audio.add_audio_event(&event);
+    assert!(handle >= 1000);
+    assert!(audio.pending_play_request_count() > 0);
+    audio.update();
+    assert_eq!(
+        audio.pending_play_request_count(),
+        0,
+        "AudioManager::update must process AR_Play"
+    );
+}
+
+
 

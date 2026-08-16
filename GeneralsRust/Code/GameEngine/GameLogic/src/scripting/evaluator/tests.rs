@@ -173,6 +173,19 @@ async fn test_counter_condition() {
 }
 
 #[test]
+fn condition_true_evaluates_when_object_registry_empty() {
+    let _test_lock = crate::test_sync::lock();
+    crate::object::registry::OBJECT_REGISTRY.clear();
+    assert!(crate::object::registry::OBJECT_REGISTRY.is_empty());
+    let evaluator = ScriptEvaluator::new(get_script_engine());
+    let mut condition = Condition::new(ConditionType::ConditionTrue);
+    assert!(
+        evaluator.evaluate_condition(&mut condition).unwrap(),
+        "C++ EvaluateCondition(TRUE) does not depend on OBJECT_REGISTRY"
+    );
+}
+
+#[test]
 fn evaluator_uses_active_engine_before_its_private_handle() {
     let _test_lock = crate::test_sync::lock();
     const SENTINEL_ID: u32 = 0xE7A1_3001;

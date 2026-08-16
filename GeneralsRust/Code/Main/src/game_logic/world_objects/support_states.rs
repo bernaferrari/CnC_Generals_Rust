@@ -3303,8 +3303,11 @@ impl GameLogic {
                     self.pending_special_abilities.remove(&object_id);
                 }
                 AIState::Gathering => {
-                    // Accumulate resources when close to the supply source.
-                    const SUPPLY_BOX_VALUE: u32 = 100;
+                    // Retail GameData.ini `ValuePerSupplyBox = 75` (ZH override of
+                    // C++ GlobalData.cpp default 100). Player::getSupplyBoxValue
+                    // (Player.cpp:1928-1930) reads TheGlobalData->m_baseValuePerSupplyBox.
+                    const SUPPLY_BOX_VALUE: u32 = crate::game_logic::host_structure_economy_residual::VALUE_PER_SUPPLY_BOX
+                        as u32;
 
                     let Some(source_id) = target_id else {
                         self.set_ai_state_decision_aware(object_id, AIState::Idle);

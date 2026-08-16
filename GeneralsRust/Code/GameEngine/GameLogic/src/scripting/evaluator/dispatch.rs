@@ -107,8 +107,19 @@ impl ScriptEvaluator {
 
     /// Evaluate a single condition matching C++ EvaluateCondition
     pub fn evaluate_condition(&self, condition: &mut Condition) -> GameLogicResult<bool> {
-        // Wave 343: empty dual-world → Ok(false).
-        if dual_world_registry_unavailable() {
+        // C++ EvaluateCondition never fail-closes the whole evaluator because
+        // OBJECT_REGISTRY is empty. TRUE / FALSE / Counter / Flag / TimerExpired
+        // are engine-local and must evaluate on the live host.
+        let condition_type = condition.get_condition_type();
+        let object_world = !matches!(
+            condition_type,
+            ConditionType::ConditionFalse
+                | ConditionType::ConditionTrue
+                | ConditionType::Counter
+                | ConditionType::Flag
+                | ConditionType::TimerExpired
+        );
+        if object_world && dual_world_registry_unavailable() {
             return Ok(false);
         }
 

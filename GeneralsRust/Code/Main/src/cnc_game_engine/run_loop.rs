@@ -154,6 +154,11 @@ pub async fn run_cnc_game(
             } else {
                 engine.update_with_frame_clock();
             }
+            // C++ GameEngine::update TheAudio->UPDATE() (GameEngine.cpp:736).
+            // Common THE_AUDIO is the live Miles analog (rodio hook); leftover
+            // host AudioManagerSubsystem does not drain AR_Play.
+            engine.host_update_the_audio();
+
             let update_elapsed = update_started.elapsed();
             static DRIVE_FRAME_COUNT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
             let dfn = DRIVE_FRAME_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);

@@ -756,6 +756,28 @@ impl GameLogic {
                 object.record_host_stealth_flags();
             }
 
+            // C++ StealthUpdate InnateStealth=Yes on Burton / Kell / Lotus /
+            // Saboteur / Hijacker. Pathfinder already cloaks above; heroes
+            // were spawning permanently visible.
+            {
+                use crate::game_logic::host_colonel_burton::is_colonel_burton_template;
+                use crate::game_logic::host_hero_abilities::is_black_lotus_template;
+                use crate::game_logic::host_jarmen_kell::is_jarmen_kell_template;
+                let n = template_name.to_ascii_lowercase();
+                let is_hero_stealth = is_colonel_burton_template(template_name)
+                    || is_jarmen_kell_template(template_name)
+                    || is_black_lotus_template(template_name)
+                    || n.contains("saboteur")
+                    || n.contains("hijacker");
+                if is_hero_stealth {
+                    object.set_status_stealthed(true);
+                    object.innate_stealth = true;
+                    object.stealth_breaks_on_attack = true;
+                    object.stealth_breaks_on_move = false;
+                    object.record_host_stealth_flags();
+                }
+            }
+
             // Host residual: China Dragon Tank primary flame weapon bind.
             // Fail-closed: FireWall secondary is host_firewall special-power residual.
             if crate::game_logic::host_dragon_tank::is_dragon_tank_template(template_name) {

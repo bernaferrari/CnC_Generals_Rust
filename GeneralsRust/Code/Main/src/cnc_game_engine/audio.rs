@@ -163,6 +163,16 @@ impl CnCGameEngine {
         self.sound_effects.retain(|sink| !sink.empty());
     }
 
+    /// C++ `GameEngine::update` `TheAudio->UPDATE()` (`GameEngine.cpp:736`).
+    /// Live Common `AudioManager::update` drains AR_Play / fade / playing lists.
+    pub(super) fn host_update_the_audio(&mut self) {
+        let _ = self;
+        if let Some(audio) = gamelogic::helpers::TheAudio::get() {
+            audio.update();
+        }
+    }
+
+
     /// Get or create a texture bind group for a material (delegated to graphics system)
     pub(super) fn get_material_bind_group(
         &mut self,
