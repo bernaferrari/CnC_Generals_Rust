@@ -118,6 +118,11 @@ impl ScriptEvaluator {
                 | ConditionType::Counter
                 | ConditionType::Flag
                 | ConditionType::TimerExpired
+                | ConditionType::NamedDestroyed
+                | ConditionType::NamedNotDestroyed
+                | ConditionType::NamedCreated
+                | ConditionType::NamedInsideArea
+                | ConditionType::NamedOutsideArea
         );
         if object_world && dual_world_registry_unavailable() {
             return Ok(false);

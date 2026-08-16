@@ -108,50 +108,44 @@ impl ScriptEvaluator {
         Ok(false)
     }
 
-    /// Evaluate named destroyed condition
     fn evaluate_named_destroyed_condition(&self, condition: &Condition) -> GameLogicResult<bool> {
-        // Wave 343: empty dual-world → Ok(false).
-        if dual_world_registry_unavailable() {
-            return Ok(false);
-        }
-
         let unit_param = condition.get_parameter(0).ok_or_else(|| {
             GameLogicError::Configuration(
                 "NamedDestroyed condition missing unit parameter".to_string(),
             )
         })?;
-
         let unit_name = unit_param.get_string();
+        if dual_world_registry_unavailable() {
+            // C++ NamedDestroyed: missing/dead named unit is true.
+            return Ok(crate::scripting::host_script_named_unit_alive(unit_name)
+                .map(|alive| !alive)
+                .unwrap_or(true));
+        }
+
         log::debug!("Evaluating NamedDestroyed for unit: {}", unit_name);
 
-        // Look up the named object using the tracker
         let tracker = get_named_object_tracker();
         if let Ok(Some(object_id)) = tracker.get_object_id(unit_name) {
-            // Check if the object exists and is destroyed
             if let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) {
                 if let Ok(obj) = obj_arc.read() {
                     return Ok(obj.is_destroyed());
                 }
             }
-            // Object ID exists but object not found - considered destroyed
             return Ok(true);
         }
-        // Object not in tracker - considered destroyed
         Ok(true)
     }
 
     fn evaluate_named_created_condition(&self, condition: &Condition) -> GameLogicResult<bool> {
-        // Wave 343: empty dual-world → Ok(false).
-        if dual_world_registry_unavailable() {
-            return Ok(false);
-        }
-
         let unit_param = condition.get_parameter(0).ok_or_else(|| {
             GameLogicError::Configuration(
                 "NamedCreated condition missing unit parameter".to_string(),
             )
         })?;
         let unit_name = unit_param.get_string();
+        if dual_world_registry_unavailable() {
+            return Ok(crate::scripting::host_script_named_unit_alive(unit_name).unwrap_or(false));
+        }
 
         let tracker = get_named_object_tracker();
         let Some(object_id) = tracker.get_object_id(unit_name).ok().flatten() else {
