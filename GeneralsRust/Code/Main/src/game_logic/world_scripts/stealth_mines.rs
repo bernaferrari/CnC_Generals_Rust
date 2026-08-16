@@ -422,6 +422,61 @@ impl GameLogic {
                 .saturating_add(reveals);
         }
 
+        // Innate-stealth heroes: Burton / Kell / Lotus / Saboteur / Hijacker.
+        // C++ StealthUpdate Forbidden=FIRING_PRIMARY or ATTACKING; delay 2000ms
+        // is fail-closed to same-frame re-cloak when not firing (delay peel later).
+        {
+            use crate::game_logic::host_colonel_burton::{
+                burton_stealth_desired, is_colonel_burton_template,
+            };
+            use crate::game_logic::host_hero_abilities::{
+                is_black_lotus_template, lotus_stealth_desired,
+            };
+            use crate::game_logic::host_jarmen_kell::{
+                is_jarmen_kell_template, jarmen_stealth_desired,
+            };
+            let hero_ids: Vec<ObjectId> = self
+                .objects
+                .iter()
+                .filter(|(_, o)| {
+                    o.innate_stealth
+                        && o.is_alive()
+                        && (is_colonel_burton_template(&o.template_name)
+                            || is_jarmen_kell_template(&o.template_name)
+                            || is_black_lotus_template(&o.template_name)
+                            || o.template_name.to_ascii_lowercase().contains("saboteur")
+                            || o.template_name.to_ascii_lowercase().contains("hijacker"))
+                })
+                .map(|(id, _)| *id)
+                .collect();
+            for hid in hero_ids {
+                let Some(obj) = self.objects.get_mut(&hid) else {
+                    continue;
+                };
+                let firing = obj.status.attacking
+                    || matches!(
+                        obj.ai_state,
+                        AIState::Attacking | AIState::AttackMoving | AIState::AttackingGround
+                    );
+                let desired = if is_colonel_burton_template(&obj.template_name) {
+                    burton_stealth_desired(true, obj.innate_stealth, obj.is_alive(), firing)
+                } else if is_jarmen_kell_template(&obj.template_name) {
+                    jarmen_stealth_desired(true, obj.innate_stealth, obj.is_alive(), firing)
+                } else if is_black_lotus_template(&obj.template_name) {
+                    lotus_stealth_desired(true, obj.innate_stealth, obj.is_alive(), firing)
+                } else {
+                    Some(!firing)
+                };
+                if let Some(want) = desired {
+                    if want && !obj.status.stealthed {
+                        obj.set_status_stealthed(true);
+                    } else if !want && obj.status.stealthed {
+                        obj.break_stealth();
+                    }
+                }
+            }
+        }
+
         // Collect active detectors (alive, not under construction) that are due
         // for a StealthDetectorUpdate DetectionRate residual scan.
         // Track residual detector kind for honesty counters.
@@ -1252,12 +1307,14 @@ impl GameLogic {
                 continue;
             }
             let range_sqr = trigger_range * trigger_range;
-            for (vid, vteam, vpos) in &victims {
+            for (vid, _vteam, vpos) in &victims {
                 if *vid == *mine_id {
                     continue;
                 }
-                // Enemies (and neutrals as residual default for mines) trigger.
-                if *vteam == *mine_team {
+                // C++ DemoTrapUpdate.cpp:195-204: `getObject()->getRelationship(other)
+                // != ENEMIES` skips (unless FriendlyDetonation). Same-faction enemies
+                // are ENEMIES via Player::getRelationship, not Team enum equality.
+                if self.mine_proximity_skips_friendly(*mine_id, *vid) {
                     continue;
                 }
                 let dx = vpos.x - mine_pos.x;
@@ -1499,5 +1556,31 @@ impl GameLogic {
 
         let _ = producer; // residual bookkeeping only
         true
+    }
+
+    /// C++ `Object::getRelationship` / `DemoTrapUpdate.cpp:195-204`.
+    /// Skip ALLIES and the same controlling player. Same-faction enemies
+    /// (two USA slots that are not allied) still trigger. Unowned legacy
+    /// objects keep the old Team fallback so map mines without player
+    /// provenance do not friendly-fire their own faction.
+    fn mine_proximity_skips_friendly(&self, mine_id: ObjectId, victim_id: ObjectId) -> bool {
+        use gamelogic::common::Relationship;
+
+        let Some(mine) = self.objects.get(&mine_id) else {
+            return true;
+        };
+        let Some(victim) = self.objects.get(&victim_id) else {
+            return true;
+        };
+        match (
+            self.player_owner_for_host_object(mine),
+            self.player_owner_for_host_object(victim),
+        ) {
+            (Some(mine_owner), Some(victim_owner)) => {
+                mine_owner == victim_owner
+                    || self.player_relationship(mine_owner, victim_owner) == Relationship::Allies
+            }
+            _ => victim.team == mine.team,
+        }
     }
 }

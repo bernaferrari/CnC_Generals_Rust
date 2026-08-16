@@ -70,7 +70,7 @@ impl BuildLimitTemplateInfo {
             template.get_name().as_str(),
             template.get_max_simultaneous_of_type() as u32,
             template.get_max_simultaneous_link_key(),
-            template.is_kind_of(KindOfMask::STRUCTURE.bits() as u64),
+            template.is_kind_of_mask(KindOfMask::STRUCTURE.bits() as u64),
         )
     }
 
@@ -2091,7 +2091,7 @@ impl Player {
 
     /// Full template check matching C++ Player::canBuild(const ThingTemplate*).
     pub fn can_build_thing_template(&self, template: &ThingTemplate) -> bool {
-        let is_structure = template.is_kind_of(KindOfMask::STRUCTURE.bits() as u64);
+        let is_structure = template.is_kind_of_mask(KindOfMask::STRUCTURE.bits() as u64);
         let buildable = match template.get_buildable() {
             BuildableStatus::Yes => 0,
             BuildableStatus::IgnorePrerequisites => 1,

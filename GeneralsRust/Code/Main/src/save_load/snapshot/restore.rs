@@ -547,6 +547,9 @@ impl SnapshotBuilder {
                 radar_count: 0,
                 radar_disabled: false,
                 logical_retaliation_mode_enabled: false,
+                // Pre-v10 fallback. C++ Player::xfer (Player.cpp:4268-4275)
+                // persists these; v10 `player_ranks` overwrites them after
+                // this constructor when the world tail is present.
                 rank_level: 1,
                 skill_points: 0,
                 science_purchase_points: 0,

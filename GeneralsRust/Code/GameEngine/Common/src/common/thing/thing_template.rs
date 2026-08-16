@@ -1799,8 +1799,23 @@ impl ThingTemplate {
         self.energy_bonus
     }
 
+    /// C++ `ThingTemplate.h:374-377` `isKindOf(KindOfType t)` / `KindOf.h:158-161`
+    /// `TEST_KINDOFMASK`: `t` is a sequential KindOfType bit index, not a mask.
+    /// Values in `0..128` are treated as indices (`1 << t`). Larger values cannot be
+    /// KindOfType indices and keep historical mask-AND behavior.
     pub fn is_kind_of(&self, kind: impl Into<u128>) -> bool {
-        (self.kindof & kind.into()) != 0
+        let kind = kind.into();
+        if kind < 128 {
+            (self.kindof & (1u128 << kind)) != 0
+        } else {
+            (self.kindof & kind) != 0
+        }
+    }
+
+    /// Mask intersection. Use this when the argument is `KindOfMask::bits()`, not a
+    /// KindOfType index. C++ `isKindOf` never takes a mask; this is the Rust split.
+    pub fn is_kind_of_mask(&self, mask: impl Into<u128>) -> bool {
+        (self.kindof & mask.into()) != 0
     }
 
     pub fn is_kind_of_multi(&self, must_be_set: &u64, must_be_clear: &u64) -> bool {
@@ -2443,7 +2458,7 @@ impl ThingTemplate {
 
         // Mark build facilities
         // This would iterate through prerequisites and mark templates as build facilities
-        if self.is_kind_of(crate::common::system::kind_of::KindOfMask::COMMANDCENTER.bits())
+        if self.is_kind_of_mask(crate::common::system::kind_of::KindOfMask::COMMANDCENTER.bits())
         {
             self.is_build_facility = true;
         }
@@ -3823,8 +3838,8 @@ mod tests {
         let mut template = ThingTemplate::new();
         template.kindof = KindOfMask::DOZER.bits();
 
-        assert!(template.is_kind_of(KindOfMask::DOZER.bits()));
-        assert!(!template.is_kind_of(KindOfMask::COMMANDCENTER.bits()));
+        assert!(template.is_kind_of_mask(KindOfMask::DOZER.bits()));
+        assert!(!template.is_kind_of_mask(KindOfMask::COMMANDCENTER.bits()));
     }
 
     // C++ KindOf.h:96 / ThingTemplate.h m_kindof BitFlags<KINDOF_COUNT>.
@@ -3833,7 +3848,7 @@ mod tests {
         use crate::common::system::kind_of::KindOfMask;
         let mut template = ThingTemplate::new();
         template.set_kindof_mask(KindOfMask::FORCEATTACKABLE.bits());
-        assert!(template.is_kind_of(KindOfMask::FORCEATTACKABLE.bits()));
+        assert!(template.is_kind_of_mask(KindOfMask::FORCEATTACKABLE.bits()));
         assert_eq!(
             template.get_kindof_bits() & KindOfMask::FORCEATTACKABLE.bits(),
             KindOfMask::FORCEATTACKABLE.bits()
@@ -3841,8 +3856,8 @@ mod tests {
 
         // Bits >= 64 used to vanish when kindof was stored as u64.
         template.set_kindof_mask(KindOfMask::HERO.bits() | KindOfMask::FORCEATTACKABLE.bits());
-        assert!(template.is_kind_of(KindOfMask::HERO.bits()));
-        assert!(template.is_kind_of(KindOfMask::FORCEATTACKABLE.bits()));
+        assert!(template.is_kind_of_mask(KindOfMask::HERO.bits()));
+        assert!(template.is_kind_of_mask(KindOfMask::FORCEATTACKABLE.bits()));
     }
 
     // C++ BitFlagsIO.h:38-107 via ThingTemplate KindOf INI field.
@@ -3862,9 +3877,29 @@ mod tests {
                 "+HERO".to_string(),
             )]))
             .expect("+HERO should parse incrementally");
-        assert!(template.is_kind_of(KindOfMask::INFANTRY.bits()));
-        assert!(template.is_kind_of(KindOfMask::SELECTABLE.bits()));
-        assert!(template.is_kind_of(KindOfMask::HERO.bits()));
+        assert!(template.is_kind_of_mask(KindOfMask::INFANTRY.bits()));
+        assert!(template.is_kind_of_mask(KindOfMask::SELECTABLE.bits()));
+        assert!(template.is_kind_of_mask(KindOfMask::HERO.bits()));
+    }
+
+    // C++ ThingTemplate.h:374-377 isKindOf(KindOfType t) / KindOf.h:158-161 TEST_KINDOFMASK.
+    // ALWAYS_SELECTABLE is bit 53 (`1<<53`). Passing 53 as a mask must not match that bit.
+    #[test]
+    fn is_kind_of_treats_always_selectable_index_not_mask() {
+        use crate::common::system::kind_of::KindOfMask;
+        let mut template = ThingTemplate::new();
+        template.set_kindof_mask(KindOfMask::ALWAYS_SELECTABLE.bits());
+
+        // C++ `isKindOf(KINDOF_ALWAYS_SELECTABLE)` tests bit 53, not AND with 53.
+        assert!(template.is_kind_of(53u32));
+        assert!(!template.is_kind_of_mask(53u32));
+        assert!(template.is_kind_of_mask(KindOfMask::ALWAYS_SELECTABLE.bits()));
+
+        // 53 as a mask would only hit bits 0/2/4/5; those flags must not be implied.
+        assert!(!template.is_kind_of(0u32));
+        assert!(!template.is_kind_of(2u32));
+        assert!(!template.is_kind_of(4u32));
+        assert!(!template.is_kind_of(5u32));
     }
 
     #[test]

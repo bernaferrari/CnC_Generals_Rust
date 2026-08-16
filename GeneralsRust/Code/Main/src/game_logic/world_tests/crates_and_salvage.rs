@@ -2430,6 +2430,24 @@ fn tick_physics_motion_step_clamps_ground() {
     assert!(o.movement.velocity.y >= -1e-3);
 }
 
+    #[test]
+    fn tick_physics_does_not_apply_per_second_velocity_while_marching() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+        use glam::Vec3;
+        let mut t = ThingTemplate::new("March");
+        t.add_kind_of(KindOf::Infantry);
+        let mut o = Object::new(t, ObjectId(933), Team::USA);
+        o.set_position(Vec3::new(0.0, 0.0, 0.0));
+        o.movement.velocity = Vec3::new(30.0, 0.0, 0.0); // units/second
+        o.movement.target_position = Some(Vec3::new(100.0, 0.0, 0.0));
+        let _ = o.tick_physics_motion_step(0.0);
+        assert!(
+            o.get_position().x.abs() < 1e-3,
+            "marching unit must not get pos+=v per-frame; x={}",
+            o.get_position().x
+        );
+    }
+
 #[test]
 fn stick_to_ground_snaps_when_not_falling() {
     use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};

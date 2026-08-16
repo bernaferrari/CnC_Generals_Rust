@@ -25,11 +25,12 @@ use std::time::SystemTime;
 /// predates the v4 barrel/discharge/client tails, v4 predates the v5
 /// PlayerTemplate tail, v5 predates the v6 shroud tail, v6 predates the v7
 /// normal-Weapon suspend-FX tail, and v7 predates the v8 temporary-Weapon
-/// behavior tail. Unknown versions fail closed rather than relying on field
-/// prefixes or serde defaults.
+/// behavior tail. Version 9 predates the v10 Player rank/skill/science tail.
+/// Unknown versions fail closed rather than relying on field
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum BincodeWorldSnapshotDecodePath {
     Current,
+    LegacyPreV10V9,
     LegacyPreV9V8,
     LegacyPreV8V7,
     LegacyPreV7V6,
@@ -49,6 +50,14 @@ pub(crate) fn decode_bincode_world_snapshot(
     match version {
         WORLD_SNAPSHOT_BINCODE_VERSION => bincode_exact::<WorldSnapshot>(payload)
             .map(|snapshot| (snapshot, BincodeWorldSnapshotDecodePath::Current))
+            .map_err(|error| SaveLoadError::Serialization(error.to_string())),
+        9 => bincode_exact::<PreV10WorldSnapshot>(payload)
+            .map(|snapshot| {
+                (
+                    snapshot.into(),
+                    BincodeWorldSnapshotDecodePath::LegacyPreV10V9,
+                )
+            })
             .map_err(|error| SaveLoadError::Serialization(error.to_string())),
         8 => bincode_exact::<PreV9WorldSnapshot>(payload)
             .map(|snapshot| {
@@ -258,6 +267,35 @@ struct PreV9WorldSnapshot {
     client_drawables: ClientDrawableWorldSnapshot,
     player_template_bindings: Vec<PlayerTemplateBindingSnapshot>,
     shroud: ShroudSnapshot,
+}
+
+/// Complete v9 world record before the v10 Player rank/skill/science tail.
+/// Nested `PlayerSnapshot` remains the historical positional layout.
+#[derive(Debug, Deserialize, Serialize)]
+struct PreV10WorldSnapshot {
+    version: u32,
+    timestamp: SystemTime,
+    frame_number: u64,
+    random_seed: u64,
+    objects: HashMap<ObjectId, ObjectSnapshot>,
+    players: Vec<PlayerSnapshot>,
+    teams: Vec<TeamSnapshot>,
+    terrain: TerrainSnapshot,
+    weather: WeatherSnapshot,
+    resource_manager: ResourceManagerSnapshot,
+    combat_tracker: CombatTrackerSnapshot,
+    experience_tracker: ExperienceTrackerSnapshot,
+    pathfinding_cache: PathfindingCacheSnapshot,
+    ai_players: Vec<AIPlayerSnapshot>,
+    global_ai_state: GlobalAIStateSnapshot,
+    special_power_strikes: SpecialPowerStrikeRegistrySnapshot,
+    combat_particles: CombatParticleRegistrySnapshot,
+    host_upgrades: HostUpgradeRegistrySnapshot,
+    next_weapon_discharge_sequence: u64,
+    client_drawables: ClientDrawableWorldSnapshot,
+    player_template_bindings: Vec<PlayerTemplateBindingSnapshot>,
+    shroud: ShroudSnapshot,
+    lifecycle_tail: Vec<u8>,
 }
 
 /// Complete v7 world record before the v8 source-keyed temporary-Weapon
@@ -575,6 +613,7 @@ impl From<LegacyWorldSnapshot> for WorldSnapshot {
             player_template_bindings: Vec::new(),
             shroud: ShroudSnapshot::default(),
             lifecycle_tail: Vec::new(),
+            player_ranks: Vec::new(),
         }
     }
 }
@@ -693,6 +732,7 @@ impl From<PreHackerDisableWorldSnapshot> for WorldSnapshot {
             player_template_bindings: Vec::new(),
             shroud: ShroudSnapshot::default(),
             lifecycle_tail: Vec::new(),
+            player_ranks: Vec::new(),
         }
     }
 }
@@ -757,6 +797,7 @@ impl From<PreV4WorldSnapshot> for WorldSnapshot {
             player_template_bindings: Vec::new(),
             shroud: ShroudSnapshot::default(),
             lifecycle_tail: Vec::new(),
+            player_ranks: Vec::new(),
         }
     }
 }
@@ -791,6 +832,7 @@ impl From<PreV6WorldSnapshot> for WorldSnapshot {
             player_template_bindings: snapshot.player_template_bindings,
             shroud: ShroudSnapshot::default(),
             lifecycle_tail: Vec::new(),
+            player_ranks: Vec::new(),
         }
     }
 }
@@ -825,6 +867,7 @@ impl From<PreV8WorldSnapshot> for WorldSnapshot {
             player_template_bindings: snapshot.player_template_bindings,
             shroud: snapshot.shroud,
             lifecycle_tail: Vec::new(),
+            player_ranks: Vec::new(),
         }
     }
 }
@@ -855,6 +898,38 @@ impl From<PreV9WorldSnapshot> for WorldSnapshot {
             player_template_bindings: snapshot.player_template_bindings,
             shroud: snapshot.shroud,
             lifecycle_tail: Vec::new(),
+            player_ranks: Vec::new(),
+        }
+    }
+}
+
+impl From<PreV10WorldSnapshot> for WorldSnapshot {
+    fn from(snapshot: PreV10WorldSnapshot) -> Self {
+        Self {
+            version: WORLD_SNAPSHOT_BINCODE_VERSION,
+            timestamp: snapshot.timestamp,
+            frame_number: snapshot.frame_number,
+            random_seed: snapshot.random_seed,
+            objects: snapshot.objects,
+            players: snapshot.players,
+            teams: snapshot.teams,
+            terrain: snapshot.terrain,
+            weather: snapshot.weather,
+            resource_manager: snapshot.resource_manager,
+            combat_tracker: snapshot.combat_tracker,
+            experience_tracker: snapshot.experience_tracker,
+            pathfinding_cache: snapshot.pathfinding_cache,
+            ai_players: snapshot.ai_players,
+            global_ai_state: snapshot.global_ai_state,
+            special_power_strikes: snapshot.special_power_strikes,
+            combat_particles: snapshot.combat_particles,
+            host_upgrades: snapshot.host_upgrades,
+            next_weapon_discharge_sequence: snapshot.next_weapon_discharge_sequence,
+            client_drawables: snapshot.client_drawables,
+            player_template_bindings: snapshot.player_template_bindings,
+            shroud: snapshot.shroud,
+            lifecycle_tail: snapshot.lifecycle_tail,
+            player_ranks: Vec::new(),
         }
     }
 }
@@ -919,6 +994,7 @@ impl From<PreV7WorldSnapshot> for WorldSnapshot {
             player_template_bindings: snapshot.player_template_bindings,
             shroud: snapshot.shroud,
             lifecycle_tail: Vec::new(),
+            player_ranks: Vec::new(),
         }
     }
 }
@@ -983,6 +1059,7 @@ impl From<PreV5WorldSnapshot> for WorldSnapshot {
             player_template_bindings: Vec::new(),
             shroud: ShroudSnapshot::default(),
             lifecycle_tail: Vec::new(),
+            player_ranks: Vec::new(),
         }
     }
 }
@@ -1508,4 +1585,40 @@ pub(crate) fn serialize_pre_hacker_disable_v2_fixture(
     snapshot: WorldSnapshot,
 ) -> bincode::Result<Vec<u8>> {
     bincode::serialize(&PreHackerDisableWorldSnapshot::from(snapshot))
+}
+
+#[cfg(test)]
+impl From<WorldSnapshot> for PreV10WorldSnapshot {
+    fn from(snapshot: WorldSnapshot) -> Self {
+        Self {
+            version: 9,
+            timestamp: snapshot.timestamp,
+            frame_number: snapshot.frame_number,
+            random_seed: snapshot.random_seed,
+            objects: snapshot.objects,
+            players: snapshot.players,
+            teams: snapshot.teams,
+            terrain: snapshot.terrain,
+            weather: snapshot.weather,
+            resource_manager: snapshot.resource_manager,
+            combat_tracker: snapshot.combat_tracker,
+            experience_tracker: snapshot.experience_tracker,
+            pathfinding_cache: snapshot.pathfinding_cache,
+            ai_players: snapshot.ai_players,
+            global_ai_state: snapshot.global_ai_state,
+            special_power_strikes: snapshot.special_power_strikes,
+            combat_particles: snapshot.combat_particles,
+            host_upgrades: snapshot.host_upgrades,
+            next_weapon_discharge_sequence: snapshot.next_weapon_discharge_sequence,
+            client_drawables: snapshot.client_drawables,
+            player_template_bindings: snapshot.player_template_bindings,
+            shroud: snapshot.shroud,
+            lifecycle_tail: snapshot.lifecycle_tail,
+        }
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn serialize_pre_v10_v9_fixture(snapshot: WorldSnapshot) -> bincode::Result<Vec<u8>> {
+    bincode::serialize(&PreV10WorldSnapshot::from(snapshot))
 }

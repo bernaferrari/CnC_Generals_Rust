@@ -1,6 +1,6 @@
 //! Core snapshot trait, world snapshot, and shared utility types.
 
-use super::player::PlayerTemplateBindingSnapshot;
+use super::player::{PlayerRankSnapshot, PlayerTemplateBindingSnapshot};
 use super::{
     AIPlayerSnapshot, ClientDrawableWorldSnapshot, CombatParticleRegistrySnapshot,
     CombatTrackerSnapshot, ExperienceTrackerSnapshot, GlobalAIStateSnapshot,
@@ -29,8 +29,11 @@ use std::time::SystemTime;
 /// expiry state as a final world tail. Version 7 appends each object's
 /// parallel `Weapon::m_suspendFXFrame` tail without changing historical
 /// nested Weapon records. Version 8 appends the source-keyed temporary
-/// behavior runtime tail to each object.
-pub const WORLD_SNAPSHOT_BINCODE_VERSION: u32 = 9;
+/// behavior runtime tail to each object. Version 9 appends the entity
+/// lifecycle envelope. Version 10 appends C++ `Player::xfer` rank/skill/
+/// science-purchase-point residuals as a world tail so nested
+/// `PlayerSnapshot` records stay aligned with v1-v9 streams.
+pub const WORLD_SNAPSHOT_BINCODE_VERSION: u32 = 10;
 
 /// Direct Common Xfer keeps an independent positional envelope from bincode.
 ///
@@ -38,7 +41,7 @@ pub const WORLD_SNAPSHOT_BINCODE_VERSION: u32 = 9;
 /// and object records.  Do not derive object-tail gates from the bincode
 /// version: a historical direct v3 stream still contains HDB even once the
 /// bincode writer has advanced to v4.
-pub const WORLD_SNAPSHOT_DIRECT_XFER_VERSION: u32 = 9;
+pub const WORLD_SNAPSHOT_DIRECT_XFER_VERSION: u32 = 10;
 pub const WORLD_SNAPSHOT_DIRECT_XFER_HDB_VERSION: u32 = 3;
 pub const WORLD_SNAPSHOT_DIRECT_XFER_V4_TAIL_VERSION: u32 = 4;
 pub const WORLD_SNAPSHOT_DIRECT_XFER_V5_TAIL_VERSION: u32 = 5;
@@ -46,6 +49,7 @@ pub const WORLD_SNAPSHOT_DIRECT_XFER_V6_TAIL_VERSION: u32 = 6;
 pub const WORLD_SNAPSHOT_DIRECT_XFER_V7_TAIL_VERSION: u32 = 7;
 pub const WORLD_SNAPSHOT_DIRECT_XFER_V8_TAIL_VERSION: u32 = 8;
 pub const WORLD_SNAPSHOT_DIRECT_XFER_V9_TAIL_VERSION: u32 = 9;
+pub const WORLD_SNAPSHOT_DIRECT_XFER_V10_TAIL_VERSION: u32 = 10;
 
 /// Reject unknown direct-Xfer outer layouts before consuming any body bytes.
 /// Known historical writers are accepted so focused fixtures can verify their
@@ -55,7 +59,7 @@ pub(crate) fn validate_direct_world_snapshot_version(version: u32) -> SaveLoadRe
         // Keep these arms deliberately explicit. Advancing the current writer
         // must not accidentally make a future positional body acceptable
         // before its object/world gates and exact predecessor fixtures exist.
-        1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 => Ok(()),
+        1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 => Ok(()),
         actual => Err(crate::save_load::SaveLoadError::VersionMismatch {
             expected: WORLD_SNAPSHOT_DIRECT_XFER_VERSION,
             actual,
@@ -140,6 +144,12 @@ pub struct WorldSnapshot {
     /// v9 Entity lifecycle envelope + contain/producer fixup side block.
     #[serde(default)]
     pub lifecycle_tail: Vec<u8>,
+
+    /// C++ `Player::xfer` rank/skill/science-purchase-point residuals.
+    /// Appended after the v9 lifecycle tail so historical nested
+    /// `PlayerSnapshot` records stay aligned.
+    #[serde(default)]
+    pub player_ranks: Vec<PlayerRankSnapshot>,
 }
 
 pub const fn default_next_weapon_discharge_sequence() -> u64 {
@@ -183,6 +193,7 @@ impl Default for WorldSnapshot {
             player_template_bindings: Vec::new(),
             shroud: ShroudSnapshot::default(),
             lifecycle_tail: Vec::new(),
+            player_ranks: Vec::new(),
         }
     }
 }

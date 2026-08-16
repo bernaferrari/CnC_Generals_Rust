@@ -542,9 +542,18 @@ impl Object {
         let old_y = old_pos.y;
         let airborne_start = old_y > ground_y + 0.05;
 
-        // Integrate position from velocity (1 logic frame).
+        // C++ PhysicsBehavior::update is the sole Euler step. Live march already
+        // integrated pos += v*dt in update_movement (v is units/second).
+        // Applying `old_pos + v` here treats per-second velocity as per-frame
+        // and ~25x retail speed. Only integrate leftover Y / shock here when
+        // the unit is not already path-marching this frame.
         let v = self.movement.velocity;
-        let mut new_pos = old_pos + v;
+        let marching = self.movement.target_position.is_some() || !self.movement.path.is_empty();
+        let mut new_pos = if marching {
+            old_pos
+        } else {
+            old_pos + v
+        };
         // YPR rate integrate residual (orientation presentation).
         let pryf = self.pitch_roll_yaw_factor;
         let mut yaw_rate = self.shock_yaw_rate * pryf;

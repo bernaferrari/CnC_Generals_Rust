@@ -84,6 +84,32 @@ fn live_the_audio_is_common_audio_manager_rodio_not_wwaudio() {
 }
 
 #[test]
+fn live_run_loop_updates_common_the_audio_each_frame() {
+    // C++ GameEngine::update TheAudio->UPDATE() (GameEngine.cpp:736).
+    // Pre-fix leftover AudioManagerSubsystem ticked host rodio only;
+    // Common THE_AUDIO never processed AR_Play on the live frame.
+    let run_loop = include_str!("run_loop.rs");
+    let audio = include_str!("audio.rs");
+    let boot = include_str!("boot.rs");
+    assert!(
+        run_loop.contains("engine.host_update_the_audio()"),
+        "live run_loop drive_frame must call TheAudio update after engine.update"
+    );
+    assert!(
+        audio.contains("TheAudio::get()")
+            && audio.contains("audio.update()")
+            && audio.contains("GameEngine.cpp:736"),
+        "host_update_the_audio must call Common TheAudio::update"
+    );
+    assert!(
+        boot.contains("initialize_global_audio_manager()")
+            && boot.contains("createAudioManager"),
+        "live boot must construct Common THE_AUDIO like GameEngine::init"
+    );
+}
+
+
+#[test]
 fn live_world_clicks_follow_cpp_place_gui_selection_command_precedence() {
     // C++ GameClient.cpp:273-282 attach order (lower number first):
     //   WindowTranslator 10, PlaceEventTranslator 30, GUICommandTranslator 40,

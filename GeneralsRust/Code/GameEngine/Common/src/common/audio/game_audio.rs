@@ -2716,7 +2716,11 @@ pub fn initialize_global_audio_manager() -> Arc<Mutex<AudioManager>> {
         return existing.clone();
     }
 
-    let manager = Arc::new(Mutex::new(AudioManager::new()));
+    let mut created = AudioManager::new();
+    // C++ `AudioManager::init` (GameAudio.cpp) copies preferred slider volumes.
+    // `new()` leaves effective music/sound/speech volumes at 0 until init.
+    created.init();
+    let manager = Arc::new(Mutex::new(created));
     if THE_AUDIO.set(manager.clone()).is_err() {
         THE_AUDIO.get().expect("THE_AUDIO set but missing").clone()
     } else {
@@ -3044,4 +3048,39 @@ mod tests {
             "Common TheAudio must not import leftover WWAudio crate"
         );
     }
+
+    #[test]
+    fn initialize_global_audio_manager_applies_retail_slider_volumes() {
+        // C++ AudioManager::init (GameAudio.cpp) copies preferred slider volumes.
+        // Pre-fix `new()` left music/sound/speech at 0 so playback was muted.
+        let manager = initialize_global_audio_manager();
+        let guard = manager.lock().expect("THE_AUDIO lock");
+        assert!(
+            guard.get_volume(AudioAffect::Music) > 0.0
+                && guard.get_volume(AudioAffect::Sound) > 0.0
+                && guard.get_volume(AudioAffect::Sound3D) > 0.0
+                && guard.get_volume(AudioAffect::Speech) > 0.0,
+            "live THE_AUDIO must init retail sliders, not stay at 0"
+        );
+    }
+
+    #[test]
+    fn update_drains_queued_play_requests_like_miles_process_request_list() {
+        // C++ MilesAudioManager::update (MilesAudioManager.cpp:460-468)
+        // processRequestList plays queued AR_Play. Live run_loop must call this.
+        let mut audio = AudioManager::new();
+        audio.init();
+        let _ = audio.new_audio_event_info("UnitSelect".to_string());
+        let event = AudioEventRts::with_event_name("UnitSelect");
+        let handle = audio.add_audio_event(&event);
+        assert!(handle >= AHSV_FIRST_HANDLE);
+        assert!(audio.pending_play_request_count() > 0);
+        audio.update();
+        assert_eq!(
+            audio.pending_play_request_count(),
+            0,
+            "AudioManager::update must process AR_Play"
+        );
+    }
+
 }

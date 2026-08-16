@@ -39,6 +39,18 @@ pub struct PlayerTemplateBindingSnapshot {
     pub template_index: i32,
 }
 
+/// C++ `Player::xfer` rank/skill/science purchase points
+/// (`Player.cpp` 4268-4275: `m_rankLevel` / `m_skillPoints` / `m_sciencePurchasePoints`).
+/// Kept as a world tail so historical nested `PlayerSnapshot` records stay aligned.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PlayerRankSnapshot {
+    pub player_id: u32,
+    pub rank_level: u32,
+    pub skill_points: i32,
+    pub science_purchase_points: i32,
+}
+
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PopulationInfo {
     pub current: u32,
@@ -129,6 +141,21 @@ impl XferData for PlayerTemplateBindingSnapshot {
         self.template_name.xfer(xfer)?;
         xfer.xfer_marker_label("TemplateIndex")?;
         xfer.xfer_i32(&mut self.template_index)?;
+        Ok(())
+    }
+}
+
+impl XferData for PlayerRankSnapshot {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        xfer.xfer_marker_label("PlayerRankSnapshot")?;
+        xfer.xfer_marker_label("PlayerId")?;
+        xfer.xfer_u32(&mut self.player_id)?;
+        xfer.xfer_marker_label("RankLevel")?;
+        xfer.xfer_u32(&mut self.rank_level)?;
+        xfer.xfer_marker_label("SkillPoints")?;
+        xfer.xfer_i32(&mut self.skill_points)?;
+        xfer.xfer_marker_label("SciencePurchasePoints")?;
+        xfer.xfer_i32(&mut self.science_purchase_points)?;
         Ok(())
     }
 }

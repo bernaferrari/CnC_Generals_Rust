@@ -68,6 +68,7 @@ impl SnapshotBuilder {
             lifecycle_tail: super::lifecycle_tail::encode_lifecycle_tail(
                 &super::lifecycle_tail::capture_lifecycle_tail(game_logic),
             ),
+            player_ranks: self.snapshot_player_ranks(game_logic)?,
         };
 
         log::info!(
@@ -111,6 +112,7 @@ impl SnapshotBuilder {
 
         // C++ parity order: players/teams before objects, then world systems.
         self.restore_all_players(&snapshot.players, game_logic)?;
+        self.restore_player_ranks(snapshot, game_logic)?;
         self.restore_player_template_bindings(snapshot, game_logic)?;
         self.restore_all_teams(&snapshot.teams, game_logic)?;
         self.restore_all_objects(&snapshot.objects, game_logic)?;
@@ -532,6 +534,60 @@ impl SnapshotBuilder {
             unlocked_upgrades,
             research_progress,
         })
+    }
+
+    /// C++ `Player::xfer` (`Player.cpp:4268-4275`) persists `m_rankLevel`,
+    /// `m_skillPoints`, and `m_sciencePurchasePoints`. Host `PlayerSnapshot`
+    /// historically omitted them, so load reset rank 1 / 0 / 0. Keep the
+    /// values as a world tail rather than mutating nested PlayerSnapshot.
+    fn snapshot_player_ranks(
+        &self,
+        game_logic: &GameLogic,
+    ) -> SaveLoadResult<Vec<PlayerRankSnapshot>> {
+        let mut ranks = Vec::new();
+        let mut player_ids: Vec<u32> = game_logic.get_players().keys().copied().collect();
+        player_ids.sort_unstable();
+        for player_id in player_ids {
+            let Some(player) = game_logic.get_player(player_id) else {
+                continue;
+            };
+            ranks.push(PlayerRankSnapshot {
+                player_id,
+                rank_level: player.rank_level,
+                skill_points: player.skill_points,
+                science_purchase_points: player.science_purchase_points,
+            });
+        }
+        Ok(ranks)
+    }
+
+    fn restore_player_ranks(
+        &self,
+        snapshot: &WorldSnapshot,
+        game_logic: &mut GameLogic,
+    ) -> SaveLoadResult<()> {
+        if snapshot.version < WORLD_SNAPSHOT_DIRECT_XFER_V10_TAIL_VERSION {
+            return Ok(());
+        }
+        let mut seen_players = HashSet::new();
+        for rank in &snapshot.player_ranks {
+            if !seen_players.insert(rank.player_id) {
+                return Err(SaveLoadError::Corrupted(format!(
+                    "Duplicate PlayerRank snapshot for player {}",
+                    rank.player_id
+                )));
+            }
+            let Some(player) = game_logic.get_player_mut(rank.player_id) else {
+                return Err(SaveLoadError::Corrupted(format!(
+                    "PlayerRank snapshot references missing player {}",
+                    rank.player_id
+                )));
+            };
+            player.rank_level = rank.rank_level.max(1);
+            player.skill_points = rank.skill_points;
+            player.science_purchase_points = rank.science_purchase_points.max(0);
+        }
+        Ok(())
     }
 
     /// Capture canonical, indexed identities as a world tail instead of
