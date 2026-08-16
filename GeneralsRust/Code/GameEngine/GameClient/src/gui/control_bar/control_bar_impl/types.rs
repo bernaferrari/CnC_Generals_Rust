@@ -257,6 +257,9 @@ pub struct ControlBar {
     presentation_ocl_timer_seconds: u32,
     displayed_construct_percent: f32,
     displayed_ocl_timer_seconds: u32,
+    /// C++ InGameUI.cpp lastMoney — skip MoneyDisplay set_text when unchanged.
+    last_displayed_money: i32,
+
     border_colors: CommandBarBorderColors,
 }
 

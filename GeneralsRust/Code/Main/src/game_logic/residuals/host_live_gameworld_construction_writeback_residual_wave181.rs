@@ -125,6 +125,9 @@ pub fn simulate_live_gameworld_construction_writeback_honesty() -> bool {
     }
 
     ensure_gate_damage_authority();
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+    crate::gameworld_shadow::refresh_gameworld_authority_env_caches();
     if !gameworld_construction_authority_enabled() {
         return false;
     }

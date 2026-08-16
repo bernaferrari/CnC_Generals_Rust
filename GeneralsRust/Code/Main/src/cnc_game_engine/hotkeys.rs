@@ -885,6 +885,13 @@ impl CnCGameEngine {
             }
             Key::Named(NamedKey::F9) => {
                 // Retail CommandMap TOGGLE_CONTROL_BAR KEY_F9 residual.
+                // C++ CommandXlat.cpp:3144 MSG_META_TOGGLE_CONTROL_BAR → ToggleControlBar.
+                #[cfg(feature = "game_client")]
+                {
+                    let _ = game_client::gui::callbacks::control_bar_callbacks::toggle_control_bar(
+                        true,
+                    );
+                }
                 self.game_hud.toggle_visibility();
                 self.ui_manager.game_hud_mut().toggle_visibility();
                 info!(
@@ -892,6 +899,7 @@ impl CnCGameEngine {
                     self.game_hud.hud_visible()
                 );
             }
+
             Key::Character(c)
                 if c.eq_ignore_ascii_case("s")
                     && ctrl_down

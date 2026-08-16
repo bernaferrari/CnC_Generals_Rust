@@ -55,14 +55,14 @@ pub fn gameworld_shadow_enabled() -> bool {
 /// When enabled, GameWorld shadow mutations are the **last writer** for HP each tick.
 /// Host combat still runs mid-frame; end-of-tick reapplies drained damage events
 /// on the shadow and writebacks health/destroyed onto host objects.
-/// Implies a shadow session (separate GENERALS_GAMEWORLD_SHADOW not required).
 ///
-/// Env: `GENERALS_GAMEWORLD_DAMAGE_AUTHORITY=0|false` off; unset/`1` = **on** (production default).
+/// C++ has one `TheGameLogic` store. Production default is **off** so host
+/// `GameLogic` is the sole writer. Opt in with `GENERALS_GAMEWORLD_DAMAGE_AUTHORITY=1`.
 pub fn gameworld_damage_authority_enabled() -> bool {
     env_flag_cached(
         &DAMAGE_AUTH_CACHE,
         "GENERALS_GAMEWORLD_DAMAGE_AUTHORITY",
-        true,
+        false,
     )
 }
 
@@ -76,12 +76,13 @@ pub fn gameworld_damage_authority_live() -> bool {
         && shadow_coupled_tick_active()
 }
 
-/// Economy last-writer (player supplies/power). Unset = **on**; `0|false` off.
+/// Economy last-writer (player supplies/power). Unset = **off** (host sole writer).
+/// Opt in with `GENERALS_GAMEWORLD_ECONOMY_AUTHORITY=1`.
 pub fn gameworld_economy_authority_enabled() -> bool {
     env_flag_cached(
         &ECONOMY_AUTH_CACHE,
         "GENERALS_GAMEWORLD_ECONOMY_AUTHORITY",
-        true,
+        false,
     )
 }
 
@@ -98,12 +99,13 @@ pub fn gameworld_economy_authority_live() -> bool {
 /// When enabled, GameWorld integrates path/move targets after the host tick and
 /// writebacks pose/movement as last-writer. Host `update_movement` skips integrate.
 ///
-/// Env: `GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY=0|false` off; unset/`1` = **on**.
+/// C++ Locomotor writes one pose on TheGameLogic. Production default **off**.
+/// Opt in with `GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY=1`.
 pub fn gameworld_movement_authority_enabled() -> bool {
     env_flag_cached(
         &MOVEMENT_AUTH_CACHE,
         "GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY",
-        true,
+        false,
     )
 }
 
@@ -116,15 +118,13 @@ pub fn gameworld_movement_authority_live() -> bool {
         && shadow_coupled_tick_active()
 }
 
-/// When enabled (default), GameWorld SetAttackTarget + SetFireIntent writeback is the
-/// last-writer for host attack target / fire-intent residual after each shadow session.
-/// Host still *decides* and discharges weapons; opt out with `=0|false`.
-/// Env: `GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY=0|false` off; unset/`1` = **on**.
+/// Opt-in GameWorld last-writer for attack target / fire-intent residual.
+/// Production default **off** (host sole writer). `=1` to opt in.
 pub fn gameworld_ai_attack_authority_enabled() -> bool {
     env_flag_cached(
         &AI_ATTACK_AUTH_CACHE,
         "GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY",
-        true,
+        false,
     )
 }
 
@@ -137,15 +137,12 @@ pub fn gameworld_ai_attack_authority_live() -> bool {
         && shadow_coupled_tick_active()
 }
 
-/// When enabled (default), GameWorld steps projectile flight residual and
-/// last-writes pose/lifetime into host CombatSystem before hit resolution.
-/// Host still owns spawn/fire and hit/damage application.
-/// Env: `GENERALS_GAMEWORLD_PROJECTILE_AUTHORITY=0|false` off; unset/`1` = **on**.
+/// Opt-in GameWorld projectile flight last-writer. Production default **off**.
 pub fn gameworld_projectile_authority_enabled() -> bool {
     env_flag_cached(
         &PROJECTILE_AUTH_CACHE,
         "GENERALS_GAMEWORLD_PROJECTILE_AUTHORITY",
-        true,
+        false,
     )
 }
 
@@ -158,15 +155,12 @@ pub fn gameworld_projectile_authority_live() -> bool {
         && shadow_coupled_tick_active()
 }
 
-/// When enabled (default), host `update_ai` only *records* AICommand decisions;
-/// GameWorld applies attack/move/state mutations and writeback is last-writer.
-/// Combat runs before AI in the host tick, so deferred apply is next-frame parity.
-/// Env: `GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY=0|false` off; unset/`1` = **on**.
+/// Opt-in GameWorld AI decision last-writer. Production default **off**.
 pub fn gameworld_ai_decision_authority_enabled() -> bool {
     env_flag_cached(
         &AI_DECISION_AUTH_CACHE,
         "GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY",
-        true,
+        false,
     )
 }
 
@@ -179,14 +173,12 @@ pub fn gameworld_ai_decision_authority_live() -> bool {
         && shadow_coupled_tick_active()
 }
 
-/// When enabled (default), `queue_projectile` only logs fire-spawns; shadow
-/// applies them into host CombatSystem before projectile integrate authority.
-/// Env: `GENERALS_GAMEWORLD_FIRE_SPAWN_AUTHORITY=0|false` off; unset/`1` = **on**.
+/// Opt-in GameWorld fire-spawn last-writer. Production default **off**.
 pub fn gameworld_fire_spawn_authority_enabled() -> bool {
     env_flag_cached(
         &FIRE_SPAWN_AUTH_CACHE,
         "GENERALS_GAMEWORLD_FIRE_SPAWN_AUTHORITY",
-        true,
+        false,
     )
 }
 
@@ -199,14 +191,12 @@ pub fn gameworld_fire_spawn_authority_live() -> bool {
         && shadow_coupled_tick_active()
 }
 
-/// When enabled, host construction percent is last-written from GameWorld after
-/// progress logs (host still computes projected percent for completion side effects).
-/// Env: `GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY=0|false` off; unset/`1` = **on**.
+/// Opt-in GameWorld construction last-writer. Production default **off**.
 pub fn gameworld_construction_authority_enabled() -> bool {
     env_flag_cached(
         &CONSTRUCTION_AUTH_CACHE,
         "GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY",
-        true,
+        false,
     )
 }
 
@@ -225,12 +215,12 @@ pub fn gameworld_construction_sole_tick_enabled() -> bool {
         && shadow_coupled_tick_active()
 }
 
-/// Env: `GENERALS_GAMEWORLD_SPECIAL_POWER_AUTHORITY=0|false` off; unset/`1` = **on**.
+/// Opt-in GameWorld special-power last-writer. Production default **off**.
 pub fn gameworld_special_power_authority_enabled() -> bool {
     env_flag_cached(
         &SPECIAL_POWER_AUTH_CACHE,
         "GENERALS_GAMEWORLD_SPECIAL_POWER_AUTHORITY",
-        true,
+        false,
     )
 }
 
@@ -241,17 +231,13 @@ pub fn gameworld_special_power_sole_tick_enabled() -> bool {
         && shadow_coupled_tick_active()
 }
 
-/// When enabled (default), GameWorld shadow is last-writer for production queue
-/// identity (items/progress/rally/exit delay) via host progress logs + writeback.
-/// Host still *completes/spawns* production (completion residual); shadow sole-ticks
-/// queue progress + exit delay under PRODUCTION_AUTHORITY (Wave 464).
-///
-/// Env: `GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY=0|false` off; unset/`1` = **on**.
+/// Opt-in GameWorld production-queue last-writer. Production default **off**.
+/// Wave 464: GameWorld sole-ticks queue progress + exit delay when this is on.
 pub fn gameworld_production_authority_enabled() -> bool {
     env_flag_cached(
         &PRODUCTION_AUTH_CACHE,
         "GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY",
-        true,
+        false,
     )
 }
 
@@ -270,23 +256,21 @@ pub fn gameworld_production_sole_tick_enabled() -> bool {
         && shadow_coupled_tick_active()
 }
 
-/// Env: `GENERALS_GAMEWORLD_WEAPON_AUTHORITY=0|false` off; unset/`1` = **on**.
-/// GameWorld owns per-slot weapon facts; host is last-writer reader.
+/// Opt-in GameWorld weapon-slot last-writer. Production default **off**.
 pub fn gameworld_weapon_authority_enabled() -> bool {
     env_flag_cached(
         &WEAPON_AUTH_CACHE,
         "GENERALS_GAMEWORLD_WEAPON_AUTHORITY",
-        true,
+        false,
     )
 }
 
-/// Attach live crate helper instances on GameWorld spawn; `on_delete` before remove.
-/// Env: `GENERALS_GAMEWORLD_ENTITY_MODULES=0|false` off; unset/`1` = **on**.
+/// Opt-in GameWorld entity-module attach. Production default **off**.
 pub fn gameworld_entity_modules_enabled() -> bool {
     env_flag_cached(
         &ENTITY_MODULES_CACHE,
         "GENERALS_GAMEWORLD_ENTITY_MODULES",
-        true,
+        false,
     )
 }
 
@@ -302,13 +286,12 @@ pub fn gameworld_weapon_authority_live() -> bool {
         && shadow_coupled_tick_active()
 }
 
-/// Env: `GENERALS_GAMEWORLD_DEFERRED_DESTROY=0|false` off; unset/`1` = **on**.
-/// Mark-on-host-mark / remove-on-host-process lockstep with GameWorld.
+/// Opt-in GameWorld deferred-destroy lockstep. Production default **off**.
 pub fn gameworld_deferred_destroy_enabled() -> bool {
     env_flag_cached(
         &DEFERRED_DESTROY_CACHE,
         "GENERALS_GAMEWORLD_DEFERRED_DESTROY",
-        true,
+        false,
     )
 }
 

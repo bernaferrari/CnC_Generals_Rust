@@ -225,15 +225,10 @@ impl CnCGameEngine {
         let mouse_pos = self.mouse_world_position;
         let clicked_object = self.find_object_at_position(mouse_pos, false);
 
-        // C++ PlaceEventTranslator and GUICommandTranslator run before
-        // SelectionXlat/CommandXlat.  Their LMB target/placement ownership is
-        // therefore invariant across mouse layouts and must also outrank a
-        // stale double-click selection gesture.
-        if self.pending_map_command.is_some() {
-            self.commit_pending_map_command(mouse_pos, clicked_object);
-            self.left_click_release_behavior = LeftMouseReleaseBehavior::Suppress;
-            return;
-        }
+        // C++ GameClient.cpp:276-280 attach order (lower number first):
+        // PlaceEventTranslator 30, GUICommandTranslator 40, SelectionTranslator
+        // 50, CommandTranslator 70.  Both Place and GUI own LMB in every
+        // mouse layout and must outrank a stale double-click selection.
         if let Some(template) = self.pending_structure_placement.clone() {
             // Wall/fence residual: defer commit to left-release so drag can form a line.
             if !Self::is_wall_structure_template(&template) {
@@ -241,6 +236,11 @@ impl CnCGameEngine {
                 self.place_structure_from_ui(&template, mouse_pos);
                 self.left_click_release_behavior = LeftMouseReleaseBehavior::Suppress;
             }
+            return;
+        }
+        if self.pending_map_command.is_some() {
+            self.commit_pending_map_command(mouse_pos, clicked_object);
+            self.left_click_release_behavior = LeftMouseReleaseBehavior::Suppress;
             return;
         }
 
@@ -720,28 +720,25 @@ impl CnCGameEngine {
         true
     }
 
-    /// C++ SelectionXlat sees a right-button click before CommandXlat.  An
-    /// armed GUI/build mode is cancelled there; it must never turn into a
-    /// context command merely because Main owns direct OS input.
+    /// C++ SelectionXlat.cpp:1007-1023 sees a right-button click before
+    /// CommandXlat.  An armed GUI command is cancelled without deselect;
+    /// a pending place still deselects the builder (place source != 0)
+    /// in both mouse layouts.  That click must never become a context
+    /// command merely because Main owns direct OS input.
     pub(super) fn cancel_world_mouse_targeting(&mut self) -> bool {
-        let mut cancelled = false;
-        if self.pending_structure_placement.is_some() {
-            // SelectionXlat processes raw RMB-up before CommandXlat.  Unlike
-            // a pending GUI target, a pending structure has a placement
-            // source, so retail deselects the builder before CommandXlat
-            // clears the placement state in either mouse layout.
-            self.deselect_world_selection_from_right_click();
-            self.cancel_structure_placement_from_ui();
-            cancelled = true;
-        }
         if self.pending_map_command.take().is_some() {
             self.clear_radius_cursor_overlays();
             let msg = "Cancelled pending command";
             self.game_hud.push_info_message(msg);
             self.ui_manager.game_hud_mut().push_info_message(msg);
-            cancelled = true;
+            return true;
         }
-        cancelled
+        if self.pending_structure_placement.is_some() {
+            self.deselect_world_selection_from_right_click();
+            self.cancel_structure_placement_from_ui();
+            return true;
+        }
+        false
     }
 
     /// C++ SelectionXlat deselects on a short classic-layout RMB click when

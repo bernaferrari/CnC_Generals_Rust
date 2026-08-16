@@ -41,6 +41,8 @@ impl ControlBar {
             presentation_ocl_timer_seconds: 0,
             displayed_construct_percent: -1.0,
             displayed_ocl_timer_seconds: 0,
+            last_displayed_money: -1,
+
             border_colors: CommandBarBorderColors::default(),
         }
     }
@@ -115,6 +117,11 @@ impl ControlBar {
         self.current_frame = TheGameLogic::get_frame();
         self.update_star_image();
         self.update_radar_attack_glow();
+        // C++ InGameUI.cpp:1776-1815 writes MoneyDisplay / PowerWindow hide
+        // immediately before TheControlBar->update(). Live host ticks ControlBar
+        // from presentation apply, so this is the live InGameUI money path.
+        self.update_money_and_power_windows();
+
 
         if self.observer_mode {
             self.update_observer_portrait()?;
@@ -220,6 +227,82 @@ impl ControlBar {
 
         Ok(())
     }
+
+    /// C++ InGameUI::update money/power window residual (InGameUI.cpp:1776-1815).
+    ///
+    /// Formats `GUI:ControlBarMoneyDisplay` onto `ControlBar.wnd:MoneyDisplay`
+    /// from ThePlayerList (observer look-at or local). PowerWindow hide/show
+    /// matches C++; power fill itself is drawn by w3d_power_draw.
+    pub fn update_money_and_power_windows(&mut self) {
+        let money_player = if self.observer_mode {
+            self.get_observer_look_at_player_index()
+                .and_then(|idx| {
+                    logic_player_list()
+                        .read()
+                        .ok()
+                        .and_then(|list| list.get_player(idx as PlayerIndex).cloned())
+                })
+        } else {
+            logic_player_list()
+                .read()
+                .ok()
+                .and_then(|list| list.get_local_player().cloned())
+        };
+
+        let current_money = money_player
+            .as_ref()
+            .and_then(|player| player.read().ok())
+            .map(|player| player.get_money().count_money() as i32);
+
+        with_window_manager(|manager| {
+            let money_win = manager.find_window_by_name("ControlBar.wnd:MoneyDisplay");
+            let power_win = manager.find_window_by_name("ControlBar.wnd:PowerWindow");
+            match current_money {
+                Some(money) => {
+                    if let Some(win) = money_win.as_ref() {
+                        if self.last_displayed_money != money {
+                            let template = GameText::fetch("GUI:ControlBarMoneyDisplay");
+                            let text = if template.contains("%d") {
+                                template.replace("%d", &money.to_string())
+                            } else if template.is_empty() || template.starts_with("GUI:") {
+                                format!("${money}")
+                            } else {
+                                format!("{template} {money}")
+                            };
+                            let _ = win.borrow_mut().set_text(&text);
+                            self.last_displayed_money = money;
+                        }
+                        let _ = win.borrow_mut().hide(false);
+                    }
+                    if let Some(win) = power_win.as_ref() {
+                        let _ = win.borrow_mut().hide(false);
+                    }
+                }
+                None => {
+                    if let Some(win) = money_win.as_ref() {
+                        let _ = win.borrow_mut().hide(true);
+                    }
+                    if let Some(win) = power_win.as_ref() {
+                        let _ = win.borrow_mut().hide(true);
+                    }
+                    self.last_displayed_money = -1;
+                }
+            }
+        });
+    }
+
+    /// Host-testable money format residual (C++ `GUI:ControlBarMoneyDisplay` %d).
+    pub fn format_control_bar_money_display(money: i32) -> String {
+        let template = GameText::fetch("GUI:ControlBarMoneyDisplay");
+        if template.contains("%d") {
+            template.replace("%d", &money.to_string())
+        } else if template.is_empty() || template.starts_with("GUI:") {
+            format!("${money}")
+        } else {
+            format!("{template} {money}")
+        }
+    }
+
 
     fn apply_live_hook_events(&mut self) {
         let events = drain_live_control_bar_events();

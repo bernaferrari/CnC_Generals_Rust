@@ -94,7 +94,7 @@ pub fn honesty_projectile_ai_channel_api_source() -> bool {
         && ai.contains("pub fn record_attack")
 }
 
-/// Source residual: projectile + AI decision authorities default on.
+/// Source residual: projectile + AI decision last-writers default off.
 pub fn honesty_projectile_ai_authority_default_on_source() -> bool {
     let src = crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC;
     let proj_ok = {
@@ -102,19 +102,19 @@ pub fn honesty_projectile_ai_authority_default_on_source() -> bool {
             Some(i) => i,
             None => return false,
         };
-        src[i..src.len().min(i + 300)].contains("true")
+        src[i..src.len().min(i + 300)].contains("false")
     };
     let ai_ok = {
         let i = match src.find("pub fn gameworld_ai_decision_authority_enabled") {
             Some(i) => i,
             None => return false,
         };
-        src[i..src.len().min(i + 300)].contains("true")
+        src[i..src.len().min(i + 300)].contains("false")
     };
     proj_ok && ai_ok
 }
 
-/// Live residual: projectile flight apply + AI decision apply.
+/// Live residual: projectile flight apply + AI decision apply (opt-in authority).
 pub fn simulate_live_gameworld_projectile_ai_honesty() -> bool {
     use crate::game_logic::host_ai_decision_log::{self, AI_DECISION_ATTACK};
     use crate::game_logic::host_projectile_log;
@@ -137,6 +137,10 @@ pub fn simulate_live_gameworld_projectile_ai_honesty() -> bool {
     }
 
     ensure_gate_damage_authority();
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_PROJECTILE_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+    crate::gameworld_shadow::refresh_gameworld_authority_env_caches();
     if !gameworld_projectile_authority_enabled() || !gameworld_ai_decision_authority_enabled() {
         return false;
     }

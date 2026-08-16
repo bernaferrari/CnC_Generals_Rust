@@ -153,13 +153,20 @@ impl GameClient {
     }
 
     /// C++ `TheSnowManager->UPDATE()` + `TheAnim2DCollection->UPDATE()`.
-    fn update_cpp_snow_and_anim2d(&self, delta_seconds: f32) {
+    pub fn update_cpp_snow_and_anim2d(&self, delta_seconds: f32) {
         if let Some(snow) = crate::snow::get_snow_manager() {
             if let Ok(mut guard) = snow.lock() {
                 guard.update(delta_seconds);
             }
         }
         crate::system::update_client_anim2d_collection();
+    }
+
+    /// C++ `TheTerrainVisual->UPDATE()` (GameClient.cpp:719-722). Fail-soft.
+    pub fn update_terrain_visual(&self) {
+        if let Some(tv) = &self.subsystem_manager.terrain_visual {
+            let _ = tv.lock().unwrap_or_else(|e| e.into_inner()).update();
+        }
     }
 
     /// C++ GameClient.cpp:587-597 — follow first selected drawable or clear flag.
@@ -1068,11 +1075,8 @@ impl GameClient {
         // C++ visual freeze + script visual-speed residual (same as full update),
         // without Main-owned input/audio or Display DRAW dual-ownership.
         // Device state is shared THE_MOUSE/THE_KEYBOARD (Main inject; no second OS poll).
-        let mut visual_delta = if self.should_freeze_visual_time() {
-            0.0
-        } else {
-            delta_time
-        };
+        let freeze_time = self.should_freeze_visual_time();
+        let mut visual_delta = if freeze_time { 0.0 } else { delta_time };
         let visual_speed = get_script_visual_speed_multiplier();
         visual_delta = if visual_speed <= 0 {
             0.0
@@ -1084,6 +1088,9 @@ impl GameClient {
         // update_input dual-tick). Audio/SFX dispatched by Main before shell tick (no update_audio dual-drain).
         // Presentation gameplay SFX is dispatched by Main via
         // PresentationFrame::dispatch_audio_events_direct before this shell tick.
+
+        // C++ GameClient.cpp:632-657 — GhostObjectManager::updateOrphanedObjects.
+        self.update_orphaned_w3d_ghosts_if_unfrozen(freeze_time);
 
         // Local drawable client modules only (no OBJECT_REGISTRY shroud bind).
         // Eva residual runs via update_post_draw_ui (no dual OS input ownership).
@@ -1097,6 +1104,8 @@ impl GameClient {
         self.update_particle_system_local_player()?;
         self.update_effects(visual_delta)?;
         apply_pending_script_display_state();
+        // C++ GameClient.cpp:719-722 — TheTerrainVisual->UPDATE().
+        self.update_terrain_visual();
         // C++ line 726: display UPDATE (not DRAW). Main RenderPipeline remains sole
         // 3D present path; skip draw_display to avoid dual surface present.
         self.update_display_only()?;
@@ -1528,7 +1537,7 @@ impl GameClient {
         Ok(())
     }
 
-    fn update_display_string_manager(&self) -> GameClientResult<()> {
+    pub fn update_display_string_manager(&self) -> GameClientResult<()> {
         crate::display_string_manager::update_display_string_manager()
             .map_err(|err| GameClientError::SubsystemError(format!("{err}")))
     }

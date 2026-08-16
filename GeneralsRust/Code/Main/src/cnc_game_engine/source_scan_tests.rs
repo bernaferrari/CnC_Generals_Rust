@@ -123,10 +123,35 @@ fn beacon_and_control_bar_hotkeys_residual() {
         "PlaceBeacon must arm pending map click"
     );
     assert!(
-        src.contains("NamedKey::F9") && src.contains("toggle_visibility()"),
-        "F9 must TOGGLE_CONTROL_BAR residual"
+        src.contains("NamedKey::F9")
+            && src.contains("toggle_control_bar")
+            && src.contains("MSG_META_TOGGLE_CONTROL_BAR"),
+        "F9 must TOGGLE_CONTROL_BAR via WND ToggleControlBar (C++ CommandXlat.cpp:3144)"
+    );
+
+}
+
+#[test]
+fn wnd_control_bar_is_live_gameplay_hud_not_only_soft_ui_manager() {
+    // C++ HideControlBar / ShowControlBar / ToggleControlBar (ControlBarCallback.cpp:477-549).
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    assert!(
+        src.contains("fn hide_gameplay_layouts")
+            && src.contains("hide_control_bar(true)"),
+        "shell hide must call live WND HideControlBar"
+    );
+    assert!(
+        src.contains("fn ensure_gameplay_layouts")
+            && src.contains("show_control_bar"),
+        "InGame enter must ShowControlBar on live WND tree"
+    );
+    let hud = include_str!("../ui/hud.rs");
+    assert!(
+        hud.contains("TheInGameUI::message(text)"),
+        "GameHUD info messages must fan into live TheInGameUI (InGameUI.cpp:1993)"
     );
 }
+
 
 #[test]
 fn camera_bookmarks_and_delete_beacon_residual() {

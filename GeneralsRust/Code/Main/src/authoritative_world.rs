@@ -151,6 +151,13 @@ mod tests {
             crate::gameworld_shadow::gameworld_shadow_enabled(),
             "GameWorld shadow is production-on (opt out GENERALS_GAMEWORLD_SHADOW=0)"
         );
+        assert!(
+            !crate::gameworld_shadow::gameworld_movement_authority_enabled()
+                && !crate::gameworld_shadow::gameworld_damage_authority_enabled()
+                && !crate::gameworld_shadow::gameworld_economy_authority_enabled()
+                && !crate::gameworld_shadow::gameworld_production_authority_enabled(),
+            "last-writer authorities default off — host GameLogic is the sole writer"
+        );
         let aw = include_str!("authoritative_world.rs");
         let prod = aw.split("#[cfg(test)]").next().expect("prod");
         assert!(prod.contains("DualTickPolicy::AuthorityOnly"));
@@ -159,8 +166,11 @@ mod tests {
             "dual crate tick path is removed"
         );
         let shadow = include_str!("gameworld_shadow/mod.rs");
-        assert!(shadow.contains("Production default ON"));
         assert!(shadow.contains("GENERALS_GAMEWORLD_SHADOW"));
+        assert!(
+            shadow.contains("Last-writer") || shadow.contains("sole writer"),
+            "shadow docs must state host sole writer"
+        );
     }
 
     #[test]

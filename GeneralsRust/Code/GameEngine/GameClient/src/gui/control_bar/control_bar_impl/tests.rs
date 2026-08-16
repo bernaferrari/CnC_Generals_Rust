@@ -202,4 +202,47 @@ mod tests {
             "ControlBar HUD fallback must queue draw commands without scheme art"
         );
     }
+
+    #[test]
+    fn control_bar_money_display_formats_like_cpp_ingame_ui() {
+        // C++ InGameUI.cpp:1803 buffer.format(TheGameText->fetch("GUI:ControlBarMoneyDisplay"), currentMoney)
+        let formatted = ControlBar::format_control_bar_money_display(1250);
+        assert!(
+            formatted.contains("1250"),
+            "MoneyDisplay text must include the player cash amount, got {formatted}"
+        );
+        assert_ne!(formatted, "1250", "must wrap amount in GUI:ControlBarMoneyDisplay or $ prefix");
+    }
+
+    #[test]
+    fn control_bar_update_writes_money_display_window_text() {
+        // Live path: ControlBar::update → update_money_and_power_windows writes
+        // ControlBar.wnd:MoneyDisplay via TheWindowManager (C++ InGameUI.cpp:1776-1815).
+        crate::gui::with_window_manager(|manager| {
+            let win = manager
+                .create_window(None, 0, 0, 80, 24)
+                .expect("MoneyDisplay");
+            win.borrow_mut().set_name("ControlBar.wnd:MoneyDisplay");
+            let _ = win.borrow_mut().set_text("PLACEHOLDER");
+        });
+        let mut bar = ControlBar::new();
+        bar.update_money_and_power_windows();
+        let text = crate::gui::with_window_manager_ref(|manager| {
+            manager
+                .find_window_by_name("ControlBar.wnd:MoneyDisplay")
+                .map(|w| w.borrow().get_text().to_string())
+        });
+        // No local player → hide; placeholder must not remain visible as live money.
+        let hidden = crate::gui::with_window_manager_ref(|manager| {
+            manager
+                .find_window_by_name("ControlBar.wnd:MoneyDisplay")
+                .map(|w| w.borrow().is_hidden())
+                .unwrap_or(false)
+        });
+        assert!(
+            hidden || text.as_deref() != Some("PLACEHOLDER"),
+            "MoneyDisplay must be hidden without a player or rewritten from ThePlayerList, got text={text:?} hidden={hidden}"
+        );
+    }
+
 }

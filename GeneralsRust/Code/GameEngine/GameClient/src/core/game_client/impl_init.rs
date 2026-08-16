@@ -692,7 +692,7 @@ impl GameClient {
 
     // Update methods
 
-    fn create_frame_tick_message(&self) -> GameClientResult<()> {
+    pub fn create_frame_tick_message(&self) -> GameClientResult<()> {
         let mut stream = THE_MESSAGE_STREAM
             .write()
             .map_err(|_| GameClientError::SubsystemError("Message stream lock poisoned".into()))?;

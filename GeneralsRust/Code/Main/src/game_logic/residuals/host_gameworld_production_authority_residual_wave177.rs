@@ -82,7 +82,7 @@ pub fn honesty_gameworld_production_authority_residual_pack_wave177() -> bool {
         && honesty_gameworld_production_authority_nav_commands_residual_wave177()
 }
 
-/// Source residual: production authority defaults on via env cache.
+/// Source residual: production last-writer defaults off (host sole writer).
 pub fn honesty_production_authority_default_on_source() -> bool {
     let src = crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC;
     let i = match src.find("pub fn gameworld_production_authority_enabled") {
@@ -90,7 +90,7 @@ pub fn honesty_production_authority_default_on_source() -> bool {
         None => return false,
     };
     let body = &src[i..src.len().min(i + 350)];
-    body.contains("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY") && body.contains("true")
+    body.contains("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY") && body.contains("false")
 }
 
 /// Source residual: host production sole-tick skips full queue progress advance.
@@ -116,7 +116,7 @@ pub fn honesty_production_writeback_source() -> bool {
         && src.contains("Wave 464")
 }
 
-/// Live residual: production authority enabled after gate ensure (default-on path).
+/// Live residual: production last-writer stays off after gate ensure.
 pub fn simulate_gameworld_production_authority_honesty() -> bool {
     use crate::gameworld_shadow::{
         ensure_gate_damage_authority, gameworld_production_authority_enabled,
@@ -136,23 +136,13 @@ pub fn simulate_gameworld_production_authority_honesty() -> bool {
         return false;
     }
 
-    // Gate path forces production authority when unset (via damage ensure cascade).
     ensure_gate_damage_authority();
-    if !gameworld_production_authority_enabled() {
+    if gameworld_production_authority_enabled() {
         return false;
     }
-
-    // Sole-tick is only live inside a coupled shadow session — outside it must be false
-    // (host still owns progress). Honesty: API exists and returns bool without panic.
-    let _sole = gameworld_production_sole_tick_enabled();
-    // Outside coupled tick, sole-tick must not silently claim authority.
     if gameworld_production_sole_tick_enabled() {
-        // Only acceptable if a test left coupled depth open — still require auth on.
-        if !gameworld_production_authority_enabled() {
-            return false;
-        }
+        return false;
     }
-
     true
 }
 

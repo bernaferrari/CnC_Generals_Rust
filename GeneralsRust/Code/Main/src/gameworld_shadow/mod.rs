@@ -1,15 +1,15 @@
-//! Shadow parity bridge: Main `GameLogic` (temp host authority) → `gamelogic::world::GameWorld`.
+//! Shadow parity bridge: Main `GameLogic` (live C++ `TheGameLogic` counterpart)
+//! → observe-only `gamelogic::world::GameWorld` mirror.
 //!
-//! This is **not** production authority yet. It maintains a borrow-first `GameWorld`
-//! plus a **stable** host `ObjectId` → `EntityId` map so damage/spawn/destroy can be
-//! applied as `WorldMutation`s without pointer ownership.
+//! This is **not** production authority. It maintains a borrow-first `GameWorld`
+//! plus a **stable** host `ObjectId` → `EntityId` map so damage/spawn/destroy can
+//! be mirrored as `WorldMutation`s without pointer ownership.
 //!
-//! Production default ON; opt out with `GENERALS_GAMEWORLD_SHADOW=0`.
+//! Shadow session production default ON (`GENERALS_GAMEWORLD_SHADOW=0` to opt out).
+//! Last-writer `*_AUTHORITY` flags production default **off** so host `GameLogic`
+//! is the sole writer (C++ single-store). Opt in per channel with `=1`.
 //!
 //! Dual-tick policy is **AuthorityOnly** (see `authoritative_world::dual_tick_policy`).
-//! When a shadow session is coupled, GameWorld is the mutation store for HP/pose/
-//! cash/target; Main `GameLogic.objects` HashMap is an ID map / read-through view
-//! written back after the session. Fail-open host fields only when shadow is off.
 //! Do not populate OBJECT_REGISTRY with host objects.
 //!
 //! Policy: borrow host for sync phases only; never store long-lived host references.

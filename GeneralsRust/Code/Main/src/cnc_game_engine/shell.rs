@@ -539,10 +539,14 @@ impl CnCGameEngine {
         info!(
             "hide_gameplay_layouts: ControlBar / in-game layout teardown (shell overlay owns UI)"
         );
-        // Window manager layouts are suspended via ui_manager.suspend_for_shell_overlay()
-        // on the Menu transition path; this records the shipped hide hook so the ensure
-        // path is not unpaired with a silent no-op.
+        #[cfg(feature = "game_client")]
+        {
+            let _ = game_client::gui::callbacks::control_bar_callbacks::hide_control_bar(true);
+        }
+        // Window manager layouts are also suspended via ui_manager.suspend_for_shell_overlay()
+        // on the Menu transition path.
     }
+
 
     /// Ensure ControlBar / in-game layout is available when entering gameplay.
     ///
@@ -573,6 +577,10 @@ impl CnCGameEngine {
                             "ensure_gameplay_layouts: TheWindowManager ControlBar live={loaded} path={path}"
                         );
                     }
+                    let _ = game_client::gui::callbacks::control_bar_callbacks::show_control_bar(
+                        true,
+                    );
+
                 }
             }
             crate::gameplay_layout::GameplayLayoutStatus::AssetsUnavailable { searched } => {

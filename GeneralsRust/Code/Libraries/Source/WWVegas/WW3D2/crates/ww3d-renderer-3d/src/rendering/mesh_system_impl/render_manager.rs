@@ -227,6 +227,13 @@ pub struct MeshRenderManager {
     decal_queue: Vec<Arc<MeshClass>>,
     fvf_containers: Vec<Arc<DX8FVFCategoryContainer>>,
     live_csm: crate::rendering::shadow_system::live_cascade_shadow::LiveCascadeShadowMap,
+    cascade_depth_pipeline: Option<Arc<wgpu::RenderPipeline>>,
+    cascade_depth_pipeline_skinned: Option<Arc<wgpu::RenderPipeline>>,
+
+    cascade_light_bgl: Option<wgpu::BindGroupLayout>,
+    cascade_model_bgl: Option<wgpu::BindGroupLayout>,
+    last_cascade_casters_drawn: u32,
+
     /// Frozen presentation texture installed for the current frame. The
     /// dedicated rigid/skinned draw pipeline is intentionally separate work;
     /// retaining it here closes the resource-ownership ingress without a live
@@ -275,6 +282,13 @@ impl MeshRenderManager {
             decal_queue: Vec::new(),
             fvf_containers: Vec::new(),
             live_csm,
+            cascade_depth_pipeline: None,
+            cascade_depth_pipeline_skinned: None,
+
+            cascade_light_bgl: None,
+            cascade_model_bgl: None,
+            last_cascade_casters_drawn: 0,
+
             projected_shroud: None,
         }
     }
@@ -464,16 +478,101 @@ impl MeshRenderManager {
     }
 
     /// C++ `W3DProjectedShadowManager::updateRenderTargetTextures` fills the
-    /// shadow map before the scene. This first-light pass clears each cascade
-    /// layer to 1.0 (empty occluder set) then publishes matrices with
-    /// `enabled = true` so opaque.wgsl PCF-samples a defined map.
+    /// shadow map before the scene (W3DDisplay.cpp:1840). Clear each cascade
+    /// layer, draw queued opaque casters into light-space depth, then publish
+    /// matrices with `enabled = true` so opaque.wgsl PCF-samples a filled map.
     pub fn update_and_fill_live_cascade(
         &mut self,
         encoder: &mut wgpu::CommandEncoder,
         render_info: &RenderInfoClass,
+        casters: &[Arc<MeshClass>],
     ) {
-        for view in &self.live_csm.layer_views {
-            let _pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+        self.last_cascade_casters_drawn = 0;
+        self.ensure_cascade_depth_pipeline();
+        let light_direction = live_cascade_light_direction(render_info);
+        self.live_csm.update(
+            self.gpu_device.queue(),
+            render_info.camera.get_position(),
+            render_info.camera.get_forward(),
+            light_direction,
+            true,
+        );
+
+        if self.cascade_depth_pipeline.is_none() {
+            return;
+        }
+
+        // Prepare geometry first so later layout/view borrows are immutable.
+        let mut prepared_casters = Vec::new();
+        for mesh in casters {
+            if mesh.is_hidden || mesh.is_animation_hidden || mesh.is_decal_instance {
+                continue;
+            }
+            let Some(model) = mesh.model.as_ref() else {
+                continue;
+            };
+            let Ok(prepared) = self.preparemodel(model) else {
+                continue;
+            };
+            if prepared.index_count == 0 && prepared.vertex_count == 0 {
+                continue;
+            }
+            prepared_casters.push((prepared, mesh.transform));
+        }
+
+        let Some(pipeline) = self.cascade_depth_pipeline.clone() else {
+            return;
+        };
+        let skinned_pipeline = self
+            .cascade_depth_pipeline_skinned
+            .clone()
+            .unwrap_or_else(|| Arc::clone(&pipeline));
+        let Some(light_bgl) = self.cascade_light_bgl.as_ref() else {
+            return;
+        };
+        let Some(model_bgl) = self.cascade_model_bgl.as_ref() else {
+            return;
+        };
+
+        let device = self.gpu_device.wgpu_device();
+        let mut light_groups = Vec::with_capacity(self.live_csm.layer_views.len());
+        for view_proj in &self.live_csm.uniform.view_proj {
+            let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("live_csm_light_view_proj"),
+                contents: bytemuck::bytes_of(view_proj),
+                usage: wgpu::BufferUsages::UNIFORM,
+            });
+            let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("live_csm_light_bg"),
+                layout: light_bgl,
+                entries: &[wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: buffer.as_entire_binding(),
+                }],
+            });
+            light_groups.push((buffer, bind_group));
+        }
+
+        let mut model_groups = Vec::with_capacity(prepared_casters.len());
+        for (prepared, transform) in prepared_casters {
+            let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("live_csm_model"),
+                contents: bytemuck::bytes_of(&transform),
+                usage: wgpu::BufferUsages::UNIFORM,
+            });
+            let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("live_csm_model_bg"),
+                layout: model_bgl,
+                entries: &[wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: buffer.as_entire_binding(),
+                }],
+            });
+            model_groups.push((prepared, buffer, bind_group));
+        }
+
+        for (layer, view) in self.live_csm.layer_views.iter().enumerate() {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("live_csm_first_light_depth"),
                 color_attachments: &[],
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
@@ -487,16 +586,154 @@ impl MeshRenderManager {
                 timestamp_writes: None,
                 occlusion_query_set: None,
             });
+            if let Some((_, light_bg)) = light_groups.get(layer) {
+                pass.set_bind_group(0, light_bg, &[]);
+            }
+            for (prepared, _, model_bg) in &model_groups {
+                if prepared.is_skinned {
+                    pass.set_pipeline(&skinned_pipeline);
+                } else {
+                    pass.set_pipeline(&pipeline);
+                }
+                pass.set_bind_group(1, model_bg, &[]);
+                pass.set_vertex_buffer(0, prepared.vertex_buffer.slice(..));
+                if let Some(index_buffer) = prepared.index_buffer.as_ref() {
+                    pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                    pass.draw_indexed(0..prepared.index_count, 0, 0..1);
+                } else if prepared.vertex_count > 0 {
+                    pass.draw(0..prepared.vertex_count, 0..1);
+                }
+            }
         }
-        let light_direction = live_cascade_light_direction(render_info);
-        self.live_csm.update(
-            self.gpu_device.queue(),
-            render_info.camera.get_position(),
-            render_info.camera.get_forward(),
-            light_direction,
-            true,
-        );
+        self.last_cascade_casters_drawn = model_groups.len() as u32;
     }
+
+    pub fn last_cascade_casters_drawn(&self) -> u32 {
+        self.last_cascade_casters_drawn
+    }
+
+    pub fn live_cascade_enabled(&self) -> bool {
+        self.live_csm.is_enabled()
+    }
+
+    fn cascade_depth_vertex_layout(skinned: bool) -> wgpu::VertexBufferLayout<'static> {
+        let floats = if skinned {
+            3 + 3 + (4 * 2) + 4 + 4
+        } else {
+            3 + 3 + (4 * 2)
+        };
+        wgpu::VertexBufferLayout {
+            array_stride: (floats * std::mem::size_of::<f32>()) as u64,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &[wgpu::VertexAttribute {
+                offset: 0,
+                shader_location: 0,
+                format: wgpu::VertexFormat::Float32x3,
+            }],
+        }
+    }
+
+    fn create_cascade_depth_pipeline(
+        device: &wgpu::Device,
+        layout: &wgpu::PipelineLayout,
+        module: &wgpu::ShaderModule,
+        skinned: bool,
+    ) -> wgpu::RenderPipeline {
+        device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some(if skinned {
+                "live_csm_depth_pipeline_skinned"
+            } else {
+                "live_csm_depth_pipeline"
+            }),
+            layout: Some(layout),
+            vertex: wgpu::VertexState {
+                module,
+                entry_point: Some("vs_main"),
+                buffers: &[Self::cascade_depth_vertex_layout(skinned)],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            },
+            fragment: None,
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: Some(wgpu::Face::Back),
+                polygon_mode: wgpu::PolygonMode::Fill,
+                unclipped_depth: false,
+                conservative: false,
+            },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: wgpu::TextureFormat::Depth32Float,
+                depth_write_enabled: true,
+                depth_compare: wgpu::CompareFunction::LessEqual,
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState {
+                    constant: 2,
+                    slope_scale: 1.5,
+                    clamp: 0.0,
+                },
+            }),
+            multisample: wgpu::MultisampleState {
+                count: 1,
+                mask: !0,
+                alpha_to_coverage_enabled: false,
+            },
+            multiview: None,
+            cache: None,
+        })
+    }
+
+    fn ensure_cascade_depth_pipeline(&mut self) {
+        if self.cascade_depth_pipeline.is_some() {
+            return;
+        }
+        let device = self.gpu_device.wgpu_device();
+        let light_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("live_csm_light_bgl"),
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::VERTEX,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            }],
+        });
+        let model_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("live_csm_model_bgl"),
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::VERTEX,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            }],
+        });
+        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("live_csm_depth_layout"),
+            bind_group_layouts: &[&light_bgl, &model_bgl],
+            push_constant_ranges: &[],
+        });
+        let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("live_csm_depth_shader"),
+            source: wgpu::ShaderSource::Wgsl(
+                include_str!("../shader_system/cascade_depth.wgsl").into(),
+            ),
+        });
+        let rigid = Self::create_cascade_depth_pipeline(device, &layout, &module, false);
+        let skinned = Self::create_cascade_depth_pipeline(device, &layout, &module, true);
+        self.cascade_light_bgl = Some(light_bgl);
+        self.cascade_model_bgl = Some(model_bgl);
+        self.cascade_depth_pipeline = Some(Arc::new(rigid));
+        self.cascade_depth_pipeline_skinned = Some(Arc::new(skinned));
+    }
+
+
 
     pub fn render_pass(
         &mut self,
@@ -1397,6 +1634,152 @@ mod per_mesh_lighting_tests {
             src.contains("live_csm_first_light_depth"),
             "first-light depth pass must clear cascade layers"
         );
+        assert!(
+            src.contains("draw_indexed(0..prepared.index_count"),
+            "first-light depth pass must draw casters, not only clear"
+        );
+        assert!(
+            renderer_src.contains("cascade_casters"),
+            "Renderer must pass live casters into cascade fill"
+        );
+    }
+
+    #[test]
+    fn live_cascade_fill_draws_opaque_casters() {
+        // C++ W3DDisplay.cpp:1840 updateRenderTargetTextures writes occluder
+        // depth before the scene. An empty clear+enable is not a fill.
+        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::all(),
+            ..Default::default()
+        });
+        let Some(adapter) =
+            pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::LowPower,
+                compatible_surface: None,
+                force_fallback_adapter: true,
+            }))
+            .ok()
+        else {
+            return;
+        };
+        // STANDALONE DEVICE: #[cfg(test)] cascade fill, not on the game path.
+        let Ok((device, queue)) =
+            pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+                required_features: wgpu::Features::empty(),
+                required_limits: wgpu::Limits::downlevel_defaults(),
+                label: Some("live-csm-fill-test"),
+                ..Default::default()
+            }))
+        else {
+            return;
+        };
+        let gpu = Arc::new(GpuDevice::from_shared(Arc::new(device), Arc::new(queue)));
+        let mut manager = MeshRenderManager::new(gpu.clone());
+        let camera = Arc::new(CameraClass::new());
+        let info = RenderInfoClass::new(camera);
+
+        let mut model = MeshModelClass::new("csm_caster");
+        model.vertices = vec![
+            W3dVectorStruct {
+                x: 0.0,
+                y: 0.0,
+                z: 0.0,
+            },
+            W3dVectorStruct {
+                x: 4.0,
+                y: 0.0,
+                z: 0.0,
+            },
+            W3dVectorStruct {
+                x: 0.0,
+                y: 0.0,
+                z: 4.0,
+            },
+        ];
+        model.triangles = vec![W3dTriangleStruct {
+            vindex: [0, 1, 2],
+            attributes: 0,
+            normal: W3dVectorStruct {
+                x: 0.0,
+                y: 1.0,
+                z: 0.0,
+            },
+            distance: 0.0,
+        }];
+        model.vertex_count = 3;
+        model.index_count = 3;
+        let mut mesh = MeshClass::new();
+        mesh.model = Some(Arc::new(model));
+        mesh.transform = Mat4::IDENTITY;
+
+        let mut encoder = gpu
+            .wgpu_device()
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("live-csm-fill-encoder"),
+            });
+        manager.update_and_fill_live_cascade(&mut encoder, &info, &[Arc::new(mesh)]);
+        gpu.queue().submit(Some(encoder.finish()));
+        let _ = gpu.wgpu_device().poll(wgpu::PollType::wait_indefinitely());
+
+        assert!(
+            manager.live_cascade_enabled(),
+            "filled cascade must enable PCF sampling"
+        );
+        assert_eq!(
+            manager.last_cascade_casters_drawn(),
+            1,
+            "opaque caster must write depth, not just clear the map"
+        );
+    }
+
+    #[test]
+    fn live_cascade_fill_skips_hidden_and_decal_meshes() {
+        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::all(),
+            ..Default::default()
+        });
+        let Some(adapter) =
+            pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::LowPower,
+                compatible_surface: None,
+                force_fallback_adapter: true,
+            }))
+            .ok()
+        else {
+            return;
+        };
+        // STANDALONE DEVICE: #[cfg(test)] cascade skip, not on the game path.
+        let Ok((device, queue)) =
+            pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+                required_features: wgpu::Features::empty(),
+                required_limits: wgpu::Limits::downlevel_defaults(),
+                label: Some("live-csm-skip-test"),
+                ..Default::default()
+            }))
+        else {
+            return;
+        };
+        let gpu = Arc::new(GpuDevice::from_shared(Arc::new(device), Arc::new(queue)));
+        let mut manager = MeshRenderManager::new(gpu.clone());
+        let camera = Arc::new(CameraClass::new());
+        let info = RenderInfoClass::new(camera);
+
+        let mut hidden = MeshClass::new();
+        hidden.is_hidden = true;
+        let mut model = MeshModelClass::new("hidden");
+        model.vertex_count = 3;
+        model.index_count = 3;
+        hidden.model = Some(Arc::new(model));
+
+        let mut encoder = gpu
+            .wgpu_device()
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("live-csm-skip-encoder"),
+            });
+        manager.update_and_fill_live_cascade(&mut encoder, &info, &[Arc::new(hidden)]);
+        gpu.queue().submit(Some(encoder.finish()));
+
+        assert_eq!(manager.last_cascade_casters_drawn(), 0);
     }
 }
 
