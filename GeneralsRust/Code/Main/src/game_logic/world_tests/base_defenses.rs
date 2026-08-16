@@ -3288,6 +3288,16 @@ fn sentry_drone_residual_detect_and_auto_fire() {
             s.status.stealthed,
             "sentry innate stealth residual on spawn"
         );
+        assert!(s.innate_stealth, "sentry InnateStealth Yes");
+        assert!(s.stealth_breaks_on_move, "sentry uncloaks while MOVING");
+        assert!(
+            s.stealth_breaks_on_attack,
+            "sentry uncloaks while FIRING_PRIMARY"
+        );
+        assert_eq!(
+            s.stealth_delay_frames,
+            crate::game_logic::host_sentry_drone::SENTRY_STEALTH_DELAY_FRAMES
+        );
         assert!(
             s.weapon.is_none(),
             "pre-upgrade sentry must lack gun residual"
@@ -3295,13 +3305,15 @@ fn sentry_drone_residual_detect_and_auto_fire() {
     }
 
     // Place stealthed enemy within detection range.
-    let stealth_id = game_logic
+    let mut stealth_id = game_logic
         .create_object("TestInfantry", Team::GLA, Vec3::new(50.0, 0.0, 0.0))
         .expect("stealthed enemy");
     {
         let e = game_logic.host_object_mut(stealth_id).unwrap();
         e.set_status_stealthed(true);
         e.set_status_detected(false);
+        e.health.current = 10_000.0;
+        e.health.maximum = 10_000.0;
     }
 
     game_logic.frame = 1;
@@ -3398,9 +3410,18 @@ fn sentry_drone_residual_detect_and_auto_fire() {
     }
 
     // Detected enemy becomes targetable; place in gun range and idle for auto-fire.
-    {
+    if game_logic.host_object(stealth_id).is_none() {
+        stealth_id = game_logic
+            .create_object("TestInfantry", Team::GLA, Vec3::new(40.0, 0.0, 0.0))
+            .expect("stealthed enemy respawn");
         let e = game_logic.host_object_mut(stealth_id).unwrap();
-        e.set_status_stealthed(false); // or keep detected; either way targetable
+        e.set_status_stealthed(false);
+        e.set_status_detected(true);
+        e.health.current = 10_000.0;
+        e.health.maximum = 10_000.0;
+    } else {
+        let e = game_logic.host_object_mut(stealth_id).unwrap();
+        e.set_status_stealthed(false);
         e.set_position(Vec3::new(40.0, 0.0, 0.0));
     }
     {
@@ -3474,6 +3495,113 @@ fn sentry_drone_residual_detect_and_auto_fire() {
     assert!(
         enemy_hp_after < enemy_hp_before || log_hit,
         "deployed sentry must damage its pending auto target via HP or damage-authority log (before={enemy_hp_before} after={enemy_hp_after}, log_hit={log_hit})"
+    );
+}
+
+/// C++ AmericaVehicleSentryDrone StealthUpdate: uncloak while MOVING / FIRING_PRIMARY,
+/// then wait StealthDelay 2000ms (60f) before re-cloak.
+#[test]
+fn sentry_drone_uncloaks_while_moving_and_recloaks_after_fire_delay() {
+    use crate::game_logic::host_sentry_drone::SENTRY_STEALTH_DELAY_FRAMES;
+
+    let mut game_logic = GameLogic::new();
+    let mut sentry_tpl = crate::game_logic::ThingTemplate::new("AmericaVehicleSentryDrone");
+    sentry_tpl
+        .add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(300.0);
+    game_logic
+        .templates
+        .insert("AmericaVehicleSentryDrone".to_string(), sentry_tpl);
+
+    let sentry_id = game_logic
+        .create_object(
+            "AmericaVehicleSentryDrone",
+            Team::USA,
+            Vec3::new(0.0, 0.0, 0.0),
+        )
+        .expect("sentry");
+    {
+        let s = game_logic.host_object(sentry_id).expect("sentry");
+        assert!(s.status.stealthed);
+        assert!(s.innate_stealth);
+        assert!(s.stealth_breaks_on_move);
+        assert_eq!(s.stealth_delay_frames, SENTRY_STEALTH_DELAY_FRAMES);
+    }
+
+    // MOVING forbids stealth.
+    {
+        let s = game_logic.host_object_mut(sentry_id).unwrap();
+        s.set_ai_state(AIState::Moving);
+        s.status.moving = true;
+    }
+    game_logic.frame = 1;
+    game_logic.update_stealth_and_detection();
+    assert!(
+        !game_logic.host_object(sentry_id).unwrap().status.stealthed,
+        "sentry must uncloak while moving"
+    );
+
+    // Stop: stay visible until StealthDelay elapses.
+    {
+        let s = game_logic.host_object_mut(sentry_id).unwrap();
+        s.set_ai_state(AIState::Idle);
+        s.status.moving = false;
+        s.set_status_attacking(false);
+    }
+    game_logic.frame = 2;
+    game_logic.update_stealth_and_detection();
+    assert!(
+        !game_logic.host_object(sentry_id).unwrap().status.stealthed,
+        "sentry must not re-cloak instantly after stopping"
+    );
+    let allowed = game_logic
+        .host_object(sentry_id)
+        .unwrap()
+        .stealth_allowed_frame;
+    assert!(allowed > 2, "StealthDelay must schedule re-cloak");
+
+    game_logic.frame = allowed;
+    game_logic.update_stealth_and_detection();
+    assert!(
+        game_logic.host_object(sentry_id).unwrap().status.stealthed,
+        "sentry re-cloaks after StealthDelay"
+    );
+
+    // FIRING_PRIMARY forbids stealth; after fire, wait delay again.
+    {
+        let s = game_logic.host_object_mut(sentry_id).unwrap();
+        s.set_ai_state(AIState::Attacking);
+        s.set_status_attacking(true);
+    }
+    game_logic.frame = allowed.saturating_add(1);
+    game_logic.update_stealth_and_detection();
+    assert!(
+        !game_logic.host_object(sentry_id).unwrap().status.stealthed,
+        "sentry must uncloak while firing"
+    );
+    {
+        let s = game_logic.host_object_mut(sentry_id).unwrap();
+        s.set_ai_state(AIState::Idle);
+        s.set_status_attacking(false);
+    }
+    let after_fire = game_logic.frame.saturating_add(1);
+    game_logic.frame = after_fire;
+    game_logic.update_stealth_and_detection();
+    assert!(
+        !game_logic.host_object(sentry_id).unwrap().status.stealthed,
+        "sentry stays visible after first shot until StealthDelay"
+    );
+    let allowed_after_fire = game_logic
+        .host_object(sentry_id)
+        .unwrap()
+        .stealth_allowed_frame;
+    game_logic.frame = allowed_after_fire;
+    game_logic.update_stealth_and_detection();
+    assert!(
+        game_logic.host_object(sentry_id).unwrap().status.stealthed,
+        "sentry re-cloaks after fire StealthDelay"
     );
 }
 

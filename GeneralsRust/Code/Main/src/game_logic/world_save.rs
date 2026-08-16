@@ -1582,6 +1582,30 @@ impl GameLogic {
                 Vec::new()
             }
         };
+        let water_height =
+            match super::script_loader::parse_runtime_water_height_from_chunky(chunky) {
+                Ok(value) => value,
+                Err(err) => {
+                    log::warn!(
+                        "Fast legacy runtime sync water-height parse failed for '{}': {}",
+                        map_path.display(),
+                        err
+                    );
+                    None
+                }
+            };
+        let polygon_triggers =
+            match super::script_loader::parse_runtime_polygon_triggers_from_chunky(chunky) {
+                Ok(value) => value,
+                Err(err) => {
+                    log::warn!(
+                        "Fast legacy runtime sync polygon-trigger parse failed for '{}': {}",
+                        map_path.display(),
+                        err
+                    );
+                    Vec::new()
+                }
+            };
         self.runtime_road_segments =
             match super::script_loader::parse_runtime_roads_from_chunky(chunky) {
                 Ok(value) => value,
@@ -1607,39 +1631,44 @@ impl GameLogic {
             }
         };
 
-        if let Some(heightmap) = heightmap {
-            let map_data = gamelogic::system::map_loader::MapData {
-                width: heightmap.width.max(0) as u32,
-                height: heightmap.height.max(0) as u32,
-                heightmap: heightmap.data,
-                water_height: None,
-                bridges,
-                texture_tiles: Vec::new(),
-                boundaries: heightmap
+        let has_terrain_payload = heightmap.is_some()
+            || water_height.is_some()
+            || !bridges.is_empty()
+            || !polygon_triggers.is_empty()
+            || !waypoints.is_empty();
+        if has_terrain_payload {
+            let mut map_data = gamelogic::system::map_loader::MapData::new();
+            map_data.water_height = water_height;
+            map_data.bridges = bridges;
+            map_data.polygon_triggers = polygon_triggers;
+            map_data.waypoints = waypoints
+                .iter()
+                .map(|waypoint| gamelogic::system::map_loader::MapWaypoint {
+                    id: waypoint.id,
+                    name: waypoint.name.clone(),
+                    location: gamelogic::system::map_loader::Coord3D::new(
+                        waypoint.location.x,
+                        waypoint.location.y,
+                        waypoint.location.z,
+                    ),
+                    path_label1: waypoint.path_label1.clone(),
+                    path_label2: waypoint.path_label2.clone(),
+                    path_label3: waypoint.path_label3.clone(),
+                    bi_directional: waypoint.bi_directional,
+                })
+                .collect();
+            map_data.waypoint_links = waypoint_links;
+            if let Some(heightmap) = heightmap {
+                map_data.width = heightmap.width.max(0) as u32;
+                map_data.height = heightmap.height.max(0) as u32;
+                map_data.heightmap = heightmap.data;
+                map_data.border_size = heightmap.border_size;
+                map_data.boundaries = heightmap
                     .boundaries
                     .into_iter()
                     .map(|(x, y)| gamelogic::common::ICoord2D::new(x, y))
-                    .collect(),
-                border_size: heightmap.border_size,
-                polygon_triggers: Vec::new(),
-                waypoints: waypoints
-                    .iter()
-                    .map(|waypoint| gamelogic::system::map_loader::MapWaypoint {
-                        id: waypoint.id,
-                        name: waypoint.name.clone(),
-                        location: gamelogic::system::map_loader::Coord3D::new(
-                            waypoint.location.x,
-                            waypoint.location.y,
-                            waypoint.location.z,
-                        ),
-                        path_label1: waypoint.path_label1.clone(),
-                        path_label2: waypoint.path_label2.clone(),
-                        path_label3: waypoint.path_label3.clone(),
-                        bi_directional: waypoint.bi_directional,
-                    })
-                    .collect(),
-                waypoint_links,
-            };
+                    .collect();
+            }
 
             if let Ok(mut terrain) = gamelogic::terrain::get_terrain_logic().write() {
                 terrain.reset();

@@ -100,7 +100,7 @@ pub fn honesty_host_rebuild_spawn_entity_first_source_markers_residual_wave740()
     let sh_ok = sh.contains("Wave 740")
         && sh.contains("record_with_entities")
         && sh.contains("sole_ready_intents")
-        && sh.contains("GLAWorker");
+        && sh.contains("GLAInfantryWorker");
     let ok = gl_ok && ready_ok && sh_ok && !gl.contains("playable_claim = true");
     residual_action_store(ResidualHostRebuildSpawnEntityFirstAction::SourceMarkers);
     ok

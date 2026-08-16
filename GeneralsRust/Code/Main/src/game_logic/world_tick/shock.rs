@@ -320,7 +320,19 @@ impl GameLogic {
                 continue;
             }
             if let Some(obj) = self.objects.get_mut(&id) {
-                let dead = obj.take_damage_from(dmg, Some(attacker_id));
+                let damage_type = weapon_name
+                    .map(crate::game_logic::host_armor_residual::host_damage_type_for_weapon_name)
+                    .unwrap_or(crate::game_logic::combat::DamageType::Bullet);
+                let death_type = crate::game_logic::host_armor_residual::resolve_host_death_type(
+                    weapon_name,
+                    damage_type,
+                );
+                let dead = obj.take_damage_from_typed_death(
+                    dmg,
+                    Some(attacker_id),
+                    damage_type,
+                    death_type,
+                );
                 hits = hits.saturating_add(1);
                 if dead {
                     destroy.push(id);
@@ -417,7 +429,19 @@ impl GameLogic {
                 continue;
             }
             if let Some(obj) = self.objects.get_mut(&id) {
-                let dead = obj.take_damage_from(dmg, Some(attacker_id));
+                let damage_type = weapon_name
+                    .map(crate::game_logic::host_armor_residual::host_damage_type_for_weapon_name)
+                    .unwrap_or(crate::game_logic::combat::DamageType::Bullet);
+                let death_type = crate::game_logic::host_armor_residual::resolve_host_death_type(
+                    weapon_name,
+                    damage_type,
+                );
+                let dead = obj.take_damage_from_typed_death(
+                    dmg,
+                    Some(attacker_id),
+                    damage_type,
+                    death_type,
+                );
                 hits = hits.saturating_add(1);
                 if dead {
                     destroy.push(id);

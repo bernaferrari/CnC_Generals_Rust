@@ -858,6 +858,30 @@ impl TerrainLogic {
             end_cell,
         ))
     }
+    fn bridge_info_from_map_data(
+        bridge: &crate::system::map_loader::BridgeData,
+        index: i32,
+    ) -> Option<BridgeInfo> {
+        if bridge.polygon.len() < 4 {
+            return None;
+        }
+        let dx = bridge.to.x - bridge.from.x;
+        let dy = bridge.to.y - bridge.from.y;
+        if dx * dx + dy * dy <= f32::EPSILON {
+            return None;
+        }
+        let mut info = BridgeInfo::new();
+        info.from = Coord3D::new(bridge.from.x, bridge.from.y, bridge.from.z);
+        info.to = Coord3D::new(bridge.to.x, bridge.to.y, bridge.to.z);
+        info.bridge_width = bridge.width;
+        info.from_left = Coord3D::new(bridge.polygon[0].x, bridge.polygon[0].y, bridge.from.z);
+        info.from_right = Coord3D::new(bridge.polygon[1].x, bridge.polygon[1].y, bridge.from.z);
+        info.to_right = Coord3D::new(bridge.polygon[2].x, bridge.polygon[2].y, bridge.to.z);
+        info.to_left = Coord3D::new(bridge.polygon[3].x, bridge.polygon[3].y, bridge.to.z);
+        info.bridge_index = index;
+        Some(info)
+    }
+
 
     fn remove_bridge_at(&mut self, location: &Coord3D) -> bool {
         let mut current = &mut self.bridge_list_head;
@@ -978,6 +1002,26 @@ impl TerrainLogic {
         for (id1, id2) in &map_data.waypoint_links {
             self.add_waypoint_link(*id1, *id2);
         }
+
+        // C++ W3DBridgeBuffer::addBridge → TerrainLogic::addBridgeToLogic
+        // (TerrainLogic.cpp:1514, W3DBridgeBuffer.cpp:1059). Map bridges used
+        // to sit in TerrainData only, so live pathfinding/height never saw them.
+        self.bridge_list_head = None;
+        let bridges = self
+            .terrain_data
+            .as_ref()
+            .map(|terrain_data| terrain_data.bridges.clone())
+            .unwrap_or_default();
+        for (index, bridge) in bridges.iter().enumerate() {
+            let Some(info) = Self::bridge_info_from_map_data(bridge, index as i32) else {
+                continue;
+            };
+            self.add_bridge_to_logic(
+                info,
+                AsciiString::from(bridge.template_name.as_str()),
+            );
+        }
+
     }
 
     /// Snapshot parsed map bridge geometry.
@@ -4141,6 +4185,40 @@ mod tests {
             len
         );
         assert!(normal.z > 0.0, "Normal should point upward");
+    }
+
+    #[test]
+    fn load_map_data_registers_water_polygons_and_bridges() {
+        // C++ TerrainLogic.cpp:2160 getWaterHandle walks water polygon triggers.
+        // C++ TerrainLogic.cpp:1514 / W3DBridgeBuffer.cpp:1059 addBridgeToLogic.
+        let mut map_data = map_data_with_heightmap(2, 2, vec![10, 10, 10, 10]);
+        map_data.water_height = Some(7.5);
+        map_data.polygon_triggers.push(make_water_trigger(3, "Lake", 12, 0, 0, 40, 40));
+        map_data.bridges.push(crate::system::map_loader::BridgeData::new(
+            crate::system::map_loader::Coord3D::new(0.0, 0.0, 20.0),
+            crate::system::map_loader::Coord3D::new(40.0, 0.0, 20.0),
+            10.0,
+            "TestBridge".to_string(),
+        ));
+
+        let mut terrain = TerrainLogic::new();
+        terrain.load_map_data(map_data);
+
+        let handle = terrain
+            .get_water_handle(10.0, 10.0)
+            .expect("water polygon must enter TerrainLogic");
+        assert_eq!(handle.get_current_height(), 12.0);
+
+        let grid = terrain
+            .get_water_handle_by_name(&AsciiString::from("Water Grid"))
+            .expect("grid water height must come from map data");
+        assert_eq!(grid.get_current_height(), 7.5);
+
+        let bridge = terrain
+            .get_first_bridge()
+            .expect("add_bridge_to_logic must run for map bridges");
+        assert_eq!(bridge.get_bridge_template_name().as_str(), "TestBridge");
+        assert_eq!(bridge.get_bridge_info().bridge_width, 10.0);
     }
 }
 

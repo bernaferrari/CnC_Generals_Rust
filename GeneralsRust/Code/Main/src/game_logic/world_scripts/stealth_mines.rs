@@ -10,8 +10,7 @@ impl GameLogic {
     /// - Expires `OBJECT_STATUS_DETECTED` when `detection_expires_frame` is reached
     /// - Detectors mark nearby enemy stealthed units as detected (hold ~1s)
     /// - Bomb truck disguise reveal residual (RevealDistanceFromTarget = 100)
-    /// - Fail-closed: no IR FX, ExtraRequiredKindOf filters, garrisoned-detect,
-    ///   or full stealth delay re-cloak state machine.
+    /// - Sentry / Camo Rebel apply StealthDelay before re-cloak
     pub fn update_stealth_and_detection(&mut self) {
         let frame = self.frame;
 
@@ -128,6 +127,60 @@ impl GameLogic {
             }
         }
 
+        // Sentry Drone residual: StealthForbiddenConditions = FIRING_PRIMARY + MOVING,
+        // StealthDelay 2000ms (60f) before re-cloak. C++ AmericaVehicleSentryDrone
+        // ModuleTag_06 / StealthUpdate.cpp allowedToStealth.
+        {
+            use crate::game_logic::host_sentry_drone::{
+                is_sentry_drone_template, sentry_stealth_allowed_frame, sentry_stealth_desired,
+            };
+            let sentry_ids: Vec<ObjectId> = self
+                .objects
+                .iter()
+                .filter(|(_, o)| o.is_alive() && is_sentry_drone_template(&o.template_name))
+                .map(|(id, _)| *id)
+                .collect();
+            for sid in sentry_ids {
+                let Some(obj) = self.objects.get_mut(&sid) else {
+                    continue;
+                };
+                if obj.stealth_delay_pending {
+                    obj.stealth_allowed_frame = sentry_stealth_allowed_frame(frame);
+                    obj.stealth_delay_pending = false;
+                }
+                let moving = matches!(obj.ai_state, AIState::Moving | AIState::AttackMoving)
+                    || obj.status.moving;
+                let firing = obj.status.attacking
+                    || matches!(
+                        obj.ai_state,
+                        AIState::Attacking | AIState::AttackMoving | AIState::AttackingGround
+                    );
+                let Some(desired) = sentry_stealth_desired(
+                    true,
+                    obj.innate_stealth,
+                    obj.is_alive(),
+                    moving,
+                    firing,
+                    frame,
+                    obj.stealth_allowed_frame,
+                ) else {
+                    continue;
+                };
+                if desired && !obj.status.stealthed {
+                    obj.set_status_stealthed(true);
+                    obj.set_status_detected(false);
+                    obj.detection_expires_frame = 0;
+                    obj.stealth_allowed_frame = 0;
+                } else if !desired && obj.status.stealthed {
+                    obj.break_stealth();
+                    if obj.stealth_delay_pending {
+                        obj.stealth_allowed_frame = sentry_stealth_allowed_frame(frame);
+                        obj.stealth_delay_pending = false;
+                    }
+                }
+            }
+        }
+
         // Listening Outpost residual: StealthForbiddenConditions = MOVING
         // (RIDERS_ATTACKING fail-closed). InnateStealth re-cloaks when stopped.
         {
@@ -161,10 +214,13 @@ impl GameLogic {
             }
         }
 
-        // GLA Camouflage residual: re-cloak when idle (innate_stealth after
-        // Upgrade_GLACamouflage). Fail-closed vs full 2500ms StealthDelay.
+        // GLA Camouflage residual: StealthForbiddenConditions = ATTACKING USING_ABILITY,
+        // StealthDelay 2500ms (75f) before re-cloak. C++ GLAInfantryRebel StealthUpdate.
         {
-            use crate::game_logic::host_upgrades::UPGRADE_GLA_CAMOUFLAGE;
+            use crate::game_logic::host_upgrades::{
+                camouflage_stealth_allowed_frame, camouflage_unit_stealth_desired,
+                UPGRADE_GLA_CAMOUFLAGE,
+            };
             // Upgrade tag is only applied to camouflage-eligible units at unlock.
             let camo_ids: Vec<ObjectId> = self
                 .objects
@@ -182,19 +238,38 @@ impl GameLogic {
                 let Some(obj) = self.objects.get_mut(&cid) else {
                     continue;
                 };
+                if obj.stealth_delay_pending {
+                    obj.stealth_allowed_frame = camouflage_stealth_allowed_frame(frame);
+                    obj.stealth_delay_pending = false;
+                }
                 let attacking = obj.status.attacking
                     || matches!(
                         obj.ai_state,
                         AIState::Attacking | AIState::AttackMoving | AIState::AttackingGround
                     );
-                if attacking {
-                    // Attack residual handled by fire path (stealth_breaks_on_attack).
+                let using_ability =
+                    obj.status.using_ability || matches!(obj.ai_state, AIState::SpecialAbility);
+                let Some(desired) = camouflage_unit_stealth_desired(
+                    obj.innate_stealth,
+                    obj.is_alive(),
+                    attacking,
+                    using_ability,
+                    frame,
+                    obj.stealth_allowed_frame,
+                ) else {
                     continue;
-                }
-                if !obj.status.stealthed {
+                };
+                if desired && !obj.status.stealthed {
                     obj.set_status_stealthed(true);
                     obj.set_status_detected(false);
                     obj.detection_expires_frame = 0;
+                    obj.stealth_allowed_frame = 0;
+                } else if !desired && obj.status.stealthed {
+                    obj.break_stealth();
+                    if obj.stealth_delay_pending {
+                        obj.stealth_allowed_frame = camouflage_stealth_allowed_frame(frame);
+                        obj.stealth_delay_pending = false;
+                    }
                 }
             }
         }

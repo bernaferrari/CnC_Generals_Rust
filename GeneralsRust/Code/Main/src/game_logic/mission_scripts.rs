@@ -2419,6 +2419,26 @@ impl ScriptActionHandler for MissionScriptActionHandler {
         game_client::gui::campaign_manager::get_campaign_manager().set_victorious(victorious);
         Ok(())
     }
+
+    fn create_win_lose_window(&self, layout_filename: &str) -> GameLogicResult<()> {
+        // C++ ScriptActions.cpp:201/204/225/228/247 TheWindowManager->winCreateFromScript.
+        // Live host initialize_scripts overwrites GameClientScriptActionHandler; the
+        // trait default is a no-op, so forward to the GameClient load_window path.
+        game_client::core::script_action_handler::GameClientScriptActionHandler::new()
+            .create_win_lose_window(layout_filename)
+    }
+
+    fn destroy_win_lose_window(&self) -> GameLogicResult<()> {
+        // C++ ScriptActions.cpp:160-162 TheWindowManager->winDestroy(m_messageWindow).
+        game_client::core::script_action_handler::GameClientScriptActionHandler::new()
+            .destroy_win_lose_window()
+    }
+
+    fn close_game_windows(&self) -> GameLogicResult<()> {
+        // C++ GameLogic::closeWindows GameLogicDispatch.cpp:202-219.
+        game_client::core::script_action_handler::GameClientScriptActionHandler::new()
+            .close_game_windows()
+    }
 }
 
 fn delay_frames(seconds: i32) -> u64 {
@@ -3379,5 +3399,75 @@ mod tests {
                 SuperweaponObjectDisplayMutation::Show { object_id: 77 }
             ]
         );
+    }
+
+    fn win_lose_layout_is_open(root_name: &str, child_name: &str) -> bool {
+        game_client::gui::with_window_manager_ref(|wm| {
+            wm.find_window_by_name(root_name).is_some()
+                || wm.find_window_by_name(child_name).is_some()
+        })
+    }
+
+    #[test]
+    fn host_create_win_lose_window_loads_victorious_and_defeat_layouts() {
+        // C++ ScriptActions.cpp:204/228 TheWindowManager->winCreateFromScript
+        // ("Menus/Victorious.wnd" / "Menus/Defeat.wnd"). Live host handler must
+        // not stay the ScriptActionHandler default no-op.
+        let hooks = MissionScriptHooks::new().expect("mission script hooks should initialize");
+        let handler = MissionScriptActionHandler::new(hooks);
+        let _ = handler.destroy_win_lose_window();
+
+        handler
+            .create_win_lose_window("Menus/Victorious.wnd")
+            .expect("create Victorious.wnd");
+        assert!(
+            win_lose_layout_is_open("Victorious.wnd:", "Victorious.wnd:Victorious"),
+            "host MissionScriptActionHandler must load Menus/Victorious.wnd"
+        );
+
+        handler
+            .create_win_lose_window("Menus/Defeat.wnd")
+            .expect("create Defeat.wnd");
+        assert!(
+            win_lose_layout_is_open("Defeat.wnd:Defeat", "Defeat.wnd:DefeatImage"),
+            "host MissionScriptActionHandler must load Menus/Defeat.wnd"
+        );
+        assert!(
+            !win_lose_layout_is_open("Victorious.wnd:", "Victorious.wnd:Victorious"),
+            "creating Defeat.wnd must destroy the prior Victorious.wnd"
+        );
+
+        handler
+            .destroy_win_lose_window()
+            .expect("destroy Defeat.wnd");
+        assert!(
+            !win_lose_layout_is_open("Defeat.wnd:Defeat", "Defeat.wnd:DefeatImage"),
+            "destroy_win_lose_window must remove the tracked message window"
+        );
+    }
+
+    #[test]
+    fn live_script_engine_victory_opens_victorious_wnd_via_host_handler() {
+        // C++ ScriptActions::doVictory ScriptActions.cpp:191-209.
+        initialize_script_engine().expect("script engine should initialize");
+        let hooks = MissionScriptHooks::new().expect("mission script hooks should initialize");
+        let handler: Arc<dyn ScriptActionHandler> =
+            Arc::new(MissionScriptActionHandler::new(hooks));
+        if let Ok(mut guard) = get_script_engine().write() {
+            if let Some(engine) = guard.as_mut() {
+                engine.set_action_handler(Some(Arc::clone(&handler)));
+                engine.close_windows(false);
+                engine.create_win_lose_window("Menus/Victorious.wnd");
+                assert_eq!(
+                    engine.current_win_lose_window().as_deref(),
+                    Some("Menus/Victorious.wnd")
+                );
+            }
+        }
+        assert!(
+            win_lose_layout_is_open("Victorious.wnd:", "Victorious.wnd:Victorious"),
+            "live ScriptEngine + host handler must materialise Victorious.wnd"
+        );
+        let _ = handler.destroy_win_lose_window();
     }
 }

@@ -2267,9 +2267,34 @@ impl GameLogic {
                                 } {
                                     // Miss path handled above (splash optional).
                                 } else {
+                                    // C++ Weapon.cpp:1378-1380 dealDamage copies
+                                    // WeaponTemplate DamageType/DeathType onto DamageInfo.
+                                    // take_damage_from is UNRESISTABLE (script kill /
+                                    // empty-hulk); live object-vs-object fire must use
+                                    // the firing Weapon.ini type so Armor.ini applies.
+                                    let fire_wname = self
+                                        .objects
+                                        .get(&attacker_id)
+                                        .and_then(|attacker| {
+                                            attacker
+                                                .weapon_name_for_slot(slot)
+                                                .map(str::to_owned)
+                                        });
+                                    let damage_type = fire_wname.as_deref().map(
+                                        crate::game_logic::host_armor_residual::host_damage_type_for_weapon_name,
+                                    )
+                                    .unwrap_or(crate::game_logic::combat::DamageType::Bullet);
+                                    let death_type = crate::game_logic::host_armor_residual::resolve_host_death_type(
+                                        fire_wname.as_deref(),
+                                        damage_type,
+                                    );
                                     if let Some(target) = self.objects.get_mut(&target_id) {
-                                        let destroyed = target
-                                            .take_damage_from(weapon_damage, Some(attacker_id));
+                                        let destroyed = target.take_damage_from_typed_death(
+                                            weapon_damage,
+                                            Some(attacker_id),
+                                            damage_type,
+                                            death_type,
+                                        );
                                         if destroyed {
                                             // C++ parity: XP is based on victim's ExperienceValue.
                                             let kill_xp = target.thing.template.experience_value
@@ -2278,35 +2303,16 @@ impl GameLogic {
                                                 );
                                             let victim_pos = target.get_position();
                                             let victim_team = target.team;
-                                            let cont_weapon = {
-                                                // Prefer the weapon name used for this shot when known.
-                                                None::<&str>
-                                            };
                                             self.mark_object_for_destruction(
                                                 target_id,
                                                 Some(attacker_team),
                                             );
-                                            // Resolve attacker weapon name after releasing target borrow.
-                                            let wname =
-                                                self.objects.get(&attacker_id).and_then(|a| {
-                                                    a.thing
-                                                        .template
-                                                        .primary_weapon_name
-                                                        .clone()
-                                                        .or_else(|| {
-                                                            a.thing
-                                                                .template
-                                                                .secondary_weapon_name
-                                                                .clone()
-                                                        })
-                                                });
-                                            let _ = cont_weapon;
                                             self.continue_or_stop_after_kill(
                                                 attacker_id,
                                                 target_id,
                                                 victim_pos,
                                                 victim_team,
-                                                wname.as_deref(),
+                                                fire_wname.as_deref(),
                                                 kill_xp,
                                             );
                                         }
