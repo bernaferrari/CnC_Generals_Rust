@@ -261,11 +261,12 @@ impl CnCGameEngine {
 
         let shift_down = self.keys_pressed.contains(&Key::Named(NamedKey::Shift));
         let ctrl_down = self.keys_pressed.contains(&Key::Named(NamedKey::Control));
+        let alt_down = self.keys_pressed.contains(&Key::Named(NamedKey::Alt));
 
         if is_double_click && clicked_object.is_some() && !ctrl_down {
-            // Double-click: select all similar units
+            // C++ SelectionXlat.cpp:453-501 — double-click type-select; ALT is map-wide.
             if let Some(object_id) = clicked_object {
-                self.select_similar_units(object_id);
+                self.select_similar_units_for_double_click(object_id, alt_down);
             }
             self.left_click_release_behavior = LeftMouseReleaseBehavior::Suppress;
             return;
@@ -431,12 +432,42 @@ impl CnCGameEngine {
     }
 
     pub(super) fn select_similar_units(&mut self, clicked_object_id: ObjectId) {
+        // KEY_E / runtime-host: C++ selectUnitsMatchingCurrentSelection
+        // (InGameUI.cpp:4900) falls through to selectMatchingAcrossMap when
+        // the screen pass adds nobody new. Host replace-selection is map-wide.
         // Presentation-only: InGame always has last_presentation_frame.
         let Some(frame) = self.last_presentation_frame.as_ref() else {
             return;
         };
         let player_team = frame.local_team();
         let similar_units = frame.similar_unit_ids(clicked_object_id, player_team);
+        if !similar_units.is_empty() {
+            self.host_set_selection(self.current_player_id, similar_units);
+            self.play_sound_effect(SoundType::Select);
+        }
+    }
+
+    /// C++ `MSG_MOUSE_LEFT_DOUBLE_CLICK` (`SelectionXlat.cpp:466,498-501`).
+    /// Structures are not mass-selectable; ALT selects the same template map-wide.
+    pub(super) fn select_similar_units_for_double_click(
+        &mut self,
+        clicked_object_id: ObjectId,
+        across_map: bool,
+    ) {
+        // Presentation-only: InGame always has last_presentation_frame.
+        let Some(frame) = self.last_presentation_frame.as_ref() else {
+            return;
+        };
+        let player_team = frame.local_team();
+        let window_size = self.window.inner_size();
+        let similar_units = frame.similar_unit_ids_for_double_click(
+            clicked_object_id,
+            player_team,
+            across_map,
+            self.view_matrix,
+            self.projection_matrix,
+            glam::Vec2::new(window_size.width as f32, window_size.height as f32),
+        );
         let template_label = frame
             .objects
             .iter()

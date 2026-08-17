@@ -1021,7 +1021,7 @@ impl PresentationFrame {
     }
 }
 
-fn project_position_to_screen(
+pub(super) fn project_position_to_screen(
     view_projection: Mat4,
     position: Vec3,
     viewport_width: f32,

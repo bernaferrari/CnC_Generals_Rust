@@ -180,8 +180,8 @@ pub use ini_rank::{
 };
 pub use ini_road::{
     get_terrain_roads, get_terrain_roads_mut, parse_terrain_bridge_definition,
-    parse_terrain_road_definition, BodyDamageType, BridgeTowerType, TerrainRoadCollection,
-    TerrainRoadError, TerrainRoadResult, TerrainRoadType,
+    parse_terrain_road_definition, try_get_terrain_roads, BodyDamageType, BridgeTowerType,
+    TerrainRoadCollection, TerrainRoadError, TerrainRoadResult, TerrainRoadType,
 };
 pub use ini_science::{
     get_science_store, get_science_store_mut, parse_science_definition, ScienceError, ScienceInfo,

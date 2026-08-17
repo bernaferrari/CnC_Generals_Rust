@@ -842,6 +842,11 @@ pub fn get_thing_factory() -> Result<
     THING_FACTORY.lock()
 }
 
+/// Non-blocking lock so map-load bridge width lookup can fail-open.
+pub fn try_get_thing_factory() -> Option<std::sync::MutexGuard<'static, Option<ThingFactory>>> {
+    THING_FACTORY.try_lock().ok()
+}
+
 /// Initialize the global thing factory
 pub fn init_thing_factory() -> Result<(), String> {
     let mut factory = ThingFactory::new();

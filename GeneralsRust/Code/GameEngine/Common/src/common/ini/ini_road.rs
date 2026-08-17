@@ -695,6 +695,14 @@ pub fn get_terrain_roads() -> RwLockReadGuard<'static, TerrainRoadCollection> {
         .unwrap()
 }
 
+/// Non-blocking read so map-load road parse can fail-open if Roads.ini still holds the write lock.
+pub fn try_get_terrain_roads() -> Option<RwLockReadGuard<'static, TerrainRoadCollection>> {
+    TERRAIN_ROAD_COLLECTION
+        .get_or_init(|| RwLock::new(TerrainRoadCollection::new()))
+        .try_read()
+        .ok()
+}
+
 /// Get mutable access to the global terrain road collection
 pub fn get_terrain_roads_mut() -> RwLockWriteGuard<'static, TerrainRoadCollection> {
     TERRAIN_ROAD_COLLECTION

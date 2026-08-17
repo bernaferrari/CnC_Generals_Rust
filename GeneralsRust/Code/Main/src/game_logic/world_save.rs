@@ -1738,7 +1738,7 @@ impl GameLogic {
         );
     }
 
-    pub(super) fn sync_legacy_runtime_from_fast_chunky(
+    pub(crate) fn sync_legacy_runtime_from_fast_chunky(
         &mut self,
         map_path: &Path,
         chunky: &super::script_loader::ChunkyMap,
@@ -1778,6 +1778,13 @@ impl GameLogic {
                     (Vec::new(), Vec::new())
                 }
             };
+        log::info!(
+            "Fast legacy runtime sync waypoints parsed for '{}' (count={}, links={}) in {:.2}s",
+            map_path.display(),
+            waypoints.len(),
+            waypoint_links.len(),
+            sync_started.elapsed().as_secs_f32()
+        );
         let bridges = match super::script_loader::parse_runtime_bridges_from_chunky(chunky) {
             Ok(value) => value,
             Err(err) => {
@@ -1837,6 +1844,13 @@ impl GameLogic {
                 super::script_loader::RuntimeSidesData::default()
             }
         };
+        log::info!(
+            "Fast legacy runtime sync sides parsed for '{}' (sides={}, teams={}) in {:.2}s",
+            map_path.display(),
+            sides_data.side_dicts.len(),
+            sides_data.team_dicts.len(),
+            sync_started.elapsed().as_secs_f32()
+        );
 
         let has_terrain_payload = heightmap.is_some()
             || water_height.is_some()
@@ -1877,10 +1891,29 @@ impl GameLogic {
                     .collect();
             }
 
-            if let Ok(mut terrain) = gamelogic::terrain::get_terrain_logic().write() {
-                terrain.reset();
-                terrain.load_map_data(map_data);
+            match gamelogic::terrain::get_terrain_logic().try_write() {
+                Ok(mut terrain) => {
+                    terrain.reset();
+                    terrain.load_map_data(map_data);
+                    log::info!(
+                        "Fast legacy runtime sync terrain write finished for '{}' in {:.2}s",
+                        map_path.display(),
+                        sync_started.elapsed().as_secs_f32()
+                    );
+                }
+                Err(_) => {
+                    log::warn!(
+                        "Fast legacy runtime sync skipped terrain write for '{}' (THE_TERRAIN_LOGIC busy)",
+                        map_path.display()
+                    );
+                }
             }
+        } else {
+            log::info!(
+                "Fast legacy runtime sync skipped terrain write for '{}' (no payload) in {:.2}s",
+                map_path.display(),
+                sync_started.elapsed().as_secs_f32()
+            );
         }
 
         // The fast parser owns its decoded side/team dictionaries instead of
@@ -1888,12 +1921,19 @@ impl GameLogic {
         // the same map-owned SidesList before deriving PlayerList/TeamFactory,
         // otherwise a staged restore would commit an empty (or stale) side
         // singleton even though its player/team globals came from this map.
+        // Abandoned boot workers can still hold these globals after generation
+        // bump; fail-open so load_map returns and host objects still spawn.
         self.sync_legacy_sides_list_from_dicts(&sides_data.side_dicts, &sides_data.team_dicts);
+        log::info!(
+            "Fast legacy runtime sync sides write finished for '{}' in {:.2}s",
+            map_path.display(),
+            sync_started.elapsed().as_secs_f32()
+        );
         self.sync_legacy_player_list_from_side_dicts(&sides_data.side_dicts);
         self.sync_legacy_team_factory_from_team_dicts(&sides_data.team_dicts);
 
         let waypoint_count = gamelogic::terrain::get_terrain_logic()
-            .read()
+            .try_read()
             .ok()
             .map(|terrain| {
                 let mut count = 0usize;
@@ -1906,7 +1946,7 @@ impl GameLogic {
             })
             .unwrap_or(0);
         let team_count = get_team_factory()
-            .lock()
+            .try_lock()
             .map(|factory| factory.get_all_teams().len())
             .unwrap_or(0);
 
@@ -1930,12 +1970,11 @@ impl GameLogic {
 
             // Keep player-template store locking narrow so Player::init can lazily hydrate
             // templates without deadlocking on the same global RwLock.
-            let template_from_store = {
-                let store = get_player_template_store();
+            let template_from_store = try_get_player_template_store().and_then(|store| {
                 store
                     .find_template(&faction)
                     .map(LogicPlayerTemplate::from_common)
-            };
+            });
             let template = template_from_store.unwrap_or_else(|| {
                 let mut template = LogicPlayerTemplate::new(player_name.clone());
                 template.side = faction.clone();
@@ -1983,8 +2022,11 @@ impl GameLogic {
             }
         }
 
-        if let Ok(mut guard) = ThePlayerList().write() {
-            *guard = logic_list;
+        match ThePlayerList().try_write() {
+            Ok(mut guard) => *guard = logic_list,
+            Err(_) => {
+                log::warn!("Fast legacy runtime sync skipped PlayerList write (ThePlayerList busy)");
+            }
         }
     }
 
@@ -1994,7 +2036,8 @@ impl GameLogic {
         team_dicts: &[Dict],
     ) {
         let sides_list = get_sides_list();
-        let Ok(mut sides) = sides_list.write() else {
+        let Ok(mut sides) = sides_list.try_write() else {
+            log::warn!("Fast legacy runtime sync skipped SidesList write (THE_SIDES_LIST busy)");
             return;
         };
         sides.reset();
@@ -2008,7 +2051,8 @@ impl GameLogic {
 
     pub(super) fn sync_legacy_player_list_from_sides(&self) {
         let sides_list = get_sides_list();
-        let Ok(sides_guard) = sides_list.read() else {
+        let Ok(sides_guard) = sides_list.try_read() else {
+            log::warn!("Fast legacy runtime sync skipped PlayerList derive (THE_SIDES_LIST busy)");
             return;
         };
 
@@ -2023,7 +2067,8 @@ impl GameLogic {
     }
 
     pub(super) fn sync_legacy_team_factory_from_team_dicts(&self, team_dicts: &[Dict]) {
-        let Ok(mut team_factory) = get_team_factory().lock() else {
+        let Ok(mut team_factory) = get_team_factory().try_lock() else {
+            log::warn!("Fast legacy runtime sync skipped TeamFactory write (THE_TEAM_FACTORY busy)");
             return;
         };
         team_factory.reset();
@@ -2058,9 +2103,9 @@ impl GameLogic {
 
             if let Ok(mut team_guard) = team_arc.write() {
                 if !owner.is_empty() {
-                    if let Ok(player_list) = ThePlayerList().read() {
+                    if let Ok(player_list) = ThePlayerList().try_read() {
                         if let Some(player_arc) = player_list.find_player_by_name(&owner) {
-                            if let Ok(player_guard) = player_arc.read() {
+                            if let Ok(player_guard) = player_arc.try_read() {
                                 team_guard.set_controlling_player_id(Some(
                                     player_guard.get_player_index() as u32,
                                 ));
@@ -2077,7 +2122,8 @@ impl GameLogic {
 
     pub(super) fn sync_legacy_team_factory_from_sides(&self) {
         let sides_list = get_sides_list();
-        let Ok(sides_guard) = sides_list.read() else {
+        let Ok(sides_guard) = sides_list.try_read() else {
+            log::warn!("Fast legacy runtime sync skipped TeamFactory derive (THE_SIDES_LIST busy)");
             return;
         };
 
