@@ -1760,6 +1760,12 @@ impl GameLogic {
                 None
             }
         };
+        log::info!(
+            "Fast legacy runtime sync heightmap parsed for '{}' in {:.2}s",
+            map_path.display(),
+            sync_started.elapsed().as_secs_f32()
+        );
+
         let (waypoints, waypoint_links) =
             match super::script_loader::parse_runtime_waypoints_from_chunky(chunky) {
                 Ok(value) => value,
