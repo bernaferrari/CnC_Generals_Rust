@@ -226,6 +226,9 @@ fn write_kind_of_variant(kind_of: KindOf) -> u8 {
         // Append-only identifier.  Build-near-supplies authorization belongs
         // to the requested template's exact C++ KindOf, not its name.
         KindOf::CannotBuildNearSupplies => 53,
+        // Append-only identifier.  Crate click salvage/pickup must survive
+        // save/load without occupying a presentation KindOf bit.
+        KindOf::Crate => 54,
     }
 }
 
@@ -285,6 +288,7 @@ fn read_kind_of_variant(variant: u8) -> SaveLoadResult<KindOf> {
         51 => Ok(KindOf::MoneyHacker),
         52 => Ok(KindOf::SupplySource),
         53 => Ok(KindOf::CannotBuildNearSupplies),
+        54 => Ok(KindOf::Crate),
         _ => Err(SaveLoadError::Corrupted(format!(
             "Invalid KindOf variant: {variant}"
         ))),

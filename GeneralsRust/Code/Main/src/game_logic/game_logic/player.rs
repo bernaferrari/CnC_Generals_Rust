@@ -71,6 +71,13 @@ pub struct Player {
     pub skill_points: i32,
     /// C++ Player::m_sciencePurchasePoints residual.
     pub science_purchase_points: i32,
+    /// C++ Player::m_canBuildUnits (Player.cpp:2301). Scripts flip this via
+    /// PLAYER_DISABLE/ENABLE_UNIT_CONSTRUCTION.
+    pub can_build_units: bool,
+    /// C++ Player::m_canBuildBase (Player.cpp:2297).
+    pub can_build_base: bool,
+
+
     /// C++ Player::m_specialPowerReadyTimerList residual (seconds remaining).
     /// SharedSyncedTimer superweapons sync across a player's command centers.
     pub shared_special_power_cooldowns: HashMap<crate::command_system::SpecialPowerType, f32>,
@@ -267,6 +274,9 @@ impl Player {
             rank_level: 1,
             skill_points: 0,
             science_purchase_points: 0,
+            can_build_units: true,
+            can_build_base: true,
+
             shared_special_power_cooldowns: HashMap::new(),
         }
     }
@@ -875,6 +885,30 @@ impl Player {
         self.statistics.resources_spent = self.statistics.resources_spent.saturating_add(amount);
     }
 }
+
+impl Player {
+    /// C++ Player::allowedToBuild (Player.cpp:2295-2305).
+    pub fn allowed_to_build(&self, is_structure: bool) -> bool {
+        if !self.can_build_base && is_structure {
+            return false;
+        }
+        if !self.can_build_units && !is_structure {
+            return false;
+        }
+        true
+    }
+
+    /// C++ Player::setCanBuildUnits.
+    pub fn set_can_build_units(&mut self, can_build: bool) {
+        self.can_build_units = can_build;
+    }
+
+    /// C++ Player::setCanBuildBase.
+    pub fn set_can_build_base(&mut self, can_build: bool) {
+        self.can_build_base = can_build;
+    }
+}
+
 
 pub(super) fn normalize_upgrade_name(name: &str) -> String {
     name.chars()

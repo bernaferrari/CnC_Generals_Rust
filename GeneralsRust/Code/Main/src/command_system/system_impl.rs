@@ -384,6 +384,7 @@ impl CommandSystem {
                     &context.selected_presentation,
                     target_id,
                     hint,
+                    context.world_position,
                     // Wave 541: target presentation freeze is authoritative.
                     // Empty selected_presentation fails closed for capability probes
                     // (no live GameLogic dual-read). Boot residual uses the
@@ -434,6 +435,35 @@ impl CommandSystem {
                         return CommandType::GetHealed { target_id };
                     } else {
                         return CommandType::GetRepaired { target_id };
+                    }
+                }
+                if gl.unit_is_kind_of(target_id, KindOf::Crate)
+                    || gl.host_money_crates.contains(target_id)
+                {
+                    let salvage = gl
+                        .host_money_crates
+                        .get(target_id)
+                        .is_some_and(|entry| entry.is_salvage);
+                    if salvage
+                        && selected_units.iter().any(|&unit_id| {
+                            gl.unit_is_alive(unit_id)
+                                && gl.unit_can_move(unit_id)
+                                && gl.unit_is_kind_of(unit_id, KindOf::Salvager)
+                        })
+                    {
+                        return CommandType::DoSalvage {
+                            destination: context.world_position,
+                        };
+                    }
+                    if !salvage
+                        && selected_units.iter().any(|&unit_id| {
+                            gl.unit_is_alive(unit_id) && gl.unit_can_move(unit_id)
+                        })
+                    {
+                        return CommandType::MoveTo {
+                            destination: context.world_position,
+                            waypoints: Vec::new(),
+                        };
                     }
                 }
             }
@@ -1013,6 +1043,7 @@ impl CommandSystem {
         selected_presentation: &[PresentationSelectedUnitHint],
         target_id: ObjectId,
         hint: &PresentationTargetHint,
+        world_position: Vec3,
         game_logic: Option<&GameLogic>,
     ) -> Option<CommandType> {
         // Wave 235/541: InGame RMB classification from presentation freeze.
@@ -1242,6 +1273,47 @@ impl CommandSystem {
             };
             if any_damaged_serviceable {
                 return Some(CommandType::GetRepaired { target_id });
+            }
+        }
+        // C++ CommandXlat.cpp:1921-1937 canSelectionSalvage → MSG_DO_SALVAGE.
+        if hint.is_salvage_crate && !hint.sold {
+            let any_salvager = if !selected_presentation.is_empty() {
+                selected_presentation
+                    .iter()
+                    .any(|u| u.is_alive && u.is_salvager && u.can_move)
+            } else {
+                game_logic.is_some_and(|gl| {
+                    units.iter().any(|&unit_id| {
+                        gl.unit_is_alive(unit_id)
+                            && gl.unit_can_move(unit_id)
+                            && gl.unit_is_kind_of(unit_id, KindOf::Salvager)
+                    })
+                })
+            };
+            if any_salvager {
+                return Some(CommandType::DoSalvage {
+                    destination: world_position,
+                });
+            }
+        }
+        // Ordinary crates (money/heal/shroud/unit): C++ crate click is move-to-crate.
+        if hint.is_crate && !hint.is_salvage_crate && !hint.sold {
+            let any_mobile = if !selected_presentation.is_empty() {
+                selected_presentation
+                    .iter()
+                    .any(|u| u.is_alive && u.can_move)
+            } else {
+                game_logic.is_some_and(|gl| {
+                    units
+                        .iter()
+                        .any(|&unit_id| gl.unit_is_alive(unit_id) && gl.unit_can_move(unit_id))
+                })
+            };
+            if any_mobile {
+                return Some(CommandType::MoveTo {
+                    destination: world_position,
+                    waypoints: Vec::new(),
+                });
             }
         }
         None

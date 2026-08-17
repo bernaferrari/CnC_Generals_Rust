@@ -90,11 +90,17 @@ impl Object {
                 self.set_status_under_construction(false);
                 self.health.current = self.health.maximum;
             } else {
-                // Health scales with construction progress
-                self.health.current = self.health.maximum * (0.1 + 0.9 * self.construction_percent);
+                // C++ DozerAIUpdate.cpp:1708+526: start 1 HP, then
+                // +maxHealth / framesToBuild each logic frame.
+                let frames = (self.thing.template.build_time * 30.0).max(1.0);
+                let per_frame = self.health.maximum / frames;
+                let logic_frames = (dt * 30.0).max(0.0);
+                self.health.current = (self.health.current.max(1.0) + per_frame * logic_frames)
+                    .min(self.health.maximum);
             }
         }
     }
+
 
     pub fn update_movement(&mut self, dt: f32) {
         if matches!(self.ai_state, AIState::Docked | AIState::Garrisoned) {

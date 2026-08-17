@@ -279,6 +279,8 @@ mod tests {
                 capture_nonstealthed_garrison_count: 0,
                 capture_friendly_garrison_count: 0,
                 capture_target_effectively_stealthed: false,
+                is_crate: false,
+                is_salvage_crate: false,
             }),
             selected_presentation: vec![PresentationSelectedUnitHint {
                 id: attacker,
@@ -301,6 +303,7 @@ mod tests {
                 is_controlled_by_local: true,
                 capture_power: crate::game_logic::CapturePowerKind::None,
                 capture_power_ready: false,
+                is_salvager: false,
             }],
             presentation_box_select_units: Vec::new(),
             presentation_select_similar_units: Vec::new(),

@@ -1180,6 +1180,13 @@ impl CnCGameEngine {
         // paused (or running) independently of the rendered WND.
         #[cfg(feature = "game_client")]
         self.host_tick_quit_menu_bridge();
+        // C++ ScriptEngine.cpp:5514-5518 appends MSG_CLEAR_GAME_DATA when the
+        // end-game timer expires. QuitMenu Exit uses the same message. Consume
+        // it here so scripted VICTORY/DEFEAT actually ends the live match even
+        // when QuitMenu is not the poster.
+        if self.host_consume_clear_game_data() {
+            return;
+        }
         if matches!(self.current_state, GameState::Menu) && self.menu_world_frames_rendered < 5 {
             debug!(
                 "update_internal: Menu state, update_runtime_subsystems done, entering state match"

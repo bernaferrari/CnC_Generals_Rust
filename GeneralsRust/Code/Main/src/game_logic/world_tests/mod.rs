@@ -69,3 +69,63 @@ fn victory_conditions_update_inside_each_logic_frame() {
         "victory must be decided on the logic frame that processed destroy, got {outcome:?}"
     );
 }
+
+#[test]
+fn skirmish_razing_last_enemy_building_defeats_player_with_units_left() {
+    // C++ GameLogic.cpp:1606 startNewGame sets VICTORY_NOBUILDINGS.
+    // VictoryConditions.cpp:272-277 hasSinglePlayerBeenDefeated: with only
+    // that flag, razing every enemy building defeats that player even if
+    // units remain (C++ then killPlayer leftover infantry).
+    use crate::game_logic::{VictoryCondition, VictoryType};
+    let mut logic = GameLogic::new();
+    logic.start_new_game(GameMode::Skirmish);
+    logic.clear_all_players();
+    ensure_test_infantry_template(&mut logic);
+    ensure_test_structure_template(&mut logic);
+    ensure_test_player_for_team(&mut logic, Team::USA);
+    ensure_test_player_for_team(&mut logic, Team::GLA);
+
+    assert_eq!(
+        logic.victory_type(),
+        VictoryType::NO_BUILDINGS,
+        "skirmish must use C++ VICTORY_NOBUILDINGS, not annihilation"
+    );
+
+    let _usa_cc = logic
+        .create_object("TestBuilding", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+        .expect("usa building");
+    let gla_cc = logic
+        .create_object("TestBuilding", Team::GLA, glam::Vec3::new(80.0, 0.0, 0.0))
+        .expect("gla building");
+    let gla_unit = logic
+        .create_object("TestInfantry", Team::GLA, glam::Vec3::new(90.0, 0.0, 0.0))
+        .expect("gla infantry leftover");
+
+    assert!(
+        logic.evaluate_victory_condition().is_none(),
+        "match must continue while the enemy still has a building"
+    );
+    // C++ Team::hasAnyBuildings skips isEffectivelyDead / isDestroyed. Host
+    // structure topple keeps a sliver of HP so the object stays in the map;
+    // victory must still treat that razed building as gone.
+    if let Some(obj) = logic.host_object_mut(gla_cc) {
+        obj.health.current = 0.0;
+        obj.status.effectively_dead = true;
+    }
+    assert!(
+        logic
+            .get_object(gla_cc)
+            .is_some_and(|obj| !obj.is_alive()),
+        "razed building must be effectively dead for hasAnyBuildings"
+    );
+    assert!(
+        logic.get_object(gla_unit).is_some_and(|obj| obj.is_alive()),
+        "leftover enemy units must not block NOBUILDINGS defeat"
+    );
+
+    let outcome = logic.evaluate_victory_condition();
+    assert!(
+        matches!(outcome, Some(VictoryCondition::Winner(_))),
+        "razing the last enemy building must end the skirmish, got {outcome:?}"
+    );
+}

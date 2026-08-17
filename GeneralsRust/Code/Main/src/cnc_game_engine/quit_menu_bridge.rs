@@ -81,10 +81,9 @@ impl CnCGameEngine {
         // C++ `exitQuitMenu()` appends MSG_CLEAR_GAME_DATA.  Consume exactly
         // that control message at Main's single-authority boundary, reset the
         // Rust match, then return to the retail shell.  Other stream messages
-        // are retained unchanged.
-        if Self::take_quit_menu_clear_game_data_from_common_stream() {
-            self.host_set_paused(false);
-            self.return_to_main_menu_after_match();
+        // are retained unchanged. Scripted VICTORY/DEFEAT use the same
+        // consumer via host_consume_clear_game_data.
+        if self.host_consume_clear_game_data() {
             return;
         }
 
@@ -106,35 +105,9 @@ impl CnCGameEngine {
     }
 
     /// Remove only the ClearGameData request produced by QuitMenu's confirmed
-    /// Exit button.  Main cannot delegate this to GameClient because Main is
-    /// the authoritative offline world and GameClient's command pump targets
-    /// its separate compatibility singleton.
+    /// Exit button.  Delegates to the shared InGame consumer used by scripted
+    /// end-game timers (ScriptEngine.cpp:5514-5518 MSG_CLEAR_GAME_DATA).
     fn take_quit_menu_clear_game_data_from_common_stream() -> bool {
-        let stream = ::game_engine::common::message_stream::get_message_stream();
-        let mut stream = stream.write().unwrap_or_else(|e| e.into_inner());
-        let messages: Vec<_> = stream.get_messages().iter().cloned().collect();
-
-        let mut found = false;
-        let mut kept = Vec::with_capacity(messages.len());
-        for message in messages {
-            if matches!(
-                message.get_type(),
-                ::game_engine::common::message_stream::GameMessageType::ClearGameData
-            ) {
-                found = true;
-            } else {
-                kept.push(message);
-            }
-        }
-
-        if !found {
-            return false;
-        }
-
-        stream.clear_messages();
-        for message in &kept {
-            Self::append_common_message_to_stream(&mut stream, message);
-        }
-        true
+        Self::take_clear_game_data_from_common_stream()
     }
 }

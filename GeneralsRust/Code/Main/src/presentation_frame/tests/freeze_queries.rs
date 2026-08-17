@@ -42,6 +42,48 @@ fn runtime_host_presentation_query_helpers() {
 }
 
 #[test]
+fn money_crate_identity_freezes_for_click_routing() {
+    // C++ CommandXlat.cpp:116-149 / 1921-1937 — crate click needs salvage vs
+    // ordinary crate identity on the live presentation path.
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    let mut logic = crate::game_logic::GameLogic::new();
+    let mut salvage = ThingTemplate::new("SalvageCrate");
+    salvage
+        .add_kind_of(KindOf::Crate)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(1.0);
+    logic.templates.insert("SalvageCrate".into(), salvage);
+    let mut heal = ThingTemplate::new("HealCrate");
+    heal.add_kind_of(KindOf::Crate)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(1.0);
+    logic.templates.insert("HealCrate".into(), heal);
+
+    let salvage_id = logic
+        .create_object("SalvageCrate", Team::Neutral, glam::Vec3::new(5.0, 0.0, 0.0))
+        .expect("salvage");
+    let heal_id = logic
+        .create_object("HealCrate", Team::Neutral, glam::Vec3::new(15.0, 0.0, 0.0))
+        .expect("heal");
+    logic.host_money_crates.register_salvage_crate(salvage_id, 40);
+    logic.host_money_crates.register_heal_crate(heal_id);
+
+    let frame = PresentationFrame::build_from_logic(&logic, 0);
+    let salvage_obj = frame
+        .objects
+        .iter()
+        .find(|o| o.id == salvage_id)
+        .expect("salvage freeze");
+    let heal_obj = frame
+        .objects
+        .iter()
+        .find(|o| o.id == heal_id)
+        .expect("heal freeze");
+    assert!(salvage_obj.is_crate && salvage_obj.is_salvage_crate);
+    assert!(heal_obj.is_crate && !heal_obj.is_salvage_crate);
+}
+
+#[test]
 fn player_roster_frozen_from_host() {
     let mut logic = GameLogic::new();
     let cfg = crate::skirmish_config::golden_skirmish_config("PlayerRosterFreeze");

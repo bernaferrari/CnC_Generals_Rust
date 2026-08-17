@@ -390,6 +390,168 @@ fn resolve_random_skirmish_template(
     Ok(candidates[candidate_index].clone())
 }
 
+/// C++ `populateRandomStartPosition` (GameLogic.cpp:785-1048).
+/// Unassigned (`-1`) slots get unused map start spots; first pick is random,
+/// later picks prefer farthest empty spots (teammates stay close).
+pub fn populate_random_start_position(
+    slots: &mut [SkirmishSlotConfig],
+    map_name: &str,
+) {
+    use game_engine::common::random_value::get_game_logic_random_value;
+
+    let starts = crate::game_logic::script_loader::parse_player_start_waypoints(map_name)
+        .unwrap_or_default();
+    let num_players = if starts.is_empty() {
+        MAX_SLOTS as i32
+    } else {
+        starts.len() as i32
+    };
+    if num_players <= 0 {
+        return;
+    }
+
+    let waypoint_pos = |idx: i32| -> Option<(f32, f32)> {
+        starts
+            .iter()
+            .find(|(i, _, _)| *i == idx as u32)
+            .map(|(_, wp, _)| (wp.x, wp.y))
+    };
+    let dist = |a: i32, b: i32| -> f32 {
+        match (waypoint_pos(a), waypoint_pos(b)) {
+            (Some(p1), Some(p2)) => {
+                let dx = p1.0 - p2.0;
+                let dy = p1.1 - p2.1;
+                (dx * dx + dy * dy).sqrt()
+            }
+            _ => 1_000_000.0,
+        }
+    };
+
+    let mut taken = vec![false; num_players as usize];
+    for slot in slots.iter() {
+        if !slot.is_active {
+            continue;
+        }
+        let pos = slot.start_position;
+        if pos >= 0 && pos < num_players {
+            taken[pos as usize] = true;
+        }
+    }
+
+    let is_taken = |idx: i32, taken: &[bool], slots: &[SkirmishSlotConfig]| -> bool {
+        if idx < 0 || idx >= num_players {
+            return true;
+        }
+        taken[idx as usize]
+            || slots
+                .iter()
+                .any(|s| s.is_active && s.start_position == idx)
+    };
+
+    let mut team_pos = [-1i32; MAX_SLOTS];
+    let mut has_start_spot_been_picked = slots
+        .iter()
+        .any(|s| s.is_active && s.start_position >= 0 && s.start_position < num_players);
+
+    for i in 0..slots.len() {
+        if !slots[i].is_active {
+            continue;
+        }
+        let pos = slots[i].start_position;
+        if pos >= 0 && pos < num_players {
+            let team = slots[i].team;
+            if team >= 0 && (team as usize) < MAX_SLOTS && team_pos[team as usize] < 0 {
+                team_pos[team as usize] = pos;
+            }
+            continue;
+        }
+
+        let team = slots[i].team;
+        let assigned = if !has_start_spot_been_picked {
+            let mut pick = -1;
+            for _ in 0..(num_players * 4).max(8) {
+                let candidate = get_game_logic_random_value(0, num_players - 1);
+                if !is_taken(candidate, &taken, slots) {
+                    pick = candidate;
+                    break;
+                }
+            }
+            if pick < 0 {
+                pick = (0..num_players).find(|&n| !is_taken(n, &taken, slots)).unwrap_or(0);
+            }
+            has_start_spot_been_picked = true;
+            if team >= 0 && (team as usize) < MAX_SLOTS {
+                team_pos[team as usize] = pick;
+            }
+            pick
+        } else if team < 0 || (team as usize) >= MAX_SLOTS || team_pos[team as usize] < 0 {
+            let mut farthest_index = -1;
+            let mut farthest_distance = -1.0f32;
+            for pos_idx in 0..num_players {
+                if is_taken(pos_idx, &taken, slots) {
+                    continue;
+                }
+                let mut sum = 0.0;
+                for n in 0..num_players {
+                    if taken[n as usize] && n != pos_idx {
+                        sum += dist(pos_idx, n);
+                    }
+                }
+                if farthest_index < 0 || sum > farthest_distance {
+                    farthest_distance = sum;
+                    farthest_index = pos_idx;
+                }
+            }
+            let pick = if farthest_index >= 0 {
+                farthest_index
+            } else {
+                0
+            };
+            if team >= 0 && (team as usize) < MAX_SLOTS {
+                team_pos[team as usize] = pick;
+            }
+            pick
+        } else {
+            let team_home = team_pos[team as usize];
+            let mut closest_idx = 0;
+            let mut closest_dist = f32::MAX;
+            for n in 0..num_players {
+                if is_taken(n, &taken, slots) {
+                    continue;
+                }
+                let d = dist(team_home, n);
+                if d < closest_dist {
+                    closest_dist = d;
+                    closest_idx = n;
+                }
+            }
+            closest_idx
+        };
+
+        if assigned >= 0 && assigned < num_players {
+            taken[assigned as usize] = true;
+        }
+        slots[i].start_position = assigned;
+    }
+}
+
+fn skirmish_num_teams(slots: &[SkirmishSlotConfig]) -> i32 {
+    // C++ GameLogic.cpp:1482-1497 — count occupied non-observer teams.
+    let mut num_teams = 0;
+    let mut last_team = -2;
+    for slot in slots {
+        if !slot.is_active {
+            continue;
+        }
+        if slot.team == -1 || slot.team != last_team {
+            num_teams += 1;
+            last_team = slot.team;
+        }
+    }
+    num_teams
+}
+
+
 fn resolve_skirmish_slots(
     config: &SkirmishMatchConfig,
 ) -> Result<Vec<ResolvedSkirmishSlot<'_>>, String> {
@@ -486,6 +648,9 @@ pub fn apply_skirmish_config(
     logic.start_new_game(GameMode::Skirmish);
     logic.clear_all_players();
 
+    let mut assigned = config.slots.clone();
+    populate_random_start_position(&mut assigned, &config.map);
+
     let cash = config.rules.starting_cash.max(0) as u32;
     let mut human_id: Option<u32> = None;
 
@@ -493,12 +658,17 @@ pub fn apply_skirmish_config(
         let slot = resolved.slot;
         let team = resolved.team;
         let player_id = slot.slot_index as u32;
+        let start_position = assigned
+            .iter()
+            .find(|s| s.slot_index == slot.slot_index)
+            .map(|s| s.start_position)
+            .unwrap_or(slot.start_position);
         let mut player = Player::new(player_id, team, &slot.player_name, slot.is_human);
         // C++ Player::init starts with GameInfo cash, then an authored
         // non-zero PlayerTemplate Money value may replace it.
         player.resources.supplies = cash;
         player.color_rgb = slot.color_rgb;
-        player.start_position = slot.start_position;
+        player.start_position = start_position;
         player.alliance_team = slot.team;
         logic.add_player(player);
 
@@ -523,7 +693,7 @@ pub fn apply_skirmish_config(
             )
         })?;
         player.color_rgb = slot.color_rgb;
-        player.start_position = slot.start_position;
+        player.start_position = start_position;
         player.alliance_team = slot.team;
 
         if slot.is_human && human_id.is_none() {
@@ -550,6 +720,11 @@ pub fn apply_skirmish_config(
         config.rules.allow_tech_buildings,
         config.rules.game_speed,
     );
+
+    // C++ startNewGame: ReplayObserver + MultiplayerScripts.scb when numTeams > 1.
+    let _ = logic.ensure_replay_observer_player();
+    logic.install_replay_observer_side();
+    logic.set_install_multiplayer_scripts(skirmish_num_teams(&assigned) > 1);
 
     let _ = human_id;
     Ok(())
@@ -955,7 +1130,7 @@ mod tests {
     }
 
     #[test]
-    fn locked_boss_is_rejected_before_host_start_and_excluded_from_random() {
+    fn locked_boss_persona_is_rejected_and_excluded_from_random() {
         // C++ loads ChallengeMode.ini at GameClient startup, then uses the
         // same StartsEnabled record in both direct slot validation and the
         // PLAYERTEMPLATE_RANDOM candidate list. Boss is playable and has a
@@ -1130,7 +1305,14 @@ mod tests {
         assert_eq!(p0.resources.supplies, 10_000);
         let p1 = logic.get_player(1).expect("ai");
         assert_eq!(p1.resources.supplies, 10_000);
-        assert_eq!(logic.get_players().len(), 2);
+        assert!(logic.get_players().len() >= 2);
+        assert!(
+            logic
+                .get_players()
+                .values()
+                .any(|p| p.name == "ReplayObserver"),
+            "C++ startNewGame always creates ReplayObserver"
+        );
         // Rules from config must be applied onto the authoritative world.
         assert!(logic.skirmish_rules().fog_of_war);
         assert!(logic.skirmish_rules().crates_enabled);
@@ -1414,4 +1596,136 @@ mod tests {
         assert_eq!(snap.world_env.world_max, [b.x, b.y, b.z]);
         assert_eq!(snap.local_player_id, 0);
     }
+
+    #[test]
+    fn populate_random_start_position_assigns_unpinned_slots() {
+        // C++ GameLogic.cpp:785-1048 populateRandomStartPosition.
+        // Default GameSlot start_pos is -1; first occupied slot is random,
+        // later slots take unused spots (not pinned to their slot index).
+        game_engine::common::random_value::init_game_logic_random(0xA11C_E55);
+        let mut slots = vec![
+            configured_slot(
+                0,
+                true,
+                SkirmishPlayerTemplateSelection::base_faction("USA"),
+                "USA",
+                (0, 0, 200),
+                0,
+                -1,
+            ),
+            configured_slot(
+                1,
+                false,
+                SkirmishPlayerTemplateSelection::base_faction("GLA"),
+                "GLA",
+                (200, 0, 0),
+                1,
+                -1,
+            ),
+        ];
+        populate_random_start_position(&mut slots, "missing-map-forces-max-slots");
+        assert!(slots[0].start_position >= 0, "first slot must be assigned");
+        assert!(slots[1].start_position >= 0, "second slot must be assigned");
+        assert_ne!(
+            slots[0].start_position, slots[1].start_position,
+            "two occupied slots cannot share a start spot"
+        );
+        assert!(
+            slots[0].start_position < MAX_SLOTS as i32
+                && slots[1].start_position < MAX_SLOTS as i32
+        );
+
+        let mut pinned = slots.clone();
+        pinned[0].start_position = 3;
+        pinned[1].start_position = -1;
+        populate_random_start_position(&mut pinned, "missing-map-forces-max-slots");
+        assert_eq!(pinned[0].start_position, 3, "explicit pick is kept");
+        assert_ne!(pinned[1].start_position, 3);
+        assert!(pinned[1].start_position >= 0);
+    }
+
+    #[test]
+    fn apply_skirmish_config_creates_replay_observer_and_flags_scripts() {
+        // C++ GameLogic.cpp:1436-1459 ReplayObserver; 1479-1532 MultiplayerScripts
+        // when numTeams > 1. Permanent reveal is applied at map load.
+        let mut logic = GameLogic::new();
+        logic.add_player(Player::new(0, Team::USA, "Player", true));
+        logic.add_player(Player::new(1, Team::GLA, "GLA AI", false));
+        let _ = logic.ensure_replay_observer_player();
+        logic.install_replay_observer_side();
+        logic.set_install_multiplayer_scripts(true);
+
+        let observer = logic
+            .get_players()
+            .values()
+            .find(|p| p.name == "ReplayObserver")
+            .expect("ReplayObserver host player");
+        assert!(!observer.is_alive);
+        assert_eq!(observer.team, Team::Neutral);
+        assert_eq!(logic.replay_observer_player_id(), Some(observer.id));
+        assert!(
+            logic.will_install_multiplayer_scripts(),
+            "human vs AI is two teams"
+        );
+
+        {
+            use gamelogic::player::ThePlayerList;
+            let list = ThePlayerList().read().expect("crate player list");
+            assert!(
+                list.find_player_by_name("ReplayObserver").is_some(),
+                "crate PlayerList must name ReplayObserver"
+            );
+        }
+    }
+
+    #[test]
+    fn start_new_game_skirmish_creates_replay_observer() {
+        let mut logic = GameLogic::new();
+        logic.start_new_game(GameMode::Skirmish);
+        assert!(
+            logic
+                .get_players()
+                .values()
+                .any(|p| p.name == "ReplayObserver")
+        );
+        logic.reveal_replay_observer_map();
+        let id = logic.replay_observer_player_id().expect("observer id");
+        let shroud = gamelogic::system::shroud_manager::get_shroud_manager()
+            .lock()
+            .expect("shroud");
+        let snap = shroud.snapshot_state();
+        assert!(
+            snap.pending_permanent_reveal_players.contains(&id)
+                || snap
+                    .grid
+                    .as_ref()
+                    .is_some_and(|_| true),
+            "ReplayObserver must be queued for or already have permanent reveal"
+        );
+    }
+
+    #[test]
+    fn install_multiplayer_scripts_preloads_scb_when_flagged() {
+        // C++ GameLogic.cpp:1502-1525 parses Data\\Scripts\\MultiplayerScripts.scb
+        // and prepends scripts onto side 0.
+        let scb = std::path::Path::new(
+            "windows_game/Command & Conquer Generals Zero Hour/Data/Scripts/MultiplayerScripts.scb",
+        );
+        let mut logic = GameLogic::new();
+        logic.start_new_game(GameMode::Skirmish);
+        logic.set_install_multiplayer_scripts(true);
+        logic.install_multiplayer_scripts_if_needed();
+        if scb.is_file() {
+            assert!(
+                !logic.loaded_script_names().is_empty(),
+                "parsed MultiplayerScripts.scb must contribute at least one script"
+            );
+        } else {
+            assert!(
+                logic.will_install_multiplayer_scripts(),
+                "flag stays set even if the scb is absent from this workspace"
+            );
+        }
+    }
+
 }

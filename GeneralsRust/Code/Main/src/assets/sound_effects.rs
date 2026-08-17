@@ -9,14 +9,23 @@ pub struct SoundEffectsTable {
 
 impl SoundEffectsTable {
     pub fn load_default() -> Option<Self> {
-        let candidates: &[PathBuf] = &[
-            PathBuf::from("windows_game/extracted_big_files/INIZH/Data/INI/SoundEffects.ini"),
-            PathBuf::from("windows_game/extracted_big_files_v2/INIZH/Data/INI/SoundEffects.ini"),
-            PathBuf::from("Data/INI/SoundEffects.ini"),
-        ];
+        // C++ AudioManager::init (GameAudio.cpp:192-193) loads Default then
+        // Data\\INI\\SoundEffects.ini. Search cwd plus extracted INIZH trees so
+        // cargo-test / live-boot cwd still finds the retail file.
+        let mut paths = Vec::new();
+        if let Some(path) = game_engine::common::system::install_layout::resolve_data_ini_file(
+            "Data/INI/SoundEffects.ini",
+        ) {
+            paths.push(path);
+        }
+        if let Some(path) = game_engine::common::system::install_layout::resolve_data_ini_file(
+            "Data/INI/Default/SoundEffects.ini",
+        ) {
+            paths.push(path);
+        }
 
-        for path in candidates {
-            if let Ok(text) = std::fs::read_to_string(path) {
+        for path in paths {
+            if let Ok(text) = std::fs::read_to_string(&path) {
                 let table = Self::from_text(&text);
                 if !table.events.is_empty() {
                     return Some(table);
@@ -97,5 +106,24 @@ impl SoundEffectsTable {
     ) -> Option<String> {
         let _ = ini_path;
         self.resolve_sound_path(event_type)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn load_default_resolves_retail_guiclick_from_extracted_ini() {
+        // C++ AudioManager::init (GameAudio.cpp:192-193) loads SoundEffects.ini.
+        // Pre-fix load_default only checked cwd-relative windows_game paths, so
+        // cargo-test cwd missed the extracted INIZH file and the gameplay queue
+        // dropped every event.
+        let table = SoundEffectsTable::load_default()
+            .expect("SoundEffects.ini must resolve via install_layout");
+        assert!(
+            table.resolve_sound_path("GUIClick").is_some(),
+            "retail GUIClick must resolve after boot-equivalent load"
+        );
     }
 }

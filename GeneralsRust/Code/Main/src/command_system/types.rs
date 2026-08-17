@@ -337,6 +337,11 @@ pub enum CommandType {
         position: Vec3,
     },
     ViewCommandCenter,
+    /// C++ `MSG_DO_SALVAGE` — salvage crate click. Location-only, like MoveTo.
+    DoSalvage {
+        destination: Vec3,
+    },
+
 
     // Invalid command placeholder
     Invalid,

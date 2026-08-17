@@ -388,6 +388,83 @@ pub fn producer_num_door_animations(template_name: &str) -> i32 {
     0
 }
 
+/// C++ ProductionUpdate INI DoorOpeningTime / DoorWaitOpenTime / DoorCloseTime
+/// converted with parseDurationUnsignedInt (ceil ms × 30 / 1000).
+///
+/// Returns `(opening_frames, wait_open_frames, close_frames)`.
+/// Templates with no authored door times keep the C++ module-data default of 0.
+pub fn producer_door_phase_frames(template_name: &str) -> (u32, u32, u32) {
+    use crate::game_logic::host_structure_economy_residual::{
+        CHINA_CC_DOOR_CLOSE_FRAMES, CHINA_CC_DOOR_OPENING_FRAMES, CHINA_CC_DOOR_WAIT_OPEN_FRAMES,
+        USA_CC_DOOR_CLOSE_FRAMES, USA_CC_DOOR_OPENING_FRAMES, USA_CC_DOOR_WAIT_OPEN_FRAMES,
+        structure_economy_ms_to_frames,
+    };
+    let n = template_name.to_ascii_lowercase();
+    if n.starts_with("test") {
+        return (0, 0, 0);
+    }
+    if n.contains("commandcenter") {
+        if n.contains("china") {
+            return (
+                CHINA_CC_DOOR_OPENING_FRAMES,
+                CHINA_CC_DOOR_WAIT_OPEN_FRAMES,
+                CHINA_CC_DOOR_CLOSE_FRAMES,
+            );
+        }
+        // America / GLA / general variants of USA CC use 1500/3000/1500.
+        return (
+            USA_CC_DOOR_OPENING_FRAMES,
+            USA_CC_DOOR_WAIT_OPEN_FRAMES,
+            USA_CC_DOOR_CLOSE_FRAMES,
+        );
+    }
+    if n.contains("airfield") {
+        return (
+            structure_economy_ms_to_frames(2000),
+            structure_economy_ms_to_frames(3000),
+            structure_economy_ms_to_frames(2000),
+        );
+    }
+    if n.contains("warfactory") {
+        if n.contains("china") {
+            // ChinaWarFactory: 4000 / 2000 / 5000 ms.
+            return (
+                structure_economy_ms_to_frames(4000),
+                structure_economy_ms_to_frames(2000),
+                structure_economy_ms_to_frames(5000),
+            );
+        }
+        // AmericaWarFactory: 3250 / 3000 / 4000 ms.
+        return (
+            structure_economy_ms_to_frames(3250),
+            structure_economy_ms_to_frames(3000),
+            structure_economy_ms_to_frames(4000),
+        );
+    }
+    if n.contains("armsdealer") {
+        return (
+            structure_economy_ms_to_frames(2000),
+            structure_economy_ms_to_frames(3000),
+            structure_economy_ms_to_frames(2000),
+        );
+    }
+    // AmericaBarracks and other empty ProductionUpdate modules: defaults 0.
+    (0, 0, 0)
+}
+
+/// Frames to remain in a production-door phase (0 = advance next comparison).
+#[inline]
+pub fn producer_door_phase_duration(template_name: &str, phase: u8) -> u32 {
+    let (open, wait, close) = producer_door_phase_frames(template_name);
+    match phase {
+        1 => open,
+        2 => wait,
+        4 => close,
+        _ => 1,
+    }
+}
+
+
 /// C++ ProductionUpdate: spawn waits for WAITING_OPEN (phase 2) when doors exist.
 pub fn production_door_allows_spawn(num_door_animations: i32, door_phase: u8) -> bool {
     num_door_animations <= 0 || door_phase == 2

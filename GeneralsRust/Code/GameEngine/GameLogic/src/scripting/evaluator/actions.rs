@@ -22,8 +22,6 @@ impl ScriptEvaluator {
 
         match action.get_action_type() {
             ScriptActionType::NoOp => Ok(()), // Do nothing
-            ScriptActionType::Victory => self.execute_victory_action(action),
-            ScriptActionType::Defeat => self.execute_defeat_action(action),
             ScriptActionType::SetFlag => self.execute_set_flag_action(action),
             ScriptActionType::SetCounter => self.execute_set_counter_action(action),
             ScriptActionType::IncrementCounter => self.execute_increment_counter_action(action),
@@ -40,7 +38,6 @@ impl ScriptEvaluator {
             ScriptActionType::UnfreezeTime => self.execute_unfreeze_time_action(action),
             ScriptActionType::PlayerSetMoney => self.execute_player_set_money_action(action),
             ScriptActionType::PlayerGiveMoney => self.execute_player_give_money_action(action),
-            ScriptActionType::Quickvictory => self.execute_quick_victory_action(action),
             // Keep CALL_SUBROUTINE on this evaluator's injected ScriptEngine.
             // MissionScriptRuntime and trigger evaluators may carry a private
             // engine; routing through the process-global dispatcher would make
@@ -213,38 +210,10 @@ impl ScriptEvaluator {
             .flatten())
     }
 
-    /// Execute victory action
-    fn execute_victory_action(&self, _action: &ScriptAction) -> GameLogicResult<()> {
-        log::info!("Victory action executed");
-
-        let _ = self.with_evaluation_engine_mut(|engine| {
-            engine.set_campaign_victorious(true);
-            engine.start_end_game_timer();
-        });
-        Ok(())
-    }
-
-    /// Execute defeat action
-    fn execute_defeat_action(&self, _action: &ScriptAction) -> GameLogicResult<()> {
-        log::info!("Defeat action executed");
-
-        let _ = self.with_evaluation_engine_mut(|engine| {
-            engine.set_campaign_victorious(false);
-            engine.start_end_game_timer();
-        });
-        Ok(())
-    }
-
-    /// Execute quick victory action
-    fn execute_quick_victory_action(&self, _action: &ScriptAction) -> GameLogicResult<()> {
-        log::info!("Quick victory action executed");
-
-        let _ = self.with_evaluation_engine_mut(|engine| {
-            engine.set_campaign_victorious(true);
-            engine.start_quick_end_game_timer();
-        });
-        Ok(())
-    }
+    // Victory / Defeat / QuickVictory fall through to ScriptActionDispatcher
+    // (do_victory / do_defeat / do_quick_victory). C++ ScriptActions.cpp:169-234
+    // creates Victorious/Defeat.wnd, disables input, SetVictorious, and starts
+    // the end-game timer that later appends MSG_CLEAR_GAME_DATA.
 
     /// Execute set flag action
     fn execute_set_flag_action(&self, action: &ScriptAction) -> GameLogicResult<()> {

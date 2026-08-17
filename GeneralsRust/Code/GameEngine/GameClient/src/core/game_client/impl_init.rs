@@ -37,6 +37,8 @@ impl GameClient {
             local_player_id: 0,
             last_applied_military_caption: None,
             last_applied_cinematic_text: None,
+            last_live_ingame_hud_draw: LiveInGameHudDrawCounts::default(),
+
             drawable_map: std::collections::HashMap::with_capacity(super::DRAWABLE_HASH_SIZE),
             drawable_object_map: std::collections::HashMap::new(),
             presentation_direct_drawable_bindings: std::collections::HashMap::new(),

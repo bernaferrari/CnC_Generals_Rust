@@ -621,6 +621,8 @@ impl GameLogic {
             pathfinding_height_samples: None,
             weather_state: RuntimeWeatherState::default(),
             host_sleepy: super::world_tick::HostSleepyHeap::new(),
+            replay_observer_player_id: None,
+            install_multiplayer_scripts: false,
         };
         instance.rebuild_objective_lookup();
         instance
@@ -1014,6 +1016,8 @@ impl GameLogic {
         self.map_loaded = false;
         self.victory_conditions.reset();
         self.scripts_loaded = false;
+        self.replay_observer_player_id = None;
+        self.install_multiplayer_scripts = false;
         self.script_event_pump_in_flight
             .store(false, Ordering::Release);
         self.script_event_pump_busy_frames = 0;

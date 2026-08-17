@@ -32,13 +32,14 @@ impl Object {
     /// C++ ProductionUpdate door residual:
     /// OPENING → WAITING_OPEN → WAITING_TO_CLOSE → CLOSING → idle.
     ///
-    /// Retail residual timings (fail-closed vs full INI Door*Time):
-    /// open 15f, wait-open 30f, wait-to-close 1f, close 15f.
+    /// Phase durations come from INI DoorOpeningTime / DoorWaitOpenTime /
+    /// DoorCloseTime (ProductionUpdate.cpp:113-115, updateDoors:528/548/568).
     pub fn start_production_door_cycle(&mut self, now: u32) {
         use crate::game_logic::host_enum_table_residual::{
             door_1_closing_model_bit, door_1_opening_model_bit, door_1_waiting_open_model_bit,
             door_1_waiting_to_close_model_bit,
         };
+        use crate::game_logic::host_production_buildable_command_residual::producer_door_phase_duration;
         // Clear door 1 bits then set OPENING.
         let open_b = door_1_opening_model_bit();
         let wait_b = door_1_waiting_open_model_bit();
@@ -50,7 +51,8 @@ impl Object {
         self.model_condition_bits &= !(1u128 << close_b);
         self.model_condition_bits |= 1u128 << open_b;
         self.production_door_phase = 1;
-        self.production_door_phase_end_frame = now.saturating_add(15);
+        self.production_door_phase_end_frame =
+            now.saturating_add(producer_door_phase_duration(&self.template_name, 1));
         self.refresh_model_condition_bits();
         self.record_host_model_condition();
         self.record_host_production_door();
@@ -123,10 +125,12 @@ impl Object {
             door_1_closing_model_bit, door_1_opening_model_bit, door_1_waiting_open_model_bit,
             door_1_waiting_to_close_model_bit,
         };
+        use crate::game_logic::host_production_buildable_command_residual::producer_door_phase_duration;
         let open_b = door_1_opening_model_bit();
         let wait_b = door_1_waiting_open_model_bit();
         let wait_close_b = door_1_waiting_to_close_model_bit();
         let close_b = door_1_closing_model_bit();
+        let name = self.template_name.as_str();
         let result = match self.production_door_phase {
             1 => {
                 // OPENING → WAITING_OPEN
@@ -134,7 +138,8 @@ impl Object {
                 self.model_condition_bits |= 1u128 << wait_b;
                 self.production_door_phase = 2;
                 self.record_host_production_door();
-                self.production_door_phase_end_frame = now.saturating_add(30);
+                self.production_door_phase_end_frame =
+                    now.saturating_add(producer_door_phase_duration(name, 2));
                 self.refresh_model_condition_bits();
                 // Wave 486: door model bits must reach GW before model-condition writeback.
                 self.record_host_model_condition();
@@ -144,7 +149,8 @@ impl Object {
                 // C++: !m_holdOpen required to leave WAITING_OPEN.
                 if self.production_door_hold_open {
                     // Keep waiting-open while held (refresh wait stamp residual).
-                    self.production_door_phase_end_frame = now.saturating_add(30);
+                    self.production_door_phase_end_frame =
+                        now.saturating_add(producer_door_phase_duration(name, 2));
                     return false;
                 }
                 // WAITING_OPEN → WAITING_TO_CLOSE residual (C++ theWaitingToCloseFlags).
@@ -170,7 +176,8 @@ impl Object {
                 self.model_condition_bits |= 1u128 << close_b;
                 self.production_door_phase = 4;
                 self.record_host_production_door();
-                self.production_door_phase_end_frame = now.saturating_add(15);
+                self.production_door_phase_end_frame =
+                    now.saturating_add(producer_door_phase_duration(name, 4));
                 self.refresh_model_condition_bits();
                 // Wave 486: door model bits must reach GW before model-condition writeback.
                 self.record_host_model_condition();
@@ -184,7 +191,8 @@ impl Object {
                     self.model_condition_bits |= 1u128 << wait_b;
                     self.production_door_phase = 2;
                     self.record_host_production_door();
-                    self.production_door_phase_end_frame = now.saturating_add(30);
+                    self.production_door_phase_end_frame =
+                        now.saturating_add(producer_door_phase_duration(name, 2));
                     self.refresh_model_condition_bits();
                     // Wave 486: door model bits must reach GW before model-condition writeback.
                     self.record_host_model_condition();
@@ -209,6 +217,7 @@ impl Object {
         self.record_host_model_condition();
         result
     }
+
 
     pub fn extend_radar(&mut self, done_frame: u32) {
         use crate::game_logic::host_enum_table_residual::radar_extending_model_bit;

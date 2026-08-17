@@ -1077,15 +1077,42 @@ fn enable_disable_actions_toggle_private_subroutine_group_before_following_call(
 
 #[test]
 fn test_victory_action() {
+    // Live MissionScriptRuntime uses ScriptEvaluator, not ScriptActionDispatcher
+    // directly. C++ ScriptActions.cpp:191-210 doVictory must run: disable
+    // input, Victorious.wnd, SetVictorious, startEndGameTimer.
+    let _test_lock = crate::test_sync::lock();
     initialize_script_engine().unwrap();
-    let engine = get_script_engine();
-    let evaluator = ScriptEvaluator::new(engine.clone());
+    let prior_input = crate::helpers::TheGameLogic::is_input_enabled();
+    crate::helpers::TheGameLogic::set_input_enabled(true);
 
+    let engine = get_script_engine();
+    {
+        let guard = engine.write().unwrap();
+        let engine = guard.as_ref().unwrap();
+        engine.set_shown_mp_local_defeat_window(false);
+        engine.close_windows(false);
+        engine.set_campaign_victorious(false);
+    }
+
+    let evaluator = ScriptEvaluator::new(engine.clone());
     let action = ScriptAction::new(ScriptActionType::Victory);
     evaluator.execute_action(&action).unwrap();
 
-    // Check that end game timer was started
     let engine_guard = engine.read().unwrap();
     let engine = engine_guard.as_ref().unwrap();
     assert!(engine.is_game_ending());
+    assert!(
+        engine.is_campaign_victorious(),
+        "C++ ScriptActions.cpp:208 TheCampaignManager->SetVictorious(TRUE)"
+    );
+    assert_eq!(
+        engine.current_win_lose_window().as_deref(),
+        Some("Menus/Victorious.wnd"),
+        "live evaluator must create Victorious.wnd via do_victory"
+    );
+    assert!(
+        !crate::helpers::TheGameLogic::is_input_enabled(),
+        "C++ doVictory calls doDisableInput"
+    );
+    crate::helpers::TheGameLogic::set_input_enabled(prior_input);
 }

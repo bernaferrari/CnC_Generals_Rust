@@ -384,12 +384,24 @@ impl UnitControlSystem {
                         _ => None,
                     }
                 } else {
+                    // C++ SelectionXlat.cpp:181-189 / 679-693: a point click
+                    // may select a lone enemy, civilian, or allied drawable.
+                    // Prefer a locally owned unit when both sit under the cursor.
                     match player_team {
                         Some(_) if frame.is_owned_by_local(o) && selectable => Some(0),
+                        Some(_) if selectable => Some(1),
                         Some(_) => None,
                         None if selectable => Some(0),
                         None => None,
                     }
+                };
+                let priority = if priority.is_none()
+                    && prioritize_enemy_targets
+                    && (o.is_crate || o.is_salvage_crate)
+                {
+                    Some(4)
+                } else {
+                    priority
                 };
                 Some(
                     crate::game_logic::host_residual_acquire::PriorityAcquireCandidate {
@@ -1435,5 +1447,77 @@ mod tests {
         assert_eq!(group.objects, vec![id]);
         futures::executor::block_on(ctl.select_control_group(2, &logic_arc));
         assert_eq!(ctl.selected_objects, vec![id]);
+    }
+
+    #[test]
+    fn point_pick_selects_lone_enemy_civilian_and_allied_units() {
+        // C++ SelectionXlat.cpp:181-189 / 679-693 — a point click may select
+        // a lone enemy, civilian (NEUTRAL), or allied drawable. Drag stays local-only.
+        use crate::game_logic::{GameLogic, Player};
+        let _shroud_test_guard = crate::fow_rendering::shroud_test_isolation_lock()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        {
+            let mut shroud = gamelogic::system::shroud_manager::get_shroud_manager()
+                .lock()
+                .expect("shroud");
+            shroud.clear_all();
+        }
+
+
+        let mut logic = GameLogic::new();
+        let local = Player::new(0, Team::USA, "USA", true);
+        let ally = {
+            let mut p = Player::new(1, Team::China, "China", false);
+            p.alliance_team = 7;
+            p
+        };
+        let mut local = local;
+        local.alliance_team = 7;
+        logic.add_player(local);
+        logic.add_player(ally);
+        logic.add_player(Player::new(2, Team::GLA, "GLA", false));
+
+        let mut make = |name: &str| {
+            let mut t = ThingTemplate::new(name);
+            t.set_health(100.0);
+            t.add_kind_of(KindOf::Infantry);
+            t.add_kind_of(KindOf::Selectable);
+            t.add_kind_of(KindOf::Attackable);
+            logic.templates.insert(name.into(), t);
+        };
+        make("LocalRanger");
+        make("AllyRedGuard");
+        make("EnemyRebel");
+        make("Civilian");
+
+        let local_id = logic
+            .create_object_for_player("LocalRanger", 0, glam::Vec3::new(0.0, 0.0, 0.0))
+            .expect("local");
+        let ally_id = logic
+            .create_object_for_player("AllyRedGuard", 1, glam::Vec3::new(40.0, 0.0, 0.0))
+            .expect("ally");
+        let enemy_id = logic
+            .create_object_for_player("EnemyRebel", 2, glam::Vec3::new(80.0, 0.0, 0.0))
+            .expect("enemy");
+        let civ_id = logic
+            .create_object("Civilian", Team::Neutral, glam::Vec3::new(120.0, 0.0, 0.0))
+            .expect("civ");
+
+        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        let pick = |pos: glam::Vec3| {
+            UnitControlSystem::pick_object_id_at_world_from_presentation(
+                &frame,
+                pos,
+                Some(Team::USA),
+                false,
+                20.0,
+            )
+        };
+
+        assert_eq!(pick(glam::Vec3::new(0.0, 0.0, 0.0)), Some(local_id));
+        assert_eq!(pick(glam::Vec3::new(40.0, 0.0, 0.0)), Some(ally_id));
+        assert_eq!(pick(glam::Vec3::new(80.0, 0.0, 0.0)), Some(enemy_id));
+        assert_eq!(pick(glam::Vec3::new(120.0, 0.0, 0.0)), Some(civ_id));
     }
 }

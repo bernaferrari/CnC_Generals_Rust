@@ -527,6 +527,12 @@ impl GameLogic {
         if has_kind("disguiser") {
             template.add_kind_of(KindOf::Disguiser);
         }
+        if has_kind("crate") {
+            template.add_kind_of(KindOf::Crate);
+        }
+        if has_kind("salvager") {
+            template.add_kind_of(KindOf::Salvager);
+        }
     }
 
     /// Preserve the exact DockUpdate and normal-containment slice that the

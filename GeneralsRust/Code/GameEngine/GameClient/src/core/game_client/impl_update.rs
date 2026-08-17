@@ -72,6 +72,8 @@ impl GameClient {
             // No draw_display — Main RenderPipeline is sole present path.
             self.draw_drawable_icon_ui();
             self.draw_presentation_selection_residual();
+            let _ = self.draw_live_ingame_hud();
+
             self.update_display_string_manager()?;
             self.update_post_draw_ui()?;
             self.process_beacon_notifications()?;
@@ -111,6 +113,8 @@ impl GameClient {
         // 3D drawable pass and before post-draw shell/InGameUI updates.
         self.draw_drawable_icon_ui();
         self.draw_presentation_selection_residual();
+        let _ = self.draw_live_ingame_hud();
+
 
         // C++ line 740: DisplayStringManager update
         self.update_display_string_manager()?;
@@ -803,6 +807,30 @@ impl GameClient {
         ui.replace_floating_texts_from_presentation(entries);
     }
 
+    /// Presentation PublicTimer residual → InGameUI postDraw countdown strip.
+    pub fn apply_presentation_superweapon_timers(
+        &mut self,
+        timers: &[(String, String, bool)],
+    ) {
+        let Some(ui) = &self.subsystem_manager.in_game_ui else {
+            return;
+        };
+        let Ok(mut ui) = ui.lock() else {
+            return;
+        };
+        let packed: Vec<crate::core::subsystems::PresentationSuperweaponTimerResidual> = timers
+            .iter()
+            .map(|(name, countdown_text, ready)| {
+                crate::core::subsystems::PresentationSuperweaponTimerResidual {
+                    name: name.clone(),
+                    countdown_text: countdown_text.clone(),
+                    ready: *ready,
+                }
+            })
+            .collect();
+        ui.replace_superweapon_timers_from_presentation(&packed);
+    }
+
     /// Apply presentation cinematic text residual as InGameUI HUD message.
     ///
     /// Mirrors C++ display_cinematic_text → TheInGameUI::message path.
@@ -1114,6 +1142,9 @@ impl GameClient {
         // Wave 980: weapon/UI residual peels companion.
         // Wave 978/980: presentation selection residual HUD (host empty dual-world InGameUI).
         self.draw_presentation_selection_residual();
+        // C++ InGameUI::preDraw/postDraw + Drawable::drawIconUI submit.
+        let _ = self.draw_live_ingame_hud();
+
         // C++ DisplayStringManager after drawable/effects residual.
         self.update_display_string_manager()?;
 

@@ -106,6 +106,17 @@ fn live_run_loop_updates_common_the_audio_each_frame() {
             && boot.contains("createAudioManager"),
         "live boot must construct Common THE_AUDIO like GameEngine::init"
     );
+    let game_audio = include_str!(
+        "../../../GameEngine/Common/src/common/audio/game_audio.rs"
+    );
+    assert!(
+        game_audio.contains("fn load_audio_event_inis()")
+            && game_audio.contains("Data/INI/SoundEffects.ini")
+            && game_audio.contains("Data/INI/Speech.ini")
+            && game_audio.contains("Data/INI/Voice.ini")
+            && game_audio.contains("Data/INI/Music.ini"),
+        "THE_AUDIO init must load Music/SoundEffects/Speech/Voice INIs"
+    );
 }
 
 

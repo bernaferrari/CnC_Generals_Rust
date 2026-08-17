@@ -1629,6 +1629,8 @@ fn physical_rmb_dock_uses_exact_controller_not_same_faction_friendliness() {
                 capture_nonstealthed_garrison_count: 0,
                 capture_friendly_garrison_count: 0,
                 capture_target_effectively_stealthed: false,
+                is_crate: false,
+                is_salvage_crate: false,
             }),
             selected_presentation: vec![PresentationSelectedUnitHint {
                 id: collector_id,
@@ -1654,6 +1656,7 @@ fn physical_rmb_dock_uses_exact_controller_not_same_faction_friendliness() {
                 is_controlled_by_local: frame.is_owned_by_local(collector),
                 capture_power: crate::game_logic::CapturePowerKind::None,
                 capture_power_ready: false,
+                is_salvager: false,
             }],
             presentation_box_select_units: Vec::new(),
             presentation_select_similar_units: Vec::new(),
@@ -3083,6 +3086,7 @@ fn physical_service_commands_use_player_relationship_and_revalidate_owner_change
         is_controlled_by_local: true,
         capture_power: CapturePowerKind::None,
         capture_power_ready: false,
+        is_salvager: false,
     };
     let service_context =
         |target_id, team, is_enemy_of_local, is_friendly_of_local| MouseCommandContext {
@@ -3122,6 +3126,8 @@ fn physical_service_commands_use_player_relationship_and_revalidate_owner_change
                 capture_nonstealthed_garrison_count: 0,
                 capture_friendly_garrison_count: 0,
                 capture_target_effectively_stealthed: false,
+                is_crate: false,
+                is_salvage_crate: false,
             }),
             selected_presentation: vec![selected_hint()],
             presentation_box_select_units: Vec::new(),

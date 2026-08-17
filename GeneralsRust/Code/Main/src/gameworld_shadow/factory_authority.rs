@@ -3,16 +3,11 @@
 //! C++ `ProductionUpdate::updateDoors` (`ProductionUpdate.cpp:513`) advances
 //! OPENING → WAITING_OPEN → WAITING_TO_CLOSE → CLOSING once per logic frame
 //! when the phase deadline is reached. Host `Object::tick_production_door`
-//! uses the same residual timings (open 15f, wait-open 30f, wait-close 1f,
-//! close 15f).
+//! uses INI DoorOpeningTime / DoorWaitOpenTime / DoorCloseTime.
 
 use super::*;
+use crate::game_logic::host_production_buildable_command_residual::producer_door_phase_duration;
 use gamelogic::world::WorldMutation;
-
-const DOOR_OPEN_FRAMES: u32 = 15;
-const DOOR_WAIT_OPEN_FRAMES: u32 = 30;
-const DOOR_WAIT_CLOSE_FRAMES: u32 = 1;
-const DOOR_CLOSE_FRAMES: u32 = 15;
 
 impl GameWorldShadow {
     /// Advance production door phases once per logic frame (C++ updateDoors).
@@ -35,13 +30,14 @@ impl GameWorldShadow {
                 continue;
             }
             let hold = ent.production_door_hold_open;
+            let name = ent.template_name();
             let (next_phase, next_end) = match ent.production_door_phase {
-                1 => (2, now.saturating_add(DOOR_WAIT_OPEN_FRAMES)),
-                2 if hold => (2, now.saturating_add(DOOR_WAIT_OPEN_FRAMES)),
-                2 => (3, now.saturating_add(DOOR_WAIT_CLOSE_FRAMES)),
-                3 if hold => (3, now.saturating_add(DOOR_WAIT_CLOSE_FRAMES)),
-                3 => (4, now.saturating_add(DOOR_CLOSE_FRAMES)),
-                4 if hold => (2, now.saturating_add(DOOR_WAIT_OPEN_FRAMES)),
+                1 => (2, now.saturating_add(producer_door_phase_duration(name, 2))),
+                2 if hold => (2, now.saturating_add(producer_door_phase_duration(name, 2))),
+                2 => (3, now.saturating_add(1)),
+                3 if hold => (3, now.saturating_add(1)),
+                3 => (4, now.saturating_add(producer_door_phase_duration(name, 4))),
+                4 if hold => (2, now.saturating_add(producer_door_phase_duration(name, 2))),
                 4 => (0, 0),
                 _ => (0, 0),
             };

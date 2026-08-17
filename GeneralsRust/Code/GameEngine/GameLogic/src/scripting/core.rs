@@ -2287,6 +2287,25 @@ impl ScriptList {
         self.first_script = Some(script);
     }
 
+    /// C++ `ScriptList::addScript(pScr, ndx)` — insert at `ndx` (0 prepends).
+    pub fn add_script(&mut self, mut script: Box<Script>, mut ndx: i32) {
+        script.next_script = None;
+        if ndx <= 0 || self.first_script.is_none() {
+            script.next_script = self.first_script.take();
+            self.first_script = Some(script);
+            return;
+        }
+        let mut cur = self.first_script.as_mut().expect("first_script checked");
+        ndx -= 1;
+        while ndx > 0 && cur.next_script.is_some() {
+            cur = cur.next_script.as_mut().expect("next_script checked");
+            ndx -= 1;
+        }
+        script.next_script = cur.next_script.take();
+        cur.next_script = Some(script);
+    }
+
+
     pub fn append_group(&mut self, group: Box<ScriptGroup>) {
         let mut current = self.first_group.as_mut();
         while let Some(node) = current {
@@ -2929,6 +2948,7 @@ mod tests {
         assert_eq!(condition.get_num_parameters(), 1);
     }
 
+
     #[test]
     fn test_script_creation() {
         let script = Script::new();
@@ -2944,5 +2964,21 @@ mod tests {
         assert_eq!(coord.x, 1.0);
         assert_eq!(coord.y, 2.0);
         assert_eq!(coord.z, 3.0);
+    }
+
+    #[test]
+    fn add_script_zero_prepends_like_cpp() {
+        let mut list = ScriptList::new();
+        let mut first = Script::new();
+        first.set_name("MapScript".into());
+        list.append_script(Box::new(first));
+        let mut mp = Script::new();
+        mp.set_name("MultiplayerVictory".into());
+        list.add_script(Box::new(mp), 0);
+        assert_eq!(list.get_script().unwrap().get_name(), "MultiplayerVictory");
+        assert_eq!(
+            list.get_script().unwrap().get_next().unwrap().get_name(),
+            "MapScript"
+        );
     }
 }

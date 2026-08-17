@@ -124,6 +124,8 @@ impl Object {
             rebuild_worker_id: None,
             rebuild_reconstructing_id: None,
             producer_id: None,
+            builder_id: None,
+
             preferred_dock_id: None,
             supply_center_spawn_behavior_fired: false,
             supply_truck_state: SupplyTruckState::Idle,
@@ -770,6 +772,8 @@ impl Object {
             rebuild_worker_id: None,
             rebuild_reconstructing_id: None,
             producer_id: None,
+            builder_id: None,
+
             preferred_dock_id: None,
             supply_center_spawn_behavior_fired: false,
             supply_truck_state: SupplyTruckState::Idle,
@@ -1382,7 +1386,10 @@ impl Object {
         let mut obj = Self::new(template, id, team);
         obj.construction_percent = 0.0;
         obj.set_status_under_construction(true);
-        obj.health.current = 0.1; // Very low health during construction
+        // C++ DozerAIUpdate::construct (DozerAIUpdate.cpp:1706-1708):
+        // newly constructed objects start at one hit point.
+        obj.health.current = 1.0;
+
         obj
     }
 

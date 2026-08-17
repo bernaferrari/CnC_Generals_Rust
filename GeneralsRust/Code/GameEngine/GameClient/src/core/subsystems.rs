@@ -1255,6 +1255,14 @@ impl SubsystemInterface for WindowManagerSubsystem {
     }
 }
 
+/// Packed InGameUI PublicTimer residual for the live postDraw strip.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PresentationSuperweaponTimerResidual {
+    pub name: String,
+    pub countdown_text: String,
+    pub ready: bool,
+}
+
 /// In-game UI subsystem bridge.
 #[derive(Default)]
 pub struct InGameUISubsystem {
@@ -1272,6 +1280,8 @@ pub struct InGameUISubsystem {
     military_subtitles: VecDeque<(String, i32)>,
     /// Wave 1060: presentation floating cash/text residual.
     presentation_floating_texts: Vec<(String, [f32; 3], (u8, u8, u8), u32, u32)>,
+    /// Presentation PublicTimer residual (name + READY/mm:ss).
+    presentation_superweapon_timers: Vec<PresentationSuperweaponTimerResidual>,
     tooltips_disabled_until: u32,
     radar_pings: VecDeque<RadarPingEvent>,
     pending_place_template: Option<String>,
@@ -1447,6 +1457,25 @@ impl InGameUISubsystem {
     pub fn presentation_floating_texts(&self) -> &[(String, [f32; 3], (u8, u8, u8), u32, u32)] {
         &self.presentation_floating_texts
     }
+    pub fn hud_messages(&self) -> &VecDeque<String> {
+        &self.hud_messages
+    }
+
+    pub fn military_subtitles(&self) -> &VecDeque<(String, i32)> {
+        &self.military_subtitles
+    }
+
+    pub fn replace_superweapon_timers_from_presentation(
+        &mut self,
+        timers: &[PresentationSuperweaponTimerResidual],
+    ) {
+        self.presentation_superweapon_timers = timers.to_vec();
+    }
+
+    pub fn presentation_superweapon_timers(&self) -> &[PresentationSuperweaponTimerResidual] {
+        &self.presentation_superweapon_timers
+    }
+
 
     /// Wave 964: stamp presentation selection residual.
     pub fn set_presentation_selection_residual(
@@ -1763,6 +1792,7 @@ impl InGameUISubsystem {
         self.hud_messages.clear();
         self.military_subtitles.clear();
         self.presentation_floating_texts.clear();
+        self.presentation_superweapon_timers.clear();
         self.tooltips_disabled_until = 0;
         self.radar_pings.clear();
         self.pending_place_template = None;

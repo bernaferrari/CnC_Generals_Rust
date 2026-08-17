@@ -269,6 +269,71 @@ impl CnCGameEngine {
         Some(dispatch)
     }
 
+    /// Consume MSG_CLEAR_GAME_DATA from TheMessageStream.
+    ///
+    /// C++ ScriptEngine.cpp:5514-5518 appends the message when the end-game
+    /// timer expires. QuitMenu Exit uses the same message. Main is the only
+    /// offline InGame consumer, so scripted VICTORY/DEFEAT and QuitMenu both
+    /// end the live match here.
+    pub(super) fn take_clear_game_data_from_common_stream() -> bool {
+        let stream = game_engine::common::message_stream::get_message_stream();
+        let mut stream = stream.write().unwrap_or_else(|e| e.into_inner());
+        let messages: Vec<_> = stream.get_messages().iter().cloned().collect();
+
+        let mut found = false;
+        let mut kept = Vec::with_capacity(messages.len());
+        for message in messages {
+            if matches!(
+                message.get_type(),
+                game_engine::common::message_stream::GameMessageType::ClearGameData
+            ) {
+                found = true;
+            } else {
+                kept.push(message);
+            }
+        }
+
+        if !found {
+            return false;
+        }
+
+        stream.clear_messages();
+        for message in &kept {
+            Self::append_common_message_to_stream(&mut stream, message);
+        }
+        true
+    }
+
+    /// End the live offline match when ScriptEngine or QuitMenu posts
+    /// MSG_CLEAR_GAME_DATA. C++ GameLogic.cpp processes that message and
+    /// leaves the map; here Main owns the only world, so return to shell.
+    pub(super) fn host_consume_clear_game_data(&mut self) -> bool {
+        if !matches!(
+            self.current_state,
+            GameState::InGame | GameState::Victory | GameState::Defeat
+        ) {
+            return false;
+        }
+        // Network/replay stay out of this consumer (GameNetwork deferred).
+        if matches!(
+            self.host_match_game_mode,
+            Some(
+                crate::game_logic::GameMode::Multiplayer
+                    | crate::game_logic::GameMode::Internet
+                    | crate::game_logic::GameMode::Lan
+                    | crate::game_logic::GameMode::Replay
+            )
+        ) {
+            return false;
+        }
+        if !Self::take_clear_game_data_from_common_stream() {
+            return false;
+        }
+        self.host_set_paused(false);
+        self.return_to_main_menu_after_match();
+        true
+    }
+
     /// Resolve map/faction/skirmish config after a NewGame dispatch (or helper flag).
     pub(super) fn build_start_request_from_pending_globals(
         &self,

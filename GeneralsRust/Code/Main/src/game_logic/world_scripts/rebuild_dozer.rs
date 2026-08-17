@@ -826,6 +826,13 @@ impl GameLogic {
         if !structure.status.under_construction || structure.status.sold {
             return false;
         }
+        // C++ DozerAIUpdate.cpp:305 — another dozer already owns this build.
+        if structure
+            .builder_id
+            .is_some_and(|bid| bid != dozer_id)
+        {
+            return false;
+        }
         // Another dozer already actively building this structure.
         for (id, obj) in &self.objects {
             if *id == dozer_id || !obj.is_alive() || !obj.can_construct() {
@@ -860,7 +867,10 @@ impl GameLogic {
             // Structure awaiting → actively being constructed residual when dozer assigned.
             if let Some(st) = self.objects.get_mut(&structure_id) {
                 st.set_under_construction_model_conditions(true);
+                // C++ DozerAIUpdate::newTask setBuilder (DozerAIUpdate.cpp:1986).
+                st.builder_id = Some(dozer_id);
             }
+
             self.resume_construction_events = self.resume_construction_events.saturating_add(1);
             // Wave 828: under coupled shadow, ACTIVELY_CONSTRUCTING bit owned by GW expire.
             if !(crate::gameworld_shadow::gameworld_shadow_enabled()
@@ -1540,10 +1550,12 @@ impl GameLogic {
                     );
                 }
                 o.set_under_construction_model_conditions(true);
-                let start_hp = (o.health.maximum * 0.1).max(1.0);
-                Self::write_object_health_authority_aware(o, start_hp);
+                // C++ DozerAIUpdate::construct starts at 1 HP (DozerAIUpdate.cpp:1708).
+                Self::write_object_health_authority_aware(o, 1.0);
                 // C++ setProducer(hole) residual.
                 o.producer_id = Some(hole_id);
+                o.builder_id = Some(worker_id);
+
             }
             if let Some(w) = self.objects.get_mut(&worker_id) {
                 // Construction target association stays host (not combat AttackTarget).

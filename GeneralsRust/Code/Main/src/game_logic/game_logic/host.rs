@@ -1224,6 +1224,10 @@ pub struct GameLogic {
     pub(super) weather_state: RuntimeWeatherState,
     /// C++ `m_sleepyUpdates` host residual (`GameLogic.cpp:3699-3740`).
     pub(super) host_sleepy: super::world_tick::HostSleepyHeap,
+    /// C++ always adds a ReplayObserver side at startNewGame; host player id.
+    pub(super) replay_observer_player_id: Option<u32>,
+    /// C++ startNewGame installs MultiplayerScripts.scb when numTeams > 1.
+    pub(super) install_multiplayer_scripts: bool,
 }
 
 #[derive(Debug, Clone)]

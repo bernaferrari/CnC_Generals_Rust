@@ -39,7 +39,9 @@ fn same_faction_players_keep_upgrade_and_construction_power_separate() {
     dozer
         .add_kind_of(KindOf::Vehicle)
         .add_kind_of(KindOf::Worker)
+        .add_kind_of(KindOf::Dozer)
         .set_health(200.0);
+
     logic
         .templates
         .insert("OwnerScopedDozer".to_string(), dozer);

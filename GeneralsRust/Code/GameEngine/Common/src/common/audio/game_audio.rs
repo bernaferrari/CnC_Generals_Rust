@@ -99,6 +99,10 @@ pub fn register_sound_playback_hook(hook: Arc<dyn SoundPlaybackHook>) -> bool {
     SOUND_PLAYBACK_HOOK.set(hook).is_ok()
 }
 
+pub fn sound_playback_hook_registered() -> bool {
+    SOUND_PLAYBACK_HOOK.get().is_some()
+}
+
 pub fn register_audio_locality_resolver(resolver: Arc<dyn AudioLocalityResolver>) -> bool {
     AUDIO_LOCALITY_RESOLVER.set(resolver).is_ok()
 }
@@ -2726,6 +2730,8 @@ pub fn initialize_global_audio_manager() -> Arc<Mutex<AudioManager>> {
     } else {
         register_rodio_playback_hook();
         register_animation_sound_library(manager.clone());
+        // Parsers register via THE_AUDIO; load after the singleton is published.
+        load_audio_event_inis();
         manager
     }
 }
@@ -2734,6 +2740,35 @@ pub fn initialize_global_audio_manager() -> Arc<Mutex<AudioManager>> {
 pub fn get_global_audio_manager() -> Option<Arc<Mutex<AudioManager>>> {
     THE_AUDIO.get().cloned()
 }
+
+/// C++ `AudioManager::init` (GameAudio.cpp:186-199) loads Music / SoundEffects /
+/// Speech / Voice (Default then override) into `m_allAudioEventInfo`.
+/// Missing info makes `addAudioEvent` return `AHSV_Error`.
+pub fn load_audio_event_inis() {
+    const AUDIO_EVENT_INI_FILES: &[&str] = &[
+        "Data/INI/Default/Music.ini",
+        "Data/INI/Music.ini",
+        "Data/INI/Default/SoundEffects.ini",
+        "Data/INI/SoundEffects.ini",
+        "Data/INI/Default/Speech.ini",
+        "Data/INI/Speech.ini",
+        "Data/INI/Default/Voice.ini",
+        "Data/INI/Voice.ini",
+    ];
+
+    let mut ini = crate::common::ini::INI::new();
+    for virtual_path in AUDIO_EVENT_INI_FILES {
+        let Some(path) =
+            crate::common::system::install_layout::resolve_data_ini_file(virtual_path)
+        else {
+            continue;
+        };
+        if let Err(err) = ini.load(&path, crate::common::ini::INILoadType::Overwrite) {
+            eprintln!("Failed to load audio INI '{}': {err}", path.display());
+        }
+    }
+}
+
 
 #[cfg(test)]
 mod tests {
@@ -3082,5 +3117,40 @@ mod tests {
             "AudioManager::update must process AR_Play"
         );
     }
+
+    #[test]
+    fn boot_equivalent_audio_ini_load_resolves_retail_event_names() {
+        // C++ AudioManager::init (GameAudio.cpp:186-199) loads Music.ini,
+        // SoundEffects.ini, Speech.ini, Voice.ini into m_allAudioEventInfo.
+        // addAudioEvent returns AHSV_Error when the name is missing (line 393-395).
+        let manager = initialize_global_audio_manager();
+        load_audio_event_inis();
+        let mut guard = manager.lock().expect("THE_AUDIO lock");
+        assert!(
+            guard.find_audio_event_info("GUIClick").is_some(),
+            "SoundEffects.ini GUIClick must register on THE_AUDIO"
+        );
+        assert!(
+            guard.find_audio_event_info("RangerVoiceSelect").is_some(),
+            "Voice.ini RangerVoiceSelect must register on THE_AUDIO"
+        );
+        assert!(
+            guard.find_audio_event_info("EvaGLA_AllyUnderAttack").is_some(),
+            "Speech.ini EvaGLA_AllyUnderAttack must register on THE_AUDIO"
+        );
+        assert!(
+            guard.find_audio_event_info("Shell").is_some(),
+            "Music.ini Shell must register on THE_AUDIO"
+        );
+
+        let event = AudioEventRts::with_event_name("GUIClick");
+        let handle = guard.add_audio_event(&event);
+        assert_ne!(
+            handle, AHSV_ERROR,
+            "known retail event must not return AHSV_Error after boot INI load"
+        );
+        assert!(handle >= AHSV_FIRST_HANDLE);
+    }
+
 
 }

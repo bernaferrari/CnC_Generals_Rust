@@ -31,6 +31,9 @@ pub struct GameClient {
     last_applied_military_caption: Option<String>,
     /// Last presentation cinematic text applied (avoid per-frame re-push).
     last_applied_cinematic_text: Option<String>,
+    /// Last live InGameUI postDraw / icon-UI submit residual (present path).
+    last_live_ingame_hud_draw: LiveInGameHudDrawCounts,
+
 
     // Drawable management
     drawable_map: std::collections::HashMap<DrawableId, Box<dyn Drawable>>,

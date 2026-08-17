@@ -4,8 +4,9 @@ use super::super::*;
 impl GameLogic {
     /// Update construction progress.
     /// C++ parity: buildings only progress when a worker/dozer is nearby.
-    /// Multiple dozers stack their build rate (C++ BuildAssistant).
+    /// C++ DozerAIUpdate.cpp:305 — one exclusive builder per structure.
     pub(in super::super) fn update_construction(&mut self, object_ids: &[ObjectId], dt: f32) {
+
         const BUILDER_RANGE: f32 = 30.0; // Max distance for a dozer to contribute.
 
         // C++ parity: calcTimeToBuild applies the same power penalty to dozer
@@ -41,18 +42,20 @@ impl GameLogic {
             .collect();
 
         // Pre-scan dozers: exclusive dock = assigned to this building (C++ DozerAIUpdate).
-        let dozer_info: Vec<(Vec3, Option<u32>, Option<ObjectId>)> = self
+        let dozer_info: Vec<(ObjectId, Vec3, Option<u32>, Option<ObjectId>)> = self
             .objects
             .values()
             .filter(|obj| obj.is_alive() && obj.can_construct())
             .map(|obj| {
                 (
+                    obj.id,
                     obj.get_position(),
                     object_owner_player_ids.get(&obj.id).copied().flatten(),
                     obj.target,
                 )
             })
             .collect();
+
 
         let mut completed_superweapon_detects: Vec<ObjectId> = Vec::new();
         let mut completed_structures: Vec<ObjectId> = Vec::new();
@@ -71,16 +74,19 @@ impl GameLogic {
                 if obj.status.under_construction {
                     let build_pos = obj.get_position();
                     let build_owner_player_id = object_owner_player_ids.get(&id).copied().flatten();
-                    // Exclusive dock: only dozers targeting this building contribute.
-                    // Nearby idle dozers do not ghost-progress (no max(1)).
+                    // Exclusive dock: only the structure's builder_id (C++ getBuilderID)
+                    // or, if unset, a single targeting dozer may contribute.
+                    let exclusive_builder = obj.builder_id;
                     let nearby_dozers = dozer_info
                         .iter()
-                        .filter(|(pos, owner_player_id, target)| {
+                        .filter(|(did, pos, owner_player_id, target)| {
                             *owner_player_id == build_owner_player_id
                                 && *target == Some(id)
                                 && pos.distance(build_pos) <= BUILDER_RANGE
+                                && exclusive_builder.map(|bid| bid == *did).unwrap_or(true)
                         })
-                        .count();
+                        .count()
+                        .min(1);
                     // C++ DozerAIUpdate: no docked dozer ⇒ no progress. Do not invent a ghost builder.
                     let dozer_count = nearby_dozers;
                     let actively_built = nearby_dozers > 0;
@@ -171,8 +177,18 @@ impl GameLogic {
                         completed_superweapon_detects.push(id);
                         completed_structures.push(id);
                     } else if !(construction_sole && gw_mapped) {
-                        // GW owns HP while mapped sole-tick; do not heal-log HashMap percent.
-                        let build_hp = obj.health.maximum * (0.1 + 0.9 * projected);
+                        // C++ DozerAIUpdate.cpp:526: +maxHealth / framesToBuild per frame
+                        // starting from 1 HP, not 10% + 90% * percent.
+                        let frames = authored_frames.max(1) as f32;
+                        let per_frame = obj.health.maximum / frames;
+                        let logic_frames = (dt * 30.0).max(0.0);
+                        let build_hp = if actively_built {
+                            (obj.health.current + per_frame * logic_frames)
+                                .min(obj.health.maximum)
+                                .max(1.0)
+                        } else {
+                            obj.health.current.max(1.0).min(obj.health.maximum)
+                        };
                         if crate::gameworld_shadow::gameworld_damage_authority_live() {
                             crate::game_logic::host_heal_log::record(id, build_hp);
                         } else {
@@ -180,6 +196,7 @@ impl GameLogic {
                             crate::game_logic::host_heal_log::record(id, obj.health.current);
                         }
                     }
+
                 }
                 if obj.tick_timers(dt) {
                     // Defer EVA until after borrow ends.
@@ -378,7 +395,78 @@ impl GameLogic {
         }
     }
 
+    /// C++ ProductionUpdate::update (ProductionUpdate.cpp:671-682):
+    /// scripts can disallow unit types mid-queue; cancel the unit head unless
+    /// it is a dozer. Called every live production tick.
+    pub(crate) fn cancel_script_disallowed_production_queue_heads(&mut self) {
+        let mut cancelled: Vec<(ObjectId, Team, crate::game_logic::buildings::ProductionItem)> =
+            Vec::new();
+        let mut producers: Vec<ObjectId> = self.objects.keys().copied().collect();
+        producers.sort_by_key(|id| id.0);
+        for producer_id in producers {
+            let Some(obj) = self.objects.get(&producer_id) else {
+                continue;
+            };
+            if !obj.is_constructed() || !obj.is_alive() || obj.is_disabled() {
+                continue;
+            }
+            let Some(building) = obj.building_data.as_ref() else {
+                continue;
+            };
+            let Some(head) = building.production_queue.first() else {
+                continue;
+            };
+            if head.is_upgrade() {
+                continue;
+            }
+            let template_name = head.template_name.clone();
+            let is_dozer = self
+                .templates
+                .get(&template_name)
+                .is_some_and(|t| t.is_kind_of(KindOf::Dozer));
+            if is_dozer {
+                continue;
+            }
+            let is_structure = self
+                .templates
+                .get(&template_name)
+                .is_some_and(|t| t.is_kind_of(KindOf::Structure));
+            let owner_id = self.player_owner_for_host_object(obj);
+            let team = obj.team;
+            let allowed = match owner_id.and_then(|pid| self.get_player(pid)) {
+                Some(player) => player.allowed_to_build(is_structure),
+                None => true,
+            };
+            if allowed {
+                continue;
+            }
+            if let Some(building) = self
+                .objects
+                .get_mut(&producer_id)
+                .and_then(|o| o.building_data.as_mut())
+            {
+                if let Some(item) = building.cancel_production(0) {
+                    if building.production_queue.is_empty() && building.exit_delay_remaining > 0.0 {
+                        building.exit_delay_remaining = 0.0;
+                        crate::game_logic::host_production_progress_log::record_exit_delay_only(
+                            producer_id,
+                            0.0,
+                        );
+                    }
+                    cancelled.push((producer_id, team, item));
+                }
+            }
+        }
+        for (producer_id, team, item) in cancelled {
+            self.refund_cancelled_production_item(team, &item);
+            crate::game_logic::host_production_log::record_cancel(producer_id, item.template_name);
+        }
+    }
+
+
     pub(in super::super) fn update_production(&mut self, dt: f32) {
+        // C++ ProductionUpdate.cpp:671 — re-check allowedToBuild on queue head.
+        self.cancel_script_disallowed_production_queue_heads();
         // Wave 613: production complete collect + apply via host helpers.
         // Under PRODUCTION_AUTHORITY sole-tick, GameWorld advances queue progress
         // and writeback finishes heads; host try_complete + spawn runs after
@@ -388,6 +476,7 @@ impl GameLogic {
             self.publish_production_power_factors();
             return;
         }
+
         let (upgrade_completions, unit_completions) = self.host_collect_production_completions(dt);
         // Wave 595/608: host production complete/spawn apply residual via host helpers.
         self.apply_upgrade_production_completions(upgrade_completions);
@@ -400,10 +489,12 @@ impl GameLogic {
         if !crate::gameworld_shadow::gameworld_production_sole_tick_enabled() {
             return;
         }
+        self.cancel_script_disallowed_production_queue_heads();
         let (upgrade_completions, unit_completions) = self.host_collect_production_completions(dt);
         self.apply_upgrade_production_completions(upgrade_completions);
         self.apply_unit_production_completions(unit_completions);
     }
+
 
     /// Wave 613: host production completion collection residual.
     ///
@@ -1075,8 +1166,13 @@ impl GameLogic {
                     // an already-open reserved exit available for every member
                     // of the terminal QuantityModifier batch.  Do not restart
                     // the door-opening animation after a successful exit.
-                    prod.production_door_phase_end_frame = now.saturating_add(30);
+                    let wait = crate::game_logic::host_production_buildable_command_residual::producer_door_phase_duration(
+                        &prod.template_name,
+                        2,
+                    );
+                    prod.production_door_phase_end_frame = now.saturating_add(wait);
                     prod.record_host_production_door();
+
                 } else if door_count > 0 {
                     // A detached/scripted completion may not have passed the
                     // normal door gate; retain the existing safe fallback.
