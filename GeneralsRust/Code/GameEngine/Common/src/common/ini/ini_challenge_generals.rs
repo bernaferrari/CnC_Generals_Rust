@@ -654,13 +654,19 @@ impl ChallengeGenerals {
     /// Find a general by player template name (case-insensitive)
     /// Matches C++ getGeneralByTemplateName
     pub fn get_general_by_template_name(&self, name: &str) -> Option<&GeneralPersona> {
-        // An absent or malformed authored ChallengeMode table must never turn
-        // an otherwise locked General (notably FactionBossGeneral) into an
-        // eligible Random/exact Skirmish choice.  The C++ path guarantees the
-        // singleton is initialized at GameClient startup; Rust's headless
-        // paths surface a single locked sentinel until that invariant holds.
+        // C++ GameLogic.cpp:716-718: `startsLocked = general ? !enabled : FALSE`.
+        // Vanilla FactionAmerica/China/GLA are not Challenge personas, so a
+        // missing ChallengeMode.ini must not empty the Random candidate list.
+        // Fail-closed only for Challenge-named templates (Faction*General,
+        // FactionBossGeneral) so a locked Boss cannot leak into Random.
         if challenge_generals_load_failed() {
-            return Some(fail_closed_general_persona());
+            let looks_like_challenge_persona = name
+                .to_ascii_lowercase()
+                .contains("general");
+            if looks_like_challenge_persona {
+                return Some(fail_closed_general_persona());
+            }
+            return None;
         }
         self.positions
             .iter()

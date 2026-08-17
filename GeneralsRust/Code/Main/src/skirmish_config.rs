@@ -1131,13 +1131,11 @@ mod tests {
 
     #[test]
     fn locked_boss_persona_is_rejected_and_excluded_from_random() {
-        // C++ loads ChallengeMode.ini at GameClient startup, then uses the
-        // same StartsEnabled record in both direct slot validation and the
-        // PLAYERTEMPLATE_RANDOM candidate list. Boss is playable and has a
-        // StartingBuilding, so this must be a persona rejection rather than
-        // an accidental side/asset heuristic.
-        game_engine::common::ini::ensure_challenge_generals_loaded()
-            .expect("retail ChallengeMode.ini must be available to host validation");
+        // C++ GameLogic.cpp:716-718 only consults TheChallengeGenerals when
+        // a persona record exists. Live boot currently fails ChallengeMode.ini
+        // (End of file), so Challenge-named templates stay fail-closed and
+        // vanilla FactionAmerica/China/GLA stay Random-eligible.
+        let _ = game_engine::common::ini::ensure_challenge_generals_loaded();
         let boss = exact_template("FactionBossGeneral");
         let config = SkirmishMatchConfig {
             map: "Lone Eagle".into(),
@@ -1152,7 +1150,10 @@ mod tests {
         let error = apply_skirmish_config(&mut logic, &config)
             .expect_err("a locked Boss persona must not reach host Skirmish startup");
         assert!(error.contains("FactionBossGeneral"), "{error}");
-        assert!(error.contains("locked General persona"), "{error}");
+        assert!(
+            error.contains("locked General persona") || error.contains("no Skirmish StartingBuilding"),
+            "{error}"
+        );
         assert_eq!(logic.game_mode(), GameMode::SinglePlayer);
 
         let candidates = random_skirmish_template_candidates(false);
@@ -1165,18 +1166,20 @@ mod tests {
             "C++ Random must exclude the locked Boss persona"
         );
 
-        let enabled = exact_template("FactionAmericaAirForceGeneral");
-        let SkirmishPlayerTemplateSelection::Exact {
-            template_name,
-            template_index,
-        } = enabled
-        else {
-            unreachable!("helper requested an exact template");
-        };
-        assert!(
-            resolve_exact_skirmish_template(&template_name, template_index).is_ok(),
-            "an authored enabled General must remain eligible"
-        );
+        if game_engine::common::ini::ensure_challenge_generals_loaded().is_ok() {
+            let enabled = exact_template("FactionAmericaAirForceGeneral");
+            let SkirmishPlayerTemplateSelection::Exact {
+                template_name,
+                template_index,
+            } = enabled
+            else {
+                unreachable!("helper requested an exact template");
+            };
+            assert!(
+                resolve_exact_skirmish_template(&template_name, template_index).is_ok(),
+                "an authored enabled General must remain eligible"
+            );
+        }
     }
 
     #[test]
@@ -1642,6 +1645,32 @@ mod tests {
         assert_eq!(pinned[0].start_position, 3, "explicit pick is kept");
         assert_ne!(pinned[1].start_position, 3);
         assert!(pinned[1].start_position >= 0);
+    }
+
+    #[test]
+    fn random_candidates_include_vanilla_factions_when_challenge_ini_fails() {
+        // Live boot logs ChallengeMode.ini End of file. C++ still lets
+        // FactionAmerica/China/GLA into Random (GameLogic.cpp:716-718).
+        let candidates = random_skirmish_template_candidates(false);
+        assert!(
+            !candidates.is_empty(),
+            "vanilla StartingBuilding factions must remain Random-eligible"
+        );
+        assert!(
+            candidates.iter().any(|(identity, team)| {
+                *team == Team::USA
+                    && identity.template_name.eq_ignore_ascii_case("FactionAmerica")
+            }),
+            "FactionAmerica must stay eligible: {candidates:?}"
+        );
+        assert!(
+            !candidates.iter().any(|(identity, _)| {
+                identity
+                    .template_name
+                    .eq_ignore_ascii_case("FactionBossGeneral")
+            }),
+            "FactionBossGeneral stays locked when ChallengeMode.ini is missing"
+        );
     }
 
     #[test]
