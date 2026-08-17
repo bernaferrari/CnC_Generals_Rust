@@ -9,7 +9,7 @@ impl GameLogic {
     ///
     /// Priority bands mirror command_integration residual acquire:
     /// - with selection: enemy attackable, then friendly selectable, then other
-    /// - without selection: own selectable only
+    /// - without selection: own selectable first, then any other selectable
     pub fn pick_object_id_at_world(
         &self,
         origin: glam::Vec3,
@@ -55,11 +55,13 @@ impl GameLogic {
                         _ => None,
                     }
                 } else {
+                    // C++ SelectionXlat.cpp:181-189 / 679-693: a point click
+                    // may select a lone enemy, civilian, or allied drawable.
                     match player_team {
                         Some(team) if obj.team == team && obj.is_selectable() => Some(0),
-                        Some(_) => None,
+                        Some(_) if obj.is_selectable() => Some(1),
                         None if obj.is_selectable() => Some(0),
-                        None => None,
+                        _ => None,
                     }
                 };
                 Some(PriorityAcquireCandidate {
@@ -773,6 +775,17 @@ impl GameLogic {
             return false;
         };
         unit.set_order_target(target);
+        let can_construct = unit.can_construct();
+        if can_construct {
+            if let Some(sid) = target {
+                if let Some(st) = self.objects.get_mut(&sid) {
+                    if st.status.under_construction {
+                        // C++ Object::setBuilder (DozerAIUpdate.cpp:1677 / 1986).
+                        st.builder_id = Some(id);
+                    }
+                }
+            }
+        }
         true
     }
 

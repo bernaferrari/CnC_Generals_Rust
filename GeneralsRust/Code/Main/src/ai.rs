@@ -306,6 +306,11 @@ impl AIPlayer {
         self.resume_interrupted_construction(game_logic);
 
         self.update_strategic_decisions(game_logic, current_time);
+        // C++ ScriptActions::doSkirmishFireSpecialPowerAtMostCost — live host
+        // path. Crate compute_superweapon_target is unused while
+        // OBJECT_REGISTRY is empty; fire through GameLogic commands.
+        self.try_fire_ready_special_powers(game_logic);
+
     }
 
     /// Set up initial base building layout
@@ -1781,6 +1786,11 @@ impl AIPlayer {
     }
 
     fn evaluate_attack_opportunities(&mut self, game_logic: &mut GameLogic, current_time: f32) {
+        // C++ AIPlayer never latches a single raid for the rest of the match.
+        // Host `attack_in_progress` is only a current-raid flag: clear it when
+        // every launched attacker has left AttackMoving/Attacking (idle or dead)
+        // so a later strength check can start another wave.
+        self.clear_finished_attack(game_logic);
         if self.attack_in_progress
             || current_time - self.last_attack_time < Self::ATTACK_RECHECK_SECONDS
         {
@@ -1945,6 +1955,308 @@ impl AIPlayer {
             self.activity_count = self.activity_count.saturating_add(1);
         }
     }
+
+    /// Clear the host raid latch once launched attackers are idle or gone.
+    ///
+    /// C++ `AIPlayer` / `AISkirmishPlayer` have no permanent `m_attackInProgress`.
+    /// Teams activate via `checkReadyTeams` (`AIPlayer.cpp:2729`) when idle (or
+    /// after 60s) and later scripts can start another attack. The host latch
+    /// must not survive the raid or AI attacks exactly once per game.
+    fn clear_finished_attack(&mut self, game_logic: &GameLogic) {
+        if !self.attack_in_progress {
+            return;
+        }
+        if !self.raid_units_still_committed(game_logic) {
+            self.attack_in_progress = false;
+        }
+    }
+
+    fn raid_units_still_committed(&self, game_logic: &GameLogic) -> bool {
+        game_logic.host_objects().values().any(|object| {
+            object.team == self.team
+                && object.is_alive()
+                && object.can_attack()
+                && object.is_mobile()
+                && matches!(
+                    object.ai_state,
+                    AIState::AttackMoving | AIState::Attacking | AIState::AttackingGround
+                )
+        })
+    }
+
+    /// Fire one ready special power at the enemy's highest-cost cluster.
+    ///
+    /// C++ `ScriptActions::doSkirmishFireSpecialPowerAtMostCost`
+    /// (`ScriptActions.cpp:4142`) + `AIPlayer::computeSuperweaponTarget`
+    /// (`AIPlayer.cpp:1120`). Host objects live outside `OBJECT_REGISTRY`, so
+    /// the crate action is a no-op on the live path.
+    fn try_fire_ready_special_powers(&mut self, game_logic: &mut GameLogic) {
+        let Some(enemy_id) = self.enemy_player_id else {
+            return;
+        };
+        let Some(enemy_team) = game_logic.get_player(enemy_id).map(|p| p.team) else {
+            return;
+        };
+
+        let mut ready: Vec<(ObjectId, crate::command_system::SpecialPowerType, bool)> = Vec::new();
+        for (id, object) in game_logic.host_objects() {
+            if object.team != self.team || !object.is_alive() {
+                continue;
+            }
+            for module in &object.thing.template.special_power_modules {
+                let Some(power) = module.command_power.clone() else {
+                    continue;
+                };
+                if !game_logic.is_special_power_ready_for(*id, &power) {
+                    continue;
+                }
+                let sneak = matches!(power, crate::command_system::SpecialPowerType::SneakAttack);
+                ready.push((*id, power, sneak));
+            }
+        }
+        if ready.is_empty() {
+            return;
+        }
+
+        for (caster, power, sneak) in ready {
+            let Some(location) =
+                self.compute_superweapon_target(game_logic, enemy_team, 50.0, !sneak)
+            else {
+                continue;
+            };
+            if location.length_squared() <= 0.0 {
+                continue;
+            }
+            game_logic.queue_command(crate::command_system::GameCommand {
+                command_type: crate::command_system::CommandType::DoSpecialPower {
+                    power_type: power,
+                    target: crate::command_system::PowerTarget::Location(location),
+                },
+                player_id: self.player_id,
+                command_id: 0,
+                timestamp: std::time::SystemTime::now(),
+                selected_units: vec![caster],
+                modifier_keys: crate::command_system::ModifierKeys::default(),
+            });
+            self.activity_count = self.activity_count.saturating_add(1);
+            break;
+        }
+    }
+
+    /// Host residual of C++ `AIPlayer::computeSuperweaponTarget`.
+    /// Ground plane is host XZ (C++ samples XY).
+    fn compute_superweapon_target(
+        &mut self,
+        game_logic: &GameLogic,
+        enemy_team: Team,
+        weapon_radius: f32,
+        target_military_units: bool,
+    ) -> Option<Vec3> {
+        let radius = weapon_radius.max(1.0);
+        let (mut min_x, mut min_z, mut max_x, mut max_z) =
+            self.player_structure_bounds(game_logic, enemy_team);
+        if min_x == 0.0 && min_z == 0.0 && max_x == 0.0 && max_z == 0.0 {
+            let (lo, hi) = game_logic.world_bounds();
+            min_x = lo.x;
+            min_z = lo.z;
+            max_x = hi.x;
+            max_z = hi.z;
+        }
+
+        min_x += radius;
+        max_x -= radius;
+        if max_x < min_x {
+            let mid = (max_x + min_x) * 0.5;
+            min_x = mid;
+            max_x = mid;
+        }
+        if max_z < min_z {
+            let mid = (max_z + min_z) * 0.5;
+            min_z = mid;
+            max_z = mid;
+        }
+
+        let width = (max_x - min_x).max(0.0);
+        let height = (max_z - min_z).max(0.0);
+        let mut x_count = (width / radius).ceil() as i32 + 1;
+        let mut z_count = (height / radius).ceil() as i32 + 1;
+        if x_count > 10 {
+            x_count = 10;
+        }
+        if z_count > 10 {
+            z_count = 10;
+        }
+        if x_count < 1 {
+            x_count = 1;
+        }
+        if z_count < 1 {
+            z_count = 1;
+        }
+
+        // C++ GameLogicRandomValue(1, 4) scan-direction residual.
+        let (x_delta, z_delta, x_start, z_start) = match self.placement_rng.next_int(1, 4) {
+            1 => (1_i32, 1_i32, 0_i32, 0_i32),
+            2 => (-1, 1, x_count, 0),
+            3 => (1, -1, 0, z_count),
+            _ => (-1, -1, x_count, z_count),
+        };
+
+        let mut best_cash: i32 = -1;
+        let mut best_pos = Vec3::new(min_x, 0.0, min_z);
+        let mut x_index = x_start;
+        for _ in 0..x_count {
+            let mut z_index = z_start;
+            for _ in 0..z_count {
+                let pos = Vec3::new(
+                    min_x + (width * x_index as f32) / x_count as f32,
+                    0.0,
+                    min_z + (height * z_index as f32) / z_count as f32,
+                );
+                let value = self.player_superweapon_value(
+                    game_logic,
+                    enemy_team,
+                    pos,
+                    2.0 * radius,
+                    target_military_units,
+                );
+                if value > best_cash {
+                    best_cash = value;
+                    best_pos = pos;
+                }
+                z_index += z_delta;
+            }
+            x_index += x_delta;
+        }
+
+        // Fine tune: C++ uses (x-5) for BOTH axes (legacy bug — keep for parity).
+        let mut fine_best = best_pos;
+        let mut fine_cash: i32 = -1;
+        let mut fine_count = 0_i32;
+        for x in 0..11 {
+            for _y in 0..11 {
+                let offset = (x - 5) as f32 * (radius / 10.0);
+                let pos = Vec3::new(best_pos.x + offset, 0.0, best_pos.z + offset);
+                let value = self.player_superweapon_value(
+                    game_logic,
+                    enemy_team,
+                    pos,
+                    radius,
+                    target_military_units,
+                );
+                if value > fine_cash {
+                    fine_cash = value;
+                    fine_best = pos;
+                    fine_count = 1;
+                } else if value == fine_cash {
+                    fine_best.x += pos.x;
+                    fine_best.z += pos.z;
+                    fine_count += 1;
+                }
+            }
+        }
+        if fine_count > 1 {
+            fine_best.x /= fine_count as f32;
+            fine_best.z /= fine_count as f32;
+        }
+        if fine_cash > -1 {
+            Some(fine_best)
+        } else {
+            None
+        }
+    }
+
+    fn player_structure_bounds(&self, game_logic: &GameLogic, enemy_team: Team) -> (f32, f32, f32, f32) {
+        let mut any = false;
+        let mut min_x = 0.0;
+        let mut min_z = 0.0;
+        let mut max_x = 0.0;
+        let mut max_z = 0.0;
+        for object in game_logic.host_objects().values() {
+            if object.team != enemy_team || !object.is_alive() || !object.is_kind_of(KindOf::Structure)
+            {
+                continue;
+            }
+            let p = object.get_position();
+            if !any {
+                min_x = p.x;
+                max_x = p.x;
+                min_z = p.z;
+                max_z = p.z;
+                any = true;
+            } else {
+                min_x = min_x.min(p.x);
+                max_x = max_x.max(p.x);
+                min_z = min_z.min(p.z);
+                max_z = max_z.max(p.z);
+            }
+        }
+        if any {
+            (min_x, min_z, max_x, max_z)
+        } else {
+            (0.0, 0.0, 0.0, 0.0)
+        }
+    }
+
+    /// Host residual of C++ `AIPlayer::getPlayerSuperweaponValue`.
+    fn player_superweapon_value(
+        &self,
+        game_logic: &GameLogic,
+        enemy_team: Team,
+        center: Vec3,
+        radius: f32,
+        include_military_units: bool,
+    ) -> i32 {
+        let radius = radius.max(4.0 * crate::game_logic::PATHFIND_CELL_SIZE_F_RESIDUAL);
+        let rad_sqr = radius * radius;
+        let mut cash = 0.0_f32;
+        for object in game_logic.host_objects().values() {
+            if object.team != enemy_team || !object.is_alive() {
+                continue;
+            }
+            let mut apply_neg = false;
+            if !include_military_units {
+                if object.is_kind_of(KindOf::FSBaseDefense) {
+                    apply_neg = true;
+                } else if (object.is_kind_of(KindOf::Vehicle) || object.is_kind_of(KindOf::Infantry))
+                    && !object.is_kind_of(KindOf::Dozer)
+                    && !object.is_kind_of(KindOf::Harvester)
+                {
+                    apply_neg = true;
+                }
+            } else if object.is_kind_of(KindOf::Aircraft)
+                && (object.status.airborne_target
+                    || crate::game_logic::host_usa_pilot::is_significantly_above_terrain(
+                        object.get_position().y,
+                    ))
+            {
+                continue;
+            }
+            let pos = object.get_position();
+            let dx = center.x - pos.x;
+            let dz = center.z - pos.z;
+            let dist_sqr = dx * dx + dz * dz;
+            if dist_sqr >= rad_sqr {
+                continue;
+            }
+            let dist = dist_sqr.sqrt();
+            let factor = 1.0 - (dist / (2.0 * radius));
+            let mut value = object.thing.template.build_cost.supplies as f32;
+            if object.is_kind_of(KindOf::CommandCenter) || object.is_kind_of(KindOf::FSSuperweapon) {
+                if include_military_units {
+                    value /= 10.0;
+                } else {
+                    value *= 5.0;
+                }
+            }
+            if apply_neg {
+                cash -= factor * value * 5.0;
+            } else {
+                cash += factor * value;
+            }
+        }
+        cash as i32
+    }
+
 
     /// Find center of enemy base
     fn find_enemy_base_center(&self, game_logic: &GameLogic, enemy_team: Team) -> Vec3 {
@@ -3757,5 +4069,148 @@ mod cpp_parity_tests {
             None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
         }
     }
+
+    #[test]
+    fn second_attack_starts_after_first_raid_finishes() {
+        // C++ AIPlayer.cpp has no permanent attack latch; checkReadyTeams
+        // (AIPlayer.cpp:2729) starts a team when idle (or after 60s). Host
+        // attack_in_progress must clear so evaluate_attack_opportunities can
+        // launch again after ATTACK_RECHECK_SECONDS.
+        use crate::game_logic::{GameLogic, KindOf, Player, Team, ThingTemplate, Weapon};
+
+        let mut logic = GameLogic::new();
+        logic.add_player(Player::new(1, Team::USA, "USA AI", false));
+        logic.add_player(Player::new(2, Team::GLA, "GLA", true));
+
+        let mut unit_t = ThingTemplate::new("Ai2Infantry");
+        unit_t.set_health(100.0);
+        unit_t.add_kind_of(KindOf::Infantry);
+        unit_t.add_kind_of(KindOf::Attackable);
+        logic.templates.insert("Ai2Infantry".into(), unit_t);
+
+        let usa_unit = logic
+            .create_object("Ai2Infantry", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .expect("usa unit");
+        let _ = logic.create_object("Ai2Infantry", Team::GLA, glam::Vec3::new(80.0, 0.0, 0.0));
+        if let Some(o) = logic.host_object_mut(usa_unit) {
+            o.weapon = Some(Weapon {
+                damage: 10.0,
+                ..Weapon::default()
+            });
+        }
+
+        let mut ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
+        ai.enemy_player_id = Some(2);
+        ai.is_active = true;
+
+        ai.launch_attack(&mut logic, 10.0);
+        assert!(
+            ai.attack_in_progress,
+            "first launch must set the current-raid latch"
+        );
+        let first_count = ai.activity_count;
+
+        // Still committed — latch stays until attackers leave AttackMoving.
+        ai.evaluate_attack_opportunities(&mut logic, 10.0 + AIPlayer::ATTACK_RECHECK_SECONDS);
+        assert!(
+            ai.attack_in_progress,
+            "latch must hold while units are still AttackMoving"
+        );
+        assert_eq!(ai.activity_count, first_count);
+
+        if let Some(o) = logic.host_object_mut(usa_unit) {
+            o.set_ai_state(AIState::Idle);
+            o.target = None;
+            o.movement.path.clear();
+            o.movement.target_position = None;
+        }
+
+        ai.evaluate_attack_opportunities(&mut logic, 10.0 + AIPlayer::ATTACK_RECHECK_SECONDS);
+        assert!(
+            ai.activity_count > first_count,
+            "second attack must increment activity after first raid finishes"
+        );
+        assert_eq!(
+            logic.host_object(usa_unit).map(|o| o.ai_state.clone()),
+            Some(AIState::AttackMoving),
+            "second launch must re-issue AttackMoving"
+        );
+    }
+
+    #[test]
+    fn live_ai_fires_ready_superweapon_at_enemy_cluster() {
+        // C++ ScriptActions::doSkirmishFireSpecialPowerAtMostCost
+        // (ScriptActions.cpp:4142) + AIPlayer::computeSuperweaponTarget
+        // (AIPlayer.cpp:1120). Live host path queues DoSpecialPower.
+        use crate::command_system::SpecialPowerType;
+        use crate::game_logic::{
+            GameLogic, KindOf, Player, SpecialPowerModuleKind, SpecialPowerModuleMetadata, Team,
+            ThingTemplate,
+        };
+
+        let mut logic = GameLogic::new();
+        logic.add_player(Player::new(1, Team::USA, "USA AI", false));
+        logic.add_player(Player::new(2, Team::GLA, "GLA", true));
+
+        let mut puc = ThingTemplate::new("AiSwPuc");
+        puc.set_health(4000.0);
+        puc.add_kind_of(KindOf::Structure);
+        puc.add_kind_of(KindOf::FSSuperweapon);
+        puc.special_power_modules
+            .push(SpecialPowerModuleMetadata {
+                source_index: 0,
+                module_tag: Some("ModuleTag_SpecialPower".into()),
+                module_kind: SpecialPowerModuleKind::OclSpecialPower,
+                special_power_template: "SuperweaponParticleUplinkCannon".into(),
+                special_power_template_id: 1,
+                command_power: Some(SpecialPowerType::ParticleCannon),
+                reload_time_frames: 0,
+                required_science: None,
+                public_timer: true,
+                shared_n_sync: false,
+                shortcut_power: false,
+                update_module_starts_attack: false,
+                starts_paused: false,
+                scripted_special_power_only: false,
+            });
+        logic.templates.insert("AiSwPuc".into(), puc);
+
+        let mut barracks = ThingTemplate::new("AiSwBarracks");
+        barracks.set_health(1000.0);
+        barracks.set_cost(500, 0);
+        barracks.add_kind_of(KindOf::Structure);
+        barracks.add_kind_of(KindOf::Attackable);
+        logic.templates.insert("AiSwBarracks".into(), barracks);
+
+        let caster = logic
+            .create_object("AiSwPuc", Team::USA, glam::Vec3::new(-40.0, 0.0, 0.0))
+            .expect("puc");
+        let _ = logic.create_object(
+            "AiSwBarracks",
+            Team::GLA,
+            glam::Vec3::new(80.0, 0.0, 0.0),
+        );
+
+        let mut ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
+        ai.enemy_player_id = Some(2);
+        ai.is_active = true;
+
+        ai.try_fire_ready_special_powers(&mut logic);
+        logic.process_commands();
+
+        assert!(
+            logic
+                .special_power_strikes()
+                .honesty_queue_ok(crate::game_logic::HostSuperweaponKind::ParticleCannon),
+            "live AI must queue a ParticleCannon strike via computeSuperweaponTarget"
+        );
+        assert!(
+            !logic.is_special_power_ready_for(caster, &SpecialPowerType::ParticleCannon)
+                || logic.special_power_strikes().strike_count() >= 1,
+            "ready superweapon must be consumed or recorded as a strike"
+        );
+    }
+
+
 
 }

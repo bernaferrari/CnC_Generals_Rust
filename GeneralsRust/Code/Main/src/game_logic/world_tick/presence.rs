@@ -160,7 +160,16 @@ impl GameLogic {
     }
 
     pub(in super::super) fn configure_victory_rules_for_map(&mut self, map_name: &str) {
-        let rules = victory_rules_for_map(map_name);
+        // C++ GameLogic.cpp:1606 startNewGame always calls
+        // TheVictoryConditions->setVictoryConditions(VICTORY_NOBUILDINGS)
+        // after the map is loaded. Skirmish is short-game: razing every
+        // KINDOF_STRUCTURE that counts for victory defeats that player
+        // even if units remain. Campaign maps keep scripted / INI rules.
+        let rules = if matches!(self.game_mode, GameMode::Skirmish) {
+            VictoryType::NO_BUILDINGS
+        } else {
+            victory_rules_for_map(map_name)
+        };
         self.victory_conditions.set_victory_conditions(rules);
         log::info!(
             "Configured victory rules for map '{}': require units = {}, require buildings = {}",

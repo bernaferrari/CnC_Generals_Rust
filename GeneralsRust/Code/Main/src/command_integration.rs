@@ -895,6 +895,8 @@ impl InputCommandProcessor {
             capture_nonstealthed_garrison_count,
             capture_friendly_garrison_count,
             capture_target_effectively_stealthed: o.effectively_stealthed,
+            is_crate: o.is_crate,
+            is_salvage_crate: o.is_salvage_crate,
         })
     }
 
@@ -952,6 +954,10 @@ impl InputCommandProcessor {
                 is_controlled_by_local: frame.is_owned_by_local(o),
                 capture_power,
                 capture_power_ready,
+                is_salvager: PresentationFrame::object_has_kind(
+                    o,
+                    crate::game_logic::KindOf::Salvager,
+                ),
             });
         }
         out

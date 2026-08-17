@@ -187,6 +187,10 @@ pub enum KindOf {
     /// Gameplay-only and append-only for the same compact-presentation-bank
     /// reason as [`Self::SupplySource`].
     CannotBuildNearSupplies,
+    /// C++ `KINDOF_CRATE`. Gameplay-only and append-only: the compact
+    /// presentation KindOf bank is already full, so crate identity is also
+    /// frozen as dedicated presentation booleans for physical click routing.
+    Crate,
 }
 
 /// Object status flags

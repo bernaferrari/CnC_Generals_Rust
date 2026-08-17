@@ -99,7 +99,9 @@ impl GameSlot {
             faction: Faction::Random,
             color: colors[index % colors.len()],
             team: -1, // No team
-            start_position: index as i32,
+            // C++ GameSlot::m_startPos defaults to -1 (random). populateRandomStartPosition
+            // assigns unused map spots at startNewGame; pinning to slot index skips that.
+            start_position: -1,
             player_name: if index == 0 {
                 "Player".to_string()
             } else {

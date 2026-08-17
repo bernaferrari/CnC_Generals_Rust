@@ -525,6 +525,13 @@ impl PresentationFrame {
                 weapons_jammed: obj.status.weapons_jammed,
                 masked: obj.status.masked,
                 unattackable: obj.is_kind_of(KindOf::Unattackable),
+                is_crate: obj.is_kind_of(KindOf::Crate)
+                    || logic.host_money_crates.contains(obj.id),
+                is_salvage_crate: logic
+                    .host_money_crates
+                    .get(obj.id)
+                    .is_some_and(|entry| entry.is_salvage)
+                    || obj.template_name.eq_ignore_ascii_case("SalvageCrate"),
                 ignoring_stealth: obj.status.ignoring_stealth,
                 repulsor: obj.status.repulsor,
                 stealthed: obj.status.stealthed,

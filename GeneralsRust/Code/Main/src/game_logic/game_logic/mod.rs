@@ -101,6 +101,10 @@ impl GameLogic {
             .evaluate(&self.players, &self.objects, self.frame)
     }
 
+    pub fn victory_type(&self) -> VictoryType {
+        self.victory_conditions.victory_type()
+    }
+
     pub fn peek_defeat_events(&self) -> &[u32] {
         self.victory_conditions.peek_defeat_events()
     }

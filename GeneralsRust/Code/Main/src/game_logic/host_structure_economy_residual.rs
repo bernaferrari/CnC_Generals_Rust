@@ -318,8 +318,10 @@ pub const DOZER_SELECT_BUILD_DOCK_LOCATION: i32 = 0;
 pub const DOZER_MOVING_TO_BUILD_DOCK_LOCATION: i32 = 1;
 pub const DOZER_DO_BUILD_AT_DOCK: i32 = 2;
 
-/// Construction progress residual: base_rate * dozer_count * power_factor * BuildSpeed.
+/// Construction progress residual: one exclusive dozer × power_factor × BuildSpeed.
 ///
+/// C++ DozerAIUpdate.cpp:305 refuses a second builder (`getBuilderID() != dozer`).
+/// `dozer_count` is clamped to 1 so stacked builders cannot accelerate a structure.
 /// `build_time_sec` is ThingTemplate BuildTime; progress is 0..1 fraction complete.
 pub fn dozer_construction_progress_delta(
     build_time_sec: f32,
@@ -330,9 +332,11 @@ pub fn dozer_construction_progress_delta(
     if build_time_sec <= 0.0 || dozer_count == 0 {
         return 0.0;
     }
+    let exclusive = dozer_count.min(1) as f32;
     let base_rate = 1.0 / build_time_sec;
-    base_rate * (dozer_count as f32) * power_factor.max(0.01) * BUILD_SPEED * dt_sec
+    base_rate * exclusive * power_factor.max(0.01) * BUILD_SPEED * dt_sec
 }
+
 
 /// Whether a map-edge residual build placement is legal.
 pub fn is_legal_build_distance_from_map_edge(dist_from_edge: f32) -> bool {
@@ -383,8 +387,9 @@ pub fn honesty_dozer_build_residual_pack_wave83() -> bool {
         && DOZER_DO_BUILD_AT_DOCK == 2
         // 5s build, 1 dozer, full power, 1s dt → 0.2 progress.
         && (dozer_construction_progress_delta(5.0, 1, 1.0, 1.0) - 0.2).abs() < 0.001
-        // Two dozers double residual rate.
-        && (dozer_construction_progress_delta(5.0, 2, 1.0, 1.0) - 0.4).abs() < 0.001
+        // C++ exclusive builder: a second dozer does not stack.
+        && (dozer_construction_progress_delta(5.0, 2, 1.0, 1.0) - 0.2).abs() < 0.001
+
         // Low-energy residual half-rate.
         && (dozer_construction_progress_delta(5.0, 1, 0.5, 1.0) - 0.1).abs() < 0.001
         && dozer_construction_progress_delta(5.0, 0, 1.0, 1.0) == 0.0

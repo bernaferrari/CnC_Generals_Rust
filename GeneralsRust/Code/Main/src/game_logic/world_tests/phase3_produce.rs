@@ -254,6 +254,209 @@ fn construction_percent_cpp_scale_and_exclusive_dozer() {
 }
 
 #[test]
+fn exclusive_dozer_does_not_stack_build_rate() {
+
+    // C++ DozerAIUpdate.cpp:305 — getBuilderID() != dozer refuses a second builder.
+    let mut logic = GameLogic::new();
+    ensure_test_structure_template(&mut logic);
+    ensure_test_dozer_template(&mut logic);
+    ensure_test_player_for_team(&mut logic, Team::USA);
+    let sid = logic
+        .create_object_under_construction("TestBuilding", Team::USA, glam::Vec3::ZERO)
+        .expect("scaffold");
+    if let Some(o) = logic.host_object_mut(sid) {
+        o.thing.template.build_time = 10.0;
+        o.construction_percent = 0.0;
+    }
+    let d1 = logic
+        .create_object("TestDozer", Team::USA, glam::Vec3::new(2.0, 0.0, 0.0))
+        .expect("dozer1");
+    let d2 = logic
+        .create_object("TestDozer", Team::USA, glam::Vec3::new(3.0, 0.0, 0.0))
+        .expect("dozer2");
+    assert!(logic.resume_construction(&[d1], sid));
+    if let Some(d) = logic.host_object_mut(d2) {
+        d.set_target(Some(sid));
+        d.set_ai_state(AIState::Constructing);
+    }
+    assert_eq!(
+        logic.host_object(sid).and_then(|o| o.builder_id),
+        Some(d1),
+        "structure must keep the first exclusive builder"
+    );
+    assert!(!logic.can_resume_construction_of(d2, sid));
+    logic.update_construction(&[sid], 1.0);
+    let after = logic
+        .host_object(sid)
+        .map(|o| o.construction_percent)
+        .unwrap_or(0.0);
+    assert!(
+        (after - 0.1).abs() < 0.02,
+        "two targeting dozers must not stack; expected ~0.1, got {after}"
+    );
+    assert!(
+        after < 0.15,
+        "stacked builders would approach 0.2, got {after}"
+    );
+}
+
+#[test]
+fn under_construction_starts_at_one_hp_and_gains_linearly() {
+    // C++ DozerAIUpdate.cpp:1708 start 1 HP; :526 +maxHealth/framesToBuild per frame.
+    let mut logic = GameLogic::new();
+    ensure_test_structure_template(&mut logic);
+    ensure_test_dozer_template(&mut logic);
+    ensure_test_player_for_team(&mut logic, Team::USA);
+    let sid = logic
+        .create_object_under_construction("TestBuilding", Team::USA, glam::Vec3::ZERO)
+        .expect("scaffold");
+    let max_hp = logic
+        .host_object(sid)
+        .map(|o| o.health.maximum)
+        .unwrap_or(0.0);
+    let start_hp = logic
+        .host_object(sid)
+        .map(|o| o.health.current)
+        .unwrap_or(0.0);
+    assert!(
+        (start_hp - 1.0).abs() < 1e-4,
+        "under-construction HP must start at 1, got {start_hp} (max={max_hp})"
+    );
+    assert!(
+        (start_hp - max_hp * 0.1).abs() > 1.0,
+        "must not start at 10% max ({})",
+        max_hp * 0.1
+    );
+    if let Some(o) = logic.host_object_mut(sid) {
+        o.thing.template.build_time = 10.0; // 300 frames
+    }
+    let did = logic
+        .create_object("TestDozer", Team::USA, glam::Vec3::new(2.0, 0.0, 0.0))
+        .expect("dozer");
+    assert!(logic.resume_construction(&[did], sid));
+    logic.update_construction(&[sid], 1.0);
+    let after = logic
+        .host_object(sid)
+        .map(|o| o.health.current)
+        .unwrap_or(0.0);
+    let expected = 1.0 + max_hp / 300.0 * 30.0;
+    assert!(
+        (after - expected).abs() < 0.05,
+        "linear per-frame HP gain expected ~{expected}, got {after}"
+    );
+}
+
+
+#[test]
+fn factory_door_phases_use_ini_door_times() {
+    // C++ ProductionUpdate.cpp:113-115 DoorOpeningTime/DoorWaitOpenTime/DoorCloseTime.
+    use crate::game_logic::host_production_buildable_command_residual::{
+        producer_door_phase_duration, producer_door_phase_frames,
+    };
+    use crate::game_logic::host_structure_economy_residual::structure_economy_ms_to_frames;
+    assert_eq!(
+        producer_door_phase_frames("AmericaWarFactory"),
+        (
+            structure_economy_ms_to_frames(3250),
+            structure_economy_ms_to_frames(3000),
+            structure_economy_ms_to_frames(4000),
+        )
+    );
+    assert_eq!(
+        producer_door_phase_duration("AmericaWarFactory", 1),
+        structure_economy_ms_to_frames(3250)
+    );
+    assert_eq!(
+        producer_door_phase_duration("AmericaCommandCenter", 1),
+        crate::game_logic::host_structure_economy_residual::USA_CC_DOOR_OPENING_FRAMES
+    );
+    assert_eq!(producer_door_phase_frames("TestBarracks"), (0, 0, 0));
+
+    let mut logic = GameLogic::new();
+    ensure_test_player_for_team(&mut logic, Team::USA);
+    let mut wf = ThingTemplate::new("AmericaWarFactory");
+    wf.add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::FSWarFactory)
+        .set_health(1500.0)
+        .set_cost(2000, -1);
+    logic.templates.insert("AmericaWarFactory".into(), wf);
+    let id = logic
+        .create_object("AmericaWarFactory", Team::USA, glam::Vec3::ZERO)
+        .expect("wf");
+    if let Some(o) = logic.host_object_mut(id) {
+        o.set_status_under_construction(false);
+        o.construction_percent = 1.0;
+        o.start_production_door_cycle(0);
+        assert_eq!(o.production_door_phase, 1);
+        assert_eq!(
+            o.production_door_phase_end_frame,
+            structure_economy_ms_to_frames(3250)
+        );
+        assert_ne!(
+            o.production_door_phase_end_frame, 15,
+            "must not use hardcoded 15f opening"
+        );
+    }
+}
+
+#[test]
+fn queue_head_allowed_to_build_recheck_cancels_script_disallowed_unit() {
+    // C++ ProductionUpdate.cpp:671-682: allowedToBuild re-check; dozers stay.
+    let mut logic = GameLogic::new();
+    ensure_test_player_for_team(&mut logic, Team::USA);
+    ensure_test_barracks_template(&mut logic);
+    ensure_test_infantry_template(&mut logic);
+    ensure_test_dozer_template(&mut logic);
+    let bid = logic
+        .create_object("TestBarracks", Team::USA, glam::Vec3::ZERO)
+        .expect("brx");
+    if let Some(o) = logic.host_object_mut(bid) {
+        o.set_status_under_construction(false);
+        o.construction_percent = 1.0;
+    }
+    assert!(logic.enqueue_production(bid, "TestInfantry".into()));
+    if let Some(p) = logic.get_player_mut(0) {
+        p.set_can_build_units(false);
+    }
+    logic.cancel_script_disallowed_production_queue_heads();
+    let qlen = logic
+        .host_object(bid)
+        .and_then(|o| o.building_data.as_ref())
+        .map(|b| b.production_queue.len())
+        .unwrap_or(99);
+    assert_eq!(qlen, 0, "script-disallowed unit head must cancel");
+
+    if let Some(p) = logic.get_player_mut(0) {
+        p.set_can_build_units(true);
+    }
+    ensure_test_command_center_template(&mut logic);
+    let cc = logic
+        .create_object(
+            "TestCommandCenter",
+            Team::USA,
+            glam::Vec3::new(40.0, 0.0, 0.0),
+        )
+        .expect("cc");
+    if let Some(o) = logic.host_object_mut(cc) {
+        o.set_status_under_construction(false);
+        o.construction_percent = 1.0;
+    }
+    assert!(logic.enqueue_production(cc, "TestDozer".into()));
+    if let Some(p) = logic.get_player_mut(0) {
+        p.set_can_build_units(false);
+    }
+    logic.cancel_script_disallowed_production_queue_heads();
+    let qlen = logic
+        .host_object(cc)
+        .and_then(|o| o.building_data.as_ref())
+        .map(|b| b.production_queue.len())
+        .unwrap_or(0);
+    assert_eq!(qlen, 1, "dozer queue head must survive allowedToBuild false");
+}
+
+
+
+#[test]
 fn door_gated_spawn_waits_for_waiting_open() {
     use crate::game_logic::host_production_buildable_command_residual::{
         producer_num_door_animations, production_door_allows_spawn,

@@ -1159,6 +1159,252 @@ fn command_type_from_button_name_view_and_formation_residual() {
     ));
 }
 
+#[test]
+fn crate_click_issues_do_salvage_for_salvager_selection() {
+    // C++ CommandXlat.cpp:116-149 / 1921-1937 — canSelectionSalvage issues
+    // MSG_DO_SALVAGE at the crate position when a KINDOF_SALVAGER is selected.
+    use crate::game_logic::{KindOf, Player, Team, ThingTemplate};
+
+    let mut logic = GameLogic::new();
+    logic.add_player(Player::new(0, Team::GLA, "GLA", true));
+
+    let mut scav = ThingTemplate::new("GLAVehicleTechnical");
+    scav.add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Salvager)
+        .set_health(200.0);
+    logic.templates.insert("GLAVehicleTechnical".into(), scav);
+    let mut crate_t = ThingTemplate::new("SalvageCrate");
+    crate_t
+        .add_kind_of(KindOf::Crate)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(1.0);
+    logic.templates.insert("SalvageCrate".into(), crate_t);
+
+    let salvager = logic
+        .create_object_for_player("GLAVehicleTechnical", 0, glam::Vec3::new(0.0, 0.0, 0.0))
+        .expect("salvager");
+    let crate_id = logic
+        .create_object(
+            "SalvageCrate",
+            Team::Neutral,
+            glam::Vec3::new(30.0, 0.0, 0.0),
+        )
+        .expect("crate");
+    logic.host_money_crates.register_salvage_crate(crate_id, 50);
+
+    let dest = glam::Vec3::new(30.0, 0.0, 0.0);
+    let ctx = MouseCommandContext {
+        world_position: dest,
+        target_object: Some(crate_id),
+        target_presentation: Some(PresentationTargetHint {
+            id: crate_id,
+            is_alive: true,
+            is_structure: false,
+            is_resource: false,
+            under_construction: false,
+            sold: false,
+            team: Team::Neutral,
+            is_enemy_of_local: false,
+            is_neutral: true,
+            template_name: "SalvageCrate".into(),
+            can_be_entered: false,
+            enter_available_capacity: 0,
+            enter_uses_transport_slots: false,
+            enter_requires_infantry: false,
+            enter_forbids_aircraft: false,
+            enter_disabled_subdued: false,
+            enter_is_rider_change: false,
+            rider_change_allowed_templates: Vec::new(),
+            is_damaged: false,
+            is_friendly_of_local: false,
+            provides_vehicle_repair: false,
+            provides_aircraft_repair: false,
+            provides_heal: false,
+            can_provide_service: true,
+            dock_kind: crate::game_logic::DockKind::None,
+            dock_controller_is_local: false,
+            stored_supplies: 0,
+            capturable: false,
+            immune_to_capture: false,
+            capture_garrisonable: false,
+            capture_nonstealthed_garrison_count: 0,
+            capture_friendly_garrison_count: 0,
+            capture_target_effectively_stealthed: false,
+            is_crate: true,
+            is_salvage_crate: true,
+        }),
+        selected_presentation: vec![PresentationSelectedUnitHint {
+            id: salvager,
+            is_alive: true,
+            is_resource_collector: false,
+            is_worker: false,
+            can_attack: true,
+            can_move: true,
+            can_request_service: true,
+            can_capture: false,
+            template_name: "GLAVehicleTechnical".into(),
+            can_repair: false,
+            is_damaged: false,
+            is_vehicle: true,
+            is_aircraft: false,
+            is_above_terrain: false,
+            is_infantry: false,
+            transport_slot_count: 0,
+            stored_supplies: 0,
+            is_controlled_by_local: true,
+            capture_power: crate::game_logic::CapturePowerKind::None,
+            capture_power_ready: false,
+            is_salvager: true,
+        }],
+        presentation_box_select_units: Vec::new(),
+        presentation_select_similar_units: Vec::new(),
+        screen_position: glam::Vec2::ZERO,
+        viewport_size: None,
+        world_min: None,
+        world_max: None,
+        mouse_button: MouseButton::Right,
+        modifier_keys: ModifierKeys::default(),
+        is_drag: false,
+        drag_start: None,
+        drag_end: None,
+        drag_start_world: None,
+        drag_end_world: None,
+    };
+    let mut sys = CommandSystem::new();
+    let cmd = sys
+        .process_mouse_input(&ctx, &[salvager], 0, Some(&logic))
+        .expect("crate salvage command");
+    match cmd.command_type {
+        CommandType::DoSalvage { destination } => {
+            assert!((destination - dest).length() < 0.1);
+        }
+        other => panic!("expected DoSalvage, got {other:?}"),
+    }
+}
+
+#[test]
+fn ordinary_crate_click_issues_move_to_crate() {
+    // C++ crate pickup (non-salvage) is a move-to-crate, not a hard no-op.
+    use crate::game_logic::{KindOf, Player, Team, ThingTemplate};
+
+    let mut logic = GameLogic::new();
+    logic.add_player(Player::new(0, Team::USA, "USA", true));
+
+    let mut ranger = ThingTemplate::new("AmericaInfantryRanger");
+    ranger
+        .add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(100.0);
+    logic
+        .templates
+        .insert("AmericaInfantryRanger".into(), ranger);
+    let mut crate_t = ThingTemplate::new("HealCrate");
+    crate_t
+        .add_kind_of(KindOf::Crate)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(1.0);
+    logic.templates.insert("HealCrate".into(), crate_t);
+
+    let unit = logic
+        .create_object_for_player("AmericaInfantryRanger", 0, glam::Vec3::new(0.0, 0.0, 0.0))
+        .expect("unit");
+    let crate_id = logic
+        .create_object("HealCrate", Team::Neutral, glam::Vec3::new(18.0, 0.0, 4.0))
+        .expect("crate");
+    logic.host_money_crates.register_heal_crate(crate_id);
+
+    let dest = glam::Vec3::new(18.0, 0.0, 4.0);
+    let ctx = MouseCommandContext {
+        world_position: dest,
+        target_object: Some(crate_id),
+        target_presentation: Some(PresentationTargetHint {
+            id: crate_id,
+            is_alive: true,
+            is_structure: false,
+            is_resource: false,
+            under_construction: false,
+            sold: false,
+            team: Team::Neutral,
+            is_enemy_of_local: false,
+            is_neutral: true,
+            template_name: "HealCrate".into(),
+            can_be_entered: false,
+            enter_available_capacity: 0,
+            enter_uses_transport_slots: false,
+            enter_requires_infantry: false,
+            enter_forbids_aircraft: false,
+            enter_disabled_subdued: false,
+            enter_is_rider_change: false,
+            rider_change_allowed_templates: Vec::new(),
+            is_damaged: false,
+            is_friendly_of_local: false,
+            provides_vehicle_repair: false,
+            provides_aircraft_repair: false,
+            provides_heal: false,
+            can_provide_service: true,
+            dock_kind: crate::game_logic::DockKind::None,
+            dock_controller_is_local: false,
+            stored_supplies: 0,
+            capturable: false,
+            immune_to_capture: false,
+            capture_garrisonable: false,
+            capture_nonstealthed_garrison_count: 0,
+            capture_friendly_garrison_count: 0,
+            capture_target_effectively_stealthed: false,
+            is_crate: true,
+            is_salvage_crate: false,
+        }),
+        selected_presentation: vec![PresentationSelectedUnitHint {
+            id: unit,
+            is_alive: true,
+            is_resource_collector: false,
+            is_worker: false,
+            can_attack: true,
+            can_move: true,
+            can_request_service: true,
+            can_capture: false,
+            template_name: "AmericaInfantryRanger".into(),
+            can_repair: false,
+            is_damaged: false,
+            is_vehicle: false,
+            is_aircraft: false,
+            is_above_terrain: false,
+            is_infantry: true,
+            transport_slot_count: 1,
+            stored_supplies: 0,
+            is_controlled_by_local: true,
+            capture_power: crate::game_logic::CapturePowerKind::None,
+            capture_power_ready: false,
+            is_salvager: false,
+        }],
+        presentation_box_select_units: Vec::new(),
+        presentation_select_similar_units: Vec::new(),
+        screen_position: glam::Vec2::ZERO,
+        viewport_size: None,
+        world_min: None,
+        world_max: None,
+        mouse_button: MouseButton::Right,
+        modifier_keys: ModifierKeys::default(),
+        is_drag: false,
+        drag_start: None,
+        drag_end: None,
+        drag_start_world: None,
+        drag_end_world: None,
+    };
+    let mut sys = CommandSystem::new();
+    let cmd = sys
+        .process_mouse_input(&ctx, &[unit], 0, Some(&logic))
+        .expect("ordinary crate pickup");
+    match cmd.command_type {
+        CommandType::MoveTo { destination, .. } => {
+            assert!((destination - dest).length() < 0.1);
+        }
+        other => panic!("expected MoveTo crate, got {other:?}"),
+    }
+}
+
+
 fn special_power_button_maps_and_structure_resolves_puc_residual() {
     use crate::command_system::{command_type_from_button_name, CommandType, SpecialPowerType};
     use crate::game_logic::host_superweapon_kindof::special_power_for_superweapon_structure;

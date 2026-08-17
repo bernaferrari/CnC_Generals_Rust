@@ -333,6 +333,60 @@ pub fn find_file_case_insensitive(dir: &Path, name: &str) -> Option<PathBuf> {
     None
 }
 
+/// Resolve a C++ `Data\\INI\\...` virtual path against cwd, install, and extracted trees.
+///
+/// C++ `AudioManager::init` (GameAudio.cpp:187-202) loads `Data\\INI\\Music.ini` etc.
+/// through the virtual file system. Live Rust cargo tests / extracted BIG trees
+/// often keep those files under `INIZH/Data/INI` rather than `cwd/Data/INI`.
+pub fn resolve_data_ini_file(virtual_path: &str) -> Option<PathBuf> {
+    let normalized = virtual_path.replace('\\', "/");
+    let rel = Path::new(&normalized);
+    if rel.is_file() {
+        return Some(rel.to_path_buf());
+    }
+
+    let mut seen = HashSet::new();
+    let mut consider = |candidate: PathBuf| -> Option<PathBuf> {
+        if !seen.insert(path_key(&candidate)) {
+            return None;
+        }
+        candidate.is_file().then_some(candidate)
+    };
+
+    if let Some(found) = consider(rel.to_path_buf()) {
+        return Some(found);
+    }
+
+    for root in discovery_roots() {
+        if let Some(found) = consider(root.join(rel)) {
+            return Some(found);
+        }
+        if let Some(found) = consider(root.join("INIZH").join(rel)) {
+            return Some(found);
+        }
+    }
+
+    for extracted in extracted_asset_roots() {
+        if let Some(found) = consider(extracted.join(rel)) {
+            return Some(found);
+        }
+        if let Some(found) = consider(extracted.join("INIZH").join(rel)) {
+            return Some(found);
+        }
+        if extracted
+            .file_name()
+            .is_some_and(|name| name.to_string_lossy().eq_ignore_ascii_case("INIZH"))
+        {
+            if let Some(found) = consider(extracted.join(rel)) {
+                return Some(found);
+            }
+        }
+    }
+
+    None
+}
+
+
 /// Locate `genseczh.big` / `GensecZH.big` on CD roots or a discovered install.
 pub fn find_genseczh_big() -> Option<PathBuf> {
     for root in zh_install_roots() {
@@ -376,6 +430,21 @@ mod tests {
         );
     }
 
+
+    #[test]
+    fn resolve_data_ini_file_finds_sound_effects_from_extracted_tree() {
+        // C++ AudioManager::init loads Data\\INI\\SoundEffects.ini (GameAudio.cpp:192-193).
+        let found = resolve_data_ini_file("Data/INI/SoundEffects.ini")
+            .expect("SoundEffects.ini must resolve from cwd/extracted INIZH");
+        assert!(found.is_file());
+        assert!(
+            found
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .eq_ignore_ascii_case("SoundEffects.ini")
+        );
+    }
     #[test]
     fn install_layout_source_does_not_hardcode_a_repo_folder_name() {
         let production = include_str!("install_layout.rs")

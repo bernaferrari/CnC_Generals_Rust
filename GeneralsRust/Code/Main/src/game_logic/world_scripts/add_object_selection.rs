@@ -1073,8 +1073,13 @@ impl GameLogic {
             if player_id == human_player_id {
                 continue;
             }
-
-            let team = self.players.get(&player_id).map(|p| p.team);
+            let team = self.players.get(&player_id).and_then(|p| {
+                if !p.is_alive || p.name == "ReplayObserver" || p.team == Team::Neutral {
+                    None
+                } else {
+                    Some(p.team)
+                }
+            });
             if let Some(team) = team {
                 // Legacy fallback when no SkirmishMatchConfig was supplied:
                 // difficulty-by-player-id. Prefer apply_skirmish_config.

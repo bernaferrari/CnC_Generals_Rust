@@ -311,13 +311,14 @@ impl CnCGameEngine {
     /// Apply the selection half of C++ `SelectionXlat` for a point click that
     /// was not consumed by a command/placement path.
     fn select_left_click_target(&mut self, object_id: ObjectId, shift_down: bool) {
-        if shift_down {
-            // C++ Shift+select residual: toggle unit in multi-selection.
+        if shift_down && self.is_locally_selectable_click_target(object_id) {
+            // C++ Shift+select residual: toggle only locally owned units.
+            // Enemy/civilian/allied point clicks always replace (SelectionXlat.cpp:679-693).
             self.toggle_select_object(object_id);
             return;
         }
 
-        if !self.is_locally_selectable_click_target(object_id) {
+        if !self.is_point_selectable_click_target(object_id) {
             return;
         }
         // Wave 583: selection residual via host_set_selection.
@@ -336,6 +337,18 @@ impl CnCGameEngine {
                 o.id == object_id
                     && frame.is_owned_by_local(o)
                     && crate::unit_control::UnitControlSystem::presentation_is_selectable(o)
+            })
+        })
+    }
+
+    /// C++ `CanSelectDrawable` + lone enemy/civilian/allied point select
+    /// (`SelectionXlat.cpp:181-189`, `679-693`). Drag-select stays local-only.
+    fn is_point_selectable_click_target(&self, object_id: ObjectId) -> bool {
+        self.last_presentation_frame.as_ref().is_some_and(|frame| {
+            frame.objects.iter().any(|o| {
+                o.id == object_id
+                    && crate::unit_control::UnitControlSystem::presentation_is_selectable(o)
+                    && (frame.is_owned_by_local(o) || o.fow_visibility.visibility_alpha >= 0.95)
             })
         })
     }
@@ -671,16 +684,25 @@ impl CnCGameEngine {
         );
 
         if let Some(mut command) = command {
+            let crate_pickup = target_object
+                .and_then(|id| self.presentation_target_hint(id))
+                .is_some_and(|hint| hint.is_crate && !hint.is_salvage_crate);
             let target_had_no_context_action = target_object.is_some()
                 && matches!(
                     &command.command_type,
                     crate::command_system::CommandType::MoveTo { .. }
+                )
+                && !crate_pickup
+                && !matches!(
+                    &command.command_type,
+                    crate::command_system::CommandType::DoSalvage { .. }
                 );
             if target_had_no_context_action {
                 // C++ `evaluateContextCommand` returns MSG_INVALID rather
                 // than a move when a drawable was under the cursor but had no
                 // actionable relationship.  Classic LMB then falls back to
                 // selection; Alternate RMB simply does nothing.
+                // Crate clicks are the exception: MSG_DO_SALVAGE / move-to-crate.
                 return false;
             }
             if self.sticky_auto_attack {
@@ -1323,6 +1345,7 @@ impl CnCGameEngine {
                 ("CaptureBuilding", CursorIcon::Cell)
             }
             Some(crate::command_system::CommandType::MoveTo { .. })
+            | Some(crate::command_system::CommandType::DoSalvage { .. })
             | Some(crate::command_system::CommandType::AttackMoveTo { .. }) => {
                 ("Move", CursorIcon::AllScroll)
             }
@@ -1817,6 +1840,10 @@ impl CnCGameEngine {
                 is_controlled_by_local: frame.is_owned_by_local(o),
                 capture_power,
                 capture_power_ready,
+                is_salvager: crate::presentation_frame::PresentationFrame::object_has_kind(
+                    o,
+                    crate::game_logic::KindOf::Salvager,
+                ),
             });
         }
         out
@@ -1935,6 +1962,8 @@ impl CnCGameEngine {
             capture_nonstealthed_garrison_count,
             capture_friendly_garrison_count,
             capture_target_effectively_stealthed: o.effectively_stealthed,
+            is_crate: o.is_crate,
+            is_salvage_crate: o.is_salvage_crate,
         })
     }
 
@@ -2105,5 +2134,13 @@ mod camera_pick_tests {
             Vec3::new(10.0, 0.0, 10.0),
         )
         .is_none());
+    }
+
+    #[test]
+    fn point_select_predicate_accepts_non_local_selectable() {
+        // C++ SelectionXlat.cpp:181-189 — point clicks select anything selectable.
+        // Local-only remains the Shift-add / drag-select gate.
+        assert!(classic_left_context_action_allowed(true, true, false));
+        assert!(!classic_left_context_action_allowed(true, true, true));
     }
 }

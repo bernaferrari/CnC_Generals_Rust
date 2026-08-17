@@ -148,6 +148,10 @@ impl VictoryConditions {
         self.config = config;
     }
 
+    pub fn victory_type(&self) -> VictoryType {
+        self.config
+    }
+
     pub fn end_frame(&self) -> Option<u32> {
         self.end_frame
     }

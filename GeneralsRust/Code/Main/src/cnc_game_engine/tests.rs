@@ -1060,6 +1060,39 @@ fn take_new_game_dispatch_drains_stream_and_keeps_other_messages() {
 }
 
 #[test]
+fn take_clear_game_data_drains_stream_and_keeps_other_messages() {
+    // C++ ScriptEngine.cpp:5514-5518 appends MSG_CLEAR_GAME_DATA; Main must
+    // consume it so scripted VICTORY/DEFEAT actually ends the live match.
+    use game_engine::common::message_stream::{get_message_stream, GameMessageType};
+
+    let stream = get_message_stream();
+    {
+        let mut g = stream.write().unwrap_or_else(|e| e.into_inner());
+        g.clear_messages();
+        g.append_message(GameMessageType::Invalid);
+        g.append_message(GameMessageType::ClearGameData);
+    }
+
+    assert!(CnCGameEngine::take_clear_game_data_from_common_stream());
+    {
+        let g = stream.read().unwrap_or_else(|e| e.into_inner());
+        let types: Vec<_> = g
+            .get_messages()
+            .iter()
+            .map(|m| m.get_type().clone())
+            .collect();
+        assert!(
+            !types
+                .iter()
+                .any(|t| matches!(t, GameMessageType::ClearGameData)),
+            "ClearGameData must be consumed so the match can end"
+        );
+        assert!(types.iter().any(|t| matches!(t, GameMessageType::Invalid)));
+    }
+    assert!(!CnCGameEngine::take_clear_game_data_from_common_stream());
+}
+
+#[test]
 fn peek_new_game_leaves_message_for_propagate_messages() {
     // C++ GameLogic::logicMessageDispatcher MSG_NEW_GAME
     // (GameLogicDispatch.cpp:396-423) consumes the streamed message after

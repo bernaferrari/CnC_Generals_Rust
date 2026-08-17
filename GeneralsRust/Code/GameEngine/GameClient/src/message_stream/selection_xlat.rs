@@ -1419,6 +1419,12 @@ mod tests {
         let mut hidden = drawable.clone();
         hidden.is_hidden = true;
         assert!(!hidden.can_select(false));
+
+        // C++ SelectionXlat.cpp:181-189 — point click may select enemy/civilian/allied.
+        let mut enemy = drawable.clone();
+        enemy.is_local_controlled = false;
+        assert!(enemy.can_select(false));
+        assert!(!enemy.can_select(true));
     }
 
     #[test]

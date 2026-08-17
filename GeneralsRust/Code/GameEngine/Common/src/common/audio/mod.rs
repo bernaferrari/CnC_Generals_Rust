@@ -69,10 +69,11 @@ pub use audio_cache::AudioFileCache;
 pub use dynamic_audio_event_info::{BitFlags, DynamicAudioEventInfo, OverriddenFields};
 
 pub use game_audio::{
-    music_repeats_source_infinitely, register_animation_sound_library,
-    register_audio_locality_resolver, register_sound_playback_hook, AudioAffect,
-    AudioLocalityRelationship, AudioLocalityResolver, AudioManager, AudioSettings, MiscAudio,
-    MusicManager, SoundManager, SoundPlaybackHook, AHSV_STOP_THE_MUSIC, AHSV_STOP_THE_MUSIC_FADE,
+    load_audio_event_inis, music_repeats_source_infinitely, register_animation_sound_library,
+    register_audio_locality_resolver, register_sound_playback_hook, sound_playback_hook_registered,
+    AudioAffect, AudioLocalityRelationship, AudioLocalityResolver, AudioManager, AudioSettings,
+    MiscAudio, MusicManager, SoundManager, SoundPlaybackHook, AHSV_STOP_THE_MUSIC,
+    AHSV_STOP_THE_MUSIC_FADE,
 };
 
 pub use game_music::{create_music_manager, MusicManagerImpl, MusicTrack};

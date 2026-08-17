@@ -42,6 +42,197 @@ impl GameLogic {
         self.pending_special_abilities.remove(&object_id);
     }
 
+    /// C++ GameLogic.cpp:1436-1459 always adds a ReplayObserver side/team.
+    pub fn ensure_replay_observer_player(&mut self) -> u32 {
+        if let Some(existing) = self.replay_observer_player_id {
+            if self
+                .players
+                .get(&existing)
+                .is_some_and(|p| p.name == "ReplayObserver")
+            {
+                return existing;
+            }
+        }
+        if let Some((&id, _)) = self
+            .players
+            .iter()
+            .find(|(_, p)| p.name == "ReplayObserver")
+        {
+            self.replay_observer_player_id = Some(id);
+            return id;
+        }
+        let id = self
+            .players
+            .keys()
+            .copied()
+            .max()
+            .map(|max| max.saturating_add(1))
+            .unwrap_or(0);
+        let mut observer = Player::new(id, Team::Neutral, "ReplayObserver", false);
+        observer.is_alive = false;
+        observer.start_position = 0;
+        observer.alliance_team = -1;
+        observer.color_rgb = (170, 170, 170);
+        self.add_player(observer);
+        if let Some(identity) = PlayerTemplateIdentity::from_exact_name("FactionObserver") {
+            let _ = self.bind_player_template_identity(id, identity);
+            if let Some(player) = self.players.get_mut(&id) {
+                player.is_alive = false;
+                player.name = "ReplayObserver".into();
+                player.team = Team::Neutral;
+            }
+        }
+        self.replay_observer_player_id = Some(id);
+        id
+    }
+
+    /// C++ GameLogic.cpp:1703-1705 permanent reveal for ReplayObserver.
+    pub fn reveal_replay_observer_map(&mut self) {
+        let Some(id) = self.replay_observer_player_id.or_else(|| {
+            self.players
+                .iter()
+                .find(|(_, p)| p.name == "ReplayObserver")
+                .map(|(&id, _)| id)
+        }) else {
+            return;
+        };
+        if let Ok(mut shroud) = get_shroud_manager().lock() {
+            let _ = shroud.reveal_map_for_player_permanently(id);
+        }
+    }
+
+    /// C++ GameLogic.cpp:1436-1459 + PlayerList::newGame for ReplayObserver.
+    pub fn install_replay_observer_side(&mut self) {
+        let host_id = self.ensure_replay_observer_player();
+        let mut d = Dict::new();
+        d.set_ascii_string(key_player_name(), "ReplayObserver");
+        d.set_bool(key_player_is_human(), true);
+        d.set_unicode_string(key_player_display_name(), "Observer");
+        d.set_ascii_string(key_player_faction(), "FactionObserver");
+        d.set_ascii_string(key_player_allies(), String::new());
+        d.set_ascii_string(key_player_enemies(), String::new());
+        d.set_int(key_multiplayer_start_index(), 0);
+
+        if let Ok(mut sides) = get_sides_list().write() {
+            if sides.find_side_info("ReplayObserver").is_none() {
+                sides.add_side(&d);
+            }
+            if sides.find_team_info("teamReplayObserver").is_none() {
+                let mut team = Dict::new();
+                team.set_ascii_string(key_team_name(), "teamReplayObserver");
+                team.set_ascii_string(key_team_owner(), "ReplayObserver");
+                team.set_bool(key_team_is_singleton(), true);
+                sides.add_team(&team);
+            }
+        }
+
+        if let Ok(list) = ThePlayerList().read() {
+            if list.find_player_by_name("ReplayObserver").is_some() {
+                return;
+            }
+        }
+
+        let mut logic_player = LogicPlayer::new(host_id as i32);
+        logic_player.set_player_name_key(NameKeyGenerator::name_to_key("ReplayObserver"));
+        logic_player.set_display_name("Observer");
+        logic_player.set_side("Observer");
+        logic_player.set_base_side("Observer");
+        logic_player.set_observer(true);
+        logic_player.set_player_type(LogicPlayerType::Observer, false);
+        game_engine::common::ini::ensure_player_templates_loaded();
+        if let Some(common) = get_player_template_store().find_template("FactionObserver") {
+            logic_player.init(std::sync::Arc::new(LogicPlayerTemplate::from_common(common)));
+            logic_player.set_observer(true);
+            logic_player.set_player_type(LogicPlayerType::Observer, false);
+        }
+        if let Ok(mut list) = ThePlayerList().write() {
+            list.add_player(std::sync::Arc::new(std::sync::RwLock::new(logic_player)));
+        }
+    }
+
+    /// C++ GameLogic.cpp:1479-1532 — MultiplayerScripts.scb when numTeams > 1.
+    pub fn install_multiplayer_scripts_if_needed(&mut self) {
+        if !self.install_multiplayer_scripts {
+            return;
+        }
+        let Some(scripts) = load_multiplayer_scripts_scb() else {
+            return;
+        };
+        let mut next = scripts.get_script();
+        if next.is_none() {
+            return;
+        }
+        if let Ok(mut sides) = get_sides_list().write() {
+            if let Some(side) = sides.get_side_info_mut(0) {
+                let mut dest = side.get_script_list().cloned().unwrap_or_else(ScriptList::new);
+                while let Some(script) = next {
+                    dest.add_script(Box::new(script.clone()), 0);
+                    next = script.get_next();
+                }
+                side.set_script_list(Some(Box::new(dest)));
+            }
+        }
+        if self.loaded_script_lists.is_empty() {
+            self.loaded_script_lists.push(scripts);
+        } else {
+            let dest = &mut self.loaded_script_lists[0];
+            let mut next = scripts.get_script();
+            while let Some(script) = next {
+                dest.add_script(Box::new(script.clone()), 0);
+                next = script.get_next();
+            }
+        }
+        self.mission_scripts
+            .install_lists(&self.loaded_script_lists);
+        if let Ok(mut engine_guard) = gamelogic::scripting::engine::get_script_engine().write() {
+            if let Some(engine) = engine_guard.as_mut() {
+                for (idx, list) in self.loaded_script_lists.iter().enumerate() {
+                    let _ = engine.set_script_list_for_player(idx, Some(Box::new(list.clone())));
+                }
+            }
+        }
+    }
+
+    pub fn replay_observer_player_id(&self) -> Option<u32> {
+        self.replay_observer_player_id
+    }
+
+    pub fn will_install_multiplayer_scripts(&self) -> bool {
+        self.install_multiplayer_scripts
+    }
+
+    pub fn set_install_multiplayer_scripts(&mut self, install: bool) {
+        self.install_multiplayer_scripts = install;
+    }
+
+    pub fn loaded_script_names(&self) -> Vec<String> {
+        let mut names = Vec::new();
+        for list in &self.loaded_script_lists {
+            let mut cur = list.get_script();
+            while let Some(script) = cur {
+                names.push(script.get_name().to_string());
+                cur = script.get_next();
+            }
+        }
+        names
+    }
+
+
+
+    pub fn has_loaded_multiplayer_script(&self, name: &str) -> bool {
+        self.loaded_script_lists.iter().any(|list| {
+            let mut cur = list.get_script();
+            while let Some(script) = cur {
+                if script.get_name() == name {
+                    return true;
+                }
+                cur = script.get_next();
+            }
+            false
+        })
+    }
+
+
     pub fn terrain_height_at(&self, world_pos: Vec3) -> Option<f32> {
         #[cfg(feature = "game_client")]
         {
@@ -1258,6 +1449,11 @@ impl GameLogic {
         log::info!("Starting new game: {:?}", mode);
         self.reset();
         self.game_mode = mode;
+        // C++ GameLogic.cpp:1606 TheVictoryConditions->setVictoryConditions(VICTORY_NOBUILDINGS)
+        if matches!(mode, GameMode::Skirmish) {
+            self.victory_conditions
+                .set_victory_conditions(VictoryType::NO_BUILDINGS);
+        }
         // Host combat/movement: ensure WeaponStore + LocomotorStore before units resolve.
         let seeded = super::weapon_bootstrap::ensure_host_weapon_store();
         if seeded > 0 {
@@ -1278,6 +1474,11 @@ impl GameLogic {
             );
         }
         self.create_default_players();
+        if matches!(mode, GameMode::Skirmish) {
+            let _ = self.ensure_replay_observer_player();
+            self.install_replay_observer_side();
+            self.set_install_multiplayer_scripts(true);
+        }
         log::info!("New game started successfully");
     }
 
@@ -2458,6 +2659,13 @@ impl GameLogic {
         let scripts_started = Instant::now();
         report_progress(0.92, "Initializing mission scripts");
         self.initialize_scripts(map_name);
+        if matches!(self.game_mode, GameMode::Skirmish) {
+            // C++ startNewGame adds ReplayObserver after sides, then installs
+            // MultiplayerScripts.scb (numTeams>1) and permanently reveals the map.
+            self.install_replay_observer_side();
+            self.install_multiplayer_scripts_if_needed();
+            self.reveal_replay_observer_map();
+        }
         log::info!(
             "Map '{}' script init finished in {:.2}s",
             map_name,
@@ -2543,4 +2751,33 @@ impl GameLogic {
         self.map_loaded = false;
         None
     }
+}
+
+fn load_multiplayer_scripts_scb() -> Option<ScriptList> {
+    use game_engine::common::system::file::FileAccess;
+    use game_engine::common::system::file_system::get_file_system;
+    use game_engine::common::system::DataChunkInput;
+    use gamelogic::scripting::core::{parse_player_scripts_list_chunk, ScriptListReadInfo};
+
+    const VIRTUAL: &str = "Data\\Scripts\\MultiplayerScripts.scb";
+    let data = {
+        let fs = get_file_system();
+        let mut guard = fs.lock().ok()?;
+        let mut file = guard.open_file(VIRTUAL, FileAccess::READ.combine(FileAccess::BINARY))?;
+        file.read_entire_and_close().ok()
+    }
+    .or_else(|| {
+        const CANDIDATES: &[&str] = &[
+            "windows_game/Command & Conquer Generals Zero Hour/Data/Scripts/MultiplayerScripts.scb",
+            "Data/Scripts/MultiplayerScripts.scb",
+        ];
+        CANDIDATES.iter().find_map(|path| std::fs::read(path).ok())
+    })?;
+    let mut input = DataChunkInput::new(data);
+    let mut read_info = ScriptListReadInfo::default();
+    input.register_parser("PlayerScriptsList", "", parse_player_scripts_list_chunk);
+    if !input.parse(&mut read_info) {
+        return None;
+    }
+    read_info.lists.into_iter().next().map(|boxed| *boxed)
 }

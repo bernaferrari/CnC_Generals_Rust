@@ -98,6 +98,12 @@ pub struct PresentationTargetHint {
     /// disguised target is not represented as true here.
     #[serde(default)]
     pub capture_target_effectively_stealthed: bool,
+    /// C++ `KINDOF_CRATE` frozen for ordinary crate pickup (MSG_DO_MOVETO).
+    #[serde(default)]
+    pub is_crate: bool,
+    /// C++ `Object::isSalvageCrate` frozen for MSG_DO_SALVAGE.
+    #[serde(default)]
+    pub is_salvage_crate: bool,
 }
 
 /// Wave 229: presentation-frozen selected-unit capability for RMB classification.
@@ -153,6 +159,9 @@ pub struct PresentationSelectedUnitHint {
     /// Frozen `SpecialPowerModule::isReady` for that exact capture module.
     #[serde(default)]
     pub capture_power_ready: bool,
+    /// C++ `KINDOF_SALVAGER` frozen for MSG_DO_SALVAGE classification.
+    #[serde(default)]
+    pub is_salvager: bool,
 }
 
 /// Information needed for command creation from mouse input

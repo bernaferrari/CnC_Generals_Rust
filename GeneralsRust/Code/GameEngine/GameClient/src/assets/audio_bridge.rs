@@ -8,43 +8,57 @@ use nalgebra::Vector3;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use tokio::runtime::{Builder, Handle, Runtime};
+use tokio::runtime::Handle;
 
 pub fn register_audio_playback_bridge(asset_manager: Arc<AssetManager>) {
+    // Rodio is already the live TheAudio hook. Building a second hook just to
+    // discard it drops a nested Tokio runtime inside WinMain `block_on` (exit 101).
+    if game_engine::common::audio::game_audio::sound_playback_hook_registered() {
+        log::info!("Audio playback hook already registered; keeping TheAudio rodio backend");
+        return;
+    }
     let hook = Arc::new(AssetAudioPlaybackHook::new(asset_manager));
     if !register_sound_playback_hook(hook) {
         log::warn!("Audio playback hook already registered; ignoring duplicate");
     }
 }
 
+fn audio_fallback_handle() -> Handle {
+    use std::sync::OnceLock;
+    use tokio::runtime::{Builder, Runtime};
+    static HANDLE: OnceLock<Handle> = OnceLock::new();
+    HANDLE
+        .get_or_init(|| {
+            let runtime = Builder::new_multi_thread()
+                .enable_all()
+                .thread_name("audio-playback")
+                .build()
+                .expect("Failed to create audio playback runtime");
+            let handle = runtime.handle().clone();
+            // Never drop this runtime: WinMain holds the process runtime in
+            // `block_on`, and dropping a nested Runtime there panics.
+            std::mem::forget(runtime);
+            handle
+        })
+        .clone()
+}
+
 struct AssetAudioPlaybackHook {
     asset_manager: Arc<AssetManager>,
     handle_map: Arc<Mutex<HashMap<AudioHandle, Option<u64>>>>,
-    runtime: Arc<Runtime>,
 }
 
 impl AssetAudioPlaybackHook {
     fn new(asset_manager: Arc<AssetManager>) -> Self {
-        let runtime = Arc::new(
-            Builder::new_multi_thread()
-                .enable_all()
-                .thread_name("audio-playback")
-                .build()
-                .expect("Failed to create audio playback runtime"),
-        );
         Self {
             asset_manager,
             handle_map: Arc::new(Mutex::new(HashMap::new())),
-            runtime,
         }
     }
 
-    fn spawn(&self, task: impl std::future::Future<Output = ()> + Send + 'static) {
-        if let Ok(handle) = Handle::try_current() {
-            handle.spawn(task);
-        } else {
-            self.runtime.spawn(task);
-        }
+    fn spawn(&self, task: impl Future<Output = ()> + Send + 'static) {
+        let handle = Handle::try_current().unwrap_or_else(|_| audio_fallback_handle());
+        handle.spawn(task);
     }
 
     fn resolve_paths(&self, event: &AudioEventRts) -> Vec<PathBuf> {

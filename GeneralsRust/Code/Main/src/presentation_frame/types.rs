@@ -588,6 +588,13 @@ pub struct RenderableObject {
     /// remains snapshot-compatible while weapon-target picking stays exact.
     #[serde(default)]
     pub unattackable: bool,
+    /// C++ `KINDOF_CRATE` frozen outside the compact 32-bit KindOf bank.
+    /// Physical crate-click routing uses this instead of a template name.
+    #[serde(default)]
+    pub is_crate: bool,
+    /// C++ `Object::isSalvageCrate` / host money-crate salvage residual.
+    #[serde(default)]
+    pub is_salvage_crate: bool,
     /// Host ObjectStatus::ignoring_stealth residual.
     pub ignoring_stealth: bool,
     /// Host ObjectStatus::repulsor residual.

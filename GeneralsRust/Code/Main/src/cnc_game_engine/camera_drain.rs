@@ -2119,6 +2119,23 @@ impl CnCGameEngine {
                 .collect();
             self.game_client
                 .apply_presentation_floating_texts(&floating);
+            let sw_timers: Vec<(String, String, bool)> = pres
+                .superweapon_timers
+                .iter()
+                .filter(|t| t.unlocked)
+                .map(|t| {
+                    let countdown = if t.ready || t.remaining <= 0.0 {
+                        "READY".to_string()
+                    } else {
+                        let secs = t.remaining.max(0.0) as u32;
+                        format!("{}:{:02}", secs / 60, secs % 60)
+                    };
+                    (t.name.clone(), countdown, t.ready)
+                })
+                .collect();
+            self.game_client
+                .apply_presentation_superweapon_timers(&sw_timers);
+
             // Cinematic text residual → InGameUI HUD message.
             self.game_client
                 .apply_presentation_cinematic_text(pres.cinematic_text.as_deref());

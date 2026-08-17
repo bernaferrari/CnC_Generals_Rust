@@ -1316,6 +1316,64 @@ mod tests {
     }
 
     #[test]
+    fn live_present_path_draws_packed_ingame_hud() {
+        // C++ InGameUI::preDraw/postDraw + Drawable::drawIconUI: packed HUD
+        // must be submitted on the live present path, not only computed.
+        let mut client = GameClient::new().unwrap();
+        client.subsystem_manager.in_game_ui =
+            Some(Arc::new(Mutex::new(InGameUISubsystem::default())));
+
+        client.apply_presentation_cinematic_text(Some("Hold the ridge"));
+        client.apply_presentation_military_caption(Some("General: Hold the line!"), Some(2500));
+        client.apply_presentation_floating_texts(&[(
+            "+$100".to_string(),
+            [10.0, 0.0, 20.0],
+            (0, 255, 0),
+            0,
+            10,
+        )]);
+        client.apply_presentation_superweapon_timers(&[(
+            "Particle Uplink Cannon".to_string(),
+            "READY".to_string(),
+            true,
+        )]);
+
+        let mut drawable = BasicDrawable::new(DrawableId::INVALID);
+        drawable.set_caption_text("UnitHealth");
+        drawable.overlay_data.health_region =
+            Some(IRegion2D::new(ICoord2D::new(10, 20), ICoord2D::new(74, 32)));
+        drawable.overlay_data.visible = true;
+        drawable.overlay_data.health_ratio = 0.8;
+        drawable.overlay_data.veterancy_level = 2;
+        drawable.overlay_data.is_under_construction = true;
+        drawable.overlay_data.construction_percent = 0.42;
+        drawable.overlay_data.show_ammo = true;
+        drawable.overlay_data.ammo_full = 2;
+        drawable.overlay_data.ammo_total = 5;
+        client.register_drawable(Box::new(drawable)).unwrap();
+
+        let counts = client.draw_live_ingame_hud();
+        assert_eq!(counts.messages, 1, "HUD message feed must be drawn");
+        assert_eq!(
+            counts.military_subtitles, 1,
+            "military subtitle must be drawn"
+        );
+        assert_eq!(
+            counts.superweapon_timers, 1,
+            "superweapon countdown must be drawn"
+        );
+        assert_eq!(counts.floating_texts, 1, "floating text must be drawn");
+        assert_eq!(
+            counts.icon_overlays, 1,
+            "icon UI health/pips/construct must be drawn"
+        );
+        assert!(counts.total() >= 5);
+        assert_eq!(client.last_live_ingame_hud_draw(), counts);
+    }
+
+
+
+    #[test]
     fn test_snapshot_serialization_is_deterministic_for_same_state() {
         let mut client = GameClient::new().unwrap();
 

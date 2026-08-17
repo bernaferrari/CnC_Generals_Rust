@@ -363,6 +363,12 @@ pub struct Object {
     pub rebuild_reconstructing_id: Option<ObjectId>,
     /// C++ Object::m_producerID residual (hole is producer of reconstructing building).
     pub producer_id: Option<ObjectId>,
+    /// C++ Object::m_builderID residual — exclusive dozer/worker building this
+    /// structure. DozerAIUpdate refuses a second builder when this is set
+    /// (DozerAIUpdate.cpp:305).
+    #[serde(default)]
+    pub builder_id: Option<ObjectId>,
+
     /// C++ SupplyTruckAIUpdate/WorkerAIUpdate::m_preferredDock.
     ///
     /// AIPlayer deliberately issues its collector dock command as

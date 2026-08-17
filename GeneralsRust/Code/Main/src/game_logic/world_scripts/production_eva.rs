@@ -225,7 +225,12 @@ impl GameLogic {
     /// entry: `ProductionUpdate::cancelUpgrade` also removes the player's
     /// `IN_PRODUCTION` upgrade status.  Leaving that status behind makes a
     /// cancelled research item impossible to buy again.
-    fn refund_cancelled_production_item(&mut self, team: Team, item: &ProductionItem) {
+    pub(in super::super) fn refund_cancelled_production_item(
+        &mut self,
+        team: Team,
+        item: &ProductionItem,
+    ) {
+
         let mut cancelled_upgrade = None;
 
         if let Some(player) = self.get_player_mut_by_team(team) {

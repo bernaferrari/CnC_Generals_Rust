@@ -980,9 +980,12 @@ impl GameLogic {
             );
             // Ensure template exists.
             if !self.templates.contains_key(&req.object_name) {
-                let t = ThingTemplate::new(&req.object_name);
+                let mut t = ThingTemplate::new(&req.object_name);
+                t.add_kind_of(crate::game_logic::KindOf::Crate);
                 // Crates are non-combat pickups.
                 self.templates.insert(req.object_name.clone(), t);
+            } else if let Some(existing) = self.templates.get_mut(&req.object_name) {
+                existing.add_kind_of(crate::game_logic::KindOf::Crate);
             }
             let Some(crate_id) = self.create_object(&req.object_name, Team::Neutral, pos) else {
                 continue;
