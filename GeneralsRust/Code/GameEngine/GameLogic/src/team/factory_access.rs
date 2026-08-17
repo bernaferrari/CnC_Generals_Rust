@@ -77,6 +77,18 @@ impl TeamFactoryMutex {
         }
     }
 
+    /// Non-blocking lock for map-load fail-open. An abandoned startup worker
+    /// can still hold this mutex while `start_game_from_ui` syncs the live map.
+    pub fn try_lock(&self) -> TryLockResult<TeamFactoryGuard<'_>> {
+        match self.inner.try_lock() {
+            Ok(guard) => Ok(TeamFactoryGuard::new(guard)),
+            Err(TryLockError::Poisoned(poisoned)) => Err(TryLockError::Poisoned(PoisonError::new(
+                TeamFactoryGuard::new(poisoned.into_inner()),
+            ))),
+            Err(TryLockError::WouldBlock) => Err(TryLockError::WouldBlock),
+        }
+    }
+
     /// Replace the factory contents at a whole-world transaction boundary.
     ///
     /// This intentionally bypasses [`TeamFactoryGuard`].  The normal guard

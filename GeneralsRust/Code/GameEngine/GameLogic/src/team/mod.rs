@@ -45,7 +45,10 @@ use game_engine::common::well_known_keys::{
 use std::any::Any;
 use std::collections::{HashMap, HashSet};
 use std::ops::{Deref, DerefMut};
-use std::sync::{Arc, LockResult, Mutex, MutexGuard, OnceLock, PoisonError, RwLock, Weak};
+use std::sync::{
+    Arc, LockResult, Mutex, MutexGuard, OnceLock, PoisonError, RwLock, TryLockError, TryLockResult,
+    Weak,
+};
 
 include!("ids.rs");
 include!("team_struct.rs");

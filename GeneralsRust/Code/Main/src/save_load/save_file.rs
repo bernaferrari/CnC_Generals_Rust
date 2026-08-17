@@ -30,11 +30,13 @@ const SAVE_HEADER_SIZE: usize = std::mem::size_of::<SaveFileHeader>();
 /// and System `TheGameState` (`SAVELOAD_BLOCK_NAMES`).
 ///
 /// Host pause-save writes the 17 named chunks then `SG_EOF`. `CHUNK_GameState`
-/// is the C++ v2 header (`GameState.cpp:1539-1642`). `CHUNK_GameLogic` still
-/// carries a host `bincode` `WorldSnapshot` (not crate/`C++` `GameLogic::xfer`).
-/// Other registered blocks are NullSnapshot version-1 placeholders so Popup
-/// and host share one container. `CHUNK_GameStateMap` embeds the `.map` when
-/// the file is on disk (`GameStateMap.cpp:55-156`).
+/// is the C++ v2 header (`GameState.cpp:1539-1642`). `CHUNK_GameLogic` is still
+/// host `bincode` `WorldSnapshot` on write. A C++ `GameLogic::xfer` payload
+/// cannot be restored into the live host world; load fails closed instead of
+/// reporting success with an empty snapshot. Other registered blocks are
+/// NullSnapshot version-1 placeholders so Popup and host share one container.
+/// `CHUNK_GameStateMap` embeds the `.map` when the file is on disk
+/// (`GameStateMap.cpp:55-156`).
 const CHUNK_GAME_STATE: &str = "CHUNK_GameState";
 const CHUNK_GAME_LOGIC: &str = "CHUNK_GameLogic";
 const CHUNK_GAME_STATE_MAP: &str = "CHUNK_GameStateMap";
@@ -854,8 +856,8 @@ impl SaveFileManager {
 
     /// C++ `GameState::xferSaveData` 17 named chunks + `SG_EOF` (`GameState.cpp:1313-1458`).
     ///
-    /// `CHUNK_GameState` is the C++ v2 header. `CHUNK_GameLogic` payload is still
-    /// host `bincode` `WorldSnapshot` (not crate/`C++` `GameLogic::xfer`).
+    /// `CHUNK_GameState` is the C++ v2 header. Host `CHUNK_GameLogic` payload is
+    /// still `bincode` `WorldSnapshot` (not crate/`C++` `GameLogic::xfer`).
     fn write_common_sav_chunks(
         world_snapshot: &WorldSnapshot,
         save_info: &SaveGameInfo,
@@ -976,26 +978,37 @@ impl SaveFileManager {
             ));
         }
         let world_snapshot = match logic_data {
-            Some(payload) => match Self::decode_world_snapshot_payload(&payload) {
-                Ok(snapshot) => snapshot,
-                Err(_) => {
-                    // C++ `GameLogic::xfer` or CommonGameState wrapper. Try the
-                    // wrapper's `.data` field, otherwise leave objects unrestored.
-                    let mut wrapped = CommonGameState::default();
-                    let mut xfer = CommonXferLoad::new(Cursor::new(&payload), SAVE_FILE_VERSION);
-                    if wrapped.xfer(&mut xfer).is_ok() {
-                        Self::decode_world_snapshot_payload(&wrapped.data).unwrap_or_default()
-                    } else {
-                        log::warn!(
-                            "CHUNK_GameLogic is not a host WorldSnapshot; listing C++ header only"
-                        );
-                        WorldSnapshot::default()
-                    }
-                }
-            },
-            None => WorldSnapshot::default(),
+            Some(payload) => Self::decode_chunk_game_logic_for_host(&payload)?,
+            None => {
+                return Err(SaveLoadError::Corrupted(
+                    "CHUNK_GameLogic missing; refusing to report a successful empty world"
+                        .to_string(),
+                ));
+            }
         };
         Ok((world_snapshot, save_info))
+    }
+
+    /// Host `CHUNK_GameLogic` is positional `WorldSnapshot` bincode, optionally
+    /// wrapped in the older CommonGameState envelope. C++ `GameLogic::xfer`
+    /// (`GameLogic.cpp:4666`) is a different stream: refuse to report success
+    /// when those objects were not actually restored.
+    fn decode_chunk_game_logic_for_host(payload: &[u8]) -> SaveLoadResult<WorldSnapshot> {
+        match Self::decode_world_snapshot_payload(payload) {
+            Ok(snapshot) => Ok(snapshot),
+            Err(host_err) => {
+                let mut wrapped = CommonGameState::default();
+                let mut xfer = CommonXferLoad::new(Cursor::new(payload), SAVE_FILE_VERSION);
+                if wrapped.xfer(&mut xfer).is_ok() && !wrapped.data.is_empty() {
+                    if let Ok(snapshot) = Self::decode_world_snapshot_payload(&wrapped.data) {
+                        return Ok(snapshot);
+                    }
+                }
+                Err(SaveLoadError::Corrupted(format!(
+                    "CHUNK_GameLogic is not a host WorldSnapshot; C++ GameLogic::xfer (GameLogic.cpp:4666) was not restored ({host_err})"
+                )))
+            }
+        }
     }
 
     /// Decode the positional bincode payload shared by Common `.sav` chunks,
@@ -1924,13 +1937,122 @@ mod tests {
         assert_eq!(info.campaign_side.as_deref(), Some("America"));
         assert_eq!(info.mission_number, Some(3));
         assert_eq!(info.map_name, "Maps\\Alpine Assault.map");
-
-        let (snapshot, listed) =
-            SaveFileManager::read_common_sav_chunks(&bytes).expect("load lists without objects");
+        // Listing the C++ GameState header must still succeed. Restoring
+        // the world cannot: this file has no host WorldSnapshot and no
+        // restored C++ GameLogic objects (GameLogic.cpp:4666).
+        let load_err = SaveFileManager::read_common_sav_chunks(&bytes)
+            .expect_err("C++-header-only save must not report a successful world");
+        let load_err = load_err.to_string();
         assert!(
-            snapshot.objects.is_empty(),
-            "retail C++ GameLogic is not restored as host WorldSnapshot"
+            load_err.contains("CHUNK_GameLogic"),
+            "fail-closed error must name the unrestored logic chunk, got {load_err}"
         );
+    }
+
+    fn cpp_game_logic_xfer_with_objects() -> Vec<u8> {
+        // Minimal C++ GameLogic::xfer (GameLogic.cpp:4666-4696): version 10,
+        // frame, object TOC with one template, objectCount=1. Host bincode
+        // cannot consume this as WorldSnapshot.
+        let mut payload = Vec::new();
+        {
+            let mut cursor = Cursor::new(&mut payload);
+            let mut xfer = CommonXferSave::new(&mut cursor, SAVE_FILE_VERSION);
+            let mut version = 10u8;
+            xfer.xfer_version(&mut version, 10).expect("C++ GameLogic version");
+            let mut frame = 42u32;
+            xfer.xfer_unsigned_int(&mut frame).expect("frame");
+            let mut toc_version = 1u8;
+            xfer.xfer_version(&mut toc_version, 1).expect("TOC version");
+            let mut toc_count = 1u32;
+            xfer.xfer_unsigned_int(&mut toc_count).expect("TOC count");
+            write_ascii(&mut xfer, "AmericaRanger").expect("TOC name");
+            let mut toc_id = 1u16;
+            xfer.xfer_unsigned_short(&mut toc_id).expect("TOC id");
+            let mut object_count = 1u32;
+            xfer.xfer_unsigned_int(&mut object_count).expect("objectCount");
+            xfer.xfer_unsigned_short(&mut toc_id).expect("object TOC id");
+            xfer.begin_block().expect("object block");
+            let mut dummy = [0u8, 1, 2, 3];
+            unsafe {
+                xfer.xfer_user(dummy.as_mut_ptr(), dummy.len())
+                    .expect("object bytes");
+            }
+            xfer.end_block().expect("end object block");
+        }
+        payload
+    }
+
+    #[test]
+    fn cpp_chunk_game_logic_does_not_report_successful_empty_world() {
+        // C++ GameState::xferSaveData (GameState.cpp:1313-1381) writes
+        // CHUNK_GameLogic via GameLogic::xfer (GameLogic.cpp:4666). Pre-fix
+        // host decoded that as WorldSnapshot::default() and load reported
+        // success with objects stripped.
+        let mut header = Vec::new();
+        {
+            let mut cursor = Cursor::new(&mut header);
+            let mut xfer = CommonXferSave::new(&mut cursor, SAVE_FILE_VERSION);
+            write_cpp_game_state_header(&mut xfer, &SaveGameInfo {
+                filename: "retail".into(),
+                display_name: "Retail Save".into(),
+                description: "C++ listed".into(),
+                map_name: "Maps\\Alpine Assault.map".into(),
+                campaign_side: Some("America".into()),
+                mission_number: Some(3),
+                save_date: UNIX_EPOCH + std::time::Duration::from_secs(1_700_000_000),
+                game_version: "1.04".into(),
+                play_time: std::time::Duration::from_secs(0),
+                difficulty: GameDifficulty::Medium,
+                save_type: SaveFileType::Mission,
+            })
+            .expect("encode v2 header");
+        }
+        let logic = cpp_game_logic_xfer_with_objects();
+        assert_eq!(logic.first().copied(), Some(10), "C++ GameLogic currentVersion is 10");
+
+        let mut bytes = Vec::new();
+        bytes.push(CHUNK_GAME_STATE.len() as u8);
+        bytes.extend_from_slice(CHUNK_GAME_STATE.as_bytes());
+        bytes.extend_from_slice(&(header.len() as i32).to_le_bytes());
+        bytes.extend_from_slice(&header);
+        bytes.push(CHUNK_GAME_LOGIC.len() as u8);
+        bytes.extend_from_slice(CHUNK_GAME_LOGIC.as_bytes());
+        bytes.extend_from_slice(&(logic.len() as i32).to_le_bytes());
+        bytes.extend_from_slice(&logic);
+        bytes.push(SAVE_FILE_EOF.len() as u8);
+        bytes.extend_from_slice(SAVE_FILE_EOF.as_bytes());
+
+        let listed = SaveFileManager::read_named_chunk_save_info(&bytes)
+            .expect("C++ header must still list");
         assert_eq!(listed.description, "C++ listed");
+
+        let err = SaveFileManager::read_common_sav_chunks(&bytes)
+            .expect_err("C++ GameLogic::xfer must not succeed as an empty host world");
+        let err = err.to_string();
+        assert!(
+            err.contains("GameLogic::xfer") || err.contains("not a host WorldSnapshot"),
+            "error must say C++ objects were not restored, got {err}"
+        );
+
+        let fixture_directory = unique_fixture_directory();
+        std::fs::create_dir_all(&fixture_directory).expect("create fixture directory");
+        let path = fixture_directory.join("retail_cpp.sav");
+        std::fs::write(&path, &bytes).expect("write C++-shaped save");
+        let mut manager = SaveFileManager::with_save_directory(&fixture_directory);
+        let mut world = GameLogic::new();
+        let load_err = manager
+            .load_game("retail_cpp", &mut world)
+            .expect_err("live load must refuse unrestored C++ CHUNK_GameLogic");
+        assert!(
+            world.host_objects().is_empty(),
+            "fail-closed load must not populate a stripped world"
+        );
+        let load_err = load_err.to_string();
+        assert!(
+            load_err.contains("GameLogic::xfer") || load_err.contains("not a host WorldSnapshot"),
+            "live load error must name the unrestored C++ stream, got {load_err}"
+        );
+        let _ = std::fs::remove_file(path);
+        let _ = std::fs::remove_dir(fixture_directory);
     }
 }

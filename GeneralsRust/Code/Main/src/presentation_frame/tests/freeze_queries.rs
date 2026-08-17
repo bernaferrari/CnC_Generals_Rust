@@ -426,6 +426,91 @@ fn similar_unit_ids_from_presentation() {
 }
 
 #[test]
+fn select_similar_is_structure_aware_and_alt_selects_across_map() {
+    // C++ SelectionXlat.cpp:466,475,498-501 + Object.cpp:3024 isMassSelectable.
+    // Double-click matches ThingTemplate, refuses structures, and is screen-only
+    // unless ALT (selectMatchingAcrossMap).
+    use crate::game_logic::{KindOf, Player, Team, ThingTemplate};
+    use glam::{Mat4, Vec2, Vec3};
+
+    let mut logic = crate::game_logic::GameLogic::new();
+    logic.add_player(Player::new(0, Team::USA, "USA", true));
+    let mut ranger = ThingTemplate::new("Ranger");
+    ranger.set_health(100.0);
+    ranger.add_kind_of(KindOf::Infantry);
+    ranger.add_kind_of(KindOf::Selectable);
+    logic.templates.insert("Ranger".into(), ranger);
+    let mut barracks = ThingTemplate::new("AmericaBarracks");
+    barracks.set_health(1000.0);
+    barracks.add_kind_of(KindOf::Structure);
+    barracks.add_kind_of(KindOf::Selectable);
+    logic.templates.insert("AmericaBarracks".into(), barracks);
+
+    let on_screen = logic
+        .create_object("Ranger", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("on-screen ranger");
+    let off_screen = logic
+        .create_object("Ranger", Team::USA, Vec3::new(400.0, 0.0, 400.0))
+        .expect("off-screen ranger");
+    let barracks_a = logic
+        .create_object("AmericaBarracks", Team::USA, Vec3::new(2.0, 0.0, 2.0))
+        .expect("barracks a");
+    let _barracks_b = logic
+        .create_object("AmericaBarracks", Team::USA, Vec3::new(4.0, 0.0, 4.0))
+        .expect("barracks b");
+
+    let frame = PresentationFrame::build_from_logic(&logic, 0);
+    let view = Mat4::look_at_rh(Vec3::new(70.0, 90.0, 110.0), Vec3::ZERO, Vec3::Y);
+    let projection = Mat4::perspective_rh(60.0_f32.to_radians(), 1.0, 1.0, 2_000.0);
+    let viewport = Vec2::splat(1_000.0);
+
+    let mut screen = frame.similar_unit_ids_for_double_click(
+        on_screen,
+        Team::USA,
+        false,
+        view,
+        projection,
+        viewport,
+    );
+    screen.sort_by_key(|id| id.0);
+    assert_eq!(screen, vec![on_screen], "plain double-click is on-screen only");
+
+    let mut across_map = frame.similar_unit_ids_for_double_click(
+        on_screen,
+        Team::USA,
+        true,
+        view,
+        projection,
+        viewport,
+    );
+    across_map.sort_by_key(|id| id.0);
+    let mut expect_map = vec![on_screen, off_screen];
+    expect_map.sort_by_key(|id| id.0);
+    assert_eq!(
+        across_map, expect_map,
+        "ALT double-click selects the same template across the map"
+    );
+
+    assert!(
+        frame.similar_unit_ids(barracks_a, Team::USA).is_empty(),
+        "structures are not mass-selectable (C++ isMassSelectable)"
+    );
+    assert!(
+        frame
+            .similar_unit_ids_for_double_click(
+                barracks_a,
+                Team::USA,
+                true,
+                view,
+                projection,
+                viewport,
+            )
+            .is_empty(),
+        "ALT must not type-select buildings either"
+    );
+}
+
+#[test]
 fn kind_of_freeze_from_host() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = crate::game_logic::GameLogic::new();

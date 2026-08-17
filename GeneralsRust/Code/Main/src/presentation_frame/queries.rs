@@ -768,20 +768,29 @@ impl PresentationFrame {
         obj.kind_of.iter().any(|k| *k == kind)
     }
 
-    /// Double-click residual: same-template selectable friendlies from snapshot.
+    /// C++ `Object::isMassSelectable` (`Object.cpp:3024`): selectable and not a structure.
+    /// Double-click type-select refuses buildings (`SelectionXlat.cpp:475`).
+    pub fn presentation_is_mass_selectable(obj: &RenderableObject) -> bool {
+        use crate::game_logic::KindOf;
+        use crate::unit_control::UnitControlSystem;
+        UnitControlSystem::presentation_is_selectable(obj)
+            && !obj.is_structure
+            && !Self::object_has_kind(obj, KindOf::Structure)
+            && obj.object_type != PresentationObjectType::Building
+    }
+
+    /// Same-template locally-owned mass-selectables (`similarUnitSelection`, InGameUI.cpp:150).
+    /// Map-wide: C++ `selectMatchingAcrossRegion(NULL)` / ALT double-click.
     pub fn similar_unit_ids(
         &self,
         clicked_id: ObjectId,
         player_team: crate::game_logic::Team,
     ) -> Vec<ObjectId> {
-        use crate::game_logic::KindOf;
-        use crate::unit_control::UnitControlSystem;
-        let _ = player_team;
         let Some(clicked) = self.objects.iter().find(|o| o.id == clicked_id) else {
             return Vec::new();
         };
-        if !self.is_owned_by_local(clicked)
-            || !UnitControlSystem::presentation_is_selectable(clicked)
+        if !self.similar_unit_is_local(clicked, player_team)
+            || !Self::presentation_is_mass_selectable(clicked)
         {
             return Vec::new();
         }
@@ -789,12 +798,84 @@ impl PresentationFrame {
         self.objects
             .iter()
             .filter(|o| {
-                self.is_owned_by_local(o)
-                    && UnitControlSystem::presentation_is_selectable(o)
+                self.similar_unit_is_local(o, player_team)
+                    && Self::presentation_is_mass_selectable(o)
                     && o.template_name == template
             })
             .map(|o| o.id)
             .collect()
+    }
+
+    fn similar_unit_is_local(
+        &self,
+        object: &RenderableObject,
+        player_team: crate::game_logic::Team,
+    ) -> bool {
+        if object.owner_player_id.is_some() {
+            self.is_owned_by_local(object)
+        } else {
+            object.team == player_team
+        }
+    }
+
+    /// C++ `selectMatchingAcrossScreen` (`InGameUI.cpp:4789`): same template, current view only.
+    pub fn similar_unit_ids_across_screen(
+        &self,
+        clicked_id: ObjectId,
+        player_team: crate::game_logic::Team,
+        view_matrix: glam::Mat4,
+        projection_matrix: glam::Mat4,
+        viewport_size: glam::Vec2,
+    ) -> Vec<ObjectId> {
+        let viewport_width = viewport_size.x.max(1.0);
+        let viewport_height = viewport_size.y.max(1.0);
+        let view_projection = projection_matrix * view_matrix;
+        if !view_projection.is_finite() {
+            return Vec::new();
+        }
+        self.similar_unit_ids(clicked_id, player_team)
+            .into_iter()
+            .filter(|id| {
+                self.objects.iter().any(|object| {
+                    object.id == *id
+                        && super::alive::project_position_to_screen(
+                            view_projection,
+                            object.position,
+                            viewport_width,
+                            viewport_height,
+                        )
+                        .is_some_and(|screen| {
+                            screen.x >= 0.0
+                                && screen.y >= 0.0
+                                && screen.x <= viewport_width
+                                && screen.y <= viewport_height
+                        })
+                })
+            })
+            .collect()
+    }
+
+    /// Double-click / ALT variant (`SelectionXlat.cpp:466,498-501`).
+    pub fn similar_unit_ids_for_double_click(
+        &self,
+        clicked_id: ObjectId,
+        player_team: crate::game_logic::Team,
+        across_map: bool,
+        view_matrix: glam::Mat4,
+        projection_matrix: glam::Mat4,
+        viewport_size: glam::Vec2,
+    ) -> Vec<ObjectId> {
+        if across_map {
+            self.similar_unit_ids(clicked_id, player_team)
+        } else {
+            self.similar_unit_ids_across_screen(
+                clicked_id,
+                player_team,
+                view_matrix,
+                projection_matrix,
+                viewport_size,
+            )
+        }
     }
 
     /// Right-click residual: enemy attackable under cursor id from snapshot.

@@ -16,13 +16,12 @@ use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
 use game_engine::common::dict::Dict;
-use game_engine::common::ini::{get_terrain_roads, INILoadType, INI};
+use game_engine::common::ini::{try_get_terrain_roads, INILoadType, INI};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{
     file::FileAccess, file_system::get_file_system, DataChunkInfo, DataChunkInput,
 };
 use gamelogic::common::MAP_XY_FACTOR;
-use gamelogic::helpers::TheThingFactory;
 use gamelogic::scripting::core::{
     Condition, ConditionType, Coord3D, OrCondition, Parameter, ParameterType, Script, ScriptAction,
     ScriptActionType, ScriptGroup, ScriptList,
@@ -98,7 +97,7 @@ fn resolve_with_file_system(path: &Path) -> Option<PathBuf> {
         return None;
     }
 
-    if let Ok(file_system) = get_file_system().lock() {
+    if let Ok(file_system) = get_file_system().try_lock() {
         if file_system.does_file_exist(&normalized) {
             return Some(PathBuf::from(&normalized));
         }
@@ -115,7 +114,7 @@ fn read_file_bytes_via_file_system(path: &Path) -> Option<Vec<u8>> {
 
     let access = FileAccess::READ.combine(FileAccess::BINARY);
     let file_system = get_file_system();
-    let mut file_system = file_system.lock().ok()?;
+    let mut file_system = file_system.try_lock().ok()?;
     let mut file = file_system.open_file(&normalized, access)?;
     file.read_entire_and_close().ok()
 }
@@ -283,8 +282,8 @@ fn ensure_terrain_roads_loaded() {
 
 fn is_terrain_road_name(name: &str) -> bool {
     ensure_terrain_roads_loaded();
-    let roads = get_terrain_roads();
-    roads.find_road(name).is_some()
+    try_get_terrain_roads()
+        .is_some_and(|roads| roads.find_road(name).is_some())
 }
 
 fn decompress_map_bytes(raw_bytes: &[u8]) -> LoaderResult<Vec<u8>> {
@@ -2018,9 +2017,15 @@ fn build_runtime_bridge_data(template_name: &str, from: Coord3D, to: Coord3D) ->
 }
 
 fn runtime_bridge_width_from_template(template_name: &str) -> Option<f32> {
-    let template = TheThingFactory::find_template(template_name)?;
+    // Do not call TheThingFactory::find_template here: that helper lazy-inits
+    // the entire Object INI database (14s+ on Lone Eagle). C++ already has
+    // TheThingFactory from GameEngine::init; if the host factory is empty or
+    // still held by the abandoned boot worker, use the default bridge width.
+    let factory_guard = game_engine::common::thing::thing_factory::try_get_thing_factory()?;
+    let factory = factory_guard.as_ref()?;
+    let template = factory.find_template(template_name, false)?;
     let geometry = template.get_template_geometry_info();
-    let width = (geometry.get_minor_radius() * 2.0).max(0.0);
+    let width = (geometry.minor_radius() * 2.0).max(0.0);
     if width > 0.0 {
         Some(width)
     } else {
@@ -2060,19 +2065,20 @@ fn build_runtime_road_data(
 }
 
 fn runtime_road_style_for_template(template_name: &str) -> (f32, f32, u32) {
-    let roads = get_terrain_roads();
-    if let Some(road) = roads.find_road(template_name) {
-        let width = if road.road_width > 0.0 {
-            road.road_width
-        } else {
-            DEFAULT_RUNTIME_ROAD_WIDTH
-        };
-        let width_in_texture = if road.road_width_in_texture > 0.0 {
-            road.road_width_in_texture
-        } else {
-            DEFAULT_RUNTIME_ROAD_WIDTH_IN_TEXTURE
-        };
-        return (width, width_in_texture, road.id);
+    if let Some(roads) = try_get_terrain_roads() {
+        if let Some(road) = roads.find_road(template_name) {
+            let width = if road.road_width > 0.0 {
+                road.road_width
+            } else {
+                DEFAULT_RUNTIME_ROAD_WIDTH
+            };
+            let width_in_texture = if road.road_width_in_texture > 0.0 {
+                road.road_width_in_texture
+            } else {
+                DEFAULT_RUNTIME_ROAD_WIDTH_IN_TEXTURE
+            };
+            return (width, width_in_texture, road.id);
+        }
     }
 
     (
@@ -3135,6 +3141,47 @@ mod tests {
         assert_eq!(heightmap.border_size, 70);
         assert_eq!(heightmap.data.len(), 315 * 315);
     }
+
+    #[test]
+    fn lone_eagle_fast_chunky_parses_in_under_five_seconds() {
+        // Smoke hangs inside sync_legacy_runtime_from_fast_chunky after
+        // "Fast legacy runtime sync started". Isolate CPU parse from
+        // THE_TERRAIN_LOGIC / SidesList / PlayerList / TeamFactory / FileSystem
+        // locks. Contended-lock fail-open is covered separately.
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
+            "../../../windows_game/extracted_big_files/MapsZH/Maps/Lone Eagle/Lone Eagle.map",
+        );
+        let Ok(raw) = std::fs::read(&path) else {
+            return;
+        };
+        let started = std::time::Instant::now();
+        let bytes = decompress_map_bytes(&raw).expect("Lone Eagle decompress");
+        let (toc, body_offset) = parse_chunk_toc(&bytes).expect("Lone Eagle TOC");
+        let chunky = ChunkyMap {
+            source: path,
+            toc,
+            body_offset,
+            bytes,
+        };
+        let heightmap = parse_heightmap_data_from_chunky(&chunky).expect("heightmap");
+        let _ = parse_runtime_waypoints_from_chunky(&chunky).expect("waypoints");
+        let _ = parse_runtime_bridges_from_chunky(&chunky).expect("bridges");
+        let _ = parse_runtime_water_height_from_chunky(&chunky).expect("water");
+        let _ = parse_runtime_polygon_triggers_from_chunky(&chunky).expect("polygons");
+        let _ = parse_runtime_roads_from_chunky(&chunky).expect("roads");
+        let _ = parse_runtime_sides_from_chunky(&chunky).expect("sides");
+        let elapsed = started.elapsed();
+        assert!(
+            elapsed.as_secs_f32() < 5.0,
+            "Lone Eagle CPU parse took {:?}; hang is not parse",
+            elapsed
+        );
+        assert!(
+            heightmap.is_some(),
+            "Lone Eagle must embed HeightMapData"
+        );
+    }
+
 
     fn chunk(id: u32, version: u16, payload: &[u8]) -> Vec<u8> {
         let mut bytes = Vec::new();

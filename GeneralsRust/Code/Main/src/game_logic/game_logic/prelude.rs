@@ -30,7 +30,9 @@ pub(super) use crate::ui::color_for_player;
 pub(super) use crate::ui::objectives::{ObjectiveCategory, ObjectiveDisplay, ObjectiveStatus};
 pub(super) use game_engine::common::dict::Dict;
 pub(super) use game_engine::common::name_key_generator::NameKeyGenerator;
-pub(super) use game_engine::common::rts::player_template::get_player_template_store;
+pub(super) use game_engine::common::rts::player_template::{
+    get_player_template_store, try_get_player_template_store,
+};
 pub(super) use game_engine::common::system::build_assistant::get_build_assistant;
 pub(super) use game_engine::common::well_known_keys::{
     key_multiplayer_start_index, key_player_allies, key_player_display_name, key_player_enemies,

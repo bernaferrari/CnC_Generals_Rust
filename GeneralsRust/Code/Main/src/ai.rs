@@ -313,7 +313,11 @@ impl AIPlayer {
 
     }
 
-    /// Set up initial base building layout
+    /// Set up initial base building layout.
+    ///
+    /// Core pads plus the C++ `AIData.ini` `SkirmishBuildList` tech/air
+    /// structures and `SideInfo::BaseDefenseStructure1`.  Offsets stay inside
+    /// the host 512² MinDistFromEdge residual (|offset| ≤ 100).
     fn setup_base_layout(&mut self) {
         let center = self.base_center;
 
@@ -325,6 +329,13 @@ impl AIPlayer {
                 self.add_building("AmericaPowerPlant", center + Vec3::new(-50.0, 0.0, 0.0), 2);
                 self.add_building("AmericaBarracks", center + Vec3::new(0.0, 0.0, 50.0), 2);
                 self.add_building("AmericaWarFactory", center + Vec3::new(100.0, 0.0, 50.0), 1);
+                // C++ SkirmishBuildList America: StrategyCenter + Airfield.
+                self.add_building(
+                    "AmericaStrategyCenter",
+                    center + Vec3::new(-100.0, 0.0, 50.0),
+                    1,
+                );
+                self.add_building("AmericaAirfield", center + Vec3::new(50.0, 0.0, -100.0), 1);
             }
             Team::China => {
                 self.add_building("ChinaCommandCenter", center, 1);
@@ -332,15 +343,52 @@ impl AIPlayer {
                 self.add_building("ChinaPowerPlant", center + Vec3::new(-50.0, 0.0, 0.0), 2);
                 self.add_building("ChinaBarracks", center + Vec3::new(0.0, 0.0, 50.0), 2);
                 self.add_building("ChinaWarFactory", center + Vec3::new(100.0, 0.0, 50.0), 1);
+                // C++ SkirmishBuildList China: PropagandaCenter + Airfield.
+                self.add_building(
+                    "ChinaPropagandaCenter",
+                    center + Vec3::new(-100.0, 0.0, 50.0),
+                    1,
+                );
+                self.add_building("ChinaAirfield", center + Vec3::new(50.0, 0.0, -100.0), 1);
             }
             Team::GLA => {
                 self.add_building("GLACommandCenter", center, 1);
                 self.add_building("GLASupplyStash", center + Vec3::new(50.0, 0.0, 0.0), 3);
                 self.add_building("GLAArmsDealer", center + Vec3::new(0.0, 0.0, 50.0), 2);
                 self.add_building("GLABarracks", center + Vec3::new(-50.0, 0.0, 50.0), 2);
+                // C++ SkirmishBuildList GLA: Palace is the tech structure.
+                self.add_building("GLAPalace", center + Vec3::new(100.0, 0.0, -50.0), 1);
             }
             _ => {}
         }
+
+        // C++ `AISkirmishPlayer::buildAIBaseDefense` → `m_baseDefenseStructure1`.
+        if let Some(defense) = self.base_defense_structure() {
+            self.add_building(defense, center + Vec3::new(80.0, 0.0, 80.0), 1);
+        }
+    }
+
+    /// C++ `AIData.ini` `SideInfo` name for the live host team.
+    fn side_info_name(&self) -> Option<&'static str> {
+        use crate::game_logic::host_faction_skirmish_residual::{
+            SIDE_AMERICA, SIDE_CHINA, SIDE_GLA,
+        };
+        match self.team {
+            Team::USA => Some(SIDE_AMERICA),
+            Team::China => Some(SIDE_CHINA),
+            Team::GLA => Some(SIDE_GLA),
+            _ => None,
+        }
+    }
+
+    /// C++ `AISideInfo::m_baseDefenseStructure1` for this host team.
+    fn base_defense_structure(&self) -> Option<&'static str> {
+        use crate::game_logic::host_faction_skirmish_residual::SKIRMISH_AI_SIDE_INFO_RESIDUAL;
+        let side = self.side_info_name()?;
+        SKIRMISH_AI_SIDE_INFO_RESIDUAL
+            .iter()
+            .find(|info| info.side == side)
+            .map(|info| info.base_defense_structure1)
     }
 
     /// Add building to construction queue
@@ -1363,29 +1411,197 @@ impl AIPlayer {
         }
     }
 
-    /// C++ `AIPlayer::doUpgradesAndSkills` residual — spend science points.
+    /// C++ `AIPlayer::doUpgradesAndSkills` (AIPlayer.cpp:2908) spends science
+    /// points from `AISideInfo` SkillSet1. Host also runs a residual of
+    /// `AIPlayer::buildUpgrade` (AIPlayer.cpp:1728) so structure research is
+    /// not stuck at tier-1.
     fn do_upgrades_and_skills(&mut self, game_logic: &mut GameLogic) {
+        self.try_queue_structure_upgrade(game_logic);
+        self.try_purchase_skillset_science(game_logic);
+    }
+
+    /// Retail `AIData.ini` `SideInfo` SkillSet1 sciences for the live team.
+    fn skillset_science_candidates(&self) -> &'static [&'static str] {
+        match self.team {
+            Team::USA => &[
+                "SCIENCE_PaladinTank",
+                "SCIENCE_StealthFighter",
+                "SCIENCE_A10ThunderboltMissileStrike1",
+                "SCIENCE_A10ThunderboltMissileStrike2",
+                "SCIENCE_A10ThunderboltMissileStrike3",
+                "SCIENCE_SpectreGunshipSolo",
+                "SCIENCE_DaisyCutter",
+            ],
+            Team::China => &[
+                "SCIENCE_NukeLauncher",
+                "SCIENCE_ArtilleryTraining",
+                "SCIENCE_ClusterMines",
+                "SCIENCE_ArtilleryBarrage1",
+                "SCIENCE_ArtilleryBarrage2",
+                "SCIENCE_ArtilleryBarrage3",
+                "SCIENCE_EMPPulse",
+            ],
+            Team::GLA => &[
+                "SCIENCE_ScudLauncher",
+                "SCIENCE_CashBounty1",
+                "SCIENCE_CashBounty2",
+                "SCIENCE_CashBounty3",
+                "SCIENCE_SneakAttack",
+                "SCIENCE_GPSScrambler",
+                "SCIENCE_AnthraxBomb",
+            ],
+            _ => &[],
+        }
+    }
+
+    fn try_purchase_skillset_science(&self, game_logic: &mut GameLogic) {
         let Some(player) = game_logic.get_player_mut(self.player_id) else {
             return;
         };
         if player.science_purchase_points <= 0 {
             return;
         }
-        const CANDIDATES: &[&str] = &[
-            "SCIENCE_Rank1",
-            "SCIENCE_Rank2",
-            "SCIENCE_Rank3",
-            "SCIENCE_PaladinTank",
-            "SCIENCE_StealthFighter",
-            "SCIENCE_Pathfinder",
-            "SCIENCE_RedGuardTraining",
-            "SCIENCE_CashBounty1",
-        ];
-        for name in CANDIDATES {
+        for name in self.skillset_science_candidates() {
             if player.attempt_to_purchase_science(name) {
                 break;
             }
         }
+    }
+
+    /// C++ `AIPlayer::buildUpgrade` residual — queue one structure upgrade.
+    fn structure_upgrade_candidates(&self) -> &'static [&'static str] {
+        use crate::game_logic::host_upgrades::{
+            UPGRADE_AMERICA_ADVANCED_TRAINING, UPGRADE_AMERICA_RANGER_CAPTURE,
+            UPGRADE_AMERICA_SUPPLY_LINES, UPGRADE_CHINA_NATIONALISM,
+            UPGRADE_CHINA_REDGUARD_CAPTURE, UPGRADE_GLA_AP_BULLETS, UPGRADE_GLA_REBEL_CAPTURE,
+        };
+        match self.team {
+            Team::USA => &[
+                UPGRADE_AMERICA_SUPPLY_LINES,
+                UPGRADE_AMERICA_RANGER_CAPTURE,
+                UPGRADE_AMERICA_ADVANCED_TRAINING,
+            ],
+            Team::China => &[UPGRADE_CHINA_NATIONALISM, UPGRADE_CHINA_REDGUARD_CAPTURE],
+            Team::GLA => &[UPGRADE_GLA_REBEL_CAPTURE, UPGRADE_GLA_AP_BULLETS],
+            _ => &[],
+        }
+    }
+
+    fn preferred_upgrade_producer_names(upgrade_name: &str) -> &'static [&'static str] {
+        let n = upgrade_name.to_ascii_lowercase();
+        if n.contains("supplylines") {
+            &["AmericaSupplyCenter", "ChinaSupplyCenter", "GLASupplyStash"]
+        } else if n.contains("capture") {
+            &["AmericaBarracks", "ChinaBarracks", "GLABarracks"]
+        } else if n.contains("advancedtraining") {
+            &["AmericaStrategyCenter"]
+        } else if n.contains("nationalism") {
+            &["ChinaPropagandaCenter"]
+        } else if n.contains("apbullets") {
+            &["GLAPalace"]
+        } else {
+            &[]
+        }
+    }
+
+    fn building_can_queue_upgrade(object: &crate::game_logic::Object, upgrade_name: &str) -> bool {
+        if !object.is_alive() || !object.is_constructed() {
+            return false;
+        }
+        let Some(building) = object.building_data.as_ref() else {
+            return false;
+        };
+        if building.production_queue.len() >= crate::game_logic::DEFAULT_PRODUCTION_QUEUE_LIMIT {
+            return false;
+        }
+        !building
+            .production_queue
+            .iter()
+            .any(|item| item.is_upgrade() && item.template_name.eq_ignore_ascii_case(upgrade_name))
+    }
+
+    fn find_upgrade_producer(
+        &self,
+        game_logic: &GameLogic,
+        upgrade_name: &str,
+    ) -> Option<ObjectId> {
+        let preferred = Self::preferred_upgrade_producer_names(upgrade_name);
+        let mut fallback = None;
+        for (&id, object) in game_logic.host_objects() {
+            if object.team != self.team || !Self::building_can_queue_upgrade(object, upgrade_name) {
+                continue;
+            }
+            let name_ok = preferred.iter().any(|name| {
+                object.template_name.eq_ignore_ascii_case(name)
+                    || object.get_template().name.eq_ignore_ascii_case(name)
+            });
+            if name_ok {
+                return Some(id);
+            }
+            if fallback.is_none() {
+                fallback = Some(id);
+            }
+        }
+        fallback
+    }
+
+    fn try_queue_structure_upgrade(&mut self, game_logic: &mut GameLogic) {
+        let Some(player) = game_logic.get_player(self.player_id) else {
+            return;
+        };
+        if !player.is_alive {
+            return;
+        }
+        let Some(upgrade_name) = self.structure_upgrade_candidates().iter().copied().find(|name| {
+            !player.has_unlocked_upgrade(name) && !player.has_queued_upgrade(name)
+        }) else {
+            return;
+        };
+        let kind = HostUpgradeKind::from_name(upgrade_name);
+        let cost = Resources {
+            supplies: kind.retail_build_cost(),
+            power: 0,
+        };
+        if cost.supplies == 0 || !player.can_afford(&cost) {
+            return;
+        }
+        let Some(producer_id) = self.find_upgrade_producer(game_logic, upgrade_name) else {
+            return;
+        };
+        let Some(player) = game_logic.get_player_mut(self.player_id) else {
+            return;
+        };
+        if !player.queue_upgrade(upgrade_name, &cost) {
+            return;
+        }
+        let secs = kind.retail_build_time_secs().max(1.0 / LOGIC_FRAMES_PER_SECOND);
+        if !game_logic.unit_command_building_add_upgrade_to_queue(
+            producer_id,
+            upgrade_name,
+            secs,
+            cost,
+        ) {
+            if let Some(player) = game_logic.get_player_mut(self.player_id) {
+                let _ = player.cancel_queued_upgrade(upgrade_name, &cost);
+            }
+            return;
+        }
+        game_logic.record_host_upgrade_queued(
+            self.player_id,
+            self.team,
+            upgrade_name,
+            Some(producer_id),
+        );
+        game_logic
+            .host_upgrades_mut()
+            .set_build_cost_paid(upgrade_name, self.player_id, cost.supplies);
+        let frames = (secs * LOGIC_FRAMES_PER_SECOND).round().max(1.0) as u32;
+        game_logic.host_upgrades_mut().set_resolved_research_frames(
+            upgrade_name,
+            self.player_id,
+            frames,
+        );
+        self.activity_count = self.activity_count.saturating_add(1);
     }
 
     /// Pick candidate team name for the current strategy (same as select_team_to_build).
@@ -1488,7 +1704,13 @@ impl AIPlayer {
         }
     }
 
-    /// Create work orders for a specific team type
+    /// Create work orders for a specific team type.
+    ///
+    /// Late-game names (`USA_AdvancedStrike`, `China_HeavyAssault`,
+    /// `GLA_MassAssault`) keep their C++-style team identity and emit the
+    /// matching retail ThingTemplate units. Unknown names stay empty so they
+    /// cannot silently become default infantry (C++ `selectTeamToBuild` only
+    /// queues `TeamPrototype` unit lists).
     fn create_work_orders_for_team(&self, team_name: &str) -> Vec<AIWorkOrder> {
         let mut orders = Vec::new();
 
@@ -1509,10 +1731,27 @@ impl AIPlayer {
                 orders.push(AIWorkOrder::new("AmericaVehicleHumvee".to_string(), 2, 90));
                 orders.push(AIWorkOrder::new("USA_CrusaderTank".to_string(), 1, 100));
             }
+            "USA_AdvancedStrike" => {
+                orders.push(AIWorkOrder::new(
+                    "AmericaInfantryMissileDefender".to_string(),
+                    2,
+                    80,
+                ));
+                orders.push(AIWorkOrder::new("AmericaTankCrusader".to_string(), 2, 90));
+                orders.push(AIWorkOrder::new("AmericaJetRaptor".to_string(), 2, 100));
+            }
             "China_RedGuardSquad" => {
                 orders.push(AIWorkOrder::new(
                     "ChinaInfantryRedguard".to_string(),
                     4,
+                    100,
+                ));
+            }
+            "China_BasicForce" => {
+                orders.push(AIWorkOrder::new("ChinaInfantryRedguard".to_string(), 2, 90));
+                orders.push(AIWorkOrder::new(
+                    "ChinaTankBattleMaster".to_string(),
+                    1,
                     100,
                 ));
             }
@@ -1523,6 +1762,11 @@ impl AIPlayer {
                     100,
                 ));
                 orders.push(AIWorkOrder::new("ChinaInfantryRedguard".to_string(), 2, 80));
+            }
+            "China_HeavyAssault" => {
+                orders.push(AIWorkOrder::new("ChinaTankBattleMaster".to_string(), 2, 80));
+                orders.push(AIWorkOrder::new("ChinaTankOverlord".to_string(), 1, 90));
+                orders.push(AIWorkOrder::new("ChinaJetMIG".to_string(), 2, 100));
             }
             "GLA_TechnicalSquad" => {
                 // Barracks first: infantry produces even if ArmsDealer is still building.
@@ -1537,28 +1781,11 @@ impl AIPlayer {
                 orders.push(AIWorkOrder::new("GLA_Technical".to_string(), 2, 100));
             }
             "GLA_MassAssault" => {
-                orders.push(AIWorkOrder::new("GLAInfantryRebel".to_string(), 4, 80));
-                orders.push(AIWorkOrder::new("GLA_Technical".to_string(), 3, 100));
+                orders.push(AIWorkOrder::new("GLAInfantryRebel".to_string(), 2, 80));
+                orders.push(AIWorkOrder::new("GLAVehicleTechnical".to_string(), 2, 90));
+                orders.push(AIWorkOrder::new("GLAVehicleScudLauncher".to_string(), 1, 100));
             }
-            _ => {
-                // Default team
-                match self.team {
-                    Team::USA => orders.push(AIWorkOrder::new(
-                        "AmericaInfantryRanger".to_string(),
-                        2,
-                        100,
-                    )),
-                    Team::China => orders.push(AIWorkOrder::new(
-                        "ChinaInfantryRedguard".to_string(),
-                        2,
-                        100,
-                    )),
-                    Team::GLA => {
-                        orders.push(AIWorkOrder::new("GLAInfantryRebel".to_string(), 3, 100))
-                    }
-                    _ => {}
-                }
-            }
+            _ => {}
         }
 
         orders
@@ -1591,6 +1818,8 @@ impl AIPlayer {
             || unit.contains("redguard")
             || unit.contains("soldier")
             || unit.contains("rebel")
+            || unit.contains("missiledefender")
+            || unit.contains("pathfinder")
         {
             return match team {
                 Team::USA => Some("AmericaBarracks"),
@@ -1599,7 +1828,29 @@ impl AIPlayer {
                 _ => None,
             };
         }
-        if unit.contains("humvee") || unit.contains("technical") || unit.contains("tank") {
+        if unit.contains("raptor")
+            || unit.contains("stealth")
+            || unit.contains("aurora")
+            || unit.contains("comanche")
+            || unit.contains("chinook")
+            || unit.contains("mig")
+            || unit.contains("helix")
+            || unit.contains("jet")
+        {
+            return match team {
+                Team::USA => Some("AmericaAirfield"),
+                Team::China => Some("ChinaAirfield"),
+                Team::GLA => None,
+                _ => None,
+            };
+        }
+        if unit.contains("humvee")
+            || unit.contains("technical")
+            || unit.contains("tank")
+            || unit.contains("tomahawk")
+            || unit.contains("scud")
+            || unit.contains("launcher")
+        {
             return match team {
                 Team::USA => Some("AmericaWarFactory"),
                 Team::China => Some("ChinaWarFactory"),
@@ -1618,8 +1869,10 @@ impl AIPlayer {
         let alias = match retail_factory {
             "AmericaBarracks" => "USA_Barracks",
             "AmericaWarFactory" => "USA_WarFactory",
+            "AmericaAirfield" => "USA_Airfield",
             "ChinaBarracks" => "China_Barracks",
             "ChinaWarFactory" => "China_WarFactory",
+            "ChinaAirfield" => "China_Airfield",
             "GLABarracks" => "GLA_Barracks",
             "GLAArmsDealer" => "GLA_ArmsDealer",
             _ => return false,
@@ -4210,6 +4463,135 @@ mod cpp_parity_tests {
             "ready superweapon must be consumed or recorded as a strike"
         );
     }
+
+    #[test]
+    fn late_game_team_keeps_higher_tier_templates_instead_of_default_infantry() {
+        // C++ `AIPlayer::selectTeamToBuild` (AIPlayer.cpp:1630) queues
+        // `TeamPrototype` unit lists. Host late-game names must not collapse
+        // to default Rangers when the higher-tier ThingTemplates exist.
+        let mut logic = crate::game_logic::GameLogic::new();
+        let mut player = crate::game_logic::Player::new(1, Team::USA, "USA AI", false);
+        player.resources.supplies = 20_000;
+        logic.add_player(player);
+
+        for (name, kind, cost) in [
+            ("AmericaBarracks", crate::game_logic::KindOf::FSBarracks, 500),
+            (
+                "AmericaWarFactory",
+                crate::game_logic::KindOf::FSWarFactory,
+                1_000,
+            ),
+            ("AmericaAirfield", crate::game_logic::KindOf::FSAirfield, 1_000),
+            (
+                "AmericaStrategyCenter",
+                crate::game_logic::KindOf::FSStrategyCenter,
+                2_000,
+            ),
+            (
+                "AmericaPatriotBattery",
+                crate::game_logic::KindOf::FSBaseDefense,
+                1_000,
+            ),
+        ] {
+            let mut building = crate::game_logic::ThingTemplate::new(name);
+            building
+                .add_kind_of(crate::game_logic::KindOf::Structure)
+                .add_kind_of(kind)
+                .set_cost(cost, 0);
+            logic.templates.insert(name.into(), building);
+        }
+        for (name, kind, cost) in [
+            (
+                "AmericaInfantryMissileDefender",
+                crate::game_logic::KindOf::Infantry,
+                300,
+            ),
+            (
+                "AmericaTankCrusader",
+                crate::game_logic::KindOf::Vehicle,
+                900,
+            ),
+            ("AmericaJetRaptor", crate::game_logic::KindOf::Aircraft, 1_400),
+        ] {
+            let mut unit = crate::game_logic::ThingTemplate::new(name);
+            unit.add_kind_of(kind).set_cost(cost, 0);
+            logic.templates.insert(name.into(), unit);
+        }
+
+        let _ = logic.create_object("AmericaBarracks", Team::USA, Vec3::ZERO);
+        let _ = logic.create_object(
+            "AmericaWarFactory",
+            Team::USA,
+            Vec3::new(64.0, 0.0, 0.0),
+        );
+        let _ = logic.create_object("AmericaAirfield", Team::USA, Vec3::new(128.0, 0.0, 0.0));
+        let strategy = logic
+            .create_object(
+                "AmericaStrategyCenter",
+                Team::USA,
+                Vec3::new(0.0, 0.0, 64.0),
+            )
+            .expect("strategy center");
+
+        let mut ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
+        ai.current_strategy = AIStrategy::LateGame;
+
+        let orders = ai.create_work_orders_for_team("USA_AdvancedStrike");
+        let templates: Vec<&str> = orders
+            .iter()
+            .map(|order| order.template_name.as_str())
+            .collect();
+        assert!(
+            templates.contains(&"AmericaTankCrusader"),
+            "late-game USA team must keep Crusaders: {templates:?}"
+        );
+        assert!(
+            templates.contains(&"AmericaJetRaptor"),
+            "late-game USA team must keep Raptors: {templates:?}"
+        );
+        assert!(
+            !templates.iter().all(|name| name.contains("Ranger")),
+            "late-game USA team must not collapse to Rangers: {templates:?}"
+        );
+        assert!(
+            ai.create_work_orders_for_team("NoSuchTeam").is_empty(),
+            "unknown team names must not invent default infantry"
+        );
+        assert!(
+            ai.is_possible_to_build_team(&logic, "USA_AdvancedStrike"),
+            "factories for missile infantry, tanks, and jets must satisfy the late team"
+        );
+
+        ai.initialize(Vec3::new(-120.0, 0.0, -120.0));
+        let planned: Vec<&str> = ai
+            .building_queue
+            .iter()
+            .map(|building| building.template_name.as_str())
+            .collect();
+        assert!(
+            planned.contains(&"AmericaStrategyCenter")
+                && planned.contains(&"AmericaAirfield")
+                && planned.contains(&"AmericaPatriotBattery"),
+            "skirmish layout must include tech, air, and SideInfo defense: {planned:?}"
+        );
+
+        ai.do_upgrades_and_skills(&mut logic);
+        let player = logic.get_player(1).expect("AI player");
+        assert!(
+            player.has_queued_upgrade("Upgrade_AmericaSupplyLines")
+                || player.has_queued_upgrade("Upgrade_AmericaRangerCaptureBuilding")
+                || player.has_queued_upgrade("Upgrade_AmericaAdvancedTraining")
+                || logic
+                    .host_object(strategy)
+                    .and_then(|object| object.building_data.as_ref())
+                    .is_some_and(|building| building
+                        .production_queue
+                        .iter()
+                        .any(|item| item.is_upgrade())),
+            "live AI must queue a structure upgrade via AIPlayer::buildUpgrade residual"
+        );
+    }
+
 
 
 

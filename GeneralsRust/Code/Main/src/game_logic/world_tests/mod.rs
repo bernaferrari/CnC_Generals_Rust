@@ -24,6 +24,53 @@ mod unit_residuals;
 mod vehicles_and_lasers;
 
 #[test]
+fn fast_chunky_sync_fail_opens_when_legacy_globals_are_busy() {
+    // Abandoned startup workers can still hold THE_TERRAIN_LOGIC / SidesList /
+    // PlayerList / TeamFactory after generation bump. start_game_from_ui is
+    // synchronous, so blocking writes hang Loading. Fail-open must return.
+    let mut logic = GameLogic::new();
+
+    let mut toc = std::collections::HashMap::new();
+    toc.insert(1, "HeightMapData".to_string());
+    let mut bytes = b"CkMp".to_vec();
+    bytes.extend_from_slice(&1i32.to_le_bytes());
+    bytes.push(13);
+    bytes.extend_from_slice(b"HeightMapData");
+    bytes.extend_from_slice(&1u32.to_le_bytes());
+    bytes.extend_from_slice(&1u32.to_le_bytes());
+    bytes.extend_from_slice(&2u16.to_le_bytes());
+    bytes.extend_from_slice(&13i32.to_le_bytes());
+    bytes.extend_from_slice(&1i32.to_le_bytes());
+    bytes.extend_from_slice(&1i32.to_le_bytes());
+    bytes.extend_from_slice(&1i32.to_le_bytes());
+    bytes.push(0);
+    let chunky = crate::game_logic::script_loader::ChunkyMap {
+        source: std::path::PathBuf::from("synthetic-busy-locks.map"),
+        toc,
+        body_offset: 4 + 4 + 1 + 13 + 4,
+        bytes,
+    };
+    let terrain_logic = gamelogic::terrain::get_terrain_logic();
+    let _terrain = terrain_logic.write().expect("hold THE_TERRAIN_LOGIC");
+    let sides_list = gamelogic::sides_list::get_sides_list();
+    let _sides = sides_list.write().expect("hold THE_SIDES_LIST");
+    let player_list = gamelogic::player::ThePlayerList();
+    let _players = player_list.write().expect("hold ThePlayerList");
+    let team_factory = gamelogic::team::get_team_factory();
+    let _teams = team_factory.lock().expect("hold THE_TEAM_FACTORY");
+    let file_system = game_engine::common::system::file_system::get_file_system();
+    let _fs = file_system.lock().expect("hold FileSystem");
+
+    let started = std::time::Instant::now();
+    logic.sync_legacy_runtime_from_fast_chunky(chunky.source.as_path(), &chunky);
+    let elapsed = started.elapsed();
+    assert!(
+        elapsed < std::time::Duration::from_secs(2),
+        "sync blocked on contended locks for {:?}",
+        elapsed
+    );
+}
+#[test]
 fn process_destroy_list_runs_inside_each_logic_frame() {
     // C++ GameLogic.cpp:3762 processDestroyList is inside every update(),
     // not once after the fixed-step catch-up batch (hq-x4im).
