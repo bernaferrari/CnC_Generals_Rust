@@ -15,10 +15,20 @@ impl GameLogic {
         target_position: Vec3,
         ai_state_override: Option<AIState>,
     ) {
-        let start_pos = self.objects.get(&object_id).map(|obj| obj.get_position());
-
-        let start_pos = match start_pos {
-            Some(pos) => pos,
+        let (start_pos, is_aircraft, surfaces) = match self.objects.get(&object_id) {
+            Some(obj) => {
+                let surfaces = if obj.locomotor_surfaces != 0 {
+                    obj.locomotor_surfaces
+                } else {
+                    Object::default_locomotor_surfaces_for_template(&obj.thing.template)
+                };
+                (
+                    obj.get_position(),
+                    obj.is_kind_of(KindOf::Aircraft)
+                        || obj.object_type == crate::game_logic::ObjectType::Aircraft,
+                    surfaces,
+                )
+            }
             None => return,
         };
 
@@ -33,11 +43,23 @@ impl GameLogic {
             }
         };
 
-
-        // Attempt A* pathfinding.
-        let path = self
-            .pathfinding_system
-            .find_path(start_pos, target_position, &self.objects);
+        // C++ Pathfinder uses the mover's legal surfaces (AIPathfind.cpp:4779-4782).
+        // Aircraft use getAircraftPath (AIPathfind.cpp:5781-5782), not the ground grid.
+        let loco = if is_aircraft {
+            gamelogic::ai::pathfind_complete::SURFACE_AIR
+        } else if surfaces != 0 {
+            surfaces
+        } else {
+            gamelogic::ai::pathfind_complete::SURFACE_GROUND
+        };
+        let path = self.pathfinding_system.find_path_ex_surfaces(
+            start_pos,
+            target_position,
+            &self.objects,
+            is_aircraft,
+            loco,
+            false,
+        );
 
         let mut state_to_apply: Option<AIState> = None;
         if let Some(obj) = self.objects.get_mut(&object_id) {
@@ -400,6 +422,54 @@ mod tests {
         );
         assert!(obj.movement.target_position.is_some());
         assert!(obj.status.moving);
+    }
+
+    /// C++ Pathfinder::validMovementTerrain uses locomotor surfaces
+    /// (AIPathfind.cpp:4779-4782). Water is WATER|AIR only, so a ground
+    /// infantry right-click must fail A* across a water wall while an
+    /// amphibious unit with SURFACE_WATER succeeds.
+    #[test]
+    fn right_click_move_uses_unit_locomotor_surfaces() {
+        use crate::game_logic::{LOCO_SURFACE_GROUND, LOCO_SURFACE_WATER};
+        use gamelogic::ai::pathfind_astar::PathfindCellType;
+        let mut logic = GameLogic::new();
+        let start = Vec3::new(10.0, 0.0, 10.0);
+        let goal = Vec3::new(80.0, 0.0, 10.0);
+        let start_cell = logic.pathfinding_system.grid.world_to_grid(start);
+        let goal_cell = logic.pathfinding_system.grid.world_to_grid(goal);
+        let wall_x = (start_cell.x + goal_cell.x) / 2;
+        for y in -8..80 {
+            logic
+                .pathfinding_system
+                .grid
+                .set_cell_type(GridPos::new(wall_x, y), PathfindCellType::Water);
+        }
+
+        let ground_id = ObjectId(9101);
+        let mut ranger = ranger_at(9101, start);
+        ranger.locomotor_surfaces = LOCO_SURFACE_GROUND;
+        logic.objects.insert(ground_id, ranger);
+        logic.move_object_with_pathfinding_for_test(ground_id, goal, None);
+        let ground = logic.objects.get(&ground_id).expect("ranger");
+        assert!(
+            ground.movement.path.is_empty(),
+            "ground-only locomotor must not path through WATER cells"
+        );
+
+        let amph_id = ObjectId(9102);
+        let mut tmpl = ThingTemplate::new("AmphibHover");
+        tmpl.add_kind_of(KindOf::Vehicle);
+        let mut hover = Object::new(tmpl, amph_id, Team::USA);
+        hover.set_position(start);
+        hover.locomotor_surfaces = LOCO_SURFACE_GROUND | LOCO_SURFACE_WATER;
+        logic.objects.insert(amph_id, hover);
+        logic.move_object_with_pathfinding_for_test(amph_id, goal, None);
+        let hover = logic.objects.get(&amph_id).expect("hover");
+        assert!(
+            hover.movement.path.len() >= 2,
+            "amphibious locomotor must path WATER cells (AIPathfind.cpp:4750)"
+        );
+        assert!(hover.movement.target_position.is_some());
     }
 
     #[test]

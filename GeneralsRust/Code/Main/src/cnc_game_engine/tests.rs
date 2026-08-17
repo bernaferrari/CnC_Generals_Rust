@@ -82,8 +82,8 @@ fn match_seed_primes_direct_bindings_before_first_ingame_render() {
 
     let start_game = include_str!("start_game.rs");
     let start = &start_game[start_game
-        .find("pub(super) fn host_start_game_from_ui(")
-        .expect("start-game authority")..];
+        .find("pub(super) fn complete_parked_match_start(")
+        .expect("parked start finish authority")..];
     assert!(
         start
             .find("self.seed_presentation_after_match_start();")

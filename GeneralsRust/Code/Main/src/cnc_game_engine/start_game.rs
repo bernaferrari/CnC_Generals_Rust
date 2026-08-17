@@ -201,7 +201,7 @@ impl CnCGameEngine {
         // InGame; a runtime-host `start_game` command has no physical WND click and
         // therefore cannot satisfy it.
         let interactive_start_from_menu = self.current_state == GameState::Menu;
-        let offline_mode = matches!(mode, GameMode::SinglePlayer | GameMode::Skirmish);
+        // Offline provenance is applied when the parked start reaches InGame.
         // Wave 611: host residual helper.
         // A still-running boot worker must not overwrite this match start (or
         // keep finalize_startup_map_load pointed at Menu) after we leave Loading.
@@ -222,6 +222,43 @@ impl CnCGameEngine {
         // WindowManager/display pump, not a re-entrant host event dispatch.
         #[cfg(feature = "game_client")]
         self.run_cpp_load_screen_prelude();
+        // Park the blocking map load for the next Loading tick. Runtime-host
+        // publishes status after each command (run_loop.rs); returning here
+        // lets smoke observe `state=Loading` instead of remaining on Menu while
+        // `host_load_map_or_default` / load_map runs. C++ `GameLogic::startNewGame`
+        // also shows the load screen before `loadMap`. The next Loading tick
+        // still calls `host_load_map_or_default` then
+        // `seed_presentation_after_match_start` (no get_difficulty dual-read).
+        // This does not skip load_map.
+        self.pending_match_start = Some(PendingMatchStart {
+            request: HostStartRequest {
+                mode,
+                faction,
+                map,
+                skirmish,
+                player_template,
+            },
+            interactive_start_from_menu,
+        });
+        info!("host_start_game_from_ui: parked match start for next Loading tick");
+    }
+
+    /// Finish a parked UI start: `host_load_map_or_default` then InGame.
+    ///
+    /// Called from the Loading tick after status has been published. Still
+    /// the live `load_map` path (hq-ibnf owns making Lone Eagle return).
+    pub(super) fn complete_parked_match_start(&mut self, pending: PendingMatchStart) {
+        let HostStartRequest {
+            mode,
+            faction,
+            map,
+            skirmish,
+            player_template,
+        } = pending.request;
+        let interactive_start_from_menu = pending.interactive_start_from_menu;
+        let offline_mode = matches!(mode, GameMode::SinglePlayer | GameMode::Skirmish);
+        let faction_team = Self::team_from_faction(&faction);
+
         // Wave 842: retain the selected host-owned match mode through map load
         // / presentation seed.
         // The load boundary deliberately clears every old-world residual, so
@@ -1501,6 +1538,7 @@ impl CnCGameEngine {
 
     pub(super) fn reset_match_state(&mut self) {
         info!("Resetting gameplay state after match completion");
+        self.pending_match_start = None;
         self.drain_renderer_attachments();
 
         self.host_reset_game_logic();

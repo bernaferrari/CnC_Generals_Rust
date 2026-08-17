@@ -475,6 +475,7 @@ pub enum DamageEvent {
         damage: f32,
         damage_type: DamageType,
         death_type: crate::game_logic::host_usa_pilot::HostDeathType,
+        shooter_id: ObjectId,
     },
     Area {
         position: Vec3,
@@ -483,7 +484,7 @@ pub enum DamageEvent {
         death_type: crate::game_logic::host_usa_pilot::HostDeathType,
         radius: f32,
         shooter_id: ObjectId,
-        /// Outer-ring SecondaryDamage residual (0 = single-ring quadratic).
+        /// Outer-ring SecondaryDamage residual (0 = C++ step uses 0 outside primary).
         secondary_damage: f32,
         secondary_radius: f32,
         /// C++ ShockWave residual (0 amount = no push).
@@ -1254,6 +1255,7 @@ impl CombatSystem {
                             } else {
                                 projectile.death_type
                             },
+                            shooter_id: projectile.shooter_id,
                         });
                     }
                     if !projectile.detonation_fx_name.is_empty()
@@ -1283,7 +1285,7 @@ impl CombatSystem {
                             let impact = projectile.position;
                             Self::maybe_record_historic_bonus(projectile, impact, objects);
                             if projectile.explosion_radius > 0.0 {
-                                // Splash residual: quadratic falloff includes full damage at center.
+                                // C++ Weapon.cpp:1438: primary inside primaryRadius, else secondary.
                                 damage_events.push(DamageEvent::Area {
                                     position: impact,
                                     damage: projectile.damage,
@@ -1321,6 +1323,7 @@ impl CombatSystem {
                                     } else {
                                         projectile.death_type
                                     },
+                                    shooter_id: projectile.shooter_id,
                                 });
                             }
                             if !projectile.detonation_fx_name.is_empty()
@@ -1410,6 +1413,7 @@ impl CombatSystem {
                     damage,
                     damage_type,
                     death_type,
+                    shooter_id,
                     ..
                 } => {
                     // America Countermeasures residual: divert missile before Direct damage.
@@ -1444,7 +1448,7 @@ impl CombatSystem {
                     } else if let Some(target) = objects.get_mut(target_id) {
                         let destroyed = target.take_damage_from_typed_death(
                             *damage,
-                            None,
+                            Some(*shooter_id),
                             *damage_type,
                             *death_type,
                         );
@@ -1475,10 +1479,10 @@ impl CombatSystem {
                     shooter_id,
                     ..
                 } => {
-                    // C++ dealDamageInternal residual:
+                    // C++ dealDamageInternal (Weapon.cpp:1438):
                     //   dist <= primaryRadius → primaryDamage
-                    //   else within secondaryRadius → secondaryDamage
-                    // When secondary_radius is 0, keep quadratic single-ring residual.
+                    //   else within max(primary, secondary) → secondaryDamage
+                    // No distance falloff of the amount; only ShockWave tapers.
                     let primary_r = *radius;
                     let secondary_r = (*secondary_radius).max(0.0);
                     let dual = secondary_r > primary_r + 1e-3 && *secondary_damage > 0.0;
@@ -1515,22 +1519,17 @@ impl CombatSystem {
                             continue;
                         }
                         if dist <= outer {
-                            let area_damage = if dual {
-                                if dist <= primary_r {
-                                    *damage
-                                } else {
-                                    *secondary_damage
-                                }
-                            } else if primary_r > 0.0 {
-                                let falloff = 1.0 - (dist / primary_r).powi(2);
-                                damage * falloff
+                            let area_damage = if dist <= primary_r {
+                                *damage
+                            } else if secondary_r > 0.0 {
+                                *secondary_damage
                             } else {
                                 0.0
                             };
                             if area_damage > 0.0 {
                                 obj.take_damage_from_typed_death(
                                     area_damage,
-                                    None,
+                                    Some(*shooter_id),
                                     *damage_type,
                                     *death_type,
                                 );
@@ -2116,6 +2115,93 @@ mod tests {
             "nearby unit within splash_radius must take area damage ({near0}->{near1})"
         );
     }
+
+    /// C++ Weapon.cpp:1438 dealDamageInternal: amount is primaryDamage inside
+    /// primaryRadius and secondaryDamage outside it. No quadratic falloff.
+    #[test]
+    fn projectile_splash_is_flat_primary_not_quadratic() {
+        ensure_unit_test_direct_damage();
+
+        let mut objects = HashMap::new();
+        let atk = ObjectId(70);
+        let tgt = ObjectId(71);
+        let edge = ObjectId(72);
+        objects.insert(
+            atk,
+            make_obj(
+                "StepAtk",
+                atk,
+                Team::USA,
+                Vec3::new(0.0, 5.0, 0.0),
+                &[KindOf::Infantry, KindOf::Attackable],
+                5.0,
+            ),
+        );
+        objects.insert(
+            tgt,
+            make_obj(
+                "StepTgt",
+                tgt,
+                Team::GLA,
+                Vec3::new(20.0, 5.0, 0.0),
+                &[KindOf::Infantry, KindOf::Attackable],
+                5.0,
+            ),
+        );
+        objects.insert(
+            edge,
+            make_obj(
+                "StepEdge",
+                edge,
+                Team::GLA,
+                Vec3::new(24.0, 5.0, 0.0),
+                &[KindOf::Infantry, KindOf::Attackable],
+                5.0,
+            ),
+        );
+        let mut combat = CombatSystem::new();
+        let w = Weapon {
+            damage: 50.0,
+            range: 200.0,
+            projectile_speed: 500.0,
+            splash_radius: 10.0,
+            ..Weapon::default()
+        };
+        combat.fire_projectile(
+            Vec3::new(0.0, 5.0, 0.0),
+            Vec3::new(20.0, 5.0, 0.0),
+            &w,
+            atk,
+            Some(tgt),
+            500.0,
+        );
+        let tgt0 = objects.get(&tgt).unwrap().health.current;
+        let edge0 = objects.get(&edge).unwrap().health.current;
+        for _ in 0..60 {
+            let _ = combat.update_projectiles(1.0 / 30.0, &mut objects);
+            if combat.projectile_count() == 0 {
+                break;
+            }
+        }
+        let tgt1 = objects.get(&tgt).unwrap().health.current;
+        let edge1 = objects.get(&edge).unwrap().health.current;
+        let tgt_lost = tgt0 - tgt1;
+        let edge_lost = edge0 - edge1;
+        assert!(
+            (tgt_lost - 50.0).abs() < 0.1,
+            "center of primary ring takes full PrimaryDamage, lost={tgt_lost}"
+        );
+        assert!(
+            (edge_lost - 50.0).abs() < 0.1,
+            "edge of primary ring still takes full PrimaryDamage (Weapon.cpp:1438), lost={edge_lost}"
+        );
+        assert_eq!(
+            objects.get(&tgt).unwrap().last_damage_source,
+            Some(atk),
+            "splash must stamp launcher as last_damage_source"
+        );
+    }
+
 
     #[test]
     fn instant_hit_laser_damages_same_frame() {

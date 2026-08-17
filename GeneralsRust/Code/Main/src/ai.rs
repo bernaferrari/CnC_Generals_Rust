@@ -598,6 +598,83 @@ impl AIPlayer {
             .map(|(_, _, id)| id)
     }
 
+    fn team_has_any_dozer(game_logic: &GameLogic, team: Team) -> bool {
+        game_logic.host_objects().values().any(|object| {
+            object.team == team && object.is_alive() && object.can_construct()
+        })
+    }
+
+    fn is_dozer_work_order_template(template_name: &str) -> bool {
+        let n = template_name.to_ascii_lowercase();
+        n.contains("dozer") || n.contains("infantryworker") || n.ends_with("worker")
+    }
+
+    fn dozer_already_queued(&self) -> bool {
+        self.team_queue.iter().any(|team| {
+            team.work_orders
+                .iter()
+                .any(|order| Self::is_dozer_work_order_template(&order.template_name))
+        })
+    }
+
+    fn faction_dozer_template(team: Team) -> Option<&'static str> {
+        match team {
+            Team::USA => Some("AmericaVehicleDozer"),
+            Team::China => Some("ChinaVehicleDozer"),
+            Team::GLA => Some("GLAInfantryWorker"),
+            _ => None,
+        }
+    }
+
+    /// C++ `AIPlayer::queueDozer` (AIPlayer.cpp:3128-3171): prepend a priority
+    /// dozer work order and startTraining immediately when no KINDOF_DOZER exists.
+    fn queue_dozer(&mut self, game_logic: &mut GameLogic, current_time: f32) {
+        if self.dozer_already_queued() {
+            return;
+        }
+        let Some(template_name) = Self::faction_dozer_template(self.team) else {
+            return;
+        };
+        // C++ findFactory(dozer, busyOk=true) — a busy Command Center is allowed.
+        let Some(factory_id) =
+            Self::find_factory_for_unit_ex(game_logic, template_name, self.team, true)
+        else {
+            return;
+        };
+
+        let mut preexisting: Vec<ObjectId> = game_logic
+            .host_objects()
+            .iter()
+            .filter_map(|(&unit_id, unit)| {
+                (unit.team == self.team
+                    && unit.producer_id == Some(factory_id)
+                    && unit.template_name.eq_ignore_ascii_case(template_name))
+                .then_some(unit_id)
+            })
+            .collect();
+        preexisting.sort_by_key(|id| id.0);
+
+        let mut order = AIWorkOrder::new(template_name.to_string(), 1, 100);
+        let queued = game_logic.enqueue_production(factory_id, template_name.to_string());
+        if queued {
+            order.factory_id = Some(factory_id);
+            order.queued_count = 1;
+            order.observed_unit_ids = preexisting;
+        }
+        self.team_queue.push_front(AITeamQueue {
+            name: format!("DOZER - building one at the factory"),
+            work_orders: vec![order],
+            priority_build: true,
+            frame_started: (current_time * LOGIC_FRAMES_PER_SECOND) as u32,
+            completed: false,
+        });
+        // C++ m_teamDelay = 0 so queueUnits retries immediately.
+        self.next_team_queue_time = current_time;
+        if queued {
+            self.activity_count = self.activity_count.saturating_add(1);
+        }
+    }
+
     /// Reattach a live dozer to every queued scaffold that lost its builder.
     ///
     /// C++ refreshes existing `BuildListInfo` entries before considering a new
@@ -647,6 +724,11 @@ impl AIPlayer {
     /// of fabricating a builder or charging the player.
     fn process_building_queue(&mut self, game_logic: &mut GameLogic, current_time: f32) {
         self.resume_interrupted_construction(game_logic);
+        // C++ findDozer → queueDozer when no KINDOF_DOZER exists (AIPlayer.cpp:3254-3256).
+        if !Self::team_has_any_dozer(game_logic, self.team) {
+            self.queue_dozer(game_logic, current_time);
+        }
+
 
         let build_index = game_logic.get_player(self.player_id).and_then(|player| {
             self.building_queue.iter().position(|building| {
@@ -1858,6 +1940,17 @@ impl AIPlayer {
                 _ => None,
             };
         }
+        if unit.contains("dozer")
+            || unit.contains("infantryworker")
+            || (unit.contains("worker") && !unit.contains("supply"))
+        {
+            return match team {
+                Team::USA => Some("AmericaCommandCenter"),
+                Team::China => Some("ChinaCommandCenter"),
+                Team::GLA => Some("GLACommandCenter"),
+                _ => None,
+            };
+        }
         None
     }
 
@@ -1870,11 +1963,14 @@ impl AIPlayer {
             "AmericaBarracks" => "USA_Barracks",
             "AmericaWarFactory" => "USA_WarFactory",
             "AmericaAirfield" => "USA_Airfield",
+            "AmericaCommandCenter" => "USA_CommandCenter",
             "ChinaBarracks" => "China_Barracks",
             "ChinaWarFactory" => "China_WarFactory",
             "ChinaAirfield" => "China_Airfield",
+            "ChinaCommandCenter" => "China_CommandCenter",
             "GLABarracks" => "GLA_Barracks",
             "GLAArmsDealer" => "GLA_ArmsDealer",
+            "GLACommandCenter" => "GLA_CommandCenter",
             _ => return false,
         };
         object_name.eq_ignore_ascii_case(alias)
@@ -3985,6 +4081,84 @@ mod cpp_parity_tests {
             "the assigned dozer advances construction instead of leaving a dead scaffold"
         );
     }
+
+    /// C++ AIPlayer::findDozer calls queueDozer when no KINDOF_DOZER exists
+    /// (AIPlayer.cpp:3254-3256 / queueDozer 3128-3171).
+    #[test]
+    fn lost_dozer_queues_priority_command_center_replacement() {
+        let mut logic = crate::game_logic::GameLogic::new();
+        let mut player = crate::game_logic::Player::new(1, Team::USA, "USA AI", false);
+        player.resources.supplies = 5_000;
+        logic.add_player(player);
+
+        let mut cc = crate::game_logic::ThingTemplate::new("AmericaCommandCenter");
+        cc.add_kind_of(crate::game_logic::KindOf::Structure)
+            .add_kind_of(crate::game_logic::KindOf::CommandCenter)
+            .set_cost(2000, 0);
+        logic.templates.insert("AmericaCommandCenter".into(), cc);
+
+        let mut dozer = crate::game_logic::ThingTemplate::new("AmericaVehicleDozer");
+        dozer
+            .add_kind_of(crate::game_logic::KindOf::Vehicle)
+            .add_kind_of(crate::game_logic::KindOf::Worker)
+            .add_kind_of(crate::game_logic::KindOf::Dozer)
+            .set_cost(1000, 0);
+        dozer.build_time = 5.0;
+        logic
+            .templates
+            .insert("AmericaVehicleDozer".into(), dozer);
+
+        let mut barracks = crate::game_logic::ThingTemplate::new("AmericaBarracks");
+        barracks
+            .add_kind_of(crate::game_logic::KindOf::Structure)
+            .set_cost(500, 0);
+        logic.templates.insert("AmericaBarracks".into(), barracks);
+
+        let cc_id = logic
+            .create_object("AmericaCommandCenter", Team::USA, Vec3::ZERO)
+            .expect("command center");
+        if let Some(obj) = logic.host_object_mut(cc_id) {
+            obj.owner_player_id = Some(1);
+            if let Some(bd) = obj.building_data.as_mut() {
+                bd.building_type = crate::game_logic::BuildingType::CommandCenter;
+            }
+        }
+
+        let mut ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
+        ai.add_building("AmericaBarracks", Vec3::new(64.0, 0.0, 0.0), 1);
+        ai.process_building_queue(&mut logic, 0.0);
+
+        assert_eq!(
+            ai.team_queue.len(),
+            1,
+            "queueDozer must prepend a priority dozer team"
+        );
+        let order = ai
+            .team_queue
+            .front()
+            .and_then(|team| team.work_orders.first())
+            .expect("dozer work order");
+        assert_eq!(order.template_name, "AmericaVehicleDozer");
+        assert_eq!(order.factory_id, Some(cc_id));
+        assert!(
+            ai.team_queue.front().expect("dozer team").priority_build,
+            "C++ TeamInQueue m_priorityBuild = true"
+        );
+        let queued = logic
+            .host_object(cc_id)
+            .and_then(|o| o.building_data.as_ref())
+            .map(|b| b.production_queue.len())
+            .unwrap_or(0);
+        assert_eq!(queued, 1, "Command Center must start training the dozer");
+
+        ai.process_building_queue(&mut logic, 1.0);
+        assert_eq!(
+            ai.team_queue.len(),
+            1,
+            "a second economic pass must not stack another dozer order"
+        );
+    }
+
 
     #[test]
     fn aidata_rebuild_delay_gates_destroyed_structure() {

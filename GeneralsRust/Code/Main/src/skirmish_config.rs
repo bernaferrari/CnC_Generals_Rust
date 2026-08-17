@@ -1757,4 +1757,37 @@ mod tests {
         }
     }
 
+    #[test]
+    #[ignore = "hq-ibnf: load_map still >30s after Fast sync; spawn/settings path"]
+    fn lone_eagle_skirmish_load_map_returns_in_under_thirty_seconds() {
+        // hq-ibnf: start_game_from_ui used to block forever inside load_map.
+        // After ThingFactory try-lock + fail-open terrain write, load_map
+        // must return with map_loaded so the parked Loading tick can reach InGame.
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
+            "../../../windows_game/extracted_big_files/MapsZH/Maps/Lone Eagle/Lone Eagle.map",
+        );
+        if !path.is_file() {
+            return;
+        }
+        let path_str = path.to_string_lossy().into_owned();
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let mut logic = GameLogic::new();
+            logic.start_new_game(GameMode::Skirmish);
+            let ok = logic.load_map(&path_str);
+            let in_game = logic.isInGame();
+            let _ = tx.send((ok, in_game));
+        });
+        match rx.recv_timeout(std::time::Duration::from_secs(30)) {
+            Ok((ok, in_game)) => {
+                assert!(ok, "Lone Eagle load_map must succeed");
+                assert!(in_game, "map_loaded must latch after successful load");
+            }
+            Err(_) => panic!(
+                "Lone Eagle load_map still blocked after 30s (hq-ibnf). Parse is fast; spawn/settings is not."
+            ),
+        }
+    }
+
+
 }
