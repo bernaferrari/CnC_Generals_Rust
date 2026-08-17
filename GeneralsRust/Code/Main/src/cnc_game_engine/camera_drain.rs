@@ -383,6 +383,17 @@ impl CnCGameEngine {
             // Loading completed and transitioned this frame; avoid re-applying loading UI.
             return Ok(());
         }
+        // Finish a parked UI start after status has published `state=Loading`.
+        // Must run before boot Loading→Menu release so a live match start is
+        // not discarded. Still calls `host_load_map_or_default` (does not skip).
+        if let Some(pending) = self.pending_match_start.take() {
+            info!(
+                "Loading parked match start: mode={:?} map={}",
+                pending.request.mode, pending.request.map
+            );
+            self.complete_parked_match_start(pending);
+            return Ok(());
+        }
         // NewGame / start-new-game must drain on the load screen, not only Menu.
         // Windowed sit-through was stuck in Loading because WND/start posted
         // NewGame while boot load was still InProgress and Menu never ticked.

@@ -12,7 +12,7 @@ use crate::common::ini::ini_game_data::get_global_data;
 use crate::common::name_key_generator::{NameKeyGenerator, NameKeyType};
 use once_cell::sync::OnceCell;
 use parking_lot::RwLock;
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, HashSet};
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -591,10 +591,21 @@ impl ImageCollection {
 }
 
 fn load_global_mapped_image_collection(texture_size: i32) {
-    let mut ini = INI::new();
+    // Drop the collection write before the directory walk. Parse takes the
+    // same lock per MappedImage block; holding it across load deadlocks.
     let collection_handle = ensure_mapped_image_collection();
-    collection_handle.write().clear();
+    {
+        let mut collection = collection_handle.write();
+        collection.clear();
+    }
+
+    let mut ini = INI::new();
     let mapped_image_dirs = discover_mapped_image_source_dirs(texture_size);
+    log::info!(
+        "MappedImage: loading {} dir(s) for TextureSize_{}",
+        mapped_image_dirs.len(),
+        texture_size
+    );
     for dir in mapped_image_dirs {
         load_ini_directory_recursive(&mut ini, &dir);
     }
@@ -643,22 +654,23 @@ pub fn parse_mapped_image_definition(ini: &mut INI) -> Result<(), String> {
         return Ok(());
     }
 
-    // Find existing image if present.
-    // C++ parity: image entries are parsed in-place and existing raw texture data
-    // only triggers a debug assert (non-fatal in release builds).
+    // Parse off the collection lock. C++ Image.cpp / INIMappedImage.cpp parse
+    // in-place on a single thread; a held write here deadlocks if load_global
+    // (or another INI block) also wants the collection.
     let collection_handle = ensure_mapped_image_collection();
     let key = ImageCollection::image_key(name.as_str());
-    let mut collection = collection_handle.write();
-    if !collection.images.contains_key(&key) {
-        let mut new_image = Image::new();
-        new_image.set_name(name.clone());
-        collection.images.insert(key, new_image);
-    }
-
-    let image = collection
-        .images
-        .get_mut(&key)
-        .ok_or_else(|| format!("MappedImage '{}' missing after creation", name))?;
+    let mut image = {
+        let collection = collection_handle.read();
+        collection
+            .images
+            .get(&key)
+            .cloned()
+            .unwrap_or_else(|| {
+                let mut new_image = Image::new();
+                new_image.set_name(name.clone());
+                new_image
+            })
+    };
     if image.get_raw_texture_data().is_some() {
         log::warn!(
             "MappedImage '{}' parsed over existing raw texture data (C++ debug-assert parity)",
@@ -666,9 +678,8 @@ pub fn parse_mapped_image_definition(ini: &mut INI) -> Result<(), String> {
         );
     }
 
-    // Parse the INI definition using field table (in-place parity with C++).
     image.parse_from_ini(ini)?;
-
+    collection_handle.write().images.insert(key, image);
     Ok(())
 }
 
@@ -696,84 +707,74 @@ fn push_unique_dir(dirs: &mut Vec<PathBuf>, seen: &mut HashSet<PathBuf>, path: P
     }
 }
 
-fn discover_mapped_image_source_dirs(texture_size: i32) -> Vec<PathBuf> {
-    let mut roots = BTreeSet::new();
+/// C++ `ImageCollection::load` (Image.cpp:208-232) loads from the live INI
+/// root (`Data\\INI\\MappedImages\\TextureSize_N` then `HandCreated`), plus
+/// user-data overlays. Resolve those virtual paths once against cwd and
+/// extracted INIZH — never ancestor × extracted_asset_roots().
+fn collect_live_ini_roots() -> Vec<PathBuf> {
+    let mut roots = Vec::new();
+    let mut seen = HashSet::new();
+
     if let Ok(cwd) = env::current_dir() {
-        for ancestor in cwd.ancestors() {
-            roots.insert(ancestor.to_path_buf());
-        }
+        push_unique_dir(&mut roots, &mut seen, cwd.join("Data").join("INI"));
+        push_unique_dir(
+            &mut roots,
+            &mut seen,
+            cwd.join("INIZH").join("Data").join("INI"),
+        );
     }
-    if let Ok(exe) = env::current_exe() {
-        if let Some(parent) = exe.parent() {
-            for ancestor in parent.ancestors() {
-                roots.insert(ancestor.to_path_buf());
+
+    for extracted in crate::common::system::install_layout::extracted_asset_roots() {
+        push_unique_dir(
+            &mut roots,
+            &mut seen,
+            extracted.join("Data").join("INI"),
+        );
+        push_unique_dir(
+            &mut roots,
+            &mut seen,
+            extracted.join("INIZH").join("Data").join("INI"),
+        );
+    }
+
+    roots
+}
+
+fn discover_mapped_image_source_dirs(texture_size: i32) -> Vec<PathBuf> {
+    let mut dirs = Vec::new();
+    let mut seen = HashSet::new();
+
+    // C++ Image.cpp:215-222 — user-created mapped images load first.
+    if let Some(global_data) = get_global_data() {
+        let user_data_root = global_data.read().get_path_user_data().to_string();
+        if !user_data_root.trim().is_empty() {
+            let user_dir = PathBuf::from(user_data_root.trim())
+                .join("INI")
+                .join("MappedImages");
+            if directory_has_ini_files(&user_dir) {
+                push_unique_dir(&mut dirs, &mut seen, user_dir);
             }
         }
     }
 
-    if let Some(global_data) = get_global_data() {
-        let global = global_data.read();
-        let user_data_root = global.get_path_user_data().to_string();
-        if !user_data_root.trim().is_empty() {
-            roots.insert(PathBuf::from(user_data_root.trim()));
-        }
-    }
-    let mod_dir = crate::common::global_data::read().writable.mod_dir.clone();
-    if !mod_dir.trim().is_empty() {
-        let mod_root = PathBuf::from(mod_dir.trim());
-        roots.insert(mod_root.clone());
-        if let Ok(canonical) = fs::canonicalize(&mod_root) {
-            roots.insert(canonical);
-        }
-    }
+    let ini_roots = collect_live_ini_roots();
 
-    let mut dirs = Vec::new();
-    let mut seen = HashSet::new();
-
-    // C++ parity: user-created mapped images load first.
-    if let Some(global_data) = get_global_data() {
-        let user_data_root = global_data.read().get_path_user_data().to_string();
-        if !user_data_root.trim().is_empty() {
-            push_unique_dir(
-                &mut dirs,
-                &mut seen,
-                PathBuf::from(user_data_root.trim())
-                    .join("INI")
-                    .join("MappedImages"),
-            );
-        }
-    }
-
-    for root in roots {
-        let direct_ini_root = root.join("Data").join("INI");
+    // TextureSize_N from every unique live/extracted INI root, then HandCreated.
+    for ini_root in &ini_roots {
         push_unique_dir(
             &mut dirs,
             &mut seen,
-            direct_ini_root
+            ini_root
                 .join("MappedImages")
                 .join(format!("TextureSize_{texture_size}")),
         );
+    }
+    for ini_root in &ini_roots {
         push_unique_dir(
             &mut dirs,
             &mut seen,
-            direct_ini_root.join("MappedImages").join("HandCreated"),
+            ini_root.join("MappedImages").join("HandCreated"),
         );
-
-        for extracted_root in crate::common::system::install_layout::extracted_asset_roots() {
-            let ini_root = extracted_root.join("Data").join("INI");
-            push_unique_dir(
-                &mut dirs,
-                &mut seen,
-                ini_root
-                    .join("MappedImages")
-                    .join(format!("TextureSize_{texture_size}")),
-            );
-            push_unique_dir(
-                &mut dirs,
-                &mut seen,
-                ini_root.join("MappedImages").join("HandCreated"),
-            );
-        }
     }
 
     dirs
@@ -811,6 +812,9 @@ fn load_ini_directory_recursive(ini: &mut INI, dir: &Path) {
     files.sort();
 
     for file in files {
+        // Fail-open: a bad HandCreatedMappedImages.INI must not abort boot.
+        // C++ ImageCollection::load (Image.cpp:232) continues past missing
+        // dirs; Rust additionally skips a single InvalidData file.
         if let Err(error) = ini.load(&file, INILoadType::Overwrite) {
             log::warn!(
                 "MappedImage: failed to load INI '{}' ({:?})",
@@ -1088,5 +1092,24 @@ End
         assert!(parsed.get_raw_texture_data().is_some());
         assert_eq!(parsed.get_texture_size(), ICoord2D::new(256, 128));
         assert_eq!(parsed.get_image_size(), ICoord2D::new(64, 32));
+    }
+
+    #[test]
+    fn discover_mapped_image_dirs_is_not_ancestor_cartesian_product() {
+        // C++ Image.cpp:226-232 loads two virtual dirs from the INI root.
+        // Walking every ancestor × extracted_asset_roots() is what hung boot.
+        let dirs = discover_mapped_image_source_dirs(512);
+        assert!(
+            dirs.len() <= 8,
+            "mapped-image discovery exploded to {} dirs: {:?}",
+            dirs.len(),
+            dirs
+        );
+        assert!(
+            dirs.iter().any(|dir| dir
+                .file_name()
+                .is_some_and(|name| name.to_string_lossy().eq_ignore_ascii_case("TextureSize_512"))),
+            "expected a TextureSize_512 dir among {dirs:?}"
+        );
     }
 }

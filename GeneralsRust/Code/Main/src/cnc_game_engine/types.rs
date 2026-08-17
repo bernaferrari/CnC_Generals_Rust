@@ -336,6 +336,20 @@ impl HostStartRequest {
     }
 }
 
+/// UI start parked after `GameState::Loading` so the runtime-host can publish
+/// `state=Loading` before the blocking `host_load_map_or_default` call.
+///
+/// C++ `GameLogic::startNewGame` also enters the load screen before `loadMap`.
+/// Headless smoke previously never left Menu because `start_game_from_ui` is
+/// synchronous and Lone Eagle `load_map` can stall the same command. The next
+/// Loading tick finishes the parked start (still calls `load_map`; does not
+/// skip it). Physical five-flag `playable_claim` is unchanged.
+#[derive(Debug, Clone)]
+pub(super) struct PendingMatchStart {
+    pub(super) request: HostStartRequest,
+    pub(super) interactive_start_from_menu: bool,
+}
+
 /// Main extraction of the generation-matched GameClient campaign descriptor.
 /// The bridge stays responsible for publication/lifetime matching; this type
 /// owns only the authoritative start fields that must survive to GameLogic.
@@ -953,6 +967,8 @@ pub struct CnCGameEngine {
     /// Real-person, windowed input evidence for the retail playable claim.
     /// Deliberately separate from `runtime_host_last_gameplay_cmd`.
     pub(crate) interactive_playability: InteractivePlayabilityEvidence,
+    /// Parked UI match start waiting for the next Loading tick to call `load_map`.
+    pub(crate) pending_match_start: Option<PendingMatchStart>,
     /// Carrier IDs admitted only from a successful physical right-click Gather
     /// command for the local player. `ReturningResources` drop-off events are
     /// matched against this set before they may latch physical evidence.

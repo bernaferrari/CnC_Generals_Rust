@@ -136,6 +136,37 @@ fn common_mapped_image_load_finds_shell_menu_images_from_repo_assets() {
 }
 
 #[test]
+fn load_global_finishes_quickly_and_imports_images() {
+    // C++ ImageCollection::load (Image.cpp:208-232) loads TextureSize_N then
+    // HandCreated once from the live INI root. Discovery must not walk every
+    // cwd/exe ancestor × extracted_asset_roots() or boot hangs.
+    let _lock = MAPPED_IMAGE_TEST_LOCK.lock().unwrap();
+    init_global_mapped_image_collection();
+
+    let started = std::time::Instant::now();
+    game_engine::common::ini::ini_mapped_image::ImageCollection::load_global(512);
+    let elapsed = started.elapsed();
+    assert!(
+        elapsed.as_secs() < 10,
+        "ImageCollection::load_global hung or was too slow: {elapsed:?}"
+    );
+
+    let collection = ensure_mapped_image_collection();
+    let collection = collection.read();
+    assert!(
+        collection.len() > 0,
+        "load_global finished in {elapsed:?} but imported no images"
+    );
+    assert!(
+        collection.find_image_by_name("MainMenuBackdrop").is_some()
+            || collection.find_image_by_name("MainMenuPulse").is_some()
+            || collection.enum_image(0).is_some(),
+        "expected at least one imported mapped image after load_global"
+    );
+}
+
+
+#[test]
 fn shell_menu_mapped_images_report_raw_texture_state() {
     let _lock = MAPPED_IMAGE_TEST_LOCK.lock().unwrap();
     init_global_mapped_image_collection();

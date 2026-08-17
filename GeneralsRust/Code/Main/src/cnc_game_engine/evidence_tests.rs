@@ -545,34 +545,49 @@ fn physical_gather_proof_requires_physical_accepted_order_and_real_dropoff() {
 
 #[test]
 fn campaign_prelude_precedes_ui_map_work_and_logic_initializer() {
-    // The UI-owned start is synchronous, so the authored load-screen prelude
-    // must complete after the Loading transition and before any session/map
-    // mutation can make InGame visible.
+    // Loading + authored prelude happen on host_start_game_from_ui; map work
+    // is parked for the next Loading tick (complete_parked_match_start) so
+    // runtime-host can publish state=Loading. C++ startNewGame still enters
+    // the load screen before loadMap.
     let start_game = include_str!("start_game.rs");
     let start = start_game
         .find("pub(super) fn host_start_game_from_ui")
         .expect("host start-game authority");
     let after_start = &start_game[start..];
-    let end = after_start[1..]
+    let park_end = after_start[1..]
         .find("\n    pub(super) fn ")
         .map(|offset| offset + 1)
         .unwrap_or(after_start.len());
-    let body = &after_start[..end];
-    let loading = body
+    let park_body = &after_start[..park_end];
+    let loading = park_body
         .find("transition_to_state(GameState::Loading)")
         .expect("Loading transition");
-    let prelude = body
+    let prelude = park_body
         .find("self.run_cpp_load_screen_prelude()")
         .expect("campaign prelude pump");
-    let clear_residuals = body
+    assert!(
+        loading < prelude && park_body.contains("pending_match_start"),
+        "UI start must consume the prelude then park before session/map work"
+    );
+
+    let finish = start_game
+        .find("pub(super) fn complete_parked_match_start")
+        .expect("parked start finish");
+    let after_finish = &start_game[finish..];
+    let finish_end = after_finish[1..]
+        .find("\n    pub(super) fn ")
+        .map(|offset| offset + 1)
+        .unwrap_or(after_finish.len());
+    let finish_body = &after_finish[..finish_end];
+    let clear_residuals = finish_body
         .find("self.host_clear_match_residuals()")
         .expect("session clear boundary");
-    let map_load = body
+    let map_load = finish_body
         .find("self.host_load_map_or_default(&map_name)")
         .expect("map-load authority");
     assert!(
-        loading < prelude && prelude < clear_residuals && clear_residuals < map_load,
-        "UI start must consume the prelude before session/map work"
+        clear_residuals < map_load,
+        "parked finish must consume the prelude-already-run start before session/map work"
     );
 
     let shell = include_str!("shell.rs");
@@ -640,8 +655,8 @@ fn configured_skirmish_start_restamps_mode_after_map_clear_before_physical_evide
     // remain a real configured Skirmish start, not a runtime-host simulation.
     let start_game = include_str!("start_game.rs");
     let start = start_game
-        .find("pub(super) fn host_start_game_from_ui")
-        .expect("host start-game authority");
+        .find("pub(super) fn complete_parked_match_start")
+        .expect("parked start finish authority");
     let after_start = &start_game[start..];
     let end = after_start[1..]
         .find("\n    pub(super) fn ")

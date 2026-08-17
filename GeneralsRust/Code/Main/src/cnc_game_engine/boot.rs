@@ -536,6 +536,7 @@ impl CnCGameEngine {
             pending_popup_save_slot: None,
             pending_popup_save_display_name: None,
             interactive_playability: InteractivePlayabilityEvidence::default(),
+            pending_match_start: None,
             physical_gather_carrier_ids: HashSet::new(),
             match_damage_applied: 0.0,
             match_kills: 0,
