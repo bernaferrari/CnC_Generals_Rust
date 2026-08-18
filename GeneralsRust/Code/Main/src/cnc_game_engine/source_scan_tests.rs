@@ -1900,6 +1900,53 @@ fn attack_lines_and_occupied_transports_residual() {
     );
 }
 
+#[test]
+fn menu_transition_applies_product_title_and_tears_down_loading_overlay() {
+    // C++ GameText.cpp:347 SetWindowText(ApplicationHWnd, ourName).
+    // C++ MainMenu.cpp:528-530 initialHide + showSelectiveButtons(SHOW_NONE)
+    // tears down load chrome before the shell menu; first-run only hides the
+    // mouse and reverse-fades. Boot writes
+    // "Command & Conquer Generals Zero Hour - Loading {phase} (92%)" from
+    // update_startup_loading; timeout Loading→Menu (camera_drain
+    // startup_load_should_release_to_menu) never reached
+    // host_finalize_startup_map_load, so the title and ShellGame overlay
+    // stayed up. The live Menu enter must own chrome itself.
+    let transition = include_str!("input.rs");
+    let start = transition
+        .find("pub(super) fn host_transition_to_state")
+        .expect("host_transition_to_state");
+    let body = &transition[start..];
+    let menu_arm = body
+        .split("Entering Menu state — transition_to_state start")
+        .nth(1)
+        .and_then(|s| s.split("GameState::Loading => {").next())
+        .expect("Menu enter arm");
+    assert!(
+        menu_arm.contains("self.apply_shell_menu_window_chrome()"),
+        "Menu enter must apply product title + overlay teardown, not wait for finalize_startup: {menu_arm}"
+    );
+
+    let shell = include_str!("shell.rs");
+    let chrome = shell
+        .split("fn apply_shell_menu_window_chrome")
+        .nth(1)
+        .and_then(|s| s.split("fn show_shell_menu").next())
+        .expect("apply_shell_menu_window_chrome");
+    assert!(
+        chrome.contains("hide_shell_loading_overlay()")
+            && chrome.contains("set_title(SHELL_MENU_WINDOW_TITLE)"),
+        "Menu chrome must hide the load screen and set the product title: {chrome}"
+    );
+
+    let types = include_str!("types.rs");
+    assert!(
+        types.contains(
+            "SHELL_MENU_WINDOW_TITLE: &str = \"Command & Conquer Generals Zero Hour\""
+        ),
+        "product window title must stay Command & Conquer Generals Zero Hour"
+    );
+}
+
 #[cfg(test)]
 mod world_scene_skip_residual_tests {
     #[test]
@@ -1963,6 +2010,70 @@ mod runtime_host_windowed_bridge_tests {
     }
 
     #[test]
+    fn windowed_boot_status_uses_winit_query_not_hardcoded_false() {
+        let dir = tempfile::tempdir().expect("tmpdir");
+        let control = dir.path().join("control.txt");
+        let status = dir.path().join("status.txt");
+        let frame = dir.path().join("frame.png");
+        let args = CommandLineArgs::parse_from_args(vec![
+            "generals".into(),
+            "-runtime_host".into(),
+            "windowed".into(),
+            "-gpui_control".into(),
+            control.to_string_lossy().into_owned(),
+            "-gpui_status".into(),
+            status.to_string_lossy().into_owned(),
+            "-gpui_frame".into(),
+            frame.to_string_lossy().into_owned(),
+        ])
+        .expect("parse");
+        let mut bridge = RuntimeHostBridge::from_command_line(&args).expect("bridge");
+        // No window yet: honest false.
+        bridge.publish_booting_from_winit_query(false, Some(false));
+        let hidden = std::fs::read_to_string(&status).expect("hidden status");
+        assert!(
+            hidden.contains("window_visible=false"),
+            "hidden windowed boot must stay false: {hidden}"
+        );
+        assert!(
+            hidden.contains("live_frame_ok=false"),
+            "boot must not forge live_frame_ok: {hidden}"
+        );
+        // After set_visible(true) and winit reports Some(true).
+        bridge.publish_booting_from_winit_query(false, Some(true));
+        let shown = std::fs::read_to_string(&status).expect("shown status");
+        assert!(
+            shown.contains("window_visible=true"),
+            "windowed boot must publish the honest winit residual: {shown}"
+        );
+        assert!(
+            shown.contains("live_frame_ok=false"),
+            "visibility must not forge live_frame_ok: {shown}"
+        );
+        // Headless stays hidden even if winit later reports shown.
+        let headless_args = CommandLineArgs::parse_from_args(vec![
+            "generals".into(),
+            "-runtime_host".into(),
+            "headless".into(),
+            "-gpui_control".into(),
+            control.to_string_lossy().into_owned(),
+            "-gpui_status".into(),
+            status.to_string_lossy().into_owned(),
+            "-gpui_frame".into(),
+            frame.to_string_lossy().into_owned(),
+        ])
+        .expect("parse headless");
+        let mut headless = RuntimeHostBridge::from_command_line(&headless_args).expect("headless");
+        headless.publish_booting_from_winit_query(true, Some(true));
+        let headless_status = std::fs::read_to_string(&status).expect("headless status");
+        assert!(
+            headless_status.contains("window_visible=false"),
+            "headless must stay hidden: {headless_status}"
+        );
+    }
+
+
+    #[test]
     fn runtime_host_enabled_uses_active_not_only_headless() {
         let src = crate::cnc_game_engine::ENGINE_SRC;
         let start = src.find("fn runtime_host_enabled").expect("enabled");
@@ -2011,6 +2122,12 @@ mod runtime_host_windowed_bridge_tests {
             src.contains("retail_sit_through_missing"),
             "windowed status must list which sit-through flags are still false"
         );
+        assert!(
+            src.contains("fn publish_booting_from_winit_query")
+                && src.contains("apply_runtime_host_window_visibility"),
+            "boot residual must publish the honest winit query after set_visible"
+        );
+
     }
 
     #[test]

@@ -47,7 +47,7 @@ mod prelude {
     };
     pub(super) use crate::game_text::GameText;
     pub(super) use crate::gui::window_manager::{
-        queue_window_manager_op, with_window_manager, TabDirection,
+        queue_window_manager_op, queue_window_manager_op_deferred, with_window_manager, TabDirection,
     };
     pub(super) use crate::video_buffer::{VideoBufferHandle, VideoBufferType};
 

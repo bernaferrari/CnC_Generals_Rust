@@ -478,15 +478,14 @@ impl GameWindow {
         true
     }
 
-    /// Hide or show the window
     pub fn hide(&mut self, hide: bool) -> WindowResult<()> {
         self.set_hidden_status(hide);
         if hide {
             let window_ptr = self as *const GameWindow;
             let children = self.children.clone();
-            // Re-enters `TheWindowManager` when called from `with_window_manager`.
-            // Queue so focus/capture/modal cleanup still runs after the outer borrow.
-            queue_window_manager_op(move |manager| {
+            // C++ winHide is not re-entrant. Never enqueue into the in-flight
+            // drain (that loops forever when MainMenuUpdate already holds WM).
+            queue_window_manager_op_deferred(move |manager| {
                 manager.window_hiding_from_direct_hide(window_ptr, children);
             });
         }

@@ -4205,6 +4205,35 @@ mod tests {
                 && src.contains("self.window.is_visible()"),
             "engine must call the shipped winit visibility helper"
         );
+        let boot = include_str!("cnc_game_engine/runtime.rs");
+        assert!(
+            boot.contains("fn publish_booting_from_winit_query")
+                && boot.contains("window_visible_from_winit_query"),
+            "boot status must use the shipped winit query, never a hardcoded true"
+        );
+        assert!(
+            !boot.contains("window_visible: true"),
+            "must not forge window_visible=true in boot residual"
+        );
+        let helper = include_str!("cnc_game_engine/types.rs");
+        assert!(
+            helper.contains("fn apply_runtime_host_window_visibility")
+                && helper.contains("set_visible(false)")
+                && helper.contains("set_visible(true)")
+                && helper.contains("window_visible_from_winit_query"),
+            "windowed show / headless hide must go through the honest helper"
+        );
+        let win_main = include_str!("win_main.rs");
+        assert!(
+            win_main.contains("ActivationPolicy::Regular")
+                && win_main.contains("create_host_event_loop"),
+            "windowed macOS EventLoop must request Regular activation so the OS window appears"
+        );
+        assert!(
+            include_str!("main.rs").contains("create_host_event_loop"),
+            "production main must use the Regular-activation EventLoop helper"
+        );
+
     }
 
     #[test]

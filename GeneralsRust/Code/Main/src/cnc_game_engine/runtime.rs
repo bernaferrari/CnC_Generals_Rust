@@ -90,6 +90,16 @@ pub(super) struct RuntimeHostSnapshot {
     pub(super) camera_pos: String,
     pub(super) camera_target: String,
     pub(super) sample_unit_pos: String,
+    /// Physical OS window outer origin X (diagnostic clicker aim). Headless = 0.
+    pub(super) window_outer_x: i32,
+    /// Physical OS window outer origin Y (diagnostic clicker aim). Headless = 0.
+    pub(super) window_outer_y: i32,
+    /// Physical OS window outer width (diagnostic clicker aim). Headless = 0.
+    pub(super) window_outer_w: u32,
+    /// Physical OS window outer height (diagnostic clicker aim). Headless = 0.
+    pub(super) window_outer_h: u32,
+    /// Hittable named gadget centers as `Name@x,y` (screen space). Empty when none.
+    pub(super) gadget_hits: Vec<String>,
 }
 
 #[derive(Debug)]
@@ -109,6 +119,39 @@ pub(super) struct RuntimeHostBridge {
     has_published_live_frame: bool,
     created_at: Instant,
     last_capture_health_log_at: Option<Instant>,
+}
+
+
+/// Named WND gadgets an OS clicker may aim at (menu → match). Diagnostic only.
+pub(super) const STATUS_GADGET_HIT_NAMES: &[&str] = &[
+    "ButtonSinglePlayer",
+    "ButtonSkirmish",
+    "ButtonStart",
+    "ButtonOk",
+];
+
+/// Diagnostic clicker-aim fragment for status.txt. Never writes playable_claim
+/// or five-flag evidence keys.
+pub(super) fn format_clicker_aim_status(
+    window_outer_x: i32,
+    window_outer_y: i32,
+    window_outer_w: u32,
+    window_outer_h: u32,
+    gadget_hits: &[String],
+) -> String {
+    let mut out = format!(
+        "window_outer_x={window_outer_x}\nwindow_outer_y={window_outer_y}\nwindow_outer_w={window_outer_w}\nwindow_outer_h={window_outer_h}\n"
+    );
+    for hit in gadget_hits {
+        let hit = hit.trim();
+        if hit.is_empty() {
+            continue;
+        }
+        out.push_str("gadget_hit=");
+        out.push_str(hit);
+        out.push('\n');
+    }
+    out
 }
 
 impl RuntimeHostBridge {
@@ -240,6 +283,20 @@ impl RuntimeHostBridge {
     }
 
     pub(super) fn publish_booting(&mut self) {
+        self.publish_booting_from_winit_query(true, Some(false));
+    }
+
+    /// Boot residual uses the same winit query as the live snapshot.
+    /// No window yet → pass `Some(false)`. Never forge `true`.
+    pub(super) fn publish_booting_from_winit_query(
+        &mut self,
+        headless: bool,
+        is_visible: Option<bool>,
+    ) {
+        let window_visible =
+            crate::executable_smoke::ExecutableSmokeResult::window_visible_from_winit_query(
+                headless, is_visible,
+            );
         let snapshot = RuntimeHostSnapshot {
             state: "Booting".to_string(),
             ui_screen: "None".to_string(),
@@ -272,7 +329,7 @@ impl RuntimeHostBridge {
             presentation_live_fallback_reads: 0,
             waypoint_mode: false,
             live_frame_ok: false,
-            window_visible: false,
+            window_visible,
             wnd_widget_tree_nav: false,
             interactive_gameplay: false,
             physical_build_and_produce: false,
@@ -287,6 +344,11 @@ impl RuntimeHostBridge {
             camera_pos: String::new(),
             camera_target: String::new(),
             sample_unit_pos: String::new(),
+            window_outer_x: 0,
+            window_outer_y: 0,
+            window_outer_w: 0,
+            window_outer_h: 0,
+            gadget_hits: Vec::new(),
         };
         self.publish_status(&snapshot);
     }
@@ -444,6 +506,13 @@ impl RuntimeHostBridge {
         payload.push_str(&format!("camera_pos={}\n", snapshot.camera_pos));
         payload.push_str(&format!("camera_target={}\n", snapshot.camera_target));
         payload.push_str(&format!("sample_unit_pos={}\n", snapshot.sample_unit_pos));
+        payload.push_str(&format_clicker_aim_status(
+            snapshot.window_outer_x,
+            snapshot.window_outer_y,
+            snapshot.window_outer_w,
+            snapshot.window_outer_h,
+            &snapshot.gadget_hits,
+        ));
         payload.push_str(&format!("pending_capture={}\n", snapshot.pending_capture));
         payload.push_str(&format!(
             "frame_path={}\n",
@@ -708,3 +777,54 @@ impl RuntimeHostBridge {
         (None, 0.0)
     }
 }
+
+#[cfg(test)]
+mod clicker_aim_status_tests {
+    use super::format_clicker_aim_status;
+
+    #[test]
+    fn format_clicker_aim_status_contains_window_and_gadget_keys() {
+        let hits = vec![
+            "ButtonSinglePlayer@120,80".to_string(),
+            "ButtonSkirmish@120,140".to_string(),
+            "ButtonStart@200,400".to_string(),
+            "ButtonOk@240,420".to_string(),
+        ];
+        let status = format_clicker_aim_status(64, 48, 1280, 720, &hits);
+        assert!(
+            status.contains("window_outer_x=64")
+                && status.contains("window_outer_y=48")
+                && status.contains("window_outer_w=1280")
+                && status.contains("window_outer_h=720"),
+            "status must contain window_outer_* keys when provided: {status}"
+        );
+        assert!(
+            status.contains("gadget_hit=ButtonSinglePlayer@120,80")
+                && status.contains("gadget_hit=ButtonSkirmish@120,140")
+                && status.contains("gadget_hit=ButtonStart@200,400")
+                && status.contains("gadget_hit=ButtonOk@240,420"),
+            "status must contain gadget_hit=Name@x,y when provided: {status}"
+        );
+        assert!(
+            !status.contains("playable_claim")
+                && !status.contains("window_visible=")
+                && !status.contains("wnd_widget_tree_nav=")
+                && !status.contains("live_frame_ok="),
+            "clicker-aim fragment must not write playable_claim or five-flag evidence: {status}"
+        );
+    }
+
+    #[test]
+    fn format_clicker_aim_status_omits_empty_gadget_hits() {
+        let status = format_clicker_aim_status(0, 0, 0, 0, &[]);
+        assert!(status.contains("window_outer_x=0"));
+        assert!(status.contains("window_outer_y=0"));
+        assert!(status.contains("window_outer_w=0"));
+        assert!(status.contains("window_outer_h=0"));
+        assert!(
+            !status.contains("gadget_hit="),
+            "empty gadget list must omit gadget_hit keys: {status}"
+        );
+    }
+}
+

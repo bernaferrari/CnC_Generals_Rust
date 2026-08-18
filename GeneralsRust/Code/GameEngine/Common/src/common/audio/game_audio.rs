@@ -2462,10 +2462,11 @@ impl SoundPlaybackHook for RodioPlaybackHook {
             .ok()
             .map(|l| *l)
             .unwrap_or_else(Coord3D::new);
+        // C++ Miles getEffectiveVolume reads sliders already held by
+        // AudioManager::update. Never re-lock THE_AUDIO from this hook.
         let sliders = get_global_audio_manager()
-            .and_then(|manager| manager.lock().ok().map(|m| m.miles_volume_sliders()))
+            .and_then(|manager| manager.try_lock().ok().map(|m| m.miles_volume_sliders()))
             .unwrap_or_default();
-        // C++ play path uses MilesAudioManager::getEffectiveVolume (already includes 3D).
         let volume = miles_get_effective_volume(event, &listener, &sliders);
         let pitch = event.get_effective_pitch();
         // C++ MilesAudioManager::playStream (MilesAudioManager.cpp:2762-2764)
@@ -3151,6 +3152,25 @@ mod tests {
         );
         assert!(handle >= AHSV_FIRST_HANDLE);
     }
+
+    #[test]
+    fn rodio_play_does_not_reenter_the_audio_mutex() {
+        let src = include_str!("game_audio.rs");
+        let play = src
+            .split("impl SoundPlaybackHook for RodioPlaybackHook")
+            .nth(1)
+            .and_then(|s| s.split("fn stop(").next())
+            .unwrap_or("");
+        assert!(
+            play.contains("try_lock()"),
+            "Rodio play must try_lock THE_AUDIO sliders; C++ Miles never re-enters AudioManager from play"
+        );
+        assert!(
+            !play.contains("manager.lock()"),
+            "blocking THE_AUDIO lock from Rodio play deadlocks Menu TheAudio::update"
+        );
+    }
+
 
 
 }
