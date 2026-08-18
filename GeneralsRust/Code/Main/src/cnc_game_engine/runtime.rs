@@ -124,10 +124,15 @@ pub(super) struct RuntimeHostBridge {
 
 /// Named WND gadgets an OS clicker may aim at (menu → match). Diagnostic only.
 pub(super) const STATUS_GADGET_HIT_NAMES: &[&str] = &[
-    "ButtonSinglePlayer",
-    "ButtonSkirmish",
-    "ButtonStart",
-    "ButtonOk",
+    "MainMenu.wnd:ButtonSinglePlayer",
+    "MainMenu.wnd:ButtonSkirmish",
+    "MainMenu.wnd:ButtonUSA",
+    "MainMenu.wnd:ButtonGLA",
+    "MainMenu.wnd:ButtonChina",
+    "MainMenu.wnd:ButtonChallenge",
+    "MainMenu.wnd:ButtonSingleBack",
+    "SkirmishGameOptionsMenu.wnd:ButtonStart",
+    "SkirmishMapSelectMenu.wnd:ButtonOk",
 ];
 
 /// Diagnostic clicker-aim fragment for status.txt. Never writes playable_claim
