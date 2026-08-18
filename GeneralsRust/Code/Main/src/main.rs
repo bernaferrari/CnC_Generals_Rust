@@ -312,8 +312,13 @@ async fn main() {
     // =========================================================================
     info!("Creating event loop and window...");
 
-    // Create EventLoop (only one allowed per application)
-    let event_loop = match EventLoop::new() {
+    // Create EventLoop (only one allowed per application).
+    // Windowed macOS must be Regular so the OS window actually appears.
+    let runtime_host_headless = cmd_args
+        .get_option_value("runtime_host")
+        .map(|mode| mode.trim().eq_ignore_ascii_case("headless"))
+        .unwrap_or(false);
+    let event_loop = match generals_main::win_main::create_host_event_loop(runtime_host_headless) {
         Ok(event_loop) => event_loop,
         Err(e) => {
             error!("Failed to create event loop: {}", e);

@@ -5,6 +5,7 @@ pub(super) const DEFAULT_SKIRMISH_MAP: &str = "Defcon6";
 pub(super) const DEFAULT_VIEW_FOV_RADIANS: f32 = 50.0_f32.to_radians();
 pub(super) const DEFAULT_VIEW_NEAR_CLIP: f32 = 1.0;
 pub(super) const DEFAULT_LOADING_PHASE: &str = "Loading assets...";
+pub(super) const SHELL_MENU_WINDOW_TITLE: &str = "Command & Conquer Generals Zero Hour";
 
 // Window names from ShellGameLoadScreen.wnd (C++ parity: winCreateFromScript)
 pub(super) const LOAD_SCREEN_ROOT: &str = "ShellGameLoadScreen.wnd:ParentShellGameLoadScreen";
@@ -27,6 +28,21 @@ pub(super) fn query_window_is_iconic(window: &Window, fallback: bool) -> bool {
     let zero_sized = size.width == 0 || size.height == 0;
     window.is_minimized().unwrap_or(fallback || zero_sized) || zero_sized
 }
+
+/// Apply headless-hide / windowed-show, then return the honest winit residual.
+/// Never invents visibility: headless stays false even if AppKit later reports shown.
+pub(super) fn apply_runtime_host_window_visibility(window: &Window, headless: bool) -> bool {
+    if headless {
+        window.set_visible(false);
+    } else {
+        window.set_visible(true);
+    }
+    crate::executable_smoke::ExecutableSmokeResult::window_visible_from_winit_query(
+        headless,
+        window.is_visible(),
+    )
+}
+
 
 pub(super) fn update_iconic_state_and_wake_audio(window: &Window, minimized: &mut bool) {
     let was_minimized = *minimized;

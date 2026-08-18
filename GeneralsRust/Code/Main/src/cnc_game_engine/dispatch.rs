@@ -590,6 +590,46 @@ impl CnCGameEngine {
         )
     }
 
+    /// Physical OS window outer frame for status.txt clicker aim.
+    /// Headless always reports zeros — there is no OS window to click.
+    /// Coordinates are **points** (CGEvent / Quartz), not retina backing pixels.
+    pub(super) fn runtime_host_window_outer_rect(&self) -> (i32, i32, u32, u32) {
+        if self.runtime_host_headless {
+            return (0, 0, 0, 0);
+        }
+        let pos = self.window.outer_position().unwrap_or_default();
+        let size = self.window.outer_size();
+        let scale = self.window.scale_factor().max(0.0001);
+        let x = ((pos.x as f64) / scale).round() as i32;
+        let y = ((pos.y as f64) / scale).round() as i32;
+        let w = ((size.width as f64) / scale).round().max(0.0) as u32;
+        let h = ((size.height as f64) / scale).round().max(0.0) as u32;
+        (x, y, w, h)
+    }
+
+    /// Hittable menu gadget centers (`Name@x,y` OS screen **points**).
+    /// Headless publishes none. Geometry-only / hidden / disabled stay omitted.
+    /// Client/WND center is offset by `inner_position` so an OS clicker can aim.
+    pub(super) fn runtime_host_hittable_gadget_hits(&self) -> Vec<String> {
+        if self.runtime_host_headless {
+            return Vec::new();
+        }
+        let origin = self.window.inner_position().unwrap_or_default();
+        let scale = self.window.scale_factor().max(0.0001);
+        let ox = ((origin.x as f64) / scale).round() as i32;
+        let oy = ((origin.y as f64) / scale).round() as i32;
+        let mut hits = Vec::new();
+        for name in super::runtime::STATUS_GADGET_HIT_NAMES {
+            if let Some((x, y)) = self.named_gadget_center_if_hittable(name) {
+                let sx = ox + ((x as f64) / scale).round() as i32;
+                let sy = oy + ((y as f64) / scale).round() as i32;
+                hits.push(format!("{name}@{sx},{sy}"));
+            }
+        }
+        hits
+    }
+
+
     pub(super) fn set_runtime_ui_state_projection(&mut self, state: UISystemState) {
         let projected = match state {
             UISystemState::MainMenu => "MainMenu",
@@ -685,6 +725,11 @@ impl CnCGameEngine {
             self.match_damage_applied = d;
             self.match_kills = k;
         }
+
+        let (window_outer_x, window_outer_y, window_outer_w, window_outer_h) =
+            self.runtime_host_window_outer_rect();
+        let gadget_hits = self.runtime_host_hittable_gadget_hits();
+
 
         RuntimeHostSnapshot {
             state: format!("{:?}", self.current_state),
@@ -799,6 +844,11 @@ impl CnCGameEngine {
                 self.camera_target.x, self.camera_target.y, self.camera_target.z
             ),
             sample_unit_pos,
+            window_outer_x,
+            window_outer_y,
+            window_outer_w,
+            window_outer_h,
+            gadget_hits,
         }
     }
 

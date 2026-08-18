@@ -253,17 +253,22 @@ pub(super) fn draw_push_button_image_three(
     let right_w = right.width.max(1);
     let center_w = center.width.max(1);
 
-    let left_end_x = origin_x + x_offset + left_w;
-    let right_start_x = origin_x + width - right_w + x_offset;
-    let start_y = origin_y + y_offset;
-    let end_y = start_y + height;
+    // C++ W3DGadgetPushButtonImageDrawThree clips; debug i32 add must not panic
+    // when a WND button is smaller than its art (retail MainMenu buttons).
+    let left_end_x = origin_x.saturating_add(x_offset).saturating_add(left_w);
+    let right_start_x = origin_x
+        .saturating_add(width)
+        .saturating_sub(right_w)
+        .saturating_add(x_offset);
+    let start_y = origin_y.saturating_add(y_offset);
+    let end_y = start_y.saturating_add(height);
 
     with_window_manager_ref(|manager| {
         if right_start_x <= left_end_x {
-            let mid_x = origin_x + x_offset + (width / 2);
+            let mid_x = origin_x.saturating_add(x_offset).saturating_add(width / 2);
             manager.win_draw_image(
                 left,
-                origin_x + x_offset,
+                origin_x.saturating_add(x_offset),
                 start_y,
                 mid_x,
                 end_y,
@@ -273,7 +278,7 @@ pub(super) fn draw_push_button_image_three(
                 right,
                 mid_x,
                 start_y,
-                origin_x + width + x_offset,
+                origin_x.saturating_add(width).saturating_add(x_offset),
                 end_y,
                 WIN_COLOR_UNDEFINED,
             );
@@ -281,9 +286,19 @@ pub(super) fn draw_push_button_image_three(
         }
 
         let mut x = left_end_x;
-        while x + center_w <= right_start_x {
-            manager.win_draw_image(center, x, start_y, x + center_w, end_y, WIN_COLOR_UNDEFINED);
-            x += center_w;
+        while x.saturating_add(center_w) <= right_start_x {
+            manager.win_draw_image(
+                center,
+                x,
+                start_y,
+                x.saturating_add(center_w),
+                end_y,
+                WIN_COLOR_UNDEFINED,
+            );
+            x = x.saturating_add(center_w);
+            if center_w <= 0 {
+                break;
+            }
         }
 
         if let Some(((tail_start_x, tail_start_y, tail_end_x, tail_end_y), clip)) =
@@ -301,7 +316,7 @@ pub(super) fn draw_push_button_image_three(
 
         manager.win_draw_image(
             left,
-            origin_x + x_offset,
+            origin_x.saturating_add(x_offset),
             start_y,
             left_end_x,
             end_y,
@@ -311,7 +326,7 @@ pub(super) fn draw_push_button_image_three(
             right,
             right_start_x,
             start_y,
-            right_start_x + right_w,
+            right_start_x.saturating_add(right_w),
             end_y,
             WIN_COLOR_UNDEFINED,
         );

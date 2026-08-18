@@ -942,6 +942,11 @@ impl CnCGameEngine {
                 // this, a hang inside MainMenuInit leaves state stuck at Loading and
                 // windowed inject never runs.
                 self.current_state = GameState::Menu;
+                // C++ GameText.cpp SetWindowText(ApplicationHWnd) uses the product
+                // name. Boot writes "Loading {phase} (92%)" from update_startup_loading;
+                // timeout Loading→Menu never reached host_finalize_startup_map_load,
+                // so the load-screen title and ShellGame overlay stayed up.
+                self.apply_shell_menu_window_chrome();
                 // C++ shell menus keep the shell map simulation alive behind the UI.
                 self.host_set_paused(false);
                 self.active_menu_shell_hook = None;

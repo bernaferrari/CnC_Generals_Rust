@@ -397,9 +397,9 @@ impl WindowManager {
             Ok(win) => win.children().to_vec(),
             Err(_) => {
                 // Nested RefCell during MainMenu hide / Start callback.
-                // Queue instead of panic or fail-closed no-op.
+                // Next outer with_window_manager entry, not this drain.
                 let window = window.clone();
-                queue_window_manager_op(move |manager| {
+                queue_window_manager_op_deferred(move |manager| {
                     manager.window_hiding(&window);
                 });
                 return;

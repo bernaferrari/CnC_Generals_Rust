@@ -358,10 +358,39 @@ fn launch_rts_runtime() -> Result<c_int> {
     Ok(exit_code)
 }
 
+/// Build the host EventLoop. Windowed macOS must be Regular (not Accessory)
+/// so `set_visible(true)` actually shows an OS window for CGEvent clicks.
+/// Headless stays the default policy so the process can remain hidden.
+pub fn create_host_event_loop(headless: bool) -> Result<EventLoop<()>> {
+    #[cfg(target_os = "macos")]
+    {
+        use winit::platform::macos::{ActivationPolicy, EventLoopBuilderExtMacOS};
+        let mut builder = EventLoop::builder();
+        if !headless {
+            builder
+                .with_activation_policy(ActivationPolicy::Regular)
+                .with_activate_ignoring_other_apps(true);
+        }
+        builder.build().context("Failed to create event loop")
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = headless;
+        EventLoop::new().context("Failed to create event loop")
+    }
+}
+
+fn host_runtime_is_headless(cmd_args: &command_line::CommandLineArgs) -> bool {
+    cmd_args
+        .get_option_value("runtime_host")
+        .map(|mode| mode.trim().eq_ignore_ascii_case("headless"))
+        .unwrap_or(false)
+}
+
 fn build_window_attributes(
     cmd_args: &command_line::CommandLineArgs,
 ) -> Result<(EventLoop<()>, WindowAttributes)> {
-    let event_loop = EventLoop::new().context("Failed to create event loop")?;
+    let event_loop = create_host_event_loop(host_runtime_is_headless(cmd_args))?;
     let (width, height) = resolve_startup_resolution(cmd_args);
     let (is_windowed, is_fullscreen) = resolve_window_mode(cmd_args);
     let startup_position = centered_startup_position(&event_loop, width, height);

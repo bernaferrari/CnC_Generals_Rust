@@ -70,16 +70,9 @@ pub fn hide_window_rc(win_rc: &Rc<RefCell<GameWindow>>, hide: bool) {
         }
         Err(_) => {
             let win_rc = win_rc.clone();
-            queue_window_manager_op(move |_manager| {
+            queue_window_manager_op_deferred(move |_manager| {
                 if let Ok(mut win) = win_rc.try_borrow_mut() {
                     let _ = win.hide(hide);
-                } else {
-                    let win_rc = win_rc.clone();
-                    queue_window_manager_op_deferred(move |_manager| {
-                        if let Ok(mut win) = win_rc.try_borrow_mut() {
-                            let _ = win.hide(hide);
-                        }
-                    });
                 }
             });
         }

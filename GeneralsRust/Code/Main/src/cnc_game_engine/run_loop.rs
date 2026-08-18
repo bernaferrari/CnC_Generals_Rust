@@ -312,10 +312,19 @@ pub async fn run_cnc_game(
                 }
             );
 
-            if runtime_headless_mode {
-                created_window.set_visible(false);
-            } else {
-                created_window.set_visible(true);
+            let window_visible =
+                apply_runtime_host_window_visibility(&created_window, runtime_headless_mode);
+            if !runtime_headless_mode && !window_visible {
+                warn!(
+                    "Windowed set_visible(true) but winit is_visible={:?}; window_visible stays false",
+                    created_window.is_visible()
+                );
+            }
+            if let Some(bridge) = runtime_host_bridge.as_mut() {
+                bridge.publish_booting_from_winit_query(
+                    runtime_headless_mode,
+                    created_window.is_visible(),
+                );
             }
             created_window.request_redraw();
             window = Some(created_window.clone());
@@ -338,7 +347,14 @@ pub async fn run_cnc_game(
                 }
                 Event::AboutToWait => {
                     if let Some(bridge) = runtime_host_bridge.as_mut() {
-                        bridge.publish_booting();
+                        let is_visible = match window.as_ref() {
+                            Some(current) => current.is_visible(),
+                            None => Some(false),
+                        };
+                        bridge.publish_booting_from_winit_query(
+                            runtime_headless_mode,
+                            is_visible,
+                        );
                         for command in bridge.drain_commands() {
                             if command.trim().eq_ignore_ascii_case("exit") {
                                 info!("Runtime host received exit command during startup");
@@ -384,8 +400,20 @@ pub async fn run_cnc_game(
                             Poll::Ready(Ok(new_engine)) => {
                                 if let Some(created_window) = window.as_ref() {
                                     info!("C&C Game engine initialized successfully!");
-                                    if !runtime_headless_mode {
+                                    if runtime_headless_mode {
+                                        created_window.set_visible(false);
+                                    } else {
+                                        created_window.set_visible(true);
                                         created_window.focus_window();
+                                        if !apply_runtime_host_window_visibility(
+                                            created_window,
+                                            false,
+                                        ) {
+                                            warn!(
+                                                "Windowed engine init complete but winit is_visible={:?}; window_visible stays false",
+                                                created_window.is_visible()
+                                            );
+                                        }
                                     }
                                     created_window.request_redraw();
                                 }
@@ -595,7 +623,16 @@ pub async fn run_cnc_game(
                                     );
                                 }
                             } else {
-                                drive_frame(engine, current_window, &mut runtime_host_bridge, true);
+                                let now = Instant::now();
+                                if now >= next_redraw_at {
+                                    drive_frame(
+                                        engine,
+                                        current_window,
+                                        &mut runtime_host_bridge,
+                                        true,
+                                    );
+                                    next_redraw_at = Instant::now() + FRAME_INTERVAL;
+                                }
                             }
                         }
                         _ => {}
@@ -642,8 +679,12 @@ pub async fn run_cnc_game(
                         }
                         next_redraw_at = now + MINIMIZED_POLL_INTERVAL;
                     } else {
+                        // C++ WinMain pumps GameEngine::update every wait, not
+                        // only when macOS delivers RedrawRequested. Waiting on
+                        // request_redraw alone froze status.txt after first Menu.
+                        drive_frame(engine, current_window, &mut runtime_host_bridge, true);
                         current_window.request_redraw();
-                        next_redraw_at = now + FRAME_INTERVAL;
+                        next_redraw_at = Instant::now() + FRAME_INTERVAL;
                     }
                 }
                 elwt.set_control_flow(ControlFlow::WaitUntil(next_redraw_at));
@@ -719,5 +760,34 @@ mod tests {
             "headless 30 Hz logic interval must stay 30 logic frames/sec"
         );
     }
+
+    #[test]
+    fn windowed_boot_shows_window_and_latches_present() {
+        let src = include_str!("run_loop.rs");
+        let live = src
+            .split("#[cfg(test)]")
+            .next()
+            .expect("run_loop live path");
+        assert!(
+            live.contains("apply_runtime_host_window_visibility")
+                && live.contains("publish_booting_from_winit_query")
+                && live.contains("created_window.is_visible()"),
+            "windowed boot must show the OS window and publish the honest winit query"
+        );
+        assert!(
+            live.contains("note_windowed_surface_presented")
+                && live.contains("if !runtime_headless_mode"),
+            "live_frame_ok latch only after a successful windowed render"
+        );
+        let hide = live
+            .find("apply_runtime_host_window_visibility(&created_window, runtime_headless_mode)")
+            .expect("visibility apply at create");
+        assert!(
+            live[hide.saturating_sub(80)..hide].contains("runtime_headless_mode")
+                || live[hide..hide + 400].contains("runtime_headless_mode"),
+            "visibility helper must receive the headless flag"
+        );
+    }
+
 }
 

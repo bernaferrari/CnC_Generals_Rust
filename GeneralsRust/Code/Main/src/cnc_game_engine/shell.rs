@@ -330,16 +330,32 @@ impl CnCGameEngine {
 
         #[cfg(feature = "game_client")]
         {
-            if !self.loading_overlay_active {
-                return;
-            }
-
+            // Do not early-return on a stale `loading_overlay_active` flag.
+            // Timeout Loading→Menu and failed overlay init can leave
+            // ShellGameLoadScreen.wnd (92%) stacked over MainMenu.
             if let Some(kind) = self.active_load_screen.take() {
                 game_client::gui::load_screen::reset_load_screen(kind);
             }
-
+            for kind in [
+                game_client::gui::load_screen::LoadScreenKind::ShellGame,
+                game_client::gui::load_screen::LoadScreenKind::SinglePlayer,
+                game_client::gui::load_screen::LoadScreenKind::Challenge,
+                game_client::gui::load_screen::LoadScreenKind::Multiplayer,
+                game_client::gui::load_screen::LoadScreenKind::GameSpy,
+                game_client::gui::load_screen::LoadScreenKind::MapTransfer,
+            ] {
+                game_client::gui::load_screen::reset_load_screen(kind);
+            }
             self.loading_overlay_active = false;
         }
+    }
+
+    /// Product-name title + load-screen teardown for every Menu enter.
+    /// C++ GameText.cpp:347 SetWindowText; load screens are not the shell menu.
+    pub(super) fn apply_shell_menu_window_chrome(&mut self) {
+        self.last_loading_title_update = None;
+        self.hide_shell_loading_overlay();
+        self.window.set_title(SHELL_MENU_WINDOW_TITLE);
     }
 
     /// C++ parity: Shell::push("Menus/MainMenu.wnd") + Shell::doPush()
@@ -1906,8 +1922,7 @@ impl CnCGameEngine {
             self.startup_last_stall_warning_at = None;
             self.hide_shell_loading_overlay();
             self.log_startup_health_summary();
-            self.window
-                .set_title("Command & Conquer Generals Zero Hour");
+            self.window.set_title(SHELL_MENU_WINDOW_TITLE);
             self.window.request_redraw();
             return Ok(());
         }
@@ -1934,8 +1949,7 @@ impl CnCGameEngine {
         self.startup_last_stall_warning_at = None;
         self.hide_shell_loading_overlay();
         self.log_startup_health_summary();
-        self.window
-            .set_title("Command & Conquer Generals Zero Hour");
+        self.window.set_title(SHELL_MENU_WINDOW_TITLE);
         self.window.request_redraw();
         Ok(())
     }
