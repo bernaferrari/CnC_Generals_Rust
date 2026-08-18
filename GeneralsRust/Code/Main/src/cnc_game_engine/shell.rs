@@ -1817,20 +1817,16 @@ impl CnCGameEngine {
                     }
 
                     if start_in_menu && game_logic.isInShellGame() {
-                        // Move one-time shell simulation setup off the first visible menu frame.
+                        // C++ ticks GAME_SHELL on the main loop. Two worker
+                        // update_shell_with_budget steps were hanging minutes
+                        // (pathfinding/scripts + ASSET_MANAGER) and never sent
+                        // Complete, so TerrainVisual never installed.
                         Self::emit_startup_load_progress(
                             &sender,
                             0.968,
                             "Priming shell simulation",
                         );
-                        let shell_warmup_started = Instant::now();
-                        for _ in 0..2 {
-                            game_logic.update_shell_with_budget(1.0 / 30.0, 1);
-                        }
-                        info!(
-                            "Startup shell simulation warmup completed in {:.2}s",
-                            shell_warmup_started.elapsed().as_secs_f32()
-                        );
+                        info!("Startup shell simulation warmup deferred to Menu ticks");
                     }
 
                     Self::emit_startup_load_progress(&sender, 0.984, "Finalizing startup data");
