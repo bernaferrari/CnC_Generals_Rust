@@ -591,14 +591,17 @@ impl ImageCollection {
 }
 
 fn load_global_mapped_image_collection(texture_size: i32) {
-    // Drop the collection write before the directory walk. Parse takes the
-    // same lock per MappedImage block; holding it across load deadlocks.
+    // C++ ImageCollection::load is one-shot (GameClient.cpp:255-256).
+    // Re-walking every MappedImage dir on a missing-name lookup stalls Menu
+    // 200ms–1.4s per frame (force-quit).
     let collection_handle = ensure_mapped_image_collection();
+    if !collection_handle.read().is_empty() {
+        return;
+    }
     {
         let mut collection = collection_handle.write();
         collection.clear();
     }
-
     let mut ini = INI::new();
     let mapped_image_dirs = discover_mapped_image_source_dirs(texture_size);
     log::info!(

@@ -1583,7 +1583,7 @@ pub fn skirmish_game_options_menu_update(
         // C++ parity: check animation/transitions unconditionally (no is_shutting_down gate).
         // C++ SkirmishGameOptionsMenuUpdate calls TheShell->shutdownComplete(layout) whenever
         // both the shell animation and transition handler report finished.
-        if try_with_shell_mut(|shell| shell.is_anim_finished()).unwrap_or(false)
+        if crate::gui::shell::base::shell_anim_finished_for_layout()
             && with_window_manager(|manager| manager.transitions_finished())
         {
             if state.is_shutting_down {

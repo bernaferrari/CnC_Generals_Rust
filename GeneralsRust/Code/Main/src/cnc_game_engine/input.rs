@@ -807,25 +807,17 @@ impl CnCGameEngine {
         if self.menu_loading_tick_accumulator < SHELL_MENU_STEP {
             return;
         }
-        self.menu_loading_tick_accumulator -= SHELL_MENU_STEP;
-
-        let clock_timing = self.frame_clock.advance_fixed(SHELL_MENU_STEP);
-        let timing = Self::to_engine_timing(clock_timing, Instant::now());
-        let dt = self.apply_frame_timing(timing);
-        static UC_COUNT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
-        let uc_n = UC_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        if uc_n < 15 || (uc_n < 50 && matches!(self.current_state, GameState::Menu)) {
-            info!(
-                "update_with_frame_clock #{} start state={:?}",
-                uc_n, self.current_state
-            );
-        }
-        self.update_internal(dt);
-        if uc_n < 15 || (uc_n < 50 && matches!(self.current_state, GameState::Menu)) {
-            info!(
-                "update_with_frame_clock #{} done state={:?}",
-                uc_n, self.current_state
-            );
+        // C++ GameClient/TransitionHandler update once per logic frame (~30Hz).
+        // A 220ms–1.4s Menu stall used to consume only one 33ms step, so
+        // Difficulty FLASH never reached Easy unhide. Drain a bounded catch-up.
+        let mut steps = 0u32;
+        while self.menu_loading_tick_accumulator >= SHELL_MENU_STEP && steps < 8 {
+            self.menu_loading_tick_accumulator -= SHELL_MENU_STEP;
+            steps += 1;
+            let clock_timing = self.frame_clock.advance_fixed(SHELL_MENU_STEP);
+            let timing = Self::to_engine_timing(clock_timing, Instant::now());
+            let dt = self.apply_frame_timing(timing);
+            self.update_internal(dt);
         }
     }
 

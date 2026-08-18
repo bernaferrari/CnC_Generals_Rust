@@ -252,6 +252,9 @@ pub struct UIRenderer {
     // `unsafe impl Sync`.
     font_runtime: Mutex<FontRuntime>,
     font_cache: HashMap<String, Font>,
+    /// C++ DisplayString retains rasterized glyphs. Re-shaping every label
+    /// every frame created a wgpu texture per button and froze Menu.
+    text_texture_cache: HashMap<u64, Arc<TextureView>>,
 
     // Textures and samplers
     default_texture: Arc<TextureView>,
@@ -619,6 +622,7 @@ impl UIRenderer {
                 text_buffer,
             }),
             font_cache: HashMap::new(),
+            text_texture_cache: HashMap::new(),
             default_texture: default_texture_view,
             default_texture_bind_group,
             linear_sampler,
@@ -1059,9 +1063,31 @@ impl UIRenderer {
         });
     }
 
+    fn text_layout_cache_key(layout: &TextLayout) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        layout.text.hash(&mut hasher);
+        layout.font_size.to_bits().hash(&mut hasher);
+        for channel in layout.color {
+            channel.to_bits().hash(&mut hasher);
+        }
+        layout.bounds.width.to_bits().hash(&mut hasher);
+        layout.bounds.height.to_bits().hash(&mut hasher);
+        std::mem::discriminant(&layout.alignment).hash(&mut hasher);
+        std::mem::discriminant(&layout.vertical_alignment).hash(&mut hasher);
+        layout.word_wrap.hash(&mut hasher);
+        layout.single_line.hash(&mut hasher);
+        hasher.finish()
+    }
+
     /// Add a text draw command
     pub fn draw_text(&mut self, layout: &TextLayout, z_order: f32) -> Result<()> {
         if layout.text.is_empty() || layout.bounds.width <= 0.0 || layout.bounds.height <= 0.0 {
+            return Ok(());
+        }
+        let cache_key = Self::text_layout_cache_key(layout);
+        if let Some(texture) = self.text_texture_cache.get(&cache_key).cloned() {
+            self.draw_textured_rect(layout.bounds, texture, [1.0, 1.0, 1.0, 1.0], None, z_order);
             return Ok(());
         }
 
@@ -1176,8 +1202,11 @@ impl UIRenderer {
         }
 
         let texture = self.create_texture_from_rgba(canvas_width, canvas_height, &canvas);
+        if self.text_texture_cache.len() >= 256 {
+            self.text_texture_cache.clear();
+        }
+        self.text_texture_cache.insert(cache_key, texture.clone());
         self.draw_textured_rect(layout.bounds, texture, [1.0, 1.0, 1.0, 1.0], None, z_order);
-
         Ok(())
     }
 
