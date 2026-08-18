@@ -49,7 +49,7 @@ use game_engine::common::ini::get_global_data;
 use game_engine::common::random_value::init_random_with_seed;
 use gamelogic::helpers::TheGameLogic;
 use gamelogic::system::game_logic::{GAME_NONE, GAME_SHELL};
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::cmp::min;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
@@ -2908,6 +2908,11 @@ impl SubsystemInterface for Shell {
                 self.load_scheme(&name);
             }
 
+            // C++ MainMenuUpdate reads TheShell->isAnimFinished() while
+            // Shell::update already holds *this. Snapshot so callbacks
+            // cannot fail-closed and leave pending_push stuck.
+            SHELL_ANIM_FINISHED.with(|flag| flag.set(self.is_anim_finished()));
+
             // Update all layouts on the stack (from top to bottom)
             for i in (0..self.screen_stack.len()).rev() {
                 self.screen_stack[i].run_update(None)?;
@@ -2942,6 +2947,8 @@ thread_local! {
     static SHELL_OPERATION_QUEUE: RefCell<Vec<Box<dyn FnOnce(&mut Shell) + 'static>>> =
         RefCell::new(Vec::new());
     static PENDING_SHELL_SCHEME: RefCell<Option<String>> = const { RefCell::new(None) };
+    static SHELL_ANIM_FINISHED: Cell<bool> = const { Cell::new(true) };
+
 }
 
 fn drain_shell_operations(shell: &mut Shell) {
@@ -3054,6 +3061,16 @@ where
         drop(drain);
         Some(result)
     })
+}
+
+/// C++ TheShell->isAnimFinished() from a layout callback that already holds
+/// the live Shell borrow (Shell::update). Uses the snapshot taken at the
+/// start of that update; otherwise reads the singleton when free.
+pub fn shell_anim_finished_for_layout() -> bool {
+    if SHELL.with(|cell| cell.try_borrow().is_err()) {
+        return SHELL_ANIM_FINISHED.with(|flag| flag.get());
+    }
+    with_shell_ref(|shell| shell.is_anim_finished()).unwrap_or(true)
 }
 
 /// Run `f` with a shared shell reference when no mutable lifecycle call is active.

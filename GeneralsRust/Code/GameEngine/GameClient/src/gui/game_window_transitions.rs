@@ -2613,7 +2613,6 @@ impl GameWindowTransitionsHandler {
             if self.groups[current].is_finished() {
                 self.current_group = Some(pending);
                 self.pending_group = None;
-                self.pending_needs_init = true;
             }
         }
 
@@ -2621,17 +2620,9 @@ impl GameWindowTransitionsHandler {
             if let Some(pending) = self.pending_group {
                 self.current_group = Some(pending);
                 self.pending_group = None;
-                self.pending_needs_init = true;
             }
         }
 
-        if self.pending_needs_init {
-            if let Some(idx) = self.current_group {
-                let lookup = self.last_window_lookup.clone();
-                self.groups[idx].init(&lookup);
-            }
-            self.pending_needs_init = false;
-        }
 
         if let Some(idx) = self.current_group {
             if self.groups[idx].is_finished() && self.groups[idx].is_reversed() {
@@ -2673,11 +2664,13 @@ impl GameWindowTransitionsHandler {
             if !self.groups[current].fire_once && !self.groups[current].is_reversed() {
                 self.groups[current].reverse();
             }
-            // C++ setGroup stores pending and inits it. FLASH::init reverse
-            // winHide(TRUE) on MapBorder while DefaultMenu is still current,
-            // then hide-pack / DefaultMenu skip fights SOLO PLAY. Init the
-            // pending group only when it becomes current (update promote).
+            // C++ setGroup: m_pendingGroup = findGroup; if (m_pendingGroup) init().
+            // FLASH::init hides MapBorder immediately; DefaultMenu is still
+            // current so hide-pack must not re-hide after CHAR (already gated).
             self.pending_group = self.find_group_index(group_name);
+            if let Some(idx) = self.pending_group {
+                self.groups[idx].init(window_lookup);
+            }
             return;
         }
 

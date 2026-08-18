@@ -955,7 +955,7 @@ impl MainMenu {
 
         // Check if we should start the game - matches C++ lines 933-936
         if state.start_game
-            && try_with_shell_mut(|shell| shell.is_anim_finished()).unwrap_or(false)
+            && crate::gui::shell::base::shell_anim_finished_for_layout()
             && self.transitions_finished()
         {
             self.do_game_start(&mut state)?;
@@ -963,7 +963,7 @@ impl MainMenu {
 
         // Check if shutdown is complete - matches C++ lines 939-942
         if state.is_shutting_down
-            && try_with_shell_mut(|shell| shell.is_anim_finished()).unwrap_or(false)
+            && crate::gui::shell::base::shell_anim_finished_for_layout()
             && self.transitions_finished()
         {
             self.finish_shutdown_complete(Some(layout), &mut state)?;

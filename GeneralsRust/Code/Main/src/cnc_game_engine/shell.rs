@@ -700,6 +700,7 @@ impl CnCGameEngine {
     pub(super) fn configured_startup_shell_map() -> Option<String> {
         let global = game_engine::common::global_data::read();
         if !global.writable.shell_map_on {
+            info!("configured_startup_shell_map: shell_map_on=false");
             return None;
         }
         let mut shell_map_name = global.writable.shell_map_name.clone();
@@ -710,11 +711,33 @@ impl CnCGameEngine {
         }
 
         if let Some(resolved) = Self::resolve_windowed_shell_map_asset(&shell_map_name) {
+            info!("configured_startup_shell_map: using {resolved}");
             let mut global = game_engine::common::global_data::write();
             if global.writable.shell_map_name.trim().is_empty() {
                 global.writable.shell_map_name = shell_map_name;
             }
             return Some(resolved);
+        }
+
+        // Main GlobalData default is Generals ShellMap1. ZH GameData.ini
+        // uses ShellMapMD. Remap only that stale default so a truly missing
+        // override still disables shell_map_on (GameEngine.cpp:633-642).
+        let zh_name = Self::DEFAULT_WINDOWED_SHELL_MAP;
+        let stale_generals = shell_map_name
+            .replace('\\', "/")
+            .to_ascii_lowercase()
+            .contains("shellmap1");
+        if stale_generals {
+            if let Some(resolved) = Self::resolve_windowed_shell_map_asset(zh_name) {
+                let mut global = game_engine::common::global_data::write();
+                global.writable.shell_map_name = zh_name.to_string();
+                return Some(resolved);
+            }
+            if let Some(resolved) = Self::resolve_windowed_shell_map_asset("ShellMapMD") {
+                let mut global = game_engine::common::global_data::write();
+                global.writable.shell_map_name = zh_name.to_string();
+                return Some(resolved);
+            }
         }
 
         warn!(

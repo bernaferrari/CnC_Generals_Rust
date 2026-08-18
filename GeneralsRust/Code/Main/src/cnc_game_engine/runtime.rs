@@ -131,6 +131,10 @@ pub(super) const STATUS_GADGET_HIT_NAMES: &[&str] = &[
     "MainMenu.wnd:ButtonChina",
     "MainMenu.wnd:ButtonChallenge",
     "MainMenu.wnd:ButtonSingleBack",
+    "MainMenu.wnd:ButtonEasy",
+    "MainMenu.wnd:ButtonMedium",
+    "MainMenu.wnd:ButtonHard",
+    "MainMenu.wnd:ButtonDiffBack",
     "SkirmishGameOptionsMenu.wnd:ButtonStart",
     "SkirmishMapSelectMenu.wnd:ButtonOk",
 ];

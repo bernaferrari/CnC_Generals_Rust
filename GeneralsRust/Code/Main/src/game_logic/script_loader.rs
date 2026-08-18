@@ -3072,6 +3072,23 @@ fn locate_map_file(map_name: &str) -> Option<PathBuf> {
     search_roots.push(manifest.join("../.."));
     search_roots.push(manifest.join("../../.."));
 
+    // Retail ZH maps live under windows_game/extracted_big_files{,_v2}/MapsZH.
+    // C++ virtual FS roots Maps/ at MapsZH.big; join INI "Maps/..." against
+    // those extract trees so ShellMapMD resolves from cwd=GeneralsRust/.
+    let extract_suffixes = [
+        "windows_game/extracted_big_files/MapsZH",
+        "windows_game/extracted_big_files_v2/MapsZH",
+        "extracted_big_files/MapsZH",
+        "extracted_big_files_v2/MapsZH",
+        "MapsZH",
+    ];
+    let existing = search_roots.clone();
+    for root in &existing {
+        for suffix in extract_suffixes {
+            search_roots.push(root.join(suffix));
+        }
+    }
+
     let normalized = trimmed.replace('\\', "/");
     for root in &search_roots {
         let candidate = root.join(&normalized);
@@ -3594,8 +3611,29 @@ mod locate_map_file_workspace_residual_tests {
         assert!(
             src.contains("Workspace-relative residual")
                 && src.contains("search_roots")
-                && src.contains("CARGO_MANIFEST_DIR"),
+                && src.contains("CARGO_MANIFEST_DIR")
+                && src.contains("extracted_big_files/MapsZH"),
             "locate_map_file must search parent workspace roots for windows_game extracts"
+        );
+    }
+
+    #[test]
+    fn find_map_file_resolves_shellmapmd_from_generals_ini_name() {
+        let found = crate::game_logic::find_map_file(r"Maps\ShellMapMD\ShellMapMD.map")
+            .or_else(|| crate::game_logic::find_map_file("ShellMapMD"));
+        if found.is_none() {
+            return;
+        }
+        let path = found.unwrap();
+        assert!(
+            path.is_file(),
+            "resolved ShellMapMD must be a real file: {}",
+            path.display()
+        );
+        assert!(
+            path.to_string_lossy().to_ascii_lowercase().contains("shellmapmd"),
+            "unexpected resolve {}",
+            path.display()
         );
     }
 }
