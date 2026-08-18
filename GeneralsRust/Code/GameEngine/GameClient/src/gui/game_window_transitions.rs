@@ -2545,6 +2545,8 @@ pub struct GameWindowTransitionsHandler {
     pending_group: Option<usize>,
     draw_group: Option<usize>,
     secondary_draw_group: Option<usize>,
+    pending_needs_init: bool,
+    last_window_lookup: HashMap<i32, Weak<RefCell<GameWindow>>>,
 }
 
 impl Default for GameWindowTransitionsHandler {
@@ -2561,6 +2563,8 @@ impl GameWindowTransitionsHandler {
             pending_group: None,
             draw_group: None,
             secondary_draw_group: None,
+            pending_needs_init: false,
+            last_window_lookup: HashMap::new(),
         }
     }
 
@@ -2609,6 +2613,7 @@ impl GameWindowTransitionsHandler {
             if self.groups[current].is_finished() {
                 self.current_group = Some(pending);
                 self.pending_group = None;
+                self.pending_needs_init = true;
             }
         }
 
@@ -2616,7 +2621,16 @@ impl GameWindowTransitionsHandler {
             if let Some(pending) = self.pending_group {
                 self.current_group = Some(pending);
                 self.pending_group = None;
+                self.pending_needs_init = true;
             }
+        }
+
+        if self.pending_needs_init {
+            if let Some(idx) = self.current_group {
+                let lookup = self.last_window_lookup.clone();
+                self.groups[idx].init(&lookup);
+            }
+            self.pending_needs_init = false;
         }
 
         if let Some(idx) = self.current_group {
@@ -2641,6 +2655,7 @@ impl GameWindowTransitionsHandler {
         immediate: bool,
         window_lookup: &HashMap<i32, Weak<RefCell<GameWindow>>>,
     ) {
+        self.last_window_lookup = window_lookup.clone();
         if group_name.is_empty() && immediate {
             self.current_group = None;
         }
@@ -2654,15 +2669,15 @@ impl GameWindowTransitionsHandler {
             }
             return;
         }
-
         if let Some(current) = self.current_group {
             if !self.groups[current].fire_once && !self.groups[current].is_reversed() {
                 self.groups[current].reverse();
             }
+            // C++ setGroup stores pending and inits it. FLASH::init reverse
+            // winHide(TRUE) on MapBorder while DefaultMenu is still current,
+            // then hide-pack / DefaultMenu skip fights SOLO PLAY. Init the
+            // pending group only when it becomes current (update promote).
             self.pending_group = self.find_group_index(group_name);
-            if let Some(idx) = self.pending_group {
-                self.groups[idx].init(window_lookup);
-            }
             return;
         }
 

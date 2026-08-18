@@ -562,35 +562,38 @@ impl MainMenu {
     }
 
 
-    fn set_dropdown_hidden(&self, state: &MainMenuState, dropdown: DropdownType, hide: bool) {
-        // Explicit compat state mirrors C++ GameWindow::hide() per-dropdown visibility,
-        // so replacement frontends don't need to re-derive C++ menu transition rules.
-        // Name fallback: CHAR/mouse reveal must still winHide(FALSE) MapBorder2 when
-        // dropdown_windows is unbound (Default / pre-init global MainMenu).
-        let name = Self::dropdown_wnd_name(dropdown);
-        if let Some(Some(window_id)) = state.dropdown_windows.get(&dropdown) {
-            self.hide_window_by_id(state, *window_id, None, hide);
+    fn set_dropdown_hidden(&self, _state: &MainMenuState, dropdown: DropdownType, hide: bool) {
+        // C++ dropDownWindows[dropdown]->winHide(hide). Name lookup via queued
+        // WM op — never fail-closed dummy `with_window_manager_ref`.
+        let Some(name) = Self::dropdown_wnd_name(dropdown) else {
             return;
-        }
-        if let Some(name) = name {
-            if let Some(window) =
-                with_window_manager_ref(|manager| manager.find_window_by_name(name))
-            {
+        };
+        queue_window_manager_op(move |manager| {
+            if let Some(window) = manager.find_window_by_name(name) {
                 crate::gui::hide_window_rc(&window, hide);
             }
-        }
+        });
     }
 
-    fn show_only_dropdown(&self, state: &MainMenuState, dropdown: DropdownType) {
-        for candidate in [
-            DropdownType::Single,
-            DropdownType::Multiplayer,
-            DropdownType::Main,
-            DropdownType::LoadReplay,
-            DropdownType::Difficulty,
-        ] {
-            self.set_dropdown_hidden(state, candidate, candidate != dropdown);
-        }
+    fn show_only_dropdown(&self, _state: &MainMenuState, dropdown: DropdownType) {
+        // One queued pass so Single/Main (etc.) actually winHide live MapBorder*
+        // windows. Dummy WM lookups never count as success.
+        queue_window_manager_op(move |manager| {
+            for candidate in [
+                DropdownType::Single,
+                DropdownType::Multiplayer,
+                DropdownType::Main,
+                DropdownType::LoadReplay,
+                DropdownType::Difficulty,
+            ] {
+                let Some(name) = Self::dropdown_wnd_name(candidate) else {
+                    continue;
+                };
+                if let Some(window) = manager.find_window_by_name(name) {
+                    crate::gui::hide_window_rc(&window, candidate != dropdown);
+                }
+            }
+        });
     }
 
     fn ensure_first_run_nav_gadgets_hittable(&self) {
@@ -885,11 +888,13 @@ impl MainMenu {
         }
 
         if state.just_entered || !state.init_dropdowns_hidden {
-            // C++ MainMenuInit 525-530 hide pack. Retry until MapBorder2 is
-            // actually found+hidden on the live WM (Shell::push may hold it).
-            // Stop retrying after CHAR reveal (DROPDOWN_MAIN) so we do not
-            // undo winHide(FALSE). Never transition_set_group here.
-            if !state.init_dropdowns_hidden && state.drop_down != DropdownType::Main {
+            // C++ hides only in MainMenuInit. Retry only while first-run
+            // (notShown) and no dropdown nav yet. After CHAR or SOLO PLAY,
+            // re-running the pack hides MapBorder and undoes 1313-1324.
+            if !state.init_dropdowns_hidden
+                && state.not_shown
+                && state.drop_down == DropdownType::None
+            {
                 state.init_dropdowns_hidden = self.apply_cpp_init_hide_pack();
             }
         }
@@ -4237,6 +4242,202 @@ mod main_menu_shell_borrow_residual_tests {
     }
 
     #[test]
+    fn os_mouse_click_button_single_player_gbm_selected_unhides_map_border() {
+        // C++ MainMenu.cpp:1313-1324 ButtonSinglePlayer GBM_SELECTED:
+        // dropDownWindows[DROPDOWN_SINGLE]->winHide(FALSE) (MapBorder)
+        // so SKIRMISH (a MapBorder child) is hittable. Physical click must
+        // bubble through PassSelectedButtonsToParentSystem into MainMenuSystem.
+        use crate::gui::gadgets::PushButton;
+        use crate::gui::game_window::{
+            WindowInputReturnCode, WindowStatus, WindowWidget, GWS_MOUSE_TRACK, GWS_PUSH_BUTTON,
+        };
+        use crate::gui::window_manager::with_window_manager;
+        use crate::gui::window_script::WindowDefinition;
+        use crate::gui::WindowMessage;
+
+        let ids = build_window_ids();
+        let parent_id = ids.main_menu_id as i32;
+        let border_id = NameKeyGenerator::name_to_key("MainMenu.wnd:MapBorder") as i32;
+        let border2_id = NameKeyGenerator::name_to_key("MainMenu.wnd:MapBorder2") as i32;
+        let solo_id = ids.button_single_player_id as i32;
+        let skirmish_id = ids.skirmish_id as i32;
+
+        {
+            let mut menu = get_main_menu();
+            let mut state = menu.state.write().unwrap_or_else(|e| e.into_inner());
+            state.button_pushed = false;
+            state.campaign_selected = false;
+            state.dont_allow_transitions = false;
+            state.not_shown = false;
+            state.pending_actions.clear();
+            state.window_ids = ids.clone();
+            state.drop_down = DropdownType::Main;
+        }
+
+        crate::gui::shell::get_shell().set_shell_active(true);
+        with_window_manager(|manager| {
+            manager.reset();
+            manager.set_screen_size(800, 600);
+
+            let parent = manager
+                .create_window_with_id(None, 0, 0, 800, 600, parent_id)
+                .unwrap();
+            {
+                let mut parent_mut = parent.borrow_mut();
+                parent_mut.set_name("MainMenu.wnd:MainMenuParent");
+                parent_mut.set_status(WindowStatus::NO_INPUT);
+                manager.bind_window_callbacks(
+                    &mut parent_mut,
+                    &WindowDefinition {
+                        system_callback: "MainMenuSystem".to_string(),
+                        input_callback: "MainMenuInput".to_string(),
+                        ..WindowDefinition::default()
+                    },
+                );
+            }
+
+            let border2 = manager
+                .create_window_with_id(Some(&parent), 0, 0, 800, 600, border2_id)
+                .unwrap();
+            {
+                let mut border2_mut = border2.borrow_mut();
+                border2_mut.set_name("MainMenu.wnd:MapBorder2");
+                manager.bind_window_callbacks(
+                    &mut border2_mut,
+                    &WindowDefinition {
+                        system_callback: "PassSelectedButtonsToParentSystem".to_string(),
+                        input_callback: "[None]".to_string(),
+                        ..WindowDefinition::default()
+                    },
+                );
+            }
+            let _ = border2.borrow_mut().hide(false);
+
+            let solo = manager
+                .create_window_with_id(Some(&border2), 540, 116, 208, 36, solo_id)
+                .unwrap();
+            {
+                let mut solo_mut = solo.borrow_mut();
+                solo_mut.set_name("MainMenu.wnd:ButtonSinglePlayer");
+                solo_mut.instance_data_mut().style |= GWS_PUSH_BUTTON | GWS_MOUSE_TRACK;
+                solo_mut.set_widget(WindowWidget::PushButton(PushButton::new(
+                    solo_id as u32,
+                    0,
+                    0,
+                    208,
+                    36,
+                )));
+                manager.bind_window_callbacks(
+                    &mut solo_mut,
+                    &WindowDefinition {
+                        system_callback: "[None]".to_string(),
+                        input_callback: "[None]".to_string(),
+                        tooltip_callback: "[None]".to_string(),
+                        draw_callback: "[None]".to_string(),
+                        ..WindowDefinition::default()
+                    },
+                );
+            }
+            let _ = solo.borrow_mut().hide(false);
+            let _ = solo.borrow_mut().enable(true);
+
+            let border = manager
+                .create_window_with_id(Some(&parent), 0, 0, 800, 600, border_id)
+                .unwrap();
+            {
+                let mut border_mut = border.borrow_mut();
+                border_mut.set_name("MainMenu.wnd:MapBorder");
+                manager.bind_window_callbacks(
+                    &mut border_mut,
+                    &WindowDefinition {
+                        system_callback: "PassSelectedButtonsToParentSystem".to_string(),
+                        input_callback: "[None]".to_string(),
+                        ..WindowDefinition::default()
+                    },
+                );
+            }
+            let _ = border.borrow_mut().hide(true);
+
+            let skirmish = manager
+                .create_window_with_id(Some(&border), 540, 276, 208, 36, skirmish_id)
+                .unwrap();
+            {
+                let mut skirmish_mut = skirmish.borrow_mut();
+                skirmish_mut.set_name("MainMenu.wnd:ButtonSkirmish");
+                skirmish_mut.instance_data_mut().style |= GWS_PUSH_BUTTON | GWS_MOUSE_TRACK;
+                skirmish_mut.set_widget(WindowWidget::PushButton(PushButton::new(
+                    skirmish_id as u32,
+                    0,
+                    0,
+                    208,
+                    36,
+                )));
+                manager.bind_window_callbacks(
+                    &mut skirmish_mut,
+                    &WindowDefinition {
+                        system_callback: "[None]".to_string(),
+                        input_callback: "[None]".to_string(),
+                        tooltip_callback: "[None]".to_string(),
+                        draw_callback: "[None]".to_string(),
+                        ..WindowDefinition::default()
+                    },
+                );
+            }
+            let _ = skirmish.borrow_mut().hide(false);
+            let _ = skirmish.borrow_mut().enable(true);
+
+            assert!(
+                solo.borrow().point_in_window(644, 134),
+                "click must land on ButtonSinglePlayer"
+            );
+            let down = manager.process_mouse_event(WindowMessage::LeftDown, 644, 134, 0);
+            assert_eq!(down, WindowInputReturnCode::Used);
+            let up = manager.process_mouse_event(WindowMessage::LeftUp, 644, 134, 0);
+            assert_eq!(up, WindowInputReturnCode::Used);
+        });
+
+        {
+            let menu = get_main_menu();
+            let state = menu.state.read().unwrap_or_else(|e| e.into_inner());
+            assert_eq!(
+                state.drop_down,
+                DropdownType::Single,
+                "OS click must bubble GBM_SELECTED through PassSelectedButtonsToParentSystem into MainMenuSystem ButtonSinglePlayer"
+            );
+            assert!(
+                !state.button_pushed,
+                "C++ ButtonSinglePlayer sets buttonPushed = FALSE"
+            );
+        }
+
+        with_window_manager(|manager| {
+            let border = manager
+                .find_window_by_name("MainMenu.wnd:MapBorder")
+                .expect("MapBorder");
+            assert!(
+                !border.borrow().is_hidden(),
+                "C++ 1320 dropDownWindows[DROPDOWN_SINGLE]->winHide(FALSE)"
+            );
+            let border2 = manager
+                .find_window_by_name("MainMenu.wnd:MapBorder2")
+                .expect("MapBorder2");
+            assert!(
+                border2.borrow().is_hidden(),
+                "SOLO PLAY must hide MapBorder2 so SKIRMISH is hittable"
+            );
+
+            let hit = manager.get_window_under_cursor(644, 294, false);
+            let hit_name = hit.as_ref().map(|w| w.borrow().get_name().to_string());
+            assert!(
+                hit_name.as_deref() == Some("MainMenu.wnd:ButtonSkirmish")
+                    || hit_name.as_deref() == Some("MainMenu.wnd:MapBorder"),
+                "after ButtonSinglePlayer GBM_SELECTED, SKIRMISH or MapBorder must be hittable, got {hit_name:?}"
+            );
+        });
+    }
+
+
+    #[test]
     fn simulate_main_menu_skirmish_button_gadget_selected_latches() {
         // Fresh residual call should fire ButtonSkirmish GBM_SELECTED latch.
         assert!(
@@ -4391,5 +4592,231 @@ mod main_menu_shell_borrow_residual_tests {
             }
         });
     }
+
+    #[test]
+    fn show_only_dropdown_single_unhides_map_border_hides_map_border2() {
+        use crate::gui::window_manager::with_window_manager;
+
+        with_window_manager(|manager| {
+            manager.reset();
+            let parent = manager
+                .create_window(None, 0, 0, 800, 600)
+                .expect("MainMenuParent");
+            parent
+                .borrow_mut()
+                .set_name("MainMenu.wnd:MainMenuParent");
+            for name in ["MainMenu.wnd:MapBorder", "MainMenu.wnd:MapBorder2"] {
+                let border = manager
+                    .create_window(Some(&parent), 0, 0, 800, 600)
+                    .expect(name);
+                border.borrow_mut().set_name(name);
+                // Start both visible so hide must run on the live manager.
+                let _ = border.borrow_mut().hide(false);
+            }
+        });
+
+        {
+            let menu = MainMenu::new();
+            let state = MainMenuState::default();
+            menu.show_only_dropdown(&state, DropdownType::Single);
+        }
+
+        with_window_manager(|manager| {
+            let hidden = |name: &str| {
+                manager
+                    .find_window_by_name(name)
+                    .map(|w| w.borrow().is_hidden())
+                    .expect(name)
+            };
+            assert!(
+                !hidden("MainMenu.wnd:MapBorder"),
+                "show_only_dropdown(Single) must winHide(FALSE) MapBorder"
+            );
+            assert!(
+                hidden("MainMenu.wnd:MapBorder2"),
+                "show_only_dropdown(Single) must winHide(TRUE) MapBorder2"
+            );
+        });
+    }
+
+    #[test]
+    fn show_only_dropdown_multiplayer_unhides_map_border1_hides_map_border2() {
+        // C++ MainMenu.cpp:1369-1376 ButtonMultiplayer:
+        // dropDownWindows[DROPDOWN_MULTIPLAYER]->winHide(FALSE) (MapBorder1)
+        // after MainMenuInit hid MapBorder2 (DROPDOWN_MAIN).
+        use crate::gui::window_manager::with_window_manager;
+
+        with_window_manager(|manager| {
+            manager.reset();
+            let parent = manager
+                .create_window(None, 0, 0, 800, 600)
+                .expect("MainMenuParent");
+            parent
+                .borrow_mut()
+                .set_name("MainMenu.wnd:MainMenuParent");
+            for name in [
+                "MainMenu.wnd:MapBorder1",
+                "MainMenu.wnd:MapBorder2",
+            ] {
+                let border = manager
+                    .create_window(Some(&parent), 0, 0, 800, 600)
+                    .expect(name);
+                border.borrow_mut().set_name(name);
+                // Start both visible so hide must run on the live manager.
+                let _ = border.borrow_mut().hide(false);
+            }
+        });
+
+        {
+            let menu = MainMenu::new();
+            let state = MainMenuState::default();
+            menu.show_only_dropdown(&state, DropdownType::Multiplayer);
+        }
+
+        with_window_manager(|manager| {
+            let hidden = |name: &str| {
+                manager
+                    .find_window_by_name(name)
+                    .map(|w| w.borrow().is_hidden())
+                    .expect(name)
+            };
+            assert!(
+                !hidden("MainMenu.wnd:MapBorder1"),
+                "show_only_dropdown(Multiplayer) must winHide(FALSE) MapBorder1"
+            );
+            assert!(
+                hidden("MainMenu.wnd:MapBorder2"),
+                "show_only_dropdown(Multiplayer) must winHide(TRUE) MapBorder2"
+            );
+        });
+    }
+
+    fn install_named_map_borders(names: &[&str], hidden: bool) {
+        use crate::gui::window_manager::with_window_manager;
+        with_window_manager(|manager| {
+            manager.reset();
+            let parent = manager
+                .create_window(None, 0, 0, 800, 600)
+                .expect("MainMenuParent");
+            parent
+                .borrow_mut()
+                .set_name("MainMenu.wnd:MainMenuParent");
+            for name in names {
+                let border = manager
+                    .create_window(Some(&parent), 0, 0, 800, 600)
+                    .expect(*name);
+                border.borrow_mut().set_name(*name);
+                let _ = border.borrow_mut().hide(hidden);
+            }
+        });
+    }
+
+    fn border_hidden(name: &str) -> bool {
+        use crate::gui::window_manager::with_window_manager;
+        with_window_manager(|manager| {
+            manager
+                .find_window_by_name(name)
+                .map(|w| w.borrow().is_hidden())
+                .expect(name)
+        })
+    }
+
+    fn ready_menu_for_gbm() -> (MainMenu, MainMenuState) {
+        let menu = MainMenu::new();
+        let mut state = MainMenuState::default();
+        state.window_ids = build_window_ids();
+        state.button_pushed = false;
+        state.dont_allow_transitions = false;
+        state.campaign_selected = false;
+        state.pending_actions.clear();
+        (menu, state)
+    }
+
+    #[test]
+    fn handle_button_selected_remaining_screens_winhide_or_push_like_cpp() {
+        // C++ MainMenu.cpp GBM_SELECTED:
+        // MULTIPLAYER 1369-1376 MapBorder1; LOAD 1381-1391 MapBorder3;
+        // Back 1326-1356 MapBorder2; OPTIONS 1470-1483 OptionsMenu.wnd;
+        // SKIRMISH 1420-1441 SkirmishGameOptionsMenu.wnd.
+        const BORDERS: &[&str] = &[
+            "MainMenu.wnd:MapBorder",
+            "MainMenu.wnd:MapBorder1",
+            "MainMenu.wnd:MapBorder2",
+            "MainMenu.wnd:MapBorder3",
+        ];
+
+        install_named_map_borders(BORDERS, false);
+        let (menu, mut state) = ready_menu_for_gbm();
+        let multi_id = state.window_ids.button_multi_player_id;
+        menu.handle_button_selected(&mut state, multi_id)
+            .expect("ButtonMultiplayer");
+        assert_eq!(state.drop_down, DropdownType::Multiplayer);
+        assert!(
+            !border_hidden("MainMenu.wnd:MapBorder1"),
+            "MULTIPLAYER must winHide(FALSE) MapBorder1"
+        );
+        assert!(
+            border_hidden("MainMenu.wnd:MapBorder2"),
+            "MULTIPLAYER must winHide(TRUE) MapBorder2"
+        );
+
+        install_named_map_borders(BORDERS, false);
+        state.dont_allow_transitions = false;
+        state.button_pushed = false;
+        let load_id = state.window_ids.button_load_replay_id;
+        menu.handle_button_selected(&mut state, load_id)
+            .expect("ButtonLoadReplay");
+        assert_eq!(state.drop_down, DropdownType::LoadReplay);
+        assert!(
+            !border_hidden("MainMenu.wnd:MapBorder3"),
+            "LOAD must winHide(FALSE) MapBorder3"
+        );
+        assert!(
+            border_hidden("MainMenu.wnd:MapBorder2"),
+            "LOAD must winHide(TRUE) MapBorder2"
+        );
+
+        install_named_map_borders(BORDERS, true);
+        state.dont_allow_transitions = false;
+        state.button_pushed = false;
+        let back_id = state.window_ids.button_multi_back_id;
+        menu.handle_button_selected(&mut state, back_id)
+            .expect("ButtonMultiBack");
+        assert_eq!(state.drop_down, DropdownType::Main);
+        assert!(
+            !border_hidden("MainMenu.wnd:MapBorder2"),
+            "Back must winHide(FALSE) MapBorder2"
+        );
+
+        state.dont_allow_transitions = false;
+        state.button_pushed = false;
+        state.pending_actions.clear();
+        let options_id = state.window_ids.options_id;
+        menu.handle_button_selected(&mut state, options_id)
+            .expect("ButtonOptions");
+        assert!(
+            state
+                .pending_actions
+                .iter()
+                .any(|a| matches!(a, PendingMainMenuAction::ShowOptionsLayout)),
+            "OPTIONS must queue getOptionsLayout(OptionsMenu.wnd)"
+        );
+
+        state.dont_allow_transitions = false;
+        state.button_pushed = false;
+        state.campaign_selected = false;
+        state.pending_actions.clear();
+        let skirmish_id = state.window_ids.skirmish_id;
+        menu.handle_button_selected(&mut state, skirmish_id)
+            .expect("ButtonSkirmish");
+        assert!(
+            state.pending_actions.iter().any(|a| matches!(
+                a,
+                PendingMainMenuAction::PushShellScreen("Menus/SkirmishGameOptionsMenu.wnd")
+            )),
+            "SKIRMISH must queue PushShellScreen(SkirmishGameOptionsMenu.wnd)"
+        );
+    }
+
 
 }
