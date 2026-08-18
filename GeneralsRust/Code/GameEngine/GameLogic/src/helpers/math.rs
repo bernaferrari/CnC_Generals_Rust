@@ -3,7 +3,11 @@
 // Split from `helpers.rs` for module-size parity.
 // Observable behavior is unchanged.
 
-/// Terrain logic bridge for gameplay queries (matching C++ TheTerrainLogic)
+/// Terrain logic bridge for gameplay queries (matching C++ TheTerrainLogic).
+/// Nested queries must `try_read`: C++ `TheTerrainLogic` is a raw pointer
+/// (`TerrainLogic.cpp:1230` loadMap / `addBridgeToLogic`). A blocking
+/// `RwLock::read` deadlocks when `load_map_data` already holds the write lock
+/// and `classify_bridge_cells` asks for layer height.
 pub struct TheTerrainLogic;
 
 impl TheTerrainLogic {
@@ -20,7 +24,7 @@ impl TheTerrainLogic {
         terrain_z: Option<&mut f32>,
     ) -> bool {
         let terrain = crate::terrain::get_terrain_logic();
-        if let Ok(guard) = terrain.read() {
+        if let Ok(guard) = terrain.try_read() {
             return guard.is_underwater(_x as f32, _y as f32, water_z, terrain_z);
         }
         if let Some(wz) = water_z {
@@ -34,7 +38,7 @@ impl TheTerrainLogic {
 
     pub fn is_cliff_cell(&self, _x: Real, _y: Real) -> bool {
         let terrain = crate::terrain::get_terrain_logic();
-        if let Ok(guard) = terrain.read() {
+        if let Ok(guard) = terrain.try_read() {
             return guard.is_cliff_cell(_x as f32, _y as f32);
         }
         false
@@ -48,7 +52,7 @@ impl TheTerrainLogic {
     /// Get layer height at coordinates (bridges to TerrainLogic when available).
     pub fn get_layer_height(&self, x: Real, y: Real, layer: PathfindLayerEnum) -> Real {
         let terrain = crate::terrain::get_terrain_logic();
-        let Ok(guard) = terrain.read() else {
+        let Ok(guard) = terrain.try_read() else {
             return 0.0;
         };
         let terrain_layer = match layer {
@@ -66,7 +70,7 @@ impl TheTerrainLogic {
     /// Get highest layer for destination (bridges to TerrainLogic when available).
     pub fn get_highest_layer_for_destination(&self, pos: &Coord3D) -> PathfindLayerEnum {
         let terrain = crate::terrain::get_terrain_logic();
-        let Ok(guard) = terrain.read() else {
+        let Ok(guard) = terrain.try_read() else {
             return PathfindLayerEnum::Ground;
         };
         match guard.get_highest_layer_for_destination(pos) {
@@ -84,7 +88,7 @@ impl TheTerrainLogic {
     /// Get destination layer (bridges to TerrainLogic::get_layer_for_destination).
     pub fn get_layer_for_destination(&self, pos: &Coord3D) -> PathfindLayerEnum {
         let terrain = crate::terrain::get_terrain_logic();
-        let Ok(guard) = terrain.read() else {
+        let Ok(guard) = terrain.try_read() else {
             return PathfindLayerEnum::Ground;
         };
         match guard.get_layer_for_destination(pos) {
@@ -107,7 +111,7 @@ impl TheTerrainLogic {
         consider_bridge_health: bool,
     ) -> bool {
         let terrain = crate::terrain::get_terrain_logic();
-        let Ok(guard) = terrain.read() else {
+        let Ok(guard) = terrain.try_read() else {
             return false;
         };
         let terrain_layer = match layer {
@@ -125,7 +129,7 @@ impl TheTerrainLogic {
     /// Get ground height with optional normal output (mirrors TerrainLogic::getGroundHeight).
     pub fn get_ground_height(&self, x: Real, y: Real, mut normal: Option<&mut Coord3D>) -> Real {
         let terrain = crate::terrain::get_terrain_logic();
-        let Ok(guard) = terrain.read() else {
+        let Ok(guard) = terrain.try_read() else {
             if let Some(n) = normal.as_deref_mut() {
                 *n = Coord3D::new(0.0, 0.0, 1.0);
             }
@@ -136,7 +140,7 @@ impl TheTerrainLogic {
 
     pub fn is_clear_line_of_sight(&self, from: &Coord3D, to: &Coord3D) -> bool {
         let terrain = crate::terrain::get_terrain_logic();
-        let Ok(guard) = terrain.read() else {
+        let Ok(guard) = terrain.try_read() else {
             return false;
         };
         guard.is_clear_line_of_sight(from, to)
@@ -145,7 +149,7 @@ impl TheTerrainLogic {
     /// Get map extent including border. Uses a large fallback region when no map data is wired.
     pub fn get_extent_including_border(&self) -> crate::common::Region3D {
         let terrain = crate::terrain::get_terrain_logic();
-        if let Ok(guard) = terrain.read() {
+        if let Ok(guard) = terrain.try_read() {
             let extent = guard.get_extent_including_border();
             if extent.hi.x > extent.lo.x && extent.hi.y > extent.lo.y {
                 return extent;
@@ -159,7 +163,7 @@ impl TheTerrainLogic {
     /// C++ TerrainLogic::getExtent() — full map including border region.
     pub fn get_extent(&self) -> crate::common::Region3D {
         let terrain = crate::terrain::get_terrain_logic();
-        if let Ok(guard) = terrain.read() {
+        if let Ok(guard) = terrain.try_read() {
             let extent = guard.get_extent();
             if extent.hi.x > extent.lo.x && extent.hi.y > extent.lo.y {
                 return extent;
@@ -171,7 +175,7 @@ impl TheTerrainLogic {
     /// Get maximum pathfind extent (playable area excluding border).
     pub fn get_maximum_pathfind_extent(&self) -> crate::common::Region3D {
         let terrain = crate::terrain::get_terrain_logic();
-        if let Ok(guard) = terrain.read() {
+        if let Ok(guard) = terrain.try_read() {
             let extent = guard.get_maximum_pathfind_extent();
             if extent.hi.x > extent.lo.x && extent.hi.y > extent.lo.y {
                 return extent;
@@ -183,7 +187,7 @@ impl TheTerrainLogic {
     /// Find closest edge point to a location (fallback uses extent bounds).
     pub fn find_closest_edge_point(&self, location: &Coord3D) -> Coord3D {
         let terrain = crate::terrain::get_terrain_logic();
-        if let Ok(guard) = terrain.read() {
+        if let Ok(guard) = terrain.try_read() {
             return guard.find_closest_edge_point(location);
         }
 
@@ -217,7 +221,7 @@ impl TheTerrainLogic {
     /// Find farthest edge point from a location (fallback uses extent bounds).
     pub fn find_farthest_edge_point(&self, location: &Coord3D) -> Coord3D {
         let terrain = crate::terrain::get_terrain_logic();
-        if let Ok(guard) = terrain.read() {
+        if let Ok(guard) = terrain.try_read() {
             return guard.find_farthest_edge_point(location);
         }
 
@@ -245,7 +249,7 @@ impl TheTerrainLogic {
     /// Find the closest waypoint that matches a path label.
     pub fn get_closest_waypoint_on_path(&self, pos: &Coord3D, label: &str) -> Option<Coord3D> {
         let terrain = crate::terrain::get_terrain_logic();
-        let guard = terrain.read().ok()?;
+        let guard = terrain.try_read().ok()?;
         guard
             .get_closest_waypoint_on_path(pos, label)
             .map(|way| *way.get_location())
@@ -259,7 +263,7 @@ impl TheTerrainLogic {
         }
 
         let terrain = crate::terrain::get_terrain_logic();
-        let Ok(guard) = terrain.read() else {
+        let Ok(guard) = terrain.try_read() else {
             return out;
         };
 

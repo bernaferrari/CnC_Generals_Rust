@@ -980,6 +980,10 @@ pub struct GameLogic {
 
     /// Thing templates registry
     pub templates: HashMap<String, ThingTemplate>,
+    /// Names that already failed host-template + already-loaded Object INI lookup.
+    /// Map spawn repeats the same decorative names; do not re-scan archives.
+    pub(super) unresolved_spawn_templates: HashSet<String>,
+
 
     /// Map data
     pub(super) map_name: String,

@@ -70,6 +70,41 @@ fn fast_chunky_sync_fail_opens_when_legacy_globals_are_busy() {
         elapsed
     );
 }
+
+#[test]
+fn global_terrain_load_map_data_does_not_deadlock_on_bridge() {
+    // C++ TerrainLogic::addBridgeToLogic (TerrainLogic.cpp:1514) registers
+    // bridges while loadMap already owns TheTerrainLogic. Rust
+    // classify_bridge_cells used to RwLock::read the same singleton and hang
+    // Lone Eagle load_map inside Fast legacy terrain write.
+    let mut map_data = gamelogic::system::map_loader::MapData::new();
+    map_data.width = 4;
+    map_data.height = 4;
+    map_data.heightmap = vec![10; 16];
+    map_data.bridges.push(gamelogic::system::map_loader::BridgeData::new(
+        gamelogic::system::map_loader::Coord3D::new(0.0, 0.0, 20.0),
+        gamelogic::system::map_loader::Coord3D::new(40.0, 0.0, 20.0),
+        10.0,
+        "TestBridge".to_string(),
+    ));
+    let started = std::time::Instant::now();
+    {
+        let mut terrain = gamelogic::terrain::get_terrain_logic()
+            .write()
+            .expect("THE_TERRAIN_LOGIC");
+        terrain.reset();
+        terrain.load_map_data(map_data);
+        assert!(
+            terrain.get_first_bridge().is_some(),
+            "map bridge must still register"
+        );
+    }
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(5),
+        "load_map_data deadlocked on THE_TERRAIN_LOGIC for {:?}",
+        started.elapsed()
+    );
+}
 #[test]
 fn process_destroy_list_runs_inside_each_logic_frame() {
     // C++ GameLogic.cpp:3762 processDestroyList is inside every update(),

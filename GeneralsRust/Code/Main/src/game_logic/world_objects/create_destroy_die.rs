@@ -268,6 +268,93 @@ impl GameLogic {
             None => self.create_object(template_name, team, position),
         }
     }
+    /// Bind `template_name` to an already-loaded host ThingTemplate.
+    ///
+    /// C++ `ThingFactory` is filled once in `GameEngine::init`. The host catalog
+    /// (`self.templates` plus AssetManager object definitions loaded at boot)
+    /// is the equivalent already-loaded set. Never call
+    /// `TheThingFactory::find_template` here: that helper lazy-inits every
+    /// Object INI (14s+ on Lone Eagle).
+    fn ensure_host_spawn_template(&mut self, template_name: &str) -> bool {
+        if self.templates.contains_key(template_name) {
+            return true;
+        }
+        if let Some(canonical) = self
+            .templates
+            .keys()
+            .find(|name| name.eq_ignore_ascii_case(template_name))
+            .cloned()
+        {
+            if let Some(template) = self.templates.get(&canonical).cloned() {
+                self.templates.insert(template_name.to_string(), template);
+                return true;
+            }
+        }
+        if self.unresolved_spawn_templates.contains(template_name) {
+            return false;
+        }
+
+        let mut injected = false;
+        let should_spawn_fallback = Self::should_spawn_fallback_template(template_name);
+
+        if let Some(template) = Self::build_template_from_asset_definition(template_name) {
+            let missing_model = template
+                .model_name
+                .as_deref()
+                .filter(|model| !Self::is_model_asset_available(model))
+                .map(|model| model.to_string());
+
+            if missing_model.is_none() || should_spawn_fallback {
+                self.templates.insert(template_name.to_string(), template);
+                injected = true;
+                log::debug!(
+                    "Synthesized template for '{}' from WW3D object definitions",
+                    template_name
+                );
+            } else if let Some(model) = missing_model {
+                log::debug!(
+                    "Falling back for decorative map object template '{}' after unavailable definition model '{}'",
+                    template_name,
+                    model
+                );
+            }
+        }
+
+        if !injected {
+            if let Some(fallback_template) = Self::build_visual_fallback_template(template_name) {
+                let model_name = fallback_template
+                    .model_name
+                    .clone()
+                    .unwrap_or_else(|| template_name.to_string());
+                self.templates
+                    .insert(template_name.to_string(), fallback_template);
+                if should_spawn_fallback {
+                    log::warn!(
+                        "Injected fallback template for unresolved object '{}' using model '{}'",
+                        template_name,
+                        model_name
+                    );
+                } else {
+                    log::debug!(
+                        "Injected visual-only fallback template for decorative object '{}' using model '{}'",
+                        template_name,
+                        model_name
+                    );
+                }
+                injected = true;
+            }
+        }
+
+        if injected {
+            self.unresolved_spawn_templates.remove(template_name);
+            true
+        } else {
+            self.unresolved_spawn_templates
+                .insert(template_name.to_string());
+            false
+        }
+    }
+
 
     fn create_object_with_owner(
         &mut self,
@@ -285,78 +372,30 @@ impl GameLogic {
         // projectiles, cinematic shells, …). Intentional residual / test spawns
         // that already registered a template are fail-open (host Angry Mob path).
         if Self::should_skip_map_object_template(template_name)
-            && !self.templates.contains_key(template_name)
+            && !self
+                .templates
+                .keys()
+                .any(|name| name.eq_ignore_ascii_case(template_name))
         {
             return None;
         }
 
-        if !self.templates.contains_key(template_name) {
-            let mut injected = false;
-            let should_spawn_fallback = Self::should_spawn_fallback_template(template_name);
-
-            if let Some(template) = Self::build_template_from_asset_definition(template_name) {
-                let missing_model = template
-                    .model_name
-                    .as_deref()
-                    .filter(|model| !Self::is_model_asset_available(model))
-                    .map(|model| model.to_string());
-
-                if missing_model.is_none() || should_spawn_fallback {
-                    self.templates.insert(template_name.to_string(), template);
-                    injected = true;
-                    log::debug!(
-                        "Synthesized template for '{}' from WW3D object definitions",
-                        template_name
-                    );
-                } else if let Some(model) = missing_model {
-                    log::debug!(
-                        "Falling back for decorative map object template '{}' after unavailable definition model '{}'",
-                        template_name,
-                        model
-                    );
-                }
+        if !self.ensure_host_spawn_template(template_name) {
+            // Do not invent a proxy for an unresolved gameplay or map
+            // object.  A visible but wrong faction/condition mesh is
+            // less faithful than an explicit unsupported-object miss.
+            if Self::should_spawn_fallback_template(template_name) {
+                log::warn!(
+                    "Skipping unresolved object '{}' because no exact retail W3D is available",
+                    template_name
+                );
+            } else {
+                log::debug!(
+                    "Skipping unsupported decorative map object template '{}'",
+                    template_name
+                );
             }
-
-            if !injected {
-                if let Some(fallback_template) = Self::build_visual_fallback_template(template_name)
-                {
-                    let model_name = fallback_template
-                        .model_name
-                        .clone()
-                        .unwrap_or_else(|| template_name.to_string());
-                    self.templates
-                        .insert(template_name.to_string(), fallback_template);
-                    if should_spawn_fallback {
-                        log::warn!(
-                            "Injected fallback template for unresolved object '{}' using model '{}'",
-                            template_name,
-                            model_name
-                        );
-                    } else {
-                        log::debug!(
-                            "Injected visual-only fallback template for decorative object '{}' using model '{}'",
-                            template_name,
-                            model_name
-                        );
-                    }
-                } else {
-                    // Do not invent a proxy for an unresolved gameplay or map
-                    // object.  A visible but wrong faction/condition mesh is
-                    // less faithful than an explicit unsupported-object miss.
-                    if should_spawn_fallback {
-                        log::warn!(
-                            "Skipping unresolved object '{}' because no exact retail W3D is available",
-                            template_name
-                        );
-                    } else {
-                        log::debug!(
-                            "Skipping unsupported decorative map object template '{}'",
-                            template_name
-                        );
-                    }
-                    return None;
-                }
-            }
+            return None;
         }
 
         if let Some(template) = self.templates.get(template_name).cloned() {

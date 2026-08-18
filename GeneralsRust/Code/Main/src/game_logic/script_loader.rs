@@ -13,7 +13,8 @@ use std::env;
 use std::fs;
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
+use std::cell::Cell;
 
 use game_engine::common::dict::Dict;
 use game_engine::common::ini::{try_get_terrain_roads, INILoadType, INI};
@@ -287,6 +288,7 @@ fn is_terrain_road_name(name: &str) -> bool {
 }
 
 fn decompress_map_bytes(raw_bytes: &[u8]) -> LoaderResult<Vec<u8>> {
+    MAP_DECOMPRESS_COUNT.with(|count| count.set(count.get().saturating_add(1)));
     // Real Generals assets commonly use the legacy EA wrapper header:
     //   - 4 byte signature (EAR\0)
     //   - 4 byte uncompressed size (little-endian)
@@ -531,11 +533,42 @@ fn decompress_refpack_stream(data: &[u8], expected_size: usize) -> Result<Vec<u8
 }
 
 /// Raw chunky map data for further decoding (terrain, objects, etc.).
+#[derive(Clone)]
 pub struct ChunkyMap {
     pub source: PathBuf,
     pub toc: HashMap<u32, String>,
     pub body_offset: usize,
     pub bytes: Vec<u8>,
+}
+
+thread_local! {
+    static MAP_DECOMPRESS_COUNT: Cell<u32> = const { Cell::new(0) };
+}
+static LAST_LOADED_CHUNKY: Mutex<Option<ChunkyMap>> = Mutex::new(None);
+
+/// How many times this thread RefPack-decoded a `.map` file.
+pub fn map_decompress_count() -> u32 {
+    MAP_DECOMPRESS_COUNT.with(Cell::get)
+}
+
+/// Test helper: isolate decompress-reuse assertions from other tests.
+pub fn reset_map_decompress_count() {
+    MAP_DECOMPRESS_COUNT.with(|count| count.set(0));
+}
+
+fn cached_chunky_for(path: &Path) -> Option<ChunkyMap> {
+    LAST_LOADED_CHUNKY
+        .lock()
+        .ok()?
+        .as_ref()
+        .filter(|chunky| chunky.source == path)
+        .cloned()
+}
+
+fn remember_loaded_chunky(chunky: &ChunkyMap) {
+    if let Ok(mut guard) = LAST_LOADED_CHUNKY.lock() {
+        *guard = Some(chunky.clone());
+    }
 }
 
 /// Minimal object placement extracted from a chunky map.
@@ -713,39 +746,33 @@ pub fn load_map_scripts(map_name: &str) -> LoaderResult<Option<MapScriptLoadResu
         );
         return Ok(None);
     };
-
-    let raw_bytes = read_file_bytes_for_runtime(&map_path).ok_or_else(|| {
-        GameLogicError::Configuration(format!(
-            "Failed to read map '{}': {}",
-            map_path.display(),
-            "path not found in virtual file system"
-        ))
-    })?;
-
-    let chunk_bytes = if raw_bytes.starts_with(CHUNK_MAGIC) {
-        raw_bytes
-    } else {
-        decompress_map_bytes(&raw_bytes).map_err(|err| {
-            GameLogicError::Configuration(format!(
-                "Map '{}' is not a chunky file and decompression failed: {}",
-                map_path.display(),
-                err
-            ))
-        })?
+    if let Some(chunky) = cached_chunky_for(&map_path) {
+        return load_map_scripts_from_chunky(&chunky);
+    }
+    let Some(chunky) = load_chunky_map(map_name)? else {
+        return Ok(None);
     };
+    load_map_scripts_from_chunky(&chunky)
+}
 
-    let (toc, body_offset) = parse_chunk_toc(&chunk_bytes)?;
-    if body_offset >= chunk_bytes.len() {
+/// Decode mission scripts from an already-decompressed chunky map.
+/// C++ `TerrainLogic::loadMap` (`TerrainLogic.cpp:1248-1262`) opens the
+/// `.map` once via `CachedFileInputStream` and parses chunks from that stream.
+pub fn load_map_scripts_from_chunky(
+    chunky: &ChunkyMap,
+) -> LoaderResult<Option<MapScriptLoadResult>> {
+    let map_path = chunky.source.clone();
+    if chunky.body_offset >= chunky.bytes.len() {
         return Err(GameLogicError::Configuration(format!(
             "Map '{}' chunk table extends past file",
             map_path.display()
         )));
     }
 
-    let body = &chunk_bytes[body_offset..];
-    let player_scripts_chunk = find_chunk_by_label(body, &toc, PLAYER_SCRIPTS_LABEL)?;
+    let body = &chunky.bytes[chunky.body_offset..];
+    let player_scripts_chunk = find_chunk_by_label(body, &chunky.toc, PLAYER_SCRIPTS_LABEL)?;
     let Some((version, payload)) = player_scripts_chunk else {
-        if let Some(result) = load_sides_list_fallback(&map_path, body, &toc)? {
+        if let Some(result) = load_sides_list_fallback(&map_path, body, &chunky.toc)? {
             return Ok(Some(result));
         } else {
             debug!(
@@ -761,11 +788,11 @@ pub fn load_map_scripts(map_name: &str) -> LoaderResult<Option<MapScriptLoadResu
         }
     };
 
-    let script_lists = parse_script_lists(payload, &toc, version)?;
+    let script_lists = parse_script_lists(payload, &chunky.toc, version)?;
     let total = count_scripts(&script_lists);
 
     if total == 0 {
-        if let Some(result) = load_sides_list_fallback(&map_path, body, &toc)? {
+        if let Some(result) = load_sides_list_fallback(&map_path, body, &chunky.toc)? {
             info!(
                 "PlayerScriptsList in '{}' decoded empty; using SidesList fallback instead",
                 map_path.display()
@@ -795,9 +822,11 @@ pub fn find_map_file(map_name: &str) -> Option<PathBuf> {
 
 /// List the chunky chunk labels present in a map file (for debugging/loading).
 pub fn inspect_map_chunks(map_name: &str) -> Option<Vec<String>> {
-    let chunked = load_chunky_map(map_name).ok()??;
-    let (toc, _) = parse_chunk_toc(&chunked.bytes).ok()?;
-    let mut labels: Vec<String> = toc.values().cloned().collect();
+    inspect_map_chunks_from_chunky(&load_chunky_map(map_name).ok()??)
+}
+
+pub fn inspect_map_chunks_from_chunky(chunky: &ChunkyMap) -> Option<Vec<String>> {
+    let mut labels: Vec<String> = chunky.toc.values().cloned().collect();
     labels.sort();
     Some(labels)
 }
@@ -807,6 +836,9 @@ pub fn load_chunky_map(map_name: &str) -> LoaderResult<Option<ChunkyMap>> {
     let Some(path) = locate_map_file(map_name) else {
         return Ok(None);
     };
+    if let Some(cached) = cached_chunky_for(&path) {
+        return Ok(Some(cached));
+    }
 
     let raw_bytes = read_file_bytes_for_runtime(&path).ok_or_else(|| {
         configuration_error(format!(
@@ -827,91 +859,111 @@ pub fn load_chunky_map(map_name: &str) -> LoaderResult<Option<ChunkyMap>> {
     };
 
     let (toc, body_offset) = parse_chunk_toc(&bytes)?;
-    Ok(Some(ChunkyMap {
+    let chunky = ChunkyMap {
         source: path,
         toc,
         body_offset,
         bytes,
-    }))
+    };
+    remember_loaded_chunky(&chunky);
+    Ok(Some(chunky))
 }
 
 /// Parse high-level settings like world bounds and lighting colors.
 pub fn parse_map_settings(map_name: &str) -> LoaderResult<MapMetadata> {
-    fn parse_lighting_payload(payload: &[u8], meta: &mut MapMetadata) -> LoaderResult<()> {
-        if payload.len() >= 4 {
-            let light_count = u32::from_le_bytes(payload[0..4].try_into().unwrap_or([0; 4]));
-            let expected_light_bytes = 4usize.saturating_add(light_count as usize * 9 * 4);
-            if (1..=4).contains(&light_count) && payload.len() >= expected_light_bytes {
-                let mut reader = BinaryReader::new(&payload[4..]);
-                let ambient = [reader.read_f32()?, reader.read_f32()?, reader.read_f32()?];
-                let sun = [reader.read_f32()?, reader.read_f32()?, reader.read_f32()?];
-                let sun_dir = [reader.read_f32()?, reader.read_f32()?, reader.read_f32()?];
-                meta.ambient_color = Some(ambient);
-                meta.sun_color = Some(sun);
-                meta.sun_direction = Some(sun_dir);
-                return Ok(());
-            }
-        }
-
-        let mut reader = BinaryReader::new(payload);
-        if reader.remaining() >= 48 {
-            let ambient = [reader.read_f32()?, reader.read_f32()?, reader.read_f32()?];
-            let sun = [reader.read_f32()?, reader.read_f32()?, reader.read_f32()?];
-            let sky = [reader.read_f32()?, reader.read_f32()?, reader.read_f32()?];
-            let sun_dir = [reader.read_f32()?, reader.read_f32()?, reader.read_f32()?];
-            meta.ambient_color = Some(ambient);
-            meta.sun_color = Some(sun);
-            meta.sky_color = Some(sky);
-            meta.sun_direction = Some(sun_dir);
-            if reader.remaining() >= 20 {
-                let fog = [reader.read_f32()?, reader.read_f32()?, reader.read_f32()?];
-                let fog_start = reader.read_f32()?;
-                let fog_end = reader.read_f32()?;
-                meta.fog_color = Some(fog);
-                meta.fog_start = Some(fog_start);
-                meta.fog_end = Some(fog_end);
-            }
-        } else {
-            while reader.remaining() >= 16 {
-                let tag = reader.read_u8()?;
-                if reader.remaining() < 12 {
-                    break;
-                }
-                let r = reader.read_f32()?;
-                let g = reader.read_f32()?;
-                let b = reader.read_f32()?;
-                match tag {
-                    0 => meta.ambient_color = Some([r, g, b]),
-                    1 => meta.sun_color = Some([r, g, b]),
-                    2 => meta.sky_color = Some([r, g, b]),
-                    3 => meta.sun_direction = Some([r, g, b]),
-                    4 => meta.fog_color = Some([r, g, b]),
-                    _ => {}
-                }
-            }
-        }
-
-        Ok(())
-    }
-
     let mut meta = MapMetadata::default();
     let Some(chunky) = load_chunky_map(map_name)? else {
         return Ok(meta);
     };
-    let body = &chunky.bytes[chunky.body_offset..];
-    if let Some((_ver, payload)) = find_chunk_by_label(body, &chunky.toc, "MapSettings")? {
-        parse_lighting_payload(payload, &mut meta)?;
-    } else if let Some((_ver, payload)) = find_chunk_by_label(body, &chunky.toc, "GlobalLighting")?
-    {
-        parse_lighting_payload(payload, &mut meta)?;
+    parse_map_settings_from_loaded_chunky(map_name, &chunky, meta)
+}
+
+fn parse_lighting_payload_for_settings(
+    payload: &[u8],
+    meta: &mut MapMetadata,
+) -> LoaderResult<()> {
+    if payload.len() >= 4 {
+        let light_count = u32::from_le_bytes(payload[0..4].try_into().unwrap_or([0; 4]));
+        let expected_light_bytes = 4usize.saturating_add(light_count as usize * 9 * 4);
+        if (1..=4).contains(&light_count) && payload.len() >= expected_light_bytes {
+            let mut reader = BinaryReader::new(&payload[4..]);
+            let ambient = [reader.read_f32()?, reader.read_f32()?, reader.read_f32()?];
+            let sun = [reader.read_f32()?, reader.read_f32()?, reader.read_f32()?];
+            let sun_dir = [reader.read_f32()?, reader.read_f32()?, reader.read_f32()?];
+            meta.ambient_color = Some(ambient);
+            meta.sun_color = Some(sun);
+            meta.sun_direction = Some(sun_dir);
+            return Ok(());
+        }
     }
 
-    if let Some((min, max)) = parse_world_bounds(map_name).ok().flatten() {
+    let mut reader = BinaryReader::new(payload);
+    if reader.remaining() >= 48 {
+        let ambient = [reader.read_f32()?, reader.read_f32()?, reader.read_f32()?];
+        let sun = [reader.read_f32()?, reader.read_f32()?, reader.read_f32()?];
+        let sky = [reader.read_f32()?, reader.read_f32()?, reader.read_f32()?];
+        let sun_dir = [reader.read_f32()?, reader.read_f32()?, reader.read_f32()?];
+        meta.ambient_color = Some(ambient);
+        meta.sun_color = Some(sun);
+        meta.sky_color = Some(sky);
+        meta.sun_direction = Some(sun_dir);
+        if reader.remaining() >= 20 {
+            let fog = [reader.read_f32()?, reader.read_f32()?, reader.read_f32()?];
+            let fog_start = reader.read_f32()?;
+            let fog_end = reader.read_f32()?;
+            meta.fog_color = Some(fog);
+            meta.fog_start = Some(fog_start);
+            meta.fog_end = Some(fog_end);
+        }
+    } else {
+        while reader.remaining() >= 16 {
+            let tag = reader.read_u8()?;
+            if reader.remaining() < 12 {
+                break;
+            }
+            let r = reader.read_f32()?;
+            let g = reader.read_f32()?;
+            let b = reader.read_f32()?;
+            match tag {
+                0 => meta.ambient_color = Some([r, g, b]),
+                1 => meta.sun_color = Some([r, g, b]),
+                2 => meta.sky_color = Some([r, g, b]),
+                3 => meta.sun_direction = Some([r, g, b]),
+                4 => meta.fog_color = Some([r, g, b]),
+                _ => {}
+            }
+        }
+    }
+
+    Ok(())
+}
+
+
+/// Parse settings from an already-decompressed chunky map.
+pub fn parse_map_settings_from_chunky(chunky: &ChunkyMap) -> LoaderResult<MapMetadata> {
+    let map_name = chunky.source.to_string_lossy();
+    parse_map_settings_from_loaded_chunky(map_name.as_ref(), chunky, MapMetadata::default())
+}
+
+fn parse_map_settings_from_loaded_chunky(
+    map_name: &str,
+    chunky: &ChunkyMap,
+    mut meta: MapMetadata,
+) -> LoaderResult<MapMetadata> {
+    let body = &chunky.bytes[chunky.body_offset..];
+    if let Some((_ver, payload)) = find_chunk_by_label(body, &chunky.toc, "MapSettings")? {
+        parse_lighting_payload_for_settings(payload, &mut meta)?;
+    } else if let Some((_ver, payload)) = find_chunk_by_label(body, &chunky.toc, "GlobalLighting")?
+    {
+        parse_lighting_payload_for_settings(payload, &mut meta)?;
+    }
+
+    if let Some((min, max)) = parse_world_bounds_from_chunky(chunky).ok().flatten() {
         meta.world_min = Some(min);
         meta.world_max = Some(max);
     }
 
-    match parse_object_placements(map_name) {
+    match parse_object_placements_from_chunky(chunky) {
         Ok(objects) => {
             meta.objects = objects;
         }
@@ -923,8 +975,7 @@ pub fn parse_map_settings(map_name: &str) -> LoaderResult<MapMetadata> {
         }
     }
 
-    // Wave 831: SidesList build-list army/base placements (skirmish).
-    match parse_side_build_list(map_name) {
+    match parse_side_build_list_from_chunky(chunky) {
         Ok(builds) => {
             meta.side_builds = builds;
         }
@@ -936,7 +987,7 @@ pub fn parse_map_settings(map_name: &str) -> LoaderResult<MapMetadata> {
         }
     }
 
-    match parse_player_start_waypoints(map_name) {
+    match parse_player_start_waypoints_from_chunky(chunky) {
         Ok(starts) => {
             meta.start_waypoints = starts
                 .into_iter()
@@ -951,7 +1002,8 @@ pub fn parse_map_settings(map_name: &str) -> LoaderResult<MapMetadata> {
         }
     }
 
-    meta.initial_camera_position = parse_initial_camera_position(map_name).ok().flatten();
+    meta.initial_camera_position = parse_initial_camera_position_from_chunky(chunky).ok().flatten();
+
 
     // Heightmap hint: look for common heightmap filenames next to the .map.
     if let Some(map_path) = locate_map_file(map_name) {
@@ -1515,13 +1567,18 @@ pub fn parse_player_start_waypoints(
     let Some(chunky) = load_chunky_map(map_name)? else {
         return Ok(Vec::new());
     };
-    let (waypoints, _links) = parse_runtime_waypoints_from_chunky(&chunky)?;
+    parse_player_start_waypoints_from_chunky(&chunky)
+}
+
+pub fn parse_player_start_waypoints_from_chunky(
+    chunky: &ChunkyMap,
+) -> LoaderResult<Vec<(u32, Coord3D, Option<Coord3D>)>> {
+    let (waypoints, _links) = parse_runtime_waypoints_from_chunky(chunky)?;
     let mut starts: std::collections::HashMap<u32, Coord3D> = std::collections::HashMap::new();
     let mut rallies: std::collections::HashMap<u32, Coord3D> = std::collections::HashMap::new();
     for wp in waypoints {
         let name = wp.name.trim();
         let lower = name.to_ascii_lowercase();
-        // Player_1_Start style (1-based index).
         if let Some(rest) = lower.strip_prefix("player_") {
             if let Some((num, kind)) = rest.split_once('_') {
                 if let Ok(idx1) = num.parse::<u32>() {
@@ -1550,18 +1607,25 @@ pub fn parse_side_build_list(map_name: &str) -> LoaderResult<Vec<SideBuildEntry>
     let Some(chunky) = load_chunky_map(map_name)? else {
         return Ok(Vec::new());
     };
-    let sides = parse_runtime_sides_from_chunky(&chunky)?;
+    parse_side_build_list_from_chunky(&chunky)
+}
+
+pub fn parse_side_build_list_from_chunky(chunky: &ChunkyMap) -> LoaderResult<Vec<SideBuildEntry>> {
+    let sides = parse_runtime_sides_from_chunky(chunky)?;
     Ok(sides.side_builds)
 }
 
 pub fn parse_object_placements(map_name: &str) -> LoaderResult<Vec<PlacedObject>> {
-    ensure_terrain_roads_loaded();
-
     let Some(chunky) = load_chunky_map(map_name)? else {
         return Ok(Vec::new());
     };
+    parse_object_placements_from_chunky(&chunky)
+}
 
+pub fn parse_object_placements_from_chunky(chunky: &ChunkyMap) -> LoaderResult<Vec<PlacedObject>> {
+    ensure_terrain_roads_loaded();
     let body = &chunky.bytes[chunky.body_offset..];
+    let map_name = chunky.source.display().to_string();
 
     if let Some((version, payload)) = find_chunk_by_label(body, &chunky.toc, OBJECTS_LIST_LABEL)? {
         let mut objects = Vec::new();
@@ -1612,7 +1676,10 @@ fn parse_initial_camera_position(map_name: &str) -> LoaderResult<Option<Coord3D>
     let Some(chunky) = load_chunky_map(map_name)? else {
         return Ok(None);
     };
+    parse_initial_camera_position_from_chunky(&chunky)
+}
 
+fn parse_initial_camera_position_from_chunky(chunky: &ChunkyMap) -> LoaderResult<Option<Coord3D>> {
     let body = &chunky.bytes[chunky.body_offset..];
 
     if let Some((version, payload)) = find_chunk_by_label(body, &chunky.toc, OBJECTS_LIST_LABEL)? {
@@ -1695,13 +1762,17 @@ pub fn parse_world_bounds(map_name: &str) -> LoaderResult<Option<(Coord3D, Coord
     let Some(chunky) = load_chunky_map(map_name)? else {
         return Ok(None);
     };
+    parse_world_bounds_from_chunky(&chunky)
+}
+
+pub fn parse_world_bounds_from_chunky(
+    chunky: &ChunkyMap,
+) -> LoaderResult<Option<(Coord3D, Coord3D)>> {
     let body = &chunky.bytes[chunky.body_offset..];
 
     let mut waypoint_bounds = None;
-    // Prefer Waypoints chunk which stores map extents in many maps.
     if let Some((_ver, payload)) = find_chunk_by_label(body, &chunky.toc, "WaypointsList")? {
         let mut reader = BinaryReader::new(payload);
-        // WaypointsList: first i32 count, then entries; we skim bounds if present.
         if reader.remaining() >= 4 {
             let count = reader.read_i32()? as usize;
             let mut min = Coord3D::new(f32::MAX, f32::MAX, f32::MAX);
@@ -1734,9 +1805,7 @@ pub fn parse_world_bounds(map_name: &str) -> LoaderResult<Option<(Coord3D, Coord
         }
     }
 
-    // Fall back to HeightMapData dimensions when waypoint bounds are missing/degenerate.
-    // This mirrors how runtime systems derive playable extents from terrain samples.
-    if let Some(heightmap) = parse_heightmap_data_from_chunky(&chunky)? {
+    if let Some(heightmap) = parse_heightmap_data_from_chunky(chunky)? {
         let playable_w = (heightmap.width - 2 * heightmap.border_size).max(1) as f32;
         let playable_h = (heightmap.height - 2 * heightmap.border_size).max(1) as f32;
         let max = Coord3D::new(playable_w * MAP_XY_FACTOR, 0.0, playable_h * MAP_XY_FACTOR);
@@ -3179,6 +3248,38 @@ mod tests {
         assert!(
             heightmap.is_some(),
             "Lone Eagle must embed HeightMapData"
+        );
+    }
+
+    #[test]
+    fn lone_eagle_live_path_reuses_one_chunky_decode() {
+        // C++ TerrainLogic::loadMap (TerrainLogic.cpp:1248-1262) opens the
+        // .map once via CachedFileInputStream. The live Rust load_map used
+        // to inspect + load_chunky_map + parse_player_start_waypoints +
+        // load_map_scripts, each RefPack-decoding Lone Eagle again.
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
+            "../../../windows_game/extracted_big_files/MapsZH/Maps/Lone Eagle/Lone Eagle.map",
+        );
+        if !path.is_file() {
+            return;
+        }
+        reset_map_decompress_count();
+        let map_name = path.to_string_lossy();
+        let chunky = load_chunky_map(map_name.as_ref())
+            .expect("load Lone Eagle")
+            .expect("Lone Eagle present");
+        let _ = inspect_map_chunks_from_chunky(&chunky);
+        let meta = parse_map_settings_from_chunky(&chunky).expect("settings from chunky");
+        let _ = parse_player_start_waypoints(map_name.as_ref()).expect("starts via cache");
+        let _ = load_map_scripts(map_name.as_ref()).expect("scripts via cache");
+        assert_eq!(
+            map_decompress_count(),
+            1,
+            "live load_map helpers must reuse the first ChunkyMap decode"
+        );
+        assert!(
+            !meta.objects.is_empty() || !meta.start_waypoints.is_empty(),
+            "Lone Eagle settings must carry placements or starts"
         );
     }
 

@@ -1356,6 +1356,41 @@ impl GameLogic {
         self.last_map_settings.clone()
     }
 
+    /// Player_N_Start spots already decoded with map settings.
+    /// Avoids a second RefPack decode of the same `.map` during spawn.
+    pub(crate) fn cached_player_start_waypoints(
+        &self,
+    ) -> Option<Vec<(u32, gamelogic::scripting::core::Coord3D, Option<gamelogic::scripting::core::Coord3D>)>>
+    {
+        let meta = self.last_map_settings.as_ref()?;
+        if meta.start_waypoints.is_empty() {
+            return None;
+        }
+        let mut starts = Vec::new();
+        for (name, pos) in &meta.start_waypoints {
+            let lower = name.trim().to_ascii_lowercase();
+            let Some(rest) = lower.strip_prefix("player_") else {
+                continue;
+            };
+            let Some((num, kind)) = rest.split_once('_') else {
+                continue;
+            };
+            if !kind.starts_with("start") {
+                continue;
+            }
+            if let Ok(idx1) = num.parse::<u32>() {
+                if idx1 >= 1 {
+                    starts.push((idx1 - 1, *pos, None));
+                }
+            }
+        }
+        if starts.is_empty() {
+            None
+        } else {
+            Some(starts)
+        }
+    }
+
     pub fn is_skybox_enabled(&self) -> bool {
         self.script_skybox_enabled
     }
@@ -1743,12 +1778,23 @@ impl GameLogic {
         map_path: &Path,
         chunky: &super::script_loader::ChunkyMap,
     ) {
+        self.sync_legacy_runtime_from_fast_chunky_with_progress(map_path, chunky, |_, _| {});
+    }
+
+    pub(crate) fn sync_legacy_runtime_from_fast_chunky_with_progress<F>(
+        &mut self,
+        map_path: &Path,
+        chunky: &super::script_loader::ChunkyMap,
+        mut report_progress: F,
+    ) where
+        F: FnMut(f32, &str),
+    {
         let sync_started = Instant::now();
+        report_progress(0.41, "Fast sync heightmap");
         log::info!(
             "Fast legacy runtime sync started for '{}'",
             map_path.display()
         );
-
         let heightmap = match super::script_loader::parse_heightmap_data_from_chunky(chunky) {
             Ok(value) => value,
             Err(err) => {
@@ -1765,6 +1811,7 @@ impl GameLogic {
             map_path.display(),
             sync_started.elapsed().as_secs_f32()
         );
+        report_progress(0.415, "Fast sync waypoints");
 
         let (waypoints, waypoint_links) =
             match super::script_loader::parse_runtime_waypoints_from_chunky(chunky) {
@@ -1785,6 +1832,7 @@ impl GameLogic {
             waypoint_links.len(),
             sync_started.elapsed().as_secs_f32()
         );
+        report_progress(0.42, "Fast sync bridges");
         let bridges = match super::script_loader::parse_runtime_bridges_from_chunky(chunky) {
             Ok(value) => value,
             Err(err) => {
@@ -1796,6 +1844,7 @@ impl GameLogic {
                 Vec::new()
             }
         };
+        report_progress(0.425, "Fast sync water");
         let water_height =
             match super::script_loader::parse_runtime_water_height_from_chunky(chunky) {
                 Ok(value) => value,
@@ -1808,6 +1857,7 @@ impl GameLogic {
                     None
                 }
             };
+        report_progress(0.43, "Fast sync polygons");
         let polygon_triggers =
             match super::script_loader::parse_runtime_polygon_triggers_from_chunky(chunky) {
                 Ok(value) => value,
@@ -1820,6 +1870,7 @@ impl GameLogic {
                     Vec::new()
                 }
             };
+        report_progress(0.435, "Fast sync roads");
         self.runtime_road_segments =
             match super::script_loader::parse_runtime_roads_from_chunky(chunky) {
                 Ok(value) => value,
@@ -1833,6 +1884,7 @@ impl GameLogic {
                 }
             };
         self.runtime_terrain_texture_classes.clear();
+        report_progress(0.44, "Fast sync sides");
         let sides_data = match super::script_loader::parse_runtime_sides_from_chunky(chunky) {
             Ok(value) => value,
             Err(err) => {
@@ -1851,6 +1903,7 @@ impl GameLogic {
             sides_data.team_dicts.len(),
             sync_started.elapsed().as_secs_f32()
         );
+        report_progress(0.445, "Fast sync terrain write");
 
         let has_terrain_payload = heightmap.is_some()
             || water_height.is_some()
@@ -1915,6 +1968,7 @@ impl GameLogic {
                 sync_started.elapsed().as_secs_f32()
             );
         }
+        report_progress(0.45, "Fast sync sides write");
 
         // The fast parser owns its decoded side/team dictionaries instead of
         // going through LogicMapLoader's global SidesList callback.  Publish
@@ -2260,14 +2314,15 @@ impl GameLogic {
         let resolved_map = super::script_loader::find_map_file(map_name);
         if let Some(path) = &resolved_map {
             log::info!("Resolved map '{}' to '{}'", map_name, path.display());
-            if let Some(chunks) = super::script_loader::inspect_map_chunks(map_name) {
-                log::debug!(
-                    "Map '{}' contains chunky sections: {}",
-                    map_name,
-                    chunks.join(", ")
-                );
-            }
             if let Ok(Some(chunky)) = super::script_loader::load_chunky_map(map_name) {
+                if let Some(chunks) = super::script_loader::inspect_map_chunks_from_chunky(&chunky)
+                {
+                    log::debug!(
+                        "Map '{}' contains chunky sections: {}",
+                        map_name,
+                        chunks.join(", ")
+                    );
+                }
                 report_progress(0.34, "Parsing map chunks");
                 log::info!(
                     "Map '{}' parsed: {} TOC entries, body offset {} bytes",
@@ -2281,7 +2336,11 @@ impl GameLogic {
                     report_progress(0.40, "Syncing shell runtime");
                 }
                 let sync_started = Instant::now();
-                self.sync_legacy_runtime_from_fast_chunky(path, &chunky);
+                self.sync_legacy_runtime_from_fast_chunky_with_progress(
+                    path,
+                    &chunky,
+                    &mut report_progress,
+                );
                 log::info!(
                     "Map '{}' legacy runtime sync finished in {:.2}s (fast path)",
                     map_name,
@@ -2318,7 +2377,7 @@ impl GameLogic {
                 // Replace the test map with parsed object placements for basic fidelity.
                 let settings_started = Instant::now();
                 report_progress(0.52, "Reading map settings");
-                let parsed = super::script_loader::parse_map_settings(map_name);
+                let parsed = super::script_loader::parse_map_settings_from_chunky(&chunky);
                 let parsed_settings = parsed.ok();
                 log::info!(
                     "Map '{}' settings parse finished in {:.2}s (present={})",
@@ -2327,6 +2386,7 @@ impl GameLogic {
                     parsed_settings.is_some()
                 );
                 if let Some(meta) = parsed_settings.as_ref() {
+                    self.last_map_settings = Some(meta.clone());
                     log::info!(
                         "Map '{}' metadata: objects={}, heightmap_hint={:?}, world_min={:?}, world_max={:?}",
                         map_name,
@@ -2500,7 +2560,6 @@ impl GameLogic {
                             object_spawn_started.elapsed().as_secs_f32()
                         );
                     }
-                    self.last_map_settings = Some(meta.clone());
                 }
                 let bounds_started = Instant::now();
                 report_progress(0.84, "Building world bounds");
