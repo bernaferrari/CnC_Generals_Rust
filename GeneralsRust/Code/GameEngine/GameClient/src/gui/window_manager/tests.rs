@@ -2829,3 +2829,42 @@ fn reentrant_with_window_manager_ref_is_fail_closed_without_alias() {
         manager.destroy_all_windows();
     });
 }
+
+#[test]
+fn layout_load_adds_only_top_level_windows_like_cpp() {
+    let mut manager = WindowManager::new();
+    let layout = manager.create_layout("test.wnd".to_string());
+    let layout_def = WindowLayoutDefinition::default();
+    let mut info = WindowLayoutInfo::default();
+    let child = WindowDefinition {
+        name: "ChildHidden".to_string(),
+        window_type: "USER".to_string(),
+        status: WindowStatus::HIDDEN,
+        position: (10, 10),
+        size: (20, 20),
+        ..WindowDefinition::default()
+    };
+    let parent = WindowDefinition {
+        name: "ParentRoot".to_string(),
+        window_type: "USER".to_string(),
+        position: (0, 0),
+        size: (100, 100),
+        children: vec![child],
+        ..WindowDefinition::default()
+    };
+
+    manager
+        .create_window_from_definition(&parent, None, &layout, &layout_def, &mut info)
+        .expect("parent+child create");
+
+    assert_eq!(info.windows.len(), 1, "C++ scriptInfo.windows is roots only");
+    assert_eq!(layout.borrow().windows.len(), 1);
+    layout.borrow().hide(false);
+    let child_win = manager
+        .find_window_by_name("ChildHidden")
+        .expect("child exists");
+    assert!(
+        child_win.borrow().is_hidden(),
+        "authored HIDDEN child must survive layout.hide(false)"
+    );
+}

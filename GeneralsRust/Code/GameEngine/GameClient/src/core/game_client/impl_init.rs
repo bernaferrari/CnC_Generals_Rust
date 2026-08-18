@@ -99,6 +99,8 @@ impl GameClient {
         self.init_network_bridge();
         self.init_recorder_bridge();
         self.init_savegame_counter_bridge();
+        // C++ GameClient.cpp initializes TheCampaignManager during client init.
+        get_campaign_manager().init();
 
         self.initialized = true;
 
@@ -113,6 +115,7 @@ impl GameClient {
         // `GameClient::init`, so published input frame state is live.
         register_live_game_client(self);
         Self::register_w3d_ghost_snapshot_bridges();
+        get_campaign_manager().init();
         self.initialized = true;
     }
 

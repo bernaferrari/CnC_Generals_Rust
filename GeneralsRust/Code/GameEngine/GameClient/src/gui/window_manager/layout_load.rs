@@ -255,9 +255,15 @@ impl WindowManager {
                 0,
             );
         }
-
-        layout.borrow_mut().add_window(window.clone());
-        info.windows.push(window.clone());
+        // C++ WinCreateFromScript only pushes top-level WINDOW tokens into
+        // scriptInfo.windows (GameWindowManagerScript.cpp:2833-2843).
+        // WindowLayout::hide then walks that list only (WindowLayout.cpp:61-64).
+        // Adding children here made layout.hide(false) clear authored HIDDEN
+        // on Clock / GetUpdate / GetMapPack / StaticTextSelectDifficulty.
+        if parent.is_none() {
+            layout.borrow_mut().add_window(window.clone());
+            info.windows.push(window.clone());
+        }
         if window_def.status.contains(WindowStatus::TAB_STOP)
             || (window_def.style | style_for_window_type(&window_def.window_type)) & GWS_TAB_STOP
                 != 0

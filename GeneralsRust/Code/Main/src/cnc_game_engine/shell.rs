@@ -368,6 +368,17 @@ impl CnCGameEngine {
                 return;
             }
 
+            // C++ TheDisplay size == window client; WND CREATIONRESOLUTION
+            // 800x600 scales to that. Set WM screen_size before push so
+            // gadgets fill the logical window instead of a 800x600 corner.
+            let scale = self.window.scale_factor().max(0.0001);
+            let size = self.window.inner_size();
+            let logical_w = ((size.width as f64) / scale).round().max(1.0) as i32;
+            let logical_h = ((size.height as f64) / scale).round().max(1.0) as i32;
+            game_client::gui::with_window_manager(|manager| {
+                manager.set_screen_size(logical_w, logical_h);
+            });
+
             // C++ TheShell is initialized via SubsystemInterface before GAME_SHELL push.
             // Thread-local Shell starts uninitialized; push() fails without init.
             let result = game_client::gui::with_shell_mut(|shell| {
