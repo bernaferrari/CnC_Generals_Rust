@@ -273,6 +273,14 @@ impl CnCGameEngine {
     /// diagnostics, shell prewarm logs, MainMenu UI projection, and GameClient menu
     /// shell / NewGame drain. Returns `true` when a NewGame start consumed the frame.
     pub(super) fn host_tick_menu_client_residuals(&mut self, visual_dt: f32, dt: f32) -> bool {
+        if matches!(self.startup_load_state, StartupLoadState::InProgress { .. }) {
+            if let Err(err) = self.update_startup_loading() {
+                warn!("Menu late startup load failed: {err}");
+            }
+            if self.current_state != GameState::Menu {
+                return false;
+            }
+        }
         // Wave 605: Menu client residual.
         self.cleanup_sound_effects();
         let menu_tick_started = Instant::now();
@@ -281,10 +289,7 @@ impl CnCGameEngine {
         // (stale InGame freeze does not suppress shell ticks).
         let in_shell = self.presentation_affirms_shell_or_boot();
         if in_shell && !self.game_paused {
-            // Keep shell map/scripts alive in menu without allowing large fixed-step
-            // catch-up loops to block the UI thread.
             self.host_update_shell_with_budget(dt, 1);
-            // Wave 568: shell/menu script FPS residual via helper.
             self.apply_shell_script_fps_limit_residual();
         }
         let shell_elapsed = shell_update_started.elapsed();
@@ -418,13 +423,16 @@ impl CnCGameEngine {
                 return Ok(());
             }
         }
-        // Boot worker (INI + optional shell map) must not pin Loading forever.
-        // Intended target is Menu; a later start_game_from_ui owns match load.
+        // Boot worker (INI + ShellMapMD) must not pin Loading forever, but
+        // C++ showShellMap still finishes GAME_SHELL. Do not abandon: keep
+        // the receiver so Menu can apply a late Complete (hq-akj0).
         if self.startup_load_should_release_to_menu() {
             info!(
-                "Startup load still in progress; releasing Loading → Menu so start_game_from_ui can run"
+                "Startup load still in progress; releasing Loading → Menu, keeping worker for shell map"
             );
-            self.abandon_startup_load_worker();
+            self.update_shell_loading_progress(1.0, Some("Startup complete"));
+            self.startup_last_reported_progress = 1.0;
+            self.apply_shell_menu_window_chrome();
             self.transition_to_state(GameState::Menu);
             return Ok(());
         }
