@@ -695,6 +695,30 @@ fn configured_startup_shell_map_uses_disk_shellmapmd_when_cache_empty() {
 }
 
 #[test]
+fn configured_startup_shell_map_remaps_stale_shellmap1_to_shellmapmd() {
+    with_global_data_snapshot_restored(|| {
+        {
+            let mut global = game_engine::common::global_data::write();
+            global.writable.shell_map_on = true;
+            global.writable.shell_map_name = r"Maps\ShellMap1\ShellMap1.map".to_string();
+        }
+        let resolved_md = CnCGameEngine::resolve_windowed_shell_map_asset(
+            CnCGameEngine::DEFAULT_WINDOWED_SHELL_MAP,
+        )
+        .or_else(|| CnCGameEngine::resolve_windowed_shell_map_asset("ShellMapMD"));
+        let selected = CnCGameEngine::configured_startup_shell_map();
+        if resolved_md.is_some() {
+            let selected = selected.expect("stale ShellMap1 must remap to ShellMapMD");
+            assert!(
+                selected.to_ascii_lowercase().contains("shellmapmd"),
+                "got {selected}"
+            );
+            assert!(game_engine::common::global_data::read().writable.shell_map_on);
+        }
+    });
+}
+
+#[test]
 fn windowed_boot_source_loads_shell_map_instead_of_skipping() {
     let src = include_str!("shell.rs");
     let worker = src
