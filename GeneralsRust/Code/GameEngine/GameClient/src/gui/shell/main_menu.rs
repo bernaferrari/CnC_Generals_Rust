@@ -754,8 +754,8 @@ impl MainMenu {
         log::info!("MainMenuInit: hide dropdowns then show layout");
         // C++ MainMenuInit 525-530 + 627-629 (ruler), then 579 layout->hide(FALSE).
         // Do not latch success from dummy with_window_manager_ref lookups.
-        // Rust WindowLayout lists children (C++ info.windows is roots only), so
-        // re-apply the hide pack after show so MapBorder* stay hidden.
+        // C++ info.windows is roots only; hide(false) must not clear authored
+        // HIDDEN on Clock / GetUpdate / StaticTextSelectDifficulty.
         let hide_ok = self.apply_cpp_init_hide_pack();
         if let Some(layout) = layout.downcast_ref::<ManagerWindowLayout>() {
             layout.hide(false);
@@ -979,6 +979,10 @@ impl MainMenu {
             self.focus_window(id);
         }
         self.execute_pending_actions(pending_actions);
+        // C++ TheShell->push is synchronous from GBM_SELECTED. We queue
+        // during process_mouse_event; drain here so the next Shell::update
+        // boundary applies Options/Load/Credits/Skirmish/Challenge.
+        drain_deferred_shell_pushes();
 
         Ok(())
     }
@@ -1964,12 +1968,12 @@ impl MainMenu {
 
         state.button_pushed = false;
         self.transition_reverse("MainMenuDifficultyMenuBack");
-        let map_name = { get_campaign_manager().get_current_map() };
-        if let Some(map_name) = map_name {
-            self.setup_game_start(state, &map_name, diff);
-        } else {
-            log::warn!("prepare_campaign_game without current campaign map");
-        }
+        // C++ setupGameStart(TheCampaignManager->getCurrentMap(), diff)
+        // even when the map string is empty (Challenge uses launchChallengeMenu).
+        let map_name = get_campaign_manager()
+            .get_current_map()
+            .unwrap_or_default();
+        self.setup_game_start(state, &map_name, diff);
 
         log::info!("Preparing campaign game with difficulty: {:?}", diff);
     }
@@ -3607,9 +3611,11 @@ mod tests {
         let after_motd = capture_hidden(motd_id);
         let after_map_pack = capture_hidden(map_pack_id);
 
-        assert_eq!(after_get_update, Some(false));
+        // C++ WindowLayout::hide walks info.windows (top-level only).
+        // GetUpdate / GetMapPack are authored HIDDEN children of MainMenuParent.
+        assert_eq!(after_get_update, Some(true));
         assert_eq!(after_motd, before_motd);
-        assert_eq!(after_map_pack, Some(false));
+        assert_eq!(after_map_pack, Some(true));
         assert!(get_shell().is_shell_map_on());
         assert_eq!(
             get_global_data()

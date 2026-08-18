@@ -294,13 +294,15 @@ impl CnCGameEngine {
         }
     }
 
-    /// Shared cursor move path for physical winit `CursorMoved` and host inject.
     pub(super) fn apply_cursor_position(&mut self, x: f32, y: f32) {
-        self.mouse_position = (x, y);
+        let scale = self.window.scale_factor().max(0.0001) as f32;
+        let logical_x = x / scale;
+        let logical_y = y / scale;
+        self.mouse_position = (logical_x, logical_y);
         #[cfg(feature = "game_client")]
-        self.inject_game_client_mouse_move(x, y);
-        let mx = x as i32;
-        let my = y as i32;
+        self.inject_game_client_mouse_move(logical_x, logical_y);
+        let mx = logical_x as i32;
+        let my = logical_y as i32;
         let _ = self.dispatch_os_mouse_move(mx, my);
         self.ui_manager.handle_mouse_move(mx, my);
         if matches!(self.current_state, GameState::InGame | GameState::Paused) {
@@ -1332,8 +1334,14 @@ impl CnCGameEngine {
         {
             let size = self.window.inner_size();
             if size.width > 0 && size.height > 0 {
+                let scale = self.window.scale_factor().max(0.0001);
+                let logical_w = ((size.width as f64) / scale).round().max(1.0) as u32;
+                let logical_h = ((size.height as f64) / scale).round().max(1.0) as u32;
                 let _ = game_client::gui::ui_globals::with_ui_renderer_mut(|renderer| {
-                    renderer.set_screen_size(size.width, size.height);
+                    renderer.set_screen_size(logical_w, logical_h);
+                });
+                game_client::gui::with_window_manager(|manager| {
+                    manager.set_screen_size(logical_w as i32, logical_h as i32);
                 });
             }
         }

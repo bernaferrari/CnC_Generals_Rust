@@ -621,8 +621,10 @@ impl CnCGameEngine {
         let mut hits = Vec::new();
         for name in super::runtime::STATUS_GADGET_HIT_NAMES {
             if let Some((x, y)) = self.named_gadget_center_if_hittable(name) {
-                let sx = ox + ((x as f64) / scale).round() as i32;
-                let sy = oy + ((y as f64) / scale).round() as i32;
+                // WND centers are already logical/client points (same space as
+                // inner_position after /scale). Do not divide again.
+                let sx = ox + x;
+                let sy = oy + y;
                 hits.push(format!("{name}@{sx},{sy}"));
             }
         }
