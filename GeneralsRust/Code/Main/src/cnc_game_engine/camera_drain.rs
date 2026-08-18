@@ -1312,25 +1312,32 @@ impl CnCGameEngine {
         // (`GameLogic::logicMessageDispatcher` / MSG_NEW_GAME).
         let t4 = std::time::Instant::now();
         if let Some(request) = self.take_pending_new_game_start_request() {
-            info!(
-                "Menu NewGame drain: mode={:?} faction={} map={} skirmish={}",
-                request.mode,
-                request.faction,
-                request.map,
-                request.skirmish.is_some()
-            );
-            self.start_game_from_ui(request);
-            {
-                let gc = &mut self.game_client;
-                if early_menu_frame {
-                    debug!("Menu update_internal: calling gc.pump_message_stream");
+            if matches!(request.mode, GameMode::Shell) {
+                // C++ MSG_NEW_GAME GAME_SHELL is the shell map, already applied
+                // by finalize. Treating it as a match start loads Defcon6.
+                info!("Menu NewGame drain: ignore GAME_SHELL (shell map already live)");
+                let _ = Self::take_new_game_dispatch_from_common_stream();
+                gamelogic::helpers::TheGameLogic::clear_start_new_game_request();
+            } else {
+                info!(
+                    "Menu NewGame drain: mode={:?} faction={} map={} skirmish={}",
+                    request.mode,
+                    request.faction,
+                    request.map,
+                    request.skirmish.is_some()
+                );
+                self.start_game_from_ui(request);
+                {
+                    let gc = &mut self.game_client;
+                    if early_menu_frame {
+                        debug!("Menu update_internal: calling gc.pump_message_stream");
+                    }
+                    let _ = gc.pump_message_stream();
                 }
-                let _ = gc.pump_message_stream();
+                let _ = Self::take_new_game_dispatch_from_common_stream();
+                gamelogic::helpers::TheGameLogic::clear_start_new_game_request();
+                return true;
             }
-            // Pump consumes the stream; leftover NewGame must not re-start next tick.
-            let _ = Self::take_new_game_dispatch_from_common_stream();
-            gamelogic::helpers::TheGameLogic::clear_start_new_game_request();
-            return true;
         }
 
         {
