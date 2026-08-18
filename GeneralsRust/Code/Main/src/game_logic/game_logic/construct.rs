@@ -466,6 +466,8 @@ impl GameLogic {
             accumulated_time: 0.0,
             last_fixed_step_diagnostics: FixedStepDiagnostics::default(),
             templates: HashMap::new(),
+            unresolved_spawn_templates: HashSet::new(),
+
             map_name: String::new(),
             map_loaded: false,
             combat_system: CombatSystem::new(),

@@ -1344,9 +1344,15 @@ impl GameLogic {
                 let building = starting_building.as_str();
                 let mut pos_opt: Option<Vec3> = None;
                 if !building.is_empty() {
-                    if let Ok(starts) =
+                    // Prefer already-parsed map settings so load_map does not
+                    // RefPack-decompress the chunky map again per player.
+                    // C++ TerrainLogic::loadMap (TerrainLogic.cpp:1248-1262)
+                    // opens the .map once via CachedFileInputStream.
+                    let starts = self.cached_player_start_waypoints().or_else(|| {
                         super::super::script_loader::parse_player_start_waypoints(&self.map_name)
-                    {
+                            .ok()
+                    });
+                    if let Some(starts) = starts {
                         let want_idx = if player.start_position >= 0 {
                             player.start_position as u32
                         } else {

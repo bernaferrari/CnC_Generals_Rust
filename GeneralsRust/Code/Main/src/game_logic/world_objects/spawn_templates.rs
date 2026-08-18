@@ -5216,4 +5216,87 @@ End
             );
         }
     }
+
+    #[test]
+    fn create_object_uses_already_loaded_host_templates_not_thing_factory() {
+        // C++ ThingFactory.cpp findTemplate is an in-memory hash after
+        // GameEngine::init loaded Object INI once. Rust
+        // TheThingFactory::find_template lazy-inits every Object INI (14s+
+        // on Lone Eagle). Host create_object must bind already-loaded
+        // self.templates only.
+        let create_src = include_str!("create_destroy_die.rs");
+        assert!(
+            create_src.contains("fn ensure_host_spawn_template"),
+            "create_object must resolve host catalog via ensure_host_spawn_template"
+        );
+        assert!(
+            !create_src.contains("TheThingFactory::find_template("),
+            "create_object must not call TheThingFactory::find_template"
+        );
+        assert!(
+            !create_src.contains("init_thing_factory("),
+            "create_object must not lazy-init ThingFactory"
+        );
+
+        let mut logic = GameLogic::new();
+        let mut ranger = ThingTemplate::new("USA_Ranger");
+        ranger
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(100.0);
+        logic.templates.insert("USA_Ranger".to_string(), ranger);
+
+        let exact = logic
+            .create_object(
+                "USA_Ranger",
+                Team::USA,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("exact host template");
+        assert_eq!(
+            logic.host_object(exact).expect("exact").template_name,
+            "USA_Ranger"
+        );
+
+        let aliased = logic
+            .create_object(
+                "usa_ranger",
+                Team::USA,
+                glam::Vec3::new(10.0, 0.0, 0.0),
+            )
+            .expect("case-insensitive already-loaded host template");
+        assert_eq!(
+            logic.host_object(aliased).expect("alias").template_name,
+            "USA_Ranger"
+        );
+
+        let cached_miss = "CachedMissPropThatMustNotResynthesize";
+        logic
+            .unresolved_spawn_templates
+            .insert(cached_miss.to_string());
+        let before = logic.templates.len();
+        assert!(
+            logic
+                .create_object(cached_miss, Team::Neutral, glam::Vec3::ZERO)
+                .is_none()
+        );
+        assert_eq!(
+            logic.templates.len(),
+            before,
+            "cached unresolved names must not re-enter template synthesis"
+        );
+
+        let _ = crate::game_logic::weapon_bootstrap::ensure_host_weapon_store();
+        assert_eq!(
+            crate::game_logic::weapon_bootstrap::ensure_host_weapon_store(),
+            0,
+            "weapon store must not reload after first host seed"
+        );
+        let _ = crate::game_logic::locomotor_bootstrap::ensure_host_locomotor_store();
+        assert_eq!(
+            crate::game_logic::locomotor_bootstrap::ensure_host_locomotor_store(),
+            0,
+            "locomotor store must not reload after first host seed"
+        );
+    }
 }

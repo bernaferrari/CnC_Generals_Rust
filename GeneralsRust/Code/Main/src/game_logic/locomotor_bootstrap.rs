@@ -160,6 +160,7 @@ pub const HOST_LOCOMOTOR_SEED_RESIDUAL_TABLE: &[(&str, f32, f32, f32)] = &[
 const LOGIC_FPS: f32 = 30.0;
 
 static BOOTSTRAP_ATTEMPTED: AtomicBool = AtomicBool::new(false);
+static SEED_COMPLETE: AtomicBool = AtomicBool::new(false);
 
 /// Host-facing movement stats resolved from a LocomotorTemplate (dist/sec, rads/sec).
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -261,6 +262,11 @@ pub struct HostUniformLocomotorSetBinding {
 ///
 /// Returns how many templates were added by this call (seed + filesystem load).
 pub fn ensure_host_locomotor_store() -> usize {
+    // create_object binds movement per placement. After start_new_game the
+    // store is already filled; do not re-seed residual tables.
+    if SEED_COMPLETE.load(Ordering::Relaxed) {
+        return 0;
+    }
     let mut added = 0usize;
 
     // Prefer real INI data when extracted game data is on disk (once).
@@ -277,6 +283,7 @@ pub fn ensure_host_locomotor_store() -> usize {
     // Always fill missing golden / Wave 81 common-unit locomotors.
     // (INI load may have BasicHuman but omit some residual names.)
     added += seed_known_host_locomotors();
+    SEED_COMPLETE.store(true, Ordering::Relaxed);
     added
 }
 
@@ -953,8 +960,8 @@ fn seed_exact_combat_bike_normal_locomotors() -> usize {
 #[cfg(test)]
 pub fn reset_bootstrap_attempt_flag_for_tests() {
     BOOTSTRAP_ATTEMPTED.store(false, Ordering::Relaxed);
+    SEED_COMPLETE.store(false, Ordering::Relaxed);
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;

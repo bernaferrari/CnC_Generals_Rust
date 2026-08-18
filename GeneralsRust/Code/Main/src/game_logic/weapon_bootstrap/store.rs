@@ -1,7 +1,13 @@
 use super::*;
 
 pub(super) static BOOTSTRAP_ATTEMPTED: AtomicBool = AtomicBool::new(false);
+pub(super) static SEED_COMPLETE: AtomicBool = AtomicBool::new(false);
 pub fn ensure_host_weapon_store() -> usize {
+    // create_object resolves weapons per placement. After start_new_game the
+    // store is already filled; do not walk seed tables or Weapon.ini again.
+    if SEED_COMPLETE.load(Ordering::Relaxed) {
+        return 0;
+    }
     if let Err(e) = gamelogic::initialize_weapon_store() {
         log::warn!("WeaponStore init failed during host bootstrap: {e}");
         return 0;
@@ -20,6 +26,7 @@ pub fn ensure_host_weapon_store() -> usize {
     // Always fill gaps for known host weapons (units + base-defense residual).
     // seed_known_host_weapons skips names already present in the store.
     added += seed_known_host_weapons();
+    SEED_COMPLETE.store(true, Ordering::Relaxed);
     added
 }
 pub(super) fn store_has(name: &str) -> bool {
@@ -1274,4 +1281,5 @@ pub(super) struct SeedWeapon {
 #[cfg(test)]
 pub fn reset_bootstrap_attempt_flag_for_tests() {
     BOOTSTRAP_ATTEMPTED.store(false, Ordering::Relaxed);
+    SEED_COMPLETE.store(false, Ordering::Relaxed);
 }
