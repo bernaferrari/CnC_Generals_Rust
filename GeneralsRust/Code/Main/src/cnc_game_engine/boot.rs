@@ -469,6 +469,8 @@ impl CnCGameEngine {
             projection_matrix,
             keys_pressed: HashSet::new(),
             mouse_position: (0.0, 0.0),
+            mouse_cursor_seen: false,
+
             mouse_world_position: Vec3::ZERO,
             last_context_cursor: None,
             last_eva_low_power_count: 0,

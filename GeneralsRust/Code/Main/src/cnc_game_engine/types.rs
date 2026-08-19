@@ -1105,6 +1105,10 @@ pub struct CnCGameEngine {
     // Input state
     pub(crate) keys_pressed: HashSet<Key>,
     pub(crate) mouse_position: (f32, f32),
+    /// True after a real OS/inject cursor move. Boot default (0,0) must not
+    /// edge-scroll the camera off the map (C++ uses the live Win32 cursor).
+    pub(crate) mouse_cursor_seen: bool,
+
     pub(crate) mouse_world_position: Vec3,
     /// Last applied context cursor residual (avoid spam set_cursor).
     pub(crate) last_context_cursor: Option<&'static str>,

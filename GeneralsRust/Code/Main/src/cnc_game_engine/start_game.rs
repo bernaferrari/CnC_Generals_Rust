@@ -455,6 +455,25 @@ impl CnCGameEngine {
     ///
     /// Do **not** average every local object — map-wide centroid pulls the camera
     /// between bases and frustum-culls everything.
+    /// True when the look-at is so far from every living local object that the
+    /// frustum shows only sky (default (0,0) edge-scroll after a hitch).
+    pub(super) fn camera_is_unreasonably_far_from_local_units(&self) -> bool {
+        let Some(frame) = self.last_presentation_frame.as_ref() else {
+            return false;
+        };
+        let team = frame.local_team();
+        let mut nearest = f32::INFINITY;
+        for o in &frame.objects {
+            if o.team != team || o.destroyed {
+                continue;
+            }
+            let dx = o.position.x - self.camera_target.x;
+            let dz = o.position.z - self.camera_target.z;
+            nearest = nearest.min(dx * dx + dz * dz);
+        }
+        nearest.is_finite() && nearest > 6_000.0 * 6_000.0
+    }
+
     pub(super) fn snap_camera_to_local_units_if_needed(&mut self) {
         // Presentation-only: compute focus from snapshot, then apply camera mutably.
         let Some(focus) = (|| {
@@ -1582,6 +1601,8 @@ impl CnCGameEngine {
         self.selected_objects.clear();
         self.keys_pressed.clear();
         self.mouse_position = (0.0, 0.0);
+        self.mouse_cursor_seen = false;
+
         self.mouse_world_position = Vec3::ZERO;
         self.selection_start = None;
         self.rmb_scroll_anchor = None;
