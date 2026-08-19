@@ -111,6 +111,12 @@ impl ArchiveFileSystem {
             direct_install_candidates.push(path.clone());
             root_candidates.push(path);
         }
+        // C++ Win32BIGFileSystem.cpp:39-49 — original Generals InstallPath.
+        if let Ok(from_env) = std::env::var("GENERALS_BASE_DIR") {
+            let path = PathBuf::from(from_env);
+            direct_install_candidates.push(path.clone());
+            root_candidates.push(path);
+        }
 
         let mut ordered = Vec::new();
         let mut seen = std::collections::HashSet::new();
@@ -163,14 +169,23 @@ impl ArchiveFileSystem {
                     if !name.contains("generals") {
                         continue;
                     }
-                    if !(name.contains("zero hour") || name.contains("zh")) {
-                        continue;
+                    if name.contains("zero hour") || name.contains("zh") {
+                        push_install_layout_paths(&mut push_unique, &child);
+                    } else {
+                        // Sibling original-Generals install next to ZH.
+                        push_unique(child.clone());
+                        push_unique(child.join("Data"));
                     }
-                    push_install_layout_paths(&mut push_unique, &child);
                 }
             }
         }
 
+        // C++ loads `*.big` from the original Generals install as well as ZH.
+        // Probe sibling installs, Steam/EA common paths, windows_game extracts,
+        // and GENERALS_BASE_DIR even when this machine has no W3D.big yet.
+        for path in base_generals_mount_dirs() {
+            push_unique(path);
+        }
         for path in ordered {
             self.core.add_search_path(path);
         }
@@ -460,6 +475,211 @@ fn resolve_existing_path_case_insensitive(path: &Path) -> Option<PathBuf> {
 
     resolved.exists().then_some(resolved)
 }
+
+/// Base (non-ZH) W3D archives C++ mounts from the original Generals install.
+/// `Win32BIGFileSystem.cpp:37-49` loads ZH `*.big` then registry `InstallPath`.
+const BASE_GENERALS_W3D_ARCHIVES: &[&str] = &["W3D.big", "W3DEnglish.big"];
+
+const BASE_GENERALS_INSTALL_DIR_NAMES: &[&str] = &[
+    "Command & Conquer Generals",
+    "Command and Conquer Generals",
+];
+
+const WINDOWS_GAME_EXTRACT_DIRS: &[&str] = &["extracted_big_files", "extracted_big_files_v2"];
+
+fn discovery_seed_dirs() -> Vec<PathBuf> {
+    let mut seeds = Vec::new();
+    if let Ok(cwd) = std::env::current_dir() {
+        seeds.push(cwd);
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(parent) = exe.parent() {
+            seeds.push(parent.to_path_buf());
+        }
+    }
+    seeds.push(PathBuf::from(env!("CARGO_MANIFEST_DIR")));
+    seeds
+}
+
+fn steam_library_common_dirs() -> Vec<PathBuf> {
+    let mut dirs = Vec::new();
+    let mut push = |path: PathBuf| {
+        if !dirs.iter().any(|existing| existing == &path) {
+            dirs.push(path);
+        }
+    };
+
+    for key in ["STEAM_DIR", "STEAM_PATH", "STEAMROOT"] {
+        if let Ok(value) = std::env::var(key) {
+            if !value.is_empty() {
+                let root = PathBuf::from(value);
+                push(root.join("steamapps").join("common"));
+                push(root.join("Steam").join("steamapps").join("common"));
+            }
+        }
+    }
+
+    if let Some(home) = std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .map(PathBuf::from)
+    {
+        push(home.join("Library/Application Support/Steam/steamapps/common"));
+        push(home.join(".steam/steam/steamapps/common"));
+        push(home.join(".steam/root/steamapps/common"));
+        push(home.join(".local/share/Steam/steamapps/common"));
+        push(
+            home.join(
+                ".var/app/com.valvesoftware.Steam/.local/share/Steam/steamapps/common",
+            ),
+        );
+        push(home.join("Steam/steamapps/common"));
+    }
+
+    for prefix in [
+        r"C:\Program Files (x86)\Steam\steamapps\common",
+        r"C:\Program Files\Steam\steamapps\common",
+        r"C:\Steam\steamapps\common",
+        "/mnt/c/Program Files (x86)/Steam/steamapps/common",
+        "/mnt/c/Program Files/Steam/steamapps/common",
+        "/mnt/c/Steam/steamapps/common",
+    ] {
+        push(PathBuf::from(prefix));
+    }
+
+    dirs
+}
+
+fn classic_ea_games_roots() -> Vec<PathBuf> {
+    [
+        r"C:\Program Files (x86)\EA Games",
+        r"C:\Program Files\EA Games",
+        r"C:\Program Files (x86)\Electronic Arts",
+        r"C:\Program Files (x86)\Origin Games",
+        "/mnt/c/Program Files (x86)/EA Games",
+        "/mnt/c/Program Files/EA Games",
+        "/mnt/c/Program Files (x86)/Origin Games",
+    ]
+    .into_iter()
+    .map(PathBuf::from)
+    .collect()
+}
+
+fn path_search_key(path: &Path) -> String {
+    path.to_string_lossy().replace('\\', "/").to_ascii_lowercase()
+}
+
+/// Probe locations for original-Generals `W3D.big` / `W3DEnglish.big`.
+/// Missing files stay in the list so a present install is still searched.
+fn base_generals_search_candidates() -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    let mut push = |path: PathBuf| {
+        if seen.insert(path_search_key(&path)) {
+            out.push(path);
+        }
+    };
+
+    for key in ["GENERALS_BASE_DIR", "GENERALS_BASE_INSTALL_PATH"] {
+        if let Ok(value) = std::env::var(key) {
+            if !value.is_empty() {
+                let path = PathBuf::from(value);
+                push(path.clone());
+                push(path.join("Data"));
+            }
+        }
+    }
+
+    for zh in game_engine::common::system::install_layout::zh_install_roots() {
+        if let Some(parent) = zh.parent() {
+            for name in BASE_GENERALS_INSTALL_DIR_NAMES {
+                push(parent.join(name));
+                push(parent.join(name).join("Data"));
+            }
+        }
+    }
+
+    for common in steam_library_common_dirs() {
+        for name in BASE_GENERALS_INSTALL_DIR_NAMES {
+            push(common.join(name));
+            push(common.join(name).join("Data"));
+        }
+    }
+
+    for ea in classic_ea_games_roots() {
+        for name in BASE_GENERALS_INSTALL_DIR_NAMES {
+            push(ea.join(name));
+            push(ea.join(name).join("Data"));
+        }
+    }
+
+    for seed in discovery_seed_dirs() {
+        for ancestor in seed.ancestors().take(8) {
+            let wg = ancestor.join("windows_game");
+            for name in BASE_GENERALS_INSTALL_DIR_NAMES {
+                push(wg.join(name));
+                push(wg.join(name).join("Data"));
+            }
+            for archive in BASE_GENERALS_W3D_ARCHIVES {
+                push(wg.join(archive));
+            }
+            for extract in WINDOWS_GAME_EXTRACT_DIRS {
+                let extract_root = wg.join(extract);
+                for archive in BASE_GENERALS_W3D_ARCHIVES {
+                    push(extract_root.join(archive));
+                }
+            }
+        }
+    }
+
+    out
+}
+
+fn is_base_generals_w3d_archive_name(name: &str) -> bool {
+    let lower = name.to_ascii_lowercase();
+    BASE_GENERALS_W3D_ARCHIVES
+        .iter()
+        .any(|want| lower == want.to_ascii_lowercase())
+}
+
+/// Existing directories (and parents of present extract archives) safe to mount.
+/// Does not add loose `extracted_big_files/W3D` trees — those are not `.big`s.
+fn base_generals_mount_dirs() -> Vec<PathBuf> {
+    let mut dirs = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    let mut push_dir = |path: PathBuf| {
+        if seen.insert(path_search_key(&path)) {
+            dirs.push(path);
+        }
+    };
+
+    for candidate in base_generals_search_candidates() {
+        if candidate.is_dir() {
+            push_dir(candidate);
+            continue;
+        }
+
+        let resolved = resolve_existing_path_case_insensitive(&candidate)
+            .or_else(|| candidate.is_file().then(|| candidate.clone()));
+        let Some(file) = resolved else {
+            continue;
+        };
+        if !file.is_file() {
+            continue;
+        }
+        let Some(name) = file.file_name().and_then(|n| n.to_str()) else {
+            continue;
+        };
+        if !is_base_generals_w3d_archive_name(name) {
+            continue;
+        }
+        if let Some(parent) = file.parent() {
+            push_dir(parent.to_path_buf());
+        }
+    }
+
+    dirs
+}
+
 
 /// Archive system statistics (mirrors legacy reporting).
 #[derive(Debug, Default, Clone)]
@@ -807,5 +1027,102 @@ mod tests {
             .expect("absolute archive path should resolve case-insensitively");
 
         assert_eq!(resolved, actual_archive);
+    }
+
+    #[test]
+    fn base_generals_search_includes_steam_windows_game_and_env() {
+        let _guard = env_lock().lock().unwrap();
+        let temp_dir = tempfile::tempdir().unwrap();
+        let _env = EnvVarGuard::set("GENERALS_BASE_DIR", temp_dir.path());
+
+        let candidates = base_generals_search_candidates();
+        let rendered: Vec<String> = candidates
+            .iter()
+            .map(|p| p.to_string_lossy().replace('\\', "/").to_ascii_lowercase())
+            .collect();
+
+        assert!(
+            rendered.iter().any(|p| p.contains("steamapps/common")
+                && p.contains("command")
+                && p.contains("generals")
+                && !p.contains("zero hour")),
+            "Steam common Generals install must be probed"
+        );
+        assert!(
+            rendered
+                .iter()
+                .any(|p| p.contains("windows_game") && p.ends_with("extracted_big_files/w3d.big")),
+            "repo windows_game extract W3D.big must be probed even if absent"
+        );
+        assert!(
+            rendered.iter().any(|p| p.contains("windows_game")
+                && p.ends_with("extracted_big_files/w3denglish.big")),
+            "repo windows_game extract W3DEnglish.big must be probed even if absent"
+        );
+        assert!(
+            rendered.iter().any(|p| p.contains("windows_game")
+                && p.contains("command")
+                && p.contains("generals")
+                && !p.contains("zero hour")
+                && !p.contains("extracted_big")),
+            "windows_game sibling Generals install must be probed"
+        );
+        let base = temp_dir
+            .path()
+            .to_string_lossy()
+            .replace('\\', "/")
+            .to_ascii_lowercase();
+        assert!(
+            rendered.iter().any(|p| p == &base || p.starts_with(&base)),
+            "GENERALS_BASE_DIR must be in the search"
+        );
+    }
+
+    #[test]
+    fn init_mounts_base_generals_w3d_from_generals_base_dir() {
+        let _guard = env_lock().lock().unwrap();
+        let temp_dir = tempfile::tempdir().unwrap();
+        create_single_file_big(
+            &temp_dir.path().join("W3D.big"),
+            "Art/W3D/BaseUnit.w3d",
+            b"w3d",
+        )
+        .unwrap();
+        create_single_file_big(
+            &temp_dir.path().join("W3DEnglish.big"),
+            "Art/W3D/BaseUnitEN.w3d",
+            b"w3den",
+        )
+        .unwrap();
+        let _env = EnvVarGuard::set("GENERALS_BASE_DIR", temp_dir.path());
+
+        let mut archive_system = ArchiveFileSystem::new();
+        futures::executor::block_on(archive_system.init()).unwrap();
+
+        let loaded: Vec<String> = archive_system
+            .get_loaded_archives()
+            .into_iter()
+            .map(|a| a.replace('\\', "/").to_ascii_lowercase())
+            .collect();
+        assert!(
+            loaded.iter().any(|a| a.ends_with("/w3d.big")),
+            "GENERALS_BASE_DIR W3D.big should mount, got {loaded:?}"
+        );
+        assert!(
+            loaded.iter().any(|a| a.ends_with("/w3denglish.big")),
+            "GENERALS_BASE_DIR W3DEnglish.big should mount, got {loaded:?}"
+        );
+        assert!(archive_system.does_file_exist("art/w3d/baseunit.w3d"));
+        assert!(archive_system.does_file_exist("art/w3d/baseuniten.w3d"));
+    }
+
+    #[test]
+    fn warn_base_archives_does_not_treat_zh_w3d_as_base() {
+        // warn_if_base_archives_missing matches `ends_with("w3d.big")`.
+        // W3DZH.big / W3DEnglish.big must not silence a missing W3D.big.
+        assert!(!"w3dzh.big".ends_with("w3d.big"));
+        assert!("w3d.big".ends_with("w3d.big"));
+        assert!(!"w3denglish.big".ends_with("w3d.big"));
+        assert!(!"textureszh.big".ends_with("textures.big"));
     }
 }

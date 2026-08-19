@@ -231,8 +231,14 @@ impl ControlBar {
     /// C++ InGameUI::update money/power window residual (InGameUI.cpp:1776-1815).
     ///
     /// Formats `GUI:ControlBarMoneyDisplay` onto `ControlBar.wnd:MoneyDisplay`
-    /// from ThePlayerList (observer look-at or local). PowerWindow hide/show
-    /// matches C++; power fill itself is drawn by w3d_power_draw.
+    /// from ThePlayerList (observer look-at or local). Power fill is drawn by
+    /// w3d_power_draw.
+    ///
+    /// Live host: crate `ThePlayerList` is often empty even in a real offline
+    /// match. C++ only hides when `moneyPlayer` is NULL (InGameUI.cpp:1811-1814),
+    /// which does not happen in skirmish. Do not `hide(true)` both windows just
+    /// because the crate list has no local player — fall back to last-applied
+    /// presentation money already on this ControlBar (`last_displayed_money`).
     pub fn update_money_and_power_windows(&mut self) {
         let money_player = if self.observer_mode {
             self.get_observer_look_at_player_index()
@@ -249,46 +255,46 @@ impl ControlBar {
                 .and_then(|list| list.get_local_player().cloned())
         };
 
-        let current_money = money_player
+        let crate_money = money_player
             .as_ref()
             .and_then(|player| player.read().ok())
             .map(|player| player.get_money().count_money() as i32);
 
+        // Presentation freeze / last apply stands in for the missing crate local
+        // player (`last_displayed_money`, stamped by apply_presentation_money
+        // or a prior crate-player write). Portrait/command-set/radar residuals
+        // on this ControlBar are the live-match signal; we still show even when
+        // they are cold so an empty crate list never hides both windows.
+
+
         with_window_manager(|manager| {
             let money_win = manager.find_window_by_name("ControlBar.wnd:MoneyDisplay");
             let power_win = manager.find_window_by_name("ControlBar.wnd:PowerWindow");
-            match current_money {
-                Some(money) => {
-                    if let Some(win) = money_win.as_ref() {
-                        if self.last_displayed_money != money {
-                            let template = GameText::fetch("GUI:ControlBarMoneyDisplay");
-                            let text = if template.contains("%d") {
-                                template.replace("%d", &money.to_string())
-                            } else if template.is_empty() || template.starts_with("GUI:") {
-                                format!("${money}")
-                            } else {
-                                format!("{template} {money}")
-                            };
-                            let _ = win.borrow_mut().set_text(&text);
-                            self.last_displayed_money = money;
-                        }
-                        let _ = win.borrow_mut().hide(false);
-                    }
-                    if let Some(win) = power_win.as_ref() {
-                        let _ = win.borrow_mut().hide(false);
-                    }
+            // C++ InGameUI.cpp:1808-1809 winHide(FALSE) whenever a local/observer
+            // player exists. Empty crate PlayerList is not moneyPlayer==NULL.
+            let money = crate_money.unwrap_or_else(|| self.last_displayed_money.max(0));
+            let force_write = crate_money.is_none();
+            if let Some(win) = money_win.as_ref() {
+                if force_write || self.last_displayed_money != money {
+                    let text = Self::format_control_bar_money_display(money);
+                    let _ = win.borrow_mut().set_text(&text);
+                    self.last_displayed_money = money;
                 }
-                None => {
-                    if let Some(win) = money_win.as_ref() {
-                        let _ = win.borrow_mut().hide(true);
-                    }
-                    if let Some(win) = power_win.as_ref() {
-                        let _ = win.borrow_mut().hide(true);
-                    }
-                    self.last_displayed_money = -1;
-                }
+                let _ = win.borrow_mut().hide(false);
+            }
+            if let Some(win) = power_win.as_ref() {
+                let _ = win.borrow_mut().hide(false);
             }
         });
+    }
+
+    /// Stamp host presentation-freeze supplies onto ControlBar lastMoney.
+    ///
+    /// `PresentationFrame::apply_to_control_bar` / host tick can call this
+    /// before `update()` so MoneyDisplay shows freeze `local_supplies` when
+    /// crate `ThePlayerList` has no local player.
+    pub fn apply_presentation_money(&mut self, supplies: i32) {
+        self.last_displayed_money = supplies.max(0);
     }
 
     /// Host-testable money format residual (C++ `GUI:ControlBarMoneyDisplay` %d).

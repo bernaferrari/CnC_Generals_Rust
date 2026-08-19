@@ -1072,6 +1072,8 @@ impl PresentationFrame {
             panel.unit_infos.iter().map(|u| u.object_id.0).collect()
         };
         let _ = control_bar.update_for_selection(ids);
+        control_bar.apply_presentation_money(self.local_supplies as i32);
+
         control_bar.sync_selection_display_from_presentation(
             panel.visible.then_some(panel.primary_name.as_str()),
             panel.health_current,

@@ -900,7 +900,7 @@ impl CnCGameEngine {
     /// C++ `W3DView::buildCameraTransform` offset in Main's X/Z-ground basis.
     /// `camera_orbit_distance` is deliberately unzoomed; multiplying it here
     /// makes wheel/key/script zoom affect the real WGPU camera exactly once.
-    fn camera_orbit_offset(&self) -> Vec3 {
+    pub(super) fn camera_orbit_offset(&self) -> Vec3 {
         let zoom = if self.camera_zoom.is_finite() {
             self.camera_zoom.max(0.05)
         } else {
@@ -1319,12 +1319,11 @@ impl CnCGameEngine {
         self.host_center_camera_on(world_pos)
     }
 
-    pub(super) fn host_center_camera_on(&mut self, world_pos: Vec3) {
-        // Wave 611: host residual helper.
+    /// Presentation-frozen ground height under `world_pos`.
+    /// Same sampler `host_center_camera_on` uses — no live GameLogic dual-read.
+    pub(super) fn sample_presentation_height_under(&self, world_pos: Vec3) -> f32 {
         let clamped = self.clamp_to_world_bounds(world_pos);
-        // Wave 460: prefer presentation-frozen height grid; live terrain only when
-        // no PresentationFrame is installed (boot residual).
-        let ground_height = if let Some(pres) = self
+        if let Some(pres) = self
             .render_pipeline
             .presentation_frame()
             .or(self.last_presentation_frame.as_ref())
@@ -1335,7 +1334,13 @@ impl CnCGameEngine {
         } else {
             // Wave 905: fail-closed boot height (no terrain_height_at dual-read).
             self.camera_target.y
-        };
+        }
+    }
+
+    pub(super) fn host_center_camera_on(&mut self, world_pos: Vec3) {
+        // Wave 611: host residual helper.
+        let clamped = self.clamp_to_world_bounds(world_pos);
+        let ground_height = self.sample_presentation_height_under(clamped);
         self.camera_target.x = clamped.x;
         self.camera_target.y = ground_height;
         self.camera_target.z = clamped.z;
