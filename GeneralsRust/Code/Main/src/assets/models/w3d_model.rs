@@ -417,25 +417,26 @@ impl W3DModel {
 
         let bone_index = self.rigid_hlod_bone_index_for_mesh(mesh_index)?;
         let hierarchy = self.hierarchy.as_ref()?;
-        let (source_transform, visible) = if let Some(animation_binding) = animation_binding {
-            // An HTree can only apply a motion authored for its exact source
-            // hierarchy.  Do not reinterpret a same-named clip from a
-            // different hierarchy as visibility for this HLOD child.
+        let bind_pose = compute_bind_pose_global_transforms(hierarchy)?
+            .get(bone_index)
+            .copied()
+            .map(|source_transform| (source_transform, true));
+        // C++ W3DModelDraw keeps the HLod in bind pose when HAnim is missing
+        // or authored for a different hierarchy. Never drop every mesh.
+        let animated = animation_binding.and_then(|animation_binding| {
             if !self.animation_binding_is_compatible(animation_binding) {
                 return None;
             }
             let animation = animation_binding.animation(self)?;
             let source_transform = self
-                .sample_animation_binding(animation_binding, animation_frame)
-                .and_then(|transforms| transforms.get(bone_index).copied())?;
-            let visible = animation.visibility_for_pivot(bone_index, animation_frame)?;
-            (source_transform, visible)
-        } else {
-            let source_transform = compute_bind_pose_global_transforms(hierarchy)?
+                .sample_animation_binding(animation_binding, animation_frame)?
                 .get(bone_index)
                 .copied()?;
-            (source_transform, true)
-        };
+            let visible = animation.visibility_for_pivot(bone_index, animation_frame)?;
+            Some((source_transform, visible))
+        });
+        let (source_transform, visible) = animated.or(bind_pose)?;
+
 
         Some((
             Self::w3d_transform_to_render_basis(Mat4::from_cols_array(&source_transform)),

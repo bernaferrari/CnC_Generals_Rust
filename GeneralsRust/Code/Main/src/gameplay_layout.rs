@@ -41,10 +41,13 @@ pub fn materialise_live_control_bar() -> bool {
                     wm.load_window(path.to_str().unwrap_or("ControlBar.wnd"))
                 });
             }
+            // C++ winCreateFromScript("ControlBar.wnd") uses the archive/ancestor
+            // resolver. A cwd-limited disk probe must not skip the live load.
+            if !control_bar_parent_is_live() {
+                let _ = game_client::gui::with_window_manager(|wm| wm.load_window("ControlBar.wnd"));
+            }
         }
-        if !control_bar_parent_is_live() {
-            return false;
-        }
+
         let wm_count = game_client::gui::with_window_manager_ref(|wm| wm.window_count());
         if wm_count == 0 {
             return false;
@@ -269,18 +272,24 @@ pub fn resolve_control_bar_path() -> Option<PathBuf> {
             return Some(p.to_path_buf());
         }
     }
-    // Also try repo-relative from GeneralsRust/ cwd and parent.
-    let prefixes = ["", "../", "../../"];
-    for prefix in prefixes {
-        for c in CONTROL_BAR_CANDIDATES {
-            let p = Path::new(prefix).join(c);
-            if p.is_file() {
-                return Some(p);
+    if let Ok(current_dir) = std::env::current_dir() {
+        for base in current_dir.ancestors() {
+            for c in [
+                "windows_game/extracted_big_files/WindowZH/Window/ControlBar.wnd",
+                "windows_game/extracted_big_files_v2/WindowZH/Window/ControlBar.wnd",
+                "Window/ControlBar.wnd",
+                "Data/Window/ControlBar.wnd",
+            ] {
+                let p = base.join(c);
+                if p.is_file() {
+                    return Some(p);
+                }
             }
         }
     }
     None
 }
+
 
 /// Validate ControlBar.wnd is a non-empty retail layout file.
 ///

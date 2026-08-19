@@ -1027,6 +1027,8 @@ impl CnCGameEngine {
                             }
                         }
                     });
+                    self.shell_menu_active = false;
+
                 }
                 self.ensure_gameplay_layouts();
                 self.ui_manager
@@ -1289,6 +1291,18 @@ impl CnCGameEngine {
         //   (Network == NULL && !isGamePaused()) || (Network && Network->isFrameDataReady()).
         let network_frame_data_ready =
             Self::network_frame_data_ready_gate(self.host_is_in_multiplayer_game());
+        if self.frame_counter.is_multiple_of(30) {
+            info!(
+                "ingame_logic_gate paused={} gl_paused={} net={:?} dt={:.4} logic_frame={} pres_frame={}",
+                self.game_paused,
+                self.game_logic.is_paused(),
+                network_frame_data_ready,
+                dt,
+                self.game_logic.get_frame(),
+                self.last_presentation_frame.as_ref().map(|p| p.frame.0).unwrap_or(u32::MAX),
+            );
+        }
+
         if Self::should_update_game_logic_frame(self.game_paused, network_frame_data_ready) {
             // Wave 602: host InGame logic+shadow+presentation residual via helper.
             self.host_run_ingame_logic_presentation_frame(dt);

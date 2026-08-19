@@ -714,6 +714,7 @@ impl InGameUI {
     pub fn pre_draw(&mut self, frame: u32) {
         self.current_frame = frame;
         self.expire_hints();
+        self.expire_messages();
         self.update_floating_texts();
         self.update_superweapon_timers(frame);
         self.update_military_subtitle();

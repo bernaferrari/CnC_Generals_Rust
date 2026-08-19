@@ -783,6 +783,8 @@ impl TerrainVisualImpl {
         self.road_meshes.clear();
         self.bridge_meshes.clear();
         self.scorch_meshes.clear();
+        self.overlay_gpu_meshes_dirty = true;
+
         let mut ordered_road_segments = Vec::new();
         for road_segment in road_segments.iter().cloned() {
             Self::insert_runtime_road_segment_ordered(&mut ordered_road_segments, road_segment);

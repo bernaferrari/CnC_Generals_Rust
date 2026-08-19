@@ -371,12 +371,19 @@ impl TerrainVisualImpl {
     }
 
     fn update_road_meshes(&mut self) -> TerrainResult<()> {
+        if !self.overlay_gpu_meshes_dirty {
+            return Ok(());
+        }
+
+
         let Some(device) = self.device.as_ref().cloned() else {
             self.road_meshes.clear();
             self.bridge_meshes.clear();
             self.scorch_meshes.clear();
+            self.overlay_gpu_meshes_dirty = true;
             return Ok(());
         };
+
 
         let mut road_meshes = Vec::new();
         let mut bridge_meshes = Vec::new();
@@ -501,7 +508,9 @@ impl TerrainVisualImpl {
         self.road_meshes = road_meshes;
         self.bridge_meshes = bridge_meshes;
         self.update_scorch_meshes(&device);
+        self.overlay_gpu_meshes_dirty = false;
         Ok(())
+
     }
 
     fn update_scorch_meshes(&mut self, device: &wgpu::Device) {
@@ -746,6 +755,15 @@ impl TerrainVisualImpl {
 
     /// C++ `W3DTreeBuffer::drawTrees` VB fill + wgpu upload. Called every update/draw.
     pub fn update_tree_meshes(&mut self) {
+        // C++ `loadTreesInVertexAndIndexBuffers` returns when nothing changed.
+        // Re-creating wgpu buffers every TerrainVisual::update is a 200ms+ stall.
+        if !self.tree_meshes.is_empty()
+            && !self.tree_buffer.need_to_update_texture()
+            && !self.tree_buffer.anything_changed()
+        {
+            return;
+        }
+
         // C++ `drawTrees`: if m_needToUpdateTexture then updateTexture (blit+mip+SetLOD).
         // GlobalData::m_textureReductionFactor when present; else last SetLOD / atlas_lod.
         let lod = get_global_data()

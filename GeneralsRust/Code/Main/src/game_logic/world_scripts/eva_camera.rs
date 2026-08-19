@@ -332,22 +332,12 @@ impl GameLogic {
                 gamelogic::helpers::EvaEvent::BuildingLost,
             );
             self.saboteur.record_eva_building_lost();
-            let _ = gamelogic::helpers::TheEva::set_should_play(
-                gamelogic::helpers::EvaEvent::BuildingLost,
-            );
-            crate::game_logic::host_eva_log::record_event(
-                gamelogic::helpers::EvaEvent::BuildingLost,
-            );
-            self.saboteur.record_eva_building_lost();
         } else if is_infantry || is_vehicle {
             let _ =
                 gamelogic::helpers::TheEva::set_should_play(gamelogic::helpers::EvaEvent::UnitLost);
             crate::game_logic::host_eva_log::record_event(gamelogic::helpers::EvaEvent::UnitLost);
             self.saboteur.record_eva_unit_lost();
-            let _ =
-                gamelogic::helpers::TheEva::set_should_play(gamelogic::helpers::EvaEvent::UnitLost);
-            crate::game_logic::host_eva_log::record_event(gamelogic::helpers::EvaEvent::UnitLost);
-            self.saboteur.record_eva_unit_lost();
+
             // C++ TheRadar->tryEvent(RADAR_EVENT_FAKE, pos) residual for spacebar jump.
             let msg = localization::localize("RADAR:UnitLost", "Unit lost");
             self.queue_radar_message_at(msg, death_pos, radar_notifications::RadarKind::Generic);

@@ -183,9 +183,16 @@ impl CnCGameEngine {
             let _ = (dt, budget);
             return crate::game_logic::SimTimingSnapshot::default();
         }
+        // C++ GameEngine.cpp:749 reads TheGameLogic->isGamePaused() as the only
+        // pause flag. A leftover GameLogic.is_paused=true with engine unpaused
+        // pins logic_frame at 0 (hq-fx1z).
+        if self.game_logic.is_paused() {
+            self.game_logic.set_paused(false);
+        }
         let snap = self
             .game_logic
             .tick_logic_frame(dt, self.last_frame_timing.as_ref(), budget);
+
         self.host_stamp_sim_timing_from_snapshot(snap);
         snap
     }

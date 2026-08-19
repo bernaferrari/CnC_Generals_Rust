@@ -2139,8 +2139,11 @@ impl CnCGameEngine {
             log::trace!("presentation particle client mirrors: {fx_n}");
         }
         self.last_presentation_frame = Some(pres);
+        self.render_pipeline
+            .set_presentation_frame(self.last_presentation_frame.clone());
         // Wave 844: keep host sim residuals current for freeze-miss peels.
         self.host_refresh_match_sim_residuals_from_logic();
+
 
         // Wave 568: InGame script FPS residual via helper.
         self.apply_ingame_script_fps_limit_residual();
