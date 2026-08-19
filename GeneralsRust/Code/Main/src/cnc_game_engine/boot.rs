@@ -549,6 +549,7 @@ impl CnCGameEngine {
             shell_prewarm_completion_logged: false,
             menu_world_frames_rendered: 0,
             last_slow_menu_tick_log: None,
+            ingame_entered_at: None,
             match_over: false,
             victory_summary: None,
         };

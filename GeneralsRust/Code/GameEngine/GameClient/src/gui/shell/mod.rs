@@ -32,6 +32,7 @@ pub use base::{
 // Re-export main menu types
 pub use main_menu::{
     clear_deferred_shell_pushes, dispatch_os_click_named_window, drain_deferred_shell_pushes,
+    log_named_window_screen_rect,
     drive_os_wnd_open_challenge_menu_like_cpp, drive_os_wnd_open_skirmish_like_cpp,
     drive_os_wnd_start_campaign_like_cpp, drive_os_wnd_start_china_campaign_like_cpp,
     drive_os_wnd_start_gla_campaign_like_cpp, drive_os_wnd_start_usa_campaign_like_cpp,
@@ -46,6 +47,7 @@ pub use main_menu::{
     simulate_main_menu_multiplayer_button_gadget_selected,
     simulate_main_menu_options_button_gadget_selected,
     simulate_main_menu_replay_button_gadget_selected,
+    notify_physical_main_menu_gadget_gbm_selected,
     simulate_main_menu_single_player_button_gadget_selected,
     simulate_main_menu_skirmish_button_gadget_selected,
     simulate_main_menu_skirmish_button_latch_only, soft_reveal_main_menu_for_host_inject,

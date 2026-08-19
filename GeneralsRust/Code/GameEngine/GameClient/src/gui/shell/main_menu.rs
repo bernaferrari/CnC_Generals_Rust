@@ -596,6 +596,28 @@ impl MainMenu {
         });
     }
 
+    /// C++ MainMenuSinglePlayerMenu transition ends with these gadgets visible.
+    /// Rust transitions can leave the child HIDDEN bits set after MapBorder
+    /// winHide(FALSE), so EarthMap steals the Skirmish hit.
+    fn unhide_single_player_dropdown_buttons(&self) {
+        const NAMES: &[&str] = &[
+            "MainMenu.wnd:ButtonSkirmish",
+            "MainMenu.wnd:ButtonUSA",
+            "MainMenu.wnd:ButtonGLA",
+            "MainMenu.wnd:ButtonChina",
+            "MainMenu.wnd:ButtonChallenge",
+            "MainMenu.wnd:ButtonSingleBack",
+            "MainMenu.wnd:EarthMap",
+        ];
+        queue_window_manager_op(|manager| {
+            for name in NAMES {
+                if let Some(window) = manager.find_window_by_name(name) {
+                    crate::gui::hide_window_rc(&window, false);
+                }
+            }
+        });
+    }
+
     fn ensure_first_run_nav_gadgets_hittable(&self) {
         const NAMES: &[&str] = &[
             "MainMenu.wnd:ButtonSinglePlayer",
@@ -1120,6 +1142,13 @@ impl MainMenu {
             // GBM_SELECTED - matches C++ lines 1279-1677
             GBM_SELECTED => {
                 let control_id = data1 as u32;
+                log::info!(
+                    "MainMenu GBM_SELECTED control_id={control_id} solo={} skirmish={} dont_allow={} button_pushed={}",
+                    state.window_ids.button_single_player_id,
+                    state.window_ids.skirmish_id,
+                    state.dont_allow_transitions,
+                    state.button_pushed
+                );
                 if state.button_pushed {
                     return true;
                 }
@@ -1529,6 +1558,7 @@ impl MainMenu {
             self.transition_remove("MainMenuDefaultMenu", false);
             self.transition_reverse("MainMenuDefaultMenuBack");
             self.transition_set_group("MainMenuSinglePlayerMenu", false);
+            self.unhide_single_player_dropdown_buttons();
             log::info!("Single Player button selected");
         } else if control_id == state.window_ids.button_single_back_id {
             // Single Player Back button - C++ lines 1326-1335
@@ -2525,6 +2555,35 @@ pub fn simulate_main_menu_single_player_button_gadget_selected() -> bool {
     )
 }
 
+/// Physical OS click hit a live MainMenu gadget. Deliver C++ GBM_SELECTED
+/// into MainMenuSystem even when the WND [None] system callback did not
+/// bubble PassSelectedButtonsToParentSystem (live HQ sit-through).
+pub fn notify_physical_main_menu_gadget_gbm_selected(name: &str) {
+    if !name.starts_with("MainMenu.wnd:Button") {
+        return;
+    }
+    let ids = build_window_ids();
+    let control_id = NameKeyGenerator::name_to_key(name);
+    let main_menu_id = if ids.main_menu_id != 0 {
+        ids.main_menu_id
+    } else {
+        NameKeyGenerator::name_to_key("MainMenu.wnd:MainMenuParent")
+    };
+    let mut menu = get_main_menu();
+    {
+        let mut state = menu.state.write().unwrap_or_else(|e| e.into_inner());
+        if state.window_ids.button_single_player_id == 0 {
+            state.window_ids = ids;
+        }
+        // Stalled transition groups must not swallow Solo Play / Skirmish.
+        if state.dont_allow_transitions {
+            state.dont_allow_transitions = false;
+        }
+    }
+    log::info!("physical GBM_SELECTED notify name={name} id={control_id}");
+    let _ = menu.system(main_menu_id, GBM_SELECTED, control_id as WindowMsgData, 0);
+}
+
 /// Residual: fire retail `MainMenu.wnd:ButtonMultiplayer` via `GBM_SELECTED`.
 pub fn simulate_main_menu_multiplayer_button_gadget_selected() -> bool {
     simulate_main_menu_button_gadget_selected(
@@ -2722,12 +2781,18 @@ pub fn get_main_menu() -> std::sync::MutexGuard<'static, MainMenu> {
 pub fn reveal_main_menu_first_input_like_cpp() -> bool {
     let ids = build_window_ids();
     let mut menu = get_main_menu();
-    menu.input(ids.main_menu_id, GWM_CHAR, 0, 0)
-        || !menu
-            .state
-            .read()
-            .unwrap_or_else(|e| e.into_inner())
-            .not_shown
+    let handled = menu.input(ids.main_menu_id, GWM_CHAR, 0, 0);
+    let (not_shown, drop_down) = {
+        let state = menu.state.read().unwrap_or_else(|e| e.into_inner());
+        (state.not_shown, state.drop_down)
+    };
+    // Host inject `soft_reveal` can clear `not_shown` without C++
+    // `dropDownWindows[DROPDOWN_MAIN]->winHide(FALSE)` (MapBorder2).
+    // After Solo Play, drop_down is Single — do not cover MapBorder.
+    if matches!(drop_down, DropdownType::None | DropdownType::Main) {
+        menu.win_hide_dropdown_main_false();
+    }
+    handled || !not_shown
 }
 
 /// Test-only: C++ CHAR visibility (`winHide(FALSE)` DROPDOWN_MAIN + gadget
@@ -2875,7 +2940,9 @@ pub fn note_os_wnd_widget_tree_hit(x: i32, y: i32) -> bool {
 
 /// Name of the enabled, visible gadget under the cursor, if any.
 pub fn os_wnd_widget_under_cursor_name(x: i32, y: i32) -> Option<String> {
-    use crate::gui::window_manager::with_window_manager_ref;
+    use crate::gui::window_manager::{with_window_manager, with_window_manager_ref};
+    // Queued winHide from MainMenu first-run / dropdown must apply first.
+    with_window_manager(|_manager| {});
     with_window_manager_ref(|manager| {
         let window = manager.get_window_under_cursor(x, y, false)?;
         let guard = window.try_borrow().ok()?;
@@ -2894,6 +2961,26 @@ pub fn os_wnd_widget_under_cursor_name(x: i32, y: i32) -> Option<String> {
             Some(name)
         }
     })
+}
+
+/// Debug: screen rect + hidden of a named live WM window.
+pub fn log_named_window_screen_rect(name: &str) {
+    use crate::gui::window_manager::with_window_manager_ref;
+    with_window_manager_ref(|manager| {
+        match manager.find_window_by_name(name) {
+            Some(window) => {
+                let g = window.borrow();
+                let (sx, sy) = g.get_screen_position();
+                let (w, h) = g.get_size();
+                log::info!(
+                    "wnd {name} screen=({sx},{sy}) size={w}x{h} hidden={} enabled={}",
+                    g.is_hidden(),
+                    g.is_enabled()
+                );
+            }
+            None => log::info!("wnd {name} missing"),
+        }
+    });
 }
 
 #[cfg(test)]

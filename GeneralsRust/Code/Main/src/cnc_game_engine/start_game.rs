@@ -1519,7 +1519,15 @@ impl CnCGameEngine {
     }
 
     pub(super) fn show_victory_screen(&mut self, winner: Option<u32>) {
-        // Prefer presentation-frozen summary when available (no live re-aggregate).
+        if let Some(entered) = self.ingame_entered_at {
+            if entered.elapsed() < std::time::Duration::from_secs(15) {
+                log::info!(
+                    "suppress victory {}ms after InGame enter",
+                    entered.elapsed().as_millis()
+                );
+                return;
+            }
+        }
         // Wave 584: victory summary residual via helper.
         let summary = self.presentation_or_boot_victory_summary(winner);
         let queued_summary = summary.clone();

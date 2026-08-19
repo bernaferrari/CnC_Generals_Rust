@@ -371,7 +371,7 @@ impl CnCGameEngine {
         if let Some(request) = self.take_pending_new_game_start_request() {
             if matches!(request.mode, GameMode::Shell) {
                 info!("Menu NewGame drain: ignore GAME_SHELL (shell map already live)");
-                let _ = Self::take_new_game_dispatch_from_common_stream();
+                Self::take_shell_new_game_messages_from_common_stream();
                 return false;
             }
             self.start_game_from_ui(request);
@@ -413,7 +413,7 @@ impl CnCGameEngine {
                 // match and do not return — fall through so the worker can
                 // release Loading → Menu (hq-akj0).
                 info!("Loading NewGame drain: ignore GAME_SHELL (shell map, not a match)");
-                let _ = Self::take_new_game_dispatch_from_common_stream();
+                Self::take_shell_new_game_messages_from_common_stream();
                 gamelogic::helpers::TheGameLogic::clear_start_new_game_request();
             } else {
                 info!(
@@ -1289,7 +1289,26 @@ impl CnCGameEngine {
     /// NewGame intercept is Menu-only). Full `GameClient::update` stays disconnected.
     #[cfg(feature = "game_client")]
     pub(super) fn host_tick_game_client_menu_shell(&mut self) -> bool {
-        // Wave 588: Menu shell residual.
+        // Peek/start MSG_NEW_GAME before update_input/propagateMessages
+        // can destroy it. WND Skirmish Start posts here.
+        if let Some(request) = self.take_pending_new_game_start_request() {
+            if matches!(request.mode, GameMode::Shell) {
+                info!("Menu NewGame drain: ignore GAME_SHELL (shell map already live)");
+                Self::take_shell_new_game_messages_from_common_stream();
+            } else {
+                info!(
+                    "Menu NewGame drain: mode={:?} faction={} map={} skirmish={}",
+                    request.mode,
+                    request.faction,
+                    request.map,
+                    request.skirmish.is_some()
+                );
+                self.start_game_from_ui(request);
+                let _ = Self::take_new_game_dispatch_from_common_stream();
+                gamelogic::helpers::TheGameLogic::clear_start_new_game_request();
+                return true;
+            }
+        }
         let early_menu_frame = self.menu_world_frames_rendered < 5;
         let t0 = std::time::Instant::now();
         {
@@ -1301,7 +1320,6 @@ impl CnCGameEngine {
                 );
             }
             let _ = gc.ensure_shell_visible();
-            // C++ GameClient.cpp:493-494 — MSG_FRAME_TICK even on shell.
             let _ = gc.create_frame_tick_message();
             let t1 = std::time::Instant::now();
             if early_menu_frame {
@@ -1338,8 +1356,7 @@ impl CnCGameEngine {
                 // C++ MSG_NEW_GAME GAME_SHELL is the shell map, already applied
                 // by finalize. Treating it as a match start loads Defcon6.
                 info!("Menu NewGame drain: ignore GAME_SHELL (shell map already live)");
-                let _ = Self::take_new_game_dispatch_from_common_stream();
-                gamelogic::helpers::TheGameLogic::clear_start_new_game_request();
+                Self::take_shell_new_game_messages_from_common_stream();
             } else {
                 info!(
                     "Menu NewGame drain: mode={:?} faction={} map={} skirmish={}",
@@ -1372,7 +1389,14 @@ impl CnCGameEngine {
 
         // Secondary path: crate helpers may flag start after pump.
         if gamelogic::helpers::TheGameLogic::is_start_new_game_requested() {
-            if self.host_is_in_shell_game() {
+            let pending = game_engine::common::global_data::read()
+                .pending_file
+                .clone();
+            let pending_shellish = {
+                let t = pending.trim().to_ascii_lowercase();
+                t.is_empty() || t.contains("shellmap")
+            };
+            if self.host_is_in_shell_game() && pending_shellish {
                 info!("Menu start_new_game flag drain: ignore leftover GAME_SHELL flag");
                 gamelogic::helpers::TheGameLogic::clear_start_new_game_request();
             } else {
@@ -1387,7 +1411,6 @@ impl CnCGameEngine {
                 }
             }
         }
-
         let t5 = std::time::Instant::now();
         let menu_gc_elapsed = t0.elapsed();
         if menu_gc_elapsed >= std::time::Duration::from_millis(50) || early_menu_frame {
@@ -1597,6 +1620,14 @@ impl CnCGameEngine {
         pres.apply_to_ui_state(&mut ui);
         self.last_ui_state = Some(ui);
         self.last_presentation_frame = Some(pres);
+        // C++ does not evaluate victory on the load frame. A just-seeded
+        // alpine/empty world would otherwise stamp match_over and jump to Defeat.
+        if let Some(pres) = self.last_presentation_frame.as_mut() {
+            pres.match_over = false;
+        }
+        self.host_match_over = Some(false);
+        self.host_match_boot_victory_condition = Some(None);
+        self.match_over = false;
         #[cfg(feature = "game_client")]
         {
             // A map/load seed can transition directly to InGame before the
@@ -1979,11 +2010,15 @@ impl CnCGameEngine {
             });
         }
 
-        // Prefer presentation shell bypass when a frame is installed (no live dual-read).
         let in_shell = self.presentation_or_boot_shell_bypass();
-        if !self.match_over && self.current_state == GameState::InGame && !in_shell {
-            // Wave 556: prefer presentation victory residual when frame installed
-            // (no live re-evaluate). Boot residual only without freeze.
+        // Empty/load-frame worlds stamp match_over immediately. C++ scripts
+        // do not end a skirmish on the first frame with no combat.
+        let saw_combat = self.match_kills > 0 || self.match_damage_applied > 0.0;
+        if !self.match_over
+            && self.current_state == GameState::InGame
+            && !in_shell
+            && saw_combat
+        {
             if let Some(winner) = self.presentation_or_boot_victory_winner() {
                 self.show_victory_screen(winner);
             }

@@ -215,7 +215,8 @@ impl CnCGameEngine {
     }
 
     /// Inspect every `NewGame` on the common stream without removing it.
-    /// Returns the last NewGame dispatch (C++ prefers the latest enqueue).
+    /// Prefers the last non-Shell NewGame so leftover GAME_SHELL from
+    /// showShellMap cannot hide a later GAME_SKIRMISH Start.
     pub(super) fn peek_new_game_dispatch_from_common_stream() -> Option<StartupNewGameDispatch> {
         let stream = game_engine::common::message_stream::get_message_stream();
         let stream_guard = match stream.read() {
@@ -223,11 +224,24 @@ impl CnCGameEngine {
             Err(e) => e.into_inner(),
         };
 
-        let mut dispatch = None;
+        let mut last_any = None;
+        let mut last_match = None;
+        let mut n = 0u32;
         for message in stream_guard.get_messages().iter() {
             if let Some(d) = Self::startup_new_game_dispatch_from_message(message) {
-                dispatch = Some(d);
+                n += 1;
+                last_any = Some(d);
+                if !matches!(d.game_mode, GameMode::Shell) {
+                    last_match = Some(d);
+                }
             }
+        }
+        let dispatch = last_match.or(last_any);
+        if n > 0 {
+            log::info!(
+                "peek NewGame count={n} last_mode={:?}",
+                dispatch.as_ref().map(|d| d.game_mode)
+            );
         }
         dispatch
     }
@@ -267,6 +281,30 @@ impl CnCGameEngine {
             Self::append_common_message_to_stream(&mut stream_guard, message);
         }
         Some(dispatch)
+    }
+
+    /// Drop leftover GAME_SHELL NewGame only. Keep GAME_SKIRMISH / campaign.
+    pub(super) fn take_shell_new_game_messages_from_common_stream() {
+        let stream = game_engine::common::message_stream::get_message_stream();
+        let mut stream_guard = match stream.write() {
+            Ok(g) => g,
+            Err(e) => e.into_inner(),
+        };
+        let messages: Vec<_> = stream_guard.get_messages().iter().cloned().collect();
+        if messages.is_empty() {
+            return;
+        }
+        let mut kept = Vec::with_capacity(messages.len());
+        for message in messages {
+            match Self::startup_new_game_dispatch_from_message(&message) {
+                Some(d) if matches!(d.game_mode, GameMode::Shell) => {}
+                _ => kept.push(message),
+            }
+        }
+        stream_guard.clear_messages();
+        for message in &kept {
+            Self::append_common_message_to_stream(&mut stream_guard, message);
+        }
     }
 
     /// Consume MSG_CLEAR_GAME_DATA from TheMessageStream.

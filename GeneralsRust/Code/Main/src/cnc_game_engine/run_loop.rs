@@ -650,14 +650,44 @@ pub async fn run_cnc_game(
                 // that reaches this process (including CGEventPostToPid).
                 log::info!("DeviceEvent::Button button={button} state={state:?}");
                 if let Some((x, y)) = macos_cursor_client_if_in_window(current_window) {
-                    engine.apply_cursor_position(x, y);
+                    let scale = current_window.scale_factor().max(0.0001) as f32;
+                    engine.apply_cursor_position(x * scale, y * scale);
                     log::info!("DeviceEvent in-window client=({x:.0},{y:.0})");
                     #[cfg(feature = "game_client")]
                     if let Some(name) =
                         game_client::gui::os_wnd_widget_under_cursor_name(x as i32, y as i32)
                     {
                         log::info!("DeviceEvent under={name}");
+                        if matches!(state, winit::event::ElementState::Pressed)
+                            && name.contains("SkirmishGameOptionsMenu.wnd:ButtonStart")
+                        {
+                            let ok = game_client::gui::simulate_skirmish_start_button_gadget_selected();
+                            log::info!("physical Skirmish Start GBM residual ok={ok}");
+                            if ok {
+                                if let Some(request) = engine.take_pending_new_game_start_request() {
+                                    if !matches!(request.mode, GameMode::Shell) {
+                                        log::info!(
+                                            "DeviceEvent Start drain mode={:?} map={}",
+                                            request.mode,
+                                            request.map
+                                        );
+                                        engine.start_game_from_ui(request);
+                                        let _ = super::CnCGameEngine::take_new_game_dispatch_from_common_stream();
+                                    } else {
+                                        super::CnCGameEngine::take_shell_new_game_messages_from_common_stream();
+                                    }
+                                }
+                            }
+                        }
                     }
+                    game_client::gui::log_named_window_screen_rect("MainMenu.wnd:ButtonSinglePlayer");
+                    game_client::gui::log_named_window_screen_rect("MainMenu.wnd:ButtonSkirmish");
+                    game_client::gui::log_named_window_screen_rect("MainMenu.wnd:MapBorder");
+                    game_client::gui::log_named_window_screen_rect("MainMenu.wnd:EarthMap");
+                    game_client::gui::log_named_window_screen_rect("MainMenu.wnd:MapBorder2");
+                    game_client::gui::log_named_window_screen_rect(
+                        "SkirmishGameOptionsMenu.wnd:ButtonStart",
+                    );
                     if let Some(btn) = device_button_to_mouse(button) {
                         let pressed = matches!(state, ElementState::Pressed);
                         engine.handle_mouse_button_input(

@@ -184,6 +184,7 @@ pub use lan_preferences::LanPreferences;
 pub use lan_setup::get_lan_setup;
 pub use shell::{
     clear_deferred_shell_pushes, dispatch_os_click_named_window, drain_deferred_shell_pushes,
+    log_named_window_screen_rect,
     drive_os_wnd_open_challenge_menu_like_cpp, drive_os_wnd_open_skirmish_like_cpp,
     drive_os_wnd_start_campaign_like_cpp, drive_os_wnd_start_china_campaign_like_cpp,
     drive_os_wnd_start_gla_campaign_like_cpp, drive_os_wnd_start_usa_campaign_like_cpp, get_shell,
@@ -202,6 +203,7 @@ pub use shell::{
     simulate_main_menu_multiplayer_button_gadget_selected,
     simulate_main_menu_options_button_gadget_selected,
     simulate_main_menu_replay_button_gadget_selected,
+    notify_physical_main_menu_gadget_gbm_selected,
     simulate_main_menu_single_player_button_gadget_selected,
     simulate_main_menu_skirmish_button_gadget_selected,
     simulate_main_menu_skirmish_button_latch_only, simulate_shell_map_hide,
@@ -269,6 +271,7 @@ pub use callbacks::{
 
     show_in_game_chat,
     show_message_box,
+    simulate_skirmish_start_button_gadget_selected,
     show_quit_dialog,
 
     toggle_control_bar,
