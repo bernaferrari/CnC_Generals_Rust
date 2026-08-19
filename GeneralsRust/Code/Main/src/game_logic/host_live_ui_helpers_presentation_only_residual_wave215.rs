@@ -123,12 +123,15 @@ pub fn host_ui_selected_ids_from_residuals(
         if !frame.selected.is_empty() {
             return frame.selected.clone();
         }
-        return frame
+        let flagged: Vec<_> = frame
             .objects
             .iter()
             .filter(|o| o.selected && !o.destroyed && o.health_current > 0.0)
             .map(|o| o.id)
             .collect();
+        if !flagged.is_empty() {
+            return flagged;
+        }
     }
     if !engine_selected.is_empty() {
         return engine_selected.to_vec();
