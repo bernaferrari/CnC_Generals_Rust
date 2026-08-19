@@ -905,7 +905,12 @@ impl CnCGameEngine {
         match old_state {
             GameState::Menu => {
                 debug!("Exiting Menu state");
-                self.hide_shell_menu();
+                // C++ GameLogic::startNewGame GAME_SHELL (GameLogic.cpp:2195-2203)
+                // never hideShell / MainMenuShutdown. Menu→Menu after shell-map
+                // apply must keep MainMenu.wnd (hq-3vo4).
+                if new_state != GameState::Menu {
+                    self.hide_shell_menu();
+                }
             }
             GameState::Loading => {
                 debug!("Exiting Loading state");

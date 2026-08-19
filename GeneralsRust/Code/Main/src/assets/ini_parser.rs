@@ -1757,12 +1757,28 @@ impl IniParser {
         else {
             return;
         };
-        let Some(state) =
-            active_condition_state.and_then(|index| module.condition_states.get_mut(index))
-        else {
-            return;
+        // C++ W3DTreeDraw / W3DPropDraw store ModelName on the module
+        // (`W3DTreeDrawModuleData::m_modelName`), not inside a ConditionState.
+        // Promote that name to a DefaultConditionState so drawable lookup uses
+        // the reskin mesh (PTXPine03) instead of the ObjectReskin identity
+        // (TreeSpruce03). W3DModelDraw blocks that already have a state keep
+        // writing the active ConditionState Model as before.
+        let state = if let Some(index) = active_condition_state {
+            module.condition_states.get_mut(index)
+        } else {
+            if !module.condition_states.iter().any(|s| s.is_default) {
+                module
+                    .condition_states
+                    .insert(0, DrawConditionStateDefinition::default_state());
+            }
+            module
+                .condition_states
+                .iter_mut()
+                .find(|s| s.is_default)
         };
-        state.set_model(value);
+        if let Some(state) = state {
+            state.set_model(value);
+        }
     }
 
     /// Preserve C++ `parseAnimation`: the first local Animation field clears
@@ -3604,6 +3620,43 @@ End
             Some("PTBush01.tga")
         );
         assert!(!def.textures.contains_key("texturename"));
+    }
+
+    #[test]
+    fn tree_spruce03_object_reskin_uses_modelname_not_object_name() {
+        let ini_content = r#"
+Object GenericOptTree
+  Draw = W3DTreeDraw ModuleTag_01
+    ModelName = PTDogwod01
+    TextureName = PTDogwod01.tga
+  End
+End
+
+ObjectReskin TreeSpruce03 GenericOptTree
+  Draw = W3DTreeDraw ModuleTag_01
+    ModelName = PTXPine03
+    TextureName = PTXPine03.tga
+  End
+End
+"#;
+
+        let mut parser = IniParser::new();
+        let count = parser
+            .parse_ini_content(ini_content, "NatureProp.ini")
+            .unwrap();
+        assert_eq!(count, 2);
+        let def = parser.get_definition("TreeSpruce03").unwrap();
+        assert_eq!(def.model_name.as_deref(), Some("PTXPine03"));
+        assert_eq!(
+            def.select_primary_model_for_conditions(0),
+            AuthoredConditionModelSelection::Model("PTXPine03".to_string()),
+            "W3DTreeDraw ModelName must be the selectable mesh, not TreeSpruce03"
+        );
+        let draw_models = def
+            .select_draw_models_for_conditions(0)
+            .expect("W3DTreeDraw ModelName is selectable Draw state");
+        assert_eq!(draw_models.len(), 1);
+        assert_eq!(draw_models[0].model_key, "PTXPine03");
     }
 
     #[test]

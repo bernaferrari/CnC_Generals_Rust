@@ -1245,7 +1245,9 @@ impl SubsystemInterface for WindowManagerSubsystem {
     }
 
     fn reset(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        crate::gui::window_manager::with_window_manager(|manager| manager.reset());
+        // C++ GameClient::reset (GameClient.cpp:426-457) never calls
+        // TheWindowManager->reset()/winDestroyAll(). GAME_SHELL apply and
+        // Menu→Menu must keep MainMenu.wnd (hq-3vo4).
         Ok(())
     }
 
@@ -3133,4 +3135,38 @@ mod tests {
         );
         assert!(guard.hud_messages.is_empty());
     }
+
+    #[test]
+    fn window_manager_subsystem_reset_does_not_destroy_wnd() {
+        // C++ GameClient::reset (GameClient.cpp:426-457) never calls
+        // TheWindowManager->reset()/winDestroyAll(). GAME_SHELL apply must
+        // keep MainMenu.wnd:ButtonSinglePlayer (hq-3vo4).
+        crate::gui::window_manager::with_window_manager(|manager| {
+            manager.reset();
+            let window = manager
+                .create_window(None, 0, 0, 80, 24)
+                .expect("ButtonSinglePlayer");
+            window
+                .borrow_mut()
+                .set_name("MainMenu.wnd:ButtonSinglePlayer");
+            assert!(manager.root_window_count() > 0);
+        });
+
+        let mut subsystem = WindowManagerSubsystem::new();
+        subsystem.reset().expect("WindowManagerSubsystem::reset");
+
+        crate::gui::window_manager::with_window_manager(|manager| {
+            assert!(
+                manager.root_window_count() > 0,
+                "GameClient reset must not wipe WND roots"
+            );
+            assert!(
+                manager
+                    .find_window_by_name("MainMenu.wnd:ButtonSinglePlayer")
+                    .is_some(),
+                "MainMenu.wnd:ButtonSinglePlayer must survive WindowManagerSubsystem::reset"
+            );
+        });
+    }
+
 }

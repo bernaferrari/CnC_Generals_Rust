@@ -40,6 +40,12 @@ pub const MAX_TERRAIN_NAME_LEN: usize = 64;
 const WATER_GRID_NAME_CPP: &str = "Water Grid";
 const WATER_GRID_NAME_LEGACY: &str = "GridWater";
 const MAX_DYNAMIC_WATER_ENTRIES: usize = 64;
+/// C++ `AIUpdate.cpp`: `enum {WAYPOINT_PATH_LIMIT=1024}`. Caps `link[0]` walks
+/// so ShellMapMD 1-link rings (Car_Path) cannot grow an unbounded Vec.
+pub const WAYPOINT_PATH_LIMIT: usize = 1024;
+/// C++ `W3DView.h`: `enum {MAX_WAYPOINTS=25}` for camera path collection.
+pub const CAMERA_WAYPOINT_PATH_LIMIT: usize = 25;
+
 
 /// Waypoint helper class for waypoint info in terrain logic
 #[derive(Debug)]
@@ -2247,6 +2253,34 @@ impl TerrainLogic {
         }
         None
     }
+
+    /// Walk `get_link(0)` from `start` with a visited-set and hop cap.
+    ///
+    /// C++ camera (`W3DView::moveCameraAlongWaypointPath`) stops at
+    /// `MAX_WAYPOINTS`; C++ `AIUpdateInterface::setPathFromWaypoint` stops at
+    /// `WAYPOINT_PATH_LIMIT`. A 1-link ring (ShellMapMD `Car_Path`) revisits
+    /// an id and must not hang the Menu ScriptEngine frame.
+    pub fn walk_link0_chain<'a>(
+        &'a self,
+        start: &'a Waypoint,
+        max_hops: usize,
+    ) -> Vec<&'a Waypoint> {
+        let mut out = Vec::new();
+        let mut visited = HashSet::new();
+        let mut current = Some(start);
+        let limit = max_hops.max(1);
+        while let Some(node) = current {
+            if out.len() >= limit || !visited.insert(node.get_id()) {
+                break;
+            }
+            out.push(node);
+            current = node
+                .get_link(0)
+                .and_then(|id| self.get_waypoint_by_id(id));
+        }
+        out
+    }
+
 
     /// Get closest waypoint that matches a path label
     pub fn get_closest_waypoint_on_path(&self, pos: &Coord3D, label: &str) -> Option<&Waypoint> {

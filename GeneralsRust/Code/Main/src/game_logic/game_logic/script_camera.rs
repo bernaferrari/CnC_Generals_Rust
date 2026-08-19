@@ -85,7 +85,14 @@ impl ScriptCameraMoveTo {
         let shutter_frames = shutter_frames.max(1);
         Self {
             start,
-            target: request.position,
+            // C++ TacticalView::lookAt stores XY and samples height later.
+            // Script Coord3D z=0 (ground plane) becomes Y-up look-at 0 and
+            // slams the camera into the void (hq-n7sk). Keep start height.
+            target: if request.position.y.abs() <= f32::EPSILON {
+                Vec3::new(request.position.x, start.y, request.position.z)
+            } else {
+                request.position
+            },
             ease,
             total_time_seconds,
             elapsed_seconds: 0.0,
@@ -198,18 +205,17 @@ impl ScriptCameraPathMove {
             .read()
             .ok()
             .and_then(|terrain| {
-                let mut points = Vec::new();
-                let mut current = terrain.get_waypoint_by_name(&waypoint_name)?;
-                points.push(Vec3::new(
-                    current.get_location().x,
-                    0.0,
-                    current.get_location().y,
-                ));
-                while let Some(next_id) = current.get_link(0) {
-                    let next = terrain.get_waypoint_by_id(next_id)?;
-                    points.push(Vec3::new(next.get_location().x, 0.0, next.get_location().y));
-                    current = next;
-                }
+                let start = terrain.get_waypoint_by_name(&waypoint_name)?;
+                // C++ W3DView::moveCameraAlongWaypointPath: numWaypoints < MAX_WAYPOINTS.
+                // Visited-set also breaks 1-link rings C++ would still spin on (same loc).
+                let points = terrain
+                    .walk_link0_chain(start, gamelogic::terrain::CAMERA_WAYPOINT_PATH_LIMIT)
+                    .into_iter()
+                    .map(|wp| {
+                        let loc = wp.get_location();
+                        Vec3::new(loc.x, 0.0, loc.y)
+                    })
+                    .collect();
                 Some(points)
             })
             .unwrap_or_default();

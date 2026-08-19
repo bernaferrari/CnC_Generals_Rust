@@ -562,6 +562,40 @@ mod tests {
     }
 
     #[test]
+    fn game_client_reset_does_not_destroy_main_menu_wnd() {
+        // C++ GameClient::reset (GameClient.cpp:426-457) resets InGameUI,
+        // drawables, Display, TerrainVisual, RayEffects, VideoPlayer, Eva,
+        // Snow — never TheWindowManager. Menu→Menu after GAME_SHELL apply
+        // must keep ButtonSinglePlayer (hq-3vo4).
+        crate::gui::window_manager::with_window_manager(|manager| {
+            manager.reset();
+            let window = manager
+                .create_window(None, 0, 0, 80, 24)
+                .expect("ButtonSinglePlayer");
+            window
+                .borrow_mut()
+                .set_name("MainMenu.wnd:ButtonSinglePlayer");
+        });
+
+        let mut client = GameClient::new().expect("GameClient::new");
+        client.reset().expect("GameClient::reset");
+
+        crate::gui::window_manager::with_window_manager(|manager| {
+            assert!(
+                manager.root_window_count() > 0,
+                "GameClient::reset must leave WindowManager roots"
+            );
+            assert!(
+                manager
+                    .find_window_by_name("MainMenu.wnd:ButtonSinglePlayer")
+                    .is_some(),
+                "MainMenu.wnd:ButtonSinglePlayer must survive GameClient::reset"
+            );
+        });
+    }
+
+
+    #[test]
     fn test_drawable_id_allocation() {
         let mut client = GameClient::new().unwrap();
 

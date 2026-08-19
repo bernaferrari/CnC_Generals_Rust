@@ -2176,9 +2176,21 @@ impl MainMenu {
         );
         let _ = prefs.write();
 
+        // C++ DeclineResolution (MainMenu.cpp:739-750) deletes/recreates
+        // TheShell then TheShell->push("Menus/MainMenu.wnd"). Rust
+        // show_shell only pushes when shell map is OFF, so reset+show_shell
+        // leaves an empty stack on the live GAME_SHELL menu (hq-90rl).
         queue_shell_operation(|shell| {
             let _ = shell.reset();
-            let _ = shell.show_shell(true);
+            if let Err(err) = crate::system::SubsystemInterface::init(shell) {
+                log::warn!("DeclineResolution Shell::init failed: {err}");
+                return;
+            }
+            if let Err(err) = shell.push("Menus/MainMenu.wnd", false) {
+                log::warn!("DeclineResolution push MainMenu.wnd failed: {err}");
+                return;
+            }
+            shell.set_shell_active(true);
         });
 
         TheControlBar::hide_purchase_science();
@@ -3846,6 +3858,30 @@ mod tests {
             assert_eq!(state.drop_down, DropdownType::Difficulty);
             assert!(state.pending_actions.is_empty());
         }
+    }
+
+    #[test]
+    fn decline_resolution_pushes_main_menu_wnd_like_cpp() {
+        // C++ DeclineResolution (MainMenu.cpp:739-750) deletes/recreates
+        // TheShell then TheShell->push("Menus/MainMenu.wnd"). Pre-fix Rust
+        // called shell.reset()+show_shell(true); show_shell only pushes when
+        // shell map is OFF, so GAME_SHELL menus were left empty (hq-90rl).
+        let src = include_str!("main_menu.rs");
+        let start = src
+            .find("pub fn decline_resolution")
+            .expect("decline_resolution");
+        let body = src[start..]
+            .split("fn rollback_resolution_state")
+            .next()
+            .expect("decline_resolution body");
+        assert!(
+            body.contains("shell.push(\"Menus/MainMenu.wnd\""),
+            "DeclineResolution must push Menus/MainMenu.wnd like C++: {body}"
+        );
+        assert!(
+            !body.contains("shell.show_shell("),
+            "DeclineResolution must not rely on show_shell (no-op when shell map on): {body}"
+        );
     }
 }
 

@@ -288,6 +288,67 @@ fn skybox_reset_restores_current_names_to_initial_names() {
 }
 
 #[test]
+fn skybox_replace_does_not_abort_when_default_tga_faces_are_missing() {
+    // C++ W3DTerrainVisual::replaceSkyboxTextures (W3DTerrainVisual.cpp:1135)
+    // applies each face independently via WaterRenderObjClass::replaceSkyboxTexture.
+    // Rust used to `?` the whole set, aborting bind-group refresh when TSMorning*.tga
+    // is absent (retail ships DDS).
+    let mut visual = TerrainVisualImpl::new();
+    let old = ["", "", "", "", ""];
+    let missing = [
+        "TSMorningN.tga",
+        "TSMorningE.tga",
+        "TSMorningS.tga",
+        "TSMorningW.tga",
+        "TSMorningT.tga",
+    ];
+    visual
+        .replace_skybox_textures(&old, &missing)
+        .expect("missing faces must not abort replace_skybox_textures");
+    assert_eq!(
+        option_names(visual.current_skybox_texture_names()),
+        [
+            Some("TSMorningN.tga"),
+            Some("TSMorningE.tga"),
+            Some("TSMorningS.tga"),
+            Some("TSMorningW.tga"),
+            Some("TSMorningT.tga")
+        ]
+    );
+}
+
+#[test]
+fn skybox_candidates_swap_tga_to_dds_and_search_art_and_map_dir() {
+    // C++ DDSFileClass (ddsfile.cpp:33-37) rewrites .tga → .dds;
+    // W3DFileSystem.cpp:197-201 looks in TGA_DIR_PATH ("Art/Textures/").
+    let mut visual = TerrainVisualImpl::new();
+    visual
+        .load_heightmap_from_data(HeightMap::new(4, 4, 255.0, 1.0), Some(std::path::Path::new("maps/Alpine/Alpine.map")), None)
+        .expect("heightmap load sets map directory");
+    let candidates = visual.skybox_texture_search_candidates("TSMorningN.tga");
+    let as_str: Vec<String> = candidates
+        .iter()
+        .map(|p| p.to_string_lossy().replace('\\', "/"))
+        .collect();
+    assert!(
+        as_str.iter().any(|c| c.ends_with("Art/Textures/TSMorningN.tga") || c == "Art/Textures/TSMorningN.tga"),
+        "missing Art/Textures candidate: {as_str:?}"
+    );
+    assert!(
+        as_str.iter().any(|c| c.contains("art/textures/TSMorningN.tga")),
+        "missing art/textures candidate: {as_str:?}"
+    );
+    assert!(
+        as_str.iter().any(|c| c.ends_with("Art/Textures/TSMorningN.dds") || c == "Art/Textures/TSMorningN.dds"),
+        "missing tga→dds swap candidate: {as_str:?}"
+    );
+    assert!(
+        as_str.iter().any(|c| c.contains("maps/Alpine") && c.ends_with("TSMorningN.tga")),
+        "missing map-directory candidate: {as_str:?}"
+    );
+}
+
+#[test]
 fn faction_bib_requires_loaded_heightmap_and_matches_cpp_corners() {
     let mut visual = TerrainVisualImpl::new();
     let transform = Mat4::from_translation(glam::Vec3::new(100.0, 200.0, 0.0));

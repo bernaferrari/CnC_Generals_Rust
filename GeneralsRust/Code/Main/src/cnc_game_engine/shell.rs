@@ -364,9 +364,11 @@ impl CnCGameEngine {
     pub(super) fn show_shell_menu(&mut self) {
         #[cfg(feature = "game_client")]
         {
-            if self.shell_menu_active {
-                return;
-            }
+            // C++ Shell::showShell / startNewGame GAME_SHELL inspect the live
+            // stack (getScreenCount / top), not a host bookkeeping flag.
+            // A stale shell_menu_active==true would skip restore after a WM
+            // wipe; a stale false paired with hide_shell_menu tears down
+            // MainMenu (hq-pzya / hq-3vo4).
 
             // C++ TheDisplay size == window client; WND CREATIONRESOLUTION
             // 800x600 scales to that. Set WM screen_size before push so
@@ -769,15 +771,16 @@ impl CnCGameEngine {
         startup_frame: Option<u64>,
         current_logic_frame: u64,
     ) -> usize {
+        // C++ AssetManager is async. Menu/GAME_SHELL must never flip
+        // allow_sync_model_loads (budget==0) or 271 missing W3Ds beachball
+        // the render thread (hq-fq1h). Non-Menu match play may sync.
         if current_state != GameState::Menu {
             return 0;
         }
 
-        let Some(startup_frame) = startup_frame else {
-            return 0;
-        };
-
-        let startup_age = current_logic_frame.saturating_sub(startup_frame);
+        let startup_age = startup_frame
+            .map(|frame| current_logic_frame.saturating_sub(frame))
+            .unwrap_or(0);
         match startup_age {
             0 => 4,
             1..=2 => 8,
@@ -852,10 +855,14 @@ impl CnCGameEngine {
             (world_min.y + world_max.y) * 0.5,
             (world_min.z + world_max.z) * 0.5,
         );
-
         let metadata_initial_camera: Option<Vec3> = if let Some(pres) = presentation {
-            // Prefer frozen camera_focus residual when installed.
-            pres.camera_focus.map(|f| Vec3::new(f[0], f[1], f[2]))
+            // C++ startNewGame looks at InitialCameraPosition waypoint.
+            // presentation.camera_focus is the script MOVE_CAMERA_TO queue
+            // (often y=0) and must not replace the map waypoint (hq-bq4n).
+            pres.world_env
+                .initial_camera_position
+                .map(|f| Vec3::new(f[0], f[1], f[2]))
+                .or_else(|| pres.camera_focus.map(|f| Vec3::new(f[0], f[1], f[2])))
         } else {
             None
         };

@@ -2659,15 +2659,21 @@ impl GameLogic {
             .to_ascii_lowercase()
     }
 
-    /// Build a visual-only fallback only when the object's own exact basename
-    /// exists in the mounted archive.  C++ ConditionState/faction resolution
-    /// belongs to W3DModelDraw; this generic path may not substitute a nearby
-    /// mesh when the authored one is absent.
+    /// Build a visual-only fallback only when the authored W3D basename
+    /// exists in the mounted archive.  C++ ObjectReskin / W3DTreeDraw load
+    /// `ModelName` (PTXPine03), never the object identity (TreeSpruce03).
+    /// Do not invent geometry when the base Generals mesh is absent.
     pub(in super::super) fn build_fallback_template(template_name: &str) -> Option<ThingTemplate> {
         let lower = template_name.to_ascii_lowercase();
         let mut template = ThingTemplate::new(template_name);
         template.set_health(250.0);
-        let fallback_model_name = Self::resolve_spawn_model_name(template_name)?;
+        let authored = crate::assets::drawable_w3d_model_key(template_name);
+        let probe = if authored.is_empty() {
+            template_name
+        } else {
+            authored.as_str()
+        };
+        let fallback_model_name = Self::resolve_spawn_model_name(probe)?;
         template.set_model(&fallback_model_name);
 
         if let Some(manager_arc) = get_asset_manager() {

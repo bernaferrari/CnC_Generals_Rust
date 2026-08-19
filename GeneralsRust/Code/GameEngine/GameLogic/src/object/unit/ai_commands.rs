@@ -1330,21 +1330,23 @@ impl UnitAIUpdate {
                 }
 
                 if let Some(start_id) = command.waypoint {
-                    let mut chain = Vec::new();
+                    let mut chain: Vec<Waypoint> = Vec::new();
                     if let Ok(terrain_guard) = crate::terrain::get_terrain_logic().read() {
-                        let mut current = terrain_guard.get_waypoint_by_id(start_id);
-                        while let Some(node) = current {
-                            chain.push(Waypoint::new(
-                                node.get_id(),
-                                *node.get_location(),
-                                String::new(),
-                            ));
-                            if node.get_num_links() > 1 {
-                                break;
+                        if let Some(start) = terrain_guard.get_waypoint_by_id(start_id) {
+                            // C++ setPathFromWaypoint: count > WAYPOINT_PATH_LIMIT.
+                            // Also stop at a branch (num_links > 1) like the prior walk.
+                            for node in
+                                terrain_guard.walk_link0_chain(start, WAYPOINT_PATH_LIMIT)
+                            {
+                                chain.push(Waypoint::new(
+                                    node.get_id(),
+                                    *node.get_location(),
+                                    String::new(),
+                                ));
+                                if node.get_num_links() > 1 {
+                                    break;
+                                }
                             }
-                            current = node
-                                .get_link(0)
-                                .and_then(|next_id| terrain_guard.get_waypoint_by_id(next_id));
                         }
                     }
 

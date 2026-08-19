@@ -1329,3 +1329,33 @@ fn execute_packs_presentation_fx_segments_from_frame() {
         "execute must stay presentation-only (no live GameLogic param)"
     );
 }
+
+#[test]
+fn terrain_pass_clears_black_not_fog_color() {
+    let src = crate::graphics::render_pipeline::RENDER_PIPELINE_SRC;
+    let clear = src
+        .split("fn terrain_clear_color")
+        .nth(1)
+        .and_then(|s| s.split("fn set_environment_lighting").next())
+        .expect("terrain_clear_color");
+    assert!(
+        clear.contains("wgpu::Color::BLACK"),
+        "C++ W3DDisplay.cpp:1859 Begin_Render clears black: {clear}"
+    );
+    assert!(
+        !clear.contains("fog_color") && !clear.contains("cached_lighting"),
+        "terrain pass must not peach-wipe the backbuffer with fog/sun: {clear}"
+    );
+    assert!(
+        clear.contains("GENERALS_DEBUG_CLEAR_COLOR"),
+        "debug green remains opt-in only"
+    );
+    let prewarm = src
+        .split("fn update_and_enqueue_terrain_pass")
+        .nth(1)
+        .expect("terrain pass");
+    assert!(
+        prewarm.contains("self.terrain_clear_color()"),
+        "terrain pass must use terrain_clear_color for the first LoadOp::Clear"
+    );
+}

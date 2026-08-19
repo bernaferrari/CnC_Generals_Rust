@@ -863,6 +863,16 @@ impl MissionScriptHooks {
         }
     }
 
+    /// Advance hook completion clocks without walking scripts.
+    ///
+    /// C++ GameLogic.cpp:3600 has one `TheScriptEngine->UPDATE()` per logic
+    /// frame.  Live host evaluation is crate `ScriptEngine::update`; this only
+    /// stamps `frame_counter` so video/speech/audio/music completion queries
+    /// stay frame-accurate after the second walker was removed (hq-fxq1).
+    pub fn note_logic_frame(&self, frame: u64) {
+        self.frame_counter.store(frame, Ordering::Relaxed);
+    }
+
     pub fn update(&self, frame: u64) -> GameLogicResult<()> {
         self.update_budgeted(frame, None)
     }
@@ -1762,6 +1772,36 @@ impl MissionScriptActionHandler {
     pub fn hooks(&self) -> Arc<MissionScriptHooks> {
         Arc::clone(&self.hooks)
     }
+
+    fn local_player_index() -> Option<u32> {
+        let players = gamelogic::player::player_list().read().ok()?;
+        let index = players.get_local_player_index();
+        (index >= 0).then_some(index as u32)
+    }
+
+    /// C++ `ScriptActions::doMusicTrackChange` (ScriptActions.cpp:3271-3286):
+    /// `TheAudio->removeAudioEvent(AHSV_StopTheMusic[Fade])` then
+    /// `TheAudio->addAudioEvent` of the named track (GameMusic / MusicManager).
+    fn play_music_track_through_the_audio(track: &str, fade_out: bool, fade_in: bool) {
+        const AHSV_STOP_THE_MUSIC: u32 = 0xFFFF_FFF0;
+        const AHSV_STOP_THE_MUSIC_FADE: u32 = 0xFFFF_FFF1;
+
+        let Some(audio) = gamelogic::helpers::TheAudio::get() else {
+            return;
+        };
+        audio.remove_audio_event(if fade_out {
+            AHSV_STOP_THE_MUSIC_FADE
+        } else {
+            AHSV_STOP_THE_MUSIC
+        });
+
+        let mut event = gamelogic::common::audio::AudioEventRts::new(track);
+        event.set_should_fade(fade_in);
+        if let Some(player_index) = Self::local_player_index() {
+            event.set_player_index(player_index);
+        }
+        let _handle = audio.add_audio_event(&event);
+    }
 }
 
 impl ScriptActionHandler for MissionScriptActionHandler {
@@ -2356,7 +2396,11 @@ impl ScriptActionHandler for MissionScriptActionHandler {
         self.hooks.is_audio_complete(name, flush)
     }
 
-    fn music_set_track(&self, track: &str, _fade_out: bool, _fade_in: bool) -> GameLogicResult<()> {
+    fn music_set_track(&self, track: &str, fade_out: bool, fade_in: bool) -> GameLogicResult<()> {
+        // Live GAME_SHELL installs this handler (initialize_scripts), not
+        // GameClientScriptActionHandler. C++ MUSIC_SET_TRACK always reaches
+        // TheAudio via doMusicTrackChange — do not leave this as a UI note.
+        Self::play_music_track_through_the_audio(track, fade_out, fade_in);
         self.hooks.note_music_started(track);
         self.hooks.push_message(format!("Music track: {}", track));
         Ok(())
@@ -2367,6 +2411,10 @@ impl ScriptActionHandler for MissionScriptActionHandler {
     }
 
     fn stop_music(&self) -> GameLogicResult<()> {
+        const AHSV_STOP_THE_MUSIC_FADE: u32 = 0xFFFF_FFF1;
+        if let Some(audio) = gamelogic::helpers::TheAudio::get() {
+            audio.remove_audio_event(AHSV_STOP_THE_MUSIC_FADE);
+        }
         self.hooks.mark_music_stopped();
         self.hooks.push_music_stop();
         Ok(())
@@ -3217,6 +3265,69 @@ mod tests {
         assert!(
             handler.has_music_track_completed("TrackB", 0),
             "stop music should immediately complete tracked music"
+        );
+    }
+
+    #[test]
+    fn music_set_track_queues_named_track_on_the_audio() {
+        // C++ ScriptActions::doMusicTrackChange → TheAudio->addAudioEvent(track).
+        // Live GAME_SHELL uses MissionScriptActionHandler, which previously only
+        // noted the name and never queued AR_Play.
+        let manager =
+            game_engine::common::audio::game_audio::initialize_global_audio_manager();
+        let before = {
+            let guard = manager.lock().expect("THE_AUDIO lock");
+            (guard.pending_play_request_count(), guard.get_music_track_name())
+        };
+
+        if let Ok(mut guard) = manager.lock() {
+            if guard.find_audio_event_info("ShellMapMusic").is_none() {
+                guard.register_audio_event_info(game_engine::common::audio::AudioEventInfo {
+                    sound_type: game_engine::common::audio::AudioType::Music,
+                    control: 0,
+                    audio_name: "ShellMapMusic".to_string(),
+                    volume: 0.8,
+                    sounds_morning: Vec::new(),
+                    sounds: Vec::new(),
+                    sounds_night: Vec::new(),
+                    sounds_evening: Vec::new(),
+                    attack_sounds: Vec::new(),
+                    decay_sounds: Vec::new(),
+                    pitch_shift_min: 1.0,
+                    pitch_shift_max: 1.0,
+                    volume_shift: 0.0,
+                    min_volume: 0.0,
+                    limit: 0,
+                    loop_count: 1,
+                    delay_min: 0.0,
+                    delay_max: 0.0,
+                    filename: String::new(),
+                    sound_type_field: game_engine::common::audio::AudioType::Music,
+                    type_field: 0,
+                    priority: game_engine::common::audio::AudioPriority::Normal,
+                    min_distance: 25.0,
+                    max_distance: 1000.0,
+                });
+            }
+        }
+
+        let hooks = MissionScriptHooks::new().expect("mission script hooks should initialize");
+        let handler = MissionScriptActionHandler::new(hooks);
+        handler
+            .music_set_track("ShellMapMusic", false, true)
+            .expect("MUSIC_SET_TRACK must succeed");
+
+        let after = {
+            let guard = manager.lock().expect("THE_AUDIO lock");
+            (guard.pending_play_request_count(), guard.get_music_track_name())
+        };
+        assert!(
+            after.0 > before.0 || after.1 == "ShellMapMusic",
+            "MUSIC_SET_TRACK must queue TheAudio AR_Play for the script track (before={before:?}, after={after:?})"
+        );
+        assert_eq!(
+            after.1, "ShellMapMusic",
+            "TheAudio music name must be the script track, not a leftover"
         );
     }
 

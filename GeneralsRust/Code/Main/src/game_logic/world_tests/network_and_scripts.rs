@@ -457,13 +457,18 @@ fn shell_game_state_tracks_in_game_status() {
 }
 
 #[test]
-fn shell_mission_scripts_share_the_cpp_complete_frame_walk() {
-    // C++ ScriptEngine::update has no GAME_SHELL-specific script budget,
-    // warm-up classifier, or resumable action interpreter.  Keep the live
-    // call site on the same complete walk as ordinary map gameplay.
+fn live_script_tick_runs_one_script_engine_update() {
+    // C++ GameLogic.cpp:3600 has exactly one TheScriptEngine->UPDATE()
+    // per logic frame.  The live host tick must not also walk
+    // MissionScriptRuntime over the same installed lists (hq-fxq1).
     let tick = include_str!("../world_scripts/scripts_camera.rs");
     let runtime = include_str!("../mission_scripts.rs");
-    assert!(tick.contains("self.mission_scripts.update(self.frame as u64)"));
+    assert!(tick.contains("engine.update()"));
+    assert!(tick.contains("note_logic_frame"));
+    assert!(
+        !tick.contains("self.mission_scripts.update("),
+        "MissionScriptRuntime must not be a second live ScriptEngine walk"
+    );
     assert!(!tick.contains("update_shell_budgeted"));
     assert!(!runtime.contains("update_shell_budgeted"));
     assert!(!runtime.contains("SHELL_HEAVY_SCRIPT_WARMUP_FRAMES"));

@@ -394,6 +394,8 @@ impl RenderPipeline {
 
         let _view = *view_matrix;
         let _projection = *projection_matrix;
+        // Terrain is the first color pass; later scene/water Load the
+        // backbuffer. Clear BLACK like C++ Begin_Render, not fog peach.
         let clear_color = self.terrain_clear_color();
         self.forward_pass.enqueue_pre_scene_callback(move |frame| {
             let terrain_draw_started = Instant::now();

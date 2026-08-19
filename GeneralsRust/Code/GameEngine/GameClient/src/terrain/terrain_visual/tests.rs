@@ -79,6 +79,37 @@ mod tests {
     }
 
     #[test]
+    fn terrain_shader_fogs_only_when_fog_range_is_set() {
+        let shader = include_str!("../../shaders/terrain.wgsl");
+        assert!(
+            shader.contains("fog_span > 0.0"),
+            "terrain FS must skip fog when fog_end <= fog_start"
+        );
+        assert!(
+            !shader.contains("final_color = mix(final_color, uniforms.fog_color, fog_factor);")
+                || shader.contains("if (fog_span > 0.0)"),
+            "terrain FS must not unconditionally mix fog_color"
+        );
+
+        let mut visual = TerrainVisualImpl::new();
+        let (start, end) = visual.fog_range_span();
+        assert!(
+            end <= start,
+            "default fog disabled like C++ FogEnabled(false), got {start}..{end}"
+        );
+
+        visual.set_lighting(None, None, None, Some([0.9, 0.71, 0.6]), None);
+        let (start, end) = visual.fog_range_span();
+        assert!(
+            end <= start,
+            "fog_color without fog_range must not enable peach distance fog"
+        );
+
+        visual.set_lighting(None, None, None, None, Some((100.0, 500.0)));
+        assert_eq!(visual.fog_range_span(), (100.0, 500.0));
+    }
+
+    #[test]
     fn extra_blend_gpu_upload_is_called_with_non_empty_positions() {
         let mut heightmap = HeightMap::new(3, 3, 255.0, 1.0);
         let mut extra = vec![0i16; 9];

@@ -107,9 +107,15 @@ fn fs_main(input : VertexOutput) -> @location(0) vec4<f32> {
     let lighting = uniforms.ambient_color + uniforms.sun_color * diffuse + uniforms.sun_color * specular * 0.2;
 
     var final_color = blended_color.rgb * lighting;
-    let distance_to_camera = length(uniforms.camera_position - input.world_position);
-    let fog_factor = clamp((distance_to_camera - uniforms.fog_start) / (uniforms.fog_end - uniforms.fog_start), 0.0, 1.0);
-    final_color = mix(final_color, uniforms.fog_color, fog_factor);
+    // C++ scene.cpp:69-72 FogEnabled defaults false. Only mix fog_color
+    // when an authored fog_range was uploaded (fog_end > fog_start).
+    // Live lighting often has fog_range=None; do not flatten the mesh.
+    let fog_span = uniforms.fog_end - uniforms.fog_start;
+    if (fog_span > 0.0) {
+        let distance_to_camera = length(uniforms.camera_position.xyz - input.world_position);
+        let fog_factor = clamp((distance_to_camera - uniforms.fog_start) / fog_span, 0.0, 1.0);
+        final_color = mix(final_color, uniforms.fog_color, fog_factor);
+    }
 
     return vec4<f32>(final_color, blended_color.a);
 }

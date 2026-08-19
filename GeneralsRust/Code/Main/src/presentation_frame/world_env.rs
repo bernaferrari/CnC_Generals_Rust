@@ -368,6 +368,11 @@ pub struct PresentationWorldEnv {
     pub runtime_heightmap: Option<Arc<PresentationRuntimeHeightmap>>,
     /// Terrain texture classes freeze for source-tile bake without live GameLogic.
     pub terrain_texture_classes: Vec<PresentationTerrainTextureClass>,
+    /// Map InitialCameraPosition waypoint (C++ startNewGame lookAt), not the
+    /// script MOVE_CAMERA_TO queue (`PresentationFrame.camera_focus`).
+    #[serde(default)]
+    pub initial_camera_position: Option<[f32; 3]>,
+
 }
 
 impl PresentationWorldEnv {
@@ -531,6 +536,11 @@ impl PresentationWorldEnv {
             bridge_segments,
             runtime_heightmap,
             terrain_texture_classes,
+            initial_camera_position: meta.as_ref().and_then(|m| {
+                m.initial_camera_position
+                    .map(|p| [p.x, p.y, p.z])
+            }),
+
         }
     }
 

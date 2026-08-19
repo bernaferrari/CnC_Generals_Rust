@@ -695,6 +695,10 @@ pub struct BlendTileData {
     /// C++ `m_extraBlendTileNdxes` (v6+). Parallel to `blend_tile_ndxes`.
     pub extra_blend_tile_ndxes: Vec<i16>,
     pub texture_classes: Vec<BlendTileTextureClass>,
+    /// C++ `m_edgeTextureClasses` (BlendTileData v4+).
+    pub edge_texture_classes: Vec<BlendTileTextureClass>,
+    /// C++ `m_blendedTiles[1..]` — horiz/vert/diagonal + inverted + edge class.
+    pub blended_tiles: Vec<BlendTileInfo>,
 }
 
 #[derive(Debug, Clone)]
@@ -704,6 +708,20 @@ pub struct BlendTileTextureClass {
     pub width: i32,
     pub name: String,
 }
+
+/// C++ `TBlendTileInfo` (WorldHeightMap.h).
+#[derive(Debug, Clone, Default)]
+pub struct BlendTileInfo {
+    pub blend_ndx: i32,
+    pub horiz: u8,
+    pub vert: u8,
+    pub right_diagonal: u8,
+    pub left_diagonal: u8,
+    pub inverted: u8,
+    pub long_diagonal: u8,
+    pub custom_blend_edge_class: i32,
+}
+
 
 /// Result returned after decoding a map file.
 pub struct MapScriptLoadResult {
@@ -1216,7 +1234,7 @@ pub fn parse_blend_tile_data_from_chunky(
     }
 
     let _num_bitmap_tiles = reader.read_i32()?;
-    let _num_blended_tiles = reader.read_i32()?;
+    let num_blended_tiles = reader.read_i32()?.max(0) as usize;
     if version >= 5 {
         let _num_cliff_info = reader.read_i32()?;
     }
@@ -1237,6 +1255,66 @@ pub fn parse_blend_tile_data_from_chunky(
         });
     }
 
+    // C++ WorldHeightMap.cpp:1124-1167 — edge classes (v4+) then TBlendTileInfo.
+    // Older synthetic/truncated payloads stop after texture classes; keep
+    // tile_ndxes and extra-blend indexes rather than failing the whole parse.
+    let mut edge_texture_classes = Vec::new();
+    if version >= 4 && reader.remaining() >= 8 {
+        let _num_edge_tiles = reader.read_i32()?;
+        let edge_class_count = reader.read_i32()?.max(0) as usize;
+        edge_texture_classes.reserve(edge_class_count);
+        for _ in 0..edge_class_count {
+            if reader.remaining() < 12 {
+                break;
+            }
+            let first_tile = reader.read_i32()?;
+            let num_tiles = reader.read_i32()?;
+            let width = reader.read_i32()?;
+            let name = reader.read_ascii_string()?;
+            edge_texture_classes.push(BlendTileTextureClass {
+                first_tile,
+                num_tiles,
+                width,
+                name,
+            });
+        }
+    }
+
+    let mut blended_tiles = Vec::new();
+    if num_blended_tiles > 1 && reader.remaining() > 0 {
+
+        blended_tiles.reserve(num_blended_tiles.saturating_sub(1));
+        for _ in 1..num_blended_tiles {
+            let blend_ndx = reader.read_i32()?;
+            let horiz = reader.read_u8()?;
+            let vert = reader.read_u8()?;
+            let right_diagonal = reader.read_u8()?;
+            let left_diagonal = reader.read_u8()?;
+            let inverted = reader.read_u8()?;
+            let long_diagonal = if version >= 3 {
+                reader.read_u8()?
+            } else {
+                0
+            };
+            let custom_blend_edge_class = if version >= 4 {
+                reader.read_i32()?
+            } else {
+                -1
+            };
+            let _flag = reader.read_i32()?;
+            blended_tiles.push(BlendTileInfo {
+                blend_ndx,
+                horiz,
+                vert,
+                right_diagonal,
+                left_diagonal,
+                inverted,
+                long_diagonal,
+                custom_blend_edge_class,
+            });
+        }
+    }
+
     if version == 1 {
         let new_width = (heightmap.width + 1) / 2;
         let new_height = (heightmap.height + 1) / 2;
@@ -1255,6 +1333,7 @@ pub fn parse_blend_tile_data_from_chunky(
         tile_ndxes = resized_tiles;
         blend_tile_ndxes = resized_blends;
         extra_blend_tile_ndxes = vec![0i16; tile_ndxes.len()];
+        blended_tiles.clear();
     }
 
     Ok(Some(BlendTileData {
@@ -1262,6 +1341,8 @@ pub fn parse_blend_tile_data_from_chunky(
         blend_tile_ndxes,
         extra_blend_tile_ndxes,
         texture_classes,
+        edge_texture_classes,
+        blended_tiles,
     }))
 }
 

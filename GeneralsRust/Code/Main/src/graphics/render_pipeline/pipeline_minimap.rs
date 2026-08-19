@@ -71,24 +71,14 @@ impl RenderPipeline {
     }
 
     pub(super) fn terrain_clear_color(&self) -> wgpu::Color {
+        // C++ W3DDisplay.cpp:1859 `WW3D::Begin_Render(true, true, Vector3(0,0,0), …)`
+        // always clears BLACK, then sky+terrain draw. Uncovered pixels stay
+        // black (or skybox), never map fog/sun peach.
         if std::env::var_os("GENERALS_DEBUG_CLEAR_COLOR").is_some() {
             return wgpu::Color {
                 r: 0.0,
                 g: 0.55,
                 b: 0.0,
-                a: 1.0,
-            };
-        }
-        if let Some(color) = self.cached_lighting.as_ref().and_then(|lighting| {
-            lighting
-                .fog_color
-                .or(lighting.ambient_color)
-                .or(lighting.sun_color)
-        }) {
-            return wgpu::Color {
-                r: color[0] as f64,
-                g: color[1] as f64,
-                b: color[2] as f64,
                 a: 1.0,
             };
         }

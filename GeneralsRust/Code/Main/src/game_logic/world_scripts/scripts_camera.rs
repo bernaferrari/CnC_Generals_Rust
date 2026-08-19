@@ -370,9 +370,10 @@ impl GameLogic {
                 }
             }
         }
-        // C++ ScriptEngine.cpp:5484+ TheScriptEngine->UPDATE() — timers, end-game,
-        // sequential scripts. Host mission_scripts.update is a parallel walker;
-        // crate ScriptEngine owns countdown / close-window / MSG_CLEAR_GAME_DATA.
+        // C++ GameLogic.cpp:3600 — one TheScriptEngine->UPDATE() per logic frame
+        // (ScriptEngine.cpp:5479-5574).  Host MissionScriptRuntime is the
+        // action-handler drain/queue, not a second walker over the same lists
+        // (hq-fxq1).  GAME_SHELL uses this same single pass; no menu budget.
         if let Ok(mut guard) = gamelogic::scripting::engine::get_script_engine().write() {
             if let Some(engine) = guard.as_mut() {
                 if let Err(err) = engine.update() {
@@ -380,25 +381,7 @@ impl GameLogic {
                 }
             }
         }
-
-        let mission_runtime_started = Instant::now();
-        // C++ `ScriptEngine::update` walks every active, difficulty-eligible
-        // non-subroutine script in declaration order every logic frame.  Shell
-        // maps use the same engine path; they do not get a menu-only budget,
-        // name heuristic, or resumable partial action chain.
-        let mission_update_result = self.mission_scripts.update(self.frame as u64);
-        if let Err(err) = mission_update_result {
-            log::error!("Mission script runtime update failed: {}", err);
-        }
-        let mission_runtime_elapsed = mission_runtime_started.elapsed();
-        if mission_runtime_elapsed >= Duration::from_millis(120) {
-            log::warn!(
-                "Slow mission script update: {:?} (frame={}, mode={:?})",
-                mission_runtime_elapsed,
-                self.frame,
-                self.game_mode
-            );
-        }
+        self.mission_scripts.note_logic_frame(self.frame as u64);
 
         self.script_broadcasts
             .retain(|msg| self.sim_time_seconds <= msg.expires_at);

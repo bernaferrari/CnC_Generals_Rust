@@ -640,10 +640,12 @@ impl TerrainVisualImpl {
         }
 
         if replacements.is_empty() {
-            return Ok(());
+            // C++ `W3DTerrainVisual::replaceSkyboxTextures` still keeps the
+            // already-bound skybox; refresh so a later GPU init cannot leave peach.
+            return self.refresh_skybox_background_binding_if_ready();
         }
 
-        let loaded_textures = self.load_skybox_replacement_textures(&replacements)?;
+        let loaded_textures = self.load_skybox_replacement_textures(&replacements);
 
         for (i, new_name) in replacements {
             self.current_skybox_texture_names[i] = Some(new_name);
@@ -661,26 +663,51 @@ impl TerrainVisualImpl {
         &self.initial_skybox_texture_names
     }
 
-    /// Current skybox names tracked by C++ `replaceSkyboxTextures`.
     pub fn current_skybox_texture_names(&self) -> &[Option<String>; 5] {
         &self.current_skybox_texture_names
+    }
+
+    /// Last face name that produced a GPU bind, or the fog-color fallback tag.
+    pub fn last_skybox_face_bind(&self) -> Option<&str> {
+        self.last_skybox_face_bind.as_deref()
+    }
+
+    pub fn has_skybox_background_bind_group(&self) -> bool {
+        self.skybox_background_bind_group.is_some()
+    }
+
+    /// C++ `W3DFileSystem` + `DDSFileClass` search list (tga↔dds, Art/Textures, map dir).
+    pub fn skybox_texture_search_candidates(&self, path: &str) -> Vec<PathBuf> {
+        self.runtime_texture_candidates(path)
     }
 
     fn load_skybox_replacement_textures(
         &self,
         replacements: &[(usize, String)],
-    ) -> TerrainResult<Vec<(usize, Texture)>> {
+    ) -> Vec<(usize, Texture)> {
         let Some(device) = self.device.as_ref().cloned() else {
-            return Ok(Vec::new());
+            return Vec::new();
         };
 
-        replacements
-            .iter()
-            .map(|(i, texture_path)| {
-                self.load_texture_from_path(device.as_ref(), texture_path)
-                    .map(|texture| (*i, texture))
-            })
-            .collect()
+        let mut loaded = Vec::new();
+        for (i, texture_path) in replacements {
+            match self.load_texture_from_path(device.as_ref(), texture_path) {
+                Ok(texture) => {
+                    info!(
+                        "Skybox face {} bound from '{}'",
+                        i, texture_path
+                    );
+                    loaded.push((*i, texture));
+                }
+                Err(err) => {
+                    warn!(
+                        "Skybox face {} '{}' failed to load; keeping remaining faces: {}",
+                        i, texture_path, err
+                    );
+                }
+            }
+        }
+        loaded
     }
 
     fn refresh_skybox_background_binding_if_ready(&mut self) -> TerrainResult<()> {
@@ -705,7 +732,7 @@ impl TerrainVisualImpl {
             return Ok(());
         }
 
-        let loaded_textures = self.load_skybox_replacement_textures(&replacements)?;
+        let loaded_textures = self.load_skybox_replacement_textures(&replacements);
 
         for (i, initial_name) in replacements {
             self.current_skybox_texture_names[i] = Some(initial_name);
@@ -718,7 +745,7 @@ impl TerrainVisualImpl {
     }
 
     fn refresh_skybox_background_binding(&mut self, device: &wgpu::Device) -> TerrainResult<()> {
-        let Some(layout) = self.skybox_background_bind_group_layout.as_ref() else {
+        let Some(layout) = self.skybox_background_bind_group_layout.clone() else {
             return Ok(());
         };
 
@@ -739,10 +766,19 @@ impl TerrainVisualImpl {
             .into_iter()
             .find(|idx| self.skybox_textures[*idx].is_some());
 
-        let Some(selected_index) = selected_index else {
-            self.skybox_background_view = None;
-            self.skybox_background_bind_group = None;
-            return Ok(());
+        let selected_index = match selected_index {
+            Some(index) => index,
+            None => {
+                // Live path is a fullscreen triangle (no `new_skybox` W3D mesh).
+                // Bind fog color so the quad still draws after apply (not peach).
+                if !self.ensure_skybox_fog_fallback_texture(device) {
+                    self.skybox_background_view = None;
+                    self.skybox_background_bind_group = None;
+                    self.last_skybox_face_bind = None;
+                    return Ok(());
+                }
+                0
+            }
         };
 
         let view = self.skybox_textures[selected_index]
@@ -769,9 +805,66 @@ impl TerrainVisualImpl {
             ],
         });
 
+        let face_name = self.current_skybox_texture_names[selected_index]
+            .clone()
+            .unwrap_or_else(|| {
+                self.last_skybox_face_bind
+                    .clone()
+                    .unwrap_or_else(|| format!("face-{selected_index}"))
+            });
+        info!("Skybox background bind group ready using {}", face_name);
+        self.last_skybox_face_bind = Some(face_name);
         self.skybox_background_view = Some(view);
         self.skybox_background_bind_group = Some(bind_group);
         Ok(())
+    }
+
+    fn ensure_skybox_fog_fallback_texture(&mut self, device: &wgpu::Device) -> bool {
+        let Some(queue) = self.queue.as_ref() else {
+            return false;
+        };
+        let rgba = [
+            (self.fog_color[0].clamp(0.0, 1.0) * 255.0) as u8,
+            (self.fog_color[1].clamp(0.0, 1.0) * 255.0) as u8,
+            (self.fog_color[2].clamp(0.0, 1.0) * 255.0) as u8,
+            255,
+        ];
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Skybox Fog Fallback"),
+            size: wgpu::Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            &rgba,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(4),
+                rows_per_image: Some(1),
+            },
+            wgpu::Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
+        );
+        self.skybox_textures[0] = Some(texture);
+        self.last_skybox_face_bind = Some("fog-fallback".to_string());
+        true
     }
 
     /// Load texture from path
@@ -828,8 +921,16 @@ impl TerrainVisualImpl {
 
     fn load_runtime_texture_image(&self, path: &str) -> TerrainResult<image::DynamicImage> {
         for candidate in self.runtime_texture_candidates(path) {
-            if let Some(image) = self.try_load_image_from_filesystem(&candidate)? {
-                return Ok(image);
+            match self.try_load_image_from_filesystem(&candidate) {
+                Ok(Some(image)) => return Ok(image),
+                Ok(None) => {}
+                Err(err) => {
+                    warn!(
+                        "Skipping undecodable skybox candidate '{}': {}",
+                        candidate.display(),
+                        err
+                    );
+                }
             }
         }
 
@@ -852,7 +953,8 @@ impl TerrainVisualImpl {
             let Ok(mut guard) = fs.lock() else {
                 return Ok(None);
             };
-            let Some(mut file) = guard.open_file(resource_name.as_str(), FileAccess::READ) else {
+            let access = FileAccess::READ.combine(FileAccess::BINARY);
+            let Some(mut file) = guard.open_file(resource_name.as_str(), access) else {
                 return Ok(None);
             };
             match file.read_entire_and_close() {
@@ -905,37 +1007,90 @@ impl TerrainVisualImpl {
             }
         };
 
-        let extension = Path::new(&bare)
-            .extension()
-            .and_then(|ext| ext.to_str())
-            .map(|ext| ext.to_ascii_lowercase());
-        let is_tga_or_dds = matches!(extension.as_deref(), Some("tga") | Some("dds"));
+        let basename = Path::new(&bare)
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or(bare.as_str())
+            .to_string();
+        let names = if basename != bare {
+            vec![bare.clone(), basename.clone()]
+        } else {
+            vec![bare.clone()]
+        };
 
         let language = get_registry_language().as_str().to_string();
-        if !language.is_empty() {
-            push_unique(PathBuf::from(format!(
-                "Data/{language}/Art/Textures/{bare}"
-            )));
+        for name in &names {
+            if !language.is_empty() {
+                push_unique(PathBuf::from(format!(
+                    "Data/{language}/{TGA_DIR_PATH}{name}"
+                )));
+            }
+            // C++ W3DFileSystem.cpp:197-201 — TGA_DIR_PATH ("Art/Textures/").
+            push_unique(PathBuf::from(format!("{TGA_DIR_PATH}{name}")));
+            push_unique(PathBuf::from(format!("art/textures/{name}")));
+            push_unique(PathBuf::from(format!("Data/Art/Textures/{name}")));
+            push_unique(PathBuf::from(name.clone()));
         }
 
-        push_unique(PathBuf::from(format!("Art/Textures/{bare}")));
+        // Custom-map directory next to the loaded .map (C++ AssetManager local lookup).
+        if let Some(map_dir) = Path::new(&self.filename).parent() {
+            if !map_dir.as_os_str().is_empty() {
+                for name in &names {
+                    push_unique(map_dir.join(name));
+                }
+            }
+        }
 
         let global_data = global_data::read();
         let user_data = global_data.get_user_data_dir();
         if !user_data.is_empty() {
-            let user_textures = Path::new(&user_data)
-                .join(USER_TGA_DIR_PATH.replace("%s", ""))
-                .join(&bare);
-            push_unique(user_textures);
+            for name in &names {
+                let user_textures = Path::new(&user_data)
+                    .join(USER_TGA_DIR_PATH.replace("%s", ""))
+                    .join(name);
+                push_unique(user_textures);
 
-            if is_tga_or_dds {
-                let user_previews = Path::new(&user_data)
-                    .join(MAP_PREVIEW_DIR_PATH.replace("%s", ""))
-                    .join(&bare);
-                push_unique(user_previews);
+                let extension = Path::new(name)
+                    .extension()
+                    .and_then(|ext| ext.to_str())
+                    .map(|ext| ext.to_ascii_lowercase());
+                if matches!(extension.as_deref(), Some("tga") | Some("dds")) {
+                    let user_previews = Path::new(&user_data)
+                        .join(MAP_PREVIEW_DIR_PATH.replace("%s", ""))
+                        .join(name);
+                    push_unique(user_previews);
+                }
+            }
+        }
+        drop(push_unique);
+
+        // C++ DDSFileClass rewrites .tga → .dds before opening (ddsfile.cpp:33-37).
+        let current = candidates.clone();
+        for candidate in current {
+            if let Some(swapped) = swapped_skybox_texture_extension(&candidate) {
+                if seen.insert(swapped.clone()) {
+                    candidates.push(swapped);
+                }
             }
         }
 
         candidates
     }
+
+}
+
+fn swapped_skybox_texture_extension(path: &Path) -> Option<PathBuf> {
+    let ext = path.extension()?.to_str()?;
+    let stem = path.file_stem()?.to_str().filter(|stem| !stem.is_empty())?;
+    let swapped = if ext.eq_ignore_ascii_case("tga") {
+        "dds"
+    } else if ext.eq_ignore_ascii_case("dds") {
+        "tga"
+    } else {
+        return None;
+    };
+    Some(match path.parent() {
+        Some(parent) if !parent.as_os_str().is_empty() => parent.join(format!("{stem}.{swapped}")),
+        _ => PathBuf::from(format!("{stem}.{swapped}")),
+    })
 }

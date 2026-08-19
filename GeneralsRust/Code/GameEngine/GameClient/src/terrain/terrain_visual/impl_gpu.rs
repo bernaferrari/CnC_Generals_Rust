@@ -155,20 +155,43 @@ impl TerrainVisualImpl {
                     let height = position.y;
                     let slope = normal.dot(Vec3::Y).clamp(-1.0, 1.0).acos();
 
-                    let base_weights = self.texture_system.generate_texture_weights(
-                        height,
-                        slope,
-                        vertex.tex_coords,
-                        &self.texture_rules,
-                    );
-                    let blended = self.texture_system.blend_textures_at_position(
-                        position,
-                        height,
-                        normal,
-                        vertex.tex_coords,
-                        &base_weights,
-                        &self.texture_rules,
-                    );
+                    // C++ WorldHeightMap samples BlendTileData tileNdx, not
+                    // height/slope procedural weights (hq-32be).
+                    let map_tile = self.height_map.as_ref().map(|hm| {
+                        hm.get_packed_terrain_tile_at_world(position.x, position.z)
+                    });
+                    let blended = if let Some(tile) = map_tile.filter(|&t| t != 0) {
+                        let mut weights = self.texture_system.generate_texture_weights(
+                            height,
+                            slope,
+                            vertex.tex_coords,
+                            &self.texture_rules,
+                        );
+                        let slot = (tile as usize) % MAX_TEXTURES_PER_CHUNK;
+                        for (i, w) in weights.weights.iter_mut().enumerate() {
+                            *w = if i == slot { 1.0 } else { 0.0 };
+                        }
+                        weights.indices = [slot as u32, 0, 0, 0];
+
+
+                        weights
+                    } else {
+                        let base_weights = self.texture_system.generate_texture_weights(
+                            height,
+                            slope,
+                            vertex.tex_coords,
+                            &self.texture_rules,
+                        );
+                        self.texture_system.blend_textures_at_position(
+                            position,
+                            height,
+                            normal,
+                            vertex.tex_coords,
+                            &base_weights,
+                            &self.texture_rules,
+                        )
+                    };
+
 
                     vertex_weights.push(blended);
                 }
@@ -943,7 +966,9 @@ impl TerrainVisualImpl {
                     position: vertex.position,
                     normal: [normal.x, normal.y, normal.z],
                     tex_coords: vertex.tex_coords,
-                    blend_indices: [0; 4],
+                    // C++ second pass samples extra-blend tile art (blend.blend_ndx),
+                    // not the base slot-0 procedural texture (hq-qar9).
+                    blend_indices: [1, 0, 0, 0],
                     blend_weights: [1.0, 0.0, 0.0, 0.0],
                     color,
                 }

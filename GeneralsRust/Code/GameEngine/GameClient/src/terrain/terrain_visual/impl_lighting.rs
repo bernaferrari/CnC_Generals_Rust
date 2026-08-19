@@ -84,6 +84,11 @@ impl TerrainVisualImpl {
         }
     }
 
+    #[cfg(test)]
+    pub(crate) fn fog_range_span(&self) -> (f32, f32) {
+        (self.fog_start, self.fog_end)
+    }
+
     fn terrain_static_diffuse_from_normal(
         normal: Vec3,
         light_pos: Vec3,

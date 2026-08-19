@@ -111,6 +111,8 @@ impl CommandLineArgs {
                 // Parse option
                 let (option, value) = Self::parse_option(arg, &args, &mut i)?;
                 parsed.options.insert(option.clone(), value.clone());
+                Self::store_hyphen_underscore_twin(&mut parsed.options, &option, &value);
+
 
                 // Handle specific options
                 match option.as_str() {
@@ -305,6 +307,14 @@ impl CommandLineArgs {
                             &value,
                         );
                     }
+                    "runtime_host"
+                    | "runtime-host"
+                    | "gpui_control"
+                    | "gpui-control"
+                    | "gpui_status"
+                    | "gpui-status"
+                    | "gpui_frame"
+                    | "gpui-frame" => {}
                     _ => {
                         // Unknown option, log but don't fail
                         warn!("Unknown command line option: {}", option);
@@ -369,8 +379,12 @@ impl CommandLineArgs {
     }
 
     fn option_takes_value(option: &str) -> bool {
+        // Hub / GPUI launchers use `--runtime-host` / `--gpui-status`; C++-style
+        // flags and existing tests use underscores. Canonicalize before match so
+        // either spelling consumes the following value token.
+        let option = option.replace('-', "_");
         matches!(
-            option,
+            option.as_str(),
             "width"
                 | "height"
                 | "xres"
@@ -427,7 +441,33 @@ impl CommandLineArgs {
     ) {
         for alias in aliases {
             options.insert((*alias).to_string(), value.clone());
+            Self::store_hyphen_underscore_twin(options, alias, value);
         }
+    }
+
+    /// Keep `-` / `_` spellings of the same option key interchangeable.
+    /// Hub launches `--runtime-host=windowed --gpui-status=...`; lookup uses
+    /// `runtime_host` / `gpui_status`.
+    fn store_hyphen_underscore_twin(
+        options: &mut HashMap<String, Option<String>>,
+        option: &str,
+        value: &Option<String>,
+    ) {
+        let twin = if option.contains('-') {
+            option.replace('-', "_")
+        } else {
+            option.replace('_', "-")
+        };
+        if twin != option {
+            options.insert(twin, value.clone());
+        }
+    }
+
+    fn option_key_variants(option: &str) -> [String; 2] {
+        let lower = option.trim().to_ascii_lowercase();
+        let underscored = lower.replace('-', "_");
+        let hyphenated = lower.replace('_', "-");
+        [underscored, hyphenated]
     }
 
     fn resolve_mod_path(candidate: &str) -> Option<ResolvedModPath> {
@@ -518,8 +558,9 @@ impl CommandLineArgs {
 
     /// Check if a specific option was provided
     pub fn has_option(&self, option: &str) -> bool {
-        let key = option.to_ascii_lowercase();
-        self.options.contains_key(&key)
+        Self::option_key_variants(option)
+            .iter()
+            .any(|key| self.options.contains_key(key))
     }
 
     /// Returns the final explicit startup window mode based on command line order.
@@ -529,8 +570,12 @@ impl CommandLineArgs {
 
     /// Get the value of a specific option
     pub fn get_option_value(&self, option: &str) -> Option<&String> {
-        let key = option.to_ascii_lowercase();
-        self.options.get(&key).and_then(|v| v.as_ref())
+        for key in Self::option_key_variants(option) {
+            if let Some(value) = self.options.get(&key).and_then(|v| v.as_ref()) {
+                return Some(value);
+            }
+        }
+        None
     }
 
     /// Get display resolution from command line or defaults
@@ -1111,5 +1156,68 @@ mod tests {
 
             let _ = fs::remove_dir_all(temp_root);
         });
+    }
+
+    #[test]
+    fn test_hyphen_runtime_host_aliases_resolve() {
+        let equals = CommandLineArgs::parse_from_args(vec![
+            "generals".to_string(),
+            "--runtime-host=windowed".to_string(),
+            "--gpui-control=/tmp/control.txt".to_string(),
+            "--gpui-status=/tmp/status.txt".to_string(),
+            "--gpui-frame=/tmp/frame.png".to_string(),
+        ])
+        .unwrap();
+        assert_eq!(
+            equals.get_option_value("runtime_host").map(String::as_str),
+            Some("windowed")
+        );
+        assert_eq!(
+            equals.get_option_value("runtime-host").map(String::as_str),
+            Some("windowed")
+        );
+        assert_eq!(
+            equals.get_option_value("gpui_control").map(String::as_str),
+            Some("/tmp/control.txt")
+        );
+        assert_eq!(
+            equals.get_option_value("gpui_status").map(String::as_str),
+            Some("/tmp/status.txt")
+        );
+        assert_eq!(
+            equals.get_option_value("gpui_frame").map(String::as_str),
+            Some("/tmp/frame.png")
+        );
+        assert!(equals.has_option("runtime_host"));
+        assert!(equals.has_option("gpui-status"));
+
+        let spaced = CommandLineArgs::parse_from_args(vec![
+            "generals".to_string(),
+            "--runtime-host".to_string(),
+            "windowed".to_string(),
+            "--gpui-control".to_string(),
+            "/tmp/c".to_string(),
+            "--gpui-status".to_string(),
+            "/tmp/s".to_string(),
+            "--gpui-frame".to_string(),
+            "/tmp/f".to_string(),
+        ])
+        .unwrap();
+        assert_eq!(
+            spaced.get_option_value("runtime_host").map(String::as_str),
+            Some("windowed")
+        );
+        assert_eq!(
+            spaced.get_option_value("gpui_control").map(String::as_str),
+            Some("/tmp/c")
+        );
+        assert_eq!(
+            spaced.get_option_value("gpui_status").map(String::as_str),
+            Some("/tmp/s")
+        );
+        assert_eq!(
+            spaced.get_option_value("gpui_frame").map(String::as_str),
+            Some("/tmp/f")
+        );
     }
 }
