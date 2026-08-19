@@ -181,6 +181,15 @@ impl ScriptEngine {
     fn execute_side_scripts_from_active_lists(&self) -> GameLogicResult<()> {
         let current_frame = crate::helpers::TheGameLogic::get_frame();
 
+        // Host GAME_SHELL ticks ScriptEngine with an empty crate OBJECT_REGISTRY.
+        // Walking side lists still re-enters get_script_engine()/PlayerList and
+        // hung the windowed Menu after "named cache populated" (hq-9e2w).
+        // C++ still runs scripts; host objects are not crate Objects, so
+        // conditions cannot resolve them here anyway.
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
         // Prepare executor context for this frame (shared by action/condition evaluation).
         let exec_context = Arc::new(RwLock::new(crate::scripting::executor::ScriptContext {
             game_logic_id: 0,
@@ -205,10 +214,8 @@ impl ScriptEngine {
         // into that immediate nested path.
         let player_names = {
             let player_list = crate::player::player_list();
-            let Ok(list_guard) = player_list.read() else {
-                return Err(GameLogicError::Threading(
-                    "Failed to lock PlayerList for ScriptEngine::update".to_string(),
-                ));
+            let Ok(list_guard) = player_list.try_read() else {
+                return Ok(());
             };
             let player_count = list_guard.get_player_count().min(Self::MAX_PLAYER_COUNT);
             (0..player_count)
@@ -221,6 +228,7 @@ impl ScriptEngine {
                 })
                 .collect::<Vec<_>>()
         };
+
 
         for (i, player_name) in player_names.into_iter().enumerate() {
             // Match C++: `m_currentPlayer` is the nth player for the side index.
