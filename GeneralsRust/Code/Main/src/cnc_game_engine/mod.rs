@@ -66,7 +66,7 @@ use std::time::{Duration, Instant, SystemTime};
 use wgpu::util::DeviceExt;
 use winit::{
     self,
-    event::{ElementState, Event, KeyEvent, MouseButton, WindowEvent},
+    event::{DeviceEvent, ElementState, Event, KeyEvent, MouseButton, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
     keyboard::{Key, NamedKey},
     window::{Window, WindowAttributes},

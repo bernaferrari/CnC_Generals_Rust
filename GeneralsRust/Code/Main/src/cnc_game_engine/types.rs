@@ -110,6 +110,162 @@ unsafe fn macos_nsapp_key_window(ns_view: *mut std::ffi::c_void) {
     log::info!("macos key-window: orderFrontRegardless + makeKeyAndOrderFront + activate");
 }
 
+#[cfg(target_os = "macos")]
+#[repr(C)]
+struct CgPoint {
+    x: f64,
+    y: f64,
+}
+
+#[cfg(target_os = "macos")]
+#[repr(C)]
+struct NsSize {
+    width: f64,
+    height: f64,
+}
+
+#[cfg(target_os = "macos")]
+#[repr(C)]
+struct NsRect {
+    origin: CgPoint,
+    size: NsSize,
+}
+
+#[cfg(target_os = "macos")]
+#[link(name = "CoreGraphics", kind = "framework")]
+#[link(name = "CoreFoundation", kind = "framework")]
+unsafe extern "C" {
+    fn CGEventCreate(source: *mut std::ffi::c_void) -> *mut std::ffi::c_void;
+    fn CGEventGetLocation(event: *mut std::ffi::c_void) -> CgPoint;
+    fn CGWindowListCopyWindowInfo(option: u32, relative_window: u32) -> *mut std::ffi::c_void;
+    fn CFArrayGetCount(the_array: *mut std::ffi::c_void) -> isize;
+    fn CFArrayGetValueAtIndex(the_array: *mut std::ffi::c_void, idx: isize) -> *const std::ffi::c_void;
+    fn CFDictionaryGetValue(
+        the_dict: *const std::ffi::c_void,
+        key: *const std::ffi::c_void,
+    ) -> *const std::ffi::c_void;
+    fn CFNumberGetValue(number: *const std::ffi::c_void, the_type: i32, value_ptr: *mut std::ffi::c_void) -> u8;
+    fn CFStringCreateWithCString(
+        alloc: *mut std::ffi::c_void,
+        c_str: *const i8,
+        encoding: u32,
+    ) -> *mut std::ffi::c_void;
+    fn CFRelease(cf: *mut std::ffi::c_void);
+}
+
+/// Client-logical cursor if the OS pointer is inside this window's NSView.
+/// Maps through AppKit convertRectToScreen — winit inner_position is wrong on
+/// this host (HID at Solo Play was landing on EarthMap2).
+pub(super) fn macos_cursor_client_if_in_window(window: &Window) -> Option<(f32, f32)> {
+    let event = unsafe { CGEventCreate(std::ptr::null_mut()) };
+    if event.is_null() {
+        return None;
+    }
+    let pt = unsafe { CGEventGetLocation(event) };
+    unsafe { CFRelease(event) };
+    let cg = unsafe { macos_own_cg_window_bounds() }?;
+    if cg.size.width <= 1.0 || cg.size.height <= 1.0 {
+        return None;
+    }
+    let size = window.inner_size();
+    let scale = window.scale_factor().max(0.0001);
+    let lw = (size.width as f64 / scale).max(1.0);
+    let lh = (size.height as f64 / scale).max(1.0);
+    // Title bar sits above the Metal view; strip it using aspect of inner size.
+    let title = (cg.size.height - lh * (cg.size.width / lw)).max(0.0);
+    let content_h = (cg.size.height - title).max(1.0);
+    let cx = (pt.x - cg.origin.x) * lw / cg.size.width;
+    let cy = (pt.y - cg.origin.y - title) * lh / content_h;
+    if cx >= 0.0 && cy >= 0.0 && cx < lw && cy < lh {
+        Some((cx as f32, cy as f32))
+    } else {
+        None
+    }
+}
+
+#[cfg(target_os = "macos")]
+unsafe fn macos_own_cg_window_bounds() -> Option<NsRect> {
+    const ON_SCREEN: u32 = 1;
+    const UTF8: u32 = 0x0800_0100;
+    const CF_SINT32: i32 = 3;
+    const CF_FLOAT64: i32 = 6;
+    let arr = CGWindowListCopyWindowInfo(ON_SCREEN, 0);
+    if arr.is_null() {
+        return None;
+    }
+    let pid = libc::getpid();
+    let cstr = |s: &[u8]| CFStringCreateWithCString(std::ptr::null_mut(), s.as_ptr() as *const i8, UTF8);
+    let key_pid = cstr(b"kCGWindowOwnerPID\0");
+    let key_bounds = cstr(b"kCGWindowBounds\0");
+    let key_x = cstr(b"X\0");
+    let key_y = cstr(b"Y\0");
+    let key_w = cstr(b"Width\0");
+    let key_h = cstr(b"Height\0");
+    let mut found = None;
+    let n = CFArrayGetCount(arr);
+    for i in 0..n {
+        let dict = CFArrayGetValueAtIndex(arr, i);
+        if dict.is_null() {
+            continue;
+        }
+        let pid_num = CFDictionaryGetValue(dict, key_pid);
+        if pid_num.is_null() {
+            continue;
+        }
+        let mut owner: i32 = 0;
+        if CFNumberGetValue(pid_num, CF_SINT32, (&raw mut owner).cast()) == 0 {
+            continue;
+        }
+        if owner != pid {
+            continue;
+        }
+        let bounds = CFDictionaryGetValue(dict, key_bounds);
+        if bounds.is_null() {
+            continue;
+        }
+        let read_f64 = |key: *mut std::ffi::c_void| -> Option<f64> {
+            let num = CFDictionaryGetValue(bounds, key);
+            if num.is_null() {
+                return None;
+            }
+            let mut v = 0.0f64;
+            if CFNumberGetValue(num, CF_FLOAT64, (&raw mut v).cast()) == 0 {
+                return None;
+            }
+            Some(v)
+        };
+        if let (Some(x), Some(y), Some(w), Some(h)) =
+            (read_f64(key_x), read_f64(key_y), read_f64(key_w), read_f64(key_h))
+        {
+            if w > 1.0 && h > 1.0 {
+                found = Some(NsRect {
+                    origin: CgPoint { x, y },
+                    size: NsSize { width: w, height: h },
+                });
+                break;
+            }
+        }
+    }
+    CFRelease(key_pid);
+    CFRelease(key_bounds);
+    CFRelease(key_x);
+    CFRelease(key_y);
+    CFRelease(key_w);
+    CFRelease(key_h);
+    CFRelease(arr);
+    found
+}
+
+
+pub(super) fn device_button_to_mouse(button: u32) -> Option<MouseButton> {
+    match button {
+        0 => Some(MouseButton::Left),
+        1 => Some(MouseButton::Right),
+        2 => Some(MouseButton::Middle),
+        _ => None,
+    }
+}
+
 
 pub(super) fn update_iconic_state_and_wake_audio(window: &Window, minimized: &mut bool) {
     let was_minimized = *minimized;

@@ -443,6 +443,25 @@ fn physical_winit_mouse_input_drives_retail_menus_with_provenance_gates() {
 }
 
 #[test]
+fn macos_device_event_button_is_physical_only_when_cursor_in_window() {
+    let run = include_str!("run_loop.rs");
+    let start = run
+        .find("Event::DeviceEvent")
+        .expect("DeviceEvent::Button residual");
+    let body = &run[start..run.len().min(start + 900)];
+    assert!(
+        body.contains("macos_cursor_client_if_in_window")
+            && body.contains("MouseInputOrigin::Physical")
+            && body.contains("handle_mouse_button_input"),
+        "inactive-NSApp HID must share Physical handle_mouse_button_input only in-window"
+    );
+    assert!(
+        !body.contains("note_menu_wnd_click"),
+        "DeviceEvent must not forge note_menu_wnd_click"
+    );
+}
+
+#[test]
 fn physical_gather_dropoff_latch_rejects_unvalidated_input() {
     let mut evidence = InteractivePlayabilityEvidence::default();
 
