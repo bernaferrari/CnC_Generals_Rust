@@ -55,6 +55,8 @@ impl TerrainVisualImpl {
             road_meshes: Vec::new(),
             bridge_meshes: Vec::new(),
             scorch_meshes: Vec::new(),
+            overlay_gpu_meshes_dirty: true,
+
 
             tree_buffer: W3DTreeBuffer::new(),
             last_tree_gpu_vertices: Vec::new(),

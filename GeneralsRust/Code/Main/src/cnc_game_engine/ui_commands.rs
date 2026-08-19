@@ -839,13 +839,17 @@ impl CnCGameEngine {
 
     pub(super) fn host_set_paused(&mut self, paused: bool) {
         // Wave 575/601/867/892/913/933: pause residual via session-control authority.
-        // Skip authority set_paused when host residual already matches.
+        // Engine.game_paused and GameLogic.is_paused must stay one flag like C++
+        // GameEngine.cpp:749. The residual skip only avoids rewriting the host
+        // latch; the session-control op must still land or a leftover quit/load
+        // pause pins logic_frame at 0 while status reports paused=false.
         if self.game_paused != paused {
             self.game_paused = paused;
-            self.host_game_logic_mut().apply_session_control_op(
-                crate::game_logic::SessionControlOp::SetPaused { paused },
-            );
         }
+        self.host_game_logic_mut().apply_session_control_op(
+            crate::game_logic::SessionControlOp::SetPaused { paused },
+        );
+
         // Compose freeze residual without dual-read when presentation freeze owns
         // script time (InGame). Boot path still probes live is_time_frozen once.
         let script_frozen = if let Some(pres) = self.last_presentation_frame.as_ref() {

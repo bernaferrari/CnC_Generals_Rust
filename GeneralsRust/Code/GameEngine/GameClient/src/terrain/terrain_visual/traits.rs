@@ -55,6 +55,8 @@ impl SubsystemInterface for TerrainVisualImpl {
         self.road_meshes.clear();
         self.bridge_meshes.clear();
         self.scorch_meshes.clear();
+        self.overlay_gpu_meshes_dirty = true;
+
         self.tree_meshes.clear();
         self.last_tree_gpu_vertices.clear();
         self.last_tree_atlas_mips.clear();
@@ -93,8 +95,6 @@ impl SubsystemInterface for TerrainVisualImpl {
 
         let road_started = std::time::Instant::now();
         self.road_system.update()?;
-        let road_elapsed = road_started.elapsed();
-
         if let Some(height_map) = self.height_map.as_ref() {
             if self.road_system.needs_terrain_normal_reprojection() {
                 let light_pos = self.sun_direction;
@@ -113,8 +113,12 @@ impl SubsystemInterface for TerrainVisualImpl {
                         )
                     },
                 );
+                self.overlay_gpu_meshes_dirty = true;
             }
         }
+        let road_elapsed = road_started.elapsed();
+
+
 
         let road_meshes_started = std::time::Instant::now();
         self.update_road_meshes()

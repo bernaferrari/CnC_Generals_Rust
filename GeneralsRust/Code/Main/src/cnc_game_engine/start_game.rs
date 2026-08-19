@@ -33,8 +33,9 @@ fn resolve_map_activation_lighting(env: Option<&PresentationWorldEnv>) -> MapAct
     };
 
     let map_has_lighting = has_explicit_map_lighting(env);
-    let fog_color = env.fog_color.or(env.sun_color);
+    let fog_color = env.fog_color;
     let fog_range = env.fog_start.zip(env.fog_end);
+
 
     // NumberGlobalLights controls the W3D object-scene light list. If it is
     // zero, retain Main's existing forward/Graphics lighting instead of
@@ -792,10 +793,20 @@ impl CnCGameEngine {
                 }
                 // Host pathfinding/world size residual (sim still needs repaired extents).
                 self.host_override_world_size(w, h);
-                // Keep last_presentation aligned after stamp.
+                // Keep last_presentation aligned after stamp, but never replace a
+                // newer logic freeze with the match-start pipeline seed (frame 0).
                 if let Some(pres) = self.render_pipeline.presentation_frame() {
-                    self.last_presentation_frame = Some(pres.clone());
+                    let pipeline_frame = pres.frame.0;
+                    let last_frame = self
+                        .last_presentation_frame
+                        .as_ref()
+                        .map(|p| p.frame.0)
+                        .unwrap_or(0);
+                    if self.last_presentation_frame.is_none() || pipeline_frame >= last_frame {
+                        self.last_presentation_frame = Some(pres.clone());
+                    }
                 }
+
             }
         }
         world_bounds

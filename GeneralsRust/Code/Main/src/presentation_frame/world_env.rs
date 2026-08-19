@@ -512,15 +512,13 @@ impl PresentationWorldEnv {
             skybox_enabled: logic.is_skybox_enabled(),
             skybox_textures: meta.as_ref().and_then(|m| m.skybox_textures.clone()),
             sun_direction: meta.as_ref().and_then(|m| m.sun_direction),
-            sun_color: meta.as_ref().and_then(|m| m.sun_color.or(m.sky_color)),
-            ambient_color: meta
-                .as_ref()
-                .and_then(|m| m.ambient_color.or(m.fog_color).or(m.sky_color)),
-            fog_color: meta
-                .as_ref()
-                .and_then(|m| m.fog_color.or(m.sky_color).or(m.sun_color)),
-            fog_start: meta.as_ref().and_then(|m| m.fog_start),
-            fog_end: meta.as_ref().and_then(|m| m.fog_end),
+            sun_color: meta.as_ref().and_then(|m| m.sun_color),
+            ambient_color: meta.as_ref().and_then(|m| m.ambient_color),
+            // C++ SceneClass FogEnabled defaults false; GlobalLighting has no fog.
+            fog_color: None,
+            fog_start: None,
+            fog_end: None,
+
             clear_alpha,
             fog_alpha,
             primary_object_lighting,

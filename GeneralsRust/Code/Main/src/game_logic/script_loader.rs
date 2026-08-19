@@ -896,65 +896,79 @@ pub fn parse_map_settings(map_name: &str) -> LoaderResult<MapMetadata> {
     parse_map_settings_from_loaded_chunky(map_name, &chunky, meta)
 }
 
+/// C++ `WorldHeightMap::ParseLightingDataChunk` (WorldHeightMap.cpp:758-829).
+/// Payload is: i32 timeOfDay; then 4 TOD rows of terrain[0]+objects[0] (9 floats
+/// each); v2 adds two extra object lights; v3 adds two extra terrain lights.
+/// This chunk never carries sky/fog. Scene fog stays disabled like C++.
 fn parse_lighting_payload_for_settings(
+    version: u16,
     payload: &[u8],
     meta: &mut MapMetadata,
 ) -> LoaderResult<()> {
-    if payload.len() >= 4 {
-        let light_count = u32::from_le_bytes(payload[0..4].try_into().unwrap_or([0; 4]));
-        let expected_light_bytes = 4usize.saturating_add(light_count as usize * 9 * 4);
-        if (1..=4).contains(&light_count) && payload.len() >= expected_light_bytes {
-            let mut reader = BinaryReader::new(&payload[4..]);
-            let ambient = [reader.read_f32()?, reader.read_f32()?, reader.read_f32()?];
-            let sun = [reader.read_f32()?, reader.read_f32()?, reader.read_f32()?];
-            let sun_dir = [reader.read_f32()?, reader.read_f32()?, reader.read_f32()?];
-            meta.ambient_color = Some(ambient);
-            meta.sun_color = Some(sun);
-            meta.sun_direction = Some(sun_dir);
-            return Ok(());
-        }
-    }
-
     let mut reader = BinaryReader::new(payload);
-    if reader.remaining() >= 48 {
-        let ambient = [reader.read_f32()?, reader.read_f32()?, reader.read_f32()?];
-        let sun = [reader.read_f32()?, reader.read_f32()?, reader.read_f32()?];
-        let sky = [reader.read_f32()?, reader.read_f32()?, reader.read_f32()?];
-        let sun_dir = [reader.read_f32()?, reader.read_f32()?, reader.read_f32()?];
-        meta.ambient_color = Some(ambient);
-        meta.sun_color = Some(sun);
-        meta.sky_color = Some(sky);
-        meta.sun_direction = Some(sun_dir);
-        if reader.remaining() >= 20 {
-            let fog = [reader.read_f32()?, reader.read_f32()?, reader.read_f32()?];
-            let fog_start = reader.read_f32()?;
-            let fog_end = reader.read_f32()?;
-            meta.fog_color = Some(fog);
-            meta.fog_start = Some(fog_start);
-            meta.fog_end = Some(fog_end);
+    if reader.remaining() < 4 {
+        return Ok(());
+    }
+    let time_of_day = reader.read_i32()?;
+
+    let mut terrain_primary = [[0.0f32; 9]; 4];
+    for tod_row in &mut terrain_primary {
+        if reader.remaining() < 9 * 4 * 2 {
+            break;
         }
-    } else {
-        while reader.remaining() >= 16 {
-            let tag = reader.read_u8()?;
-            if reader.remaining() < 12 {
-                break;
-            }
-            let r = reader.read_f32()?;
-            let g = reader.read_f32()?;
-            let b = reader.read_f32()?;
-            match tag {
-                0 => meta.ambient_color = Some([r, g, b]),
-                1 => meta.sun_color = Some([r, g, b]),
-                2 => meta.sky_color = Some([r, g, b]),
-                3 => meta.sun_direction = Some([r, g, b]),
-                4 => meta.fog_color = Some([r, g, b]),
-                _ => {}
-            }
+        *tod_row = read_global_lighting_row(&mut reader)?;
+        let _objects_primary = read_global_lighting_row(&mut reader)?;
+        if version >= 2 {
+            skip_extra_global_lights(&mut reader)?;
+        }
+        if version >= 3 {
+            skip_extra_global_lights(&mut reader)?;
         }
     }
 
+    // C++ TimeOfDay: Invalid=0, Morning=1, Afternoon=2, Evening=3, Night=4.
+    let row_index = match time_of_day {
+        1 => 0,
+        2 => 1,
+        3 => 2,
+        4 => 3,
+        _ => 1,
+    };
+    let row = terrain_primary[row_index];
+    meta.ambient_color = Some([row[0], row[1], row[2]]);
+    meta.sun_color = Some([row[3], row[4], row[5]]);
+    meta.sun_direction = Some([row[6], row[7], row[8]]);
+    // Never invent fog/sky from this chunk — C++ FogEnabled defaults false
+    // and GlobalLighting has no fog fields.
+    meta.fog_color = None;
+    meta.fog_start = None;
+    meta.fog_end = None;
+    meta.sky_color = None;
     Ok(())
 }
+
+fn read_global_lighting_row(reader: &mut BinaryReader<'_>) -> LoaderResult<[f32; 9]> {
+    Ok([
+        reader.read_f32()?,
+        reader.read_f32()?,
+        reader.read_f32()?,
+        reader.read_f32()?,
+        reader.read_f32()?,
+        reader.read_f32()?,
+        reader.read_f32()?,
+        reader.read_f32()?,
+        reader.read_f32()?,
+    ])
+}
+
+fn skip_extra_global_lights(reader: &mut BinaryReader<'_>) -> LoaderResult<()> {
+    for _ in 0..2 {
+        let _ = read_global_lighting_row(reader)?;
+    }
+    Ok(())
+}
+
+
 
 
 /// Parse settings from an already-decompressed chunky map.
@@ -969,12 +983,10 @@ fn parse_map_settings_from_loaded_chunky(
     mut meta: MapMetadata,
 ) -> LoaderResult<MapMetadata> {
     let body = &chunky.bytes[chunky.body_offset..];
-    if let Some((_ver, payload)) = find_chunk_by_label(body, &chunky.toc, "MapSettings")? {
-        parse_lighting_payload_for_settings(payload, &mut meta)?;
-    } else if let Some((_ver, payload)) = find_chunk_by_label(body, &chunky.toc, "GlobalLighting")?
-    {
-        parse_lighting_payload_for_settings(payload, &mut meta)?;
+    if let Some((ver, payload)) = find_chunk_by_label(body, &chunky.toc, "GlobalLighting")? {
+        parse_lighting_payload_for_settings(ver, payload, &mut meta)?;
     }
+
 
     if let Some((min, max)) = parse_world_bounds_from_chunky(chunky).ok().flatten() {
         meta.world_min = Some(min);

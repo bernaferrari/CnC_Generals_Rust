@@ -53,6 +53,8 @@ impl TerrainVisualImpl {
         self.chunk_texture_bindings.clear();
         self.road_meshes.clear();
         self.scorch_meshes.clear();
+        self.overlay_gpu_meshes_dirty = true;
+
         self.stats.rendered_chunks = 0;
         self.stats.triangles_rendered = 0;
         self.stats.update_time_ms = 0.0;
@@ -168,6 +170,8 @@ impl TerrainVisualImpl {
             self.chunk_meshes.clear();
             self.road_meshes.clear();
             self.scorch_meshes.clear();
+            self.overlay_gpu_meshes_dirty = true;
+
             self.active_chunk_texture_ids = None;
             self.ensure_default_textures();
         }
@@ -389,6 +393,8 @@ impl TerrainVisualImpl {
         self.chunk_meshes.clear();
         self.road_meshes.clear();
         self.scorch_meshes.clear();
+        self.overlay_gpu_meshes_dirty = true;
+
         self.active_chunk_texture_ids = None;
     }
 

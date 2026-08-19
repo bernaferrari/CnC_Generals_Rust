@@ -129,6 +129,10 @@ pub struct TerrainVisualImpl {
     bridge_meshes: Vec<GpuRoadMesh>,
     /// Cached GPU mesh for C++ terrain scorch marks.
     scorch_meshes: Vec<GpuRoadMesh>,
+    /// C++ `W3DRoadBuffer::loadRoads` uploads once; only rebuild GPU overlays
+    /// after map/load/device/scorch changes. Re-uploading every frame is 250ms+.
+    overlay_gpu_meshes_dirty: bool,
+
     /// C++ `W3DTreeBuffer` owned by the shipped wgpu terrain visual.
     tree_buffer: W3DTreeBuffer,
     /// Last CPU→GPU tree VB filled with `doLighting` (every draw/update).
