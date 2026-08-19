@@ -313,6 +313,30 @@ impl RenderPipeline {
                         }
                     }
                     self.heightmap_world_size = Some(visual.world_size());
+                    if self.skybox_enabled {
+                        let textures = self.resolved_skybox_hint();
+                        let borrowed: [&str; 5] = [
+                            textures[0].as_str(),
+                            textures[1].as_str(),
+                            textures[2].as_str(),
+                            textures[3].as_str(),
+                            textures[4].as_str(),
+                        ];
+                        if let Err(err) = visual.replace_skybox_textures(&[""; 5], &borrowed) {
+                            if self.has_explicit_skybox_hint() {
+                                warn!(
+                                    "Failed to apply skybox textures from runtime terrain: {}",
+                                    err
+                                );
+                            } else {
+                                debug!(
+                                    "Skipping default skybox texture override because mounted assets do not expose the legacy fallback set: {}",
+                                    err
+                                );
+                            }
+                        }
+                    }
+
                     self.pending_heightmap_hint_load = false;
 
                     if let Some(lighting) = self

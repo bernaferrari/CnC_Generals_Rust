@@ -173,6 +173,16 @@ impl CnCGameEngine {
             player_template,
         } = request;
 
+        // C++ MSG_NEW_GAME GAME_SHELL is Shell::showShellMap, not a match start.
+        // Loading/headless/runtime-host drains that treat it as UI start load
+        // Defcon6 and abandon the ShellMapMD worker.
+        if matches!(mode, GameMode::Shell) {
+            info!(
+                "host_start_game_from_ui: ignore GAME_SHELL (shell map, not a match)"
+            );
+            return;
+        }
+
         // A typed shell descriptor is only meaningful for C++ single-player
         // Campaign/Challenge GameInfo.  Do not let an accidental direct
         // skirmish/runtime call attach it to a different start path.

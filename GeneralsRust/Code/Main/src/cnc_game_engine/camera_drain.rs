@@ -369,6 +369,11 @@ impl CnCGameEngine {
         // Headless / no-game_client builds still drain NewGame if present.
         #[cfg(not(feature = "game_client"))]
         if let Some(request) = self.take_pending_new_game_start_request() {
+            if matches!(request.mode, GameMode::Shell) {
+                info!("Menu NewGame drain: ignore GAME_SHELL (shell map already live)");
+                let _ = Self::take_new_game_dispatch_from_common_stream();
+                return false;
+            }
             self.start_game_from_ui(request);
             let _ = Self::take_new_game_dispatch_from_common_stream();
             return true;
@@ -403,24 +408,41 @@ impl CnCGameEngine {
         // Windowed sit-through was stuck in Loading because WND/start posted
         // NewGame while boot load was still InProgress and Menu never ticked.
         if let Some(request) = self.take_pending_new_game_start_request() {
-            info!(
-                "Loading NewGame drain: mode={:?} faction={} map={}",
-                request.mode, request.faction, request.map
-            );
-            self.start_game_from_ui(request);
-            let _ = Self::take_new_game_dispatch_from_common_stream();
-            gamelogic::helpers::TheGameLogic::clear_start_new_game_request();
-            return Ok(());
-        }
-        if gamelogic::helpers::TheGameLogic::is_start_new_game_requested() {
-            gamelogic::helpers::TheGameLogic::clear_start_new_game_request();
-            if let Some(request) = self.build_start_request_from_pending_globals(None) {
+            if matches!(request.mode, GameMode::Shell) {
+                // C++ MSG_NEW_GAME GAME_SHELL is the shell map. Do not start a
+                // match and do not return — fall through so the worker can
+                // release Loading → Menu (hq-akj0).
+                info!("Loading NewGame drain: ignore GAME_SHELL (shell map, not a match)");
+                let _ = Self::take_new_game_dispatch_from_common_stream();
+                gamelogic::helpers::TheGameLogic::clear_start_new_game_request();
+            } else {
                 info!(
-                    "Loading start_new_game flag drain: mode={:?} map={}",
-                    request.mode, request.map
+                    "Loading NewGame drain: mode={:?} faction={} map={}",
+                    request.mode, request.faction, request.map
                 );
                 self.start_game_from_ui(request);
+                let _ = Self::take_new_game_dispatch_from_common_stream();
+                gamelogic::helpers::TheGameLogic::clear_start_new_game_request();
                 return Ok(());
+            }
+        }
+        if gamelogic::helpers::TheGameLogic::is_start_new_game_requested() {
+            if self.host_is_in_shell_game() {
+                // Worker/crate start_new_game(GAME_SHELL) arms this flag.
+                // build_start_request_from_pending_globals(None) defaults
+                // Skirmish+Defcon6 — that is not a match start.
+                info!("Loading start_new_game flag drain: ignore leftover GAME_SHELL flag");
+                gamelogic::helpers::TheGameLogic::clear_start_new_game_request();
+            } else {
+                gamelogic::helpers::TheGameLogic::clear_start_new_game_request();
+                if let Some(request) = self.build_start_request_from_pending_globals(None) {
+                    info!(
+                        "Loading start_new_game flag drain: mode={:?} map={}",
+                        request.mode, request.map
+                    );
+                    self.start_game_from_ui(request);
+                    return Ok(());
+                }
             }
         }
         // Boot worker (INI + ShellMapMD) must not pin Loading forever, but
@@ -1350,14 +1372,19 @@ impl CnCGameEngine {
 
         // Secondary path: crate helpers may flag start after pump.
         if gamelogic::helpers::TheGameLogic::is_start_new_game_requested() {
-            gamelogic::helpers::TheGameLogic::clear_start_new_game_request();
-            if let Some(request) = self.build_start_request_from_pending_globals(None) {
-                info!(
-                    "Menu start_new_game flag drain: mode={:?} map={}",
-                    request.mode, request.map
-                );
-                self.start_game_from_ui(request);
-                return true;
+            if self.host_is_in_shell_game() {
+                info!("Menu start_new_game flag drain: ignore leftover GAME_SHELL flag");
+                gamelogic::helpers::TheGameLogic::clear_start_new_game_request();
+            } else {
+                gamelogic::helpers::TheGameLogic::clear_start_new_game_request();
+                if let Some(request) = self.build_start_request_from_pending_globals(None) {
+                    info!(
+                        "Menu start_new_game flag drain: mode={:?} map={}",
+                        request.mode, request.map
+                    );
+                    self.start_game_from_ui(request);
+                    return true;
+                }
             }
         }
 
